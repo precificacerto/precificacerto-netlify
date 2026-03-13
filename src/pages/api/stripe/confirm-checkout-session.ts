@@ -2,9 +2,9 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 import Stripe from 'stripe'
 import { handleCheckoutCompleted } from './webhook'
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2026-02-25.trevo',
-})
+// Usa a versão padrão da API Stripe configurada na conta.
+// Removemos o apiVersion explícito para evitar erros de versão inválida.
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!)
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {

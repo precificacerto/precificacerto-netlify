@@ -4,7 +4,8 @@ import { supabaseAdmin } from '@/supabase/admin'
 
 export const config = { api: { bodyParser: false } }
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2026-02-25.trevo' })
+// Usa a versão padrão definida na conta Stripe (sem apiVersion fixa).
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!)
 const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET!
 
 async function getRawBody(req: NextApiRequest): Promise<Buffer> {
