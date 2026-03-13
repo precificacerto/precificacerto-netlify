@@ -85,11 +85,15 @@ export default function CriarSenha() {
       router.replace(ROUTES.SUPER_ADMIN_PANEL)
       return
     }
-    if (!profile?.isFree && profile?.planStatus !== 'ACTIVE') {
+    // Só manda para assinatura se o plano não for TRIAL/ACTIVE (ex.: SUSPENDED, CANCELLED).
+    // Admin que acabou de pagar (TRIAL/ACTIVE) deve ir para onboarding.
+    if (profile && !profile.isFree && profile.planStatus !== 'ACTIVE' && profile.planStatus !== 'TRIAL') {
       router.replace(ROUTES.BILLING)
       return
     }
-    if (!profile?.onboardingCompleted) {
+    // Sem perfil (ex.: ainda não propagou) ou onboarding não concluído → onboarding.
+    // Fluxo pós-pagamento: definir senha → onboarding → preencher despesas e usar o sistema.
+    if (!profile || !profile.onboardingCompleted) {
       router.replace(ROUTES.ONBOARDING)
       return
     }
