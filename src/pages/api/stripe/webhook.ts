@@ -4,7 +4,7 @@ import { supabaseAdmin } from '@/supabase/admin'
 
 export const config = { api: { bodyParser: false } }
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2025-12-18.acacia' as any })
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2026-02-25.trevo' })
 const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET!
 
 async function getRawBody(req: NextApiRequest): Promise<Buffer> {
