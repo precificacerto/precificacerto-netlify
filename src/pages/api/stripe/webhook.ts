@@ -1,4 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
+import crypto from 'crypto'
 import Stripe from 'stripe'
 import { supabaseAdmin } from '@/supabase/admin'
 
@@ -14,6 +15,89 @@ async function getRawBody(req: NextApiRequest): Promise<Buffer> {
     chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk)
   }
   return Buffer.concat(chunks)
+}
+
+/** Gera senha temporária; o usuário pode usar "Esqueci minha senha" para redefinir. */
+function randomPassword(): string {
+  return crypto.randomBytes(24).toString('base64url')
+}
+
+/**
+ * Fallback quando inviteUserByEmail falha (ex.: rate limit): cria usuário admin com createUser.
+ * O trigger handle_new_auth_user popula public.users e tenant_owners.
+ * Se o usuário já existir (convite criou auth mas falhou no envio), garante vínculo na tenant.
+ */
+async function createAdminUserFallback(
+  adminEmail: string,
+  adminName: string,
+  tenantId: string
+): Promise<boolean> {
+  const email = adminEmail.trim().toLowerCase()
+  const { data: createData, error: createError } = await supabaseAdmin.auth.admin.createUser({
+    email,
+    password: randomPassword(),
+    email_confirm: true,
+    user_metadata: {
+      tenant_id: tenantId,
+      role: 'admin',
+      from_admin_invite: 'true',
+      name: adminName || email,
+    },
+  })
+
+  if (!createError) {
+    return true
+  }
+
+  const msg = (createError?.message ?? '').toLowerCase()
+  const alreadyExists =
+    msg.includes('already registered') ||
+    msg.includes('already exists') ||
+    msg.includes('user already exists')
+
+  if (!alreadyExists) {
+    console.error('createAdminUserFallback: createUser failed', createError?.message)
+    return false
+  }
+
+  const { data: list } = await supabaseAdmin.auth.admin.listUsers({ perPage: 1000 })
+  const authUser = list?.users?.find((u) => u.email?.toLowerCase() === email)
+  if (!authUser?.id) {
+    console.error('createAdminUserFallback: user exists but could not list by email')
+    return false
+  }
+
+  const { data: existingRow } = await supabaseAdmin
+    .from('users')
+    .select('id')
+    .eq('id', authUser.id)
+    .maybeSingle()
+
+  if (!existingRow) {
+    const { error: insertUserErr } = await supabaseAdmin.from('users').insert({
+      id: authUser.id,
+      tenant_id: tenantId,
+      email,
+      name: adminName || '',
+      role: 'admin',
+      is_super_admin: false,
+    })
+    if (insertUserErr) {
+      console.error('createAdminUserFallback: insert users failed', insertUserErr?.message)
+      return false
+    }
+  }
+
+  const { error: ownerErr } = await supabaseAdmin.from('tenant_owners').upsert(
+    { tenant_id: tenantId, user_id: authUser.id },
+    { onConflict: 'tenant_id' }
+  )
+  if (ownerErr) {
+    console.error('createAdminUserFallback: tenant_owners upsert failed', ownerErr?.message)
+    return false
+  }
+
+  return true
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -191,11 +275,20 @@ export async function handleCheckoutCompleted(session: Stripe.Checkout.Session) 
 
     if (inviteError) {
       const msg = inviteError?.message ?? ''
-      if (msg.toLowerCase().includes('rate limit') || msg.toLowerCase().includes('email rate limit')) {
-        console.warn('checkout.session.completed: email rate limit exceeded, invite not sent. Tenant already created. User can request new link from app.')
-        // Não lançar: evita 500 no webhook e retentativas da Stripe; a tenant já foi criada.
+      const isRateLimit =
+        msg.toLowerCase().includes('rate limit') || msg.toLowerCase().includes('email rate limit')
+
+      if (isRateLimit) {
+        console.warn('checkout.session.completed: email rate limit exceeded, invite not sent. Falling back to createUser.')
       } else {
-        console.error('checkout.session.completed: error inviting user', msg)
+        console.warn('checkout.session.completed: invite failed:', msg, '- falling back to createUser.')
+      }
+
+      // Fallback: criar usuário admin e vincular à tenant para o trigger popular public.users e tenant_owners.
+      // O usuário pode usar "Esqueci minha senha" na tela de login para receber o e-mail de redefinição.
+      const fallbackOk = await createAdminUserFallback(adminEmail, adminName, tenantId)
+      if (!fallbackOk) {
+        console.error('checkout.session.completed: createUser fallback failed. Tenant exists but admin not linked.')
         throw inviteError
       }
     }

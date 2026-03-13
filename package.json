@@ -11,7 +11,8 @@
     "test": "jest --watch",
     "sync-pricing-engine": "node scripts/sync-pricing-engine.js",
     "check-pricing-engine": "node scripts/sync-pricing-engine.js --check",
-    "seed:ncm": "node scripts/seed-ncm-from-csv.js"
+    "seed:ncm": "node scripts/seed-ncm-from-csv.js",
+    "set-super-admin-password": "node scripts/set-super-admin-password.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.46.1",
