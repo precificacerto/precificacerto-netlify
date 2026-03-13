@@ -4,20 +4,21 @@ import { supabaseAdmin } from '@/supabase/admin'
 type RevenueTier = 'ate_200k' | 'acima_200k'
 type PlanSlug = 'individual' | 'intermediario' | 'ilimitado' | 'pro' | 'advanced'
 
+/** Fallback: IDs dos preços criados no Stripe. Use env para produção. */
 const PRICE_IDS_FALLBACK: Record<RevenueTier, Record<PlanSlug, string>> = {
   ate_200k: {
-    individual: 'price_1T6Z67CRrj974uSyqMtm7Bbl',
-    intermediario: 'price_1T6Z66CRrj974uSy8y69g4iP',
-    ilimitado: 'price_1T6Z68CRrj974uSyizldYhiG',
+    individual: 'price_1TADYpC91Syy1O804ICzZ7Sl',    // R$ 69,90
+    intermediario: 'price_1TADYpC91Syy1O80fy6vq2KV', // R$ 99,90
+    ilimitado: 'price_1TADYpC91Syy1O80ybS5Ga2B',     // R$ 149,90
     pro: '',
     advanced: '',
   },
   acima_200k: {
     individual: '',
     intermediario: '',
-    ilimitado: 'price_1T6Z6ACRrj974uSyCWz9X4Uj',
-    pro: 'price_1T6Z69CRrj974uSyf7QOL0Gc',
-    advanced: 'price_1T6Z69CRrj974uSyijqimaE2',
+    ilimitado: 'price_1TADYqC91Syy1O80019m7TJ0',     // R$ 499,90
+    pro: 'price_1TADYpC91Syy1O80SQXIwsHm',           // R$ 299,90
+    advanced: 'price_1TADYpC91Syy1O80IqY1oKOK',      // R$ 399,90
   },
 }
 
