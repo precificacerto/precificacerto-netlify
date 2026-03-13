@@ -3,7 +3,7 @@ import { requireSuperAdmin } from '@/lib/get-caller-tenant'
 import { supabaseAdmin } from '@/supabase/admin'
 
 const getAppOrigin = () =>
-  process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+  process.env.NEXT_PUBLIC_APP_URL || 'https://precificav2.netlify.app'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {

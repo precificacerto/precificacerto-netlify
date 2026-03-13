@@ -88,7 +88,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
 
   const planStatus = isTrial ? 'TRIAL' : 'ACTIVE'
   const amountTotal = (session.amount_total ?? 0) / 100
-  const origin = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+  const origin = process.env.NEXT_PUBLIC_APP_URL || 'https://precificav2.netlify.app'
 
   if (existingTenantId) {
     const { data: existingTenant } = await supabaseAdmin

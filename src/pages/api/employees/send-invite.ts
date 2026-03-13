@@ -6,7 +6,7 @@ import { getUserLimitForPlan, type PlanSlug, type RevenueTier } from '@/constant
 const getAppOrigin = () => {
     if (process.env.NEXT_PUBLIC_APP_URL) return process.env.NEXT_PUBLIC_APP_URL
     if (process.env.NEXT_PUBLIC_SUPABASE_URL) return new URL(process.env.NEXT_PUBLIC_SUPABASE_URL).origin
-    return 'http://localhost:3000'
+    return 'https://precificav2.netlify.app'
 }
 
 // Link do convite leva para esta página; o funcionário define senha, nome e profissão

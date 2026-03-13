@@ -103,7 +103,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(500).json({ error: 'Stripe não configurado.' })
   }
 
-  const origin = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+  const origin = process.env.NEXT_PUBLIC_APP_URL || 'https://precificav2.netlify.app'
   const adminEmail = ((tenant as any).email || '').trim().toLowerCase()
 
   const params = new URLSearchParams({
