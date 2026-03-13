@@ -62,7 +62,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   return res.status(200).json({ received: true })
 }
 
-async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
+export async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   const metadata = session.metadata || {}
   const adminEmail = metadata.admin_email
   const adminName = metadata.admin_name || adminEmail
