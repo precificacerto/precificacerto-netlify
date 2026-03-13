@@ -1,0 +1,5 @@
+export enum PERMISSIONS {
+  ALL = 'ALL',
+  ADMIN = 'ADMIN',
+  REPRESENTATIVE = 'REPRESENTATIVE',
+}

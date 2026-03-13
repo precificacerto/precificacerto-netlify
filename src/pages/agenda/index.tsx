@@ -1,0 +1,1388 @@
+import React, { useState, useEffect, useMemo, useCallback } from 'react'
+import {
+    Button, Card, Drawer, Form, Input, InputNumber, Select, Space, Tag, TimePicker,
+    DatePicker, message, Popconfirm, Tooltip, Avatar, Empty, Modal, Divider,
+    Checkbox, Alert, Radio, Upload,
+} from 'antd'
+import dayjs from 'dayjs'
+import isoWeek from 'dayjs/plugin/isoWeek'
+import 'dayjs/locale/pt-br'
+import { Layout } from '@/components/layout/layout.component'
+import { PAGE_TITLES } from '@/constants/page-titles'
+import { supabase } from '@/supabase/client'
+import { getTenantId, getCurrentUserId } from '@/utils/get-tenant-id'
+import type { CalendarEvent, Customer, EventStatus, Employee } from '@/supabase/types'
+import {
+    PlusOutlined, LeftOutlined, RightOutlined, UserOutlined, ArrowLeftOutlined,
+    ClockCircleOutlined, DeleteOutlined, CheckCircleOutlined,
+    UserAddOutlined, CalendarOutlined, DollarOutlined,
+    ShoppingOutlined, PercentageOutlined, FilterOutlined,
+    PaperClipOutlined, UploadOutlined,
+} from '@ant-design/icons'
+import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
+import { useAuth } from '@/hooks/use-auth.hook'
+import { useRouter } from 'next/router'
+
+dayjs.extend(isoWeek)
+dayjs.locale('pt-br')
+
+const statusCfg: Record<EventStatus, { label: string; color: string; tagColor: string }> = {
+    SCHEDULED: { label: 'Agendado', color: '#12B76A', tagColor: 'success' },
+    CONFIRMED: { label: 'Confirmado', color: '#2E90FA', tagColor: 'processing' },
+    COMPLETED: { label: 'Concluído', color: '#12B76A', tagColor: 'success' },
+    CANCELLED: { label: 'Cancelado', color: '#667085', tagColor: 'default' },
+}
+
+const WEEK_DAYS_FULL = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo']
+const WEEK_DAYS_SHORT = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom']
+const EMP_COLORS = ['#7A5AF8', '#2E90FA', '#12B76A', '#F79009', '#F04438', '#EE46BC', '#0BA5EC', '#15B79E', '#FF692E', '#7C3AED']
+const PAYMENT_METHODS = [
+    { value: 'PIX', label: 'PIX' }, { value: 'DINHEIRO', label: 'Dinheiro' },
+    { value: 'CARTAO_CREDITO', label: 'Cartão Crédito' }, { value: 'CARTAO_DEBITO', label: 'Cartão Débito' },
+    { value: 'TRANSFERENCIA', label: 'Transferência' }, { value: 'BOLETO', label: 'Boleto' },
+]
+
+// Horários de 00:00 até 24:00 (intervalos de 30 min)
+const TIME_SLOTS: string[] = []
+for (let h = 0; h < 24; h++) {
+    TIME_SLOTS.push(`${String(h).padStart(2, '0')}:00`)
+    if (h < 23) TIME_SLOTS.push(`${String(h).padStart(2, '0')}:30`)
+}
+const SLOT_HEIGHT = 48 // px por slot de 30 min
+
+const DAY_TIME_SLOTS: string[] = []
+for (let h = 6; h < 22; h++) {
+    DAY_TIME_SLOTS.push(`${String(h).padStart(2, '0')}:00`)
+    DAY_TIME_SLOTS.push(`${String(h).padStart(2, '0')}:15`)
+    DAY_TIME_SLOTS.push(`${String(h).padStart(2, '0')}:30`)
+    DAY_TIME_SLOTS.push(`${String(h).padStart(2, '0')}:45`)
+}
+const DAY_SLOT_HEIGHT = 32
+
+function fmt(v: number) {
+    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 }).format(v)
+}
+
+interface ExtraProd { key: string; product_id: string; product_name: string; quantity: number; unit_price: number }
+
+function Schedule() {
+    const router = useRouter()
+    const { canView, canEdit } = usePermissions()
+    const { currentUser } = useAuth()
+    const isAdminOrSuper = currentUser?.is_super_admin === true || (currentUser?.role && String(currentUser.role).toLowerCase() === 'admin')
+    const myEmployeeId = currentUser?.employee_id ?? null
+    const defaultViewMode: 'day' | 'week' = isAdminOrSuper ? 'day' : 'week'
+
+    const [events, setEvents] = useState<CalendarEvent[]>([])
+    const [customers, setCustomers] = useState<Customer[]>([])
+    const [allEmployees, setAllEmployees] = useState<Employee[]>([])
+    const [schedEmpIds, setSchedEmpIds] = useState<string[]>([])
+    const [regServices, setRegServices] = useState<any[]>([])
+    const [availProds, setAvailProds] = useState<any[]>([])
+    const [loading, setLoading] = useState(false)
+
+    const [weekStart, setWeekStart] = useState(() => dayjs().startOf('isoWeek'))
+    const [selectedEmpId, setSelectedEmpId] = useState<string | null>(null)
+    const [viewMode, setViewMode] = useState<'day' | 'week'>(defaultViewMode)
+    const [drawerOpen, setDrawerOpen] = useState(false)
+    const [editingEvt, setEditingEvt] = useState<CalendarEvent | null>(null)
+    const [addEmpOpen, setAddEmpOpen] = useState(false)
+    const [selAddEmp, setSelAddEmp] = useState<string | null>(null)
+    const [serviceInputMode, setServiceInputMode] = useState<'select' | 'custom'>('select')
+
+    // Payment modal
+    const [payOpen, setPayOpen] = useState(false)
+    const [payEvt, setPayEvt] = useState<CalendarEvent | null>(null)
+    const [payForm] = Form.useForm()
+    const [hasDiscount, setHasDiscount] = useState(false)
+    const [isSplitPay, setIsSplitPay] = useState(false)
+    const [extraProds, setExtraProds] = useState<ExtraProd[]>([])
+    const [addProdId, setAddProdId] = useState<string | null>(null)
+    const [addProdQty, setAddProdQty] = useState(1)
+    const [attachFile, setAttachFile] = useState<File | null>(null)
+    const [attachDesc, setAttachDesc] = useState('')
+
+    const [form] = Form.useForm()
+    const [msgApi, ctx] = message.useMessage()
+
+    const weekEnd = weekStart.add(6, 'day').endOf('day')
+    const weekDates = useMemo(() => Array.from({ length: 7 }, (_, i) => weekStart.add(i, 'day')), [weekStart])
+
+    const fetchAll = useCallback(async () => {
+        setLoading(true)
+        try {
+            const tid = await getTenantId()
+            if (!tid) return
+            const weekEndUtc = weekStart.add(6, 'day').endOf('day')
+            const eventsQuery = supabase
+                .from('calendar_events')
+                .select('*, customer:customers(id, name), employee:employees(id, name)')
+                .eq('is_active', true)
+                .gte('start_time', weekStart.toISOString())
+                .lte('start_time', weekEndUtc.toISOString())
+                .order('start_time')
+
+            if (!isAdminOrSuper && myEmployeeId) {
+                eventsQuery.eq('employee_id', myEmployeeId)
+            }
+
+            const [evR, cuR, emR, scR, svR, prR] = await Promise.all([
+                eventsQuery,
+                supabase.from('customers').select('id, name').eq('is_active', true).order('name'),
+                supabase.from('employees').select('id, name, position, status').eq('status', 'ACTIVE').eq('is_active', true).order('name'),
+                supabase.from('schedule_employees').select('employee_id').eq('tenant_id', tid),
+                supabase.from('services').select('id, name, base_price, estimated_duration_minutes').eq('status', 'ACTIVE').order('name'),
+                supabase.from('products').select('id, name, sale_price').eq('status', 'ACTIVE').order('name'),
+            ])
+            setEvents(evR.data || [])
+            setCustomers(cuR.data || [])
+            setAllEmployees(emR.data || [])
+            setSchedEmpIds((scR.data || []).map((s: any) => s.employee_id))
+            setRegServices(svR.data || [])
+            setAvailProds(prR.data || [])
+        } catch (e: any) { msgApi.error('Erro: ' + (e.message || '')) }
+        finally { setLoading(false) }
+    }, [weekStart, isAdminOrSuper, myEmployeeId])
+
+    useEffect(() => { fetchAll() }, [fetchAll])
+
+    // Processar lembretes pendentes: ao abrir a agenda e a cada 30s enquanto estiver na página
+    useEffect(() => {
+        const run = () => fetch('/api/whatsapp/send-reminder', { method: 'POST' }).catch(() => {})
+        run()
+        const interval = setInterval(run, 30 * 1000)
+        return () => clearInterval(interval)
+    }, [])
+
+    const schedEmps = useMemo(() => {
+        const base = allEmployees.filter(e => schedEmpIds.includes(e.id))
+        if (!isAdminOrSuper && myEmployeeId) {
+            return base.filter(e => e.id === myEmployeeId)
+        }
+        return base
+    }, [allEmployees, schedEmpIds, isAdminOrSuper, myEmployeeId])
+    const availToAdd = useMemo(() => allEmployees.filter(e => !schedEmpIds.includes(e.id)), [allEmployees, schedEmpIds])
+    const empColor = useMemo(() => { const m: Record<string, string> = {}; schedEmps.forEach((e, i) => { m[e.id] = EMP_COLORS[i % EMP_COLORS.length] }); return m }, [schedEmps])
+
+    // Sync employee from URL (e.g. /agenda?employee_id=xxx) and push URL when selection changes
+    useEffect(() => {
+        const qId = router.query.employee_id as string | undefined
+        if (qId && schedEmpIds.includes(qId) && qId !== selectedEmpId) {
+            setSelectedEmpId(qId)
+            setViewMode('week')
+        }
+    }, [router.query.employee_id, schedEmpIds])
+    useEffect(() => {
+        if (viewMode === 'week' && !selectedEmpId && schedEmps.length > 0) setSelectedEmpId(schedEmps[0].id)
+    }, [schedEmps, selectedEmpId, viewMode])
+
+    if (!canView(MODULES.AGENDA)) {
+        return <Layout title={PAGE_TITLES.SCHEDULE}><div style={{ padding: 40, textAlign: 'center' }}>Sem acesso.</div></Layout>
+    }
+
+    const handleSelectEmployee = (empId: string | null) => {
+        setSelectedEmpId(empId)
+        if (empId) router.replace({ pathname: '/agenda', query: { employee_id: empId } }, undefined, { shallow: true })
+        else router.replace('/agenda', undefined, { shallow: true })
+    }
+
+    // Events filtered by selected employee
+    const filteredEvents = useMemo(() => {
+        if (!selectedEmpId) return events
+        return events.filter(e => e.employee_id === selectedEmpId)
+    }, [events, selectedEmpId])
+
+    // Map events by day
+    const evtByDay = useMemo(() => {
+        const m: Record<string, CalendarEvent[]> = {}
+        for (const d of weekDates) m[d.format('YYYY-MM-DD')] = []
+        for (const ev of filteredEvents) {
+            const dk = dayjs(ev.start_time).format('YYYY-MM-DD')
+            if (m[dk]) m[dk].push(ev)
+        }
+        return m
+    }, [filteredEvents, weekDates])
+
+    async function handleAddEmp() {
+        if (!selAddEmp) return
+        try { const tid = await getTenantId(); if (!tid) return; const { error } = await supabase.from('schedule_employees').insert({ tenant_id: tid, employee_id: selAddEmp }); if (error) throw error; setSchedEmpIds(p => [...p, selAddEmp]); setAddEmpOpen(false); setSelAddEmp(null); msgApi.success('Adicionado!') } catch (e: any) { msgApi.error(e.message || '') }
+    }
+    async function handleRemoveEmp(eid: string) {
+        try {
+            const tid = await getTenantId()
+            if (!tid) return
+            await supabase.from('schedule_employees').delete().eq('tenant_id', tid).eq('employee_id', eid)
+            setSchedEmpIds(p => p.filter(id => id !== eid))
+            if (selectedEmpId === eid) {
+                setSelectedEmpId(null)
+                router.replace('/agenda', undefined, { shallow: true })
+            }
+            msgApi.success('Removido.')
+        } catch (e: any) { msgApi.error(e.message || '') }
+    }
+
+    const openNew = useCallback((empId?: string, date?: dayjs.Dayjs, time?: string) => {
+        form.resetFields()
+        setEditingEvt(null)
+        setServiceInputMode('select')
+        if (empId) form.setFieldValue('employee_id', empId)
+        if (date) form.setFieldValue('date', date)
+        if (time) form.setFieldValue('time', dayjs(time, 'HH:mm'))
+        setDrawerOpen(true)
+    }, [])
+
+    const openEdit = useCallback((ev: CalendarEvent) => {
+        setEditingEvt(ev)
+        setServiceInputMode(ev.service_id ? 'select' : 'custom')
+        const dur = Math.round((new Date(ev.end_time).getTime() - new Date(ev.start_time).getTime()) / 60000)
+        form.setFieldsValue({ title: ev.title, date: dayjs(ev.start_time), time: dayjs(ev.start_time), duration_minutes: String(dur), customer_id: ev.customer_id || undefined, employee_id: ev.employee_id || undefined, service_id: ev.service_id || undefined, status: ev.status, notes: ev.description || '' })
+        setDrawerOpen(true)
+    }, [])
+
+    function onServiceSelect(svcId: string) {
+        const svc = regServices.find((s: any) => s.id === svcId)
+        if (svc) {
+            form.setFieldsValue({ title: svc.name, duration_minutes: String(svc.estimated_duration_minutes || 60) })
+        }
+    }
+
+    async function handleSave() {
+        try {
+            const v = await form.validateFields()
+            const tid = await getTenantId(); if (!tid) return
+            const ed = v.date?.format('YYYY-MM-DD') || dayjs().format('YYYY-MM-DD')
+            const st = v.time?.format('HH:mm') || '09:00'
+            const dur = parseInt(v.duration_minutes) || 60
+            const startLocal = dayjs(`${ed}T${st}:00`)
+            const s = startLocal.toISOString()
+            const e = startLocal.add(dur, 'minute').toISOString()
+
+            // Calcular horário do lembrete WhatsApp: >24h = disparo 24h antes; <24h = disparo 10 min após salvar
+            const hasCustomer = !!v.customer_id
+            let reminderSendAt: string | null = null
+            if (hasCustomer) {
+                const hoursUntilEvent = startLocal.diff(dayjs(), 'hour', true)
+                if (hoursUntilEvent > 0 && hoursUntilEvent < 24) {
+                    reminderSendAt = dayjs().add(10, 'minute').toISOString()
+                } else if (hoursUntilEvent >= 24) {
+                    reminderSendAt = startLocal.subtract(24, 'hour').toISOString()
+                }
+            }
+
+            if (editingEvt) {
+                const updateData: any = { title: v.title, start_time: s, end_time: e, status: v.status || 'SCHEDULED', customer_id: v.customer_id || null, employee_id: v.employee_id || null, service_id: serviceInputMode === 'select' ? (v.service_id || null) : null, description: v.notes || null }
+                if (reminderSendAt && !(editingEvt as any).whatsapp_reminder_sent) {
+                    updateData.reminder_send_at = reminderSendAt
+                }
+                const { error } = await supabase.from('calendar_events').update(updateData).eq('id', editingEvt.id)
+                if (error) throw error; msgApi.success('Atualizado!')
+            } else {
+                const uid = currentUser?.uid ?? (await getCurrentUserId())
+                const insertData: any = { tenant_id: tid, user_id: uid || null, event_type: 'SERVICE', title: v.title, start_time: s, end_time: e, status: 'SCHEDULED', customer_id: v.customer_id || null, employee_id: v.employee_id || null, service_id: serviceInputMode === 'select' ? (v.service_id || null) : null, description: v.notes || null }
+                if (reminderSendAt) {
+                    insertData.reminder_send_at = reminderSendAt
+                }
+                const { error } = await supabase.from('calendar_events').insert([insertData])
+                if (error) throw error; msgApi.success('Agendado!')
+                if (reminderSendAt) {
+                    const hoursUntilEvent = startLocal.diff(dayjs(), 'hour', true)
+                    const isLessThan24h = hoursUntilEvent < 24
+                    const minutesMsg = isLessThan24h
+                        ? 'Lembrete WhatsApp será enviado em ~10 minutos.'
+                        : `Lembrete WhatsApp agendado para ${dayjs(reminderSendAt).format('DD/MM às HH:mm')} (24h antes do horário).`
+                    msgApi.info(`📱 ${minutesMsg}`)
+                }
+            }
+
+            await fetchAll(); setDrawerOpen(false); setEditingEvt(null)
+        } catch (e: any) { msgApi.error(e.message || 'Preencha os campos.') }
+    }
+
+    async function handleDelete(id: string) {
+        try {
+            const res = await fetch('/api/delete/calendar-events', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id }),
+            })
+            const result = await res.json()
+            if (!res.ok) throw new Error(result.error || 'Erro ao desativar')
+            msgApi.success('Desativado!')
+            await fetchAll()
+        } catch (e: any) { msgApi.error(e.message || 'Erro ao desativar evento') }
+    }
+
+    // ─── Payment Modal (só abre se o agendamento ainda não foi concluído por outra pessoa) ───
+    async function openPayModal(ev: CalendarEvent) {
+        const { data: fresh } = await supabase.from('calendar_events').select('id, status, start_time, end_time, title, service_id, employee_id, customer_id, amount_charged').eq('id', ev.id).single()
+        if (fresh?.status === 'COMPLETED') {
+            msgApi.info('Este agendamento já foi concluído e o pagamento lançado.')
+            await fetchAll()
+            return
+        }
+        const evToUse = fresh ? { ...ev, ...fresh } : ev
+        setPayEvt(evToUse)
+        const svc = regServices.find((s: any) => s.id === evToUse.service_id)
+        const basePrice = evToUse.amount_charged || svc?.base_price || 0
+        payForm.setFieldsValue({ base_price: basePrice, discount_percent: 0, discount_value: 0, payment_method: 'PIX', payment_notes: '', amount_paid: basePrice, remaining_due_date: null, installments: 1 })
+        setHasDiscount(false)
+        setIsSplitPay(false)
+        setExtraProds([])
+        setAddProdId(null)
+        setAddProdQty(1)
+        setAttachFile(null)
+        setAttachDesc('')
+        setPayOpen(true)
+    }
+
+    function calcFinalPrice() {
+        const base = Number(payForm.getFieldValue('base_price')) || 0
+        const discPct = Number(payForm.getFieldValue('discount_percent')) || 0
+        const discVal = Number(payForm.getFieldValue('discount_value')) || 0
+        const prodsTotal = extraProds.reduce((s, p) => s + p.quantity * p.unit_price, 0)
+        const discountAmt = discVal > 0 ? discVal : (base * discPct / 100)
+        return Math.max(0, base - discountAmt) + prodsTotal
+    }
+
+    function handleAddExtraProd() {
+        if (!addProdId) return
+        const p = availProds.find((x: any) => x.id === addProdId)
+        if (!p) return
+        if (extraProds.some(ep => ep.product_id === addProdId)) { msgApi.warning('Já adicionado.'); return }
+        setExtraProds(prev => [...prev, { key: `ep-${Date.now()}`, product_id: p.id, product_name: p.name, quantity: addProdQty, unit_price: Number(p.sale_price) || 0 }])
+        setAddProdId(null); setAddProdQty(1)
+    }
+
+    async function handleCompletePay() {
+        if (!payEvt) return
+        try {
+            const v = await payForm.validateFields()
+            const tid = await getTenantId(); if (!tid) return
+            const createdBy = await getCurrentUserId(); if (!createdBy) { msgApi.error('Sessão inválida. Faça login novamente.'); return }
+
+            const { data: evCheck } = await supabase.from('calendar_events').select('id, status').eq('id', payEvt.id).single()
+            if (evCheck?.status === 'COMPLETED') {
+                msgApi.warning('Este agendamento já foi concluído por outra pessoa. Atualize a lista.')
+                setPayOpen(false)
+                setPayEvt(null)
+                await fetchAll()
+                return
+            }
+
+            const basePrice = Number(v.base_price) || 0
+            const discPct = hasDiscount ? (Number(v.discount_percent) || 0) : 0
+            const discVal = hasDiscount ? (Number(v.discount_value) || 0) : 0
+            const discountAmt = discVal > 0 ? discVal : (basePrice * discPct / 100)
+            const prodsTotal = extraProds.reduce((s, p) => s + p.quantity * p.unit_price, 0)
+            const finalPrice = Math.max(0, basePrice - discountAmt)
+            const totalRevenue = finalPrice + prodsTotal
+
+            const amountPaid = isSplitPay ? (Number(v.amount_paid) || totalRevenue) : totalRevenue
+            const remaining = Math.max(0, totalRevenue - amountPaid)
+            const remainingDate = isSplitPay && remaining > 0 ? v.remaining_due_date?.format('YYYY-MM-DD') || null : null
+
+            const { data: updatedEvt } = await supabase.from('calendar_events').update({
+                status: 'COMPLETED', amount_charged: totalRevenue, payment_method: v.payment_method,
+                discount_percent: discPct, discount_value: discountAmt,
+                payment_notes: v.payment_notes || null, amount_paid: amountPaid,
+                remaining_amount: remaining, remaining_due_date: remainingDate,
+                completed_at: new Date().toISOString(),
+                installments: v.payment_method === 'CARTAO_CREDITO' ? (v.installments ?? 1) : null,
+            }).eq('id', payEvt.id).neq('status', 'COMPLETED').select('id').single()
+            if (!updatedEvt) {
+                msgApi.warning('Este agendamento já foi concluído por outra pessoa. Atualize a lista.')
+                setPayOpen(false)
+                setPayEvt(null)
+                await fetchAll()
+                return
+            }
+
+            if (payEvt.customer_id && (v.payment_notes || '').trim()) {
+                await supabase.from('customer_service_history').insert({
+                    tenant_id: tid,
+                    customer_id: payEvt.customer_id,
+                    calendar_event_id: payEvt.id,
+                    service_observation: (v.payment_notes || '').trim(),
+                    created_by: createdBy,
+                })
+            }
+
+            await supabase.from('completed_services').insert({
+                tenant_id: tid, calendar_event_id: payEvt.id,
+                service_id: payEvt.service_id || null, employee_id: payEvt.employee_id || null,
+                customer_id: payEvt.customer_id || null, service_name: payEvt.title,
+                service_date: dayjs(payEvt.start_time).format('YYYY-MM-DD'),
+                start_time: payEvt.start_time, end_time: payEvt.end_time,
+                base_price: basePrice, discount_percent: discPct, discount_value: discountAmt,
+                final_price: finalPrice, amount_paid: amountPaid, remaining_amount: remaining,
+                remaining_due_date: remainingDate, payment_method: v.payment_method,
+                payment_notes: v.payment_notes || null, extra_products_total: prodsTotal,
+                total_revenue: totalRevenue,
+            })
+
+            const clienteNome = payEvt.customer?.name || null
+            const funcNome = payEvt.employee?.name || null
+            const dataServico = dayjs(payEvt.start_time).format('DD/MM/YYYY')
+            const pmLabel = PAYMENT_METHODS.find(pm => pm.value === v.payment_method)?.label || v.payment_method
+
+            let descLines: string[] = [`Serviço: ${payEvt.title}`]
+            if (funcNome) descLines.push(`Func: ${funcNome}`)
+            if (clienteNome) descLines.push(`Cliente: ${clienteNome}`)
+            descLines.push(`Data: ${dataServico}`)
+
+            let descValores: string[] = [`Valor serviço: ${fmt(basePrice)}`]
+            if (discountAmt > 0) {
+                descValores.push(`Desconto: -${fmt(discountAmt)}${discPct > 0 ? ` (${discPct}%)` : ''}`)
+                descValores.push(`Valor c/ desconto: ${fmt(finalPrice)}`)
+            }
+            if (extraProds.length > 0) {
+                const prodsDesc = extraProds.map(ep => `${ep.product_name} x${ep.quantity} (${fmt(ep.quantity * ep.unit_price)})`).join(', ')
+                descValores.push(`Produtos revenda: ${prodsDesc} = ${fmt(prodsTotal)}`)
+            }
+            descValores.push(`Total: ${fmt(totalRevenue)}`)
+            descValores.push(`Pagamento: ${pmLabel}`)
+            if (isSplitPay && remaining > 0) {
+                descValores.push(`Pgto parcial: ${fmt(amountPaid)} agora | Restante: ${fmt(remaining)} (vence ${dayjs(remainingDate).format('DD/MM/YYYY')})`)
+            }
+
+            const descricaoCompleta = descLines.join(' | ') + ' — ' + descValores.join(' | ')
+
+            if (amountPaid > 0) {
+                const numInstallments = v.payment_method === 'CARTAO_CREDITO' ? (v.installments ?? 1) : 1
+                const now = new Date()
+                const curYear = now.getFullYear()
+                const curMonth = now.getMonth()
+                // Cartão de crédito: receita nunca no mês atual — parcelas ou 1x a partir do próximo mês
+                if (v.payment_method === 'CARTAO_CREDITO') {
+                    const amountPerInstallment = totalRevenue / numInstallments
+                    const installmentEntries = []
+                    for (let i = 1; i <= numInstallments; i++) {
+                        const dueDate = new Date(curYear, curMonth + i, 1)
+                        installmentEntries.push({
+                            tenant_id: tid, type: 'INCOME', description: descricaoCompleta,
+                            amount: amountPerInstallment,
+                            due_date: dayjs(dueDate).format('YYYY-MM-DD'),
+                            paid_date: null,
+                            payment_method: v.payment_method,
+                            origin_type: 'SALE', origin_id: payEvt.id,
+                            contact_id: payEvt.customer_id || null,
+                            ...(numInstallments > 1 ? { installment_number: i, installment_total: numInstallments } : {}),
+                            created_by: createdBy,
+                        })
+                    }
+                    await supabase.from('cash_entries').insert(installmentEntries)
+                } else {
+                    const isBoleto = v.payment_method === 'BOLETO'
+                    await supabase.from('cash_entries').insert({
+                        tenant_id: tid,
+                        type: 'INCOME',
+                        description: descricaoCompleta,
+                        amount: amountPaid,
+                        due_date: dayjs(payEvt.start_time).format('YYYY-MM-DD'),
+                        paid_date: isBoleto ? null : dayjs().format('YYYY-MM-DD'),
+                        payment_method: v.payment_method,
+                        origin_type: 'SALE',
+                        origin_id: payEvt.id,
+                        contact_id: payEvt.customer_id || null,
+                        created_by: createdBy,
+                    })
+                }
+            }
+
+            if (remaining > 0 && remainingDate) {
+                const remainDescParts = [`[A RECEBER] Serviço: ${payEvt.title}`]
+                if (clienteNome) remainDescParts.push(`Cliente: ${clienteNome}`)
+                remainDescParts.push(`Cobrar em: ${dayjs(remainingDate).format('DD/MM/YYYY')}`)
+                remainDescParts.push(`Total original: ${fmt(totalRevenue)} | Pago: ${fmt(amountPaid)} | Restante: ${fmt(remaining)}`)
+                if (v.payment_notes) remainDescParts.push(`Obs: ${v.payment_notes}`)
+
+                await supabase.from('cash_entries').insert({
+                    tenant_id: tid, type: 'INCOME', description: remainDescParts.join(' | '),
+                    amount: remaining, due_date: remainingDate, paid_date: null,
+                    payment_method: v.payment_method, origin_type: 'SALE',
+                    origin_id: payEvt.id, contact_id: payEvt.customer_id || null,
+                    created_by: createdBy,
+                })
+            }
+
+            for (const ep of extraProds) {
+                const { data: st } = await supabase.from('stock').select('id, quantity_current').eq('product_id', ep.product_id).eq('stock_type', 'PRODUCT').single()
+                if (st) {
+                    await supabase.from('stock').update({ quantity_current: Math.max(0, (Number(st.quantity_current) || 0) - ep.quantity) }).eq('id', st.id)
+                    await supabase.from('stock_movements').insert({ stock_id: st.id, delta_quantity: -ep.quantity, reason: `Venda - Serviço: ${payEvt.title}`, created_by: createdBy })
+                }
+            }
+
+            if (payEvt.service_id) {
+                const { data: serviceItems } = await supabase
+                    .from('service_items')
+                    .select('item_id, quantity')
+                    .eq('service_id', payEvt.service_id)
+                const qtyPerService = 1
+                for (const si of serviceItems || []) {
+                    const itemId = si.item_id
+                    const deduct = (Number(si.quantity) || 0) * qtyPerService
+                    if (deduct <= 0) continue
+                    const { data: item } = await supabase.from('items').select('id, quantity').eq('id', itemId).single()
+                    if (!item) continue
+                    const currentQty = Number(item.quantity) ?? 0
+                    const newQty = Math.max(0, currentQty - deduct)
+                    await supabase
+                        .from('items')
+                        .update({ quantity: newQty, updated_at: new Date().toISOString() })
+                        .eq('id', itemId)
+                    const { data: itemStock } = await supabase
+                        .from('stock')
+                        .select('id, quantity_current')
+                        .eq('item_id', itemId)
+                        .eq('stock_type', 'ITEM')
+                        .maybeSingle()
+                    if (itemStock) {
+                        const stCurrent = Number(itemStock.quantity_current) ?? 0
+                        await supabase
+                            .from('stock')
+                            .update({ quantity_current: Math.max(0, stCurrent - deduct), updated_at: new Date().toISOString() })
+                            .eq('id', itemStock.id)
+                        await supabase.from('stock_movements').insert({
+                            stock_id: itemStock.id,
+                            delta_quantity: -deduct,
+                            reason: `Serviço realizado: ${payEvt.title}`,
+                            created_by: createdBy,
+                        })
+                    }
+                }
+            }
+
+            if (attachFile && payEvt.customer_id) {
+                const ext = attachFile.name.split('.').pop() || 'bin'
+                const filePath = `${tid}/customers/${payEvt.customer_id}/${crypto.randomUUID()}.${ext}`
+                const { error: uploadErr } = await supabase.storage.from('comprovantes').upload(filePath, attachFile)
+                if (!uploadErr) {
+                    await supabase.from('customer_attachments').insert({
+                        tenant_id: tid,
+                        customer_id: payEvt.customer_id,
+                        origin_type: 'AGENDA',
+                        origin_id: payEvt.id,
+                        file_path: filePath,
+                        file_name: attachFile.name,
+                        file_size: attachFile.size,
+                        mime_type: attachFile.type,
+                        description: attachDesc || null,
+                        created_by: createdBy,
+                    })
+                }
+            }
+
+            msgApi.success('Serviço concluído e lançado no caixa!')
+            setPayOpen(false); setPayEvt(null); setExtraProds([]); setAttachFile(null); setAttachDesc('')
+            await fetchAll()
+        } catch (e: any) { msgApi.error(e.message || '') }
+    }
+
+    const payMethod = Form.useWatch('payment_method', payForm)
+    const todayStr = dayjs().format('YYYY-MM-DD')
+    const selectedEmp = schedEmps.find(e => e.id === selectedEmpId)
+    const selectedEmpColor = selectedEmpId ? (empColor[selectedEmpId] || '#7A5AF8') : '#7A5AF8'
+    const totalW = filteredEvents.length
+    const doneW = filteredEvents.filter(e => e.status === 'COMPLETED').length
+
+    // Day view: today's events grouped by employee
+    const todayEvents = useMemo(() => {
+        return events.filter(ev => dayjs(ev.start_time).format('YYYY-MM-DD') === todayStr)
+    }, [events, todayStr])
+
+    const eventsByEmployee = useMemo(() => {
+        const grouped: Record<string, CalendarEvent[]> = {}
+        for (const ev of todayEvents) {
+            if (!ev.employee_id) continue
+            if (!grouped[ev.employee_id]) grouped[ev.employee_id] = []
+            grouped[ev.employee_id].push(ev)
+        }
+        for (const empId in grouped) {
+            grouped[empId].sort((a, b) => dayjs(a.start_time).valueOf() - dayjs(b.start_time).valueOf())
+        }
+        return grouped
+    }, [todayEvents])
+
+    const empsForDayView = useMemo(() => {
+        return schedEmps
+    }, [schedEmps])
+
+    const handleDayViewEmpClick = (empId: string) => {
+        setViewMode('week')
+        setSelectedEmpId(empId)
+        router.replace({ pathname: '/agenda', query: { employee_id: empId } }, undefined, { shallow: true })
+    }
+
+    const handleBackToDay = () => {
+        setViewMode('day')
+        setSelectedEmpId(null)
+        setWeekStart(dayjs().startOf('isoWeek'))
+        router.replace('/agenda', undefined, { shallow: true })
+    }
+
+    const todayFormatted = (() => {
+        const raw = dayjs().locale('pt-br').format('dddd, DD [de] MMMM [de] YYYY')
+        return raw.charAt(0).toUpperCase() + raw.slice(1)
+    })()
+
+    // Helper: posição de um evento na grade de horários
+    function getEventPosition(ev: CalendarEvent) {
+        const evStart = dayjs(ev.start_time)
+        const startMinutes = evStart.hour() * 60 + evStart.minute()
+        const gridStartMinutes = 0 // 00:00
+        const topOffset = ((startMinutes - gridStartMinutes) / 30) * SLOT_HEIGHT
+        const evEnd = dayjs(ev.end_time)
+        const durationMinutes = evEnd.diff(evStart, 'minute')
+        const height = Math.max((durationMinutes / 30) * SLOT_HEIGHT, SLOT_HEIGHT * 0.8)
+        return { top: Math.max(0, topOffset), height }
+    }
+
+    // Layout de eventos por dia para evitar sobreposição (lado a lado)
+    function computeDayLayout(dayEvents: CalendarEvent[]) {
+        const layout: Record<string, { top: number; height: number; left: string; width: string }> = {}
+        if (!dayEvents.length) return layout
+
+        const sorted = [...dayEvents].sort((a, b) => dayjs(a.start_time).valueOf() - dayjs(b.start_time).valueOf())
+
+        let group: CalendarEvent[] = []
+        let groupEnd: dayjs.Dayjs | null = null
+
+        function flushGroup() {
+            if (!group.length) return
+
+            const groupSorted = [...group].sort((a, b) => dayjs(a.start_time).valueOf() - dayjs(b.start_time).valueOf())
+
+            type LaneItem = { ev: CalendarEvent; laneIndex: number }
+            const laneEnd: dayjs.Dayjs[] = []
+            const items: LaneItem[] = []
+
+            for (const ev of groupSorted) {
+                const evStart = dayjs(ev.start_time)
+                const evEnd = dayjs(ev.end_time)
+
+                let laneIndex = 0
+                while (laneIndex < laneEnd.length && evStart.isBefore(laneEnd[laneIndex])) {
+                    laneIndex++
+                }
+                laneEnd[laneIndex] = evEnd
+                items.push({ ev, laneIndex })
+            }
+
+            const laneCount = Math.max(1, laneEnd.length)
+
+            for (const item of items) {
+                const { ev, laneIndex } = item
+                const { top, height } = getEventPosition(ev)
+                const widthPct = 100 / laneCount
+                const leftPct = laneIndex * widthPct
+
+                layout[ev.id] = {
+                    top,
+                    height,
+                    left: `${leftPct + 1}%`,
+                    width: `${widthPct - 2}%`,
+                }
+            }
+
+            group = []
+            groupEnd = null
+        }
+
+        for (const ev of sorted) {
+            const evStart = dayjs(ev.start_time)
+            const evEnd = dayjs(ev.end_time)
+
+            if (!groupEnd || evStart.isBefore(groupEnd)) {
+                group.push(ev)
+                if (!groupEnd || evEnd.isAfter(groupEnd)) groupEnd = evEnd
+            } else {
+                flushGroup()
+                group = [ev]
+                groupEnd = evEnd
+            }
+        }
+
+        flushGroup()
+        return layout
+    }
+
+    function getDayViewEventPosition(ev: CalendarEvent) {
+        const evStart = dayjs(ev.start_time)
+        const startMinutes = evStart.hour() * 60 + evStart.minute()
+        const gridStartMinutes = 6 * 60
+        const topOffset = ((startMinutes - gridStartMinutes) / 15) * DAY_SLOT_HEIGHT
+        const evEnd = dayjs(ev.end_time)
+        const durationMinutes = evEnd.diff(evStart, 'minute')
+        const height = Math.max((durationMinutes / 15) * DAY_SLOT_HEIGHT, DAY_SLOT_HEIGHT * 1.5)
+        return { top: Math.max(0, topOffset), height }
+    }
+
+    function computeDayLayoutForDayView(dayEvents: CalendarEvent[]) {
+        const layout: Record<string, { top: number; height: number; left: string; width: string }> = {}
+        if (!dayEvents.length) return layout
+        const sorted = [...dayEvents].sort((a, b) => dayjs(a.start_time).valueOf() - dayjs(b.start_time).valueOf())
+        let group: CalendarEvent[] = []
+        let groupEnd: dayjs.Dayjs | null = null
+        function flushGroup() {
+            if (!group.length) return
+            const groupSorted = [...group].sort((a, b) => dayjs(a.start_time).valueOf() - dayjs(b.start_time).valueOf())
+            type LaneItem = { ev: CalendarEvent; laneIndex: number }
+            const laneEnd: dayjs.Dayjs[] = []
+            const items: LaneItem[] = []
+            for (const ev of groupSorted) {
+                const evStart = dayjs(ev.start_time)
+                const evEnd = dayjs(ev.end_time)
+                let laneIndex = 0
+                while (laneIndex < laneEnd.length && evStart.isBefore(laneEnd[laneIndex])) { laneIndex++ }
+                laneEnd[laneIndex] = evEnd
+                items.push({ ev, laneIndex })
+            }
+            const laneCount = Math.max(1, laneEnd.length)
+            for (const item of items) {
+                const { ev, laneIndex } = item
+                const { top, height } = getDayViewEventPosition(ev)
+                const widthPct = 100 / laneCount
+                const leftPct = laneIndex * widthPct
+                layout[ev.id] = { top, height, left: `${leftPct + 1}%`, width: `${widthPct - 2}%` }
+            }
+            group = []
+            groupEnd = null
+        }
+        for (const ev of sorted) {
+            const evStart = dayjs(ev.start_time)
+            const evEnd = dayjs(ev.end_time)
+            if (!groupEnd || evStart.isBefore(groupEnd)) {
+                group.push(ev)
+                if (!groupEnd || evEnd.isAfter(groupEnd)) groupEnd = evEnd
+            } else {
+                flushGroup()
+                group = [ev]
+                groupEnd = evEnd
+            }
+        }
+        flushGroup()
+        return layout
+    }
+
+    const nowMinutes = dayjs().hour() * 60 + dayjs().minute()
+    const nowLineTop = (nowMinutes / 30) * SLOT_HEIGHT
+
+    return (
+        <Layout title={PAGE_TITLES.SCHEDULE} subtitle="Agenda semanal de serviços">
+            {ctx}
+
+            {/* Top bar */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, padding: '12px 16px', background: '#111c2e', borderRadius: 12, border: '1px solid rgba(255,255,255,0.06)', flexWrap: 'wrap', gap: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                    {viewMode === 'day' ? (
+                        <>
+                            <CalendarOutlined style={{ fontSize: 20, color: '#22C55E' }} />
+                            <div style={{ fontSize: 16, fontWeight: 700, color: '#f1f5f9' }}>{todayFormatted}</div>
+                        </>
+                    ) : (
+                        <>
+                            {isAdminOrSuper && (
+                                <>
+                                    <Button size="small" icon={<ArrowLeftOutlined />} onClick={handleBackToDay}>Voltar para vista do dia</Button>
+                                    <Divider type="vertical" style={{ margin: 0 }} />
+                                </>
+                            )}
+                            {/* Week navigation */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <Button size="small" icon={<LeftOutlined />} onClick={() => setWeekStart(w => w.subtract(1, 'week'))} />
+                                <div style={{ textAlign: 'center', minWidth: 170 }}>
+                                    <div style={{ fontSize: 14, fontWeight: 700 }}>{weekStart.format('DD/MM')} — {weekStart.add(6, 'day').format('DD/MM/YYYY')}</div>
+                                    <div style={{ fontSize: 10, color: '#64748b' }}>Semana {weekStart.isoWeek()}</div>
+                                </div>
+                                <Button size="small" icon={<RightOutlined />} onClick={() => setWeekStart(w => w.add(1, 'week'))} />
+                                {!weekStart.isSame(dayjs().startOf('isoWeek'), 'day') && <Button size="small" type="link" onClick={() => setWeekStart(dayjs().startOf('isoWeek'))}>Hoje</Button>}
+                            </div>
+                            {/* Employee filter */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <FilterOutlined style={{ color: '#94a3b8', fontSize: 12 }} />
+                                <Select
+                                    value={selectedEmpId}
+                                    onChange={handleSelectEmployee}
+                                    style={{ minWidth: 180 }}
+                                    size="small"
+                                    placeholder="Selecione funcionário"
+                                >
+                                    {schedEmps.map(emp => (
+                                        <Select.Option key={emp.id} value={emp.id}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                <div style={{ width: 8, height: 8, borderRadius: '50%', background: empColor[emp.id] }} />
+                                                {emp.name}
+                                            </div>
+                                        </Select.Option>
+                                    ))}
+                                </Select>
+                            </div>
+                        </>
+                    )}
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    {viewMode === 'day' ? (
+                        <>
+                            <Tag color="blue" style={{ margin: 0 }}>{todayEvents.length} serviços hoje</Tag>
+                            <Tag color="default" style={{ margin: 0 }}>{schedEmps.length} funcionários</Tag>
+                        </>
+                    ) : (
+                        <>
+                            <Tag color="blue" style={{ margin: 0 }}>{totalW} serviços</Tag>
+                            <Tag color="green" style={{ margin: 0 }}>{doneW} concluídos</Tag>
+                        </>
+                    )}
+                    {isAdminOrSuper && (
+                        <Button size="small" icon={<UserAddOutlined />} onClick={() => setAddEmpOpen(true)}>Funcionário</Button>
+                    )}
+                    {canEdit(MODULES.AGENDA) && (
+                        <Button type="primary" size="small" icon={<PlusOutlined />} onClick={() => openNew(selectedEmpId || undefined)}>Novo Serviço</Button>
+                    )}
+                </div>
+            </div>
+
+            {viewMode === 'day' ? (
+                /* ── DAY VIEW ── */
+                empsForDayView.length === 0 ? (
+                    <div style={{ background: '#111c2e', borderRadius: 12, border: '1px solid rgba(255,255,255,0.06)', padding: '60px 40px', textAlign: 'center' }}>
+                        <Empty
+                            image={<CalendarOutlined style={{ fontSize: 56, color: '#D0D5DD' }} />}
+                                description={
+                                <div>
+                                    <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 6 }}>Nenhum funcionário na agenda</div>
+                                    <div style={{ fontSize: 13, color: '#94a3b8', marginBottom: 16 }}>Adicione funcionários para agendar serviços.</div>
+                                    {isAdminOrSuper && <Button type="primary" icon={<UserAddOutlined />} onClick={() => setAddEmpOpen(true)}>Adicionar Funcionário</Button>}
+                                </div>
+                            }
+                        />
+                    </div>
+                ) : (
+                    <div style={{ background: '#111c2e', borderRadius: 12, border: '1px solid rgba(255,255,255,0.06)', overflow: 'hidden' }}>
+                        <div style={{ display: 'flex', overflow: 'auto' }}>
+                            {/* Time column */}
+                            <div style={{ minWidth: 56, borderRight: '1.5px solid rgba(255,255,255,0.06)', flexShrink: 0 }}>
+                                <div style={{ height: 52, borderBottom: '1.5px solid rgba(255,255,255,0.06)' }} />
+                                {DAY_TIME_SLOTS.map((slot) => (
+                                    <div key={slot} style={{
+                                        height: DAY_SLOT_HEIGHT,
+                                        display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-end',
+                                        padding: '2px 8px 0 0',
+                                        fontSize: 10, fontWeight: slot.endsWith(':00') ? 600 : 400,
+                                        color: slot.endsWith(':00') ? '#e2e8f0' : '#94a3b8',
+                                        borderBottom: slot.endsWith(':00') ? '1.5px solid rgba(255,255,255,0.06)' : '1px solid rgba(255,255,255,0.04)',
+                                    }}>
+                                        {slot.endsWith(':00') || slot.endsWith(':30') ? slot : ''}
+                                    </div>
+                                ))}
+                            </div>
+
+                            {/* Employee columns */}
+                            {empsForDayView.map((emp, ei) => {
+                                const empEvents = eventsByEmployee[emp.id] || []
+                                const empLayout = computeDayLayoutForDayView(empEvents)
+                                return (
+                                    <div key={emp.id} style={{ flex: 1, minWidth: 160, borderRight: ei < empsForDayView.length - 1 ? '1.5px solid rgba(255,255,255,0.06)' : undefined }}>
+                                        {/* Employee header */}
+                                        <div
+                                            style={{
+                                                height: 52, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                                                borderBottom: '1.5px solid rgba(255,255,255,0.06)',
+                                                background: `${empColor[emp.id] || '#7A5AF8'}08`,
+                                                cursor: 'pointer',
+                                            }}
+                                            onClick={() => handleDayViewEmpClick(emp.id)}
+                                        >
+                                            <Avatar size={20} style={{ background: empColor[emp.id] || '#7A5AF8', fontSize: 10, marginBottom: 2 }} icon={<UserOutlined />} />
+                                            <div style={{ fontSize: 11, fontWeight: 700, color: empColor[emp.id] || '#7A5AF8', textAlign: 'center', lineHeight: 1.1, maxWidth: '90%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{emp.name}</div>
+                                        </div>
+
+                                        {/* Time slots */}
+                                        <div style={{ position: 'relative' }}>
+                                            {DAY_TIME_SLOTS.map((slot) => (
+                                                <div
+                                                    key={slot}
+                                                    style={{
+                                                        height: DAY_SLOT_HEIGHT,
+                                                        borderBottom: slot.endsWith(':00') ? '1.5px solid rgba(255,255,255,0.06)' : '1px solid rgba(255,255,255,0.04)',
+                                                        cursor: 'pointer',
+                                                        transition: 'background 0.1s',
+                                                    }}
+                                                    onClick={() => openNew(emp.id, dayjs(), slot)}
+                                                    onMouseEnter={(e) => { e.currentTarget.style.background = `${empColor[emp.id] || '#7A5AF8'}08` }}
+                                                    onMouseLeave={(e) => { e.currentTarget.style.background = '' }}
+                                                />
+                                            ))}
+
+                                            {/* Now indicator */}
+                                            {(() => {
+                                                const nowMinLocal = dayjs().hour() * 60 + dayjs().minute()
+                                                const gridStartMin = 6 * 60
+                                                if (nowMinLocal >= gridStartMin && nowMinLocal <= 22 * 60) {
+                                                    const nowTop = ((nowMinLocal - gridStartMin) / 15) * DAY_SLOT_HEIGHT
+                                                    return (
+                                                        <div style={{
+                                                            position: 'absolute', top: nowTop, left: 0, right: 0,
+                                                            height: 2, background: '#F04438', zIndex: 5,
+                                                            pointerEvents: 'none',
+                                                        }}>
+                                                            {ei === 0 && <div style={{ position: 'absolute', left: -4, top: -3, width: 8, height: 8, borderRadius: '50%', background: '#F04438' }} />}
+                                                        </div>
+                                                    )
+                                                }
+                                                return null
+                                            })()}
+
+                                            {/* Events */}
+                                            {empEvents.map(ev => {
+                                                const pos = empLayout[ev.id]
+                                                if (!pos) return null
+                                                const cfg = statusCfg[ev.status] || statusCfg.SCHEDULED
+                                                const isCompleted = ev.status === 'COMPLETED'
+                                                return (
+                                                    <div
+                                                        key={ev.id}
+                                                        onClick={(e) => { e.stopPropagation(); openEdit(ev) }}
+                                                        style={{
+                                                            position: 'absolute',
+                                                            top: pos.top,
+                                                            left: pos.left,
+                                                            width: pos.width,
+                                                            height: Math.max(pos.height, DAY_SLOT_HEIGHT * 3),
+                                                            background: isCompleted ? 'rgba(34, 197, 94, 0.1)' : '#111c2e',
+                                                            border: `1px solid ${cfg.color}40`,
+                                                            borderLeft: `3px solid ${cfg.color}`,
+                                                            borderRadius: 6,
+                                                            padding: '3px 6px',
+                                                            cursor: 'pointer',
+                                                            overflow: 'hidden',
+                                                            zIndex: 2,
+                                                            fontSize: 10,
+                                                            transition: 'box-shadow 0.15s',
+                                                            display: 'flex',
+                                                            flexDirection: 'column',
+                                                        }}
+                                                        onMouseEnter={(e) => { e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.12)' }}
+                                                        onMouseLeave={(e) => { e.currentTarget.style.boxShadow = 'none' }}
+                                                    >
+                                                        <div style={{ fontWeight: 600, color: '#f1f5f9', fontSize: 10 }}>
+                                                            {dayjs(ev.start_time).format('HH:mm')}-{dayjs(ev.end_time).format('HH:mm')}
+                                                        </div>
+                                                        <div style={{ fontWeight: 600, color: cfg.color, fontSize: 10, lineHeight: 1.2 }}>{ev.title}</div>
+                                                        {ev.customer && <div style={{ color: '#94a3b8', fontSize: 9 }}>{ev.customer.name}</div>}
+                                                        {(ev.status === 'SCHEDULED' || ev.status === 'CONFIRMED') && (
+                                                            <Button
+                                                                type="primary"
+                                                                size="small"
+                                                                block
+                                                                style={{ marginTop: 3, fontSize: 9, height: 22, borderRadius: 4, background: '#12B76A', borderColor: '#12B76A' }}
+                                                                icon={<DollarOutlined style={{ fontSize: 9 }} />}
+                                                                onClick={(e) => { e.stopPropagation(); openPayModal(ev) }}
+                                                            >
+                                                                Concluir
+                                                            </Button>
+                                                        )}
+                                                        {isCompleted && (
+                                                            <Tag color="success" style={{ fontSize: 8, margin: '3px 0 0', padding: '0 4px', lineHeight: '16px', alignSelf: 'flex-start' }}>Concluído</Tag>
+                                                        )}
+                                                    </div>
+                                                )
+                                            })}
+                                        </div>
+                                    </div>
+                                )
+                            })}
+                        </div>
+                    </div>
+                )
+            ) : schedEmps.length === 0 ? (
+                <div style={{ background: '#111c2e', borderRadius: 12, border: '1px solid rgba(255,255,255,0.06)', padding: '60px 40px', textAlign: 'center' }}>
+                    <Empty image={<CalendarOutlined style={{ fontSize: 56, color: '#D0D5DD' }} />} description={<div><div style={{ fontSize: 15, fontWeight: 600, marginBottom: 6 }}>Nenhum funcionário na agenda</div><div style={{ fontSize: 13, color: '#94a3b8', marginBottom: 16 }}>Adicione funcionários para agendar serviços.</div>{isAdminOrSuper && <Button type="primary" icon={<UserAddOutlined />} onClick={() => setAddEmpOpen(true)}>Adicionar Funcionário</Button>}</div>} />
+                </div>
+            ) : !selectedEmpId ? (
+                <div style={{ background: '#111c2e', borderRadius: 12, border: '1px solid rgba(255,255,255,0.06)', padding: '60px 40px', textAlign: 'center' }}>
+                    <Empty image={<FilterOutlined style={{ fontSize: 56, color: '#D0D5DD' }} />} description={<div><div style={{ fontSize: 15, fontWeight: 600, marginBottom: 6 }}>Selecione um funcionário</div><div style={{ fontSize: 13, color: '#94a3b8' }}>Escolha um funcionário acima para visualizar a agenda.</div></div>} />
+                </div>
+            ) : (
+                /* ── GRADE SEMANAL COM HORÁRIOS ── */
+                <div style={{ background: '#111c2e', borderRadius: 12, border: '1px solid rgba(255,255,255,0.06)', overflow: 'hidden' }}>
+                    {/* Employee header */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', background: `${selectedEmpColor}08`, borderBottom: `2px solid ${selectedEmpColor}30` }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <Avatar size={36} style={{ background: selectedEmpColor }} icon={<UserOutlined />} />
+                            <div>
+                                <div style={{ fontSize: 15, fontWeight: 700 }}>
+                                    <Tooltip title="Clique para ver a agenda da semana deste funcionário (link compartilhável)">
+                                        <span style={{ cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: 2 }} onClick={() => handleSelectEmployee(selectedEmpId)}>{selectedEmp?.name}</span>
+                                    </Tooltip>
+                                </div>
+                                {selectedEmp?.position && <div style={{ fontSize: 11, color: '#94a3b8' }}>{selectedEmp.position}</div>}
+                            </div>
+                        </div>
+                        {isAdminOrSuper && (
+                            <Popconfirm title="Remover da agenda?" onConfirm={() => handleRemoveEmp(selectedEmpId!)} okText="Sim" cancelText="Não">
+                                <Button type="text" danger size="small" icon={<DeleteOutlined />}>Remover</Button>
+                            </Popconfirm>
+                        )}
+                    </div>
+
+                    {/* Grid container */}
+                    <div style={{ display: 'flex', overflow: 'auto' }}>
+                        {/* Time column */}
+                        <div style={{ minWidth: 56, borderRight: '1.5px solid rgba(255,255,255,0.06)', flexShrink: 0 }}>
+                            {/* Header space */}
+                            <div style={{ height: 52, borderBottom: '1.5px solid rgba(255,255,255,0.06)' }} />
+                            {/* Time labels */}
+                            {TIME_SLOTS.map((slot, i) => (
+                                <div key={slot} style={{
+                                    height: SLOT_HEIGHT,
+                                    display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-end',
+                                    padding: '2px 8px 0 0',
+                                    fontSize: 10, fontWeight: slot.endsWith(':00') ? 600 : 400,
+                                    color: slot.endsWith(':00') ? '#e2e8f0' : '#64748b',
+                                    borderBottom: slot.endsWith(':00') ? '1.5px solid rgba(255,255,255,0.06)' : '1px solid rgba(255,255,255,0.04)',
+                                }}>
+                                    {slot}
+                                </div>
+                            ))}
+                        </div>
+
+                        {/* Day columns */}
+                        {weekDates.map((d, di) => {
+                            const dk = d.format('YYYY-MM-DD')
+                            const isToday = dk === todayStr
+                            const dayEvents = evtByDay[dk] || []
+                            const dayLayout = computeDayLayout(dayEvents)
+
+                            return (
+                                <div key={di} style={{ flex: 1, minWidth: 120, borderRight: di < 6 ? '1.5px solid rgba(255,255,255,0.06)' : undefined }}>
+                                    {/* Day header */}
+                                    <div style={{
+                                        height: 52, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                                        borderBottom: '1.5px solid rgba(255,255,255,0.06)',
+                                        background: isToday ? 'rgba(21, 112, 239, 0.15)' : '#0a1628',
+                                    }}>
+                                        <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', color: isToday ? '#1570EF' : '#64748b', letterSpacing: 0.5 }}>{WEEK_DAYS_SHORT[di]}</div>
+                                        <div style={{ fontSize: 18, fontWeight: 700, color: isToday ? '#1570EF' : '#e2e8f0', lineHeight: 1.2 }}>{d.format('DD')}</div>
+                                    </div>
+
+                                    {/* Time slots grid */}
+                                    <div style={{ position: 'relative', background: isToday ? 'rgba(21, 112, 239, 0.08)' : undefined }}>
+                                        {TIME_SLOTS.map((slot) => (
+                                            <div
+                                                key={slot}
+                                                style={{
+                                                    height: SLOT_HEIGHT,
+                                                    borderBottom: slot.endsWith(':00') ? '1.5px solid rgba(255,255,255,0.06)' : '1px solid rgba(255,255,255,0.04)',
+                                                    cursor: 'pointer',
+                                                    transition: 'background 0.1s',
+                                                }}
+                                                onClick={() => openNew(selectedEmpId || undefined, d, slot)}
+                                                onMouseEnter={(e) => { (e.currentTarget).style.background = `${selectedEmpColor}08` }}
+                                                onMouseLeave={(e) => { (e.currentTarget).style.background = '' }}
+                                            />
+                                        ))}
+
+                                        {/* Now indicator line */}
+                                        {isToday && nowMinutes >= 0 && nowMinutes <= 24 * 60 && (
+                                            <div style={{
+                                                position: 'absolute', top: nowLineTop, left: 0, right: 0,
+                                                height: 2, background: '#F04438', zIndex: 5,
+                                                pointerEvents: 'none',
+                                            }}>
+                                                <div style={{ position: 'absolute', left: -4, top: -3, width: 8, height: 8, borderRadius: '50%', background: '#F04438' }} />
+                                            </div>
+                                        )}
+
+                                        {/* Events */}
+                                        {dayEvents.map(ev => {
+                                            const { top, height, left, width } = dayLayout[ev.id] || {
+                                                ...getEventPosition(ev),
+                                                left: '3%',
+                                                width: '94%',
+                                            }
+                                            const cfg = statusCfg[ev.status] || statusCfg.SCHEDULED
+                                            const isCompleted = ev.status === 'COMPLETED'
+                                            const minHeight = 86
+                                            return (
+                                                <div
+                                                    key={ev.id}
+                                                    onClick={(e) => { e.stopPropagation(); openEdit(ev) }}
+                                                    style={{
+                                                        position: 'absolute',
+                                                        top,
+                                                        left,
+                                                        width,
+                                                        height: Math.max(height - 2, minHeight),
+                                                        background: isCompleted ? 'rgba(34, 197, 94, 0.1)' : '#111c2e',
+                                                        border: `1px solid ${cfg.color}40`,
+                                                        borderLeft: `3px solid ${cfg.color}`,
+                                                        borderRadius: 6,
+                                                        padding: '4px 6px 6px',
+                                                        cursor: 'pointer',
+                                                        zIndex: 3,
+                                                        overflow: 'hidden',
+                                                        transition: 'box-shadow 0.15s, transform 0.1s',
+                                                        boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+                                                        display: 'flex',
+                                                        flexDirection: 'column',
+                                                        justifyContent: 'space-between',
+                                                    }}
+                                                    onMouseEnter={(e) => { e.currentTarget.style.boxShadow = '0 3px 10px rgba(0,0,0,0.12)'; e.currentTarget.style.transform = 'scale(1.02)' }}
+                                                    onMouseLeave={(e) => { e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.06)'; e.currentTarget.style.transform = 'scale(1)' }}
+                                                >
+                                                    <div>
+                                                        {ev.customer && (
+                                                            <div style={{ fontSize: 10, fontWeight: 700, color: '#f1f5f9', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                                {ev.customer.name}
+                                                            </div>
+                                                        )}
+                                                        <div style={{ fontSize: 10, fontWeight: 600, color: '#e2e8f0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                            {ev.title}
+                                                        </div>
+                                                        <div style={{ fontSize: 9, color: '#94a3b8', display: 'flex', alignItems: 'center', gap: 2 }}>
+                                                            <ClockCircleOutlined style={{ fontSize: 8 }} />{dayjs(ev.start_time).format('HH:mm')}–{dayjs(ev.end_time).format('HH:mm')}
+                                                        </div>
+                                                    </div>
+                                                    <div>
+                                                        <div style={{ marginTop: 2, display: 'flex', alignItems: 'center', gap: 4 }}>
+                                                            <Tag color={cfg.tagColor} style={{ fontSize: 8, lineHeight: '14px', padding: '0 4px', margin: 0 }}>{cfg.label}</Tag>
+                                                            {ev.amount_charged != null && ev.amount_charged > 0 && <span style={{ fontSize: 9, color: '#4ade80', fontWeight: 600 }}>{fmt(ev.amount_charged)}</span>}
+                                                        </div>
+                                                        {(ev.status === 'SCHEDULED' || ev.status === 'CONFIRMED') && (
+                                                            <Button
+                                                                type="primary"
+                                                                size="small"
+                                                                block
+                                                                style={{ marginTop: 3, fontSize: 9, height: 22, borderRadius: 4, background: '#12B76A', borderColor: '#12B76A' }}
+                                                                icon={<DollarOutlined style={{ fontSize: 9 }} />}
+                                                                onClick={(e) => { e.stopPropagation(); openPayModal(ev) }}
+                                                            >
+                                                                Concluir
+                                                            </Button>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            )
+                                        })}
+                                    </div>
+                                </div>
+                            )
+                        })}
+                    </div>
+                </div>
+            )}
+
+            {/* Add Employee Modal */}
+            <Modal title="Adicionar Funcionário" open={addEmpOpen} onCancel={() => { setAddEmpOpen(false); setSelAddEmp(null) }} onOk={handleAddEmp} okText="Adicionar" cancelText="Cancelar" okButtonProps={{ disabled: !selAddEmp }}>
+                {availToAdd.length === 0 ? <div style={{ textAlign: 'center', padding: 24, color: '#94a3b8' }}>Todos já estão na agenda.</div> : (
+                    <Select placeholder="Selecione" value={selAddEmp} onChange={setSelAddEmp} style={{ width: '100%' }} showSearch optionFilterProp="children">
+                        {availToAdd.map(e => <Select.Option key={e.id} value={e.id}>{e.name} {e.position ? `— ${e.position}` : ''}</Select.Option>)}
+                    </Select>
+                )}
+            </Modal>
+
+            {/* New/Edit Event Drawer */}
+            <Drawer title={editingEvt ? 'Editar Serviço' : 'Agendar Serviço'} width={440} open={drawerOpen}
+                onClose={() => { setDrawerOpen(false); setEditingEvt(null) }}
+                extra={<Space>
+                    {editingEvt && <Popconfirm title="Desativar?" onConfirm={() => { handleDelete(editingEvt.id); setDrawerOpen(false); setEditingEvt(null) }} okText="Sim" cancelText="Não"><Button danger size="small" icon={<DeleteOutlined />}>Desativar</Button></Popconfirm>}
+                    <Button size="small" onClick={() => { setDrawerOpen(false); setEditingEvt(null) }}>Cancelar</Button>
+                    <Button size="small" type="primary" onClick={handleSave} loading={loading}>Salvar</Button>
+                </Space>}>
+                <Form form={form} layout="vertical">
+                    {/* Service: choose mode */}
+                    <div style={{ marginBottom: 16 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Tipo de serviço</div>
+                        <Radio.Group value={serviceInputMode} onChange={(e) => { setServiceInputMode(e.target.value); if (e.target.value === 'custom') form.setFieldValue('service_id', undefined) }} size="small">
+                            <Radio.Button value="select">Serviço cadastrado</Radio.Button>
+                            <Radio.Button value="custom">Digitar manualmente</Radio.Button>
+                        </Radio.Group>
+                    </div>
+
+                    {serviceInputMode === 'select' && regServices.length > 0 && (
+                        <Form.Item name="service_id" label="Serviço Cadastrado">
+                            <Select placeholder="Escolha um serviço (preenche automático)" allowClear showSearch optionFilterProp="children" onChange={(v) => { if (v) onServiceSelect(v) }}>
+                                {regServices.map((s: any) => <Select.Option key={s.id} value={s.id}>{s.name} — {fmt(s.base_price || 0)} — {s.estimated_duration_minutes || 60}min</Select.Option>)}
+                            </Select>
+                        </Form.Item>
+                    )}
+
+                    <Form.Item name="title" label="Serviço / Título" rules={[{ required: true, message: 'Informe o serviço' }]}><Input placeholder="Ex: Corte, Tintura, Escova..." /></Form.Item>
+                    <Form.Item name="employee_id" label="Funcionário" rules={[{ required: true, message: 'Selecione' }]}>
+                        <Select placeholder="Selecione" showSearch optionFilterProp="children">
+                            {schedEmps.map(e => (
+                                <Select.Option key={e.id} value={e.id}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                        <div style={{ width: 8, height: 8, borderRadius: '50%', background: empColor[e.id] }} />
+                                        {e.name}
+                                    </div>
+                                </Select.Option>
+                            ))}
+                        </Select>
+                    </Form.Item>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                        <Form.Item name="date" label="Data" rules={[{ required: true }]}><DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" /></Form.Item>
+                        <Form.Item name="time" label="Horário" rules={[{ required: true }]}><TimePicker style={{ width: '100%' }} format="HH:mm" minuteStep={5} /></Form.Item>
+                    </div>
+                    <Form.Item name="duration_minutes" label="Duração" initialValue="60">
+                        <Select>{[15, 30, 45, 60, 90, 120, 180, 240].map(m => <Select.Option key={m} value={String(m)}>{m < 60 ? `${m} min` : m % 60 === 0 ? `${m / 60}h` : `${Math.floor(m / 60)}h${m % 60}min`}</Select.Option>)}</Select>
+                    </Form.Item>
+                    <Form.Item name="customer_id" label="Cliente"><Select placeholder="(opcional)" allowClear showSearch optionFilterProp="children">{customers.map(c => <Select.Option key={c.id} value={c.id}>{c.name}</Select.Option>)}</Select></Form.Item>
+                    {editingEvt && <Form.Item name="status" label="Status"><Select>{Object.entries(statusCfg).map(([k, c]) => <Select.Option key={k} value={k}><Tag color={c.tagColor} style={{ margin: 0 }}>{c.label}</Tag></Select.Option>)}</Select></Form.Item>}
+                    <Form.Item name="notes" label="Observações"><Input.TextArea rows={2} /></Form.Item>
+                </Form>
+            </Drawer>
+
+            {/* Payment / Completion Modal */}
+            <Modal
+                title={<span style={{ fontSize: 16 }}><CheckCircleOutlined style={{ color: '#12B76A', marginRight: 8 }} />Lançar Pagamento do Serviço</span>}
+                open={payOpen}
+                onCancel={() => { setPayOpen(false); setPayEvt(null); setExtraProds([]); setAttachFile(null); setAttachDesc('') }}
+                footer={[
+                    <Button key="cancel" onClick={() => { setPayOpen(false); setPayEvt(null); setExtraProds([]); setAttachFile(null); setAttachDesc('') }}>Cancelar</Button>,
+                    <Button key="ok" type="primary" size="large" style={{ background: '#12B76A', borderColor: '#12B76A' }} icon={<CheckCircleOutlined />} onClick={handleCompletePay}>
+                        Concluir e Lançar no Caixa
+                    </Button>,
+                ]}
+                width={580}
+            >
+                {payEvt && (
+                    <>
+                        <div style={{ padding: 12, background: 'rgba(34, 197, 94, 0.1)', borderRadius: 8, marginBottom: 16, border: '1px solid #BBF7D0' }}>
+                            <div style={{ fontWeight: 700, fontSize: 15 }}>{payEvt.title}</div>
+                            <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>
+                                {dayjs(payEvt.start_time).format('DD/MM/YYYY')} · {dayjs(payEvt.start_time).format('HH:mm')}–{dayjs(payEvt.end_time).format('HH:mm')}
+                                {payEvt.employee && <span> · {payEvt.employee.name}</span>}
+                                {payEvt.customer && <span> · Cliente: {payEvt.customer.name}</span>}
+                            </div>
+                        </div>
+
+                        <Form form={payForm} layout="vertical">
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                                <Form.Item name="base_price" label="Valor do Serviço (R$)" rules={[{ required: true }]}>
+                                    <InputNumber style={{ width: '100%' }} min={0} step={0.5} precision={2} size="large"
+                                        formatter={(v) => `${v}`.replace('.', ',')} parser={(v) => Number((v || '0').replace(',', '.'))} />
+                                </Form.Item>
+                                <Form.Item name="payment_method" label="Forma de Pagamento" rules={[{ required: true }]}>
+                                    <Select size="large">{PAYMENT_METHODS.map(pm => <Select.Option key={pm.value} value={pm.value}>{pm.label}</Select.Option>)}</Select>
+                                </Form.Item>
+                            </div>
+                            {payMethod === 'CARTAO_CREDITO' && (
+                                <Form.Item name="installments" label="Parcelas" rules={[{ required: payMethod === 'CARTAO_CREDITO', message: 'Selecione à vista ou parcelado' }]} style={{ marginBottom: 16 }}>
+                                    <Select size="large" placeholder="À vista ou parcelado">
+                                        <Select.Option value={1}>À vista (1x)</Select.Option>
+                                        {[2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(n => (
+                                            <Select.Option key={n} value={n}>{n}x</Select.Option>
+                                        ))}
+                                    </Select>
+                                </Form.Item>
+                            )}
+                            <div style={{ marginBottom: 16 }}>
+                                <Checkbox checked={hasDiscount} onChange={(e) => { setHasDiscount(e.target.checked); if (!e.target.checked) payForm.setFieldsValue({ discount_percent: 0, discount_value: 0 }) }}>
+                                    <span style={{ fontWeight: 600 }}><PercentageOutlined style={{ marginRight: 4 }} />Conceder Desconto</span>
+                                </Checkbox>
+                                {hasDiscount && (
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 8, padding: 12, background: '#FFFBEB', borderRadius: 8, border: '1px solid #FEF3C7' }}>
+                                        <Form.Item name="discount_percent" label="Desconto (%)" style={{ margin: 0 }}>
+                                            <InputNumber style={{ width: '100%' }} min={0} max={100} step={1} suffix="%" onChange={(v) => { if (v && v > 0) payForm.setFieldValue('discount_value', 0) }} />
+                                        </Form.Item>
+                                        <Form.Item name="discount_value" label="Desconto (R$)" style={{ margin: 0 }}>
+                                            <InputNumber style={{ width: '100%' }} min={0} step={0.5} precision={2}
+                                                formatter={(v) => `${v}`.replace('.', ',')} parser={(v) => Number((v || '0').replace(',', '.'))}
+                                                onChange={(v) => { if (v && v > 0) payForm.setFieldValue('discount_percent', 0) }} />
+                                        </Form.Item>
+                                    </div>
+                                )}
+                            </div>
+                            <div style={{ marginBottom: 16 }}>
+                                <Checkbox checked={isSplitPay} onChange={(e) => setIsSplitPay(e.target.checked)}>
+                                    <span style={{ fontWeight: 600 }}><DollarOutlined style={{ marginRight: 4 }} />Pagamento Parcelado / Dividido</span>
+                                </Checkbox>
+                                {isSplitPay && (
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 8, padding: 12, background: '#EFF6FF', borderRadius: 8, border: '1px solid #BFDBFE' }}>
+                                        <Form.Item name="amount_paid" label="Valor pago agora (R$)" style={{ margin: 0 }}>
+                                            <InputNumber style={{ width: '100%' }} min={0} step={0.5} precision={2}
+                                                formatter={(v) => `${v}`.replace('.', ',')} parser={(v) => Number((v || '0').replace(',', '.'))} />
+                                        </Form.Item>
+                                        <Form.Item name="remaining_due_date" label="Data restante" style={{ margin: 0 }}>
+                                            <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" placeholder="Quando paga o resto" />
+                                        </Form.Item>
+                                    </div>
+                                )}
+                            </div>
+                            <Form.Item name="payment_notes" label="Observação do serviço">
+                                <Input.TextArea rows={2} placeholder="Ex: Cliente de confiança, parcelado em 2x, etc." />
+                            </Form.Item>
+
+                            <div style={{ padding: 12, background: '#0a1628', borderRadius: 8, border: '1px solid rgba(255,255,255,0.06)' }}>
+                                <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>
+                                    <PaperClipOutlined style={{ marginRight: 4 }} /> Anexar comprovante (opcional)
+                                </div>
+                                <Upload
+                                    beforeUpload={(file: File) => { setAttachFile(file); return false }}
+                                    onRemove={() => { setAttachFile(null); setAttachDesc('') }}
+                                    accept=".pdf,.jpg,.jpeg,.png"
+                                    maxCount={1}
+                                    fileList={attachFile ? [{ uid: '-1', name: attachFile.name, status: 'done' as const }] : []}
+                                >
+                                    <Button icon={<UploadOutlined />} size="small">Selecionar arquivo</Button>
+                                </Upload>
+                                {attachFile && (
+                                    <Input
+                                        placeholder="Descrição do anexo (obrigatório)"
+                                        value={attachDesc}
+                                        onChange={(e) => setAttachDesc(e.target.value)}
+                                        style={{ marginTop: 8 }}
+                                    />
+                                )}
+                            </div>
+                        </Form>
+
+                        <Divider style={{ margin: '12px 0' }} />
+
+                        <div>
+                            <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8 }}><ShoppingOutlined style={{ marginRight: 6 }} />Produtos Extras (revenda)</div>
+                            <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 8 }}>Produtos que o cliente está levando além do serviço</div>
+                            <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                                <Select placeholder="Produto" value={addProdId} onChange={setAddProdId} style={{ flex: 1 }} allowClear showSearch optionFilterProp="children">
+                                    {availProds.map((p: any) => <Select.Option key={p.id} value={p.id}>{p.name} — {fmt(Number(p.sale_price) || 0)}</Select.Option>)}
+                                </Select>
+                                <InputNumber min={1} value={addProdQty} onChange={(v) => setAddProdQty(v || 1)} style={{ width: 65 }} />
+                                <Button icon={<PlusOutlined />} onClick={handleAddExtraProd} disabled={!addProdId} />
+                            </div>
+                            {extraProds.length > 0 && (
+                                <div style={{ border: '1px solid rgba(255,255,255,0.06)', borderRadius: 6, overflow: 'hidden', marginBottom: 12 }}>
+                                    {extraProds.map(ep => (
+                                        <div key={ep.key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 10px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                                            <span style={{ fontWeight: 500, fontSize: 12 }}>{ep.product_name} <span style={{ color: '#94a3b8' }}>x{ep.quantity}</span></span>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                <span style={{ fontSize: 12, fontWeight: 600 }}>{fmt(ep.quantity * ep.unit_price)}</span>
+                                                <Button type="text" danger size="small" icon={<DeleteOutlined />} onClick={() => setExtraProds(p => p.filter(x => x.key !== ep.key))} />
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
+                        <div style={{ padding: 12, background: 'rgba(34, 197, 94, 0.1)', borderRadius: 8, border: '1px solid #BBF7D0' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 16, fontWeight: 700 }}>
+                                <span>Total a Lançar</span>
+                                <span style={{ color: '#4ade80' }}>{fmt(calcFinalPrice())}</span>
+                            </div>
+                            {isSplitPay && (
+                                <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>
+                                    Pago agora: {fmt(Number(payForm.getFieldValue('amount_paid')) || 0)} · Restante: {fmt(Math.max(0, calcFinalPrice() - (Number(payForm.getFieldValue('amount_paid')) || 0)))}
+                                </div>
+                            )}
+                        </div>
+                    </>
+                )}
+            </Modal>
+        </Layout>
+    )
+}
+
+export default Schedule

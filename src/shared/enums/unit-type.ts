@@ -1,0 +1,16 @@
+export enum UNIT_TYPE_ENUM {
+  UN = 'UN',
+  G = 'G',
+  KG = 'KG',
+  ML = 'ML',
+  L = 'L',
+  MM = 'MM',
+  CM = 'CM',
+  M = 'M',
+  KM = 'KM',
+  M2 = 'M2',
+  M3 = 'M3',
+  W = 'W',
+  H = 'H',
+  MIN = 'MIN',
+}

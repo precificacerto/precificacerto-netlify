@@ -1,0 +1,311 @@
+import { useState, useCallback, useMemo } from 'react'
+import { useRouter } from 'next/router'
+import Image from 'next/image'
+import Link from 'next/link'
+import { Tooltip } from 'antd'
+import {
+  HomeOutlined,
+  BarChartOutlined,
+  WalletOutlined,
+  UnorderedListOutlined,
+  AppstoreOutlined,
+  DatabaseOutlined,
+  FileTextOutlined,
+  FundOutlined,
+  CalendarOutlined,
+  PieChartOutlined,
+  CustomerServiceOutlined,
+  SettingOutlined,
+  TeamOutlined,
+  LogoutOutlined,
+  UserOutlined,
+  ShoppingOutlined,
+  IdcardOutlined,
+  DownOutlined,
+  RightOutlined,
+  ToolOutlined,
+  SafetyCertificateOutlined,
+  BankOutlined,
+  MailOutlined,
+  ClockCircleOutlined,
+} from '@ant-design/icons'
+import { ROUTES } from '@/constants/routes'
+import { useAuth } from '@/hooks/use-auth.hook'
+import { usePermissions, MODULES, type ModuleKey } from '@/hooks/use-permissions.hook'
+import { PERMISSIONS } from '@/shared/enums/permissions'
+import { monthObjects } from '@/constants/month'
+
+const iconMap: Record<string, React.ReactNode> = {
+  home: <HomeOutlined />,
+  dashboard: <BarChartOutlined />,
+  wallet: <WalletOutlined />,
+  'unordered-list': <UnorderedListOutlined />,
+  appstore: <AppstoreOutlined />,
+  database: <DatabaseOutlined />,
+  'file-text': <FileTextOutlined />,
+  fund: <FundOutlined />,
+  calendar: <CalendarOutlined />,
+  'bar-chart': <PieChartOutlined />,
+  'customer-service': <CustomerServiceOutlined />,
+  setting: <SettingOutlined />,
+  team: <TeamOutlined />,
+  shopping: <ShoppingOutlined />,
+  idcard: <IdcardOutlined />,
+  tool: <ToolOutlined />,
+  'super-admin': <SafetyCertificateOutlined />,
+  'super-tenants': <TeamOutlined />,
+  'super-users': <UserOutlined />,
+  'super-billing': <BankOutlined />,
+  'super-invites': <MailOutlined />,
+  'super-cadastros': <ClockCircleOutlined />,
+  'super-plans': <ClockCircleOutlined />,
+}
+
+interface NavItemConfig {
+  key: string
+  label: string
+  icon: string
+  href: string
+  section?: string
+  adminOnly?: boolean
+  superAdminOnly?: boolean
+  hideForRepresentative?: boolean
+  hidden?: boolean
+  external?: boolean
+  module?: ModuleKey
+}
+
+interface SectionConfig {
+  key: string
+  label: string
+  collapsible: boolean
+}
+
+const Nav = () => {
+  const router = useRouter()
+  const { logout, currentUser } = useAuth()
+  const { isSuperAdmin, canView } = usePermissions()
+
+  const currentDate = new Date()
+  const currentYear = currentDate.getFullYear()
+  const currentMonth = Object.values(monthObjects).find(
+    (month) => month.number === currentDate.getMonth()
+  )?.short
+
+  const isAdmin = currentUser?.permissions?.find((value) => value === PERMISSIONS.ADMIN)
+  const isRepresentative = currentUser?.permissions?.find(
+    (value) => value === PERMISSIONS.REPRESENTATIVE
+  )
+
+  const navigationItems: NavItemConfig[] = [
+    { key: 'home', label: 'Home', icon: 'dashboard', href: ROUTES.DASHBOARD, section: 'geral', module: MODULES.HOME },
+    {
+      key: 'cashier',
+      label: 'Caixa',
+      icon: 'wallet',
+      href: `${ROUTES.CASHIER}/${currentYear}/${currentMonth}`,
+      section: 'geral',
+      hideForRepresentative: true,
+      module: MODULES.CASHIER,
+    },
+    { key: 'items', label: 'Itens', icon: 'unordered-list', href: ROUTES.ITEMS, section: 'cadastros', module: MODULES.ITEMS },
+    { key: 'products', label: 'Produtos', icon: 'appstore', href: ROUTES.PRODUCTS, section: 'cadastros', module: MODULES.PRODUCTS },
+    { key: 'services', label: 'Serviços', icon: 'tool', href: ROUTES.SERVICES, section: 'cadastros', module: MODULES.SERVICES },
+    { key: 'stock', label: 'Estoque', icon: 'database', href: ROUTES.STOCK, section: 'cadastros', module: MODULES.STOCK },
+    { key: 'production', label: 'Produção', icon: 'tool', href: ROUTES.PRODUCTION, section: 'cadastros', module: MODULES.STOCK, hidden: true },
+    { key: 'clients', label: 'Clientes', icon: 'team', href: ROUTES.CLIENTS, section: 'cadastros', module: MODULES.CUSTOMERS },
+    { key: 'employees', label: 'Funcionários', icon: 'idcard', href: ROUTES.EMPLOYEES, section: 'cadastros', adminOnly: true, module: MODULES.EMPLOYEES },
+
+    { key: 'budgets', label: 'Orçamentos', icon: 'file-text', href: ROUTES.BUDGETS, section: 'comercial', module: MODULES.BUDGETS },
+    { key: 'sales', label: 'Vendas', icon: 'shopping', href: ROUTES.SALES, section: 'comercial', module: MODULES.SALES },
+
+    { key: 'cashflow', label: 'Fluxo de Caixa', icon: 'shopping', href: ROUTES.CASH_FLOW, section: 'financeiro', module: MODULES.CASH_FLOW },
+
+    { key: 'calendar', label: 'Agenda', icon: 'calendar', href: ROUTES.SCHEDULE, section: 'operacional', module: MODULES.AGENDA },
+    { key: 'reports', label: 'Relatórios', icon: 'bar-chart', href: ROUTES.REPORTS, section: 'operacional', module: MODULES.REPORTS },
+    { key: 'connectivity', label: 'Conectividade', icon: 'setting', href: ROUTES.CONNECTIVITY, section: 'operacional', module: MODULES.CONNECTIVITY },
+    { key: 'users', label: 'Usuários', icon: 'team', href: ROUTES.USUARIOS, adminOnly: true, section: 'operacional', module: MODULES.USERS_MANAGEMENT },
+
+    { key: 'super-admin', label: 'Painel Super Admin', icon: 'super-admin', href: ROUTES.SUPER_ADMIN_PANEL, section: 'superadmin', superAdminOnly: true },
+    { key: 'super-tenants', label: 'Tenants', icon: 'super-tenants', href: ROUTES.SUPER_ADMIN_TENANTS, section: 'superadmin', superAdminOnly: true },
+    { key: 'super-users', label: 'Usuários', icon: 'super-users', href: ROUTES.SUPER_ADMIN_USERS, section: 'superadmin', superAdminOnly: true },
+    { key: 'super-billing', label: 'Pagamentos', icon: 'super-billing', href: ROUTES.SUPER_ADMIN_BILLING, section: 'superadmin', superAdminOnly: true },
+    { key: 'super-invites', label: 'Convites', icon: 'super-invites', href: ROUTES.SUPER_ADMIN_INVITES, section: 'superadmin', superAdminOnly: true },
+    { key: 'super-cadastros', label: 'Cadastros', icon: 'super-cadastros', href: ROUTES.SUPER_ADMIN_CADASTROS, section: 'superadmin', superAdminOnly: true },
+    { key: 'super-plans', label: 'Planos Expirando', icon: 'super-plans', href: ROUTES.SUPER_ADMIN_PLANS_EXPIRING, section: 'superadmin', superAdminOnly: true },
+  ]
+
+  const sectionsToHideForSuperAdmin = ['geral', 'cadastros', 'comercial', 'financeiro', 'operacional']
+
+  const visibleItems = navigationItems.filter((item) => {
+    if (item.hidden) return false
+    if (item.adminOnly && !isAdmin) return false
+    if (item.superAdminOnly && !isSuperAdmin) return false
+    if (item.hideForRepresentative && isRepresentative) return false
+    if (item.module && !canView(item.module)) return false
+    // Super_admin: ocultar abas de usuário (home, caixa, hub, cadastro, comercial, financeiro, operacional)
+    if (isSuperAdmin && item.section && sectionsToHideForSuperAdmin.includes(item.section)) return false
+    return true
+  })
+
+  const sections: SectionConfig[] = [
+    { key: 'geral', label: '', collapsible: false },
+    { key: 'cadastros', label: 'Cadastros', collapsible: true },
+    { key: 'comercial', label: 'Comercial', collapsible: true },
+    { key: 'financeiro', label: 'Financeiro', collapsible: true },
+    { key: 'operacional', label: 'Operacional', collapsible: true },
+    { key: 'superadmin', label: 'Super Admin', collapsible: true },
+  ]
+
+  const isRouteActive = useCallback((href: string): boolean => {
+    if (href === '/') return router.pathname === '/'
+    const basePath = href.split('/')[1]
+    return basePath ? router.pathname.startsWith(`/${basePath}`) : false
+  }, [router.pathname])
+
+  const sectionHasActiveItem = useCallback((sectionKey: string): boolean => {
+    return visibleItems
+      .filter((item) => item.section === sectionKey)
+      .some((item) => isRouteActive(item.href))
+  }, [visibleItems, isRouteActive])
+
+  const initialExpanded = useMemo(() => {
+    const expanded: Record<string, boolean> = {}
+    sections.forEach((s) => {
+      if (s.collapsible) {
+        expanded[s.key] = sectionHasActiveItem(s.key)
+      }
+    })
+    return expanded
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>(initialExpanded)
+
+  const toggleSection = (key: string) => {
+    setExpandedSections((prev) => ({ ...prev, [key]: !prev[key] }))
+  }
+
+  async function handleClickLogout(): Promise<void> {
+    await logout()
+  }
+
+  function handleSupportClick() {
+    const whatsappUrl = `https://api.whatsapp.com/send?phone=555199114290&text=Ol%C3%A1%2C%20estou%20precisando%20de%20suporte%2C%20meu%20email%20%C3%A9%3A%20${currentUser?.email}`
+    window.open(whatsappUrl, '_blank')
+  }
+
+  function renderNavItem(item: NavItemConfig) {
+    const isActive = isRouteActive(item.href)
+
+    return (
+      <Link
+        key={item.key}
+        href={item.href}
+        className={`app-nav-item ${isActive ? 'active' : ''}`}
+        id={`nav-${item.key}`}
+      >
+        <span className="nav-icon">{iconMap[item.icon]}</span>
+        <span>{item.label}</span>
+      </Link>
+    )
+  }
+
+  return (
+    <nav className="app-sidebar" id="main-sidebar">
+      <div className="app-sidebar-logo">
+        <Link href={ROUTES.DASHBOARD}>
+          <Image src="/logo.svg" alt="Precifica Certo" width={160} height={100} priority />
+        </Link>
+      </div>
+
+      <div className="app-sidebar-nav">
+        {sections.map((section) => {
+          const sectionItems = visibleItems.filter((item) => item.section === section.key)
+          if (sectionItems.length === 0) return null
+
+          const isCollapsible = section.collapsible
+          const isExpanded = !isCollapsible || expandedSections[section.key]
+
+          return (
+            <div key={section.key} className="nav-section">
+              {section.label && (
+                <button
+                  className="nav-section-header"
+                  onClick={() => isCollapsible && toggleSection(section.key)}
+                  type="button"
+                >
+                  <span className="nav-section-label">{section.label}</span>
+                  {isCollapsible && (
+                    <span className="nav-section-arrow">
+                      {isExpanded ? <DownOutlined /> : <RightOutlined />}
+                    </span>
+                  )}
+                </button>
+              )}
+              <div className={`nav-section-items ${isExpanded ? 'expanded' : 'collapsed'}`}>
+                {sectionItems.map(renderNavItem)}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      <div className="app-sidebar-footer">
+        {currentUser && (
+          <Link
+            href={ROUTES.MY_ACCOUNT}
+            className={`app-nav-item ${router.pathname === '/minha-conta' ? 'active' : ''}`}
+            id="nav-my-account"
+            style={{ marginBottom: '4px' }}
+          >
+            <span className="nav-icon"><UserOutlined /></span>
+            <Tooltip title={currentUser.email}>
+              <span style={{
+                fontSize: '13px',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                maxWidth: '140px',
+              }}>
+                {currentUser.name?.trim() || currentUser.email}
+              </span>
+            </Tooltip>
+          </Link>
+        )}
+
+        {isAdmin && (
+          <Link
+            href={ROUTES.SETTINGS}
+            className={`app-nav-item ${isRouteActive(ROUTES.SETTINGS) ? 'active' : ''}`}
+            id="nav-settings"
+          >
+            <span className="nav-icon"><SettingOutlined /></span>
+            <span>Configurações</span>
+          </Link>
+        )}
+
+        <button
+          className="app-nav-item"
+          onClick={handleSupportClick}
+          id="nav-support"
+        >
+          <span className="nav-icon"><CustomerServiceOutlined /></span>
+          <span>Suporte</span>
+        </button>
+
+        <button
+          className="app-nav-item"
+          onClick={handleClickLogout}
+          id="nav-logout"
+          style={{ color: 'var(--color-error, #F04438)' }}
+        >
+          <span className="nav-icon"><LogoutOutlined /></span>
+          <span>Sair</span>
+        </button>
+      </div>
+    </nav>
+  )
+}
+
+export { Nav }

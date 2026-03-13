@@ -1,0 +1,1050 @@
+import React, { useState, useEffect, useCallback } from 'react'
+import { Button, Card, Form, Input, InputNumber, Radio, Select, Tabs, message, Alert, Spin, Divider } from 'antd'
+import { Layout } from '@/components/layout/layout.component'
+import { PAGE_TITLES } from '@/constants/page-titles'
+import { supabase } from '@/supabase/client'
+import { getTenantId as fetchTenantId } from '@/utils/get-tenant-id'
+import type { Tenant, TenantSettings, BrazilianState } from '@/supabase/types'
+import {
+    ShopOutlined,
+    BankOutlined,
+    TeamOutlined,
+    SaveOutlined,
+    InfoCircleOutlined,
+    DollarOutlined,
+    LockOutlined,
+    SettingOutlined,
+} from '@ant-design/icons'
+import { mergeExpenseConfig } from '@/utils/recalc-expense-config'
+import { useAuth } from '@/hooks/use-auth.hook'
+import { CALC_TYPE_ENUM } from '@/shared/enums/calc-type'
+import { UNIT_MEASURE_ENUM } from '@/shared/enums/unit-measure-type'
+
+interface TaxTabProps {
+    taxForm: ReturnType<typeof Form.useForm>[0]
+    brazilianStates: BrazilianState[]
+    tenantSettings: TenantSettings | null
+    loading: boolean
+    onSave: () => void
+}
+
+function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSave }: TaxTabProps) {
+    const [regime, setRegime] = useState<string>(tenantSettings?.tax_regime || '')
+    const [stateCode, setStateCode] = useState<string>(tenantSettings?.state_code?.trim() || '')
+    const [anexo, setAnexo] = useState<string>(tenantSettings?.simples_anexo || '')
+    const [revenue12m, setRevenue12m] = useState<number>(Number(tenantSettings?.simples_revenue_12m) || 0)
+    const [lpActivity, setLpActivity] = useState<string>(tenantSettings?.lucro_presumido_activity || 'COMERCIO')
+    const [effectiveRate, setEffectiveRate] = useState<number | null>(null)
+
+    useEffect(() => {
+        if (tenantSettings) {
+            const r = tenantSettings.tax_regime || ''
+            const sc = tenantSettings.state_code?.trim() || ''
+            setRegime(r)
+            setStateCode(sc)
+            setAnexo(tenantSettings.simples_anexo || '')
+            setRevenue12m(Number(tenantSettings.simples_revenue_12m) || 0)
+            setLpActivity(tenantSettings.lucro_presumido_activity || 'COMERCIO')
+            taxForm.setFieldsValue({
+                regime: r,
+                state_code: sc,
+                simples_anexo: tenantSettings.simples_anexo || undefined,
+                revenue_input_type: 'TOTAL_12M',
+                revenue_value: Number(tenantSettings.simples_revenue_12m) || undefined,
+                lucro_presumido_activity: tenantSettings.lucro_presumido_activity || 'COMERCIO',
+                ret_rate: tenantSettings.ret_rate != null ? Number(tenantSettings.ret_rate) * 100 : 4,
+            })
+            if (r === 'SIMPLES_NACIONAL' && tenantSettings.simples_anexo) {
+                calcSimplesRate(tenantSettings.simples_anexo, Number(tenantSettings.simples_revenue_12m) || 0)
+            }
+        }
+    }, [tenantSettings])
+
+    const calcSimplesRate = useCallback(async (anexoRaw: string, rev: number) => {
+        const a = (anexoRaw || '').replace(/^ANEXO_/i, '') || 'I'
+        const { data: brackets } = await supabase
+            .from('simples_nacional_brackets')
+            .select('nominal_rate, deduction, revenue_min, revenue_max')
+            .eq('anexo', a)
+            .order('bracket_order', { ascending: true })
+
+        if (brackets && brackets.length > 0) {
+            let bracket = brackets[0]
+            for (const b of brackets) {
+                if (rev >= Number(b.revenue_min) && rev <= Number(b.revenue_max)) { bracket = b; break }
+            }
+            const nom = Number(bracket.nominal_rate)
+            const ded = Number(bracket.deduction)
+            const eff = rev > 0 ? (rev * nom - ded) / rev : nom
+            setEffectiveRate(Math.round(eff * 10000) / 100)
+        } else {
+            setEffectiveRate(null)
+        }
+    }, [])
+
+    const stateData = brazilianStates.find(s => s.code?.trim() === stateCode)
+    const icmsPercent = stateData?.icms_internal_rate != null ? Number(stateData.icms_internal_rate) * 100 : null
+    const issPercent = tenantSettings?.iss_municipality_rate ? Number(tenantSettings.iss_municipality_rate) * 100 : 5
+
+    const isMei = regime === 'MEI'
+    const isSN = regime === 'SIMPLES_NACIONAL'
+    const isLP = regime === 'LUCRO_PRESUMIDO'
+    const isRet = regime === 'LUCRO_PRESUMIDO_RET'
+    const isLR = regime === 'LUCRO_REAL'
+
+    return (
+        <div style={{ maxWidth: 720 }}>
+            <p style={{ color: 'var(--color-neutral-500)', fontSize: 13, marginBottom: 20 }}>
+                Configure o regime tributário. As alíquotas são calculadas automaticamente com base no regime e UF.
+            </p>
+            <Form form={taxForm} layout="vertical">
+                <Form.Item name="regime" label="Regime Tributário" rules={[{ required: true }]}>
+                    <Select
+                        onChange={(val: string) => {
+                            setRegime(val)
+                            setEffectiveRate(null)
+                        }}
+                    >
+                        <Select.Option value="MEI">MEI</Select.Option>
+                        <Select.Option value="SIMPLES_NACIONAL">Simples Nacional</Select.Option>
+                        <Select.Option value="LUCRO_PRESUMIDO">Lucro Presumido</Select.Option>
+                        <Select.Option value="LUCRO_PRESUMIDO_RET">Lucro Presumido RET</Select.Option>
+                        <Select.Option value="LUCRO_REAL">Lucro Real</Select.Option>
+                    </Select>
+                </Form.Item>
+
+                <Form.Item name="state_code" label="UF da Empresa" style={{ maxWidth: 200 }}>
+                    <Select
+                        showSearch
+                        optionFilterProp="children"
+                        onChange={(val: string) => setStateCode(val)}
+                    >
+                        {brazilianStates.map(s => (
+                            <Select.Option key={s.code} value={s.code?.trim()}>{s.code?.trim()}</Select.Option>
+                        ))}
+                    </Select>
+                </Form.Item>
+
+                {isMei && (
+                    <Alert
+                        type="info"
+                        showIcon
+                        style={{ marginBottom: 16, borderRadius: 8 }}
+                        message="MEI — Tributação simplificada"
+                        description="O MEI paga um valor fixo mensal (DAS) que já inclui INSS, ICMS e ISS. Não há cálculo de impostos por produto."
+                    />
+                )}
+
+                {isSN && (
+                    <Form.Item name="simples_anexo" label="Anexo do Simples Nacional" rules={[{ required: true, message: 'Selecione o Anexo' }]}>
+                        <Select
+                            placeholder="Selecione o Anexo"
+                            onChange={(val: string) => {
+                                setAnexo(val)
+                                calcSimplesRate(val, revenue12m)
+                            }}
+                        >
+                            <Select.Option value="ANEXO_I">Anexo I — Comércio</Select.Option>
+                            <Select.Option value="ANEXO_II">Anexo II — Indústria</Select.Option>
+                            <Select.Option value="ANEXO_III">Anexo III — Serviços (locação, reparação)</Select.Option>
+                            <Select.Option value="ANEXO_IV">Anexo IV — Serviços (limpeza, vigilância)</Select.Option>
+                            <Select.Option value="ANEXO_V">Anexo V — Serviços (TI, engenharia)</Select.Option>
+                        </Select>
+                    </Form.Item>
+                )}
+
+                {regime && !isMei && (
+                    <>
+                        <Form.Item
+                            name="revenue_input_type"
+                            label="Como deseja informar o faturamento?"
+                            initialValue="TOTAL_12M"
+                            tooltip="Usado para tributação e para o recálculo de despesas na precificação. Se não tiver 12 meses de histórico, use faturamento médio por mês."
+                        >
+                            <Radio.Group
+                                onChange={(e) => {
+                                    const newType = e.target.value
+                                    const prevType = taxForm.getFieldValue('revenue_input_type')
+                                    const val = Number(taxForm.getFieldValue('revenue_value')) || 0
+                                    if (prevType === 'TOTAL_12M' && newType === 'AVERAGE_MONTHLY') {
+                                        taxForm.setFieldValue('revenue_value', val > 0 ? Math.round(val / 12) : 0)
+                                    } else if (prevType === 'AVERAGE_MONTHLY' && newType === 'TOTAL_12M') {
+                                        taxForm.setFieldValue('revenue_value', val * 12)
+                                    }
+                                    const rev = newType === 'AVERAGE_MONTHLY' ? (Number(taxForm.getFieldValue('revenue_value')) || 0) * 12 : (Number(taxForm.getFieldValue('revenue_value')) || 0)
+                                    setRevenue12m(rev)
+                                    if (isSN && anexo) calcSimplesRate(anexo, rev)
+                                }}
+                            >
+                                <Radio value="TOTAL_12M" style={{ display: 'block', marginBottom: 6 }}>Faturamento total dos últimos 12 meses</Radio>
+                                <Radio value="AVERAGE_MONTHLY" style={{ display: 'block' }}>Faturamento médio por mês (empresa nova ou sem 12 meses)</Radio>
+                            </Radio.Group>
+                        </Form.Item>
+                        <Form.Item
+                            noStyle
+                            shouldUpdate={(prev, curr) => prev.revenue_input_type !== curr.revenue_input_type || prev.revenue_value !== curr.revenue_value}
+                        >
+                            {({ getFieldValue }) => {
+                                const type = getFieldValue('revenue_input_type')
+                                return (
+                                    <Form.Item
+                                        name="revenue_value"
+                                        label={type !== 'AVERAGE_MONTHLY' ? 'Faturamento total dos últimos 12 meses (R$)' : 'Faturamento médio por mês (R$)'}
+                                        rules={[{ required: true, message: 'Informe o faturamento' }, { type: 'number', min: 0, message: 'Deve ser ≥ 0' }]}
+                                        tooltip={type !== 'AVERAGE_MONTHLY'
+                                            ? 'Usado para tributação e para o recálculo de despesas. Não depende do fluxo de caixa.'
+                                            : 'Estimativa de faturamento mensal. O sistema usará esse valor × 12 como base até ter histórico no fluxo.'}
+                                    >
+                                        <InputNumber
+                                            min={0}
+                                            step={type === 'AVERAGE_MONTHLY' ? 500 : 1000}
+                                            style={{ width: '100%' }}
+                                            formatter={v => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, '.')}
+                                            parser={v => Number((v || '').replace(/\./g, ''))}
+                                            onChange={(num) => {
+                                                const rev = type === 'AVERAGE_MONTHLY' ? (Number(num) || 0) * 12 : (Number(num) || 0)
+                                                setRevenue12m(rev)
+                                                if (isSN && anexo) calcSimplesRate(anexo, rev)
+                                            }}
+                                        />
+                                    </Form.Item>
+                                )
+                            }}
+                        </Form.Item>
+                    </>
+                )}
+
+                        {isRet && (
+                    <>
+                        <Form.Item
+                            name="ret_rate"
+                            label="Alíquota RET (%)"
+                            tooltip="Alíquota única que engloba IRPJ, CSLL, PIS e COFINS. Padrão 4% para construção civil e incorporação imobiliária. Confirme com seu contador."
+                            initialValue={4}
+                        >
+                            <InputNumber min={0} max={100} step={0.1} style={{ width: 200 }} addonAfter="%" />
+                        </Form.Item>
+                        <Alert
+                            type="info"
+                            showIcon
+                            style={{ marginBottom: 16, borderRadius: 8 }}
+                            message="Lucro Presumido RET — Regime Especial de Tributação"
+                            description="Alíquota única que engloba IRPJ, CSLL, PIS e COFINS. Sem ICMS ou ISS separados. Sem créditos de compras. CMV bruto."
+                        />
+                    </>
+                )}
+
+                {isLP && (
+                    <Form.Item name="lucro_presumido_activity" label="Tipo de Atividade (presunção IRPJ/CSLL)">
+                        <Select onChange={(val: string) => setLpActivity(val)}>
+                            <Select.Option value="COMERCIO">Comércio em geral</Select.Option>
+                            <Select.Option value="INDUSTRIA">Indústria</Select.Option>
+                            <Select.Option value="SERVICO_GERAL">Serviço em geral</Select.Option>
+                            <Select.Option value="SERVICO_HOSPITALAR">Serviços hospitalares</Select.Option>
+                            <Select.Option value="SERVICO_TRANSPORTE_CARGA">Transporte de carga</Select.Option>
+                            <Select.Option value="SERVICO_TRANSPORTE_PASSAG">Transporte de passageiros</Select.Option>
+                            <Select.Option value="REVENDA_COMBUSTIVEL">Revenda de combustíveis</Select.Option>
+                        </Select>
+                    </Form.Item>
+                )}
+
+                {regime && !isMei && (
+                    <>
+                        <Divider />
+                        <h4 style={{ fontWeight: 600, marginBottom: 4 }}>
+                            Alíquotas de Referência
+                            <span style={{ fontWeight: 400, fontSize: 12, color: 'var(--color-neutral-400)', marginLeft: 8 }}>
+                                <LockOutlined /> Calculadas automaticamente
+                            </span>
+                        </h4>
+                        <p style={{ fontSize: 12, color: 'var(--color-neutral-400)', marginBottom: 16 }}>
+                            Esses valores são usados automaticamente na precificação dos seus produtos.
+                        </p>
+
+                        {isSN && (
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                                <Card size="small" style={{ textAlign: 'center', borderRadius: 8, background: 'linear-gradient(135deg, rgba(18,183,106,0.06), rgba(18,183,106,0.02))' }}>
+                                    <div style={{ fontSize: 12, color: 'var(--color-neutral-500)' }}>Alíquota Efetiva</div>
+                                    <div style={{ fontSize: 24, fontWeight: 700, color: '#12B76A' }}>
+                                        {effectiveRate != null ? `${effectiveRate.toFixed(2)}%` : '—'}
+                                    </div>
+                                    <div style={{ fontSize: 11, color: 'var(--color-neutral-400)', marginTop: 4 }}>
+                                        Inclui ICMS, PIS, COFINS, ISS, IRPJ, CSLL, CPP
+                                    </div>
+                                </Card>
+                                <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
+                                    <div style={{ fontSize: 12, color: 'var(--color-neutral-500)' }}>Anexo</div>
+                                    <div style={{ fontSize: 20, fontWeight: 700 }}>
+                                        {anexo ? anexo.replace('ANEXO_', '') : '—'}
+                                    </div>
+                                    <div style={{ fontSize: 11, color: 'var(--color-neutral-400)', marginTop: 4 }}>
+                                        Faturamento: R$ {revenue12m.toLocaleString('pt-BR')}
+                                    </div>
+                                </Card>
+                            </div>
+                        )}
+
+                        {isLP && (
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+                                <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
+                                    <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>ICMS Interno ({stateCode})</div>
+                                    <div style={{ fontSize: 18, fontWeight: 700 }}>{icmsPercent != null ? `${icmsPercent.toFixed(0)}%` : '—'}</div>
+                                </Card>
+                                <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
+                                    <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>PIS (cumulativo)</div>
+                                    <div style={{ fontSize: 18, fontWeight: 700 }}>0,65%</div>
+                                </Card>
+                                <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
+                                    <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>COFINS (cumulativo)</div>
+                                    <div style={{ fontSize: 18, fontWeight: 700 }}>3,00%</div>
+                                </Card>
+                                <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
+                                    <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>ISS Municipal</div>
+                                    <div style={{ fontSize: 18, fontWeight: 700 }}>{issPercent.toFixed(1)}%</div>
+                                    <div style={{ fontSize: 10, color: 'var(--color-neutral-400)' }}>Detectado via CNPJ</div>
+                                </Card>
+                                <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
+                                    <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>IRPJ (estimativa)</div>
+                                    <div style={{ fontSize: 18, fontWeight: 700 }}>1,20%</div>
+                                    <div style={{ fontSize: 10, color: 'var(--color-neutral-400)' }}>8% × 15%</div>
+                                </Card>
+                                <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
+                                    <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>CSLL (estimativa)</div>
+                                    <div style={{ fontSize: 18, fontWeight: 700 }}>1,08%</div>
+                                    <div style={{ fontSize: 10, color: 'var(--color-neutral-400)' }}>12% × 9%</div>
+                                </Card>
+                            </div>
+                        )}
+
+                        {isLR && (
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+                                <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
+                                    <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>ICMS Interno ({stateCode})</div>
+                                    <div style={{ fontSize: 18, fontWeight: 700 }}>{icmsPercent != null ? `${icmsPercent.toFixed(0)}%` : '—'}</div>
+                                </Card>
+                                <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
+                                    <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>PIS (não-cumulativo)</div>
+                                    <div style={{ fontSize: 18, fontWeight: 700 }}>1,65%</div>
+                                </Card>
+                                <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
+                                    <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>COFINS (não-cumulativo)</div>
+                                    <div style={{ fontSize: 18, fontWeight: 700 }}>7,60%</div>
+                                </Card>
+                                <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
+                                    <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>ISS Municipal</div>
+                                    <div style={{ fontSize: 18, fontWeight: 700 }}>{issPercent.toFixed(1)}%</div>
+                                    <div style={{ fontSize: 10, color: 'var(--color-neutral-400)' }}>Detectado via CNPJ</div>
+                                </Card>
+                                <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
+                                    <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>IRPJ (estimativa)</div>
+                                    <div style={{ fontSize: 18, fontWeight: 700 }}>1,20%</div>
+                                    <div style={{ fontSize: 10, color: 'var(--color-neutral-400)' }}>8% × 15%</div>
+                                </Card>
+                                <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
+                                    <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>CSLL (estimativa)</div>
+                                    <div style={{ fontSize: 18, fontWeight: 700 }}>1,08%</div>
+                                    <div style={{ fontSize: 10, color: 'var(--color-neutral-400)' }}>12% × 9%</div>
+                                </Card>
+                            </div>
+                        )}
+                    </>
+                )}
+
+                <div style={{ marginTop: 20 }}>
+                    <Button type="primary" icon={<SaveOutlined />} onClick={onSave} loading={loading}>
+                        Salvar Configurações Fiscais
+                    </Button>
+                </div>
+            </Form>
+        </div>
+    )
+}
+
+const REGIME_TAXABLE_OPTIONS = { NATIONAL_SIMPLE: 'NATIONAL_SIMPLE', MEI: 'MEI' } as const
+type REGIME_TAXABLE_TYPES = 'NATIONAL_SIMPLE' | 'MEI'
+
+function Settings() {
+    const [messageApi, contextHolder] = message.useMessage()
+    const [businessForm] = Form.useForm()
+    const [taxForm] = Form.useForm()
+    const [calcForm] = Form.useForm()
+    const { currentUser, setCurrentUser } = useAuth()
+    const [activeTab, setActiveTab] = useState('business')
+    const [loading, setLoading] = useState(false)
+    const [savingCalc, setSavingCalc] = useState(false)
+    const [taxableRegimeInput, setTaxableRegimeInput] = useState<REGIME_TAXABLE_TYPES>('NATIONAL_SIMPLE')
+
+    const [tenant, setTenant] = useState<Tenant | null>(null)
+    const [tenantSettings, setTenantSettings] = useState<TenantSettings | null>(null)
+    const [brazilianStates, setBrazilianStates] = useState<BrazilianState[]>([])
+
+    const [teamProductive, setTeamProductive] = useState(0)
+    const [teamAdministrative, setTeamAdministrative] = useState(0)
+    const [hoursPerDay, setHoursPerDay] = useState(8)
+    const [daysPerMonth, setDaysPerMonth] = useState(22)
+    const [adminHoursPerDay, setAdminHoursPerDay] = useState(8)
+    const [adminDaysPerMonth, setAdminDaysPerMonth] = useState(22)
+
+    const [expenseConfig, setExpenseConfig] = useState<any>(null)
+
+    const getTenantId = async (): Promise<string | null> => fetchTenantId()
+
+    const fetchAll = async () => {
+        setLoading(true)
+        try {
+            const tenantId = await getTenantId()
+            if (!tenantId) { messageApi.error('Não foi possível identificar o tenant.'); return }
+
+            const [tenantRes, settingsRes, statesRes, expCfgRes] = await Promise.all([
+                supabase.from('tenants').select('*').eq('id', tenantId).single(),
+                supabase.from('tenant_settings').select('*').eq('tenant_id', tenantId).single(),
+                supabase.from('brazilian_states').select('*').order('code', { ascending: true }),
+                supabase.from('tenant_expense_config').select('*').eq('tenant_id', tenantId).single(),
+            ])
+
+            if (tenantRes.data) {
+                setTenant(tenantRes.data)
+                businessForm.setFieldsValue({
+                    companyName: tenantRes.data.name, cnpj: tenantRes.data.cnpj_cpf,
+                    segment: tenantRes.data.segment ?? '',
+                    email: tenantRes.data.email, phone: tenantRes.data.phone,
+                    cep: tenantRes.data.cep, address: tenantRes.data.street,
+                    number: tenantRes.data.number, complement: tenantRes.data.complement,
+                    neighborhood: tenantRes.data.neighborhood, city: tenantRes.data.city,
+                    state: tenantRes.data.state_code,
+                })
+            }
+
+            if (settingsRes.data) {
+                setTenantSettings(settingsRes.data)
+                const s = settingsRes.data
+                setTeamProductive(s.num_productive_employees ?? 0)
+                setTeamAdministrative(s.num_administrative_employees ?? 0)
+                setHoursPerDay(s.monthly_workload ? Math.round(Number(s.monthly_workload) / 22) : 8)
+                setDaysPerMonth(22)
+                const adminWorkload = Number((s as any).administrative_monthly_workload) || 176
+                setAdminHoursPerDay(Math.round(adminWorkload / 22))
+                setAdminDaysPerMonth(22)
+            }
+
+            if (statesRes.data) setBrazilianStates(statesRes.data)
+            if (expCfgRes.data) {
+                const e = expCfgRes.data as any
+                const adminMonthly =
+                    (Number(e.admin_salary_total) || 0) +
+                    (Number(e.admin_fgts_total) || 0) +
+                    (Number(e.admin_other_costs) || 0)
+                setExpenseConfig({
+                    ...e,
+                    admin_labor_monthly: adminMonthly,
+                })
+            }
+        } catch (error: any) {
+            console.error('Erro ao carregar configurações:', error)
+            messageApi.error('Erro ao carregar configurações: ' + (error.message || 'Erro desconhecido'))
+        } finally {
+            setLoading(false)
+        }
+    }
+
+    useEffect(() => { fetchAll() }, [])
+
+    useEffect(() => {
+        if (!tenantSettings) return
+        const s = tenantSettings
+        const reg = (s.tax_regime === 'MEI' ? 'MEI' : 'NATIONAL_SIMPLE') as REGIME_TAXABLE_TYPES
+        setTaxableRegimeInput(reg)
+        calcForm.setFieldsValue({
+            calcType: s.calc_type || CALC_TYPE_ENUM.SERVICE,
+            unitMeasure: s.workload_unit || 'MINUTES',
+            monthlyWorkloadInMinutes: Number(s.monthly_workload) || 0,
+            numProductiveSectorEmployee: s.num_productive_employees ?? 1,
+            numAdministrativeSectorEmployee: s.num_administrative_employees ?? 0,
+            taxableRegime: reg,
+            taxableRegimeValue: Number(expenseConfig?.taxable_regime_percent) || 0,
+        })
+    }, [tenantSettings, expenseConfig, calcForm])
+
+    async function handleSaveBusiness() {
+        try {
+            const values = await businessForm.validateFields()
+            if (!tenant) return
+            const { error } = await supabase.from('tenants').update({
+                name: values.companyName, cnpj_cpf: values.cnpj, segment: values.segment || null,
+                email: values.email, phone: values.phone, cep: values.cep, street: values.address,
+                number: values.number, complement: values.complement,
+                neighborhood: values.neighborhood, city: values.city,
+                state_code: values.state, updated_at: new Date().toISOString(),
+            }).eq('id', tenant.id)
+            if (error) throw error
+            messageApi.success('Dados da empresa salvos!')
+            await fetchAll()
+        } catch (error: any) {
+            messageApi.error('Erro ao salvar: ' + (error.message || 'Verifique os campos'))
+        }
+    }
+
+    async function handleSaveTax() {
+        try {
+            const values = await taxForm.validateFields()
+            if (!tenantSettings) return
+            const revenueVal = Number(values.revenue_value) || 0
+            const revenueType = values.revenue_input_type || 'TOTAL_12M'
+            const simplesRevenue12m = revenueType === 'AVERAGE_MONTHLY' ? revenueVal * 12 : revenueVal
+            const updateData: Record<string, any> = {
+                tax_regime: values.regime,
+                state_code: values.state_code,
+                simples_revenue_12m: simplesRevenue12m,
+                updated_at: new Date().toISOString(),
+            }
+            if (values.regime === 'SIMPLES_NACIONAL') {
+                updateData.simples_anexo = values.simples_anexo || null
+            }
+            if (values.regime === 'LUCRO_PRESUMIDO') {
+                updateData.lucro_presumido_activity = values.lucro_presumido_activity || 'COMERCIO'
+            }
+            if (values.regime === 'LUCRO_PRESUMIDO_RET') {
+                updateData.ret_rate = (Number(values.ret_rate) || 4) / 100
+            }
+            const { error } = await supabase.from('tenant_settings').update(updateData).eq('id', tenantSettings.id)
+            if (error) throw error
+            messageApi.success('Configurações fiscais salvas!')
+            await fetchAll()
+        } catch (error: any) {
+            messageApi.error('Erro ao salvar: ' + (error.message || 'Verifique os campos'))
+        }
+    }
+
+    async function handleSaveTeam() {
+        try {
+            if (!tenantSettings) return
+            const { error } = await supabase.from('tenant_settings').update({
+                num_productive_employees: teamProductive,
+                num_commercial_employees: 0,
+                num_administrative_employees: teamAdministrative,
+                monthly_workload: hoursPerDay * daysPerMonth,
+                administrative_monthly_workload: adminHoursPerDay * adminDaysPerMonth,
+                updated_at: new Date().toISOString(),
+            }).eq('id', tenantSettings.id)
+            if (error) throw error
+            messageApi.success('Equipe atualizada!')
+        } catch (error: any) {
+            messageApi.error('Erro ao salvar: ' + (error.message || 'Erro'))
+        }
+    }
+
+    async function handleSaveCalc() {
+        try {
+            await calcForm.validateFields()
+            setSavingCalc(true)
+            const values = calcForm.getFieldsValue()
+            const tenantId = await getTenantId()
+            if (!tenantId) {
+                messageApi.error('Não foi possível identificar o tenant.')
+                return
+            }
+            const isIndustrialization = values.calcType === CALC_TYPE_ENUM.INDUSTRIALIZATION
+            const isResale = values.calcType === CALC_TYPE_ENUM.RESALE
+            let unitMeasure = values.unitMeasure
+            if (isIndustrialization) unitMeasure = UNIT_MEASURE_ENUM.HOURS
+            if (isResale) unitMeasure = UNIT_MEASURE_ENUM.MINUTES
+
+            const { error: settingsError } = await supabase
+                .from('tenant_settings')
+                .update({
+                    calc_type: values.calcType,
+                    workload_unit: unitMeasure,
+                    monthly_workload: Number(values.monthlyWorkloadInMinutes) || 0,
+                    num_productive_employees: Number(values.numProductiveSectorEmployee) || 1,
+                    num_commercial_employees: 0,
+                    num_administrative_employees: Number(values.numAdministrativeSectorEmployee) || 0,
+                    updated_at: new Date().toISOString(),
+                })
+                .eq('tenant_id', tenantId)
+            if (settingsError) throw settingsError
+
+            const { error: expenseError } = await supabase
+                .from('tenant_expense_config')
+                .update({
+                    taxable_regime_percent: Number(values.taxableRegimeValue) || 0,
+                    updated_at: new Date().toISOString(),
+                })
+                .eq('tenant_id', tenantId)
+            if (expenseError) throw expenseError
+
+            if (currentUser) {
+                setCurrentUser({
+                    ...currentUser,
+                    calcType: values.calcType,
+                    unitMeasure,
+                    monthlyWorkloadInMinutes: Number(values.monthlyWorkloadInMinutes) || 0,
+                    numProductiveSectorEmployee: Number(values.numProductiveSectorEmployee) || 1,
+                    numComercialSectorEmployee: 0,
+                    numAdministrativeSectorEmployee: Number(values.numAdministrativeSectorEmployee) || 0,
+                    taxableRegime: values.taxableRegime,
+                    taxableRegimeValue: Number(values.taxableRegimeValue) || 0,
+                })
+            }
+            messageApi.success('Configurações de cálculo salvas!')
+            await fetchAll()
+        } catch (err: any) {
+            messageApi.error(err?.message || 'Preencha todos os campos corretamente.')
+        } finally {
+            setSavingCalc(false)
+        }
+    }
+
+    async function handleSaveExpenseConfig() {
+        try {
+            if (!expenseConfig) {
+                const tenantId = await getTenantId()
+                if (!tenantId) return
+                const { error } = await supabase.from('tenant_expense_config').insert({
+                    tenant_id: tenantId,
+                    indirect_labor_percent: expenseConfig?.indirect_labor_percent ?? 0,
+                    fixed_expense_percent: expenseConfig?.fixed_expense_percent ?? 0,
+                    variable_expense_percent: expenseConfig?.variable_expense_percent ?? 0,
+                    financial_expense_percent: expenseConfig?.financial_expense_percent ?? 0,
+                    production_labor_cost: expenseConfig?.production_labor_cost ?? 0,
+                    admin_salary_total: expenseConfig?.admin_labor_monthly ?? 0,
+                    admin_fgts_total: 0,
+                    admin_other_costs: 0,
+                    admin_labor_percent: expenseConfig?.indirect_labor_percent ?? 0,
+                    commission_percent: expenseConfig?.commission_percent ?? 0,
+                    taxable_regime_percent: expenseConfig?.taxable_regime_percent ?? 0,
+                    updated_at: new Date().toISOString(),
+                })
+                if (error) throw error
+            } else {
+                const { error } = await supabase.from('tenant_expense_config').update({
+                    indirect_labor_percent: expenseConfig.indirect_labor_percent ?? 0,
+                    production_labor_cost: expenseConfig.production_labor_cost ?? 0,
+                    admin_salary_total: expenseConfig.admin_labor_monthly ?? 0,
+                    admin_fgts_total: 0,
+                    admin_other_costs: 0,
+                    admin_labor_percent: expenseConfig.indirect_labor_percent ?? 0,
+                    fixed_expense_percent: expenseConfig.fixed_expense_percent ?? 0,
+                    variable_expense_percent: expenseConfig.variable_expense_percent ?? 0,
+                    financial_expense_percent: expenseConfig.financial_expense_percent ?? 0,
+                    commission_percent: expenseConfig.commission_percent ?? 0,
+                    updated_at: new Date().toISOString(),
+                }).eq('id', expenseConfig.id)
+                if (error) throw error
+            }
+            messageApi.success('Custos e despesas atualizados!')
+            await fetchAll()
+        } catch (error: any) {
+            messageApi.error('Erro ao salvar: ' + (error.message || 'Erro'))
+        }
+    }
+
+    const [recalcLoading, setRecalcLoading] = useState(false)
+
+    async function handleRecalcFromCashflow() {
+        setRecalcLoading(true)
+        try {
+            const tenantId = await getTenantId()
+            if (!tenantId) return
+
+            const result = await mergeExpenseConfig(tenantId)
+            if (!result) {
+                messageApi.warning('Sem despesas ou faturamento registrado para recalcular.')
+                setRecalcLoading(false)
+                return
+            }
+
+            const totalStructure = (
+                result.indirect_labor_percent +
+                result.fixed_expense_percent +
+                result.variable_expense_percent +
+                result.financial_expense_percent
+            ).toFixed(2)
+
+            // Atualiza o estado local com os valores recalculados, incluindo MO administrativa em R$/mês.
+            setExpenseConfig((prev: any) => ({
+                ...(prev || {}),
+                production_labor_cost: result.production_labor_cost,
+                admin_labor_monthly: result.admin_labor_monthly,
+                indirect_labor_percent: result.indirect_labor_percent,
+                fixed_expense_percent: result.fixed_expense_percent,
+                variable_expense_percent: result.variable_expense_percent,
+                financial_expense_percent: result.financial_expense_percent,
+            }))
+            messageApi.success(
+                `Percentuais recalculados! Estrutura total: ${totalStructure}%. Esses valores serão usados automaticamente na precificação dos produtos.`,
+                5,
+            )
+            await fetchAll()
+        } catch (error: any) {
+            messageApi.error('Erro ao recalcular: ' + (error.message || 'Erro'))
+        } finally {
+            setRecalcLoading(false)
+        }
+    }
+
+    useEffect(() => {
+        if (activeTab !== 'costs') return
+        handleRecalcFromCashflow()
+    }, [activeTab])
+
+    const totalMonthlyHours = hoursPerDay * daysPerMonth
+    const adminTotalMonthlyHours = adminHoursPerDay * adminDaysPerMonth
+    const calcTypeValue = Form.useWatch('calcType', calcForm)
+    const isIndustrialization = calcTypeValue === CALC_TYPE_ENUM.INDUSTRIALIZATION
+    const isResale = calcTypeValue === CALC_TYPE_ENUM.RESALE
+    const isService = calcTypeValue === CALC_TYPE_ENUM.SERVICE
+
+    return (
+        <Layout title={PAGE_TITLES.SETTINGS} subtitle="Configure sua empresa, impostos, equipe e integrações">
+            {contextHolder}
+            <div className="pc-card" style={{ minHeight: 500 }}>
+                {loading && !tenant ? (
+                    <div style={{ textAlign: 'center', padding: 80 }}><Spin size="large" /></div>
+                ) : (
+                    <Tabs activeKey={activeTab} onChange={setActiveTab} tabPosition="left" style={{ minHeight: 450 }} destroyInactiveTabPane items={[
+                        {
+                            key: 'business',
+                            label: (<span><ShopOutlined style={{ marginRight: 6 }} />Empresa</span>),
+                            children: (
+                                <div style={{ maxWidth: 680 }}>
+                                    <p style={{ color: 'var(--color-neutral-500)', fontSize: 13, marginBottom: 20 }}>Informações principais da sua empresa.</p>
+                                    <Form form={businessForm} layout="vertical">
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                                            <Form.Item name="companyName" label="Razão Social" rules={[{ required: true }]}><Input /></Form.Item>
+                                            <Form.Item name="cnpj" label="CNPJ"><Input placeholder="00.000.000/0000-00" /></Form.Item>
+                                        </div>
+                                        <Form.Item name="segment" label="Segmento"><Input placeholder="Ex: Beleza e Estética" /></Form.Item>
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                                            <Form.Item name="email" label="Email"><Input /></Form.Item>
+                                            <Form.Item name="phone" label="Telefone"><Input placeholder="(00) 00000-0000" /></Form.Item>
+                                        </div>
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                                            <Form.Item name="cep" label="CEP"><Input /></Form.Item>
+                                            <Form.Item name="neighborhood" label="Bairro"><Input /></Form.Item>
+                                        </div>
+                                        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 16 }}>
+                                            <Form.Item name="address" label="Rua"><Input /></Form.Item>
+                                            <Form.Item name="number" label="Número"><Input /></Form.Item>
+                                            <Form.Item name="complement" label="Complemento"><Input /></Form.Item>
+                                        </div>
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                                            <Form.Item name="city" label="Cidade"><Input /></Form.Item>
+                                            <Form.Item name="state" label="Estado">
+                                                <Select showSearch optionFilterProp="children">
+                                                    {brazilianStates.map(s => <Select.Option key={s.code} value={s.code?.trim()}>{s.code?.trim()} - {s.name}</Select.Option>)}
+                                                </Select>
+                                            </Form.Item>
+                                        </div>
+                                        <Button type="primary" icon={<SaveOutlined />} onClick={handleSaveBusiness} loading={loading}>Salvar Dados</Button>
+                                    </Form>
+                                </div>
+                            ),
+                        },
+                        {
+                            key: 'tax',
+                            forceRender: true,
+                            label: (<span><BankOutlined style={{ marginRight: 6 }} />Fiscal / Tributário</span>),
+                            children: <TaxTabContent taxForm={taxForm} brazilianStates={brazilianStates} tenantSettings={tenantSettings} loading={loading} onSave={handleSaveTax} />,
+                        },
+                        {
+                            key: 'costs',
+                            label: (<span><DollarOutlined style={{ marginRight: 6 }} />Custos / Despesas</span>),
+                            children: (
+                                <div style={{ maxWidth: 720 }}>
+                                    <p style={{ color: 'var(--color-neutral-500)', fontSize: 13, marginBottom: 8 }}>
+                                        Percentuais de custos e despesas usados na precificação de produtos e serviços.
+                                    </p>
+                                    <Alert
+                                        type="info" showIcon
+                                        message="Esses valores são calculados automaticamente quando você configura o fluxo de caixa. Você também pode ajustá-los manualmente aqui."
+                                        style={{ marginBottom: 20, borderRadius: 8 }}
+                                    />
+
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>
+                                        <Card size="small" style={{ borderRadius: 8, background: '#F0F9FF', border: '1px solid #BAE6FD' }}>
+                                            <div style={{ fontSize: 12, color: 'var(--color-neutral-600)', marginBottom: 4 }}>
+                                                Mão de obra produtiva (R$/mês)
+                                            </div>
+                                            <div style={{ fontSize: 13, color: '#38bdf8', marginTop: 4 }}>
+                                                Custo total mensal com o setor produtivo: salários, INSS, férias e encargos da equipe que produz. Esse valor é distribuído por hora/minuto e entra no CMV de cada produto/serviço.
+                                            </div>
+                                        </Card>
+                                        <Card size="small" style={{ borderRadius: 8 }}>
+                                            <div style={{ fontSize: 12, color: 'var(--color-neutral-500)', marginBottom: 4 }}>
+                                                Custo Total Mão de Obra Produtiva (R$/mês)
+                                            </div>
+                                            <InputNumber
+                                                min={0} step={100} precision={2}
+                                                value={Number(expenseConfig?.production_labor_cost) || 0}
+                                                onChange={(v) => setExpenseConfig((prev: any) => ({ ...prev, production_labor_cost: v ?? 0 }))}
+                                                style={{ width: '100%' }}
+                                                prefix="R$"
+                                            />
+                                            <div style={{ fontSize: 11, color: 'var(--color-neutral-400)', marginTop: 4 }}>
+                                                Valor total gasto com mão de obra produtiva por mês
+                                            </div>
+                                        </Card>
+                                        <Card size="small" style={{ borderRadius: 8 }}>
+                                            <div style={{ fontSize: 12, color: 'var(--color-neutral-500)', marginBottom: 4 }}>
+                                                Mão de obra administrativa (R$/mês)
+                                            </div>
+                                            <InputNumber
+                                                min={0} step={100} precision={2}
+                                                value={Number(expenseConfig?.admin_labor_monthly) || 0}
+                                                onChange={(v) => setExpenseConfig((prev: any) => ({ ...prev, admin_labor_monthly: v ?? 0 }))}
+                                                style={{ width: '100%' }}
+                                                prefix="R$"
+                                            />
+                                            <div style={{ fontSize: 11, color: 'var(--color-neutral-400)', marginTop: 4 }}>
+                                                Custo total mensal com pró-labore, salários comerciais e administrativos
+                                            </div>
+                                        </Card>
+                                        <Card size="small" style={{ borderRadius: 8 }}>
+                                            <div style={{ fontSize: 12, color: 'var(--color-neutral-500)', marginBottom: 4 }}>
+                                                Mão de obra administrativa (%)
+                                            </div>
+                                            <InputNumber
+                                                min={0} max={100} step={0.1} precision={2}
+                                                value={Number(expenseConfig?.indirect_labor_percent) || 0}
+                                                onChange={(v) => setExpenseConfig((prev: any) => ({ ...prev, indirect_labor_percent: v ?? 0 }))}
+                                                style={{ width: '100%' }}
+                                                formatter={(v) => `${v}%`}
+                                                parser={(v) => Number((v || '0').replace('%', ''))}
+                                            />
+                                            <div style={{ fontSize: 11, color: 'var(--color-neutral-400)', marginTop: 4 }}>
+                                                Pró-labore e salários administrativos como % do faturamento
+                                            </div>
+                                        </Card>
+                                        <Card size="small" style={{ borderRadius: 8 }}>
+                                            <div style={{ fontSize: 12, color: 'var(--color-neutral-500)', marginBottom: 4 }}>
+                                                Despesas Fixas (%)
+                                            </div>
+                                            <InputNumber
+                                                min={0} max={100} step={0.1} precision={2}
+                                                value={Number(expenseConfig?.fixed_expense_percent) || 0}
+                                                onChange={(v) => setExpenseConfig((prev: any) => ({ ...prev, fixed_expense_percent: v ?? 0 }))}
+                                                style={{ width: '100%' }}
+                                                formatter={(v) => `${v}%`}
+                                                parser={(v) => Number((v || '0').replace('%', ''))}
+                                            />
+                                            <div style={{ fontSize: 11, color: 'var(--color-neutral-400)', marginTop: 4 }}>
+                                                Aluguel, água, luz, internet como % do faturamento
+                                            </div>
+                                        </Card>
+                                        <Card size="small" style={{ borderRadius: 8 }}>
+                                            <div style={{ fontSize: 12, color: 'var(--color-neutral-500)', marginBottom: 4 }}>
+                                                Despesas Variáveis (%)
+                                            </div>
+                                            <InputNumber
+                                                min={0} max={100} step={0.1} precision={2}
+                                                value={Number(expenseConfig?.variable_expense_percent) || 0}
+                                                onChange={(v) => setExpenseConfig((prev: any) => ({ ...prev, variable_expense_percent: v ?? 0 }))}
+                                                style={{ width: '100%' }}
+                                                formatter={(v) => `${v}%`}
+                                                parser={(v) => Number((v || '0').replace('%', ''))}
+                                            />
+                                            <div style={{ fontSize: 11, color: 'var(--color-neutral-400)', marginTop: 4 }}>
+                                                Embalagens, matéria-prima, marketing como % do faturamento
+                                            </div>
+                                        </Card>
+                                        <Card size="small" style={{ borderRadius: 8 }}>
+                                            <div style={{ fontSize: 12, color: 'var(--color-neutral-500)', marginBottom: 4 }}>
+                                                Despesas Financeiras (%)
+                                            </div>
+                                            <InputNumber
+                                                min={0} max={100} step={0.1} precision={2}
+                                                value={Number(expenseConfig?.financial_expense_percent) || 0}
+                                                onChange={(v) => setExpenseConfig((prev: any) => ({ ...prev, financial_expense_percent: v ?? 0 }))}
+                                                style={{ width: '100%' }}
+                                                formatter={(v) => `${v}%`}
+                                                parser={(v) => Number((v || '0').replace('%', ''))}
+                                            />
+                                            <div style={{ fontSize: 11, color: 'var(--color-neutral-400)', marginTop: 4 }}>
+                                                Taxas de cartão, tarifas bancárias, juros como % do faturamento
+                                            </div>
+                                        </Card>
+                                        <Card size="small" style={{ borderRadius: 8 }}>
+                                            <div style={{ fontSize: 12, color: 'var(--color-neutral-500)', marginBottom: 4 }}>
+                                                Comissão Vendedor (%)
+                                            </div>
+                                            <InputNumber
+                                                min={0} max={100} step={0.1} precision={2}
+                                                value={Number(expenseConfig?.commission_percent) || 0}
+                                                onChange={(v) => setExpenseConfig((prev: any) => ({ ...prev, commission_percent: v ?? 0 }))}
+                                                style={{ width: '100%' }}
+                                                formatter={(v) => `${v}%`}
+                                                parser={(v) => Number((v || '0').replace('%', ''))}
+                                            />
+                                            <div style={{ fontSize: 11, color: 'var(--color-neutral-400)', marginTop: 4 }}>
+                                                Percentual padrão de comissão sobre a venda
+                                            </div>
+                                        </Card>
+                                    </div>
+
+                                    <Alert
+                                        type="info"
+                                        showIcon
+                                        icon={<InfoCircleOutlined />}
+                                        style={{ marginBottom: 16 }}
+                                        message="Esses percentuais são usados automaticamente na precificação de todos os seus produtos."
+                                        description="Ao alterar ou recalcular os custos, o preço sugerido dos produtos será atualizado na próxima vez que você abrir a página de cada produto."
+                                    />
+                                    <div style={{ display: 'flex', gap: 12 }}>
+                                        <Button type="primary" icon={<SaveOutlined />} onClick={handleSaveExpenseConfig} loading={loading}>
+                                            Salvar Custos e Despesas
+                                        </Button>
+                                        <Button icon={<InfoCircleOutlined />} onClick={handleRecalcFromCashflow} loading={recalcLoading}>
+                                            Recalcular do Fluxo de Caixa
+                                        </Button>
+                                    </div>
+                                </div>
+                            ),
+                        },
+                        {
+                            key: 'team',
+                            label: (<span><TeamOutlined style={{ marginRight: 6 }} />Equipe</span>),
+                            children: (
+                                <div style={{ maxWidth: 720 }}>
+                                    <p style={{ color: 'var(--color-neutral-500)', fontSize: 13, marginBottom: 20 }}>Configure a equipe produtiva e administrativa com suas respectivas cargas horárias.</p>
+
+                                    {/* Equipe Produtiva */}
+                                    <Card size="small" style={{ borderRadius: 12, marginBottom: 20, border: '1px solid #D1FAE5', background: 'linear-gradient(135deg, rgba(18,183,106,0.04), rgba(18,183,106,0.01))' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+                                            <TeamOutlined style={{ fontSize: 18, color: '#22C55E' }} />
+                                            <h4 style={{ fontWeight: 600, margin: 0, color: '#e2e8f0' }}>Equipe Produtiva</h4>
+                                        </div>
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16, marginBottom: 12 }}>
+                                            <div>
+                                                <div style={{ fontSize: 12, color: 'var(--color-neutral-500)', marginBottom: 4 }}>Quantidade de pessoas</div>
+                                                <InputNumber min={0} value={teamProductive} onChange={v => setTeamProductive(v ?? 0)} style={{ width: '100%' }} />
+                                            </div>
+                                            <div>
+                                                <div style={{ fontSize: 12, color: 'var(--color-neutral-500)', marginBottom: 4 }}>Horas por dia</div>
+                                                <InputNumber min={1} max={24} value={hoursPerDay} onChange={v => setHoursPerDay(v ?? 8)} style={{ width: '100%' }} />
+                                            </div>
+                                            <div>
+                                                <div style={{ fontSize: 12, color: 'var(--color-neutral-500)', marginBottom: 4 }}>Dias por mês</div>
+                                                <InputNumber min={1} max={31} value={daysPerMonth} onChange={v => setDaysPerMonth(v ?? 22)} style={{ width: '100%' }} />
+                                            </div>
+                                        </div>
+                                        <div style={{ padding: '8px 12px', background: 'var(--color-neutral-50)', borderRadius: 6 }}>
+                                            <span style={{ fontSize: 13, color: 'var(--color-neutral-600)' }}>Total mensal por pessoa:</span>
+                                            <strong style={{ marginLeft: 8 }}>{totalMonthlyHours} horas</strong>
+                                        </div>
+                                    </Card>
+
+                                    {/* Equipe Administrativa */}
+                                    <Card size="small" style={{ borderRadius: 12, marginBottom: 20, border: '1px solid #FEF0C7', background: 'linear-gradient(135deg, rgba(247,144,9,0.04), rgba(247,144,9,0.01))' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+                                            <TeamOutlined style={{ fontSize: 18, color: '#F79009' }} />
+                                            <h4 style={{ fontWeight: 600, margin: 0, color: '#e2e8f0' }}>Equipe Administrativa</h4>
+                                        </div>
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16, marginBottom: 12 }}>
+                                            <div>
+                                                <div style={{ fontSize: 12, color: 'var(--color-neutral-500)', marginBottom: 4 }}>Quantidade de pessoas</div>
+                                                <InputNumber min={0} value={teamAdministrative} onChange={v => setTeamAdministrative(v ?? 0)} style={{ width: '100%' }} />
+                                            </div>
+                                            <div>
+                                                <div style={{ fontSize: 12, color: 'var(--color-neutral-500)', marginBottom: 4 }}>Horas por dia</div>
+                                                <InputNumber min={1} max={24} value={adminHoursPerDay} onChange={v => setAdminHoursPerDay(v ?? 8)} style={{ width: '100%' }} />
+                                            </div>
+                                            <div>
+                                                <div style={{ fontSize: 12, color: 'var(--color-neutral-500)', marginBottom: 4 }}>Dias por mês</div>
+                                                <InputNumber min={1} max={31} value={adminDaysPerMonth} onChange={v => setAdminDaysPerMonth(v ?? 22)} style={{ width: '100%' }} />
+                                            </div>
+                                        </div>
+                                        <div style={{ padding: '8px 12px', background: 'var(--color-neutral-50)', borderRadius: 6 }}>
+                                            <span style={{ fontSize: 13, color: 'var(--color-neutral-600)' }}>Total mensal por pessoa:</span>
+                                            <strong style={{ marginLeft: 8 }}>{adminTotalMonthlyHours} horas</strong>
+                                        </div>
+                                    </Card>
+
+                                    <Button type="primary" icon={<SaveOutlined />} onClick={handleSaveTeam} loading={loading}>Salvar Equipe</Button>
+                                </div>
+                            ),
+                        },
+                        {
+                            key: 'calc',
+                            label: (<span><SettingOutlined style={{ marginRight: 6 }} />Configurações de Cálculo</span>),
+                            children: (
+                                <div style={{ maxWidth: 580 }}>
+                                    <p style={{ color: 'var(--color-neutral-500)', fontSize: 13, marginBottom: 20 }}>
+                                        Configure o tipo de cálculo, mão de obra e regime tributário utilizados na precificação dos seus produtos.
+                                    </p>
+                                    <Form form={calcForm} layout="vertical">
+                                        <Form.Item name="calcType" label="Segmentação" rules={[{ required: true, message: 'Selecione a segmentação' }]}>
+                                            <Select placeholder="Selecione...">
+                                                <Select.Option value={CALC_TYPE_ENUM.INDUSTRIALIZATION}>Industrialização</Select.Option>
+                                                <Select.Option value={CALC_TYPE_ENUM.SERVICE}>Prestação de Serviço</Select.Option>
+                                                <Select.Option value={CALC_TYPE_ENUM.RESALE}>Revenda</Select.Option>
+                                            </Select>
+                                        </Form.Item>
+                                        {(isIndustrialization || isService) && (
+                                            <>
+                                                <Divider orientation="left" style={{ fontSize: 14 }}>Mão de Obra</Divider>
+                                                {isService && (
+                                                    <Form.Item name="unitMeasure" label="Unidade de medida" rules={[{ required: true, message: 'Selecione a unidade' }]}>
+                                                        <Select placeholder="Selecione...">
+                                                            <Select.Option value="MINUTES">Minutos</Select.Option>
+                                                            <Select.Option value="HOURS">Horas</Select.Option>
+                                                            <Select.Option value="DAYS">Dias</Select.Option>
+                                                            <Select.Option value="ACTIVITIES">Atendimento</Select.Option>
+                                                        </Select>
+                                                    </Form.Item>
+                                                )}
+                                                <Form.Item
+                                                    name="monthlyWorkloadInMinutes"
+                                                    label={isIndustrialization ? 'Horas produtivas mensais por colaborador' : 'Quantidade produtiva mensal por colaborador'}
+                                                    rules={[{ required: true, message: 'Insira um valor maior que 0' }]}
+                                                >
+                                                    <InputNumber min={0} style={{ width: '100%' }} addonAfter={isIndustrialization ? 'Horas' : undefined} />
+                                                </Form.Item>
+                                            </>
+                                        )}
+                                        <Divider orientation="left" style={{ fontSize: 14 }}>Colaboradores</Divider>
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                                            <Form.Item name="numProductiveSectorEmployee" label="Setor Produtivo" rules={[{ required: true }]}>
+                                                <InputNumber min={0} style={{ width: '100%' }} />
+                                            </Form.Item>
+                                            <Form.Item name="numAdministrativeSectorEmployee" label="Setor Administrativo" rules={[{ required: true }]}>
+                                                <InputNumber min={0} style={{ width: '100%' }} />
+                                            </Form.Item>
+                                        </div>
+                                        <Divider orientation="left" style={{ fontSize: 14 }}>Regime Tributário</Divider>
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                                            <Form.Item name="taxableRegime" label="Regime" rules={[{ required: true, message: 'Selecione o regime' }]}>
+                                                <Select
+                                                    placeholder="Selecione..."
+                                                    onChange={(v: REGIME_TAXABLE_TYPES) => {
+                                                    setTaxableRegimeInput(v)
+                                                    if (v === 'MEI') calcForm.setFieldValue('taxableRegimeValue', 0)
+                                                }}
+                                                >
+                                                    <Select.Option value="NATIONAL_SIMPLE">Simples Nacional</Select.Option>
+                                                    <Select.Option value="MEI">MEI</Select.Option>
+                                                </Select>
+                                            </Form.Item>
+                                            <Form.Item name="taxableRegimeValue" label="Imposto (%)" rules={[{ required: true }]} initialValue={0}>
+                                                <InputNumber
+                                                    min={0}
+                                                    style={{ width: '100%' }}
+                                                    addonAfter="%"
+                                                    disabled={taxableRegimeInput === 'MEI'}
+                                                />
+                                            </Form.Item>
+                                        </div>
+                                        <Button type="primary" icon={<SaveOutlined />} onClick={handleSaveCalc} loading={savingCalc} style={{ marginTop: 8 }}>
+                                            Salvar Configurações
+                                        </Button>
+                                    </Form>
+                                </div>
+                            ),
+                        },
+                    ]} />
+                )}
+            </div>
+        </Layout>
+    )
+}
+
+export default Settings

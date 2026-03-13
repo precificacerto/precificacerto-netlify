@@ -1,0 +1,62 @@
+{
+    "client": "Thunder Client",
+    "collectionName": "valor-produto",
+    "dateExported": "2023-06-28T03:12:37.403Z",
+    "version": "1.1",
+    "folders": [
+        {
+            "_id": "b8d0488d-5332-46b7-a046-52c8009e4409",
+            "name": "auth",
+            "containerId": "",
+            "created": "2023-06-14T03:17:13.438Z",
+            "sortNum": 10000
+        },
+        {
+            "_id": "79452779-42d3-4a93-a825-87d9d9edf36c",
+            "name": "items",
+            "containerId": "",
+            "created": "2023-06-14T03:17:35.925Z",
+            "sortNum": 20000
+        }
+    ],
+    "requests": [
+        {
+            "_id": "eb1c139c-50a1-45b1-8b4a-5a4b3788ce48",
+            "colId": "b369a159-d496-4db5-b436-07c622e0f168",
+            "containerId": "79452779-42d3-4a93-a825-87d9d9edf36c",
+            "name": "create",
+            "url": "http://localhost:3000/api/items/create",
+            "method": "POST",
+            "sortNum": 10000,
+            "created": "2023-06-24T17:54:55.633Z",
+            "modified": "2023-06-24T19:39:51.145Z",
+            "headers": [],
+            "params": [],
+            "body": {
+                "type": "json",
+                "raw": "{\n  \"name\": \"A\",\n  \"quantity\": \"1\",\n  \"unitType\": \"UN\",\n  \"price\": \"10\",\n  \"observation\": \"\"\n}",
+                "form": []
+            },
+            "tests": []
+        },
+        {
+            "_id": "74132180-a7b9-462f-a9b0-4a4fc16bd42d",
+            "colId": "b369a159-d496-4db5-b436-07c622e0f168",
+            "containerId": "79452779-42d3-4a93-a825-87d9d9edf36c",
+            "name": "delete",
+            "url": "http://localhost:3000/api/items/remove/nBAlR33QLVHZ5KBzknxe",
+            "method": "DELETE",
+            "sortNum": 20000,
+            "created": "2023-06-28T02:25:08.682Z",
+            "modified": "2023-06-28T03:08:01.534Z",
+            "headers": [
+                {
+                    "name": "Authorization",
+                    "value": "REMOVED_FOR_SECURITY"
+                }
+            ],
+            "params": [],
+            "tests": []
+        }
+    ]
+}

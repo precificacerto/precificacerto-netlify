@@ -1,0 +1,24 @@
+---
+description: "AIOS Agent: @data-engineer - Database specialist for migrations, queries, and data modeling"
+globs:
+alwaysApply: true
+---
+
+# @data-engineer Agent Activation
+
+When the user types `@data-engineer`, activate this agent by reading and fully adopting the persona defined in:
+`.antigravity/agents/data-engineer.md`
+
+## Quick Reference
+
+- **Role:** Data Engineer | **Icon:** 🗄️
+- **Use for:** Database design, migrations, queries, RLS policies, Supabase operations
+
+## Key Commands
+- `*help` - Show all available commands
+- `*db-bootstrap` - Initialize database
+- `*db-apply-migration` - Apply migration
+- `*db-rollback` - Rollback migration
+- `*db-rls-audit` - Audit RLS policies
+- `*db-schema-audit` - Audit database schema
+- `*exit` - Exit data-engineer mode

@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html class="light" lang="pt-BR"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Pipeline de Orçamentos e Vendas - Precifica Certo</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,typography,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style type="text/tailwindcss">
+        @layer base {
+            body { font-family: 'Inter', sans-serif; }
+        }
+        :root {
+            --primary: #28a745;
+            --navy: #1e293b;
+        }
+        .kanban-column {
+            min-width: 280px;
+            width: 100%;
+        }
+        .custom-scrollbar::-webkit-scrollbar {
+            height: 8px;
+            width: 8px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 10px;
+        }
+        .dark .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #334155;
+        }
+    </style>
+<script>
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        primary: "#28a745",
+                        navy: "#1e293b",
+                        "surface-light": "#ffffff",
+                        "surface-dark": "#1e293b",
+                        "background-light": "#f8fafc",
+                        "background-dark": "#0f172a",
+                    },
+                },
+            },
+        };
+    </script>
+</head>
+<body class="bg-background-light dark:bg-background-dark text-slate-900 dark:text-slate-100 min-h-screen transition-colors duration-200">
+<header class="sticky top-0 z-50 bg-surface-light dark:bg-surface-dark border-b border-slate-200 dark:border-slate-800 px-6 py-3 flex items-center justify-between">
+<div class="flex items-center gap-3">
+<div class="flex items-center gap-2">
+<div class="bg-primary p-1.5 rounded-xl rotate-12">
+<span class="material-symbols-outlined text-white text-2xl">check_circle</span>
+</div>
+<div class="flex flex-col leading-tight">
+<span class="font-bold text-lg tracking-tight text-navy dark:text-white">PRECIFICA</span>
+<span class="font-black text-xl tracking-wider text-navy dark:text-white -mt-1">CERTO</span>
+</div>
+</div>
+<nav class="hidden md:flex ml-10 gap-6">
+<a class="text-sm font-medium text-slate-500 hover:text-primary transition-colors" href="#">Dashboard</a>
+<a class="text-sm font-bold text-primary border-b-2 border-primary pb-1" href="#">Pipeline</a>
+<a class="text-sm font-medium text-slate-500 hover:text-primary transition-colors" href="#">Clientes</a>
+<a class="text-sm font-medium text-slate-500 hover:text-primary transition-colors" href="#">Financeiro</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<button class="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors" onclick="document.documentElement.classList.toggle('dark')">
+<span class="material-symbols-outlined text-slate-500 dark:text-slate-400">dark_mode</span>
+</button>
+<div class="h-8 w-[1px] bg-slate-200 dark:bg-slate-700 mx-2"></div>
+<div class="flex items-center gap-3">
+<div class="text-right hidden sm:block">
+<p class="text-sm font-semibold">Admin Precifica</p>
+<p class="text-xs text-slate-500 dark:text-slate-400">Comercial</p>
+</div>
+<div class="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-white font-bold">AD</div>
+</div>
+</div>
+</header>
+<main class="max-w-[1600px] mx-auto p-6 space-y-6">
+<div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+<div>
+<h1 class="text-2xl font-bold">Pipeline de Orçamentos</h1>
+<p class="text-slate-500 dark:text-slate-400 text-sm">Acompanhe o fluxo comercial e conversão de vendas.</p>
+</div>
+<div class="flex gap-3">
+<button class="flex items-center gap-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-4 py-2 rounded-lg font-semibold text-sm hover:bg-slate-50 transition-all">
+<span class="material-symbols-outlined text-lg">filter_list</span>
+                Filtros
+            </button>
+<button class="flex items-center gap-2 bg-primary hover:bg-green-600 text-white px-4 py-2 rounded-lg font-semibold text-sm transition-all shadow-lg shadow-green-500/20">
+<span class="material-symbols-outlined text-lg">add</span>
+                Novo Orçamento
+            </button>
+</div>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+<div class="bg-surface-light dark:bg-surface-dark p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
+<p class="text-slate-500 dark:text-slate-400 text-xs font-medium uppercase tracking-wider">Valor em Pipeline</p>
+<div class="flex items-end justify-between mt-1">
+<p class="text-2xl font-bold">R$ 184.500,00</p>
+<span class="text-xs font-medium text-primary bg-green-50 dark:bg-green-900/20 px-2 py-0.5 rounded">+8.2%</span>
+</div>
+</div>
+<div class="bg-surface-light dark:bg-surface-dark p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
+<p class="text-slate-500 dark:text-slate-400 text-xs font-medium uppercase tracking-wider">Taxa de Conversão</p>
+<div class="flex items-end justify-between mt-1">
+<p class="text-2xl font-bold">24.5%</p>
+<div class="w-24 bg-slate-100 dark:bg-slate-700 h-2 rounded-full overflow-hidden">
+<div class="bg-primary h-full w-[24.5%]"></div>
+</div>
+</div>
+</div>
+<div class="bg-surface-light dark:bg-surface-dark p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
+<p class="text-slate-500 dark:text-slate-400 text-xs font-medium uppercase tracking-wider">Ticket Médio</p>
+<div class="flex items-end justify-between mt-1">
+<p class="text-2xl font-bold">R$ 3.420,00</p>
+<span class="material-symbols-outlined text-slate-400">payments</span>
+</div>
+</div>
+<div class="bg-navy text-white p-4 rounded-xl border border-slate-800 shadow-lg relative overflow-hidden">
+<p class="text-slate-300 text-xs font-medium uppercase tracking-wider">Ganhos (Este Mês)</p>
+<div class="flex items-end justify-between mt-1">
+<p class="text-2xl font-bold">R$ 42.180,00</p>
+<span class="material-symbols-outlined text-primary">trending_up</span>
+</div>
+</div>
+</div>
+<div class="flex gap-6 overflow-x-auto pb-6 custom-scrollbar">
+<div class="kanban-column flex-shrink-0">
+<div class="flex items-center justify-between mb-4 px-1">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-slate-400"></span>
+<h3 class="font-bold text-sm uppercase tracking-widest text-slate-600 dark:text-slate-400">Rascunho</h3>
+<span class="bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400 text-xs px-2 py-0.5 rounded-full font-bold">3</span>
+</div>
+<span class="text-xs font-medium text-slate-400">R$ 12.400</span>
+</div>
+<div class="space-y-3">
+<div class="bg-surface-light dark:bg-surface-dark p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md transition-shadow cursor-grab active:cursor-grabbing group">
+<div class="flex justify-between items-start mb-2">
+<span class="text-xs font-bold text-slate-400 uppercase">#8921</span>
+<button class="opacity-0 group-hover:opacity-100 transition-opacity"><span class="material-symbols-outlined text-slate-400 text-sm">more_horiz</span></button>
+</div>
+<h4 class="font-bold text-sm mb-1">Carlos Alberto Meira</h4>
+<p class="text-xs text-slate-500 dark:text-slate-400 mb-3">Projeto Consultoria RH</p>
+<div class="flex items-center justify-between">
+<span class="text-sm font-bold text-navy dark:text-white">R$ 4.500,00</span>
+<span class="text-[10px] text-slate-400">12 Mai</span>
+</div>
+</div>
+<div class="bg-surface-light dark:bg-surface-dark p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md transition-shadow cursor-grab">
+<h4 class="font-bold text-sm mb-1">Ana Paula Santos</h4>
+<p class="text-xs text-slate-500 dark:text-slate-400 mb-3">Licença Software v3</p>
+<div class="flex items-center justify-between">
+<span class="text-sm font-bold text-navy dark:text-white">R$ 1.200,00</span>
+<span class="text-[10px] text-slate-400">14 Mai</span>
+</div>
+</div>
+</div>
+</div>
+<div class="kanban-column flex-shrink-0">
+<div class="flex items-center justify-between mb-4 px-1">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-blue-500"></span>
+<h3 class="font-bold text-sm uppercase tracking-widest text-slate-600 dark:text-slate-400">Enviado</h3>
+<span class="bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 text-xs px-2 py-0.5 rounded-full font-bold">5</span>
+</div>
+<span class="text-xs font-medium text-slate-400">R$ 45.800</span>
+</div>
+<div class="space-y-3">
+<div class="bg-surface-light dark:bg-surface-dark p-4 rounded-xl border-l-4 border-l-blue-500 border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md transition-shadow cursor-grab">
+<h4 class="font-bold text-sm mb-1">Indústria Metalúrgica SA</h4>
+<p class="text-xs text-slate-500 dark:text-slate-400 mb-3">Manutenção Industrial Trimestral</p>
+<div class="flex items-center justify-between mb-3">
+<span class="text-sm font-bold text-navy dark:text-white">R$ 28.300,00</span>
+<span class="text-[10px] bg-blue-50 dark:bg-blue-900/20 text-blue-600 px-1.5 py-0.5 rounded">Enviado há 2 dias</span>
+</div>
+<div class="flex gap-2 border-t border-slate-100 dark:border-slate-800 pt-3 mt-1">
+<button class="flex-1 flex items-center justify-center gap-1 py-1.5 bg-green-50 text-green-600 dark:bg-green-900/20 dark:text-green-400 rounded-lg text-[10px] font-bold hover:bg-green-100 transition-colors">
+<span class="material-symbols-outlined text-xs">send</span> WhatsApp
+                        </button>
+<button class="flex-1 flex items-center justify-center gap-1 py-1.5 bg-slate-50 text-slate-600 dark:bg-slate-700 dark:text-slate-300 rounded-lg text-[10px] font-bold hover:bg-slate-100 transition-colors">
+<span class="material-symbols-outlined text-xs">mail</span> Reenviar
+                        </button>
+</div>
+</div>
+<div class="bg-surface-light dark:bg-surface-dark p-4 rounded-xl border-l-4 border-l-blue-500 border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md transition-shadow cursor-grab">
+<h4 class="font-bold text-sm mb-1">Escola Aprender</h4>
+<p class="text-xs text-slate-500 dark:text-slate-400 mb-3">Treinamento Equipe</p>
+<div class="flex items-center justify-between">
+<span class="text-sm font-bold text-navy dark:text-white">R$ 7.500,00</span>
+<span class="text-[10px] text-slate-400">10 Mai</span>
+</div>
+</div>
+</div>
+</div>
+<div class="kanban-column flex-shrink-0">
+<div class="flex items-center justify-between mb-4 px-1">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-amber-500"></span>
+<h3 class="font-bold text-sm uppercase tracking-widest text-slate-600 dark:text-slate-400">Aprovado</h3>
+<span class="bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 text-xs px-2 py-0.5 rounded-full font-bold">2</span>
+</div>
+<span class="text-xs font-medium text-slate-400">R$ 88.000</span>
+</div>
+<div class="space-y-3">
+<div class="bg-surface-light dark:bg-surface-dark p-4 rounded-xl border-l-4 border-l-amber-500 border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md transition-shadow cursor-grab">
+<div class="flex justify-between mb-1">
+<h4 class="font-bold text-sm">Construtora Horizonte</h4>
+<span class="material-symbols-outlined text-amber-500 text-sm">priority_high</span>
+</div>
+<p class="text-xs text-slate-500 dark:text-slate-400 mb-3">Projeto Arquitetônico Sede</p>
+<div class="flex items-center justify-between mb-3">
+<span class="text-sm font-black text-primary">R$ 75.000,00</span>
+<span class="text-[10px] text-slate-400">08 Mai</span>
+</div>
+<button class="w-full py-2 bg-primary hover:bg-green-600 text-white rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2">
+<span class="material-symbols-outlined text-sm">shopping_cart_checkout</span> Gerar Venda
+                    </button>
+</div>
+<div class="bg-surface-light dark:bg-surface-dark p-4 rounded-xl border-l-4 border-l-amber-500 border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md transition-shadow cursor-grab">
+<h4 class="font-bold text-sm mb-1">Supermercado Preço Bom</h4>
+<p class="text-xs text-slate-500 dark:text-slate-400 mb-3">Automação de Checkout</p>
+<div class="flex items-center justify-between">
+<span class="text-sm font-bold text-navy dark:text-white">R$ 13.000,00</span>
+<span class="text-[10px] text-slate-400">09 Mai</span>
+</div>
+</div>
+</div>
+</div>
+<div class="kanban-column flex-shrink-0">
+<div class="flex items-center justify-between mb-4 px-1">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-primary"></span>
+<h3 class="font-bold text-sm uppercase tracking-widest text-slate-600 dark:text-slate-400">Pago / Fechado</h3>
+<span class="bg-green-100 dark:bg-green-900/30 text-primary dark:text-green-400 text-xs px-2 py-0.5 rounded-full font-bold">4</span>
+</div>
+<span class="text-xs font-medium text-slate-400">R$ 38.300</span>
+</div>
+<div class="space-y-3">
+<div class="bg-green-50 dark:bg-green-900/10 p-4 rounded-xl border border-primary/20 shadow-sm opacity-80">
+<div class="flex items-center justify-between mb-2">
+<h4 class="font-bold text-sm">Clínica Sorriso</h4>
+<span class="material-symbols-outlined text-primary text-sm">task_alt</span>
+</div>
+<p class="text-xs text-slate-500 dark:text-slate-400 mb-3">Sistema de Agendamento</p>
+<div class="flex items-center justify-between">
+<span class="text-sm font-bold text-navy dark:text-white">R$ 5.400,00</span>
+<span class="text-[10px] text-primary font-medium">Pago em 15/05</span>
+</div>
+</div>
+<div class="bg-green-50 dark:bg-green-900/10 p-4 rounded-xl border border-primary/20 shadow-sm opacity-80">
+<h4 class="font-bold text-sm mb-1">Advocacia Martins</h4>
+<p class="text-xs text-slate-500 dark:text-slate-400 mb-3">Backup em Nuvem 1TB</p>
+<div class="flex items-center justify-between">
+<span class="text-sm font-bold text-navy dark:text-white">R$ 3.200,00</span>
+<span class="text-[10px] text-primary font-medium">Pago em 14/05</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+<footer class="mt-12 mb-8 text-center text-slate-500 dark:text-slate-500 text-sm">
+<p>© 2024 Precifica Certo - Gestão Comercial Inteligente</p>
+</footer>
+
+</body></html>

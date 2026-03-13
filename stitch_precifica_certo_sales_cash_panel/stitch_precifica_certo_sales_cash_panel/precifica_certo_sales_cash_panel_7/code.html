@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html class="light" lang="pt-BR"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Gestão de Produtos e Estoque - Precifica Certo</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,typography,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style type="text/tailwindcss">
+        :root {
+            --primary: #28a745;
+            --accent-blue: #1e293b;
+            --background-light: #f8fafc;
+            --surface-light: #ffffff;
+            --border-color: #f0f0f0;}
+        body { font-family: 'Inter', sans-serif; }
+        .ant-table-header { @apply bg-slate-50 border-b border-slate-200; }
+        .stock-indicator { @apply w-2 h-2 rounded-full inline-block mr-2; }
+    </style>
+<script>
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        primary: "#28a745",
+                        "accent-blue": "#1e293b",
+                        "background-light": "#f8fafc",
+                        "background-dark": "#0f172a",
+                        "surface-light": "#ffffff",
+                        "surface-dark": "#1e293b",
+                    },
+                },
+            },
+        };
+    </script>
+</head>
+<body class="bg-background-light dark:bg-background-dark text-slate-900 dark:text-slate-100 min-h-screen transition-colors duration-200">
+<header class="sticky top-0 z-50 bg-surface-light dark:bg-surface-dark border-b border-slate-200 dark:border-slate-800 px-6 py-3 flex items-center justify-between">
+<div class="flex items-center gap-3">
+<div class="flex items-center gap-2">
+<div class="bg-primary p-1.5 rounded-xl rotate-12">
+<span class="material-symbols-outlined text-white text-2xl">inventory_2</span>
+</div>
+<div class="flex flex-col leading-tight">
+<span class="font-bold text-lg tracking-tight text-accent-blue dark:text-white uppercase">Precifica</span>
+<span class="font-black text-xl tracking-wider text-accent-blue dark:text-white -mt-1 uppercase">Certo</span>
+</div>
+</div>
+<nav class="ml-10 hidden md:flex items-center gap-6">
+<a class="text-sm font-medium text-slate-500 hover:text-primary transition-colors" href="#">Dashboard</a>
+<a class="text-sm font-bold text-primary border-b-2 border-primary pb-4 mt-4" href="#">Produtos</a>
+<a class="text-sm font-medium text-slate-500 hover:text-primary transition-colors" href="#">Vendas</a>
+<a class="text-sm font-medium text-slate-500 hover:text-primary transition-colors" href="#">Relatórios</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<button class="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors" onclick="document.documentElement.classList.toggle('dark')">
+<span class="material-symbols-outlined text-slate-500 dark:text-slate-400">dark_mode</span>
+</button>
+<div class="h-8 w-[1px] bg-slate-200 dark:bg-slate-700 mx-2"></div>
+<div class="flex items-center gap-3">
+<div class="text-right hidden sm:block">
+<p class="text-sm font-semibold">Admin Precifica</p>
+<p class="text-xs text-slate-500 dark:text-slate-400">Gestor de Estoque</p>
+</div>
+<div class="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-200 font-bold overflow-hidden border border-slate-300 dark:border-slate-600">
+<span class="material-symbols-outlined">person</span>
+</div>
+</div>
+</div>
+</header>
+<main class="max-w-7xl mx-auto p-6 space-y-6">
+<div class="flex flex-col md:flex-row md:items-end justify-between gap-4">
+<div>
+<h1 class="text-2xl font-bold tracking-tight">Gestão de Produtos e Estoque</h1>
+<p class="text-slate-500 dark:text-slate-400 mt-1">Visualize, edite e acompanhe o nível de estoque dos seus itens.</p>
+</div>
+<div class="bg-white dark:bg-surface-dark px-6 py-4 rounded-xl border border-slate-200 dark:border-slate-800 flex items-center gap-6 shadow-sm">
+<div class="border-r border-slate-100 dark:border-slate-700 pr-6">
+<p class="text-xs text-slate-500 uppercase font-semibold tracking-wider">Valor Total em Estoque</p>
+<p class="text-xl font-bold text-accent-blue dark:text-white">R$ 184.250,00</p>
+</div>
+<div>
+<p class="text-xs text-slate-500 uppercase font-semibold tracking-wider">Total de Itens</p>
+<p class="text-xl font-bold text-primary">1.432</p>
+</div>
+</div>
+</div>
+<div class="bg-surface-light dark:bg-surface-dark p-4 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-wrap items-center gap-4 shadow-sm">
+<div class="flex-grow min-w-[300px]">
+<div class="relative">
+<span class="absolute left-3 top-1/2 -translate-y-1/2 material-symbols-outlined text-slate-400 text-xl">search</span>
+<input class="w-full bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 rounded-lg pl-10 pr-4 py-2 focus:ring-primary focus:border-primary text-sm transition-all" placeholder="Buscar por nome, código ou EAN..." type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-2">
+<select class="bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 rounded-lg text-sm px-3 py-2 focus:ring-primary focus:border-primary min-w-[140px]">
+<option value="">Todas Categorias</option>
+<option>Eletrônicos</option>
+<option>Móveis</option>
+<option>Vestuário</option>
+<option>Alimentos</option>
+</select>
+<select class="bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 rounded-lg text-sm px-3 py-2 focus:ring-primary focus:border-primary min-w-[140px]">
+<option value="">Status do Estoque</option>
+<option>Normal</option>
+<option>Baixo</option>
+<option>Crítico</option>
+<option>Sem Estoque</option>
+</select>
+<button class="flex items-center gap-2 px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+<span class="material-symbols-outlined text-sm">tune</span>
+                Filtros
+            </button>
+</div>
+<div class="ml-auto flex gap-2">
+<button class="flex items-center gap-2 bg-primary hover:bg-green-600 text-white px-5 py-2 rounded-lg font-semibold transition-all shadow-md">
+<span class="material-symbols-outlined text-sm">add</span>
+                Novo Produto
+            </button>
+</div>
+</div>
+<div class="bg-surface-light dark:bg-surface-dark rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
+<div class="overflow-x-auto">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="bg-slate-50 dark:bg-slate-800/50 text-slate-500 dark:text-slate-400 text-xs uppercase tracking-wider font-bold">
+<th class="px-6 py-4 border-b border-slate-200 dark:border-slate-800">Cód.</th>
+<th class="px-6 py-4 border-b border-slate-200 dark:border-slate-800">Produto</th>
+<th class="px-6 py-4 border-b border-slate-200 dark:border-slate-800">Categoria</th>
+<th class="px-6 py-4 border-b border-slate-200 dark:border-slate-800 text-right">Custo</th>
+<th class="px-6 py-4 border-b border-slate-200 dark:border-slate-800 text-right">Preço Venda</th>
+<th class="px-6 py-4 border-b border-slate-200 dark:border-slate-800">Estoque</th>
+<th class="px-6 py-4 border-b border-slate-200 dark:border-slate-800 text-right">Ações</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-slate-100 dark:divide-slate-800">
+<tr class="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors group">
+<td class="px-6 py-4 text-xs font-mono text-slate-500 uppercase">PRD-001</td>
+<td class="px-6 py-4">
+<div class="flex flex-col">
+<span class="font-semibold text-sm">iPhone 15 Pro Max 256GB</span>
+<span class="text-xs text-slate-400">EAN: 7891234567890</span>
+</div>
+</td>
+<td class="px-6 py-4">
+<span class="bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase">Eletrônicos</span>
+</td>
+<td class="px-6 py-4 text-sm text-right font-medium">R$ 7.200,00</td>
+<td class="px-6 py-4 text-sm text-right font-bold text-slate-900 dark:text-white">R$ 9.890,00</td>
+<td class="px-6 py-4">
+<div class="flex items-center">
+<span class="stock-indicator bg-green-500"></span>
+<span class="text-sm font-medium">42 un</span>
+</div>
+</td>
+<td class="px-6 py-4 text-right">
+<div class="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+<button class="p-1.5 text-slate-400 hover:text-primary hover:bg-primary/10 rounded-lg transition-colors">
+<span class="material-symbols-outlined text-xl">edit</span>
+</button>
+<button class="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors">
+<span class="material-symbols-outlined text-xl">visibility</span>
+</button>
+</div>
+</td>
+</tr>
+<tr class="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors group">
+<td class="px-6 py-4 text-xs font-mono text-slate-500 uppercase">PRD-042</td>
+<td class="px-6 py-4">
+<div class="flex flex-col">
+<span class="font-semibold text-sm">Monitor Gamer 27' Curvo</span>
+<span class="text-xs text-slate-400">EAN: 7894561230123</span>
+</div>
+</td>
+<td class="px-6 py-4">
+<span class="bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase">Eletrônicos</span>
+</td>
+<td class="px-6 py-4 text-sm text-right font-medium">R$ 1.150,00</td>
+<td class="px-6 py-4 text-sm text-right font-bold text-slate-900 dark:text-white">R$ 1.699,00</td>
+<td class="px-6 py-4">
+<div class="flex items-center">
+<span class="stock-indicator bg-yellow-400"></span>
+<span class="text-sm font-medium text-yellow-700 dark:text-yellow-400">8 un</span>
+</div>
+</td>
+<td class="px-6 py-4 text-right text-slate-400">
+<div class="flex justify-end gap-1">
+<button class="p-1.5 hover:text-primary hover:bg-primary/10 rounded-lg transition-colors"><span class="material-symbols-outlined text-xl">edit</span></button>
+<button class="p-1.5 hover:text-slate-600 rounded-lg transition-colors"><span class="material-symbols-outlined text-xl">visibility</span></button>
+</div>
+</td>
+</tr>
+<tr class="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors group">
+<td class="px-6 py-4 text-xs font-mono text-slate-500 uppercase">PRD-109</td>
+<td class="px-6 py-4">
+<div class="flex flex-col">
+<span class="font-semibold text-sm">Cadeira Ergonômica Office</span>
+<span class="text-xs text-slate-400">EAN: 7890001112223</span>
+</div>
+</td>
+<td class="px-6 py-4">
+<span class="bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400 px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase">Móveis</span>
+</td>
+<td class="px-6 py-4 text-sm text-right font-medium">R$ 450,00</td>
+<td class="px-6 py-4 text-sm text-right font-bold text-slate-900 dark:text-white">R$ 849,90</td>
+<td class="px-6 py-4">
+<div class="flex items-center">
+<span class="stock-indicator bg-red-500 animate-pulse"></span>
+<span class="text-sm font-bold text-red-600 dark:text-red-400">2 un</span>
+</div>
+</td>
+<td class="px-6 py-4 text-right text-slate-400">
+<div class="flex justify-end gap-1">
+<button class="p-1.5 hover:text-primary hover:bg-primary/10 rounded-lg transition-colors"><span class="material-symbols-outlined text-xl">edit</span></button>
+<button class="p-1.5 hover:text-slate-600 rounded-lg transition-colors"><span class="material-symbols-outlined text-xl">visibility</span></button>
+</div>
+</td>
+</tr>
+<tr class="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors group">
+<td class="px-6 py-4 text-xs font-mono text-slate-500 uppercase">PRD-215</td>
+<td class="px-6 py-4">
+<div class="flex flex-col">
+<span class="font-semibold text-sm">Mouse Pad Gamer XL</span>
+<span class="text-xs text-slate-400">EAN: 7893334445556</span>
+</div>
+</td>
+<td class="px-6 py-4">
+<span class="bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase">Eletrônicos</span>
+</td>
+<td class="px-6 py-4 text-sm text-right font-medium">R$ 35,00</td>
+<td class="px-6 py-4 text-sm text-right font-bold text-slate-900 dark:text-white">R$ 89,00</td>
+<td class="px-6 py-4">
+<div class="flex items-center">
+<span class="stock-indicator bg-green-500"></span>
+<span class="text-sm font-medium">124 un</span>
+</div>
+</td>
+<td class="px-6 py-4 text-right text-slate-400">
+<div class="flex justify-end gap-1">
+<button class="p-1.5 hover:text-primary hover:bg-primary/10 rounded-lg transition-colors"><span class="material-symbols-outlined text-xl">edit</span></button>
+<button class="p-1.5 hover:text-slate-600 rounded-lg transition-colors"><span class="material-symbols-outlined text-xl">visibility</span></button>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="p-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+<span class="text-xs text-slate-500 font-medium">Mostrando 1-10 de 1.432 produtos</span>
+<div class="flex items-center gap-1">
+<button class="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30" disabled="">
+<span class="material-symbols-outlined text-lg">chevron_left</span>
+</button>
+<button class="w-8 h-8 rounded text-xs font-bold bg-primary text-white">1</button>
+<button class="w-8 h-8 rounded text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-800">2</button>
+<button class="w-8 h-8 rounded text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-800">3</button>
+<span class="px-1">...</span>
+<button class="w-8 h-8 rounded text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-800">143</button>
+<button class="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800">
+<span class="material-symbols-outlined text-lg">chevron_right</span>
+</button>
+</div>
+</div>
+</div>
+</main>
+<footer class="mt-auto py-8 text-center text-slate-400 text-xs border-t border-slate-100 dark:border-slate-900 bg-white/50 dark:bg-transparent">
+<p>© 2024 Precifica Certo - Gestão de Estoque Profissional. Todos os direitos reservados.</p>
+</footer>
+
+</body></html>

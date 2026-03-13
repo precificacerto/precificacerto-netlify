@@ -1,0 +1,4 @@
+export enum PAYMENT_REVENUE_TITLE_TYPE {
+  INCOME = 'INCOME',
+  EXPENSE = 'EXPENSE',
+}

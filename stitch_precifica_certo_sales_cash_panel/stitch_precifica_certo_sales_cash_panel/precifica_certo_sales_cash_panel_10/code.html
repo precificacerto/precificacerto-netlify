@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html class="light" lang="pt-BR"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Workspace de Produtos e Inventário (Premium) - Precifica Certo</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,typography,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style type="text/tailwindcss">
+        :root {
+            --brand-green: #22c55e;
+            --workspace-bg: #ffffff;
+            --workspace-sidebar: #fcfcfc;
+            --border-subtle: #f1f1f1;
+            --text-main: #18181b;
+            --text-muted: #71717a;
+        }
+        body { 
+            font-family: 'Inter', sans-serif;
+            letter-spacing: -0.01em;
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'Wght' 100, 'opsz' 20;
+            font-size: 20px;
+        }
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #e4e4e7;
+            border-radius: 10px;
+        }
+        .split-view-container {
+            height: calc(100vh - 140px);
+        }
+        .product-row:hover {
+            background-color: #f9f9f9;
+        }
+        .product-row.active {
+            background-color: #f4f4f5;
+            border-right: 2px solid var(--brand-green);
+        }
+    </style>
+<script>
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            DEFAULT: "#22c55e",
+                            dark: "#16a34a"
+                        }
+                    }
+                }
+            }
+        };
+        function toggleDetail() {
+            const panel = document.getElementById('detail-panel');
+            panel.classList.toggle('hidden');
+            panel.classList.toggle('flex');
+        }
+    </script>
+</head>
+<body class="bg-white text-zinc-900 min-h-screen flex flex-col overflow-hidden">
+<header class="h-16 border-b border-zinc-100 px-6 flex items-center justify-between shrink-0">
+<div class="flex items-center gap-8">
+<div class="flex items-center gap-2">
+<div class="w-8 h-8 bg-zinc-900 rounded flex items-center justify-center">
+<span class="material-symbols-outlined text-white text-lg">layers</span>
+</div>
+<div class="flex flex-col leading-none">
+<span class="text-xs font-bold uppercase tracking-widest text-zinc-400">Workspace</span>
+<span class="text-sm font-semibold text-zinc-900">Precifica Certo</span>
+</div>
+</div>
+<nav class="flex items-center gap-1">
+<a class="px-3 py-1.5 text-sm font-medium text-zinc-400 hover:text-zinc-900 transition-colors" href="#">Dashboard</a>
+<a class="px-3 py-1.5 text-sm font-semibold text-zinc-900 bg-zinc-50 rounded-md" href="#">Inventário</a>
+<a class="px-3 py-1.5 text-sm font-medium text-zinc-400 hover:text-zinc-900 transition-colors" href="#">Margem de Lucro</a>
+<a class="px-3 py-1.5 text-sm font-medium text-zinc-400 hover:text-zinc-900 transition-colors" href="#">Relatórios</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<div class="relative">
+<span class="absolute left-3 top-1/2 -translate-y-1/2 material-symbols-outlined text-zinc-400">search</span>
+<input class="pl-10 pr-4 py-1.5 bg-zinc-50 border-none rounded-full text-sm w-64 focus:ring-1 focus:ring-zinc-200 placeholder:text-zinc-400" placeholder="Comando + K para buscar..." type="text"/>
+</div>
+<div class="h-4 w-px bg-zinc-200"></div>
+<button class="w-8 h-8 rounded-full bg-zinc-100 flex items-center justify-center overflow-hidden border border-zinc-200">
+<span class="material-symbols-outlined text-zinc-600">person</span>
+</button>
+</div>
+</header>
+<div class="flex-1 flex flex-col overflow-hidden">
+<div class="px-6 py-4 border-b border-zinc-100 flex items-center justify-between shrink-0">
+<div class="flex items-center gap-4">
+<h1 class="text-lg font-semibold text-zinc-900">Gestão de Itens</h1>
+<div class="flex gap-2">
+<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-zinc-100 text-zinc-500 uppercase tracking-tighter">Total: 1.432</span>
+<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-green-50 text-brand-dark uppercase tracking-tighter border border-green-100">Patrimônio: R$ 184k</span>
+</div>
+</div>
+<div class="flex items-center gap-2">
+<button class="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-zinc-600 hover:bg-zinc-50 rounded-md transition-all">
+<span class="material-symbols-outlined">filter_list</span>
+                Filtros Avançados
+            </button>
+<button class="flex items-center gap-2 px-4 py-1.5 bg-brand hover:bg-brand-dark text-white text-sm font-semibold rounded-md transition-all shadow-sm shadow-green-200">
+<span class="material-symbols-outlined text-sm">add</span>
+                Novo Produto
+            </button>
+</div>
+</div>
+<div class="flex-1 flex overflow-hidden">
+<div class="flex-1 flex flex-col bg-white border-r border-zinc-100">
+<div class="overflow-y-auto custom-scrollbar flex-1">
+<table class="w-full text-left border-collapse">
+<thead class="sticky top-0 bg-white z-10 shadow-[0_1px_0_0_rgba(0,0,0,0.05)]">
+<tr class="text-[11px] uppercase tracking-wider text-zinc-400 font-bold">
+<th class="px-6 py-4 font-semibold">SKU / Produto</th>
+<th class="px-6 py-4 font-semibold">Categoria</th>
+<th class="px-6 py-4 font-semibold text-right">Preço de Venda</th>
+<th class="px-6 py-4 font-semibold">Estoque</th>
+<th class="px-6 py-4 font-semibold text-right">Ação</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-zinc-50">
+<tr class="product-row active cursor-pointer transition-all" onclick="toggleDetail()">
+<td class="px-6 py-4">
+<div class="flex flex-col">
+<span class="text-xs font-mono text-zinc-400 uppercase mb-0.5">PRD-001</span>
+<span class="text-sm font-medium text-zinc-900">iPhone 15 Pro Max 256GB</span>
+</div>
+</td>
+<td class="px-6 py-4">
+<span class="text-xs text-zinc-500">Eletrônicos</span>
+</td>
+<td class="px-6 py-4 text-right">
+<span class="text-sm font-semibold text-zinc-900">R$ 9.890,00</span>
+</td>
+<td class="px-6 py-4">
+<div class="inline-flex items-center px-2 py-0.5 rounded-full border border-green-100 bg-green-50 text-[10px] font-bold text-green-700 uppercase tracking-tighter">
+<span class="w-1 h-1 rounded-full bg-green-500 mr-1.5"></span>
+                                    Normal (42)
+                                </div>
+</td>
+<td class="px-6 py-4 text-right">
+<span class="material-symbols-outlined text-zinc-300">chevron_right</span>
+</td>
+</tr>
+<tr class="product-row cursor-pointer transition-all" onclick="toggleDetail()">
+<td class="px-6 py-4">
+<div class="flex flex-col">
+<span class="text-xs font-mono text-zinc-400 uppercase mb-0.5">PRD-042</span>
+<span class="text-sm font-medium text-zinc-900">Monitor Gamer 27' Curvo</span>
+</div>
+</td>
+<td class="px-6 py-4">
+<span class="text-xs text-zinc-500">Hardware</span>
+</td>
+<td class="px-6 py-4 text-right">
+<span class="text-sm font-semibold text-zinc-900">R$ 1.699,00</span>
+</td>
+<td class="px-6 py-4">
+<div class="inline-flex items-center px-2 py-0.5 rounded-full border border-amber-100 bg-amber-50 text-[10px] font-bold text-amber-700 uppercase tracking-tighter">
+<span class="w-1 h-1 rounded-full bg-amber-500 mr-1.5"></span>
+                                    Baixo (8)
+                                </div>
+</td>
+<td class="px-6 py-4 text-right">
+<span class="material-symbols-outlined text-zinc-300">chevron_right</span>
+</td>
+</tr>
+<tr class="product-row cursor-pointer transition-all" onclick="toggleDetail()">
+<td class="px-6 py-4">
+<div class="flex flex-col">
+<span class="text-xs font-mono text-zinc-400 uppercase mb-0.5">PRD-109</span>
+<span class="text-sm font-medium text-zinc-900">Cadeira Ergonômica Office</span>
+</div>
+</td>
+<td class="px-6 py-4">
+<span class="text-xs text-zinc-500">Móveis</span>
+</td>
+<td class="px-6 py-4 text-right">
+<span class="text-sm font-semibold text-zinc-900">R$ 849,90</span>
+</td>
+<td class="px-6 py-4">
+<div class="inline-flex items-center px-2 py-0.5 rounded-full border border-red-100 bg-red-50 text-[10px] font-bold text-red-700 uppercase tracking-tighter">
+<span class="w-1 h-1 rounded-full bg-red-500 mr-1.5"></span>
+                                    Crítico (2)
+                                </div>
+</td>
+<td class="px-6 py-4 text-right">
+<span class="material-symbols-outlined text-zinc-300">chevron_right</span>
+</td>
+</tr>
+<tr class="product-row cursor-pointer transition-all">
+<td class="px-6 py-4"><div class="flex flex-col"><span class="text-xs font-mono text-zinc-400 uppercase mb-0.5">PRD-215</span><span class="text-sm font-medium text-zinc-900">Mouse Pad Gamer XL</span></div></td>
+<td class="px-6 py-4"><span class="text-xs text-zinc-500">Acessórios</span></td>
+<td class="px-6 py-4 text-right"><span class="text-sm font-semibold text-zinc-900">R$ 89,00</span></td>
+<td class="px-6 py-4"><div class="inline-flex items-center px-2 py-0.5 rounded-full border border-green-100 bg-green-50 text-[10px] font-bold text-green-700 uppercase tracking-tighter"><span class="w-1 h-1 rounded-full bg-green-500 mr-1.5"></span>Normal (124)</div></td>
+<td class="px-6 py-4 text-right"><span class="material-symbols-outlined text-zinc-300">chevron_right</span></td>
+</tr>
+<tr class="product-row cursor-pointer transition-all">
+<td class="px-6 py-4"><div class="flex flex-col"><span class="text-xs font-mono text-zinc-400 uppercase mb-0.5">PRD-312</span><span class="text-sm font-medium text-zinc-900">Teclado Mecânico RGB</span></div></td>
+<td class="px-6 py-4"><span class="text-xs text-zinc-500">Hardware</span></td>
+<td class="px-6 py-4 text-right"><span class="text-sm font-semibold text-zinc-900">R$ 450,00</span></td>
+<td class="px-6 py-4"><div class="inline-flex items-center px-2 py-0.5 rounded-full border border-green-100 bg-green-50 text-[10px] font-bold text-green-700 uppercase tracking-tighter"><span class="w-1 h-1 rounded-full bg-green-500 mr-1.5"></span>Normal (15)</div></td>
+<td class="px-6 py-4 text-right"><span class="material-symbols-outlined text-zinc-300">chevron_right</span></td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="h-12 border-t border-zinc-100 px-6 flex items-center justify-between shrink-0 bg-white">
+<span class="text-[11px] font-medium text-zinc-400 uppercase tracking-widest">Página 1 de 144</span>
+<div class="flex gap-4">
+<button class="text-zinc-400 hover:text-zinc-900 transition-colors"><span class="material-symbols-outlined">arrow_back</span></button>
+<button class="text-zinc-900 font-bold text-sm">01</button>
+<button class="text-zinc-400 hover:text-zinc-900 transition-colors"><span class="material-symbols-outlined">arrow_forward</span></button>
+</div>
+</div>
+</div>
+<aside class="w-[450px] bg-zinc-50 flex flex-col border-l border-zinc-100 hidden" id="detail-panel">
+<div class="p-6 flex flex-col gap-8 flex-1 overflow-y-auto custom-scrollbar">
+<div class="flex justify-between items-start">
+<div class="flex flex-col">
+<span class="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-1">Detalhes do Produto</span>
+<h2 class="text-xl font-bold text-zinc-900 leading-tight">iPhone 15 Pro Max 256GB</h2>
+<span class="text-xs text-zinc-500 mt-1">EAN: 7891234567890 • SKU: PRD-001</span>
+</div>
+<button class="p-1 hover:bg-zinc-200 rounded-full transition-colors" onclick="toggleDetail()">
+<span class="material-symbols-outlined text-zinc-500">close</span>
+</button>
+</div>
+<div class="grid grid-cols-2 gap-3">
+<div class="bg-white p-4 rounded-xl border border-zinc-100">
+<span class="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-1">Custo Médio</span>
+<span class="text-lg font-bold text-zinc-900">R$ 7.200,00</span>
+</div>
+<div class="bg-white p-4 rounded-xl border border-zinc-100">
+<span class="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-1">Margem</span>
+<span class="text-lg font-bold text-brand">27.2%</span>
+</div>
+</div>
+<div class="space-y-6">
+<div>
+<h3 class="text-xs font-bold text-zinc-900 uppercase tracking-wider mb-4 pb-2 border-b border-zinc-200">Gestão de Estoque</h3>
+<div class="space-y-4">
+<div class="flex justify-between items-center text-sm">
+<span class="text-zinc-500">Unidades Disponíveis</span>
+<span class="font-semibold text-zinc-900">42 un</span>
+</div>
+<div class="flex justify-between items-center text-sm">
+<span class="text-zinc-500">Estoque de Segurança</span>
+<span class="font-semibold text-zinc-900">5 un</span>
+</div>
+<div class="flex justify-between items-center text-sm">
+<span class="text-zinc-500">Última Reposição</span>
+<span class="font-semibold text-zinc-900">12/10/2023</span>
+</div>
+<div class="w-full bg-zinc-200 h-1.5 rounded-full overflow-hidden mt-2">
+<div class="bg-brand h-full w-[84%]"></div>
+</div>
+<p class="text-[10px] text-zinc-400 text-right">O estoque está 84% acima do nível crítico.</p>
+</div>
+</div>
+<div>
+<h3 class="text-xs font-bold text-zinc-900 uppercase tracking-wider mb-4 pb-2 border-b border-zinc-200">Informações Fiscais</h3>
+<div class="grid grid-cols-2 gap-4 text-xs">
+<div>
+<span class="text-zinc-400 block mb-1 uppercase">NCM</span>
+<span class="font-medium">8517.13.00</span>
+</div>
+<div>
+<span class="text-zinc-400 block mb-1 uppercase">CEST</span>
+<span class="font-medium">21.053.00</span>
+</div>
+<div>
+<span class="text-zinc-400 block mb-1 uppercase">Origem</span>
+<span class="font-medium">1 - Estrangeira</span>
+</div>
+<div>
+<span class="text-zinc-400 block mb-1 uppercase">ICMS</span>
+<span class="font-medium">18.00%</span>
+</div>
+</div>
+</div>
+</div>
+<div class="mt-auto pt-6 flex gap-2">
+<button class="flex-1 flex items-center justify-center gap-2 py-2.5 border border-zinc-200 bg-white hover:bg-zinc-50 rounded-md text-sm font-semibold text-zinc-900 transition-all">
+<span class="material-symbols-outlined text-sm">edit</span>
+                        Editar
+                    </button>
+<button class="flex-1 flex items-center justify-center gap-2 py-2.5 border border-zinc-200 bg-white hover:bg-zinc-50 rounded-md text-sm font-semibold text-zinc-900 transition-all">
+<span class="material-symbols-outlined text-sm">history</span>
+                        Histórico
+                    </button>
+</div>
+</div>
+</aside>
+</div>
+</div>
+<footer class="h-10 bg-zinc-50 border-t border-zinc-100 flex items-center justify-center shrink-0">
+<p class="text-[10px] text-zinc-400 uppercase tracking-[0.2em]">Precifica Certo © 2024 • Sistema de Inteligência em Precificação</p>
+</footer>
+<script>
+    // Initial state: Open panel to show functionality
+    document.addEventListener('DOMContentLoaded', function() {
+        toggleDetail();
+    });
+</script>
+
+</body></html>

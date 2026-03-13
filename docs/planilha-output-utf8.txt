@@ -1,0 +1,508 @@
+=== PLANILHA: Precificação Lucro Real Industrialização ===
+Abas: Planilha1
+
+
+================================================================================
+=== ABA: "Planilha1" === (Linhas: 147, Colunas: 35)
+================================================================================
+
+--- Linha 4 ---
+  I4: Precificação por Margem de Contribuição Lucro Real
+--- Linha 8 ---
+  K8: Matéria Prima | Fornecedores | Insumos
+--- Linha 10 ---
+  C10: Base para formação do preço de venda
+--- Linha 11 ---
+  C11: Produto
+  H11: Base bruta com valores/créditos recuperáveis (Exceto CBS e IBS)
+  K11: Produto
+  P11: Base bruta com valores/créditos recuperáveis (Exceto CBS e IBS)
+  S11: Produto
+  W11: Base bruta com valores/créditos recuperáveis (Exceto CBS e IBS)
+  Y11: Produto
+  AD11: Base bruta com valores/créditos recuperáveis (Exceto CBS e IBS)
+--- Linha 12 ---
+  C12: Total materiais
+  H12: [FORMULA: =P12+W12+AD12] => 1140000
+  K12: PVC
+  P12: 800000
+  S12: Ferragens
+  W12: 300000
+  Y12: Frete
+  AD12: 40000
+--- Linha 13 ---
+  C13: IPI Custo (Quando não gera crédito)
+  H13: [FORMULA: =P13+W13+AD13] => 2000
+  K13: IPI Custo (Quando não gera crédito)
+  S13: IPI Custo (Quando não gera crédito)
+  Y13: IPI Custo (Quando não gera crédito)
+  AD13: 2000
+--- Linha 14 ---
+  C14: CNAE defini se o IPI será crédito ou custo
+  K14: CNAE defini se o IPI será crédito ou custo
+  S14: CNAE defini se o IPI será crédito ou custo
+  Y14: CNAE defini se o IPI será crédito ou custo
+--- Linha 15 ---
+  H15: Valor total dos créditos
+  K15: Impostos com crédito
+  O15: Acionador "x"
+  S15: Impostos com crédito
+  V15: Acionador "x"
+  Y15: Impostos com crédito
+  AA15: %
+  AC15: Acionador "x"
+--- Linha 16 ---
+  C16: ICMS
+  H16: [FORMULA: =IF(O16="x",P16,0) + IF(V16="x",W16,0) + IF(AC16="x",AD16,0)] => 154800
+  K16: ICMS
+  M16: destacado
+  N16: 0.12
+  O16: x
+  P16: [FORMULA: =IF(O16="x", (P12*N16), 0)] => 96000
+  S16: ICMS
+  T16: destacado
+  U16: 0.18
+  V16: x
+  W16: [FORMULA: =IF(V16="x", (W12*U16), 0)] => 54000
+  Y16: ICMS
+  AA16: destacado
+  AB16: 0.12
+  AC16: x
+  AD16: [FORMULA: =IF(AC16="x", (AD12*AB16), 0)] => 4800
+--- Linha 18 ---
+  C18: PIS/COFINS
+  H18: [FORMULA: =IF(O18="x",P18,0) + IF(V18="x",W18,0) + IF(AC18="x",AD18,0)] => 105450
+  K18: PIS/COFINS
+  M18: destacado
+  N18: 0.0925
+  O18: x
+  P18: [FORMULA: =IF(O18="x", (P12*N18), 0)] => 74000
+  S18: PIS/COFINS
+  T18: destacado
+  U18: 0.0925
+  V18: x
+  W18: [FORMULA: =IF(V18="x", (W12*U18), 0)] => 27750
+  Y18: PIS/COFINS
+  AA18: destacado
+  AB18: 0.0925
+  AC18: x
+  AD18: [FORMULA: =IF(AC18="x", (AD12*AB18), 0)] => 3700
+--- Linha 21 ---
+  C21: IPI
+  G21: Creditável para industria / Comércio é custo
+  H21: [FORMULA: =IF(O21="x",P21,0) + IF(V21="x",W21,0) + IF(AC21="x",AD21,0)] => 40000
+  K21: IPI
+  M21: destacado
+  N21: 0.05
+  O21: x
+  P21: [FORMULA: =IF(O21="x", (P12*N21), 0)] => 40000
+  S21: IPI
+  T21: destacado
+  U21: 0.05
+  W21: [FORMULA: =IF(V21="x", (W12*U21), 0)] => 0
+  Y21: IPI
+  AA21: destacado
+  AB21: 0
+  AD21: [FORMULA: =IF(AC21="x", (AD12*AB21), 0)] => 0
+--- Linha 22 ---
+  C22: CNAE defini se o IPI será crédito ou custo
+  K22: CNAE defini se o IPI será crédito ou custo
+  S22: CNAE defini se o IPI será crédito ou custo
+  Y22: CNAE defini se o IPI será crédito ou custo
+--- Linha 24 ---
+  C24: Valor total custo MP/Fornecedores
+  H24: [FORMULA: =SUM(H12:I13)-SUM(H16:I18,H21)] => 841750
+  K24: Custo líquido do produto
+  P24: [FORMULA: =P12+P13-SUM(P16:Q18,P21)] => 590000
+  S24: Custo líquido do produto
+  W24: [FORMULA: =SUM(W12+W13-SUM(W16:W18,W21))] => 218250
+  Y24: Custo líquido do produto
+  AD24: [FORMULA: =SUM(AD12+AD13-SUM(AD16:AE18,AD21))] => 33500
+--- Linha 29 ---
+  K29: Mão de Obra Produtiva Propria | Terceirizada
+--- Linha 31 ---
+  C31: Base para formação do preço de venda
+--- Linha 32 ---
+  K32: Mão de Obra Direta (Produtiva)
+  P32: Valor da MO (Bruta)
+  S32: Mão de Obra Direta (Produtiva)
+  W32: Valor da MO (Bruta)
+--- Linha 33 ---
+  C33: Valor total da mão de obra
+  H33: [FORMULA: =SUM(P33,W33)] => 250000
+  K33: Mão de Obra Própria
+  P33: 250000
+  S33: Mão de Obra Terceirizada
+--- Linha 35 ---
+  H35: Valor total descontos com relação complamentar de descontos
+  U35: %
+  V35: Acionador "x"
+--- Linha 36 ---
+  C36: PIS/COFINS
+  H36: [FORMULA: =IF(O36="x",P36,0) + IF(V36="x",W36,0)] => 0
+  S36: PIS/COFINS
+  U36: 0.0925
+  W36: [FORMULA: =U36*(W33*C4)] => 0
+--- Linha 39 ---
+  C39: Valor total custo Mâo Obra
+  H39: [FORMULA: =SUM(H33)] => 250000
+--- Linha 44 ---
+  C44: Valores oriundos do sistema Precifica Certo
+--- Linha 45 ---
+  C45: Previsão Mensal
+  G45: %
+--- Linha 47 ---
+  B47: [FORMULA: =SUM(G47:G49)] => 0.33013230000000005
+  C47: Custo Produtos
+  G47: [FORMULA: =Q47] => 0.2545352539729792
+  Q47: [FORMULA: =W47/W115] => 0.2545352539729792
+  R47: Custo Total dos Produtos
+  W47: [FORMULA: =H24] => 841750
+--- Linha 48 ---
+  C48: Custo MO Direta
+  G48: [FORMULA: =Q48] => 0.07559704602702084
+  Q48: [FORMULA: =W48/W115] => 0.07559704602702084
+  R48: Custo total da MO Direta
+  W48: [FORMULA: =H39] => 250000
+--- Linha 50 ---
+  R50: Coeficiente
+  S50: [FORMULA: =1-SUM(Q51:Q110)] => 0.33013230000000005
+  V50: Total CMV
+  W50: [FORMULA: =SUM(W47:W48)] => 1091750
+--- Linha 53 ---
+  B53: [FORMULA: =SUM(G53:G56)] => 0.22769999999999999
+  C53: Desp. MO Indireta
+  G53: 0.0622
+  Q53: [FORMULA: =G53] => 0.0622
+  R53: MO Indireta
+  W53: [FORMULA: =W115*Q53] => 205695.8679898937
+--- Linha 54 ---
+  C54: Desp. Fixa
+  G54: 0.1049
+  Q54: [FORMULA: =G54] => 0.1049
+  R54: Fixa
+  W54: [FORMULA: =W115*Q54] => 346905.08926269854
+--- Linha 55 ---
+  C55: Desp. Variável
+  G55: 0.06
+  Q55: [FORMULA: =G55] => 0.06
+  R55: Variavel
+  W55: [FORMULA: =W115*Q55] => 198420.45143719652
+--- Linha 56 ---
+  C56: Desp. Financeira
+  G56: 0.0006
+  Q56: [FORMULA: =G56] => 0.0006
+  R56: Financeira
+  W56: [FORMULA: =W115*Q56] => 1984.204514371965
+--- Linha 59 ---
+  B59: [FORMULA: =G60] => 0
+--- Linha 60 ---
+  C60: Regime tributário (Verificar % especial)
+  G60: 0
+  I60: ----->
+  J60: ----->
+  K60: ----->
+  N60: ----->
+  O60: ----->
+  Q60: [FORMULA: =G60] => 0
+  R60: Regime tributário (Verificar % especial)
+  W60: [FORMULA: =W115*Q60] => 0
+--- Linha 63 ---
+  B63: [FORMULA: =SUM(G64)] => 0.06
+--- Linha 64 ---
+  C64: Comissões
+  G64: 0.06
+  I64: ----->
+  J64: ----->
+  K64: ----->
+  N64: ----->
+  O64: ----->
+  Q64: [FORMULA: =G64] => 0.06
+  R64: Comissão
+  W64: [FORMULA: =W115*Q64] => 198420.45143719652
+--- Linha 67 ---
+  B67: [FORMULA: =SUM(G68)] => 0.12
+--- Linha 68 ---
+  C68: Margem de Lucro
+  G68: 0.12
+  I68: ----->
+  J68: ----->
+  K68: ----->
+  N68: ----->
+  O68: ----->
+  Q68: [FORMULA: =G68] => 0.12
+  R68: Lucro Liquido Desejado
+  W68: [FORMULA: =W115*Q68] => 396840.90287439304
+--- Linha 72 ---
+  I72: Impostos sobre o Lucro Líquido
+  N72: Equiv. Sobre Receita
+--- Linha 73 ---
+  I73: Lucro Real Ajustado
+  K73: [FORMULA: =W68] => 396840.90287439304
+  N73: |
+--- Linha 74 ---
+  I74: CSLL
+  J74: 0.09
+  K74: [FORMULA: =K73*J74] => 35715.681258695375
+  N74: [FORMULA: =K74/W115] => 0.0108
+  O74: ----->
+  Q74: 0.0108
+  R74: CSLL
+  W74: [FORMULA: =W115*Q74] => 35715.681258695375
+--- Linha 76 ---
+  B76: [FORMULA: =SUM(G76:G80)] => 0.0335427
+  C76: CSLL
+  G76: [FORMULA: =Q74] => 0.0108
+  I76: Sobre o Imposto de renda (IRPJ)
+--- Linha 77 ---
+  I77: Impostos sobre o Lucro Real ajustado
+  N77: Equiv. Sobre Receita
+--- Linha 78 ---
+  C78: IRPJ
+  G78: [FORMULA: =N79] => 0.018
+  I78: Lucro Real Ajustado
+  K78: [FORMULA: =W68] => 396840.90287439304
+  N78: |
+--- Linha 79 ---
+  I79: IRPJ
+  J79: 0.15
+  K79: [FORMULA: =K78*J79] => 59526.13543115895
+  N79: [FORMULA: =K79/W115] => 0.018
+  O79: ----->
+  Q79: 0.018
+  R79: IRPJ
+  W79: [FORMULA: =W115*Q79] => 59526.13543115895
+--- Linha 80 ---
+  C80: Alíquota da parcela adicional
+  G80: [FORMULA: =Q84] => 0.0047427
+--- Linha 81 ---
+  I81: Adicional de IRPJ sobre o Lucro Real ajustado
+--- Linha 82 ---
+  I82: [FORMULA: =W68] => 396840.90287439304
+  J82: Lucro Real Ajustado
+--- Linha 83 ---
+  H83: Referente ao ano
+  I83: 240000
+  K83: 0.1
+  N83: Equiv. Sobre Receita
+--- Linha 84 ---
+  I84: [FORMULA: =I82-I83] => 156840.90287439304
+  J84: ------->
+  K84: [FORMULA: =I84*K83] => 15684.090287439305
+  N84: [FORMULA: =IF(OR(K84<0,W115=0),0,K84/W115)] => 0.004742683581405999
+  O84: ----->
+  Q84: 0.0047427
+  R84: Alíquota da parcela adicional IRPJ
+  W84: [FORMULA: =W115*Q84] => 15684.144583853198
+--- Linha 89 ---
+  I89: Calculado por dentro ICMS
+--- Linha 90 ---
+  C90: Acionador                                 "x"
+  I90: Preço interno Líquido
+  K90: Receita
+  N90: [FORMULA: =IF(C92="x",W115,"")] => 3307007.5239532753
+--- Linha 91 ---
+  I91: Valor da alíquota de venda
+  M91: 0.15
+--- Linha 92 ---
+  C92: x
+--- Linha 93 ---
+  I93: Valor final da alíquota
+  M93: [FORMULA: =M91*(1-L92)] => 0.15
+  O93: ----->
+  Q93: [FORMULA: =IF(C92="x",M93,"0")] => 0.15
+  R93: Imposto ICMS
+  W93: [FORMULA: =W115*Q93] => 496051.12859299127
+--- Linha 96 ---
+  I96: Calculado por dentro PIS/COFINS
+--- Linha 97 ---
+  C97: Acionador                                 "x"
+  I97: Preço interno Líquido
+  N97: [FORMULA: =IF(C99="x",W115,"")] => 3307007.5239532753
+--- Linha 98 ---
+  I98: Valor ICMS
+  N98: [FORMULA: =W93] => 496051.12859299127
+--- Linha 99 ---
+  C99: x
+  I99: Base do calculo
+  N99: [FORMULA: =N97-N98] => 2810956.395360284
+--- Linha 100 ---
+  I100: Valor da alíquota de venda
+  M100: 0.0925
+--- Linha 101 ---
+  I101: PIS/COFINS
+  N101: [FORMULA: =N99*M100] => 260013.46657082628
+--- Linha 102 ---
+  N102: Equiv. Sobre Receita
+--- Linha 103 ---
+  I103: Valor final da alíquota
+  N103: [FORMULA: =N101/W115] => 0.078625
+  O103: ----->
+  Q103: 0.078625
+  R103: Imposto PIS/COFINS
+  W103: [FORMULA: =IF(C99="x",W115*Q103,"")] => 260013.46657082628
+--- Linha 106 ---
+  I106: Calculado por dentro ISS
+--- Linha 107 ---
+  C107: Acionador                                 "x"
+  I107: Preço interno Líquido
+  N107: [FORMULA: =IF(C109="x",W115,"")] => 
+--- Linha 108 ---
+  I108: Valor da alíquota de venda
+  K108: [FORMULA: =IF(C109="x",F109,"")] => 
+  M108: 0.05
+  N108: [FORMULA: =IF(C109="x",N107/(1-K108)-N107,"")] => 
+--- Linha 110 ---
+  I110: Valor final da alíquota
+  M110: [FORMULA: =IF(C109="x",M108*(1-L109),"")] => 
+  O110: ----->
+  Q110: [FORMULA: =IF(C109="x",M110,"0")] => 0
+  R110: Imposto ISS
+  W110: [FORMULA: =W115*Q110] => 0
+--- Linha 115 ---
+  Q115: [FORMULA: =SUM(Q47:Q110)] => 1.0000000000000002
+  R115: Total Preço de Venda Interno 
+  W115: [FORMULA: =W50/S50] => 3307007.5239532753
+--- Linha 120 ---
+  I120: Base do calculo do IPI
+--- Linha 122 ---
+  F122: Acionador MVA                         "x"
+  I122: Valor total de venda líquido
+  N122: [FORMULA: =IF(F124="X", W115, "")] => 
+--- Linha 123 ---
+  I123: Alíquota
+  N123: 0.1
+--- Linha 125 ---
+  I125: Valor de IPI a reter 
+  N125: [FORMULA: =IF(F124="x",N122*N123,"")] => 
+  O125: ----->
+  R125: Total imposto IPI a destacar na nota
+  W125: [FORMULA: =N125] => 
+--- Linha 132 ---
+  C132: % Fator de redução da alíquota
+  I132: Base de Débito IBS respeitando a relação complementar de tributos
+--- Linha 133 ---
+  I133: Valor de venda Líquido
+  N133: [FORMULA: =W115] => 3307007.5239532753
+--- Linha 134 ---
+  C134: 0
+  I134: Alíquota IBS
+  J134: 0.001
+  L134: Alíquota Reduzida
+  N134: [FORMULA: =J134*(1-C134)] => 0.001
+--- Linha 135 ---
+  I135: Déb sob base complem da receita
+  L135: (+)
+  N135: [FORMULA: =N133*N134] => 3307.0075239532753
+  O135: ----->
+  R135: IBS a recolher e destacar na nota
+  W135: 0
+--- Linha 136 ---
+  C136: Redutor será ativado somente em 2033 no Iva Dual pleno
+--- Linha 138 ---
+  C138: Acionador                                 "x"
+  I138: Base de Débito CBS respeitando a relação complementar de tributos
+--- Linha 139 ---
+  I139: Valor de venda Líquido
+  N139: [FORMULA: =W115] => 3307007.5239532753
+--- Linha 140 ---
+  C140: x
+  I140: Alíquota CBS
+  J140: 0.009
+  L140: Alíquota Reduzida
+  N140: [FORMULA: =J140*(1-C134)] => 0.009
+--- Linha 141 ---
+  I141: Déb sob base complem da receita
+  L141: (+)
+  N141: [FORMULA: =N140*N139] => 29763.067715579476
+  O141: ----->
+  R141: CBS a  recolher e destacar na nota
+  W141: 0
+--- Linha 147 ---
+  V147: Valor Total de Venda
+  W147: [FORMULA: =SUM(W115:W145)] => 3307007.5239532753
+
+
+=== VISÃO TABULAR ===
+
+
+--- ABA: "Planilha1" (como tabela) ---
+,,,,,,,,Precificação por Margem de Contribuição Lucro Real,,,,,,,,,,,,,,,,,,,,,,,,,,
+,,,,,,,,,,Matéria Prima | Fornecedores | Insumos,,,,,,,,,,,,,,,,,,,,,,,,
+,,Base para formação do preço de venda,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,,Produto,,,,, Base bruta com valores/créditos recuperáveis (Exceto CBS e IBS) ,,,Produto,,,,, Base bruta com valores/créditos recuperáveis (Exceto CBS e IBS) ,,,Produto,,,, Base bruta com valores/créditos recuperáveis (Exceto CBS e IBS) ,,Produto,,,,, Base bruta com valores/créditos recuperáveis (Exceto CBS e IBS) ,,,,,
+,,Total materiais,,,,," R$ 1,140,000.00 ",,,PVC,,,,," R$ 800,000.00 ",,,Ferragens,,,," R$ 300,000.00 ",,Frete,,,,," R$ 40,000.00 ",,,,,
+,,IPI Custo (Quando não gera crédito),,,,," R$ 2,000.00 ",,,IPI Custo (Quando não gera crédito),,,,,,,,IPI Custo (Quando não gera crédito),,,,,,IPI Custo (Quando não gera crédito),,,,," R$ 2,000.00 ",,,,,
+,,CNAE defini se o IPI será crédito ou custo,,,,,,,,CNAE defini se o IPI será crédito ou custo,,,,,,,,CNAE defini se o IPI será crédito ou custo,,,,,,CNAE defini se o IPI será crédito ou custo,,,,,,,,,,
+,,,,,,,Valor total dos créditos,,,Impostos com crédito,,,,"Acionador ""x""",,,,Impostos com crédito,,,"Acionador ""x""",,,Impostos com crédito,,%,,"Acionador ""x""",,,,,,
+,,ICMS,,,,," R$ 154,800.00 ",,,ICMS,,destacado,12.00%,x," R$ 96,000.00 ",,,ICMS,destacado,18.00%,x," R$ 54,000.00 ",,ICMS,,destacado,12.00%,x," R$ 4,800.00 ",,,,,
+,,PIS/COFINS,,,,," R$ 105,450.00 ",,,PIS/COFINS,,destacado,9.25%,x," R$ 74,000.00 ",,,PIS/COFINS,destacado,9.25%,x," R$ 27,750.00 ",,PIS/COFINS,,destacado,9.25%,x," R$ 3,700.00 ",,,,,
+,,IPI,,,,Creditável para industria / Comércio é custo," R$ 40,000.00 ",,,IPI,,destacado,5.00%,x," R$ 40,000.00 ",,,IPI,destacado,5.00%,, R$ -   ,,IPI,,destacado,0.00%,, R$ -   ,,,,,
+,,CNAE defini se o IPI será crédito ou custo,,,,,,,,CNAE defini se o IPI será crédito ou custo,,,,,,,,CNAE defini se o IPI será crédito ou custo,,,,,,CNAE defini se o IPI será crédito ou custo,,,,,,,,,,
+,,Valor total custo MP/Fornecedores,,,,," R$ 841,750.00 ",,,Custo líquido do produto,,,,," R$ 590,000.00 ",,,Custo líquido do produto,,,," R$ 218,250.00 ",,Custo líquido do produto,,,,," R$ 33,500.00 ",,,,,
+,,,,,,,,,,Mão de Obra Produtiva Propria | Terceirizada,,,,,,,,,,,,,,,,,,,,,,,,
+,,Base para formação do preço de venda,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,,,,,,,,,,Mão de Obra Direta (Produtiva),,,,,Valor da MO (Bruta),,,Mão de Obra Direta (Produtiva),,,,Valor da MO (Bruta),,,,,,,,,,,,
+,,Valor total da mão de obra,,,,," R$ 250,000.00 ",,,Mão de Obra Própria,,,,," R$ 250,000.00 ",,,Mão de Obra Terceirizada,,,,,,,,,,,,,,,,
+,,,,,,,Valor total descontos com relação complamentar de descontos,,,,,,,,,,,,,%,"Acionador ""x""",,,,,,,,,,,,,
+,,PIS/COFINS,,,,, R$ -   ,,,,,,,,,,,PIS/COFINS,,9.25%,, R$ -   ,,,,,,,,,,,,
+,,Valor total custo Mâo Obra,,,,," R$ 250,000.00 ",,,,,,,,,,,,,,,,,,,,,,,,,,,
+,,Valores oriundos do sistema Precifica Certo,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,,Previsão Mensal,,,,%,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,33.01%,Custo Produtos,,,,25.45%,,,,,,,,,,25.4535%,Custo Total dos Produtos,,,,," R$ 841,750.00 ",,,,,,,,,,,,
+,,Custo MO Direta,,,,7.56%,,,,,,,,,,7.56%,Custo total da MO Direta,,,,," R$ 250,000.00 ",,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,Coeficiente,33.01323%,,,Total CMV," R$ 1,091,750.00 ",,,,,,,,,,,,
+,22.77%,Desp. MO Indireta,,,,6.22%,,,,,,,,,,6.2200%,MO Indireta,,,,," R$ 205,695.87 ",,,,,,,,,,,,
+,,Desp. Fixa,,,,10.49%,,,,,,,,,,10.4900%,Fixa,,,,," R$ 346,905.09 ",,,,,,,,,,,,
+,,Desp. Variável,,,,6.00%,,,,,,,,,,6.0000%,Variavel,,,,," R$ 198,420.45 ",,,,,,,,,,,,
+,,Desp. Financeira,,,,0.06%,,,,,,,,,,0.0600%,Financeira,,,,," R$ 1,984.20 ",,,,,,,,,,,,
+,0.00%,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,,Regime tributário (Verificar % especial),,,,0.00%,,----->,----->,----->,,,----->,----->,,0.00%,Regime tributário (Verificar % especial),,,,, R$ -   ,,,,,,,,,,,,
+,6.00%,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,,Comissões,,,,6.00%,,----->,----->,----->,,,----->,----->,,6.00%,Comissão,,,,," R$ 198,420.45 ",,,,,,,,,,,,
+,12.00%,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,,Margem de Lucro,,,,12.00%,,----->,----->,----->,,,----->,----->,,12.00%,Lucro Liquido Desejado,,,,," R$ 396,840.90 ",,,,,,,,,,,,
+,,,,,,,,Impostos sobre o Lucro Líquido,,,,,Equiv. Sobre Receita,,,,,,,,,,,,,,,,,,,,,
+,,,,,,,, Lucro Real Ajustado ,," R$ 396,840.90 ",,,|,,,,,,,,,,,,,,,,,,,,,
+,,,,,,,,CSLL,9.00%," R$ 35,715.68 ",,,1.08000%,----->,,1.08000%,CSLL,,,,," R$ 35,715.68 ",,,,,,,,,,,,
+,3.35%,CSLL,,,,1.08000%,,Sobre o Imposto de renda (IRPJ),,,,,,,,,,,,,,,,,,,,,,,,,,
+,,,,,,,,Impostos sobre o Lucro Real ajustado,,,,,Equiv. Sobre Receita,,,,,,,,,,,,,,,,,,,,,
+,,IRPJ,,,,1.80000%,, Lucro Real Ajustado ,," R$ 396,840.90 ",,,|,,,,,,,,,,,,,,,,,,,,,
+,,,,,,,,IRPJ,15.00%," R$ 59,526.14 ",,,1.80000%,----->,,1.80000%,IRPJ,,,,," R$ 59,526.14 ",,,,,,,,,,,,
+,,Alíquota da parcela adicional,,,,0.4743%,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,,,,,,,,Adicional de IRPJ sobre o Lucro Real ajustado,,,,,,,,,,,,,,,,,,,,,,,,,,
+,,,,,,,," R$ 396,840.90 ",Lucro Real Ajustado,,,,,,,,,,,,,,,,,,,,,,,,,
+,,,,,,,Referente ao ano," R$ 240,000.00 ",,10%,,,Equiv. Sobre Receita,,,,,,,,,,,,,,,,,,,,,
+,,,,,,,," R$ 156,840.90 ",------->," R$ 15,684.09 ",,,0.47427%,----->,,0.47427%,Alíquota da parcela adicional IRPJ,,,,," R$ 15,684.14 ",,,,,,,,,,,,
+,,,,,,,,Calculado por dentro ICMS,,,,,,,,,,,,,,,,,,,,,,,,,,
+,,"Acionador                                 ""x""",,,,,,Preço interno Líquido,,Receita,,," R$ 3,307,007.52 ",,,,,,,,,,,,,,,,,,,,,
+,,,,,,,,Valor da alíquota de venda,,,,15.00%,,,,,,,,,,,,,,,,,,,,,,
+,,x,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,,,,,,,,Valor final da alíquota,,,,15.00%,,----->,,15.00000%,Imposto ICMS,,,,," R$ 496,051.13 ",,,,,,,,,,,,
+,,,,,,,,Calculado por dentro PIS/COFINS,,,,,,,,,,,,,,,,,,,,,,,,,,
+,,"Acionador                                 ""x""",,,,,,Preço interno Líquido,,,,," R$ 3,307,007.52 ",,,,,,,,,,,,,,,,,,,,,
+,,,,,,,,Valor ICMS,,,,," R$ 496,051.13 ",,,,,,,,,,,,,,,,,,,,,
+,,x,,,,,,Base do calculo,,,,," R$ 2,810,956.40 ",,,,,,,,,,,,,,,,,,,,,
+,,,,,,,,Valor da alíquota de venda,,,,9.25%,,,,,,,,,,,,,,,,,,,,,,
+,,,,,,,,PIS/COFINS,,,,," R$ 260,013.47 ",,,,,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,Equiv. Sobre Receita,,,,,,,,,,,,,,,,,,,,,
+,,,,,,,,Valor final da alíquota,,,,,7.86250%,----->,,7.86250%,Imposto PIS/COFINS,,,,," R$ 260,013.47 ",,,,,,,,,,,,
+,,,,,,,,Calculado por dentro ISS,,,,,,,,,,,,,,,,,,,,,,,,,,
+,,"Acionador                                 ""x""",,,,,,Preço interno Líquido,,,,,,,,,,,,,,,,,,,,,,,,,,
+,,,,,,,,Valor da alíquota de venda,,,,5.00%,,,,,,,,,,,,,,,,,,,,,,
+,,,,,,,,Valor final da alíquota,,,,,,----->,,0,Imposto ISS,,,,, R$ -   ,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,100.0000%, Total Preço de Venda Interno  ,,,,," R$ 3,307,007.52 ",,,,,,,,,,,,
+,,,,,,,,Base do calculo do IPI,,,,,,,,,,,,,,,,,,,,,,,,,,
+,,,,,"Acionador MVA                         ""x""",,,Valor total de venda líquido,,,,,,,,,,,,,,,,,,,,,,,,,,
+,,,,,,,,Alíquota,,,,,10%,,,,,,,,,,,,,,,,,,,,,
+,,,,,,,,Valor de IPI a reter ,,,,,,----->,,,Total imposto IPI a destacar na nota,,,,,,,,,,,,,,,,,
+,,% Fator de redução da alíquota,,,,,,Base de Débito IBS respeitando a relação complementar de tributos,,,,,,,,,,,,,,,,,,,,,,,,,,
+,,,,,,,,Valor de venda Líquido,,,,," R$ 3,307,007.52 ",,,,,,,,,,,,,,,,,,,,,
+,,0%,,,,,,Alíquota IBS,0.10%,,Alíquota Reduzida,,0.100%,,,,,,,,,,,,,,,,,,,,,
+,,,,,,,,Déb sob base complem da receita,,,(+),," R$ 3,307.01 ",----->,,,IBS a recolher e destacar na nota,,,,, R$ -     ,,,,,,,,,,,,
+,,Redutor será ativado somente em 2033 no Iva Dual pleno,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,,"Acionador                                 ""x""",,,,,,Base de Débito CBS respeitando a relação complementar de tributos,,,,,,,,,,,,,,,,,,,,,,,,,,
+,,,,,,,,Valor de venda Líquido,,,,," R$ 3,307,007.52 ",,,,,,,,,,,,,,,,,,,,,
+,,x,,,,,,Alíquota CBS,0.90%,,Alíquota Reduzida,,0.90%,,,,,,,,,,,,,,,,,,,,,
+,,,,,,,,Déb sob base complem da receita,,,(+),," R$ 29,763.07 ",----->,,,CBS a  recolher e destacar na nota,,,,, R$ -     ,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,,,,, Valor Total de Venda ," R$ 3,307,007.52 ",,,,,,,,,,,,

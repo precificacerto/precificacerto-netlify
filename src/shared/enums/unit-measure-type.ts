@@ -1,0 +1,6 @@
+export enum UNIT_MEASURE_ENUM {
+  MINUTES = 'MINUTES',
+  HOURS = 'HOURS',
+  DAYS = 'DAYS',
+  ACTIVITIES = 'ACTIVITIES',
+}

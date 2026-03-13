@@ -1,0 +1,3 @@
+-- Apenas 3 roles: SUPER_ADMIN, ADMIN, USER. Adicionar SUPER_ADMIN e USER ao enum.
+ALTER TYPE public.user_role ADD VALUE IF NOT EXISTS 'SUPER_ADMIN';
+ALTER TYPE public.user_role ADD VALUE IF NOT EXISTS 'USER';

@@ -1,0 +1,16 @@
+export enum UNIT_TYPE {
+  UN = 'Unidade',
+  G = 'Gramas',
+  KG = 'Quilos',
+  ML = 'Mililitros',
+  L = 'Litros',
+  MM = 'Milímetros',
+  CM = 'Centímetros',
+  M = 'Metros',
+  KM = 'Quilômetros',
+  M2 = 'Área (m²)',
+  M3 = 'Volume (m³)',
+  W = 'Potência (w)',
+  H = 'Horas',
+  MIN = 'Minutos',
+}
