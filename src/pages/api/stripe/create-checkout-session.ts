@@ -83,7 +83,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(500).json({ error: 'Stripe não configurado (STRIPE_SECRET_KEY).' })
   }
 
-  const origin = process.env.NEXT_PUBLIC_APP_URL || 'https://precificav2.netlify.app'
+  const rawOrigin = process.env.NEXT_PUBLIC_APP_URL
+  const origin =
+    rawOrigin && !rawOrigin.includes('localhost')
+      ? rawOrigin
+      : 'https://precificav2.netlify.app'
   const adminEmail = email.trim().toLowerCase()
   const adminName = name.trim()
 
