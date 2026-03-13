@@ -53,8 +53,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         if (process.env.NODE_ENV === 'development') console.log(`Stripe webhook: unhandled event type ${event.type}`)
     }
   } catch (err: unknown) {
-    console.error(`Stripe webhook handler error (${event.type}):`, err instanceof Error ? err.message : 'Unknown')
-    return res.status(500).json({ error: 'Webhook handler failed' })
+    const message = err instanceof Error ? err.message : 'Unknown'
+    console.error(`Stripe webhook handler error (${event.type}):`, message)
+    // Expor a mensagem real de erro ajuda a diagnosticar problemas de integração
+    return res.status(500).json({ error: message })
   }
 
   return res.status(200).json({ received: true })
