@@ -186,12 +186,18 @@ export async function handleCheckoutCompleted(session: Stripe.Checkout.Session) 
         from_admin_invite: 'true',
         name: adminName,
       },
-      redirectTo: `${origin}/reset-password`,
+      redirectTo: `${origin}/criar-senha`,
     })
 
     if (inviteError) {
-      console.error('checkout.session.completed: error inviting user', inviteError?.message)
-      throw inviteError
+      const msg = inviteError?.message ?? ''
+      if (msg.toLowerCase().includes('rate limit') || msg.toLowerCase().includes('email rate limit')) {
+        console.warn('checkout.session.completed: email rate limit exceeded, invite not sent. Tenant already created. User can request new link from app.')
+        // Não lançar: evita 500 no webhook e retentativas da Stripe; a tenant já foi criada.
+      } else {
+        console.error('checkout.session.completed: error inviting user', msg)
+        throw inviteError
+      }
     }
 
     if (!isTrial) {
