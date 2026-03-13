@@ -263,6 +263,35 @@ export async function handleCheckoutCompleted(session: Stripe.Checkout.Session) 
       throw new Error('create_tenant_from_stripe did not return tenant_id')
     }
 
+    // Evita e-mail duplicado: se webhook e confirm-checkout-session rodarem em paralelo, só o
+    // primeiro tenant (por created_at) envia convite. O outro desiste.
+    if (stripeSubscriptionId) {
+      const { data: tenantsWithSub } = await supabaseAdmin
+        .from('tenants')
+        .select('id, created_at')
+        .eq('stripe_subscription_id', stripeSubscriptionId)
+        .order('created_at', { ascending: true })
+        .limit(2)
+      const firstTenantId = tenantsWithSub?.[0]?.id
+      if (firstTenantId && firstTenantId !== tenantId) {
+        if (process.env.NODE_ENV === 'development') console.log('checkout.session.completed: outro processo já criou tenant para esta subscription, skip invite (idempotente)')
+        return
+      }
+    }
+
+    // Não enviar convite de novo se o usuário já existe no Auth (já recebeu o e-mail antes).
+    // Garante vínculo com a tenant (public.users + tenant_owners) sem mandar outro e-mail.
+    const { data: listData } = await supabaseAdmin.auth.admin.listUsers({ perPage: 1000 })
+    const existingAuthUser = listData?.users?.find((u) => u.email?.toLowerCase() === adminEmail.trim().toLowerCase())
+    if (existingAuthUser) {
+      if (process.env.NODE_ENV === 'development') console.log('checkout.session.completed: usuário já existe no Auth, skip invite (evita e-mail duplicado)')
+      await createAdminUserFallback(adminEmail, adminName, tenantId)
+      if (!isTrial) {
+        await insertBillingRecord(tenantId, amountTotal, stripeSubscriptionId, stripeCustomerId, session.id)
+      }
+      return
+    }
+
     const { error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(adminEmail, {
       data: {
         tenant_id: tenantId,
