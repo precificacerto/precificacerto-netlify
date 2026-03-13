@@ -1,24 +1,27 @@
 import Head from 'next/head'
 import Image from 'next/image'
-import { Button, message } from 'antd'
+import { Button } from 'antd'
 import Link from 'next/link'
 import { useRouter } from 'next/router'
-import { useEffect, useRef } from 'react'
+import { useEffect } from 'react'
 import { ROUTES } from '@/constants/routes'
 import { CheckCircleOutlined } from '@ant-design/icons'
 
 const TRIAL_DAYS = Number(process.env.NEXT_PUBLIC_STRIPE_TRIAL_DAYS) || 7
 
+// Evita chamar confirm mais de uma vez por session_id (mesmo com remount/Strict Mode).
+const confirmedSessionIds = new Set<string>()
+
 export default function CadastroSucesso() {
   const router = useRouter()
-  const alreadyConfirmed = useRef<string | null>(null)
 
   useEffect(() => {
     const sessionId = typeof router.query.session_id === 'string' ? router.query.session_id : null
     if (!sessionId) return
-    if (alreadyConfirmed.current === sessionId) return
-    alreadyConfirmed.current = sessionId
+    if (confirmedSessionIds.has(sessionId)) return
+    confirmedSessionIds.add(sessionId)
 
+    let cancelled = false
     const confirm = async () => {
       try {
         const res = await fetch('/api/stripe/confirm-checkout-session', {
@@ -26,16 +29,18 @@ export default function CadastroSucesso() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ sessionId }),
         })
+        if (cancelled) return
         if (!res.ok) {
           const data = await res.json().catch(() => ({}))
           console.error('Erro ao confirmar sessão Stripe:', data?.error)
         }
       } catch (err) {
-        console.error('Erro ao chamar confirm-checkout-session:', err)
+        if (!cancelled) console.error('Erro ao chamar confirm-checkout-session:', err)
       }
     }
 
     void confirm()
+    return () => { cancelled = true }
   }, [router.query.session_id])
 
   return (
@@ -131,7 +136,7 @@ export default function CadastroSucesso() {
                 lineHeight: 1.6,
               }}
             >
-              Verifique seu e-mail. Enviamos as instruções de acesso para você entrar na plataforma.
+              <strong>Próximo passo:</strong> abra seu e-mail e use o link que enviamos para definir sua senha e acessar a plataforma.
             </p>
             <p
               style={{
@@ -141,7 +146,7 @@ export default function CadastroSucesso() {
                 lineHeight: 1.5,
               }}
             >
-              Após o primeiro login, defina sua senha e conclua o cadastro da sua empresa.
+              Depois de definir a senha, você fará o cadastro da empresa (onboarding) e poderá usar o sistema.
             </p>
             <Link href={ROUTES.LOGIN}>
               <Button type="primary" block size="large">
