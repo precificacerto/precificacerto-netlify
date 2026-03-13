@@ -3,7 +3,7 @@ import Image from 'next/image'
 import { Button, message } from 'antd'
 import Link from 'next/link'
 import { useRouter } from 'next/router'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { ROUTES } from '@/constants/routes'
 import { CheckCircleOutlined } from '@ant-design/icons'
 
@@ -11,34 +11,32 @@ const TRIAL_DAYS = Number(process.env.NEXT_PUBLIC_STRIPE_TRIAL_DAYS) || 7
 
 export default function CadastroSucesso() {
   const router = useRouter()
-  const [checking, setChecking] = useState(false)
+  const alreadyConfirmed = useRef<string | null>(null)
 
   useEffect(() => {
-    const sessionId = router.query.session_id
-    if (!sessionId || checking) return
+    const sessionId = typeof router.query.session_id === 'string' ? router.query.session_id : null
+    if (!sessionId) return
+    if (alreadyConfirmed.current === sessionId) return
+    alreadyConfirmed.current = sessionId
 
     const confirm = async () => {
       try {
-        setChecking(true)
         const res = await fetch('/api/stripe/confirm-checkout-session', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ sessionId }),
         })
-
         if (!res.ok) {
           const data = await res.json().catch(() => ({}))
           console.error('Erro ao confirmar sessão Stripe:', data?.error)
         }
       } catch (err) {
         console.error('Erro ao chamar confirm-checkout-session:', err)
-      } finally {
-        setChecking(false)
       }
     }
 
     void confirm()
-  }, [router.query.session_id, checking])
+  }, [router.query.session_id])
 
   return (
     <>

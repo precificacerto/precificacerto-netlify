@@ -144,6 +144,19 @@ export async function handleCheckoutCompleted(session: Stripe.Checkout.Session) 
     }
     if (process.env.NODE_ENV === 'development') console.log(`checkout.session.completed: updated existing tenant to ${planStatus}`)
   } else {
+    if (stripeSubscriptionId) {
+      const { data: existing } = await supabaseAdmin
+        .from('tenants')
+        .select('id')
+        .eq('stripe_subscription_id', stripeSubscriptionId)
+        .limit(1)
+        .maybeSingle()
+      if (existing?.id) {
+        if (process.env.NODE_ENV === 'development') console.log('checkout.session.completed: already processed (idempotent skip)')
+        return
+      }
+    }
+
     const { data: rpcData, error: rpcError } = await supabaseAdmin.rpc('create_tenant_from_stripe', {
       p_name: adminName,
       p_admin_email: adminEmail,
