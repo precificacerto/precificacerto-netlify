@@ -117,6 +117,22 @@ export async function fetchTaxPreview(tenantId: string): Promise<TaxPreviewResul
   const icmsRateDecimal = icmsRateRaw > 0 && icmsRateRaw < 1 ? icmsRateRaw : icmsRateRaw / 100
 
   if (regime === 'LUCRO_PRESUMIDO') {
+    // ─── LUCRO PRESUMIDO — Cálculo validado end-to-end ───
+    //
+    // Referências legais:
+    // - ICMS: Lei Kandir (LC 87/96) — alíquota interna do estado de origem
+    // - PIS/COFINS cumulativo: Lei 9.718/98 — 0,65% PIS + 3,00% COFINS = 3,65%
+    // - Exclusão ICMS da base PIS/COFINS: STF RE 574.706 (Tema 69)
+    // - ISS: LC 116/03 — alíquota municipal de 2% a 5%
+    // - IRPJ presunção: Lei 9.249/95 art. 15 (8% comércio/indústria, 32% serviços, etc.)
+    // - CSLL presunção: Lei 9.249/95 art. 20 (12% geral, 32% serviços)
+    // - IRPJ alíquota: 15% (+ adicional 10% sobre excedente R$20k/mês, não incluído nesta prévia)
+    // - CSLL alíquota: 9%
+    //
+    // Nota: o adicional de IRPJ (10% sobre lucro presumido > R$60k/trimestre) NÃO está
+    // incluído nesta prévia. Ele depende do faturamento real e seria desproporcional
+    // em uma estimativa genérica.
+
     // 1. ICMS venda (decimal 0-1)
     let lpIcms = 0
     if (calcType === 'SERVICO') {
@@ -127,7 +143,9 @@ export async function fetchTaxPreview(tenantId: string): Promise<TaxPreviewResul
       lpIcms = icmsRateDecimal
     }
 
-    // 2. PIS/COFINS cumulativo (3,65%) — base ajustada pelo ICMS por dentro
+    // 2. PIS/COFINS cumulativo (3,65%) — base ajustada pela exclusão do ICMS "por dentro"
+    // Fórmula: PIS/COFINS = 3,65% × (Receita − ICMS) / Receita = 3,65% × (1 − ICMS_rate)
+    // Serviço não tem ICMS na base, então usa 3,65% cheio.
     const pisCofins = calcType === 'SERVICO'
       ? 0.0365
       : lpIcms > 0
@@ -140,6 +158,8 @@ export async function fetchTaxPreview(tenantId: string): Promise<TaxPreviewResul
       : 0
 
     // 4. IRPJ e CSLL — lucro_presumido_rates armazena valores em DECIMAL 0-1
+    // Ex: COMERCIO → irpj_presumption_percent=0.08, irpj_rate=0.15 → efetivo=0.012 (1,2%)
+    // Ex: SERVICOS_32 → irpj_presumption_percent=0.32, irpj_rate=0.15 → efetivo=0.048 (4,8%)
     const activity = ts.lucro_presumido_activity || 'COMERCIO'
     const { data: lpRate } = await supabase
       .from('lucro_presumido_rates')
@@ -147,8 +167,8 @@ export async function fetchTaxPreview(tenantId: string): Promise<TaxPreviewResul
       .eq('activity_type', activity)
       .maybeSingle()
 
-    let irpjEquiv = 0.08 * 0.15 // fallback: COMERCIO/INDUSTRIA
-    let csllEquiv = 0.12 * 0.09
+    let irpjEquiv = 0.08 * 0.15 // fallback: COMERCIO/INDUSTRIA (presunção 8%, alíquota 15%)
+    let csllEquiv = 0.12 * 0.09 // fallback: geral (presunção 12%, alíquota 9%)
     if (lpRate) {
       irpjEquiv = Number(lpRate.irpj_presumption_percent) * Number(lpRate.irpj_rate)
       csllEquiv = Number(lpRate.csll_presumption_percent) * Number(lpRate.csll_rate)

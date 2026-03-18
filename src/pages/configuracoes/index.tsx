@@ -368,7 +368,7 @@ function Settings() {
     const [businessForm] = Form.useForm()
     const [taxForm] = Form.useForm()
     const [calcForm] = Form.useForm()
-    const { currentUser, setCurrentUser } = useAuth()
+    const { currentUser, setCurrentUser, refreshUser } = useAuth()
     const [activeTab, setActiveTab] = useState('business')
     const [loading, setLoading] = useState(false)
     const [savingCalc, setSavingCalc] = useState(false)
@@ -510,6 +510,8 @@ function Settings() {
             if (error) throw error
             messageApi.success('Configurações fiscais salvas!')
             await fetchAll()
+            // Refresh auth context to update taxableRegimeValue (calculated from tenant_settings)
+            await refreshUser()
         } catch (error: any) {
             messageApi.error('Erro ao salvar: ' + (error.message || 'Verifique os campos'))
         }
@@ -528,6 +530,7 @@ function Settings() {
             }).eq('id', tenantSettings.id)
             if (error) throw error
             messageApi.success('Equipe atualizada!')
+            await refreshUser()
         } catch (error: any) {
             messageApi.error('Erro ao salvar: ' + (error.message || 'Erro'))
         }
@@ -587,6 +590,7 @@ function Settings() {
             }
             messageApi.success('Configurações de cálculo salvas!')
             await fetchAll()
+            await refreshUser()
         } catch (err: any) {
             messageApi.error(err?.message || 'Preencha todos os campos corretamente.')
         } finally {

@@ -422,6 +422,25 @@ export default function CashFlow() {
         return Object.values(groups).sort((a, b) => b.amount - a.amount)
     }, [fixedExpenseEntries])
 
+    // ── Daily view ──
+    const dailyData = useMemo(() => {
+        const daysInMonth = month.daysInMonth()
+        const days: { day: number; date: string; income: number; expense: number; balance: number; runningBalance: number; entries: any[] }[] = []
+        let running = 0
+        for (let d = 1; d <= daysInMonth; d++) {
+            const dateStr = month.date(d).format('YYYY-MM-DD')
+            const dayEntries = data.filter(e => e.due_date === dateStr)
+            const dayIncome = dayEntries
+                .filter(e => e.type === 'INCOME' && !(e.payment_method === 'BOLETO' && !e.paid_date))
+                .reduce((s, e) => s + getEffectiveIncomeAmount(e), 0)
+            const dayExpense = dayEntries.filter(e => e.type === 'EXPENSE').reduce((s, e) => s + Number(e.amount || 0), 0)
+            const dayBalance = dayIncome - dayExpense
+            running += dayBalance
+            days.push({ day: d, date: dateStr, income: dayIncome, expense: dayExpense, balance: dayBalance, runningBalance: running, entries: dayEntries })
+        }
+        return days
+    }, [data, month])
+
     // ── Charts ──
     const weeklyData = useMemo(() => {
         const weeks = [
@@ -1259,6 +1278,115 @@ export default function CashFlow() {
                                         </Table.Summary>
                                     )}
                                 />
+                            </div>
+                        ),
+                    },
+                    {
+                        label: <span><FundOutlined style={{ marginRight: 4 }} />Visão Diária</span>,
+                        key: 'daily',
+                        children: (
+                            <div className="pc-card--table">
+                                <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <span style={{ color: '#94a3b8', fontSize: 13 }}>
+                                        Fluxo dia a dia — identifique antecipadamente quando o saldo ficará negativo
+                                    </span>
+                                </div>
+                                <Table
+                                    columns={[
+                                        {
+                                            title: 'Dia', dataIndex: 'day', width: 70, align: 'center',
+                                            render: (d: number, r: any) => {
+                                                const dayName = dayjs(r.date).format('ddd')
+                                                const isWeekend = dayjs(r.date).day() === 0 || dayjs(r.date).day() === 6
+                                                return (
+                                                    <div>
+                                                        <div style={{ fontWeight: 600, fontSize: 15 }}>{String(d).padStart(2, '0')}</div>
+                                                        <div style={{ fontSize: 10, color: isWeekend ? '#F79009' : '#64748b', textTransform: 'capitalize' }}>{dayName}</div>
+                                                    </div>
+                                                )
+                                            },
+                                        },
+                                        {
+                                            title: 'Receitas', dataIndex: 'income', width: 140, align: 'right',
+                                            render: (v: number) => v > 0 ? <span style={{ color: '#12B76A', fontWeight: 500 }}>+ {formatCurrency(v)}</span> : <span style={{ color: '#475467' }}>—</span>,
+                                        },
+                                        {
+                                            title: 'Despesas', dataIndex: 'expense', width: 140, align: 'right',
+                                            render: (v: number) => v > 0 ? <span style={{ color: '#F04438', fontWeight: 500 }}>- {formatCurrency(v)}</span> : <span style={{ color: '#475467' }}>—</span>,
+                                        },
+                                        {
+                                            title: 'Saldo do Dia', dataIndex: 'balance', width: 140, align: 'right',
+                                            render: (v: number) => {
+                                                if (v === 0) return <span style={{ color: '#475467' }}>—</span>
+                                                return <span style={{ color: v >= 0 ? '#12B76A' : '#F04438', fontWeight: 600 }}>{formatCurrency(v)}</span>
+                                            },
+                                        },
+                                        {
+                                            title: 'Saldo Acumulado', dataIndex: 'runningBalance', width: 160, align: 'right',
+                                            render: (v: number) => (
+                                                <span style={{
+                                                    color: v >= 0 ? '#12B76A' : '#F04438',
+                                                    fontWeight: 700,
+                                                    fontSize: 14,
+                                                    padding: '2px 8px',
+                                                    borderRadius: 4,
+                                                    background: v < 0 ? 'rgba(240,68,56,0.1)' : undefined,
+                                                }}>
+                                                    {formatCurrency(v)}
+                                                </span>
+                                            ),
+                                        },
+                                        {
+                                            title: 'Movimentações', dataIndex: 'entries', ellipsis: true,
+                                            render: (entries: any[]) => {
+                                                if (entries.length === 0) return <span style={{ color: '#475467', fontSize: 12 }}>Sem movimentação</span>
+                                                return (
+                                                    <Space size={4} wrap>
+                                                        {entries.slice(0, 3).map((e: any, i: number) => (
+                                                            <Tag key={i} color={e.type === 'INCOME' ? 'green' : 'red'} style={{ fontSize: 11, margin: 0 }}>
+                                                                {(e.description || '').substring(0, 25)}{(e.description || '').length > 25 ? '...' : ''}
+                                                            </Tag>
+                                                        ))}
+                                                        {entries.length > 3 && <Tag style={{ fontSize: 11 }}>+{entries.length - 3}</Tag>}
+                                                    </Space>
+                                                )
+                                            },
+                                        },
+                                    ]}
+                                    dataSource={dailyData.filter(d => d.income > 0 || d.expense > 0 || d.runningBalance !== 0)}
+                                    rowKey="date"
+                                    loading={loading}
+                                    pagination={false}
+                                    size="small"
+                                    rowClassName={(r) => r.runningBalance < 0 ? 'daily-negative-row' : ''}
+                                    summary={() => (
+                                        <Table.Summary fixed>
+                                            <Table.Summary.Row style={{ background: '#0a1628' }}>
+                                                <Table.Summary.Cell index={0}><strong>Total</strong></Table.Summary.Cell>
+                                                <Table.Summary.Cell index={1} align="right"><strong style={{ color: '#12B76A' }}>{formatCurrency(totalIncome)}</strong></Table.Summary.Cell>
+                                                <Table.Summary.Cell index={2} align="right"><strong style={{ color: '#F04438' }}>{formatCurrency(totalExpense)}</strong></Table.Summary.Cell>
+                                                <Table.Summary.Cell index={3} align="right"><strong style={{ color: balance >= 0 ? '#12B76A' : '#F04438' }}>{formatCurrency(balance)}</strong></Table.Summary.Cell>
+                                                <Table.Summary.Cell index={4} />
+                                                <Table.Summary.Cell index={5} />
+                                            </Table.Summary.Row>
+                                        </Table.Summary>
+                                    )}
+                                />
+                                {dailyData.some(d => d.runningBalance < 0) && (
+                                    <Alert
+                                        type="warning"
+                                        showIcon
+                                        style={{ marginTop: 12 }}
+                                        message="Atenção: Saldo negativo detectado"
+                                        description={
+                                            <span>
+                                                O saldo acumulado fica negativo a partir do dia{' '}
+                                                <strong>{dailyData.find(d => d.runningBalance < 0)?.day}</strong>.
+                                                Considere antecipar uma entrada ou reduzir despesas nesse período.
+                                            </span>
+                                        }
+                                    />
+                                )}
                             </div>
                         ),
                     },

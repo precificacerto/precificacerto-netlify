@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react'
-import { Button, Form, Input, Select, Steps, message, InputNumber, Radio, Spin, Tag } from 'antd'
+import { Button, Form, Input, Select, Steps, message, InputNumber, Radio, Spin, Tag, Checkbox, Alert } from 'antd'
 import {
   BankOutlined,
   EnvironmentOutlined,
@@ -8,6 +8,8 @@ import {
   CheckCircleOutlined,
   SafetyCertificateOutlined,
   SearchOutlined,
+  InfoCircleOutlined,
+  DollarOutlined,
 } from '@ant-design/icons'
 import Head from 'next/head'
 import Image from 'next/image'
@@ -118,6 +120,15 @@ const CALC_TYPES = [
   { value: 'INDUSTRIALIZACAO', label: 'Industrialização', desc: 'Transformação de matérias-primas em produtos acabados (fábricas, panificadoras, marcenarias, etc.)' },
   { value: 'SERVICO', label: 'Prestação de Serviço', desc: 'Entrega de serviços ao cliente (consultoria, salões, oficinas, etc.)' },
   { value: 'REVENDA', label: 'Revenda', desc: 'Compra e revenda de produtos prontos (lojas, e-commerce, distribuidoras, etc.)' },
+]
+
+const PAYMENT_METHODS = [
+  { value: 'PIX', label: 'PIX' },
+  { value: 'CARTAO_CREDITO', label: 'Cartão de Crédito' },
+  { value: 'CARTAO_DEBITO', label: 'Cartão de Débito' },
+  { value: 'DINHEIRO', label: 'Dinheiro' },
+  { value: 'BOLETO', label: 'Boleto Bancário' },
+  { value: 'TRANSFERENCIA', label: 'Transferência Bancária' },
 ]
 
 const SIMPLES_ANEXOS = [
@@ -743,50 +754,98 @@ export default function Onboarding() {
                   </Form.Item>
                 )}
 
-                <Form.Item
-                  name="revenue_input_type"
-                  label="Como deseja informar o faturamento?"
-                  initialValue="TOTAL_12M"
-                  rules={[{ required: true }]}
-                  tooltip="Necessário para tributação, precificação e recálculo de despesas. Se a empresa é nova e não tem 12 meses, use a opção de faturamento médio por mês."
-                >
-                  <Radio.Group>
-                    <Radio value="TOTAL_12M" style={{ display: 'block', marginBottom: 6 }}>
-                      Faturamento <strong>total dos últimos 12 meses</strong>
-                    </Radio>
-                    <Radio value="AVERAGE_MONTHLY" style={{ display: 'block' }}>
-                      Faturamento <strong>médio por mês</strong> (empresa nova ou sem 12 meses de histórico)
-                    </Radio>
-                  </Radio.Group>
-                </Form.Item>
+                {/* Panorama de Referência — Prévia de Receita (estimativa inicial, NÃO alimenta fluxo de caixa) */}
+                <div style={{
+                  background: 'rgba(59, 130, 246, 0.06)',
+                  border: '1px solid rgba(59, 130, 246, 0.25)',
+                  borderRadius: 12,
+                  padding: '20px',
+                  marginBottom: 20,
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                    <DollarOutlined style={{ fontSize: 18, color: '#3B82F6' }} />
+                    <span style={{ fontSize: 14, fontWeight: 600, color: '#e2e8f0' }}>
+                      Panorama de Referência — Prévia de Receita
+                    </span>
+                  </div>
+                  <Alert
+                    type="info"
+                    showIcon
+                    icon={<InfoCircleOutlined />}
+                    style={{
+                      marginBottom: 16,
+                      background: 'rgba(59, 130, 246, 0.08)',
+                      border: '1px solid rgba(59, 130, 246, 0.15)',
+                      borderRadius: 8,
+                    }}
+                    message={
+                      <span style={{ color: '#93C5FD', fontSize: 13 }}>
+                        Estes valores são uma <strong>estimativa inicial</strong> usada apenas para calcular tributação e precificação.
+                        Eles <strong>não alimentam o fluxo de caixa</strong> — o caixa só registra movimentações reais.
+                      </span>
+                    }
+                  />
 
-                <Form.Item
-                  noStyle
-                  shouldUpdate={(prev, curr) => prev.revenue_input_type !== curr.revenue_input_type}
-                >
-                  {({ getFieldValue }) => {
-                    const type = getFieldValue('revenue_input_type')
-                    const isTotal12m = type !== 'AVERAGE_MONTHLY'
-                    return (
-                      <Form.Item
-                        name="revenue_value"
-                        label={isTotal12m ? 'Faturamento total dos últimos 12 meses (R$)' : 'Faturamento médio por mês (R$)'}
-                        rules={[{ required: true, message: isTotal12m ? 'Informe o faturamento dos últimos 12 meses' : 'Informe o faturamento médio por mês' }, { type: 'number', min: 0, message: 'Deve ser maior ou igual a zero' }]}
-                        tooltip={isTotal12m
-                          ? 'Valor total faturado nos últimos 12 meses. Usado para tributação e para o recálculo de despesas na precificação.'
-                          : 'Estimativa de quanto a empresa fatura em um mês. O sistema usará esse valor × 12 como base para tributação e precificação até você ter histórico no fluxo de caixa.'}
-                      >
-                        <InputNumber
-                          style={{ width: '100%' }}
-                          placeholder={isTotal12m ? 'Ex: 500.000' : 'Ex: 41.666'}
-                          min={0}
-                          formatter={v => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, '.')}
-                          parser={v => Number(String(v).replace(/\./g, '')) ?? 0}
-                        />
-                      </Form.Item>
-                    )
-                  }}
-                </Form.Item>
+                  <Form.Item
+                    name="revenue_input_type"
+                    label="Como deseja informar o faturamento?"
+                    initialValue="TOTAL_12M"
+                    rules={[{ required: true }]}
+                    tooltip="Necessário para tributação, precificação e recálculo de despesas. Se a empresa é nova e não tem 12 meses, use a opção de faturamento médio por mês."
+                  >
+                    <Radio.Group>
+                      <Radio value="TOTAL_12M" style={{ display: 'block', marginBottom: 6 }}>
+                        Faturamento <strong>total dos últimos 12 meses</strong>
+                      </Radio>
+                      <Radio value="AVERAGE_MONTHLY" style={{ display: 'block' }}>
+                        Faturamento <strong>médio por mês</strong> (empresa nova ou sem 12 meses de histórico)
+                      </Radio>
+                    </Radio.Group>
+                  </Form.Item>
+
+                  <Form.Item
+                    noStyle
+                    shouldUpdate={(prev, curr) => prev.revenue_input_type !== curr.revenue_input_type}
+                  >
+                    {({ getFieldValue }) => {
+                      const type = getFieldValue('revenue_input_type')
+                      const isTotal12m = type !== 'AVERAGE_MONTHLY'
+                      return (
+                        <Form.Item
+                          name="revenue_value"
+                          label={isTotal12m ? 'Faturamento total dos últimos 12 meses (R$)' : 'Faturamento médio por mês (R$)'}
+                          rules={[{ required: true, message: isTotal12m ? 'Informe o faturamento dos últimos 12 meses' : 'Informe o faturamento médio por mês' }, { type: 'number', min: 0, message: 'Deve ser maior ou igual a zero' }]}
+                          tooltip={isTotal12m
+                            ? 'Valor total faturado nos últimos 12 meses. Usado para tributação e para o recálculo de despesas na precificação.'
+                            : 'Estimativa de quanto a empresa fatura em um mês. O sistema usará esse valor × 12 como base para tributação e precificação até você ter histórico no fluxo de caixa.'}
+                        >
+                          <InputNumber
+                            style={{ width: '100%' }}
+                            placeholder={isTotal12m ? 'Ex: 500.000' : 'Ex: 41.666'}
+                            min={0}
+                            formatter={v => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, '.')}
+                            parser={v => Number(String(v).replace(/\./g, '')) ?? 0}
+                          />
+                        </Form.Item>
+                      )
+                    }}
+                  </Form.Item>
+
+                  <Form.Item
+                    name="estimated_payment_methods"
+                    label="Principais formas de recebimento"
+                    tooltip="Selecione as formas de pagamento mais comuns dos seus clientes. Isso nos ajuda a sugerir configurações iniciais."
+                    style={{ marginBottom: 0 }}
+                  >
+                    <Checkbox.Group style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {PAYMENT_METHODS.map(pm => (
+                        <Checkbox key={pm.value} value={pm.value} style={{ marginInlineStart: 0 }}>
+                          {pm.label}
+                        </Checkbox>
+                      ))}
+                    </Checkbox.Group>
+                  </Form.Item>
+                </div>
 
                 <Form.Item
                   name="calc_type"

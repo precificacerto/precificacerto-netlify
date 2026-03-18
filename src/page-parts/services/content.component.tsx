@@ -476,6 +476,41 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                 )}
             </div>
 
+            {/* Productive Minute Reference */}
+            {pricing.minutePrice > 0 && (
+                <div className="pc-card" style={{ marginBottom: 16, background: 'linear-gradient(135deg, rgba(18,183,106,0.06), rgba(18,183,106,0.02))' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+                        <div style={{ flex: 1, minWidth: 200 }}>
+                            <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 2 }}>
+                                <InfoCircleOutlined style={{ marginRight: 4 }} />
+                                Valor por Minuto Produtivo
+                            </div>
+                            <div style={{ fontSize: 24, fontWeight: 800, color: '#12B76A' }}>
+                                {fmt(pricing.minutePrice)}
+                                <span style={{ fontSize: 13, fontWeight: 400, color: '#94a3b8', marginLeft: 4 }}>/min</span>
+                            </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: 20 }}>
+                            <div style={{ textAlign: 'center' }}>
+                                <div style={{ fontSize: 11, color: '#94a3b8' }}>MO Produtiva/mês</div>
+                                <div style={{ fontWeight: 600, fontSize: 13 }}>{fmt(pricing.productionLaborCost)}</div>
+                            </div>
+                            <div style={{ textAlign: 'center' }}>
+                                <div style={{ fontSize: 11, color: '#94a3b8' }}>Produtivos</div>
+                                <div style={{ fontWeight: 600, fontSize: 13 }}>{pricing.numEmployees}</div>
+                            </div>
+                            <div style={{ textAlign: 'center' }}>
+                                <div style={{ fontSize: 11, color: '#94a3b8' }}>Min/mês total</div>
+                                <div style={{ fontWeight: 600, fontSize: 13 }}>{pricing.monthlyMin.toLocaleString('pt-BR')}</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div style={{ fontSize: 11, color: '#64748b', marginTop: 8 }}>
+                        Fórmula: (Mão de Obra Total) ÷ (Horas/Dia × Dias/Mês × Nº Produtivos × 60)
+                    </div>
+                </div>
+            )}
+
             {/* Pricing */}
             <div className="pc-card" style={{ marginBottom: 16 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>

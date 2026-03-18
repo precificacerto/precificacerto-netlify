@@ -106,6 +106,24 @@ function decimalToPercent(val: number): number {
   return val
 }
 
+/**
+ * Approximate tax rate for quick display in the auth context (navbar, dashboard summary).
+ *
+ * IMPORTANT — INTENTIONAL SIMPLIFICATION:
+ * This function uses hardcoded PIS/COFINS values and fixed IRPJ/CSLL presumption rates
+ * (COMERCIO: 8% IRPJ, 12% CSLL) for ALL Lucro Presumido/Real activity types.
+ * It does NOT apply the ICMS "por dentro" base adjustment to PIS/COFINS.
+ *
+ * The precise, activity-aware calculation lives in `src/utils/calc-tax-preview.ts`
+ * (fetchTaxPreview), which reads `lucro_presumido_rates` from the database and
+ * applies proper ICMS base adjustments. That function should be used for pricing
+ * and tax preview screens.
+ *
+ * LP cumulativo: PIS 0.65% + COFINS 3.00% = 3.65%
+ * LR não-cumulativo: PIS 1.65% + COFINS 7.60% = 9.25%
+ * IRPJ: 8% presunção × 15% alíquota = 1.20% (hardcoded, COMERCIO/INDUSTRIA)
+ * CSLL: 12% presunção × 9% alíquota = 1.08% (hardcoded, COMERCIO/INDUSTRIA)
+ */
 async function computeTaxableRegimeValue(settings: any): Promise<number> {
   if (!settings) return 0
   const regime = settings.tax_regime || 'SIMPLES_NACIONAL'
@@ -154,20 +172,24 @@ async function computeTaxableRegimeValue(settings: any): Promise<number> {
 
     let total = 0
 
+    // PIS/COFINS — hardcoded, sem ajuste de base por ICMS "por dentro"
+    // (simplificação intencional; calc-tax-preview.ts faz o cálculo preciso)
     if (regime === 'LUCRO_PRESUMIDO') {
-      total += 0.65 + 3.00
+      total += 0.65 + 3.00 // PIS 0.65% + COFINS 3.00% (cumulativo)
     } else {
-      total += 1.65 + 7.60
+      total += 1.65 + 7.60 // PIS 1.65% + COFINS 7.60% (não-cumulativo)
     }
 
     if (calcType !== 'SERVICO') {
-      total += icmsInternalRate
+      total += icmsInternalRate // ICMS estadual (% já em formato percentual)
     }
     if (calcType === 'SERVICO') {
       total += decimalToPercent(Number(settings.iss_municipality_rate) || 0.05)
     }
 
-    total += round4(8 / 100 * 15) + round4(12 / 100 * 9)
+    // IRPJ + CSLL — presunção fixa de COMERCIO/INDUSTRIA para todas as atividades
+    // (simplificação; calc-tax-preview.ts busca taxas por atividade na tabela lucro_presumido_rates)
+    total += round4(8 / 100 * 15) + round4(12 / 100 * 9) // IRPJ: 1.20% + CSLL: 1.08% = 2.28%
 
     return round4(total)
   }
