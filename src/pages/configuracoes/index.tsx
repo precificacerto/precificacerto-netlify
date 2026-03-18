@@ -536,6 +536,17 @@ function Settings() {
         }
     }
 
+    // Map frontend enum → DB values (DB uses Portuguese names)
+    const calcTypeToDb: Record<string, string> = {
+        [CALC_TYPE_ENUM.INDUSTRIALIZATION]: 'INDUSTRIALIZACAO',
+        [CALC_TYPE_ENUM.SERVICE]: 'SERVICO',
+        [CALC_TYPE_ENUM.RESALE]: 'REVENDA',
+        // Also accept DB values directly (when loaded from DB without change)
+        INDUSTRIALIZACAO: 'INDUSTRIALIZACAO',
+        SERVICO: 'SERVICO',
+        REVENDA: 'REVENDA',
+    }
+
     async function handleSaveCalc() {
         try {
             await calcForm.validateFields()
@@ -546,16 +557,18 @@ function Settings() {
                 messageApi.error('Não foi possível identificar o tenant.')
                 return
             }
-            const isIndustrialization = values.calcType === CALC_TYPE_ENUM.INDUSTRIALIZATION
-            const isResale = values.calcType === CALC_TYPE_ENUM.RESALE
+            const isIndustrialization = values.calcType === CALC_TYPE_ENUM.INDUSTRIALIZATION || values.calcType === 'INDUSTRIALIZACAO'
+            const isResale = values.calcType === CALC_TYPE_ENUM.RESALE || values.calcType === 'REVENDA'
             let unitMeasure = values.unitMeasure
             if (isIndustrialization) unitMeasure = UNIT_MEASURE_ENUM.HOURS
             if (isResale) unitMeasure = UNIT_MEASURE_ENUM.MINUTES
 
+            const dbCalcType = calcTypeToDb[values.calcType] || values.calcType
+
             const { error: settingsError } = await supabase
                 .from('tenant_settings')
                 .update({
-                    calc_type: values.calcType,
+                    calc_type: dbCalcType,
                     workload_unit: unitMeasure,
                     monthly_workload: Number(values.monthlyWorkloadInMinutes) || 0,
                     num_productive_employees: Number(values.numProductiveSectorEmployee) || 1,

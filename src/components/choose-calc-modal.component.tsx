@@ -103,10 +103,17 @@ const ChooseCalcModal = ({ open, handleShowModal }: ChooseCalcModalProps) => {
       const tenantId = await getTenantId()
       if (!tenantId) throw new Error('Tenant não encontrado')
 
+      // Map frontend enum → DB values (DB uses Portuguese names)
+      const calcTypeToDb: Record<string, string> = {
+        INDUSTRIALIZATION: 'INDUSTRIALIZACAO', SERVICE: 'SERVICO', RESALE: 'REVENDA',
+        INDUSTRIALIZACAO: 'INDUSTRIALIZACAO', SERVICO: 'SERVICO', REVENDA: 'REVENDA',
+      }
+      const dbCalcType = calcTypeToDb[updatedUser.calcType as string] || updatedUser.calcType
+
       const { error: settingsError } = await supabase
         .from('tenant_settings')
         .update({
-          calc_type: updatedUser.calcType,
+          calc_type: dbCalcType,
           workload_unit: updatedUser.unitMeasure,
           monthly_workload: updatedUser.monthlyWorkloadInMinutes,
           num_productive_employees: updatedUser.numProductiveSectorEmployee,
