@@ -300,8 +300,7 @@ function applyRowStyle(row: ExcelJS.Row, style: RowStyle, colCount: number): voi
     }
 }
 
-export async function exportCashFlowToExcel(data: CashEntry[], monthObj: dayjs.Dayjs): Promise<void> {
-    const workbook = new ExcelJS.Workbook()
+function buildMonthSheet(workbook: ExcelJS.Workbook, data: CashEntry[], monthObj: dayjs.Dayjs): void {
     const daysInMonth = monthObj.daysInMonth()
     const monthName = MONTH_NAMES_PT[monthObj.month()]
     const yearShort = monthObj.format('YY')
@@ -516,8 +515,35 @@ export async function exportCashFlowToExcel(data: CashEntry[], monthObj: dayjs.D
     totalMesValues.push(monthlyBalance)
     addStyledRow(totalMesValues, 'total_mes', 22)
 
-    // ── Download ──
+}
+
+// ── Single-month export (backwards compatible) ──
+export async function exportCashFlowToExcel(data: CashEntry[], monthObj: dayjs.Dayjs): Promise<void> {
+    const workbook = new ExcelJS.Workbook()
+    buildMonthSheet(workbook, data, monthObj)
+
+    const monthName = MONTH_NAMES_PT[monthObj.month()]
     const fileName = `Fluxo_de_Caixa_${monthName}_${monthObj.year()}.xlsx`
+    await downloadWorkbook(workbook, fileName)
+}
+
+// ── Multi-month export (one tab per month) ──
+export async function exportCashFlowMultiMonth(
+    months: { data: CashEntry[]; month: dayjs.Dayjs }[],
+): Promise<void> {
+    const workbook = new ExcelJS.Workbook()
+
+    for (const { data, month } of months) {
+        buildMonthSheet(workbook, data, month)
+    }
+
+    const first = months[0].month
+    const last = months[months.length - 1].month
+    const fileName = `Fluxo_de_Caixa_${MONTH_NAMES_PT[first.month()]}_a_${MONTH_NAMES_PT[last.month()]}_${last.year()}.xlsx`
+    await downloadWorkbook(workbook, fileName)
+}
+
+async function downloadWorkbook(workbook: ExcelJS.Workbook, fileName: string): Promise<void> {
     const buffer = await workbook.xlsx.writeBuffer()
     const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
     const url = URL.createObjectURL(blob)

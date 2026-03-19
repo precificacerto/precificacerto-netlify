@@ -28,7 +28,8 @@ import {
     type ExpenseGroupKey,
 } from '@/constants/cashier-category'
 
-import { exportCashFlowToExcel } from '@/utils/export-cash-flow-excel'
+import { exportCashFlowToExcel, exportCashFlowMultiMonth } from '@/utils/export-cash-flow-excel'
+import { exportCommissionToExcel } from '@/utils/export-commission-excel'
 
 import {
     Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement,
@@ -204,6 +205,11 @@ export default function CashFlow() {
     const [restitutionTotal, setRestitutionTotal] = useState<number>(0)
     const [restitutionEntries, setRestitutionEntries] = useState<any[]>([])
 
+    // Export modal
+    const [exportModalOpen, setExportModalOpen] = useState(false)
+    const [exportRange, setExportRange] = useState<[dayjs.Dayjs, dayjs.Dayjs]>([month.startOf('month'), month.endOf('month')])
+    const [exporting, setExporting] = useState(false)
+
     const startOfMonth = month.startOf('month').format('YYYY-MM-DD')
     const endOfMonth = month.endOf('month').format('YYYY-MM-DD')
 
@@ -229,6 +235,44 @@ export default function CashFlow() {
     }
 
     useEffect(() => { fetchData() }, [month])
+
+    const handleExportMultiMonth = async () => {
+        setExporting(true)
+        try {
+            const [start, end] = exportRange
+            const startMonth = start.startOf('month')
+            const endMonth = end.startOf('month')
+
+            const months: { data: any[]; month: dayjs.Dayjs }[] = []
+            let current = startMonth
+
+            while (current.isBefore(endMonth) || current.isSame(endMonth, 'month')) {
+                const s = current.startOf('month').format('YYYY-MM-DD')
+                const e = current.endOf('month').format('YYYY-MM-DD')
+                const { data: entries } = await supabase
+                    .from('cash_entries')
+                    .select('*')
+                    .gte('due_date', s)
+                    .lte('due_date', e)
+                    .eq('is_active', true)
+                    .order('due_date', { ascending: true })
+                months.push({ data: entries || [], month: current })
+                current = current.add(1, 'month')
+            }
+
+            if (months.length === 1) {
+                await exportCashFlowToExcel(months[0].data, months[0].month)
+            } else {
+                await exportCashFlowMultiMonth(months)
+            }
+            setExportModalOpen(false)
+            messageApi.success('Excel exportado com sucesso!')
+        } catch (err: any) {
+            messageApi.error('Erro ao exportar: ' + (err?.message || 'Erro desconhecido'))
+        } finally {
+            setExporting(false)
+        }
+    }
 
     if (!canView(MODULES.CASH_FLOW)) {
         return <Layout title={PAGE_TITLES.CASH_FLOW}><div style={{ padding: 40, textAlign: 'center' }}>Você não tem acesso a este módulo.</div></Layout>
@@ -1290,7 +1334,10 @@ export default function CashFlow() {
                                 <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
                                     <Button
                                         icon={<FileExcelOutlined />}
-                                        onClick={() => { exportCashFlowToExcel(data, month) }}
+                                        onClick={() => {
+                                            setExportRange([month.startOf('month'), month.startOf('month')])
+                                            setExportModalOpen(true)
+                                        }}
                                         style={{ background: '#217346', borderColor: '#217346', color: '#fff' }}
                                     >
                                         Exportar Excel
@@ -1649,26 +1696,10 @@ export default function CashFlow() {
                                     {commissionSummary.length > 0 && (
                                         <Button
                                             icon={<FileExcelOutlined />}
-                                            onClick={() => {
-                                                const totalBase = commissionSummary.reduce((s, r) => s + r.base_revenue, 0)
-                                                const totalComm = commissionSummary.reduce((s, r) => s + r.commission_value, 0)
-                                                const header = 'Vendedor;% Comissão;Base (receita);Comissão calculada\n'
-                                                const rows = commissionSummary.map(r =>
-                                                    `${r.name};${r.commission_percent}%;${r.base_revenue.toFixed(2).replace('.', ',')};${r.commission_value.toFixed(2).replace('.', ',')}`
-                                                ).join('\n')
-                                                const footer = `\nTOTAL;;${totalBase.toFixed(2).replace('.', ',')};${totalComm.toFixed(2).replace('.', ',')}`
-                                                const csvContent = '\uFEFF' + header + rows + footer
-                                                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
-                                                const url = URL.createObjectURL(blob)
-                                                const link = document.createElement('a')
-                                                link.href = url
-                                                link.download = `comissao-vendedores-${month.format('YYYY-MM')}.csv`
-                                                link.click()
-                                                URL.revokeObjectURL(url)
-                                            }}
-                                            style={{ marginLeft: 12 }}
+                                            onClick={() => exportCommissionToExcel(commissionSummary, month)}
+                                            style={{ marginLeft: 12, background: '#7C3AED', borderColor: '#7C3AED', color: '#fff' }}
                                         >
-                                            Exportar Relatório
+                                            Exportar Excel
                                         </Button>
                                     )}
                                 </div>
@@ -2125,6 +2156,62 @@ export default function CashFlow() {
                     </Form>
                 )}
             </Drawer>
+
+            {/* Export range modal */}
+            <Modal
+                title="Exportar Fluxo de Caixa"
+                open={exportModalOpen}
+                onCancel={() => setExportModalOpen(false)}
+                onOk={handleExportMultiMonth}
+                confirmLoading={exporting}
+                okText="Exportar"
+                cancelText="Cancelar"
+                okButtonProps={{ style: { background: '#217346', borderColor: '#217346' } }}
+            >
+                <div style={{ marginBottom: 16 }}>
+                    <p style={{ marginBottom: 12, color: '#94a3b8' }}>
+                        Selecione o período que deseja exportar. Cada mês será uma aba no Excel.
+                    </p>
+                    <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                        <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: 12, marginBottom: 4, color: '#94a3b8' }}>Mês inicial</div>
+                            <DatePicker
+                                picker="month"
+                                value={exportRange[0]}
+                                onChange={(v) => {
+                                    if (v) {
+                                        setExportRange(prev => [v, prev[1].isBefore(v) ? v : prev[1]])
+                                    }
+                                }}
+                                style={{ width: '100%' }}
+                                format="MMMM/YYYY"
+                            />
+                        </div>
+                        <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: 12, marginBottom: 4, color: '#94a3b8' }}>Mês final</div>
+                            <DatePicker
+                                picker="month"
+                                value={exportRange[1]}
+                                onChange={(v) => {
+                                    if (v) {
+                                        setExportRange(prev => [prev[0], v.isBefore(prev[0]) ? prev[0] : v])
+                                    }
+                                }}
+                                style={{ width: '100%' }}
+                                format="MMMM/YYYY"
+                            />
+                        </div>
+                    </div>
+                    {exportRange[0] && exportRange[1] && (
+                        <div style={{ marginTop: 12, padding: '8px 12px', background: 'rgba(33, 115, 70, 0.1)', borderRadius: 6, fontSize: 13 }}>
+                            {(() => {
+                                const diff = exportRange[1].diff(exportRange[0], 'month') + 1
+                                return `${diff} ${diff === 1 ? 'mês selecionado (1 aba)' : `meses selecionados (${diff} abas)`}`
+                            })()}
+                        </div>
+                    )}
+                </div>
+            </Modal>
         </Layout>
     )
 }
