@@ -246,7 +246,7 @@ const NewItemForm = ({ form }: Props) => {
         Dados da Compra
       </Divider>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
         <Form.Item name="supplier_name" label="Fornecedor">
           <Input placeholder="Nome do fornecedor" onChange={(e) => form.setFieldsValue({ supplier_name: capitalizeFirst(e.target.value) })} />
         </Form.Item>
@@ -268,9 +268,7 @@ const NewItemForm = ({ form }: Props) => {
             ))}
           </Select>
         </Form.Item>
-      </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
         <Form.Item
           name="quantity"
           label="Qtd. comprada"
@@ -285,7 +283,9 @@ const NewItemForm = ({ form }: Props) => {
             onChange={() => setTimeout(recalcCostPerUnit, 50)}
           />
         </Form.Item>
+      </div>
 
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
         <Form.Item
           name="unitType"
           label="Unidade"

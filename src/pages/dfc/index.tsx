@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react'
-import { Alert, Select, Spin, Tooltip } from 'antd'
-import { InfoCircleOutlined } from '@ant-design/icons'
+import { Alert, Button, Select, Spin, Tooltip } from 'antd'
+import { FileExcelOutlined, InfoCircleOutlined } from '@ant-design/icons'
+import { exportDfcToExcel } from '@/utils/export-dfc-excel'
 import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
 import { supabase } from '@/supabase/client'
@@ -601,11 +602,21 @@ export default function DfcPage() {
               {calcType && <> | Tipo: <strong>{calcType === 'INDUSTRIALIZATION' ? 'Industrialização' : calcType === 'RESALE' ? 'Revenda' : 'Serviço'}</strong></>}
             </span>
           </div>
-          <Select value={year} onChange={setYear} style={{ width: 120 }}>
-            {yearOptions.map(y => (
-              <Select.Option key={y} value={y}>{y}</Select.Option>
-            ))}
-          </Select>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Select value={year} onChange={setYear} style={{ width: 120 }}>
+              {yearOptions.map(y => (
+                <Select.Option key={y} value={y}>{y}</Select.Option>
+              ))}
+            </Select>
+            <Button
+              icon={<FileExcelOutlined />}
+              onClick={() => exportDfcToExcel(dreRows, year, taxRegime, calcType)}
+              disabled={dreRows.length === 0}
+              style={{ background: '#217346', borderColor: '#217346', color: '#fff' }}
+            >
+              Exportar Excel
+            </Button>
+          </div>
         </div>
       </header>
 

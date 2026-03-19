@@ -1,4 +1,4 @@
-import * as XLSX from 'xlsx'
+import ExcelJS from 'exceljs'
 import dayjs from 'dayjs'
 import { getEffectiveIncomeAmount } from '@/utils/cash-entry-amount'
 
@@ -175,27 +175,158 @@ interface CashEntry {
     anticipated_amount?: number | null
 }
 
-export function exportCashFlowToExcel(data: CashEntry[], monthObj: dayjs.Dayjs): void {
-    const wb = XLSX.utils.book_new()
+// ── Style constants ──
+const FONT_DEFAULT: Partial<ExcelJS.Font> = { name: 'Calibri', size: 10 }
+const FONT_BOLD: Partial<ExcelJS.Font> = { ...FONT_DEFAULT, bold: true }
+const FONT_HEADER_WHITE: Partial<ExcelJS.Font> = { ...FONT_DEFAULT, bold: true, color: { argb: 'FFFFFFFF' } }
+
+const THIN_BORDER: Partial<ExcelJS.Borders> = {
+    top: { style: 'thin' },
+    bottom: { style: 'thin' },
+    left: { style: 'thin' },
+    right: { style: 'thin' },
+}
+
+const NUMBER_FORMAT = '#,##0.00'
+
+const FILL_GREEN: ExcelJS.FillPattern = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF00B050' } }
+const FILL_LIGHT_GREEN: ExcelJS.FillPattern = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2EFDA' } }
+const FILL_RED: ExcelJS.FillPattern = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFF0000' } }
+const FILL_ORANGE: ExcelJS.FillPattern = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFF3300' } }
+const FILL_LIGHT_ORANGE: ExcelJS.FillPattern = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFCE4CC' } }
+const FILL_BLUE: ExcelJS.FillPattern = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4472C4' } }
+const FILL_DARK_BLUE: ExcelJS.FillPattern = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2F5496' } }
+const FILL_GRAY: ExcelJS.FillPattern = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E2F3' } }
+
+type RowStyle = 'recebimentos_header' | 'income_item' | 'saidas_header' | 'expense_section_header'
+    | 'expense_item' | 'total_receber' | 'total_pagar' | 'saldo_diario' | 'total_mes'
+    | 'day_header' | 'opening' | 'none'
+
+function applyRowStyle(row: ExcelJS.Row, style: RowStyle, colCount: number): void {
+    for (let c = 1; c <= colCount; c++) {
+        const cell = row.getCell(c)
+        cell.font = { ...FONT_DEFAULT }
+        cell.border = { ...THIN_BORDER }
+        if (c > 1) {
+            cell.numFmt = NUMBER_FORMAT
+            cell.alignment = { horizontal: 'right', vertical: 'middle' }
+        } else {
+            cell.alignment = { vertical: 'middle' }
+        }
+    }
+
+    switch (style) {
+        case 'recebimentos_header':
+            for (let c = 1; c <= colCount; c++) {
+                const cell = row.getCell(c)
+                cell.fill = { ...FILL_GREEN }
+                cell.font = { ...FONT_HEADER_WHITE }
+            }
+            break
+        case 'income_item':
+            for (let c = 1; c <= colCount; c++) {
+                const cell = row.getCell(c)
+                cell.fill = { ...FILL_LIGHT_GREEN }
+                cell.font = c === 1 ? { ...FONT_DEFAULT } : { ...FONT_DEFAULT }
+            }
+            break
+        case 'saidas_header':
+            for (let c = 1; c <= colCount; c++) {
+                const cell = row.getCell(c)
+                cell.fill = { ...FILL_RED }
+                cell.font = { ...FONT_HEADER_WHITE }
+            }
+            break
+        case 'expense_section_header':
+            for (let c = 1; c <= colCount; c++) {
+                const cell = row.getCell(c)
+                cell.fill = { ...FILL_ORANGE }
+                cell.font = { ...FONT_HEADER_WHITE }
+            }
+            break
+        case 'expense_item':
+            for (let c = 1; c <= colCount; c++) {
+                const cell = row.getCell(c)
+                cell.fill = { ...FILL_LIGHT_ORANGE }
+                cell.font = { ...FONT_DEFAULT }
+            }
+            break
+        case 'total_receber':
+            for (let c = 1; c <= colCount; c++) {
+                const cell = row.getCell(c)
+                cell.fill = { ...FILL_GREEN }
+                cell.font = { ...FONT_HEADER_WHITE }
+            }
+            break
+        case 'total_pagar':
+            for (let c = 1; c <= colCount; c++) {
+                const cell = row.getCell(c)
+                cell.fill = { ...FILL_RED }
+                cell.font = { ...FONT_HEADER_WHITE }
+            }
+            break
+        case 'saldo_diario':
+            for (let c = 1; c <= colCount; c++) {
+                const cell = row.getCell(c)
+                cell.fill = { ...FILL_BLUE }
+                cell.font = { ...FONT_HEADER_WHITE }
+            }
+            break
+        case 'total_mes':
+            for (let c = 1; c <= colCount; c++) {
+                const cell = row.getCell(c)
+                cell.fill = { ...FILL_DARK_BLUE }
+                cell.font = { ...FONT_HEADER_WHITE }
+            }
+            break
+        case 'day_header':
+            for (let c = 1; c <= colCount; c++) {
+                const cell = row.getCell(c)
+                cell.fill = { ...FILL_GRAY }
+                cell.font = { ...FONT_BOLD }
+                cell.alignment = { horizontal: 'center', vertical: 'middle' }
+                cell.border = {
+                    ...THIN_BORDER,
+                    bottom: { style: 'medium' },
+                }
+            }
+            break
+        case 'opening':
+            row.getCell(1).font = { ...FONT_BOLD }
+            break
+        case 'none':
+        default:
+            break
+    }
+}
+
+export async function exportCashFlowToExcel(data: CashEntry[], monthObj: dayjs.Dayjs): Promise<void> {
+    const workbook = new ExcelJS.Workbook()
     const daysInMonth = monthObj.daysInMonth()
     const monthName = MONTH_NAMES_PT[monthObj.month()]
     const yearShort = monthObj.format('YY')
     const sheetName = `${monthName} ${yearShort}`
 
-    // Build a grid: rows x columns
-    // Column 0 = label, columns 1..daysInMonth = day values, last column = Total
-    const totalCols = daysInMonth + 2 // label + days + total
+    const ws = workbook.addWorksheet(sheetName)
 
-    // Helper to create an empty row
-    const emptyRow = (): (string | number)[] => Array(totalCols).fill('')
+    // Total columns: 1 (label) + daysInMonth (day cols) + 1 (total)
+    const totalCols = daysInMonth + 2
 
-    // Collect income data by label and day
+    // ── Set column widths ──
+    const columns: Partial<ExcelJS.Column>[] = [{ width: 40, key: 'label' }]
+    for (let d = 1; d <= daysInMonth; d++) {
+        columns.push({ width: 14, key: `day${d}` })
+    }
+    columns.push({ width: 18, key: 'total' })
+    ws.columns = columns
+
+    // ── Collect income data by label and day ──
     const incomeByLabelDay: Record<string, number[]> = {}
     for (const label of INCOME_LABELS) {
         incomeByLabelDay[label] = new Array(daysInMonth).fill(0)
     }
 
-    // Collect expense data by section/item and day
+    // ── Collect expense data by section/item and day ──
     const expenseByKey: Record<string, number[]> = {}
     for (const section of EXPENSE_SECTIONS) {
         for (const item of section.items) {
@@ -207,7 +338,7 @@ export function exportCashFlowToExcel(data: CashEntry[], monthObj: dayjs.Dayjs):
     // Track unmatched expenses
     const unmatchedExpenses: number[] = new Array(daysInMonth).fill(0)
 
-    // Process entries
+    // ── Process entries ──
     for (const entry of data) {
         const day = dayjs(entry.due_date).date()
         const dayIdx = day - 1
@@ -240,165 +371,159 @@ export function exportCashFlowToExcel(data: CashEntry[], monthObj: dayjs.Dayjs):
         }
     }
 
-    // ── Build rows ──
-    const rows: (string | number)[][] = []
-
-    // Helper: day headers row
-    const dayHeaders = emptyRow()
-    dayHeaders[0] = ''
-    for (let d = 1; d <= daysInMonth; d++) {
-        dayHeaders[d] = `Dia ${d}`
-    }
-    dayHeaders[daysInMonth + 1] = 'Total'
-
-    // Row 1: Opening balance header
-    const openingRow = emptyRow()
-    openingRow[0] = 'Saldo Inicial (mês anterior)'
-    rows.push(openingRow)
-    rows.push(emptyRow()) // blank row
-
-    // Row 3: blank
-    rows.push(emptyRow())
-
-    // Row 4: Day headers
-    rows.push(dayHeaders)
-
-    // Row 5: Recebimentos header
-    const recHeader = emptyRow()
-    recHeader[0] = 'Recebimentos'
-    rows.push(recHeader)
-
-    // Blank after header
-    rows.push(emptyRow())
-
-    // Income rows
-    let totalIncomeByDay = new Array(daysInMonth).fill(0)
-    for (const label of INCOME_LABELS) {
-        const row = emptyRow()
-        row[0] = label
+    // ── Helper: build row values array (label + day values + total) ──
+    function buildDataRow(label: string, dayValues: number[]): (string | number | null)[] {
+        const values: (string | number | null)[] = [label]
         let rowTotal = 0
         for (let d = 0; d < daysInMonth; d++) {
-            const val = incomeByLabelDay[label][d]
-            row[d + 1] = val !== 0 ? val : ''
+            const val = dayValues[d]
+            values.push(val !== 0 ? val : null)
             rowTotal += val
-            totalIncomeByDay[d] += val
         }
-        row[daysInMonth + 1] = rowTotal !== 0 ? rowTotal : ''
-        rows.push(row)
+        values.push(rowTotal !== 0 ? rowTotal : null)
+        return values
     }
 
-    // Blank
-    rows.push(emptyRow())
+    function addStyledRow(values: (string | number | null)[], style: RowStyle, height?: number): ExcelJS.Row {
+        const row = ws.addRow(values)
+        applyRowStyle(row, style, totalCols)
+        if (height) row.height = height
+        return row
+    }
 
-    // Saidas header
-    const saidasHeader = emptyRow()
-    saidasHeader[0] = 'Saidas'
-    rows.push(saidasHeader)
+    // ── Row 1: Opening balance with "Saldo dia anterior" headers ──
+    const openingValues: (string | number | null)[] = ['Total saldo inicial (mês anterior)']
+    for (let d = 1; d <= daysInMonth; d++) openingValues.push('Saldo dia anterior' as any)
+    openingValues.push(null)
+    const openingRow = addStyledRow(openingValues, 'opening', 22)
+    // Style opening row cells
+    for (let c = 2; c <= daysInMonth + 1; c++) {
+        const cell = openingRow.getCell(c)
+        cell.font = { ...FONT_DEFAULT, size: 8, color: { argb: 'FF666666' } }
+        cell.alignment = { horizontal: 'center', vertical: 'middle' }
+        cell.numFmt = '@' // text format
+    }
 
-    // Blank
-    rows.push(emptyRow())
+    // ── Blank row ──
+    ws.addRow([])
 
-    // Expense sections
-    let totalExpenseByDay = new Array(daysInMonth).fill(0)
+    // ── Blank row ──
+    ws.addRow([])
+
+    // ── Day headers row ──
+    const dayHeaderValues: (string | null)[] = ['']
+    for (let d = 1; d <= daysInMonth; d++) {
+        dayHeaderValues.push(`Dia ${d}`)
+    }
+    dayHeaderValues.push('Total')
+    addStyledRow(dayHeaderValues, 'day_header', 22)
+
+    // ── Recebimentos header ──
+    const recValues: (string | null)[] = ['Recebimentos']
+    for (let i = 0; i < daysInMonth + 1; i++) recValues.push(null)
+    addStyledRow(recValues, 'recebimentos_header', 22)
+
+    // ── Blank after header ──
+    ws.addRow([])
+
+    // ── Income rows ──
+    const totalIncomeByDay = new Array(daysInMonth).fill(0)
+    for (const label of INCOME_LABELS) {
+        const dayValues = incomeByLabelDay[label]
+        for (let d = 0; d < daysInMonth; d++) {
+            totalIncomeByDay[d] += dayValues[d]
+        }
+        addStyledRow(buildDataRow(label, dayValues), 'income_item', 18)
+    }
+
+    // ── Total a receber dia ──
+    addStyledRow(buildDataRow('Total a receber dia', totalIncomeByDay), 'total_receber', 22)
+
+    // ── Total a receber mes ──
+    const totalIncomeMonth = totalIncomeByDay.reduce((a: number, b: number) => a + b, 0)
+    const totalReceberMesValues: (string | number | null)[] = ['Total a receber mes']
+    for (let i = 0; i < daysInMonth; i++) totalReceberMesValues.push(null)
+    totalReceberMesValues.push(totalIncomeMonth !== 0 ? totalIncomeMonth : null)
+    addStyledRow(totalReceberMesValues, 'total_receber', 22)
+
+    // ── Blank ──
+    ws.addRow([])
+
+    // ── Saidas header ──
+    const saidasValues: (string | null)[] = ['Saidas']
+    for (let i = 0; i < daysInMonth + 1; i++) saidasValues.push(null)
+    addStyledRow(saidasValues, 'saidas_header', 22)
+
+    // ── Blank ──
+    ws.addRow([])
+
+    // ── Expense sections ──
+    const totalExpenseByDay = new Array(daysInMonth).fill(0)
 
     for (const section of EXPENSE_SECTIONS) {
         // Section header
-        const secRow = emptyRow()
-        secRow[0] = section.header
-        rows.push(secRow)
+        const secHeaderValues: (string | null)[] = [section.header]
+        for (let i = 0; i < daysInMonth + 1; i++) secHeaderValues.push(null)
+        addStyledRow(secHeaderValues, 'expense_section_header', 22)
 
         for (const item of section.items) {
             const key = `${section.header}|${item.label}`
             const dayValues = expenseByKey[key]
-            const row = emptyRow()
-            row[0] = item.label
-            let rowTotal = 0
             for (let d = 0; d < daysInMonth; d++) {
-                const val = dayValues[d]
-                row[d + 1] = val !== 0 ? val : ''
-                rowTotal += val
-                totalExpenseByDay[d] += val
+                totalExpenseByDay[d] += dayValues[d]
             }
-            row[daysInMonth + 1] = rowTotal !== 0 ? rowTotal : ''
-            rows.push(row)
+            addStyledRow(buildDataRow(item.label, dayValues), 'expense_item', 18)
         }
 
         // Blank row after section
-        rows.push(emptyRow())
+        ws.addRow([])
     }
 
-    // Unmatched expenses row (if any)
+    // ── Unmatched expenses (if any) ──
     const hasUnmatched = unmatchedExpenses.some(v => v > 0)
     if (hasUnmatched) {
-        const row = emptyRow()
-        row[0] = 'OUTRAS DESPESAS'
-        let rowTotal = 0
         for (let d = 0; d < daysInMonth; d++) {
-            const val = unmatchedExpenses[d]
-            row[d + 1] = val !== 0 ? val : ''
-            rowTotal += val
-            totalExpenseByDay[d] += val
+            totalExpenseByDay[d] += unmatchedExpenses[d]
         }
-        row[daysInMonth + 1] = rowTotal !== 0 ? rowTotal : ''
-        rows.push(row)
-        rows.push(emptyRow())
+        addStyledRow(buildDataRow('OUTRAS DESPESAS', unmatchedExpenses), 'expense_item', 18)
+        ws.addRow([])
     }
 
-    // Daily balance row
-    const balanceRow = emptyRow()
-    balanceRow[0] = 'SALDO DIARIO'
-    let monthlyBalance = 0
+    // ── Total a pagar dia ──
+    addStyledRow(buildDataRow('Total a pagar dia', totalExpenseByDay), 'total_pagar', 22)
+
+    // ── Total a pagar mes ──
+    const totalExpenseMonth = totalExpenseByDay.reduce((a: number, b: number) => a + b, 0)
+    const totalPagarMesValues: (string | number | null)[] = ['Total a pagar mes']
+    for (let i = 0; i < daysInMonth; i++) totalPagarMesValues.push(null)
+    totalPagarMesValues.push(totalExpenseMonth !== 0 ? totalExpenseMonth : null)
+    addStyledRow(totalPagarMesValues, 'total_pagar', 22)
+
+    // ── Blank ──
+    ws.addRow([])
+
+    // ── SALDO DIARIO row ──
+    const balanceDayValues = new Array(daysInMonth).fill(0)
     for (let d = 0; d < daysInMonth; d++) {
-        const dayBal = totalIncomeByDay[d] - totalExpenseByDay[d]
-        balanceRow[d + 1] = dayBal || ''
-        monthlyBalance += dayBal
+        balanceDayValues[d] = totalIncomeByDay[d] - totalExpenseByDay[d]
     }
-    balanceRow[daysInMonth + 1] = monthlyBalance || ''
-    rows.push(balanceRow)
+    addStyledRow(buildDataRow('SALDO DIARIO', balanceDayValues), 'saldo_diario', 22)
 
-    // Monthly total row
-    const totalRow = emptyRow()
-    totalRow[0] = 'TOTAL MES'
-    const totalIncome = totalIncomeByDay.reduce((a: number, b: number) => a + b, 0)
-    const totalExpense = totalExpenseByDay.reduce((a: number, b: number) => a + b, 0)
-    totalRow[daysInMonth + 1] = totalIncome - totalExpense
-    rows.push(totalRow)
-
-    // ── Create worksheet ──
-    const ws = XLSX.utils.aoa_to_sheet(rows)
-
-    // Set column widths
-    const colWidths: XLSX.ColInfo[] = [{ wch: 40 }]
-    for (let i = 1; i <= daysInMonth; i++) colWidths.push({ wch: 14 })
-    colWidths.push({ wch: 18 })
-    ws['!cols'] = colWidths
-
-    // Format number cells as currency (2 decimal places)
-    const range = XLSX.utils.decode_range(ws['!ref'] || 'A1')
-    for (let R = range.s.r; R <= range.e.r; R++) {
-        for (let C = 1; C <= daysInMonth + 1; C++) {
-            const cellRef = XLSX.utils.encode_cell({ r: R, c: C })
-            const cell = ws[cellRef]
-            if (cell && typeof cell.v === 'number') {
-                cell.z = '#,##0.00'
-            }
-        }
-    }
-
-    // Set row heights for better readability
-    ws['!rows'] = rows.map((row) => {
-        const label = String(row[0] || '')
-        // Headers and section titles get taller rows
-        if (['Recebimentos', 'Saidas', 'SALDO DIARIO', 'TOTAL MES', 'Saldo Inicial (mês anterior)'].includes(label) ||
-            EXPENSE_SECTIONS.some(s => s.header === label)) {
-            return { hpt: 22 }
-        }
-        return { hpt: 18 }
-    })
-
-    XLSX.utils.book_append_sheet(wb, ws, sheetName)
+    // ── TOTAL MES row ──
+    const monthlyBalance = totalIncomeMonth - totalExpenseMonth
+    const totalMesValues: (string | number | null)[] = ['TOTAL MES']
+    for (let i = 0; i < daysInMonth; i++) totalMesValues.push(null)
+    totalMesValues.push(monthlyBalance)
+    addStyledRow(totalMesValues, 'total_mes', 22)
 
     // ── Download ──
     const fileName = `Fluxo_de_Caixa_${monthName}_${monthObj.year()}.xlsx`
-    XLSX.writeFile(wb, fileName)
+    const buffer = await workbook.xlsx.writeBuffer()
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = fileName
+    link.click()
+    URL.revokeObjectURL(url)
 }

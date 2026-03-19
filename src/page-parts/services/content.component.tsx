@@ -123,7 +123,9 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
         const variablePct = Number(cfg.variable_expense_percent) || 0
         const financialPct = Number(cfg.financial_expense_percent) || 0
         const indirectLaborPct = Number(cfg.indirect_labor_percent) || 0
-        const structurePct = (fixedPct + variablePct + financialPct + indirectLaborPct) / 100
+        // Para serviços: fixedPct e indirectLaborPct são incorporados no custo por minuto
+        // Não entram no coeficiente de markup para evitar dupla contagem
+        const structurePct = (variablePct + financialPct) / 100
 
         const taxesPct = taxPreview?.taxesPercent ?? 0
         const taxPct = (taxesPct + taxableRegimePercent) / 100
@@ -131,11 +133,20 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
         // Minutos de duração do serviço (productWorkloadMinutes para o motor)
         const productWorkloadMinutes = Number(form.getFieldValue('estimated_duration_minutes')) || 0
 
+        // Para serviços: o custo mensal de MO inclui produtiva + administrativa + despesas fixas
+        // Isso faz com que o custo por minuto (laborCostMonthly / monthlyWorkloadMinutes)
+        // já contemple os 3 componentes quando multiplicado pelos minutos do serviço
+        const adminMonthlyTotal = Number(cfg.admin_salary_total || 0) +
+            Number(cfg.admin_fgts_total || 0) +
+            Number(cfg.admin_other_costs || 0)
+        const fixedMonthlyTotal = Number(cfg.fixed_expense_total || 0)
+        const combinedLaborCostMonthly = laborCostMonthly + adminMonthlyTotal + fixedMonthlyTotal
+
         const result = calculatePricing({
             calcType: 'SERVICO',
             totalItemsCost: materialCost,
             yieldQuantity: 1,
-            laborCostMonthly,
+            laborCostMonthly: combinedLaborCostMonthly,
             numProductiveEmployees: totalEmployees,
             monthlyWorkloadMinutes,
             productWorkloadMinutes,
@@ -150,8 +161,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
         const totalCost = result.cmvUnit  // CMV inclui MO produtiva
         const sellingPrice = priceUnit
 
-        // Valores absolutos para exibição no DRE (calculados sobre priceUnit)
-        const fixedVal = Number((priceUnit * fixedPct / 100).toFixed(2))
+        // Valores absolutos para exibição (calculados sobre priceUnit)
         const variableVal = Number((priceUnit * variablePct / 100).toFixed(2))
         const financialVal = Number((priceUnit * financialPct / 100).toFixed(2))
         const taxesVal = Number((priceUnit * taxesPct / 100).toFixed(2))
@@ -159,24 +169,14 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
         const commissionVal = result.commissionValue
         const profitVal = result.profitValue
 
-        const laborAdminPct = Number(expenseConfig?.indirect_labor_percent) || 0
-        const laborPctDisplay = laborAdminPct
-
-        const totalPct = laborPctDisplay + fixedPct + variablePct + financialPct + taxesPct +
+        // MO administrativa e Despesas fixas incorporadas no custo por minuto
+        const totalPct = variablePct + financialPct + taxesPct +
             taxableRegimePercent + commissionPercent + profitPercent
         const isValid = result.isValid
 
-        const minutePrice = monthlyWorkloadMinutes > 0 ? laborCostMonthly / monthlyWorkloadMinutes : 0
-
         return {
             laborCost, totalCost, sellingPrice,
-            laborPctDisplay, fixedPct, variablePct, financialPct, taxesPct,
-            indirectVal: Number((priceUnit * laborAdminPct / 100).toFixed(2)),
-            minutePrice,
-            productionLaborCost: laborCostMonthly,
-            numEmployees: totalEmployees,
-            monthlyMin: monthlyWorkloadMinutes,
-            fixedVal,
+            variablePct, financialPct, taxesPct,
             variableVal,
             financialVal,
             taxesVal,
@@ -386,26 +386,15 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
             {/* Basic Info */}
             <div className="pc-card" style={{ marginBottom: 16 }}>
                 <Form form={form} layout="vertical">
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-                        <Form.Item name="name" label="Nome do Serviço" rules={[{ required: true, message: 'Informe o nome' }]}>
-                            <Input placeholder="Ex: Tintura, Corte masculino, Manicure..." size="large"
-                                onChange={(e) => {
-                                    const v = e.target.value
-                                    if (v.length > 0 && v[0] !== v[0].toUpperCase()) {
-                                        form.setFieldsValue({ name: v.charAt(0).toUpperCase() + v.slice(1) })
-                                    }
-                                }} />
-                        </Form.Item>
-                        <Form.Item name="estimated_duration_minutes" label="Tempo de Execução" initialValue={60} rules={[{ required: true }]}>
-                            <Select size="large">
-                                {[15, 30, 45, 60, 90, 120, 150, 180, 240, 300, 360].map(m => (
-                                    <Select.Option key={m} value={m}>
-                                        {m < 60 ? `${m} min` : m % 60 === 0 ? `${m / 60}h` : `${Math.floor(m / 60)}h${m % 60}min`}
-                                    </Select.Option>
-                                ))}
-                            </Select>
-                        </Form.Item>
-                    </div>
+                    <Form.Item name="name" label="Nome do Serviço" rules={[{ required: true, message: 'Informe o nome' }]}>
+                        <Input placeholder="Ex: Tintura, Corte masculino, Manicure..." size="large"
+                            onChange={(e) => {
+                                const v = e.target.value
+                                if (v.length > 0 && v[0] !== v[0].toUpperCase()) {
+                                    form.setFieldsValue({ name: v.charAt(0).toUpperCase() + v.slice(1) })
+                                }
+                            }} />
+                    </Form.Item>
                     <Form.Item name="description" label="Descrição">
                         <Input.TextArea rows={2} placeholder="Descrição do serviço (opcional)" />
                     </Form.Item>
@@ -476,61 +465,44 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                 )}
             </div>
 
-            {/* Productive Minute Reference */}
-            {pricing.minutePrice > 0 && (
-                <div className="pc-card" style={{ marginBottom: 16, background: 'linear-gradient(135deg, rgba(18,183,106,0.06), rgba(18,183,106,0.02))' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-                        <div style={{ flex: 1, minWidth: 200 }}>
-                            <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 2 }}>
-                                <InfoCircleOutlined style={{ marginRight: 4 }} />
-                                Valor por Minuto Produtivo
-                            </div>
-                            <div style={{ fontSize: 24, fontWeight: 800, color: '#12B76A' }}>
-                                {fmt(pricing.minutePrice)}
-                                <span style={{ fontSize: 13, fontWeight: 400, color: '#94a3b8', marginLeft: 4 }}>/min</span>
-                            </div>
-                        </div>
-                        <div style={{ display: 'flex', gap: 20 }}>
-                            <div style={{ textAlign: 'center' }}>
-                                <div style={{ fontSize: 11, color: '#94a3b8' }}>MO Produtiva/mês</div>
-                                <div style={{ fontWeight: 600, fontSize: 13 }}>{fmt(pricing.productionLaborCost)}</div>
-                            </div>
-                            <div style={{ textAlign: 'center' }}>
-                                <div style={{ fontSize: 11, color: '#94a3b8' }}>Produtivos</div>
-                                <div style={{ fontWeight: 600, fontSize: 13 }}>{pricing.numEmployees}</div>
-                            </div>
-                            <div style={{ textAlign: 'center' }}>
-                                <div style={{ fontSize: 11, color: '#94a3b8' }}>Min/mês total</div>
-                                <div style={{ fontWeight: 600, fontSize: 13 }}>{pricing.monthlyMin.toLocaleString('pt-BR')}</div>
-                            </div>
-                        </div>
+            {/* Mão de obra produtiva — input de minutos */}
+            <div className="pc-card" style={{ marginBottom: 16 }}>
+                <h3 style={{ margin: '0 0 12px', fontSize: 16, fontWeight: 700 }}>Mão de obra produtiva</h3>
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                    <div style={{ width: '36%', padding: '8px 16px', fontSize: 14 }}>Mão de obra produtiva</div>
+                    <div style={{ width: '20%', padding: '4px 8px' }}>
+                        <Form form={form}>
+                            <Form.Item name="estimated_duration_minutes" noStyle initialValue={60}>
+                                <InputNumber
+                                    min={1}
+                                    step={1}
+                                    style={{ width: '100%' }}
+                                    placeholder="Ex: 60"
+                                    addonAfter="min"
+                                    size="large"
+                                />
+                            </Form.Item>
+                        </Form>
                     </div>
-                    <div style={{ fontSize: 11, color: '#64748b', marginTop: 8 }}>
-                        Fórmula: (Mão de Obra Total) ÷ (Horas/Dia × Dias/Mês × Nº Produtivos × 60)
+                    <div style={{ width: '15%', padding: '4px 8px', fontWeight: 700, fontSize: 15, color: '#B42318' }}>
+                        {fmt(pricing.laborCost)}
+                    </div>
+                    <div style={{ width: '29%', padding: '4px 8px', fontSize: 11, color: '#94a3b8' }}>
+                        MO direta + administrativa + desp. fixas
                     </div>
                 </div>
-            )}
+            </div>
 
             {/* Pricing */}
             <div className="pc-card" style={{ marginBottom: 16 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                    <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>
+                    <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>
                         <CalculatorOutlined style={{ marginRight: 6, color: '#F79009' }} />
                         Precificação do Serviço
                     </h3>
-                    <div style={{ display: 'flex', gap: 20 }}>
-                        <div style={{ textAlign: 'right' }}>
-                            <div style={{ fontSize: 11, color: '#94a3b8' }}>Materiais</div>
-                            <div style={{ fontWeight: 600, fontSize: 13 }}>{fmt(materialCost)}</div>
-                        </div>
-                        <div style={{ textAlign: 'right' }}>
-                            <div style={{ fontSize: 11, color: '#94a3b8' }}>Mão de obra produtiva</div>
-                            <div style={{ fontWeight: 600, fontSize: 13 }}>{fmt(pricing.laborCost)}</div>
-                        </div>
-                        <div style={{ textAlign: 'right' }}>
-                            <div style={{ fontSize: 11, color: '#94a3b8' }}>Custo total</div>
-                            <div style={{ fontWeight: 700, fontSize: 15, color: '#B42318' }}>{fmt(pricing.totalCost)}</div>
-                        </div>
+                    <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: 11, color: '#94a3b8' }}>Custo serviço</div>
+                        <div style={{ fontWeight: 700, fontSize: 15, color: '#B42318' }}>{fmt(pricing.totalCost)}</div>
                     </div>
                 </div>
 
@@ -558,8 +530,6 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                             </tr>
                         </thead>
                         <tbody>
-                            {pricingRow('Mão de obra administrativa', pricing.laborPctDisplay, pricing.indirectVal)}
-                            {pricingRow('Despesas fixas', pricing.fixedPct, pricing.fixedVal)}
                             {pricingRow('Despesas variáveis', pricing.variablePct, pricing.variableVal)}
                             {pricingRow('Despesas financeiras', pricing.financialPct, pricing.financialVal)}
                             {pricingRow(taxLabel, displayTaxPct, displayTaxVal)}
@@ -567,7 +537,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                                 `Regime tributário${taxPreview?.regimeLabel ? ` (${taxPreview.regimeLabel})` : ''}`,
                                 taxableRegimePercent, pricing.taxRegimeVal
                             )}
-                            {pricingRow('Comissão / Mão de obra administrativa', commissionPercent, pricing.commissionVal, 'commission')}
+                            {pricingRow('Comissão', commissionPercent, pricing.commissionVal, 'commission')}
                             {pricingRow('Lucro', profitPercent, pricing.profitVal, 'profit')}
                         </tbody>
                     </table>
@@ -575,7 +545,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                     <Divider style={{ margin: '12px 0' }} />
 
                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 13 }}>
-                        <span style={{ color: '#94a3b8' }}>Markup total aplicado</span>
+                        <span style={{ color: '#94a3b8' }}>Margem de contribuição total aplicada</span>
                         <span style={{ fontWeight: 600 }}>{pricing.totalPct.toFixed(2)}%</span>
                     </div>
 
@@ -614,8 +584,8 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                                 <Tooltip title={`Custo: ${fmt(pricing.totalCost)}`}>
                                     <div style={{ width: `${(pricing.totalCost / pricing.sellingPrice) * 100}%`, background: '#F04438' }} />
                                 </Tooltip>
-                                <Tooltip title={`Despesas: ${fmt(pricing.indirectVal + pricing.fixedVal + pricing.variableVal + pricing.financialVal)}`}>
-                                    <div style={{ width: `${((pricing.indirectVal + pricing.fixedVal + pricing.variableVal + pricing.financialVal) / pricing.sellingPrice) * 100}%`, background: '#F79009' }} />
+                                <Tooltip title={`Despesas: ${fmt(pricing.variableVal + pricing.financialVal)}`}>
+                                    <div style={{ width: `${((pricing.variableVal + pricing.financialVal) / pricing.sellingPrice) * 100}%`, background: '#F79009' }} />
                                 </Tooltip>
                                 <Tooltip title={`Impostos: ${fmt(displayTaxVal + (isSN ? 0 : pricing.taxRegimeVal))}`}>
                                     <div style={{ width: `${((displayTaxVal + (isSN ? 0 : pricing.taxRegimeVal)) / pricing.sellingPrice) * 100}%`, background: '#667085' }} />

@@ -1290,7 +1290,7 @@ export default function CashFlow() {
                                 <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
                                     <Button
                                         icon={<FileExcelOutlined />}
-                                        onClick={() => exportCashFlowToExcel(data, month)}
+                                        onClick={() => { exportCashFlowToExcel(data, month) }}
                                         style={{ background: '#217346', borderColor: '#217346', color: '#fff' }}
                                     >
                                         Exportar Excel
