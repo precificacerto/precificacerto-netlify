@@ -74,6 +74,7 @@ const PERMISSION_SECTIONS: { title: string; modules: { key: string; label: strin
         title: 'Financeiro',
         modules: [
             { key: 'cash_flow', label: 'Fluxo de Caixa' },
+            { key: 'dfc', label: 'DFC' },
         ],
     },
     {

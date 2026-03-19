@@ -267,7 +267,7 @@ async function fetchUserProfile(userId: string): Promise<LoggedUser | null> {
   const ALL_MODULES = [
     'home', 'customers', 'items', 'products', 'budgets', 'sales',
     'stock', 'cashier', 'cash_flow', 'employees',
-    'reports', 'agenda', 'services', 'connectivity', 'users_management',
+    'reports', 'agenda', 'services', 'connectivity', 'dfc', 'users_management',
   ]
 
   const isAdminRole = user.role === 'admin'

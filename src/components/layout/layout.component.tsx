@@ -1,10 +1,11 @@
-import React, { ReactNode, useEffect, useState, lazy, Suspense } from 'react'
+import React, { ReactNode, useEffect, useState, useCallback, lazy, Suspense } from 'react'
 import Head from 'next/head'
 import { APP_TITLE } from '@/constants/page-titles'
 import { Nav } from './nav.component'
 import { useAuth } from '@/hooks/use-auth.hook'
 import { PERMISSIONS } from '@/shared/enums/permissions'
 import { TrialBanner } from '../trial-banner.component'
+import { MenuOutlined } from '@ant-design/icons'
 
 const ChooseCalcModal = lazy(() =>
   import('../choose-calc-modal.component').then(m => ({ default: m.ChooseCalcModal }))
@@ -20,7 +21,10 @@ type Props = {
 
 const Layout = ({ children, showAside = true, title, tabTitle, subtitle }: Props) => {
   const [showCalcModal, setShowCalcModal] = useState<boolean>(false)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
   const { currentUser } = useAuth()
+
+  const closeSidebar = useCallback(() => setSidebarOpen(false), [])
 
   useEffect(() => {
     if (
@@ -54,15 +58,36 @@ const Layout = ({ children, showAside = true, title, tabTitle, subtitle }: Props
       </Head>
 
       <div className="app-layout">
-        {/* Sidebar (Desktop) */}
+        {/* Sidebar overlay (mobile) */}
         {showAside && (
-          <Nav />
+          <div
+            className={`sidebar-overlay${sidebarOpen ? ' active' : ''}`}
+            onClick={closeSidebar}
+          />
+        )}
+
+        {/* Sidebar */}
+        {showAside && (
+          <div className={sidebarOpen ? 'app-sidebar-wrapper open' : 'app-sidebar-wrapper'}>
+            <Nav />
+          </div>
         )}
 
         {/* Main Content */}
         <div className="app-main">
           <TrialBanner />
           <div className="app-content">
+            {/* Mobile menu button */}
+            {showAside && (
+              <button
+                className="mobile-menu-btn"
+                onClick={() => setSidebarOpen(true)}
+                aria-label="Abrir menu"
+              >
+                <MenuOutlined style={{ fontSize: 20 }} />
+              </button>
+            )}
+
             {/* Page Header */}
             {title && (
               <div className="page-header">

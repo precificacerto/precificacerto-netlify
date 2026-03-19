@@ -673,13 +673,78 @@ body {
    - Mobile bottom nav não utilizado; menus do usuário ficam na sidebar.
    - Ajustes de layout apenas quando necessário para adaptação.
    ============================================================ */
-@media (max-width: 768px) {
+
+/* --- Tablet Breakpoint --- */
+@media (max-width: 1024px) {
+  .app-sidebar {
+    width: 200px;
+  }
+
   .app-main {
+    margin-left: 200px;
+  }
+
+  .pc-card--table {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* --- Mobile menu button (hidden on desktop) --- */
+.mobile-menu-btn {
+  display: none;
+}
+
+/* --- Mobile Breakpoint --- */
+@media (max-width: 768px) {
+  .app-sidebar {
+    transform: translateX(-100%);
+    transition: transform 0.3s ease;
+    width: var(--sidebar-width) !important;
+  }
+
+  .app-sidebar-wrapper.open .app-sidebar {
+    transform: translateX(0);
+    z-index: 1000;
+  }
+
+  .app-main {
+    margin-left: 0 !important;
     padding-bottom: 16px;
   }
 
   .app-content {
     padding: 16px;
+  }
+
+  .mobile-menu-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.04);
+    color: #e2e8f0;
+    cursor: pointer;
+    margin-bottom: 12px;
+
+    &:active {
+      background: rgba(255, 255, 255, 0.1);
+    }
+  }
+
+  .sidebar-overlay {
+    display: none;
+
+    &.active {
+      display: block;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 999;
+    }
   }
 
   .kpi-grid {
