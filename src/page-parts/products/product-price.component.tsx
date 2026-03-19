@@ -172,7 +172,7 @@ export const ProductPrice: FC<Props> = ({
         <Divider style={{ margin: '12px 0' }} />
 
         <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 13 }}>
-          <span style={{ color: '#94a3b8' }}>Markup total aplicado</span>
+          <span style={{ color: '#94a3b8' }}>Margem de contribuição total aplicada</span>
           <span style={{ fontWeight: 600 }}>{totalPct.toFixed(2)}%</span>
         </div>
 

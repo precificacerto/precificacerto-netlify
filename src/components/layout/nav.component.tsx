@@ -122,6 +122,7 @@ const Nav = () => {
     { key: 'sales', label: 'Vendas', icon: 'shopping', href: ROUTES.SALES, section: 'comercial', module: MODULES.SALES },
 
     { key: 'cashflow', label: 'Fluxo de Caixa', icon: 'shopping', href: ROUTES.CASH_FLOW, section: 'financeiro', module: MODULES.CASH_FLOW },
+    { key: 'dfc', label: 'DFC', icon: 'fund', href: ROUTES.DFC, section: 'financeiro', module: MODULES.DFC },
 
     { key: 'calendar', label: 'Agenda', icon: 'calendar', href: ROUTES.SCHEDULE, section: 'operacional', module: MODULES.AGENDA },
     { key: 'reports', label: 'Relatório Agenda', icon: 'bar-chart', href: ROUTES.REPORTS, section: 'operacional', module: MODULES.REPORTS },

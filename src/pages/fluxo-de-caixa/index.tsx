@@ -16,7 +16,7 @@ import {
     DollarOutlined, ArrowUpOutlined, ArrowDownOutlined, FundOutlined,
     PlusOutlined, DeleteOutlined, SyncOutlined, EditOutlined,
     CalendarOutlined, PieChartOutlined, BankOutlined, TagOutlined,
-    TeamOutlined, CreditCardOutlined,
+    TeamOutlined, CreditCardOutlined, FileExcelOutlined,
 } from '@ant-design/icons'
 import { useAuth } from '@/hooks/use-auth.hook'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
@@ -27,6 +27,8 @@ import {
     getExpenseGroupColor,
     type ExpenseGroupKey,
 } from '@/constants/cashier-category'
+
+import { exportCashFlowToExcel } from '@/utils/export-cash-flow-excel'
 
 import {
     Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement,
@@ -1285,6 +1287,15 @@ export default function CashFlow() {
                         key: '1',
                         children: (
                             <div className="pc-card--table">
+                                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+                                    <Button
+                                        icon={<FileExcelOutlined />}
+                                        onClick={() => exportCashFlowToExcel(data, month)}
+                                        style={{ background: '#217346', borderColor: '#217346', color: '#fff' }}
+                                    >
+                                        Exportar Excel
+                                    </Button>
+                                </div>
                                 <Table
                                     columns={columns}
                                     dataSource={data}
@@ -1633,8 +1644,33 @@ export default function CashFlow() {
                         key: '6',
                         children: (
                             <div className="pc-card--table">
-                                <div className="filter-bar" style={{ marginBottom: 12 }}>
+                                <div className="filter-bar" style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                     <span style={{ color: '#94a3b8', fontSize: 13 }}>Comissão calculada sobre serviços concluídos (agenda) e vendas de orçamentos no mês — vendedores com % cadastrado</span>
+                                    {commissionSummary.length > 0 && (
+                                        <Button
+                                            icon={<FileExcelOutlined />}
+                                            onClick={() => {
+                                                const totalBase = commissionSummary.reduce((s, r) => s + r.base_revenue, 0)
+                                                const totalComm = commissionSummary.reduce((s, r) => s + r.commission_value, 0)
+                                                const header = 'Vendedor;% Comissão;Base (receita);Comissão calculada\n'
+                                                const rows = commissionSummary.map(r =>
+                                                    `${r.name};${r.commission_percent}%;${r.base_revenue.toFixed(2).replace('.', ',')};${r.commission_value.toFixed(2).replace('.', ',')}`
+                                                ).join('\n')
+                                                const footer = `\nTOTAL;;${totalBase.toFixed(2).replace('.', ',')};${totalComm.toFixed(2).replace('.', ',')}`
+                                                const csvContent = '\uFEFF' + header + rows + footer
+                                                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+                                                const url = URL.createObjectURL(blob)
+                                                const link = document.createElement('a')
+                                                link.href = url
+                                                link.download = `comissao-vendedores-${month.format('YYYY-MM')}.csv`
+                                                link.click()
+                                                URL.revokeObjectURL(url)
+                                            }}
+                                            style={{ marginLeft: 12 }}
+                                        >
+                                            Exportar Relatório
+                                        </Button>
+                                    )}
                                 </div>
                                 {commissionSummary.length > 0 ? (
                                     <Table

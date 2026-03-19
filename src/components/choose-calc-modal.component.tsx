@@ -280,35 +280,9 @@ const ChooseCalcModal = ({ open, handleShowModal }: ChooseCalcModalProps) => {
           <Input type="number" min={0} />
         </Form.Item>
 
-        <div className="flex">
-          <Form.Item
-            name="taxableRegime"
-            label="Qual seu regime tributário"
-            rules={[{ required: true }]}
-            className="w-full mr-3"
-          >
-            <Select onChange={handleChangeTaxableRegime}>
-              <Select.Option value={REGIME_TAXABLE_OPTIONS.NATIONAL_SIMPLE}>
-                Simples nacional
-              </Select.Option>
-              <Select.Option value={REGIME_TAXABLE_OPTIONS.MEI}>MEI</Select.Option>
-            </Select>
-          </Form.Item>
-
-          <Form.Item
-            name="taxableRegimeValue"
-            label="Imposto (%)"
-            rules={[{ required: true }]}
-            initialValue={0}
-          >
-            <Input
-              type="number"
-              min={0}
-              suffix="%"
-              disabled={taxableRegimeInput !== REGIME_TAXABLE_OPTIONS.NATIONAL_SIMPLE}
-            />
-          </Form.Item>
-        </div>
+        {/* Regime Tributário e Imposto % configurados em Configurações > Fiscal/Tributário */}
+        <Form.Item name="taxableRegime" hidden><Input /></Form.Item>
+        <Form.Item name="taxableRegimeValue" hidden initialValue={0}><Input /></Form.Item>
       </Form>
     </Modal>
   )

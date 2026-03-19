@@ -15,6 +15,7 @@ export const MODULES = {
   AGENDA:           'agenda',
   SERVICES:         'services',
   CONNECTIVITY:     'connectivity',
+  DFC:              'dfc',
   USERS_MANAGEMENT: 'users_management',
 } as const
 

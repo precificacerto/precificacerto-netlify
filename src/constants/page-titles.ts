@@ -34,6 +34,7 @@ export enum PAGE_TITLES {
 
   // ── Phase 4: Financeiro ──
   CASH_FLOW = 'Fluxo de Caixa',
+  DFC = 'DFC',
 
   // ── Phase 5: Operacional ──
   SCHEDULE = 'Agenda',

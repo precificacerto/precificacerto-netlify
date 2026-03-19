@@ -91,10 +91,13 @@ export const ContentService: FC<ContentServiceProps> = ({
   const svcCommVal = productPriceInfo.salesCommissionPrice
   const svcProfitPct = productPriceInfo.productProfitPercent
   const svcProfitVal = productPriceInfo.productProfitPrice
-  const svcTotalPct = svcLaborPct + svcFixedPct + svcVarPct + svcFinPct + svcTaxPct + svcCommPct + svcProfitPct
+  /* MO indireta + Despesa fixa agora contabilizados dentro de MO produtiva */
+  const svcTotalPct = svcVarPct + svcFinPct + svcTaxPct + svcCommPct + svcProfitPct
   const svcCost = productPriceInfo.productCost
   const svcExpenses = svcLaborVal + svcFixedVal + svcVarVal + svcFinVal
   const svcTaxes = svcTaxVal
+  /* Valor combinado de MO produtiva (direta + indireta + despesa fixa) */
+  const combinedLaborPrice = productPriceInfo.productWorkloadInMinutesPrice + svcLaborVal + svcFixedVal
 
   /* ---- product pricing data (V2: single tax) ---- */
   const prdTaxPct = calcBase.taxPct
@@ -207,9 +210,11 @@ export const ContentService: FC<ContentServiceProps> = ({
             />
           </div>
           <div className="w-[15%] p-1">
-            R$ {getMonetaryValue(productPriceInfo.productWorkloadInMinutesPrice)}
+            R$ {getMonetaryValue(combinedLaborPrice)}
           </div>
-          <div className="w-[29%]"></div>
+          <div className="w-[29%] p-1" style={{ fontSize: 11, color: '#94a3b8' }}>
+            MO direta + administrativa + desp. fixas
+          </div>
         </section>
       </Card>
 
@@ -245,8 +250,6 @@ export const ContentService: FC<ContentServiceProps> = ({
               </tr>
             </thead>
             <tbody>
-              {pricingRow('Mão de obra indireta', svcLaborPct, svcLaborVal)}
-              {pricingRow('Despesas fixas', svcFixedPct, svcFixedVal)}
               {pricingRow('Despesas variáveis', svcVarPct, svcVarVal)}
               {pricingRow('Despesas financeiras', svcFinPct, svcFinVal)}
               {pricingRow(svcTaxLabel, svcTaxPct, svcTaxVal)}
@@ -258,7 +261,7 @@ export const ContentService: FC<ContentServiceProps> = ({
           <Divider style={{ margin: '12px 0' }} />
 
           <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 13 }}>
-            <span style={{ color: '#94a3b8' }}>Markup total aplicado</span>
+            <span style={{ color: '#94a3b8' }}>Margem de contribuição total aplicada</span>
             <span style={{ fontWeight: 600 }}>{svcTotalPct.toFixed(2)}%</span>
           </div>
 
@@ -353,7 +356,7 @@ export const ContentService: FC<ContentServiceProps> = ({
           <Divider style={{ margin: '12px 0' }} />
 
           <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 13 }}>
-            <span style={{ color: '#94a3b8' }}>Markup total aplicado</span>
+            <span style={{ color: '#94a3b8' }}>Margem de contribuição total aplicada</span>
             <span style={{ fontWeight: 600 }}>{prdTotalPct.toFixed(2)}%</span>
           </div>
 

@@ -1,9 +1,8 @@
 import { ChangeEvent, FC } from 'react'
-import { Button, Card, Form, FormInstance, Input, Select, Table } from 'antd'
+import { Button, Card, Form, FormInstance, Select, Table } from 'antd'
 import { IItemModel } from '@/server/model/item'
 import { IItemProductModel } from '@/server/model/item-product-item'
 import { ColumnsType } from 'antd/es/table'
-import { getMonetaryValue } from '@/utils/get-monetary-value'
 import { CalcBaseType } from '@/types/calc-base.type'
 import { ProductPrice } from './product-price.component'
 import { LoggedUser } from '@/types/logged-user.type'
@@ -75,27 +74,6 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
           </Form>
         </div>
         <Table pagination={false} columns={columns} dataSource={productItemsData} />
-        <section className="flex items-center p-1">
-          <div className="w-[36%] p-4">Mão de obra produtiva</div>
-          <div className="w-[20%] p-1">
-            <Input
-              name="productWorkloadInMinutes"
-              placeholder="Inserir manualmente"
-              autoComplete="off"
-              suffix="Minutos"
-              className="w-[89%]"
-              type="number"
-              min={1}
-              minLength={1}
-              onChange={handleChangePrecificationInputs}
-              value={productPriceInfo.productWorkloadInMinutes}
-            />
-          </div>
-          <div className="w-[15%] p-1">
-            R$ {getMonetaryValue(productPriceInfo.productWorkloadInMinutesPrice)}
-          </div>
-          <div className="w-[29%]"></div>
-        </section>
       </Card>
 
       <ProductPrice

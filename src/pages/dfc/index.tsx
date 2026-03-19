@@ -1,0 +1,658 @@
+import React, { useState, useEffect, useMemo, useCallback } from 'react'
+import { Select, Spin, Tooltip } from 'antd'
+import { InfoCircleOutlined } from '@ant-design/icons'
+import { Layout } from '@/components/layout/layout.component'
+import { PAGE_TITLES } from '@/constants/page-titles'
+import { supabase } from '@/supabase/client'
+import { useAuth } from '@/hooks/use-auth.hook'
+import { getTenantId } from '@/utils/get-tenant-id'
+
+// ── Types ──
+
+type TaxRegime = 'LUCRO_REAL' | 'LUCRO_PRESUMIDO' | 'SIMPLES_NACIONAL' | 'SIMPLES_HIBRIDO' | 'PRESUMIDO_RET' | 'MEI' | string
+
+type CalcType = 'INDUSTRIALIZATION' | 'RESALE' | 'SERVICE' | string
+
+type MonthlyValues = {
+  jan: number; feb: number; mar: number; apr: number; may: number; jun: number
+  jul: number; aug: number; sep: number; oct: number; nov: number; dec: number
+}
+
+type DreRow = {
+  key: string
+  label: string
+  values: MonthlyValues
+  total: number
+  isHeader?: boolean
+  isTotal?: boolean
+  isSubtotal?: boolean
+  indent?: number
+  sign?: '+' | '-' | '='
+  pctOfRL?: MonthlyValues & { total: number }
+}
+
+const EMPTY_MONTHS: MonthlyValues = {
+  jan: 0, feb: 0, mar: 0, apr: 0, may: 0, jun: 0,
+  jul: 0, aug: 0, sep: 0, oct: 0, nov: 0, dec: 0,
+}
+
+const MONTH_KEYS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'] as const
+const MONTH_LABELS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
+
+// Map due_date month index (0-based) to our MonthlyValues key
+const MONTH_INDEX_TO_KEY: Record<number, keyof MonthlyValues> = {
+  0: 'jan', 1: 'feb', 2: 'mar', 3: 'apr', 4: 'may', 5: 'jun',
+  6: 'jul', 7: 'aug', 8: 'sep', 9: 'oct', 10: 'nov', 11: 'dec',
+}
+
+// ── Utilities ──
+
+function sumMonths(a: MonthlyValues, b: MonthlyValues): MonthlyValues {
+  const r = { ...EMPTY_MONTHS }
+  for (const k of MONTH_KEYS) r[k] = a[k] + b[k]
+  return r
+}
+
+function subtractMonths(a: MonthlyValues, b: MonthlyValues): MonthlyValues {
+  const r = { ...EMPTY_MONTHS }
+  for (const k of MONTH_KEYS) r[k] = a[k] - b[k]
+  return r
+}
+
+function totalOfMonths(v: MonthlyValues): number {
+  return MONTH_KEYS.reduce((s, k) => s + v[k], 0)
+}
+
+function pctMonths(numerator: MonthlyValues, denominator: MonthlyValues): MonthlyValues & { total: number } {
+  const r = { ...EMPTY_MONTHS, total: 0 }
+  let numTotal = 0
+  let denTotal = 0
+  for (const k of MONTH_KEYS) {
+    r[k] = denominator[k] !== 0 ? (numerator[k] / denominator[k]) * 100 : 0
+    numTotal += numerator[k]
+    denTotal += denominator[k]
+  }
+  r.total = denTotal !== 0 ? (numTotal / denTotal) * 100 : 0
+  return r
+}
+
+function formatBRL(value: number): string {
+  if (value === 0) return '-'
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+    minimumFractionDigits: 2,
+  }).format(value)
+}
+
+function formatPct(value: number): string {
+  if (value === 0) return '-'
+  return `${value.toFixed(1)}%`
+}
+
+// ── Data fetching ──
+
+type CashEntry = {
+  amount: number
+  type: 'INCOME' | 'EXPENSE'
+  expense_group: string | null
+  description: string | null
+  due_date: string
+  is_active: boolean
+}
+
+async function fetchYearEntries(tenantId: string, year: number): Promise<CashEntry[]> {
+  const startDate = `${year}-01-01`
+  const endDate = `${year}-12-31`
+  // @ts-ignore — supabase generic chain too deep for TS
+  const { data } = await supabase
+    .from('cash_entries')
+    .select('amount, type, expense_group, description, due_date, is_active')
+    .eq('tenant_id', tenantId)
+    .eq('is_active', true)
+    .gte('due_date', startDate)
+    .lte('due_date', endDate)
+  return (data || []).map((e: any) => ({
+    ...e,
+    amount: Number(e.amount) || 0,
+  }))
+}
+
+async function fetchTenantSettings(tenantId: string): Promise<{ tax_regime: string | null; calc_type: string | null }> {
+  const { data } = await supabase
+    .from('tenant_settings')
+    .select('tax_regime, calc_type')
+    .eq('tenant_id', tenantId)
+    .single()
+  return { tax_regime: (data as any)?.tax_regime ?? null, calc_type: (data as any)?.calc_type ?? null }
+}
+
+// ── Aggregate entries into MonthlyValues by groups ──
+
+type AggregatedData = {
+  receitaBruta: MonthlyValues
+  // expense groups
+  maoDeObraProdutiva: MonthlyValues
+  maoDeObraAdministrativa: MonthlyValues
+  maoDeObra: MonthlyValues // generic MO
+  despesaFixa: MonthlyValues
+  despesaVariavel: MonthlyValues
+  despesaFinanceira: MonthlyValues
+  imposto: MonthlyValues
+  comissoes: MonthlyValues
+  custoProduto: MonthlyValues // DESPESA_VARIAVEL entries that are product cost (Fornecedores, Embalagens, etc.)
+}
+
+function aggregateEntries(entries: CashEntry[]): AggregatedData {
+  const data: AggregatedData = {
+    receitaBruta: { ...EMPTY_MONTHS },
+    maoDeObraProdutiva: { ...EMPTY_MONTHS },
+    maoDeObraAdministrativa: { ...EMPTY_MONTHS },
+    maoDeObra: { ...EMPTY_MONTHS },
+    despesaFixa: { ...EMPTY_MONTHS },
+    despesaVariavel: { ...EMPTY_MONTHS },
+    despesaFinanceira: { ...EMPTY_MONTHS },
+    imposto: { ...EMPTY_MONTHS },
+    comissoes: { ...EMPTY_MONTHS },
+    custoProduto: { ...EMPTY_MONTHS },
+  }
+
+  // Categories considered as product cost (CMV)
+  const PRODUCT_COST_DESCRIPTIONS = new Set([
+    'Fornecedores', 'Matéria Prima / Produtos Revenda', 'Embalagens', 'Embalagens Diversas',
+    'Frete Compras', 'Terceirizações',
+  ])
+
+  // Comissoes descriptions
+  const COMISSAO_DESCRIPTIONS = new Set(['Comissões de Venda'])
+
+  for (const entry of entries) {
+    const d = new Date(entry.due_date)
+    const monthKey = MONTH_INDEX_TO_KEY[d.getMonth()]
+    if (!monthKey) continue
+
+    if (entry.type === 'INCOME') {
+      data.receitaBruta[monthKey] += entry.amount
+      continue
+    }
+
+    // EXPENSE
+    const group = entry.expense_group || ''
+    const desc = entry.description || ''
+
+    // Comissoes check
+    if (COMISSAO_DESCRIPTIONS.has(desc) || desc.toLowerCase().includes('comiss')) {
+      data.comissoes[monthKey] += entry.amount
+      continue
+    }
+
+    // Product cost check (CMV) - items from DESPESA_VARIAVEL that are material costs
+    if (PRODUCT_COST_DESCRIPTIONS.has(desc) || group === 'DESPESA_VARIAVEL') {
+      // Separate actual product cost from other variable expenses
+      if (PRODUCT_COST_DESCRIPTIONS.has(desc)) {
+        data.custoProduto[monthKey] += entry.amount
+        continue
+      }
+    }
+
+    switch (group) {
+      case 'MAO_DE_OBRA_PRODUTIVA':
+        data.maoDeObraProdutiva[monthKey] += entry.amount
+        break
+      case 'MAO_DE_OBRA_ADMINISTRATIVA':
+        data.maoDeObraAdministrativa[monthKey] += entry.amount
+        break
+      case 'MAO_DE_OBRA':
+        data.maoDeObra[monthKey] += entry.amount
+        break
+      case 'DESPESA_FIXA':
+        data.despesaFixa[monthKey] += entry.amount
+        break
+      case 'DESPESA_VARIAVEL':
+        data.despesaVariavel[monthKey] += entry.amount
+        break
+      case 'DESPESA_FINANCEIRA':
+        data.despesaFinanceira[monthKey] += entry.amount
+        break
+      case 'IMPOSTO':
+        data.imposto[monthKey] += entry.amount
+        break
+      default:
+        // Fallback: treat unknown as variable expense
+        data.despesaVariavel[monthKey] += entry.amount
+        break
+    }
+  }
+
+  return data
+}
+
+// ── DRE Builders ──
+
+function buildRow(
+  key: string,
+  label: string,
+  values: MonthlyValues,
+  receitaLiquida: MonthlyValues,
+  opts?: Partial<DreRow>,
+): DreRow {
+  const total = totalOfMonths(values)
+  return {
+    key,
+    label,
+    values,
+    total,
+    pctOfRL: pctMonths(values, receitaLiquida),
+    ...opts,
+  }
+}
+
+function buildDreLucroRealPresumido(
+  agg: AggregatedData,
+  calcType: CalcType,
+  taxRegime: TaxRegime,
+): DreRow[] {
+  const rows: DreRow[] = []
+  const isIndustrializacao = calcType === 'INDUSTRIALIZATION'
+
+  // Receita Bruta
+  const receitaBruta = agg.receitaBruta
+  // Use receita bruta as denominator for percentage until we calculate receita liquida
+  const tempRL = receitaBruta
+
+  rows.push(buildRow('receita_bruta', 'Receita Bruta', receitaBruta, tempRL, { isHeader: true, sign: '+' }))
+
+  // Deduções Tributárias Sobre Receita (impostos sobre faturamento from IMPOSTO group)
+  const deducoesTribReceita = agg.imposto
+  rows.push(buildRow('deducoes_trib_receita', '(-) Deduções Tributárias Sobre Receita', deducoesTribReceita, tempRL, { sign: '-', indent: 1 }))
+
+  // Deduções Tributárias Sobre Compras (créditos de impostos) - estimated as ~9.25% of product cost (PIS+COFINS credits)
+  const creditRate = 0.0925
+  const deducoesTribCompras: MonthlyValues = { ...EMPTY_MONTHS }
+  for (const k of MONTH_KEYS) {
+    deducoesTribCompras[k] = agg.custoProduto[k] * creditRate
+  }
+  rows.push(buildRow('deducoes_trib_compras', '(-) Deduções Tributárias Sobre Compras', deducoesTribCompras, tempRL, { sign: '-', indent: 1 }))
+
+  // Receita Líquida
+  const receitaLiquida = subtractMonths(subtractMonths(receitaBruta, deducoesTribReceita), deducoesTribCompras)
+  rows.push(buildRow('receita_liquida', '(=) Receita Líquida de Venda Interna', receitaLiquida, receitaLiquida, { isSubtotal: true, sign: '=' }))
+
+  // CMV
+  const custoProdutos = agg.custoProduto
+  rows.push(buildRow('cmv_header', '(-) Custos Líquido dos Produtos (CMV)', custoProdutos, receitaLiquida, { sign: '-' }))
+  rows.push(buildRow('cmv_custo_prod', 'Custo Líquido dos Produtos', custoProdutos, receitaLiquida, { indent: 2 }))
+
+  let cmvTotal = custoProdutos
+  if (isIndustrializacao) {
+    rows.push(buildRow('cmv_mo_direta', 'Custo Mão de Obra Direta', agg.maoDeObraProdutiva, receitaLiquida, { indent: 2 }))
+    cmvTotal = sumMonths(custoProdutos, agg.maoDeObraProdutiva)
+  }
+
+  // Lucro Bruto
+  const lucroBruto = subtractMonths(receitaLiquida, cmvTotal)
+  rows.push(buildRow('lucro_bruto', '(=) Lucro Bruto', lucroBruto, receitaLiquida, { isSubtotal: true, sign: '=' }))
+
+  // Despesas Operacionais
+  const moIndireta = isIndustrializacao
+    ? sumMonths(agg.maoDeObraAdministrativa, agg.maoDeObra)
+    : sumMonths(sumMonths(agg.maoDeObraProdutiva, agg.maoDeObraAdministrativa), agg.maoDeObra)
+
+  const despesasOp = sumMonths(sumMonths(sumMonths(moIndireta, agg.despesaFixa), agg.despesaVariavel), agg.comissoes)
+  rows.push(buildRow('desp_op_header', '(-) Despesas Operacionais', despesasOp, receitaLiquida, { sign: '-' }))
+
+  const moLabel = isIndustrializacao ? 'Despesa MO Indireta' : 'MO Direta + Indireta'
+  rows.push(buildRow('desp_mo_indireta', moLabel, moIndireta, receitaLiquida, { indent: 2 }))
+  rows.push(buildRow('desp_fixa', 'Despesa Fixa', agg.despesaFixa, receitaLiquida, { indent: 2 }))
+  rows.push(buildRow('desp_variavel', 'Despesa Variável', agg.despesaVariavel, receitaLiquida, { indent: 2 }))
+  rows.push(buildRow('desp_comissoes', 'Comissões', agg.comissoes, receitaLiquida, { indent: 2 }))
+
+  // Lucro Operacional (EBITDA/EBIT)
+  const lucroOperacional = subtractMonths(lucroBruto, despesasOp)
+  rows.push(buildRow('lucro_operacional', '(=) Lucro Operacional (EBITDA/EBIT)', lucroOperacional, receitaLiquida, { isSubtotal: true, sign: '=' }))
+
+  // Despesas Financeiras
+  rows.push(buildRow('desp_financeira', '(-) Despesas Financeiras', agg.despesaFinanceira, receitaLiquida, { sign: '-' }))
+
+  // Resultado Financeiro
+  const resultadoFinanceiro = subtractMonths(lucroOperacional, agg.despesaFinanceira)
+  rows.push(buildRow('resultado_financeiro', '(=) Resultado Financeiro', resultadoFinanceiro, receitaLiquida, { isSubtotal: true, sign: '=' }))
+
+  // Impostos sobre o Lucro (IRPJ + CSLL)
+  // Estimate: IRPJ 15% + CSLL 9% = 24% on positive profit. Simplified approach.
+  const impostosSobreLucro: MonthlyValues = { ...EMPTY_MONTHS }
+  for (const k of MONTH_KEYS) {
+    if (resultadoFinanceiro[k] > 0) {
+      impostosSobreLucro[k] = resultadoFinanceiro[k] * 0.24
+    }
+  }
+  rows.push(buildRow('impostos_lucro', '(-) Impostos sobre o Lucro (IRPJ + CSLL)', impostosSobreLucro, receitaLiquida, { sign: '-' }))
+
+  // Lucro Líquido
+  const lucroLiquido = subtractMonths(resultadoFinanceiro, impostosSobreLucro)
+  rows.push(buildRow('lucro_liquido', '(=) Lucro Líquido', lucroLiquido, receitaLiquida, { isTotal: true, sign: '=' }))
+
+  return rows
+}
+
+function buildDrePresumidoRET(agg: AggregatedData): DreRow[] {
+  const rows: DreRow[] = []
+
+  const receitaBruta = agg.receitaBruta
+  rows.push(buildRow('receita_bruta', 'Receita Bruta', receitaBruta, receitaBruta, { isHeader: true, sign: '+' }))
+
+  // Deduções Tributárias Sobre Receita = 0 for RET
+  const deducoesZero: MonthlyValues = { ...EMPTY_MONTHS }
+  rows.push(buildRow('deducoes_trib_receita', '(-) Deduções Tributárias Sobre Receita', deducoesZero, receitaBruta, { sign: '-', indent: 1 }))
+
+  const receitaLiquida = receitaBruta
+  rows.push(buildRow('receita_liquida', '(=) Receita Líquida', receitaLiquida, receitaLiquida, { isSubtotal: true, sign: '=' }))
+
+  // RET 4% + Custo Produtos + Folha
+  const ret4: MonthlyValues = { ...EMPTY_MONTHS }
+  for (const k of MONTH_KEYS) ret4[k] = receitaBruta[k] * 0.04
+  const folha = sumMonths(sumMonths(agg.maoDeObraProdutiva, agg.maoDeObraAdministrativa), agg.maoDeObra)
+  const deducoesFaturamento = sumMonths(sumMonths(ret4, agg.custoProduto), folha)
+  rows.push(buildRow('deducoes_faturamento', '(-) Deduções Tributárias Faturamento', deducoesFaturamento, receitaLiquida, { sign: '-' }))
+  rows.push(buildRow('ret_4', 'RET 4%', ret4, receitaLiquida, { indent: 2 }))
+  rows.push(buildRow('custo_produtos_ret', 'Custo Produtos', agg.custoProduto, receitaLiquida, { indent: 2 }))
+  rows.push(buildRow('folha_ret', 'Folha', folha, receitaLiquida, { indent: 2 }))
+
+  const lucroBruto = subtractMonths(receitaLiquida, deducoesFaturamento)
+  rows.push(buildRow('lucro_bruto', '(=) Lucro Bruto', lucroBruto, receitaLiquida, { isSubtotal: true, sign: '=' }))
+
+  // Despesas Operacionais
+  const moIndireta = sumMonths(sumMonths(agg.maoDeObraProdutiva, agg.maoDeObraAdministrativa), agg.maoDeObra)
+  const despesasOp = sumMonths(sumMonths(sumMonths(moIndireta, agg.despesaFixa), agg.despesaVariavel), agg.comissoes)
+  rows.push(buildRow('desp_op', '(-) Despesas Operacionais', despesasOp, receitaLiquida, { sign: '-' }))
+  rows.push(buildRow('desp_mo_indireta', 'MO Indireta', moIndireta, receitaLiquida, { indent: 2 }))
+  rows.push(buildRow('desp_fixa', 'Despesa Fixa', agg.despesaFixa, receitaLiquida, { indent: 2 }))
+  rows.push(buildRow('desp_variavel', 'Despesa Variável', agg.despesaVariavel, receitaLiquida, { indent: 2 }))
+  rows.push(buildRow('desp_comissoes', 'Comissões', agg.comissoes, receitaLiquida, { indent: 2 }))
+
+  const lucroOperacional = subtractMonths(lucroBruto, despesasOp)
+  rows.push(buildRow('lucro_operacional', '(=) Lucro Operacional', lucroOperacional, receitaLiquida, { isSubtotal: true, sign: '=' }))
+
+  rows.push(buildRow('desp_financeira', '(-) Despesas Financeiras', agg.despesaFinanceira, receitaLiquida, { sign: '-' }))
+
+  const lucroLiquido = subtractMonths(lucroOperacional, agg.despesaFinanceira)
+  rows.push(buildRow('lucro_liquido', '(=) Lucro Líquido', lucroLiquido, receitaLiquida, { isTotal: true, sign: '=' }))
+
+  return rows
+}
+
+function buildDreSimplesNacional(agg: AggregatedData, calcType: CalcType): DreRow[] {
+  const rows: DreRow[] = []
+  const isIndustrializacao = calcType === 'INDUSTRIALIZATION'
+
+  const receitaBruta = agg.receitaBruta
+  rows.push(buildRow('receita_bruta', 'Receita Bruta', receitaBruta, receitaBruta, { isHeader: true, sign: '+' }))
+
+  // Deduções tributárias = 0 (impostos "por dentro")
+  const deducoesZero: MonthlyValues = { ...EMPTY_MONTHS }
+  rows.push(buildRow('deducoes_trib', '(-) Deduções Tributárias', deducoesZero, receitaBruta, { sign: '-', indent: 1 }))
+
+  const receitaLiquida = receitaBruta
+  rows.push(buildRow('receita_liquida', '(=) Receita Líquida', receitaLiquida, receitaLiquida, { isSubtotal: true, sign: '=' }))
+
+  // DAS (~8% of revenue - simplified)
+  const dasRate = 0.08
+  const das: MonthlyValues = { ...EMPTY_MONTHS }
+  for (const k of MONTH_KEYS) das[k] = receitaBruta[k] * dasRate
+  rows.push(buildRow('das', '(-) DAS (Simples Nacional)', das, receitaLiquida, { sign: '-' }))
+
+  // CMV
+  let cmv = agg.custoProduto
+  if (isIndustrializacao) {
+    cmv = sumMonths(agg.custoProduto, agg.maoDeObraProdutiva)
+  }
+  rows.push(buildRow('cmv', '(-) CMV (Custo Produtos' + (isIndustrializacao ? ' + MO Direta' : '') + ')', cmv, receitaLiquida, { sign: '-' }))
+  rows.push(buildRow('cmv_custo_prod', 'Custo Produtos', agg.custoProduto, receitaLiquida, { indent: 2 }))
+  if (isIndustrializacao) {
+    rows.push(buildRow('cmv_mo_direta', 'MO Direta', agg.maoDeObraProdutiva, receitaLiquida, { indent: 2 }))
+  }
+
+  const lucroBruto = subtractMonths(subtractMonths(receitaLiquida, das), cmv)
+  rows.push(buildRow('lucro_bruto', '(=) Lucro Bruto', lucroBruto, receitaLiquida, { isSubtotal: true, sign: '=' }))
+
+  // Despesas Operacionais
+  const moIndireta = isIndustrializacao
+    ? sumMonths(agg.maoDeObraAdministrativa, agg.maoDeObra)
+    : sumMonths(sumMonths(agg.maoDeObraProdutiva, agg.maoDeObraAdministrativa), agg.maoDeObra)
+
+  const despesasOp = sumMonths(sumMonths(sumMonths(moIndireta, agg.despesaFixa), agg.despesaVariavel), agg.comissoes)
+  rows.push(buildRow('desp_op', '(-) Despesas Operacionais', despesasOp, receitaLiquida, { sign: '-' }))
+  rows.push(buildRow('desp_mo_indireta', 'MO Indireta', moIndireta, receitaLiquida, { indent: 2 }))
+  rows.push(buildRow('desp_fixa', 'Despesa Fixa', agg.despesaFixa, receitaLiquida, { indent: 2 }))
+  rows.push(buildRow('desp_variavel', 'Despesa Variável', agg.despesaVariavel, receitaLiquida, { indent: 2 }))
+  rows.push(buildRow('desp_comissoes', 'Comissões', agg.comissoes, receitaLiquida, { indent: 2 }))
+
+  const lucroOperacional = subtractMonths(lucroBruto, despesasOp)
+  rows.push(buildRow('lucro_operacional', '(=) Lucro Operacional', lucroOperacional, receitaLiquida, { isSubtotal: true, sign: '=' }))
+
+  rows.push(buildRow('desp_financeira', '(-) Despesas Financeiras', agg.despesaFinanceira, receitaLiquida, { sign: '-' }))
+
+  const lucroLiquido = subtractMonths(lucroOperacional, agg.despesaFinanceira)
+  rows.push(buildRow('lucro_liquido', '(=) Lucro Líquido', lucroLiquido, receitaLiquida, { isTotal: true, sign: '=' }))
+
+  return rows
+}
+
+// ── Determine DRE variant ──
+
+function buildDre(agg: AggregatedData, taxRegime: TaxRegime, calcType: CalcType): DreRow[] {
+  if (taxRegime === 'PRESUMIDO_RET') {
+    return buildDrePresumidoRET(agg)
+  }
+  if (taxRegime === 'SIMPLES_NACIONAL' || taxRegime === 'SIMPLES_HIBRIDO') {
+    return buildDreSimplesNacional(agg, calcType)
+  }
+  // Default: Lucro Real / Lucro Presumido
+  return buildDreLucroRealPresumido(agg, calcType, taxRegime)
+}
+
+function getVariantLabel(taxRegime: TaxRegime): string {
+  switch (taxRegime) {
+    case 'LUCRO_REAL': return 'Lucro Real'
+    case 'LUCRO_PRESUMIDO': return 'Lucro Presumido'
+    case 'PRESUMIDO_RET': return 'Presumido RET'
+    case 'SIMPLES_NACIONAL': return 'Simples Nacional'
+    case 'SIMPLES_HIBRIDO': return 'Simples Híbrido'
+    case 'MEI': return 'MEI'
+    default: return taxRegime || 'Não definido'
+  }
+}
+
+// ── Component ──
+
+export default function DfcPage() {
+  const { currentUser } = useAuth()
+  const currentYear = new Date().getFullYear()
+  const [year, setYear] = useState(currentYear)
+  const [loading, setLoading] = useState(true)
+  const [dreRows, setDreRows] = useState<DreRow[]>([])
+  const [taxRegime, setTaxRegime] = useState<TaxRegime>('')
+  const [calcType, setCalcType] = useState<CalcType>('')
+
+  const yearOptions = useMemo(() => {
+    const years = []
+    for (let y = currentYear - 2; y <= currentYear + 1; y++) years.push(y)
+    return years
+  }, [currentYear])
+
+  const loadData = useCallback(async () => {
+    setLoading(true)
+    try {
+      const tenantId = currentUser?.tenant_id || await getTenantId()
+      if (!tenantId) return
+
+      const [entries, settings] = await Promise.all([
+        fetchYearEntries(tenantId, year),
+        fetchTenantSettings(tenantId),
+      ])
+
+      const regime = (settings?.tax_regime || 'SIMPLES_NACIONAL') as TaxRegime
+      const ct = (settings?.calc_type || 'INDUSTRIALIZATION') as CalcType
+      setTaxRegime(regime)
+      setCalcType(ct)
+
+      const agg = aggregateEntries(entries)
+      const rows = buildDre(agg, regime, ct)
+      setDreRows(rows)
+    } catch (err) {
+      console.error('Erro ao carregar DFC:', err)
+    } finally {
+      setLoading(false)
+    }
+  }, [year, currentUser?.tenant_id])
+
+  useEffect(() => {
+    loadData()
+  }, [loadData])
+
+  if (loading) {
+    return (
+      <Layout tabTitle={PAGE_TITLES.DFC}>
+        <div style={{ display: 'flex', justifyContent: 'center', padding: 80 }}>
+          <Spin size="large" />
+        </div>
+      </Layout>
+    )
+  }
+
+  return (
+    <Layout tabTitle={PAGE_TITLES.DFC}>
+      <header style={{ marginBottom: 24 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+          <div>
+            <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>
+              DFC - Demonstrativo do Fluxo de Caixa
+            </h1>
+            <span style={{ fontSize: 13, color: 'var(--color-neutral-400, #9CA3AF)' }}>
+              Regime: <strong>{getVariantLabel(taxRegime)}</strong>
+              {calcType && <> | Tipo: <strong>{calcType === 'INDUSTRIALIZATION' ? 'Industrialização' : calcType === 'RESALE' ? 'Revenda' : 'Serviço'}</strong></>}
+            </span>
+          </div>
+          <Select value={year} onChange={setYear} style={{ width: 120 }}>
+            {yearOptions.map(y => (
+              <Select.Option key={y} value={y}>{y}</Select.Option>
+            ))}
+          </Select>
+        </div>
+      </header>
+
+      <div className="pc-card" style={{ overflow: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 1200 }}>
+          <thead>
+            <tr style={{ borderBottom: '2px solid var(--color-neutral-700, #374151)' }}>
+              <th style={{ ...thStyle, width: 320, textAlign: 'left' }}>Descrição</th>
+              {MONTH_LABELS.map((m, i) => (
+                <th key={i} style={{ ...thStyle, textAlign: 'right', minWidth: 100 }}>{m}</th>
+              ))}
+              <th style={{ ...thStyle, textAlign: 'right', minWidth: 120, fontWeight: 700 }}>Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {dreRows.map((row) => (
+              <React.Fragment key={row.key}>
+                {/* Value row */}
+                <tr style={getRowStyle(row)}>
+                  <td style={{
+                    ...tdStyle,
+                    paddingLeft: (row.indent || 0) * 20 + 8,
+                    fontWeight: row.isTotal || row.isSubtotal || row.isHeader ? 600 : 400,
+                    fontSize: row.isTotal ? 14 : 13,
+                  }}>
+                    {row.label}
+                    {row.isHeader && (
+                      <Tooltip title="Valores extraídos dos lançamentos de fluxo de caixa">
+                        <InfoCircleOutlined style={{ marginLeft: 6, fontSize: 12, color: 'var(--color-neutral-400, #9CA3AF)' }} />
+                      </Tooltip>
+                    )}
+                  </td>
+                  {MONTH_KEYS.map((k) => (
+                    <td key={k} style={{
+                      ...tdStyle,
+                      textAlign: 'right',
+                      fontWeight: row.isTotal || row.isSubtotal ? 600 : 400,
+                      color: getValueColor(row.values[k], row),
+                    }}>
+                      {formatBRL(row.values[k])}
+                    </td>
+                  ))}
+                  <td style={{
+                    ...tdStyle,
+                    textAlign: 'right',
+                    fontWeight: 700,
+                    color: getValueColor(row.total, row),
+                  }}>
+                    {formatBRL(row.total)}
+                  </td>
+                </tr>
+                {/* Percentage row */}
+                {row.pctOfRL && (
+                  <tr style={{ opacity: 0.6 }}>
+                    <td style={{ ...tdStyle, paddingLeft: (row.indent || 0) * 20 + 8, fontSize: 11, color: 'var(--color-neutral-400, #9CA3AF)' }}>
+                      % Receita Líquida
+                    </td>
+                    {MONTH_KEYS.map((k) => (
+                      <td key={k} style={{ ...tdStyle, textAlign: 'right', fontSize: 11, color: 'var(--color-neutral-400, #9CA3AF)' }}>
+                        {formatPct(row.pctOfRL![k])}
+                      </td>
+                    ))}
+                    <td style={{ ...tdStyle, textAlign: 'right', fontSize: 11, color: 'var(--color-neutral-400, #9CA3AF)', fontWeight: 600 }}>
+                      {formatPct(row.pctOfRL!.total)}
+                    </td>
+                  </tr>
+                )}
+              </React.Fragment>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Layout>
+  )
+}
+
+// ── Styles ──
+
+const thStyle: React.CSSProperties = {
+  padding: '10px 8px',
+  fontSize: 12,
+  fontWeight: 600,
+  textTransform: 'uppercase',
+  letterSpacing: '0.5px',
+  color: 'var(--color-neutral-300, #D1D5DB)',
+  whiteSpace: 'nowrap',
+}
+
+const tdStyle: React.CSSProperties = {
+  padding: '6px 8px',
+  borderBottom: '1px solid var(--color-neutral-800, rgba(255,255,255,0.06))',
+  whiteSpace: 'nowrap',
+}
+
+function getRowStyle(row: DreRow): React.CSSProperties {
+  if (row.isTotal) {
+    return {
+      background: 'rgba(16, 185, 129, 0.08)',
+      borderTop: '2px solid var(--color-neutral-600, #4B5563)',
+    }
+  }
+  if (row.isSubtotal) {
+    return {
+      background: 'rgba(255, 255, 255, 0.02)',
+    }
+  }
+  return {}
+}
+
+function getValueColor(value: number, row: DreRow): string | undefined {
+  if (value === 0) return 'var(--color-neutral-500, #6B7280)'
+  if (row.isTotal || row.isSubtotal) {
+    return value > 0 ? 'var(--color-success, #10B981)' : 'var(--color-error, #F04438)'
+  }
+  if (row.sign === '-') return 'var(--color-error, #F04438)'
+  if (row.sign === '+' || row.isHeader) return 'var(--color-success, #10B981)'
+  return undefined
+}

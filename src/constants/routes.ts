@@ -37,6 +37,7 @@ export enum ROUTES {
 
   // ── Phase 4: Financeiro ──
   CASH_FLOW = '/fluxo-de-caixa',
+  DFC = '/dfc',
 
   // ── Phase 5: Operacional ──
   SCHEDULE = '/agenda',

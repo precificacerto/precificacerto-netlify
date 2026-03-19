@@ -20,6 +20,7 @@ const MODULE_LABELS: Record<string, string> = {
   cashier: 'Caixa',
   dre: 'HUB / DRE',
   cash_flow: 'Fluxo de Caixa',
+  dfc: 'DFC',
   employees: 'Funcionários',
   reports: 'Relatórios',
   agenda: 'Agenda',

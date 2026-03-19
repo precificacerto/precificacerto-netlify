@@ -983,13 +983,12 @@ export const Content: FC<ContentProps> = ({
             <Input />
           </Form.Item>
 
-          <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isEditingMode ? 'repeat(4, 1fr)' : 'repeat(3, 1fr)', gap: 16 }}>
             {isEditingMode && (
               <Form.Item
                 name="code"
                 label="Código"
                 rules={[{ required: true, message: REQUIRED_INPUT_MESSAGE }]}
-                style={{ flex: '1 1 80px', minWidth: 80 }}
               >
                 <Input />
               </Form.Item>
@@ -999,7 +998,6 @@ export const Content: FC<ContentProps> = ({
               name="name"
               label="Nome"
               rules={[{ required: true, message: REQUIRED_INPUT_MESSAGE }]}
-              style={{ flex: '1 1 120px', minWidth: 120 }}
             >
               <Input onChange={(e) => handleProductNameChange(e.target.value)} />
             </Form.Item>
@@ -1008,7 +1006,6 @@ export const Content: FC<ContentProps> = ({
               name="description"
               label="Descrição"
               rules={[{ required: true, message: REQUIRED_INPUT_MESSAGE }]}
-              style={{ flex: '1 1 120px', minWidth: 120 }}
             >
               <Input onChange={(e) => productForm.setFieldsValue({ description: capitalizeFirst(e.target.value) })} />
             </Form.Item>
@@ -1017,17 +1014,17 @@ export const Content: FC<ContentProps> = ({
               name="quantity"
               label="Quantidade de produção"
               rules={[{ required: true, message: REQUIRED_INPUT_MESSAGE }]}
-              style={{ flex: '1 1 100px', minWidth: 100 }}
             >
               <Input type="number" min="1" step="1" />
             </Form.Item>
+          </div>
 
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
             <Form.Item
               name="unitType"
               label="Unidade"
               rules={[{ required: true, message: REQUIRED_INPUT_MESSAGE }]}
               initialValue="UN"
-              style={{ flex: '1 1 140px', minWidth: 140 }}
             >
               <Select>
                 <Select.Option value="G">Gramas (g)</Select.Option>
@@ -1050,7 +1047,6 @@ export const Content: FC<ContentProps> = ({
               label="Estoque mínimo (alerta)"
               initialValue={0}
               tooltip="Abaixo deste valor o produto aparecerá em status Baixo/Crítico na aba Estoque."
-              style={{ flex: '1 1 140px', minWidth: 140 }}
             >
               <InputNumber min={0} step={1} style={{ width: '100%' }} placeholder="0" />
             </Form.Item>
@@ -1059,7 +1055,6 @@ export const Content: FC<ContentProps> = ({
               name="max_discount_percent"
               label="Desconto máximo (%)"
               tooltip="Limite máximo de desconto permitido para este produto em orçamentos/vendas. Deixe vazio para sem limite."
-              style={{ flex: '1 1 140px', minWidth: 140 }}
             >
               <InputNumber min={0} max={100} step={1} style={{ width: '100%' }} placeholder="Ex: 10" addonAfter="%" />
             </Form.Item>

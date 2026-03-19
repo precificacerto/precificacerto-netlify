@@ -117,19 +117,16 @@ const NewItemForm = ({ form }: Props) => {
   const recalcCostPerUnit = () => {
     const values = form.getFieldsValue()
     const priceStr = String(values.price || '0').replace(/\./g, '').replace(',', '.')
-    const price = parseFloat(priceStr)
+    const unitPrice = parseFloat(priceStr)
     const qty = parseFloat(values.quantity)
     const unit = values.unitType || 'UN'
 
     const conv = UNIT_CONVERSIONS[unit] || { base: 'un', factor: 1 }
     setBaseUnitLabel(conv.base)
 
-    if (price > 0 && qty > 0) {
-      const totalBaseUnits = qty * conv.factor
-      const perUnit = price / totalBaseUnits
-      setCostPerUnit(perUnit < 0.01
-        ? `R$ ${perUnit.toFixed(4)}`
-        : `R$ ${getMonetaryValue(perUnit)}`)
+    if (unitPrice > 0 && qty > 0) {
+      const totalValue = unitPrice * qty
+      setCostPerUnit(`R$ ${getMonetaryValue(totalValue)}`)
     } else {
       setCostPerUnit(null)
     }
@@ -311,9 +308,9 @@ const NewItemForm = ({ form }: Props) => {
 
         <Form.Item
           name="price"
-          label="Valor total (R$)"
+          label="Valor unitário (R$)"
           rules={[{ required: true, message: REQUIRED }]}
-          tooltip="Valor total pago pelo lote comprado"
+          tooltip="Valor unitário do item (por unidade de medida). O valor total será calculado automaticamente."
         >
           <Input
             prefix="R$"
@@ -343,18 +340,17 @@ const NewItemForm = ({ form }: Props) => {
         marginBottom: 16,
       }}>
         <InfoCircleOutlined style={{ color: '#22C55E', marginRight: 6 }} />
-        <strong>Custo por unidade base (auto calculado):</strong>{' '}
+        <strong>Valor total (auto calculado):</strong>{' '}
         {costPerUnit ? (
           <Tag color="green" style={{ fontSize: 13, fontWeight: 600 }}>
-            {costPerUnit}/{baseUnitLabel}
+            {costPerUnit}
           </Tag>
         ) : (
-          <span style={{ color: '#64748b' }}>Preencha valor e quantidade para calcular</span>
+          <span style={{ color: '#64748b' }}>Preencha valor unitário e quantidade para calcular</span>
         )}
         <br />
         <span style={{ fontSize: 11, color: '#94a3b8', marginTop: 4, display: 'inline-block' }}>
-          Ex: comprou 1&nbsp;kg por R$&nbsp;5,00 → custo por grama = R$&nbsp;0,005/g.
-          Ao usar 200&nbsp;g em um produto, o custo será R$&nbsp;1,00.
+          Ex: valor unitário R$&nbsp;5,00 × 10&nbsp;un = Valor total R$&nbsp;50,00.
         </span>
       </div>
 
