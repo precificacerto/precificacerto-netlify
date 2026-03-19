@@ -270,7 +270,7 @@ const NewItemForm = ({ form }: Props) => {
         </Form.Item>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
         <Form.Item
           name="quantity"
           label="Qtd. comprada"
@@ -319,16 +319,16 @@ const NewItemForm = ({ form }: Props) => {
             onChange={({ target }) => handleChangePrice(target.value)}
           />
         </Form.Item>
-      </div>
 
-      <Form.Item
-        name="min_limit"
-        label="Estoque mínimo (alerta)"
-        initialValue={0}
-        tooltip="Abaixo deste valor o item aparecerá em status Baixo/Crítico na aba Estoque."
-      >
-        <InputNumber min={0} step={1} style={{ width: 120 }} placeholder="0" />
-      </Form.Item>
+        <Form.Item
+          name="min_limit"
+          label="Estoque mínimo (alerta)"
+          initialValue={0}
+          tooltip="Abaixo deste valor o item aparecerá em status Baixo/Crítico na aba Estoque."
+        >
+          <InputNumber min={0} step={1} style={{ width: '100%' }} placeholder="0" />
+        </Form.Item>
+      </div>
 
       <div style={{
         background: 'rgba(34, 197, 94, 0.12)',

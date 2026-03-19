@@ -1027,29 +1027,9 @@ function Settings() {
                                                 <InputNumber min={0} style={{ width: '100%' }} />
                                             </Form.Item>
                                         </div>
-                                        <Divider orientation="left" style={{ fontSize: 14 }}>Regime Tributário</Divider>
-                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-                                            <Form.Item name="taxableRegime" label="Regime" rules={[{ required: true, message: 'Selecione o regime' }]}>
-                                                <Select
-                                                    placeholder="Selecione..."
-                                                    onChange={(v: REGIME_TAXABLE_TYPES) => {
-                                                    setTaxableRegimeInput(v)
-                                                    if (v === 'MEI') calcForm.setFieldValue('taxableRegimeValue', 0)
-                                                }}
-                                                >
-                                                    <Select.Option value="NATIONAL_SIMPLE">Simples Nacional</Select.Option>
-                                                    <Select.Option value="MEI">MEI</Select.Option>
-                                                </Select>
-                                            </Form.Item>
-                                            <Form.Item name="taxableRegimeValue" label="Imposto (%)" rules={[{ required: true }]} initialValue={0}>
-                                                <InputNumber
-                                                    min={0}
-                                                    style={{ width: '100%' }}
-                                                    addonAfter="%"
-                                                    disabled={taxableRegimeInput === 'MEI'}
-                                                />
-                                            </Form.Item>
-                                        </div>
+                                        {/* Regime Tributário e Imposto % configurados em Configurações > Fiscal/Tributário */}
+                                        <Form.Item name="taxableRegime" hidden><Input /></Form.Item>
+                                        <Form.Item name="taxableRegimeValue" hidden initialValue={0}><InputNumber /></Form.Item>
                                         <Button type="primary" icon={<SaveOutlined />} onClick={handleSaveCalc} loading={savingCalc} style={{ marginTop: 8 }}>
                                             Salvar Configurações
                                         </Button>

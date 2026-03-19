@@ -368,10 +368,33 @@ export function exportCashFlowToExcel(data: CashEntry[], monthObj: dayjs.Dayjs):
     const ws = XLSX.utils.aoa_to_sheet(rows)
 
     // Set column widths
-    const colWidths: XLSX.ColInfo[] = [{ wch: 38 }]
+    const colWidths: XLSX.ColInfo[] = [{ wch: 40 }]
     for (let i = 1; i <= daysInMonth; i++) colWidths.push({ wch: 14 })
-    colWidths.push({ wch: 16 })
+    colWidths.push({ wch: 18 })
     ws['!cols'] = colWidths
+
+    // Format number cells as currency (2 decimal places)
+    const range = XLSX.utils.decode_range(ws['!ref'] || 'A1')
+    for (let R = range.s.r; R <= range.e.r; R++) {
+        for (let C = 1; C <= daysInMonth + 1; C++) {
+            const cellRef = XLSX.utils.encode_cell({ r: R, c: C })
+            const cell = ws[cellRef]
+            if (cell && typeof cell.v === 'number') {
+                cell.z = '#,##0.00'
+            }
+        }
+    }
+
+    // Set row heights for better readability
+    ws['!rows'] = rows.map((row) => {
+        const label = String(row[0] || '')
+        // Headers and section titles get taller rows
+        if (['Recebimentos', 'Saidas', 'SALDO DIARIO', 'TOTAL MES', 'Saldo Inicial (mês anterior)'].includes(label) ||
+            EXPENSE_SECTIONS.some(s => s.header === label)) {
+            return { hpt: 22 }
+        }
+        return { hpt: 18 }
+    })
 
     XLSX.utils.book_append_sheet(wb, ws, sheetName)
 
