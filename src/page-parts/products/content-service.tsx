@@ -119,6 +119,7 @@ export const ContentService: FC<ContentServiceProps> = ({
   function pricingRow(
     label: string, pct: number, val: number,
     editable?: string,
+    tooltipText?: string,
   ) {
     return (
       <tr key={label}>

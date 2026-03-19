@@ -210,6 +210,7 @@ function Stock() {
     const fetchAbcReport = useCallback(async () => {
         setAbcLoading(true)
         try {
+            if (!effectiveTenantId) { setAbcLoading(false); return }
             const startDate = abcDateRange[0].startOf('day').toISOString()
             const endDate = abcDateRange[1].endOf('day').toISOString()
 
@@ -219,6 +220,7 @@ function Stock() {
             let budgetsQuery: any = (supabase
                 .from('budgets') as any)
                 .select('id, employee_id, created_at')
+                .eq('tenant_id', effectiveTenantId)
                 .eq('status', 'PAID')
                 .eq('is_active', true)
                 .gte('created_at', startDate)

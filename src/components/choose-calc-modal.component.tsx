@@ -43,6 +43,7 @@ const ChooseCalcModal = ({ open, handleShowModal }: ChooseCalcModalProps) => {
   const [confirmLoading, setConfirmLoading] = useState(false)
   const [enableQuantityInput, setEnableQuantityInput] = useState(false)
   const [calcExplication, setCalcExplication] = useState('')
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [taxableRegimeInput, setTaxableRegimeInput] = useState<REGIME_TAXABLE_TYPES>()
 
   const [form] = Form.useForm()

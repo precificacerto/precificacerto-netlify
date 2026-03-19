@@ -123,17 +123,17 @@ const EXPENSE_SECTIONS: ExpenseSection[] = [
         header: 'Impostos',
         items: [
             { descMatch: ['Imposto DARF', 'DARF'], label: 'DARF' },
-            { descMatch: ['Imposto Guia Arrecadação', 'Imposto GA', ' GA'], label: 'GA' },
+            { descMatch: ['Imposto Guia Arrecadação', 'Imposto GA'], label: 'GA' },
             { descMatch: ['Imposto GARE', 'GARE'], label: 'GARE' },
-            { descMatch: ['Imposto GPS', 'GPS'], label: 'GPS' },
-            { descMatch: ['Imposto IOF', 'IOF'], label: 'IOF' },
-            { descMatch: ['Imposto ISS', 'Imposto Outros', 'Outros'], label: 'OUTROS' },
+            { descMatch: ['Imposto GPS'], label: 'GPS' },
+            { descMatch: ['Imposto IOF'], label: 'IOF' },
+            { descMatch: ['Imposto ISS', 'Imposto Outros'], label: 'OUTROS' },
         ],
     },
     {
         header: 'Regime Tributario',
         items: [
-            { descMatch: ['Imposto DAS', 'DAS', 'Simples Nacional'], label: 'SIMPLES NACIONAL - DAS' },
+            { descMatch: ['Imposto DAS', 'Simples Nacional'], label: 'SIMPLES NACIONAL - DAS' },
         ],
     },
     {
@@ -148,7 +148,12 @@ const EXPENSE_SECTIONS: ExpenseSection[] = [
 function matchesDescription(desc: string, patterns: string[]): boolean {
     if (!desc) return false
     const base = desc.split(' — ')[0].trim()
-    return patterns.some(p => base.startsWith(p) || base.includes(p))
+    return patterns.some(p => {
+        const pt = p.trim()
+        // For short patterns (<=4 chars), only match start to avoid false positives
+        if (pt.length <= 4) return base.startsWith(pt)
+        return base.startsWith(pt) || base.includes(pt)
+    })
 }
 
 function getIncomeLabel(entry: { payment_method?: string }): string | null {
@@ -222,7 +227,7 @@ export function exportCashFlowToExcel(data: CashEntry[], monthObj: dayjs.Dayjs):
                 for (const item of section.items) {
                     if (matchesDescription(entry.description, item.descMatch)) {
                         const key = `${section.header}|${item.label}`
-                        expenseByKey[key][dayIdx] += Number(entry.amount || 0)
+                        expenseByKey[key][dayIdx] += Number(entry.amount) || 0
                         matched = true
                         break
                     }
@@ -230,7 +235,7 @@ export function exportCashFlowToExcel(data: CashEntry[], monthObj: dayjs.Dayjs):
                 if (matched) break
             }
             if (!matched) {
-                unmatchedExpenses[dayIdx] += Number(entry.amount || 0)
+                unmatchedExpenses[dayIdx] += Number(entry.amount) || 0
             }
         }
     }
@@ -274,11 +279,11 @@ export function exportCashFlowToExcel(data: CashEntry[], monthObj: dayjs.Dayjs):
         let rowTotal = 0
         for (let d = 0; d < daysInMonth; d++) {
             const val = incomeByLabelDay[label][d]
-            row[d + 1] = val || ''
+            row[d + 1] = val !== 0 ? val : ''
             rowTotal += val
             totalIncomeByDay[d] += val
         }
-        row[daysInMonth + 1] = rowTotal || ''
+        row[daysInMonth + 1] = rowTotal !== 0 ? rowTotal : ''
         rows.push(row)
     }
 
@@ -310,11 +315,11 @@ export function exportCashFlowToExcel(data: CashEntry[], monthObj: dayjs.Dayjs):
             let rowTotal = 0
             for (let d = 0; d < daysInMonth; d++) {
                 const val = dayValues[d]
-                row[d + 1] = val || ''
+                row[d + 1] = val !== 0 ? val : ''
                 rowTotal += val
                 totalExpenseByDay[d] += val
             }
-            row[daysInMonth + 1] = rowTotal || ''
+            row[daysInMonth + 1] = rowTotal !== 0 ? rowTotal : ''
             rows.push(row)
         }
 
@@ -330,11 +335,11 @@ export function exportCashFlowToExcel(data: CashEntry[], monthObj: dayjs.Dayjs):
         let rowTotal = 0
         for (let d = 0; d < daysInMonth; d++) {
             const val = unmatchedExpenses[d]
-            row[d + 1] = val || ''
+            row[d + 1] = val !== 0 ? val : ''
             rowTotal += val
             totalExpenseByDay[d] += val
         }
-        row[daysInMonth + 1] = rowTotal || ''
+        row[daysInMonth + 1] = rowTotal !== 0 ? rowTotal : ''
         rows.push(row)
         rows.push(emptyRow())
     }

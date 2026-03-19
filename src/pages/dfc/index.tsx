@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react'
-import { Select, Spin, Tooltip } from 'antd'
+import { Alert, Select, Spin, Tooltip } from 'antd'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
 import { supabase } from '@/supabase/client'
 import { useAuth } from '@/hooks/use-auth.hook'
+import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import { getTenantId } from '@/utils/get-tenant-id'
 
 // ── Types ──
@@ -118,13 +119,47 @@ async function fetchYearEntries(tenantId: string, year: number): Promise<CashEnt
   }))
 }
 
-async function fetchTenantSettings(tenantId: string): Promise<{ tax_regime: string | null; calc_type: string | null }> {
+type TenantSettingsResult = {
+  tax_regime: string | null
+  calc_type: string | null
+  simples_revenue_12m: number
+  simples_anexo: string | null
+  ret_rate: number | null
+}
+
+async function fetchTenantSettings(tenantId: string): Promise<TenantSettingsResult> {
   const { data } = await supabase
     .from('tenant_settings')
-    .select('tax_regime, calc_type')
+    .select('tax_regime, calc_type, simples_revenue_12m, simples_anexo, ret_rate')
     .eq('tenant_id', tenantId)
     .single()
-  return { tax_regime: (data as any)?.tax_regime ?? null, calc_type: (data as any)?.calc_type ?? null }
+  const d = data as any
+  return {
+    tax_regime: d?.tax_regime ?? null,
+    calc_type: d?.calc_type ?? null,
+    simples_revenue_12m: Number(d?.simples_revenue_12m) || 0,
+    simples_anexo: d?.simples_anexo ?? null,
+    ret_rate: d?.ret_rate != null ? Number(d.ret_rate) : null,
+  }
+}
+
+async function fetchSimplesEffectiveRate(anexo: string, revenue12m: number): Promise<number> {
+  const a = (anexo || '').replace(/^ANEXO_/i, '') || 'I'
+  const { data: brackets } = await supabase
+    .from('simples_nacional_brackets')
+    .select('nominal_rate, deduction, revenue_min, revenue_max')
+    .eq('anexo', a)
+    .order('bracket_order', { ascending: true })
+  if (brackets && brackets.length > 0) {
+    let bracket = brackets[0]
+    for (const b of brackets) {
+      if (revenue12m >= Number(b.revenue_min) && revenue12m <= Number(b.revenue_max)) { bracket = b; break }
+    }
+    const nom = Number(bracket.nominal_rate)
+    const ded = Number(bracket.deduction)
+    return revenue12m > 0 ? (revenue12m * nom - ded) / revenue12m : nom
+  }
+  return 0.08 // fallback
 }
 
 // ── Aggregate entries into MonthlyValues by groups ──
@@ -266,13 +301,18 @@ function buildDreLucroRealPresumido(
   const deducoesTribReceita = agg.imposto
   rows.push(buildRow('deducoes_trib_receita', '(-) Deduções Tributárias Sobre Receita', deducoesTribReceita, tempRL, { sign: '-', indent: 1 }))
 
-  // Deduções Tributárias Sobre Compras (créditos de impostos) - estimated as ~9.25% of product cost (PIS+COFINS credits)
-  const creditRate = 0.0925
+  // Deduções Tributárias Sobre Compras (créditos de impostos sobre compras)
+  // Lucro Real: PIS 1.65% + COFINS 7.6% = 9.25% (não-cumulativo, gera créditos)
+  // Lucro Presumido: PIS 0.65% + COFINS 3% = cumulativo, SEM créditos de compras
+  const isLucroReal = taxRegime === 'LUCRO_REAL'
+  const creditRate = isLucroReal ? 0.0925 : 0 // Presumido não tem crédito de compras
   const deducoesTribCompras: MonthlyValues = { ...EMPTY_MONTHS }
   for (const k of MONTH_KEYS) {
     deducoesTribCompras[k] = agg.custoProduto[k] * creditRate
   }
-  rows.push(buildRow('deducoes_trib_compras', '(-) Deduções Tributárias Sobre Compras', deducoesTribCompras, tempRL, { sign: '-', indent: 1 }))
+  if (isLucroReal) {
+    rows.push(buildRow('deducoes_trib_compras', '(-) Deduções Tributárias Sobre Compras (Crédito)', deducoesTribCompras, tempRL, { sign: '-', indent: 1 }))
+  }
 
   // Receita Líquida
   const receitaLiquida = subtractMonths(subtractMonths(receitaBruta, deducoesTribReceita), deducoesTribCompras)
@@ -335,7 +375,7 @@ function buildDreLucroRealPresumido(
   return rows
 }
 
-function buildDrePresumidoRET(agg: AggregatedData): DreRow[] {
+function buildDrePresumidoRET(agg: AggregatedData, retRate: number = 0.04): DreRow[] {
   const rows: DreRow[] = []
 
   const receitaBruta = agg.receitaBruta
@@ -348,24 +388,22 @@ function buildDrePresumidoRET(agg: AggregatedData): DreRow[] {
   const receitaLiquida = receitaBruta
   rows.push(buildRow('receita_liquida', '(=) Receita Líquida', receitaLiquida, receitaLiquida, { isSubtotal: true, sign: '=' }))
 
-  // RET 4% + Custo Produtos + Folha
+  // RET (taxa configurada) + Custo Produtos + Folha
   const ret4: MonthlyValues = { ...EMPTY_MONTHS }
-  for (const k of MONTH_KEYS) ret4[k] = receitaBruta[k] * 0.04
+  for (const k of MONTH_KEYS) ret4[k] = receitaBruta[k] * retRate
   const folha = sumMonths(sumMonths(agg.maoDeObraProdutiva, agg.maoDeObraAdministrativa), agg.maoDeObra)
   const deducoesFaturamento = sumMonths(sumMonths(ret4, agg.custoProduto), folha)
   rows.push(buildRow('deducoes_faturamento', '(-) Deduções Tributárias Faturamento', deducoesFaturamento, receitaLiquida, { sign: '-' }))
-  rows.push(buildRow('ret_4', 'RET 4%', ret4, receitaLiquida, { indent: 2 }))
+  rows.push(buildRow('ret_4', `RET ${(retRate * 100).toFixed(0)}%`, ret4, receitaLiquida, { indent: 2 }))
   rows.push(buildRow('custo_produtos_ret', 'Custo Produtos', agg.custoProduto, receitaLiquida, { indent: 2 }))
   rows.push(buildRow('folha_ret', 'Folha', folha, receitaLiquida, { indent: 2 }))
 
   const lucroBruto = subtractMonths(receitaLiquida, deducoesFaturamento)
   rows.push(buildRow('lucro_bruto', '(=) Lucro Bruto', lucroBruto, receitaLiquida, { isSubtotal: true, sign: '=' }))
 
-  // Despesas Operacionais
-  const moIndireta = sumMonths(sumMonths(agg.maoDeObraProdutiva, agg.maoDeObraAdministrativa), agg.maoDeObra)
-  const despesasOp = sumMonths(sumMonths(sumMonths(moIndireta, agg.despesaFixa), agg.despesaVariavel), agg.comissoes)
+  // Despesas Operacionais (MO já está na Folha acima, então NÃO incluir MO novamente aqui)
+  const despesasOp = sumMonths(sumMonths(agg.despesaFixa, agg.despesaVariavel), agg.comissoes)
   rows.push(buildRow('desp_op', '(-) Despesas Operacionais', despesasOp, receitaLiquida, { sign: '-' }))
-  rows.push(buildRow('desp_mo_indireta', 'MO Indireta', moIndireta, receitaLiquida, { indent: 2 }))
   rows.push(buildRow('desp_fixa', 'Despesa Fixa', agg.despesaFixa, receitaLiquida, { indent: 2 }))
   rows.push(buildRow('desp_variavel', 'Despesa Variável', agg.despesaVariavel, receitaLiquida, { indent: 2 }))
   rows.push(buildRow('desp_comissoes', 'Comissões', agg.comissoes, receitaLiquida, { indent: 2 }))
@@ -381,7 +419,7 @@ function buildDrePresumidoRET(agg: AggregatedData): DreRow[] {
   return rows
 }
 
-function buildDreSimplesNacional(agg: AggregatedData, calcType: CalcType): DreRow[] {
+function buildDreSimplesNacional(agg: AggregatedData, calcType: CalcType, dasRate: number = 0.08, isMei: boolean = false): DreRow[] {
   const rows: DreRow[] = []
   const isIndustrializacao = calcType === 'INDUSTRIALIZATION'
 
@@ -395,11 +433,13 @@ function buildDreSimplesNacional(agg: AggregatedData, calcType: CalcType): DreRo
   const receitaLiquida = receitaBruta
   rows.push(buildRow('receita_liquida', '(=) Receita Líquida', receitaLiquida, receitaLiquida, { isSubtotal: true, sign: '=' }))
 
-  // DAS (~8% of revenue - simplified)
-  const dasRate = 0.08
+  // DAS (taxa real do tenant ou fallback)
   const das: MonthlyValues = { ...EMPTY_MONTHS }
-  for (const k of MONTH_KEYS) das[k] = receitaBruta[k] * dasRate
-  rows.push(buildRow('das', '(-) DAS (Simples Nacional)', das, receitaLiquida, { sign: '-' }))
+  if (!isMei) {
+    for (const k of MONTH_KEYS) das[k] = receitaBruta[k] * dasRate
+  }
+  const dasLabel = isMei ? '(-) DAS (MEI — fixo mensal)' : `(-) DAS (Simples Nacional — ${(dasRate * 100).toFixed(2)}%)`
+  rows.push(buildRow('das', dasLabel, das, receitaLiquida, { sign: '-' }))
 
   // CMV
   let cmv = agg.custoProduto
@@ -440,12 +480,20 @@ function buildDreSimplesNacional(agg: AggregatedData, calcType: CalcType): DreRo
 
 // ── Determine DRE variant ──
 
-function buildDre(agg: AggregatedData, taxRegime: TaxRegime, calcType: CalcType): DreRow[] {
-  if (taxRegime === 'PRESUMIDO_RET') {
-    return buildDrePresumidoRET(agg)
+function buildDre(
+  agg: AggregatedData,
+  taxRegime: TaxRegime,
+  calcType: CalcType,
+  opts?: { dasRate?: number; retRate?: number },
+): DreRow[] {
+  if (taxRegime === 'PRESUMIDO_RET' || taxRegime === 'LUCRO_PRESUMIDO_RET') {
+    return buildDrePresumidoRET(agg, opts?.retRate ?? 0.04)
   }
   if (taxRegime === 'SIMPLES_NACIONAL' || taxRegime === 'SIMPLES_HIBRIDO') {
-    return buildDreSimplesNacional(agg, calcType)
+    return buildDreSimplesNacional(agg, calcType, opts?.dasRate ?? 0.08)
+  }
+  if (taxRegime === 'MEI') {
+    return buildDreSimplesNacional(agg, calcType, 0, true)
   }
   // Default: Lucro Real / Lucro Presumido
   return buildDreLucroRealPresumido(agg, calcType, taxRegime)
@@ -467,12 +515,14 @@ function getVariantLabel(taxRegime: TaxRegime): string {
 
 export default function DfcPage() {
   const { currentUser } = useAuth()
+  const { canView } = usePermissions()
   const currentYear = new Date().getFullYear()
   const [year, setYear] = useState(currentYear)
   const [loading, setLoading] = useState(true)
   const [dreRows, setDreRows] = useState<DreRow[]>([])
   const [taxRegime, setTaxRegime] = useState<TaxRegime>('')
   const [calcType, setCalcType] = useState<CalcType>('')
+  const [error, setError] = useState<string | null>(null)
 
   const yearOptions = useMemo(() => {
     const years = []
@@ -482,9 +532,10 @@ export default function DfcPage() {
 
   const loadData = useCallback(async () => {
     setLoading(true)
+    setError(null)
     try {
       const tenantId = currentUser?.tenant_id || await getTenantId()
-      if (!tenantId) return
+      if (!tenantId) { setError('Não foi possível identificar o tenant.'); return }
 
       const [entries, settings] = await Promise.all([
         fetchYearEntries(tenantId, year),
@@ -496,11 +547,19 @@ export default function DfcPage() {
       setTaxRegime(regime)
       setCalcType(ct)
 
+      // Fetch real tax rates based on regime
+      let dasRate = 0.08
+      if ((regime === 'SIMPLES_NACIONAL' || regime === 'SIMPLES_HIBRIDO') && settings.simples_anexo && settings.simples_revenue_12m > 0) {
+        dasRate = await fetchSimplesEffectiveRate(settings.simples_anexo, settings.simples_revenue_12m)
+      }
+      const retRate = settings.ret_rate != null ? settings.ret_rate : 0.04
+
       const agg = aggregateEntries(entries)
-      const rows = buildDre(agg, regime, ct)
+      const rows = buildDre(agg, regime, ct, { dasRate, retRate })
       setDreRows(rows)
-    } catch (err) {
+    } catch (err: any) {
       console.error('Erro ao carregar DFC:', err)
+      setError('Erro ao carregar dados: ' + (err?.message || 'Erro desconhecido'))
     } finally {
       setLoading(false)
     }
@@ -509,6 +568,14 @@ export default function DfcPage() {
   useEffect(() => {
     loadData()
   }, [loadData])
+
+  if (!canView(MODULES.DFC)) {
+    return (
+      <Layout tabTitle={PAGE_TITLES.DFC}>
+        <Alert type="warning" showIcon message="Acesso negado" description="Você não tem permissão para acessar esta página." style={{ margin: 40 }} />
+      </Layout>
+    )
+  }
 
   if (loading) {
     return (
@@ -522,6 +589,7 @@ export default function DfcPage() {
 
   return (
     <Layout tabTitle={PAGE_TITLES.DFC}>
+      {error && <Alert type="error" showIcon message={error} closable style={{ marginBottom: 16 }} />}
       <header style={{ marginBottom: 24 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
           <div>
