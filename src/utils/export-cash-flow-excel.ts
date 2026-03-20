@@ -8,7 +8,7 @@ const MONTH_NAMES_PT = [
 ]
 
 // ── Income row mapping (payment_method → Excel row label) ──
-const INCOME_ROWS = [
+export const INCOME_ROWS = [
     { key: 'CARTAO_CREDITO', label: 'CARTAO CREDITO' },
     { key: 'CARTAO_DEBITO', label: 'CARTAO DEBITO' },
     { key: 'CHEQUE', label: 'CHEQUES' },
@@ -21,17 +21,17 @@ const INCOME_ROWS = [
 ]
 
 // Unique income labels in display order
-const INCOME_LABELS = [
+export const INCOME_LABELS = [
     'CARTAO CREDITO', 'CARTAO DEBITO', 'CHEQUES', 'DINHEIRO', 'PIX', 'TRANSFERENCIA',
 ]
 
 // ── Expense sections following the Excel template structure ──
-interface ExpenseSection {
+export interface ExpenseSection {
     header: string
     items: { descMatch: string[]; label: string }[]
 }
 
-const EXPENSE_SECTIONS: ExpenseSection[] = [
+export const EXPENSE_SECTIONS: ExpenseSection[] = [
     {
         header: 'Custo produto',
         items: [
@@ -145,7 +145,7 @@ const EXPENSE_SECTIONS: ExpenseSection[] = [
     },
 ]
 
-function matchesDescription(desc: string, patterns: string[]): boolean {
+export function matchesDescription(desc: string, patterns: string[]): boolean {
     if (!desc) return false
     const base = desc.split(' — ')[0].trim()
     return patterns.some(p => {
@@ -156,7 +156,7 @@ function matchesDescription(desc: string, patterns: string[]): boolean {
     })
 }
 
-function getIncomeLabel(entry: { payment_method?: string }): string | null {
+export function getIncomeLabel(entry: { payment_method?: string }): string | null {
     const pm = entry.payment_method
     if (!pm) return null
     const found = INCOME_ROWS.find(r => r.key === pm)

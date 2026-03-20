@@ -247,45 +247,6 @@ const NewItemForm = ({ form }: Props) => {
       </Divider>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
-        <Form.Item name="supplier_name" label="Fornecedor">
-          <Input placeholder="Nome do fornecedor" onChange={(e) => form.setFieldsValue({ supplier_name: capitalizeFirst(e.target.value) })} />
-        </Form.Item>
-
-        <Form.Item
-          name="supplier_state"
-          label={
-            <span>
-              Estado do fornecedor&nbsp;
-              <Tooltip title="Usado para calcular ICMS na entrada (crédito)">
-                <InfoCircleOutlined style={{ color: '#64748b' }} />
-              </Tooltip>
-            </span>
-          }
-        >
-          <Select placeholder="UF" showSearch allowClear>
-            {STATES.map(s => (
-              <Select.Option key={s} value={s}>{s}</Select.Option>
-            ))}
-          </Select>
-        </Form.Item>
-
-        <Form.Item
-          name="quantity"
-          label="Qtd. comprada"
-          rules={[{ required: true, message: REQUIRED }]}
-          tooltip="Quantidade total que você comprou (ex: 1 para 1kg, 500 para 500ml)"
-        >
-          <Input
-            type="number"
-            min="0.001"
-            step="any"
-            placeholder="Ex: 1"
-            onChange={() => setTimeout(recalcCostPerUnit, 50)}
-          />
-        </Form.Item>
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
         <Form.Item
           name="unitType"
           label="Unidade"
@@ -321,6 +282,23 @@ const NewItemForm = ({ form }: Props) => {
         </Form.Item>
 
         <Form.Item
+          name="quantity"
+          label="Qtd. comprada"
+          rules={[{ required: true, message: REQUIRED }]}
+          tooltip="Quantidade total que você comprou (ex: 1 para 1kg, 500 para 500ml)"
+        >
+          <Input
+            type="number"
+            min="0.001"
+            step="any"
+            placeholder="Ex: 1"
+            onChange={() => setTimeout(recalcCostPerUnit, 50)}
+          />
+        </Form.Item>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
+        <Form.Item
           name="min_limit"
           label="Estoque mínimo (alerta)"
           initialValue={0}
@@ -352,6 +330,30 @@ const NewItemForm = ({ form }: Props) => {
         <span style={{ fontSize: 11, color: '#94a3b8', marginTop: 4, display: 'inline-block' }}>
           Ex: valor unitário R$&nbsp;5,00 × 10&nbsp;un = Valor total R$&nbsp;50,00.
         </span>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }}>
+        <Form.Item name="supplier_name" label="Fornecedor">
+          <Input placeholder="Nome do fornecedor" onChange={(e) => form.setFieldsValue({ supplier_name: capitalizeFirst(e.target.value) })} />
+        </Form.Item>
+
+        <Form.Item
+          name="supplier_state"
+          label={
+            <span>
+              Estado do fornecedor&nbsp;
+              <Tooltip title="Usado para calcular ICMS na entrada (crédito)">
+                <InfoCircleOutlined style={{ color: '#64748b' }} />
+              </Tooltip>
+            </span>
+          }
+        >
+          <Select placeholder="UF" showSearch allowClear>
+            {STATES.map(s => (
+              <Select.Option key={s} value={s}>{s}</Select.Option>
+            ))}
+          </Select>
+        </Form.Item>
       </div>
 
       <Form.Item name="observation" label="Observação">

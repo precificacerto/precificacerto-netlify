@@ -136,9 +136,10 @@ export const Content: FC<ContentProps> = ({
   const [itemsForm] = Form.useForm()
 
   const isRevendaFromDb = (product as any)?.productType === 'REVENDA'
+  const isCalcTypeService = currentUser?.calcType === CALC_TYPE_ENUM.SERVICE
 
   const [productType, setProductType] = useState<'PRODUZIDO' | 'REVENDA'>(
-    (product as any)?.productType || 'PRODUZIDO'
+    isCalcTypeService ? 'REVENDA' : ((product as any)?.productType || 'PRODUZIDO')
   )
   const [baseItemId, setBaseItemId] = useState<string | null>(
     (product as any)?.baseItemId || null
@@ -146,6 +147,9 @@ export const Content: FC<ContentProps> = ({
   const [saleScope, setSaleScope] = useState<'INTRAESTADUAL' | 'INTERESTADUAL'>('INTRAESTADUAL')
   const [buyerType, setBuyerType] = useState<'CONSUMIDOR_FINAL' | 'CONTRIBUINTE_PJ'>('CONSUMIDOR_FINAL')
   const [destinationState, setDestinationState] = useState<string | null>(null)
+  const [customTaxPercent, setCustomTaxPercent] = useState<number | null>(
+    (product as any)?.custom_tax_percent != null ? Number((product as any).custom_tax_percent) : null
+  )
 
   const [ncmSuggestions, setNcmSuggestions] = useState<{ code: string; description: string }[]>([])
   const [ncmSugLoading, setNcmSugLoading] = useState(false)
@@ -218,7 +222,8 @@ export const Content: FC<ContentProps> = ({
   )
 
   // Items filtrados por tipo: para Revenda, só mostrar itens do tipo REVENDA
-  const itemsForSelection = productType === 'REVENDA'
+  // Exception: SERVICE calcType uses REVENDA type but with industrialization form (all items)
+  const itemsForSelection = (productType === 'REVENDA' && !isCalcTypeService)
     ? items.filter((i: any) => i.item_type === 'REVENDA' || !i.item_type)
     : items.filter((i: any) => i.item_type !== 'REVENDA')
 
@@ -268,6 +273,10 @@ export const Content: FC<ContentProps> = ({
         ...(product?.productPriceInfo || {}),
       } as ProductPriceInfoType)
       setUpdatedProductPriceInfoWithApi((prev) => prev + 1)
+      // Load custom_tax_percent from product if editing
+      if ((product as any)?.custom_tax_percent != null) {
+        setCustomTaxPercent(Number((product as any).custom_tax_percent))
+      }
     }
   }, [productForm, isEditingMode, product])
 
@@ -304,7 +313,8 @@ export const Content: FC<ContentProps> = ({
 
     // Estrutura para o motor: fixo + variável + financeiro + MO administrativa (%)
     const structurePctForEngine = (calcBase.structurePct + (Number(calcBase.indirectLaborPct) || 0)) / 100
-    const taxPctDecimal = calcBase.taxPct / 100
+    const effectiveTaxPct = customTaxPercent != null ? customTaxPercent : calcBase.taxPct
+    const taxPctDecimal = effectiveTaxPct / 100
 
     const engineResult = calculatePricing({
       calcType: currentUser.calcType === CALC_TYPE_ENUM.INDUSTRIALIZATION ? 'INDUSTRIALIZACAO'
@@ -383,6 +393,7 @@ export const Content: FC<ContentProps> = ({
     productPriceInfo.salesCommissionPercent,
     productPriceInfo.salesCommissionPercentByProduct,
     productForm,
+    customTaxPercent,
   ])
 
   useEffect(() => {
@@ -451,7 +462,7 @@ export const Content: FC<ContentProps> = ({
   }
 
   const validateProductItems = () => {
-    if (productType === 'REVENDA') {
+    if (productType === 'REVENDA' && !isCalcTypeService) {
       if (!baseItemId) {
         return 'Selecione o item de revenda como base do custo.'
       }
@@ -503,7 +514,8 @@ export const Content: FC<ContentProps> = ({
             : (currentUser?.monthlyWorkloadInMinutes || 0) / 60
       const hoursPerMonthSafe = hoursPerMonth > 0 ? hoursPerMonth : 176
       const monthlyWorkloadMinutes = totalEmployees * hoursPerMonthSafe * 60
-      const taxPctDecimal = calcBase.taxPct / 100
+      const effectiveTaxPctSave = customTaxPercent != null ? customTaxPercent : calcBase.taxPct
+      const taxPctDecimal = effectiveTaxPctSave / 100
       const structurePctForEngine = (calcBase.structurePct + (Number(calcBase.indirectLaborPct) || 0)) / 100
       const engineResult = calculatePricing({
         calcType: currentUser?.calcType === CALC_TYPE_ENUM.INDUSTRIALIZATION ? 'INDUSTRIALIZACAO'
@@ -578,6 +590,7 @@ export const Content: FC<ContentProps> = ({
         ncm_code: values.ncm_code || null,
         nbs_code: values.nbs_code || null,
         max_discount_percent: values.max_discount_percent != null && values.max_discount_percent !== '' ? Number(values.max_discount_percent) : null,
+        custom_tax_percent: customTaxPercent != null ? customTaxPercent : null,
         updated_at: new Date().toISOString(),
       }
 
@@ -917,6 +930,14 @@ export const Content: FC<ContentProps> = ({
               padding: '4px 14px', fontWeight: 600, fontSize: 13,
             }}>📦 Revenda (produto acabado)</span>
           </div>
+        ) : isCalcTypeService ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <strong style={{ fontSize: 14 }}>Tipo do produto:</strong>
+            <span style={{
+              background: '#E6F7FF', border: '1px solid #91D5FF', borderRadius: 6,
+              padding: '4px 14px', fontWeight: 600, fontSize: 13,
+            }}>📦 Revenda</span>
+          </div>
         ) : (
           <>
             <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 16 }}>
@@ -1223,9 +1244,30 @@ export const Content: FC<ContentProps> = ({
           calcBase={calcBase}
           currentUser={currentUser}
           productForm={productForm}
+          customTaxPercent={customTaxPercent}
+          onCustomTaxPercentChange={setCustomTaxPercent}
         />
       )}
-      {productType === 'REVENDA' && (
+      {productType === 'REVENDA' && isCalcTypeService && (
+        /* SERVICE segmentation: REVENDA uses the industrialization form (items, recipe, workload) */
+        <ContentIndustrialization
+          itemsForm={itemsForm}
+          handleClickAddItem={handleClickAddItem}
+          filterOption={filterOption}
+          items={itemsForSelection}
+          columns={columns}
+          productItemsData={productItemsData}
+          handleChangePrecificationInputs={handleChangePrecificationInputs}
+          productPriceInfo={productPriceInfo}
+          doProductCalc={doProductCalc}
+          calcBase={calcBase}
+          currentUser={currentUser}
+          productForm={productForm}
+          customTaxPercent={customTaxPercent}
+          onCustomTaxPercentChange={setCustomTaxPercent}
+        />
+      )}
+      {productType === 'REVENDA' && !isCalcTypeService && (
         <ContentResale
           itemsForm={itemsForm}
           handleClickAddItem={handleClickAddItem}
@@ -1239,6 +1281,8 @@ export const Content: FC<ContentProps> = ({
           calcBase={calcBase}
           currentUser={currentUser}
           productForm={productForm}
+          customTaxPercent={customTaxPercent}
+          onCustomTaxPercentChange={setCustomTaxPercent}
         />
       )}
       <footer className="flex flex-row-reverse mt-5 mr-4">

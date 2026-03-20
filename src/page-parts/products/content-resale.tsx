@@ -21,6 +21,8 @@ interface ContentResaleProps {
   doProductCalc: () => void
   calcBase: CalcBaseType
   currentUser: LoggedUser
+  customTaxPercent?: number | null
+  onCustomTaxPercentChange?: (value: number) => void
 }
 export const ContentResale: FC<ContentResaleProps> = ({
   itemsForm,
@@ -35,6 +37,8 @@ export const ContentResale: FC<ContentResaleProps> = ({
   doProductCalc,
   calcBase,
   currentUser,
+  customTaxPercent,
+  onCustomTaxPercentChange,
 }: ContentResaleProps) => {
   return (
     <>
@@ -77,12 +81,13 @@ export const ContentResale: FC<ContentResaleProps> = ({
       </Card>
 
       <ProductPrice
-        doProductCalc={doProductCalc}
         calcBase={calcBase}
         productPriceInfo={productPriceInfo}
         handleChangePrecificationInputs={handleChangePrecificationInputs}
         currentUser={currentUser}
         productForm={productForm}
+        customTaxPercent={customTaxPercent}
+        onCustomTaxPercentChange={onCustomTaxPercentChange}
       />
     </>
   )

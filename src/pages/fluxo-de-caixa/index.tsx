@@ -28,8 +28,13 @@ import {
     type ExpenseGroupKey,
 } from '@/constants/cashier-category'
 
-import { exportCashFlowToExcel, exportCashFlowMultiMonth } from '@/utils/export-cash-flow-excel'
+import {
+    exportCashFlowToExcel, exportCashFlowMultiMonth,
+    INCOME_LABELS, INCOME_ROWS, EXPENSE_SECTIONS, matchesDescription, getIncomeLabel,
+} from '@/utils/export-cash-flow-excel'
 import { exportCommissionToExcel } from '@/utils/export-commission-excel'
+import { ExportFormatModal } from '@/components/ui/export-format-modal.component'
+import { exportTableToPdf } from '@/utils/export-generic-pdf'
 
 import {
     Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement,
@@ -210,6 +215,10 @@ export default function CashFlow() {
     const [exportRange, setExportRange] = useState<[dayjs.Dayjs, dayjs.Dayjs]>([month.startOf('month'), month.endOf('month')])
     const [exporting, setExporting] = useState(false)
 
+    // Export format modals (PDF vs Excel)
+    const [exportFormatModalOpen, setExportFormatModalOpen] = useState(false)
+    const [commissionExportModalOpen, setCommissionExportModalOpen] = useState(false)
+
     const startOfMonth = month.startOf('month').format('YYYY-MM-DD')
     const endOfMonth = month.endOf('month').format('YYYY-MM-DD')
 
@@ -272,6 +281,52 @@ export default function CashFlow() {
         } finally {
             setExporting(false)
         }
+    }
+
+    const handleExportCashFlowPdf = () => {
+        if (data.length === 0) { messageApi.warning('Nenhum dado para exportar.'); return }
+        const monthLabel = month.format('MMMM/YYYY')
+        const headers = ['Data', 'Descrição', 'Tipo', 'Valor']
+        const rows = data.map((r: any) => {
+            const displayAmount = r.type === 'INCOME' ? getEffectiveIncomeAmount(r) : Number(r.amount || 0)
+            return [
+                dayjs(r.due_date).format('DD/MM/YYYY'),
+                r.description || '',
+                r.type === 'INCOME' ? 'Receita' : 'Despesa',
+                `${r.type === 'INCOME' ? '+' : '-'} ${formatCurrency(displayAmount)}`,
+            ]
+        })
+        exportTableToPdf({
+            title: `Fluxo de Caixa — ${monthLabel}`,
+            subtitle: `${data.length} lançamentos`,
+            headers,
+            rows,
+            filename: `Fluxo_de_Caixa_${month.format('YYYY-MM')}.pdf`,
+            orientation: 'landscape',
+            columnStyles: { 3: { halign: 'right' } },
+        })
+        messageApi.success('PDF exportado com sucesso!')
+    }
+
+    const handleExportCommissionPdf = () => {
+        if (commissionSummary.length === 0) { messageApi.warning('Nenhum dado de comissão para exportar.'); return }
+        const monthLabel = month.format('MMMM/YYYY')
+        const headers = ['Vendedor', '% Comissão', 'Base (Receita)', 'Comissão Calculada']
+        const rows = commissionSummary.map((r: any) => [
+            r.name,
+            `${r.commission_percent}%`,
+            formatCurrency(r.base_revenue),
+            formatCurrency(r.commission_value),
+        ])
+        exportTableToPdf({
+            title: `Comissão de Vendedores — ${monthLabel}`,
+            headers,
+            rows,
+            filename: `Comissao_Vendedores_${month.format('YYYY-MM')}.pdf`,
+            orientation: 'portrait',
+            columnStyles: { 1: { halign: 'center' }, 2: { halign: 'right' }, 3: { halign: 'right' } },
+        })
+        messageApi.success('PDF exportado com sucesso!')
     }
 
     if (!canView(MODULES.CASH_FLOW)) {
@@ -518,6 +573,58 @@ export default function CashFlow() {
         }
         return days
     }, [data, month])
+
+    // ── Extrato structured data (mirrors Excel export format) ──
+    const extratoData = useMemo(() => {
+        // Income by label
+        const incomeByLabel: Record<string, number> = {}
+        for (const label of INCOME_LABELS) incomeByLabel[label] = 0
+
+        // Expense by section/item
+        const expenseBySectionItem: Record<string, Record<string, number>> = {}
+        const sectionTotals: Record<string, number> = {}
+        for (const section of EXPENSE_SECTIONS) {
+            expenseBySectionItem[section.header] = {}
+            sectionTotals[section.header] = 0
+            for (const item of section.items) {
+                expenseBySectionItem[section.header][item.label] = 0
+            }
+        }
+
+        let unmatchedTotal = 0
+
+        for (const entry of data) {
+            if (entry.type === 'INCOME') {
+                if (entry.payment_method === 'BOLETO' && !entry.paid_date) continue
+                const label = getIncomeLabel(entry)
+                if (label && incomeByLabel[label] !== undefined) {
+                    incomeByLabel[label] += getEffectiveIncomeAmount(entry)
+                }
+            } else {
+                let matched = false
+                for (const section of EXPENSE_SECTIONS) {
+                    for (const item of section.items) {
+                        if (matchesDescription(entry.description, item.descMatch)) {
+                            expenseBySectionItem[section.header][item.label] += Number(entry.amount) || 0
+                            sectionTotals[section.header] += Number(entry.amount) || 0
+                            matched = true
+                            break
+                        }
+                    }
+                    if (matched) break
+                }
+                if (!matched) {
+                    unmatchedTotal += Number(entry.amount) || 0
+                }
+            }
+        }
+
+        const totalEntradas = Object.values(incomeByLabel).reduce((a, b) => a + b, 0)
+        const totalSaidas = Object.values(sectionTotals).reduce((a, b) => a + b, 0) + unmatchedTotal
+        const resultado = totalEntradas - totalSaidas
+
+        return { incomeByLabel, expenseBySectionItem, sectionTotals, unmatchedTotal, totalEntradas, totalSaidas, resultado }
+    }, [data])
 
     // ── Charts ──
     const weeklyData = useMemo(() => {
@@ -1334,40 +1441,172 @@ export default function CashFlow() {
                                 <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
                                     <Button
                                         icon={<FileExcelOutlined />}
-                                        onClick={() => {
-                                            setExportRange([month.startOf('month'), month.startOf('month')])
-                                            setExportModalOpen(true)
-                                        }}
+                                        onClick={() => setExportFormatModalOpen(true)}
                                         style={{ background: '#217346', borderColor: '#217346', color: '#fff' }}
                                     >
-                                        Exportar Excel
+                                        Exportar
                                     </Button>
                                 </div>
-                                <Table
-                                    columns={columns}
-                                    dataSource={data}
-                                    rowKey="id"
-                                    loading={loading}
-                                    pagination={{ pageSize: 15, showTotal: (t) => `${t} lançamentos` }}
-                                    size="middle"
-                                    summary={() => (
-                                        <Table.Summary fixed>
-                                            <Table.Summary.Row style={{ background: '#0a1628' }}>
-                                                <Table.Summary.Cell index={0} colSpan={3}><strong>Totais do mês</strong></Table.Summary.Cell>
-                                                <Table.Summary.Cell index={3} align="right">
-                                                    <div style={{ fontWeight: 700 }}>
-                                                        <div style={{ color: '#12B76A' }}>+ {formatCurrency(totalIncome)}</div>
-                                                        <div style={{ color: '#F04438' }}>- {formatCurrency(totalExpense)}</div>
-                                                        <div style={{ color: balance >= 0 ? '#12B76A' : '#F04438', borderTop: '2px solid rgba(255,255,255,0.06)', paddingTop: 4, marginTop: 4 }}>
-                                                            = {formatCurrency(balance)}
+
+                                {/* ── Extrato structured view (matches Excel export) ── */}
+                                <div style={{ background: '#0d1b2a', borderRadius: 8, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.06)' }}>
+                                    {/* Header */}
+                                    <div style={{ padding: '16px 20px', borderBottom: '1px solid rgba(255,255,255,0.06)', background: '#1a2744' }}>
+                                        <span style={{ fontSize: 16, fontWeight: 700, color: '#e2e8f0' }}>
+                                            Fluxo de Caixa - Extrato
+                                        </span>
+                                        <span style={{ marginLeft: 12, fontSize: 13, color: '#94a3b8' }}>
+                                            {month.format('MMMM [de] YYYY')}
+                                        </span>
+                                    </div>
+
+                                    {/* ── ENTRADAS ── */}
+                                    <div style={{ padding: '12px 20px', background: '#00B050', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <span style={{ fontWeight: 700, color: '#fff', fontSize: 14, textTransform: 'uppercase', letterSpacing: 1 }}>Entradas</span>
+                                        <span style={{ fontWeight: 700, color: '#fff', fontSize: 14 }}>Valor</span>
+                                    </div>
+                                    {INCOME_LABELS.map((label, idx) => {
+                                        const val = extratoData.incomeByLabel[label] || 0
+                                        return (
+                                            <div key={label} style={{
+                                                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                                padding: '8px 20px', background: idx % 2 === 0 ? '#e2efda22' : '#e2efda11',
+                                                borderLeft: '4px solid #00B050',
+                                            }}>
+                                                <span style={{ color: '#cbd5e1', fontSize: 13 }}>{label}</span>
+                                                <span style={{ color: val > 0 ? '#4ade80' : '#64748b', fontWeight: 500, fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
+                                                    {val > 0 ? formatCurrency(val) : '—'}
+                                                </span>
+                                            </div>
+                                        )
+                                    })}
+                                    <div style={{
+                                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                        padding: '10px 20px', background: '#00B050',
+                                    }}>
+                                        <span style={{ fontWeight: 700, color: '#fff', fontSize: 13 }}>TOTAL ENTRADAS</span>
+                                        <span style={{ fontWeight: 700, color: '#fff', fontSize: 14, fontVariantNumeric: 'tabular-nums' }}>
+                                            {formatCurrency(extratoData.totalEntradas)}
+                                        </span>
+                                    </div>
+
+                                    {/* Spacer */}
+                                    <div style={{ height: 16, background: '#0d1b2a' }} />
+
+                                    {/* ── SAIDAS ── */}
+                                    <div style={{ padding: '12px 20px', background: '#DC2626', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <span style={{ fontWeight: 700, color: '#fff', fontSize: 14, textTransform: 'uppercase', letterSpacing: 1 }}>Saidas</span>
+                                        <span style={{ fontWeight: 700, color: '#fff', fontSize: 14 }}>Valor</span>
+                                    </div>
+
+                                    {EXPENSE_SECTIONS.map((section) => {
+                                        const sectionColor: Record<string, string> = {
+                                            'Custo produto': '#EF4444',
+                                            'Custo Mao de obra Producao': '#7C3AED',
+                                            'Despesa Mao de obra Indireta': '#A855F7',
+                                            'Despesas fixas': '#2563EB',
+                                            'Despesas variaveis': '#059669',
+                                            'Despesas Financeiras': '#D97706',
+                                            'Impostos': '#DC2626',
+                                            'Regime Tributario': '#B91C1C',
+                                            'Lucro': '#0891B2',
+                                        }
+                                        const color = sectionColor[section.header] || '#64748b'
+                                        const sectionTotal = extratoData.sectionTotals[section.header] || 0
+                                        const items = extratoData.expenseBySectionItem[section.header] || {}
+
+                                        return (
+                                            <div key={section.header}>
+                                                {/* Section header */}
+                                                <div style={{
+                                                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                                    padding: '8px 20px', background: `${color}cc`,
+                                                }}>
+                                                    <span style={{ fontWeight: 700, color: '#fff', fontSize: 13 }}>{section.header}</span>
+                                                    <span style={{ fontWeight: 700, color: '#fff', fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
+                                                        {sectionTotal > 0 ? formatCurrency(sectionTotal) : '—'}
+                                                    </span>
+                                                </div>
+                                                {/* Section items */}
+                                                {section.items.map((item, idx) => {
+                                                    const val = items[item.label] || 0
+                                                    return (
+                                                        <div key={item.label} style={{
+                                                            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                                            padding: '7px 20px 7px 36px',
+                                                            background: idx % 2 === 0 ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.04)',
+                                                            borderLeft: `4px solid ${color}`,
+                                                        }}>
+                                                            <span style={{ color: '#94a3b8', fontSize: 12 }}>{item.label}</span>
+                                                            <span style={{ color: val > 0 ? '#f87171' : '#475569', fontWeight: 500, fontSize: 12, fontVariantNumeric: 'tabular-nums' }}>
+                                                                {val > 0 ? formatCurrency(val) : '—'}
+                                                            </span>
                                                         </div>
-                                                    </div>
-                                                </Table.Summary.Cell>
-                                                <Table.Summary.Cell index={4} />
-                                            </Table.Summary.Row>
-                                        </Table.Summary>
+                                                    )
+                                                })}
+                                            </div>
+                                        )
+                                    })}
+
+                                    {/* Unmatched expenses */}
+                                    {extratoData.unmatchedTotal > 0 && (
+                                        <div style={{
+                                            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                            padding: '7px 20px 7px 36px', background: 'rgba(255,255,255,0.02)',
+                                            borderLeft: '4px solid #64748b',
+                                        }}>
+                                            <span style={{ color: '#94a3b8', fontSize: 12 }}>OUTRAS DESPESAS</span>
+                                            <span style={{ color: '#f87171', fontWeight: 500, fontSize: 12, fontVariantNumeric: 'tabular-nums' }}>
+                                                {formatCurrency(extratoData.unmatchedTotal)}
+                                            </span>
+                                        </div>
                                     )}
-                                />
+
+                                    <div style={{
+                                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                        padding: '10px 20px', background: '#DC2626',
+                                    }}>
+                                        <span style={{ fontWeight: 700, color: '#fff', fontSize: 13 }}>TOTAL SAIDAS</span>
+                                        <span style={{ fontWeight: 700, color: '#fff', fontSize: 14, fontVariantNumeric: 'tabular-nums' }}>
+                                            {formatCurrency(extratoData.totalSaidas)}
+                                        </span>
+                                    </div>
+
+                                    {/* Spacer */}
+                                    <div style={{ height: 16, background: '#0d1b2a' }} />
+
+                                    {/* ── RESULTADO ── */}
+                                    <div style={{
+                                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                        padding: '16px 20px',
+                                        background: extratoData.resultado >= 0 ? '#065f4620' : '#7f1d1d20',
+                                        borderLeft: `5px solid ${extratoData.resultado >= 0 ? '#22c55e' : '#ef4444'}`,
+                                        borderTop: '2px solid rgba(255,255,255,0.06)',
+                                    }}>
+                                        <span style={{ fontWeight: 700, color: '#e2e8f0', fontSize: 15 }}>RESULTADO DO MES</span>
+                                        <span style={{
+                                            fontWeight: 800, fontSize: 20, fontVariantNumeric: 'tabular-nums',
+                                            color: extratoData.resultado >= 0 ? '#4ade80' : '#f87171',
+                                        }}>
+                                            {formatCurrency(extratoData.resultado)}
+                                        </span>
+                                    </div>
+                                </div>
+
+                                {/* ── Detailed entry table below ── */}
+                                <div style={{ marginTop: 24 }}>
+                                    <div style={{ marginBottom: 8, color: '#94a3b8', fontSize: 13, fontWeight: 600 }}>
+                                        Lancamentos detalhados
+                                    </div>
+                                    <Table
+                                        columns={columns}
+                                        dataSource={data}
+                                        rowKey="id"
+                                        loading={loading}
+                                        pagination={{ pageSize: 15, showTotal: (t) => `${t} lançamentos` }}
+                                        size="middle"
+                                    />
+                                </div>
                             </div>
                         ),
                     },
@@ -1696,10 +1935,10 @@ export default function CashFlow() {
                                     {commissionSummary.length > 0 && (
                                         <Button
                                             icon={<FileExcelOutlined />}
-                                            onClick={() => exportCommissionToExcel(commissionSummary, month)}
+                                            onClick={() => setCommissionExportModalOpen(true)}
                                             style={{ marginLeft: 12, background: '#7C3AED', borderColor: '#7C3AED', color: '#fff' }}
                                         >
-                                            Exportar Excel
+                                            Exportar
                                         </Button>
                                     )}
                                 </div>
@@ -2212,6 +2451,27 @@ export default function CashFlow() {
                     )}
                 </div>
             </Modal>
+
+            {/* Export format modal — Cash Flow */}
+            <ExportFormatModal
+                open={exportFormatModalOpen}
+                onClose={() => setExportFormatModalOpen(false)}
+                title="Exportar Fluxo de Caixa"
+                onExportExcel={() => {
+                    setExportRange([month.startOf('month'), month.startOf('month')])
+                    setExportModalOpen(true)
+                }}
+                onExportPdf={handleExportCashFlowPdf}
+            />
+
+            {/* Export format modal — Comissão */}
+            <ExportFormatModal
+                open={commissionExportModalOpen}
+                onClose={() => setCommissionExportModalOpen(false)}
+                title="Exportar Comissão de Vendedores"
+                onExportExcel={() => exportCommissionToExcel(commissionSummary, month)}
+                onExportPdf={handleExportCommissionPdf}
+            />
         </Layout>
     )
 }

@@ -22,6 +22,8 @@ interface ContentIndustrializationProps {
   doProductCalc: () => void
   calcBase: CalcBaseType
   currentUser: LoggedUser
+  customTaxPercent?: number | null
+  onCustomTaxPercentChange?: (value: number) => void
 }
 export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
   itemsForm,
@@ -36,6 +38,8 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
   doProductCalc,
   calcBase,
   currentUser,
+  customTaxPercent,
+  onCustomTaxPercentChange,
 }: ContentIndustrializationProps) => {
   return (
     <>
@@ -99,12 +103,13 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
       </Card>
 
       <ProductPrice
-        doProductCalc={doProductCalc}
         calcBase={calcBase}
         productPriceInfo={productPriceInfo}
         handleChangePrecificationInputs={handleChangePrecificationInputs}
         currentUser={currentUser}
         productForm={productForm}
+        customTaxPercent={customTaxPercent}
+        onCustomTaxPercentChange={onCustomTaxPercentChange}
       />
     </>
   )

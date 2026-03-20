@@ -34,10 +34,12 @@ export enum ROUTES {
   // ── Phase 3: Pipeline Comercial ──
   BUDGETS = '/orcamentos',
   SALES = '/vendas',
+  SALES_REPORT = '/relatorio-vendas',
 
   // ── Phase 4: Financeiro ──
   CASH_FLOW = '/fluxo-de-caixa',
   DFC = '/dfc',
+  COMMISSION = '/comissao-vendedor',
 
   // ── Phase 5: Operacional ──
   SCHEDULE = '/agenda',

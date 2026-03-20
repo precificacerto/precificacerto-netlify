@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react'
-import { Button, Drawer, Form, Input, Select, Space, Table, Tag, Tabs, message, InputNumber, Empty, Checkbox, Radio, Tooltip, DatePicker } from 'antd'
+import React, { useState, useEffect, useMemo } from 'react'
+import { Button, Drawer, Form, Input, Select, Space, Table, Tag, Tabs, message, InputNumber, Empty, Checkbox, Radio, Tooltip } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
@@ -7,7 +7,7 @@ import { CardKPI } from '@/components/ui/card-kpi.component'
 import { supabase } from '@/supabase/client'
 import { getCurrentUserId } from '@/utils/get-tenant-id'
 import type { StockRecord } from '@/supabase/types'
-import { useStock, useItems, useProducts, useEmployees } from '@/hooks/use-data.hooks'
+import { useStock, useItems, useProducts } from '@/hooks/use-data.hooks'
 import { useAuth } from '@/hooks/use-auth.hook'
 import {
     DatabaseOutlined,
@@ -18,12 +18,8 @@ import {
     InboxOutlined,
     ShoppingOutlined,
     CustomerServiceOutlined,
-    BarChartOutlined,
-    FilterOutlined,
-    ReloadOutlined,
 } from '@ant-design/icons'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
-import dayjs from 'dayjs'
 
 interface StockRow {
     id: string
@@ -50,20 +46,6 @@ interface ServiceRow {
     stockStatus: string
 }
 
-interface ABCReportRow {
-    position: number
-    productId: string
-    productName: string
-    qtdSold: number
-    totalRevenue: number
-    totalCost: number
-    profitMargin: number
-    marginPercent: number
-    curve: 'A' | 'B' | 'C'
-    employeeName: string
-}
-
-const { RangePicker } = DatePicker
 
 function formatCurrency(value: number): string {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value)
@@ -109,7 +91,7 @@ function Stock() {
     const [deleteQtyForm] = Form.useForm()
     const [searchText, setSearchText] = useState('')
     const [stockFilter, setStockFilter] = useState<'all' | 'below'>('all')
-    const [activeTab, setActiveTab] = useState<'ITEM' | 'PRODUCT' | 'SERVICE' | 'ABC_REPORT'>('ITEM')
+    const [activeTab, setActiveTab] = useState<'ITEM' | 'PRODUCT' | 'SERVICE'>('ITEM')
     const [servicesList, setServicesList] = useState<ServiceRow[]>([])
     const [loadingServices, setLoadingServices] = useState(false)
     const [totalMovements, setTotalMovements] = useState(0)
@@ -117,16 +99,6 @@ function Stock() {
     const [editForm] = Form.useForm()
     const [messageApi, contextHolder] = message.useMessage()
 
-    // ABC Report state
-    const { data: employees = [] } = useEmployees()
-    const [abcData, setAbcData] = useState<ABCReportRow[]>([])
-    const [abcLoading, setAbcLoading] = useState(false)
-    const [abcDateRange, setAbcDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs]>([
-        dayjs().startOf('month'),
-        dayjs().endOf('month'),
-    ])
-    const [abcEmployeeFilter, setAbcEmployeeFilter] = useState<string | undefined>(undefined)
-    const [abcProductFilter, setAbcProductFilter] = useState<string | undefined>(undefined)
 
     useEffect(() => {
         async function fetchMovements() {
@@ -206,255 +178,6 @@ function Stock() {
             .finally(() => setLoadingServices(false))
     }, [activeTab])
 
-    // ABC Report — fetch sales data and compute ABC curve
-    const fetchAbcReport = useCallback(async () => {
-        setAbcLoading(true)
-        try {
-            if (!effectiveTenantId) { setAbcLoading(false); return }
-            const startDate = abcDateRange[0].startOf('day').toISOString()
-            const endDate = abcDateRange[1].endOf('day').toISOString()
-
-            // Strategy: Query paid budgets in date range, then get their budget_items
-            // budgets.status = 'PAID' means a completed sale
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            let budgetsQuery: any = (supabase
-                .from('budgets') as any)
-                .select('id, employee_id, created_at')
-                .eq('tenant_id', effectiveTenantId)
-                .eq('status', 'PAID')
-                .eq('is_active', true)
-                .gte('created_at', startDate)
-                .lte('created_at', endDate)
-
-            if (abcEmployeeFilter) {
-                budgetsQuery = budgetsQuery.eq('employee_id', abcEmployeeFilter)
-            }
-
-            const { data: budgets, error: budgetsErr } = await budgetsQuery as { data: any[] | null; error: any }
-            if (budgetsErr) throw budgetsErr
-            if (!budgets || budgets.length === 0) {
-                setAbcData([])
-                setAbcLoading(false)
-                return
-            }
-
-            const budgetIds = budgets.map((b: any) => b.id)
-            const employeeMap = new Map<string, string>()
-            budgets.forEach((b: any) => {
-                if (b.employee_id) {
-                    const emp = (employees as any[]).find((e: any) => e.id === b.employee_id)
-                    employeeMap.set(b.id, emp?.name || 'Desconhecido')
-                } else {
-                    employeeMap.set(b.id, 'Sem vendedor')
-                }
-            })
-
-            // Fetch budget_items for these budgets with product info
-            let itemsQuery = supabase
-                .from('budget_items')
-                .select('budget_id, product_id, quantity, unit_price, discount, product:products(id, name, cost_total)')
-                .in('budget_id', budgetIds)
-
-            if (abcProductFilter) {
-                itemsQuery = itemsQuery.eq('product_id', abcProductFilter)
-            }
-
-            const { data: items, error: itemsErr } = await itemsQuery
-            if (itemsErr) throw itemsErr
-
-            // Aggregate by product
-            const productAgg = new Map<string, {
-                productId: string
-                productName: string
-                qtdSold: number
-                totalRevenue: number
-                totalCost: number
-                employees: Set<string>
-            }>()
-
-            for (const item of (items || [])) {
-                const product = (item as any).product
-                if (!product) continue
-                const productId = product.id
-                const productName = product.name || 'Sem nome'
-                const qty = Number(item.quantity) || 1
-                const unitPrice = Number(item.unit_price) || 0
-                const discount = Number(item.discount) || 0
-                const revenue = (unitPrice * qty) - discount
-                const costPerUnit = Number(product.cost_total) || 0
-                const totalCost = costPerUnit * qty
-
-                const existing = productAgg.get(productId)
-                const empName = employeeMap.get(item.budget_id) || 'Sem vendedor'
-
-                if (existing) {
-                    existing.qtdSold += qty
-                    existing.totalRevenue += revenue
-                    existing.totalCost += totalCost
-                    existing.employees.add(empName)
-                } else {
-                    productAgg.set(productId, {
-                        productId,
-                        productName,
-                        qtdSold: qty,
-                        totalRevenue: revenue,
-                        totalCost: totalCost,
-                        employees: new Set([empName]),
-                    })
-                }
-            }
-
-            // Sort by revenue descending for ABC classification
-            const sorted = Array.from(productAgg.values()).sort((a, b) => b.totalRevenue - a.totalRevenue)
-            const grandTotal = sorted.reduce((sum, p) => sum + p.totalRevenue, 0)
-
-            let cumulative = 0
-            const rows: ABCReportRow[] = sorted.map((p, idx) => {
-                cumulative += p.totalRevenue
-                const cumulativePercent = grandTotal > 0 ? (cumulative / grandTotal) * 100 : 0
-                let curve: 'A' | 'B' | 'C' = 'C'
-                if (cumulativePercent <= 80) curve = 'A'
-                else if (cumulativePercent <= 95) curve = 'B'
-
-                const profitMargin = p.totalRevenue - p.totalCost
-                const marginPercent = p.totalRevenue > 0 ? (profitMargin / p.totalRevenue) * 100 : 0
-
-                return {
-                    position: idx + 1,
-                    productId: p.productId,
-                    productName: p.productName,
-                    qtdSold: p.qtdSold,
-                    totalRevenue: p.totalRevenue,
-                    totalCost: p.totalCost,
-                    profitMargin,
-                    marginPercent,
-                    curve,
-                    employeeName: Array.from(p.employees).join(', '),
-                }
-            })
-
-            setAbcData(rows)
-        } catch (error: any) {
-            messageApi.error('Erro ao carregar relatório ABC: ' + (error.message || 'Erro desconhecido'))
-        } finally {
-            setAbcLoading(false)
-        }
-    }, [abcDateRange, abcEmployeeFilter, abcProductFilter, employees, messageApi])
-
-    useEffect(() => {
-        if (activeTab === 'ABC_REPORT') {
-            fetchAbcReport()
-        }
-    }, [activeTab, fetchAbcReport])
-
-    // ABC KPIs
-    const abcTotalRevenue = useMemo(() => abcData.reduce((sum, r) => sum + r.totalRevenue, 0), [abcData])
-    const abcTotalProducts = abcData.length
-    const abcAvgMargin = useMemo(() => {
-        if (abcData.length === 0) return 0
-        return abcData.reduce((sum, r) => sum + r.marginPercent, 0) / abcData.length
-    }, [abcData])
-
-    // ABC columns
-    const abcColumns: ColumnsType<ABCReportRow> = [
-        {
-            title: 'Pos.',
-            dataIndex: 'position',
-            key: 'position',
-            width: 60,
-            align: 'center',
-            render: (v: number) => <strong>{v}</strong>,
-        },
-        {
-            title: 'Produto',
-            dataIndex: 'productName',
-            key: 'productName',
-            sorter: (a, b) => a.productName.localeCompare(b.productName),
-            render: (text: string) => <span style={{ fontWeight: 500 }}>{text}</span>,
-        },
-        {
-            title: 'Qtd Vendida',
-            dataIndex: 'qtdSold',
-            key: 'qtdSold',
-            width: 110,
-            align: 'right',
-            sorter: (a, b) => a.qtdSold - b.qtdSold,
-            render: (v: number) => <span style={{ fontWeight: 600 }}>{v}</span>,
-        },
-        {
-            title: 'Receita Total',
-            dataIndex: 'totalRevenue',
-            key: 'totalRevenue',
-            width: 140,
-            align: 'right',
-            sorter: (a, b) => a.totalRevenue - b.totalRevenue,
-            render: (v: number) => <span style={{ color: '#4ade80', fontWeight: 600 }}>{formatCurrency(v)}</span>,
-        },
-        {
-            title: 'Custo Total',
-            dataIndex: 'totalCost',
-            key: 'totalCost',
-            width: 130,
-            align: 'right',
-            sorter: (a, b) => a.totalCost - b.totalCost,
-            render: (v: number) => formatCurrency(v),
-        },
-        {
-            title: 'Margem (R$)',
-            dataIndex: 'profitMargin',
-            key: 'profitMargin',
-            width: 130,
-            align: 'right',
-            sorter: (a, b) => a.profitMargin - b.profitMargin,
-            render: (v: number) => (
-                <span style={{ color: v >= 0 ? '#4ade80' : '#f87171', fontWeight: 600 }}>
-                    {formatCurrency(v)}
-                </span>
-            ),
-        },
-        {
-            title: 'Margem %',
-            dataIndex: 'marginPercent',
-            key: 'marginPercent',
-            width: 100,
-            align: 'right',
-            sorter: (a, b) => a.marginPercent - b.marginPercent,
-            render: (v: number) => (
-                <span style={{ color: v >= 0 ? '#4ade80' : '#f87171', fontWeight: 600 }}>
-                    {v.toFixed(1)}%
-                </span>
-            ),
-        },
-        {
-            title: 'Curva',
-            dataIndex: 'curve',
-            key: 'curve',
-            width: 80,
-            align: 'center',
-            filters: [
-                { text: 'A', value: 'A' },
-                { text: 'B', value: 'B' },
-                { text: 'C', value: 'C' },
-            ],
-            onFilter: (value, record) => record.curve === value,
-            render: (curve: 'A' | 'B' | 'C') => {
-                const colors = { A: 'green', B: 'orange', C: 'red' }
-                return <Tag color={colors[curve]} style={{ fontWeight: 700, fontSize: 14 }}>{curve}</Tag>
-            },
-        },
-        {
-            title: 'Vendedor',
-            dataIndex: 'employeeName',
-            key: 'employeeName',
-            width: 160,
-            ellipsis: true,
-        },
-    ]
-
-    // Products list for the ABC filter dropdown
-    const allProducts = useMemo(() => {
-        return (rawProducts || []).map((p: any) => ({ value: p.id, label: p.name }))
-    }, [rawProducts])
 
     const stockRows = useMemo<StockRow[]>(() => {
         return (rawStock || []).map((s: StockRecord) => {
@@ -800,7 +523,7 @@ function Stock() {
             <div className="pc-card--table">
                 <Tabs
                     activeKey={activeTab}
-                    onChange={(k) => setActiveTab(k as 'ITEM' | 'PRODUCT' | 'SERVICE' | 'ABC_REPORT')}
+                    onChange={(k) => setActiveTab(k as 'ITEM' | 'PRODUCT' | 'SERVICE')}
                     items={[
                         {
                             key: 'ITEM',
@@ -820,16 +543,10 @@ function Stock() {
                                 <span><CustomerServiceOutlined style={{ marginRight: 6 }} />Produtos para Serviços ({serviceCount})</span>
                             ),
                         },
-                        {
-                            key: 'ABC_REPORT',
-                            label: (
-                                <span><BarChartOutlined style={{ marginRight: 6 }} />{'Relatório ABC'}</span>
-                            ),
-                        },
                     ]}
                 />
 
-                {activeTab !== 'ABC_REPORT' && (
+                {(
                     <div className="filter-bar" style={{ marginBottom: 16, display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
                         <Input
                             placeholder="Buscar por nome..."
@@ -851,115 +568,7 @@ function Stock() {
                     </div>
                 )}
 
-                {activeTab === 'ABC_REPORT' ? (
-                    <div>
-                        {/* ABC Report KPIs */}
-                        <div className="kpi-grid" style={{ marginBottom: 20 }}>
-                            <CardKPI title="Receita Total" value={formatCurrency(abcTotalRevenue)} icon={<DollarOutlined />} variant="green" />
-                            <CardKPI title="Total Produtos" value={abcTotalProducts} icon={<ShoppingOutlined />} variant="blue" />
-                            <CardKPI title={'Margem Média'} value={`${abcAvgMargin.toFixed(1)}%`} icon={<BarChartOutlined />} variant="orange" />
-                        </div>
-
-                        {/* ABC Report Filters */}
-                        <div className="filter-bar" style={{ marginBottom: 16, display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                <FilterOutlined style={{ color: '#94a3b8' }} />
-                                <span style={{ color: '#94a3b8', fontSize: 13 }}>Filtros:</span>
-                            </div>
-                            <RangePicker
-                                value={abcDateRange}
-                                onChange={(dates) => {
-                                    if (dates && dates[0] && dates[1]) {
-                                        setAbcDateRange([dates[0], dates[1]])
-                                    }
-                                }}
-                                format="DD/MM/YYYY"
-                                allowClear={false}
-                                style={{ minWidth: 260 }}
-                            />
-                            <Select
-                                placeholder="Vendedor"
-                                value={abcEmployeeFilter}
-                                onChange={setAbcEmployeeFilter}
-                                allowClear
-                                style={{ minWidth: 200 }}
-                                options={[
-                                    ...(employees as any[]).map((e: any) => ({ value: e.id, label: e.name })),
-                                ]}
-                            />
-                            <Select
-                                placeholder="Produto"
-                                value={abcProductFilter}
-                                onChange={setAbcProductFilter}
-                                allowClear
-                                showSearch
-                                optionFilterProp="label"
-                                style={{ minWidth: 200 }}
-                                options={allProducts}
-                            />
-                            <Button
-                                icon={<ReloadOutlined />}
-                                onClick={fetchAbcReport}
-                                loading={abcLoading}
-                            >
-                                Atualizar
-                            </Button>
-                        </div>
-
-                        {/* ABC Report Table */}
-                        <Table<ABCReportRow>
-                            columns={abcColumns}
-                            dataSource={abcData}
-                            rowKey="productId"
-                            pagination={{ pageSize: 20, showTotal: (t) => `${t} produtos` }}
-                            size="middle"
-                            loading={abcLoading}
-                            scroll={{ x: 1000 }}
-                            locale={{
-                                emptyText: (
-                                    <Empty
-                                        image={Empty.PRESENTED_IMAGE_SIMPLE}
-                                        description="Nenhuma venda encontrada no período selecionado. Ajuste os filtros ou registre vendas via orçamentos."
-                                    />
-                                ),
-                            }}
-                            summary={() => {
-                                if (abcData.length === 0) return null
-                                const totalRev = abcData.reduce((s, r) => s + r.totalRevenue, 0)
-                                const totalCst = abcData.reduce((s, r) => s + r.totalCost, 0)
-                                const totalProfit = totalRev - totalCst
-                                const totalMargin = totalRev > 0 ? (totalProfit / totalRev) * 100 : 0
-                                return (
-                                    <Table.Summary fixed>
-                                        <Table.Summary.Row style={{ fontWeight: 700 }}>
-                                            <Table.Summary.Cell index={0} colSpan={2}>TOTAL</Table.Summary.Cell>
-                                            <Table.Summary.Cell index={2} align="right">
-                                                {abcData.reduce((s, r) => s + r.qtdSold, 0)}
-                                            </Table.Summary.Cell>
-                                            <Table.Summary.Cell index={3} align="right">
-                                                <span style={{ color: '#4ade80' }}>{formatCurrency(totalRev)}</span>
-                                            </Table.Summary.Cell>
-                                            <Table.Summary.Cell index={4} align="right">
-                                                {formatCurrency(totalCst)}
-                                            </Table.Summary.Cell>
-                                            <Table.Summary.Cell index={5} align="right">
-                                                <span style={{ color: totalProfit >= 0 ? '#4ade80' : '#f87171' }}>
-                                                    {formatCurrency(totalProfit)}
-                                                </span>
-                                            </Table.Summary.Cell>
-                                            <Table.Summary.Cell index={6} align="right">
-                                                <span style={{ color: totalMargin >= 0 ? '#4ade80' : '#f87171' }}>
-                                                    {totalMargin.toFixed(1)}%
-                                                </span>
-                                            </Table.Summary.Cell>
-                                            <Table.Summary.Cell index={7} colSpan={2} />
-                                        </Table.Summary.Row>
-                                    </Table.Summary>
-                                )
-                            }}
-                        />
-                    </div>
-                ) : activeTab === 'SERVICE' ? (
+                {activeTab === 'SERVICE' ? (
                     <Table<ServiceRow>
                         columns={[
                             {

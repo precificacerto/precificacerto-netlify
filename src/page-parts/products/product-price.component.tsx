@@ -18,6 +18,8 @@ interface Props {
   handleChangePrecificationInputs: (event: ChangeEvent<HTMLInputElement>) => void
   currentUser: LoggedUser
   productForm: FormInstance
+  customTaxPercent?: number | null
+  onCustomTaxPercentChange?: (value: number) => void
 }
 
 export const ProductPrice: FC<Props> = ({
@@ -26,8 +28,11 @@ export const ProductPrice: FC<Props> = ({
   handleChangePrecificationInputs,
   currentUser,
   productForm,
+  customTaxPercent,
+  onCustomTaxPercentChange,
 }: Props) => {
   const isCalcTypeResale = currentUser?.calcType === CALC_TYPE_ENUM.RESALE
+  const isCalcTypeService = currentUser?.calcType === CALC_TYPE_ENUM.SERVICE
   const isMei = !!calcBase.isMei
 
   const totalPrice = productPriceInfo.totalProductPrice
@@ -41,7 +46,8 @@ export const ProductPrice: FC<Props> = ({
   const financialPct = calcBase.financialExpensePct
   const financialVal = productPriceInfo.financialExpensePrice
 
-  const taxPctDisplay = calcBase.taxPct
+  const taxPctBase = calcBase.taxPct
+  const taxPctDisplay = customTaxPercent != null ? customTaxPercent : taxPctBase
   const taxValDisplay = productPriceInfo.taxesPrice
   const taxLabel = calcBase.taxLabel
     ? `Impostos (${calcBase.taxLabel})`
@@ -52,9 +58,14 @@ export const ProductPrice: FC<Props> = ({
   const profitPct = productPriceInfo.productProfitPercent
   const profitVal = productPriceInfo.productProfitPrice
 
-  const totalPct = laborPct + fixedPct + variablePct + financialPct + taxPctDisplay + commissionPct + profitPct
+  // When SERVICE, exclude laborPct and fixedPct from totalPct
+  const totalPct = isCalcTypeService
+    ? variablePct + financialPct + taxPctDisplay + commissionPct + profitPct
+    : laborPct + fixedPct + variablePct + financialPct + taxPctDisplay + commissionPct + profitPct
   const costTotal = productPriceInfo.productCost
-  const expensesTotal = laborVal + fixedVal + variableVal + financialVal
+  const expensesTotal = isCalcTypeService
+    ? variableVal + financialVal
+    : laborVal + fixedVal + variableVal + financialVal
   const taxesTotal = taxValDisplay
 
   const yieldQty = Number(productForm.getFieldValue('quantity')) || 1
@@ -73,9 +84,17 @@ export const ProductPrice: FC<Props> = ({
     label: string,
     pct: number,
     val: number,
-    editable?: 'salesCommissionPercent' | 'productProfitPercent',
+    editable?: 'salesCommissionPercent' | 'productProfitPercent' | 'customTaxPercent',
     tooltipText?: string,
   ) {
+    const handleEditableChange = (v: number | null) => {
+      if (editable === 'customTaxPercent' && onCustomTaxPercentChange) {
+        onCustomTaxPercentChange(v ?? 0)
+      } else if (editable) {
+        fireChange(editable, v ?? 0)
+      }
+    }
+
     return (
       <tr key={label}>
         <td style={{ width: 140, padding: '6px 0' }}>
@@ -83,7 +102,7 @@ export const ProductPrice: FC<Props> = ({
             <InputNumber
               size="small" min={0} max={99} step={0.1} precision={2}
               value={pct}
-              onChange={(v) => fireChange(editable, v ?? 0)}
+              onChange={handleEditableChange}
               style={{ width: 110 }}
               formatter={(v) => `${v}%`}
               parser={(v) => {
@@ -153,11 +172,11 @@ export const ProductPrice: FC<Props> = ({
             </tr>
           </thead>
           <tbody>
-            {pricingRow('Mão de obra administrativa', laborPct, laborVal, undefined, 'Despesas de mão de obra administrativa (pró-labore, salários comerciais e administrativos) calculadas a partir do fluxo de caixa. Configure em Configurações > Equipe e Custos.')}
-            {pricingRow('Despesas fixas', fixedPct, fixedVal)}
+            {!isCalcTypeService && pricingRow('Mão de obra administrativa', laborPct, laborVal, undefined, 'Despesas de mão de obra administrativa (pró-labore, salários comerciais e administrativos) calculadas a partir do fluxo de caixa. Configure em Configurações > Equipe e Custos.')}
+            {!isCalcTypeService && pricingRow('Despesas fixas', fixedPct, fixedVal)}
             {pricingRow('Despesas variáveis', variablePct, variableVal)}
             {pricingRow('Despesas financeiras', financialPct, financialVal)}
-            {pricingRow(taxLabel, taxPctDisplay, taxValDisplay, undefined, 'Alíquota efetiva total calculada a partir do regime tributário configurado.')}
+            {pricingRow(taxLabel, taxPctDisplay, taxValDisplay, 'customTaxPercent', 'Alíquota efetiva herdada do regime tributário. Edite para ajustar apenas neste produto/serviço.')}
             {pricingRow(
               'Comissão total do vendedor',
               commissionPct,
@@ -173,7 +192,7 @@ export const ProductPrice: FC<Props> = ({
 
         <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 13 }}>
           <span style={{ color: '#94a3b8' }}>Margem de contribuição total aplicada</span>
-          <span style={{ fontWeight: 600 }}>{totalPct.toFixed(2)}%</span>
+          <span style={{ fontWeight: 600 }}>{(100 - totalPct).toFixed(2)}%</span>
         </div>
 
         {/* Result box */}

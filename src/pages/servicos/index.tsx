@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import {
     Button, Drawer, Form, Input, InputNumber, Select, Space, Table, Tag,
-    message, Popconfirm, Empty, Tooltip,
+    message, Popconfirm, Empty, Tooltip, Modal,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { Layout } from '@/components/layout/layout.component'
@@ -11,7 +11,7 @@ import { supabase } from '@/supabase/client'
 import { getTenantId, getCurrentUserId } from '@/utils/get-tenant-id'
 import type { Service } from '@/supabase/types'
 import {
-    PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined,
+    PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined, MinusCircleOutlined,
 } from '@ant-design/icons'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import { calculateItemPrice } from '@/utils/calculate-item-price'
@@ -41,6 +41,10 @@ function ServicesPage() {
     const [selectedServiceId, setSelectedServiceId] = useState<string | null>(null)
 
     const [serviceStockMap, setServiceStockMap] = useState<Record<string, number>>({})
+    const [deleteQtyDrawerOpen, setDeleteQtyDrawerOpen] = useState(false)
+    const [selectedServiceForDelete, setSelectedServiceForDelete] = useState<Service | null>(null)
+    const [deleteQtyForm] = Form.useForm()
+    const [savingDeleteQty, setSavingDeleteQty] = useState(false)
 
     async function fetchAll() {
         setLoading(true)
@@ -204,6 +208,70 @@ function ServicesPage() {
         } catch (e: any) { msgApi.error(e.message || 'Erro ao excluir serviço') }
     }
 
+    function handleOpenDeleteQty(svc: Service) {
+        setSelectedServiceForDelete(svc)
+        const currentQty = serviceStockMap[svc.id] ?? 0
+        deleteQtyForm.resetFields()
+        deleteQtyForm.setFieldsValue({ quantity: Math.min(1, currentQty) })
+        setDeleteQtyDrawerOpen(true)
+    }
+
+    async function handleConfirmDeleteQty() {
+        if (!selectedServiceForDelete) return
+        try {
+            const values = await deleteQtyForm.validateFields()
+            const currentQty = serviceStockMap[selectedServiceForDelete.id] ?? 0
+            if (currentQty <= 0) {
+                msgApi.error('Este serviço não possui estoque para baixa.')
+                return
+            }
+            const qtyToRemove = Math.min(Number(values.quantity) || 0, currentQty)
+            if (qtyToRemove <= 0) {
+                msgApi.error('Informe uma quantidade válida para excluir.')
+                return
+            }
+            setSavingDeleteQty(true)
+            const tenantId = await getTenantId()
+            const createdBy = await getCurrentUserId()
+            if (!tenantId || !createdBy) {
+                msgApi.error('Sessão inválida. Faça login novamente.')
+                setSavingDeleteQty(false)
+                return
+            }
+            const { data: stockRow } = await supabase
+                .from('stock')
+                .select('id, quantity_current')
+                .eq('service_id', selectedServiceForDelete.id)
+                .eq('stock_type', 'SERVICE')
+                .maybeSingle()
+            if (!stockRow) {
+                msgApi.error('Registro de estoque não encontrado para este serviço.')
+                setSavingDeleteQty(false)
+                return
+            }
+            const newQty = Math.max(0, (Number(stockRow.quantity_current) || 0) - qtyToRemove)
+            await supabase
+                .from('stock')
+                .update({ quantity_current: newQty, updated_at: new Date().toISOString() })
+                .eq('id', stockRow.id)
+            await supabase.from('stock_movements').insert({
+                stock_id: stockRow.id,
+                delta_quantity: -qtyToRemove,
+                reason: values.reason || 'Baixa de quantidade — serviço',
+                created_by: createdBy,
+            })
+            msgApi.success(`Quantidade de ${qtyToRemove} excluída do serviço.`)
+            setDeleteQtyDrawerOpen(false)
+            setSelectedServiceForDelete(null)
+            await fetchAll()
+        } catch (e: any) {
+            if (e?.errorFields) return
+            msgApi.error(e?.message || 'Erro ao excluir quantidade.')
+        } finally {
+            setSavingDeleteQty(false)
+        }
+    }
+
     const columns: ColumnsType<Service> = [
         {
             title: 'Serviço', dataIndex: 'name', key: 'name',
@@ -224,39 +292,15 @@ function ServicesPage() {
             },
         },
         {
-            title: 'Qtd. estoque', key: 'stock_quantity', width: 130, align: 'center',
-            render: (_: any, r: Service) => {
-                const possible = calcServicesPossibleFromItems(r as any)
-                return (
-                    <Tooltip title="Serviços que podem ser feitos com o estoque atual dos itens (considera quantidade fracionada por serviço).">
-                        <span style={{ fontSize: 13 }}>
-                            {possible != null ? (
-                                <strong style={{ color: possible === 0 ? '#f97316' : '#e2e8f0' }}>
-                                    {possible} {possible === 1 ? 'serviço' : 'serviços'}
-                                </strong>
-                            ) : (
-                                '—'
-                            )}
-                        </span>
-                    </Tooltip>
-                )
-            },
-        },
-        {
-            title: 'Materiais', key: 'mat', width: 110, align: 'center',
+            title: 'Margem de Lucro', key: 'profit_margin', width: 130, align: 'right',
             render: (_: any, r: any) => {
-                const c = r.service_items?.length || 0
-                const cost = calcServiceMaterialCost(r)
-                return c > 0 ? (
-                    <Tooltip title={`Custo matéria-prima: ${fmt(cost)}`}>
-                        <Tag color="blue">{c} {c === 1 ? 'item' : 'itens'}</Tag>
-                    </Tooltip>
-                ) : <span style={{ color: '#D0D5DD' }}>—</span>
+                const basePrice = Number(r.base_price) || 0
+                const costTotal = Number(r.cost_total) || 0
+                if (basePrice === 0) return <span style={{ fontSize: 13, color: '#94a3b8' }}>—</span>
+                const margin = ((basePrice - costTotal) / basePrice) * 100
+                const color = margin >= 0 ? '#4ade80' : '#f87171'
+                return <span style={{ fontSize: 13, fontWeight: 600, color }}>{margin.toFixed(1)}%</span>
             },
-        },
-        {
-            title: 'Custo', key: 'cost', width: 120, align: 'right',
-            render: (_: any, r: any) => <span style={{ fontSize: 13, color: '#94a3b8' }}>{fmt(r.cost_total || 0)}</span>,
         },
         {
             title: 'Preço Venda', dataIndex: 'base_price', key: 'price', width: 130, align: 'right',
@@ -268,16 +312,29 @@ function ServicesPage() {
         },
         ...(canEdit(MODULES.SERVICES)
             ? [{
-                title: '', key: 'act', width: 80, align: 'center' as const,
+                title: '', key: 'act', width: 120, align: 'center' as const,
                 render: (_: any, r: Service) => (
                     <Space size={4}>
                         <Tooltip title="Editar">
                             <Button type="text" size="small" icon={<EditOutlined />}
                                 onClick={() => router.push(`/servicos/${r.id}`)} />
                         </Tooltip>
-                        <Popconfirm title="Excluir?" onConfirm={() => handleDelete(r.id)} okText="Sim" cancelText="Não">
-                            <Button type="text" danger size="small" icon={<DeleteOutlined />} />
-                        </Popconfirm>
+                        <Tooltip title="Excluir quantidade do estoque">
+                            <Button type="text" size="small" icon={<MinusCircleOutlined style={{ color: '#faad14' }} />}
+                                onClick={() => handleOpenDeleteQty(r)} />
+                        </Tooltip>
+                        <Tooltip title="Excluir serviço">
+                            <Button type="text" danger size="small" icon={<DeleteOutlined />} onClick={() => {
+                                Modal.confirm({
+                                    title: 'Excluir serviço',
+                                    content: 'Tem certeza que deseja excluir este serviço? Esta ação não pode ser desfeita.',
+                                    okText: 'Sim, excluir',
+                                    cancelText: 'Cancelar',
+                                    okButtonProps: { danger: true },
+                                    onOk: () => handleDelete(r.id),
+                                })
+                            }} />
+                        </Tooltip>
                     </Space>
                 ),
             }]
@@ -380,6 +437,35 @@ function ServicesPage() {
                     pagination={{ pageSize: 15 }} locale={{ emptyText: <Empty description="Nenhum serviço cadastrado" /> }}
                     size="middle" />
             </div>
+
+            <Drawer
+                title="Excluir quantidade do estoque"
+                open={deleteQtyDrawerOpen}
+                onClose={() => { setDeleteQtyDrawerOpen(false); setSelectedServiceForDelete(null) }}
+                width={400}
+                footer={
+                    <div style={{ textAlign: 'right' }}>
+                        <Button onClick={() => setDeleteQtyDrawerOpen(false)} style={{ marginRight: 8 }}>Cancelar</Button>
+                        <Button type="primary" danger loading={savingDeleteQty} onClick={handleConfirmDeleteQty}>Excluir</Button>
+                    </div>
+                }
+            >
+                {selectedServiceForDelete && (
+                    <Form form={deleteQtyForm} layout="vertical">
+                        <div style={{ marginBottom: 16, fontSize: 13, color: '#94a3b8' }}>
+                            Serviço: <strong style={{ color: '#e2e8f0' }}>{selectedServiceForDelete.name}</strong>
+                            <br />
+                            Estoque atual: <strong style={{ color: '#e2e8f0' }}>{serviceStockMap[selectedServiceForDelete.id] ?? 0}</strong>
+                        </div>
+                        <Form.Item name="quantity" label="Quantidade a excluir" rules={[{ required: true, message: 'Obrigatório' }]}>
+                            <InputNumber min={1} max={serviceStockMap[selectedServiceForDelete.id] ?? 0} step={1} style={{ width: '100%' }} placeholder="Ex: 5" />
+                        </Form.Item>
+                        <Form.Item name="reason" label="Motivo (opcional)">
+                            <Input placeholder="Ex: Devolução, erro de contagem..." />
+                        </Form.Item>
+                    </Form>
+                )}
+            </Drawer>
         </Layout>
     )
 }

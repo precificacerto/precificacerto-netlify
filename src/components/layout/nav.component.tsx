@@ -120,9 +120,11 @@ const Nav = () => {
 
     { key: 'budgets', label: 'Orçamentos', icon: 'file-text', href: ROUTES.BUDGETS, section: 'comercial', module: MODULES.BUDGETS },
     { key: 'sales', label: 'Vendas', icon: 'shopping', href: ROUTES.SALES, section: 'comercial', module: MODULES.SALES },
+    { key: 'sales-report', label: 'Relatório de Vendas', icon: 'bar-chart', href: ROUTES.SALES_REPORT, section: 'comercial', module: MODULES.SALES_REPORT },
 
-    { key: 'cashflow', label: 'Fluxo de Caixa', icon: 'shopping', href: ROUTES.CASH_FLOW, section: 'financeiro', module: MODULES.CASH_FLOW },
-    { key: 'dfc', label: 'DFC', icon: 'fund', href: ROUTES.DFC, section: 'financeiro', module: MODULES.DFC },
+    { key: 'cashflow', label: 'Controle Financeiro', icon: 'shopping', href: ROUTES.CASH_FLOW, section: 'financeiro', module: MODULES.CASH_FLOW },
+    { key: 'dfc', label: 'Análise Financeira', icon: 'fund', href: ROUTES.DFC, section: 'financeiro', module: MODULES.DFC },
+    { key: 'commission', label: 'Comissão de Vendedor', icon: 'idcard', href: ROUTES.COMMISSION, section: 'financeiro', module: MODULES.COMMISSION },
 
     { key: 'calendar', label: 'Agenda', icon: 'calendar', href: ROUTES.SCHEDULE, section: 'operacional', module: MODULES.AGENDA },
     { key: 'reports', label: 'Relatório Agenda', icon: 'bar-chart', href: ROUTES.REPORTS, section: 'operacional', module: MODULES.REPORTS },

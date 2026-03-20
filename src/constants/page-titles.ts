@@ -31,10 +31,12 @@ export enum PAGE_TITLES {
   // ── Phase 3: Pipeline Comercial ──
   BUDGETS = 'Orçamentos & Vendas',
   SALES = 'Vendas',
+  SALES_REPORT = 'Relatório de Vendas',
 
   // ── Phase 4: Financeiro ──
-  CASH_FLOW = 'Fluxo de Caixa',
-  DFC = 'DFC',
+  CASH_FLOW = 'Controle Financeiro',
+  DFC = 'Análise Financeira',
+  COMMISSION = 'Comissão de Vendedor',
 
   // ── Phase 5: Operacional ──
   SCHEDULE = 'Agenda',

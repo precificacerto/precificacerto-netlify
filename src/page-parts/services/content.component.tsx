@@ -71,7 +71,6 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                 name: serviceData.name,
                 description: serviceData.description || '',
                 estimated_duration_minutes: serviceData.estimated_duration_minutes,
-                min_quantity: serviceData.min_quantity ?? 0,
             })
 
             const existingItems: TempItem[] = (serviceData.service_items || []).map((si: any, i: number) => {
@@ -241,7 +240,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                 commission_percent: commissionPercent,
                 profit_percent: profitPercent,
                 taxable_regime_percent: taxableRegimePercent,
-                min_quantity: v.min_quantity ?? 0,
+                min_quantity: 0,
                 updated_at: new Date().toISOString(),
             }
 
@@ -398,13 +397,6 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                     <Form.Item name="description" label="Descrição">
                         <Input.TextArea rows={2} placeholder="Descrição do serviço (opcional)" />
                     </Form.Item>
-                    <div style={{ marginTop: 16 }}>
-                        <Form.Item name="min_quantity" label="Quantidade mínima (alerta)" initialValue={0}
-                            tooltip="Usado na aba Estoque (Produtos para serviços) para alerta de estoque baixo."
-                            style={{ maxWidth: 280 }}>
-                            <InputNumber min={0} step={1} style={{ width: '100%' }} placeholder="0" />
-                        </Form.Item>
-                    </div>
                 </Form>
             </div>
 
@@ -446,15 +438,11 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                     <>
                         <Table columns={tempItemCols} dataSource={tempItems} rowKey="key" pagination={false} size="small" />
                         <div style={{
-                            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                            padding: '10px 14px', background: '#FEF3C7', borderRadius: 6, marginTop: 8,
+                            display: 'flex', justifyContent: 'flex-end', alignItems: 'center',
+                            padding: '10px 14px', borderRadius: 6, marginTop: 8,
                         }}>
-                            <span style={{ fontSize: 12, color: '#92400E' }}>
-                                <InfoCircleOutlined style={{ marginRight: 4 }} />
-                                Custo proporcional: (qtd usada × preço embalagem) ÷ tamanho embalagem
-                            </span>
                             <span style={{ fontSize: 14, fontWeight: 700, color: '#B42318' }}>
-                                {fmt(materialCost)}
+                                Total: {fmt(materialCost)}
                             </span>
                         </div>
                     </>
@@ -546,7 +534,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
 
                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 13 }}>
                         <span style={{ color: '#94a3b8' }}>Margem de contribuição total aplicada</span>
-                        <span style={{ fontWeight: 600 }}>{pricing.totalPct.toFixed(2)}%</span>
+                        <span style={{ fontWeight: 600 }}>{(100 - pricing.totalPct).toFixed(2)}%</span>
                     </div>
 
                     <div style={{

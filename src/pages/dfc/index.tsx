@@ -2,6 +2,8 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import { Alert, Button, Select, Spin, Tooltip } from 'antd'
 import { FileExcelOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { exportDfcToExcel } from '@/utils/export-dfc-excel'
+import { ExportFormatModal } from '@/components/ui/export-format-modal.component'
+import { exportTableToPdf } from '@/utils/export-generic-pdf'
 import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
 import { supabase } from '@/supabase/client'
@@ -40,6 +42,49 @@ const EMPTY_MONTHS: MonthlyValues = {
 
 const MONTH_KEYS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'] as const
 const MONTH_LABELS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
+
+// ── Period aggregation ──
+
+type PeriodType = 'mensal' | 'trimestral' | 'semestral' | 'anual'
+
+type PeriodColumn = {
+  label: string
+  monthKeys: (keyof MonthlyValues)[]
+}
+
+function getPeriodColumns(period: PeriodType, selectedMonth?: number): PeriodColumn[] {
+  switch (period) {
+    case 'mensal':
+      // selectedMonth is 0-indexed
+      const mIdx = selectedMonth ?? 0
+      return [{ label: MONTH_LABELS[mIdx], monthKeys: [MONTH_KEYS[mIdx]] }]
+    case 'trimestral':
+      return [
+        { label: '1° Tri (Jan-Mar)', monthKeys: ['jan', 'feb', 'mar'] },
+        { label: '2° Tri (Abr-Jun)', monthKeys: ['apr', 'may', 'jun'] },
+        { label: '3° Tri (Jul-Set)', monthKeys: ['jul', 'aug', 'sep'] },
+        { label: '4° Tri (Out-Dez)', monthKeys: ['oct', 'nov', 'dec'] },
+      ]
+    case 'semestral':
+      return [
+        { label: '1° Sem (Jan-Jun)', monthKeys: ['jan', 'feb', 'mar', 'apr', 'may', 'jun'] },
+        { label: '2° Sem (Jul-Dez)', monthKeys: ['jul', 'aug', 'sep', 'oct', 'nov', 'dec'] },
+      ]
+    case 'anual':
+      return [{ label: 'Ano', monthKeys: [...MONTH_KEYS] }]
+  }
+}
+
+function aggregatePeriodValue(values: MonthlyValues, monthKeys: (keyof MonthlyValues)[]): number {
+  return monthKeys.reduce((sum, k) => sum + values[k], 0)
+}
+
+function aggregatePeriodPct(pctOfRL: (MonthlyValues & { total: number }) | undefined, row: DreRow, receitaLiquidaRow: DreRow | undefined, monthKeys: (keyof MonthlyValues)[]): number {
+  if (!receitaLiquidaRow) return pctOfRL?.total ?? 0
+  const numValue = aggregatePeriodValue(row.values, monthKeys)
+  const denValue = aggregatePeriodValue(receitaLiquidaRow.values, monthKeys)
+  return denValue !== 0 ? (numValue / denValue) * 100 : 0
+}
 
 // Map due_date month index (0-based) to our MonthlyValues key
 const MONTH_INDEX_TO_KEY: Record<number, keyof MonthlyValues> = {
@@ -524,6 +569,45 @@ export default function DfcPage() {
   const [taxRegime, setTaxRegime] = useState<TaxRegime>('')
   const [calcType, setCalcType] = useState<CalcType>('')
   const [error, setError] = useState<string | null>(null)
+  const [dfcExportModalOpen, setDfcExportModalOpen] = useState(false)
+  const [periodType, setPeriodType] = useState<PeriodType>('trimestral')
+  const [selectedMonth, setSelectedMonth] = useState(0)
+
+  const periodColumns = useMemo(() => getPeriodColumns(periodType, selectedMonth), [periodType, selectedMonth])
+  const showTotal = periodType !== 'mensal' && periodType !== 'anual'
+
+  // Find receita liquida row for proper percentage calculation
+  const receitaLiquidaRow = useMemo(() => dreRows.find(r => r.key === 'receita_liquida'), [dreRows])
+
+  const handleExportDfcPdf = () => {
+    if (dreRows.length === 0) return
+    const pCols = getPeriodColumns(periodType, selectedMonth)
+    const periodHeaders = pCols.map(c => c.label)
+    const headers = ['Descrição', ...periodHeaders, ...(showTotal ? ['Total'] : []), '% RL']
+    const rows = dreRows.map((row) => {
+      const periodValues = pCols.map((col) => {
+        const v = aggregatePeriodValue(row.values, col.monthKeys)
+        return v !== 0 ? v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'
+      })
+      const totalStr = showTotal
+        ? (row.total !== 0 ? row.total.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—')
+        : null
+      const pctStr = row.pctOfRL ? `${(row.pctOfRL.total).toFixed(1)}%` : '—'
+      return [row.label, ...periodValues, ...(totalStr !== null ? [totalStr] : []), pctStr]
+    })
+    const regimeLabel = getVariantLabel(taxRegime)
+    const calcLabel = calcType === 'INDUSTRIALIZATION' ? 'Industrialização' : calcType === 'RESALE' ? 'Revenda' : calcType === 'SERVICE' ? 'Serviço' : ''
+    const periodLabel = periodType === 'trimestral' ? 'Trimestral' : periodType === 'semestral' ? 'Semestral' : periodType === 'anual' ? 'Anual' : `Mensal (${MONTH_LABELS[selectedMonth]})`
+    exportTableToPdf({
+      title: `DRE — Análise Financeira — ${year} — ${periodLabel}`,
+      subtitle: `Regime: ${regimeLabel} | Tipo: ${calcLabel}`,
+      headers,
+      rows,
+      filename: `DRE_${year}_${periodLabel.replace(/\s+/g, '_')}_${regimeLabel.replace(/\s+/g, '_')}.pdf`,
+      orientation: periodType === 'trimestral' ? 'landscape' : 'portrait',
+      columnStyles: { 0: { halign: 'left', cellWidth: 60 } },
+    })
+  }
 
   const yearOptions = useMemo(() => {
     const years = []
@@ -595,14 +679,27 @@ export default function DfcPage() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
           <div>
             <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>
-              DFC - Demonstrativo do Fluxo de Caixa
+              Análise Financeira — DRE
             </h1>
             <span style={{ fontSize: 13, color: 'var(--color-neutral-400, #9CA3AF)' }}>
               Regime: <strong>{getVariantLabel(taxRegime)}</strong>
               {calcType && <> | Tipo: <strong>{calcType === 'INDUSTRIALIZATION' ? 'Industrialização' : calcType === 'RESALE' ? 'Revenda' : 'Serviço'}</strong></>}
             </span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <Select value={periodType} onChange={(v: PeriodType) => setPeriodType(v)} style={{ width: 140 }}>
+              <Select.Option value="mensal">Mensal</Select.Option>
+              <Select.Option value="trimestral">Trimestral</Select.Option>
+              <Select.Option value="semestral">Semestral</Select.Option>
+              <Select.Option value="anual">Anual</Select.Option>
+            </Select>
+            {periodType === 'mensal' && (
+              <Select value={selectedMonth} onChange={(v: number) => setSelectedMonth(v)} style={{ width: 120 }}>
+                {MONTH_LABELS.map((m, i) => (
+                  <Select.Option key={i} value={i}>{m}</Select.Option>
+                ))}
+              </Select>
+            )}
             <Select value={year} onChange={setYear} style={{ width: 120 }}>
               {yearOptions.map(y => (
                 <Select.Option key={y} value={y}>{y}</Select.Option>
@@ -610,25 +707,28 @@ export default function DfcPage() {
             </Select>
             <Button
               icon={<FileExcelOutlined />}
-              onClick={() => exportDfcToExcel(dreRows, year, taxRegime, calcType)}
+              onClick={() => setDfcExportModalOpen(true)}
               disabled={dreRows.length === 0}
               style={{ background: '#217346', borderColor: '#217346', color: '#fff' }}
             >
-              Exportar Excel
+              Exportar
             </Button>
           </div>
         </div>
       </header>
 
       <div className="pc-card" style={{ overflow: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 1200 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: periodType === 'mensal' ? 500 : periodType === 'anual' ? 500 : 800 }}>
           <thead>
             <tr style={{ borderBottom: '2px solid var(--color-neutral-700, #374151)' }}>
               <th style={{ ...thStyle, width: 320, textAlign: 'left' }}>Descrição</th>
-              {MONTH_LABELS.map((m, i) => (
-                <th key={i} style={{ ...thStyle, textAlign: 'right', minWidth: 100 }}>{m}</th>
+              {periodColumns.map((col, i) => (
+                <th key={i} style={{ ...thStyle, textAlign: 'right', minWidth: 140 }}>{col.label}</th>
               ))}
-              <th style={{ ...thStyle, textAlign: 'right', minWidth: 120, fontWeight: 700 }}>Total</th>
+              {showTotal && (
+                <th style={{ ...thStyle, textAlign: 'right', minWidth: 140, fontWeight: 700 }}>Total</th>
+              )}
+              <th style={{ ...thStyle, textAlign: 'right', minWidth: 80 }}>% RL</th>
             </tr>
           </thead>
           <tbody>
@@ -649,38 +749,59 @@ export default function DfcPage() {
                       </Tooltip>
                     )}
                   </td>
-                  {MONTH_KEYS.map((k) => (
-                    <td key={k} style={{
+                  {periodColumns.map((col, ci) => {
+                    const val = aggregatePeriodValue(row.values, col.monthKeys)
+                    return (
+                      <td key={ci} style={{
+                        ...tdStyle,
+                        textAlign: 'right',
+                        fontWeight: row.isTotal || row.isSubtotal ? 600 : 400,
+                        color: getValueColor(val, row),
+                      }}>
+                        {formatBRL(val)}
+                      </td>
+                    )
+                  })}
+                  {showTotal && (
+                    <td style={{
                       ...tdStyle,
                       textAlign: 'right',
-                      fontWeight: row.isTotal || row.isSubtotal ? 600 : 400,
-                      color: getValueColor(row.values[k], row),
+                      fontWeight: 700,
+                      color: getValueColor(row.total, row),
                     }}>
-                      {formatBRL(row.values[k])}
+                      {formatBRL(row.total)}
                     </td>
-                  ))}
+                  )}
                   <td style={{
                     ...tdStyle,
                     textAlign: 'right',
-                    fontWeight: 700,
-                    color: getValueColor(row.total, row),
+                    fontWeight: row.isTotal || row.isSubtotal ? 600 : 400,
+                    color: 'var(--color-neutral-400, #9CA3AF)',
+                    fontSize: 12,
                   }}>
-                    {formatBRL(row.total)}
+                    {row.pctOfRL ? formatPct(row.pctOfRL.total) : '—'}
                   </td>
                 </tr>
-                {/* Percentage row */}
-                {row.pctOfRL && (
+                {/* Per-period percentage row */}
+                {row.pctOfRL && periodColumns.length > 1 && (
                   <tr style={{ opacity: 0.6 }}>
                     <td style={{ ...tdStyle, paddingLeft: (row.indent || 0) * 20 + 8, fontSize: 11, color: 'var(--color-neutral-400, #9CA3AF)' }}>
                       % Receita Líquida
                     </td>
-                    {MONTH_KEYS.map((k) => (
-                      <td key={k} style={{ ...tdStyle, textAlign: 'right', fontSize: 11, color: 'var(--color-neutral-400, #9CA3AF)' }}>
-                        {formatPct(row.pctOfRL![k])}
+                    {periodColumns.map((col, ci) => {
+                      const pctVal = aggregatePeriodPct(row.pctOfRL, row, receitaLiquidaRow, col.monthKeys)
+                      return (
+                        <td key={ci} style={{ ...tdStyle, textAlign: 'right', fontSize: 11, color: 'var(--color-neutral-400, #9CA3AF)' }}>
+                          {formatPct(pctVal)}
+                        </td>
+                      )
+                    })}
+                    {showTotal && (
+                      <td style={{ ...tdStyle, textAlign: 'right', fontSize: 11, color: 'var(--color-neutral-400, #9CA3AF)', fontWeight: 600 }}>
+                        {formatPct(row.pctOfRL!.total)}
                       </td>
-                    ))}
-                    <td style={{ ...tdStyle, textAlign: 'right', fontSize: 11, color: 'var(--color-neutral-400, #9CA3AF)', fontWeight: 600 }}>
-                      {formatPct(row.pctOfRL!.total)}
+                    )}
+                    <td style={{ ...tdStyle, textAlign: 'right', fontSize: 11, color: 'var(--color-neutral-400, #9CA3AF)' }}>
                     </td>
                   </tr>
                 )}
@@ -689,6 +810,15 @@ export default function DfcPage() {
           </tbody>
         </table>
       </div>
+
+      {/* Export format modal — DFC */}
+      <ExportFormatModal
+        open={dfcExportModalOpen}
+        onClose={() => setDfcExportModalOpen(false)}
+        title="Exportar DRE"
+        onExportExcel={() => exportDfcToExcel(dreRows, year, taxRegime, calcType, periodType, selectedMonth)}
+        onExportPdf={handleExportDfcPdf}
+      />
     </Layout>
   )
 }

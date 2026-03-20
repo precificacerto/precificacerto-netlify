@@ -1,14 +1,14 @@
 import { useState, useMemo, useEffect } from 'react'
 import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
-import { Button, Empty, Form, Input, InputNumber, message, Radio, Select, Space, Table, Tag, Tooltip, Drawer, Spin } from 'antd'
+import { Button, Empty, Form, Input, InputNumber, message, Modal, Radio, Select, Space, Table, Tag, Tooltip, Drawer, Spin } from 'antd'
 import type { FormInstance } from 'antd'
 import { ColumnsType } from 'antd/es/table'
 import { useRouter } from 'next/router'
 import { ROUTES } from '@/constants/routes'
 import {
   PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined,
-  ExclamationCircleOutlined,
+  ExclamationCircleOutlined, MinusCircleOutlined,
 } from '@ant-design/icons'
 import { supabase } from '@/supabase/client'
 import { useProducts, useStock } from '@/hooks/use-data.hooks'
@@ -568,7 +568,7 @@ function Products() {
     },
     ...(canEdit(MODULES.PRODUCTS)
       ? [{
-          title: '', key: 'act', width: 110, align: 'center' as const,
+          title: '', key: 'act', width: 140, align: 'center' as const,
           render: (_: any, r: ProductRow) => (
             <Space size={4}>
               {r.status === 'PENDING' ? (
@@ -586,7 +586,19 @@ function Products() {
                 </Tooltip>
               )}
               <Tooltip title="Excluir quantidade do estoque">
-                <Button type="text" danger size="small" icon={<DeleteOutlined />} onClick={() => handleOpenDeleteQty(r)} />
+                <Button type="text" size="small" icon={<MinusCircleOutlined style={{ color: '#faad14' }} />} onClick={() => handleOpenDeleteQty(r)} />
+              </Tooltip>
+              <Tooltip title="Excluir produto">
+                <Button type="text" danger size="small" icon={<DeleteOutlined />} onClick={() => {
+                  Modal.confirm({
+                    title: 'Excluir produto',
+                    content: 'Tem certeza que deseja excluir este produto? Esta ação não pode ser desfeita.',
+                    okText: 'Sim, excluir',
+                    cancelText: 'Cancelar',
+                    okButtonProps: { danger: true },
+                    onOk: () => handleDelete(r.id),
+                  })
+                }} />
               </Tooltip>
             </Space>
           ),

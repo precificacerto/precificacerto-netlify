@@ -9,6 +9,8 @@ import { PAGE_TITLES } from '@/constants/page-titles'
 import { CardKPI } from '@/components/ui/card-kpi.component'
 import { supabase } from '@/supabase/client'
 import { getTenantId } from '@/utils/get-tenant-id'
+import { ExportFormatModal } from '@/components/ui/export-format-modal.component'
+import { exportTableToPdf } from '@/utils/export-generic-pdf'
 import {
     Chart as ChartJS,
     CategoryScale,
@@ -82,6 +84,7 @@ function Reports() {
     const [endDate, setEndDate] = useState(dayjs().endOf('isoWeek'))
     const [events, setEvents] = useState<any[]>([])
     const [employees, setEmployees] = useState<any[]>([])
+    const [reportExportModalOpen, setReportExportModalOpen] = useState(false)
 
     useEffect(() => {
         if (periodType === 'week') {
@@ -376,6 +379,33 @@ function Reports() {
         messageApi.success('CSV exportado!')
     }
 
+    function exportReportPdf() {
+        if (events.length === 0) { messageApi.warning('Nenhum dado para exportar.'); return }
+        const headers = ['Data', 'Horário', 'Serviço', 'Funcionário', 'Cliente', 'Status', 'Duração (min)']
+        const rows = events.map((e: any) => {
+            const dur = Math.round((new Date(e.end_time).getTime() - new Date(e.start_time).getTime()) / 60000)
+            return [
+                dayjs(e.start_time).format('DD/MM/YYYY'),
+                dayjs(e.start_time).format('HH:mm'),
+                e.title || '',
+                e.employee?.name || '',
+                e.customer?.name || '',
+                STATUS_MAP[e.status]?.label || e.status,
+                dur,
+            ]
+        })
+        exportTableToPdf({
+            title: 'Relatório de Serviços',
+            subtitle: `${startDate.format('DD/MM/YYYY')} a ${endDate.format('DD/MM/YYYY')} — ${events.length} serviços`,
+            headers,
+            rows,
+            filename: `relatorio-agenda-${startDate.format('YYYY-MM-DD')}-a-${endDate.format('YYYY-MM-DD')}.pdf`,
+            orientation: 'landscape',
+            columnStyles: { 6: { halign: 'center' } },
+        })
+        messageApi.success('PDF exportado!')
+    }
+
     return (
         <Layout title={PAGE_TITLES.REPORTS} subtitle="Relatório de serviços e desempenho da agenda">
             {contextHolder}
@@ -420,7 +450,7 @@ function Reports() {
                     )}
                 </Space>
                 <div style={{ flex: 1 }} />
-                <Button icon={<DownloadOutlined />} onClick={exportCSV}>Exportar CSV</Button>
+                <Button icon={<DownloadOutlined />} onClick={() => setReportExportModalOpen(true)}>Exportar</Button>
             </div>
 
             {events.length === 0 ? (
@@ -500,6 +530,15 @@ function Reports() {
                     </div>
                 </>
             )}
+
+            {/* Export format modal — Relatórios */}
+            <ExportFormatModal
+                open={reportExportModalOpen}
+                onClose={() => setReportExportModalOpen(false)}
+                title="Exportar Relatório de Serviços"
+                onExportExcel={exportCSV}
+                onExportPdf={exportReportPdf}
+            />
         </Layout>
     )
 }
