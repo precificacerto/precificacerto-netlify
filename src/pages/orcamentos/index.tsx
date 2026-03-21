@@ -11,12 +11,12 @@ import { supabase } from '@/supabase/client'
 import type { BudgetStatus } from '@/supabase/types'
 import { getCurrentUserId } from '@/utils/get-tenant-id'
 import { useAuth } from '@/hooks/use-auth.hook'
-import { useBudgets, useCustomers, useProducts, useEmployees } from '@/hooks/use-data.hooks'
+import { useBudgets, useCustomers, useProducts, useEmployees, useServices } from '@/hooks/use-data.hooks'
 import {
     FileTextOutlined, ClockCircleOutlined, CheckCircleOutlined,
     DollarOutlined, SearchOutlined, PlusOutlined, DeleteOutlined,
     CreditCardOutlined, WhatsAppOutlined, SendOutlined, EditOutlined,
-    PaperClipOutlined, UploadOutlined, ShoppingCartOutlined,
+    PaperClipOutlined, UploadOutlined, ShoppingCartOutlined, ToolOutlined,
 } from '@ant-design/icons'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import { formatCurrencyInput, parseCurrencyInput } from '@/utils/get-monetary-value'
@@ -60,6 +60,7 @@ const PAYMENT_METHODS = [
 interface BudgetItemRow {
     key: string
     product_id: string | null
+    service_id?: string | null
     product_name: string
     quantity: number
     unit_price: number
@@ -69,6 +70,8 @@ interface BudgetItemRow {
     total: number
     /** true = item digitado manualmente (não está na base de produtos) */
     isManual?: boolean
+    /** true = item de serviço do catálogo */
+    isService?: boolean
 }
 
 function Budgets() {
@@ -76,6 +79,7 @@ function Budgets() {
     const { data: customers = [] } = useCustomers()
     const { data: products = [] } = useProducts()
     const { data: employees = [] } = useEmployees()
+    const { data: services = [] } = useServices()
     const { currentUser, tenantId } = useAuth()
     const [drawerOpen, setDrawerOpen] = useState(false)
     const [editingBudgetId, setEditingBudgetId] = useState<string | null>(null)
@@ -176,6 +180,39 @@ function Budgets() {
         }])
     }
 
+    const handleAddService = () => {
+        setBudgetItems(prev => [...prev, {
+            key: Date.now().toString(),
+            product_id: null,
+            service_id: '',
+            product_name: '',
+            quantity: 1,
+            unit_price: 0,
+            discount: 0,
+            discount_percent: 0,
+            max_discount_percent: null,
+            total: 0,
+            isService: true,
+        }])
+    }
+
+    const handleServiceSelect = (key: string, serviceId: string) => {
+        const svc = services.find((s: any) => s.id === serviceId)
+        setBudgetItems(prev => prev.map(item =>
+            item.key === key ? {
+                ...item,
+                service_id: serviceId,
+                product_name: svc?.name || '',
+                unit_price: svc?.base_price || 0,
+                discount_percent: 0,
+                discount: 0,
+                max_discount_percent: null,
+                total: (svc?.base_price || 0) * item.quantity,
+                isService: true,
+            } : item
+        ))
+    }
+
     const handleProductSelect = (key: string, productId: string) => {
         const prod = products.find((p: any) => p.id === productId)
         const maxDiscount = prod?.max_discount_percent != null ? Number(prod.max_discount_percent) : null
@@ -231,9 +268,9 @@ function Budgets() {
     const handleSave = async () => {
         try {
             await form.validateFields()
-            const validItems = budgetItems.filter(i => i.product_id || (i.isManual && i.product_name?.trim()))
+            const validItems = budgetItems.filter(i => i.product_id || i.service_id || (i.isManual && i.product_name?.trim()))
             if (validItems.length === 0) {
-                messageApi.warning('Adicione pelo menos um produto ou item manual com descrição.')
+                messageApi.warning('Adicione pelo menos um produto, serviço ou item manual com descrição.')
                 return
             }
             setSaving(true)
@@ -278,15 +315,16 @@ function Budgets() {
 
             if (error) throw error
 
-            // Salvar itens (produto da base ou item manual)
+            // Salvar itens (produto da base, serviço ou item manual)
             const items = budgetItems
-                .filter(i => i.product_id || (i.isManual && i.product_name?.trim()))
+                .filter(i => i.product_id || i.service_id || (i.isManual && i.product_name?.trim()))
                 .map(i => {
                     const subtotal = i.unit_price * i.quantity
                     return {
                         budget_id: budget.id,
                         product_id: i.product_id || null,
-                        manual_description: i.isManual ? (i.product_name?.trim() || null) : null,
+                        service_id: i.service_id || null,
+                        manual_description: (i.isManual || i.isService) ? (i.product_name?.trim() || null) : null,
                         quantity: i.quantity,
                         unit_price: i.unit_price,
                         discount_percent: i.discount_percent ?? 0,
@@ -317,9 +355,9 @@ function Budgets() {
         if (!editingBudgetId) return
         try {
             await form.validateFields()
-            const validItems = budgetItems.filter(i => i.product_id || (i.isManual && i.product_name?.trim()))
+            const validItems = budgetItems.filter(i => i.product_id || i.service_id || (i.isManual && i.product_name?.trim()))
             if (validItems.length === 0) {
-                messageApi.warning('Adicione pelo menos um produto ou item manual com descrição.')
+                messageApi.warning('Adicione pelo menos um produto, serviço ou item manual com descrição.')
                 return
             }
             setSaving(true)
@@ -356,7 +394,8 @@ function Budgets() {
                 return {
                     budget_id: editingBudgetId,
                     product_id: i.product_id || null,
-                    manual_description: i.isManual ? (i.product_name?.trim() || null) : null,
+                    service_id: i.service_id || null,
+                    manual_description: (i.isManual || i.isService) ? (i.product_name?.trim() || null) : null,
                     quantity: i.quantity,
                     unit_price: i.unit_price,
                     discount_percent: i.discount_percent ?? 0,
@@ -891,7 +930,7 @@ function Budgets() {
     // ── Colunas dos itens no orçamento ──
     const itemColumns: ColumnsType<BudgetItemRow> = [
         {
-            title: 'Produto / Descrição',
+            title: 'Produto / Serviço / Descrição',
             key: 'product',
             render: (_, record) =>
                 record.isManual ? (
@@ -901,6 +940,19 @@ function Budgets() {
                         onChange={(e) => handleManualDescriptionChange(record.key, e.target.value)}
                         style={{ width: '100%' }}
                     />
+                ) : record.isService ? (
+                    <Select
+                        placeholder="Selecione o serviço"
+                        showSearch
+                        optionFilterProp="children"
+                        style={{ width: '100%' }}
+                        value={record.service_id || undefined}
+                        onChange={(v) => handleServiceSelect(record.key, v)}
+                    >
+                        {services.map((s: any) => (
+                            <Select.Option key={s.id} value={s.id}>{s.name}</Select.Option>
+                        ))}
+                    </Select>
                 ) : (
                     <Select
                         placeholder="Selecione o produto"
@@ -1118,20 +1170,23 @@ function Budgets() {
                         <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
                     </Form.Item>
 
-                    <Divider orientation="left" style={{ fontSize: 12, color: '#94a3b8' }}>Produtos</Divider>
+                    <Divider orientation="left" style={{ fontSize: 12, color: '#94a3b8' }}>Produtos e Serviços</Divider>
 
                     <Table columns={itemColumns} dataSource={budgetItems} rowKey="key" pagination={false} size="small"
-                        locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Nenhum produto adicionado" /> }}
+                        locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Adicione produtos, serviços ou itens manuais ao orçamento" /> }}
                     />
 
-                    <Space wrap style={{ marginTop: 12 }}>
-                        <Button type="dashed" onClick={handleAddProduct} icon={<PlusOutlined />}>
-                            Adicionar produto (da base)
+                    <Space.Compact block style={{ marginTop: 12, display: 'flex', gap: 8 }}>
+                        <Button type="dashed" onClick={handleAddProduct} icon={<PlusOutlined />} style={{ flex: 1 }}>
+                            Adicionar Produto
                         </Button>
-                        <Button type="dashed" onClick={handleAddManualItem} icon={<PlusOutlined />}>
-                            Digitar item manualmente
+                        <Button type="dashed" onClick={handleAddService} icon={<ToolOutlined />} style={{ flex: 1 }}>
+                            Adicionar Serviço
                         </Button>
-                    </Space>
+                        <Button type="dashed" onClick={handleAddManualItem} icon={<PlusOutlined />} style={{ flex: 1 }}>
+                            Adicionar item manual
+                        </Button>
+                    </Space.Compact>
 
                     <div style={{
                         marginTop: 16, padding: '12px 16px', background: 'rgba(34, 197, 94, 0.12)', border: '1px solid rgba(34, 197, 94, 0.3)', borderRadius: 8,

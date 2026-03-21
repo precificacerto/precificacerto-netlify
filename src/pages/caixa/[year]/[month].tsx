@@ -195,7 +195,7 @@ function Cashier() {
       if (cashierMonth) {
         setGoalPrice({
           value: Number(cashierMonth.balance) || null,
-          formattedValue: cashierMonth.balance ? String(cashierMonth.balance).replace('.', ',') : '',
+          formattedValue: cashierMonth.balance ? getMonetaryValue(Number(cashierMonth.balance)) : '',
         })
       }
     } catch (err) {

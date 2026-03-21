@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import {
     Button, Table, Tabs, Input, Select, Space, Tag, message, Popconfirm,
     DatePicker, Empty, Drawer, Form, Tooltip,
@@ -51,6 +51,9 @@ export default function RecurrencePage() {
     const [messageProducts, setMessageProducts] = useState('')
     const [messageServices, setMessageServices] = useState('')
     const [savingMessage, setSavingMessage] = useState(false)
+
+    // TextArea ref for inserting placeholders at cursor position
+    const textAreaRef = useRef<any>(null)
 
     // Edit drawer
     const [editDrawerOpen, setEditDrawerOpen] = useState(false)
@@ -295,6 +298,24 @@ export default function RecurrencePage() {
     const messageTemplate = activeTab === 'PRODUCT' ? messageProducts : messageServices
     const setMessageTemplate = activeTab === 'PRODUCT' ? setMessageProducts : setMessageServices
 
+    const insertPlaceholder = (placeholder: string) => {
+        const textarea = textAreaRef.current?.resizableTextArea?.textArea as HTMLTextAreaElement | undefined
+        if (textarea) {
+            const start = textarea.selectionStart ?? messageTemplate.length
+            const end = textarea.selectionEnd ?? messageTemplate.length
+            const text = messageTemplate
+            const newText = text.substring(0, start) + placeholder + text.substring(end)
+            setMessageTemplate(newText)
+            setTimeout(() => {
+                textarea.focus()
+                const newPos = start + placeholder.length
+                textarea.setSelectionRange(newPos, newPos)
+            }, 0)
+        } else {
+            setMessageTemplate(prev => prev + placeholder)
+        }
+    }
+
     return (
         <Layout title="Recorrência" subtitle="Disparo automático de mensagens WhatsApp para clientes com recorrência">
             {contextHolder}
@@ -309,14 +330,25 @@ export default function RecurrencePage() {
 
                 <div style={{ marginBottom: 8, fontSize: 12, color: '#94a3b8' }}>
                     <InfoCircleOutlined style={{ marginRight: 4 }} />
-                    Use <Tag color="blue" style={{ fontSize: 11 }}>{'{{nome_cliente}}'}</Tag> para o nome do cliente e{' '}
-                    <Tag color="blue" style={{ fontSize: 11 }}>
-                        {activeTab === 'PRODUCT' ? '{{nome_produto}}' : '{{nome_servico}}'}
+                    Clique nas tags para inserir na mensagem:{' '}
+                    <Tag
+                        color="blue"
+                        style={{ fontSize: 11, cursor: 'pointer' }}
+                        onClick={() => insertPlaceholder('{{nome_cliente}}')}
+                    >
+                        {'{{nome_cliente}}'}
                     </Tag>{' '}
-                    para o nome do {activeTab === 'PRODUCT' ? 'produto' : 'serviço'}.
+                    <Tag
+                        color="blue"
+                        style={{ fontSize: 11, cursor: 'pointer' }}
+                        onClick={() => insertPlaceholder(activeTab === 'PRODUCT' ? '{{nome_produto}}' : '{{nome_servico}}')}
+                    >
+                        {activeTab === 'PRODUCT' ? '{{nome_produto}}' : '{{nome_servico}}'}
+                    </Tag>
                 </div>
 
                 <Input.TextArea
+                    ref={textAreaRef}
                     rows={3}
                     value={messageTemplate}
                     onChange={(e) => setMessageTemplate(e.target.value)}

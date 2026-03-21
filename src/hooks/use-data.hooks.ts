@@ -92,6 +92,23 @@ export function useEmployees() {
   )
 }
 
+export function useServices() {
+  const { tenantId } = useAuth()
+  return useSWR(
+    tenantId ? `services-${tenantId}` : null,
+    async () => {
+      const { data, error } = await supabase
+        .from('services')
+        .select('id, name, base_price, commission_percent, recurrence_days')
+        .eq('status', 'ACTIVE')
+        .order('name')
+      if (error) throw error
+      return data
+    },
+    SWR_CONFIG
+  )
+}
+
 export function useStock() {
   const { tenantId } = useAuth()
   return useSWR(

@@ -125,13 +125,56 @@ function Sales() {
     const fetchData = async () => {
         setLoading(true)
         try {
-            const [{ data: salesData }, { data: prods }, { data: custs }, { data: emps }, { data: svcs }] = await Promise.all([
-                supabase.from('sales').select('*, products(name), customers(name), employees(name)').eq('is_active', true).order('sale_date', { ascending: false }),
-                supabase.from('products').select('id, name, sale_price, recurrence_days').order('name'),
-                supabase.from('customers').select('id, name').eq('is_active', true).order('name'),
-                supabase.from('employees').select('id, name, commission_percent').eq('is_active', true).order('name'),
-                supabase.from('services').select('id, name, base_price, commission_percent, recurrence_days').eq('status', 'ACTIVE').order('name'),
-            ])
+            // Try full query with employees join first; fall back to simpler query if columns don't exist
+            let salesData: any[] | null = null
+            const { data: salesFull, error: salesErr } = await supabase
+                .from('sales')
+                .select('*, products(name), customers(name), employees(name)')
+                .eq('is_active', true)
+                .order('sale_date', { ascending: false })
+            if (!salesErr) {
+                salesData = salesFull
+            } else {
+                console.warn('Sales query with employees join failed, falling back:', salesErr.message)
+                const { data: salesSimple } = await supabase
+                    .from('sales')
+                    .select('*, products(name), customers(name)')
+                    .eq('is_active', true)
+                    .order('sale_date', { ascending: false })
+                salesData = salesSimple
+            }
+
+            // Products: try with recurrence_days, fall back without
+            let prods: any[] | null = null
+            const { data: prodsFull, error: prodsErr } = await supabase.from('products').select('id, name, sale_price, recurrence_days').order('name')
+            if (!prodsErr) {
+                prods = prodsFull
+            } else {
+                console.warn('Products query with recurrence_days failed, falling back:', prodsErr.message)
+                const { data: prodsSimple } = await supabase.from('products').select('id, name, sale_price').order('name')
+                prods = prodsSimple
+            }
+
+            // Services: try with recurrence_days, fall back without
+            let svcs: any[] | null = null
+            const { data: svcsFull, error: svcsErr } = await supabase.from('services').select('id, name, base_price, commission_percent, recurrence_days').eq('status', 'ACTIVE').order('name')
+            if (!svcsErr) {
+                svcs = svcsFull
+            } else {
+                console.warn('Services query with recurrence_days failed, falling back:', svcsErr.message)
+                const { data: svcsSimple } = await supabase.from('services').select('id, name, base_price, commission_percent').eq('status', 'ACTIVE').order('name')
+                svcs = svcsSimple
+            }
+
+            // Customers and employees (employees may not have the table yet)
+            const { data: custs } = await supabase.from('customers').select('id, name').eq('is_active', true).order('name')
+            let emps: any[] | null = null
+            try {
+                const { data: empsData, error: empsErr } = await supabase.from('employees').select('id, name, commission_percent').eq('is_active', true).order('name')
+                if (!empsErr) emps = empsData
+            } catch (e) {
+                console.warn('Could not load employees:', e)
+            }
 
             const rows: SaleRow[] = (salesData || []).map((s: any) => ({
                 id: s.id,
@@ -205,7 +248,7 @@ function Sales() {
             const createdBy = await getCurrentUserId()
             if (!createdBy) { messageApi.error('Sessão inválida. Faça login novamente.'); setRegisterSaving(false); return }
 
-            const { data: budgetCheck } = await supabase.from('budgets').select('id, status, employee_id').eq('id', selectedBudget.id).single()
+            const { data: budgetCheck } = await supabase.from('budgets').select('id, status').eq('id', selectedBudget.id).single()
             if (budgetCheck?.status === 'PAID') {
                 messageApi.warning('Este orçamento já foi finalizado por outra pessoa. Atualize a lista.')
                 setRegisterModalOpen(false)
@@ -214,11 +257,19 @@ function Sales() {
                 return
             }
 
+            // Try to get employee_id from budget (column may not exist)
+            let budgetEmployeeId: string | null = null
+            const { data: budgetEmp, error: budgetEmpErr } = await supabase.from('budgets').select('employee_id').eq('id', selectedBudget.id).single()
+            if (!budgetEmpErr) {
+                budgetEmployeeId = budgetEmp?.employee_id || null
+            } else {
+                console.warn('employee_id column may not exist on budgets:', budgetEmpErr.message)
+            }
+
             const { data: sale, error: saleErr } = await supabase.from('sales').insert({
                 tenant_id: tenantId,
                 created_by: createdBy,
                 budget_id: selectedBudget.id,
-                employee_id: budgetCheck?.employee_id || null,
                 quantity: 1,
                 unit_price: selectedBudget.total_value,
                 final_value: selectedBudget.total_value,
@@ -230,6 +281,12 @@ function Sales() {
                 status: 'COMPLETED',
             }).select().single()
             if (saleErr) throw saleErr
+
+            // Try to set employee_id separately (column may not exist yet)
+            if (budgetEmployeeId && sale?.id) {
+                const { error: empErr } = await supabase.from('sales').update({ employee_id: budgetEmployeeId }).eq('id', sale.id)
+                if (empErr) console.warn('employee_id column may not exist yet on sales:', empErr.message)
+            }
 
             const { data: updatedBudget } = await supabase.from('budgets').update({ status: 'PAID', sale_id: sale.id }).eq('id', selectedBudget.id).neq('status', 'PAID').select('id').single()
             if (!updatedBudget) {
@@ -480,12 +537,11 @@ function Sales() {
             const createdBy = await getCurrentUserId()
             if (!createdBy) { messageApi.error('Sessão inválida. Faça login novamente.'); setSaving(false); return }
 
-            // 1) Criar venda
+            // 1) Criar venda (employee_id saved separately to handle missing column)
             const { data: sale, error: saleErr } = await supabase.from('sales').insert({
                 tenant_id: tenantId,
                 created_by: createdBy,
                 customer_id: values.customer_id || null,
-                employee_id: values.employee_id || null,
                 quantity: saleItems.reduce((s, i) => s + i.quantity, 0),
                 unit_price: saleTotal,
                 final_value: saleTotal,
@@ -498,6 +554,12 @@ function Sales() {
             }).select().single()
 
             if (saleErr) throw saleErr
+
+            // Try to set employee_id separately (column may not exist yet)
+            if (values.employee_id && sale?.id) {
+                const { error: empErr } = await supabase.from('sales').update({ employee_id: values.employee_id }).eq('id', sale.id)
+                if (empErr) console.warn('employee_id column may not exist yet on sales:', empErr.message)
+            }
 
             // 2) Salvar itens da venda (catálogo + manuais + serviços)
             const catalogItems = saleItems.filter(i => i.product_id && !i.is_service).map(i => ({
@@ -633,12 +695,11 @@ function Sales() {
                     const saleDate = values.sale_date ? values.sale_date.format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD')
                     const dispatchDate = dayjs(saleDate).add(recDays, 'day').format('YYYY-MM-DD')
 
-                    const { data: recRecord } = await supabase.from('recurrence_records').insert({
+                    const recInsertData: Record<string, any> = {
                         tenant_id: tenantId,
                         product_id: recType === 'PRODUCT' ? item.product_id : null,
                         service_id: recType === 'SERVICE' ? item.service_id : null,
                         customer_id: values.customer_id,
-                        employee_id: values.employee_id || null,
                         sale_id: sale.id,
                         sale_date: saleDate,
                         dispatch_date: dispatchDate,
@@ -646,9 +707,15 @@ function Sales() {
                         amount: item.unit_price * item.quantity,
                         type: recType,
                         created_by: createdBy,
-                    }).select('id').single()
+                    }
+                    const { data: recRecord } = await supabase.from('recurrence_records').insert(recInsertData).select('id').single()
 
                     if (recRecord) {
+                        // Try to set employee_id on recurrence_records (column may not exist)
+                        if (values.employee_id) {
+                            const { error: recEmpErr } = await supabase.from('recurrence_records').update({ employee_id: values.employee_id }).eq('id', recRecord.id)
+                            if (recEmpErr) console.warn('employee_id column may not exist on recurrence_records:', recEmpErr.message)
+                        }
                         await supabase.from('recurrence_dispatch_queue').insert({
                             tenant_id: tenantId,
                             recurrence_record_id: recRecord.id,

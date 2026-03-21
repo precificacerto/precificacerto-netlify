@@ -246,6 +246,16 @@ export const CASHIER_CATEGORY = {
 }
 
 export const ALL_CASHIER_CATEGORIES = { ...CASHIER_CATEGORY.EXPENSE, ...CASHIER_CATEGORY.INCOME }
+
+/** Grouped options for expense categories — used in Select components */
+export const EXPENSE_CATEGORY_OPTIONS = Object.entries(EXPENSE_GROUPS).map(([groupKey, grp]) => ({
+  label: `── ${grp.label} ──`,
+  options: Object.values(CASHIER_CATEGORY.EXPENSE)
+    .filter((cat) => 'group' in cat && cat.group === groupKey)
+    .sort((a, b) => a.order - b.order)
+    .map((cat) => ({ label: cat.value, value: cat.key })),
+}))
+
 export const YEARLY_AVERAGE_CATEGORIES = [
   CASHIER_CATEGORY.EXPENSE.DECIMO_TERCEIRO_PRODUCAO,
   CASHIER_CATEGORY.EXPENSE.FERIAS_COLABORADORES_PRODUCAO,

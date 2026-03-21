@@ -3,6 +3,7 @@ import { Input, Form, Select, FormInstance, DatePicker, Button } from 'antd'
 import { currencyDotMask } from '@/utils/currency-mask'
 import {
   CASHIER_CATEGORY,
+  EXPENSE_CATEGORY_OPTIONS,
   EXPENSE_GROUP_OPTIONS,
   getDefaultGroupForCategory,
 } from '@/constants/cashier-category'
@@ -67,14 +68,25 @@ const NewPaymentRevenueForm = ({ form, year, month, type, onClickDelete }: Props
           <Input />
         </Form.Item>
 
-        <Form.Item name="category" label="Categoria" rules={[{ required: true }]}>
-          <Select showSearch filterOption onChange={handleCategoryChange} listHeight={320}>
-            {Object.values(CASHIER_CATEGORY[type]).map(({ value, key }) => (
-              <Select.Option key={key} value={key}>
-                {value}
-              </Select.Option>
-            ))}
-          </Select>
+        <Form.Item name="category" label={isExpense ? 'Categoria de Despesa' : 'Categoria'} rules={[{ required: true }]}>
+          {isExpense ? (
+            <Select
+              showSearch
+              filterOption={(input, option) => (option?.label as string || '').toLowerCase().includes(input.toLowerCase())}
+              onChange={handleCategoryChange}
+              listHeight={320}
+              options={EXPENSE_CATEGORY_OPTIONS}
+              placeholder="Selecione a categoria de despesa"
+            />
+          ) : (
+            <Select showSearch filterOption onChange={handleCategoryChange} listHeight={320}>
+              {Object.values(CASHIER_CATEGORY[type]).map(({ value, key }) => (
+                <Select.Option key={key} value={key}>
+                  {value}
+                </Select.Option>
+              ))}
+            </Select>
+          )}
         </Form.Item>
 
         {isExpense && (

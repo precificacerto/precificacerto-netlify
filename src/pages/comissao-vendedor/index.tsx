@@ -120,41 +120,60 @@ export default function CommissionPage() {
         }
 
         // Sales (both budget and counter sales with employee)
-        const { data: sales } = await supabase
-          .from('sales')
-          .select('id, final_value, budget_id, employee_id')
-          .eq('is_active', true)
-          .gte('sale_date', start)
-          .lte('sale_date', end)
+        // employee_id may not exist on sales table if migration not applied — query gracefully
+        let salesData: any[] = []
+        try {
+          const { data } = await supabase
+            .from('sales')
+            .select('id, final_value, budget_id, employee_id')
+            .eq('is_active', true)
+            .gte('sale_date', start)
+            .lte('sale_date', end)
+          salesData = data || []
+        } catch {
+          // Fallback: query without employee_id if column doesn't exist
+          const { data } = await supabase
+            .from('sales')
+            .select('id, final_value, budget_id')
+            .eq('is_active', true)
+            .gte('sale_date', start)
+            .lte('sale_date', end)
+          salesData = (data || []).map((s: any) => ({ ...s, employee_id: null }))
+        }
 
-        // For budget sales, get employee from budget
-        const budgetSales = (sales || []).filter((s: any) => s.budget_id)
-        const directSales = (sales || []).filter((s: any) => !s.budget_id && s.employee_id)
+        // For budget sales, get employee from budget; fallback to sale.employee_id
+        const budgetSales = salesData.filter((s: any) => s.budget_id)
+        const directSales = salesData.filter((s: any) => !s.budget_id && s.employee_id)
+
+        // Get all sale_items for product commission lookup (both budget and direct)
+        const allSaleIds = salesData.map((s: any) => s.id)
+        let allSaleItemRows: any[] = []
+        let allProdCommMap = new Map<string, number>()
+        if (allSaleIds.length > 0) {
+          const { data: saleItemRows } = await supabase.from('sale_items').select('sale_id, product_id').in('sale_id', allSaleIds)
+          allSaleItemRows = saleItemRows || []
+          const productIds = [...new Set(allSaleItemRows.map((si: any) => si.product_id).filter(Boolean))]
+          if (productIds.length > 0) {
+            const { data: prods } = await supabase.from('products').select('id, commission_percent').in('id', productIds)
+            allProdCommMap = new Map((prods || []).map((p: any) => [p.id, Number(p.commission_percent) || 0]))
+          }
+        }
+        // Map sale_id → max product commission
+        const saleProdCommMap = new Map<string, number>()
+        for (const si of allSaleItemRows) {
+          const cur = saleProdCommMap.get(si.sale_id) || 0
+          const pComm = si.product_id ? (allProdCommMap.get(si.product_id) || 0) : 0
+          if (pComm > cur) saleProdCommMap.set(si.sale_id, pComm)
+        }
 
         if (budgetSales.length) {
           const budgetIds = [...new Set(budgetSales.map((s: any) => s.budget_id).filter(Boolean))]
           const { data: budgets } = await supabase.from('budgets').select('id, employee_id').in('id', budgetIds)
           const budgetEmp = new Map((budgets || []).map((b: any) => [b.id, b.employee_id]))
 
-          // Get sale_items to look up product commission
-          const saleIds = budgetSales.map((s: any) => s.id)
-          const { data: saleItemRows } = await supabase.from('sale_items').select('sale_id, product_id').in('sale_id', saleIds)
-          const productIds = [...new Set((saleItemRows || []).map((si: any) => si.product_id).filter(Boolean))]
-          let prodCommMap = new Map<string, number>()
-          if (productIds.length > 0) {
-            const { data: prods } = await supabase.from('products').select('id, commission_percent').in('id', productIds)
-            prodCommMap = new Map((prods || []).map((p: any) => [p.id, Number(p.commission_percent) || 0]))
-          }
-          // Map sale_id → max product commission
-          const saleProdCommMap = new Map<string, number>()
-          for (const si of saleItemRows || []) {
-            const cur = saleProdCommMap.get(si.sale_id) || 0
-            const pComm = si.product_id ? (prodCommMap.get(si.product_id) || 0) : 0
-            if (pComm > cur) saleProdCommMap.set(si.sale_id, pComm)
-          }
-
           for (const sale of budgetSales as any[]) {
-            const empId = budgetEmp.get(sale.budget_id)
+            // Try budget employee first, fallback to sale.employee_id
+            const empId = budgetEmp.get(sale.budget_id) || sale.employee_id
             if (!empId) continue
             const emp = empMap.get(empId)
             if (!emp) continue
@@ -167,23 +186,8 @@ export default function CommissionPage() {
           }
         }
 
-        // Direct sales (counter sales with employee_id)
+        // Direct sales (counter sales with employee_id on the sale itself)
         if (directSales.length) {
-          const saleIds = directSales.map((s: any) => s.id)
-          const { data: saleItemRows } = await supabase.from('sale_items').select('sale_id, product_id').in('sale_id', saleIds)
-          const productIds = [...new Set((saleItemRows || []).map((si: any) => si.product_id).filter(Boolean))]
-          let prodCommMap = new Map<string, number>()
-          if (productIds.length > 0) {
-            const { data: prods } = await supabase.from('products').select('id, commission_percent').in('id', productIds)
-            prodCommMap = new Map((prods || []).map((p: any) => [p.id, Number(p.commission_percent) || 0]))
-          }
-          const saleProdCommMap = new Map<string, number>()
-          for (const si of saleItemRows || []) {
-            const cur = saleProdCommMap.get(si.sale_id) || 0
-            const pComm = si.product_id ? (prodCommMap.get(si.product_id) || 0) : 0
-            if (pComm > cur) saleProdCommMap.set(si.sale_id, pComm)
-          }
-
           for (const sale of directSales as any[]) {
             const empId = sale.employee_id
             if (!empId) continue

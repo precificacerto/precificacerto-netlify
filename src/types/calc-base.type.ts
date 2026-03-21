@@ -10,7 +10,7 @@ export interface CalcBaseType {
   laborCostMonthly: number
   /** Labor as % of revenue — used by REVENDA (included in structurePct). */
   laborPercent: number
-  /** Sum of indirectLabor + fixed + variable + financial (display %, 0-100). */
+  /** Sum of fixed + variable + financial expenses (display %, 0-100). IndirectLabor is separate. */
   structurePct: number
   /** Individual breakdowns kept for display in product-price table. */
   indirectLaborPct: number

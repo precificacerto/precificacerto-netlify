@@ -596,8 +596,6 @@ export const Content: FC<ContentProps> = ({
         ncm_code: values.ncm_code || null,
         nbs_code: values.nbs_code || null,
         max_discount_percent: values.max_discount_percent != null && values.max_discount_percent !== '' ? Number(values.max_discount_percent) : null,
-        custom_tax_percent: customTaxPercent != null ? customTaxPercent : null,
-        recurrence_days: values.recurrence_days != null && values.recurrence_days !== '' ? Number(values.recurrence_days) : null,
         updated_at: new Date().toISOString(),
       }
 
@@ -623,6 +621,17 @@ export const Content: FC<ContentProps> = ({
 
         if (error) throw error
         productId = created.id
+      }
+
+      // Try to save columns that may not exist yet (pending migration)
+      const extraFields: Record<string, any> = {}
+      if (customTaxPercent != null) extraFields.custom_tax_percent = customTaxPercent
+      else extraFields.custom_tax_percent = null
+      if (values.recurrence_days != null && values.recurrence_days !== '') extraFields.recurrence_days = Number(values.recurrence_days)
+      else extraFields.recurrence_days = null
+      if (Object.keys(extraFields).length > 0) {
+        const { error: extraErr } = await supabase.from('products').update(extraFields).eq('id', productId)
+        if (extraErr) console.warn('Could not save custom_tax_percent/recurrence_days (columns may not exist yet):', extraErr.message)
       }
 
       await supabase.from('product_items').delete().eq('product_id', productId)
