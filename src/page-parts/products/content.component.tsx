@@ -529,16 +529,20 @@ export const Content: FC<ContentProps> = ({
       const structurePctForEngine = isCalcService
         ? (calcBase.variableExpensePct + calcBase.financialExpensePct) / 100
         : (calcBase.structurePct + (Number(calcBase.indirectLaborPct) || 0)) / 100
-      const engineResult = calculatePricing({
-        calcType: currentUser?.calcType === CALC_TYPE_ENUM.INDUSTRIALIZATION ? 'INDUSTRIALIZACAO'
+      // Para SERVICE + REVENDA: usar calcType REVENDA (sem MO produtiva)
+      const effectiveCalcTypeSave = isCalcService && productType === 'REVENDA'
+        ? 'REVENDA'
+        : currentUser?.calcType === CALC_TYPE_ENUM.INDUSTRIALIZATION ? 'INDUSTRIALIZACAO'
           : currentUser?.calcType === CALC_TYPE_ENUM.RESALE ? 'REVENDA'
-          : 'SERVICO',
+          : 'SERVICO'
+      const engineResult = calculatePricing({
+        calcType: effectiveCalcTypeSave,
         totalItemsCost: sumForSave,
         yieldQuantity: 1,
-        laborCostMonthly: calcBase.laborCostMonthly,
+        laborCostMonthly: effectiveCalcTypeSave === 'REVENDA' ? 0 : calcBase.laborCostMonthly,
         numProductiveEmployees: totalEmployees,
         monthlyWorkloadMinutes,
-        productWorkloadMinutes: productPriceInfo.productWorkloadInMinutes || 0,
+        productWorkloadMinutes: effectiveCalcTypeSave === 'REVENDA' ? 0 : (productPriceInfo.productWorkloadInMinutes || 0),
         structurePct: structurePctForEngine,
         taxPct: taxPctDecimal,
         commissionPct: (productPriceInfo.salesCommissionPercent || 0) / 100,
@@ -546,7 +550,7 @@ export const Content: FC<ContentProps> = ({
       })
       let priceUnit = engineResult.isValid ? engineResult.priceUnit : 0
       let costUnit = engineResult.isValid ? engineResult.cmvUnit : sumForSave
-      if (isCalcService && sumForSave > 0) {
+      if (isCalcService && productType !== 'REVENDA' && sumForSave > 0) {
         const prodEngine = calculatePricing({
           calcType: 'REVENDA',
           totalItemsCost: sumForSave,

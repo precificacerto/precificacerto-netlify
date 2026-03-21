@@ -21,6 +21,7 @@ import {
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import { formatCurrencyInput, parseCurrencyInput } from '@/utils/get-monetary-value'
 import dayjs from 'dayjs'
+import { calculateDiscountedPrice } from '@/utils/calculate-discount'
 
 function formatCurrency(v: number): string {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v)
@@ -242,8 +243,19 @@ function Budgets() {
             if (item.key !== key) return item
             const updated = { ...item, [field]: value }
             const subtotal = updated.unit_price * updated.quantity
-            updated.discount = subtotal * ((updated.discount_percent ?? 0) / 100)
-            updated.total = subtotal - updated.discount
+            const discPct = updated.discount_percent ?? 0
+            if (discPct > 0) {
+                // Desconto sai apenas da margem (comissão + lucro), não do custo
+                const prod = !updated.isService ? (products as any[]).find((p: any) => p.id === updated.product_id) : null
+                const svc = updated.isService ? (services as any[]).find((s: any) => s.id === updated.service_id) : null
+                const costWithTaxes = Number(prod?.cost_total || svc?.cost_total || 0) * updated.quantity
+                const { finalPrice, discountValue } = calculateDiscountedPrice(subtotal, costWithTaxes, discPct)
+                updated.discount = discountValue
+                updated.total = finalPrice
+            } else {
+                updated.discount = 0
+                updated.total = subtotal
+            }
             return updated
         }))
     }

@@ -23,6 +23,7 @@ import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import { useAuth } from '@/hooks/use-auth.hook'
 import { useRouter } from 'next/router'
 import { calculateDiscountedPrice } from '@/utils/calculate-discount'
+import { getEffectiveCommissionPercent } from '@/utils/get-effective-commission'
 
 dayjs.extend(isoWeek)
 dayjs.locale('pt-br')
@@ -64,7 +65,21 @@ function fmt(v: number) {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 }).format(v)
 }
 
-interface ExtraProd { key: string; product_id: string; product_name: string; quantity: number; unit_price: number }
+interface ExtraProd {
+    key: string
+    product_id: string
+    service_id?: string
+    product_name: string
+    quantity: number
+    unit_price: number
+    discount: number
+    total: number
+    cost_total: number
+    commission_percent: number
+    profit_percent: number
+    is_manual?: boolean
+    is_service?: boolean
+}
 
 function Schedule() {
     const router = useRouter()
@@ -96,10 +111,9 @@ function Schedule() {
     const [payEvt, setPayEvt] = useState<CalendarEvent | null>(null)
     const [payForm] = Form.useForm()
     const [hasDiscount, setHasDiscount] = useState(false)
+    const [discountTick, setDiscountTick] = useState(0)
     const [isSplitPay, setIsSplitPay] = useState(false)
     const [extraProds, setExtraProds] = useState<ExtraProd[]>([])
-    const [addProdId, setAddProdId] = useState<string | null>(null)
-    const [addProdQty, setAddProdQty] = useState(1)
     const [attachFile, setAttachFile] = useState<File | null>(null)
     const [attachDesc, setAttachDesc] = useState('')
 
@@ -132,8 +146,8 @@ function Schedule() {
                 supabase.from('customers').select('id, name').eq('is_active', true).order('name'),
                 supabase.from('employees').select('id, name, position, status, commission_percent').eq('status', 'ACTIVE').eq('is_active', true).order('name'),
                 supabase.from('schedule_employees').select('employee_id').eq('tenant_id', tid),
-                supabase.from('services').select('id, name, base_price, estimated_duration_minutes, commission_percent, profit_percent, cost_total').eq('status', 'ACTIVE').order('name'),
-                supabase.from('products').select('id, name, sale_price, cost_total, commission_percent, profit_percent').eq('status', 'ACTIVE').order('name'),
+                supabase.from('services').select('id, name, base_price, estimated_duration_minutes, commission_percent, profit_percent, cost_total, recurrence_days').eq('status', 'ACTIVE').order('name'),
+                supabase.from('products').select('id, name, sale_price, cost_total, commission_percent, profit_percent, recurrence_days').eq('status', 'ACTIVE').order('name'),
             ])
             setEvents(evR.data || [])
             setCustomers(cuR.data || [])
@@ -329,8 +343,6 @@ function Schedule() {
         setHasDiscount(false)
         setIsSplitPay(false)
         setExtraProds([])
-        setAddProdId(null)
-        setAddProdQty(1)
         setAttachFile(null)
         setAttachDesc('')
         setPayOpen(true)
@@ -340,7 +352,7 @@ function Schedule() {
         const base = Number(payForm.getFieldValue('base_price')) || 0
         const discPct = Number(payForm.getFieldValue('discount_percent')) || 0
         const discVal = Number(payForm.getFieldValue('discount_value')) || 0
-        const prodsTotal = extraProds.reduce((s, p) => s + p.quantity * p.unit_price, 0)
+        const extrasTotal = extraProds.reduce((s, p) => s + p.total, 0)
         // Desconto sai apenas da margem (comissão + lucro), nunca do custo
         const svc = payEvt?.service_id ? regServices.find((s: any) => s.id === payEvt.service_id) : null
         const costWithTaxes = Number(svc?.cost_total) || 0
@@ -348,19 +360,93 @@ function Schedule() {
             // Desconto em R$: limitado à margem
             const margin = Math.max(0, base - costWithTaxes)
             const clampedDisc = Math.min(discVal, margin)
-            return (base - clampedDisc) + prodsTotal
+            return (base - clampedDisc) + extrasTotal
         }
         const { finalPrice } = calculateDiscountedPrice(base, costWithTaxes, discPct)
-        return finalPrice + prodsTotal
+        return finalPrice + extrasTotal
     }
 
-    function handleAddExtraProd() {
-        if (!addProdId) return
-        const p = availProds.find((x: any) => x.id === addProdId)
+    function handleAddExtraProduct() {
+        const newItem: ExtraProd = {
+            key: `ep-${Date.now()}`, product_id: '', product_name: '', quantity: 1,
+            unit_price: 0, discount: 0, total: 0, cost_total: 0, commission_percent: 0,
+            profit_percent: 0, is_manual: false, is_service: false,
+        }
+        setExtraProds(prev => [...prev, newItem])
+    }
+
+    function handleAddExtraService() {
+        const newItem: ExtraProd = {
+            key: `es-${Date.now()}`, product_id: '', service_id: '', product_name: '', quantity: 1,
+            unit_price: 0, discount: 0, total: 0, cost_total: 0, commission_percent: 0,
+            profit_percent: 0, is_manual: false, is_service: true,
+        }
+        setExtraProds(prev => [...prev, newItem])
+    }
+
+    function handleAddExtraManual() {
+        const newItem: ExtraProd = {
+            key: `em-${Date.now()}`, product_id: '', product_name: '', quantity: 1,
+            unit_price: 0, discount: 0, total: 0, cost_total: 0, commission_percent: 0,
+            profit_percent: 0, is_manual: true, is_service: false,
+        }
+        setExtraProds(prev => [...prev, newItem])
+    }
+
+    function handleExtraProductSelect(key: string, productId: string) {
+        const p = availProds.find((x: any) => x.id === productId)
         if (!p) return
-        if (extraProds.some(ep => ep.product_id === addProdId)) { msgApi.warning('Já adicionado.'); return }
-        setExtraProds(prev => [...prev, { key: `ep-${Date.now()}`, product_id: p.id, product_name: p.name, quantity: addProdQty, unit_price: Number(p.sale_price) || 0 }])
-        setAddProdId(null); setAddProdQty(1)
+        const empId = payEvt?.employee_id
+        const emp = empId ? allEmployees.find(e => e.id === empId) : null
+        const effectiveComm = getEffectiveCommissionPercent(emp?.commission_percent, p.commission_percent)
+        setExtraProds(prev => prev.map(ep => {
+            if (ep.key !== key) return ep
+            const price = Number(p.sale_price) || 0
+            const total = price * ep.quantity
+            return { ...ep, product_id: p.id, product_name: p.name, unit_price: price, cost_total: Number(p.cost_total) || 0, commission_percent: effectiveComm, profit_percent: Number(p.profit_percent) || 0, discount: 0, total }
+        }))
+    }
+
+    function handleExtraServiceSelect(key: string, serviceId: string) {
+        const s = regServices.find((x: any) => x.id === serviceId)
+        if (!s) return
+        const empId = payEvt?.employee_id
+        const emp = empId ? allEmployees.find(e => e.id === empId) : null
+        const effectiveComm = getEffectiveCommissionPercent(emp?.commission_percent, s.commission_percent)
+        setExtraProds(prev => prev.map(ep => {
+            if (ep.key !== key) return ep
+            const price = Number(s.base_price) || 0
+            const total = price * ep.quantity
+            return { ...ep, service_id: s.id, product_name: s.name, unit_price: price, cost_total: Number(s.cost_total) || 0, commission_percent: effectiveComm, profit_percent: Number(s.profit_percent) || 0, discount: 0, total }
+        }))
+    }
+
+    function handleExtraItemChange(key: string, field: 'quantity' | 'unit_price' | 'discount' | 'product_name', value: any) {
+        setExtraProds(prev => prev.map(ep => {
+            if (ep.key !== key) return ep
+            const updated = { ...ep, [field]: value }
+            if (field === 'discount') {
+                // Discount based on margin only
+                const grossTotal = updated.quantity * updated.unit_price
+                const costPortion = updated.cost_total * updated.quantity
+                const margin = Math.max(0, grossTotal - costPortion)
+                const discPct = Math.min(Number(value) || 0, 100)
+                const discAmt = margin * discPct / 100
+                updated.discount = discPct
+                updated.total = grossTotal - discAmt
+            } else if (field === 'quantity' || field === 'unit_price') {
+                const grossTotal = updated.quantity * updated.unit_price
+                if (updated.discount > 0) {
+                    const costPortion = updated.cost_total * updated.quantity
+                    const margin = Math.max(0, grossTotal - costPortion)
+                    const discAmt = margin * updated.discount / 100
+                    updated.total = grossTotal - discAmt
+                } else {
+                    updated.total = grossTotal
+                }
+            }
+            return updated
+        }))
     }
 
     async function handleCompletePay() {
@@ -382,7 +468,7 @@ function Schedule() {
             const basePrice = Number(v.base_price) || 0
             const discPct = hasDiscount ? (Number(v.discount_percent) || 0) : 0
             const discVal = hasDiscount ? (Number(v.discount_value) || 0) : 0
-            const prodsTotal = extraProds.reduce((s, p) => s + p.quantity * p.unit_price, 0)
+            const prodsTotal = extraProds.reduce((s, p) => s + p.total, 0)
             // Desconto sai apenas da margem (comissão + lucro)
             const svc = payEvt?.service_id ? regServices.find((s: any) => s.id === payEvt.service_id) : null
             const costWithTaxes = Number(svc?.cost_total) || 0
@@ -458,8 +544,8 @@ function Schedule() {
                 descValores.push(`Valor c/ desconto: ${fmt(finalPrice)}`)
             }
             if (extraProds.length > 0) {
-                const prodsDesc = extraProds.map(ep => `${ep.product_name} x${ep.quantity} (${fmt(ep.quantity * ep.unit_price)})`).join(', ')
-                descValores.push(`Produtos revenda: ${prodsDesc} = ${fmt(prodsTotal)}`)
+                const prodsDesc = extraProds.map(ep => `${ep.product_name} x${ep.quantity} (${fmt(ep.total)})`).join(', ')
+                descValores.push(`Itens adicionais: ${prodsDesc} = ${fmt(prodsTotal)}`)
             }
             descValores.push(`Total: ${fmt(totalRevenue)}`)
             descValores.push(`Pagamento: ${pmLabel}`)
@@ -528,6 +614,8 @@ function Schedule() {
             }
 
             for (const ep of extraProds) {
+                if (ep.is_manual || ep.is_service) continue // only deduct stock for catalog products
+                if (!ep.product_id) continue
                 const { data: st } = await supabase.from('stock').select('id, quantity_current').eq('product_id', ep.product_id).eq('stock_type', 'PRODUCT').single()
                 if (st) {
                     await supabase.from('stock').update({ quantity_current: Math.max(0, (Number(st.quantity_current) || 0) - ep.quantity) }).eq('id', st.id)
@@ -592,6 +680,67 @@ function Schedule() {
                         description: attachDesc || null,
                         created_by: createdBy,
                     })
+                }
+            }
+
+            // ─── Recurrence records ───
+            // Check if the main service has recurrence_days
+            const mainSvc = payEvt.service_id ? regServices.find((s: any) => s.id === payEvt.service_id) : null
+            if (mainSvc?.recurrence_days > 0 && payEvt.customer_id) {
+                const saleDate = dayjs().format('YYYY-MM-DD')
+                const dispatchDate = dayjs().add(mainSvc.recurrence_days, 'day').format('YYYY-MM-DD')
+                const { data: recRecord } = await supabase.from('recurrence_records').insert({
+                    tenant_id: tid,
+                    service_id: mainSvc.id,
+                    customer_id: payEvt.customer_id,
+                    employee_id: payEvt.employee_id || null,
+                    sale_date: saleDate,
+                    dispatch_date: dispatchDate,
+                    recurrence_days: mainSvc.recurrence_days,
+                    amount: totalRevenue,
+                    type: 'SERVICE',
+                    created_by: createdBy,
+                }).select('id').single()
+                if (recRecord) {
+                    await supabase.from('recurrence_dispatch_queue').insert({
+                        tenant_id: tid,
+                        recurrence_record_id: recRecord.id,
+                        scheduled_at: `${dispatchDate}T12:00:00-03:00`,
+                        user_id: createdBy,
+                    })
+                }
+            }
+            // Check extra items for recurrence
+            for (const ep of extraProds) {
+                if (ep.is_manual) continue
+                const prod = ep.product_id ? availProds.find((p: any) => p.id === ep.product_id) : null
+                const extraSvc = ep.service_id ? regServices.find((s: any) => s.id === ep.service_id) : null
+                const recDays = prod?.recurrence_days || extraSvc?.recurrence_days || 0
+                if (recDays > 0 && payEvt.customer_id) {
+                    const saleDate = dayjs().format('YYYY-MM-DD')
+                    const dispatchDate = dayjs().add(recDays, 'day').format('YYYY-MM-DD')
+                    const recType = prod ? 'PRODUCT' : 'SERVICE'
+                    const { data: recRecord } = await supabase.from('recurrence_records').insert({
+                        tenant_id: tid,
+                        service_id: extraSvc?.id || null,
+                        product_id: prod?.id || null,
+                        customer_id: payEvt.customer_id,
+                        employee_id: payEvt.employee_id || null,
+                        sale_date: saleDate,
+                        dispatch_date: dispatchDate,
+                        recurrence_days: recDays,
+                        amount: ep.total,
+                        type: recType,
+                        created_by: createdBy,
+                    }).select('id').single()
+                    if (recRecord) {
+                        await supabase.from('recurrence_dispatch_queue').insert({
+                            tenant_id: tid,
+                            recurrence_record_id: recRecord.id,
+                            scheduled_at: `${dispatchDate}T12:00:00-03:00`,
+                            user_id: createdBy,
+                        })
+                    }
                 }
             }
 
@@ -1308,12 +1457,12 @@ function Schedule() {
                                 {hasDiscount && (
                                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 8, padding: 12, background: '#FFFBEB', borderRadius: 8, border: '1px solid #FEF3C7' }}>
                                         <Form.Item name="discount_percent" label={<span style={{ color: '#000' }}>Desconto (%)</span>} style={{ margin: 0 }}>
-                                            <InputNumber style={{ width: '100%' }} min={0} max={100} step={1} suffix="%" onChange={(v) => { if (v && v > 0) payForm.setFieldValue('discount_value', 0) }} />
+                                            <InputNumber style={{ width: '100%' }} min={0} max={100} step={1} suffix="%" onChange={(v) => { if (v && v > 0) payForm.setFieldValue('discount_value', 0); setDiscountTick(t => t + 1) }} />
                                         </Form.Item>
                                         <Form.Item name="discount_value" label={<span style={{ color: '#000' }}>Desconto (R$)</span>} style={{ margin: 0 }}>
                                             <InputNumber style={{ width: '100%' }} min={0} step={0.5} precision={2}
                                                 formatter={(v) => `${v}`.replace('.', ',')} parser={(v) => Number((v || '0').replace(',', '.'))}
-                                                onChange={(v) => { if (v && v > 0) payForm.setFieldValue('discount_percent', 0) }} />
+                                                onChange={(v) => { if (v && v > 0) payForm.setFieldValue('discount_percent', 0); setDiscountTick(t => t + 1) }} />
                                         </Form.Item>
                                     </div>
                                 )}
@@ -1365,23 +1514,101 @@ function Schedule() {
                         <Divider style={{ margin: '12px 0' }} />
 
                         <div>
-                            <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8 }}><ShoppingOutlined style={{ marginRight: 6 }} />Produtos Extras (revenda)</div>
-                            <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 8 }}>Produtos que o cliente está levando além do serviço</div>
-                            <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-                                <Select placeholder="Produto" value={addProdId} onChange={setAddProdId} style={{ flex: 1 }} allowClear showSearch optionFilterProp="children">
-                                    {availProds.map((p: any) => <Select.Option key={p.id} value={p.id}>{p.name} — {fmt(Number(p.sale_price) || 0)}</Select.Option>)}
-                                </Select>
-                                <InputNumber min={1} value={addProdQty} onChange={(v) => setAddProdQty(v || 1)} style={{ width: 65 }} />
-                                <Button icon={<PlusOutlined />} onClick={handleAddExtraProd} disabled={!addProdId} />
+                            <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8 }}><ShoppingOutlined style={{ marginRight: 6 }} />Itens Adicionais</div>
+                            <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 8 }}>Produtos, serviços ou itens manuais além do serviço principal</div>
+                            <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+                                <Button size="small" icon={<PlusOutlined />} onClick={handleAddExtraProduct}>Adicionar Produto</Button>
+                                <Button size="small" icon={<PlusOutlined />} onClick={handleAddExtraService}>Adicionar Serviço</Button>
+                                <Button size="small" icon={<PlusOutlined />} onClick={handleAddExtraManual}>Adicionar Item Manual</Button>
                             </div>
                             {extraProds.length > 0 && (
                                 <div style={{ border: '1px solid rgba(255,255,255,0.06)', borderRadius: 6, overflow: 'hidden', marginBottom: 12 }}>
                                     {extraProds.map(ep => (
-                                        <div key={ep.key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 10px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                                            <span style={{ fontWeight: 500, fontSize: 12 }}>{ep.product_name} <span style={{ color: '#94a3b8' }}>x{ep.quantity}</span></span>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                                <span style={{ fontSize: 12, fontWeight: 600 }}>{fmt(ep.quantity * ep.unit_price)}</span>
+                                        <div key={ep.key} style={{ padding: '8px 10px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                                            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+                                                {ep.is_manual ? (
+                                                    <Input
+                                                        placeholder="Nome do item"
+                                                        value={ep.product_name}
+                                                        onChange={(e) => handleExtraItemChange(ep.key, 'product_name', e.target.value)}
+                                                        size="small"
+                                                        style={{ flex: 1 }}
+                                                    />
+                                                ) : ep.is_service ? (
+                                                    <Select
+                                                        placeholder="Selecione serviço"
+                                                        value={ep.service_id || undefined}
+                                                        onChange={(val) => handleExtraServiceSelect(ep.key, val)}
+                                                        size="small"
+                                                        style={{ flex: 1 }}
+                                                        showSearch
+                                                        optionFilterProp="children"
+                                                    >
+                                                        {regServices.map((s: any) => (
+                                                            <Select.Option key={s.id} value={s.id}>{s.name} — {fmt(Number(s.base_price) || 0)}</Select.Option>
+                                                        ))}
+                                                    </Select>
+                                                ) : (
+                                                    <Select
+                                                        placeholder="Selecione produto"
+                                                        value={ep.product_id || undefined}
+                                                        onChange={(val) => handleExtraProductSelect(ep.key, val)}
+                                                        size="small"
+                                                        style={{ flex: 1 }}
+                                                        showSearch
+                                                        optionFilterProp="children"
+                                                    >
+                                                        {availProds.map((p: any) => (
+                                                            <Select.Option key={p.id} value={p.id}>{p.name} — {fmt(Number(p.sale_price) || 0)}</Select.Option>
+                                                        ))}
+                                                    </Select>
+                                                )}
+                                                <Tag color={ep.is_manual ? 'orange' : ep.is_service ? 'blue' : 'green'} style={{ margin: 0, fontSize: 10 }}>
+                                                    {ep.is_manual ? 'Manual' : ep.is_service ? 'Serviço' : 'Produto'}
+                                                </Tag>
                                                 <Button type="text" danger size="small" icon={<DeleteOutlined />} onClick={() => setExtraProds(p => p.filter(x => x.key !== ep.key))} />
+                                            </div>
+                                            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                                                <div style={{ flex: 0 }}>
+                                                    <div style={{ fontSize: 10, color: '#94a3b8', marginBottom: 2 }}>Qtd</div>
+                                                    <InputNumber
+                                                        min={1}
+                                                        value={ep.quantity}
+                                                        onChange={(val) => handleExtraItemChange(ep.key, 'quantity', val || 1)}
+                                                        size="small"
+                                                        style={{ width: 60 }}
+                                                    />
+                                                </div>
+                                                <div style={{ flex: 1 }}>
+                                                    <div style={{ fontSize: 10, color: '#94a3b8', marginBottom: 2 }}>Preço Un.</div>
+                                                    <InputNumber
+                                                        min={0}
+                                                        step={0.5}
+                                                        precision={2}
+                                                        value={ep.unit_price}
+                                                        onChange={(val) => handleExtraItemChange(ep.key, 'unit_price', val || 0)}
+                                                        size="small"
+                                                        style={{ width: '100%' }}
+                                                        formatter={(v) => `${v}`.replace('.', ',')}
+                                                        parser={(v) => Number((v || '0').replace(',', '.'))}
+                                                    />
+                                                </div>
+                                                <div style={{ flex: 0 }}>
+                                                    <div style={{ fontSize: 10, color: '#94a3b8', marginBottom: 2 }}>Desc.%</div>
+                                                    <InputNumber
+                                                        min={0}
+                                                        max={100}
+                                                        value={ep.discount}
+                                                        onChange={(val) => handleExtraItemChange(ep.key, 'discount', val || 0)}
+                                                        size="small"
+                                                        style={{ width: 65 }}
+                                                        disabled={ep.is_manual}
+                                                    />
+                                                </div>
+                                                <div style={{ flex: 0, textAlign: 'right', minWidth: 80 }}>
+                                                    <div style={{ fontSize: 10, color: '#94a3b8', marginBottom: 2 }}>Total</div>
+                                                    <div style={{ fontSize: 13, fontWeight: 700, color: '#4ade80', lineHeight: '24px' }}>{fmt(ep.total)}</div>
+                                                </div>
                                             </div>
                                         </div>
                                     ))}

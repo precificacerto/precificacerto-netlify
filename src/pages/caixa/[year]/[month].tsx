@@ -112,12 +112,6 @@ const expenseColumns: ColumnsType<IPaymentRevenueTitleModel> = [
     render: (value) => `R$ ${getMonetaryValue(value)}`,
   },
   {
-    title: 'Categoria',
-    dataIndex: 'category',
-    key: 'category',
-    render: (value) => getCategoryName(value),
-  },
-  {
     title: 'Tipo',
     dataIndex: 'expense_group',
     key: 'expense_group',
