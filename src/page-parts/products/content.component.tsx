@@ -719,6 +719,11 @@ export const Content: FC<ContentProps> = ({
         },
       })
 
+      // Garantir que sale_price = valor do "Preço de Venda por Unidade" (edge function pode sobrescrever)
+      if (salePriceToSave > 0) {
+        await supabase.from('products').update({ sale_price: salePriceToSave }).eq('id', productId)
+      }
+
       const calcFailed = !!calcError || !calcResult?.success
       if (calcFailed) {
         const is401 =

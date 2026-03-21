@@ -85,9 +85,11 @@ Deno.serve(async (req: Request) => {
     const financial = Number(expense?.financial_expense_percent) || 0
     const laborPct = Number(expense?.production_labor_percent) || 0
 
-    const calcType: CalcType = (ts.calc_type || "INDUSTRIALIZACAO") as CalcType
+    const tenantCalcType: CalcType = (ts.calc_type || "INDUSTRIALIZACAO") as CalcType
+    // Produto REVENDA usa sempre calcType REVENDA, independente do tenant
+    const calcType: CalcType = product.product_type === "REVENDA" ? "REVENDA" : tenantCalcType
     const isRevenda = calcType === "REVENDA"
-    const isService = calcType === "SERVICO"
+    const isService = tenantCalcType === "SERVICO"
     // SERVICE segment REVENDA products: exclude MO administrativa (indirectLabor) and despesas fixas (fixed)
     const structureDisplay = isService
       ? variable + financial
