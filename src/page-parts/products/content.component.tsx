@@ -567,8 +567,9 @@ export const Content: FC<ContentProps> = ({
         const resultProductService = prodEngine.isValid ? prodEngine.priceUnit : 0
         priceUnit = resultProductService * yieldQty + (engineResult.isValid ? engineResult.priceTotal : 0)
       }
-      const salePriceToSave = Number(priceUnit) || 0
-      const costTotalToSave = Number(costUnit) || 0
+      // Usar o valor exibido em "Preço de Venda por Unidade" (que o usuário vê) como sale_price
+      const salePriceToSave = Number(productPriceInfo.totalProductPrice) || Number(priceUnit) || 0
+      const costTotalToSave = Number(productPriceInfo.productCost) || Number(costUnit) || 0
 
       let autoCode = values.code
       if (!autoCode) {
