@@ -511,65 +511,11 @@ export const Content: FC<ContentProps> = ({
       }
 
       const yieldQty = Number(values.quantity) || 1
-      const isCalcService = currentUser?.calcType === CALC_TYPE_ENUM.SERVICE
-      const sumForSave = productItemsData.reduce((s, i) => s + (Number(i.price) || 0), 0)
-      const totalEmployees =
-        (currentUser?.numProductiveSectorEmployee ?? 0) || 1
-      const hoursPerMonth =
-        currentUser?.unitMeasure === 'HOURS'
-          ? (currentUser?.monthlyWorkloadInMinutes || 0)
-          : currentUser?.unitMeasure === 'DAYS'
-            ? (currentUser?.monthlyWorkloadInMinutes || 0) * 8
-            : (currentUser?.monthlyWorkloadInMinutes || 0) / 60
-      const hoursPerMonthSafe = hoursPerMonth > 0 ? hoursPerMonth : 176
-      const monthlyWorkloadMinutes = totalEmployees * hoursPerMonthSafe * 60
-      const effectiveTaxPctSave = customTaxPercent != null ? customTaxPercent : calcBase.taxPct
-      const taxPctDecimal = effectiveTaxPctSave / 100
-      // SERVICE + REVENDA: excluir MO administrativa e despesas fixas do coeficiente
-      const structurePctForEngine = isCalcService
-        ? (calcBase.variableExpensePct + calcBase.financialExpensePct) / 100
-        : (calcBase.structurePct + (Number(calcBase.indirectLaborPct) || 0)) / 100
-      // Produto REVENDA usa sempre calcType REVENDA, independente do tenant
-      const effectiveCalcTypeSave = productType === 'REVENDA'
-        ? 'REVENDA'
-        : currentUser?.calcType === CALC_TYPE_ENUM.INDUSTRIALIZATION ? 'INDUSTRIALIZACAO'
-          : currentUser?.calcType === CALC_TYPE_ENUM.RESALE ? 'REVENDA'
-          : 'SERVICO'
-      const engineResult = calculatePricing({
-        calcType: effectiveCalcTypeSave,
-        totalItemsCost: sumForSave,
-        yieldQuantity: 1,
-        laborCostMonthly: effectiveCalcTypeSave === 'REVENDA' ? 0 : calcBase.laborCostMonthly,
-        numProductiveEmployees: totalEmployees,
-        monthlyWorkloadMinutes,
-        productWorkloadMinutes: effectiveCalcTypeSave === 'REVENDA' ? 0 : (productPriceInfo.productWorkloadInMinutes || 0),
-        structurePct: structurePctForEngine,
-        taxPct: taxPctDecimal,
-        commissionPct: (productPriceInfo.salesCommissionPercent || 0) / 100,
-        profitPct: (productPriceInfo.productProfitPercent || 0) / 100,
-      })
-      let priceUnit = engineResult.isValid ? engineResult.priceUnit : 0
-      let costUnit = engineResult.isValid ? engineResult.cmvUnit : sumForSave
-      if (isCalcService && productType !== 'REVENDA' && sumForSave > 0) {
-        const prodEngine = calculatePricing({
-          calcType: 'REVENDA',
-          totalItemsCost: sumForSave,
-          yieldQuantity: 1,
-          laborCostMonthly: 0,
-          numProductiveEmployees: totalEmployees,
-          monthlyWorkloadMinutes,
-          productWorkloadMinutes: 0,
-          structurePct: 0,
-          taxPct: taxPctDecimal,
-          commissionPct: (productPriceInfo.salesCommissionPercentByProduct || 0) / 100,
-          profitPct: (productPriceInfo.productProfitPercentByProduct || 0) / 100,
-        })
-        const resultProductService = prodEngine.isValid ? prodEngine.priceUnit : 0
-        priceUnit = resultProductService * yieldQty + (engineResult.isValid ? engineResult.priceTotal : 0)
-      }
-      // sale_price = priceUnit recalculado pelo engine (= Preço de Venda por Unidade)
-      const salePriceToSave = Number(priceUnit) || 0
-      const costTotalToSave = Number(costUnit) || 0
+
+      // DIRETO: salvar exatamente o valor que aparece em "Preço de Venda por Unidade" na tela
+      // Sem recalcular — o valor já foi calculado pelo doProductCalc (preview)
+      const salePriceToSave = Number(productPriceInfo.totalProductPrice) || 0
+      const costTotalToSave = Number(productPriceInfo.productCost) || 0
 
       let autoCode = values.code
       if (!autoCode) {
