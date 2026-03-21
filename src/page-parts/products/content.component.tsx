@@ -511,6 +511,7 @@ export const Content: FC<ContentProps> = ({
       }
 
       const yieldQty = Number(values.quantity) || 1
+      const isCalcService = currentUser?.calcType === CALC_TYPE_ENUM.SERVICE
 
       // DIRETO: salvar exatamente o valor que aparece em "Preço de Venda por Unidade" na tela
       // Sem recalcular — o valor já foi calculado pelo doProductCalc (preview)
