@@ -278,7 +278,7 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                                         {anexo ? anexo.replace('ANEXO_', '') : '—'}
                                     </div>
                                     <div style={{ fontSize: 11, color: 'var(--color-neutral-400)', marginTop: 4 }}>
-                                        Faturamento: R$ {revenue12m.toLocaleString('pt-BR')}
+                                        Faturamento: R$ {revenue12m.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                     </div>
                                 </Card>
                             </div>

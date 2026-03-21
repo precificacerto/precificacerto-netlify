@@ -206,7 +206,7 @@ const NewItemForm = ({ form }: Props) => {
         label={
           <span>
             Tipo do item&nbsp;
-            <Tooltip title="Insumo: entra em receita de produto. Revenda: produto acabado comprado para revender. Embalagem: material de embalagem.">
+            <Tooltip title="Insumos para beneficiamento: materiais utilizados na produção. Revenda: produto acabado comprado para revender.">
               <InfoCircleOutlined style={{ color: '#64748b' }} />
             </Tooltip>
           </span>
@@ -215,9 +215,8 @@ const NewItemForm = ({ form }: Props) => {
         initialValue="INSUMO"
       >
         <Select>
-          <Select.Option value="INSUMO">🧪 Insumo (entra em receita)</Select.Option>
+          <Select.Option value="INSUMO">🧪 Insumos para beneficiamento</Select.Option>
           <Select.Option value="REVENDA">📦 Mercadoria para revenda</Select.Option>
-          <Select.Option value="EMBALAGEM">🎁 Embalagem</Select.Option>
         </Select>
       </Form.Item>
 

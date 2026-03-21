@@ -121,6 +121,7 @@ const Nav = () => {
     { key: 'budgets', label: 'Orçamentos', icon: 'file-text', href: ROUTES.BUDGETS, section: 'comercial', module: MODULES.BUDGETS },
     { key: 'sales', label: 'Vendas', icon: 'shopping', href: ROUTES.SALES, section: 'comercial', module: MODULES.SALES },
     { key: 'sales-report', label: 'Relatório de Vendas', icon: 'bar-chart', href: ROUTES.SALES_REPORT, section: 'comercial', module: MODULES.SALES_REPORT },
+    { key: 'recurrence', label: 'Recorrência', icon: 'calendar', href: ROUTES.RECURRENCE, section: 'comercial', module: MODULES.RECURRENCE },
 
     { key: 'cashflow', label: 'Controle Financeiro', icon: 'shopping', href: ROUTES.CASH_FLOW, section: 'financeiro', module: MODULES.CASH_FLOW },
     { key: 'dfc', label: 'Análise Financeira', icon: 'fund', href: ROUTES.DFC, section: 'financeiro', module: MODULES.DFC },

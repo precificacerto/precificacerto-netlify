@@ -71,6 +71,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                 name: serviceData.name,
                 description: serviceData.description || '',
                 estimated_duration_minutes: serviceData.estimated_duration_minutes,
+                recurrence_days: serviceData.recurrence_days || undefined,
             })
 
             const existingItems: TempItem[] = (serviceData.service_items || []).map((si: any, i: number) => {
@@ -241,6 +242,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                 profit_percent: profitPercent,
                 taxable_regime_percent: taxableRegimePercent,
                 min_quantity: 0,
+                recurrence_days: v.recurrence_days != null && v.recurrence_days !== '' ? Number(v.recurrence_days) : null,
                 updated_at: new Date().toISOString(),
             }
 
@@ -396,6 +398,19 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                     </Form.Item>
                     <Form.Item name="description" label="Descrição">
                         <Input.TextArea rows={2} placeholder="Descrição do serviço (opcional)" />
+                    </Form.Item>
+                    <Form.Item
+                        name="recurrence_days"
+                        label={
+                            <span>
+                                Tempo de recorrência (dias)&nbsp;
+                                <Tooltip title="Opcional. Quantidade de dias para recorrência automática de contato com o cliente após a venda.">
+                                    <InfoCircleOutlined style={{ color: '#64748b' }} />
+                                </Tooltip>
+                            </span>
+                        }
+                    >
+                        <InputNumber min={1} step={1} style={{ width: '100%' }} placeholder="Ex: 30 (dias)" />
                     </Form.Item>
                 </Form>
             </div>

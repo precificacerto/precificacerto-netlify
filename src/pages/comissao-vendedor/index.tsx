@@ -9,6 +9,7 @@ import { getTenantId } from '@/utils/get-tenant-id'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import { exportCommissionToExcel } from '@/utils/export-commission-excel'
 import { exportCommissionToPdf } from '@/utils/export-commission-pdf'
+import { getEffectiveCommissionPercent } from '@/utils/get-effective-commission'
 import {
   FileExcelOutlined,
   FilePdfOutlined,
@@ -40,7 +41,7 @@ export default function CommissionPage() {
   const [selectedEmployee, setSelectedEmployee] = useState<string | undefined>(undefined)
   const [commissionData, setCommissionData] = useState<CommissionRow[]>([])
 
-  // Fetch employees with commission
+  // Fetch employees (all active — commission may come from employee or product/service)
   useEffect(() => {
     ;(async () => {
       const tenantId = await getTenantId()
@@ -50,8 +51,7 @@ export default function CommissionPage() {
         .select('id, name, commission_percent')
         .eq('status', 'ACTIVE')
         .eq('is_active', true)
-        .not('commission_percent', 'is', null)
-      setEmployees((emps || []).filter((e: any) => Number(e.commission_percent) > 0))
+      setEmployees((emps || []).map((e: any) => ({ id: e.id, name: e.name, commission_percent: Number(e.commission_percent) || 0 })))
     })()
   }, [])
 
@@ -72,81 +72,147 @@ export default function CommissionPage() {
           .select('id, name, commission_percent')
           .eq('status', 'ACTIVE')
           .eq('is_active', true)
-          .not('commission_percent', 'is', null)
 
-        const employeesWithCommission = (emps || []).filter((e: any) => Number(e.commission_percent) > 0)
+        const allEmployees = (emps || []).map((e: any) => ({
+          id: e.id,
+          name: e.name,
+          commission_percent: Number(e.commission_percent) || 0,
+        }))
 
-        if (employeesWithCommission.length === 0) {
+        if (allEmployees.length === 0) {
           if (!cancelled) setCommissionData([])
           return
         }
 
         const empMap = new Map(
-          employeesWithCommission.map((e: any) => [
+          allEmployees.map((e: any) => [
             e.id,
-            { name: e.name, commission_percent: Number(e.commission_percent) || 0, base_revenue: 0, commission_value: 0 },
+            { name: e.name, commission_percent: e.commission_percent, base_revenue: 0, commission_value: 0 },
           ]),
         )
 
-        // Completed services
+        // Completed services — fetch service_id to look up service commission
         const { data: services } = await supabase
           .from('completed_services')
-          .select('employee_id, total_revenue')
+          .select('employee_id, total_revenue, service_id')
           .eq('is_active', true)
           .gte('service_date', start)
           .lte('service_date', end)
+
+        // Get service commission_percent for effective commission lookup
+        const serviceIds = [...new Set((services || []).map((s: any) => s.service_id).filter(Boolean))]
+        let svcCommMap = new Map<string, number>()
+        if (serviceIds.length > 0) {
+          const { data: svcs } = await supabase.from('services').select('id, commission_percent').in('id', serviceIds)
+          svcCommMap = new Map((svcs || []).map((s: any) => [s.id, Number(s.commission_percent) || 0]))
+        }
 
         for (const s of services || []) {
           if (!s.employee_id) continue
           const emp = empMap.get(s.employee_id)
           if (!emp) continue
           const rev = Number(s.total_revenue) || 0
+          const svcComm = s.service_id ? (svcCommMap.get(s.service_id) || 0) : 0
+          const effectivePct = getEffectiveCommissionPercent(emp.commission_percent, svcComm)
+          if (effectivePct <= 0) continue
           emp.base_revenue += rev
-          emp.commission_value += rev * (emp.commission_percent / 100)
+          emp.commission_value += rev * (effectivePct / 100)
         }
 
-        // Sales via budgets
+        // Sales (both budget and counter sales with employee)
         const { data: sales } = await supabase
           .from('sales')
-          .select('id, final_value, budget_id')
+          .select('id, final_value, budget_id, employee_id')
           .eq('is_active', true)
           .gte('sale_date', start)
           .lte('sale_date', end)
-          .not('budget_id', 'is', null)
 
-        if (sales?.length) {
-          const budgetIds = [...new Set((sales as any[]).map(s => s.budget_id).filter(Boolean))]
+        // For budget sales, get employee from budget
+        const budgetSales = (sales || []).filter((s: any) => s.budget_id)
+        const directSales = (sales || []).filter((s: any) => !s.budget_id && s.employee_id)
+
+        if (budgetSales.length) {
+          const budgetIds = [...new Set(budgetSales.map((s: any) => s.budget_id).filter(Boolean))]
           const { data: budgets } = await supabase.from('budgets').select('id, employee_id').in('id', budgetIds)
           const budgetEmp = new Map((budgets || []).map((b: any) => [b.id, b.employee_id]))
-          const { data: empRows } = await supabase
-            .from('employees')
-            .select('id, commission_percent')
-            .in('id', [...new Set((budgets || []).map((b: any) => b.employee_id).filter(Boolean))])
-          const pctByEmp = new Map((empRows || []).map((e: any) => [e.id, Number(e.commission_percent) || 0]))
 
-          for (const sale of sales as any[]) {
+          // Get sale_items to look up product commission
+          const saleIds = budgetSales.map((s: any) => s.id)
+          const { data: saleItemRows } = await supabase.from('sale_items').select('sale_id, product_id').in('sale_id', saleIds)
+          const productIds = [...new Set((saleItemRows || []).map((si: any) => si.product_id).filter(Boolean))]
+          let prodCommMap = new Map<string, number>()
+          if (productIds.length > 0) {
+            const { data: prods } = await supabase.from('products').select('id, commission_percent').in('id', productIds)
+            prodCommMap = new Map((prods || []).map((p: any) => [p.id, Number(p.commission_percent) || 0]))
+          }
+          // Map sale_id → max product commission
+          const saleProdCommMap = new Map<string, number>()
+          for (const si of saleItemRows || []) {
+            const cur = saleProdCommMap.get(si.sale_id) || 0
+            const pComm = si.product_id ? (prodCommMap.get(si.product_id) || 0) : 0
+            if (pComm > cur) saleProdCommMap.set(si.sale_id, pComm)
+          }
+
+          for (const sale of budgetSales as any[]) {
             const empId = budgetEmp.get(sale.budget_id)
             if (!empId) continue
-            const pct = pctByEmp.get(empId) || 0
-            if (pct <= 0) continue
             const emp = empMap.get(empId)
             if (!emp) continue
+            const prodComm = saleProdCommMap.get(sale.id) || 0
+            const effectivePct = getEffectiveCommissionPercent(emp.commission_percent, prodComm)
+            if (effectivePct <= 0) continue
             const val = Number(sale.final_value) || 0
             emp.base_revenue += val
-            emp.commission_value += val * (pct / 100) / (1 + pct / 100)
+            emp.commission_value += val * (effectivePct / 100)
+          }
+        }
+
+        // Direct sales (counter sales with employee_id)
+        if (directSales.length) {
+          const saleIds = directSales.map((s: any) => s.id)
+          const { data: saleItemRows } = await supabase.from('sale_items').select('sale_id, product_id').in('sale_id', saleIds)
+          const productIds = [...new Set((saleItemRows || []).map((si: any) => si.product_id).filter(Boolean))]
+          let prodCommMap = new Map<string, number>()
+          if (productIds.length > 0) {
+            const { data: prods } = await supabase.from('products').select('id, commission_percent').in('id', productIds)
+            prodCommMap = new Map((prods || []).map((p: any) => [p.id, Number(p.commission_percent) || 0]))
+          }
+          const saleProdCommMap = new Map<string, number>()
+          for (const si of saleItemRows || []) {
+            const cur = saleProdCommMap.get(si.sale_id) || 0
+            const pComm = si.product_id ? (prodCommMap.get(si.product_id) || 0) : 0
+            if (pComm > cur) saleProdCommMap.set(si.sale_id, pComm)
+          }
+
+          for (const sale of directSales as any[]) {
+            const empId = sale.employee_id
+            if (!empId) continue
+            const emp = empMap.get(empId)
+            if (!emp) continue
+            const prodComm = saleProdCommMap.get(sale.id) || 0
+            const effectivePct = getEffectiveCommissionPercent(emp.commission_percent, prodComm)
+            if (effectivePct <= 0) continue
+            const val = Number(sale.final_value) || 0
+            emp.base_revenue += val
+            emp.commission_value += val * (effectivePct / 100)
           }
         }
 
         if (!cancelled) {
-          setCommissionData(
-            employeesWithCommission.map((e: any) => ({
+          // Only show employees that actually have commission data
+          const rows = allEmployees
+            .filter((e: any) => {
+              const emp = empMap.get(e.id)
+              return emp && (emp.base_revenue > 0 || emp.commission_percent > 0)
+            })
+            .map((e: any) => ({
               employee_id: e.id,
               name: e.name,
               commission_percent: empMap.get(e.id)?.commission_percent ?? 0,
               base_revenue: empMap.get(e.id)?.base_revenue ?? 0,
               commission_value: empMap.get(e.id)?.commission_value ?? 0,
-            })),
-          )
+            }))
+          setCommissionData(rows)
         }
       } catch {
         messageApi.error('Erro ao carregar comissões.')

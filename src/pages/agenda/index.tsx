@@ -129,9 +129,9 @@ function Schedule() {
             const [evR, cuR, emR, scR, svR, prR] = await Promise.all([
                 eventsQuery,
                 supabase.from('customers').select('id, name').eq('is_active', true).order('name'),
-                supabase.from('employees').select('id, name, position, status').eq('status', 'ACTIVE').eq('is_active', true).order('name'),
+                supabase.from('employees').select('id, name, position, status, commission_percent').eq('status', 'ACTIVE').eq('is_active', true).order('name'),
                 supabase.from('schedule_employees').select('employee_id').eq('tenant_id', tid),
-                supabase.from('services').select('id, name, base_price, estimated_duration_minutes').eq('status', 'ACTIVE').order('name'),
+                supabase.from('services').select('id, name, base_price, estimated_duration_minutes, commission_percent').eq('status', 'ACTIVE').order('name'),
                 supabase.from('products').select('id, name, sale_price').eq('status', 'ACTIVE').order('name'),
             ])
             setEvents(evR.data || [])

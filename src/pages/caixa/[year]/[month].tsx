@@ -314,7 +314,7 @@ function Cashier() {
     })
   }
 
-  function renderSummaryData(title: string, items: IPaymentRevenueTitleModel[]) {
+  function renderSummaryData(title: string, items: IPaymentRevenueTitleModel[], isExpense?: boolean) {
     let total = 0
     const data: DataItem[] = items.reduce((acc: DataItem[], current) => {
       const idx = acc.findIndex((item) => item.category === current.category)
@@ -335,12 +335,30 @@ function Cashier() {
           <div className="text-sm font-bold">Valor acumulado</div>
         </div>
         <ul className="list-none p-0 w-full">
-          {sortDataByCategory(data).map(({ category, accPrice }) => (
-            <li className="flex justify-between w-full py-1 border-t-0 border-l-0 border-r-0 border-b border-dotted" key={category}>
-              <span>{getCategoryName(category)}</span>
-              <span className="text-sm rounded-md px-1">{`R$ ${getMonetaryValue(accPrice)}`}</span>
-            </li>
-          ))}
+          {sortDataByCategory(data).map(({ category, accPrice }) => {
+            const categoryName = getCategoryName(category) || category
+            const groupLabel = isExpense
+              ? (() => {
+                  const entry = CASHIER_CATEGORY.EXPENSE[category as CASHIER_CATEGORY_EXPENSE_OBJECT]
+                  if (entry && 'group' in entry) {
+                    return getExpenseGroupLabel(entry.group)
+                  }
+                  return null
+                })()
+              : null
+
+            return (
+              <li className="flex justify-between w-full py-1 border-t-0 border-l-0 border-r-0 border-b border-dotted" key={category}>
+                <span>
+                  {categoryName}
+                  {groupLabel && (
+                    <span style={{ fontSize: 11, color: '#94a3b8', marginLeft: 6 }}>— {groupLabel}</span>
+                  )}
+                </span>
+                <span className="text-sm rounded-md px-1">{`R$ ${getMonetaryValue(accPrice)}`}</span>
+              </li>
+            )
+          })}
           <li className="flex justify-between w-full py-1 font-bold mt-1">
             <span>Total</span>
             <span style={{ fontSize: 12, backgroundColor: 'rgba(34, 197, 94, 0.18)', color: '#f1f5f9', borderRadius: 4, padding: '2px 6px' }}>{`R$ ${getMonetaryValue(total)}`}</span>
@@ -640,7 +658,7 @@ function Cashier() {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
           <div>{renderSummaryData('Receitas', incomeData)}</div>
           <div>
-            {renderSummaryData('Despesas', expenseData)}
+            {renderSummaryData('Despesas', expenseData, true)}
             {renderExpenseGroupSummary()}
           </div>
         </div>

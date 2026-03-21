@@ -30,6 +30,8 @@ interface ABCReportRow {
     totalCost: number
     profitMargin: number
     marginPercent: number
+    commissionPercent: number
+    commissionValue: number
     curve: 'A' | 'B' | 'C'
     employeeName: string
 }
@@ -43,6 +45,8 @@ interface ABCServiceRow {
     totalCost: number
     profitMargin: number
     marginPercent: number
+    commissionPercent: number
+    commissionValue: number
     curve: 'A' | 'B' | 'C'
     employeeName: string
 }
@@ -94,8 +98,8 @@ function SalesReport() {
         import('exceljs').then(({ Workbook }) => {
             const wb = new Workbook()
             const ws = wb.addWorksheet('Curva ABC Produtos')
-            ws.addRow(['#', 'Produto', 'Qtd. Vendida', 'Receita', 'Custo', 'Margem', 'Margem %', 'Curva', 'Vendedor'])
-            abcData.forEach(r => ws.addRow([r.position, r.productName, r.qtdSold, r.totalRevenue, r.totalCost, r.profitMargin, `${r.marginPercent.toFixed(1)}%`, r.curve, r.employeeName]))
+            ws.addRow(['#', 'Produto', 'Qtd. Vendida', 'Receita', 'Comissão %', 'Valor da Comissão', 'Curva', 'Vendedor'])
+            abcData.forEach(r => ws.addRow([r.position, r.productName, r.qtdSold, r.totalRevenue, `${r.commissionPercent.toFixed(1)}%`, r.commissionValue, r.curve, r.employeeName]))
             ws.getRow(1).font = { bold: true }
             wb.xlsx.writeBuffer().then(buf => {
                 const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
@@ -111,8 +115,8 @@ function SalesReport() {
         exportTableToPdf({
             title: 'Curva ABC - Produtos',
             subtitle: `Período: ${abcDateRange[0].format('DD/MM/YYYY')} a ${abcDateRange[1].format('DD/MM/YYYY')}`,
-            headers: ['#', 'Produto', 'Qtd.', 'Receita', 'Custo', 'Margem', '%', 'Curva', 'Vendedor'],
-            rows: abcData.map(r => [r.position, r.productName, r.qtdSold, formatCurrency(r.totalRevenue), formatCurrency(r.totalCost), formatCurrency(r.profitMargin), `${r.marginPercent.toFixed(1)}%`, r.curve, r.employeeName]),
+            headers: ['#', 'Produto', 'Qtd.', 'Receita', 'Comissão %', 'Valor Comissão', 'Curva', 'Vendedor'],
+            rows: abcData.map(r => [r.position, r.productName, r.qtdSold, formatCurrency(r.totalRevenue), `${r.commissionPercent.toFixed(1)}%`, formatCurrency(r.commissionValue), r.curve, r.employeeName]),
             filename: 'curva-abc-produtos.pdf',
         })
     }
@@ -122,8 +126,8 @@ function SalesReport() {
         exportTableToPdf({
             title: 'Curva ABC - Serviços',
             subtitle: `Período: ${svcDateRange[0].format('DD/MM/YYYY')} a ${svcDateRange[1].format('DD/MM/YYYY')}`,
-            headers: ['#', 'Serviço', 'Qtd.', 'Receita', 'Custo', 'Margem', '%', 'Curva', 'Profissional'],
-            rows: svcData.map(r => [r.position, r.serviceName, r.qtdSold, formatCurrency(r.totalRevenue), formatCurrency(r.totalCost), formatCurrency(r.profitMargin), `${r.marginPercent.toFixed(1)}%`, r.curve, r.employeeName]),
+            headers: ['#', 'Serviço', 'Qtd.', 'Receita', 'Comissão %', 'Valor Comissão', 'Curva', 'Profissional'],
+            rows: svcData.map(r => [r.position, r.serviceName, r.qtdSold, formatCurrency(r.totalRevenue), `${r.commissionPercent.toFixed(1)}%`, formatCurrency(r.commissionValue), r.curve, r.employeeName]),
             filename: 'curva-abc-servicos.pdf',
         })
     }
@@ -133,8 +137,8 @@ function SalesReport() {
         import('exceljs').then(({ Workbook }) => {
             const wb = new Workbook()
             const ws = wb.addWorksheet('Curva ABC Serviços')
-            ws.addRow(['#', 'Serviço', 'Qtd. Vendida', 'Receita', 'Custo', 'Margem', 'Margem %', 'Curva', 'Profissional'])
-            svcData.forEach(r => ws.addRow([r.position, r.serviceName, r.qtdSold, r.totalRevenue, r.totalCost, r.profitMargin, `${r.marginPercent.toFixed(1)}%`, r.curve, r.employeeName]))
+            ws.addRow(['#', 'Serviço', 'Qtd. Vendida', 'Receita', 'Comissão %', 'Valor da Comissão', 'Curva', 'Profissional'])
+            svcData.forEach(r => ws.addRow([r.position, r.serviceName, r.qtdSold, r.totalRevenue, `${r.commissionPercent.toFixed(1)}%`, r.commissionValue, r.curve, r.employeeName]))
             ws.getRow(1).font = { bold: true }
             wb.xlsx.writeBuffer().then(buf => {
                 const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
@@ -179,14 +183,25 @@ function SalesReport() {
             }
 
             const budgetIds = budgets.map((b: any) => b.id)
-            const employeeMap = new Map<string, string>()
+
+            // Build employee map with commission_percent
+            const employeeMap = new Map<string, { name: string; commissionPercent: number }>()
             budgets.forEach((b: any) => {
                 if (b.employee_id) {
                     const emp = (employees as any[]).find((e: any) => e.id === b.employee_id)
-                    employeeMap.set(b.id, emp?.name || 'Desconhecido')
+                    employeeMap.set(b.id, {
+                        name: emp?.name || 'Desconhecido',
+                        commissionPercent: Number(emp?.commission_percent) || 0,
+                    })
                 } else {
-                    employeeMap.set(b.id, 'Sem vendedor')
+                    employeeMap.set(b.id, { name: 'Sem vendedor', commissionPercent: 0 })
                 }
+            })
+
+            // Build budget -> employee_id map for per-seller splitting
+            const budgetToEmployeeId = new Map<string, string | null>()
+            budgets.forEach((b: any) => {
+                budgetToEmployeeId.set(b.id, b.employee_id || null)
             })
 
             let itemsQuery = supabase
@@ -201,6 +216,13 @@ function SalesReport() {
             const { data: items, error: itemsErr } = await itemsQuery
             if (itemsErr) throw itemsErr
 
+            // Determine if we need per-seller rows (when client is selected but no specific seller)
+            const hasSellerFilter = !!abcEmployeeFilter
+            const hasClientFilter = !!abcClientFilter
+
+            // Aggregate by product + employee when client filter is set (to show per-seller rows)
+            const shouldSplitBySeller = hasClientFilter && !hasSellerFilter
+
             const productAgg = new Map<string, {
                 productId: string
                 productName: string
@@ -208,6 +230,8 @@ function SalesReport() {
                 totalRevenue: number
                 totalCost: number
                 employees: Set<string>
+                commissionPercent: number
+                commissionValue: number
             }>()
 
             for (const item of (items || [])) {
@@ -222,22 +246,43 @@ function SalesReport() {
                 const costPerUnit = Number(product.cost_total) || 0
                 const totalCost = costPerUnit * qty
 
-                const existing = productAgg.get(productId)
-                const empName = employeeMap.get(item.budget_id) || 'Sem vendedor'
+                const empInfo = employeeMap.get(item.budget_id) || { name: 'Sem vendedor', commissionPercent: 0 }
+                const empName = empInfo.name
+                const empCommPct = empInfo.commissionPercent
 
+                // Calculate commission: only when a seller is selected or when splitting by seller for client filter
+                let commissionPct = 0
+                let commissionVal = 0
+                if (hasSellerFilter || shouldSplitBySeller) {
+                    commissionPct = empCommPct
+                    commissionVal = revenue * (empCommPct / 100)
+                }
+
+                const aggKey = shouldSplitBySeller
+                    ? `${productId}::${budgetToEmployeeId.get(item.budget_id) || 'none'}`
+                    : productId
+
+                const existing = productAgg.get(aggKey)
                 if (existing) {
                     existing.qtdSold += qty
                     existing.totalRevenue += revenue
                     existing.totalCost += totalCost
                     existing.employees.add(empName)
+                    existing.commissionValue += commissionVal
+                    // Use the commission percent of the seller (same seller for split rows)
+                    if (shouldSplitBySeller && commissionPct > 0) {
+                        existing.commissionPercent = commissionPct
+                    }
                 } else {
-                    productAgg.set(productId, {
+                    productAgg.set(aggKey, {
                         productId,
                         productName,
                         qtdSold: qty,
                         totalRevenue: revenue,
                         totalCost: totalCost,
                         employees: new Set([empName]),
+                        commissionPercent: commissionPct,
+                        commissionValue: commissionVal,
                     })
                 }
             }
@@ -265,6 +310,8 @@ function SalesReport() {
                     totalCost: p.totalCost,
                     profitMargin,
                     marginPercent,
+                    commissionPercent: p.commissionPercent,
+                    commissionValue: p.commissionValue,
                     curve,
                     employeeName: Array.from(p.employees).join(', '),
                 }
@@ -309,6 +356,10 @@ function SalesReport() {
                 return
             }
 
+            const hasSellerFilter = !!svcEmployeeFilter
+            const hasClientFilter = !!svcClientFilter
+            const shouldSplitBySeller = hasClientFilter && !hasSellerFilter
+
             // Aggregate by service_id (or service_name for unlinked services)
             const serviceAgg = new Map<string, {
                 serviceId: string
@@ -317,6 +368,8 @@ function SalesReport() {
                 totalRevenue: number
                 totalCost: number
                 employees: Set<string>
+                commissionPercent: number
+                commissionValue: number
             }>()
 
             for (const svc of services) {
@@ -325,24 +378,43 @@ function SalesReport() {
                 const revenue = Number(svc.total_revenue) || Number(svc.final_price) || 0
                 const cost = Number(svc.base_price) || 0
 
-                const empName = svc.employee_id
-                    ? ((employees as any[]).find((e: any) => e.id === svc.employee_id)?.name || 'Desconhecido')
-                    : 'Sem vendedor'
+                const emp = svc.employee_id
+                    ? (employees as any[]).find((e: any) => e.id === svc.employee_id)
+                    : null
+                const empName = emp?.name || (svc.employee_id ? 'Desconhecido' : 'Sem vendedor')
+                const empCommPct = Number(emp?.commission_percent) || 0
 
-                const existing = serviceAgg.get(serviceKey)
+                let commissionPct = 0
+                let commissionVal = 0
+                if (hasSellerFilter || shouldSplitBySeller) {
+                    commissionPct = empCommPct
+                    commissionVal = revenue * (empCommPct / 100)
+                }
+
+                const aggKey = shouldSplitBySeller
+                    ? `${serviceKey}::${svc.employee_id || 'none'}`
+                    : serviceKey
+
+                const existing = serviceAgg.get(aggKey)
                 if (existing) {
                     existing.qtdSold += 1
                     existing.totalRevenue += revenue
                     existing.totalCost += cost
                     existing.employees.add(empName)
+                    existing.commissionValue += commissionVal
+                    if (shouldSplitBySeller && commissionPct > 0) {
+                        existing.commissionPercent = commissionPct
+                    }
                 } else {
-                    serviceAgg.set(serviceKey, {
+                    serviceAgg.set(aggKey, {
                         serviceId: svc.service_id || svc.id,
                         serviceName,
                         qtdSold: 1,
                         totalRevenue: revenue,
                         totalCost: cost,
                         employees: new Set([empName]),
+                        commissionPercent: commissionPct,
+                        commissionValue: commissionVal,
                     })
                 }
             }
@@ -370,6 +442,8 @@ function SalesReport() {
                     totalCost: s.totalCost,
                     profitMargin,
                     marginPercent,
+                    commissionPercent: s.commissionPercent,
+                    commissionValue: s.commissionValue,
                     curve,
                     employeeName: Array.from(s.employees).join(', '),
                 }
@@ -443,37 +517,28 @@ function SalesReport() {
             render: (v: number) => <span style={{ color: '#4ade80', fontWeight: 600 }}>{formatCurrency(v)}</span>,
         },
         {
-            title: 'Custo Total',
-            dataIndex: 'totalCost',
-            key: 'totalCost',
-            width: 130,
+            title: 'Comissão %',
+            dataIndex: 'commissionPercent',
+            key: 'commissionPercent',
+            width: 110,
             align: 'right',
-            sorter: (a, b) => a.totalCost - b.totalCost,
-            render: (v: number) => formatCurrency(v),
-        },
-        {
-            title: 'Margem (R$)',
-            dataIndex: 'profitMargin',
-            key: 'profitMargin',
-            width: 130,
-            align: 'right',
-            sorter: (a, b) => a.profitMargin - b.profitMargin,
+            sorter: (a, b) => a.commissionPercent - b.commissionPercent,
             render: (v: number) => (
-                <span style={{ color: v >= 0 ? '#4ade80' : '#f87171', fontWeight: 600 }}>
-                    {formatCurrency(v)}
+                <span style={{ fontWeight: 600 }}>
+                    {v.toFixed(1)}%
                 </span>
             ),
         },
         {
-            title: 'Margem %',
-            dataIndex: 'marginPercent',
-            key: 'marginPercent',
-            width: 100,
+            title: 'Valor da Comissão',
+            dataIndex: 'commissionValue',
+            key: 'commissionValue',
+            width: 150,
             align: 'right',
-            sorter: (a, b) => a.marginPercent - b.marginPercent,
+            sorter: (a, b) => a.commissionValue - b.commissionValue,
             render: (v: number) => (
-                <span style={{ color: v >= 0 ? '#4ade80' : '#f87171', fontWeight: 600 }}>
-                    {v.toFixed(1)}%
+                <span style={{ color: v > 0 ? '#4ade80' : 'inherit', fontWeight: 600 }}>
+                    {formatCurrency(v)}
                 </span>
             ),
         },
@@ -539,37 +604,28 @@ function SalesReport() {
             render: (v: number) => <span style={{ color: '#4ade80', fontWeight: 600 }}>{formatCurrency(v)}</span>,
         },
         {
-            title: 'Custo Total',
-            dataIndex: 'totalCost',
-            key: 'totalCost',
-            width: 130,
+            title: 'Comissão %',
+            dataIndex: 'commissionPercent',
+            key: 'commissionPercent',
+            width: 110,
             align: 'right',
-            sorter: (a, b) => a.totalCost - b.totalCost,
-            render: (v: number) => formatCurrency(v),
-        },
-        {
-            title: 'Margem (R$)',
-            dataIndex: 'profitMargin',
-            key: 'profitMargin',
-            width: 130,
-            align: 'right',
-            sorter: (a, b) => a.profitMargin - b.profitMargin,
+            sorter: (a, b) => a.commissionPercent - b.commissionPercent,
             render: (v: number) => (
-                <span style={{ color: v >= 0 ? '#4ade80' : '#f87171', fontWeight: 600 }}>
-                    {formatCurrency(v)}
+                <span style={{ fontWeight: 600 }}>
+                    {v.toFixed(1)}%
                 </span>
             ),
         },
         {
-            title: 'Margem %',
-            dataIndex: 'marginPercent',
-            key: 'marginPercent',
-            width: 100,
+            title: 'Valor da Comissão',
+            dataIndex: 'commissionValue',
+            key: 'commissionValue',
+            width: 150,
             align: 'right',
-            sorter: (a, b) => a.marginPercent - b.marginPercent,
+            sorter: (a, b) => a.commissionValue - b.commissionValue,
             render: (v: number) => (
-                <span style={{ color: v >= 0 ? '#4ade80' : '#f87171', fontWeight: 600 }}>
-                    {v.toFixed(1)}%
+                <span style={{ color: v > 0 ? '#4ade80' : 'inherit', fontWeight: 600 }}>
+                    {formatCurrency(v)}
                 </span>
             ),
         },
@@ -613,9 +669,7 @@ function SalesReport() {
     const renderProductSummary = () => {
         if (abcData.length === 0) return null
         const totalRev = abcData.reduce((s, r) => s + r.totalRevenue, 0)
-        const totalCst = abcData.reduce((s, r) => s + r.totalCost, 0)
-        const totalProfit = totalRev - totalCst
-        const totalMargin = totalRev > 0 ? (totalProfit / totalRev) * 100 : 0
+        const totalCommission = abcData.reduce((s, r) => s + r.commissionValue, 0)
         return (
             <Table.Summary fixed>
                 <Table.Summary.Row style={{ fontWeight: 700 }}>
@@ -627,19 +681,14 @@ function SalesReport() {
                         <span style={{ color: '#4ade80' }}>{formatCurrency(totalRev)}</span>
                     </Table.Summary.Cell>
                     <Table.Summary.Cell index={4} align="right">
-                        {formatCurrency(totalCst)}
+                        —
                     </Table.Summary.Cell>
                     <Table.Summary.Cell index={5} align="right">
-                        <span style={{ color: totalProfit >= 0 ? '#4ade80' : '#f87171' }}>
-                            {formatCurrency(totalProfit)}
+                        <span style={{ color: totalCommission > 0 ? '#4ade80' : 'inherit' }}>
+                            {formatCurrency(totalCommission)}
                         </span>
                     </Table.Summary.Cell>
-                    <Table.Summary.Cell index={6} align="right">
-                        <span style={{ color: totalMargin >= 0 ? '#4ade80' : '#f87171' }}>
-                            {totalMargin.toFixed(1)}%
-                        </span>
-                    </Table.Summary.Cell>
-                    <Table.Summary.Cell index={7} colSpan={2} />
+                    <Table.Summary.Cell index={6} colSpan={2} />
                 </Table.Summary.Row>
             </Table.Summary>
         )
@@ -649,9 +698,7 @@ function SalesReport() {
     const renderServiceSummary = () => {
         if (svcData.length === 0) return null
         const totalRev = svcData.reduce((s, r) => s + r.totalRevenue, 0)
-        const totalCst = svcData.reduce((s, r) => s + r.totalCost, 0)
-        const totalProfit = totalRev - totalCst
-        const totalMargin = totalRev > 0 ? (totalProfit / totalRev) * 100 : 0
+        const totalCommission = svcData.reduce((s, r) => s + r.commissionValue, 0)
         return (
             <Table.Summary fixed>
                 <Table.Summary.Row style={{ fontWeight: 700 }}>
@@ -663,19 +710,14 @@ function SalesReport() {
                         <span style={{ color: '#4ade80' }}>{formatCurrency(totalRev)}</span>
                     </Table.Summary.Cell>
                     <Table.Summary.Cell index={4} align="right">
-                        {formatCurrency(totalCst)}
+                        —
                     </Table.Summary.Cell>
                     <Table.Summary.Cell index={5} align="right">
-                        <span style={{ color: totalProfit >= 0 ? '#4ade80' : '#f87171' }}>
-                            {formatCurrency(totalProfit)}
+                        <span style={{ color: totalCommission > 0 ? '#4ade80' : 'inherit' }}>
+                            {formatCurrency(totalCommission)}
                         </span>
                     </Table.Summary.Cell>
-                    <Table.Summary.Cell index={6} align="right">
-                        <span style={{ color: totalMargin >= 0 ? '#4ade80' : '#f87171' }}>
-                            {totalMargin.toFixed(1)}%
-                        </span>
-                    </Table.Summary.Cell>
-                    <Table.Summary.Cell index={7} colSpan={2} />
+                    <Table.Summary.Cell index={6} colSpan={2} />
                 </Table.Summary.Row>
             </Table.Summary>
         )
@@ -799,7 +841,7 @@ function SalesReport() {
                         <Table<ABCReportRow>
                             columns={abcColumns}
                             dataSource={abcData}
-                            rowKey="productId"
+                            rowKey={(r) => `${r.productId}-${r.employeeName}`}
                             pagination={{ pageSize: 20, showTotal: (t) => `${t} produtos` }}
                             size="middle"
                             loading={abcLoading}
@@ -891,7 +933,7 @@ function SalesReport() {
                         <Table<ABCServiceRow>
                             columns={svcColumns}
                             dataSource={svcData}
-                            rowKey="serviceId"
+                            rowKey={(r) => `${r.serviceId}-${r.employeeName}`}
                             pagination={{ pageSize: 20, showTotal: (t) => `${t} serviços` }}
                             size="middle"
                             loading={svcLoading}

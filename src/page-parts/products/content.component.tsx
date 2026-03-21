@@ -148,7 +148,7 @@ export const Content: FC<ContentProps> = ({
   const [buyerType, setBuyerType] = useState<'CONSUMIDOR_FINAL' | 'CONTRIBUINTE_PJ'>('CONSUMIDOR_FINAL')
   const [destinationState, setDestinationState] = useState<string | null>(null)
   const [customTaxPercent, setCustomTaxPercent] = useState<number | null>(
-    (product as any)?.custom_tax_percent != null ? Number((product as any).custom_tax_percent) : null
+    product?.custom_tax_percent != null ? Number(product.custom_tax_percent) : null
   )
 
   const [ncmSuggestions, setNcmSuggestions] = useState<{ code: string; description: string }[]>([])
@@ -274,8 +274,8 @@ export const Content: FC<ContentProps> = ({
       } as ProductPriceInfoType)
       setUpdatedProductPriceInfoWithApi((prev) => prev + 1)
       // Load custom_tax_percent from product if editing
-      if ((product as any)?.custom_tax_percent != null) {
-        setCustomTaxPercent(Number((product as any).custom_tax_percent))
+      if (product?.custom_tax_percent != null) {
+        setCustomTaxPercent(Number(product.custom_tax_percent))
       }
     }
   }, [productForm, isEditingMode, product])
@@ -312,7 +312,10 @@ export const Content: FC<ContentProps> = ({
     const monthlyWorkloadMinutes = totalEmployees * hoursPerMonthSafe * 60
 
     // Estrutura para o motor: fixo + variável + financeiro + MO administrativa (%)
-    const structurePctForEngine = (calcBase.structurePct + (Number(calcBase.indirectLaborPct) || 0)) / 100
+    // SERVICE + REVENDA: excluir MO administrativa e despesas fixas do coeficiente
+    const structurePctForEngine = isCalcService
+      ? (calcBase.variableExpensePct + calcBase.financialExpensePct) / 100
+      : (calcBase.structurePct + (Number(calcBase.indirectLaborPct) || 0)) / 100
     const effectiveTaxPct = customTaxPercent != null ? customTaxPercent : calcBase.taxPct
     const taxPctDecimal = effectiveTaxPct / 100
 
@@ -516,7 +519,10 @@ export const Content: FC<ContentProps> = ({
       const monthlyWorkloadMinutes = totalEmployees * hoursPerMonthSafe * 60
       const effectiveTaxPctSave = customTaxPercent != null ? customTaxPercent : calcBase.taxPct
       const taxPctDecimal = effectiveTaxPctSave / 100
-      const structurePctForEngine = (calcBase.structurePct + (Number(calcBase.indirectLaborPct) || 0)) / 100
+      // SERVICE + REVENDA: excluir MO administrativa e despesas fixas do coeficiente
+      const structurePctForEngine = isCalcService
+        ? (calcBase.variableExpensePct + calcBase.financialExpensePct) / 100
+        : (calcBase.structurePct + (Number(calcBase.indirectLaborPct) || 0)) / 100
       const engineResult = calculatePricing({
         calcType: currentUser?.calcType === CALC_TYPE_ENUM.INDUSTRIALIZATION ? 'INDUSTRIALIZACAO'
           : currentUser?.calcType === CALC_TYPE_ENUM.RESALE ? 'REVENDA'
@@ -591,6 +597,7 @@ export const Content: FC<ContentProps> = ({
         nbs_code: values.nbs_code || null,
         max_discount_percent: values.max_discount_percent != null && values.max_discount_percent !== '' ? Number(values.max_discount_percent) : null,
         custom_tax_percent: customTaxPercent != null ? customTaxPercent : null,
+        recurrence_days: values.recurrence_days != null && values.recurrence_days !== '' ? Number(values.recurrence_days) : null,
         updated_at: new Date().toISOString(),
       }
 
@@ -927,7 +934,7 @@ export const Content: FC<ContentProps> = ({
             <strong style={{ fontSize: 14 }}>Tipo do produto:</strong>
             <span style={{
               background: '#FFF7E6', border: '1px solid #FFD591', borderRadius: 6,
-              padding: '4px 14px', fontWeight: 600, fontSize: 13,
+              padding: '4px 14px', fontWeight: 600, fontSize: 13, color: '#000000',
             }}>📦 Revenda (produto acabado)</span>
           </div>
         ) : isCalcTypeService ? (
@@ -1078,6 +1085,20 @@ export const Content: FC<ContentProps> = ({
               tooltip="Limite máximo de desconto permitido para este produto em orçamentos/vendas. Deixe vazio para sem limite."
             >
               <InputNumber min={0} max={100} step={1} style={{ width: '100%' }} placeholder="Ex: 10" addonAfter="%" />
+            </Form.Item>
+
+            <Form.Item
+              name="recurrence_days"
+              label={
+                <span>
+                  Tempo de recorrência (dias)&nbsp;
+                  <Tooltip title="Opcional. Quantidade de dias para recorrência automática de contato com o cliente após a venda.">
+                    <InfoCircleOutlined style={{ color: '#64748b' }} />
+                  </Tooltip>
+                </span>
+              }
+            >
+              <InputNumber min={1} step={1} style={{ width: '100%' }} placeholder="Ex: 30 (dias)" />
             </Form.Item>
           </div>
         </Form>
@@ -1249,8 +1270,8 @@ export const Content: FC<ContentProps> = ({
         />
       )}
       {productType === 'REVENDA' && isCalcTypeService && (
-        /* SERVICE segmentation: REVENDA uses the industrialization form (items, recipe, workload) */
-        <ContentIndustrialization
+        /* SERVICE segmentation: REVENDA hides mão de obra produtiva — uses resale form */
+        <ContentResale
           itemsForm={itemsForm}
           handleClickAddItem={handleClickAddItem}
           filterOption={filterOption}

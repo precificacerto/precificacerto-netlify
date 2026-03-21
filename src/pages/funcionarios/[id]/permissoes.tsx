@@ -28,6 +28,7 @@ const MODULE_LABELS: Record<string, string> = {
   agenda: 'Agenda',
   services: 'Serviços',
   connectivity: 'Conectividade',
+  recurrence: 'Recorrência',
 }
 
 type PermissionRow = {

@@ -20,6 +20,7 @@ export const MODULES = {
   COMMISSION:       'commission',
   USERS_MANAGEMENT: 'users_management',
   SALES_REPORT:     'sales_report',
+  RECURRENCE:       'recurrence',
 } as const
 
 export type ModuleKey = typeof MODULES[keyof typeof MODULES]

@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Input, Form, Select, FormInstance, DatePicker, Button } from 'antd'
 import { currencyDotMask } from '@/utils/currency-mask'
 import {
@@ -20,6 +21,7 @@ type Props = {
 const dateFormat = 'DD/MM/YYYY'
 
 const NewPaymentRevenueForm = ({ form, year, month, type, onClickDelete }: Props) => {
+  const [groupAutoSet, setGroupAutoSet] = useState(false)
   const handleChangePrice = (value: string) => form.setFieldsValue({ price: currencyDotMask(value) })
   const monthNumber = Object.values(monthObjects).find(
     (monthObj) => monthObj.short.toUpperCase() === month
@@ -49,6 +51,9 @@ const NewPaymentRevenueForm = ({ form, year, month, type, onClickDelete }: Props
       const defaultGroup = getDefaultGroupForCategory(categoryKey)
       if (defaultGroup) {
         form.setFieldsValue({ expense_group: defaultGroup })
+        setGroupAutoSet(true)
+      } else {
+        setGroupAutoSet(false)
       }
     }
   }
@@ -63,7 +68,7 @@ const NewPaymentRevenueForm = ({ form, year, month, type, onClickDelete }: Props
         </Form.Item>
 
         <Form.Item name="category" label="Categoria" rules={[{ required: true }]}>
-          <Select showSearch filterOption onChange={handleCategoryChange}>
+          <Select showSearch filterOption onChange={handleCategoryChange} listHeight={320}>
             {Object.values(CASHIER_CATEGORY[type]).map(({ value, key }) => (
               <Select.Option key={key} value={key}>
                 {value}
@@ -81,7 +86,7 @@ const NewPaymentRevenueForm = ({ form, year, month, type, onClickDelete }: Props
             <Select
               placeholder="Selecione o tipo"
               options={EXPENSE_GROUP_OPTIONS}
-              allowClear
+              disabled={groupAutoSet}
             />
           </Form.Item>
         )}

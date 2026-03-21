@@ -18,9 +18,8 @@ import { fetchTaxPreview } from '@/utils/calc-tax-preview'
 import { computeServiceSellingPrice } from '@/utils/compute-service-price'
 
 const ITEM_TYPE_LABELS: Record<string, { label: string; color: string }> = {
-  INSUMO: { label: '🧪 Insumo', color: 'blue' },
+  INSUMO: { label: '🧪 Insumos para beneficiamento', color: 'blue' },
   REVENDA: { label: '📦 Revenda', color: 'orange' },
-  EMBALAGEM: { label: '🎁 Embalagem', color: 'green' },
 }
 
 type ItemRow = {
@@ -277,7 +276,7 @@ function Items() {
       ncm_code: record.ncm_code ? ncmMask(record.ncm_code) : '',
       quantity: record.quantity,
       unitType: record.unitType,
-      price: record.price.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+      price: record.cost_per_base_unit.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
       has_st: record.has_st,
       is_monofasico: record.is_monofasico,
       supplier_name: record.supplier_name,
@@ -698,7 +697,8 @@ function Items() {
       )
 
       const qty = Number(values.quantity) || 1
-      const costPerBaseUnit = qty > 0 ? priceNumber / qty : 0
+      const costPerBaseUnit = priceNumber
+      const totalCost = priceNumber * qty
 
       const itemData = {
         tenant_id: tenantId,
@@ -708,7 +708,7 @@ function Items() {
         ncm_code: values.ncm_code ? values.ncm_code.replace(/\D/g, '') : null,
         quantity: qty,
         unit: values.unitType,
-        cost_price: priceNumber,
+        cost_price: totalCost,
         cost_per_base_unit: costPerBaseUnit,
         has_st: values.has_st || false,
         is_monofasico: values.is_monofasico || false,
@@ -891,9 +891,8 @@ function Items() {
       key: 'item_type',
       width: 130,
       filters: [
-        { text: 'Insumo', value: 'INSUMO' },
+        { text: 'Insumos para beneficiamento', value: 'INSUMO' },
         { text: 'Revenda', value: 'REVENDA' },
-        { text: 'Embalagem', value: 'EMBALAGEM' },
       ],
       onFilter: (value, record) => record.item_type === value,
       render: (v: string) => {

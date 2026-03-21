@@ -87,7 +87,11 @@ Deno.serve(async (req: Request) => {
 
     const calcType: CalcType = (ts.calc_type || "INDUSTRIALIZACAO") as CalcType
     const isRevenda = calcType === "REVENDA"
-    const structureDisplay = indirectLabor + fixed + variable + financial + (isRevenda ? laborPct : 0)
+    const isService = calcType === "SERVICO"
+    // SERVICE segment REVENDA products: exclude MO administrativa (indirectLabor) and despesas fixas (fixed)
+    const structureDisplay = isService
+      ? variable + financial
+      : indirectLabor + fixed + variable + financial + (isRevenda ? laborPct : 0)
 
     // --- Normalize workload to minutes ----------------------------------------
     const workloadUnit: string = ts.workload_unit || "HOURS"

@@ -477,8 +477,8 @@ function Home() {
             color: '#98A2B3',
             callback: function (value: number | string) {
               if (typeof value === 'number') {
-                if (value >= 1000) return `R$ ${(value / 1000).toFixed(0)}k`
-                return `R$ ${value}`
+                if (value >= 1000) return `R$ ${(value / 1000).toFixed(1).replace('.', ',')}k`
+                return `R$ ${value.toLocaleString('pt-BR', { minimumFractionDigits: 0 })}`
               }
               return value
             },

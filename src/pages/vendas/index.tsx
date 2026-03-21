@@ -14,10 +14,13 @@ import {
     ShoppingCartOutlined, DollarOutlined, RiseOutlined, PlusOutlined,
     SearchOutlined, CheckCircleOutlined, DeleteOutlined, CreditCardOutlined,
     ShopOutlined, FileTextOutlined, UploadOutlined, PaperClipOutlined,
+    DownloadOutlined, ToolOutlined,
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import { formatCurrencyInput, parseCurrencyInput } from '@/utils/get-monetary-value'
+import { ExportFormatModal } from '@/components/ui/export-format-modal.component'
+import { exportTableToPdf } from '@/utils/export-generic-pdf'
 
 const PAYMENT_METHODS = [
     { value: 'PIX', label: '⚡ PIX' },
@@ -35,6 +38,7 @@ interface SaleRow {
     unitPrice: number
     finalValue: number
     customerName: string
+    sellerName: string
     description: string
     saleDate: string
     status: string
@@ -47,6 +51,7 @@ interface SaleRow {
 interface SaleItemRow {
     key: string
     product_id: string
+    service_id?: string
     product_name: string
     quantity: number
     unit_price: number
@@ -54,6 +59,8 @@ interface SaleItemRow {
     total: number
     /** true = item manual (nome/valor digitados), false = produto do catálogo */
     is_manual?: boolean
+    /** true = item de servico do catalogo */
+    is_service?: boolean
 }
 
 function formatCurrency(v: number): string {
@@ -72,6 +79,8 @@ function Sales() {
     const [sales, setSales] = useState<SaleRow[]>([])
     const [products, setProducts] = useState<any[]>([])
     const [customers, setCustomers] = useState<any[]>([])
+    const [employees, setEmployees] = useState<any[]>([])
+    const [services, setServices] = useState<any[]>([])
     const [loading, setLoading] = useState(false)
     const [drawerOpen, setDrawerOpen] = useState(false)
     const [detailDrawerOpen, setDetailDrawerOpen] = useState(false)
@@ -87,6 +96,7 @@ function Sales() {
     const [selectedBudget, setSelectedBudget] = useState<PendingBudget | null>(null)
     const [registerForm] = Form.useForm()
     const [registerSaving, setRegisterSaving] = useState(false)
+    const [exportModalOpen, setExportModalOpen] = useState(false)
 
     const [receiptFile, setReceiptFile] = useState<UploadFile[]>([])
     const [registerReceiptFile, setRegisterReceiptFile] = useState<UploadFile[]>([])
@@ -115,10 +125,12 @@ function Sales() {
     const fetchData = async () => {
         setLoading(true)
         try {
-            const [{ data: salesData }, { data: prods }, { data: custs }] = await Promise.all([
-                supabase.from('sales').select('*, products(name), customers(name)').eq('is_active', true).order('sale_date', { ascending: false }),
-                supabase.from('products').select('id, name, sale_price').order('name'),
+            const [{ data: salesData }, { data: prods }, { data: custs }, { data: emps }, { data: svcs }] = await Promise.all([
+                supabase.from('sales').select('*, products(name), customers(name), employees(name)').eq('is_active', true).order('sale_date', { ascending: false }),
+                supabase.from('products').select('id, name, sale_price, recurrence_days').order('name'),
                 supabase.from('customers').select('id, name').eq('is_active', true).order('name'),
+                supabase.from('employees').select('id, name, commission_percent').eq('is_active', true).order('name'),
+                supabase.from('services').select('id, name, base_price, commission_percent, recurrence_days').eq('status', 'ACTIVE').order('name'),
             ])
 
             const rows: SaleRow[] = (salesData || []).map((s: any) => ({
@@ -128,6 +140,7 @@ function Sales() {
                 unitPrice: s.unit_price || s.final_value || 0,
                 finalValue: s.final_value || 0,
                 customerName: s.customers?.name || '-',
+                sellerName: s.employees?.name || '-',
                 description: s.description || '',
                 saleDate: s.sale_date,
                 status: s.status || 'COMPLETED',
@@ -139,6 +152,8 @@ function Sales() {
             setSales(rows)
             setProducts(prods || [])
             setCustomers(custs || [])
+            setEmployees(emps || [])
+            setServices(svcs || [])
         } catch (error: any) {
             messageApi.error('Erro ao carregar vendas: ' + (error.message || 'Erro'))
         } finally {
@@ -190,7 +205,7 @@ function Sales() {
             const createdBy = await getCurrentUserId()
             if (!createdBy) { messageApi.error('Sessão inválida. Faça login novamente.'); setRegisterSaving(false); return }
 
-            const { data: budgetCheck } = await supabase.from('budgets').select('id, status').eq('id', selectedBudget.id).single()
+            const { data: budgetCheck } = await supabase.from('budgets').select('id, status, employee_id').eq('id', selectedBudget.id).single()
             if (budgetCheck?.status === 'PAID') {
                 messageApi.warning('Este orçamento já foi finalizado por outra pessoa. Atualize a lista.')
                 setRegisterModalOpen(false)
@@ -203,6 +218,7 @@ function Sales() {
                 tenant_id: tenantId,
                 created_by: createdBy,
                 budget_id: selectedBudget.id,
+                employee_id: budgetCheck?.employee_id || null,
                 quantity: 1,
                 unit_price: selectedBudget.total_value,
                 final_value: selectedBudget.total_value,
@@ -351,6 +367,7 @@ function Sales() {
     const filteredSales = sales.filter(s =>
         s.productName.toLowerCase().includes(searchText.toLowerCase()) ||
         s.customerName.toLowerCase().includes(searchText.toLowerCase()) ||
+        s.sellerName.toLowerCase().includes(searchText.toLowerCase()) ||
         s.description.toLowerCase().includes(searchText.toLowerCase())
     )
 
@@ -379,6 +396,33 @@ function Sales() {
             total: 0,
             is_manual: true,
         }])
+    }
+
+    const handleAddService = () => {
+        setSaleItems(prev => [...prev, {
+            key: Date.now().toString(),
+            product_id: '',
+            service_id: '',
+            product_name: '',
+            quantity: 1,
+            unit_price: 0,
+            discount: 0,
+            total: 0,
+            is_service: true,
+        }])
+    }
+
+    const handleServiceSelect = (key: string, serviceId: string) => {
+        const svc = services.find((s: any) => s.id === serviceId)
+        setSaleItems(prev => prev.map(item =>
+            item.key === key ? {
+                ...item,
+                service_id: serviceId,
+                product_name: svc?.name || '',
+                unit_price: svc?.base_price || 0,
+                total: (svc?.base_price || 0) * item.quantity - item.discount,
+            } : item
+        ))
     }
 
     const handleManualItemNameChange = (key: string, productName: string) => {
@@ -419,7 +463,7 @@ function Sales() {
                 messageApi.warning('Adicione pelo menos um produto ou item manual!')
                 return
             }
-            const invalidItems = saleItems.filter(i => !i.product_id && !(i.is_manual && (i.product_name || '').trim()))
+            const invalidItems = saleItems.filter(i => !i.product_id && !i.service_id && !(i.is_manual && (i.product_name || '').trim()))
             if (invalidItems.length > 0) {
                 messageApi.warning('Preencha o produto ou o nome do item manual em todos os itens.')
                 return
@@ -441,6 +485,7 @@ function Sales() {
                 tenant_id: tenantId,
                 created_by: createdBy,
                 customer_id: values.customer_id || null,
+                employee_id: values.employee_id || null,
                 quantity: saleItems.reduce((s, i) => s + i.quantity, 0),
                 unit_price: saleTotal,
                 final_value: saleTotal,
@@ -454,13 +499,22 @@ function Sales() {
 
             if (saleErr) throw saleErr
 
-            // 2) Salvar itens da venda (catálogo + manuais)
-            const catalogItems = saleItems.filter(i => i.product_id).map(i => ({
+            // 2) Salvar itens da venda (catálogo + manuais + serviços)
+            const catalogItems = saleItems.filter(i => i.product_id && !i.is_service).map(i => ({
                 sale_id: sale.id,
                 product_id: i.product_id,
                 quantity: i.quantity,
                 unit_price: i.unit_price,
                 discount: i.discount ?? 0,
+            }))
+            const serviceItems = saleItems.filter(i => i.is_service && i.service_id).map(i => ({
+                sale_id: sale.id,
+                product_id: null,
+                service_id: i.service_id,
+                quantity: i.quantity,
+                unit_price: i.unit_price,
+                discount: i.discount ?? 0,
+                description: (i.product_name || '').trim(),
             }))
             const manualItems = saleItems.filter(i => i.is_manual && (i.product_name || '').trim()).map(i => ({
                 sale_id: sale.id,
@@ -470,7 +524,7 @@ function Sales() {
                 discount: i.discount ?? 0,
                 description: (i.product_name || '').trim(),
             }))
-            const allItems = [...catalogItems, ...manualItems]
+            const allItems = [...catalogItems, ...serviceItems, ...manualItems]
             if (allItems.length > 0) {
                 await supabase.from('sale_items').insert(allItems)
             }
@@ -560,6 +614,51 @@ function Sales() {
                 })
             }
 
+            // 6) Criar registros de recorrência para produtos/serviços com recurrence_days
+            for (const item of saleItems) {
+                let recDays = 0
+                let recType: 'PRODUCT' | 'SERVICE' = 'PRODUCT'
+
+                if (item.product_id && !item.is_manual && !item.is_service) {
+                    const prod = products.find((p: any) => p.id === item.product_id)
+                    recDays = prod?.recurrence_days || 0
+                    recType = 'PRODUCT'
+                } else if (item.is_service && item.service_id) {
+                    const svc = services.find((s: any) => s.id === item.service_id)
+                    recDays = svc?.recurrence_days || 0
+                    recType = 'SERVICE'
+                }
+
+                if (recDays > 0 && values.customer_id) {
+                    const saleDate = values.sale_date ? values.sale_date.format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD')
+                    const dispatchDate = dayjs(saleDate).add(recDays, 'day').format('YYYY-MM-DD')
+
+                    const { data: recRecord } = await supabase.from('recurrence_records').insert({
+                        tenant_id: tenantId,
+                        product_id: recType === 'PRODUCT' ? item.product_id : null,
+                        service_id: recType === 'SERVICE' ? item.service_id : null,
+                        customer_id: values.customer_id,
+                        employee_id: values.employee_id || null,
+                        sale_id: sale.id,
+                        sale_date: saleDate,
+                        dispatch_date: dispatchDate,
+                        recurrence_days: recDays,
+                        amount: item.unit_price * item.quantity,
+                        type: recType,
+                        created_by: createdBy,
+                    }).select('id').single()
+
+                    if (recRecord) {
+                        await supabase.from('recurrence_dispatch_queue').insert({
+                            tenant_id: tenantId,
+                            recurrence_record_id: recRecord.id,
+                            scheduled_at: `${dispatchDate}T12:00:00-03:00`,
+                            user_id: createdBy,
+                        })
+                    }
+                }
+            }
+
             messageApi.success('Venda registrada! Estoque atualizado e receita lançada no caixa.')
             await fetchData()
             setDrawerOpen(false)
@@ -581,7 +680,7 @@ function Sales() {
         setReceiptSignedUrl(null)
         const { data: items } = await supabase
             .from('sale_items')
-            .select('*, products(name)')
+            .select('*, products(name), services(name)')
             .eq('sale_id', record.id)
         setDetailItems(items || [])
         if (record.receiptUrl) {
@@ -608,6 +707,74 @@ function Sales() {
         }
     }
 
+    // ── Export functions ──
+    const handleExportExcel = async (startDate?: string, endDate?: string) => {
+        const filtered = startDate && endDate
+            ? sales.filter(s => {
+                const d = new Date(s.saleDate)
+                return d >= new Date(startDate) && d <= new Date(endDate)
+            })
+            : sales
+        if (!filtered.length) { messageApi.warning('Nenhuma venda no período selecionado.'); return }
+        const { Workbook } = await import('exceljs')
+        const wb = new Workbook()
+        const ws = wb.addWorksheet('Vendas')
+        ws.addRow(['Produto(s)', 'Cliente', 'Vendedor', 'Valor', 'Pagamento', 'Parcelas', 'Data', 'Tipo'])
+        filtered.forEach(r => {
+            const pm = PAYMENT_METHODS.find(p => p.value === r.paymentMethod)
+            ws.addRow([
+                r.productName,
+                r.customerName,
+                r.sellerName,
+                r.finalValue,
+                pm?.label || r.paymentMethod,
+                r.installments > 1 ? `${r.installments}x` : '1x',
+                r.saleDate ? new Date(r.saleDate).toLocaleDateString('pt-BR') : '-',
+                r.saleType === 'FROM_BUDGET' ? 'Via orçamento' : 'Balcão',
+            ])
+        })
+        ws.getRow(1).font = { bold: true }
+        ws.getColumn(4).numFmt = '#,##0.00'
+        const buf = await wb.xlsx.writeBuffer()
+        const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url; a.download = 'vendas.xlsx'; a.click()
+        URL.revokeObjectURL(url)
+    }
+
+    const handleExportPdf = (startDate?: string, endDate?: string) => {
+        const filtered = startDate && endDate
+            ? sales.filter(s => {
+                const d = new Date(s.saleDate)
+                return d >= new Date(startDate) && d <= new Date(endDate)
+            })
+            : sales
+        if (!filtered.length) { messageApi.warning('Nenhuma venda no período selecionado.'); return }
+        const rows = filtered.map(r => {
+            const pm = PAYMENT_METHODS.find(p => p.value === r.paymentMethod)
+            return [
+                r.productName,
+                r.customerName,
+                r.sellerName,
+                formatCurrency(r.finalValue),
+                pm?.label || r.paymentMethod,
+                r.installments > 1 ? `${r.installments}x` : '1x',
+                r.saleDate ? new Date(r.saleDate).toLocaleDateString('pt-BR') : '-',
+                r.saleType === 'FROM_BUDGET' ? 'Via orçamento' : 'Balcão',
+            ]
+        })
+        exportTableToPdf({
+            title: 'Relatório de Vendas',
+            subtitle: startDate && endDate
+                ? `Período: ${new Date(startDate).toLocaleDateString('pt-BR')} a ${new Date(endDate).toLocaleDateString('pt-BR')}`
+                : 'Todas as vendas',
+            headers: ['Produto(s)', 'Cliente', 'Vendedor', 'Valor', 'Pagamento', 'Parcelas', 'Data', 'Tipo'],
+            rows,
+            filename: 'vendas.pdf',
+        })
+    }
+
     const columns: ColumnsType<SaleRow> = [
         {
             title: 'Produto(s)',
@@ -627,6 +794,12 @@ function Sales() {
             title: 'Cliente',
             dataIndex: 'customerName',
             key: 'customerName',
+        },
+        {
+            title: 'Vendedor',
+            dataIndex: 'sellerName',
+            key: 'sellerName',
+            render: (text: string) => text && text !== '-' ? text : <span style={{ color: '#94a3b8' }}>Sem vendedor</span>,
         },
         {
             title: 'Valor',
@@ -675,7 +848,7 @@ function Sales() {
 
     const itemColumns: ColumnsType<SaleItemRow> = [
         {
-            title: 'Produto',
+            title: 'Produto / Serviço',
             key: 'product',
             render: (_, r) => r.is_manual ? (
                 <Input
@@ -684,6 +857,13 @@ function Sales() {
                     onChange={(e) => handleManualItemNameChange(r.key, e.target.value)}
                     style={{ width: '100%' }}
                 />
+            ) : r.is_service ? (
+                <Select placeholder="Selecione o serviço" showSearch optionFilterProp="children" style={{ width: '100%' }}
+                    value={r.service_id || undefined} onChange={(v) => handleServiceSelect(r.key, v)}>
+                    {services.map((s: any) => (
+                        <Select.Option key={s.id} value={s.id}>{s.name}</Select.Option>
+                    ))}
+                </Select>
             ) : (
                 <Select placeholder="Selecione" showSearch optionFilterProp="children" style={{ width: '100%' }}
                     value={r.product_id || undefined} onChange={(v) => handleProductSelect(r.key, v)}>
@@ -784,7 +964,7 @@ function Sales() {
             <div className="pc-card--table">
                 <div className="filter-bar">
                     <Input
-                        placeholder="Buscar por produto, cliente..."
+                        placeholder="Buscar por produto, cliente, vendedor..."
                         prefix={<SearchOutlined />}
                         value={searchText}
                         onChange={(e) => setSearchText(e.target.value)}
@@ -792,6 +972,9 @@ function Sales() {
                         allowClear
                     />
                     <div style={{ flex: 1 }} />
+                    <Button icon={<DownloadOutlined />} onClick={() => setExportModalOpen(true)}>
+                        Exportar
+                    </Button>
                     <Button type="primary" icon={<ShopOutlined />} onClick={() => { form.resetFields(); setSaleItems([]); setDrawerOpen(true) }}>
                         Venda no Balcão
                     </Button>
@@ -813,15 +996,18 @@ function Sales() {
                 extra={<Space><Button onClick={() => { setDrawerOpen(false); setReceiptFile([]); setAttachDesc('') }}>Cancelar</Button><Button onClick={handleSaveSale} type="primary" loading={saving}>Registrar Venda</Button></Space>}
             >
                 <Form form={form} layout="vertical">
-                    <Divider orientation="left" style={{ fontSize: 12, color: '#94a3b8', marginTop: 0 }}>Produtos</Divider>
+                    <Divider orientation="left" style={{ fontSize: 12, color: '#94a3b8', marginTop: 0 }}>Produtos e Serviços</Divider>
 
                     <Table columns={itemColumns} dataSource={saleItems} rowKey="key" pagination={false} size="small"
-                        locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Adicione produtos à venda" /> }}
+                        locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Adicione produtos ou serviços à venda" /> }}
                     />
 
                     <Space.Compact block style={{ marginTop: 12, display: 'flex', gap: 8 }}>
                         <Button type="dashed" onClick={handleAddProduct} icon={<PlusOutlined />} style={{ flex: 1 }}>
                             Adicionar Produto
+                        </Button>
+                        <Button type="dashed" onClick={handleAddService} icon={<ToolOutlined />} style={{ flex: 1 }}>
+                            Adicionar Serviço
                         </Button>
                         <Button type="dashed" onClick={handleAddManualProduct} icon={<PlusOutlined />} style={{ flex: 1 }}>
                             Adicionar item manual
@@ -863,6 +1049,12 @@ function Sales() {
                     <Form.Item name="customer_id" label="Cliente (opcional)">
                         <Select placeholder="Selecione o cliente" showSearch optionFilterProp="children" allowClear>
                             {customers.map(c => (<Select.Option key={c.id} value={c.id}>{c.name}</Select.Option>))}
+                        </Select>
+                    </Form.Item>
+
+                    <Form.Item name="employee_id" label="Vendedor (opcional)">
+                        <Select placeholder="Selecione o vendedor" showSearch optionFilterProp="children" allowClear>
+                            {employees.map((e: any) => (<Select.Option key={e.id} value={e.id}>{e.name}</Select.Option>))}
                         </Select>
                     </Form.Item>
 
@@ -928,6 +1120,7 @@ function Sales() {
                             <div style={{ display: 'grid', gap: 8, fontSize: 13 }}>
                                 <div><span style={{ color: 'var(--color-neutral-500)' }}>Tipo:</span> {selectedSale.saleType === 'FROM_BUDGET' ? '📋 Via orçamento' : '🏪 Balcão'}</div>
                                 <div><span style={{ color: 'var(--color-neutral-500)' }}>Cliente:</span> <strong>{selectedSale.customerName}</strong></div>
+                                <div><span style={{ color: 'var(--color-neutral-500)' }}>Vendedor:</span> <strong>{selectedSale.sellerName && selectedSale.sellerName !== '-' ? selectedSale.sellerName : 'Sem vendedor'}</strong></div>
                                 <div><span style={{ color: 'var(--color-neutral-500)' }}>Data:</span> {new Date(selectedSale.saleDate).toLocaleDateString('pt-BR')}</div>
                                 <div><span style={{ color: 'var(--color-neutral-500)' }}>Valor:</span> <strong style={{ fontSize: 18, color: '#12B76A' }}>{formatCurrency(selectedSale.finalValue)}</strong></div>
                                 <div>
@@ -940,10 +1133,10 @@ function Sales() {
 
                         {detailItems.length > 0 && (
                             <div style={{ padding: 16, background: 'var(--color-neutral-50)', borderRadius: 8 }}>
-                                <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>Produtos</div>
+                                <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>Produtos e Serviços</div>
                                 {detailItems.map((item: any, idx: number) => (
                                     <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #eee', fontSize: 13 }}>
-                                        <span>{item.products?.name || 'Produto'} × {item.quantity}</span>
+                                        <span>{item.products?.name || item.services?.name || item.description || 'Item'} × {item.quantity}</span>
                                         <strong>{formatCurrency(item.unit_price * item.quantity - (item.discount || 0))}</strong>
                                     </div>
                                 ))}
@@ -1047,6 +1240,14 @@ function Sales() {
                     )}
                 </Form>
             </Modal>
+
+            <ExportFormatModal
+                open={exportModalOpen}
+                onClose={() => setExportModalOpen(false)}
+                onExportExcel={handleExportExcel}
+                onExportPdf={handleExportPdf}
+                title="Exportar Vendas"
+            />
         </Layout>
     )
 }

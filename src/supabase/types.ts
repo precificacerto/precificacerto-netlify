@@ -305,6 +305,7 @@ export interface Sale {
     unit_price?: number
     final_value: number
     customer_id?: string | null
+    employee_id?: string | null
     description?: string | null
     status?: string | null
     sale_date: string
@@ -312,6 +313,7 @@ export interface Sale {
     created_by?: string | null
     products?: Product | null
     customers?: Customer | null
+    employees?: { id: string; name: string } | null
 }
 
 
@@ -363,6 +365,13 @@ export interface Product {
     price_table_b?: number | null
     price_table_c?: number | null
     price_table_d?: number | null
+    custom_tax_percent?: number | null
+    recurrence_days?: number | null
+    profit_percent?: number | null
+    commission_percent?: number | null
+    max_discount_percent?: number | null
+    status?: string | null
+    quantity?: number | null
     created_at: string
     updated_at: string
 }
@@ -488,6 +497,7 @@ export interface Service {
     commission_percent?: number | null
     profit_percent?: number | null
     taxable_regime_percent?: number | null
+    recurrence_days?: number | null
     status: 'ACTIVE' | 'INACTIVE'
     created_at: string
     updated_at: string
@@ -512,18 +522,6 @@ export interface ScheduleEmployee {
     employee_id: string
     created_at: string
     employee?: { id: string; name: string; position?: string | null; avatar_url?: string | null } | null
-}
-
-// ── Sales ──
-export interface Sale {
-    id: string
-    tenant_id: string
-    order_id?: string | null
-    invoice_number?: string | null
-    final_value: number
-    sale_date: string
-    created_at: string
-    created_by?: string | null
 }
 
 // ── Brazilian State (reference table) ──

@@ -1324,7 +1324,7 @@ export default function CashFlow() {
                 grid: { color: 'rgba(228, 231, 236, 0.5)' },
                 ticks: {
                     font: { size: 11 }, color: '#98A2B3',
-                    callback: (v: number) => v >= 1000 ? `R$ ${(v / 1000).toFixed(0)}k` : `R$ ${v}`,
+                    callback: (v: number) => v >= 1000 ? `R$ ${(v / 1000).toFixed(1).replace('.', ',')}k` : `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 0 })}`,
                 },
             },
         },
@@ -2222,6 +2222,7 @@ export default function CashFlow() {
                                 placeholder="Selecione a categoria"
                                 options={EXPENSE_CATEGORY_OPTIONS}
                                 showSearch
+                                listHeight={320}
                                 filterOption={(input, option) => (option?.label as string || '').toLowerCase().includes(input.toLowerCase())}
                                 onChange={(val) => {
                                     const g = getGroupForCategory(val)
@@ -2230,7 +2231,7 @@ export default function CashFlow() {
                             />
                         </Form.Item>
                         <Form.Item name="expense_group" label="Tipo de Despesa" rules={[{ required: true, message: 'Selecione o tipo' }]}>
-                            <Select placeholder="Selecione o tipo">
+                            <Select placeholder="Selecione o tipo" disabled={!!form.getFieldValue('expense_category')}>
                                 <Select.OptGroup label="Mão de Obra">
                                     <Select.Option
                                         value="MAO_DE_OBRA_PRODUTIVA"

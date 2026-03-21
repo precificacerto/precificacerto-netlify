@@ -29,6 +29,7 @@ interface StockRow {
     minQty: number
     unit: string
     costPrice: number
+    profitPercent: number
     status: string
     raw: StockRecord
 }
@@ -44,6 +45,7 @@ interface ServiceRow {
     quantity: number
     minQuantity: number
     stockStatus: string
+    profitPercent: number
 }
 
 
@@ -152,7 +154,7 @@ function Stock() {
         setLoadingServices(true)
         supabase
             .from('services')
-            .select('id, name, description, estimated_duration_minutes, cost_total, base_price, status, min_quantity, service_items(*, item:items(id, quantity))')
+            .select('id, name, description, estimated_duration_minutes, cost_total, base_price, status, min_quantity, profit_percent, service_items(*, item:items(id, quantity))')
             .order('name')
             .then((svcRes) => {
                 if (svcRes.error) return
@@ -172,6 +174,7 @@ function Stock() {
                         quantity: qty,
                         minQuantity: minQty,
                         stockStatus,
+                        profitPercent: Number(s.profit_percent) || 0,
                     }
                 }))
             })
@@ -193,6 +196,7 @@ function Stock() {
               : (product?.cost_total ?? 0)
             const unit = (s.unit || item?.unit || product?.unit || 'UN') as string
             const type = s.stock_type === 'PRODUCT' ? 'PRODUCT' : 'ITEM'
+            const profitPercent = Number((product as any)?.profit_percent) || 0
 
             return {
                 id: s.id,
@@ -202,6 +206,7 @@ function Stock() {
                 minQty: s.min_limit ?? 0,
                 unit,
                 costPrice,
+                profitPercent,
                 status: deriveStatus(s.quantity_current ?? 0, s.min_limit ?? 0),
                 raw: s,
             }
@@ -252,7 +257,8 @@ function Stock() {
     const productCount = stockRows.filter(i => i.type === 'PRODUCT').length
     const serviceCount = servicesList.length
 
-    const columns: ColumnsType<StockRow> = [
+    // Columns for ITEM tab (keeps original Custo Unit. column)
+    const itemColumns: ColumnsType<StockRow> = [
         {
             title: '',
             key: 'alert',
@@ -322,6 +328,81 @@ function Stock() {
             }]
             : []),
     ]
+
+    // Columns for PRODUCT tab (shows Margem de Lucro instead of Custo Unit.)
+    const productColumns: ColumnsType<StockRow> = [
+        {
+            title: '',
+            key: 'alert',
+            width: 48,
+            render: (_: unknown, r: StockRow) =>
+                (r.status === 'Baixo' || r.status === 'Crítico') ? (
+                    <Tooltip title="Estoque abaixo do mínimo permitido">
+                        <WarningOutlined style={{ color: '#f59e0b', fontSize: 18 }} />
+                    </Tooltip>
+                ) : null,
+        },
+        {
+            title: 'Nome',
+            dataIndex: 'name',
+            key: 'name',
+            sorter: (a, b) => a.name.localeCompare(b.name),
+            render: (text) => <span style={{ fontWeight: 500 }}>{text}</span>,
+        },
+        {
+            title: 'Qtd Atual',
+            dataIndex: 'currentQty',
+            key: 'currentQty',
+            sorter: (a, b) => a.currentQty - b.currentQty,
+            render: (qty, record) => (
+                <span style={{ fontWeight: 600, color: record.status === 'Crítico' ? 'var(--color-error)' : 'inherit' }}>
+                    {qty} {record.unit}
+                </span>
+            ),
+        },
+        { title: 'Qtd Mín', dataIndex: 'minQty', key: 'minQty' },
+        {
+            title: 'Margem de Lucro',
+            dataIndex: 'profitPercent',
+            key: 'profitPercent',
+            render: (v: number) => <span style={{ fontWeight: 600 }}>{v.toFixed(2)}%</span>,
+        },
+        {
+            title: 'Valor Total',
+            key: 'totalValue',
+            render: (_, record) => formatCurrency(record.currentQty * record.costPrice),
+            sorter: (a, b) => (a.currentQty * a.costPrice) - (b.currentQty * b.costPrice),
+        },
+        {
+            title: 'Status',
+            dataIndex: 'status',
+            key: 'status',
+            filters: [
+                { text: 'Normal', value: 'Normal' },
+                { text: 'Baixo', value: 'Baixo' },
+                { text: 'Crítico', value: 'Crítico' },
+            ],
+            onFilter: (value, record) => record.status === value,
+            render: (status) => <Tag color={statusColors[status]}>{status}</Tag>,
+        },
+        ...(canEdit(MODULES.STOCK)
+            ? [{
+                title: 'Ações',
+                key: 'action',
+                width: 200,
+                render: (_: unknown, record: StockRow) => (
+                    <Space>
+                        <Button type="link" size="small" onClick={() => handleMovement(record)}>Movimentar</Button>
+                        <Button type="link" size="small" onClick={() => handleEdit(record)}>Editar</Button>
+                        <Button type="link" size="small" danger onClick={() => handleOpenDeleteQty(record)}>Excluir quantidade</Button>
+                    </Space>
+                ),
+            }]
+            : []),
+    ]
+
+    // Use appropriate columns based on active tab
+    const columns = activeTab === 'PRODUCT' ? productColumns : itemColumns
 
     function handleMovement(record: StockRow) {
         setSelectedItem(record)
@@ -540,7 +621,7 @@ function Stock() {
                         {
                             key: 'SERVICE',
                             label: (
-                                <span><CustomerServiceOutlined style={{ marginRight: 6 }} />Produtos para Serviços ({serviceCount})</span>
+                                <span><CustomerServiceOutlined style={{ marginRight: 6 }} />Serviços ({serviceCount})</span>
                             ),
                         },
                     ]}
@@ -591,51 +672,11 @@ function Stock() {
                                 render: (v: number) => v ? (v < 60 ? `${v} min` : `${Math.floor(v / 60)}h${v % 60 ? ` ${v % 60}min` : ''}`) : '—',
                             },
                             {
-                                title: 'Qtd. estoque',
-                                dataIndex: 'quantity',
-                                key: 'quantity',
-                                width: 120,
-                                align: 'center',
-                                render: (v: number, r: ServiceRow) => (
-                                    <span style={{ fontWeight: 600, color: (r.stockStatus === 'Crítico' || r.stockStatus === 'Baixo') ? '#f59e0b' : '#e2e8f0' }}>
-                                        {v != null ? `${v} ${v === 1 ? 'serviço' : 'serviços'}` : '—'}
-                                    </span>
-                                ),
-                            },
-                            {
-                                title: 'Qtd. mínima',
-                                dataIndex: 'minQuantity',
-                                key: 'minQuantity',
-                                width: 100,
-                                align: 'center',
-                                render: (v: number) => (v != null && v > 0 ? v : '—'),
-                            },
-                            {
-                                title: 'Estoque',
-                                key: 'stockStatus',
-                                width: 120,
-                                render: (_: any, r: ServiceRow) => {
-                                    if (r.minQuantity <= 0) return '—'
-                                    return <Tag color={statusColors[r.stockStatus] || 'default'}>{r.stockStatus}</Tag>
-                                },
-                            },
-                            {
-                                title: '',
-                                key: 'alert',
-                                width: 48,
-                                render: (_: any, r: ServiceRow) =>
-                                    (r.stockStatus === 'Baixo' || r.stockStatus === 'Crítico') ? (
-                                        <Tooltip title="Estoque abaixo do mínimo permitido">
-                                            <WarningOutlined style={{ color: '#f59e0b', fontSize: 18 }} />
-                                        </Tooltip>
-                                    ) : null,
-                            },
-                            {
-                                title: 'Custo',
-                                dataIndex: 'cost',
-                                key: 'cost',
-                                width: 120,
-                                render: (v: number) => formatCurrency(v),
+                                title: 'Margem de Lucro',
+                                dataIndex: 'profitPercent',
+                                key: 'profitPercent',
+                                width: 140,
+                                render: (v: number) => <span style={{ fontWeight: 600 }}>{v.toFixed(2)}%</span>,
                             },
                             {
                                 title: 'Preço Venda',

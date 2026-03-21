@@ -35,6 +35,7 @@ export enum ROUTES {
   BUDGETS = '/orcamentos',
   SALES = '/vendas',
   SALES_REPORT = '/relatorio-vendas',
+  RECURRENCE = '/recorrencia',
 
   // ── Phase 4: Financeiro ──
   CASH_FLOW = '/fluxo-de-caixa',
