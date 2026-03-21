@@ -216,14 +216,19 @@ function Cashier() {
 
       const expenses: IPaymentRevenueTitleModel[] = entries
         .filter((e: any) => e.type === 'EXPENSE')
-        .map((e: any) => ({
-          id: e.id,
-          date: e.due_date ? new Date(e.due_date) : new Date(),
-          price: Number(e.amount) || 0,
-          category: e.description || 'DESPESA_GERAL',
-          description: e.description || '',
-          expense_group: e.expense_group || null,
-        }))
+        .map((e: any) => {
+          // description may contain "CATEGORY_KEY — extra info" from recurrent entries
+          const rawDesc = e.description || 'DESPESA_GERAL'
+          const categoryKey = rawDesc.split(' — ')[0].split(' - ')[0].trim()
+          return {
+            id: e.id,
+            date: e.due_date ? new Date(e.due_date) : new Date(),
+            price: Number(e.amount) || 0,
+            category: categoryKey,
+            description: e.description || '',
+            expense_group: e.expense_group || null,
+          }
+        })
 
       setIncomeData(incomes)
       setExpenseData(expenses)

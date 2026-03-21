@@ -278,8 +278,21 @@ export function getDefaultGroupForCategory(categoryKey: string): ExpenseGroupKey
   return null
 }
 
+/** Extended labels for expense_group values that may be more specific than the 5 parent keys */
+const EXPENSE_TYPE_LABELS: Record<string, string> = {
+  MAO_DE_OBRA: 'Mão de Obra',
+  MAO_DE_OBRA_PRODUTIVA: 'Mão de Obra Produtiva',
+  MAO_DE_OBRA_ADMINISTRATIVA: 'Mão de Obra Administrativa',
+  DESPESA_FIXA: 'Despesa Fixa',
+  DESPESA_VARIAVEL: 'Despesa Variável',
+  DESPESA_FINANCEIRA: 'Despesa Financeira',
+  IMPOSTO: 'Imposto',
+}
+
 export function getExpenseGroupLabel(groupKey: string): string {
-  return EXPENSE_GROUPS[groupKey as ExpenseGroupKey]?.label ?? groupKey
+  return EXPENSE_GROUPS[groupKey as ExpenseGroupKey]?.label
+    ?? EXPENSE_TYPE_LABELS[groupKey]
+    ?? groupKey
 }
 
 export function getExpenseGroupColor(groupKey: string): string {

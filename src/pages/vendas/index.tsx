@@ -21,6 +21,7 @@ import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import { formatCurrencyInput, parseCurrencyInput } from '@/utils/get-monetary-value'
 import { ExportFormatModal } from '@/components/ui/export-format-modal.component'
 import { exportTableToPdf } from '@/utils/export-generic-pdf'
+import { calculateDiscountedPrice } from '@/utils/calculate-discount'
 
 const PAYMENT_METHODS = [
     { value: 'PIX', label: '⚡ PIX' },
@@ -146,12 +147,12 @@ function Sales() {
 
             // Products: try with recurrence_days, fall back without
             let prods: any[] | null = null
-            const { data: prodsFull, error: prodsErr } = await supabase.from('products').select('id, name, sale_price, recurrence_days').order('name')
+            const { data: prodsFull, error: prodsErr } = await supabase.from('products').select('id, name, sale_price, cost_total, recurrence_days').order('name')
             if (!prodsErr) {
                 prods = prodsFull
             } else {
                 console.warn('Products query with recurrence_days failed, falling back:', prodsErr.message)
-                const { data: prodsSimple } = await supabase.from('products').select('id, name, sale_price').order('name')
+                const { data: prodsSimple } = await supabase.from('products').select('id, name, sale_price, cost_total').order('name')
                 prods = prodsSimple
             }
 
@@ -505,7 +506,18 @@ function Sales() {
         setSaleItems(prev => prev.map(item => {
             if (item.key !== key) return item
             const updated = { ...item, [field]: value }
-            updated.total = updated.unit_price * updated.quantity - updated.discount
+            const grossTotal = updated.unit_price * updated.quantity
+            // Desconto sai apenas da margem (comissão + lucro)
+            if (updated.discount > 0) {
+                const prod = !updated.is_service ? products.find((p: any) => p.id === updated.product_id) : null
+                const svc = updated.is_service ? services.find((s: any) => s.id === updated.service_id) : null
+                const costWithTaxes = Number(prod?.cost_total || svc?.cost_total || 0) * updated.quantity
+                const margin = Math.max(0, grossTotal - costWithTaxes)
+                const clampedDiscount = Math.min(updated.discount, margin)
+                updated.total = grossTotal - clampedDiscount
+            } else {
+                updated.total = grossTotal
+            }
             return updated
         }))
     }
@@ -965,10 +977,22 @@ function Sales() {
                     min={0}
                     max={100}
                     step={1}
-                    value={r.unit_price > 0 ? Math.round((r.discount / (r.unit_price * r.quantity)) * 100) : 0}
+                    value={(() => {
+                        const grossTotal = r.unit_price * r.quantity
+                        const prod = !r.is_service ? products.find((p: any) => p.id === r.product_id) : null
+                        const svc = r.is_service ? services.find((s: any) => s.id === r.service_id) : null
+                        const cost = Number(prod?.cost_total || svc?.cost_total || 0) * r.quantity
+                        const margin = Math.max(0, grossTotal - cost)
+                        return margin > 0 ? Math.round((r.discount / margin) * 100) : 0
+                    })()}
                     onChange={(v) => {
                         const pct = Number(v) || 0
-                        const discountValue = (r.unit_price * r.quantity) * (pct / 100)
+                        const grossTotal = r.unit_price * r.quantity
+                        const prod = !r.is_service ? products.find((p: any) => p.id === r.product_id) : null
+                        const svc = r.is_service ? services.find((s: any) => s.id === r.service_id) : null
+                        const cost = Number(prod?.cost_total || svc?.cost_total || 0) * r.quantity
+                        const margin = Math.max(0, grossTotal - cost)
+                        const discountValue = margin * (pct / 100)
                         handleItemChange(r.key, 'discount', discountValue)
                     }}
                     style={{ width: '100%' }}
