@@ -248,7 +248,10 @@ function Budgets() {
                 // Desconto sai apenas da margem (comissão + lucro), não do custo
                 const prod = !updated.isService ? (products as any[]).find((p: any) => p.id === updated.product_id) : null
                 const svc = updated.isService ? (services as any[]).find((s: any) => s.id === updated.service_id) : null
-                const costWithTaxes = Number(prod?.cost_total || svc?.cost_total || 0) * updated.quantity
+                const rawCost = Number(prod?.cost_total || svc?.cost_total || 0)
+                // Se cost_total não está preenchido, estimar como 50% do preço de venda (proteção)
+                const unitCost = rawCost > 0 ? rawCost : (updated.unit_price * 0.5)
+                const costWithTaxes = unitCost * updated.quantity
                 const { finalPrice, discountValue } = calculateDiscountedPrice(subtotal, costWithTaxes, discPct)
                 updated.discount = discountValue
                 updated.total = finalPrice

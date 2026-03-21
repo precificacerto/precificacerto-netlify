@@ -192,6 +192,7 @@ const ProductDetails = () => {
             nbs_code: p.nbs_code || '',
             minLimit: productStockRes?.data?.min_limit != null ? Number(productStockRes.data.min_limit) : 0,
             custom_tax_percent: p.custom_tax_percent != null ? Number(p.custom_tax_percent) : null,
+            recurrence_days: p.recurrence_days != null ? Number(p.recurrence_days) : null,
           } as any)
         }
 

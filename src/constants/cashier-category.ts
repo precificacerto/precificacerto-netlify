@@ -247,14 +247,37 @@ export const CASHIER_CATEGORY = {
 
 export const ALL_CASHIER_CATEGORIES = { ...CASHIER_CATEGORY.EXPENSE, ...CASHIER_CATEGORY.INCOME }
 
-/** Grouped options for expense categories — used in Select components */
-export const EXPENSE_CATEGORY_OPTIONS = Object.entries(EXPENSE_GROUPS).map(([groupKey, grp]) => ({
-  label: `── ${grp.label} ──`,
-  options: Object.values(CASHIER_CATEGORY.EXPENSE)
-    .filter((cat) => 'group' in cat && cat.group === groupKey)
-    .sort((a, b) => a.order - b.order)
-    .map((cat) => ({ label: cat.value, value: cat.key })),
-}))
+/** Grouped options for expense categories — organized by onboarding blocks */
+import {
+  BLOCK_MAO_DE_OBRA_PRODUTIVA,
+  BLOCK_MAO_DE_OBRA_ADMINISTRATIVA,
+  BLOCK_DESPESAS_FIXAS,
+  BLOCK_DESPESAS_VARIAVEIS,
+  BLOCK_DESPESAS_FINANCEIRAS,
+} from '@/constants/expense-setup-blocks'
+
+export const EXPENSE_CATEGORY_OPTIONS = [
+  {
+    label: '── Mão de Obra Produtiva ──',
+    options: BLOCK_MAO_DE_OBRA_PRODUTIVA.map(i => ({ label: i.label, value: i.key })),
+  },
+  {
+    label: '── Mão de Obra Administrativa ──',
+    options: BLOCK_MAO_DE_OBRA_ADMINISTRATIVA.map(i => ({ label: i.label, value: i.key })),
+  },
+  {
+    label: '── Despesas Fixas ──',
+    options: BLOCK_DESPESAS_FIXAS.map(i => ({ label: i.label, value: i.key })),
+  },
+  {
+    label: '── Despesas Variáveis ──',
+    options: BLOCK_DESPESAS_VARIAVEIS.map(i => ({ label: i.label, value: i.key })),
+  },
+  {
+    label: '── Despesas Financeiras ──',
+    options: BLOCK_DESPESAS_FINANCEIRAS.map(i => ({ label: i.label, value: i.key })),
+  },
+]
 
 export const YEARLY_AVERAGE_CATEGORIES = [
   CASHIER_CATEGORY.EXPENSE.DECIMO_TERCEIRO_PRODUCAO,
@@ -272,7 +295,13 @@ export const YEARLY_AVERAGE_CATEGORIES = [
 export type CASHIER_CATEGORY_EXPENSE_OBJECT = keyof typeof CASHIER_CATEGORY.EXPENSE
 export type CASHIER_CATEGORY_INCOME_OBJECT = keyof typeof CASHIER_CATEGORY.INCOME
 
-export function getDefaultGroupForCategory(categoryKey: string): ExpenseGroupKey | null {
+const PRODUTIVA_KEYS = new Set(BLOCK_MAO_DE_OBRA_PRODUTIVA.map(i => i.key))
+const ADMINISTRATIVA_KEYS = new Set(BLOCK_MAO_DE_OBRA_ADMINISTRATIVA.map(i => i.key))
+
+export function getDefaultGroupForCategory(categoryKey: string): string | null {
+  // Retorna tipo específico: MAO_DE_OBRA_PRODUTIVA ou MAO_DE_OBRA_ADMINISTRATIVA
+  if (PRODUTIVA_KEYS.has(categoryKey)) return 'MAO_DE_OBRA_PRODUTIVA'
+  if (ADMINISTRATIVA_KEYS.has(categoryKey)) return 'MAO_DE_OBRA_ADMINISTRATIVA'
   const entry = CASHIER_CATEGORY.EXPENSE[categoryKey as CASHIER_CATEGORY_EXPENSE_OBJECT]
   if (entry && 'group' in entry) return entry.group
   return null
