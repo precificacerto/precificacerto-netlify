@@ -48,27 +48,27 @@ function formatCurrency(v: number) {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 }).format(v)
 }
 
-const CATEGORY_GROUP_MAP: { category: string; group: ExpenseGroupKey | string }[] = [
+const CATEGORY_GROUP_MAP: { category: string; group: string }[] = [
     // Mão de Obra Produtiva
-    { category: 'Salários Produção', group: 'MAO_DE_OBRA' },
-    { category: 'Décimo Terceiro (Setor Produtivo)', group: 'MAO_DE_OBRA' },
-    { category: 'Férias Colaboradores (Setor Produtivo)', group: 'MAO_DE_OBRA' },
-    { category: 'FGTS (Setor Produtivo)', group: 'MAO_DE_OBRA' },
-    { category: 'INSS (Setor Produtivo)', group: 'MAO_DE_OBRA' },
-    { category: 'Plano de Saúde (Setor Produtivo)', group: 'MAO_DE_OBRA' },
-    { category: 'Vale Alimentação (Setor Produtivo)', group: 'MAO_DE_OBRA' },
-    { category: 'Vale Transporte (Setor Produtivo)', group: 'MAO_DE_OBRA' },
+    { category: 'Salários Produção', group: 'MAO_DE_OBRA_PRODUTIVA' },
+    { category: 'Décimo Terceiro (Setor Produtivo)', group: 'MAO_DE_OBRA_PRODUTIVA' },
+    { category: 'Férias Colaboradores (Setor Produtivo)', group: 'MAO_DE_OBRA_PRODUTIVA' },
+    { category: 'FGTS (Setor Produtivo)', group: 'MAO_DE_OBRA_PRODUTIVA' },
+    { category: 'INSS (Setor Produtivo)', group: 'MAO_DE_OBRA_PRODUTIVA' },
+    { category: 'Plano de Saúde (Setor Produtivo)', group: 'MAO_DE_OBRA_PRODUTIVA' },
+    { category: 'Vale Alimentação (Setor Produtivo)', group: 'MAO_DE_OBRA_PRODUTIVA' },
+    { category: 'Vale Transporte (Setor Produtivo)', group: 'MAO_DE_OBRA_PRODUTIVA' },
     // Mão de Obra Administrativa
-    { category: 'Pró Labore', group: 'MAO_DE_OBRA' },
-    { category: 'Salários Administrativos', group: 'MAO_DE_OBRA' },
-    { category: 'Salários Comerciais', group: 'MAO_DE_OBRA' },
-    { category: 'Décimo Terceiro (Pró-Labo/ Admin/ Comer)', group: 'MAO_DE_OBRA' },
-    { category: 'Férias Colaboradores (Pró-Labo/ Admin/ Comer)', group: 'MAO_DE_OBRA' },
-    { category: 'FGTS (Pró-Labo/ Admin/ Comer)', group: 'MAO_DE_OBRA' },
-    { category: 'INSS (Pró-Labo/ Admin/ Comer)', group: 'MAO_DE_OBRA' },
-    { category: 'Plano de Saúde (Pró-Labo/ Admin/ Comer)', group: 'MAO_DE_OBRA' },
-    { category: 'Vale Alimentação (Pró-Labo/ Admin/ Comer)', group: 'MAO_DE_OBRA' },
-    { category: 'Vale Transporte (Pró-Labo/ Admin/ Comer)', group: 'MAO_DE_OBRA' },
+    { category: 'Pró Labore', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
+    { category: 'Salários Administrativos', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
+    { category: 'Salários Comerciais', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
+    { category: 'Décimo Terceiro (Pró-Labo/ Admin/ Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
+    { category: 'Férias Colaboradores (Pró-Labo/ Admin/ Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
+    { category: 'FGTS (Pró-Labo/ Admin/ Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
+    { category: 'INSS (Pró-Labo/ Admin/ Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
+    { category: 'Plano de Saúde (Pró-Labo/ Admin/ Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
+    { category: 'Vale Alimentação (Pró-Labo/ Admin/ Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
+    { category: 'Vale Transporte (Pró-Labo/ Admin/ Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
     // Despesas Fixas
     { category: 'Água', group: 'DESPESA_FIXA' },
     { category: 'Aluguel', group: 'DESPESA_FIXA' },
@@ -112,14 +112,15 @@ const CATEGORY_GROUP_MAP: { category: string; group: ExpenseGroupKey | string }[
 const ALL_EXPENSE_CATEGORIES = CATEGORY_GROUP_MAP.map(c => c.category)
 
 const EXPENSE_CATEGORY_OPTIONS = [
-    { label: '── Mão de Obra ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'MAO_DE_OBRA').map(c => ({ label: c.category, value: c.category })) },
+    { label: '── Mão de Obra Produtiva ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'MAO_DE_OBRA_PRODUTIVA').map(c => ({ label: c.category, value: c.category })) },
+    { label: '── Mão de Obra Administrativa ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'MAO_DE_OBRA_ADMINISTRATIVA').map(c => ({ label: c.category, value: c.category })) },
     { label: '── Despesas Fixas ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_FIXA').map(c => ({ label: c.category, value: c.category })) },
     { label: '── Despesas Variáveis ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_VARIAVEL').map(c => ({ label: c.category, value: c.category })) },
     { label: '── Despesas Financeiras ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_FINANCEIRA').map(c => ({ label: c.category, value: c.category })) },
     { label: '── Impostos ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'IMPOSTO').map(c => ({ label: c.category, value: c.category })) },
 ]
 
-function getGroupForCategory(cat: string): ExpenseGroupKey | undefined {
+function getGroupForCategory(cat: string): string | undefined {
     return CATEGORY_GROUP_MAP.find(c => c.category === cat)?.group
 }
 

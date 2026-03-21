@@ -383,7 +383,7 @@ export const Content: FC<ContentProps> = ({
         productCost: engineResult.cmvUnit,
         totalServicePrice: isCalcService ? engineResult.priceUnit : 0,
         totalServiceProductPrice: resultProductService,
-        totalProductPrice: isCalcService ? priceTotal : priceUnit,
+        totalProductPrice: priceUnit,
       }))
     }
   }, [
