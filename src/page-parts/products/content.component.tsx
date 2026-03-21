@@ -319,24 +319,30 @@ export const Content: FC<ContentProps> = ({
     const effectiveTaxPct = customTaxPercent != null ? customTaxPercent : calcBase.taxPct
     const taxPctDecimal = effectiveTaxPct / 100
 
-    const engineResult = calculatePricing({
-      calcType: currentUser.calcType === CALC_TYPE_ENUM.INDUSTRIALIZATION ? 'INDUSTRIALIZACAO'
+    // Para SERVICE + REVENDA: usar calcType REVENDA (sem MO produtiva no CMV)
+    const effectiveCalcType = isCalcService && productType === 'REVENDA'
+      ? 'REVENDA'
+      : currentUser.calcType === CALC_TYPE_ENUM.INDUSTRIALIZATION ? 'INDUSTRIALIZACAO'
         : currentUser.calcType === CALC_TYPE_ENUM.RESALE ? 'REVENDA'
-        : 'SERVICO',
+        : 'SERVICO'
+
+    const engineResult = calculatePricing({
+      calcType: effectiveCalcType,
       totalItemsCost: itemsPriceSum,
       yieldQuantity: 1,
-      laborCostMonthly: calcBase.laborCostMonthly,
+      laborCostMonthly: effectiveCalcType === 'REVENDA' ? 0 : calcBase.laborCostMonthly,
       numProductiveEmployees: totalEmployees,
       monthlyWorkloadMinutes,
-      productWorkloadMinutes: productPriceInfo.productWorkloadInMinutes || 0,
+      productWorkloadMinutes: effectiveCalcType === 'REVENDA' ? 0 : (productPriceInfo.productWorkloadInMinutes || 0),
       structurePct: structurePctForEngine,
       taxPct: taxPctDecimal,
       commissionPct: productPriceInfo.salesCommissionPercent / 100,
       profitPct: productPriceInfo.productProfitPercent / 100,
     })
 
+    // Para SERVICE + produto com itens (não REVENDA): calcula preço separado do produto
     let resultProductService = 0
-    if (isCalcService && itemsPriceSum > 0) {
+    if (isCalcService && productType !== 'REVENDA' && itemsPriceSum > 0) {
       const prodEngine = calculatePricing({
         calcType: 'REVENDA',
         totalItemsCost: itemsPriceSum,

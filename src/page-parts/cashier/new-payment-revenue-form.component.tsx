@@ -130,6 +130,30 @@ const NewPaymentRevenueForm = ({ form, year, month, type, onClickDelete }: Props
             className="w-full"
           />
         </Form.Item>
+
+        {isExpense && !titleId && (
+          <>
+            <Form.Item name="recurrence" label="Recorrência" initialValue="ONCE">
+              <Select
+                options={[
+                  { label: '1 única vez', value: 'ONCE' },
+                  { label: 'Semanal', value: 'WEEKLY' },
+                  { label: 'Quinzenal', value: 'BIWEEKLY' },
+                  { label: 'Mensal', value: 'MONTHLY' },
+                  { label: 'Trimestral', value: 'QUARTERLY' },
+                ]}
+              />
+            </Form.Item>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <Form.Item name="start_month" label="Mês início">
+                <DatePicker picker="month" placeholder="Mês atual" format="MM/YYYY" style={{ width: '100%' }} />
+              </Form.Item>
+              <Form.Item name="end_month" label="Mês fim">
+                <DatePicker picker="month" placeholder="Dezembro" format="MM/YYYY" style={{ width: '100%' }} />
+              </Form.Item>
+            </div>
+          </>
+        )}
       </Form>
       {titleId && (
         <Button type="primary" danger onClick={() => onClickDelete(titleId)}>

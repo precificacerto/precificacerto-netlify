@@ -36,6 +36,30 @@ type DataItem = {
   accPrice: number
 }
 
+function extractCleanDescription(desc: string): string {
+  if (!desc) return '-'
+  // "Serviço: Corte | Func: ..." → "Corte"
+  // "Venda balcão: Pomada Embaixador — ⚡ PIX" → "Pomada Embaixador"
+  let name = desc
+  if (desc.startsWith('Serviço:')) {
+    name = desc.split('|')[0].replace('Serviço:', '').trim()
+  } else if (desc.includes('Venda balcão:')) {
+    name = desc.replace('Venda balcão:', '').split('—')[0].trim()
+  } else if (desc.includes(':')) {
+    name = desc.split('|')[0].split(':').slice(1).join(':').trim() || desc.split('—')[0].trim()
+  }
+  return name || desc.split('—')[0].split('|')[0].trim()
+}
+
+const PAYMENT_METHOD_LABELS: Record<string, string> = {
+  PIX: 'PIX',
+  DINHEIRO: 'Dinheiro',
+  CARTAO_CREDITO: 'Cartão de Crédito',
+  CARTAO_DEBITO: 'Cartão de Débito',
+  BOLETO: 'Boleto',
+  TRANSFERENCIA: 'Transferência',
+}
+
 const incomeColumns: ColumnsType<IPaymentRevenueTitleModel> = [
   {
     title: 'Data',
@@ -44,6 +68,12 @@ const incomeColumns: ColumnsType<IPaymentRevenueTitleModel> = [
     render: (value) => getFormattedDate(new Date(value)),
     sorter: (a, b) => dayjs(a.date).unix() - dayjs(b.date).unix(),
     defaultSortOrder: 'ascend',
+  },
+  {
+    title: 'Descrição',
+    dataIndex: 'description',
+    key: 'description',
+    render: (value) => extractCleanDescription(value),
   },
   {
     title: 'Valor',
@@ -56,7 +86,12 @@ const incomeColumns: ColumnsType<IPaymentRevenueTitleModel> = [
     title: 'Categoria',
     dataIndex: 'category',
     key: 'category',
-    render: (value) => getCategoryName(value),
+    render: (value: string, record: any) => {
+      if (record.payment_method) {
+        return PAYMENT_METHOD_LABELS[record.payment_method] || record.payment_method
+      }
+      return getCategoryName(value)
+    },
   },
 ]
 
@@ -176,7 +211,8 @@ function Cashier() {
           category: e.description || 'RECEITA_VENDAS',
           description: e.description || '',
           expense_group: null,
-        }))
+          payment_method: e.payment_method || null,
+        } as any))
 
       const expenses: IPaymentRevenueTitleModel[] = entries
         .filter((e: any) => e.type === 'EXPENSE')
@@ -291,7 +327,11 @@ function Cashier() {
         <Table
           columns={cols}
           expandable={{
-            expandedRowRender: (record) => <p style={{ margin: 0 }}>{record.description}</p>,
+            expandedRowRender: (record) => <p style={{ margin: 0 }}>{
+              type === PAYMENT_REVENUE_TITLE_TYPE.INCOME
+                ? extractCleanDescription(record.description)
+                : record.description
+            }</p>,
             rowExpandable: (record) => !!record.description,
           }}
           rowKey={(record) => record.id}
@@ -316,6 +356,50 @@ function Cashier() {
 
   function renderSummaryData(title: string, items: IPaymentRevenueTitleModel[], isExpense?: boolean) {
     let total = 0
+
+    if (!isExpense) {
+      // Income summary: group by clean description + payment method
+      type IncomeSummaryItem = { label: string; accPrice: number }
+      const incomeAcc: IncomeSummaryItem[] = items.reduce((acc: IncomeSummaryItem[], current: any) => {
+        const cleanName = extractCleanDescription(current.description || current.category)
+        const pm = current.payment_method
+          ? (PAYMENT_METHOD_LABELS[current.payment_method] || current.payment_method)
+          : null
+        const label = pm ? `${cleanName} — ${pm}` : cleanName
+        const idx = acc.findIndex((item) => item.label === label)
+        if (idx > -1) {
+          acc[idx].accPrice += current.price
+        } else {
+          acc.push({ label, accPrice: current.price })
+        }
+        total += current.price
+        return acc
+      }, [])
+
+      return (
+        <>
+          <div className="text-sm font-bold">{title}</div>
+          <div className="flex justify-between w-full my-2">
+            <div className="text-sm font-bold">Descrição</div>
+            <div className="text-sm font-bold">Valor acumulado</div>
+          </div>
+          <ul className="list-none p-0 w-full">
+            {incomeAcc.map(({ label, accPrice }) => (
+              <li className="flex justify-between w-full py-1 border-t-0 border-l-0 border-r-0 border-b border-dotted" key={label}>
+                <span>{label}</span>
+                <span className="text-sm rounded-md px-1">{`R$ ${getMonetaryValue(accPrice)}`}</span>
+              </li>
+            ))}
+            <li className="flex justify-between w-full py-1 font-bold mt-1">
+              <span>Total</span>
+              <span style={{ fontSize: 12, backgroundColor: 'rgba(34, 197, 94, 0.18)', color: '#f1f5f9', borderRadius: 4, padding: '2px 6px' }}>{`R$ ${getMonetaryValue(total)}`}</span>
+            </li>
+          </ul>
+        </>
+      )
+    }
+
+    // Expense summary: group by category with expense group labels
     const data: DataItem[] = items.reduce((acc: DataItem[], current) => {
       const idx = acc.findIndex((item) => item.category === current.category)
       if (idx > -1) {
@@ -337,15 +421,13 @@ function Cashier() {
         <ul className="list-none p-0 w-full">
           {sortDataByCategory(data).map(({ category, accPrice }) => {
             const categoryName = getCategoryName(category) || category
-            const groupLabel = isExpense
-              ? (() => {
-                  const entry = CASHIER_CATEGORY.EXPENSE[category as CASHIER_CATEGORY_EXPENSE_OBJECT]
-                  if (entry && 'group' in entry) {
-                    return getExpenseGroupLabel(entry.group)
-                  }
-                  return null
-                })()
-              : null
+            const groupLabel = (() => {
+              const entry = CASHIER_CATEGORY.EXPENSE[category as CASHIER_CATEGORY_EXPENSE_OBJECT]
+              if (entry && 'group' in entry) {
+                return getExpenseGroupLabel(entry.group)
+              }
+              return null
+            })()
 
             return (
               <li className="flex justify-between w-full py-1 border-t-0 border-l-0 border-r-0 border-b border-dotted" key={category}>
@@ -469,7 +551,77 @@ function Cashier() {
       )
 
       const isExpense = currentTitleType === PAYMENT_REVENUE_TITLE_TYPE.EXPENSE
+      const recurrence: string = values.recurrence || 'ONCE'
+      const isEditing = !!values.id
 
+      // For new expense entries with recurrence (not ONCE), create multiple entries
+      if (isExpense && !isEditing && recurrence !== 'ONCE') {
+        const now = new Date()
+        const curYear = now.getFullYear()
+        const curMonth = now.getMonth()
+
+        let startY = curYear, startM = curMonth
+        if (values.start_month) { startY = values.start_month.year(); startM = values.start_month.month() }
+
+        let endY = curYear, endM = 11
+        if (values.end_month) { endY = values.end_month.year(); endM = values.end_month.month() }
+
+        const desc = values.description
+          ? `${values.category} — ${values.description}`
+          : values.category
+
+        const entries: any[] = []
+
+        if (recurrence === 'WEEKLY' || recurrence === 'BIWEEKLY') {
+          const daysStep = recurrence === 'WEEKLY' ? 7 : 14
+          const cursor = new Date(startY, startM, 1)
+          const endDate = new Date(endY, endM + 1, 0)
+          while (cursor <= endDate) {
+            entries.push({
+              tenant_id: tenantId,
+              type: 'EXPENSE',
+              origin_type: 'FIXED_EXPENSE',
+              recurrence_type: recurrence,
+              description: desc,
+              amount,
+              due_date: cursor.toISOString().substring(0, 10),
+              expense_group: values.expense_group || null,
+            })
+            cursor.setDate(cursor.getDate() + daysStep)
+          }
+        } else {
+          const monthStep = recurrence === 'QUARTERLY' ? 3 : 1
+          let y = startY, m = startM
+          while (y < endY || (y === endY && m <= endM)) {
+            entries.push({
+              tenant_id: tenantId,
+              type: 'EXPENSE',
+              origin_type: 'FIXED_EXPENSE',
+              recurrence_type: recurrence,
+              description: desc,
+              amount,
+              due_date: `${y}-${String(m + 1).padStart(2, '0')}-01`,
+              expense_group: values.expense_group || null,
+            })
+            m += monthStep
+            if (m > 11) { y += Math.floor(m / 12); m = m % 12 }
+          }
+        }
+
+        if (entries.length > 0) {
+          const { error } = await supabase.from('cash_entries').insert(entries)
+          if (error) throw error
+        }
+
+        form.resetFields()
+        messageApi.success(`${entries.length} lançamento(s) criado(s) com sucesso!`)
+        onClose()
+        fetchCashierData()
+        mergeExpenseConfig(tenantId).catch(() => {})
+        return
+      }
+
+      // Single entry (ONCE, income, or editing)
       const entryData: any = {
         tenant_id: tenantId,
         type: isExpense ? 'EXPENSE' : 'INCOME',
@@ -484,7 +636,7 @@ function Cashier() {
 
       let savedEntry: any
 
-      if (values.id) {
+      if (isEditing) {
         const { data, error } = await supabase
           .from('cash_entries')
           .update(entryData)

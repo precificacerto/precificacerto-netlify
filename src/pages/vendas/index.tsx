@@ -959,6 +959,25 @@ function Sales() {
             ),
         },
         {
+            title: 'Desc.%', key: 'discount', width: 80,
+            render: (_, r) => (
+                <InputNumber
+                    min={0}
+                    max={100}
+                    step={1}
+                    value={r.unit_price > 0 ? Math.round((r.discount / (r.unit_price * r.quantity)) * 100) : 0}
+                    onChange={(v) => {
+                        const pct = Number(v) || 0
+                        const discountValue = (r.unit_price * r.quantity) * (pct / 100)
+                        handleItemChange(r.key, 'discount', discountValue)
+                    }}
+                    style={{ width: '100%' }}
+                    formatter={(v) => `${v}%`}
+                    parser={(s) => Number(String(s).replace('%', '')) || 0}
+                />
+            ),
+        },
+        {
             title: 'Total', key: 'total', width: 100,
             render: (_, r) => <strong>{formatCurrency(r.total)}</strong>,
         },
