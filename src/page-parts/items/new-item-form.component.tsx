@@ -270,7 +270,7 @@ const NewItemForm = ({ form }: Props) => {
 
         <Form.Item
           name="price"
-          label="Valor unitário (R$)"
+          label="Valor unitário"
           rules={[{ required: true, message: REQUIRED }]}
           tooltip="Valor unitário do item (por unidade de medida). O valor total será calculado automaticamente."
           style={{ marginBottom: 24 }}

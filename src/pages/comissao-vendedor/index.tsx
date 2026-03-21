@@ -330,6 +330,7 @@ export default function CommissionPage() {
       <ExportFormatModal
         open={exportModalOpen}
         onClose={() => setExportModalOpen(false)}
+        skipDateRange
         onExportExcel={handleExportExcel}
         onExportPdf={handleExportPdf}
         title="Exportar Comissão de Vendedor"

@@ -2408,7 +2408,8 @@ export default function CashFlow() {
             <ExportFormatModal
                 open={exportFormatModalOpen}
                 onClose={() => setExportFormatModalOpen(false)}
-                title="Exportar Fluxo de Caixa"
+                title="Exportar Controle Financeiro"
+                skipDateRange
                 onExportExcel={() => {
                     setExportRange([month.startOf('month'), month.startOf('month')])
                     setExportModalOpen(true)
@@ -2416,14 +2417,6 @@ export default function CashFlow() {
                 onExportPdf={handleExportCashFlowPdf}
             />
 
-            {/* Export format modal — Comissão */}
-            <ExportFormatModal
-                open={commissionExportModalOpen}
-                onClose={() => setCommissionExportModalOpen(false)}
-                title="Exportar Comissão de Vendedores"
-                onExportExcel={() => exportCommissionToExcel(commissionSummary, month)}
-                onExportPdf={handleExportCommissionPdf}
-            />
         </Layout>
     )
 }

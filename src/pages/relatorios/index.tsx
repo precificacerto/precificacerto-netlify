@@ -536,6 +536,7 @@ function Reports() {
                 open={reportExportModalOpen}
                 onClose={() => setReportExportModalOpen(false)}
                 title="Exportar Relatório de Serviços"
+                skipDateRange
                 onExportExcel={exportCSV}
                 onExportPdf={exportReportPdf}
             />

@@ -68,13 +68,15 @@ const PERMISSION_SECTIONS: { title: string; modules: { key: string; label: strin
         modules: [
             { key: 'budgets', label: 'Orçamentos' },
             { key: 'sales', label: 'Vendas' },
+            { key: 'sales_report', label: 'Relatório de Vendas' },
         ],
     },
     {
         title: 'Financeiro',
         modules: [
-            { key: 'cash_flow', label: 'Fluxo de Caixa' },
-            { key: 'dfc', label: 'DFC' },
+            { key: 'cash_flow', label: 'Controle Financeiro' },
+            { key: 'dfc', label: 'Análise Financeira' },
+            { key: 'commission', label: 'Comissão de Vendedor' },
         ],
     },
     {

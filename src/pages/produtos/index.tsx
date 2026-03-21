@@ -73,6 +73,8 @@ function Products() {
   const [selectedProductForDelete, setSelectedProductForDelete] = useState<ProductRow | null>(null)
   const [deleteQtyForm] = Form.useForm()
   const [savingDeleteQty, setSavingDeleteQty] = useState(false)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  const [deletingProduct, setDeletingProduct] = useState(false)
   const effectiveTenantId = contextTenantId ?? currentUser?.tenant_id
 
   const stockByProductId = useMemo(() => {
@@ -589,16 +591,7 @@ function Products() {
                 <Button type="text" size="small" icon={<MinusCircleOutlined style={{ color: '#faad14' }} />} onClick={() => handleOpenDeleteQty(r)} />
               </Tooltip>
               <Tooltip title="Excluir produto">
-                <Button type="text" danger size="small" icon={<DeleteOutlined />} onClick={() => {
-                  Modal.confirm({
-                    title: 'Excluir produto',
-                    content: 'Tem certeza que deseja excluir este produto? Esta ação não pode ser desfeita.',
-                    okText: 'Sim, excluir',
-                    cancelText: 'Cancelar',
-                    okButtonProps: { danger: true },
-                    onOk: () => handleDelete(r.id),
-                  })
-                }} />
+                <Button type="text" danger size="small" icon={<DeleteOutlined />} onClick={() => setConfirmDeleteId(r.id)} />
               </Tooltip>
             </Space>
           ),
@@ -814,6 +807,23 @@ function Products() {
           size="middle"
         />
       </div>
+      <Modal
+        open={!!confirmDeleteId}
+        onCancel={() => setConfirmDeleteId(null)}
+        title="Excluir produto"
+        okText="Sim, excluir"
+        cancelText="Cancelar"
+        okButtonProps={{ danger: true, loading: deletingProduct }}
+        onOk={async () => {
+          if (!confirmDeleteId) return
+          setDeletingProduct(true)
+          await handleDelete(confirmDeleteId)
+          setDeletingProduct(false)
+          setConfirmDeleteId(null)
+        }}
+      >
+        <p>Tem certeza que deseja excluir este produto? Esta ação não pode ser desfeita.</p>
+      </Modal>
     </Layout>
   )
 }

@@ -43,6 +43,8 @@ function ServicesPage() {
     const [serviceStockMap, setServiceStockMap] = useState<Record<string, number>>({})
     const [deleteQtyDrawerOpen, setDeleteQtyDrawerOpen] = useState(false)
     const [selectedServiceForDelete, setSelectedServiceForDelete] = useState<Service | null>(null)
+    const [confirmDeleteSvcId, setConfirmDeleteSvcId] = useState<string | null>(null)
+    const [deletingSvc, setDeletingSvc] = useState(false)
     const [deleteQtyForm] = Form.useForm()
     const [savingDeleteQty, setSavingDeleteQty] = useState(false)
 
@@ -324,16 +326,7 @@ function ServicesPage() {
                                 onClick={() => handleOpenDeleteQty(r)} />
                         </Tooltip>
                         <Tooltip title="Excluir serviço">
-                            <Button type="text" danger size="small" icon={<DeleteOutlined />} onClick={() => {
-                                Modal.confirm({
-                                    title: 'Excluir serviço',
-                                    content: 'Tem certeza que deseja excluir este serviço? Esta ação não pode ser desfeita.',
-                                    okText: 'Sim, excluir',
-                                    cancelText: 'Cancelar',
-                                    okButtonProps: { danger: true },
-                                    onOk: () => handleDelete(r.id),
-                                })
-                            }} />
+                            <Button type="text" danger size="small" icon={<DeleteOutlined />} onClick={() => setConfirmDeleteSvcId(r.id)} />
                         </Tooltip>
                     </Space>
                 ),
@@ -466,6 +459,24 @@ function ServicesPage() {
                     </Form>
                 )}
             </Drawer>
+
+            <Modal
+                open={!!confirmDeleteSvcId}
+                onCancel={() => setConfirmDeleteSvcId(null)}
+                title="Excluir serviço"
+                okText="Sim, excluir"
+                cancelText="Cancelar"
+                okButtonProps={{ danger: true, loading: deletingSvc }}
+                onOk={async () => {
+                    if (!confirmDeleteSvcId) return
+                    setDeletingSvc(true)
+                    await handleDelete(confirmDeleteSvcId)
+                    setDeletingSvc(false)
+                    setConfirmDeleteSvcId(null)
+                }}
+            >
+                <p>Tem certeza que deseja excluir este serviço? Esta ação não pode ser desfeita.</p>
+            </Modal>
         </Layout>
     )
 }

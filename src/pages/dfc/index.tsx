@@ -816,6 +816,7 @@ export default function DfcPage() {
         open={dfcExportModalOpen}
         onClose={() => setDfcExportModalOpen(false)}
         title="Exportar DRE"
+        skipDateRange
         onExportExcel={() => exportDfcToExcel(dreRows, year, taxRegime, calcType, periodType, selectedMonth)}
         onExportPdf={handleExportDfcPdf}
       />

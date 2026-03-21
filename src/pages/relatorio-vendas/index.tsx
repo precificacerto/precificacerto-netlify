@@ -792,6 +792,7 @@ function SalesReport() {
                             onExportExcel={handleExportProductsExcel}
                             onExportPdf={handleExportProductsPdf}
                             title="Exportar Curva ABC - Produtos"
+                            skipDateRange
                         />
 
                         {/* Product Table */}
@@ -883,6 +884,7 @@ function SalesReport() {
                             onExportExcel={handleExportServicesExcel}
                             onExportPdf={handleExportServicesPdf}
                             title="Exportar Curva ABC - Serviços"
+                            skipDateRange
                         />
 
                         {/* Service Table */}
