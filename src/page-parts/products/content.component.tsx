@@ -319,8 +319,8 @@ export const Content: FC<ContentProps> = ({
     const effectiveTaxPct = customTaxPercent != null ? customTaxPercent : calcBase.taxPct
     const taxPctDecimal = effectiveTaxPct / 100
 
-    // Para SERVICE + REVENDA: usar calcType REVENDA (sem MO produtiva no CMV)
-    const effectiveCalcType = isCalcService && productType === 'REVENDA'
+    // Produto REVENDA usa sempre calcType REVENDA (sem MO produtiva no CMV), independente do tenant
+    const effectiveCalcType = productType === 'REVENDA'
       ? 'REVENDA'
       : currentUser.calcType === CALC_TYPE_ENUM.INDUSTRIALIZATION ? 'INDUSTRIALIZACAO'
         : currentUser.calcType === CALC_TYPE_ENUM.RESALE ? 'REVENDA'
@@ -529,8 +529,8 @@ export const Content: FC<ContentProps> = ({
       const structurePctForEngine = isCalcService
         ? (calcBase.variableExpensePct + calcBase.financialExpensePct) / 100
         : (calcBase.structurePct + (Number(calcBase.indirectLaborPct) || 0)) / 100
-      // Para SERVICE + REVENDA: usar calcType REVENDA (sem MO produtiva)
-      const effectiveCalcTypeSave = isCalcService && productType === 'REVENDA'
+      // Produto REVENDA usa sempre calcType REVENDA, independente do tenant
+      const effectiveCalcTypeSave = productType === 'REVENDA'
         ? 'REVENDA'
         : currentUser?.calcType === CALC_TYPE_ENUM.INDUSTRIALIZATION ? 'INDUSTRIALIZACAO'
           : currentUser?.calcType === CALC_TYPE_ENUM.RESALE ? 'REVENDA'
