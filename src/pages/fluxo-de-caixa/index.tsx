@@ -1926,54 +1926,6 @@ export default function CashFlow() {
                         ),
                     },
                     {
-                        label: <span><TeamOutlined style={{ marginRight: 4 }} />Comissão vendedores</span>,
-                        key: '6',
-                        children: (
-                            <div className="pc-card--table">
-                                <div className="filter-bar" style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                    <span style={{ color: '#94a3b8', fontSize: 13 }}>Comissão calculada sobre serviços concluídos (agenda) e vendas de orçamentos no mês — vendedores com % cadastrado</span>
-                                    {commissionSummary.length > 0 && (
-                                        <Button
-                                            icon={<FileExcelOutlined />}
-                                            onClick={() => setCommissionExportModalOpen(true)}
-                                            style={{ marginLeft: 12, background: '#7C3AED', borderColor: '#7C3AED', color: '#fff' }}
-                                        >
-                                            Exportar
-                                        </Button>
-                                    )}
-                                </div>
-                                {commissionSummary.length > 0 ? (
-                                    <Table
-                                        columns={[
-                                            { title: 'Vendedor', dataIndex: 'name', render: (t) => <span style={{ fontWeight: 500 }}>{t}</span> },
-                                            { title: '% Comissão', dataIndex: 'commission_percent', width: 110, align: 'center', render: (v) => <Tag>{v}%</Tag> },
-                                            { title: 'Base (receita)', dataIndex: 'base_revenue', align: 'right', render: (v) => formatCurrency(v) },
-                                            { title: 'Comissão calculada', dataIndex: 'commission_value', align: 'right', render: (v) => <strong style={{ color: '#7C3AED' }}>{formatCurrency(v)}</strong> },
-                                        ]}
-                                        dataSource={commissionSummary}
-                                        rowKey="employee_id"
-                                        pagination={false}
-                                        summary={() => (
-                                            <Table.Summary>
-                                                <Table.Summary.Row style={{ background: 'rgba(124, 58, 237, 0.2)', color: '#e2e8f0' }}>
-                                                    <Table.Summary.Cell index={0} colSpan={2} style={{ color: '#e2e8f0' }}><strong>Total comissões (período)</strong></Table.Summary.Cell>
-                                                    <Table.Summary.Cell index={2} align="right" style={{ color: '#e2e8f0' }}><strong>{formatCurrency(commissionSummary.reduce((s, r) => s + r.base_revenue, 0))}</strong></Table.Summary.Cell>
-                                                    <Table.Summary.Cell index={3} align="right"><strong style={{ color: '#a78bfa' }}>{formatCurrency(commissionSummary.reduce((s, r) => s + r.commission_value, 0))}</strong></Table.Summary.Cell>
-                                                </Table.Summary.Row>
-                                            </Table.Summary>
-                                        )}
-                                    />
-                                ) : (
-                                    <div style={{ textAlign: 'center', padding: 40, color: '#98A2B3' }}>
-                                        <TeamOutlined style={{ fontSize: 40, marginBottom: 12 }} />
-                                        <p>Nenhum vendedor com % de comissão cadastrado ou sem movimentação no mês.</p>
-                                        <p style={{ fontSize: 12 }}>Cadastre o campo &quot;Comissão&quot; nos funcionários e conclua serviços/vendas com vendedor responsável.</p>
-                                    </div>
-                                )}
-                            </div>
-                        ),
-                    },
-                    {
                         label: <span><CreditCardOutlined style={{ marginRight: 4 }} />Antecipação de cartão</span>,
                         key: '7',
                         children: (

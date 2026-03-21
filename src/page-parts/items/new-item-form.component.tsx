@@ -246,12 +246,13 @@ const NewItemForm = ({ form }: Props) => {
         Dados da Compra
       </Divider>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, alignItems: 'start' }}>
         <Form.Item
           name="unitType"
           label="Unidade"
           rules={[{ required: true, message: REQUIRED }]}
           initialValue="UN"
+          style={{ marginBottom: 24 }}
         >
           <Select onChange={() => setTimeout(recalcCostPerUnit, 50)}>
             <Select.Option value="G">Gramas (g)</Select.Option>
@@ -272,6 +273,7 @@ const NewItemForm = ({ form }: Props) => {
           label="Valor unitário (R$)"
           rules={[{ required: true, message: REQUIRED }]}
           tooltip="Valor unitário do item (por unidade de medida). O valor total será calculado automaticamente."
+          style={{ marginBottom: 24 }}
         >
           <Input
             prefix="R$"
@@ -286,6 +288,7 @@ const NewItemForm = ({ form }: Props) => {
           label="Qtd. comprada"
           rules={[{ required: true, message: REQUIRED }]}
           tooltip="Quantidade total que você comprou (ex: 1 para 1kg, 500 para 500ml)"
+          style={{ marginBottom: 24 }}
         >
           <Input
             type="number"

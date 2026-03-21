@@ -14,7 +14,10 @@ import {
     FilterOutlined,
     ReloadOutlined,
     CustomerServiceOutlined,
+    DownloadOutlined,
 } from '@ant-design/icons'
+import { ExportFormatModal } from '@/components/ui/export-format-modal.component'
+import { exportTableToPdf } from '@/utils/export-generic-pdf'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import dayjs from 'dayjs'
 
@@ -81,6 +84,66 @@ function SalesReport() {
     ])
     const [svcEmployeeFilter, setSvcEmployeeFilter] = useState<string | undefined>(undefined)
     const [svcClientFilter, setSvcClientFilter] = useState<string | undefined>(undefined)
+
+    // Export state
+    const [productExportModalOpen, setProductExportModalOpen] = useState(false)
+    const [serviceExportModalOpen, setServiceExportModalOpen] = useState(false)
+
+    const handleExportProductsExcel = () => {
+        if (!abcData.length) return
+        import('exceljs').then(({ Workbook }) => {
+            const wb = new Workbook()
+            const ws = wb.addWorksheet('Curva ABC Produtos')
+            ws.addRow(['#', 'Produto', 'Qtd. Vendida', 'Receita', 'Custo', 'Margem', 'Margem %', 'Curva', 'Vendedor'])
+            abcData.forEach(r => ws.addRow([r.position, r.productName, r.qtdSold, r.totalRevenue, r.totalCost, r.profitMargin, `${r.marginPercent.toFixed(1)}%`, r.curve, r.employeeName]))
+            ws.getRow(1).font = { bold: true }
+            wb.xlsx.writeBuffer().then(buf => {
+                const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+                const url = URL.createObjectURL(blob)
+                const a = document.createElement('a'); a.href = url; a.download = 'curva-abc-produtos.xlsx'; a.click()
+                URL.revokeObjectURL(url)
+            })
+        })
+    }
+
+    const handleExportProductsPdf = () => {
+        if (!abcData.length) return
+        exportTableToPdf({
+            title: 'Curva ABC - Produtos',
+            subtitle: `Período: ${abcDateRange[0].format('DD/MM/YYYY')} a ${abcDateRange[1].format('DD/MM/YYYY')}`,
+            headers: ['#', 'Produto', 'Qtd.', 'Receita', 'Custo', 'Margem', '%', 'Curva', 'Vendedor'],
+            rows: abcData.map(r => [r.position, r.productName, r.qtdSold, formatCurrency(r.totalRevenue), formatCurrency(r.totalCost), formatCurrency(r.profitMargin), `${r.marginPercent.toFixed(1)}%`, r.curve, r.employeeName]),
+            filename: 'curva-abc-produtos.pdf',
+        })
+    }
+
+    const handleExportServicesPdf = () => {
+        if (!svcData.length) return
+        exportTableToPdf({
+            title: 'Curva ABC - Serviços',
+            subtitle: `Período: ${svcDateRange[0].format('DD/MM/YYYY')} a ${svcDateRange[1].format('DD/MM/YYYY')}`,
+            headers: ['#', 'Serviço', 'Qtd.', 'Receita', 'Custo', 'Margem', '%', 'Curva', 'Profissional'],
+            rows: svcData.map(r => [r.position, r.serviceName, r.qtdSold, formatCurrency(r.totalRevenue), formatCurrency(r.totalCost), formatCurrency(r.profitMargin), `${r.marginPercent.toFixed(1)}%`, r.curve, r.employeeName]),
+            filename: 'curva-abc-servicos.pdf',
+        })
+    }
+
+    const handleExportServicesExcel = () => {
+        if (!svcData.length) return
+        import('exceljs').then(({ Workbook }) => {
+            const wb = new Workbook()
+            const ws = wb.addWorksheet('Curva ABC Serviços')
+            ws.addRow(['#', 'Serviço', 'Qtd. Vendida', 'Receita', 'Custo', 'Margem', 'Margem %', 'Curva', 'Profissional'])
+            svcData.forEach(r => ws.addRow([r.position, r.serviceName, r.qtdSold, r.totalRevenue, r.totalCost, r.profitMargin, `${r.marginPercent.toFixed(1)}%`, r.curve, r.employeeName]))
+            ws.getRow(1).font = { bold: true }
+            wb.xlsx.writeBuffer().then(buf => {
+                const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+                const url = URL.createObjectURL(blob)
+                const a = document.createElement('a'); a.href = url; a.download = 'curva-abc-servicos.xlsx'; a.click()
+                URL.revokeObjectURL(url)
+            })
+        })
+    }
 
     // ─── Product ABC fetch ───
     const fetchAbcReport = useCallback(async () => {
@@ -713,7 +776,23 @@ function SalesReport() {
                             >
                                 Atualizar
                             </Button>
+                            <Button
+                                icon={<DownloadOutlined />}
+                                onClick={() => setProductExportModalOpen(true)}
+                                disabled={!abcData.length}
+                                style={{ marginLeft: 'auto' }}
+                            >
+                                Exportar
+                            </Button>
                         </div>
+
+                        <ExportFormatModal
+                            open={productExportModalOpen}
+                            onClose={() => setProductExportModalOpen(false)}
+                            onExportExcel={handleExportProductsExcel}
+                            onExportPdf={handleExportProductsPdf}
+                            title="Exportar Curva ABC - Produtos"
+                        />
 
                         {/* Product Table */}
                         <Table<ABCReportRow>
@@ -788,7 +867,23 @@ function SalesReport() {
                             >
                                 Atualizar
                             </Button>
+                            <Button
+                                icon={<DownloadOutlined />}
+                                onClick={() => setServiceExportModalOpen(true)}
+                                disabled={!svcData.length}
+                                style={{ marginLeft: 'auto' }}
+                            >
+                                Exportar
+                            </Button>
                         </div>
+
+                        <ExportFormatModal
+                            open={serviceExportModalOpen}
+                            onClose={() => setServiceExportModalOpen(false)}
+                            onExportExcel={handleExportServicesExcel}
+                            onExportPdf={handleExportServicesPdf}
+                            title="Exportar Curva ABC - Serviços"
+                        />
 
                         {/* Service Table */}
                         <Table<ABCServiceRow>

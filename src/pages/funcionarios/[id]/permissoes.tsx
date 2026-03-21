@@ -11,19 +11,23 @@ import { ROUTES } from '@/constants/routes'
 import { PERMISSIONS } from '@/shared/enums/permissions'
 
 const MODULE_LABELS: Record<string, string> = {
+  home: 'Início',
   customers: 'Clientes',
   items: 'Itens',
   products: 'Produtos',
   budgets: 'Orçamentos',
   sales: 'Vendas',
+  sales_report: 'Relatório de Vendas',
   stock: 'Estoque',
   cashier: 'Caixa',
-  dre: 'HUB / DRE',
-  cash_flow: 'Fluxo de Caixa',
-  dfc: 'DFC',
+  cash_flow: 'Controle Financeiro',
+  dfc: 'Análise Financeira',
+  commission: 'Comissão de Vendedor',
   employees: 'Funcionários',
   reports: 'Relatórios',
   agenda: 'Agenda',
+  services: 'Serviços',
+  connectivity: 'Conectividade',
 }
 
 type PermissionRow = {

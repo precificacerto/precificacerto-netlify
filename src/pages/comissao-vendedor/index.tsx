@@ -15,7 +15,9 @@ import {
   TeamOutlined,
   DollarOutlined,
   PercentageOutlined,
+  DownloadOutlined,
 } from '@ant-design/icons'
+import { ExportFormatModal } from '@/components/ui/export-format-modal.component'
 
 function formatCurrency(v: number) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 }).format(v)
@@ -196,6 +198,8 @@ export default function CommissionPage() {
     },
   ]
 
+  const [exportModalOpen, setExportModalOpen] = useState(false)
+
   const handleExportExcel = () => {
     if (!filteredData.length) {
       messageApi.warning('Nenhum dado para exportar.')
@@ -255,12 +259,10 @@ export default function CommissionPage() {
             ]}
           />
         </div>
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignSelf: 'flex-end' }}>
-          <Button icon={<FileExcelOutlined />} onClick={handleExportExcel} disabled={!filteredData.length}>
-            Exportar Excel
-          </Button>
-          <Button icon={<FilePdfOutlined />} onClick={handleExportPdf} type="primary" style={{ background: '#7C3AED', borderColor: '#7C3AED' }} disabled={!filteredData.length}>
-            Exportar PDF
+        <div style={{ marginLeft: 'auto', alignSelf: 'flex-end' }}>
+          <Button icon={<DownloadOutlined />} onClick={() => setExportModalOpen(true)} disabled={!filteredData.length}
+            style={{ background: '#7C3AED', borderColor: '#7C3AED', color: '#fff' }}>
+            Exportar
           </Button>
         </div>
       </div>
@@ -324,6 +326,14 @@ export default function CommissionPage() {
           style={{ padding: 60 }}
         />
       )}
+
+      <ExportFormatModal
+        open={exportModalOpen}
+        onClose={() => setExportModalOpen(false)}
+        onExportExcel={handleExportExcel}
+        onExportPdf={handleExportPdf}
+        title="Exportar Comissão de Vendedor"
+      />
     </Layout>
   )
 }

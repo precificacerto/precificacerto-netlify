@@ -935,7 +935,7 @@ export const Content: FC<ContentProps> = ({
             <strong style={{ fontSize: 14 }}>Tipo do produto:</strong>
             <span style={{
               background: '#E6F7FF', border: '1px solid #91D5FF', borderRadius: 6,
-              padding: '4px 14px', fontWeight: 600, fontSize: 13,
+              padding: '4px 14px', fontWeight: 600, fontSize: 13, color: '#0a0a0a',
             }}>📦 Revenda</span>
           </div>
         ) : (

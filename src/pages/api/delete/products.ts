@@ -21,21 +21,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     if (!product) return res.status(404).json({ error: 'Produto não encontrado' })
 
-    const { data: productDetail } = await supabaseAdmin
-      .from('products')
-      .select('id, product_type')
-      .eq('id', id)
-      .single()
-    const { count } = await supabaseAdmin
-      .from('product_items')
-      .select('*', { count: 'exact', head: true })
-      .eq('product_id', id)
-    if (productDetail?.product_type === 'PRODUZIDO' && (count ?? 0) > 0) {
-      return res.status(400).json({
-        error: 'Produto produzido com receita não pode ser excluído. Para baixar quantidade, use Estoque → Produtos acabados → Excluir quantidade.',
-      })
-    }
-
     const isAdmin = caller.is_super_admin || caller.role === 'admin'
     const hasEditPerm = isAdmin // users need admin role to delete products
     if (!hasEditPerm) {
@@ -51,10 +36,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     }
 
-    // budget_items has RESTRICT on product_id — nullify first
+    // Clean up references before deleting
     await supabaseAdmin.from('budget_items').update({ product_id: null }).eq('product_id', id)
+    await supabaseAdmin.from('product_items').delete().eq('product_id', id)
+    await supabaseAdmin.from('pricing_calculations').delete().eq('product_id', id)
+    await supabaseAdmin.from('stock_movements').delete().in('stock_id',
+      (await supabaseAdmin.from('stock').select('id').eq('product_id', id)).data?.map((s: any) => s.id) || []
+    )
+    await supabaseAdmin.from('stock').delete().eq('product_id', id)
+    await supabaseAdmin.from('labor_costs').delete().eq('product_id', id)
+    await supabaseAdmin.from('production_items').delete().in('production_id',
+      (await supabaseAdmin.from('productions').select('id').eq('product_id', id)).data?.map((p: any) => p.id) || []
+    )
+    await supabaseAdmin.from('productions').delete().eq('product_id', id)
 
-    // The rest cascades automatically (pricing_calculations, product_items, stock, labor_costs, etc.)
     const { error } = await supabaseAdmin.from('products').delete().eq('id', id).eq('tenant_id', caller.tenant_id)
     if (error) throw error
 
