@@ -1,6 +1,6 @@
 import { ChangeEvent, FC, useCallback, useEffect, useRef, useState } from 'react'
-import { AutoComplete, Button, Card, Form, Input, InputNumber, Popconfirm, Select, Space, Alert, Radio, Divider, Tooltip, Spin } from 'antd'
-import { InfoCircleOutlined, SearchOutlined } from '@ant-design/icons'
+import { AutoComplete, Button, Card, Form, Input, InputNumber, Popconfirm, Select, Space, Alert, Radio, Divider, Tooltip, Spin, Switch, Modal } from 'antd'
+import { InfoCircleOutlined, SearchOutlined, SyncOutlined } from '@ant-design/icons'
 import { PAGE_TITLES } from '@/constants/page-titles'
 import { IItemModel } from '@/server/model/item'
 import { IItemProductModel, itemProductSchema } from '@/server/model/item-product-item'
@@ -148,8 +148,13 @@ export const Content: FC<ContentProps> = ({
   const [buyerType, setBuyerType] = useState<'CONSUMIDOR_FINAL' | 'CONTRIBUINTE_PJ'>('CONSUMIDOR_FINAL')
   const [destinationState, setDestinationState] = useState<string | null>(null)
   const [customTaxPercent, setCustomTaxPercent] = useState<number | null>(
-    product?.custom_tax_percent != null ? Number(product.custom_tax_percent) : null
+    (product as any)?.custom_tax_percent != null ? Number((product as any).custom_tax_percent) : null
   )
+
+  const [recurrenceActive, setRecurrenceActive] = useState<boolean>((product as any)?.recurrence_active ?? false)
+  const [recurrenceModalOpen, setRecurrenceModalOpen] = useState(false)
+  const [recurrenceDays, setRecurrenceDays] = useState<number | null>((product as any)?.recurrence_days ?? null)
+  const [recurrenceMessage, setRecurrenceMessage] = useState<string>((product as any)?.recurrence_message ?? '')
 
   const [ncmSuggestions, setNcmSuggestions] = useState<{ code: string; description: string }[]>([])
   const [ncmSugLoading, setNcmSugLoading] = useState(false)
@@ -234,7 +239,7 @@ export const Content: FC<ContentProps> = ({
       if (baseItem) {
         const qty = Number(baseItem.quantity) || 1
         const totalCost = Number(baseItem.price) ?? Number((baseItem as any).cost_price) ?? 0
-        const costPerUnit = baseItem.cost_per_base_unit != null && baseItem.cost_per_base_unit !== ''
+        const costPerUnit = baseItem.cost_per_base_unit != null
           ? Number(baseItem.cost_per_base_unit)
           : qty > 0 ? totalCost / qty : totalCost
         const newItem: IItemProductModel = {
@@ -274,8 +279,8 @@ export const Content: FC<ContentProps> = ({
       } as ProductPriceInfoType)
       setUpdatedProductPriceInfoWithApi((prev) => prev + 1)
       // Load custom_tax_percent from product if editing
-      if (product?.custom_tax_percent != null) {
-        setCustomTaxPercent(Number(product.custom_tax_percent))
+      if ((product as any)?.custom_tax_percent != null) {
+        setCustomTaxPercent(Number((product as any).custom_tax_percent))
       }
     }
   }, [productForm, isEditingMode, product])
@@ -573,7 +578,7 @@ export const Content: FC<ContentProps> = ({
       } else {
         const { data: created, error } = await supabase
           .from('products')
-          .insert(productData)
+          .insert(productData as any)
           .select('id')
           .single()
 
@@ -585,11 +590,12 @@ export const Content: FC<ContentProps> = ({
       const extraFields: Record<string, any> = {}
       if (customTaxPercent != null) extraFields.custom_tax_percent = customTaxPercent
       else extraFields.custom_tax_percent = null
-      if (values.recurrence_days != null && values.recurrence_days !== '') extraFields.recurrence_days = Number(values.recurrence_days)
-      else extraFields.recurrence_days = null
+      extraFields.recurrence_active = recurrenceActive
+      extraFields.recurrence_days = recurrenceActive && recurrenceDays ? recurrenceDays : null
+      extraFields.recurrence_message = recurrenceActive && recurrenceMessage ? recurrenceMessage : null
       if (Object.keys(extraFields).length > 0) {
         const { error: extraErr } = await supabase.from('products').update(extraFields).eq('id', productId)
-        if (extraErr) console.warn('Could not save custom_tax_percent/recurrence_days (columns may not exist yet):', extraErr.message)
+        if (extraErr) console.warn('Could not save recurrence/custom_tax_percent fields:', extraErr.message)
       }
 
       await supabase.from('product_items').delete().eq('product_id', productId)
@@ -1060,18 +1066,81 @@ export const Content: FC<ContentProps> = ({
             </Form.Item>
 
             <Form.Item
-              name="recurrence_days"
               label={
                 <span>
-                  Tempo de recorrência (dias)&nbsp;
-                  <Tooltip title="Opcional. Quantidade de dias para recorrência automática de contato com o cliente após a venda.">
+                  Recorrência&nbsp;
+                  <Tooltip title="Ativa o contato automático com o cliente após a venda. Configure o prazo em dias e uma mensagem personalizada por produto.">
                     <InfoCircleOutlined style={{ color: '#64748b' }} />
                   </Tooltip>
                 </span>
               }
             >
-              <InputNumber min={1} step={1} style={{ width: '100%' }} placeholder="Ex: 30 (dias)" />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <Switch
+                  checked={recurrenceActive}
+                  onChange={(checked) => {
+                    setRecurrenceActive(checked)
+                    if (checked) setRecurrenceModalOpen(true)
+                  }}
+                  checkedChildren={<SyncOutlined />}
+                />
+                {recurrenceActive && (
+                  <span style={{ fontSize: 13, color: '#94a3b8' }}>
+                    {recurrenceDays ? `${recurrenceDays} dias` : 'Sem prazo definido'}
+                    {recurrenceMessage ? ' · Mensagem personalizada' : ''}
+                  </span>
+                )}
+                {recurrenceActive && (
+                  <Button size="small" type="link" style={{ padding: 0 }} onClick={() => setRecurrenceModalOpen(true)}>
+                    Configurar
+                  </Button>
+                )}
+              </div>
             </Form.Item>
+
+            <Modal
+              title="Configurar Recorrência"
+              open={recurrenceModalOpen}
+              onOk={() => setRecurrenceModalOpen(false)}
+              onCancel={() => setRecurrenceModalOpen(false)}
+              okText="Confirmar"
+              cancelText="Fechar"
+              width={420}
+            >
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16, paddingTop: 8 }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 6 }}>
+                    Dias para disparo&nbsp;
+                    <Tooltip title="Quantos dias após a venda o cliente será contatado.">
+                      <InfoCircleOutlined style={{ color: '#64748b' }} />
+                    </Tooltip>
+                  </div>
+                  <InputNumber
+                    min={1}
+                    step={1}
+                    style={{ width: '100%' }}
+                    placeholder="Ex: 30"
+                    value={recurrenceDays}
+                    onChange={(v) => setRecurrenceDays(v)}
+                    addonAfter="dias"
+                  />
+                </div>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 6 }}>
+                    Mensagem personalizada (opcional)&nbsp;
+                    <Tooltip title="Mensagem específica para este produto. Se vazio, será usada a mensagem padrão da aba Recorrência.">
+                      <InfoCircleOutlined style={{ color: '#64748b' }} />
+                    </Tooltip>
+                  </div>
+                  <Input.TextArea
+                    rows={4}
+                    placeholder="Olá {nome}, lembrete sobre {produto}..."
+                    value={recurrenceMessage}
+                    onChange={(e) => setRecurrenceMessage(e.target.value)}
+                  />
+                </div>
+              </div>
+            </Modal>
           </div>
         </Form>
 

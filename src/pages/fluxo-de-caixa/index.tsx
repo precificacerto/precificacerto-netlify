@@ -226,14 +226,15 @@ export default function CashFlow() {
     const fetchData = async () => {
         setLoading(true)
         try {
+            const sbf = supabase as any
             const [{ data: entries }, { data: emps }] = await Promise.all([
-                supabase.from('cash_entries')
+                sbf.from('cash_entries')
                     .select('*')
                     .gte('due_date', startOfMonth)
                     .lte('due_date', endOfMonth)
                     .eq('is_active', true)
                     .order('due_date', { ascending: true }),
-                supabase.from('employees').select('id, name, salary').eq('status', 'ACTIVE').eq('is_active', true),
+                sbf.from('employees').select('id, name, salary').eq('status', 'ACTIVE').eq('is_active', true),
             ])
             setData(entries || [])
             setEmployees(emps || [])
@@ -259,7 +260,7 @@ export default function CashFlow() {
             while (current.isBefore(endMonth) || current.isSame(endMonth, 'month')) {
                 const s = current.startOf('month').format('YYYY-MM-DD')
                 const e = current.endOf('month').format('YYYY-MM-DD')
-                const { data: entries } = await supabase
+                const { data: entries } = await (supabase as any)
                     .from('cash_entries')
                     .select('*')
                     .gte('due_date', s)
@@ -366,14 +367,14 @@ export default function CashFlow() {
             const tenantId = await getTenantId()
             if (!tenantId) return
             const monthStart = month.startOf('month').format('YYYY-MM-01')
-            const { data: rows } = await supabase
+            const { data: rows } = await (supabase as any)
                 .from('tax_restitution_entries')
                 .select('*')
                 .eq('tenant_id', tenantId)
                 .eq('reference_month', monthStart)
                 .order('reference_month', { ascending: false })
 
-            const row = rows && rows.length > 0 ? rows[0] : null
+            const row = rows && rows.length > 0 ? (rows[0] as any) : null
             if (row) {
                 setRestitutionTotalPurchases(Number(row.total_purchases) || 0)
                 setRestitutionPis(Number(row.pis_credit) || 0)
@@ -388,7 +389,7 @@ export default function CashFlow() {
                 setRestitutionTotal(0)
             }
 
-            const { data: history } = await supabase
+            const { data: history } = await (supabase as any)
                 .from('tax_restitution_entries')
                 .select('*')
                 .eq('tenant_id', tenantId)
@@ -412,7 +413,7 @@ export default function CashFlow() {
             if (!tid) return
             const today = dayjs().format('YYYY-MM-DD')
 
-            const { data: allEntries } = await supabase
+            const { data: allEntries } = await (supabase as any)
                 .from('cash_entries')
                 .select('id, due_date, amount, anticipation_id, anticipated_amount')
                 .eq('payment_method', 'CARTAO_CREDITO')
@@ -432,6 +433,7 @@ export default function CashFlow() {
                     due_date: entry.due_date,
                     amount: amt,
                     availableAmount,
+                    anticipated_amount: Number(entry.anticipated_amount) || 0,
                 })
             }
 
@@ -444,7 +446,7 @@ export default function CashFlow() {
             }
             setAnticipationAvailable(Object.values(grouped).sort((a, b) => a.month.localeCompare(b.month)))
 
-            const { data: history } = await supabase
+            const { data: history } = await (supabase as any)
                 .from('card_anticipations')
                 .select('*')
                 .eq('tenant_id', tid)
@@ -466,14 +468,15 @@ export default function CashFlow() {
             if (!tenantId) return
             const start = month.startOf('month').format('YYYY-MM-DD')
             const end = month.endOf('month').format('YYYY-MM-DD')
-            const { data: emps } = await supabase.from('employees').select('id, name, commission_percent').eq('status', 'ACTIVE').eq('is_active', true).not('commission_percent', 'is', null)
+            const sbx = supabase as any
+            const { data: emps } = await sbx.from('employees').select('id, name, commission_percent').eq('status', 'ACTIVE').eq('is_active', true).not('commission_percent', 'is', null)
             const employeesWithCommission = (emps || []).filter((e: any) => Number(e.commission_percent) > 0)
             if (employeesWithCommission.length === 0) {
                 if (!cancelled) setCommissionSummary([])
                 return
             }
-            const empMap = new Map(employeesWithCommission.map((e: any) => [e.id, { name: e.name, commission_percent: Number(e.commission_percent) || 0, base_revenue: 0, commission_value: 0 }]))
-            const { data: services } = await supabase.from('completed_services').select('employee_id, total_revenue').eq('is_active', true).gte('service_date', start).lte('service_date', end)
+            const empMap = new Map<string, { name: string; commission_percent: number; base_revenue: number; commission_value: number }>(employeesWithCommission.map((e: any) => [e.id, { name: e.name, commission_percent: Number(e.commission_percent) || 0, base_revenue: 0, commission_value: 0 }]))
+            const { data: services } = await sbx.from('completed_services').select('employee_id, total_revenue').eq('is_active', true).gte('service_date', start).lte('service_date', end)
             for (const s of services || []) {
                 if (!s.employee_id) continue
                 const emp = empMap.get(s.employee_id)
@@ -482,12 +485,12 @@ export default function CashFlow() {
                 emp.base_revenue += rev
                 emp.commission_value += rev * (emp.commission_percent / 100)
             }
-            const { data: sales } = await supabase.from('sales').select('id, final_value, budget_id').eq('is_active', true).gte('sale_date', start).lte('sale_date', end).not('budget_id', 'is', null)
+            const { data: sales } = await sbx.from('sales').select('id, final_value, budget_id').eq('is_active', true).gte('sale_date', start).lte('sale_date', end).not('budget_id', 'is', null)
             if (sales?.length) {
                 const budgetIds = [...new Set((sales as any[]).map(s => s.budget_id).filter(Boolean))]
-                const { data: budgets } = await supabase.from('budgets').select('id, employee_id').in('id', budgetIds)
-                const budgetEmp = new Map((budgets || []).map((b: any) => [b.id, b.employee_id]))
-                const { data: empRows } = await supabase.from('employees').select('id, commission_percent').in('id', [...new Set((budgets || []).map((b: any) => b.employee_id).filter(Boolean))])
+                const { data: budgets } = await sbx.from('budgets').select('id, employee_id').in('id', budgetIds)
+                const budgetEmp = new Map<string, string>((budgets || []).map((b: any) => [b.id, b.employee_id]))
+                const { data: empRows } = await supabase.from('employees').select('id, commission_percent').in('id', [...new Set((budgets || []).map((b: any) => b.employee_id).filter(Boolean))] as string[])
                 const pctByEmp = new Map((empRows || []).map((e: any) => [e.id, Number(e.commission_percent) || 0]))
                 for (const sale of sales as any[]) {
                     const empId = budgetEmp.get(sale.budget_id)
@@ -545,11 +548,11 @@ export default function CashFlow() {
 
     // ── Despesas fixas agrupadas por descrição ──
     const fixedGrouped = useMemo(() => {
-        const groups: Record<string, { description: string; amount: number; count: number; isFixed: boolean }> = {}
+        const groups: Record<string, { description: string; amount: number; count: number; isFixed: boolean; expenseGroup: string | undefined }> = {}
         for (const entry of fixedExpenseEntries) {
             const key = getCategoryFromDescription(entry.description)
             const catGroup = getGroupForCategory(key)
-            if (!groups[key]) groups[key] = { description: key, amount: 0, count: 0, isFixed: catGroup === 'DESPESA_FIXA' || catGroup === 'MAO_DE_OBRA' }
+            if (!groups[key]) groups[key] = { description: key, amount: 0, count: 0, isFixed: catGroup === 'DESPESA_FIXA' || catGroup === 'MAO_DE_OBRA', expenseGroup: catGroup }
             groups[key].amount += Number(entry.amount || 0)
             groups[key].count++
         }
@@ -940,7 +943,8 @@ export default function CashFlow() {
                 : (anticGrossAmount > 0 ? (anticFeeValue / anticGrossAmount) * 100 : 0)
             const netAmount = anticGrossAmount - feeAmount
 
-            const { data: antic, error: anticErr } = await supabase.from('card_anticipations').insert({
+            const sba = supabase as any
+            const { data: antic, error: anticErr } = await sba.from('card_anticipations').insert({
                 tenant_id: tid,
                 total_gross: anticGrossAmount,
                 fee_amount: feeAmount,
@@ -954,7 +958,7 @@ export default function CashFlow() {
             if (anticErr) throw anticErr
 
             const today = dayjs().format('YYYY-MM-DD')
-            const { data: entries } = await supabase
+            const { data: entries } = await sba
                 .from('cash_entries')
                 .select('id, amount, anticipation_id, anticipated_amount')
                 .eq('payment_method', 'CARTAO_CREDITO')
@@ -988,7 +992,7 @@ export default function CashFlow() {
                 const take = Math.min(remaining, availableAmount)
                 const newAnticipated = (entry.anticipation_id ? already : 0) + take
                 const isFullyAnticipated = newAnticipated >= amt
-                await supabase
+                await sba
                     .from('cash_entries')
                     .update({
                         anticipation_id: antic.id,
@@ -999,7 +1003,7 @@ export default function CashFlow() {
                 remaining -= take
             }
 
-            await supabase.from('cash_entries').insert({
+            await sba.from('cash_entries').insert({
                 tenant_id: tid,
                 type: 'INCOME',
                 amount: netAmount,
@@ -1043,7 +1047,7 @@ export default function CashFlow() {
             const start = month.startOf('month').format('YYYY-MM-DD')
             const end = month.endOf('month').format('YYYY-MM-DD')
 
-            const { data: entries } = await supabase
+            const { data: entries } = await (supabase as any)
                 .from('cash_entries')
                 .select('amount, type, expense_group, due_date')
                 .eq('tenant_id', tenantId)
@@ -1108,7 +1112,8 @@ export default function CashFlow() {
                 updated_at: new Date().toISOString(),
             }
 
-            const { data: existing } = await supabase
+            const sbt = supabase as any
+            const { data: existing } = await sbt
                 .from('tax_restitution_entries')
                 .select('id')
                 .eq('tenant_id', tenantId)
@@ -1116,13 +1121,13 @@ export default function CashFlow() {
                 .maybeSingle()
 
             if (existing?.id) {
-                const { error } = await supabase
+                const { error } = await sbt
                     .from('tax_restitution_entries')
                     .update(payload)
                     .eq('id', existing.id)
                 if (error) throw error
             } else {
-                const { error } = await supabase
+                const { error } = await sbt
                     .from('tax_restitution_entries')
                     .insert(payload)
                 if (error) throw error
@@ -1435,6 +1440,196 @@ export default function CashFlow() {
                 type="card"
                 items={[
                     {
+                        label: <span><FundOutlined style={{ marginRight: 4 }} />Visão Geral</span>,
+                        key: 'daily',
+                        children: (() => {
+                            // Only show days that have any movement
+                            const activeDays = dailyData.filter(d => d.income > 0 || d.expense > 0)
+
+                            // Compute per-group expense breakdown per day
+                            const expenseGroupsPresent = Array.from(new Set(
+                                data.filter(e => e.type === 'EXPENSE' && e.expense_group)
+                                    .map(e => e.expense_group as string)
+                            ))
+
+                            // Build pivot columns: fixed label + one per active day + total
+                            const pivotColumns: any[] = [
+                                {
+                                    title: 'Métrica', dataIndex: 'label', width: 180, fixed: 'left',
+                                    render: (v: string, r: any) => (
+                                        <span style={{ fontSize: 13, fontWeight: r.bold ? 700 : 400, color: r.labelColor || '#e2e8f0' }}>{v}</span>
+                                    ),
+                                },
+                                ...activeDays.map(d => {
+                                    const dayName = dayjs(d.date).format('ddd')
+                                    const isWeekend = dayjs(d.date).day() === 0 || dayjs(d.date).day() === 6
+                                    return {
+                                        title: (
+                                            <div style={{ textAlign: 'center' }}>
+                                                <div style={{ fontWeight: 700, fontSize: 14 }}>{String(d.day).padStart(2, '0')}</div>
+                                                <div style={{ fontSize: 10, color: isWeekend ? '#F79009' : '#64748b', textTransform: 'capitalize' }}>{dayName}</div>
+                                            </div>
+                                        ),
+                                        dataIndex: `d${d.day}`,
+                                        width: 95,
+                                        align: 'right' as const,
+                                        render: (v: any, r: any) => {
+                                            if (v == null || v === 0) return <span style={{ color: '#374151' }}>—</span>
+                                            const style: React.CSSProperties = { fontSize: 12 }
+                                            if (r.key === 'income') style.color = '#12B76A'
+                                            else if (r.key === 'expense') style.color = '#F04438'
+                                            else if (r.key === 'balance' || r.key === 'runningBalance') style.color = v >= 0 ? '#12B76A' : '#F04438'
+                                            else if (r.key === 'movements') style.color = '#94a3b8'
+                                            else style.color = '#F04438'
+                                            if (r.key === 'movements') return <span style={style}>{v}</span>
+                                            return <span style={style}>{formatCurrency(v)}</span>
+                                        },
+                                    }
+                                }),
+                                {
+                                    title: 'Total', dataIndex: 'total', width: 120, align: 'right' as const, fixed: 'right',
+                                    render: (v: any, r: any) => {
+                                        if (v == null) return null
+                                        if (r.key === 'movements') return <strong style={{ fontSize: 12, color: '#94a3b8' }}>{v}</strong>
+                                        if (r.key === 'runningBalance') return <strong style={{ fontSize: 12, color: v >= 0 ? '#12B76A' : '#F04438' }}>{formatCurrency(v)}</strong>
+                                        const color = r.key === 'income' ? '#12B76A' : r.key === 'expense' ? '#F04438' : (v >= 0 ? '#12B76A' : '#F04438')
+                                        return <strong style={{ fontSize: 12, color }}>{formatCurrency(v)}</strong>
+                                    },
+                                },
+                            ]
+
+                            // Build pivot rows
+                            const incomeRow: any = { key: 'income', label: 'Receitas', bold: true, labelColor: '#12B76A', total: totalIncome }
+                            const expenseRow: any = { key: 'expense', label: 'Despesas', bold: true, labelColor: '#F04438', total: totalExpense }
+                            const balanceRow: any = { key: 'balance', label: 'Saldo do Dia', bold: false, total: null }
+                            const runningRow: any = { key: 'runningBalance', label: 'Saldo Acumulado', bold: true, total: dailyData[dailyData.length - 1]?.runningBalance ?? 0 }
+                            const movRow: any = { key: 'movements', label: 'Movimentações', bold: false, labelColor: '#94a3b8', total: data.length }
+
+                            for (const d of activeDays) {
+                                incomeRow[`d${d.day}`] = d.income || null
+                                expenseRow[`d${d.day}`] = d.expense || null
+                                balanceRow[`d${d.day}`] = d.balance || null
+                                runningRow[`d${d.day}`] = d.runningBalance
+                                movRow[`d${d.day}`] = d.entries.length || null
+                            }
+
+                            const groupRows: any[] = expenseGroupsPresent.map(grp => {
+                                const row: any = {
+                                    key: `grp_${grp}`,
+                                    label: `  ${getExpenseGroupLabel(grp)}`,
+                                    bold: false,
+                                    labelColor: getExpenseGroupColor(grp),
+                                    total: 0,
+                                }
+                                for (const d of activeDays) {
+                                    const amt = d.entries
+                                        .filter(e => e.type === 'EXPENSE' && e.expense_group === grp)
+                                        .reduce((s: number, e: any) => s + Number(e.amount || 0), 0)
+                                    row[`d${d.day}`] = amt || null
+                                    row.total += amt
+                                }
+                                return row
+                            })
+
+                            const pivotDataSource = [incomeRow, expenseRow, balanceRow, runningRow, movRow, ...groupRows]
+
+                            return (
+                                <div className="pc-card--table">
+                                    <div style={{ marginBottom: 12, fontSize: 13, color: '#94a3b8' }}>
+                                        Fluxo dia a dia — colunas mostram cada dia com movimento
+                                    </div>
+                                    <Table
+                                        columns={pivotColumns}
+                                        dataSource={pivotDataSource}
+                                        rowKey="key"
+                                        loading={loading}
+                                        pagination={false}
+                                        size="small"
+                                        scroll={{ x: 'max-content' }}
+                                        rowClassName={(r) => r.key === 'runningBalance' && (r[`d${activeDays[activeDays.length - 1]?.day}`] ?? 0) < 0 ? 'daily-negative-row' : ''}
+                                    />
+                                    {dailyData.some(d => d.runningBalance < 0) && (
+                                        <Alert
+                                            type="warning"
+                                            showIcon
+                                            style={{ marginTop: 12 }}
+                                            message="Atenção: Saldo negativo detectado"
+                                            description={
+                                                <span>
+                                                    O saldo acumulado fica negativo a partir do dia{' '}
+                                                    <strong>{dailyData.find(d => d.runningBalance < 0)?.day}</strong>.
+                                                    Considere antecipar uma entrada ou reduzir despesas nesse período.
+                                                </span>
+                                            }
+                                        />
+                                    )}
+                                </div>
+                            )
+                        })(),
+                    },
+                    {
+                        label: <span><PieChartOutlined style={{ marginRight: 4 }} />Análise Gráfica</span>,
+                        key: '2',
+                        children: (
+                            <div style={{ display: 'grid', gap: 24 }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: '3fr 2fr', gap: 24 }}>
+                                    <div className="pc-card" style={{ padding: 24 }}>
+                                        <h4 style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 700 }}>Receitas x Despesas por Semana</h4>
+                                        <p style={{ fontSize: 12, color: '#94a3b8', margin: '0 0 16px' }}>Comparativo semanal — {month.format('MMMM YYYY')}</p>
+                                        <div style={{ height: 280 }}>
+                                            {weeklyData.length > 0 ? <Bar data={barChartData} options={barChartOptions} /> : <p style={{ textAlign: 'center', padding: 60, color: '#64748b' }}>Sem dados no período</p>}
+                                        </div>
+                                    </div>
+                                    <div className="pc-card" style={{ padding: 24 }}>
+                                        <h4 style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 700 }}>Resumo do Mês</h4>
+                                        <p style={{ fontSize: 12, color: '#94a3b8', margin: '0 0 16px' }}>Visão consolidada</p>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginTop: 8 }}>
+                                            <div style={{ padding: 16, background: 'rgba(34, 197, 94, 0.12)', borderRadius: 8, border: '1px solid rgba(34, 197, 94, 0.3)' }}>
+                                                <div style={{ fontSize: 12, color: '#94a3b8' }}>Total de Receitas</div>
+                                                <div style={{ fontSize: 24, fontWeight: 700, color: '#12B76A' }}>{formatCurrency(totalIncome)}</div>
+                                                <div style={{ fontSize: 11, color: '#64748b' }}>{data.filter(d => d.type === 'INCOME').length} lançamento(s)</div>
+                                            </div>
+                                            <div style={{ padding: 16, background: 'rgba(240, 68, 56, 0.12)', borderRadius: 8, border: '1px solid rgba(240, 68, 56, 0.3)' }}>
+                                                <div style={{ fontSize: 12, color: '#94a3b8' }}>Total de Despesas</div>
+                                                <div style={{ fontSize: 24, fontWeight: 700, color: '#F04438' }}>{formatCurrency(totalExpense)}</div>
+                                                <div style={{ fontSize: 11, color: '#64748b' }}>{data.filter(d => d.type === 'EXPENSE').length} lançamento(s)</div>
+                                            </div>
+                                            <div style={{ padding: 16, background: balance >= 0 ? 'rgba(46, 144, 250, 0.12)' : 'rgba(247, 144, 9, 0.12)', borderRadius: 8, border: `1px solid ${balance >= 0 ? 'rgba(46, 144, 250, 0.3)' : 'rgba(247, 144, 9, 0.3)'}` }}>
+                                                <div style={{ fontSize: 12, color: '#94a3b8' }}>Saldo</div>
+                                                <div style={{ fontSize: 24, fontWeight: 700, color: balance >= 0 ? '#1890FF' : '#FA8C16' }}>{formatCurrency(balance)}</div>
+                                                <div style={{ fontSize: 11, color: '#64748b' }}>
+                                                    {balance >= 0 ? 'Mês positivo' : 'Mês negativo — despesas superam receitas'}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
+                                    <div className="pc-card" style={{ padding: 24 }}>
+                                        <h4 style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 700 }}>Despesas por Categoria</h4>
+                                        <p style={{ fontSize: 12, color: '#94a3b8', margin: '0 0 16px' }}>Distribuição das despesas</p>
+                                        <div style={{ height: 280 }}>
+                                            {expenseDoughnutLabels.length > 0
+                                                ? <Doughnut data={expenseDoughnutData} options={doughnutOptions} />
+                                                : <p style={{ textAlign: 'center', padding: 80, color: '#98A2B3' }}>Sem despesas</p>
+                                            }
+                                        </div>
+                                    </div>
+                                    <div className="pc-card" style={{ padding: 24 }}>
+                                        <h4 style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 700 }}>Receitas por Origem</h4>
+                                        <p style={{ fontSize: 12, color: '#94a3b8', margin: '0 0 16px' }}>De onde vem o faturamento</p>
+                                        <div style={{ height: 280 }}>
+                                            {incomeLabels.length > 0
+                                                ? <Bar data={incomeBarData} options={horizontalBarOptions} />
+                                                : <p style={{ textAlign: 'center', padding: 80, color: '#98A2B3' }}>Sem receitas</p>
+                                            }
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        ),
+                    },
+                    {
                         label: <span><DollarOutlined style={{ marginRight: 4 }} />Extrato</span>,
                         key: '1',
                         children: (
@@ -1594,191 +1789,6 @@ export default function CashFlow() {
                                     </div>
                                 </div>
 
-                                {/* ── Detailed entry table below ── */}
-                                <div style={{ marginTop: 24 }}>
-                                    <div style={{ marginBottom: 8, color: '#94a3b8', fontSize: 13, fontWeight: 600 }}>
-                                        Lancamentos detalhados
-                                    </div>
-                                    <Table
-                                        columns={columns}
-                                        dataSource={data}
-                                        rowKey="id"
-                                        loading={loading}
-                                        pagination={{ pageSize: 15, showTotal: (t) => `${t} lançamentos` }}
-                                        size="middle"
-                                    />
-                                </div>
-                            </div>
-                        ),
-                    },
-                    {
-                        label: <span><FundOutlined style={{ marginRight: 4 }} />Visão Diária</span>,
-                        key: 'daily',
-                        children: (
-                            <div className="pc-card--table">
-                                <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                    <span style={{ color: '#94a3b8', fontSize: 13 }}>
-                                        Fluxo dia a dia — identifique antecipadamente quando o saldo ficará negativo
-                                    </span>
-                                </div>
-                                <Table
-                                    columns={[
-                                        {
-                                            title: 'Dia', dataIndex: 'day', width: 70, align: 'center',
-                                            render: (d: number, r: any) => {
-                                                const dayName = dayjs(r.date).format('ddd')
-                                                const isWeekend = dayjs(r.date).day() === 0 || dayjs(r.date).day() === 6
-                                                return (
-                                                    <div>
-                                                        <div style={{ fontWeight: 600, fontSize: 15 }}>{String(d).padStart(2, '0')}</div>
-                                                        <div style={{ fontSize: 10, color: isWeekend ? '#F79009' : '#64748b', textTransform: 'capitalize' }}>{dayName}</div>
-                                                    </div>
-                                                )
-                                            },
-                                        },
-                                        {
-                                            title: 'Receitas', dataIndex: 'income', width: 140, align: 'right',
-                                            render: (v: number) => v > 0 ? <span style={{ color: '#12B76A', fontWeight: 500 }}>+ {formatCurrency(v)}</span> : <span style={{ color: '#475467' }}>—</span>,
-                                        },
-                                        {
-                                            title: 'Despesas', dataIndex: 'expense', width: 140, align: 'right',
-                                            render: (v: number) => v > 0 ? <span style={{ color: '#F04438', fontWeight: 500 }}>- {formatCurrency(v)}</span> : <span style={{ color: '#475467' }}>—</span>,
-                                        },
-                                        {
-                                            title: 'Saldo do Dia', dataIndex: 'balance', width: 140, align: 'right',
-                                            render: (v: number) => {
-                                                if (v === 0) return <span style={{ color: '#475467' }}>—</span>
-                                                return <span style={{ color: v >= 0 ? '#12B76A' : '#F04438', fontWeight: 600 }}>{formatCurrency(v)}</span>
-                                            },
-                                        },
-                                        {
-                                            title: 'Saldo Acumulado', dataIndex: 'runningBalance', width: 160, align: 'right',
-                                            render: (v: number) => (
-                                                <span style={{
-                                                    color: v >= 0 ? '#12B76A' : '#F04438',
-                                                    fontWeight: 700,
-                                                    fontSize: 14,
-                                                    padding: '2px 8px',
-                                                    borderRadius: 4,
-                                                    background: v < 0 ? 'rgba(240,68,56,0.1)' : undefined,
-                                                }}>
-                                                    {formatCurrency(v)}
-                                                </span>
-                                            ),
-                                        },
-                                        {
-                                            title: 'Movimentações', dataIndex: 'entries', ellipsis: true,
-                                            render: (entries: any[]) => {
-                                                if (entries.length === 0) return <span style={{ color: '#475467', fontSize: 12 }}>Sem movimentação</span>
-                                                return (
-                                                    <Space size={4} wrap>
-                                                        {entries.slice(0, 3).map((e: any, i: number) => (
-                                                            <Tag key={i} color={e.type === 'INCOME' ? 'green' : 'red'} style={{ fontSize: 11, margin: 0 }}>
-                                                                {(e.description || '').substring(0, 25)}{(e.description || '').length > 25 ? '...' : ''}
-                                                            </Tag>
-                                                        ))}
-                                                        {entries.length > 3 && <Tag style={{ fontSize: 11 }}>+{entries.length - 3}</Tag>}
-                                                    </Space>
-                                                )
-                                            },
-                                        },
-                                    ]}
-                                    dataSource={dailyData.filter(d => d.income > 0 || d.expense > 0 || d.runningBalance !== 0)}
-                                    rowKey="date"
-                                    loading={loading}
-                                    pagination={false}
-                                    size="small"
-                                    rowClassName={(r) => r.runningBalance < 0 ? 'daily-negative-row' : ''}
-                                    summary={() => (
-                                        <Table.Summary fixed>
-                                            <Table.Summary.Row style={{ background: '#0a1628' }}>
-                                                <Table.Summary.Cell index={0}><strong>Total</strong></Table.Summary.Cell>
-                                                <Table.Summary.Cell index={1} align="right"><strong style={{ color: '#12B76A' }}>{formatCurrency(totalIncome)}</strong></Table.Summary.Cell>
-                                                <Table.Summary.Cell index={2} align="right"><strong style={{ color: '#F04438' }}>{formatCurrency(totalExpense)}</strong></Table.Summary.Cell>
-                                                <Table.Summary.Cell index={3} align="right"><strong style={{ color: balance >= 0 ? '#12B76A' : '#F04438' }}>{formatCurrency(balance)}</strong></Table.Summary.Cell>
-                                                <Table.Summary.Cell index={4} />
-                                                <Table.Summary.Cell index={5} />
-                                            </Table.Summary.Row>
-                                        </Table.Summary>
-                                    )}
-                                />
-                                {dailyData.some(d => d.runningBalance < 0) && (
-                                    <Alert
-                                        type="warning"
-                                        showIcon
-                                        style={{ marginTop: 12 }}
-                                        message="Atenção: Saldo negativo detectado"
-                                        description={
-                                            <span>
-                                                O saldo acumulado fica negativo a partir do dia{' '}
-                                                <strong>{dailyData.find(d => d.runningBalance < 0)?.day}</strong>.
-                                                Considere antecipar uma entrada ou reduzir despesas nesse período.
-                                            </span>
-                                        }
-                                    />
-                                )}
-                            </div>
-                        ),
-                    },
-                    {
-                        label: <span><PieChartOutlined style={{ marginRight: 4 }} />Análise Gráfica</span>,
-                        key: '2',
-                        children: (
-                            <div style={{ display: 'grid', gap: 24 }}>
-                                <div style={{ display: 'grid', gridTemplateColumns: '3fr 2fr', gap: 24 }}>
-                                    <div className="pc-card" style={{ padding: 24 }}>
-                                        <h4 style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 700 }}>Receitas x Despesas por Semana</h4>
-                                        <p style={{ fontSize: 12, color: '#94a3b8', margin: '0 0 16px' }}>Comparativo semanal — {month.format('MMMM YYYY')}</p>
-                                        <div style={{ height: 280 }}>
-                                            {weeklyData.length > 0 ? <Bar data={barChartData} options={barChartOptions} /> : <p style={{ textAlign: 'center', padding: 60, color: '#64748b' }}>Sem dados no período</p>}
-                                        </div>
-                                    </div>
-                                    <div className="pc-card" style={{ padding: 24 }}>
-                                        <h4 style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 700 }}>Resumo do Mês</h4>
-                                        <p style={{ fontSize: 12, color: '#94a3b8', margin: '0 0 16px' }}>Visão consolidada</p>
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginTop: 8 }}>
-                                            <div style={{ padding: 16, background: 'rgba(34, 197, 94, 0.12)', borderRadius: 8, border: '1px solid rgba(34, 197, 94, 0.3)' }}>
-                                                <div style={{ fontSize: 12, color: '#94a3b8' }}>Total de Receitas</div>
-                                                <div style={{ fontSize: 24, fontWeight: 700, color: '#12B76A' }}>{formatCurrency(totalIncome)}</div>
-                                                <div style={{ fontSize: 11, color: '#64748b' }}>{data.filter(d => d.type === 'INCOME').length} lançamento(s)</div>
-                                            </div>
-                                            <div style={{ padding: 16, background: 'rgba(240, 68, 56, 0.12)', borderRadius: 8, border: '1px solid rgba(240, 68, 56, 0.3)' }}>
-                                                <div style={{ fontSize: 12, color: '#94a3b8' }}>Total de Despesas</div>
-                                                <div style={{ fontSize: 24, fontWeight: 700, color: '#F04438' }}>{formatCurrency(totalExpense)}</div>
-                                                <div style={{ fontSize: 11, color: '#64748b' }}>{data.filter(d => d.type === 'EXPENSE').length} lançamento(s)</div>
-                                            </div>
-                                            <div style={{ padding: 16, background: balance >= 0 ? 'rgba(46, 144, 250, 0.12)' : 'rgba(247, 144, 9, 0.12)', borderRadius: 8, border: `1px solid ${balance >= 0 ? 'rgba(46, 144, 250, 0.3)' : 'rgba(247, 144, 9, 0.3)'}` }}>
-                                                <div style={{ fontSize: 12, color: '#94a3b8' }}>Saldo</div>
-                                                <div style={{ fontSize: 24, fontWeight: 700, color: balance >= 0 ? '#1890FF' : '#FA8C16' }}>{formatCurrency(balance)}</div>
-                                                <div style={{ fontSize: 11, color: '#64748b' }}>
-                                                    {balance >= 0 ? 'Mês positivo' : 'Mês negativo — despesas superam receitas'}
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
-                                    <div className="pc-card" style={{ padding: 24 }}>
-                                        <h4 style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 700 }}>Despesas por Categoria</h4>
-                                        <p style={{ fontSize: 12, color: '#94a3b8', margin: '0 0 16px' }}>Distribuição das despesas</p>
-                                        <div style={{ height: 280 }}>
-                                            {expenseDoughnutLabels.length > 0
-                                                ? <Doughnut data={expenseDoughnutData} options={doughnutOptions} />
-                                                : <p style={{ textAlign: 'center', padding: 80, color: '#98A2B3' }}>Sem despesas</p>
-                                            }
-                                        </div>
-                                    </div>
-                                    <div className="pc-card" style={{ padding: 24 }}>
-                                        <h4 style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 700 }}>Receitas por Origem</h4>
-                                        <p style={{ fontSize: 12, color: '#94a3b8', margin: '0 0 16px' }}>De onde vem o faturamento</p>
-                                        <div style={{ height: 280 }}>
-                                            {incomeLabels.length > 0
-                                                ? <Bar data={incomeBarData} options={horizontalBarOptions} />
-                                                : <p style={{ textAlign: 'center', padding: 80, color: '#98A2B3' }}>Sem receitas</p>
-                                            }
-                                        </div>
-                                    </div>
-                                </div>
                             </div>
                         ),
                     },
@@ -1794,16 +1804,19 @@ export default function CashFlow() {
                                     <Table
                                         columns={[
                                             {
-                                                title: 'Descrição',
+                                                title: 'Despesa',
                                                 dataIndex: 'description',
-                                                render: (t, r) => (
-                                                    <span style={{ fontWeight: 500 }}>
-                                                        {t}
-                                                        <Tag color={r.isFixed ? 'blue' : 'orange'} style={{ marginLeft: 8, fontSize: 10 }}>
-                                                            {r.isFixed ? 'Fixa' : 'Variável'}
-                                                        </Tag>
-                                                    </span>
+                                                render: (t) => (
+                                                    <span style={{ fontWeight: 500 }}>{t}</span>
                                                 ),
+                                            },
+                                            {
+                                                title: 'Tipo de Despesa',
+                                                dataIndex: 'expenseGroup',
+                                                width: 180,
+                                                render: (g, r) => g
+                                                    ? <Tag color={getExpenseGroupColor(g as any)} style={{ fontSize: 11 }}>{getExpenseGroupLabel(g as any)}</Tag>
+                                                    : <Tag color={r.isFixed ? 'blue' : 'orange'} style={{ fontSize: 11 }}>{r.isFixed ? 'Fixa' : 'Variável'}</Tag>,
                                             },
                                             {
                                                 title: 'Valor Mensal',
@@ -1830,8 +1843,9 @@ export default function CashFlow() {
                                             <Table.Summary>
                                                 <Table.Summary.Row style={{ background: 'rgba(240, 68, 56, 0.12)' }}>
                                                     <Table.Summary.Cell index={0}><strong>Total Despesas Recorrentes</strong></Table.Summary.Cell>
-                                                    <Table.Summary.Cell index={1} align="right"><strong style={{ color: '#F04438', fontSize: 16 }}>{formatCurrency(totalFixed)}</strong></Table.Summary.Cell>
-                                                    <Table.Summary.Cell index={2} align="center"><Tag color="red">{totalExpense > 0 ? ((totalFixed / totalExpense) * 100).toFixed(1) : '0'}%</Tag></Table.Summary.Cell>
+                                                    <Table.Summary.Cell index={1} />
+                                                    <Table.Summary.Cell index={2} align="right"><strong style={{ color: '#F04438', fontSize: 16 }}>{formatCurrency(totalFixed)}</strong></Table.Summary.Cell>
+                                                    <Table.Summary.Cell index={3} align="center"><Tag color="red">{totalExpense > 0 ? ((totalFixed / totalExpense) * 100).toFixed(1) : '0'}%</Tag></Table.Summary.Cell>
                                                 </Table.Summary.Row>
                                             </Table.Summary>
                                         )}
@@ -1843,56 +1857,6 @@ export default function CashFlow() {
                                         <p style={{ fontSize: 12 }}>Use "Novo Lançamento" → Despesa para cadastrar.</p>
                                     </div>
                                 )}
-                            </div>
-                        ),
-                    },
-                    {
-                        label: <span><TagOutlined style={{ marginRight: 4 }} />Categorias</span>,
-                        key: '4',
-                        children: (
-                            <div style={{ display: 'grid', gap: 24 }}>
-                                <div className="pc-card--table">
-                                    <div style={{ padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-                                        <h4 style={{ margin: 0, color: '#12B76A' }}>📈 Receitas por Categoria</h4>
-                                    </div>
-                                    {incomeCategories.length > 0 ? (
-                                        <Table columns={categoryColumns} dataSource={incomeCategories} rowKey="category" pagination={false}
-                                            summary={() => (
-                                                <Table.Summary>
-                                                    <Table.Summary.Row style={{ background: 'rgba(34, 197, 94, 0.1)' }}>
-                                                        <Table.Summary.Cell index={0}><strong>Total Receitas</strong></Table.Summary.Cell>
-                                                        <Table.Summary.Cell index={1} align="center"><strong>{incomeCategories.reduce((s, c) => s + c.count, 0)}</strong></Table.Summary.Cell>
-                                                        <Table.Summary.Cell index={2} align="right"><strong style={{ color: '#12B76A' }}>{formatCurrency(totalIncome)}</strong></Table.Summary.Cell>
-                                                        <Table.Summary.Cell index={3} align="center"><Tag color="green">100%</Tag></Table.Summary.Cell>
-                                                    </Table.Summary.Row>
-                                                </Table.Summary>
-                                            )}
-                                        />
-                                    ) : (
-                                        <div style={{ textAlign: 'center', padding: 24, color: '#98A2B3' }}>Sem receitas neste mês</div>
-                                    )}
-                                </div>
-                                <div className="pc-card--table">
-                                    <div style={{ padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-                                        <h4 style={{ margin: 0, color: '#F04438' }}>📉 Despesas por Categoria</h4>
-                                    </div>
-                                    {expenseCategories.length > 0 ? (
-                                        <Table columns={categoryColumns} dataSource={expenseCategories} rowKey="category" pagination={false}
-                                            summary={() => (
-                                                <Table.Summary>
-                                                    <Table.Summary.Row style={{ background: 'rgba(240, 68, 56, 0.12)' }}>
-                                                        <Table.Summary.Cell index={0}><strong>Total Despesas</strong></Table.Summary.Cell>
-                                                        <Table.Summary.Cell index={1} align="center"><strong>{expenseCategories.reduce((s, c) => s + c.count, 0)}</strong></Table.Summary.Cell>
-                                                        <Table.Summary.Cell index={2} align="right"><strong style={{ color: '#F04438' }}>{formatCurrency(totalExpense)}</strong></Table.Summary.Cell>
-                                                        <Table.Summary.Cell index={3} align="center"><Tag color="red">100%</Tag></Table.Summary.Cell>
-                                                    </Table.Summary.Row>
-                                                </Table.Summary>
-                                            )}
-                                        />
-                                    ) : (
-                                        <div style={{ textAlign: 'center', padding: 24, color: '#98A2B3' }}>Sem despesas neste mês</div>
-                                    )}
-                                </div>
                             </div>
                         ),
                     },
@@ -1994,7 +1958,7 @@ export default function CashFlow() {
                                                     precision={2}
                                                     value={anticFeePercent}
                                                     onChange={(v) => setAnticFeePercent(v ?? 0)}
-                                                    formatter={(v) => (v != null && v !== '') ? `${String(v).replace('.', ',')}%` : ''}
+                                                    formatter={(v) => (v != null) ? `${String(v).replace('.', ',')}%` : ''}
                                                     parser={(v) => {
                                                         const s = String(v || '').replace(/%/g, '').replace(',', '.').trim()
                                                         const n = Number(s)

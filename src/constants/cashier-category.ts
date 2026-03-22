@@ -242,6 +242,74 @@ export const CASHIER_CATEGORY = {
       value: 'Distribuição de Lucros',
       group: 'DESPESA_FINANCEIRA' as ExpenseGroupKey,
     },
+    INSS_PATRONAL_PRODUCAO: {
+      order: 75,
+      key: 'INSS_PATRONAL_PRODUCAO',
+      value: 'INSS Patronal (Setor Produtivo)',
+      group: 'MAO_DE_OBRA' as ExpenseGroupKey,
+    },
+    RAT_FAP_PRODUCAO: {
+      order: 76,
+      key: 'RAT_FAP_PRODUCAO',
+      value: 'RAT / FAP (Setor Produtivo)',
+      group: 'MAO_DE_OBRA' as ExpenseGroupKey,
+    },
+    MAO_DE_OBRA_TERCEIRIZADA: {
+      order: 77,
+      key: 'MAO_DE_OBRA_TERCEIRIZADA',
+      value: 'Mão de Obra Terceirizada',
+      group: 'MAO_DE_OBRA' as ExpenseGroupKey,
+    },
+    INSS_PATRONAL_ADMIN: {
+      order: 78,
+      key: 'INSS_PATRONAL_ADMIN',
+      value: 'INSS Patronal (Pró-Labo/ Admin/ Comer)',
+      group: 'MAO_DE_OBRA' as ExpenseGroupKey,
+    },
+    RAT_FAP_ADMIN: {
+      order: 79,
+      key: 'RAT_FAP_ADMIN',
+      value: 'RAT / FAP (Pró-Labo/ Admin/ Comer)',
+      group: 'MAO_DE_OBRA' as ExpenseGroupKey,
+    },
+    SEGUROS_IMOVEIS_VEICULOS: {
+      order: 80,
+      key: 'SEGUROS_IMOVEIS_VEICULOS',
+      value: 'Seguros (Imóveis / Veículos)',
+      group: 'DESPESA_FIXA' as ExpenseGroupKey,
+    },
+    TAXAS_LICENCIAMENTO: {
+      order: 81,
+      key: 'TAXAS_LICENCIAMENTO',
+      value: 'Taxas de Licenciamento',
+      group: 'DESPESA_FIXA' as ExpenseGroupKey,
+    },
+    // Impostos regime Lucro Real / Lucro Presumido / Simples Híbrido / Presumido RET
+    IMPOSTO_CBS: { order: 82, key: 'IMPOSTO_CBS', value: 'CBS (Contribuição sobre Bens e Serviços)', group: 'IMPOSTO' as ExpenseGroupKey },
+    IMPOSTO_IBS: { order: 83, key: 'IMPOSTO_IBS', value: 'IBS (Imposto sobre Bens e Serviços)', group: 'IMPOSTO' as ExpenseGroupKey },
+    IMPOSTO_ICMS: { order: 84, key: 'IMPOSTO_ICMS', value: 'ICMS', group: 'IMPOSTO' as ExpenseGroupKey },
+    IMPOSTO_ICMS_DIFAL: { order: 85, key: 'IMPOSTO_ICMS_DIFAL', value: 'ICMS DIFAL', group: 'IMPOSTO' as ExpenseGroupKey },
+    IMPOSTO_ICMS_ST: { order: 86, key: 'IMPOSTO_ICMS_ST', value: 'ICMS-ST (Substituição Tributária)', group: 'IMPOSTO' as ExpenseGroupKey },
+    IMPOSTO_IPI: { order: 87, key: 'IMPOSTO_IPI', value: 'IPI', group: 'IMPOSTO' as ExpenseGroupKey },
+    IMPOSTO_IS: { order: 88, key: 'IMPOSTO_IS', value: 'IS (Imposto Seletivo)', group: 'IMPOSTO' as ExpenseGroupKey },
+    IMPOSTO_PIS_COFINS: { order: 89, key: 'IMPOSTO_PIS_COFINS', value: 'PIS / COFINS', group: 'IMPOSTO' as ExpenseGroupKey },
+    // Impostos adicionais Lucro Real / Presumido
+    IMPOSTO_FCP: { order: 91, key: 'IMPOSTO_FCP', value: 'FCP (Fundo de Combate à Pobreza)', group: 'IMPOSTO' as ExpenseGroupKey },
+    IMPOSTO_PIS_COFINS_MONOFASICO: { order: 92, key: 'IMPOSTO_PIS_COFINS_MONOFASICO', value: 'PIS/COFINS Monofásico', group: 'IMPOSTO' as ExpenseGroupKey },
+    IMPOSTO_ISS_RETIDO: { order: 93, key: 'IMPOSTO_ISS_RETIDO', value: 'ISS Retido', group: 'IMPOSTO' as ExpenseGroupKey },
+    // Impostos sobre o lucro (Lucro Real / Lucro Presumido)
+    IMPOSTO_IRPJ: { order: 94, key: 'IMPOSTO_IRPJ', value: 'IRPJ', group: 'IMPOSTO' as ExpenseGroupKey },
+    IMPOSTO_CSLL: { order: 95, key: 'IMPOSTO_CSLL', value: 'CSLL', group: 'IMPOSTO' as ExpenseGroupKey },
+    IMPOSTO_ALIQUOTA_ADICIONAL_IRPJ: { order: 96, key: 'IMPOSTO_ALIQUOTA_ADICIONAL_IRPJ', value: 'Alíquota Adicional IRPJ', group: 'IMPOSTO' as ExpenseGroupKey },
+    // Imposto regime Lucro Presumido RET
+    IMPOSTO_RET: { order: 97, key: 'IMPOSTO_RET', value: 'RET (Lucro Presumido RET)', group: 'IMPOSTO' as ExpenseGroupKey },
+    // Despesas variáveis adicionais (logística)
+    FRETES_LOGISTICA_ENTREGA_TERCEIRIZADOS: { order: 98, key: 'FRETES_LOGISTICA_ENTREGA_TERCEIRIZADOS', value: 'Fretes Logística/Entrega Terceirizados', group: 'DESPESA_VARIAVEL' as ExpenseGroupKey },
+    SEGURO_TRANSPORTE_ENTREGA: { order: 99, key: 'SEGURO_TRANSPORTE_ENTREGA', value: 'Seguro Transporte/Entrega', group: 'DESPESA_VARIAVEL' as ExpenseGroupKey },
+    DESPESAS_ACESSORIAS: { order: 100, key: 'DESPESAS_ACESSORIAS', value: 'Despesas Acessórias', group: 'DESPESA_VARIAVEL' as ExpenseGroupKey },
+    GASTOS_LOGISTICAS_EXTERNAS: { order: 101, key: 'GASTOS_LOGISTICAS_EXTERNAS', value: 'Gastos Logísticas Externas', group: 'DESPESA_VARIAVEL' as ExpenseGroupKey },
+    // Imposto regime Simples Nacional
+    REGIME_TRIBUTARIO_SIMPLES: { order: 90, key: 'REGIME_TRIBUTARIO_SIMPLES', value: 'DAS (Regime Simples Nacional)', group: 'IMPOSTO' as ExpenseGroupKey },
   },
 }
 
@@ -254,9 +322,12 @@ import {
   BLOCK_DESPESAS_FIXAS,
   BLOCK_DESPESAS_VARIAVEIS,
   BLOCK_DESPESAS_FINANCEIRAS,
+  BLOCK_IMPOSTOS_SIMPLES,
+  BLOCK_IMPOSTOS_LUCRO,
+  BLOCK_IMPOSTOS_PRESUMIDO_RET,
 } from '@/constants/expense-setup-blocks'
 
-export const EXPENSE_CATEGORY_OPTIONS = [
+const BASE_EXPENSE_CATEGORY_OPTIONS = [
   {
     label: '── Mão de Obra Produtiva ──',
     options: BLOCK_MAO_DE_OBRA_PRODUTIVA.map(i => ({ label: i.label, value: i.key })),
@@ -278,6 +349,33 @@ export const EXPENSE_CATEGORY_OPTIONS = [
     options: BLOCK_DESPESAS_FINANCEIRAS.map(i => ({ label: i.label, value: i.key })),
   },
 ]
+
+/** Full category options (used when regime is unknown) */
+export const EXPENSE_CATEGORY_OPTIONS = [
+  ...BASE_EXPENSE_CATEGORY_OPTIONS,
+  {
+    label: '── Impostos ──',
+    options: [...BLOCK_IMPOSTOS_LUCRO, ...BLOCK_IMPOSTOS_PRESUMIDO_RET, ...BLOCK_IMPOSTOS_SIMPLES]
+      .filter((v, i, arr) => arr.findIndex(x => x.key === v.key) === i)
+      .map(i => ({ label: i.label, value: i.key })),
+  },
+]
+
+/** Category options filtered by tax regime */
+export function getExpenseCategoryOptionsForRegime(regime: string | null | undefined) {
+  const impostoBlock = regime === 'SIMPLES_NACIONAL'
+    ? BLOCK_IMPOSTOS_SIMPLES
+    : (regime === 'LUCRO_PRESUMIDO_RET' || regime === 'PRESUMIDO_RET')
+    ? BLOCK_IMPOSTOS_PRESUMIDO_RET
+    : BLOCK_IMPOSTOS_LUCRO
+  return [
+    ...BASE_EXPENSE_CATEGORY_OPTIONS,
+    {
+      label: '── Impostos ──',
+      options: impostoBlock.map(i => ({ label: i.label, value: i.key })),
+    },
+  ]
+}
 
 export const YEARLY_AVERAGE_CATEGORIES = [
   CASHIER_CATEGORY.EXPENSE.DECIMO_TERCEIRO_PRODUCAO,
@@ -326,4 +424,37 @@ export function getExpenseGroupLabel(groupKey: string): string {
 
 export function getExpenseGroupColor(groupKey: string): string {
   return EXPENSE_GROUPS[groupKey as ExpenseGroupKey]?.color ?? '#6B7280'
+}
+
+/** Tax category keys available for Lucro Real, Lucro Presumido, Simples Híbrido */
+export const TAX_CATEGORIES_LUCRO = [
+  'IMPOSTO_CBS', 'IMPOSTO_IBS', 'IMPOSTO_ICMS', 'IMPOSTO_ICMS_DIFAL', 'IMPOSTO_ICMS_ST',
+  'IMPOSTO_IPI', 'IMPOSTO_IS', 'IMPOSTO_PIS_COFINS', 'IMPOSTO_FCP',
+  'IMPOSTO_PIS_COFINS_MONOFASICO', 'IMPOSTO_ISS_RETIDO',
+  'IMPOSTO_IRPJ', 'IMPOSTO_CSLL', 'IMPOSTO_ALIQUOTA_ADICIONAL_IRPJ',
+  'IMPOSTO_DARF', 'IMPOSTO_GA', 'IMPOSTO_GARE', 'IMPOSTO_GPS', 'IMPOSTO_IOF', 'IMPOSTO_ISS',
+  'IMPOSTO_OUTROS', 'IMPOSTOS_IPTU_IPVA',
+]
+
+/** Tax category keys available for Lucro Presumido RET */
+export const TAX_CATEGORIES_PRESUMIDO_RET = [
+  'IMPOSTO_CBS', 'IMPOSTO_IBS', 'IMPOSTO_ICMS', 'IMPOSTO_ICMS_DIFAL', 'IMPOSTO_ICMS_ST',
+  'IMPOSTO_IPI', 'IMPOSTO_IS', 'IMPOSTO_PIS_COFINS', 'IMPOSTO_FCP',
+  'IMPOSTO_PIS_COFINS_MONOFASICO', 'IMPOSTO_ISS_RETIDO', 'IMPOSTO_RET',
+  'IMPOSTO_DARF', 'IMPOSTO_GA', 'IMPOSTO_GARE', 'IMPOSTO_GPS', 'IMPOSTO_IOF', 'IMPOSTO_ISS',
+  'IMPOSTO_OUTROS', 'IMPOSTOS_IPTU_IPVA',
+]
+
+/** Tax category keys available for Simples Nacional */
+export const TAX_CATEGORIES_SIMPLES = [
+  'REGIME_TRIBUTARIO_SIMPLES',
+  'IMPOSTOS_IPTU_IPVA', 'MEI',
+]
+
+/** Returns tax category keys applicable for the given tax regime */
+export function getTaxCategoriesForRegime(regime: string | null | undefined): string[] {
+  if (!regime) return Object.keys(CASHIER_CATEGORY.EXPENSE)
+  if (regime === 'SIMPLES_NACIONAL') return TAX_CATEGORIES_SIMPLES
+  if (regime === 'LUCRO_PRESUMIDO_RET' || regime === 'PRESUMIDO_RET') return TAX_CATEGORIES_PRESUMIDO_RET
+  return TAX_CATEGORIES_LUCRO
 }

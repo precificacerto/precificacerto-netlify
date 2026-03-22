@@ -52,11 +52,12 @@ function ServicesPage() {
         setLoading(true)
         try {
             const tenantId = await getTenantId()
+            const sb = supabase as any
             const [svcRes, stockRes] = await Promise.all([
-                supabase.from('services')
+                sb.from('services')
                     .select('*, service_items(*, item:items(id, name, unit, cost_price, quantity))')
                     .order('name'),
-                tenantId ? supabase.from('stock').select('service_id, quantity_current').eq('stock_type', 'SERVICE') : Promise.resolve({ data: [] }),
+                tenantId ? sb.from('stock').select('service_id, quantity_current').eq('stock_type', 'SERVICE') : Promise.resolve({ data: [] }),
             ])
             setServices(svcRes.data || [])
             const map: Record<string, number> = {}
@@ -132,7 +133,8 @@ function ServicesPage() {
             }
             setSavingRenew(true)
 
-            const { data: existingStock } = await supabase
+            const sbr = supabase as any
+            const { data: existingStock } = await sbr
                 .from('stock')
                 .select('id, quantity_current')
                 .eq('service_id', serviceId)
@@ -143,12 +145,12 @@ function ServicesPage() {
             const newQty = currentQty + quantityAdded
 
             if (existingStock) {
-                await supabase
+                await sbr
                     .from('stock')
                     .update({ quantity_current: newQty, updated_at: new Date().toISOString() })
                     .eq('id', existingStock.id)
             } else {
-                await supabase.from('stock').insert({
+                await sbr.from('stock').insert({
                     tenant_id: tenantId,
                     service_id: serviceId,
                     stock_type: 'SERVICE',
@@ -158,14 +160,14 @@ function ServicesPage() {
                 })
             }
 
-            const { data: stockRow } = await supabase
+            const { data: stockRow } = await sbr
                 .from('stock')
                 .select('id')
                 .eq('service_id', serviceId)
                 .eq('stock_type', 'SERVICE')
                 .maybeSingle()
             if (stockRow) {
-                await supabase.from('stock_movements').insert({
+                await sbr.from('stock_movements').insert({
                     stock_id: stockRow.id,
                     delta_quantity: quantityAdded,
                     reason: 'Renovar quantidade — serviço',
@@ -176,7 +178,7 @@ function ServicesPage() {
             const costTotal = svc ? Number((svc as any).cost_total) || 0 : 0
             const markup = 1 + (profitPercent + commissionPercent) / 100
             const newBasePrice = costTotal * markup
-            await supabase
+            await sbr
                 .from('services')
                 .update({
                     base_price: newBasePrice,
@@ -240,7 +242,7 @@ function ServicesPage() {
                 setSavingDeleteQty(false)
                 return
             }
-            const { data: stockRow } = await supabase
+            const { data: stockRow } = await (supabase as any)
                 .from('stock')
                 .select('id, quantity_current')
                 .eq('service_id', selectedServiceForDelete.id)
@@ -296,12 +298,10 @@ function ServicesPage() {
         {
             title: 'Margem de Lucro', key: 'profit_margin', width: 130, align: 'right',
             render: (_: any, r: any) => {
-                const basePrice = Number(r.base_price) || 0
-                const costTotal = Number(r.cost_total) || 0
-                if (basePrice === 0) return <span style={{ fontSize: 13, color: '#94a3b8' }}>—</span>
-                const margin = ((basePrice - costTotal) / basePrice) * 100
+                const margin = Number(r.profit_percent)
+                if (r.profit_percent == null) return <span style={{ fontSize: 13, color: '#94a3b8' }}>—</span>
                 const color = margin >= 0 ? '#4ade80' : '#f87171'
-                return <span style={{ fontSize: 13, fontWeight: 600, color }}>{margin.toFixed(1)}%</span>
+                return <span style={{ fontSize: 13, fontWeight: 600, color }}>{margin.toFixed(2)}%</span>
             },
         },
         {

@@ -3,9 +3,9 @@ import { Input, Form, Select, FormInstance, DatePicker, Button } from 'antd'
 import { currencyDotMask } from '@/utils/currency-mask'
 import {
   CASHIER_CATEGORY,
-  EXPENSE_CATEGORY_OPTIONS,
   EXPENSE_GROUP_OPTIONS,
   getDefaultGroupForCategory,
+  getExpenseCategoryOptionsForRegime,
 } from '@/constants/cashier-category'
 import { PAYMENT_REVENUE_TITLE_TYPE } from '@/constants/payment-revenue-title'
 import { Month, monthObjects } from '@/constants/month'
@@ -17,12 +17,14 @@ type Props = {
   month: Month
   type: PAYMENT_REVENUE_TITLE_TYPE
   onClickDelete: (titleId: string) => void
+  regime?: string | null
 }
 
 const dateFormat = 'DD/MM/YYYY'
 
-const NewPaymentRevenueForm = ({ form, year, month, type, onClickDelete }: Props) => {
+const NewPaymentRevenueForm = ({ form, year, month, type, onClickDelete, regime }: Props) => {
   const [groupAutoSet, setGroupAutoSet] = useState(false)
+  const expenseCategoryOptions = getExpenseCategoryOptionsForRegime(regime)
   const handleChangePrice = (value: string) => form.setFieldsValue({ price: currencyDotMask(value) })
   const monthNumber = Object.values(monthObjects).find(
     (monthObj) => monthObj.short.toUpperCase() === month
@@ -75,7 +77,7 @@ const NewPaymentRevenueForm = ({ form, year, month, type, onClickDelete }: Props
               filterOption={(input, option) => (option?.label as string || '').toLowerCase().includes(input.toLowerCase())}
               onChange={handleCategoryChange}
               listHeight={320}
-              options={EXPENSE_CATEGORY_OPTIONS}
+              options={expenseCategoryOptions}
               placeholder="Selecione a categoria de despesa"
             />
           ) : (

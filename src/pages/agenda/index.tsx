@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import {
     Button, Card, Drawer, Form, Input, InputNumber, Select, Space, Tag, TimePicker,
     DatePicker, message, Popconfirm, Tooltip, Avatar, Empty, Modal, Divider,
-    Checkbox, Alert, Radio, Upload,
+    Checkbox, Alert, Radio, Upload, Switch,
 } from 'antd'
 import dayjs from 'dayjs'
 import isoWeek from 'dayjs/plugin/isoWeek'
@@ -17,7 +17,7 @@ import {
     ClockCircleOutlined, DeleteOutlined, CheckCircleOutlined,
     UserAddOutlined, CalendarOutlined, DollarOutlined,
     ShoppingOutlined, PercentageOutlined, FilterOutlined,
-    PaperClipOutlined, UploadOutlined,
+    PaperClipOutlined, UploadOutlined, SyncOutlined,
 } from '@ant-design/icons'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import { useAuth } from '@/hooks/use-auth.hook'
@@ -120,6 +120,12 @@ function Schedule() {
     const [form] = Form.useForm()
     const [msgApi, ctx] = message.useMessage()
 
+    // Recurrence state for booking form
+    const [recurActive, setRecurActive] = useState(false)
+    const [recurType, setRecurType] = useState<'weekly' | 'biweekly' | 'weekdays'>('weekly')
+    const [recurWeekdays, setRecurWeekdays] = useState<number[]>([]) // 0=Mon..6=Sun (isoWeekday-based)
+    const [recurEndDate, setRecurEndDate] = useState<dayjs.Dayjs | null>(null)
+
     const weekEnd = weekStart.add(6, 'day').endOf('day')
     const weekDates = useMemo(() => Array.from({ length: 7 }, (_, i) => weekStart.add(i, 'day')), [weekStart])
 
@@ -129,7 +135,8 @@ function Schedule() {
             const tid = await getTenantId()
             if (!tid) return
             const weekEndUtc = weekStart.add(6, 'day').endOf('day')
-            const eventsQuery = supabase
+            const sb = supabase as any
+            const eventsQuery = sb
                 .from('calendar_events')
                 .select('*, customer:customers(id, name), employee:employees(id, name)')
                 .eq('is_active', true)
@@ -143,11 +150,11 @@ function Schedule() {
 
             const [evR, cuR, emR, scR, svR, prR] = await Promise.all([
                 eventsQuery,
-                supabase.from('customers').select('id, name').eq('is_active', true).order('name'),
-                supabase.from('employees').select('id, name, position, status, commission_percent').eq('status', 'ACTIVE').eq('is_active', true).order('name'),
-                supabase.from('schedule_employees').select('employee_id').eq('tenant_id', tid),
-                supabase.from('services').select('id, name, base_price, estimated_duration_minutes, commission_percent, profit_percent, cost_total, recurrence_days').eq('status', 'ACTIVE').order('name'),
-                supabase.from('products').select('id, name, sale_price, cost_total, commission_percent, profit_percent, recurrence_days').eq('status', 'ACTIVE').order('name'),
+                sb.from('customers').select('id, name').eq('is_active', true).order('name'),
+                sb.from('employees').select('id, name, position, status, commission_percent').eq('status', 'ACTIVE').eq('is_active', true).order('name'),
+                sb.from('schedule_employees').select('employee_id').eq('tenant_id', tid),
+                sb.from('services').select('id, name, base_price, estimated_duration_minutes, commission_percent, profit_percent, cost_total, recurrence_days').eq('status', 'ACTIVE').order('name'),
+                sb.from('products').select('id, name, sale_price, cost_total, commission_percent, profit_percent, recurrence_days').eq('status', 'ACTIVE').order('name'),
             ])
             setEvents(evR.data || [])
             setCustomers(cuR.data || [])
@@ -220,13 +227,13 @@ function Schedule() {
 
     async function handleAddEmp() {
         if (!selAddEmp) return
-        try { const tid = await getTenantId(); if (!tid) return; const { error } = await supabase.from('schedule_employees').insert({ tenant_id: tid, employee_id: selAddEmp }); if (error) throw error; setSchedEmpIds(p => [...p, selAddEmp]); setAddEmpOpen(false); setSelAddEmp(null); msgApi.success('Adicionado!') } catch (e: any) { msgApi.error(e.message || '') }
+        try { const tid = await getTenantId(); if (!tid) return; const { error } = await (supabase as any).from('schedule_employees').insert({ tenant_id: tid, employee_id: selAddEmp }); if (error) throw error; setSchedEmpIds(p => [...p, selAddEmp]); setAddEmpOpen(false); setSelAddEmp(null); msgApi.success('Adicionado!') } catch (e: any) { msgApi.error(e.message || '') }
     }
     async function handleRemoveEmp(eid: string) {
         try {
             const tid = await getTenantId()
             if (!tid) return
-            await supabase.from('schedule_employees').delete().eq('tenant_id', tid).eq('employee_id', eid)
+            await (supabase as any).from('schedule_employees').delete().eq('tenant_id', tid).eq('employee_id', eid)
             setSchedEmpIds(p => p.filter(id => id !== eid))
             if (selectedEmpId === eid) {
                 setSelectedEmpId(null)
@@ -240,6 +247,10 @@ function Schedule() {
         form.resetFields()
         setEditingEvt(null)
         setServiceInputMode('select')
+        setRecurActive(false)
+        setRecurType('weekly')
+        setRecurWeekdays([])
+        setRecurEndDate(null)
         if (empId) form.setFieldValue('employee_id', empId)
         if (date) form.setFieldValue('date', date)
         if (time) form.setFieldValue('time', dayjs(time, 'HH:mm'))
@@ -293,12 +304,46 @@ function Schedule() {
                 if (error) throw error; msgApi.success('Atualizado!')
             } else {
                 const uid = currentUser?.uid ?? (await getCurrentUserId())
-                const insertData: any = { tenant_id: tid, user_id: uid || null, event_type: 'SERVICE', title: v.title, start_time: s, end_time: e, status: 'SCHEDULED', customer_id: v.customer_id || null, employee_id: v.employee_id || null, service_id: serviceInputMode === 'select' ? (v.service_id || null) : null, description: v.notes || null }
-                if (reminderSendAt) {
-                    insertData.reminder_send_at = reminderSendAt
-                }
+                const baseData: any = { tenant_id: tid, user_id: uid || null, event_type: 'SERVICE', title: v.title, status: 'SCHEDULED', customer_id: v.customer_id || null, employee_id: v.employee_id || null, service_id: serviceInputMode === 'select' ? (v.service_id || null) : null, description: v.notes || null }
+                const insertData: any = { ...baseData, start_time: s, end_time: e }
+                if (reminderSendAt) insertData.reminder_send_at = reminderSendAt
                 const { error } = await supabase.from('calendar_events').insert([insertData])
-                if (error) throw error; msgApi.success('Agendado!')
+                if (error) throw error
+
+                // Create recurrence occurrences if active
+                if (recurActive && recurEndDate) {
+                    const recurInserts: any[] = []
+                    let cursor = startLocal.add(1, 'day')
+                    const endLimit = recurEndDate.endOf('day')
+                    const isoWeekdaySet = new Set(recurWeekdays.map(d => d + 1)) // isoWeekday: 1=Mon..7=Sun
+
+                    while (cursor.isBefore(endLimit)) {
+                        let matches = false
+                        if (recurType === 'weekly') {
+                            matches = cursor.isoWeekday() === startLocal.isoWeekday()
+                        } else if (recurType === 'biweekly') {
+                            const diffWeeks = cursor.diff(startLocal, 'week')
+                            matches = diffWeeks % 2 === 0 && cursor.isoWeekday() === startLocal.isoWeekday()
+                        } else if (recurType === 'weekdays') {
+                            matches = isoWeekdaySet.has(cursor.isoWeekday())
+                        }
+                        if (matches) {
+                            const rStart = cursor.hour(startLocal.hour()).minute(startLocal.minute()).second(0)
+                            const rEnd = rStart.add(dur, 'minute')
+                            recurInserts.push({ ...baseData, start_time: rStart.toISOString(), end_time: rEnd.toISOString() })
+                        }
+                        cursor = cursor.add(1, 'day')
+                    }
+                    if (recurInserts.length > 0) {
+                        await supabase.from('calendar_events').insert(recurInserts)
+                        msgApi.success(`Agendado! + ${recurInserts.length} recorrência(s) criada(s).`)
+                    } else {
+                        msgApi.success('Agendado!')
+                    }
+                } else {
+                    msgApi.success('Agendado!')
+                }
+
                 if (reminderSendAt) {
                     const hoursUntilEvent = startLocal.diff(dayjs(), 'hour', true)
                     const isLessThan24h = hoursUntilEvent < 24
@@ -329,7 +374,7 @@ function Schedule() {
 
     // ─── Payment Modal (só abre se o agendamento ainda não foi concluído por outra pessoa) ───
     async function openPayModal(ev: CalendarEvent) {
-        const { data: fresh } = await supabase.from('calendar_events').select('id, status, start_time, end_time, title, service_id, employee_id, customer_id, amount_charged').eq('id', ev.id).single()
+        const { data: fresh } = await (supabase as any).from('calendar_events').select('id, status, start_time, end_time, title, service_id, employee_id, customer_id, amount_charged').eq('id', ev.id).single()
         if (fresh?.status === 'COMPLETED') {
             msgApi.info('Este agendamento já foi concluído e o pagamento lançado.')
             await fetchAll()
@@ -505,8 +550,9 @@ function Schedule() {
                 return
             }
 
+            const sbp = supabase as any
             if (payEvt.customer_id && (v.payment_notes || '').trim()) {
-                await supabase.from('customer_service_history').insert({
+                await sbp.from('customer_service_history').insert({
                     tenant_id: tid,
                     customer_id: payEvt.customer_id,
                     calendar_event_id: payEvt.id,
@@ -515,7 +561,7 @@ function Schedule() {
                 })
             }
 
-            await supabase.from('completed_services').insert({
+            await sbp.from('completed_services').insert({
                 tenant_id: tid, calendar_event_id: payEvt.id,
                 service_id: payEvt.service_id || null, employee_id: payEvt.employee_id || null,
                 customer_id: payEvt.customer_id || null, service_name: payEvt.title,
@@ -578,10 +624,10 @@ function Schedule() {
                             created_by: createdBy,
                         })
                     }
-                    await supabase.from('cash_entries').insert(installmentEntries)
+                    await sbp.from('cash_entries').insert(installmentEntries)
                 } else {
                     const isBoleto = v.payment_method === 'BOLETO'
-                    await supabase.from('cash_entries').insert({
+                    await sbp.from('cash_entries').insert({
                         tenant_id: tid,
                         type: 'INCOME',
                         description: descricaoCompleta,
@@ -624,7 +670,7 @@ function Schedule() {
             }
 
             if (payEvt.service_id) {
-                const { data: serviceItems } = await supabase
+                const { data: serviceItems } = await sbp
                     .from('service_items')
                     .select('item_id, quantity')
                     .eq('service_id', payEvt.service_id)
@@ -668,7 +714,7 @@ function Schedule() {
                 const filePath = `${tid}/customers/${payEvt.customer_id}/${crypto.randomUUID()}.${ext}`
                 const { error: uploadErr } = await supabase.storage.from('comprovantes').upload(filePath, attachFile)
                 if (!uploadErr) {
-                    await supabase.from('customer_attachments').insert({
+                    await sbp.from('customer_attachments').insert({
                         tenant_id: tid,
                         customer_id: payEvt.customer_id,
                         origin_type: 'AGENDA',
@@ -689,7 +735,7 @@ function Schedule() {
             if (mainSvc?.recurrence_days > 0 && payEvt.customer_id) {
                 const saleDate = dayjs().format('YYYY-MM-DD')
                 const dispatchDate = dayjs().add(mainSvc.recurrence_days, 'day').format('YYYY-MM-DD')
-                const { data: recRecord } = await supabase.from('recurrence_records').insert({
+                const { data: recRecord } = await sbp.from('recurrence_records').insert({
                     tenant_id: tid,
                     service_id: mainSvc.id,
                     customer_id: payEvt.customer_id,
@@ -702,7 +748,7 @@ function Schedule() {
                     created_by: createdBy,
                 }).select('id').single()
                 if (recRecord) {
-                    await supabase.from('recurrence_dispatch_queue').insert({
+                    await sbp.from('recurrence_dispatch_queue').insert({
                         tenant_id: tid,
                         recurrence_record_id: recRecord.id,
                         scheduled_at: `${dispatchDate}T12:00:00-03:00`,
@@ -720,7 +766,7 @@ function Schedule() {
                     const saleDate = dayjs().format('YYYY-MM-DD')
                     const dispatchDate = dayjs().add(recDays, 'day').format('YYYY-MM-DD')
                     const recType = prod ? 'PRODUCT' : 'SERVICE'
-                    const { data: recRecord } = await supabase.from('recurrence_records').insert({
+                    const { data: recRecord } = await sbp.from('recurrence_records').insert({
                         tenant_id: tid,
                         service_id: extraSvc?.id || null,
                         product_id: prod?.id || null,
@@ -734,7 +780,7 @@ function Schedule() {
                         created_by: createdBy,
                     }).select('id').single()
                     if (recRecord) {
-                        await supabase.from('recurrence_dispatch_queue').insert({
+                        await sbp.from('recurrence_dispatch_queue').insert({
                             tenant_id: tid,
                             recurrence_record_id: recRecord.id,
                             scheduled_at: `${dispatchDate}T12:00:00-03:00`,
@@ -1403,6 +1449,61 @@ function Schedule() {
                     <Form.Item name="customer_id" label="Cliente"><Select placeholder="(opcional)" allowClear showSearch optionFilterProp="children">{customers.map(c => <Select.Option key={c.id} value={c.id}>{c.name}</Select.Option>)}</Select></Form.Item>
                     {editingEvt && <Form.Item name="status" label="Status"><Select>{Object.entries(statusCfg).map(([k, c]) => <Select.Option key={k} value={k}><Tag color={c.tagColor} style={{ margin: 0 }}>{c.label}</Tag></Select.Option>)}</Select></Form.Item>}
                     <Form.Item name="notes" label="Observações"><Input.TextArea rows={2} /></Form.Item>
+
+                    {/* Recurrence section — only for new bookings */}
+                    {!editingEvt && (
+                        <div style={{ marginTop: 4, padding: '12px 14px', background: 'rgba(255,255,255,0.04)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.08)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: recurActive ? 14 : 0 }}>
+                                <Switch
+                                    size="small"
+                                    checked={recurActive}
+                                    onChange={setRecurActive}
+                                    checkedChildren={<SyncOutlined />}
+                                />
+                                <span style={{ fontSize: 13, fontWeight: 600, color: recurActive ? '#e2e8f0' : '#64748b' }}>
+                                    Agendar Recorrência
+                                </span>
+                                {recurActive && (
+                                    <span style={{ fontSize: 11, color: '#64748b', marginLeft: 'auto' }}>
+                                        Cria múltiplos agendamentos
+                                    </span>
+                                )}
+                            </div>
+                            {recurActive && (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                                    <div>
+                                        <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 6 }}>Frequência</div>
+                                        <Radio.Group value={recurType} onChange={(e) => setRecurType(e.target.value)} size="small">
+                                            <Radio.Button value="weekly">Semanal</Radio.Button>
+                                            <Radio.Button value="biweekly">Quinzenal</Radio.Button>
+                                            <Radio.Button value="weekdays">Dias fixos</Radio.Button>
+                                        </Radio.Group>
+                                    </div>
+                                    {recurType === 'weekdays' && (
+                                        <div>
+                                            <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 6 }}>Dias da semana</div>
+                                            <Checkbox.Group
+                                                options={WEEK_DAYS_SHORT.map((d, i) => ({ label: d, value: i }))}
+                                                value={recurWeekdays}
+                                                onChange={(v) => setRecurWeekdays(v as number[])}
+                                            />
+                                        </div>
+                                    )}
+                                    <div>
+                                        <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 6 }}>Repetir até</div>
+                                        <DatePicker
+                                            style={{ width: '100%' }}
+                                            format="DD/MM/YYYY"
+                                            value={recurEndDate}
+                                            onChange={(d) => setRecurEndDate(d)}
+                                            disabledDate={(c) => c.isBefore(dayjs(), 'day')}
+                                            placeholder="Selecione a data final"
+                                        />
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
                 </Form>
             </Drawer>
 
@@ -1433,7 +1534,7 @@ function Schedule() {
                         <Form form={payForm} layout="vertical">
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
                                 <Form.Item name="base_price" label="Valor do Serviço (R$)" rules={[{ required: true }]}>
-                                    <InputNumber style={{ width: '100%' }} min={0} step={0.5} precision={2} size="large"
+                                    <InputNumber style={{ width: '100%' }} min={0 as number} step={0.5} precision={2} size="large"
                                         formatter={(v) => `${v}`.replace('.', ',')} parser={(v) => Number((v || '0').replace(',', '.'))} />
                                 </Form.Item>
                                 <Form.Item name="payment_method" label="Forma de Pagamento" rules={[{ required: true }]}>
@@ -1460,7 +1561,7 @@ function Schedule() {
                                             <InputNumber style={{ width: '100%' }} min={0} max={100} step={1} suffix="%" onChange={(v) => { if (v && v > 0) payForm.setFieldValue('discount_value', 0); setDiscountTick(t => t + 1) }} />
                                         </Form.Item>
                                         <Form.Item name="discount_value" label={<span style={{ color: '#000' }}>Desconto (R$)</span>} style={{ margin: 0 }}>
-                                            <InputNumber style={{ width: '100%' }} min={0} step={0.5} precision={2}
+                                            <InputNumber style={{ width: '100%' }} min={0 as number} step={0.5} precision={2}
                                                 formatter={(v) => `${v}`.replace('.', ',')} parser={(v) => Number((v || '0').replace(',', '.'))}
                                                 onChange={(v) => { if (v && v > 0) payForm.setFieldValue('discount_percent', 0); setDiscountTick(t => t + 1) }} />
                                         </Form.Item>
@@ -1474,7 +1575,7 @@ function Schedule() {
                                 {isSplitPay && (
                                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 8, padding: 12, background: '#EFF6FF', borderRadius: 8, border: '1px solid #BFDBFE' }}>
                                         <Form.Item name="amount_paid" label="Valor pago agora (R$)" style={{ margin: 0 }}>
-                                            <InputNumber style={{ width: '100%' }} min={0} step={0.5} precision={2}
+                                            <InputNumber style={{ width: '100%' }} min={0 as number} step={0.5} precision={2}
                                                 formatter={(v) => `${v}`.replace('.', ',')} parser={(v) => Number((v || '0').replace(',', '.'))} />
                                         </Form.Item>
                                         <Form.Item name="remaining_due_date" label="Data restante" style={{ margin: 0 }}>

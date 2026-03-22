@@ -93,7 +93,7 @@ function Stock() {
     const [deleteQtyForm] = Form.useForm()
     const [searchText, setSearchText] = useState('')
     const [stockFilter, setStockFilter] = useState<'all' | 'below'>('all')
-    const [activeTab, setActiveTab] = useState<'ITEM' | 'PRODUCT' | 'SERVICE'>('ITEM')
+    const [activeTab, setActiveTab] = useState<'ITEM' | 'PRODUCT' | 'SERVICE'>('PRODUCT')
     const [servicesList, setServicesList] = useState<ServiceRow[]>([])
     const [loadingServices, setLoadingServices] = useState(false)
     const [totalMovements, setTotalMovements] = useState(0)
@@ -152,11 +152,11 @@ function Stock() {
     useEffect(() => {
         if (activeTab !== 'SERVICE') return
         setLoadingServices(true)
-        supabase
+        ;(supabase as any)
             .from('services')
             .select('id, name, description, estimated_duration_minutes, cost_total, base_price, status, min_quantity, profit_percent, service_items(*, item:items(id, quantity))')
             .order('name')
-            .then((svcRes) => {
+            .then((svcRes: any) => {
                 if (svcRes.error) return
                 setServicesList((svcRes.data || []).map((s: any) => {
                     const possible = calcServicesPossibleFromItems(s)
@@ -183,14 +183,14 @@ function Stock() {
 
 
     const stockRows = useMemo<StockRow[]>(() => {
-        return (rawStock || []).map((s: StockRecord) => {
+        return (rawStock || []).map((s: any) => {
             const item = s.items
             const product = s.products
             const name = item?.name || product?.name || 'Sem nome'
             const itemQty = Number(item?.quantity) || 1
             const itemTotalCost = Number(item?.cost_price) || 0
             const costPrice = item
-              ? (item.cost_per_base_unit != null && item.cost_per_base_unit !== ''
+              ? (item.cost_per_base_unit != null
                 ? Number(item.cost_per_base_unit)
                 : itemQty > 0 ? itemTotalCost / itemQty : itemTotalCost)
               : (product?.cost_total ?? 0)
@@ -607,12 +607,6 @@ function Stock() {
                     onChange={(k) => setActiveTab(k as 'ITEM' | 'PRODUCT' | 'SERVICE')}
                     items={[
                         {
-                            key: 'ITEM',
-                            label: (
-                                <span><InboxOutlined style={{ marginRight: 6 }} />Itens / Insumos ({itemCount})</span>
-                            ),
-                        },
-                        {
                             key: 'PRODUCT',
                             label: (
                                 <span><ShoppingOutlined style={{ marginRight: 6 }} />Produtos Acabados ({productCount})</span>
@@ -622,6 +616,12 @@ function Stock() {
                             key: 'SERVICE',
                             label: (
                                 <span><CustomerServiceOutlined style={{ marginRight: 6 }} />Serviços ({serviceCount})</span>
+                            ),
+                        },
+                        {
+                            key: 'ITEM',
+                            label: (
+                                <span><InboxOutlined style={{ marginRight: 6 }} />Itens / Insumos ({itemCount})</span>
                             ),
                         },
                     ]}

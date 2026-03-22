@@ -35,6 +35,7 @@ interface RecurrenceRow {
     customerId: string
     productId: string | null
     serviceId: string | null
+    customMessage: string | null
 }
 
 export default function RecurrencePage() {
@@ -42,7 +43,7 @@ export default function RecurrencePage() {
     const { canView, canEdit } = usePermissions()
     const [messageApi, contextHolder] = message.useMessage()
     const [loading, setLoading] = useState(false)
-    const [activeTab, setActiveTab] = useState<'PRODUCT' | 'SERVICE'>('PRODUCT')
+    const [activeTab, setActiveTab] = useState<'PRODUCT' | 'SERVICE' | 'PRODUCT_SENT' | 'SERVICE_SENT'>('PRODUCT')
     const [records, setRecords] = useState<RecurrenceRow[]>([])
     const [searchText, setSearchText] = useState('')
     const [statusFilter, setStatusFilter] = useState<string>('all')
@@ -70,7 +71,8 @@ export default function RecurrencePage() {
             const tenantId = await getTenantId()
             if (!tenantId) return
 
-            const { data: recs } = await supabase
+            const sb = supabase as any
+            const { data: recs } = await sb
                 .from('recurrence_records')
                 .select(`
                     *,
@@ -79,6 +81,7 @@ export default function RecurrencePage() {
                     customers(name),
                     employees(name)
                 `)
+                .eq('tenant_id', tenantId)
                 .eq('is_active', true)
                 .order('dispatch_date', { ascending: true })
 
@@ -96,12 +99,13 @@ export default function RecurrencePage() {
                 customerId: r.customer_id,
                 productId: r.product_id,
                 serviceId: r.service_id,
+                customMessage: r.custom_message || null,
             })))
 
             // Load message templates
             const userId = await getCurrentUserId()
             if (userId) {
-                const { data: msg } = await supabase
+                const { data: msg } = await (supabase as any)
                     .from('recurrence_messages')
                     .select('message_products, message_services')
                     .eq('tenant_id', tenantId)
@@ -139,7 +143,7 @@ export default function RecurrencePage() {
                 return
             }
 
-            await supabase.from('recurrence_messages').upsert({
+            await (supabase as any).from('recurrence_messages').upsert({
                 tenant_id: tenantId,
                 user_id: userId,
                 message_products: messageProducts,
@@ -156,8 +160,9 @@ export default function RecurrencePage() {
     }
 
     const handleDelete = async (id: string) => {
-        await supabase.from('recurrence_records').update({ is_active: false, updated_at: new Date().toISOString() }).eq('id', id)
-        await supabase.from('recurrence_dispatch_queue').update({ status: 'CANCELLED' }).eq('recurrence_record_id', id).eq('status', 'PENDING')
+        const sbr = supabase as any
+        await sbr.from('recurrence_records').update({ is_active: false, updated_at: new Date().toISOString() }).eq('id', id)
+        await sbr.from('recurrence_dispatch_queue').update({ status: 'CANCELLED' }).eq('recurrence_record_id', id).eq('status', 'PENDING')
         messageApi.success('Recorrência excluída.')
         fetchData()
     }
@@ -167,6 +172,7 @@ export default function RecurrencePage() {
         editForm.setFieldsValue({
             dispatch_date: dayjs(record.dispatchDate),
             recurrence_days: record.recurrenceDays,
+            custom_message: record.customMessage || '',
         })
         setEditDrawerOpen(true)
     }
@@ -178,14 +184,16 @@ export default function RecurrencePage() {
 
             const newDispatchDate = values.dispatch_date.format('YYYY-MM-DD')
 
-            await supabase.from('recurrence_records').update({
+            const sbe = supabase as any
+            await sbe.from('recurrence_records').update({
                 dispatch_date: newDispatchDate,
                 recurrence_days: values.recurrence_days,
+                custom_message: values.custom_message || null,
                 updated_at: new Date().toISOString(),
             }).eq('id', editingRecord.id)
 
             // Update dispatch queue
-            await supabase.from('recurrence_dispatch_queue')
+            await sbe.from('recurrence_dispatch_queue')
                 .update({ scheduled_at: `${newDispatchDate}T12:00:00-03:00` })
                 .eq('recurrence_record_id', editingRecord.id)
                 .eq('status', 'PENDING')
@@ -200,9 +208,11 @@ export default function RecurrencePage() {
     }
 
     const filteredRecords = useMemo(() => {
+        const baseType = activeTab === 'PRODUCT_SENT' ? 'PRODUCT' : activeTab === 'SERVICE_SENT' ? 'SERVICE' : activeTab
+        const forcedStatus = activeTab === 'PRODUCT_SENT' || activeTab === 'SERVICE_SENT' ? 'SENT' : null
         return records
-            .filter(r => r.type === activeTab)
-            .filter(r => statusFilter === 'all' || r.status === statusFilter)
+            .filter(r => r.type === baseType)
+            .filter(r => forcedStatus ? r.status === forcedStatus : (statusFilter === 'all' || r.status === statusFilter))
             .filter(r =>
                 r.itemName.toLowerCase().includes(searchText.toLowerCase()) ||
                 r.customerName.toLowerCase().includes(searchText.toLowerCase())
@@ -223,7 +233,7 @@ export default function RecurrencePage() {
 
     const columns: ColumnsType<RecurrenceRow> = [
         {
-            title: activeTab === 'PRODUCT' ? 'Produto' : 'Serviço',
+            title: (activeTab === 'PRODUCT' || activeTab === 'PRODUCT_SENT') ? 'Produto' : 'Serviço',
             dataIndex: 'itemName',
             key: 'itemName',
             sorter: (a, b) => a.itemName.localeCompare(b.itemName),
@@ -294,6 +304,8 @@ export default function RecurrencePage() {
 
     const pendingProducts = records.filter(r => r.type === 'PRODUCT' && r.status === 'PENDING').length
     const pendingServices = records.filter(r => r.type === 'SERVICE' && r.status === 'PENDING').length
+    const sentProducts = records.filter(r => r.type === 'PRODUCT' && r.status === 'SENT').length
+    const sentServices = records.filter(r => r.type === 'SERVICE' && r.status === 'SENT').length
 
     const messageTemplate = activeTab === 'PRODUCT' ? messageProducts : messageServices
     const setMessageTemplate = activeTab === 'PRODUCT' ? setMessageProducts : setMessageServices
@@ -376,7 +388,7 @@ export default function RecurrencePage() {
             <div className="pc-card--table">
                 <Tabs
                     activeKey={activeTab}
-                    onChange={(k) => setActiveTab(k as 'PRODUCT' | 'SERVICE')}
+                    onChange={(k) => setActiveTab(k as 'PRODUCT' | 'SERVICE' | 'PRODUCT_SENT' | 'SERVICE_SENT')}
                     items={[
                         {
                             key: 'PRODUCT',
@@ -393,6 +405,24 @@ export default function RecurrencePage() {
                                 <span>
                                     <ToolOutlined style={{ marginRight: 6 }} />
                                     Serviços ({pendingServices} pendentes)
+                                </span>
+                            ),
+                        },
+                        {
+                            key: 'PRODUCT_SENT',
+                            label: (
+                                <span>
+                                    <ShoppingOutlined style={{ marginRight: 6 }} />
+                                    Produtos (Enviados) ({sentProducts})
+                                </span>
+                            ),
+                        },
+                        {
+                            key: 'SERVICE_SENT',
+                            label: (
+                                <span>
+                                    <ToolOutlined style={{ marginRight: 6 }} />
+                                    Serviços (Enviados) ({sentServices})
                                 </span>
                             ),
                         },
@@ -456,6 +486,19 @@ export default function RecurrencePage() {
                         </Form.Item>
                         <Form.Item name="recurrence_days" label="Dias de recorrência" rules={[{ required: true }]}>
                             <Input type="number" min={1} />
+                        </Form.Item>
+                        <Form.Item
+                            name="custom_message"
+                            label={
+                                <span>
+                                    Mensagem personalizada&nbsp;
+                                    <Tooltip title="Sobrescreve a mensagem padrão apenas para esta recorrência específica. Deixe vazio para usar a mensagem padrão do produto/serviço.">
+                                        <InfoCircleOutlined style={{ color: '#64748b' }} />
+                                    </Tooltip>
+                                </span>
+                            }
+                        >
+                            <Input.TextArea rows={3} placeholder="Opcional — usa mensagem padrão se vazio" />
                         </Form.Item>
                     </Form>
                 )}

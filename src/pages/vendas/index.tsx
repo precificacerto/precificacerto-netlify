@@ -128,18 +128,19 @@ function Sales() {
         try {
             // Try full query with employees join first; fall back to simpler query if columns don't exist
             let salesData: any[] | null = null
-            const { data: salesFull, error: salesErr } = await supabase
+            const sbv = supabase as any
+            const { data: salesFull, error: salesErr } = await sbv
                 .from('sales')
-                .select('*, products(name), customers(name), employees(name)')
+                .select('*, products(name), services(name), customers(name), employees(name)')
                 .eq('is_active', true)
                 .order('sale_date', { ascending: false })
             if (!salesErr) {
                 salesData = salesFull
             } else {
                 console.warn('Sales query with employees join failed, falling back:', salesErr.message)
-                const { data: salesSimple } = await supabase
+                const { data: salesSimple } = await sbv
                     .from('sales')
-                    .select('*, products(name), customers(name)')
+                    .select('*, products(name), services(name), customers(name)')
                     .eq('is_active', true)
                     .order('sale_date', { ascending: false })
                 salesData = salesSimple
@@ -158,20 +159,21 @@ function Sales() {
 
             // Services: try with recurrence_days, fall back without
             let svcs: any[] | null = null
-            const { data: svcsFull, error: svcsErr } = await supabase.from('services').select('id, name, base_price, commission_percent, recurrence_days').eq('status', 'ACTIVE').order('name')
+            const svb = supabase as any
+            const { data: svcsFull, error: svcsErr } = await svb.from('services').select('id, name, base_price, commission_percent, recurrence_days').eq('status', 'ACTIVE').order('name')
             if (!svcsErr) {
                 svcs = svcsFull
             } else {
                 console.warn('Services query with recurrence_days failed, falling back:', svcsErr.message)
-                const { data: svcsSimple } = await supabase.from('services').select('id, name, base_price, commission_percent').eq('status', 'ACTIVE').order('name')
+                const { data: svcsSimple } = await svb.from('services').select('id, name, base_price, commission_percent').eq('status', 'ACTIVE').order('name')
                 svcs = svcsSimple
             }
 
             // Customers and employees (employees may not have the table yet)
-            const { data: custs } = await supabase.from('customers').select('id, name').eq('is_active', true).order('name')
+            const { data: custs } = await (supabase as any).from('customers').select('id, name').eq('is_active', true).order('name')
             let emps: any[] | null = null
             try {
-                const { data: empsData, error: empsErr } = await supabase.from('employees').select('id, name, commission_percent').eq('is_active', true).order('name')
+                const { data: empsData, error: empsErr } = await (supabase as any).from('employees').select('id, name, commission_percent').eq('is_active', true).order('name')
                 if (!empsErr) emps = empsData
             } catch (e) {
                 console.warn('Could not load employees:', e)
@@ -179,7 +181,7 @@ function Sales() {
 
             const rows: SaleRow[] = (salesData || []).map((s: any) => ({
                 id: s.id,
-                productName: s.products?.name || s.description || '-',
+                productName: s.products?.name || s.services?.name || s.description || '-',
                 quantity: s.quantity || 1,
                 unitPrice: s.unit_price || s.final_value || 0,
                 finalValue: s.final_value || 0,
@@ -260,7 +262,7 @@ function Sales() {
 
             // Try to get employee_id from budget (column may not exist)
             let budgetEmployeeId: string | null = null
-            const { data: budgetEmp, error: budgetEmpErr } = await supabase.from('budgets').select('employee_id').eq('id', selectedBudget.id).single()
+            const { data: budgetEmp, error: budgetEmpErr } = await (supabase as any).from('budgets').select('employee_id').eq('id', selectedBudget.id).single()
             if (!budgetEmpErr) {
                 budgetEmployeeId = budgetEmp?.employee_id || null
             } else {
@@ -285,13 +287,13 @@ function Sales() {
 
             // Try to set employee_id separately (column may not exist yet)
             if (budgetEmployeeId && sale?.id) {
-                const { error: empErr } = await supabase.from('sales').update({ employee_id: budgetEmployeeId }).eq('id', sale.id)
+                const { error: empErr } = await (supabase as any).from('sales').update({ employee_id: budgetEmployeeId }).eq('id', sale.id)
                 if (empErr) console.warn('employee_id column may not exist yet on sales:', empErr.message)
             }
 
             const { data: updatedBudget } = await supabase.from('budgets').update({ status: 'PAID', sale_id: sale.id }).eq('id', selectedBudget.id).neq('status', 'PAID').select('id').single()
             if (!updatedBudget) {
-                await supabase.from('sales').update({ is_active: false }).eq('id', sale.id)
+                await (supabase as any).from('sales').update({ is_active: false }).eq('id', sale.id)
                 messageApi.warning('Este orçamento já foi finalizado por outra pessoa. Nenhuma alteração foi mantida.')
                 setRegisterModalOpen(false)
                 await fetchPendingBudgets()
@@ -334,10 +336,10 @@ function Sales() {
                 const file = registerReceiptFile[0].originFileObj
                 const uploadPath = await uploadReceipt(file, sale.id, tenantId)
                 if (uploadPath) {
-                    await supabase.from('sales').update({ receipt_url: uploadPath }).eq('id', sale.id)
+                    await (supabase as any).from('sales').update({ receipt_url: uploadPath }).eq('id', sale.id)
                     const { data: budgetRow } = await supabase.from('budgets').select('customer_id').eq('id', selectedBudget.id).single()
                     if (budgetRow?.customer_id) {
-                        await supabase.from('customer_attachments').insert({
+                        await (supabase as any).from('customer_attachments').insert({
                             tenant_id: tenantId,
                             customer_id: budgetRow.customer_id,
                             origin_type: 'SALE',
@@ -380,7 +382,7 @@ function Sales() {
                         created_by: createdBy,
                     })
                 }
-                await supabase.from('cash_entries').insert(installmentEntries)
+                await (supabase as any).from('cash_entries').insert(installmentEntries)
             } else {
                 const isBoleto = values.payment_method === 'BOLETO'
                 const due = values.sale_date ? values.sale_date.format('YYYY-MM-DD') : new Date().toISOString().split('T')[0]
@@ -569,7 +571,7 @@ function Sales() {
 
             // Try to set employee_id separately (column may not exist yet)
             if (values.employee_id && sale?.id) {
-                const { error: empErr } = await supabase.from('sales').update({ employee_id: values.employee_id }).eq('id', sale.id)
+                const { error: empErr } = await (supabase as any).from('sales').update({ employee_id: values.employee_id }).eq('id', sale.id)
                 if (empErr) console.warn('employee_id column may not exist yet on sales:', empErr.message)
             }
 
@@ -581,18 +583,20 @@ function Sales() {
                 unit_price: i.unit_price,
                 discount: i.discount ?? 0,
             }))
-            const serviceItems = saleItems.filter(i => i.is_service && i.service_id).map(i => ({
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const serviceItems: any[] = saleItems.filter(i => i.is_service && i.service_id).map((i): any => ({
                 sale_id: sale.id,
-                product_id: null,
+                product_id: null as string | null,
                 service_id: i.service_id,
                 quantity: i.quantity,
                 unit_price: i.unit_price,
                 discount: i.discount ?? 0,
                 description: (i.product_name || '').trim(),
             }))
-            const manualItems = saleItems.filter(i => i.is_manual && (i.product_name || '').trim()).map(i => ({
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const manualItems: any[] = saleItems.filter(i => i.is_manual && (i.product_name || '').trim()).map((i): any => ({
                 sale_id: sale.id,
-                product_id: null,
+                product_id: null as string | null,
                 quantity: i.quantity,
                 unit_price: i.unit_price,
                 discount: i.discount ?? 0,
@@ -630,9 +634,9 @@ function Sales() {
                 const file = receiptFile[0].originFileObj
                 const uploadPath = await uploadReceipt(file, sale.id, tenantId)
                 if (uploadPath) {
-                    await supabase.from('sales').update({ receipt_url: uploadPath }).eq('id', sale.id)
+                    await (supabase as any).from('sales').update({ receipt_url: uploadPath }).eq('id', sale.id)
                     if (values.customer_id) {
-                        await supabase.from('customer_attachments').insert({
+                        await (supabase as any).from('customer_attachments').insert({
                             tenant_id: tenantId,
                             customer_id: values.customer_id,
                             origin_type: 'SALE',
@@ -674,7 +678,7 @@ function Sales() {
                         created_by: createdBy,
                     })
                 }
-                await supabase.from('cash_entries').insert(installmentEntries)
+                await (supabase as any).from('cash_entries').insert(installmentEntries)
             } else {
                 await supabase.from('cash_entries').insert({
                     tenant_id: tenantId,
@@ -720,15 +724,16 @@ function Sales() {
                         type: recType,
                         created_by: createdBy,
                     }
-                    const { data: recRecord } = await supabase.from('recurrence_records').insert(recInsertData).select('id').single()
+                    const sbrec = supabase as any
+                    const { data: recRecord } = await sbrec.from('recurrence_records').insert(recInsertData).select('id').single()
 
                     if (recRecord) {
                         // Try to set employee_id on recurrence_records (column may not exist)
                         if (values.employee_id) {
-                            const { error: recEmpErr } = await supabase.from('recurrence_records').update({ employee_id: values.employee_id }).eq('id', recRecord.id)
+                            const { error: recEmpErr } = await sbrec.from('recurrence_records').update({ employee_id: values.employee_id }).eq('id', recRecord.id)
                             if (recEmpErr) console.warn('employee_id column may not exist on recurrence_records:', recEmpErr.message)
                         }
-                        await supabase.from('recurrence_dispatch_queue').insert({
+                        await sbrec.from('recurrence_dispatch_queue').insert({
                             tenant_id: tenantId,
                             recurrence_record_id: recRecord.id,
                             scheduled_at: `${dispatchDate}T12:00:00-03:00`,
@@ -965,7 +970,7 @@ function Sales() {
                     value={r.unit_price}
                     onChange={(v) => handleItemChange(r.key, 'unit_price', v ?? 0)}
                     style={{ width: '100%' }}
-                    formatter={(v) => (v != null && v !== '' ? `R$ ${formatCurrencyInput(Number(v))}` : '')}
+                    formatter={(v) => (v != null ? `R$ ${formatCurrencyInput(Number(v))}` : '')}
                     parser={(s) => parseCurrencyInput(s)}
                 />
             ),

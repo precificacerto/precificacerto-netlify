@@ -137,15 +137,37 @@ function formatPct(value: number): string {
   return `${value.toFixed(1)}%`
 }
 
+/** Returns true if the given period column is fully closed (current date has passed the last day of the period in the selected year) */
+function isPeriodClosed(col: PeriodColumn, viewYear: number): boolean {
+  const today = new Date()
+  const lastMonthKey = col.monthKeys[col.monthKeys.length - 1]
+  const monthIndex = MONTH_KEYS.indexOf(lastMonthKey) // 0-based
+  // Last day of the period's last month in the viewed year
+  const lastDayOfPeriod = new Date(viewYear, monthIndex + 1, 0) // day 0 = last day of month
+  return today > lastDayOfPeriod
+}
+
 // ── Data fetching ──
 
 type CashEntry = {
   amount: number
   type: 'INCOME' | 'EXPENSE'
   expense_group: string | null
+  category: string | null
   description: string | null
   due_date: string
   is_active: boolean
+  payment_method: string | null
+  paid_date: string | null
+  anticipated_amount: number | null
+}
+
+/** Effective income amount — mirrors getEffectiveIncomeAmount from cash-entry-amount.ts */
+function effectiveIncomeAmount(entry: CashEntry): number {
+  if (entry.payment_method === 'CARTAO_CREDITO' && entry.anticipated_amount != null && entry.anticipated_amount > 0) {
+    return Math.max(0, entry.amount - entry.anticipated_amount)
+  }
+  return entry.amount
 }
 
 async function fetchYearEntries(tenantId: string, year: number): Promise<CashEntry[]> {
@@ -154,7 +176,7 @@ async function fetchYearEntries(tenantId: string, year: number): Promise<CashEnt
   // @ts-ignore — supabase generic chain too deep for TS
   const { data } = await supabase
     .from('cash_entries')
-    .select('amount, type, expense_group, description, due_date, is_active')
+    .select('amount, type, expense_group, category, description, due_date, is_active, payment_method, paid_date, anticipated_amount')
     .eq('tenant_id', tenantId)
     .eq('is_active', true)
     .gte('due_date', startDate)
@@ -162,6 +184,7 @@ async function fetchYearEntries(tenantId: string, year: number): Promise<CashEnt
   return (data || []).map((e: any) => ({
     ...e,
     amount: Number(e.amount) || 0,
+    anticipated_amount: e.anticipated_amount != null ? Number(e.anticipated_amount) : null,
   }))
 }
 
@@ -238,14 +261,14 @@ function aggregateEntries(entries: CashEntry[]): AggregatedData {
     custoProduto: { ...EMPTY_MONTHS },
   }
 
-  // Categories considered as product cost (CMV)
-  const PRODUCT_COST_DESCRIPTIONS = new Set([
-    'Fornecedores', 'Matéria Prima / Produtos Revenda', 'Embalagens', 'Embalagens Diversas',
-    'Frete Compras', 'Terceirizações',
+  // Category keys considered as product cost (CMV) — matches CASHIER_CATEGORY.EXPENSE keys
+  const PRODUCT_COST_KEYS = new Set([
+    'FORNECEDORES', 'MATERIA_PRIMA_BASE_DOS_PROD_ROUPA_ALIMENTO_MADEIRA',
+    'EMBALAGENS', 'EMBALAGENS_DIVERSAS', 'FRETES_FOB',
   ])
 
-  // Comissoes descriptions
-  const COMISSAO_DESCRIPTIONS = new Set(['Comissões de Venda'])
+  // Comissoes category key
+  const COMISSAO_KEYS = new Set(['COMISSOES_DE_VENDA'])
 
   for (const entry of entries) {
     const d = new Date(entry.due_date)
@@ -253,27 +276,27 @@ function aggregateEntries(entries: CashEntry[]): AggregatedData {
     if (!monthKey) continue
 
     if (entry.type === 'INCOME') {
-      data.receitaBruta[monthKey] += entry.amount
+      // Skip unpaid boletos — mirrors fluxo-de-caixa/extrato behavior
+      if (entry.payment_method === 'BOLETO' && !entry.paid_date) continue
+      data.receitaBruta[monthKey] += effectiveIncomeAmount(entry)
       continue
     }
 
     // EXPENSE
     const group = entry.expense_group || ''
+    const cat = entry.category || ''
     const desc = entry.description || ''
 
-    // Comissoes check
-    if (COMISSAO_DESCRIPTIONS.has(desc) || desc.toLowerCase().includes('comiss')) {
+    // Comissoes check — match by category key first, fallback to description text
+    if (COMISSAO_KEYS.has(cat) || desc.toLowerCase().includes('comiss')) {
       data.comissoes[monthKey] += entry.amount
       continue
     }
 
-    // Product cost check (CMV) - items from DESPESA_VARIAVEL that are material costs
-    if (PRODUCT_COST_DESCRIPTIONS.has(desc) || group === 'DESPESA_VARIAVEL') {
-      // Separate actual product cost from other variable expenses
-      if (PRODUCT_COST_DESCRIPTIONS.has(desc)) {
-        data.custoProduto[monthKey] += entry.amount
-        continue
-      }
+    // Product cost check (CMV) - match by category key
+    if (PRODUCT_COST_KEYS.has(cat)) {
+      data.custoProduto[monthKey] += entry.amount
+      continue
     }
 
     switch (group) {
@@ -750,28 +773,36 @@ export default function DfcPage() {
                     )}
                   </td>
                   {periodColumns.map((col, ci) => {
-                    const val = aggregatePeriodValue(row.values, col.monthKeys)
+                    const closed = isPeriodClosed(col, year)
+                    const val = closed ? aggregatePeriodValue(row.values, col.monthKeys) : null
                     return (
                       <td key={ci} style={{
                         ...tdStyle,
                         textAlign: 'right',
                         fontWeight: row.isTotal || row.isSubtotal ? 600 : 400,
-                        color: getValueColor(val, row),
+                        color: closed ? getValueColor(val!, row) : 'var(--color-neutral-500, #6B7280)',
                       }}>
-                        {formatBRL(val)}
+                        {closed ? formatBRL(val!) : <span style={{ fontSize: 11, fontStyle: 'italic' }}>Em andamento</span>}
                       </td>
                     )
                   })}
-                  {showTotal && (
-                    <td style={{
-                      ...tdStyle,
-                      textAlign: 'right',
-                      fontWeight: 700,
-                      color: getValueColor(row.total, row),
-                    }}>
-                      {formatBRL(row.total)}
-                    </td>
-                  )}
+                  {showTotal && (() => {
+                    // For total: sum only closed periods
+                    const closedTotal = periodColumns
+                      .filter(c => isPeriodClosed(c, year))
+                      .reduce((s, c) => s + aggregatePeriodValue(row.values, c.monthKeys), 0)
+                    const allClosed = periodColumns.every(c => isPeriodClosed(c, year))
+                    return (
+                      <td style={{
+                        ...tdStyle,
+                        textAlign: 'right',
+                        fontWeight: 700,
+                        color: allClosed ? getValueColor(closedTotal, row) : 'var(--color-neutral-500, #6B7280)',
+                      }}>
+                        {allClosed ? formatBRL(closedTotal) : <span style={{ fontSize: 11, fontStyle: 'italic' }}>Parcial</span>}
+                      </td>
+                    )
+                  })()}
                   <td style={{
                     ...tdStyle,
                     textAlign: 'right',
@@ -779,7 +810,7 @@ export default function DfcPage() {
                     color: 'var(--color-neutral-400, #9CA3AF)',
                     fontSize: 12,
                   }}>
-                    {row.pctOfRL ? formatPct(row.pctOfRL.total) : '—'}
+                    {row.pctOfRL && periodColumns.every(c => isPeriodClosed(c, year)) ? formatPct(row.pctOfRL.total) : '—'}
                   </td>
                 </tr>
                 {/* Per-period percentage row */}
@@ -789,10 +820,11 @@ export default function DfcPage() {
                       % Receita Líquida
                     </td>
                     {periodColumns.map((col, ci) => {
-                      const pctVal = aggregatePeriodPct(row.pctOfRL, row, receitaLiquidaRow, col.monthKeys)
+                      const closed = isPeriodClosed(col, year)
+                      const pctVal = closed ? aggregatePeriodPct(row.pctOfRL, row, receitaLiquidaRow, col.monthKeys) : null
                       return (
                         <td key={ci} style={{ ...tdStyle, textAlign: 'right', fontSize: 11, color: 'var(--color-neutral-400, #9CA3AF)' }}>
-                          {formatPct(pctVal)}
+                          {closed ? formatPct(pctVal!) : '—'}
                         </td>
                       )
                     })}

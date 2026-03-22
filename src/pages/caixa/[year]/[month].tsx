@@ -30,6 +30,7 @@ import { getTenantId } from '@/utils/get-tenant-id'
 import { getEffectiveIncomeAmount } from '@/utils/cash-entry-amount'
 import { mergeExpenseConfig } from '@/utils/recalc-expense-config'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
+import { useAuth } from '@/hooks/use-auth.hook'
 
 type DataItem = {
   category: string
@@ -136,6 +137,8 @@ const DAY_OF_MONTH_LIMIT = 25
 function Cashier() {
   const router = useRouter()
   const { canView, canEdit } = usePermissions()
+  const { currentUser } = useAuth()
+  const taxRegime = (currentUser as any)?.taxRegime ?? null
   if (!canView(MODULES.CASHIER)) {
     return <Layout tabTitle={PAGE_TITLES.CASHIER}><div style={{ padding: 40, textAlign: 'center' }}>Você não tem acesso a este módulo.</div></Layout>
   }
@@ -157,6 +160,7 @@ function Cashier() {
   const monthEnum = month as Month
   const [warningMessage, setWarningMessage] = useState<string>('')
   const [alertMessage, setAlertMessage] = useState<string>('')
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
 
   const [form] = Form.useForm()
   const [messageApi, contextHolder] = message.useMessage()
@@ -269,13 +273,6 @@ function Cashier() {
     const expenseSum = expenseData.reduce((acc, curr) => (acc += curr.price), 0)
     const balance = Number(incomeSum.toFixed(2)) - Number(expenseSum.toFixed(2))
 
-    if (1 * balance !== 0) {
-      setAlertMessage(
-        `O seu caixa deve fechar zerado e atualmente está R$ ${getMonetaryValue(
-          balance
-        )} no cálculo entradas descontando saídas`
-      )
-    }
   }, [incomeData, expenseData, monthEnum, year])
 
   function handleChangeMonth(m: MonthObjectType) {
@@ -364,7 +361,7 @@ function Cashier() {
         const pm = current.payment_method
           ? (PAYMENT_METHOD_LABELS[current.payment_method] || current.payment_method)
           : null
-        const label = pm ? `${cleanName} — ${pm}` : cleanName
+        const label = pm || 'Outros'
         const idx = acc.findIndex((item) => item.label === label)
         if (idx > -1) {
           acc[idx].accPrice += current.price
@@ -451,15 +448,66 @@ function Cashier() {
 
   function renderExpenseGroupSummary() {
     const groups: Record<string, number> = {}
+    const categoriesByGroup: Record<string, Record<string, number>> = {}
     let total = 0
     for (const e of expenseData) {
       const g = e.expense_group || 'SEM_TIPO'
       groups[g] = (groups[g] || 0) + e.price
+      if (!categoriesByGroup[g]) categoriesByGroup[g] = {}
+      categoriesByGroup[g][e.category] = (categoriesByGroup[g][e.category] || 0) + e.price
       total += e.price
     }
 
     const hasGroups = Object.keys(groups).some(k => k !== 'SEM_TIPO')
     if (!hasGroups && !groups['SEM_TIPO']) return null
+
+    const toggleGroup = (key: string) => {
+      setExpandedGroups(prev => {
+        const next = new Set(prev)
+        if (next.has(key)) next.delete(key)
+        else next.add(key)
+        return next
+      })
+    }
+
+    const renderGroupCard = (key: string, label: string, color: string, val: number) => {
+      const pct = total > 0 ? ((val / total) * 100).toFixed(1) : '0.0'
+      const isExpanded = expandedGroups.has(key)
+      const cats = categoriesByGroup[key] || {}
+      return (
+        <div
+          key={key}
+          style={{
+            flex: '1 1 160px',
+            border: `2px solid ${color}`,
+            borderRadius: 8,
+            padding: '8px 12px',
+            minWidth: 160,
+            cursor: 'pointer',
+          }}
+          onClick={() => toggleGroup(key)}
+        >
+          <div style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600 }}>{label}</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color }}>
+            R$ {getMonetaryValue(val)}
+          </div>
+          <div style={{ fontSize: 11, color: '#98A2B3', marginBottom: isExpanded ? 8 : 0 }}>
+            {pct}% do total{' '}
+            <span style={{ fontSize: 10, color: '#64748b' }}>{isExpanded ? '▲' : '▼'}</span>
+          </div>
+          {isExpanded && Object.entries(cats).length > 0 && (
+            <div style={{ borderTop: `1px solid ${color}44`, paddingTop: 6, marginTop: 4 }}>
+              {Object.entries(cats).map(([cat, catVal]) => (
+                <div key={cat} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#cbd5e1', padding: '2px 0' }}>
+                  <span style={{ color: '#94a3b8' }}>{getCategoryName(cat) || cat}</span>
+                  <span style={{ fontWeight: 600 }}>R$ {getMonetaryValue(catVal)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )
+    }
 
     return (
       <div style={{ marginTop: 16 }}>
@@ -468,45 +516,9 @@ function Cashier() {
           {Object.entries(EXPENSE_GROUPS).map(([key, grp]) => {
             const val = groups[key] || 0
             if (val === 0) return null
-            const pct = total > 0 ? ((val / total) * 100).toFixed(1) : '0.0'
-            return (
-              <div
-                key={key}
-                style={{
-                  flex: '1 1 140px',
-                  border: `2px solid ${grp.color}`,
-                  borderRadius: 8,
-                  padding: '8px 12px',
-                  minWidth: 140,
-                }}
-              >
-                <div style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600 }}>{grp.label}</div>
-                <div style={{ fontSize: 16, fontWeight: 700, color: grp.color }}>
-                  R$ {getMonetaryValue(val)}
-                </div>
-                <div style={{ fontSize: 11, color: '#98A2B3' }}>{pct}% do total</div>
-              </div>
-            )
+            return renderGroupCard(key, grp.label, grp.color, val)
           })}
-          {groups['SEM_TIPO'] > 0 && (
-            <div
-              style={{
-                flex: '1 1 140px',
-                border: '2px solid #D1D5DB',
-                borderRadius: 8,
-                padding: '8px 12px',
-                minWidth: 140,
-              }}
-            >
-              <div style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600 }}>Sem tipo</div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: '#6B7280' }}>
-                R$ {getMonetaryValue(groups['SEM_TIPO'])}
-              </div>
-              <div style={{ fontSize: 11, color: '#98A2B3' }}>
-                {total > 0 ? ((groups['SEM_TIPO'] / total) * 100).toFixed(1) : '0.0'}% do total
-              </div>
-            </div>
-          )}
+          {groups['SEM_TIPO'] > 0 && renderGroupCard('SEM_TIPO', 'Sem tipo', '#D1D5DB', groups['SEM_TIPO'])}
         </div>
       </div>
     )
@@ -834,6 +846,7 @@ function Cashier() {
           month={monthEnum}
           type={currentTitleType}
           onClickDelete={handleDelete}
+          regime={taxRegime}
         />
       </Drawer>
     </Layout>

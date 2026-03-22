@@ -69,6 +69,7 @@ const PERMISSION_SECTIONS: { title: string; modules: { key: string; label: strin
             { key: 'budgets', label: 'Orçamentos' },
             { key: 'sales', label: 'Vendas' },
             { key: 'sales_report', label: 'Relatório de Vendas' },
+            { key: 'recurrence', label: 'Recorrência' },
         ],
     },
     {
@@ -441,7 +442,7 @@ function Employees() {
                     )}
                 </div>
                 <Table
-                    columns={columns}
+                    columns={columns as any}
                     dataSource={filteredData}
                     rowKey="id"
                     pagination={{ pageSize: 10, showTotal: (t) => `${t} funcionários` }}

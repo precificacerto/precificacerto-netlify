@@ -1,13 +1,13 @@
 import React, { useState, useMemo, useEffect } from 'react'
 import {
     Button, Form, Input, InputNumber, Select, Space, Table, Tag,
-    message, Tooltip, Divider, Alert,
+    message, Tooltip, Divider, Alert, Switch, Modal,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { supabase } from '@/supabase/client'
 import { getTenantId } from '@/utils/get-tenant-id'
 import {
-    PlusOutlined, DeleteOutlined, CalculatorOutlined, InfoCircleOutlined, SaveOutlined,
+    PlusOutlined, DeleteOutlined, CalculatorOutlined, InfoCircleOutlined, SaveOutlined, SyncOutlined,
 } from '@ant-design/icons'
 import { useAuth } from '@/hooks/use-auth.hook'
 import { getMonetaryValue } from '@/utils/get-monetary-value'
@@ -65,14 +65,21 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
     const [commissionPercent, setCommissionPercent] = useState(0)
     const [profitPercent, setProfitPercent] = useState(0)
 
+    const [recurrenceActive, setRecurrenceActive] = useState<boolean>(serviceData?.recurrence_active ?? false)
+    const [recurrenceModalOpen, setRecurrenceModalOpen] = useState(false)
+    const [recurrenceDays, setRecurrenceDays] = useState<number | null>(serviceData?.recurrence_days ?? null)
+    const [recurrenceMessage, setRecurrenceMessage] = useState<string>(serviceData?.recurrence_message ?? '')
+
     useEffect(() => {
         if (isEditing && serviceData) {
             form.setFieldsValue({
                 name: serviceData.name,
                 description: serviceData.description || '',
                 estimated_duration_minutes: serviceData.estimated_duration_minutes,
-                recurrence_days: serviceData.recurrence_days || undefined,
             })
+            setRecurrenceActive(serviceData.recurrence_active ?? false)
+            setRecurrenceDays(serviceData.recurrence_days ?? null)
+            setRecurrenceMessage(serviceData.recurrence_message ?? '')
 
             const existingItems: TempItem[] = (serviceData.service_items || []).map((si: any, i: number) => {
                 const item = si.item
@@ -242,19 +249,22 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                 profit_percent: profitPercent,
                 taxable_regime_percent: taxableRegimePercent,
                 min_quantity: 0,
-                recurrence_days: v.recurrence_days != null && v.recurrence_days !== '' ? Number(v.recurrence_days) : null,
+                recurrence_active: recurrenceActive,
+                recurrence_days: recurrenceActive && recurrenceDays ? recurrenceDays : null,
+                recurrence_message: recurrenceActive && recurrenceMessage ? recurrenceMessage : null,
                 updated_at: new Date().toISOString(),
             }
 
             let svcId: string
 
+            const sb = supabase as any
             if (isEditing && serviceData?.id) {
-                const { error } = await supabase.from('services').update(data).eq('id', serviceData.id)
+                const { error } = await sb.from('services').update(data).eq('id', serviceData.id)
                 if (error) throw error
                 svcId = serviceData.id
-                await supabase.from('service_items').delete().eq('service_id', svcId)
+                await sb.from('service_items').delete().eq('service_id', svcId)
             } else {
-                const { data: d, error } = await supabase.from('services')
+                const { data: d, error } = await sb.from('services')
                     .insert({ ...data, tenant_id: tid })
                     .select('id').single()
                 if (error) throw error
@@ -263,8 +273,8 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
 
             if (tempItems.length > 0) {
                 const costPerUnit = (refQty: number, refPrice: number) => (refQty > 0 ? refPrice / refQty : 0)
-                const { error } = await supabase.from('service_items').insert(
-                    tempItems.map(t => ({
+                const { error } = await sb.from('service_items').insert(
+                    tempItems.map((t: any) => ({
                         service_id: svcId,
                         item_id: t.item_id,
                         quantity: t.needed_qty,
@@ -400,17 +410,102 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                         <Input.TextArea rows={2} placeholder="Descrição do serviço (opcional)" />
                     </Form.Item>
                     <Form.Item
-                        name="recurrence_days"
                         label={
                             <span>
-                                Tempo de recorrência (dias)&nbsp;
-                                <Tooltip title="Opcional. Quantidade de dias para recorrência automática de contato com o cliente após a venda.">
+                                Recorrência&nbsp;
+                                <Tooltip title="Ativa o contato automático com o cliente após a venda. Configure o prazo em dias e uma mensagem personalizada por serviço.">
                                     <InfoCircleOutlined style={{ color: '#64748b' }} />
                                 </Tooltip>
                             </span>
                         }
                     >
-                        <InputNumber min={1} step={1} style={{ width: '100%' }} placeholder="Ex: 30 (dias)" />
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                            <Switch
+                                checked={recurrenceActive}
+                                onChange={(checked) => {
+                                    setRecurrenceActive(checked)
+                                    if (checked) setRecurrenceModalOpen(true)
+                                }}
+                                checkedChildren={<SyncOutlined />}
+                            />
+                            {recurrenceActive && (
+                                <span style={{ fontSize: 13, color: '#94a3b8' }}>
+                                    {recurrenceDays ? `${recurrenceDays} dias` : 'Sem prazo definido'}
+                                    {recurrenceMessage ? ' · Mensagem personalizada' : ''}
+                                </span>
+                            )}
+                            {recurrenceActive && (
+                                <Button size="small" type="link" style={{ padding: 0 }} onClick={() => setRecurrenceModalOpen(true)}>
+                                    Configurar
+                                </Button>
+                            )}
+                        </div>
+                    </Form.Item>
+
+                    <Modal
+                        title="Configurar Recorrência"
+                        open={recurrenceModalOpen}
+                        onOk={() => setRecurrenceModalOpen(false)}
+                        onCancel={() => setRecurrenceModalOpen(false)}
+                        okText="Confirmar"
+                        cancelText="Fechar"
+                        width={420}
+                    >
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, paddingTop: 8 }}>
+                            <div>
+                                <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 6 }}>
+                                    Dias para disparo&nbsp;
+                                    <Tooltip title="Quantos dias após a venda o cliente será contatado.">
+                                        <InfoCircleOutlined style={{ color: '#64748b' }} />
+                                    </Tooltip>
+                                </div>
+                                <InputNumber
+                                    min={1}
+                                    step={1}
+                                    style={{ width: '100%' }}
+                                    placeholder="Ex: 30"
+                                    value={recurrenceDays}
+                                    onChange={(v) => setRecurrenceDays(v)}
+                                    addonAfter="dias"
+                                />
+                            </div>
+                            <div>
+                                <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 6 }}>
+                                    Mensagem personalizada (opcional)&nbsp;
+                                    <Tooltip title="Mensagem específica para este serviço. Se vazio, será usada a mensagem padrão da aba Recorrência.">
+                                        <InfoCircleOutlined style={{ color: '#64748b' }} />
+                                    </Tooltip>
+                                </div>
+                                <Input.TextArea
+                                    rows={4}
+                                    placeholder="Olá {nome}, lembrete sobre {servico}..."
+                                    value={recurrenceMessage}
+                                    onChange={(e) => setRecurrenceMessage(e.target.value)}
+                                />
+                            </div>
+                        </div>
+                    </Modal>
+                    <Form.Item
+                        label={
+                            <span>
+                                Impostos (regime tributário %)&nbsp;
+                                <Tooltip title="Percentual de impostos do regime tributário para este serviço. O valor padrão vem das configurações do regime, mas pode ser ajustado por serviço.">
+                                    <InfoCircleOutlined style={{ color: '#64748b' }} />
+                                </Tooltip>
+                            </span>
+                        }
+                    >
+                        <InputNumber
+                            min={0}
+                            max={100}
+                            step={0.1}
+                            precision={2}
+                            value={taxableRegimePercent}
+                            onChange={(v) => setTaxableRegimePercent(v ?? 0)}
+                            style={{ width: '100%' }}
+                            addonAfter="%"
+                            placeholder={`Padrão: ${(taxPreview?.taxableRegimePercent ?? 0).toFixed(2)}%`}
+                        />
                     </Form.Item>
                 </Form>
             </div>
