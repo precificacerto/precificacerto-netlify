@@ -1,5 +1,5 @@
 import { ChangeEvent, FC, useCallback, useEffect, useRef, useState } from 'react'
-import { AutoComplete, Button, Card, Form, Input, InputNumber, Popconfirm, Select, Space, Alert, Radio, Divider, Tooltip, Spin, Switch, Modal } from 'antd'
+import { AutoComplete, Button, Card, Form, Input, InputNumber, Popconfirm, Select, Space, Alert, Radio, Divider, Tooltip, Spin, Switch, Modal, Tag } from 'antd'
 import { InfoCircleOutlined, SearchOutlined, SyncOutlined } from '@ant-design/icons'
 import { PAGE_TITLES } from '@/constants/page-titles'
 import { IItemModel } from '@/server/model/item'
@@ -155,6 +155,24 @@ export const Content: FC<ContentProps> = ({
   const [recurrenceModalOpen, setRecurrenceModalOpen] = useState(false)
   const [recurrenceDays, setRecurrenceDays] = useState<number | null>((product as any)?.recurrence_days ?? null)
   const [recurrenceMessage, setRecurrenceMessage] = useState<string>((product as any)?.recurrence_message ?? '')
+  const recurrenceTextareaRef = useRef<HTMLTextAreaElement>(null)
+
+  function insertRecurrenceTag(tag: string) {
+    const textarea = recurrenceTextareaRef.current
+    if (textarea) {
+      const start = textarea.selectionStart ?? recurrenceMessage.length
+      const end = textarea.selectionEnd ?? recurrenceMessage.length
+      const newText = recurrenceMessage.substring(0, start) + tag + recurrenceMessage.substring(end)
+      setRecurrenceMessage(newText)
+      setTimeout(() => {
+        textarea.focus()
+        const newPos = start + tag.length
+        textarea.setSelectionRange(newPos, newPos)
+      }, 0)
+    } else {
+      setRecurrenceMessage(prev => prev + tag)
+    }
+  }
 
   const [ncmSuggestions, setNcmSuggestions] = useState<{ code: string; description: string }[]>([])
   const [ncmSugLoading, setNcmSugLoading] = useState(false)
@@ -1132,9 +1150,19 @@ export const Content: FC<ContentProps> = ({
                       <InfoCircleOutlined style={{ color: '#64748b' }} />
                     </Tooltip>
                   </div>
+                  <div style={{ marginBottom: 8, fontSize: 12, color: '#94a3b8' }}>
+                    Clique nas tags para inserir na mensagem:{' '}
+                    <Tag color="blue" style={{ fontSize: 11, cursor: 'pointer' }} onClick={() => insertRecurrenceTag('{{nome_cliente}}')}>
+                      {'{{nome_cliente}}'}
+                    </Tag>{' '}
+                    <Tag color="blue" style={{ fontSize: 11, cursor: 'pointer' }} onClick={() => insertRecurrenceTag('{{nome_produto}}')}>
+                      {'{{nome_produto}}'}
+                    </Tag>
+                  </div>
                   <Input.TextArea
+                    ref={recurrenceTextareaRef as any}
                     rows={4}
-                    placeholder="Olá {nome}, lembrete sobre {produto}..."
+                    placeholder="Olá {{nome_cliente}}, lembrete sobre {{nome_produto}}..."
                     value={recurrenceMessage}
                     onChange={(e) => setRecurrenceMessage(e.target.value)}
                   />

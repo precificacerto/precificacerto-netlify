@@ -264,7 +264,6 @@ function Clients() {
                 </span>
             ),
         },
-        { title: 'Email', dataIndex: 'email', key: 'email', responsive: ['lg'] as any },
         {
             title: 'Telefone',
             key: 'phone',

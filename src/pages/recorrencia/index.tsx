@@ -43,7 +43,7 @@ export default function RecurrencePage() {
     const { canView, canEdit } = usePermissions()
     const [messageApi, contextHolder] = message.useMessage()
     const [loading, setLoading] = useState(false)
-    const [activeTab, setActiveTab] = useState<'PRODUCT' | 'SERVICE' | 'PRODUCT_SENT' | 'SERVICE_SENT'>('PRODUCT')
+    const [activeTab, setActiveTab] = useState<'PRODUCT' | 'SERVICE' | 'PRODUCT_SENT' | 'SERVICE_SENT'>('SERVICE_SENT')
     const [records, setRecords] = useState<RecurrenceRow[]>([])
     const [searchText, setSearchText] = useState('')
     const [statusFilter, setStatusFilter] = useState<string>('all')
@@ -60,6 +60,25 @@ export default function RecurrencePage() {
     const [editDrawerOpen, setEditDrawerOpen] = useState(false)
     const [editingRecord, setEditingRecord] = useState<RecurrenceRow | null>(null)
     const [editForm] = Form.useForm()
+    const editMessageRef = useRef<any>(null)
+
+    function insertEditTag(tag: string) {
+        const current = editForm.getFieldValue('custom_message') || ''
+        const textarea = editMessageRef.current?.resizableTextArea?.textArea
+        if (textarea) {
+            const start = textarea.selectionStart ?? current.length
+            const end = textarea.selectionEnd ?? current.length
+            const newText = current.substring(0, start) + tag + current.substring(end)
+            editForm.setFieldsValue({ custom_message: newText })
+            setTimeout(() => {
+                textarea.focus()
+                const newPos = start + tag.length
+                textarea.setSelectionRange(newPos, newPos)
+            }, 0)
+        } else {
+            editForm.setFieldsValue({ custom_message: current + tag })
+        }
+    }
 
     if (!canView(MODULES.RECURRENCE)) {
         return <Layout title="Recorrência"><div style={{ padding: 40, textAlign: 'center' }}>Você não tem acesso a este módulo.</div></Layout>
@@ -332,79 +351,17 @@ export default function RecurrencePage() {
         <Layout title="Recorrência" subtitle="Disparo automático de mensagens WhatsApp para clientes com recorrência">
             {contextHolder}
 
-            <div className="pc-card" style={{ marginBottom: 16 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                    <WhatsAppOutlined style={{ fontSize: 18, color: '#25D366' }} />
-                    <strong style={{ fontSize: 14 }}>
-                        Mensagem de recorrência — {activeTab === 'PRODUCT' ? 'Produtos' : 'Serviços'}
-                    </strong>
-                </div>
-
-                <div style={{ marginBottom: 8, fontSize: 12, color: '#94a3b8' }}>
-                    <InfoCircleOutlined style={{ marginRight: 4 }} />
-                    Clique nas tags para inserir na mensagem:{' '}
-                    <Tag
-                        color="blue"
-                        style={{ fontSize: 11, cursor: 'pointer' }}
-                        onClick={() => insertPlaceholder('{{nome_cliente}}')}
-                    >
-                        {'{{nome_cliente}}'}
-                    </Tag>{' '}
-                    <Tag
-                        color="blue"
-                        style={{ fontSize: 11, cursor: 'pointer' }}
-                        onClick={() => insertPlaceholder(activeTab === 'PRODUCT' ? '{{nome_produto}}' : '{{nome_servico}}')}
-                    >
-                        {activeTab === 'PRODUCT' ? '{{nome_produto}}' : '{{nome_servico}}'}
-                    </Tag>
-                </div>
-
-                <Input.TextArea
-                    ref={textAreaRef}
-                    rows={3}
-                    value={messageTemplate}
-                    onChange={(e) => setMessageTemplate(e.target.value)}
-                    placeholder={
-                        activeTab === 'PRODUCT'
-                            ? 'Olá {{nome_cliente}}, já faz um tempo desde a sua última compra de {{nome_produto}}. Gostaria de fazer um novo pedido?'
-                            : 'Olá {{nome_cliente}}, já se passaram alguns dias desde o seu último {{nome_servico}}. Que tal agendar novamente?'
-                    }
-                    style={{ marginBottom: 8 }}
-                    disabled={!canEdit(MODULES.RECURRENCE)}
-                />
-
-                <Button
-                    type="primary"
-                    icon={<SaveOutlined />}
-                    onClick={handleSaveMessage}
-                    loading={savingMessage}
-                    disabled={!canEdit(MODULES.RECURRENCE)}
-                    size="small"
-                >
-                    Salvar mensagem
-                </Button>
-            </div>
-
             <div className="pc-card--table">
                 <Tabs
                     activeKey={activeTab}
                     onChange={(k) => setActiveTab(k as 'PRODUCT' | 'SERVICE' | 'PRODUCT_SENT' | 'SERVICE_SENT')}
                     items={[
                         {
-                            key: 'PRODUCT',
-                            label: (
-                                <span>
-                                    <ShoppingOutlined style={{ marginRight: 6 }} />
-                                    Produtos ({pendingProducts} pendentes)
-                                </span>
-                            ),
-                        },
-                        {
-                            key: 'SERVICE',
+                            key: 'SERVICE_SENT',
                             label: (
                                 <span>
                                     <ToolOutlined style={{ marginRight: 6 }} />
-                                    Serviços ({pendingServices} pendentes)
+                                    Serviços (Enviados) ({sentServices})
                                 </span>
                             ),
                         },
@@ -418,11 +375,20 @@ export default function RecurrencePage() {
                             ),
                         },
                         {
-                            key: 'SERVICE_SENT',
+                            key: 'SERVICE',
                             label: (
                                 <span>
                                     <ToolOutlined style={{ marginRight: 6 }} />
-                                    Serviços (Enviados) ({sentServices})
+                                    Serviços ({pendingServices} pendentes)
+                                </span>
+                            ),
+                        },
+                        {
+                            key: 'PRODUCT',
+                            label: (
+                                <span>
+                                    <ShoppingOutlined style={{ marginRight: 6 }} />
+                                    Produtos ({pendingProducts} pendentes)
                                 </span>
                             ),
                         },
@@ -487,6 +453,15 @@ export default function RecurrencePage() {
                         <Form.Item name="recurrence_days" label="Dias de recorrência" rules={[{ required: true }]}>
                             <Input type="number" min={1} />
                         </Form.Item>
+                        <div style={{ marginBottom: 4, fontSize: 12, color: '#94a3b8' }}>
+                            Clique nas tags para inserir na mensagem:{' '}
+                            <Tag color="blue" style={{ fontSize: 11, cursor: 'pointer' }} onClick={() => insertEditTag('{{nome_cliente}}')}>
+                                {'{{nome_cliente}}'}
+                            </Tag>{' '}
+                            <Tag color="blue" style={{ fontSize: 11, cursor: 'pointer' }} onClick={() => insertEditTag('{{nome_produto}}')}>
+                                {'{{nome_produto}}'}
+                            </Tag>
+                        </div>
                         <Form.Item
                             name="custom_message"
                             label={
@@ -498,7 +473,7 @@ export default function RecurrencePage() {
                                 </span>
                             }
                         >
-                            <Input.TextArea rows={3} placeholder="Opcional — usa mensagem padrão se vazio" />
+                            <Input.TextArea ref={editMessageRef} rows={3} placeholder="Opcional — usa mensagem padrão se vazio" />
                         </Form.Item>
                     </Form>
                 )}

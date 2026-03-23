@@ -613,12 +613,6 @@ function Products() {
         <Space>
           {canEdit(MODULES.PRODUCTS) && (
             <>
-              <Button
-                style={{ background: '#FEF08A', borderColor: '#FDE047', color: '#854D0E' }}
-                onClick={() => setRenewDrawerOpen(true)}
-              >
-                + Renovar quantidade
-              </Button>
               <Button type="primary" icon={<PlusOutlined />} onClick={() => router.push(ROUTES.NEW_PRODUCT)}>
                 Adicionar produto
               </Button>

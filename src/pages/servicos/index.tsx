@@ -344,12 +344,6 @@ function ServicesPage() {
                 <Space>
                     {canEdit(MODULES.SERVICES) && (
                         <>
-                            <Button
-                                style={{ background: '#FEF08A', borderColor: '#FDE047', color: '#854D0E' }}
-                                onClick={() => { setRenewDrawerOpen(true); renewForm.resetFields(); setSelectedServiceId(null) }}
-                            >
-                                + Renovar quantidade
-                            </Button>
                             <Button type="primary" icon={<PlusOutlined />} onClick={() => router.push(ROUTES.NEW_SERVICE)}>
                                 Novo Serviço
                             </Button>

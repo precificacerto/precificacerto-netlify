@@ -49,7 +49,6 @@ const PERMISSION_SECTIONS: { title: string; modules: { key: string; label: strin
         title: 'Geral',
         modules: [
             { key: 'home', label: 'Home' },
-            { key: 'cashier', label: 'Caixa' },
         ],
     },
     {
@@ -75,7 +74,8 @@ const PERMISSION_SECTIONS: { title: string; modules: { key: string; label: strin
     {
         title: 'Financeiro',
         modules: [
-            { key: 'cash_flow', label: 'Controle Financeiro' },
+            { key: 'cash_flow', label: 'Fluxo de Caixa / Controle Financeiro' },
+            { key: 'cashier', label: 'Caixa' },
             { key: 'dfc', label: 'Análise Financeira' },
             { key: 'commission', label: 'Comissão de Vendedor' },
         ],

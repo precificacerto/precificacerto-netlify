@@ -1440,7 +1440,7 @@ export default function CashFlow() {
                 type="card"
                 items={[
                     {
-                        label: <span><FundOutlined style={{ marginRight: 4 }} />Visão Geral</span>,
+                        label: <span><FundOutlined style={{ marginRight: 4 }} />Fluxo de Caixa</span>,
                         key: 'daily',
                         children: (() => {
                             // Only show days that have any movement

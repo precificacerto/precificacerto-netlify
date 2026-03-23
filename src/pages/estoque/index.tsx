@@ -88,6 +88,7 @@ function Stock() {
     const effectiveTenantId = tenantId ?? currentUser?.tenant_id
     const [movementDrawerOpen, setMovementDrawerOpen] = useState(false)
     const [editDrawerOpen, setEditDrawerOpen] = useState(false)
+    const [editUnifiedDrawerOpen, setEditUnifiedDrawerOpen] = useState(false)
     const [deleteQtyDrawerOpen, setDeleteQtyDrawerOpen] = useState(false)
     const [selectedItem, setSelectedItem] = useState<StockRow | null>(null)
     const [deleteQtyForm] = Form.useForm()
@@ -320,8 +321,7 @@ function Stock() {
                 width: 200,
                 render: (_: unknown, record: StockRow) => (
                     <Space>
-                        <Button type="link" size="small" onClick={() => handleMovement(record)}>Movimentar</Button>
-                        <Button type="link" size="small" onClick={() => handleEdit(record)}>Editar</Button>
+                        <Button type="link" size="small" onClick={() => handleEditUnified(record)}>Editar</Button>
                         <Button type="link" size="small" danger onClick={() => handleOpenDeleteQty(record)}>Excluir quantidade</Button>
                     </Space>
                 ),
@@ -392,8 +392,7 @@ function Stock() {
                 width: 200,
                 render: (_: unknown, record: StockRow) => (
                     <Space>
-                        <Button type="link" size="small" onClick={() => handleMovement(record)}>Movimentar</Button>
-                        <Button type="link" size="small" onClick={() => handleEdit(record)}>Editar</Button>
+                        <Button type="link" size="small" onClick={() => handleEditUnified(record)}>Editar</Button>
                         <Button type="link" size="small" danger onClick={() => handleOpenDeleteQty(record)}>Excluir quantidade</Button>
                     </Space>
                 ),
@@ -414,6 +413,13 @@ function Stock() {
         setSelectedItem(record)
         editForm.setFieldsValue({ minQty: record.minQty })
         setEditDrawerOpen(true)
+    }
+
+    function handleEditUnified(record: StockRow) {
+        setSelectedItem(record)
+        editForm.setFieldsValue({ minQty: record.minQty })
+        movementForm.resetFields()
+        setEditUnifiedDrawerOpen(true)
     }
 
     function handleOpenDeleteQty(record: StockRow) {
@@ -615,7 +621,7 @@ function Stock() {
                         {
                             key: 'SERVICE',
                             label: (
-                                <span><CustomerServiceOutlined style={{ marginRight: 6 }} />Serviços ({serviceCount})</span>
+                                <span><CustomerServiceOutlined style={{ marginRight: 6 }} />Serviços Realizados ({serviceCount})</span>
                             ),
                         },
                         {
@@ -816,6 +822,71 @@ function Stock() {
                         <Input.TextArea rows={2} placeholder="Motivo da movimentação..." />
                     </Form.Item>
                 </Form>
+            </Drawer>
+
+            {/* Drawer — Editar unificado (dados + movimentação) */}
+            <Drawer
+                title={`Editar: ${selectedItem?.name || ''}`}
+                width={460}
+                open={editUnifiedDrawerOpen}
+                onClose={() => setEditUnifiedDrawerOpen(false)}
+            >
+                {selectedItem && (
+                    <div style={{ padding: 12, background: 'var(--color-neutral-50)', borderRadius: 8, marginBottom: 20, fontSize: 13 }}>
+                        <div>Estoque atual: <strong>{selectedItem.currentQty} {selectedItem.unit}</strong></div>
+                        <div>Custo unitário: <strong>{formatCurrency(selectedItem.costPrice)}</strong></div>
+                        <div>Mínimo: {selectedItem.minQty}</div>
+                    </div>
+                )}
+
+                <div style={{ marginBottom: 20 }}>
+                    <h4 style={{ margin: '0 0 12px', fontSize: 14, fontWeight: 600 }}>Estoque Mínimo</h4>
+                    <Form form={editForm} layout="vertical">
+                        <Form.Item name="minQty" label="Quantidade Mínima (alerta)" rules={[{ required: true }]}>
+                            <InputNumber min={0} style={{ width: '100%' }} />
+                        </Form.Item>
+                        <Button type="primary" onClick={async () => { await handleSaveEdit(); setEditUnifiedDrawerOpen(false) }}>
+                            Salvar estoque mínimo
+                        </Button>
+                    </Form>
+                </div>
+
+                <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 20 }}>
+                    <h4 style={{ margin: '0 0 12px', fontSize: 14, fontWeight: 600 }}>Registrar Movimentação</h4>
+                    <Form form={movementForm} layout="vertical">
+                        <Form.Item name="type" label="Tipo" rules={[{ required: true }]} initialValue="entrada">
+                            <Select>
+                                <Select.Option value="entrada">📥 Entrada (reabastecimento)</Select.Option>
+                                <Select.Option value="saida">📤 Saída</Select.Option>
+                            </Select>
+                        </Form.Item>
+                        <Form.Item name="quantity" label="Quantidade" rules={[{ required: true }]}>
+                            <InputNumber min={0.001} step="any" style={{ width: '100%' }} />
+                        </Form.Item>
+                        <Form.Item noStyle shouldUpdate={(prev, curr) => prev.type !== curr.type}>
+                            {({ getFieldValue }) => getFieldValue('type') === 'entrada' ? (
+                                <>
+                                    <Form.Item name="total_paid" label="Valor total pago (R$)" rules={[{ required: true, message: 'Informe o valor total' }]}>
+                                        <Input prefix="R$" placeholder="0,00" autoComplete="off"
+                                            onChange={(e) => {
+                                                const digits = e.target.value.replace(/\D/g, '')
+                                                if (!digits) { movementForm.setFieldsValue({ total_paid: '' }); return }
+                                                const num = parseInt(digits, 10) / 100
+                                                movementForm.setFieldsValue({ total_paid: num.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) })
+                                            }}
+                                        />
+                                    </Form.Item>
+                                </>
+                            ) : null}
+                        </Form.Item>
+                        <Form.Item name="description" label="Observação">
+                            <Input.TextArea rows={2} placeholder="Motivo da movimentação..." />
+                        </Form.Item>
+                        <Button type="primary" onClick={async () => { await handleSaveMovement(); setEditUnifiedDrawerOpen(false) }}>
+                            Registrar movimentação
+                        </Button>
+                    </Form>
+                </div>
             </Drawer>
 
             {/* Drawer — Excluir quantidade (total ou parcial) */}

@@ -101,15 +101,6 @@ const Nav = () => {
 
   const navigationItems: NavItemConfig[] = [
     { key: 'home', label: 'Home', icon: 'dashboard', href: ROUTES.DASHBOARD, section: 'geral', module: MODULES.HOME },
-    {
-      key: 'cashier',
-      label: 'Caixa',
-      icon: 'wallet',
-      href: `${ROUTES.CASHIER}/${currentYear}/${currentMonth}`,
-      section: 'geral',
-      hideForRepresentative: true,
-      module: MODULES.CASHIER,
-    },
     { key: 'items', label: 'Itens', icon: 'unordered-list', href: ROUTES.ITEMS, section: 'cadastros', module: MODULES.ITEMS },
     { key: 'products', label: 'Produtos', icon: 'appstore', href: ROUTES.PRODUCTS, section: 'cadastros', module: MODULES.PRODUCTS },
     { key: 'services', label: 'Serviços', icon: 'tool', href: ROUTES.SERVICES, section: 'cadastros', module: MODULES.SERVICES },
@@ -123,6 +114,16 @@ const Nav = () => {
     { key: 'sales-report', label: 'Relatório de Vendas', icon: 'bar-chart', href: ROUTES.SALES_REPORT, section: 'comercial', module: MODULES.SALES_REPORT },
     { key: 'recurrence', label: 'Recorrência', icon: 'calendar', href: ROUTES.RECURRENCE, section: 'comercial', module: MODULES.RECURRENCE },
 
+    { key: 'cashflow-overview', label: 'Fluxo de Caixa', icon: 'fund', href: ROUTES.CASH_FLOW, section: 'financeiro', hideForRepresentative: true, module: MODULES.CASH_FLOW },
+    {
+      key: 'cashier',
+      label: 'Caixa',
+      icon: 'wallet',
+      href: `${ROUTES.CASHIER}/${currentYear}/${currentMonth}`,
+      section: 'financeiro',
+      hideForRepresentative: true,
+      module: MODULES.CASHIER,
+    },
     { key: 'cashflow', label: 'Controle Financeiro', icon: 'shopping', href: ROUTES.CASH_FLOW, section: 'financeiro', module: MODULES.CASH_FLOW },
     { key: 'dfc', label: 'Análise Financeira', icon: 'fund', href: ROUTES.DFC, section: 'financeiro', module: MODULES.DFC },
     { key: 'commission', label: 'Comissão de Vendedor', icon: 'idcard', href: ROUTES.COMMISSION, section: 'financeiro', module: MODULES.COMMISSION },
