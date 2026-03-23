@@ -34,7 +34,8 @@ export enum PAGE_TITLES {
   SALES_REPORT = 'Relatório de Vendas',
 
   // ── Phase 4: Financeiro ──
-  CASH_FLOW = 'Controle Financeiro',
+  CASH_FLOW = 'Fluxo de Caixa',
+  FINANCIAL_CONTROL = 'Controle Financeiro',
   DFC = 'Análise Financeira',
   COMMISSION = 'Comissão de Vendedor',
 

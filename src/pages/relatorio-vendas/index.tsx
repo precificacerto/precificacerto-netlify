@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react'
-import { Button, Select, Table, Tag, Tabs, message, Empty, DatePicker } from 'antd'
+import { Button, Select, Table, Tag, Tabs, message, Empty, DatePicker, Modal, Form } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
@@ -15,11 +15,35 @@ import {
     ReloadOutlined,
     CustomerServiceOutlined,
     DownloadOutlined,
+    ClockCircleOutlined,
+    CheckCircleOutlined,
 } from '@ant-design/icons'
 import { ExportFormatModal } from '@/components/ui/export-format-modal.component'
 import { exportTableToPdf } from '@/utils/export-generic-pdf'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
+import { getTenantId, getCurrentUserId } from '@/utils/get-tenant-id'
 import dayjs from 'dayjs'
+
+const REGISTER_PAYMENT_METHODS = [
+    { value: 'PIX', label: '⚡ PIX' },
+    { value: 'DINHEIRO', label: '💵 Dinheiro' },
+    { value: 'CARTAO_CREDITO', label: '💳 Cartão de Crédito' },
+    { value: 'CARTAO_DEBITO', label: '💳 Cartão de Débito' },
+    { value: 'BOLETO', label: '📄 Boleto' },
+    { value: 'TRANSFERENCIA', label: '🏦 Transferência' },
+]
+
+interface PendingReceivableRow {
+    id: string
+    customerName: string
+    employeeName: string
+    amount: number
+    launchDate: string
+    description: string
+    originType: string
+    customerId: string
+    employeeId: string | null
+}
 
 interface ABCReportRow {
     position: number
@@ -64,9 +88,10 @@ function SalesReport() {
     const { data: rawProducts } = useProducts()
     const { data: customers = [] } = useCustomers()
     const [messageApi, contextHolder] = message.useMessage()
-    const { canView } = usePermissions()
+    const { canView, canEdit, isAdmin } = usePermissions()
+    const canRegisterPayment = isAdmin || canEdit(MODULES.SALES_REPORT)
 
-    const [activeTab, setActiveTab] = useState<'PRODUCTS' | 'SERVICES'>('PRODUCTS')
+    const [activeTab, setActiveTab] = useState<'RECEIVABLES' | 'PRODUCTS' | 'SERVICES'>('RECEIVABLES')
 
     // Product ABC state
     const [abcData, setAbcData] = useState<ABCReportRow[]>([])
@@ -88,6 +113,17 @@ function SalesReport() {
     ])
     const [svcEmployeeFilter, setSvcEmployeeFilter] = useState<string | undefined>(undefined)
     const [svcClientFilter, setSvcClientFilter] = useState<string | undefined>(undefined)
+
+    // Pending receivables state
+    const [recData, setRecData] = useState<PendingReceivableRow[]>([])
+    const [recLoading, setRecLoading] = useState(false)
+    const [recDateRange, setRecDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(null)
+    const [recEmployeeFilter, setRecEmployeeFilter] = useState<string | undefined>(undefined)
+    const [recClientFilter, setRecClientFilter] = useState<string | undefined>(undefined)
+    const [payModalOpen, setPayModalOpen] = useState(false)
+    const [payingRecord, setPayingRecord] = useState<PendingReceivableRow | null>(null)
+    const [payingSaving, setPayingSaving] = useState(false)
+    const [payForm] = Form.useForm()
 
     // Export state
     const [productExportModalOpen, setProductExportModalOpen] = useState(false)
@@ -148,6 +184,141 @@ function SalesReport() {
             })
         })
     }
+
+    // ─── Pending Receivables fetch ───
+    const fetchReceivables = useCallback(async () => {
+        setRecLoading(true)
+        try {
+            if (!effectiveTenantId) { setRecLoading(false); return }
+            let query = (supabase as any)
+                .from('pending_receivables')
+                .select('id, customer_id, employee_id, amount, launch_date, description, origin_type, customers(name), employees(name)')
+                .eq('tenant_id', effectiveTenantId)
+                .eq('status', 'PENDING')
+                .eq('is_active', true)
+                .order('launch_date', { ascending: false })
+
+            if (recDateRange) {
+                query = query
+                    .gte('launch_date', recDateRange[0].format('YYYY-MM-DD'))
+                    .lte('launch_date', recDateRange[1].format('YYYY-MM-DD'))
+            }
+            if (recEmployeeFilter) query = query.eq('employee_id', recEmployeeFilter)
+            if (recClientFilter) query = query.eq('customer_id', recClientFilter)
+
+            const { data, error } = await query
+            if (error) throw error
+            setRecData((data || []).map((r: any) => ({
+                id: r.id,
+                customerName: r.customers?.name || 'Sem cliente',
+                employeeName: r.employees?.name || 'Sem vendedor',
+                amount: Number(r.amount) || 0,
+                launchDate: r.launch_date,
+                description: r.description || '',
+                originType: r.origin_type,
+                customerId: r.customer_id,
+                employeeId: r.employee_id,
+            })))
+        } catch (err: any) {
+            messageApi.error('Erro ao carregar lançamentos a receber.')
+            console.error(err)
+        } finally {
+            setRecLoading(false)
+        }
+    }, [effectiveTenantId, recDateRange, recEmployeeFilter, recClientFilter, messageApi])
+
+    const handleOpenRegisterPayment = (record: PendingReceivableRow) => {
+        setPayingRecord(record)
+        payForm.resetFields()
+        setPayModalOpen(true)
+    }
+
+    const handleRegisterPayment = async () => {
+        try {
+            const values = await payForm.validateFields()
+            if (!payingRecord) return
+            setPayingSaving(true)
+
+            const tenantId = await getTenantId()
+            const createdBy = await getCurrentUserId()
+            if (!tenantId || !createdBy) {
+                messageApi.error('Sessão expirada.')
+                setPayingSaving(false)
+                return
+            }
+
+            // Mark as PAID in pending_receivables
+            const { error: updErr } = await (supabase as any)
+                .from('pending_receivables')
+                .update({
+                    status: 'PAID',
+                    payment_method: values.payment_method,
+                    paid_date: dayjs().format('YYYY-MM-DD'),
+                    paid_by: createdBy,
+                    updated_at: new Date().toISOString(),
+                })
+                .eq('id', payingRecord.id)
+                .eq('status', 'PENDING')
+
+            if (updErr) throw updErr
+
+            // Now register in cash_entries
+            const payLabel = REGISTER_PAYMENT_METHODS.find(p => p.value === values.payment_method)?.label || values.payment_method
+            if (values.payment_method === 'CARTAO_CREDITO') {
+                const numInstallments = values.installments || 1
+                const now = new Date()
+                const curYear = now.getFullYear()
+                const curMonth = now.getMonth()
+                const amountPerInstallment = payingRecord.amount / numInstallments
+                const installmentEntries = []
+                for (let i = 1; i <= numInstallments; i++) {
+                    const dueDate = new Date(curYear, curMonth + i, 1)
+                    installmentEntries.push({
+                        tenant_id: tenantId,
+                        type: 'INCOME',
+                        amount: amountPerInstallment,
+                        due_date: dayjs(dueDate).format('YYYY-MM-DD'),
+                        description: numInstallments > 1
+                            ? `${payingRecord.description} — ${payLabel} (${i}/${numInstallments})`
+                            : `${payingRecord.description} — ${payLabel}`,
+                        payment_method: values.payment_method,
+                        origin_type: 'SALE',
+                        ...(numInstallments > 1 ? { installment_number: i, installment_total: numInstallments } : {}),
+                        created_by: createdBy,
+                    })
+                }
+                await (supabase as any).from('cash_entries').insert(installmentEntries)
+            } else {
+                await supabase.from('cash_entries').insert({
+                    tenant_id: tenantId,
+                    type: 'INCOME',
+                    amount: payingRecord.amount,
+                    due_date: dayjs().format('YYYY-MM-DD'),
+                    paid_date: dayjs().format('YYYY-MM-DD'),
+                    description: `${payingRecord.description} — ${payLabel}`,
+                    payment_method: values.payment_method,
+                    origin_type: 'SALE',
+                    created_by: createdBy,
+                })
+            }
+
+            messageApi.success('Pagamento registrado com sucesso!')
+            setPayModalOpen(false)
+            setPayingRecord(null)
+            await fetchReceivables()
+        } catch (err: any) {
+            if (err?.errorFields) return
+            messageApi.error('Erro ao registrar pagamento.')
+            console.error(err)
+        } finally {
+            setPayingSaving(false)
+        }
+    }
+
+    useEffect(() => {
+        if (activeTab === 'RECEIVABLES') fetchReceivables()
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeTab, recDateRange, recEmployeeFilter, recClientFilter])
 
     // ─── Product ABC fetch ───
     const fetchAbcReport = useCallback(async () => {
@@ -731,15 +902,96 @@ function SalesReport() {
         )
     }
 
+    const recTotalAmount = recData.reduce((s, r) => s + r.amount, 0)
+
+    const recColumns: ColumnsType<PendingReceivableRow> = [
+        {
+            title: 'Data',
+            dataIndex: 'launchDate',
+            render: (v: string) => dayjs(v).format('DD/MM/YYYY'),
+            sorter: (a, b) => a.launchDate.localeCompare(b.launchDate),
+        },
+        { title: 'Cliente', dataIndex: 'customerName', sorter: (a, b) => a.customerName.localeCompare(b.customerName) },
+        { title: 'Vendedor', dataIndex: 'employeeName', sorter: (a, b) => a.employeeName.localeCompare(b.employeeName) },
+        {
+            title: 'Valor',
+            dataIndex: 'amount',
+            align: 'right',
+            render: (v: number) => <span style={{ fontWeight: 600, color: '#f59e0b' }}>{formatCurrency(v)}</span>,
+            sorter: (a, b) => a.amount - b.amount,
+        },
+        {
+            title: 'Origem',
+            dataIndex: 'originType',
+            render: (v: string) => {
+                const map: Record<string, string> = { SALE: 'Venda Balcão', BUDGET: 'Orçamento', AGENDA: 'Agenda' }
+                return <Tag>{map[v] || v}</Tag>
+            },
+        },
+        {
+            title: 'Ação',
+            align: 'center',
+            render: (_, record) => canRegisterPayment ? (
+                <Button
+                    size="small"
+                    type="primary"
+                    icon={<CheckCircleOutlined />}
+                    onClick={() => handleOpenRegisterPayment(record)}
+                >
+                    Registrar Pagamento
+                </Button>
+            ) : (
+                <Tag color="warning">Aguardando Admin</Tag>
+            ),
+        },
+    ]
+
     return (
         <Layout title={PAGE_TITLES.SALES_REPORT} subtitle="Curva ABC de produtos e serviços vendidos">
             {contextHolder}
 
+            {/* Modal para registrar pagamento de lançamento a receber */}
+            <Modal
+                title="Registrar Pagamento"
+                open={payModalOpen}
+                onCancel={() => { setPayModalOpen(false); setPayingRecord(null) }}
+                onOk={handleRegisterPayment}
+                okText="Confirmar Pagamento"
+                confirmLoading={payingSaving}
+                okButtonProps={{ disabled: !canRegisterPayment }}
+            >
+                {payingRecord && (
+                    <div style={{ marginBottom: 16 }}>
+                        <p><strong>Cliente:</strong> {payingRecord.customerName}</p>
+                        <p><strong>Valor:</strong> {formatCurrency(payingRecord.amount)}</p>
+                        <p><strong>Descrição:</strong> {payingRecord.description}</p>
+                    </div>
+                )}
+                <Form form={payForm} layout="vertical">
+                    <Form.Item name="payment_method" label="Forma de Pagamento" rules={[{ required: true, message: 'Selecione a forma de pagamento' }]}>
+                        <Select options={REGISTER_PAYMENT_METHODS} placeholder="Selecione..." />
+                    </Form.Item>
+                    <Form.Item noStyle shouldUpdate={(prev, cur) => prev.payment_method !== cur.payment_method}>
+                        {({ getFieldValue }) => getFieldValue('payment_method') === 'CARTAO_CREDITO' ? (
+                            <Form.Item name="installments" label="Parcelas" initialValue={1}>
+                                <Select options={[1,2,3,4,5,6,7,8,9,10,11,12].map(n => ({ value: n, label: `${n}x` }))} />
+                            </Form.Item>
+                        ) : null}
+                    </Form.Item>
+                </Form>
+            </Modal>
+
             <div className="pc-card--table">
                 <Tabs
                     activeKey={activeTab}
-                    onChange={(k) => setActiveTab(k as 'PRODUCTS' | 'SERVICES')}
+                    onChange={(k) => setActiveTab(k as 'RECEIVABLES' | 'PRODUCTS' | 'SERVICES')}
                     items={[
+                        {
+                            key: 'RECEIVABLES',
+                            label: (
+                                <span><ClockCircleOutlined style={{ marginRight: 6 }} />Recebimento / Lançamentos Futuros</span>
+                            ),
+                        },
                         {
                             key: 'PRODUCTS',
                             label: (
@@ -755,7 +1007,81 @@ function SalesReport() {
                     ]}
                 />
 
-                {activeTab === 'PRODUCTS' ? (
+                {activeTab === 'RECEIVABLES' ? (
+                    <div>
+                        <div className="kpi-grid" style={{ marginBottom: 20 }}>
+                            <CardKPI title="Total a Receber" value={formatCurrency(recTotalAmount)} icon={<ClockCircleOutlined />} variant="orange" />
+                            <CardKPI title="Lançamentos Pendentes" value={recData.length} icon={<DollarOutlined />} variant="blue" />
+                        </div>
+
+                        <div className="filter-bar" style={{ marginBottom: 16, display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <FilterOutlined style={{ color: '#94a3b8' }} />
+                                <span style={{ color: '#94a3b8', fontSize: 13 }}>Filtros:</span>
+                            </div>
+                            <DatePicker.RangePicker
+                                value={recDateRange}
+                                onChange={(dates) => {
+                                    if (dates && dates[0] && dates[1]) setRecDateRange([dates[0], dates[1]])
+                                    else setRecDateRange(null)
+                                }}
+                                format="DD/MM/YYYY"
+                                placeholder={['Data inicial', 'Data final']}
+                                style={{ minWidth: 260 }}
+                            />
+                            <Select
+                                placeholder="Vendedor"
+                                value={recEmployeeFilter}
+                                onChange={setRecEmployeeFilter}
+                                allowClear
+                                style={{ minWidth: 200 }}
+                                options={(employees as any[]).map((e: any) => ({ value: e.id, label: e.name }))}
+                            />
+                            <Select
+                                placeholder="Cliente"
+                                value={recClientFilter}
+                                onChange={setRecClientFilter}
+                                allowClear
+                                showSearch
+                                optionFilterProp="label"
+                                style={{ minWidth: 200 }}
+                                options={allCustomers}
+                            />
+                            <Button icon={<ReloadOutlined />} onClick={fetchReceivables} loading={recLoading}>
+                                Atualizar
+                            </Button>
+                        </div>
+
+                        <Table<PendingReceivableRow>
+                            columns={recColumns}
+                            dataSource={recData}
+                            rowKey="id"
+                            pagination={{ pageSize: 20, showTotal: (t) => `${t} lançamentos` }}
+                            size="middle"
+                            loading={recLoading}
+                            scroll={{ x: 900 }}
+                            locale={{
+                                emptyText: (
+                                    <Empty
+                                        image={Empty.PRESENTED_IMAGE_SIMPLE}
+                                        description="Nenhum lançamento a receber pendente."
+                                    />
+                                ),
+                            }}
+                            summary={() => recData.length > 0 ? (
+                                <Table.Summary fixed>
+                                    <Table.Summary.Row style={{ fontWeight: 700 }}>
+                                        <Table.Summary.Cell index={0} colSpan={3}>TOTAL</Table.Summary.Cell>
+                                        <Table.Summary.Cell index={3} align="right">
+                                            <span style={{ color: '#f59e0b' }}>{formatCurrency(recTotalAmount)}</span>
+                                        </Table.Summary.Cell>
+                                        <Table.Summary.Cell index={4} colSpan={2} />
+                                    </Table.Summary.Row>
+                                </Table.Summary>
+                            ) : undefined}
+                        />
+                    </div>
+                ) : activeTab === 'PRODUCTS' ? (
                     <div>
                         {/* Product KPIs */}
                         <div className="kpi-grid" style={{ marginBottom: 20 }}>

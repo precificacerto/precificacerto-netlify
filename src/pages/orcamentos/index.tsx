@@ -56,6 +56,7 @@ const PAYMENT_METHODS = [
     { value: 'CARTAO_DEBITO', label: '💳 Cartão de Débito' },
     { value: 'BOLETO', label: '📄 Boleto' },
     { value: 'TRANSFERENCIA', label: '🏦 Transferência' },
+    { value: 'LANCAMENTOS_A_RECEBER', label: '📋 Lançamentos a Receber' },
 ]
 
 interface BudgetItemRow {
@@ -563,6 +564,11 @@ function Budgets() {
                 return
             }
 
+            if (values.payment_method === 'LANCAMENTOS_A_RECEBER' && !selectedBudget.customer_id) {
+                messageApi.error('O método "Lançamentos a Receber" exige um cliente vinculado ao orçamento.')
+                return
+            }
+
             const { data: budgetCheck } = await supabase.from('budgets').select('id, status').eq('id', selectedBudget.id).single()
             if (budgetCheck?.status === 'PAID') {
                 messageApi.warning('Este orçamento já foi finalizado por outra pessoa. Atualize a lista.')
@@ -636,7 +642,22 @@ function Budgets() {
             const now = new Date()
             const curYear = now.getFullYear()
             const curMonth = now.getMonth()
-            if (values.payment_method === 'CARTAO_CREDITO') {
+            if (values.payment_method === 'LANCAMENTOS_A_RECEBER') {
+                // Lançamentos a Receber: não vai para o caixa — registra em pending_receivables
+                await (supabase as any).from('pending_receivables').insert({
+                    tenant_id,
+                    customer_id: selectedBudget.customer_id,
+                    employee_id: selectedBudget.employee_id || null,
+                    sale_id: sale.id,
+                    budget_id: selectedBudget.id,
+                    amount: Number(selectedBudget.total_value),
+                    description: `Venda via orçamento ORC-${selectedBudget.id.substring(0, 4).toUpperCase()}`,
+                    launch_date: new Date().toISOString().split('T')[0],
+                    origin_type: 'BUDGET',
+                    status: 'PENDING',
+                    created_by: createdBy,
+                })
+            } else if (values.payment_method === 'CARTAO_CREDITO') {
                 const totalValue = Number(selectedBudget.total_value)
                 const amountPerInstallment = totalValue / numInstallments
                 const installmentEntries = []

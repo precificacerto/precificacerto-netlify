@@ -116,7 +116,7 @@ export function useStock() {
     async () => {
       const { data, error } = await supabase
         .from('stock')
-        .select('*, items(name, unit, quantity, cost_price, cost_per_base_unit), products(name, unit, cost_total, profit_percent)')
+        .select('*, items(name, unit, quantity, cost_price, cost_per_base_unit), products(name, unit, cost_total, profit_percent, sale_price)')
         .eq('is_active', true)
       if (error) throw error
       return data

@@ -362,7 +362,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
         },
     ]
 
-    function pricingRow(label: string, pct: number, val: number, editable?: 'commission' | 'profit') {
+    function pricingRow(label: string, pct: number, val: number, editable?: 'commission' | 'profit' | 'tax') {
         return (
             <tr key={label}>
                 <td style={{ width: 140, padding: '6px 0' }}>
@@ -373,6 +373,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                             onChange={(v) => {
                                 if (editable === 'commission') setCommissionPercent(v ?? 0)
                                 if (editable === 'profit') setProfitPercent(v ?? 0)
+                                if (editable === 'tax') setTaxableRegimePercent(v ?? 0)
                             }}
                             style={{ width: 110 }}
                             formatter={(v) => `${v}%`}
@@ -430,7 +431,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                     <Form.Item
                         label={
                             <span>
-                                Recorrência&nbsp;
+                                Ativar Recorrência de vendas&nbsp;
                                 <Tooltip title="Ativa o contato automático com o cliente após a venda. Configure o prazo em dias e uma mensagem personalizada por serviço.">
                                     <InfoCircleOutlined style={{ color: '#64748b' }} />
                                 </Tooltip>
@@ -467,7 +468,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                         onCancel={() => setRecurrenceModalOpen(false)}
                         okText="Confirmar"
                         cancelText="Fechar"
-                        width={420}
+                        width={560}
                     >
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 16, paddingTop: 8 }}>
                             <div>
@@ -513,28 +514,6 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                             </div>
                         </div>
                     </Modal>
-                    <Form.Item
-                        label={
-                            <span>
-                                Impostos (regime tributário %)&nbsp;
-                                <Tooltip title="Percentual de impostos do regime tributário para este serviço. O valor padrão vem das configurações do regime, mas pode ser ajustado por serviço.">
-                                    <InfoCircleOutlined style={{ color: '#64748b' }} />
-                                </Tooltip>
-                            </span>
-                        }
-                    >
-                        <InputNumber
-                            min={0}
-                            max={100}
-                            step={0.1}
-                            precision={2}
-                            value={taxableRegimePercent}
-                            onChange={(v) => setTaxableRegimePercent(v ?? 0)}
-                            style={{ width: '100%' }}
-                            addonAfter="%"
-                            placeholder={`Padrão: ${(taxPreview?.taxableRegimePercent ?? 0).toFixed(2)}%`}
-                        />
-                    </Form.Item>
                 </Form>
             </div>
 
@@ -658,10 +637,13 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                         <tbody>
                             {pricingRow('Despesas variáveis', pricing.variablePct, pricing.variableVal)}
                             {pricingRow('Despesas financeiras', pricing.financialPct, pricing.financialVal)}
-                            {pricingRow(taxLabel, displayTaxPct, displayTaxVal)}
+                            {isSN
+                                ? pricingRow(taxLabel, displayTaxPct, displayTaxVal, 'tax')
+                                : pricingRow(taxLabel, displayTaxPct, displayTaxVal)
+                            }
                             {!isSN && !taxPreview?.isMei && pricingRow(
-                                `Regime tributário${taxPreview?.regimeLabel ? ` (${taxPreview.regimeLabel})` : ''}`,
-                                taxableRegimePercent, pricing.taxRegimeVal
+                                `Impostos${taxPreview?.regimeLabel ? ` (${taxPreview.regimeLabel})` : ''}`,
+                                taxableRegimePercent, pricing.taxRegimeVal, 'tax'
                             )}
                             {pricingRow('Comissão', commissionPercent, pricing.commissionVal, 'commission')}
                             {pricingRow('Lucro', profitPercent, pricing.profitVal, 'profit')}

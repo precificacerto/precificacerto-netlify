@@ -1084,9 +1084,31 @@ export const Content: FC<ContentProps> = ({
             </Form.Item>
 
             <Form.Item
+              name="ncm_code"
               label={
                 <span>
-                  Recorrência&nbsp;
+                  NCM do Produto&nbsp;
+                  <Tooltip title="Nomenclatura Comum do Mercosul — código fiscal do produto final. Digite o código ou pesquise pelo nome do produto.">
+                    <InfoCircleOutlined style={{ color: '#64748b' }} />
+                  </Tooltip>
+                </span>
+              }
+              style={{ marginBottom: 0 }}
+            >
+              <AutoComplete
+                options={ncmOptions}
+                onSearch={handleNcmSearch}
+                onSelect={(value: string) => productForm.setFieldsValue({ ncm_code: value })}
+                placeholder="Digite o NCM ou pesquise (ex: bolo, 1905...)"
+                notFoundContent={ncmFieldSearching ? <Spin size="small" /> : null}
+                allowClear
+              />
+            </Form.Item>
+
+            <Form.Item
+              label={
+                <span>
+                  Ativar Recorrência de vendas&nbsp;
                   <Tooltip title="Ativa o contato automático com o cliente após a venda. Configure o prazo em dias e uma mensagem personalizada por produto.">
                     <InfoCircleOutlined style={{ color: '#64748b' }} />
                   </Tooltip>
@@ -1123,7 +1145,7 @@ export const Content: FC<ContentProps> = ({
               onCancel={() => setRecurrenceModalOpen(false)}
               okText="Confirmar"
               cancelText="Fechar"
-              width={420}
+              width={560}
             >
               <div style={{ display: 'flex', flexDirection: 'column', gap: 16, paddingTop: 8 }}>
                 <div>
@@ -1217,31 +1239,6 @@ export const Content: FC<ContentProps> = ({
           </div>
         )}
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginTop: 12 }}>
-          <Form form={productForm} layout="vertical" style={{ display: 'contents' }}>
-            <Form.Item
-              name="ncm_code"
-              label={
-                <span>
-                  NCM do Produto&nbsp;
-                  <Tooltip title="Nomenclatura Comum do Mercosul — código fiscal do produto final. Digite o código ou pesquise pelo nome do produto.">
-                    <InfoCircleOutlined style={{ color: '#64748b' }} />
-                  </Tooltip>
-                </span>
-              }
-              style={{ marginBottom: 0 }}
-            >
-              <AutoComplete
-                options={ncmOptions}
-                onSearch={handleNcmSearch}
-                onSelect={(value: string) => productForm.setFieldsValue({ ncm_code: value })}
-                placeholder="Digite o NCM ou pesquise (ex: bolo, 1905...)"
-                notFoundContent={ncmFieldSearching ? <Spin size="small" /> : null}
-                allowClear
-              />
-            </Form.Item>
-          </Form>
-        </div>
       </Card>
 
       {/* ══════════════════════════════════════════════════════

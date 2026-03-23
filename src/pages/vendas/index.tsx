@@ -30,6 +30,7 @@ const PAYMENT_METHODS = [
     { value: 'CARTAO_DEBITO', label: '💳 Cartão de Débito' },
     { value: 'BOLETO', label: '📄 Boleto' },
     { value: 'TRANSFERENCIA', label: '🏦 Transferência' },
+    { value: 'LANCAMENTOS_A_RECEBER', label: '📋 Lançamentos a Receber' },
 ]
 
 interface SaleRow {
@@ -535,6 +536,11 @@ function Sales() {
                 return
             }
             const invalidItems = saleItems.filter(i => !i.product_id && !i.service_id && !(i.is_manual && (i.product_name || '').trim()))
+            const formValues = form.getFieldsValue()
+            if (formValues.payment_method === 'LANCAMENTOS_A_RECEBER' && !formValues.customer_id) {
+                messageApi.error('O método "Lançamentos a Receber" exige um cliente vinculado à venda.')
+                return
+            }
             if (invalidItems.length > 0) {
                 messageApi.warning('Preencha o produto ou o nome do item manual em todos os itens.')
                 return
@@ -658,7 +664,22 @@ function Sales() {
             const now = new Date()
             const curYear = now.getFullYear()
             const curMonth = now.getMonth()
-            if (values.payment_method === 'CARTAO_CREDITO') {
+            if (values.payment_method === 'LANCAMENTOS_A_RECEBER') {
+                // Lançamentos a Receber: não vai para o caixa — registra em pending_receivables
+                const empId = values.employee_id || null
+                await (supabase as any).from('pending_receivables').insert({
+                    tenant_id: tenantId,
+                    customer_id: values.customer_id,
+                    employee_id: empId,
+                    sale_id: sale.id,
+                    amount: saleTotal,
+                    description: `Venda balcão: ${saleItems.map(i => i.product_name).filter(Boolean).join(', ')}`,
+                    launch_date: values.sale_date ? values.sale_date.format('YYYY-MM-DD') : new Date().toISOString().split('T')[0],
+                    origin_type: 'SALE',
+                    status: 'PENDING',
+                    created_by: createdBy,
+                })
+            } else if (values.payment_method === 'CARTAO_CREDITO') {
                 const amountPerInstallment = saleTotal / numInstallments
                 const installmentEntries = []
                 for (let i = 1; i <= numInstallments; i++) {

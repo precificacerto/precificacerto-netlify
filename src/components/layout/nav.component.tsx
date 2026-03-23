@@ -124,7 +124,7 @@ const Nav = () => {
       hideForRepresentative: true,
       module: MODULES.CASHIER,
     },
-    { key: 'cashflow', label: 'Controle Financeiro', icon: 'shopping', href: ROUTES.CASH_FLOW, section: 'financeiro', module: MODULES.CASH_FLOW },
+    { key: 'cashflow', label: 'Controle Financeiro', icon: 'shopping', href: ROUTES.FINANCIAL_CONTROL, section: 'financeiro', module: MODULES.CASH_FLOW },
     { key: 'dfc', label: 'Análise Financeira', icon: 'fund', href: ROUTES.DFC, section: 'financeiro', module: MODULES.DFC },
     { key: 'commission', label: 'Comissão de Vendedor', icon: 'idcard', href: ROUTES.COMMISSION, section: 'financeiro', module: MODULES.COMMISSION },
 

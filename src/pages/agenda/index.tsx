@@ -42,6 +42,7 @@ const PAYMENT_METHODS = [
     { value: 'PIX', label: 'PIX' }, { value: 'DINHEIRO', label: 'Dinheiro' },
     { value: 'CARTAO_CREDITO', label: 'Cartão Crédito' }, { value: 'CARTAO_DEBITO', label: 'Cartão Débito' },
     { value: 'TRANSFERENCIA', label: 'Transferência' }, { value: 'BOLETO', label: 'Boleto' },
+    { value: 'LANCAMENTOS_A_RECEBER', label: 'Lançamentos a Receber' },
 ]
 
 // Horários de 00:00 até 24:00 (intervalos de 30 min)
@@ -501,6 +502,11 @@ function Schedule() {
             const tid = await getTenantId(); if (!tid) return
             const createdBy = await getCurrentUserId(); if (!createdBy) { msgApi.error('Sessão inválida. Faça login novamente.'); return }
 
+            if (v.payment_method === 'LANCAMENTOS_A_RECEBER' && !payEvt.customer_id) {
+                msgApi.error('O método "Lançamentos a Receber" exige um cliente vinculado ao agendamento.')
+                return
+            }
+
             const { data: evCheck } = await supabase.from('calendar_events').select('id, status').eq('id', payEvt.id).single()
             if (evCheck?.status === 'COMPLETED') {
                 msgApi.warning('Este agendamento já foi concluído por outra pessoa. Atualize a lista.')
@@ -606,8 +612,23 @@ function Schedule() {
                 const now = new Date()
                 const curYear = now.getFullYear()
                 const curMonth = now.getMonth()
-                // Cartão de crédito: receita nunca no mês atual — parcelas ou 1x a partir do próximo mês
-                if (v.payment_method === 'CARTAO_CREDITO') {
+                if (v.payment_method === 'LANCAMENTOS_A_RECEBER') {
+                    // Lançamentos a Receber: não vai para o caixa — registra em pending_receivables
+                    const empId = payEvt.employee_id || null
+                    await sbp.from('pending_receivables').insert({
+                        tenant_id: tid,
+                        customer_id: payEvt.customer_id,
+                        employee_id: empId,
+                        calendar_event_id: payEvt.id,
+                        amount: amountPaid,
+                        description: descricaoCompleta,
+                        launch_date: dayjs(payEvt.start_time).format('YYYY-MM-DD'),
+                        origin_type: 'AGENDA',
+                        status: 'PENDING',
+                        created_by: createdBy,
+                    })
+                } else if (v.payment_method === 'CARTAO_CREDITO') {
+                    // Cartão de crédito: receita nunca no mês atual — parcelas ou 1x a partir do próximo mês
                     const amountPerInstallment = totalRevenue / numInstallments
                     const installmentEntries = []
                     for (let i = 1; i <= numInstallments; i++) {

@@ -39,6 +39,7 @@ export enum ROUTES {
 
   // ── Phase 4: Financeiro ──
   CASH_FLOW = '/fluxo-de-caixa',
+  FINANCIAL_CONTROL = '/controle-financeiro',
   DFC = '/dfc',
   COMMISSION = '/comissao-vendedor',
 

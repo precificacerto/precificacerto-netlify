@@ -30,6 +30,7 @@ interface StockRow {
     unit: string
     costPrice: number
     profitPercent: number
+    salePrice: number
     status: string
     raw: StockRecord
 }
@@ -198,6 +199,7 @@ function Stock() {
             const unit = (s.unit || item?.unit || product?.unit || 'UN') as string
             const type = s.stock_type === 'PRODUCT' ? 'PRODUCT' : 'ITEM'
             const profitPercent = Number((product as any)?.profit_percent) || 0
+            const salePrice = Number((product as any)?.sale_price) || 0
 
             return {
                 id: s.id,
@@ -208,6 +210,7 @@ function Stock() {
                 unit,
                 costPrice,
                 profitPercent,
+                salePrice,
                 status: deriveStatus(s.quantity_current ?? 0, s.min_limit ?? 0),
                 raw: s,
             }
@@ -329,30 +332,41 @@ function Stock() {
             : []),
     ]
 
-    // Columns for PRODUCT tab (shows Margem de Lucro instead of Custo Unit.)
+    // Columns for PRODUCT tab (layout similar to Serviços Realizados)
     const productColumns: ColumnsType<StockRow> = [
-        {
-            title: '',
-            key: 'alert',
-            width: 48,
-            render: (_: unknown, r: StockRow) =>
-                (r.status === 'Baixo' || r.status === 'Crítico') ? (
-                    <Tooltip title="Estoque abaixo do mínimo permitido">
-                        <WarningOutlined style={{ color: '#f59e0b', fontSize: 18 }} />
-                    </Tooltip>
-                ) : null,
-        },
         {
             title: 'Nome',
             dataIndex: 'name',
             key: 'name',
             sorter: (a, b) => a.name.localeCompare(b.name),
-            render: (text) => <span style={{ fontWeight: 500 }}>{text}</span>,
+            render: (text, r) => (
+                <div>
+                    <span style={{ fontWeight: 500 }}>{text}</span>
+                    {(r.status === 'Baixo' || r.status === 'Crítico') && (
+                        <div style={{ fontSize: 11, color: '#f59e0b' }}>⚠ Estoque abaixo do mínimo</div>
+                    )}
+                </div>
+            ),
         },
         {
-            title: 'Qtd Atual',
+            title: 'Margem de Lucro',
+            dataIndex: 'profitPercent',
+            key: 'profitPercent',
+            width: 140,
+            render: (v: number) => <span style={{ fontWeight: 600 }}>{v.toFixed(2)}%</span>,
+        },
+        {
+            title: 'Preço de Venda',
+            dataIndex: 'salePrice',
+            key: 'salePrice',
+            width: 130,
+            render: (v: number) => <span style={{ fontWeight: 600, color: '#4ade80' }}>{formatCurrency(v)}</span>,
+        },
+        {
+            title: 'Qtd em Estoque',
             dataIndex: 'currentQty',
             key: 'currentQty',
+            width: 140,
             sorter: (a, b) => a.currentQty - b.currentQty,
             render: (qty, record) => (
                 <span style={{ fontWeight: 600, color: record.status === 'Crítico' ? 'var(--color-error)' : 'inherit' }}>
@@ -360,23 +374,11 @@ function Stock() {
                 </span>
             ),
         },
-        { title: 'Qtd Mín', dataIndex: 'minQty', key: 'minQty' },
-        {
-            title: 'Margem de Lucro',
-            dataIndex: 'profitPercent',
-            key: 'profitPercent',
-            render: (v: number) => <span style={{ fontWeight: 600 }}>{v.toFixed(2)}%</span>,
-        },
-        {
-            title: 'Valor Total',
-            key: 'totalValue',
-            render: (_, record) => formatCurrency(record.currentQty * record.costPrice),
-            sorter: (a, b) => (a.currentQty * a.costPrice) - (b.currentQty * b.costPrice),
-        },
         {
             title: 'Status',
             dataIndex: 'status',
             key: 'status',
+            width: 100,
             filters: [
                 { text: 'Normal', value: 'Normal' },
                 { text: 'Baixo', value: 'Baixo' },
@@ -864,7 +866,7 @@ function Stock() {
                             <InputNumber min={0.001} step="any" style={{ width: '100%' }} />
                         </Form.Item>
                         <Form.Item noStyle shouldUpdate={(prev, curr) => prev.type !== curr.type}>
-                            {({ getFieldValue }) => getFieldValue('type') === 'entrada' ? (
+                            {({ getFieldValue }) => getFieldValue('type') === 'entrada' && selectedItem?.type === 'ITEM' ? (
                                 <>
                                     <Form.Item name="total_paid" label="Valor total pago (R$)" rules={[{ required: true, message: 'Informe o valor total' }]}>
                                         <Input prefix="R$" placeholder="0,00" autoComplete="off"
