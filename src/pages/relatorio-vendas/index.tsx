@@ -31,6 +31,7 @@ const REGISTER_PAYMENT_METHODS = [
     { value: 'CARTAO_DEBITO', label: '💳 Cartão de Débito' },
     { value: 'BOLETO', label: '📄 Boleto' },
     { value: 'TRANSFERENCIA', label: '🏦 Transferência' },
+    { value: 'CHEQUE', label: '🧾 Cheque' },
 ]
 
 interface PendingReceivableRow {
@@ -38,6 +39,8 @@ interface PendingReceivableRow {
     customerName: string
     employeeName: string
     amount: number
+    amountRemaining: number
+    amountPaid: number
     launchDate: string
     description: string
     originType: string
@@ -192,7 +195,7 @@ function SalesReport() {
             if (!effectiveTenantId) { setRecLoading(false); return }
             let query = (supabase as any)
                 .from('pending_receivables')
-                .select('id, customer_id, employee_id, amount, launch_date, description, origin_type, customers(name), employees(name)')
+                .select('id, customer_id, employee_id, amount, amount_paid, amount_remaining, launch_date, description, origin_type, customers(name), employees(name)')
                 .eq('tenant_id', effectiveTenantId)
                 .eq('status', 'PENDING')
                 .eq('is_active', true)
@@ -208,17 +211,26 @@ function SalesReport() {
 
             const { data, error } = await query
             if (error) throw error
-            setRecData((data || []).map((r: any) => ({
-                id: r.id,
-                customerName: r.customers?.name || 'Sem cliente',
-                employeeName: r.employees?.name || 'Sem vendedor',
-                amount: Number(r.amount) || 0,
-                launchDate: r.launch_date,
-                description: r.description || '',
-                originType: r.origin_type,
-                customerId: r.customer_id,
-                employeeId: r.employee_id,
-            })))
+            setRecData((data || []).map((r: any) => {
+                const originalAmount = Number(r.amount) || 0
+                const amountPaid = Number(r.amount_paid) || 0
+                const amountRemaining = r.amount_remaining != null
+                    ? Number(r.amount_remaining)
+                    : originalAmount - amountPaid
+                return {
+                    id: r.id,
+                    customerName: r.customers?.name || 'Sem cliente',
+                    employeeName: r.employees?.name || 'Sem vendedor',
+                    amount: originalAmount,
+                    amountRemaining,
+                    amountPaid,
+                    launchDate: r.launch_date,
+                    description: r.description || '',
+                    originType: r.origin_type,
+                    customerId: r.customer_id,
+                    employeeId: r.employee_id,
+                }
+            }))
         } catch (err: any) {
             messageApi.error('Erro ao carregar lançamentos a receber.')
             console.error(err)
@@ -247,29 +259,46 @@ function SalesReport() {
                 return
             }
 
-            // Mark as PAID in pending_receivables
+            const isPartial = values.payment_type === 'PARTIAL'
+            const effectiveRemaining = payingRecord.amountRemaining > 0 ? payingRecord.amountRemaining : payingRecord.amount
+            const amountToPay = isPartial
+                ? Math.min(Number(values.partial_amount) || 0, effectiveRemaining)
+                : effectiveRemaining
+
+            if (amountToPay <= 0) {
+                messageApi.warning('Informe um valor válido para o pagamento parcial.')
+                setPayingSaving(false)
+                return
+            }
+
+            const newAmountPaid = payingRecord.amountPaid + amountToPay
+            const newAmountRemaining = Math.max(0, effectiveRemaining - amountToPay)
+            const isFullyPaid = newAmountRemaining <= 0
+
+            // Update pending_receivables
             const { error: updErr } = await (supabase as any)
                 .from('pending_receivables')
                 .update({
-                    status: 'PAID',
+                    status: isFullyPaid ? 'PAID' : 'PENDING',
+                    amount_paid: newAmountPaid,
+                    amount_remaining: newAmountRemaining,
                     payment_method: values.payment_method,
-                    paid_date: dayjs().format('YYYY-MM-DD'),
-                    paid_by: createdBy,
+                    ...(isFullyPaid ? { paid_date: dayjs().format('YYYY-MM-DD'), paid_by: createdBy } : {}),
                     updated_at: new Date().toISOString(),
                 })
                 .eq('id', payingRecord.id)
-                .eq('status', 'PENDING')
 
             if (updErr) throw updErr
 
-            // Now register in cash_entries
+            // Register in cash_entries
             const payLabel = REGISTER_PAYMENT_METHODS.find(p => p.value === values.payment_method)?.label || values.payment_method
-            if (values.payment_method === 'CARTAO_CREDITO') {
+            const partialSuffix = isPartial ? ' (parcial)' : ''
+            if (values.payment_method === 'CARTAO_CREDITO' && !isPartial) {
                 const numInstallments = values.installments || 1
                 const now = new Date()
                 const curYear = now.getFullYear()
                 const curMonth = now.getMonth()
-                const amountPerInstallment = payingRecord.amount / numInstallments
+                const amountPerInstallment = amountToPay / numInstallments
                 const installmentEntries = []
                 for (let i = 1; i <= numInstallments; i++) {
                     const dueDate = new Date(curYear, curMonth + i, 1)
@@ -284,6 +313,7 @@ function SalesReport() {
                         payment_method: values.payment_method,
                         origin_type: 'SALE',
                         ...(numInstallments > 1 ? { installment_number: i, installment_total: numInstallments } : {}),
+                        contact_id: payingRecord.customerId || null,
                         created_by: createdBy,
                     })
                 }
@@ -292,17 +322,21 @@ function SalesReport() {
                 await supabase.from('cash_entries').insert({
                     tenant_id: tenantId,
                     type: 'INCOME',
-                    amount: payingRecord.amount,
+                    amount: amountToPay,
                     due_date: dayjs().format('YYYY-MM-DD'),
                     paid_date: dayjs().format('YYYY-MM-DD'),
-                    description: `${payingRecord.description} — ${payLabel}`,
+                    description: `${payingRecord.description} — ${payLabel}${partialSuffix}`,
                     payment_method: values.payment_method,
                     origin_type: 'SALE',
+                    contact_id: payingRecord.customerId || null,
                     created_by: createdBy,
                 })
             }
 
-            messageApi.success('Pagamento registrado com sucesso!')
+            const successMsg = isPartial
+                ? `Pagamento parcial de ${formatCurrency(amountToPay)} registrado! Restante: ${formatCurrency(newAmountRemaining)}`
+                : 'Pagamento total registrado com sucesso!'
+            messageApi.success(successMsg)
             setPayModalOpen(false)
             setPayingRecord(null)
             await fetchReceivables()
@@ -961,18 +995,44 @@ function SalesReport() {
                 okButtonProps={{ disabled: !canRegisterPayment }}
             >
                 {payingRecord && (
-                    <div style={{ marginBottom: 16 }}>
-                        <p><strong>Cliente:</strong> {payingRecord.customerName}</p>
-                        <p><strong>Valor:</strong> {formatCurrency(payingRecord.amount)}</p>
-                        <p><strong>Descrição:</strong> {payingRecord.description}</p>
+                    <div style={{ marginBottom: 16, padding: '12px 16px', background: '#1e293b', borderRadius: 8 }}>
+                        <p style={{ margin: '4px 0' }}><strong>Cliente:</strong> {payingRecord.customerName}</p>
+                        <p style={{ margin: '4px 0' }}><strong>Valor original:</strong> {formatCurrency(payingRecord.amount)}</p>
+                        {payingRecord.amountPaid > 0 && (
+                            <p style={{ margin: '4px 0', color: '#12B76A' }}><strong>Já pago:</strong> {formatCurrency(payingRecord.amountPaid)}</p>
+                        )}
+                        <p style={{ margin: '4px 0', color: '#F79009', fontWeight: 700 }}>
+                            <strong>Saldo pendente:</strong> {formatCurrency(payingRecord.amountRemaining > 0 ? payingRecord.amountRemaining : payingRecord.amount)}
+                        </p>
+                        <p style={{ margin: '4px 0', fontSize: 12, color: '#94a3b8' }}><strong>Descrição:</strong> {payingRecord.description}</p>
                     </div>
                 )}
-                <Form form={payForm} layout="vertical">
+                <Form form={payForm} layout="vertical" initialValues={{ payment_type: 'FULL' }}>
+                    <Form.Item name="payment_type" label="Tipo de Pagamento">
+                        <Select>
+                            <Select.Option value="FULL">Pagamento Total</Select.Option>
+                            <Select.Option value="PARTIAL">Pagamento Parcial</Select.Option>
+                        </Select>
+                    </Form.Item>
+                    <Form.Item noStyle shouldUpdate={(prev, cur) => prev.payment_type !== cur.payment_type}>
+                        {({ getFieldValue }) => getFieldValue('payment_type') === 'PARTIAL' ? (
+                            <Form.Item name="partial_amount" label="Valor a pagar agora (R$)" rules={[{ required: true, message: 'Informe o valor parcial' }]}>
+                                <input
+                                    type="number"
+                                    min={0.01}
+                                    step={0.01}
+                                    style={{ width: '100%', padding: '4px 8px', borderRadius: 6, border: '1px solid #334155', background: '#1e293b', color: '#f1f5f9' }}
+                                    placeholder="Ex: 50.00"
+                                    onChange={(e) => payForm.setFieldsValue({ partial_amount: parseFloat(e.target.value) })}
+                                />
+                            </Form.Item>
+                        ) : null}
+                    </Form.Item>
                     <Form.Item name="payment_method" label="Forma de Pagamento" rules={[{ required: true, message: 'Selecione a forma de pagamento' }]}>
                         <Select options={REGISTER_PAYMENT_METHODS} placeholder="Selecione..." />
                     </Form.Item>
-                    <Form.Item noStyle shouldUpdate={(prev, cur) => prev.payment_method !== cur.payment_method}>
-                        {({ getFieldValue }) => getFieldValue('payment_method') === 'CARTAO_CREDITO' ? (
+                    <Form.Item noStyle shouldUpdate={(prev, cur) => prev.payment_method !== cur.payment_method || prev.payment_type !== cur.payment_type}>
+                        {({ getFieldValue }) => getFieldValue('payment_method') === 'CARTAO_CREDITO' && getFieldValue('payment_type') !== 'PARTIAL' ? (
                             <Form.Item name="installments" label="Parcelas" initialValue={1}>
                                 <Select options={[1,2,3,4,5,6,7,8,9,10,11,12].map(n => ({ value: n, label: `${n}x` }))} />
                             </Form.Item>

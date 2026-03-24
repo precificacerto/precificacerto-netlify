@@ -42,6 +42,7 @@ const PAYMENT_METHODS = [
     { value: 'PIX', label: 'PIX' }, { value: 'DINHEIRO', label: 'Dinheiro' },
     { value: 'CARTAO_CREDITO', label: 'Cartão Crédito' }, { value: 'CARTAO_DEBITO', label: 'Cartão Débito' },
     { value: 'TRANSFERENCIA', label: 'Transferência' }, { value: 'BOLETO', label: 'Boleto' },
+    { value: 'CHEQUE', label: 'Cheque' },
     { value: 'LANCAMENTOS_A_RECEBER', label: 'Lançamentos a Receber' },
 ]
 

@@ -30,6 +30,7 @@ const PAYMENT_METHODS = [
     { value: 'CARTAO_DEBITO', label: '💳 Cartão de Débito' },
     { value: 'BOLETO', label: '📄 Boleto' },
     { value: 'TRANSFERENCIA', label: '🏦 Transferência' },
+    { value: 'CHEQUE', label: '🧾 Cheque' },
     { value: 'LANCAMENTOS_A_RECEBER', label: '📋 Lançamentos a Receber' },
 ]
 

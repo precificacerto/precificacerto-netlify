@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import {
-    Button, Select, Table, Tag, DatePicker, Space, message,
+    Button, Select, Table, Tag, DatePicker, Space, message, Tabs,
     Popconfirm, Form, Input, InputNumber, Drawer, Alert, Radio,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
@@ -15,7 +15,8 @@ import { mergeExpenseConfig } from '@/utils/recalc-expense-config'
 import {
     DollarOutlined, ArrowUpOutlined, ArrowDownOutlined,
     PlusOutlined, DeleteOutlined, SyncOutlined, EditOutlined,
-    CalendarOutlined, BankOutlined,
+    CalendarOutlined, BankOutlined, PieChartOutlined, TeamOutlined,
+    CreditCardOutlined,
 } from '@ant-design/icons'
 import { useAuth } from '@/hooks/use-auth.hook'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
@@ -25,6 +26,14 @@ import {
     getExpenseGroupColor,
     type ExpenseGroupKey,
 } from '@/constants/cashier-category'
+
+import {
+    Chart as ChartJS, CategoryScale, LinearScale, BarElement,
+    Title, Tooltip as ChartTooltip, Legend, ArcElement
+} from 'chart.js'
+import { Bar, Doughnut } from 'react-chartjs-2'
+
+ChartJS.register(CategoryScale, LinearScale, BarElement, ArcElement, Title, ChartTooltip, Legend)
 
 function formatCurrency(v: number) {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 }).format(v)
@@ -79,6 +88,104 @@ function getGroupForCategory(cat: string): string | undefined {
     return CATEGORY_GROUP_MAP.find(c => c.category === cat)?.group
 }
 
+// ── Categorias Simples Nacional ──
+const SN_CATEGORY_GROUP_MAP: { category: string; group: string }[] = [
+    // Custo Produtos
+    { category: 'Fornecedores — Produtos para Revenda', group: 'CUSTO_PRODUTOS' },
+    { category: 'Matéria-prima — Base dos produtos', group: 'CUSTO_PRODUTOS' },
+    { category: 'Embalagens individuais', group: 'CUSTO_PRODUTOS' },
+    // Mão de Obra Produção
+    { category: 'Salários produção', group: 'MAO_DE_OBRA_PRODUTIVA' },
+    { category: 'Décimo terceiro (Setor Produtivo)', group: 'MAO_DE_OBRA_PRODUTIVA' },
+    { category: 'Férias colaboradores (Setor Produtivo)', group: 'MAO_DE_OBRA_PRODUTIVA' },
+    { category: 'FGTS (Setor Produtivo)', group: 'MAO_DE_OBRA_PRODUTIVA' },
+    { category: 'Horas extras — Salários', group: 'MAO_DE_OBRA_PRODUTIVA' },
+    { category: 'INSS (Setor Produtivo)', group: 'MAO_DE_OBRA_PRODUTIVA' },
+    { category: 'INSS patronal (Setor Produtivo)', group: 'MAO_DE_OBRA_PRODUTIVA' },
+    { category: 'Plano de saúde (Setor Produtivo)', group: 'MAO_DE_OBRA_PRODUTIVA' },
+    { category: 'RAT / FAP', group: 'MAO_DE_OBRA_PRODUTIVA' },
+    { category: 'Vale alimentação (Setor Produtivo)', group: 'MAO_DE_OBRA_PRODUTIVA' },
+    { category: 'Vale transporte (Setor Produtivo)', group: 'MAO_DE_OBRA_PRODUTIVA' },
+    { category: 'Mão de obra produtiva terceirizada — passível de crédito', group: 'MAO_DE_OBRA_PRODUTIVA' },
+    // Mão de Obra Administrativa
+    { category: 'Pró-labore', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
+    { category: 'Salários administrativos', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
+    { category: 'Salários comerciais', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
+    { category: 'Décimo terceiro (Pró-Labo / Admin / Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
+    { category: 'Férias colaboradores (Pró-Labo / Admin / Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
+    { category: 'FGTS (Pró-Labo / Admin / Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
+    { category: 'Horas extras — Salários (Admin)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
+    { category: 'INSS (Pró-Labo / Admin / Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
+    { category: 'INSS patronal (Pró-Labo / Admin / Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
+    { category: 'Plano de saúde (Pró-Labo / Admin / Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
+    { category: 'RAT / FAP (Admin)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
+    { category: 'Vale alimentação (Pró-Labo / Admin / Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
+    { category: 'Vale transporte (Pró-Labo / Admin / Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
+    // Despesa Fixa
+    { category: 'Água', group: 'DESPESA_FIXA' },
+    { category: 'Aluguel', group: 'DESPESA_FIXA' },
+    { category: 'Aplicações / Consórcios', group: 'DESPESA_FIXA' },
+    { category: 'Consultoria', group: 'DESPESA_FIXA' },
+    { category: 'Contabilidade', group: 'DESPESA_FIXA' },
+    { category: 'Depreciação', group: 'DESPESA_FIXA' },
+    { category: 'Empréstimos / Financiamentos', group: 'DESPESA_FIXA' },
+    { category: 'Energia elétrica', group: 'DESPESA_FIXA' },
+    { category: 'Impostos IPTU / IPVA', group: 'IMPOSTO' },
+    { category: 'Internet', group: 'DESPESA_FIXA' },
+    { category: 'Segurança / Monitoramento', group: 'DESPESA_FIXA' },
+    { category: 'Seguros imóveis e veículos', group: 'DESPESA_FIXA' },
+    { category: 'Sistema de gestão / Softwares', group: 'DESPESA_FIXA' },
+    { category: 'Taxas de licenciamento', group: 'DESPESA_FIXA' },
+    { category: 'Telefone', group: 'DESPESA_FIXA' },
+    { category: 'Saúde trabalhista / Ocupacional', group: 'DESPESA_FIXA' },
+    { category: 'MEI (Microempreendedor Individual)', group: 'IMPOSTO' },
+    // Despesa Variável
+    { category: 'Combustíveis', group: 'DESPESA_VARIAVEL' },
+    { category: 'Correios', group: 'DESPESA_VARIAVEL' },
+    { category: 'Departamento jurídico', group: 'DESPESA_VARIAVEL' },
+    { category: 'Embalagens diversas', group: 'DESPESA_VARIAVEL' },
+    { category: 'Manutenções', group: 'DESPESA_VARIAVEL' },
+    { category: 'Marketing (publicidades e relacionados)', group: 'DESPESA_VARIAVEL' },
+    { category: 'Pedágios', group: 'DESPESA_VARIAVEL' },
+    { category: 'Rescisões / Indenizações', group: 'DESPESA_VARIAVEL' },
+    { category: 'Terceirizações (prestadores de serviços)', group: 'DESPESA_VARIAVEL' },
+    { category: 'Uso e consumo', group: 'DESPESA_VARIAVEL' },
+    { category: 'Vale alimentação (variável)', group: 'DESPESA_VARIAVEL' },
+    { category: 'Viagens (hotéis / passagens / alimentação / etc)', group: 'DESPESA_VARIAVEL' },
+    // Despesa Financeira
+    { category: 'Juros', group: 'DESPESA_FINANCEIRA' },
+    { category: 'Taxas cartão', group: 'DESPESA_FINANCEIRA' },
+    { category: 'Taxas bancárias', group: 'DESPESA_FINANCEIRA' },
+    { category: 'Troca cheque', group: 'DESPESA_FINANCEIRA' },
+    { category: 'IOF', group: 'DESPESA_FINANCEIRA' },
+    // Atividades Terceirizadas
+    { category: 'Fretes / Logísticas de entrega terceirizados', group: 'DESPESA_VARIAVEL' },
+    { category: 'Seguro de transporte entrega', group: 'DESPESA_VARIAVEL' },
+    { category: 'Despesas acessórias', group: 'DESPESA_VARIAVEL' },
+    { category: 'Gastos com logísticas externas', group: 'DESPESA_VARIAVEL' },
+    // Regime Tributário
+    { category: 'Simples Nacional', group: 'IMPOSTO' },
+    // Comissões
+    { category: 'Comissões de venda', group: 'DESPESA_VARIAVEL' },
+    // Lucro
+    { category: 'Investimentos (máquinas, equipamentos, expansão e melhorias)', group: 'DESPESA_FIXA' },
+    { category: 'Distribuição de lucros', group: 'DESPESA_FIXA' },
+]
+
+const SN_EXPENSE_CATEGORY_OPTIONS = [
+    { label: '── Custo de Produtos ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'CUSTO_PRODUTOS').map(c => ({ label: c.category, value: c.category })) },
+    { label: '── Mão de Obra Produção ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'MAO_DE_OBRA_PRODUTIVA').map(c => ({ label: c.category, value: c.category })) },
+    { label: '── Mão de Obra Administrativa ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'MAO_DE_OBRA_ADMINISTRATIVA').map(c => ({ label: c.category, value: c.category })) },
+    { label: '── Despesas Fixas ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_FIXA').map(c => ({ label: c.category, value: c.category })) },
+    { label: '── Despesas Variáveis ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_VARIAVEL').map(c => ({ label: c.category, value: c.category })) },
+    { label: '── Despesas Financeiras ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_FINANCEIRA').map(c => ({ label: c.category, value: c.category })) },
+    { label: '── Impostos ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'IMPOSTO').map(c => ({ label: c.category, value: c.category })) },
+]
+
+function getSNGroupForCategory(cat: string): string | undefined {
+    return SN_CATEGORY_GROUP_MAP.find(c => c.category === cat)?.group
+}
+
 const currencyMaskFn = (value: string) => {
     const digits = value.replace(/\D/g, '')
     if (!digits) return ''
@@ -95,6 +202,7 @@ const PAYMENT_METHODS = [
     { value: 'CARTAO_DEBITO', label: '💳 Cartão Débito' },
     { value: 'BOLETO', label: '📄 Boleto' },
     { value: 'TRANSFERENCIA', label: '🏦 Transferência' },
+    { value: 'CHEQUE', label: '🧾 Cheque' },
 ]
 
 function getOriginLabel(origin: string) {
@@ -104,11 +212,19 @@ function getOriginLabel(origin: string) {
     return 'Manual'
 }
 
+const CHART_COLORS = [
+    '#6366F1', '#EC4899', '#F59E0B', '#10B981', '#3B82F6',
+    '#8B5CF6', '#EF4444', '#14B8A6', '#F97316', '#06B6D4',
+    '#84CC16', '#E11D48',
+]
+
 export default function ControleFinanceiro() {
     const [data, setData] = useState<any[]>([])
     const { currentUser } = useAuth()
     const { canView, canEdit } = usePermissions()
     const [employees, setEmployees] = useState<any[]>([])
+    const [fixedExpenses, setFixedExpenses] = useState<any[]>([])
+    const [taxRegime, setTaxRegime] = useState<string | null>(null)
     const [loading, setLoading] = useState(false)
     const [month, setMonth] = useState(dayjs())
     const [typeFilter, setTypeFilter] = useState<'ALL' | 'INCOME' | 'EXPENSE'>('ALL')
@@ -131,7 +247,8 @@ export default function ControleFinanceiro() {
         setLoading(true)
         try {
             const sbf = supabase as any
-            const [{ data: entries }, { data: emps }] = await Promise.all([
+            const tenantId = await getTenantId()
+            const [{ data: entries }, { data: emps }, { data: fixedList }, { data: tenantSettings }] = await Promise.all([
                 sbf.from('cash_entries')
                     .select('*')
                     .gte('due_date', startOfMonth)
@@ -139,9 +256,17 @@ export default function ControleFinanceiro() {
                     .eq('is_active', true)
                     .order('due_date', { ascending: false }),
                 sbf.from('employees').select('id, name, salary').eq('status', 'ACTIVE').eq('is_active', true),
+                tenantId
+                    ? sbf.from('fixed_expenses').select('id, description, amount, due_day').eq('tenant_id', tenantId).eq('is_active', true)
+                    : Promise.resolve({ data: [] }),
+                tenantId
+                    ? sbf.from('tenant_settings').select('tax_regime').eq('tenant_id', tenantId).maybeSingle()
+                    : Promise.resolve({ data: null }),
             ])
             setData(entries || [])
             setEmployees(emps || [])
+            setFixedExpenses(fixedList || [])
+            if (tenantSettings?.tax_regime) setTaxRegime(tenantSettings.tax_regime)
         } catch {
             messageApi.error('Erro ao carregar dados.')
         } finally {
@@ -160,6 +285,34 @@ export default function ControleFinanceiro() {
     const totalExpense = useMemo(() => data.filter(d => d.type === 'EXPENSE').reduce((s, d) => s + Number(d.amount || 0), 0), [data])
     const balance = totalIncome - totalExpense
     const totalFixed = useMemo(() => data.filter(d => d.origin_type === 'FIXED_EXPENSE' || d.origin_type === 'SALARY').reduce((s, d) => s + Number(d.amount || 0), 0), [data])
+
+    // ── Regime: categorias do Simples Nacional ou padrão ──
+    const isSimples = taxRegime === 'SIMPLES_NACIONAL' || currentUser?.taxableRegime === 'SIMPLES_NACIONAL'
+    const activeCategoryOptions = isSimples ? SN_EXPENSE_CATEGORY_OPTIONS : EXPENSE_CATEGORY_OPTIONS
+    const activeGroupForCategory = (cat: string) => isSimples ? getSNGroupForCategory(cat) : getGroupForCategory(cat)
+
+    // ── Chart data ──
+    const monthlyChartData = useMemo(() => {
+        const income = data.filter(d => d.type === 'INCOME').reduce((s, d) => s + getEffectiveIncomeAmount(d), 0)
+        const expense = data.filter(d => d.type === 'EXPENSE').reduce((s, d) => s + Number(d.amount || 0), 0)
+        return { income, expense }
+    }, [data])
+
+    const expenseByCatChart = useMemo(() => {
+        const cats: Record<string, number> = {}
+        for (const entry of data.filter(d => d.type === 'EXPENSE')) {
+            const desc = entry.description || 'Outros'
+            const base = desc.split(' — ')[0].trim()
+            cats[base] = (cats[base] || 0) + Number(entry.amount || 0)
+        }
+        return cats
+    }, [data])
+
+    // ── Antecipação de Cartão: entradas CARTAO_CREDITO sem paid_date ──
+    const cartaoPendente = useMemo(
+        () => data.filter(d => d.type === 'INCOME' && d.payment_method === 'CARTAO_CREDITO' && !d.paid_date),
+        [data],
+    )
 
     if (!canView(MODULES.CASH_FLOW)) {
         return <Layout title={PAGE_TITLES.FINANCIAL_CONTROL}><div style={{ padding: 40, textAlign: 'center' }}>Você não tem acesso a este módulo.</div></Layout>
@@ -458,16 +611,250 @@ export default function ControleFinanceiro() {
                 <CardKPI title="Despesas Fixas" value={formatCurrency(totalFixed)} icon={<BankOutlined />} variant="orange" />
             </div>
 
-            <div className="pc-card--table">
-                <Table
-                    columns={columns}
-                    dataSource={filteredData}
-                    rowKey="id"
-                    loading={loading}
-                    pagination={{ pageSize: 20, showTotal: (t) => `${t} lançamentos` }}
-                    size="middle"
-                />
-            </div>
+            <Tabs
+                type="card"
+                items={[
+                    {
+                        label: <span>Extrato</span>,
+                        key: 'extrato',
+                        children: (
+                            <div className="pc-card--table">
+                                <Table
+                                    columns={columns}
+                                    dataSource={filteredData}
+                                    rowKey="id"
+                                    loading={loading}
+                                    pagination={{ pageSize: 20, showTotal: (t) => `${t} lançamentos` }}
+                                    size="middle"
+                                />
+                            </div>
+                        ),
+                    },
+                    {
+                        label: <span><PieChartOutlined style={{ marginRight: 4 }} />Análise Gráfica</span>,
+                        key: 'graficos',
+                        children: (
+                            <div style={{ display: 'grid', gap: 24 }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: '3fr 2fr', gap: 24 }}>
+                                    <div className="pc-card" style={{ padding: 24 }}>
+                                        <h4 style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 700 }}>Receitas x Despesas</h4>
+                                        <p style={{ fontSize: 12, color: '#94a3b8', margin: '0 0 16px' }}>{month.format('MMMM YYYY')}</p>
+                                        <div style={{ height: 280 }}>
+                                            {(monthlyChartData.income > 0 || monthlyChartData.expense > 0) ? (
+                                                <Bar
+                                                    data={{
+                                                        labels: ['Receitas', 'Despesas'],
+                                                        datasets: [{
+                                                            label: month.format('MMMM YYYY'),
+                                                            data: [monthlyChartData.income, monthlyChartData.expense],
+                                                            backgroundColor: ['rgba(18, 183, 106, 0.8)', 'rgba(240, 68, 56, 0.8)'],
+                                                            borderRadius: 6,
+                                                        }],
+                                                    }}
+                                                    options={{
+                                                        responsive: true,
+                                                        maintainAspectRatio: false,
+                                                        plugins: {
+                                                            legend: { display: false },
+                                                            tooltip: {
+                                                                callbacks: {
+                                                                    label: (ctx: any) => ` ${formatCurrency(ctx.raw)}`,
+                                                                },
+                                                            },
+                                                        },
+                                                        scales: {
+                                                            x: { grid: { display: false } },
+                                                            y: {
+                                                                ticks: {
+                                                                    callback: (v: any) => v >= 1000 ? `R$ ${(Number(v) / 1000).toFixed(0)}k` : `R$ ${v}`,
+                                                                },
+                                                            },
+                                                        },
+                                                    } as any}
+                                                />
+                                            ) : (
+                                                <p style={{ textAlign: 'center', padding: 60, color: '#64748b' }}>Sem dados no período</p>
+                                            )}
+                                        </div>
+                                    </div>
+                                    <div className="pc-card" style={{ padding: 24 }}>
+                                        <h4 style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 700 }}>Despesas por Categoria</h4>
+                                        <p style={{ fontSize: 12, color: '#94a3b8', margin: '0 0 16px' }}>Distribuição das despesas</p>
+                                        <div style={{ height: 280 }}>
+                                            {Object.keys(expenseByCatChart).length > 0 ? (
+                                                <Doughnut
+                                                    data={{
+                                                        labels: Object.keys(expenseByCatChart),
+                                                        datasets: [{
+                                                            data: Object.values(expenseByCatChart),
+                                                            backgroundColor: CHART_COLORS.slice(0, Object.keys(expenseByCatChart).length),
+                                                            borderWidth: 2,
+                                                            borderColor: '#fff',
+                                                            hoverOffset: 8,
+                                                        }],
+                                                    }}
+                                                    options={{
+                                                        responsive: true,
+                                                        maintainAspectRatio: false,
+                                                        cutout: '55%',
+                                                        plugins: {
+                                                            legend: { position: 'right', labels: { usePointStyle: true, padding: 12, font: { size: 11 } } },
+                                                            tooltip: {
+                                                                callbacks: {
+                                                                    label: (ctx: any) => {
+                                                                        const total = (ctx.dataset.data as number[]).reduce((a: number, b: number) => a + b, 0)
+                                                                        const pct = total > 0 ? ((ctx.raw / total) * 100).toFixed(1) : '0'
+                                                                        return ` ${ctx.label}: ${formatCurrency(ctx.raw)} (${pct}%)`
+                                                                    },
+                                                                },
+                                                            },
+                                                        },
+                                                    } as any}
+                                                />
+                                            ) : (
+                                                <p style={{ textAlign: 'center', padding: 80, color: '#98A2B3' }}>Sem despesas</p>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        ),
+                    },
+                    {
+                        label: <span><BankOutlined style={{ marginRight: 4 }} />Despesas Recorrentes</span>,
+                        key: 'recorrentes',
+                        children: (
+                            <div className="pc-card--table">
+                                <div style={{ marginBottom: 12, fontSize: 13, color: '#94a3b8' }}>
+                                    Despesas cadastradas como recorrentes (fixed_expenses)
+                                </div>
+                                {fixedExpenses.length > 0 ? (
+                                    <Table
+                                        columns={[
+                                            { title: 'Descrição', dataIndex: 'description', render: (t: string) => <span style={{ fontWeight: 500 }}>{t}</span> },
+                                            { title: 'Valor', dataIndex: 'amount', align: 'right' as const, render: (v: number) => <strong style={{ color: '#F04438' }}>{formatCurrency(Number(v))}</strong> },
+                                            { title: 'Dia Vencimento', dataIndex: 'due_day', align: 'center' as const, render: (v: number) => <Tag>{v}</Tag> },
+                                        ]}
+                                        dataSource={fixedExpenses}
+                                        rowKey="id"
+                                        pagination={false}
+                                        size="small"
+                                        summary={() => (
+                                            <Table.Summary>
+                                                <Table.Summary.Row style={{ background: 'rgba(240, 68, 56, 0.08)' }}>
+                                                    <Table.Summary.Cell index={0}><strong>Total Mensal</strong></Table.Summary.Cell>
+                                                    <Table.Summary.Cell index={1} align="right">
+                                                        <strong style={{ color: '#F04438' }}>
+                                                            {formatCurrency(fixedExpenses.reduce((s, fe) => s + Number(fe.amount || 0), 0))}
+                                                        </strong>
+                                                    </Table.Summary.Cell>
+                                                    <Table.Summary.Cell index={2} />
+                                                </Table.Summary.Row>
+                                            </Table.Summary>
+                                        )}
+                                    />
+                                ) : (
+                                    <div style={{ textAlign: 'center', padding: 40, color: '#98A2B3' }}>
+                                        <BankOutlined style={{ fontSize: 36, marginBottom: 8 }} />
+                                        <p>Nenhuma despesa recorrente cadastrada.</p>
+                                    </div>
+                                )}
+                            </div>
+                        ),
+                    },
+                    {
+                        label: <span><TeamOutlined style={{ marginRight: 4 }} />Salários</span>,
+                        key: 'salarios',
+                        children: (
+                            <div className="pc-card--table">
+                                <div style={{ marginBottom: 12, fontSize: 13, color: '#94a3b8' }}>
+                                    Funcionários ativos com salário cadastrado
+                                </div>
+                                <Table
+                                    columns={[
+                                        { title: 'Nome', dataIndex: 'name', render: (t: string) => <span style={{ fontWeight: 500 }}>{t}</span> },
+                                        { title: 'Salário Mensal', dataIndex: 'salary', align: 'right' as const, render: (v: number) => <strong>{formatCurrency(Number(v || 0))}</strong> },
+                                        { title: 'Status', render: () => <Tag color="green">Ativo</Tag> },
+                                    ]}
+                                    dataSource={employees.filter(e => Number(e.salary || 0) > 0)}
+                                    rowKey="id"
+                                    pagination={false}
+                                    size="small"
+                                    summary={() => {
+                                        const empsWithSalary = employees.filter(e => Number(e.salary || 0) > 0)
+                                        return empsWithSalary.length > 0 ? (
+                                            <Table.Summary>
+                                                <Table.Summary.Row style={{ background: '#0a1628' }}>
+                                                    <Table.Summary.Cell index={0}><strong>Total Folha</strong></Table.Summary.Cell>
+                                                    <Table.Summary.Cell index={1} align="right">
+                                                        <strong>{formatCurrency(empsWithSalary.reduce((s, e) => s + Number(e.salary || 0), 0))}</strong>
+                                                    </Table.Summary.Cell>
+                                                    <Table.Summary.Cell index={2} />
+                                                </Table.Summary.Row>
+                                            </Table.Summary>
+                                        ) : null
+                                    }}
+                                    locale={{ emptyText: 'Nenhum funcionário com salário cadastrado.' }}
+                                />
+                            </div>
+                        ),
+                    },
+                    {
+                        label: <span><CreditCardOutlined style={{ marginRight: 4 }} />Antecipação de Cartão</span>,
+                        key: 'antecipacao',
+                        children: (
+                            <div className="pc-card--table">
+                                <div style={{ marginBottom: 12, fontSize: 13, color: '#94a3b8' }}>
+                                    Entradas via Cartão de Crédito ainda não recebidas (paid_date vazio)
+                                </div>
+                                <Table
+                                    columns={[
+                                        {
+                                            title: 'Data Vencimento',
+                                            dataIndex: 'due_date',
+                                            width: 140,
+                                            render: (v: string) => dayjs(v).format('DD/MM/YYYY'),
+                                            sorter: (a: any, b: any) => a.due_date.localeCompare(b.due_date),
+                                            defaultSortOrder: 'ascend' as const,
+                                        },
+                                        {
+                                            title: 'Descrição',
+                                            dataIndex: 'description',
+                                            render: (t: string) => <span style={{ fontWeight: 500 }}>{t}</span>,
+                                        },
+                                        {
+                                            title: 'Valor',
+                                            dataIndex: 'amount',
+                                            align: 'right' as const,
+                                            render: (v: number) => <strong style={{ color: '#12B76A' }}>+ {formatCurrency(Number(v || 0))}</strong>,
+                                            sorter: (a: any, b: any) => Number(a.amount) - Number(b.amount),
+                                        },
+                                    ]}
+                                    dataSource={cartaoPendente}
+                                    rowKey="id"
+                                    loading={loading}
+                                    pagination={false}
+                                    size="small"
+                                    summary={() => cartaoPendente.length > 0 ? (
+                                        <Table.Summary>
+                                            <Table.Summary.Row style={{ background: 'rgba(34, 197, 94, 0.08)' }}>
+                                                <Table.Summary.Cell index={0}><strong>Total a Receber</strong></Table.Summary.Cell>
+                                                <Table.Summary.Cell index={1} />
+                                                <Table.Summary.Cell index={2} align="right">
+                                                    <strong style={{ color: '#12B76A' }}>
+                                                        {formatCurrency(cartaoPendente.reduce((s, d) => s + Number(d.amount || 0), 0))}
+                                                    </strong>
+                                                </Table.Summary.Cell>
+                                            </Table.Summary.Row>
+                                        </Table.Summary>
+                                    ) : null}
+                                    locale={{ emptyText: 'Nenhuma parcela de cartão pendente de recebimento.' }}
+                                />
+                            </div>
+                        ),
+                    },
+                ]}
+            />
 
             {/* Drawer: Novo Lançamento */}
             <Drawer title="Novo Lançamento" width={460} open={drawerOpen} onClose={() => setDrawerOpen(false)}
@@ -505,12 +892,12 @@ export default function ControleFinanceiro() {
                         <Form.Item name="expense_category" label="Categoria da Despesa" rules={[{ required: true, message: 'Selecione a categoria' }]}>
                             <Select
                                 placeholder="Selecione a categoria"
-                                options={EXPENSE_CATEGORY_OPTIONS}
+                                options={activeCategoryOptions}
                                 showSearch
                                 listHeight={320}
                                 filterOption={(input, option) => (option?.label as string || '').toLowerCase().includes(input.toLowerCase())}
                                 onChange={(val) => {
-                                    const g = getGroupForCategory(val)
+                                    const g = activeGroupForCategory(val)
                                     if (g) form.setFieldsValue({ expense_group: g })
                                 }}
                             />

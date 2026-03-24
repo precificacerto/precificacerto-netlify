@@ -56,6 +56,7 @@ const PAYMENT_METHODS = [
     { value: 'CARTAO_DEBITO', label: '💳 Cartão de Débito' },
     { value: 'BOLETO', label: '📄 Boleto' },
     { value: 'TRANSFERENCIA', label: '🏦 Transferência' },
+    { value: 'CHEQUE', label: '🧾 Cheque' },
     { value: 'LANCAMENTOS_A_RECEBER', label: '📋 Lançamentos a Receber' },
 ]
 
@@ -447,7 +448,7 @@ function Budgets() {
         })
         const { data: items } = await supabase
             .from('budget_items')
-            .select('*, products(id, name, code, max_discount_percent), manual_description')
+            .select('*, products(id, name, code, max_discount_percent), services(id, name), manual_description')
             .eq('budget_id', record.id)
         const rows: BudgetItemRow[] = (items || []).map((it: any, idx: number) => {
             const unitPrice = Number(it.unit_price ?? 0)
@@ -459,17 +460,20 @@ function Budgets() {
             const maxDiscount = it.products?.max_discount_percent != null
                 ? Number(it.products.max_discount_percent)
                 : null
+            const isService = !!it.service_id
             return {
                 key: `edit-${record.id}-${idx}`,
                 product_id: it.product_id ?? null,
-                product_name: it.products?.name ?? it.manual_description ?? '',
+                service_id: it.service_id ?? null,
+                product_name: it.products?.name ?? it.services?.name ?? it.manual_description ?? '',
                 quantity: qty,
                 unit_price: unitPrice,
                 discount: Number(it.discount ?? 0),
                 discount_percent: discountPercent,
                 max_discount_percent: maxDiscount,
                 total: subtotal - Number(it.discount ?? 0),
-                isManual: !!it.manual_description,
+                isManual: !!(it.manual_description && !it.service_id),
+                isService,
             }
         })
         setBudgetItems(rows)
@@ -1202,7 +1206,7 @@ function Budgets() {
                         </Select>
                     </Form.Item>
 
-                    <Form.Item name="expiration_date" label="Válido até">
+                    <Form.Item name="expiration_date" label="Orçamento válido até">
                         <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
                     </Form.Item>
 

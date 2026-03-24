@@ -555,8 +555,16 @@ function Products() {
       ),
     },
     {
-      title: 'Custo', dataIndex: 'cost_total', key: 'cost', width: 120, align: 'right',
-      render: (v: number) => <span style={{ fontSize: 13, color: '#94a3b8' }}>{fmt(v)}</span>,
+      title: 'Margem de Lucro',
+      key: 'profit_percent',
+      width: 130,
+      render: (_: any, r: any) => {
+        const pc = r.pricing_calculations?.[0]
+        const margin = Number(pc?.profit_percent ?? r.profit_percent)
+        if (!margin && margin !== 0) return <span style={{ fontSize: 13, color: '#94a3b8' }}>—</span>
+        const color = margin >= 30 ? '#12B76A' : margin >= 15 ? '#F79009' : '#F04438'
+        return <span style={{ fontWeight: 600, color, fontSize: 13 }}>{margin.toFixed(1)}%</span>
+      },
     },
     {
       title: 'Preço Venda', dataIndex: 'sale_price', key: 'price', width: 130, align: 'right',

@@ -1028,7 +1028,7 @@ export const Content: FC<ContentProps> = ({
 
             <Form.Item
               name="description"
-              label="Descrição"
+              label="Sessão"
               rules={[{ required: true, message: REQUIRED_INPUT_MESSAGE }]}
             >
               <Input onChange={(e) => productForm.setFieldsValue({ description: capitalizeFirst(e.target.value) })} />
