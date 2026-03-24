@@ -32,6 +32,7 @@ const REGISTER_PAYMENT_METHODS = [
     { value: 'BOLETO', label: '📄 Boleto' },
     { value: 'TRANSFERENCIA', label: '🏦 Transferência' },
     { value: 'CHEQUE', label: '🧾 Cheque' },
+    { value: 'CHEQUE_PRE_DATADO', label: '🗓️ Cheque Pré-datado' },
 ]
 
 interface PendingReceivableRow {
@@ -138,7 +139,7 @@ function SalesReport() {
             const wb = new Workbook()
             const ws = wb.addWorksheet('Curva ABC Produtos')
             ws.addRow(['#', 'Produto', 'Qtd. Vendida', 'Receita', 'Comissão %', 'Valor da Comissão', 'Curva', 'Vendedor'])
-            abcData.forEach(r => ws.addRow([r.position, r.productName, r.qtdSold, r.totalRevenue, `${r.commissionPercent.toFixed(1)}%`, r.commissionValue, r.curve, r.employeeName]))
+            abcData.forEach(r => ws.addRow([r.position, r.productName, r.qtdSold, r.totalRevenue, `${r.commissionPercent.toFixed(2)}%`, r.commissionValue, r.curve, r.employeeName]))
             ws.getRow(1).font = { bold: true }
             wb.xlsx.writeBuffer().then(buf => {
                 const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
@@ -155,7 +156,7 @@ function SalesReport() {
             title: 'Curva ABC - Produtos',
             subtitle: `Período: ${abcDateRange[0].format('DD/MM/YYYY')} a ${abcDateRange[1].format('DD/MM/YYYY')}`,
             headers: ['#', 'Produto', 'Qtd.', 'Receita', 'Comissão %', 'Valor Comissão', 'Curva', 'Vendedor'],
-            rows: abcData.map(r => [r.position, r.productName, r.qtdSold, formatCurrency(r.totalRevenue), `${r.commissionPercent.toFixed(1)}%`, formatCurrency(r.commissionValue), r.curve, r.employeeName]),
+            rows: abcData.map(r => [r.position, r.productName, r.qtdSold, formatCurrency(r.totalRevenue), `${r.commissionPercent.toFixed(2)}%`, formatCurrency(r.commissionValue), r.curve, r.employeeName]),
             filename: 'curva-abc-produtos.pdf',
         })
     }
@@ -166,7 +167,7 @@ function SalesReport() {
             title: 'Curva ABC - Serviços',
             subtitle: `Período: ${svcDateRange[0].format('DD/MM/YYYY')} a ${svcDateRange[1].format('DD/MM/YYYY')}`,
             headers: ['#', 'Serviço', 'Qtd.', 'Receita', 'Comissão %', 'Valor Comissão', 'Curva', 'Profissional'],
-            rows: svcData.map(r => [r.position, r.serviceName, r.qtdSold, formatCurrency(r.totalRevenue), `${r.commissionPercent.toFixed(1)}%`, formatCurrency(r.commissionValue), r.curve, r.employeeName]),
+            rows: svcData.map(r => [r.position, r.serviceName, r.qtdSold, formatCurrency(r.totalRevenue), `${r.commissionPercent.toFixed(2)}%`, formatCurrency(r.commissionValue), r.curve, r.employeeName]),
             filename: 'curva-abc-servicos.pdf',
         })
     }
@@ -177,7 +178,7 @@ function SalesReport() {
             const wb = new Workbook()
             const ws = wb.addWorksheet('Curva ABC Serviços')
             ws.addRow(['#', 'Serviço', 'Qtd. Vendida', 'Receita', 'Comissão %', 'Valor da Comissão', 'Curva', 'Profissional'])
-            svcData.forEach(r => ws.addRow([r.position, r.serviceName, r.qtdSold, r.totalRevenue, `${r.commissionPercent.toFixed(1)}%`, r.commissionValue, r.curve, r.employeeName]))
+            svcData.forEach(r => ws.addRow([r.position, r.serviceName, r.qtdSold, r.totalRevenue, `${r.commissionPercent.toFixed(2)}%`, r.commissionValue, r.curve, r.employeeName]))
             ws.getRow(1).font = { bold: true }
             wb.xlsx.writeBuffer().then(buf => {
                 const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
@@ -730,7 +731,7 @@ function SalesReport() {
             sorter: (a, b) => a.commissionPercent - b.commissionPercent,
             render: (v: number) => (
                 <span style={{ fontWeight: 600 }}>
-                    {v.toFixed(1)}%
+                    {v.toFixed(2)}%
                 </span>
             ),
         },
@@ -817,7 +818,7 @@ function SalesReport() {
             sorter: (a, b) => a.commissionPercent - b.commissionPercent,
             render: (v: number) => (
                 <span style={{ fontWeight: 600 }}>
-                    {v.toFixed(1)}%
+                    {v.toFixed(2)}%
                 </span>
             ),
         },
@@ -953,6 +954,13 @@ function SalesReport() {
             align: 'right',
             render: (v: number) => <span style={{ fontWeight: 600, color: '#f59e0b' }}>{formatCurrency(v)}</span>,
             sorter: (a, b) => a.amount - b.amount,
+        },
+        {
+            title: 'Saldo em Haver',
+            dataIndex: 'amountRemaining',
+            align: 'right',
+            render: (v: number) => <span style={{ fontWeight: 600, color: v > 0 ? '#EF4444' : '#12B76A' }}>{formatCurrency(v)}</span>,
+            sorter: (a, b) => a.amountRemaining - b.amountRemaining,
         },
         {
             title: 'Origem',
@@ -1147,7 +1155,7 @@ function SalesReport() {
                         <div className="kpi-grid" style={{ marginBottom: 20 }}>
                             <CardKPI title="Receita Total" value={formatCurrency(abcTotalRevenue)} icon={<DollarOutlined />} variant="green" />
                             <CardKPI title="Total Produtos" value={abcTotalProducts} icon={<ShoppingOutlined />} variant="blue" />
-                            <CardKPI title="Margem Média" value={`${abcAvgMargin.toFixed(1)}%`} icon={<BarChartOutlined />} variant="orange" />
+                            <CardKPI title="Margem Média" value={`${abcAvgMargin.toFixed(2)}%`} icon={<BarChartOutlined />} variant="orange" />
                         </div>
 
                         {/* Product Filters */}
@@ -1249,7 +1257,7 @@ function SalesReport() {
                         <div className="kpi-grid" style={{ marginBottom: 20 }}>
                             <CardKPI title="Receita Total" value={formatCurrency(svcTotalRevenue)} icon={<DollarOutlined />} variant="green" />
                             <CardKPI title="Total Serviços" value={svcTotalServices} icon={<CustomerServiceOutlined />} variant="blue" />
-                            <CardKPI title="Margem Média" value={`${svcAvgMargin.toFixed(1)}%`} icon={<BarChartOutlined />} variant="orange" />
+                            <CardKPI title="Margem Média" value={`${svcAvgMargin.toFixed(2)}%`} icon={<BarChartOutlined />} variant="orange" />
                         </div>
 
                         {/* Service Filters */}

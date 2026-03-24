@@ -1,6 +1,6 @@
 import { ChangeEvent, FC, useCallback, useEffect, useRef, useState } from 'react'
 import { AutoComplete, Button, Card, Form, Input, InputNumber, Popconfirm, Select, Space, Alert, Radio, Divider, Tooltip, Spin, Switch, Modal, Tag } from 'antd'
-import { InfoCircleOutlined, SearchOutlined, SyncOutlined } from '@ant-design/icons'
+import { InfoCircleOutlined, PlusOutlined, SearchOutlined, SyncOutlined } from '@ant-design/icons'
 import { PAGE_TITLES } from '@/constants/page-titles'
 import { IItemModel } from '@/server/model/item'
 import { IItemProductModel, itemProductSchema } from '@/server/model/item-product-item'
@@ -156,6 +156,55 @@ export const Content: FC<ContentProps> = ({
   const [recurrenceDays, setRecurrenceDays] = useState<number | null>((product as any)?.recurrence_days ?? null)
   const [recurrenceMessage, setRecurrenceMessage] = useState<string>((product as any)?.recurrence_message ?? '')
   const recurrenceTextareaRef = useRef<HTMLTextAreaElement>(null)
+
+  // Product sections
+  const [sections, setSections] = useState<{ id: string; name: string }[]>([])
+  const [loadingSections, setLoadingSections] = useState(false)
+  const [newSectionModalOpen, setNewSectionModalOpen] = useState(false)
+  const [newSectionName, setNewSectionName] = useState('')
+  const [savingNewSection, setSavingNewSection] = useState(false)
+
+  const loadSections = useCallback(async () => {
+    const tenantId = await getTenantId()
+    if (!tenantId) return
+    setLoadingSections(true)
+    try {
+      const { data, error } = await supabase
+        .from('product_sections')
+        .select('id, name')
+        .eq('tenant_id', tenantId)
+        .order('name', { ascending: true })
+      if (!error && data) setSections(data)
+    } finally {
+      setLoadingSections(false)
+    }
+  }, [])
+
+  useEffect(() => { loadSections() }, [loadSections])
+
+  const handleCreateSectionInline = async () => {
+    const name = newSectionName.trim()
+    if (!name) return
+    const tenantId = await getTenantId()
+    if (!tenantId) return
+    setSavingNewSection(true)
+    try {
+      const { data, error } = await supabase
+        .from('product_sections')
+        .insert({ tenant_id: tenantId, name })
+        .select('id, name')
+        .single()
+      if (error) throw error
+      setSections(prev => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)))
+      productForm.setFieldsValue({ section_id: data.id })
+      setNewSectionName('')
+      setNewSectionModalOpen(false)
+    } catch (err: any) {
+      console.error('Erro ao criar seção:', err)
+    } finally {
+      setSavingNewSection(false)
+    }
+  }
 
   function insertRecurrenceTag(tag: string) {
     const textarea = recurrenceTextareaRef.current
@@ -565,6 +614,7 @@ export const Content: FC<ContentProps> = ({
         code: autoCode,
         name: values.name,
         description: values.description || null,
+        section_id: values.section_id || null,
         yield_quantity: yieldQty,
         yield_unit: values.unitType || 'UN',
         unit: values.unitType || 'UN',
@@ -832,21 +882,6 @@ export const Content: FC<ContentProps> = ({
       width: '22%',
     },
     {
-      title: 'Qtd. em estoque',
-      key: 'stockQuantity',
-      width: '14%',
-      render: (_, record: IItemProductModel & { stockQuantity?: number | null; stockUnit?: string }) => {
-        const qty = record.stockQuantity
-        const u = getUnitLabel(record.stockUnit || record.unitType)
-        if (qty == null) return <span style={{ color: '#64748b', fontSize: 12 }}>—</span>
-        return (
-          <span style={{ fontSize: 13 }}>
-            {Number(qty) % 1 === 0 ? Number(qty) : Number(qty).toFixed(2)} {u}
-          </span>
-        )
-      },
-    },
-    {
       title: 'Qtd. por unidade',
       dataIndex: 'quantity',
       key: 'quantity',
@@ -1026,17 +1061,28 @@ export const Content: FC<ContentProps> = ({
               <Input onChange={(e) => handleProductNameChange(e.target.value)} />
             </Form.Item>
 
-            <Form.Item
-              name="description"
-              label="Sessão"
-              rules={[{ required: true, message: REQUIRED_INPUT_MESSAGE }]}
-            >
-              <Input onChange={(e) => productForm.setFieldsValue({ description: capitalizeFirst(e.target.value) })} />
+            <Form.Item label="Seção" style={{ marginBottom: 0 }}>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Form.Item name="section_id" noStyle>
+                  <Select
+                    allowClear
+                    loading={loadingSections}
+                    placeholder="Selecionar seção"
+                    style={{ flex: 1 }}
+                    options={sections.map(s => ({ value: s.id, label: s.name }))}
+                  />
+                </Form.Item>
+                <Button
+                  icon={<PlusOutlined />}
+                  onClick={() => setNewSectionModalOpen(true)}
+                  title="Criar nova seção"
+                />
+              </div>
             </Form.Item>
 
             <Form.Item
               name="quantity"
-              label="Quantidade de produção"
+              label={productType === 'REVENDA' ? 'Adicionar quantidade no estoque' : 'Quantidade de produção'}
               rules={[{ required: true, message: REQUIRED_INPUT_MESSAGE }]}
             >
               <Input type="number" min="1" step="1" />
@@ -1190,6 +1236,25 @@ export const Content: FC<ContentProps> = ({
                   />
                 </div>
               </div>
+            </Modal>
+
+            {/* Inline new section modal */}
+            <Modal
+              title="Nova Seção"
+              open={newSectionModalOpen}
+              onOk={handleCreateSectionInline}
+              onCancel={() => { setNewSectionModalOpen(false); setNewSectionName('') }}
+              okText="Criar"
+              okButtonProps={{ loading: savingNewSection }}
+              width={360}
+            >
+              <Input
+                placeholder="Nome da seção"
+                value={newSectionName}
+                onChange={e => setNewSectionName(e.target.value)}
+                onPressEnter={handleCreateSectionInline}
+                maxLength={80}
+              />
             </Modal>
           </div>
         </Form>

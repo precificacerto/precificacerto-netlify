@@ -134,7 +134,7 @@ function formatBRL(value: number): string {
 
 function formatPct(value: number): string {
   if (value === 0) return '-'
-  return `${value.toFixed(1)}%`
+  return `${value.toFixed(2)}%`
 }
 
 /** Returns true if the given period column is fully closed (current date has passed the last day of the period in the selected year) */
@@ -615,7 +615,7 @@ export default function DfcPage() {
       const totalStr = showTotal
         ? (row.total !== 0 ? row.total.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—')
         : null
-      const pctStr = row.pctOfRL ? `${(row.pctOfRL.total).toFixed(1)}%` : '—'
+      const pctStr = row.pctOfRL ? `${(row.pctOfRL.total).toFixed(2)}%` : '—'
       return [row.label, ...periodValues, ...(totalStr !== null ? [totalStr] : []), pctStr]
     })
     const regimeLabel = getVariantLabel(taxRegime)

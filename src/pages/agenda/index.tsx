@@ -43,7 +43,14 @@ const PAYMENT_METHODS = [
     { value: 'CARTAO_CREDITO', label: 'Cartão Crédito' }, { value: 'CARTAO_DEBITO', label: 'Cartão Débito' },
     { value: 'TRANSFERENCIA', label: 'Transferência' }, { value: 'BOLETO', label: 'Boleto' },
     { value: 'CHEQUE', label: 'Cheque' },
+    { value: 'CHEQUE_PRE_DATADO', label: 'Cheque Pré-datado' },
     { value: 'LANCAMENTOS_A_RECEBER', label: 'Lançamentos a Receber' },
+]
+
+const CHEQUE_PRE_DATADO_CONDITIONS = [
+    { value: '30', label: '30 dias' },
+    { value: '30_60', label: '30/60 dias' },
+    { value: '30_60_90', label: '30/60/90 dias' },
 ]
 
 // Horários de 00:00 até 24:00 (intervalos de 30 min)
@@ -628,6 +635,31 @@ function Schedule() {
                         status: 'PENDING',
                         created_by: createdBy,
                     })
+                } else if (v.payment_method === 'CHEQUE_PRE_DATADO') {
+                    // Cheque pré-datado: gera cash_entries com paid_date = NULL e due_dates futuros
+                    const chequeCondition = v.cheque_condition || '30'
+                    const baseDate = dayjs(payEvt.start_time)
+                    type ChequeEntry = { days: number; fraction: number }
+                    const conditionMap: Record<string, ChequeEntry[]> = {
+                        '30': [{ days: 30, fraction: 1 }],
+                        '30_60': [{ days: 30, fraction: 0.5 }, { days: 60, fraction: 0.5 }],
+                        '30_60_90': [{ days: 30, fraction: 1 / 3 }, { days: 60, fraction: 1 / 3 }, { days: 90, fraction: 1 / 3 }],
+                    }
+                    const slices = conditionMap[chequeCondition] || conditionMap['30']
+                    const chequeEntries = slices.map((s, idx) => ({
+                        tenant_id: tid, type: 'INCOME',
+                        description: slices.length > 1
+                            ? `${descricaoCompleta} (${idx + 1}/${slices.length})`
+                            : descricaoCompleta,
+                        amount: Math.round((totalRevenue * s.fraction) * 100) / 100,
+                        due_date: baseDate.add(s.days, 'day').format('YYYY-MM-DD'),
+                        paid_date: null,
+                        payment_method: v.payment_method,
+                        origin_type: 'SALE', origin_id: payEvt.id,
+                        contact_id: payEvt.customer_id || null,
+                        created_by: createdBy,
+                    }))
+                    await sbp.from('cash_entries').insert(chequeEntries)
                 } else if (v.payment_method === 'CARTAO_CREDITO') {
                     // Cartão de crédito: receita nunca no mês atual — parcelas ou 1x a partir do próximo mês
                     const amountPerInstallment = totalRevenue / numInstallments
@@ -1573,6 +1605,15 @@ function Schedule() {
                                     </Select>
                                 </Form.Item>
                             )}
+                            {payMethod === 'CHEQUE_PRE_DATADO' && (
+                                <Form.Item name="cheque_condition" label="Condição de Cheque" rules={[{ required: true, message: 'Selecione a condição' }]} style={{ marginBottom: 16 }}>
+                                    <Select size="large" placeholder="Selecione a condição">
+                                        {CHEQUE_PRE_DATADO_CONDITIONS.map(c => (
+                                            <Select.Option key={c.value} value={c.value}>{c.label}</Select.Option>
+                                        ))}
+                                    </Select>
+                                </Form.Item>
+                            )}
                             <div style={{ marginBottom: 16 }}>
                                 <Checkbox checked={hasDiscount} onChange={(e) => { setHasDiscount(e.target.checked); if (!e.target.checked) payForm.setFieldsValue({ discount_percent: 0, discount_value: 0 }) }}>
                                     <span style={{ fontWeight: 600 }}><PercentageOutlined style={{ marginRight: 4 }} />Conceder Desconto</span>
@@ -1596,11 +1637,11 @@ function Schedule() {
                                 </Checkbox>
                                 {isSplitPay && (
                                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 8, padding: 12, background: '#EFF6FF', borderRadius: 8, border: '1px solid #BFDBFE' }}>
-                                        <Form.Item name="amount_paid" label="Valor pago agora (R$)" style={{ margin: 0 }}>
+                                        <Form.Item name="amount_paid" label={<span style={{ color: '#000' }}>Valor pago agora (R$)</span>} style={{ margin: 0 }}>
                                             <InputNumber style={{ width: '100%' }} min={0 as number} step={0.5} precision={2}
                                                 formatter={(v) => `${v}`.replace('.', ',')} parser={(v) => Number((v || '0').replace(',', '.'))} />
                                         </Form.Item>
-                                        <Form.Item name="remaining_due_date" label="Data restante" style={{ margin: 0 }}>
+                                        <Form.Item name="remaining_due_date" label={<span style={{ color: '#000' }}>Data restante</span>} style={{ margin: 0 }}>
                                             <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" placeholder="Quando paga o resto" />
                                         </Form.Item>
                                     </div>

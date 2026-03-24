@@ -678,7 +678,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                                 </div>
                                 {pricing.sellingPrice > 0 && (
                                     <div style={{ fontSize: 11, color: '#94a3b8' }}>
-                                        Margem: {profitPercent.toFixed(1)}%
+                                        Margem: {profitPercent.toFixed(2)}%
                                     </div>
                                 )}
                             </div>

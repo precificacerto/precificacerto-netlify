@@ -33,7 +33,7 @@ export function useProducts() {
     async () => {
       const { data, error } = await supabase
         .from('products')
-        .select('*, pricing_calculations(sale_price_total, sale_price_per_unit)')
+        .select('*, pricing_calculations(sale_price_total, sale_price_per_unit, pct_profit_margin)')
         .order('name')
       if (error) throw error
       return data

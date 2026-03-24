@@ -8,7 +8,7 @@ import { useRouter } from 'next/router'
 import { ROUTES } from '@/constants/routes'
 import {
   PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined,
-  ExclamationCircleOutlined, MinusCircleOutlined,
+  ExclamationCircleOutlined, MinusCircleOutlined, AppstoreAddOutlined,
 } from '@ant-design/icons'
 import { supabase } from '@/supabase/client'
 import { useProducts, useStock } from '@/hooks/use-data.hooks'
@@ -38,6 +38,7 @@ type ProductRow = {
   status: string
   stock_quantity: number | null
   stock_unit: string
+  profit_percent: number | null
 }
 
 type RenewProductOption = {
@@ -76,6 +77,62 @@ function Products() {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [deletingProduct, setDeletingProduct] = useState(false)
   const effectiveTenantId = contextTenantId ?? currentUser?.tenant_id
+
+  // Product sections state
+  const [sectionModalOpen, setSectionModalOpen] = useState(false)
+  const [sections, setSections] = useState<{ id: string; name: string }[]>([])
+  const [loadingSections, setLoadingSections] = useState(false)
+  const [newSectionName, setNewSectionName] = useState('')
+  const [savingSection, setSavingSection] = useState(false)
+
+  const loadSections = async () => {
+    if (!effectiveTenantId) return
+    setLoadingSections(true)
+    try {
+      const { data, error } = await supabase
+        .from('product_sections')
+        .select('id, name')
+        .eq('tenant_id', effectiveTenantId)
+        .order('name', { ascending: true })
+      if (!error && data) setSections(data)
+    } finally {
+      setLoadingSections(false)
+    }
+  }
+
+  const handleCreateSection = async () => {
+    const name = newSectionName.trim()
+    if (!name) {
+      message.warning('Informe o nome da seção.')
+      return
+    }
+    if (!effectiveTenantId) return
+    setSavingSection(true)
+    try {
+      const { error } = await supabase
+        .from('product_sections')
+        .insert({ tenant_id: effectiveTenantId, name })
+      if (error) throw error
+      setNewSectionName('')
+      await loadSections()
+      message.success('Seção criada!')
+    } catch (err: any) {
+      message.error(`Erro ao criar seção: ${err.message}`)
+    } finally {
+      setSavingSection(false)
+    }
+  }
+
+  const handleDeleteSection = async (id: string) => {
+    try {
+      const { error } = await supabase.from('product_sections').delete().eq('id', id)
+      if (error) throw error
+      setSections(prev => prev.filter(s => s.id !== id))
+      message.success('Seção removida.')
+    } catch (err: any) {
+      message.error(`Erro ao remover seção: ${err.message}`)
+    }
+  }
 
   const stockByProductId = useMemo(() => {
     const map: Record<string, { qty: number; unit: string }> = {}
@@ -121,6 +178,7 @@ function Products() {
         status: p.status || 'ACTIVE',
         stock_quantity: stock ? stock.qty : null,
         stock_unit: stock?.unit || p.unit || 'UN',
+        profit_percent: pricing?.pct_profit_margin != null ? Number(pricing.pct_profit_margin) : null,
       }
     })
   }, [rawProducts, stockByProductId])
@@ -558,12 +616,11 @@ function Products() {
       title: 'Margem de Lucro',
       key: 'profit_percent',
       width: 130,
-      render: (_: any, r: any) => {
-        const pc = r.pricing_calculations?.[0]
-        const margin = Number(pc?.profit_percent ?? r.profit_percent)
-        if (!margin && margin !== 0) return <span style={{ fontSize: 13, color: '#94a3b8' }}>—</span>
+      render: (_: any, r: ProductRow) => {
+        const margin = r.profit_percent
+        if (margin == null) return <span style={{ fontSize: 13, color: '#94a3b8' }}>—</span>
         const color = margin >= 30 ? '#12B76A' : margin >= 15 ? '#F79009' : '#F04438'
-        return <span style={{ fontWeight: 600, color, fontSize: 13 }}>{margin.toFixed(1)}%</span>
+        return <span style={{ fontWeight: 600, color, fontSize: 13 }}>{margin.toFixed(2)}%</span>
       },
     },
     {
@@ -621,6 +678,12 @@ function Products() {
         <Space>
           {canEdit(MODULES.PRODUCTS) && (
             <>
+              <Button
+                icon={<AppstoreAddOutlined />}
+                onClick={() => { setSectionModalOpen(true); loadSections() }}
+              >
+                Criar Seção
+              </Button>
               <Button type="primary" icon={<PlusOutlined />} onClick={() => router.push(ROUTES.NEW_PRODUCT)}>
                 Adicionar produto
               </Button>
@@ -628,6 +691,50 @@ function Products() {
           )}
         </Space>
       </div>
+
+      {/* Sections Modal */}
+      <Modal
+        title="Gerenciar Seções"
+        open={sectionModalOpen}
+        onCancel={() => { setSectionModalOpen(false); setNewSectionName('') }}
+        footer={null}
+        width={480}
+      >
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Input
+              placeholder="Nome da nova seção"
+              value={newSectionName}
+              onChange={e => setNewSectionName(e.target.value)}
+              onPressEnter={handleCreateSection}
+              maxLength={80}
+            />
+            <Button type="primary" icon={<PlusOutlined />} loading={savingSection} onClick={handleCreateSection}>
+              Criar
+            </Button>
+          </div>
+        </div>
+        {loadingSections ? (
+          <div style={{ textAlign: 'center', padding: 16 }}><Spin /></div>
+        ) : sections.length === 0 ? (
+          <Empty description="Nenhuma seção cadastrada" />
+        ) : (
+          <div style={{ maxHeight: 320, overflowY: 'auto' }}>
+            {sections.map(s => (
+              <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid #f0f0f0' }}>
+                <span>{s.name}</span>
+                <Button
+                  type="text"
+                  danger
+                  size="small"
+                  icon={<DeleteOutlined />}
+                  onClick={() => handleDeleteSection(s.id)}
+                />
+              </div>
+            ))}
+          </div>
+        )}
+      </Modal>
 
       <Drawer
         title="Renovar quantidade"

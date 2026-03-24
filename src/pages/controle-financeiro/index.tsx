@@ -21,7 +21,6 @@ import {
 import { useAuth } from '@/hooks/use-auth.hook'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import {
-    EXPENSE_GROUP_OPTIONS,
     getExpenseGroupLabel,
     getExpenseGroupColor,
     type ExpenseGroupKey,
@@ -203,6 +202,7 @@ const PAYMENT_METHODS = [
     { value: 'BOLETO', label: '📄 Boleto' },
     { value: 'TRANSFERENCIA', label: '🏦 Transferência' },
     { value: 'CHEQUE', label: '🧾 Cheque' },
+    { value: 'CHEQUE_PRE_DATADO', label: '🗓️ Cheque Pré-datado' },
 ]
 
 function getOriginLabel(origin: string) {
@@ -229,6 +229,10 @@ export default function ControleFinanceiro() {
     const [month, setMonth] = useState(dayjs())
     const [typeFilter, setTypeFilter] = useState<'ALL' | 'INCOME' | 'EXPENSE'>('ALL')
 
+    // Item 12: overdue alerts state
+    const [overdueExpenses, setOverdueExpenses] = useState<{ count: number; total: number } | null>(null)
+    const [overdueIncome, setOverdueIncome] = useState<{ count: number; total: number } | null>(null)
+
     const [drawerOpen, setDrawerOpen] = useState(false)
     const [drawerType, setDrawerType] = useState<'INCOME' | 'EXPENSE'>('EXPENSE')
     const [expenseAmount, setExpenseAmount] = useState('')
@@ -242,6 +246,9 @@ export default function ControleFinanceiro() {
 
     const startOfMonth = month.startOf('month').format('YYYY-MM-DD')
     const endOfMonth = month.endOf('month').format('YYYY-MM-DD')
+
+    // Item 14: Brazil timezone date helper
+    const getTodayBR = () => new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }))
 
     const fetchData = async () => {
         setLoading(true)
@@ -257,7 +264,7 @@ export default function ControleFinanceiro() {
                     .order('due_date', { ascending: false }),
                 sbf.from('employees').select('id, name, salary').eq('status', 'ACTIVE').eq('is_active', true),
                 tenantId
-                    ? sbf.from('fixed_expenses').select('id, description, amount, due_day').eq('tenant_id', tenantId).eq('is_active', true)
+                    ? sbf.from('fixed_expenses').select('id, description, amount, due_day, expense_category, expense_group').eq('tenant_id', tenantId).eq('is_active', true)
                     : Promise.resolve({ data: [] }),
                 tenantId
                     ? sbf.from('tenant_settings').select('tax_regime').eq('tenant_id', tenantId).maybeSingle()
@@ -273,6 +280,50 @@ export default function ControleFinanceiro() {
             setLoading(false)
         }
     }
+
+    // Item 12: fetch overdue alerts on mount
+    useEffect(() => {
+        const fetchOverdue = async () => {
+            try {
+                const sbf = supabase as any
+                const tenantId = await getTenantId()
+                if (!tenantId) return
+                const todayBR = getTodayBR()
+                const todayStr = `${todayBR.getFullYear()}-${String(todayBR.getMonth() + 1).padStart(2, '0')}-${String(todayBR.getDate()).padStart(2, '0')}`
+
+                const [{ data: expRows }, { data: incRows }] = await Promise.all([
+                    sbf.from('cash_entries')
+                        .select('amount')
+                        .eq('type', 'EXPENSE')
+                        .is('paid_date', null)
+                        .lt('due_date', todayStr)
+                        .eq('tenant_id', tenantId)
+                        .eq('is_active', true),
+                    sbf.from('cash_entries')
+                        .select('amount')
+                        .eq('type', 'INCOME')
+                        .is('paid_date', null)
+                        .lt('due_date', todayStr)
+                        .eq('tenant_id', tenantId)
+                        .eq('is_active', true),
+                ])
+
+                if (expRows && expRows.length > 0) {
+                    setOverdueExpenses({ count: expRows.length, total: expRows.reduce((s: number, r: any) => s + Number(r.amount || 0), 0) })
+                } else {
+                    setOverdueExpenses(null)
+                }
+                if (incRows && incRows.length > 0) {
+                    setOverdueIncome({ count: incRows.length, total: incRows.reduce((s: number, r: any) => s + Number(r.amount || 0), 0) })
+                } else {
+                    setOverdueIncome(null)
+                }
+            } catch {
+                // silently ignore overdue fetch errors
+            }
+        }
+        fetchOverdue()
+    }, [])
 
     useEffect(() => { fetchData() }, [month])
 
@@ -342,61 +393,42 @@ export default function ControleFinanceiro() {
                 })
                 messageApi.success('Lançamento salvo!')
             } else {
+                // Item 13: reworked expense logic with parcelas
                 const amountNum = parseCurrencyFn(expenseAmount)
                 if (amountNum <= 0) { messageApi.warning('Informe o valor da despesa.'); return }
                 if (!values.expense_category) { messageApi.warning('Selecione a categoria.'); return }
-                if (!values.expense_group) { messageApi.warning('Selecione o tipo de despesa.'); return }
 
                 const desc = values.expense_description
                     ? `${values.expense_category} — ${values.expense_description}`
                     : values.expense_category
 
-                const recurrence: string = values.recurrence || 'MONTHLY'
-                const now = new Date()
-                const curYear = now.getFullYear()
-                const curMonth = now.getMonth()
+                const autoGroup = activeGroupForCategory(values.expense_category) || 'DESPESA_FIXA'
+                const parcelas: number = Math.max(1, values.parcelas || 1)
+                const valorParcela = parcelas === 1 ? amountNum : amountNum / parcelas
 
-                let startY = curYear, startM = curMonth
-                if (values.start_month) { startY = values.start_month.year(); startM = values.start_month.month() }
-
-                let endY = curYear, endM = 11
-                if (values.end_month) { endY = values.end_month.year(); endM = values.end_month.month() }
+                // Item 14: use Brazil timezone for "today" default
+                const todayBR = getTodayBR()
+                let startDate: Date
+                if (values.data_inicio) {
+                    startDate = values.data_inicio.toDate()
+                } else {
+                    startDate = new Date(todayBR.getFullYear(), todayBR.getMonth(), 1)
+                }
 
                 const entries: any[] = []
-
-                if (recurrence === 'ONCE') {
+                for (let i = 0; i < parcelas; i++) {
+                    const dueDate = new Date(startDate.getFullYear(), startDate.getMonth() + i, startDate.getDate())
+                    const dueDateStr = `${dueDate.getFullYear()}-${String(dueDate.getMonth() + 1).padStart(2, '0')}-${String(dueDate.getDate()).padStart(2, '0')}`
                     entries.push({
-                        tenant_id, type: 'EXPENSE', origin_type: 'MANUAL', recurrence_type: 'ONCE',
-                        description: desc, amount: amountNum,
-                        due_date: `${startY}-${String(startM + 1).padStart(2, '0')}-01`,
-                        expense_group: values.expense_group,
+                        tenant_id,
+                        type: 'EXPENSE',
+                        origin_type: 'MANUAL',
+                        recurrence_type: parcelas === 1 ? 'ONCE' : 'MONTHLY',
+                        description: parcelas > 1 ? `${desc} (${i + 1}/${parcelas})` : desc,
+                        amount: valorParcela,
+                        due_date: dueDateStr,
+                        expense_group: autoGroup,
                     })
-                } else if (recurrence === 'WEEKLY' || recurrence === 'BIWEEKLY') {
-                    const daysStep = recurrence === 'WEEKLY' ? 7 : 14
-                    const cursor = new Date(startY, startM, 1)
-                    const endDate = new Date(endY, endM + 1, 0)
-                    while (cursor <= endDate) {
-                        entries.push({
-                            tenant_id, type: 'EXPENSE', origin_type: 'FIXED_EXPENSE', recurrence_type: recurrence,
-                            description: desc, amount: amountNum,
-                            due_date: cursor.toISOString().substring(0, 10),
-                            expense_group: values.expense_group,
-                        })
-                        cursor.setDate(cursor.getDate() + daysStep)
-                    }
-                } else {
-                    const monthStep = recurrence === 'QUARTERLY' ? 3 : 1
-                    let y = startY, m = startM
-                    while (y < endY || (y === endY && m <= endM)) {
-                        entries.push({
-                            tenant_id, type: 'EXPENSE', origin_type: 'FIXED_EXPENSE', recurrence_type: recurrence,
-                            description: desc, amount: amountNum,
-                            due_date: `${y}-${String(m + 1).padStart(2, '0')}-01`,
-                            expense_group: values.expense_group,
-                        })
-                        m += monthStep
-                        while (m > 11) { m -= 12; y++ }
-                    }
                 }
 
                 if (entries.length > 0) {
@@ -610,6 +642,26 @@ export default function ControleFinanceiro() {
                 <CardKPI title="Saldo do Mês" value={formatCurrency(balance)} icon={<DollarOutlined />} variant={balance >= 0 ? 'green' : 'red'} />
                 <CardKPI title="Despesas Fixas" value={formatCurrency(totalFixed)} icon={<BankOutlined />} variant="orange" />
             </div>
+
+            {/* Item 12: Overdue alert banners */}
+            {overdueExpenses && overdueExpenses.count > 0 && (
+                <Alert
+                    type="warning"
+                    showIcon
+                    style={{ marginBottom: 8 }}
+                    message={`${overdueExpenses.count} despesa(s) vencida(s) sem pagamento`}
+                    description={`Total em atraso: ${formatCurrency(overdueExpenses.total)}. Estas despesas têm data de vencimento passada e ainda não foram pagas.`}
+                />
+            )}
+            {overdueIncome && overdueIncome.count > 0 && (
+                <Alert
+                    type="info"
+                    showIcon
+                    style={{ marginBottom: 8 }}
+                    message={`${overdueIncome.count} receita(s) vencida(s) não recebida(s)`}
+                    description={`Total a receber em atraso: ${formatCurrency(overdueIncome.total)}. Estas receitas têm data de vencimento passada e ainda não foram recebidas.`}
+                />
+            )}
 
             <Tabs
                 type="card"
@@ -857,15 +909,24 @@ export default function ControleFinanceiro() {
             />
 
             {/* Drawer: Novo Lançamento */}
-            <Drawer title="Novo Lançamento" width={460} open={drawerOpen} onClose={() => setDrawerOpen(false)}
-                extra={<Button type="primary" onClick={handleSaveEntry}>Salvar</Button>}>
-                <div style={{ marginBottom: 16 }}>
-                    <span style={{ fontWeight: 500, marginRight: 8 }}>Tipo:</span>
-                    <Select value={drawerType} onChange={(v) => { setDrawerType(v); form.resetFields(); setExpenseAmount('') }} style={{ width: 220 }}>
-                        <Select.Option value="EXPENSE">Despesa (Saída)</Select.Option>
-                        <Select.Option value="INCOME">Receita (Entrada)</Select.Option>
-                    </Select>
-                </div>
+            {/* Item 13: Type selector removed from drawer UI; toggle via button in extra */}
+            <Drawer
+                title={drawerType === 'INCOME' ? 'Nova Receita' : 'Nova Despesa'}
+                width={460}
+                open={drawerOpen}
+                onClose={() => setDrawerOpen(false)}
+                extra={
+                    <Space>
+                        <Button
+                            size="small"
+                            onClick={() => { setDrawerType(drawerType === 'INCOME' ? 'EXPENSE' : 'INCOME'); form.resetFields(); setExpenseAmount('') }}
+                        >
+                            {drawerType === 'INCOME' ? '→ Despesa' : '→ Receita'}
+                        </Button>
+                        <Button type="primary" onClick={handleSaveEntry}>Salvar</Button>
+                    </Space>
+                }
+            >
                 {drawerType === 'INCOME' ? (
                     <Form form={form} layout="vertical">
                         <Form.Item name="description" label="Descrição" rules={[{ required: true }]}>
@@ -887,8 +948,8 @@ export default function ControleFinanceiro() {
                         </Form.Item>
                     </Form>
                 ) : (
+                    /* Item 13: Reworked expense drawer — no type selector, no expense_group, parcelas logic */
                     <Form form={form} layout="vertical">
-                        <Alert type="info" showIcon message="Despesas recorrentes" description="A despesa será criada para cada mês no período informado. Se não informar datas, será criada do mês atual até dezembro." style={{ marginBottom: 16 }} />
                         <Form.Item name="expense_category" label="Categoria da Despesa" rules={[{ required: true, message: 'Selecione a categoria' }]}>
                             <Select
                                 placeholder="Selecione a categoria"
@@ -896,48 +957,29 @@ export default function ControleFinanceiro() {
                                 showSearch
                                 listHeight={320}
                                 filterOption={(input, option) => (option?.label as string || '').toLowerCase().includes(input.toLowerCase())}
-                                onChange={(val) => {
-                                    const g = activeGroupForCategory(val)
-                                    if (g) form.setFieldsValue({ expense_group: g })
-                                }}
                             />
-                        </Form.Item>
-                        <Form.Item name="expense_group" label="Tipo de Despesa" rules={[{ required: true, message: 'Selecione o tipo' }]}>
-                            <Select placeholder="Selecione o tipo" disabled={!!form.getFieldValue('expense_category')}>
-                                <Select.OptGroup label="Mão de Obra">
-                                    <Select.Option value="MAO_DE_OBRA_PRODUTIVA">Mão de Obra Produtiva</Select.Option>
-                                    <Select.Option value="MAO_DE_OBRA_ADMINISTRATIVA">Mão de Obra Administrativa</Select.Option>
-                                </Select.OptGroup>
-                                <Select.OptGroup label="Outros tipos">
-                                    {EXPENSE_GROUP_OPTIONS.filter(o => o.value !== 'MAO_DE_OBRA').map(o => (
-                                        <Select.Option key={o.value} value={o.value}>{o.label}</Select.Option>
-                                    ))}
-                                </Select.OptGroup>
-                            </Select>
                         </Form.Item>
                         <Form.Item name="expense_description" label="Descrição (opcional)">
                             <Input placeholder="Ex: Conta de luz da loja" />
                         </Form.Item>
-                        <Form.Item label="Valor mensal" required>
+                        <Form.Item label="Valor Total" required>
                             <Input prefix="R$" placeholder="0,00" value={expenseAmount} onChange={(e) => setExpenseAmount(currencyMaskFn(e.target.value))} />
                         </Form.Item>
-                        <Form.Item name="recurrence" label="Recorrência" initialValue="MONTHLY">
-                            <Select options={[
-                                { label: '1 única vez', value: 'ONCE' },
-                                { label: 'Semanal', value: 'WEEKLY' },
-                                { label: 'Quinzenal', value: 'BIWEEKLY' },
-                                { label: 'Mensal', value: 'MONTHLY' },
-                                { label: 'Trimestral', value: 'QUARTERLY' },
-                            ]} />
-                        </Form.Item>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                            <Form.Item name="start_month" label="Mês início">
-                                <DatePicker picker="month" style={{ width: '100%' }} format="MM/YYYY" placeholder={dayjs().format('MM/YYYY')} />
+                            <Form.Item name="parcelas" label="Número de parcelas" initialValue={1}>
+                                <InputNumber min={1} max={120} style={{ width: '100%' }} />
                             </Form.Item>
-                            <Form.Item name="end_month" label="Mês fim">
-                                <DatePicker picker="month" style={{ width: '100%' }} format="MM/YYYY" placeholder={`12/${dayjs().year()}`} />
+                            <Form.Item name="data_inicio" label="Data de início">
+                                <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" placeholder={dayjs().format('DD/MM/YYYY')} />
                             </Form.Item>
                         </div>
+                        <Alert
+                            type="info"
+                            showIcon
+                            message="Condição de Pagamento"
+                            description="Se parcelas = 1, será criado 1 lançamento. Se parcelas > 1, o valor total será dividido igualmente entre as parcelas com vencimento mensal a partir da data de início."
+                            style={{ marginTop: 8 }}
+                        />
                     </Form>
                 )}
             </Drawer>

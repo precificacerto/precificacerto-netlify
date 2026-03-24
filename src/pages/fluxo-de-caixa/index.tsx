@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import {
     Button, Select, DatePicker, Space, message,
-    Form, Input, InputNumber, Drawer, Alert, Modal,
+    Form, Input, InputNumber, Drawer, Modal,
 } from 'antd'
 import dayjs from 'dayjs'
 import { Layout } from '@/components/layout/layout.component'
@@ -15,9 +15,6 @@ import {
     CalendarOutlined, FileExcelOutlined,
 } from '@ant-design/icons'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
-import {
-    EXPENSE_GROUP_OPTIONS,
-} from '@/constants/cashier-category'
 
 import {
     exportCashFlowToExcel, exportCashFlowMultiMonth,
@@ -121,6 +118,7 @@ const PAYMENT_METHODS = [
     { value: 'BOLETO', label: '📄 Boleto' },
     { value: 'TRANSFERENCIA', label: '🏦 Transferência' },
     { value: 'CHEQUE', label: '🧾 Cheque' },
+    { value: 'CHEQUE_PRE_DATADO', label: '🗓️ Cheque Pré-datado' },
 ]
 
 // ── Categorias Simples Nacional ──
@@ -232,6 +230,8 @@ export default function CashFlow() {
     const [drawerOpen, setDrawerOpen] = useState(false)
     const [drawerType, setDrawerType] = useState<'INCOME' | 'EXPENSE'>('EXPENSE')
     const [expenseAmount, setExpenseAmount] = useState('')
+    const [selectedDay, setSelectedDay] = useState<number | null>(null)
+    const [loadingPrevBalance, setLoadingPrevBalance] = useState(false)
 
     const [form] = Form.useForm()
 
@@ -397,6 +397,13 @@ export default function CashFlow() {
         return <Layout title={PAGE_TITLES.CASH_FLOW}><div style={{ padding: 40, textAlign: 'center' }}>Você não tem acesso a este módulo.</div></Layout>
     }
 
+    // ── Filtered data for DFC (respects day selection from calendar) ──
+    const dfcData = useMemo(() => {
+        if (selectedDay === null) return data
+        const dayStr = String(selectedDay).padStart(2, '0')
+        return data.filter((e: any) => e.due_date && e.due_date.substring(8, 10) === dayStr)
+    }, [data, selectedDay])
+
     // ── Extrato structured data (mirrors Excel export format) ──
     const extratoData = useMemo(() => {
         // Income by label
@@ -416,7 +423,7 @@ export default function CashFlow() {
 
         let unmatchedTotal = 0
 
-        for (const entry of data) {
+        for (const entry of dfcData) {
             if (entry.type === 'INCOME') {
                 if (entry.payment_method === 'BOLETO' && !entry.paid_date) continue
                 const label = getIncomeLabel(entry)
@@ -447,7 +454,79 @@ export default function CashFlow() {
         const resultado = totalEntradas - totalSaidas
 
         return { incomeByLabel, expenseBySectionItem, sectionTotals, unmatchedTotal, totalEntradas, totalSaidas, resultado }
-    }, [data])
+    }, [dfcData])
+
+    // ── Daily totals for the calendar row (Item 9) ──
+    const dailyTotals = useMemo(() => {
+        const daysInMonth = month.daysInMonth()
+        const totals: Record<number, number> = {}
+        for (let d = 1; d <= daysInMonth; d++) totals[d] = 0
+        for (const entry of data) {
+            if (!entry.due_date) continue
+            const day = parseInt(entry.due_date.substring(8, 10), 10)
+            if (day < 1 || day > daysInMonth) continue
+            if (entry.type === 'INCOME') {
+                if (entry.payment_method === 'BOLETO' && !entry.paid_date) continue
+                totals[day] += getEffectiveIncomeAmount(entry)
+            } else {
+                totals[day] -= Number(entry.amount) || 0
+            }
+        }
+        return { totals, daysInMonth }
+    }, [data, month])
+
+    // ── Saldo do Mês Anterior (Item 11) ──
+    const handlePrevMonthBalance = async () => {
+        setLoadingPrevBalance(true)
+        try {
+            const tenant_id = await getTenantId()
+            if (!tenant_id) { messageApi.warning('Sessão inválida.'); return }
+
+            const prevMonth = month.subtract(1, 'month')
+            const prevStart = prevMonth.startOf('month').format('YYYY-MM-DD')
+            const prevEnd = prevMonth.endOf('month').format('YYYY-MM-DD')
+
+            const { data: prevEntries } = await (supabase as any)
+                .from('cash_entries')
+                .select('type, amount, payment_method, paid_date, sale_price, unit_sale_price, quantity')
+                .gte('due_date', prevStart)
+                .lte('due_date', prevEnd)
+                .eq('is_active', true)
+
+            let prevIncome = 0
+            let prevExpense = 0
+            for (const e of (prevEntries || [])) {
+                if (e.type === 'INCOME') {
+                    if (e.payment_method === 'BOLETO' && !e.paid_date) continue
+                    prevIncome += getEffectiveIncomeAmount(e)
+                } else {
+                    prevExpense += Number(e.amount) || 0
+                }
+            }
+            const balance = prevIncome - prevExpense
+
+            const currentMonthStr = month.format('YYYY-MM')
+            const due_date = `${currentMonthStr}-01`
+            const absBalance = Math.abs(balance)
+
+            const { error } = await (supabase as any).from('cash_entries').insert({
+                tenant_id,
+                type: balance >= 0 ? 'INCOME' : 'EXPENSE',
+                origin_type: 'MANUAL',
+                description: 'Saldo do mês anterior',
+                amount: absBalance,
+                due_date,
+                expense_group: balance < 0 ? 'DESPESA_FIXA' : undefined,
+            })
+            if (error) throw error
+            messageApi.success(`Saldo do mês anterior inserido: ${balance >= 0 ? '+' : '-'} ${formatCurrency(absBalance)}`)
+            await fetchData()
+        } catch {
+            messageApi.error('Erro ao inserir saldo do mês anterior.')
+        } finally {
+            setLoadingPrevBalance(false)
+        }
+    }
 
     // ── Salvar Novo ──
     const handleSaveEntry = async () => {
@@ -476,71 +555,32 @@ export default function CashFlow() {
                 const amountNum = parseCurrencyFn(expenseAmount)
                 if (amountNum <= 0) { messageApi.warning('Informe o valor da despesa.'); return }
                 if (!values.expense_category) { messageApi.warning('Selecione a categoria.'); return }
-                if (!values.expense_group) { messageApi.warning('Selecione o tipo de despesa.'); return }
 
                 const desc = values.expense_description
                     ? `${values.expense_category} — ${values.expense_description}`
                     : values.expense_category
 
-                const recurrence: string = values.recurrence || 'MONTHLY'
-                const now = new Date()
-                const curYear = now.getFullYear()
-                const curMonth = now.getMonth()
-
-                let startY = curYear, startM = curMonth
-                if (values.start_month) { startY = values.start_month.year(); startM = values.start_month.month() }
-
-                let endY = curYear, endM = 11
-                if (values.end_month) { endY = values.end_month.year(); endM = values.end_month.month() }
+                const parcelas: number = values.parcelas && values.parcelas >= 1 ? Math.floor(values.parcelas) : 1
+                const startDate: dayjs.Dayjs = values.expense_start_date || month.startOf('month')
+                const expenseGroup = activeGroupForCategory(values.expense_category) || 'DESPESA_FIXA'
+                const parcelValue = parcelas === 1 ? amountNum : Math.round((amountNum / parcelas) * 100) / 100
 
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const entries: any[] = []
 
-                if (recurrence === 'ONCE') {
+                for (let i = 0; i < parcelas; i++) {
+                    const due = startDate.add(i, 'month')
                     entries.push({
                         tenant_id,
                         type: 'EXPENSE' as const,
                         origin_type: 'MANUAL',
                         recurrence_type: 'ONCE',
-                        description: desc,
-                        amount: amountNum,
-                        due_date: `${startY}-${String(startM + 1).padStart(2, '0')}-01`,
-                        expense_group: values.expense_group,
+                        description: parcelas > 1 ? `${desc} (${i + 1}/${parcelas})` : desc,
+                        amount: parcelValue,
+                        due_date: due.format('YYYY-MM-DD'),
+                        expense_group: expenseGroup,
+                        expense_category: values.expense_category,
                     })
-                } else if (recurrence === 'WEEKLY' || recurrence === 'BIWEEKLY') {
-                    const daysStep = recurrence === 'WEEKLY' ? 7 : 14
-                    const cursor = new Date(startY, startM, 1)
-                    const endDate = new Date(endY, endM + 1, 0)
-                    while (cursor <= endDate) {
-                        entries.push({
-                            tenant_id,
-                            type: 'EXPENSE' as const,
-                            origin_type: 'FIXED_EXPENSE',
-                            recurrence_type: recurrence,
-                            description: desc,
-                            amount: amountNum,
-                            due_date: cursor.toISOString().substring(0, 10),
-                            expense_group: values.expense_group,
-                        })
-                        cursor.setDate(cursor.getDate() + daysStep)
-                    }
-                } else {
-                    const monthStep = recurrence === 'QUARTERLY' ? 3 : 1
-                    let y = startY, m = startM
-                    while (y < endY || (y === endY && m <= endM)) {
-                        entries.push({
-                            tenant_id,
-                            type: 'EXPENSE' as const,
-                            origin_type: 'FIXED_EXPENSE',
-                            recurrence_type: recurrence,
-                            description: desc,
-                            amount: amountNum,
-                            due_date: `${y}-${String(m + 1).padStart(2, '0')}-01`,
-                            expense_group: values.expense_group,
-                        })
-                        m += monthStep
-                        while (m > 11) { m -= 12; y++ }
-                    }
                 }
 
                 if (entries.length > 0) {
@@ -574,6 +614,9 @@ export default function CashFlow() {
                     {canEdit(MODULES.CASH_FLOW) && (
                         <>
                             <Button icon={<SyncOutlined />} onClick={handleGenerateRecurring}>Gerar Contas do Mês (Fixas/Salários)</Button>
+                            <Button loading={loadingPrevBalance} onClick={handlePrevMonthBalance}>
+                                Saldo do Mês Anterior
+                            </Button>
                             <Button type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setExpenseAmount(''); setDrawerType('EXPENSE'); setDrawerOpen(true) }}>
                                 + Novo Lançamento
                             </Button>
@@ -601,12 +644,60 @@ export default function CashFlow() {
                     </span>
                 </div>
 
+                {/* ── Daily Calendar Row (Item 9) ── */}
+                <div style={{ padding: '10px 20px', background: '#0f2035', borderBottom: '1px solid rgba(255,255,255,0.06)', overflowX: 'auto' }}>
+                    <div style={{ display: 'flex', gap: 4, minWidth: 'max-content' }}>
+                        {Array.from({ length: dailyTotals.daysInMonth }, (_, i) => i + 1).map((day) => {
+                            const val = dailyTotals.totals[day] || 0
+                            const isSelected = selectedDay === day
+                            const isPositive = val > 0
+                            const isNegative = val < 0
+                            return (
+                                <div
+                                    key={day}
+                                    onClick={() => setSelectedDay(prev => prev === day ? null : day)}
+                                    style={{
+                                        width: 44,
+                                        minWidth: 44,
+                                        padding: '4px 2px',
+                                        borderRadius: 6,
+                                        cursor: 'pointer',
+                                        textAlign: 'center',
+                                        background: isSelected
+                                            ? (isPositive ? '#166534' : isNegative ? '#7f1d1d' : '#1e3a5f')
+                                            : (isPositive ? '#166534aa' : isNegative ? '#7f1d1d88' : 'rgba(255,255,255,0.04)'),
+                                        border: isSelected ? '2px solid #60a5fa' : '2px solid transparent',
+                                        transition: 'all 0.15s',
+                                    }}
+                                >
+                                    <div style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600 }}>{day}</div>
+                                    <div style={{
+                                        fontSize: 10,
+                                        color: isPositive ? '#4ade80' : isNegative ? '#f87171' : '#475569',
+                                        fontVariantNumeric: 'tabular-nums',
+                                        whiteSpace: 'nowrap',
+                                        overflow: 'hidden',
+                                        textOverflow: 'ellipsis',
+                                    }}>
+                                        {val !== 0 ? (val > 0 ? '+' : '') + new Intl.NumberFormat('pt-BR', { notation: 'compact', maximumFractionDigits: 1 }).format(val) : '—'}
+                                    </div>
+                                </div>
+                            )
+                        })}
+                    </div>
+                    {selectedDay !== null && (
+                        <div style={{ marginTop: 6, fontSize: 12, color: '#94a3b8' }}>
+                            Filtrando por dia <strong style={{ color: '#60a5fa' }}>{selectedDay}</strong> — clique novamente para remover filtro
+                        </div>
+                    )}
+                </div>
+
                 {/* ── ENTRADAS ── */}
                 <div style={{ padding: '12px 20px', background: '#00B050', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ fontWeight: 700, color: '#fff', fontSize: 14, textTransform: 'uppercase', letterSpacing: 1 }}>Entradas</span>
                     <span style={{ fontWeight: 700, color: '#fff', fontSize: 14 }}>Valor</span>
                 </div>
-                {INCOME_LABELS.map((label, idx) => {
+                {INCOME_LABELS.filter(label => (extratoData.incomeByLabel[label] || 0) !== 0).map((label, idx) => {
                     const val = extratoData.incomeByLabel[label] || 0
                     return (
                         <div key={label} style={{
@@ -656,6 +747,12 @@ export default function CashFlow() {
                     const sectionTotal = extratoData.sectionTotals[section.header] || 0
                     const items = extratoData.expenseBySectionItem[section.header] || {}
 
+                    // Item 10: hide sections where all items are zero
+                    if (sectionTotal === 0) return null
+
+                    // Item 10: filter out zero-value items within section
+                    const visibleItems = section.items.filter(item => (items[item.label] || 0) !== 0)
+
                     return (
                         <div key={section.header}>
                             <div style={{
@@ -667,7 +764,7 @@ export default function CashFlow() {
                                     {sectionTotal > 0 ? formatCurrency(sectionTotal) : '—'}
                                 </span>
                             </div>
-                            {section.items.map((item, idx) => {
+                            {visibleItems.map((item, idx) => {
                                 const val = items[item.label] || 0
                                 return (
                                     <div key={item.label} style={{
@@ -768,7 +865,6 @@ export default function CashFlow() {
                     </Form>
                 ) : (
                     <Form form={form} layout="vertical">
-                        <Alert type="info" showIcon message="Despesas recorrentes" description="A despesa será criada para cada mês no período informado. Se não informar datas, será criada do mês atual até dezembro." style={{ marginBottom: 16 }} />
                         <Form.Item name="expense_category" label="Categoria da Despesa" rules={[{ required: true, message: 'Selecione a categoria' }]}>
                             <Select
                                 placeholder="Selecione a categoria"
@@ -776,39 +872,12 @@ export default function CashFlow() {
                                 showSearch
                                 listHeight={320}
                                 filterOption={(input, option) => (option?.label as string || '').toLowerCase().includes(input.toLowerCase())}
-                                onChange={(val) => {
-                                    const g = activeGroupForCategory(val)
-                                    if (g) form.setFieldsValue({ expense_group: g })
-                                }}
                             />
-                        </Form.Item>
-                        <Form.Item name="expense_group" label="Tipo de Despesa" rules={[{ required: true, message: 'Selecione o tipo' }]}>
-                            <Select placeholder="Selecione o tipo" disabled={!!form.getFieldValue('expense_category')}>
-                                <Select.OptGroup label="Mão de Obra">
-                                    <Select.Option
-                                        value="MAO_DE_OBRA_PRODUTIVA"
-                                        title="Salários, INSS e encargos do setor que produz (entra no custo direto do produto/serviço)"
-                                    >
-                                        Mão de Obra Produtiva
-                                    </Select.Option>
-                                    <Select.Option
-                                        value="MAO_DE_OBRA_ADMINISTRATIVA"
-                                        title="Pró-labore, salários comerciais e administrativos (entra como % de despesa na precificação)"
-                                    >
-                                        Mão de Obra Administrativa
-                                    </Select.Option>
-                                </Select.OptGroup>
-                                <Select.OptGroup label="Outros tipos">
-                                    {EXPENSE_GROUP_OPTIONS.filter(o => o.value !== 'MAO_DE_OBRA').map(o => (
-                                        <Select.Option key={o.value} value={o.value}>{o.label}</Select.Option>
-                                    ))}
-                                </Select.OptGroup>
-                            </Select>
                         </Form.Item>
                         <Form.Item name="expense_description" label="Descrição (opcional)">
                             <Input placeholder="Ex: Conta de luz da loja" />
                         </Form.Item>
-                        <Form.Item label="Valor mensal" required>
+                        <Form.Item label="Valor Total" required>
                             <Input
                                 prefix="R$"
                                 placeholder="0,00"
@@ -816,24 +885,17 @@ export default function CashFlow() {
                                 onChange={(e) => setExpenseAmount(currencyMaskFn(e.target.value))}
                             />
                         </Form.Item>
-                        <Form.Item name="recurrence" label="Recorrência" initialValue="MONTHLY">
-                            <Select
-                                options={[
-                                    { label: '1 única vez', value: 'ONCE' },
-                                    { label: 'Semanal', value: 'WEEKLY' },
-                                    { label: 'Quinzenal', value: 'BIWEEKLY' },
-                                    { label: 'Mensal', value: 'MONTHLY' },
-                                    { label: 'Trimestral', value: 'QUARTERLY' },
-                                ]}
-                            />
-                        </Form.Item>
+                        <div style={{ marginBottom: 8, color: '#94a3b8', fontSize: 13, fontWeight: 500 }}>Condição de Pagamento</div>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                            <Form.Item name="start_month" label="Mês início">
-                                <DatePicker picker="month" placeholder="Mês atual" format="MM/YYYY" style={{ width: '100%' }} />
+                            <Form.Item name="parcelas" label="Número de parcelas" initialValue={1}>
+                                <InputNumber min={1} max={120} style={{ width: '100%' }} placeholder="1 = à vista" />
                             </Form.Item>
-                            <Form.Item name="end_month" label="Mês fim">
-                                <DatePicker picker="month" placeholder="Dezembro" format="MM/YYYY" style={{ width: '100%' }} />
+                            <Form.Item name="expense_start_date" label="Data de início">
+                                <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" placeholder="Hoje" />
                             </Form.Item>
+                        </div>
+                        <div style={{ fontSize: 12, color: '#64748b', marginTop: -8 }}>
+                            1 parcela = à vista. 2+ parcelas = parcelado mensalmente a partir da data de início.
                         </div>
                     </Form>
                 )}

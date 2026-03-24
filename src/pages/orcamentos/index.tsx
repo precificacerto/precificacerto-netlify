@@ -57,6 +57,7 @@ const PAYMENT_METHODS = [
     { value: 'BOLETO', label: '📄 Boleto' },
     { value: 'TRANSFERENCIA', label: '🏦 Transferência' },
     { value: 'CHEQUE', label: '🧾 Cheque' },
+    { value: 'CHEQUE_PRE_DATADO', label: '🗓️ Cheque Pré-datado' },
     { value: 'LANCAMENTOS_A_RECEBER', label: '📋 Lançamentos a Receber' },
 ]
 

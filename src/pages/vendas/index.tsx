@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import {
     Button, Drawer, Form, Input, InputNumber, Select, Space, Table, Tag,
-    message, Popconfirm, DatePicker, Empty, Divider, Modal, Upload,
+    message, Popconfirm, DatePicker, Empty, Divider, Modal, Upload, Checkbox,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import type { UploadFile } from 'antd/es/upload/interface'
@@ -31,7 +31,14 @@ const PAYMENT_METHODS = [
     { value: 'BOLETO', label: '📄 Boleto' },
     { value: 'TRANSFERENCIA', label: '🏦 Transferência' },
     { value: 'CHEQUE', label: '🧾 Cheque' },
+    { value: 'CHEQUE_PRE_DATADO', label: '🗓️ Cheque Pré-datado' },
     { value: 'LANCAMENTOS_A_RECEBER', label: '📋 Lançamentos a Receber' },
+]
+
+const CHEQUE_PRE_DATADO_CONDITIONS = [
+    { value: '30', label: '30 dias' },
+    { value: '30_60', label: '30/60 dias' },
+    { value: '30_60_90', label: '30/60/90 dias' },
 ]
 
 interface SaleRow {
@@ -100,6 +107,7 @@ function Sales() {
     const [registerForm] = Form.useForm()
     const [registerSaving, setRegisterSaving] = useState(false)
     const [exportModalOpen, setExportModalOpen] = useState(false)
+    const [isSplitPay, setIsSplitPay] = useState(false)
 
     const [receiptFile, setReceiptFile] = useState<UploadFile[]>([])
     const [registerReceiptFile, setRegisterReceiptFile] = useState<UploadFile[]>([])
@@ -665,6 +673,9 @@ function Sales() {
             const now = new Date()
             const curYear = now.getFullYear()
             const curMonth = now.getMonth()
+            const saleDesc = `Venda balcão: ${saleItems.map(i => i.product_name).filter(Boolean).join(', ')}`
+            const saleDate = values.sale_date ? values.sale_date.format('YYYY-MM-DD') : new Date().toISOString().split('T')[0]
+
             if (values.payment_method === 'LANCAMENTOS_A_RECEBER') {
                 // Lançamentos a Receber: não vai para o caixa — registra em pending_receivables
                 const empId = values.employee_id || null
@@ -674,12 +685,38 @@ function Sales() {
                     employee_id: empId,
                     sale_id: sale.id,
                     amount: saleTotal,
-                    description: `Venda balcão: ${saleItems.map(i => i.product_name).filter(Boolean).join(', ')}`,
-                    launch_date: values.sale_date ? values.sale_date.format('YYYY-MM-DD') : new Date().toISOString().split('T')[0],
+                    description: saleDesc,
+                    launch_date: saleDate,
                     origin_type: 'SALE',
                     status: 'PENDING',
                     created_by: createdBy,
                 })
+            } else if (values.payment_method === 'CHEQUE_PRE_DATADO') {
+                // Cheque pré-datado: gera cash_entries com paid_date = NULL e due_dates futuros
+                const chequeCondition = values.cheque_condition || '30'
+                const baseDate = dayjs(saleDate)
+                type ChequeEntry = { days: number; fraction: number }
+                const conditionMap: Record<string, ChequeEntry[]> = {
+                    '30': [{ days: 30, fraction: 1 }],
+                    '30_60': [{ days: 30, fraction: 0.5 }, { days: 60, fraction: 0.5 }],
+                    '30_60_90': [{ days: 30, fraction: 1 / 3 }, { days: 60, fraction: 1 / 3 }, { days: 90, fraction: 1 / 3 }],
+                }
+                const slices = conditionMap[chequeCondition] || conditionMap['30']
+                const chequeEntries = slices.map((s, idx) => ({
+                    tenant_id: tenantId,
+                    type: 'INCOME',
+                    amount: Math.round((saleTotal * s.fraction) * 100) / 100,
+                    due_date: baseDate.add(s.days, 'day').format('YYYY-MM-DD'),
+                    paid_date: null,
+                    description: slices.length > 1
+                        ? `${saleDesc} — ${payLabel} (${idx + 1}/${slices.length})`
+                        : `${saleDesc} — ${payLabel}`,
+                    payment_method: values.payment_method,
+                    origin_type: 'SALE',
+                    origin_id: sale.id,
+                    created_by: createdBy,
+                }))
+                await (supabase as any).from('cash_entries').insert(chequeEntries)
             } else if (values.payment_method === 'CARTAO_CREDITO') {
                 const amountPerInstallment = saleTotal / numInstallments
                 const installmentEntries = []
@@ -691,8 +728,8 @@ function Sales() {
                         amount: amountPerInstallment,
                         due_date: dayjs(dueDate).format('YYYY-MM-DD'),
                         description: numInstallments > 1
-                            ? `Venda balcão: ${saleItems.map(i => i.product_name).filter(Boolean).join(', ')} — ${payLabel} (${i}/${numInstallments})`
-                            : `Venda balcão: ${saleItems.map(i => i.product_name).filter(Boolean).join(', ')} — ${payLabel}`,
+                            ? `${saleDesc} — ${payLabel} (${i}/${numInstallments})`
+                            : `${saleDesc} — ${payLabel}`,
                         payment_method: values.payment_method,
                         origin_type: 'SALE',
                         origin_id: sale.id,
@@ -701,13 +738,49 @@ function Sales() {
                     })
                 }
                 await (supabase as any).from('cash_entries').insert(installmentEntries)
+            } else if (isSplitPay) {
+                // Pagamento parcelado/dividido: parte agora + pending_receivable para o restante
+                const amountPaid = Number(values.amount_paid) || saleTotal
+                const remaining = Math.max(0, saleTotal - amountPaid)
+                const remainingDate = remaining > 0 ? values.remaining_due_date?.format('YYYY-MM-DD') || null : null
+                if (amountPaid > 0) {
+                    await supabase.from('cash_entries').insert({
+                        tenant_id: tenantId,
+                        type: 'INCOME',
+                        amount: amountPaid,
+                        due_date: saleDate,
+                        paid_date: saleDate,
+                        description: `${saleDesc} — ${payLabel} (pagamento parcial)`,
+                        payment_method: values.payment_method,
+                        origin_type: 'SALE',
+                        origin_id: sale.id,
+                        created_by: createdBy,
+                    })
+                }
+                if (remaining > 0) {
+                    await (supabase as any).from('pending_receivables').insert({
+                        tenant_id: tenantId,
+                        customer_id: values.customer_id || null,
+                        employee_id: values.employee_id || null,
+                        sale_id: sale.id,
+                        amount: saleTotal,
+                        amount_paid: amountPaid,
+                        amount_remaining: remaining,
+                        due_date: remainingDate,
+                        description: `${saleDesc} — ${payLabel} | Pago: R$ ${amountPaid.toFixed(2)} | Restante: R$ ${remaining.toFixed(2)}`,
+                        launch_date: saleDate,
+                        origin_type: 'SALE',
+                        status: 'PENDING',
+                        created_by: createdBy,
+                    })
+                }
             } else {
                 await supabase.from('cash_entries').insert({
                     tenant_id: tenantId,
                     type: 'INCOME',
                     amount: saleTotal,
-                    due_date: values.sale_date ? values.sale_date.format('YYYY-MM-DD') : new Date().toISOString().split('T')[0],
-                    description: `Venda balcão: ${saleItems.map(i => i.product_name).filter(Boolean).join(', ')} — ${payLabel}${numInstallments > 1 ? ` (${numInstallments}x)` : ''}`,
+                    due_date: saleDate,
+                    description: `${saleDesc} — ${payLabel}${numInstallments > 1 ? ` (${numInstallments}x)` : ''}`,
                     origin_type: 'SALE',
                     origin_id: sale.id,
                     created_by: createdBy,
@@ -772,6 +845,7 @@ function Sales() {
             setSaleItems([])
             setReceiptFile([])
             setAttachDesc('')
+            setIsSplitPay(false)
         } catch (error: any) {
             messageApi.error('Erro: ' + (error.message || 'Preencha os campos.'))
         } finally {
@@ -1129,8 +1203,8 @@ function Sales() {
                 title="🏪 Venda no Balcão"
                 width={680}
                 open={drawerOpen}
-                onClose={() => { setDrawerOpen(false); setReceiptFile([]); setAttachDesc('') }}
-                extra={<Space><Button onClick={() => { setDrawerOpen(false); setReceiptFile([]); setAttachDesc('') }}>Cancelar</Button><Button onClick={handleSaveSale} type="primary" loading={saving}>Registrar Venda</Button></Space>}
+                onClose={() => { setDrawerOpen(false); setReceiptFile([]); setAttachDesc(''); setIsSplitPay(false) }}
+                extra={<Space><Button onClick={() => { setDrawerOpen(false); setReceiptFile([]); setAttachDesc(''); setIsSplitPay(false) }}>Cancelar</Button><Button onClick={handleSaveSale} type="primary" loading={saving}>Registrar Venda</Button></Space>}
             >
                 <Form form={form} layout="vertical">
                     <Divider orientation="left" style={{ fontSize: 12, color: '#94a3b8', marginTop: 0 }}>Produtos e Serviços</Divider>
@@ -1179,6 +1253,45 @@ function Sales() {
                                 </Form.Item>
                             ) : null
                         }
+                    </Form.Item>
+
+                    <Form.Item noStyle shouldUpdate={(prev, curr) => prev.payment_method !== curr.payment_method}>
+                        {({ getFieldValue }) =>
+                            getFieldValue('payment_method') === 'CHEQUE_PRE_DATADO' ? (
+                                <Form.Item name="cheque_condition" label="Condição de Cheque" rules={[{ required: true, message: 'Selecione a condição' }]}>
+                                    <Select placeholder="Selecione a condição">
+                                        {CHEQUE_PRE_DATADO_CONDITIONS.map(c => (
+                                            <Select.Option key={c.value} value={c.value}>{c.label}</Select.Option>
+                                        ))}
+                                    </Select>
+                                </Form.Item>
+                            ) : null
+                        }
+                    </Form.Item>
+
+                    <Form.Item noStyle shouldUpdate={(prev, curr) => prev.payment_method !== curr.payment_method}>
+                        {({ getFieldValue }) => {
+                            const pm = getFieldValue('payment_method')
+                            if (pm === 'LANCAMENTOS_A_RECEBER' || pm === 'CARTAO_CREDITO' || pm === 'CHEQUE_PRE_DATADO') return null
+                            return (
+                                <div style={{ marginBottom: 16 }}>
+                                    <Checkbox checked={isSplitPay} onChange={(e) => setIsSplitPay(e.target.checked)}>
+                                        <span style={{ fontWeight: 600 }}>Pagamento Parcelado</span>
+                                    </Checkbox>
+                                    {isSplitPay && (
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 8, padding: 12, background: '#EFF6FF', borderRadius: 8, border: '1px solid #BFDBFE' }}>
+                                            <Form.Item name="amount_paid" label={<span style={{ color: '#000' }}>Valor pago agora (R$)</span>} style={{ margin: 0 }}>
+                                                <InputNumber style={{ width: '100%' }} min={0 as number} step={0.5} precision={2}
+                                                    formatter={(v) => `${v}`.replace('.', ',')} parser={(v) => Number((v || '0').replace(',', '.'))} />
+                                            </Form.Item>
+                                            <Form.Item name="remaining_due_date" label={<span style={{ color: '#000' }}>Data para receber o restante</span>} style={{ margin: 0 }}>
+                                                <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" placeholder="Data do recebimento" />
+                                            </Form.Item>
+                                        </div>
+                                    )}
+                                </div>
+                            )
+                        }}
                     </Form.Item>
 
                     <Divider orientation="left" style={{ fontSize: 12, color: '#94a3b8' }}>Detalhes</Divider>

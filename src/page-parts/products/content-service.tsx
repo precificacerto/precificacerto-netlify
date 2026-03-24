@@ -286,7 +286,7 @@ export const ContentService: FC<ContentServiceProps> = ({
                   {fmt(svcProfitVal)}
                 </div>
                 {svcTotal > 0 && (
-                  <div style={{ fontSize: 11, color: '#94a3b8' }}>Margem: {svcProfitPct.toFixed(1)}%</div>
+                  <div style={{ fontSize: 11, color: '#94a3b8' }}>Margem: {svcProfitPct.toFixed(2)}%</div>
                 )}
               </div>
             </div>
@@ -381,7 +381,7 @@ export const ContentService: FC<ContentServiceProps> = ({
                   {fmt(prdProfitVal)}
                 </div>
                 {prdTotal > 0 && (
-                  <div style={{ fontSize: 11, color: '#94a3b8' }}>Margem: {prdProfitPct.toFixed(1)}%</div>
+                  <div style={{ fontSize: 11, color: '#94a3b8' }}>Margem: {prdProfitPct.toFixed(2)}%</div>
                 )}
               </div>
             </div>

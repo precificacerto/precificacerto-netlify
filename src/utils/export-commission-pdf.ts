@@ -43,7 +43,7 @@ export function exportCommissionToPdf(
   // Table data
   const tableData = rows.map(r => [
     r.name,
-    `${r.commission_percent.toFixed(1)}%`,
+    `${r.commission_percent.toFixed(2)}%`,
     formatCurrency(r.base_revenue),
     formatCurrency(r.commission_value),
   ])

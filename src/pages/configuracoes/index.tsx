@@ -288,7 +288,7 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
                                 <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
                                     <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>ICMS Interno ({stateCode})</div>
-                                    <div style={{ fontSize: 18, fontWeight: 700 }}>{icmsPercent != null ? `${icmsPercent.toFixed(0)}%` : '—'}</div>
+                                    <div style={{ fontSize: 18, fontWeight: 700 }}>{icmsPercent != null ? `${icmsPercent.toFixed(2)}%` : '—'}</div>
                                 </Card>
                                 <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
                                     <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>PIS (cumulativo)</div>
@@ -300,7 +300,7 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                                 </Card>
                                 <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
                                     <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>ISS Municipal</div>
-                                    <div style={{ fontSize: 18, fontWeight: 700 }}>{issPercent.toFixed(1)}%</div>
+                                    <div style={{ fontSize: 18, fontWeight: 700 }}>{issPercent.toFixed(2)}%</div>
                                     <div style={{ fontSize: 10, color: 'var(--color-neutral-400)' }}>Detectado via CNPJ</div>
                                 </Card>
                                 <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
@@ -320,7 +320,7 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
                                 <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
                                     <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>ICMS Interno ({stateCode})</div>
-                                    <div style={{ fontSize: 18, fontWeight: 700 }}>{icmsPercent != null ? `${icmsPercent.toFixed(0)}%` : '—'}</div>
+                                    <div style={{ fontSize: 18, fontWeight: 700 }}>{icmsPercent != null ? `${icmsPercent.toFixed(2)}%` : '—'}</div>
                                 </Card>
                                 <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
                                     <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>PIS (não-cumulativo)</div>
@@ -332,7 +332,7 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                                 </Card>
                                 <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
                                     <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>ISS Municipal</div>
-                                    <div style={{ fontSize: 18, fontWeight: 700 }}>{issPercent.toFixed(1)}%</div>
+                                    <div style={{ fontSize: 18, fontWeight: 700 }}>{issPercent.toFixed(2)}%</div>
                                     <div style={{ fontSize: 10, color: 'var(--color-neutral-400)' }}>Detectado via CNPJ</div>
                                 </Card>
                                 <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>

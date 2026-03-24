@@ -224,7 +224,7 @@ export const ProductPrice: FC<Props> = ({
               </div>
               {totalPrice > 0 && (
                 <div style={{ fontSize: 11, color: '#94a3b8' }}>
-                  Margem: {profitPct.toFixed(1)}%
+                  Margem: {profitPct.toFixed(2)}%
                 </div>
               )}
             </div>
