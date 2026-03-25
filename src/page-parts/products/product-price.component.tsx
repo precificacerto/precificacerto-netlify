@@ -118,7 +118,7 @@ export const ProductPrice: FC<Props> = ({
                 borderRadius: 4, fontSize: 13, minWidth: 80, textAlign: 'right',
                 cursor: 'help',
               }}>
-                {pct.toFixed(2)}%
+                {pct.toFixed(3)}%
                 <InfoCircleOutlined style={{ marginLeft: 4, fontSize: 10, color: '#64748b' }} />
               </span>
             </Tooltip>
@@ -192,7 +192,7 @@ export const ProductPrice: FC<Props> = ({
 
         <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 13 }}>
           <span style={{ color: '#94a3b8' }}>Margem de contribuição total aplicada</span>
-          <span style={{ fontWeight: 600 }}>{(100 - totalPct).toFixed(2)}%</span>
+          <span style={{ fontWeight: 600 }}>{(100 - totalPct).toFixed(3)}%</span>
         </div>
 
         {/* Result box */}
@@ -224,7 +224,7 @@ export const ProductPrice: FC<Props> = ({
               </div>
               {totalPrice > 0 && (
                 <div style={{ fontSize: 11, color: '#94a3b8' }}>
-                  Margem: {profitPct.toFixed(2)}%
+                  Margem: {profitPct.toFixed(3)}%
                 </div>
               )}
             </div>

@@ -246,7 +246,7 @@ const NewItemForm = ({ form }: Props) => {
         Dados da Compra
       </Divider>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, alignItems: 'end' }}>
         <Form.Item
           name="unitType"
           label="Unidade de medida"
@@ -292,9 +292,15 @@ const NewItemForm = ({ form }: Props) => {
 
         <Form.Item
           name="price"
-          label="Valor unitário"
+          label={
+            <span>
+              Valor unitário&nbsp;
+              <Tooltip title="Valor unitário do item (por unidade de medida). O valor total será calculado automaticamente.">
+                <InfoCircleOutlined style={{ color: '#64748b' }} />
+              </Tooltip>
+            </span>
+          }
           rules={[{ required: true, message: REQUIRED }]}
-          tooltip="Valor unitário do item (por unidade de medida). O valor total será calculado automaticamente."
           style={{ marginBottom: 24 }}
         >
           <Input

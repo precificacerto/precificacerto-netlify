@@ -24,6 +24,8 @@ import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 interface StockRow {
     id: string
     name: string
+    code: string
+    section_id: string | null
     type: 'ITEM' | 'PRODUCT'
     currentQty: number
     minQty: number
@@ -102,6 +104,8 @@ function Stock() {
     const [movementForm] = Form.useForm()
     const [editForm] = Form.useForm()
     const [messageApi, contextHolder] = message.useMessage()
+    const [selectedSection, setSelectedSection] = useState<string | null>(null)
+    const [sections, setSections] = useState<{ id: string; name: string }[]>([])
 
 
     useEffect(() => {
@@ -116,6 +120,16 @@ function Stock() {
         }
         fetchMovements()
     }, [])
+
+    useEffect(() => {
+        if (!effectiveTenantId) return
+        supabase
+            .from('product_sections')
+            .select('id, name')
+            .eq('tenant_id', effectiveTenantId)
+            .order('name')
+            .then(({ data }) => setSections(data || []))
+    }, [effectiveTenantId])
 
     // Garantir que todo produto cadastrado tenha registro em Produtos acabados (stock PRODUCT)
     useEffect(() => {
@@ -204,6 +218,8 @@ function Stock() {
             return {
                 id: s.id,
                 name,
+                code: type === 'PRODUCT' ? (product?.code || '') : '',
+                section_id: type === 'PRODUCT' ? (product?.section_id || null) : null,
                 type,
                 currentQty: s.quantity_current ?? 0,
                 minQty: s.min_limit ?? 0,
@@ -234,10 +250,11 @@ function Stock() {
 
     const filteredData = useMemo(() => {
         if (activeTab === 'SERVICE') return []
-        const list = filteredByTabAndSearch as StockRow[]
-        if (stockFilter === 'below') return list.filter(i => i.status === 'Baixo' || i.status === 'Crítico')
+        let list = filteredByTabAndSearch as StockRow[]
+        if (stockFilter === 'below') list = list.filter(i => i.status === 'Baixo' || i.status === 'Crítico')
+        if (activeTab === 'PRODUCT' && selectedSection) list = list.filter(row => row.section_id === selectedSection)
         return list
-    }, [activeTab, stockFilter, filteredByTabAndSearch])
+    }, [activeTab, stockFilter, selectedSection, filteredByTabAndSearch])
 
     const filteredServiceData = useMemo(() => {
         if (activeTab !== 'SERVICE') return []
@@ -335,6 +352,13 @@ function Stock() {
     // Columns for PRODUCT tab (layout similar to Serviços Realizados)
     const productColumns: ColumnsType<StockRow> = [
         {
+            title: 'Código',
+            dataIndex: 'code',
+            key: 'code',
+            width: 90,
+            render: (v: string) => v ? <Tag>{v}</Tag> : <span style={{ color: '#D0D5DD' }}>—</span>,
+        },
+        {
             title: 'Nome',
             dataIndex: 'name',
             key: 'name',
@@ -353,7 +377,7 @@ function Stock() {
             dataIndex: 'profitPercent',
             key: 'profitPercent',
             width: 140,
-            render: (v: number) => <span style={{ fontWeight: 600 }}>{v.toFixed(2)}%</span>,
+            render: (v: number) => <span style={{ fontWeight: 600 }}>{v.toFixed(3)}%</span>,
         },
         {
             title: 'Preço de Venda',
@@ -373,19 +397,6 @@ function Stock() {
                     {qty} {record.unit}
                 </span>
             ),
-        },
-        {
-            title: 'Status',
-            dataIndex: 'status',
-            key: 'status',
-            width: 100,
-            filters: [
-                { text: 'Normal', value: 'Normal' },
-                { text: 'Baixo', value: 'Baixo' },
-                { text: 'Crítico', value: 'Crítico' },
-            ],
-            onFilter: (value, record) => record.status === value,
-            render: (status) => <Tag color={statusColors[status]}>{status}</Tag>,
         },
         ...(canEdit(MODULES.STOCK)
             ? [{
@@ -654,6 +665,17 @@ function Stock() {
                                 { value: 'below', label: 'Apenas abaixo do estoque' },
                             ]}
                         />
+                        {activeTab === 'PRODUCT' && sections.length > 0 && (
+                            <Select
+                                value={selectedSection}
+                                onChange={setSelectedSection}
+                                style={{ minWidth: 180 }}
+                                placeholder="Filtrar por seção"
+                                allowClear
+                                onClear={() => setSelectedSection(null)}
+                                options={sections.map(s => ({ value: s.id, label: s.name }))}
+                            />
+                        )}
                     </div>
                 )}
 
@@ -684,7 +706,7 @@ function Stock() {
                                 dataIndex: 'profitPercent',
                                 key: 'profitPercent',
                                 width: 140,
-                                render: (v: number) => <span style={{ fontWeight: 600 }}>{v.toFixed(2)}%</span>,
+                                render: (v: number) => <span style={{ fontWeight: 600 }}>{v.toFixed(3)}%</span>,
                             },
                             {
                                 title: 'Preço Venda',

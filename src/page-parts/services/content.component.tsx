@@ -391,7 +391,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                             display: 'inline-block', padding: '4px 12px', background: 'rgba(255,255,255,0.06)',
                             borderRadius: 4, fontSize: 13, minWidth: 80, textAlign: 'right',
                         }}>
-                            {pct.toFixed(2)}%
+                            {pct.toFixed(3)}%
                         </span>
                     )}
                 </td>
@@ -657,7 +657,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
 
                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 13 }}>
                         <span style={{ color: '#94a3b8' }}>Margem de contribuição total aplicada</span>
-                        <span style={{ fontWeight: 600 }}>{(100 - pricing.totalPct).toFixed(2)}%</span>
+                        <span style={{ fontWeight: 600 }}>{(100 - pricing.totalPct).toFixed(3)}%</span>
                     </div>
 
                     <div style={{
@@ -681,7 +681,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                                 </div>
                                 {pricing.sellingPrice > 0 && (
                                     <div style={{ fontSize: 11, color: '#94a3b8' }}>
-                                        Margem: {profitPercent.toFixed(2)}%
+                                        Margem: {profitPercent.toFixed(3)}%
                                     </div>
                                 )}
                             </div>

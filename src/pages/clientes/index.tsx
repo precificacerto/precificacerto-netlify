@@ -610,7 +610,7 @@ function Clients() {
             {/* Drawer */}
             <Drawer
                 title={editingId ? 'Editar Cliente' : 'Novo Cliente'}
-                width={480}
+                width={680}
                 open={drawerOpen}
                 onClose={() => { setDrawerOpen(false); form.resetFields(); setExpandedEntryId(null) }}
                 extra={

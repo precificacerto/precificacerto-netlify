@@ -1455,7 +1455,7 @@ function Schedule() {
             </Modal>
 
             {/* New/Edit Event Drawer */}
-            <Drawer title={editingEvt ? 'Editar Serviço' : 'Agendar Serviço'} width={440} open={drawerOpen}
+            <Drawer title={editingEvt ? 'Editar Serviço' : 'Agendar Serviço'} width={680} open={drawerOpen}
                 onClose={() => { setDrawerOpen(false); setEditingEvt(null) }}
                 extra={<Space>
                     {editingEvt && <Popconfirm title="Desativar?" onConfirm={() => { handleDelete(editingEvt.id); setDrawerOpen(false); setEditingEvt(null) }} okText="Sim" cancelText="Não"><Button danger size="small" icon={<DeleteOutlined />}>Desativar</Button></Popconfirm>}
@@ -1572,7 +1572,7 @@ function Schedule() {
                         Concluir e Lançar no Caixa
                     </Button>,
                 ]}
-                width={580}
+                width={680}
             >
                 {payEvt && (
                     <>

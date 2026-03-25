@@ -479,7 +479,7 @@ function Employees() {
 
             <Drawer
             title={editingId ? 'Editar Funcionário' : 'Novo Funcionário'}
-                width={480}
+                width={680}
                 open={drawerOpen}
                 onClose={() => {
                     setDrawerOpen(false)

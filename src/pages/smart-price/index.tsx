@@ -44,9 +44,9 @@ export default function ProductForm() {
     .toFixed(2)
 
   const totalCommissionPercentage =
-    totalProducts > 0 ? ((totalCommission / totalPrice) * 100).toFixed(2) : 0
+    totalProducts > 0 ? ((totalCommission / totalPrice) * 100).toFixed(3) : 0
   const totalProfitPercentage =
-    totalProducts > 0 ? ((totalProfit / totalPrice) * 100).toFixed(2) : 0
+    totalProducts > 0 ? ((totalProfit / totalPrice) * 100).toFixed(3) : 0
 
   const totalProfitCommissionPercentage =
     Number(totalCommissionPercentage) + Number(totalProfitPercentage)
@@ -244,7 +244,7 @@ export default function ProductForm() {
       value: isNaN(parseFloat(totalProfitCommissionValueWithDiscount))
         ? 'R$ 0,00 (0,00%)'
         : `R$ ${totalProfitCommissionValueWithDiscount} (${TotalProfitCommissionPercentageWithDiscount.toFixed(
-            2
+            3
           ).replace('.', ',')}%)`,
     },
     {

@@ -76,8 +76,9 @@ function makeIncomeColumns(customerMap: Record<string, string>): ColumnsType<any
       title: 'Cliente',
       key: 'cliente',
       render: (_: any, r: any) => {
-        const customerName = r.contact_id ? customerMap[r.contact_id] : null
-        return customerName || extractCleanDescription(r.description || '')
+        const customerId = r.customer_id || r.contact_id
+        const customerName = customerId ? customerMap[customerId] : null
+        return customerName || extractCleanDescription(r.description || '') || '—'
       },
     },
     {
@@ -223,6 +224,7 @@ function Cashier() {
           expense_group: null,
           payment_method: e.payment_method || null,
           contact_id: e.contact_id || null,
+          customer_id: e.customer_id || null,
         } as any))
 
       const expenses: IPaymentRevenueTitleModel[] = entries
@@ -484,7 +486,7 @@ function Cashier() {
     }
 
     const renderGroupCard = (key: string, label: string, color: string, val: number) => {
-      const pct = total > 0 ? ((val / total) * 100).toFixed(1) : '0.0'
+      const pct = total > 0 ? ((val / total) * 100).toFixed(3) : '0.000'
       const isExpanded = expandedGroups.has(key)
       const cats = categoriesByGroup[key] || {}
       return (
@@ -835,7 +837,7 @@ function Cashier() {
       </div>
 
       <Drawer
-        width={380}
+        width={680}
         onClose={onClose}
         open={formOpen}
         extra={

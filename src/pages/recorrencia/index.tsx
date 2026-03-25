@@ -430,7 +430,7 @@ export default function RecurrencePage() {
             {/* Edit Drawer */}
             <Drawer
                 title="Editar Recorrência"
-                width={380}
+                width={680}
                 open={editDrawerOpen}
                 onClose={() => setEditDrawerOpen(false)}
                 extra={

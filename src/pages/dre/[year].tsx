@@ -455,13 +455,13 @@ function calculateDreContent(data: ResultData, year: number, totalResult: Result
   return expenseDataWithoutConsiderCurrentMonth.map((item) => ({
     ...item,
     totalAverage: item.category in totalExpenseByCategory && totalIncome > 0
-      ? +Number((totalExpenseByCategory[item.category] / totalIncome) * 100).toFixed(2) : 0,
-    average: item.average > 0 ? +Number((item.average / yearlyIncome) * 100).toFixed(2) : 0,
+      ? +Number((totalExpenseByCategory[item.category] / totalIncome) * 100).toFixed(3) : 0,
+    average: item.average > 0 ? +Number((item.average / yearlyIncome) * 100).toFixed(3) : 0,
     ...Object.fromEntries(
       monthFields.map((m) => [
         m,
         (item as any)[m] > 0 && currentMonth !== m
-          ? +Number(((item as any)[m] / (totalIncomeSumByEachMonth as any)[m]) * 100).toFixed(2)
+          ? +Number(((item as any)[m] / (totalIncomeSumByEachMonth as any)[m]) * 100).toFixed(3)
           : (item as any)[m],
       ])
     ),

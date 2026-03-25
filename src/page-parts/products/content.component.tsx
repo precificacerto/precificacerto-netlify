@@ -445,7 +445,7 @@ export const Content: FC<ContentProps> = ({
         productProfitPriceByProduct: resultProductService * (prev.productProfitPercentByProduct / 100) || 0,
         salesCommissionPriceByProduct: resultProductService * (prev.salesCommissionPercentByProduct / 100) || 0,
         indirectLaborExpensePrice: engineResult.laborValue,
-        laborPctShown: Number((engineResult.laborPctShown * 100).toFixed(2)),
+        laborPctShown: Number((engineResult.laborPctShown * 100).toFixed(3)),
         fixedExpensePrice: priceUnit * (calcBase.fixedExpensePct / 100),
         variableExpensePrice: priceUnit * (calcBase.variableExpensePct / 100),
         financialExpensePrice: priceUnit * (calcBase.financialExpensePct / 100),
@@ -1042,6 +1042,7 @@ export const Content: FC<ContentProps> = ({
             <Input />
           </Form.Item>
 
+          {/* Linha 1: Nome | Seção | NCM (+ Código se editando) */}
           <div style={{ display: 'grid', gridTemplateColumns: isEditingMode ? 'repeat(4, 1fr)' : 'repeat(3, 1fr)', gap: 16 }}>
             {isEditingMode && (
               <Form.Item
@@ -1081,18 +1082,33 @@ export const Content: FC<ContentProps> = ({
             </Form.Item>
 
             <Form.Item
-              name="quantity"
-              label={productType === 'REVENDA' ? 'Adicionar quantidade no estoque' : 'Quantidade de produção'}
-              rules={[{ required: true, message: REQUIRED_INPUT_MESSAGE }]}
+              name="ncm_code"
+              label={
+                <span>
+                  NCM&nbsp;
+                  <Tooltip title="Nomenclatura Comum do Mercosul — código fiscal do produto final. Digite o código ou pesquise pelo nome do produto.">
+                    <InfoCircleOutlined style={{ color: '#64748b' }} />
+                  </Tooltip>
+                </span>
+              }
+              style={{ marginBottom: 0 }}
             >
-              <Input type="number" min="1" step="1" />
+              <AutoComplete
+                options={ncmOptions}
+                onSearch={handleNcmSearch}
+                onSelect={(value: string) => productForm.setFieldsValue({ ncm_code: value })}
+                placeholder="Digite o NCM ou pesquise (ex: bolo, 1905...)"
+                notFoundContent={ncmFieldSearching ? <Spin size="small" /> : null}
+                allowClear
+              />
             </Form.Item>
           </div>
 
+          {/* Linha 2: Unidade de Medida | Quantidade | Estoque mínimo */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
             <Form.Item
               name="unitType"
-              label="Unidade"
+              label="Unidade de Medida"
               rules={[{ required: true, message: REQUIRED_INPUT_MESSAGE }]}
               initialValue="UN"
             >
@@ -1113,6 +1129,14 @@ export const Content: FC<ContentProps> = ({
             </Form.Item>
 
             <Form.Item
+              name="quantity"
+              label={productType === 'REVENDA' ? 'Adicionar quantidade no estoque' : 'Quantidade de produção'}
+              rules={[{ required: true, message: REQUIRED_INPUT_MESSAGE }]}
+            >
+              <Input type="number" min="1" step="1" />
+            </Form.Item>
+
+            <Form.Item
               name="minLimit"
               label="Estoque mínimo (alerta)"
               initialValue={0}
@@ -1120,35 +1144,16 @@ export const Content: FC<ContentProps> = ({
             >
               <InputNumber min={0} step={1} style={{ width: '100%' }} placeholder="0" />
             </Form.Item>
+          </div>
 
+          {/* Linha 3: Desconto máximo permitido | Ativar Recorrência */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }}>
             <Form.Item
               name="max_discount_percent"
-              label="Desconto máximo (%)"
+              label="Desconto máximo permitido"
               tooltip="Limite máximo de desconto permitido para este produto em orçamentos/vendas. Deixe vazio para sem limite."
             >
               <InputNumber min={0} max={100} step={1} style={{ width: '100%' }} placeholder="Ex: 10" addonAfter="%" />
-            </Form.Item>
-
-            <Form.Item
-              name="ncm_code"
-              label={
-                <span>
-                  NCM do Produto&nbsp;
-                  <Tooltip title="Nomenclatura Comum do Mercosul — código fiscal do produto final. Digite o código ou pesquise pelo nome do produto.">
-                    <InfoCircleOutlined style={{ color: '#64748b' }} />
-                  </Tooltip>
-                </span>
-              }
-              style={{ marginBottom: 0 }}
-            >
-              <AutoComplete
-                options={ncmOptions}
-                onSearch={handleNcmSearch}
-                onSelect={(value: string) => productForm.setFieldsValue({ ncm_code: value })}
-                placeholder="Digite o NCM ou pesquise (ex: bolo, 1905...)"
-                notFoundContent={ncmFieldSearching ? <Spin size="small" /> : null}
-                allowClear
-              />
             </Form.Item>
 
             <Form.Item
@@ -1183,80 +1188,80 @@ export const Content: FC<ContentProps> = ({
                 )}
               </div>
             </Form.Item>
-
-            <Modal
-              title="Configurar Recorrência"
-              open={recurrenceModalOpen}
-              onOk={() => setRecurrenceModalOpen(false)}
-              onCancel={() => setRecurrenceModalOpen(false)}
-              okText="Confirmar"
-              cancelText="Fechar"
-              width={560}
-            >
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 16, paddingTop: 8 }}>
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 6 }}>
-                    Dias para disparo&nbsp;
-                    <Tooltip title="Quantos dias após a venda o cliente será contatado.">
-                      <InfoCircleOutlined style={{ color: '#64748b' }} />
-                    </Tooltip>
-                  </div>
-                  <InputNumber
-                    min={1}
-                    step={1}
-                    style={{ width: '100%' }}
-                    placeholder="Ex: 30"
-                    value={recurrenceDays}
-                    onChange={(v) => setRecurrenceDays(v)}
-                    addonAfter="dias"
-                  />
-                </div>
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 6 }}>
-                    Mensagem personalizada (opcional)&nbsp;
-                    <Tooltip title="Mensagem específica para este produto. Se vazio, será usada a mensagem padrão da aba Recorrência.">
-                      <InfoCircleOutlined style={{ color: '#64748b' }} />
-                    </Tooltip>
-                  </div>
-                  <div style={{ marginBottom: 8, fontSize: 12, color: '#94a3b8' }}>
-                    Clique nas tags para inserir na mensagem:{' '}
-                    <Tag color="blue" style={{ fontSize: 11, cursor: 'pointer' }} onClick={() => insertRecurrenceTag('{{nome_cliente}}')}>
-                      {'{{nome_cliente}}'}
-                    </Tag>{' '}
-                    <Tag color="blue" style={{ fontSize: 11, cursor: 'pointer' }} onClick={() => insertRecurrenceTag('{{nome_produto}}')}>
-                      {'{{nome_produto}}'}
-                    </Tag>
-                  </div>
-                  <Input.TextArea
-                    ref={recurrenceTextareaRef as any}
-                    rows={4}
-                    placeholder="Olá {{nome_cliente}}, lembrete sobre {{nome_produto}}..."
-                    value={recurrenceMessage}
-                    onChange={(e) => setRecurrenceMessage(e.target.value)}
-                  />
-                </div>
-              </div>
-            </Modal>
-
-            {/* Inline new section modal */}
-            <Modal
-              title="Nova Seção"
-              open={newSectionModalOpen}
-              onOk={handleCreateSectionInline}
-              onCancel={() => { setNewSectionModalOpen(false); setNewSectionName('') }}
-              okText="Criar"
-              okButtonProps={{ loading: savingNewSection }}
-              width={360}
-            >
-              <Input
-                placeholder="Nome da seção"
-                value={newSectionName}
-                onChange={e => setNewSectionName(e.target.value)}
-                onPressEnter={handleCreateSectionInline}
-                maxLength={80}
-              />
-            </Modal>
           </div>
+
+          <Modal
+            title="Configurar Recorrência"
+            open={recurrenceModalOpen}
+            onOk={() => setRecurrenceModalOpen(false)}
+            onCancel={() => setRecurrenceModalOpen(false)}
+            okText="Confirmar"
+            cancelText="Fechar"
+            width={560}
+          >
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16, paddingTop: 8 }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 6 }}>
+                  Dias para disparo&nbsp;
+                  <Tooltip title="Quantos dias após a venda o cliente será contatado.">
+                    <InfoCircleOutlined style={{ color: '#64748b' }} />
+                  </Tooltip>
+                </div>
+                <InputNumber
+                  min={1}
+                  step={1}
+                  style={{ width: '100%' }}
+                  placeholder="Ex: 30"
+                  value={recurrenceDays}
+                  onChange={(v) => setRecurrenceDays(v)}
+                  addonAfter="dias"
+                />
+              </div>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 6 }}>
+                  Mensagem personalizada (opcional)&nbsp;
+                  <Tooltip title="Mensagem específica para este produto. Se vazio, será usada a mensagem padrão da aba Recorrência.">
+                    <InfoCircleOutlined style={{ color: '#64748b' }} />
+                  </Tooltip>
+                </div>
+                <div style={{ marginBottom: 8, fontSize: 12, color: '#94a3b8' }}>
+                  Clique nas tags para inserir na mensagem:{' '}
+                  <Tag color="blue" style={{ fontSize: 11, cursor: 'pointer' }} onClick={() => insertRecurrenceTag('{{nome_cliente}}')}>
+                    {'{{nome_cliente}}'}
+                  </Tag>{' '}
+                  <Tag color="blue" style={{ fontSize: 11, cursor: 'pointer' }} onClick={() => insertRecurrenceTag('{{nome_produto}}')}>
+                    {'{{nome_produto}}'}
+                  </Tag>
+                </div>
+                <Input.TextArea
+                  ref={recurrenceTextareaRef as any}
+                  rows={4}
+                  placeholder="Olá {{nome_cliente}}, lembrete sobre {{nome_produto}}..."
+                  value={recurrenceMessage}
+                  onChange={(e) => setRecurrenceMessage(e.target.value)}
+                />
+              </div>
+            </div>
+          </Modal>
+
+          {/* Inline new section modal */}
+          <Modal
+            title="Nova Seção"
+            open={newSectionModalOpen}
+            onOk={handleCreateSectionInline}
+            onCancel={() => { setNewSectionModalOpen(false); setNewSectionName('') }}
+            okText="Criar"
+            okButtonProps={{ loading: savingNewSection }}
+            width={360}
+          >
+            <Input
+              placeholder="Nome da seção"
+              value={newSectionName}
+              onChange={e => setNewSectionName(e.target.value)}
+              onPressEnter={handleCreateSectionInline}
+              maxLength={80}
+            />
+          </Modal>
         </Form>
 
         {(ncmSugLoading || ncmSuggestions.length > 0) && (

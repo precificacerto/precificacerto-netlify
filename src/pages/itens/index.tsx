@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react'
-import { Button, Space, Table, Input, Drawer, message, Form, Spin, Tag, Radio, InputNumber } from 'antd'
+import { Button, Space, Table, Input, Drawer, message, Form, Spin, Tag, Radio, InputNumber, Modal } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { Layout } from '@/components/layout/layout.component'
 import { NewItemForm } from '@/page-parts/items/new-item-form.component'
@@ -59,6 +59,7 @@ function Items() {
   const [saving, setSaving] = useState(false)
   const [renewDrawerOpen, setRenewDrawerOpen] = useState(false)
   const [savingRenew, setSavingRenew] = useState(false)
+  const [renewMode, setRenewMode] = useState<'include' | 'partial_delete'>('include')
   const [deleteQtyDrawerOpen, setDeleteQtyDrawerOpen] = useState(false)
   const [selectedItemForDelete, setSelectedItemForDelete] = useState<ItemRow | null>(null)
   const [updatingProductsForItemId, setUpdatingProductsForItemId] = useState<string | null>(null)
@@ -171,6 +172,33 @@ function Items() {
       quantity: record.quantity,
     })
     setDeleteQtyDrawerOpen(true)
+  }
+
+  function handleDeleteItem(record: ItemRow) {
+    Modal.confirm({
+      title: 'Excluir item',
+      content: `Tem certeza que deseja excluir "${record.name}"? Esta ação não pode ser desfeita.`,
+      okText: 'Sim, excluir',
+      okType: 'danger',
+      cancelText: 'Cancelar',
+      onOk: async () => {
+        try {
+          const res = await fetch('/api/delete/items', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: record.id }),
+          })
+          if (!res.ok) {
+            const body = await res.json().catch(() => ({}))
+            throw new Error(body?.message || `Erro ${res.status}`)
+          }
+          await reloadItems()
+          messageApi.success('Item excluído com sucesso!')
+        } catch (error: any) {
+          messageApi.error('Erro ao excluir item: ' + (error?.message || 'Erro desconhecido'))
+        }
+      },
+    })
   }
 
   async function handleConfirmDeleteQty() {
@@ -310,6 +338,7 @@ function Items() {
 
   const openRenewDrawer = () => {
     renewForm.resetFields()
+    setRenewMode('include')
     setRenewDrawerOpen(true)
   }
 
@@ -331,15 +360,6 @@ function Items() {
       }
 
       const itemId = values.item_id
-      const newQty = Number(values.quantity) || 0
-      const valuePaid = parseFloat(
-        String(values.price || '0').replace(/\./g, '').replace(',', '.')
-      )
-
-      if (newQty < 0.001) {
-        messageApi.error('Informe uma quantidade válida.')
-        return
-      }
 
       const { data: currentItem, error: fetchError } = await supabase
         .from('items')
@@ -358,6 +378,70 @@ function Items() {
         setSavingRenew(false)
         return
       }
+
+      // ── Modo: Excluir parcialmente ──
+      if (renewMode === 'partial_delete') {
+        const qtyToRemove = Number(values.quantity) || 0
+        const currentQty = Number(currentItem.quantity) || 0
+        const unitCost = Number((currentItem as any).cost_per_base_unit) || 0
+
+        if (qtyToRemove <= 0) {
+          messageApi.error('Informe uma quantidade válida para remover.')
+          setSavingRenew(false)
+          return
+        }
+        if (qtyToRemove > currentQty) {
+          messageApi.error(`Máximo permitido: ${currentQty} ${currentItem.unit || 'UN'}.`)
+          setSavingRenew(false)
+          return
+        }
+
+        const newItemQty = Math.max(0, currentQty - qtyToRemove)
+        const newCostTotal = newItemQty * unitCost
+
+        await supabase
+          .from('items')
+          .update({ quantity: newItemQty, cost_price: newCostTotal, updated_at: new Date().toISOString() })
+          .eq('id', itemId)
+
+        const { data: st } = await supabase
+          .from('stock')
+          .select('id, quantity_current')
+          .eq('item_id', itemId)
+          .eq('stock_type', 'ITEM')
+          .maybeSingle()
+
+        if (st) {
+          const newStockQty = Math.max(0, (Number(st.quantity_current) || 0) - qtyToRemove)
+          await supabase
+            .from('stock')
+            .update({ quantity_current: newStockQty, updated_at: new Date().toISOString() })
+            .eq('id', st.id)
+          await supabase.from('stock_movements').insert({
+            stock_id: st.id,
+            delta_quantity: -qtyToRemove,
+            reason: 'Baixa de quantidade (exclusão parcial via Renovar)',
+            created_by: createdBy,
+          })
+        }
+
+        await reloadItems()
+        messageApi.success('Quantidade removida com sucesso!')
+        closeRenewDrawer()
+        return
+      }
+
+      // ── Modo: Incluir mais itens (comportamento original) ──
+      const newQty = Number(values.quantity) || 0
+      const valuePaid = parseFloat(
+        String(values.price || '0').replace(/\./g, '').replace(',', '.')
+      )
+
+      if (newQty < 0.001) {
+        messageApi.error('Informe uma quantidade válida.')
+        return
+      }
+
       const currentQty = Number(currentItem.quantity) || 0
       const currentCost = Number(currentItem.cost_price) || 0
       const totalQty = currentQty + newQty
@@ -977,7 +1061,7 @@ function Items() {
         <Space size="small" wrap>
           <Button onClick={() => handleEdit(record)} type="link" size="small">Editar</Button>
           {canEdit(MODULES.ITEMS) && (
-            <Button type="link" size="small" danger onClick={() => handleOpenDeleteQty(record)}>
+            <Button type="link" size="small" danger onClick={() => handleDeleteItem(record)}>
               Excluir item
             </Button>
           )}
@@ -1037,7 +1121,7 @@ function Items() {
 
       <Drawer
         title={titleDrawer}
-        width={520}
+        width={680}
         onClose={onClose}
         open={newItemOpen}
         extra={
@@ -1052,7 +1136,7 @@ function Items() {
 
       <Drawer
         title="Renovar quantidade"
-        width={520}
+        width={680}
         onClose={closeRenewDrawer}
         open={renewDrawerOpen}
         extra={
@@ -1064,6 +1148,8 @@ function Items() {
       >
         <RenewQuantityForm
           form={renewForm}
+          mode={renewMode}
+          onModeChange={setRenewMode}
           items={data.map(d => ({
             id: d.id,
             name: d.name,
@@ -1077,7 +1163,7 @@ function Items() {
 
       <Drawer
         title={`Excluir item: ${selectedItemForDelete?.name || ''}`}
-        width={400}
+        width={680}
         open={deleteQtyDrawerOpen}
         onClose={() => { setDeleteQtyDrawerOpen(false); setSelectedItemForDelete(null) }}
         extra={

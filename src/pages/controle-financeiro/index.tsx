@@ -755,7 +755,7 @@ export default function ControleFinanceiro() {
                                                                 callbacks: {
                                                                     label: (ctx: any) => {
                                                                         const total = (ctx.dataset.data as number[]).reduce((a: number, b: number) => a + b, 0)
-                                                                        const pct = total > 0 ? ((ctx.raw / total) * 100).toFixed(1) : '0'
+                                                                        const pct = total > 0 ? ((ctx.raw / total) * 100).toFixed(3) : '0.000'
                                                                         return ` ${ctx.label}: ${formatCurrency(ctx.raw)} (${pct}%)`
                                                                     },
                                                                 },
@@ -775,44 +775,87 @@ export default function ControleFinanceiro() {
                     {
                         label: <span><BankOutlined style={{ marginRight: 4 }} />Despesas Recorrentes</span>,
                         key: 'recorrentes',
-                        children: (
-                            <div className="pc-card--table">
-                                <div style={{ marginBottom: 12, fontSize: 13, color: '#94a3b8' }}>
-                                    Despesas cadastradas como recorrentes (fixed_expenses)
+                        children: (() => {
+                            const generatedThisMonth = data.filter((e: any) => e.origin_type === 'FIXED_EXPENSE' && e.type === 'EXPENSE')
+                            const hasGenerated = generatedThisMonth.length > 0
+                            return (
+                                <div className="pc-card--table">
+                                    {hasGenerated ? (
+                                        <>
+                                            <div style={{ marginBottom: 12, fontSize: 13, color: '#94a3b8' }}>
+                                                Despesas recorrentes lançadas em{' '}
+                                                <strong style={{ color: '#e2e8f0' }}>{month.format('MMMM/YYYY')}</strong>
+                                                {' '}— aparecem no caixa e no fluxo de caixa.
+                                            </div>
+                                            <Table
+                                                columns={[
+                                                    {
+                                                        title: 'Data',
+                                                        dataIndex: 'due_date',
+                                                        width: 110,
+                                                        sorter: (a: any, b: any) => a.due_date.localeCompare(b.due_date),
+                                                        defaultSortOrder: 'ascend' as const,
+                                                        render: (v: string) => dayjs(v).format('DD/MM/YYYY'),
+                                                    },
+                                                    {
+                                                        title: 'Descrição',
+                                                        dataIndex: 'description',
+                                                        render: (t: string) => <span style={{ fontWeight: 500 }}>{t?.split(' — ')[0] || t}</span>,
+                                                    },
+                                                    {
+                                                        title: 'Valor',
+                                                        dataIndex: 'amount',
+                                                        align: 'right' as const,
+                                                        render: (v: number) => <strong style={{ color: '#F04438' }}>{formatCurrency(Number(v))}</strong>,
+                                                    },
+                                                ]}
+                                                dataSource={generatedThisMonth}
+                                                rowKey="id"
+                                                pagination={false}
+                                                size="small"
+                                                summary={() => (
+                                                    <Table.Summary>
+                                                        <Table.Summary.Row style={{ background: 'rgba(240, 68, 56, 0.08)' }}>
+                                                            <Table.Summary.Cell index={0} colSpan={2}><strong>Total Lançado</strong></Table.Summary.Cell>
+                                                            <Table.Summary.Cell index={2} align="right">
+                                                                <strong style={{ color: '#F04438' }}>
+                                                                    {formatCurrency(generatedThisMonth.reduce((s: number, e: any) => s + Number(e.amount || 0), 0))}
+                                                                </strong>
+                                                            </Table.Summary.Cell>
+                                                        </Table.Summary.Row>
+                                                    </Table.Summary>
+                                                )}
+                                            />
+                                        </>
+                                    ) : fixedExpenses.length > 0 ? (
+                                        <>
+                                            <div style={{ marginBottom: 12, fontSize: 13, color: '#94a3b8' }}>
+                                                Despesas configuradas como recorrentes (ainda não geradas para{' '}
+                                                <strong style={{ color: '#e2e8f0' }}>{month.format('MMMM/YYYY')}</strong>
+                                                ). Use o botão <strong>"Gerar Contas do Mês"</strong> no Fluxo de Caixa.
+                                            </div>
+                                            <Table
+                                                columns={[
+                                                    { title: 'Descrição', dataIndex: 'description', render: (t: string) => <span style={{ fontWeight: 500 }}>{t}</span> },
+                                                    { title: 'Valor Mensal', dataIndex: 'amount', align: 'right' as const, render: (v: number) => <strong style={{ color: '#F04438' }}>{formatCurrency(Number(v))}</strong> },
+                                                    { title: 'Dia Vencimento', dataIndex: 'due_day', align: 'center' as const, render: (v: number) => <Tag>{v}</Tag> },
+                                                ]}
+                                                dataSource={fixedExpenses}
+                                                rowKey="id"
+                                                pagination={false}
+                                                size="small"
+                                            />
+                                        </>
+                                    ) : (
+                                        <div style={{ textAlign: 'center', padding: 40, color: '#98A2B3' }}>
+                                            <BankOutlined style={{ fontSize: 36, marginBottom: 8 }} />
+                                            <p>Nenhuma despesa recorrente encontrada para este mês.</p>
+                                            <p style={{ fontSize: 12 }}>Use "Gerar Contas do Mês" no Fluxo de Caixa para lançar despesas recorrentes.</p>
+                                        </div>
+                                    )}
                                 </div>
-                                {fixedExpenses.length > 0 ? (
-                                    <Table
-                                        columns={[
-                                            { title: 'Descrição', dataIndex: 'description', render: (t: string) => <span style={{ fontWeight: 500 }}>{t}</span> },
-                                            { title: 'Valor', dataIndex: 'amount', align: 'right' as const, render: (v: number) => <strong style={{ color: '#F04438' }}>{formatCurrency(Number(v))}</strong> },
-                                            { title: 'Dia Vencimento', dataIndex: 'due_day', align: 'center' as const, render: (v: number) => <Tag>{v}</Tag> },
-                                        ]}
-                                        dataSource={fixedExpenses}
-                                        rowKey="id"
-                                        pagination={false}
-                                        size="small"
-                                        summary={() => (
-                                            <Table.Summary>
-                                                <Table.Summary.Row style={{ background: 'rgba(240, 68, 56, 0.08)' }}>
-                                                    <Table.Summary.Cell index={0}><strong>Total Mensal</strong></Table.Summary.Cell>
-                                                    <Table.Summary.Cell index={1} align="right">
-                                                        <strong style={{ color: '#F04438' }}>
-                                                            {formatCurrency(fixedExpenses.reduce((s, fe) => s + Number(fe.amount || 0), 0))}
-                                                        </strong>
-                                                    </Table.Summary.Cell>
-                                                    <Table.Summary.Cell index={2} />
-                                                </Table.Summary.Row>
-                                            </Table.Summary>
-                                        )}
-                                    />
-                                ) : (
-                                    <div style={{ textAlign: 'center', padding: 40, color: '#98A2B3' }}>
-                                        <BankOutlined style={{ fontSize: 36, marginBottom: 8 }} />
-                                        <p>Nenhuma despesa recorrente cadastrada.</p>
-                                    </div>
-                                )}
-                            </div>
-                        ),
+                            )
+                        })(),
                     },
                     {
                         label: <span><TeamOutlined style={{ marginRight: 4 }} />Salários</span>,
@@ -912,7 +955,7 @@ export default function ControleFinanceiro() {
             {/* Item 13: Type selector removed from drawer UI; toggle via button in extra */}
             <Drawer
                 title={drawerType === 'INCOME' ? 'Nova Receita' : 'Nova Despesa'}
-                width={460}
+                width={680}
                 open={drawerOpen}
                 onClose={() => setDrawerOpen(false)}
                 extra={
@@ -987,7 +1030,7 @@ export default function ControleFinanceiro() {
             {/* Drawer: Editar Lançamento */}
             <Drawer
                 title="Editar Lançamento"
-                width={420}
+                width={680}
                 open={editDrawerOpen}
                 onClose={() => setEditDrawerOpen(false)}
                 extra={<Space><Button onClick={() => setEditDrawerOpen(false)}>Cancelar</Button><Button type="primary" onClick={handleSaveEdit}>Salvar</Button></Space>}

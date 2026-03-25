@@ -276,7 +276,7 @@ function Budgets() {
         ? Number(selectedEmployee.commission_percent) / 100
         : 0
     const getItemTotalWithCommission = (item: BudgetItemRow) => {
-        const effUnit = item.unit_price * (1 + sellerCommissionPct)
+        const effUnit = item.unit_price  // sempre preço fechado, sem comissão
         const subtotal = effUnit * item.quantity
         return subtotal * (1 - (item.discount_percent ?? 0) / 100)
     }

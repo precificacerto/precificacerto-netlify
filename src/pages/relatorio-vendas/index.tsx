@@ -47,12 +47,14 @@ interface PendingReceivableRow {
     originType: string
     customerId: string
     employeeId: string | null
+    sectionName: string
 }
 
 interface ABCReportRow {
     position: number
     productId: string
     productName: string
+    sectionName: string
     qtdSold: number
     totalRevenue: number
     totalCost: number
@@ -139,7 +141,7 @@ function SalesReport() {
             const wb = new Workbook()
             const ws = wb.addWorksheet('Curva ABC Produtos')
             ws.addRow(['#', 'Produto', 'Qtd. Vendida', 'Receita', 'Comissão %', 'Valor da Comissão', 'Curva', 'Vendedor'])
-            abcData.forEach(r => ws.addRow([r.position, r.productName, r.qtdSold, r.totalRevenue, `${r.commissionPercent.toFixed(2)}%`, r.commissionValue, r.curve, r.employeeName]))
+            abcData.forEach(r => ws.addRow([r.position, r.productName, r.qtdSold, r.totalRevenue, `${r.commissionPercent.toFixed(3)}%`, r.commissionValue, r.curve, r.employeeName]))
             ws.getRow(1).font = { bold: true }
             wb.xlsx.writeBuffer().then(buf => {
                 const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
@@ -156,7 +158,7 @@ function SalesReport() {
             title: 'Curva ABC - Produtos',
             subtitle: `Período: ${abcDateRange[0].format('DD/MM/YYYY')} a ${abcDateRange[1].format('DD/MM/YYYY')}`,
             headers: ['#', 'Produto', 'Qtd.', 'Receita', 'Comissão %', 'Valor Comissão', 'Curva', 'Vendedor'],
-            rows: abcData.map(r => [r.position, r.productName, r.qtdSold, formatCurrency(r.totalRevenue), `${r.commissionPercent.toFixed(2)}%`, formatCurrency(r.commissionValue), r.curve, r.employeeName]),
+            rows: abcData.map(r => [r.position, r.productName, r.qtdSold, formatCurrency(r.totalRevenue), `${r.commissionPercent.toFixed(3)}%`, formatCurrency(r.commissionValue), r.curve, r.employeeName]),
             filename: 'curva-abc-produtos.pdf',
         })
     }
@@ -167,7 +169,7 @@ function SalesReport() {
             title: 'Curva ABC - Serviços',
             subtitle: `Período: ${svcDateRange[0].format('DD/MM/YYYY')} a ${svcDateRange[1].format('DD/MM/YYYY')}`,
             headers: ['#', 'Serviço', 'Qtd.', 'Receita', 'Comissão %', 'Valor Comissão', 'Curva', 'Profissional'],
-            rows: svcData.map(r => [r.position, r.serviceName, r.qtdSold, formatCurrency(r.totalRevenue), `${r.commissionPercent.toFixed(2)}%`, formatCurrency(r.commissionValue), r.curve, r.employeeName]),
+            rows: svcData.map(r => [r.position, r.serviceName, r.qtdSold, formatCurrency(r.totalRevenue), `${r.commissionPercent.toFixed(3)}%`, formatCurrency(r.commissionValue), r.curve, r.employeeName]),
             filename: 'curva-abc-servicos.pdf',
         })
     }
@@ -178,7 +180,7 @@ function SalesReport() {
             const wb = new Workbook()
             const ws = wb.addWorksheet('Curva ABC Serviços')
             ws.addRow(['#', 'Serviço', 'Qtd. Vendida', 'Receita', 'Comissão %', 'Valor da Comissão', 'Curva', 'Profissional'])
-            svcData.forEach(r => ws.addRow([r.position, r.serviceName, r.qtdSold, r.totalRevenue, `${r.commissionPercent.toFixed(2)}%`, r.commissionValue, r.curve, r.employeeName]))
+            svcData.forEach(r => ws.addRow([r.position, r.serviceName, r.qtdSold, r.totalRevenue, `${r.commissionPercent.toFixed(3)}%`, r.commissionValue, r.curve, r.employeeName]))
             ws.getRow(1).font = { bold: true }
             wb.xlsx.writeBuffer().then(buf => {
                 const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
@@ -230,6 +232,7 @@ function SalesReport() {
                     originType: r.origin_type,
                     customerId: r.customer_id,
                     employeeId: r.employee_id,
+                    sectionName: '—',
                 }
             }))
         } catch (err: any) {
@@ -412,7 +415,7 @@ function SalesReport() {
 
             let itemsQuery = supabase
                 .from('budget_items')
-                .select('budget_id, product_id, quantity, unit_price, discount, product:products(id, name, cost_total)')
+                .select('budget_id, product_id, quantity, unit_price, discount, product:products(id, name, cost_total, product_sections(id, name))')
                 .in('budget_id', budgetIds)
 
             if (abcProductFilter) {
@@ -432,6 +435,7 @@ function SalesReport() {
             const productAgg = new Map<string, {
                 productId: string
                 productName: string
+                sectionName: string
                 qtdSold: number
                 totalRevenue: number
                 totalCost: number
@@ -445,6 +449,7 @@ function SalesReport() {
                 if (!product) continue
                 const productId = product.id
                 const productName = product.name || 'Sem nome'
+                const sectionName = (product as any).product_sections?.name || '—'
                 const qty = Number(item.quantity) || 1
                 const unitPrice = Number(item.unit_price) || 0
                 const discount = Number(item.discount) || 0
@@ -483,6 +488,7 @@ function SalesReport() {
                     productAgg.set(aggKey, {
                         productId,
                         productName,
+                        sectionName,
                         qtdSold: qty,
                         totalRevenue: revenue,
                         totalCost: totalCost,
@@ -511,6 +517,7 @@ function SalesReport() {
                     position: idx + 1,
                     productId: p.productId,
                     productName: p.productName,
+                    sectionName: p.sectionName,
                     qtdSold: p.qtdSold,
                     totalRevenue: p.totalRevenue,
                     totalCost: p.totalCost,
@@ -705,6 +712,14 @@ function SalesReport() {
             render: (text: string) => <span style={{ fontWeight: 500 }}>{text}</span>,
         },
         {
+            title: 'Seção',
+            dataIndex: 'sectionName',
+            key: 'sectionName',
+            width: 140,
+            ellipsis: true,
+            render: (v: string) => v && v !== '—' ? <Tag>{v}</Tag> : <span style={{ color: '#D0D5DD' }}>—</span>,
+        },
+        {
             title: 'Qtd Vendida',
             dataIndex: 'qtdSold',
             key: 'qtdSold',
@@ -731,7 +746,7 @@ function SalesReport() {
             sorter: (a, b) => a.commissionPercent - b.commissionPercent,
             render: (v: number) => (
                 <span style={{ fontWeight: 600 }}>
-                    {v.toFixed(2)}%
+                    {v.toFixed(3)}%
                 </span>
             ),
         },
@@ -818,7 +833,7 @@ function SalesReport() {
             sorter: (a, b) => a.commissionPercent - b.commissionPercent,
             render: (v: number) => (
                 <span style={{ fontWeight: 600 }}>
-                    {v.toFixed(2)}%
+                    {v.toFixed(3)}%
                 </span>
             ),
         },
@@ -949,7 +964,15 @@ function SalesReport() {
         { title: 'Cliente', dataIndex: 'customerName', sorter: (a, b) => a.customerName.localeCompare(b.customerName) },
         { title: 'Vendedor', dataIndex: 'employeeName', sorter: (a, b) => a.employeeName.localeCompare(b.employeeName) },
         {
-            title: 'Valor',
+            title: 'Seção',
+            dataIndex: 'sectionName',
+            key: 'sectionName',
+            width: 140,
+            ellipsis: true,
+            render: (v: string) => v && v !== '—' ? <Tag>{v}</Tag> : <span style={{ color: '#D0D5DD' }}>—</span>,
+        },
+        {
+            title: 'Valor original',
             dataIndex: 'amount',
             align: 'right',
             render: (v: number) => <span style={{ fontWeight: 600, color: '#f59e0b' }}>{formatCurrency(v)}</span>,
@@ -961,14 +984,6 @@ function SalesReport() {
             align: 'right',
             render: (v: number) => <span style={{ fontWeight: 600, color: v > 0 ? '#EF4444' : '#12B76A' }}>{formatCurrency(v)}</span>,
             sorter: (a, b) => a.amountRemaining - b.amountRemaining,
-        },
-        {
-            title: 'Origem',
-            dataIndex: 'originType',
-            render: (v: string) => {
-                const map: Record<string, string> = { SALE: 'Venda Balcão', BUDGET: 'Orçamento', AGENDA: 'Agenda' }
-                return <Tag>{map[v] || v}</Tag>
-            },
         },
         {
             title: 'Ação',
@@ -1155,7 +1170,7 @@ function SalesReport() {
                         <div className="kpi-grid" style={{ marginBottom: 20 }}>
                             <CardKPI title="Receita Total" value={formatCurrency(abcTotalRevenue)} icon={<DollarOutlined />} variant="green" />
                             <CardKPI title="Total Produtos" value={abcTotalProducts} icon={<ShoppingOutlined />} variant="blue" />
-                            <CardKPI title="Margem Média" value={`${abcAvgMargin.toFixed(2)}%`} icon={<BarChartOutlined />} variant="orange" />
+                            <CardKPI title="Margem Média" value={`${abcAvgMargin.toFixed(3)}%`} icon={<BarChartOutlined />} variant="orange" />
                         </div>
 
                         {/* Product Filters */}
@@ -1257,7 +1272,7 @@ function SalesReport() {
                         <div className="kpi-grid" style={{ marginBottom: 20 }}>
                             <CardKPI title="Receita Total" value={formatCurrency(svcTotalRevenue)} icon={<DollarOutlined />} variant="green" />
                             <CardKPI title="Total Serviços" value={svcTotalServices} icon={<CustomerServiceOutlined />} variant="blue" />
-                            <CardKPI title="Margem Média" value={`${svcAvgMargin.toFixed(2)}%`} icon={<BarChartOutlined />} variant="orange" />
+                            <CardKPI title="Margem Média" value={`${svcAvgMargin.toFixed(3)}%`} icon={<BarChartOutlined />} variant="orange" />
                         </div>
 
                         {/* Service Filters */}

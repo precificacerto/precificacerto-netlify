@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import {
     Button, Select, DatePicker, Space, message,
-    Form, Input, InputNumber, Drawer, Modal,
+    Form, Input, InputNumber, Drawer, Modal, Table, Tag,
 } from 'antd'
 import dayjs from 'dayjs'
 import { Layout } from '@/components/layout/layout.component'
@@ -829,8 +829,72 @@ export default function CashFlow() {
             </div>
 
 
+            {/* ── Tabela Diária ── */}
+            <div style={{ marginTop: 24, background: '#0d1b2a', borderRadius: 8, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.06)' }}>
+                <div style={{ padding: '14px 20px', borderBottom: '1px solid rgba(255,255,255,0.06)', background: '#1a2744', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: 15, fontWeight: 700, color: '#e2e8f0' }}>
+                        Lançamentos por Dia — {month.format('MMMM/YYYY')}
+                    </span>
+                    {selectedDay !== null && (
+                        <span style={{ fontSize: 12, color: '#94a3b8' }}>
+                            Filtrando dia <strong style={{ color: '#60a5fa' }}>{selectedDay}</strong>
+                        </span>
+                    )}
+                </div>
+                <div style={{ padding: '0 0 8px' }}>
+                    <Table
+                        dataSource={[...dfcData].sort((a: any, b: any) => (a.due_date || '').localeCompare(b.due_date || ''))}
+                        rowKey="id"
+                        size="small"
+                        pagination={{ pageSize: 20, showTotal: (t) => `${t} lançamentos` }}
+                        columns={[
+                            {
+                                title: 'Data',
+                                dataIndex: 'due_date',
+                                key: 'due_date',
+                                width: 100,
+                                render: (v: string) => v ? dayjs(v).format('DD/MM/YYYY') : '—',
+                            },
+                            {
+                                title: 'Descrição',
+                                dataIndex: 'description',
+                                key: 'description',
+                                render: (t: string) => <span style={{ fontSize: 13 }}>{t?.split(' — ')[0] || t || '—'}</span>,
+                            },
+                            {
+                                title: 'Tipo',
+                                dataIndex: 'type',
+                                key: 'type',
+                                width: 90,
+                                render: (v: string) => (
+                                    <Tag color={v === 'INCOME' ? 'green' : 'red'} style={{ fontSize: 11 }}>
+                                        {v === 'INCOME' ? 'Receita' : 'Despesa'}
+                                    </Tag>
+                                ),
+                            },
+                            {
+                                title: 'Valor',
+                                key: 'valor',
+                                width: 130,
+                                align: 'right' as const,
+                                render: (_: any, r: any) => {
+                                    const val = r.type === 'INCOME' ? getEffectiveIncomeAmount(r) : Number(r.amount || 0)
+                                    return (
+                                        <strong style={{ color: r.type === 'INCOME' ? '#4ade80' : '#f87171', fontVariantNumeric: 'tabular-nums' }}>
+                                            {r.type === 'INCOME' ? '+' : '-'} {formatCurrency(val)}
+                                        </strong>
+                                    )
+                                },
+                            },
+                        ]}
+                        locale={{ emptyText: 'Nenhum lançamento neste período.' }}
+                        style={{ background: 'transparent' }}
+                    />
+                </div>
+            </div>
+
             {/* Drawer: Novo Lançamento */}
-            <Drawer title="Novo Lançamento" width={460} open={drawerOpen} onClose={() => setDrawerOpen(false)}
+            <Drawer title="Novo Lançamento" width={680} open={drawerOpen} onClose={() => setDrawerOpen(false)}
                 extra={<Button type="primary" onClick={handleSaveEntry}>Salvar</Button>}>
                 <div style={{ marginBottom: 16 }}>
                     <span style={{ fontWeight: 500, marginRight: 8 }}>Tipo:</span>

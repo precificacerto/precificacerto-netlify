@@ -29,6 +29,7 @@ type ProductRow = {
   key: string
   id: string
   code: string
+  section_id: string | null
   name: string
   description: string
   sale_price: number
@@ -105,22 +106,33 @@ function Products() {
 
   const handleCreateSection = async () => {
     const name = newSectionName.trim()
-    if (!name) {
-      message.warning('Informe o nome da seção.')
+    if (!name) { message.warning('Informe o nome da seção.'); return }
+
+    const tenantId = effectiveTenantId
+    if (!tenantId) {
+      message.error('Sessão inválida. Recarregue a página.')
       return
     }
-    if (!effectiveTenantId) return
+
     setSavingSection(true)
     try {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('product_sections')
-        .insert({ tenant_id: effectiveTenantId, name })
-      if (error) throw error
+        .insert({ tenant_id: tenantId, name })
+        .select()
+        .single()
+
+      if (error) {
+        console.error('Erro ao criar seção:', error)
+        message.error('Erro ao salvar seção: ' + error.message)
+        return
+      }
+
       setNewSectionName('')
       await loadSections()
-      message.success('Seção criada!')
-    } catch (err: any) {
-      message.error(`Erro ao criar seção: ${err.message}`)
+      message.success('Seção criada com sucesso!')
+    } catch (ex: any) {
+      message.error('Erro inesperado: ' + ex.message)
     } finally {
       setSavingSection(false)
     }
@@ -172,6 +184,7 @@ function Products() {
         key: p.id,
         id: p.id,
         code: p.code || '',
+        section_id: p.section_id || null,
         name: p.name,
         description: p.description || '',
         sale_price: salePrice,
@@ -701,6 +714,17 @@ function Products() {
 
   const columns: ColumnsType<ProductRow> = [
     {
+      title: 'Código', dataIndex: 'code', key: 'code', width: 90,
+      render: (v: string) => v ? <Tag>{v}</Tag> : <span style={{ color: '#D0D5DD' }}>—</span>,
+    },
+    {
+      title: 'Seção', key: 'section_name', width: 120,
+      render: (_: any, record: ProductRow) => {
+        const section = sections.find(s => s.id === record.section_id)
+        return section ? <span>{section.name}</span> : <span style={{ color: '#D0D5DD' }}>—</span>
+      },
+    },
+    {
       title: 'Produto', dataIndex: 'name', key: 'name',
       sorter: (a, b) => a.name.localeCompare(b.name),
       render: (n: string, r: ProductRow) => (
@@ -729,7 +753,7 @@ function Products() {
         const margin = r.profit_percent
         if (margin == null) return <span style={{ fontSize: 13, color: '#94a3b8' }}>—</span>
         const color = margin >= 30 ? '#12B76A' : margin >= 15 ? '#F79009' : '#F04438'
-        return <span style={{ fontWeight: 600, color, fontSize: 13 }}>{margin.toFixed(2)}%</span>
+        return <span style={{ fontWeight: 600, color, fontSize: 13 }}>{margin.toFixed(3)}%</span>
       },
     },
     {
@@ -831,6 +855,9 @@ function Products() {
         footer={null}
         width={480}
       >
+        <p style={{ color: '#94a3b8', fontSize: 13, marginBottom: 12 }}>
+          Seção é um grupo, usado como filtro ao qual o produto pertence.
+        </p>
         <div style={{ marginBottom: 16 }}>
           <div style={{ display: 'flex', gap: 8 }}>
             <Input

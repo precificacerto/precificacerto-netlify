@@ -114,6 +114,11 @@ function Sales() {
     const [attachDesc, setAttachDesc] = useState('')
     const [registerAttachDesc, setRegisterAttachDesc] = useState('')
 
+    // Parcelas customizadas para Cheque pré-datado / Boleto (Venda no Balcão)
+    const [customInstallments, setCustomInstallments] = useState<{ date: any; amount: number }[]>([{ date: null, amount: 0 }])
+    // Parcelas customizadas para Cheque pré-datado / Boleto (Registrar venda de orçamento)
+    const [registerCustomInstallments, setRegisterCustomInstallments] = useState<{ date: any; amount: number }[]>([{ date: null, amount: 0 }])
+
     const { canView, canEdit } = usePermissions()
     if (!canView(MODULES.SALES)) {
         return <Layout title={PAGE_TITLES.SALES}><div style={{ padding: 40, textAlign: 'center' }}>Você não tem acesso a este módulo.</div></Layout>
@@ -394,7 +399,30 @@ function Sales() {
                 }
                 await (supabase as any).from('cash_entries').insert(installmentEntries)
             } else {
-                const isBoleto = values.payment_method === 'BOLETO'
+                const isBoletoOrCheque = values.payment_method === 'BOLETO' || values.payment_method === 'CHEQUE_PRE_DATADO'
+                if (isBoletoOrCheque) {
+                    const validInstallments = registerCustomInstallments.filter(r => r.date && r.amount > 0)
+                    if (validInstallments.length === 0) {
+                        messageApi.error('Informe ao menos uma data e valor de recebimento.')
+                        setRegisterSaving(false)
+                        return
+                    }
+                    const customEntries = validInstallments.map((r, idx) => ({
+                        tenant_id: tenantId,
+                        type: 'INCOME',
+                        origin_type: 'SALE',
+                        origin_id: sale.id,
+                        amount: r.amount,
+                        due_date: r.date.format('YYYY-MM-DD'),
+                        paid_date: null,
+                        description: validInstallments.length > 1
+                            ? `Venda orçamento: ${selectedBudget.customer_name} — ${payLabel} (${idx + 1}/${validInstallments.length})`
+                            : `Venda orçamento: ${selectedBudget.customer_name} — ${payLabel}`,
+                        payment_method: values.payment_method,
+                        created_by: createdBy,
+                    }))
+                    await (supabase as any).from('cash_entries').insert(customEntries)
+                } else {
                 const due = values.sale_date ? values.sale_date.format('YYYY-MM-DD') : new Date().toISOString().split('T')[0]
                 await supabase.from('cash_entries').insert({
                     tenant_id: tenantId,
@@ -403,11 +431,12 @@ function Sales() {
                     origin_id: sale.id,
                     amount: selectedBudget.total_value,
                     due_date: due,
-                    paid_date: isBoleto ? null : due,
+                    paid_date: due,
                     payment_method: values.payment_method,
                     description: `Venda orçamento: ${selectedBudget.customer_name} — ${payLabel}`,
                     created_by: createdBy,
                 })
+                }
             }
 
             messageApi.success('Venda registrada com sucesso!')
@@ -691,32 +720,29 @@ function Sales() {
                     status: 'PENDING',
                     created_by: createdBy,
                 })
-            } else if (values.payment_method === 'CHEQUE_PRE_DATADO') {
-                // Cheque pré-datado: gera cash_entries com paid_date = NULL e due_dates futuros
-                const chequeCondition = values.cheque_condition || '30'
-                const baseDate = dayjs(saleDate)
-                type ChequeEntry = { days: number; fraction: number }
-                const conditionMap: Record<string, ChequeEntry[]> = {
-                    '30': [{ days: 30, fraction: 1 }],
-                    '30_60': [{ days: 30, fraction: 0.5 }, { days: 60, fraction: 0.5 }],
-                    '30_60_90': [{ days: 30, fraction: 1 / 3 }, { days: 60, fraction: 1 / 3 }, { days: 90, fraction: 1 / 3 }],
+            } else if (values.payment_method === 'CHEQUE_PRE_DATADO' || values.payment_method === 'BOLETO') {
+                // Cheque pré-datado / Boleto: parcelas com datas e valores customizados pelo usuário
+                const validInstallments = customInstallments.filter(r => r.date && r.amount > 0)
+                if (validInstallments.length === 0) {
+                    messageApi.error('Informe ao menos uma data e valor de recebimento.')
+                    setSaving(false)
+                    return
                 }
-                const slices = conditionMap[chequeCondition] || conditionMap['30']
-                const chequeEntries = slices.map((s, idx) => ({
+                const customEntries = validInstallments.map((r, idx) => ({
                     tenant_id: tenantId,
                     type: 'INCOME',
-                    amount: Math.round((saleTotal * s.fraction) * 100) / 100,
-                    due_date: baseDate.add(s.days, 'day').format('YYYY-MM-DD'),
+                    amount: r.amount,
+                    due_date: r.date.format('YYYY-MM-DD'),
                     paid_date: null,
-                    description: slices.length > 1
-                        ? `${saleDesc} — ${payLabel} (${idx + 1}/${slices.length})`
+                    description: validInstallments.length > 1
+                        ? `${saleDesc} — ${payLabel} (${idx + 1}/${validInstallments.length})`
                         : `${saleDesc} — ${payLabel}`,
                     payment_method: values.payment_method,
                     origin_type: 'SALE',
                     origin_id: sale.id,
                     created_by: createdBy,
                 }))
-                await (supabase as any).from('cash_entries').insert(chequeEntries)
+                await (supabase as any).from('cash_entries').insert(customEntries)
             } else if (values.payment_method === 'CARTAO_CREDITO') {
                 const amountPerInstallment = saleTotal / numInstallments
                 const installmentEntries = []
@@ -1153,7 +1179,7 @@ function Sales() {
                                 key: 'action',
                                 render: (_, r) => (
                                     <Space size="small">
-                                        <Button type="primary" size="small" onClick={() => handleOpenRegisterSale(r)}>Lançar pagamento</Button>
+                                        <Button type="primary" size="small" onClick={() => handleOpenRegisterSale(r)}>Lançar recebimento</Button>
                                         <Popconfirm
                                             title="Voltar orçamento para rascunho? Ele sairá da lista de pendentes e poderá ser editado em Orçamentos."
                                             onConfirm={async () => {
@@ -1203,8 +1229,8 @@ function Sales() {
                 title="🏪 Venda no Balcão"
                 width={680}
                 open={drawerOpen}
-                onClose={() => { setDrawerOpen(false); setReceiptFile([]); setAttachDesc(''); setIsSplitPay(false) }}
-                extra={<Space><Button onClick={() => { setDrawerOpen(false); setReceiptFile([]); setAttachDesc(''); setIsSplitPay(false) }}>Cancelar</Button><Button onClick={handleSaveSale} type="primary" loading={saving}>Registrar Venda</Button></Space>}
+                onClose={() => { setDrawerOpen(false); setReceiptFile([]); setAttachDesc(''); setIsSplitPay(false); setCustomInstallments([{ date: null, amount: 0 }]) }}
+                extra={<Space><Button onClick={() => { setDrawerOpen(false); setReceiptFile([]); setAttachDesc(''); setIsSplitPay(false); setCustomInstallments([{ date: null, amount: 0 }]) }}>Cancelar</Button><Button onClick={handleSaveSale} type="primary" loading={saving}>Registrar Venda</Button></Space>}
             >
                 <Form form={form} layout="vertical">
                     <Divider orientation="left" style={{ fontSize: 12, color: '#94a3b8', marginTop: 0 }}>Produtos e Serviços</Divider>
@@ -1235,7 +1261,7 @@ function Sales() {
 
                     <Divider orientation="left" style={{ fontSize: 12, color: '#94a3b8' }}>Pagamento</Divider>
 
-                    <Form.Item name="payment_method" label="Forma de pagamento" rules={[{ required: true, message: 'Selecione' }]}>
+                    <Form.Item name="payment_method" label="Forma de recebimento" rules={[{ required: true, message: 'Selecione' }]}>
                         <Select placeholder="Como foi pago?">
                             {PAYMENT_METHODS.map(p => (<Select.Option key={p.value} value={p.value}>{p.label}</Select.Option>))}
                         </Select>
@@ -1256,17 +1282,56 @@ function Sales() {
                     </Form.Item>
 
                     <Form.Item noStyle shouldUpdate={(prev, curr) => prev.payment_method !== curr.payment_method}>
-                        {({ getFieldValue }) =>
-                            getFieldValue('payment_method') === 'CHEQUE_PRE_DATADO' ? (
-                                <Form.Item name="cheque_condition" label="Condição de Cheque" rules={[{ required: true, message: 'Selecione a condição' }]}>
-                                    <Select placeholder="Selecione a condição">
-                                        {CHEQUE_PRE_DATADO_CONDITIONS.map(c => (
-                                            <Select.Option key={c.value} value={c.value}>{c.label}</Select.Option>
-                                        ))}
-                                    </Select>
-                                </Form.Item>
-                            ) : null
-                        }
+                        {({ getFieldValue }) => {
+                            const pm = getFieldValue('payment_method')
+                            if (pm !== 'CHEQUE_PRE_DATADO' && pm !== 'BOLETO') return null
+                            return (
+                                <div style={{ marginBottom: 16, padding: 12, background: 'rgba(96, 165, 250, 0.08)', border: '1px solid rgba(96,165,250,0.25)', borderRadius: 8 }}>
+                                    <div style={{ fontSize: 13, fontWeight: 600, color: '#93c5fd', marginBottom: 8 }}>
+                                        Datas e valores de recebimento
+                                    </div>
+                                    {customInstallments.map((item, idx) => (
+                                        <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8, marginBottom: 8, alignItems: 'center' }}>
+                                            <DatePicker
+                                                placeholder="Data de recebimento"
+                                                format="DD/MM/YYYY"
+                                                value={item.date}
+                                                onChange={(d) => {
+                                                    setCustomInstallments(prev => prev.map((r, i) => i === idx ? { ...r, date: d } : r))
+                                                }}
+                                                style={{ width: '100%' }}
+                                            />
+                                            <InputNumber
+                                                min={0}
+                                                step={0.01}
+                                                precision={2}
+                                                style={{ width: '100%' }}
+                                                placeholder="Valor (R$)"
+                                                value={item.amount || undefined}
+                                                addonBefore="R$"
+                                                onChange={(v) => {
+                                                    setCustomInstallments(prev => prev.map((r, i) => i === idx ? { ...r, amount: Number(v) || 0 } : r))
+                                                }}
+                                            />
+                                            <Button
+                                                danger size="small" type="text"
+                                                disabled={customInstallments.length === 1}
+                                                onClick={() => setCustomInstallments(prev => prev.filter((_, i) => i !== idx))}
+                                            >✕</Button>
+                                        </div>
+                                    ))}
+                                    <Button
+                                        type="dashed" size="small" style={{ width: '100%' }}
+                                        onClick={() => setCustomInstallments(prev => [...prev, { date: null, amount: 0 }])}
+                                    >+ Adicionar data/valor</Button>
+                                    {customInstallments.length > 1 && (
+                                        <div style={{ marginTop: 6, fontSize: 12, color: '#94a3b8' }}>
+                                            Total parcelas: <strong style={{ color: '#e2e8f0' }}>{formatCurrency(customInstallments.reduce((s, r) => s + (r.amount || 0), 0))}</strong>
+                                        </div>
+                                    )}
+                                </div>
+                            )
+                        }}
                     </Form.Item>
 
                     <Form.Item noStyle shouldUpdate={(prev, curr) => prev.payment_method !== curr.payment_method}>
@@ -1424,7 +1489,7 @@ function Sales() {
             <Modal
                 title="Registrar Venda"
                 open={registerModalOpen}
-                onCancel={() => { setRegisterModalOpen(false); setRegisterReceiptFile([]); setRegisterAttachDesc('') }}
+                onCancel={() => { setRegisterModalOpen(false); setRegisterReceiptFile([]); setRegisterAttachDesc(''); setRegisterCustomInstallments([{ date: null, amount: 0 }]) }}
                 onOk={handleRegisterSaleFromBudget}
                 confirmLoading={registerSaving}
                 okText="Confirmar Venda"
@@ -1438,7 +1503,7 @@ function Sales() {
                     </div>
                 )}
                 <Form form={registerForm} layout="vertical">
-                    <Form.Item name="payment_method" label="Forma de pagamento" rules={[{ required: true, message: 'Selecione' }]}>
+                    <Form.Item name="payment_method" label="Forma de recebimento" rules={[{ required: true, message: 'Selecione' }]}>
                         <Select placeholder="Como foi pago?">
                             {PAYMENT_METHODS.map(p => (<Select.Option key={p.value} value={p.value}>{p.label}</Select.Option>))}
                         </Select>
@@ -1456,7 +1521,43 @@ function Sales() {
                             ) : null
                         }
                     </Form.Item>
-                    <Form.Item name="sale_date" label="Data do pagamento" initialValue={dayjs()}>
+                    <Form.Item noStyle shouldUpdate={(prev, curr) => prev.payment_method !== curr.payment_method}>
+                        {({ getFieldValue }) => {
+                            const pm = getFieldValue('payment_method')
+                            if (pm !== 'CHEQUE_PRE_DATADO' && pm !== 'BOLETO') return null
+                            return (
+                                <div style={{ marginBottom: 16, padding: 12, background: 'rgba(96, 165, 250, 0.08)', border: '1px solid rgba(96,165,250,0.25)', borderRadius: 8 }}>
+                                    <div style={{ fontSize: 13, fontWeight: 600, color: '#93c5fd', marginBottom: 8 }}>
+                                        Datas e valores de recebimento
+                                    </div>
+                                    {registerCustomInstallments.map((item, idx) => (
+                                        <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8, marginBottom: 8, alignItems: 'center' }}>
+                                            <DatePicker
+                                                placeholder="Data de recebimento"
+                                                format="DD/MM/YYYY"
+                                                value={item.date}
+                                                onChange={(d) => setRegisterCustomInstallments(prev => prev.map((r, i) => i === idx ? { ...r, date: d } : r))}
+                                                style={{ width: '100%' }}
+                                            />
+                                            <InputNumber
+                                                min={0} step={0.01} precision={2} style={{ width: '100%' }}
+                                                placeholder="Valor (R$)" value={item.amount || undefined} addonBefore="R$"
+                                                onChange={(v) => setRegisterCustomInstallments(prev => prev.map((r, i) => i === idx ? { ...r, amount: Number(v) || 0 } : r))}
+                                            />
+                                            <Button danger size="small" type="text"
+                                                disabled={registerCustomInstallments.length === 1}
+                                                onClick={() => setRegisterCustomInstallments(prev => prev.filter((_, i) => i !== idx))}>✕</Button>
+                                        </div>
+                                    ))}
+                                    <Button type="dashed" size="small" style={{ width: '100%' }}
+                                        onClick={() => setRegisterCustomInstallments(prev => [...prev, { date: null, amount: 0 }])}>
+                                        + Adicionar data/valor
+                                    </Button>
+                                </div>
+                            )
+                        }}
+                    </Form.Item>
+                    <Form.Item name="sale_date" label="Data do recebimento" initialValue={dayjs()}>
                         <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
                     </Form.Item>
                     <Form.Item name="description" label="Observação">
