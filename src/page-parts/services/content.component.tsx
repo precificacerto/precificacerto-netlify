@@ -28,7 +28,7 @@ function fmt(v: number) {
 }
 
 interface RawItem {
-    id: string; name: string; unit: string; cost_price: number; quantity: number; item_type?: string
+    id: string; name: string; unit: string; cost_price: number; quantity: number; item_type?: string; measure_quantity?: number
 }
 
 interface TempItem {
@@ -101,7 +101,8 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
 
             const existingItems: TempItem[] = (serviceData.service_items || []).map((si: any, i: number) => {
                 const item = si.item
-                const refQty = Number(item?.quantity) || 1
+                const measureQty = Number((item as any)?.measure_quantity) || 1
+                const refQty = (Number(item?.quantity) || 1) * measureQty
                 const refPrice = Number(item?.cost_price) || 0
                 const neededQty = Number(si.quantity) || 0
                 return {
@@ -218,14 +219,16 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
         if (!it) return
         if (tempItems.some(t => t.item_id === addItemId)) { msgApi.warning('Item já adicionado.'); return }
 
-        const proportionalCost = calculateItemPrice(addItemQty, it.cost_price, it.quantity)
+        const measureQty = Number((it as any).measure_quantity) || 1
+        const refQty = (Number(it.quantity) || 1) * measureQty
+        const proportionalCost = calculateItemPrice(addItemQty, it.cost_price, refQty)
         setTempItems(prev => [...prev, {
             key: `n-${Date.now()}`,
             item_id: it.id,
             item_name: it.name,
             unit: it.unit,
             needed_qty: addItemQty,
-            ref_qty: it.quantity,
+            ref_qty: refQty,
             ref_price: it.cost_price,
             proportional_cost: proportionalCost,
         }])

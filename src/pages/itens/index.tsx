@@ -30,6 +30,7 @@ type ItemRow = {
   item_type: string
   ncm_code: string
   quantity: number
+  measure_quantity: number
   unitType: string
   price: number
   cost_per_base_unit: number
@@ -61,6 +62,7 @@ function Items() {
   const [deleteQtyDrawerOpen, setDeleteQtyDrawerOpen] = useState(false)
   const [selectedItemForDelete, setSelectedItemForDelete] = useState<ItemRow | null>(null)
   const [updatingProductsForItemId, setUpdatingProductsForItemId] = useState<string | null>(null)
+  const [stockMap, setStockMap] = useState<Record<string, number>>({})
   const [savedCostMap, setSavedCostMap] = useState<Record<string, number>>({})
   const [savedServiceItems, setSavedServiceItems] = useState<Array<{ item_id: string; cost_per_base_unit: number | null; item_quantity_snapshot: number | null }>>([])
   const [dirtyItems, setDirtyItems] = useState<Set<string>>(new Set())
@@ -82,6 +84,7 @@ function Items() {
       item_type: item.item_type || 'INSUMO',
       ncm_code: item.ncm_code || '',
       quantity: Number(item.quantity) || 1,
+      measure_quantity: Number(item.measure_quantity) || 1,
       unitType: item.unit || 'UN',
       price: Number(item.cost_price) || 0,
       cost_per_base_unit: Number(item.cost_per_base_unit) || 0,
@@ -99,10 +102,16 @@ function Items() {
       const itemIds = rawItems.map((i: any) => i.id)
       if (itemIds.length === 0) return
 
-      const [piRes, siRes] = await Promise.all([
+      const [piRes, siRes, stockRes] = await Promise.all([
         supabase.from('product_items').select('item_id, cost_per_base_unit').in('item_id', itemIds),
         supabase.from('service_items').select('item_id, cost_per_base_unit, item_quantity_snapshot').in('item_id', itemIds),
+        supabase.from('stock').select('item_id, quantity_current').eq('stock_type', 'ITEM').in('item_id', itemIds),
       ])
+      const newStockMap: Record<string, number> = {}
+      for (const s of (stockRes.data || [])) {
+        if (s.item_id) newStockMap[s.item_id] = Number(s.quantity_current) || 0
+      }
+      setStockMap(newStockMap)
       const merged: Record<string, number> = {}
       for (const pi of (piRes.data || [])) {
         if (merged[pi.item_id] === undefined) {
@@ -275,6 +284,7 @@ function Items() {
       item_type: record.item_type,
       ncm_code: record.ncm_code ? ncmMask(record.ncm_code) : '',
       quantity: record.quantity,
+      measure_quantity: record.measure_quantity,
       unitType: record.unitType,
       price: record.cost_per_base_unit.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
       has_st: record.has_st,
@@ -333,7 +343,7 @@ function Items() {
 
       const { data: currentItem, error: fetchError } = await supabase
         .from('items')
-        .select('id, quantity, cost_price, unit, item_type')
+        .select('id, quantity, cost_price, cost_per_base_unit, unit, item_type')
         .eq('id', itemId)
         .single()
 
@@ -353,6 +363,8 @@ function Items() {
       const totalQty = currentQty + newQty
       const totalCost = currentCost + valuePaid
       const newUnitCost = totalQty > 0 ? totalCost / totalQty : 0
+      const oldCost = Number((currentItem as any).cost_per_base_unit) || 0
+      const costChanged = Math.abs(newUnitCost - oldCost) > 0.0001
 
       await supabase
         .from('items')
@@ -413,6 +425,35 @@ function Items() {
             reason: 'Recompra - renovar quantidade',
             created_by: createdBy,
           })
+        }
+      }
+
+      // Marcar produtos como needs_cost_update = true
+      const { data: affectedProductItems } = await supabase
+        .from('product_items')
+        .select('product_id')
+        .eq('item_id', itemId)
+      const { data: revendaProds } = await supabase
+        .from('products')
+        .select('id')
+        .eq('base_item_id', itemId)
+      const productIds = [...new Set([
+        ...((affectedProductItems || []) as any[]).map((r: any) => r.product_id),
+        ...((revendaProds || []) as any[]).map((r: any) => r.id),
+      ])]
+      if (productIds.length > 0) {
+        await supabase.from('products').update({ needs_cost_update: true }).in('id', productIds)
+      }
+
+      // Marcar serviços como needs_cost_update = true (somente se custo mudou)
+      if (costChanged) {
+        const { data: affectedServiceItems } = await supabase
+          .from('service_items')
+          .select('service_id')
+          .eq('item_id', itemId)
+        const serviceIds = [...new Set(((affectedServiceItems || []) as any[]).map((r: any) => r.service_id))]
+        if (serviceIds.length > 0) {
+          await supabase.from('services').update({ needs_cost_update: true }).in('id', serviceIds)
         }
       }
 
@@ -707,6 +748,7 @@ function Items() {
         item_type: values.item_type || 'INSUMO',
         ncm_code: values.ncm_code ? values.ncm_code.replace(/\D/g, '') : null,
         quantity: qty,
+        measure_quantity: Number(values.measure_quantity) || 1,
         unit: values.unitType,
         cost_price: totalCost,
         cost_per_base_unit: costPerBaseUnit,
@@ -901,27 +943,13 @@ function Items() {
       },
     },
     {
-      title: 'NCM',
-      dataIndex: 'ncm_code',
-      key: 'ncm_code',
+      title: 'QTD. Medida',
+      key: 'qty_medida',
       width: 110,
-      render: (v: string) => v ? <Tag>{ncmMask(v)}</Tag> : <span style={{ color: '#D0D5DD' }}>—</span>,
+      render: (_, record) => `${record.measure_quantity} ${(UNIT_TYPE as any)[record.unitType] || record.unitType}`,
     },
     {
-      title: 'Qtd.',
-      key: 'qty_unit',
-      width: 100,
-      render: (_, record) => `${record.quantity} ${(UNIT_TYPE as any)[record.unitType] || record.unitType}`,
-    },
-    {
-      title: 'Custo total',
-      dataIndex: 'price',
-      key: 'price',
-      width: 120,
-      render: (v: number) => `R$ ${getMonetaryValue(v)}`,
-    },
-    {
-      title: 'Custo/unid.',
+      title: 'Custo/Unid.',
       key: 'unit_price',
       width: 120,
       render: (_, record) => {
@@ -930,41 +958,28 @@ function Items() {
       },
     },
     {
-      title: 'Fornecedor',
-      key: 'supplier',
-      render: (_, record) => (
-        <span>
-          {record.supplier_name || <span style={{ color: '#D0D5DD' }}>—</span>}
-          {record.supplier_state && (
-            <Tag style={{ marginLeft: 6 }}>{record.supplier_state}</Tag>
-          )}
-        </span>
-      ),
+      title: 'QTD. Estoque',
+      key: 'stock_qty',
+      width: 110,
+      align: 'center',
+      render: (_, record) => {
+        const qty = stockMap[record.id]
+        return qty !== undefined
+          ? `${qty} ${(UNIT_TYPE as any)[record.unitType] || record.unitType}`
+          : <span style={{ color: '#D0D5DD' }}>—</span>
+      },
     },
     {
       title: 'Ações',
       key: 'action',
-      width: 240,
+      width: 180,
       render: (_, record: ItemRow) => (
         <Space size="small" wrap>
           <Button onClick={() => handleEdit(record)} type="link" size="small">Editar</Button>
           {canEdit(MODULES.ITEMS) && (
-            <>
-              <Button
-                type="link"
-                size="small"
-                icon={<ReloadOutlined />}
-                loading={updatingProductsForItemId === record.id}
-                disabled={!dirtyItems.has(record.id)}
-                onClick={() => handleUpdateProductsForItem(record.id)}
-                title="Recalcular custo e preço dos produtos e serviços que usam este item"
-              >
-                Atualizar produtos e serviços
-              </Button>
-              <Button type="link" size="small" danger onClick={() => handleOpenDeleteQty(record)}>
-                Excluir quantidade
-              </Button>
-            </>
+            <Button type="link" size="small" danger onClick={() => handleOpenDeleteQty(record)}>
+              Excluir item
+            </Button>
           )}
         </Space>
       ),
@@ -988,15 +1003,6 @@ function Items() {
           <Space size="middle">
             {canEdit(MODULES.ITEMS) && (
               <>
-                <Button
-                  type="primary"
-                  icon={<ReloadOutlined />}
-                  disabled={dirtyItems.size === 0}
-                  loading={updatingAllProducts}
-                  onClick={handleUpdateAllProducts}
-                >
-                  Atualizar todos os produtos e serviços
-                </Button>
                 <Button
                   onClick={openRenewDrawer}
                   style={{
@@ -1070,14 +1076,14 @@ function Items() {
       </Drawer>
 
       <Drawer
-        title={`Excluir quantidade: ${selectedItemForDelete?.name || ''}`}
+        title={`Excluir item: ${selectedItemForDelete?.name || ''}`}
         width={400}
         open={deleteQtyDrawerOpen}
         onClose={() => { setDeleteQtyDrawerOpen(false); setSelectedItemForDelete(null) }}
         extra={
           <Space>
             <Button onClick={() => { setDeleteQtyDrawerOpen(false); setSelectedItemForDelete(null) }}>Cancelar</Button>
-            <Button type="primary" danger onClick={handleConfirmDeleteQty}>Excluir quantidade</Button>
+            <Button type="primary" danger onClick={handleConfirmDeleteQty}>Excluir item</Button>
           </Space>
         }
       >

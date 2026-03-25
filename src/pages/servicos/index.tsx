@@ -11,10 +11,12 @@ import { supabase } from '@/supabase/client'
 import { getTenantId, getCurrentUserId } from '@/utils/get-tenant-id'
 import type { Service } from '@/supabase/types'
 import {
-    PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined, MinusCircleOutlined,
+    PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined, MinusCircleOutlined, ReloadOutlined,
 } from '@ant-design/icons'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import { calculateItemPrice } from '@/utils/calculate-item-price'
+import { computeServiceSellingPrice } from '@/utils/compute-service-price'
+import { fetchTaxPreview } from '@/utils/calc-tax-preview'
 import { useRouter } from 'next/router'
 
 function fmt(v: number) {
@@ -47,6 +49,8 @@ function ServicesPage() {
     const [deletingSvc, setDeletingSvc] = useState(false)
     const [deleteQtyForm] = Form.useForm()
     const [savingDeleteQty, setSavingDeleteQty] = useState(false)
+    const [updatingServiceId, setUpdatingServiceId] = useState<string | null>(null)
+    const [updatingAllServices, setUpdatingAllServices] = useState(false)
 
     async function fetchAll() {
         setLoading(true)
@@ -55,7 +59,7 @@ function ServicesPage() {
             const sb = supabase as any
             const [svcRes, stockRes] = await Promise.all([
                 sb.from('services')
-                    .select('*, service_items(*, item:items(id, name, unit, cost_price, quantity))')
+                    .select('*, service_items(*, item:items(id, name, unit, cost_price, quantity, measure_quantity))')
                     .order('name'),
                 tenantId ? sb.from('stock').select('service_id, quantity_current').eq('stock_type', 'SERVICE') : Promise.resolve({ data: [] }),
             ])
@@ -79,11 +83,78 @@ function ServicesPage() {
 
     function calcServiceMaterialCost(svc: any) {
         return (svc.service_items || []).reduce((sum: number, si: any) => {
-            const refQty = Number(si.item?.quantity) || 1
+            const measureQty = Number((si.item as any)?.measure_quantity) || 1
+            const refQty = (Number(si.item?.quantity) || 1) * measureQty
             const refPrice = Number(si.item?.cost_price) || 0
             const neededQty = Number(si.quantity) || 0
             return sum + calculateItemPrice(neededQty, refPrice, refQty)
         }, 0)
+    }
+
+    async function handleUpdateService(serviceId: string) {
+        setUpdatingServiceId(serviceId)
+        try {
+            const tenantId = await getTenantId()
+            if (!tenantId) { return }
+
+            const sb = supabase as any
+            const { data: svc } = await sb
+                .from('services')
+                .select('*, service_items(*, item:items(id, name, unit, cost_price, quantity, measure_quantity))')
+                .eq('id', serviceId)
+                .single()
+            if (!svc) return
+
+            const costTotal = calcServiceMaterialCost(svc)
+
+            const [cfgRes, taxPreview] = await Promise.all([
+                supabase.from('tenant_expense_config').select('*').eq('tenant_id', tenantId).single(),
+                fetchTaxPreview(tenantId),
+            ])
+            const expenseConfig = cfgRes.data || null
+
+            const { sellingPrice, laborCost } = computeServiceSellingPrice({
+                materialCost: costTotal,
+                commissionPercent: Number(svc.commission_percent) || 0,
+                profitPercent: Number(svc.profit_percent) || 0,
+                taxableRegimePercent: Number(svc.taxable_regime_percent) || 0,
+                expenseConfig,
+                taxPreview: taxPreview || null,
+                currentUser: null,
+            })
+
+            await supabase
+                .from('services')
+                .update({
+                    cost_total: costTotal,
+                    base_price: sellingPrice,
+                    labor_cost: laborCost,
+                    needs_cost_update: false,
+                    updated_at: new Date().toISOString(),
+                })
+                .eq('id', serviceId)
+
+            await fetchAll()
+        } catch (e: any) {
+            msgApi.error(e?.message || 'Erro ao atualizar serviço.')
+        } finally {
+            setUpdatingServiceId(null)
+        }
+    }
+
+    async function handleUpdateAllServices() {
+        setUpdatingAllServices(true)
+        try {
+            const toUpdate = services.filter((s: any) => s.needs_cost_update)
+            for (const svc of toUpdate) {
+                await handleUpdateService(svc.id)
+            }
+            msgApi.success('Todos os serviços foram atualizados!')
+        } catch (e: any) {
+            msgApi.error(e?.message || 'Erro ao atualizar serviços.')
+        } finally {
+            setUpdatingAllServices(false)
+        }
     }
 
     /** Quantidade de serviços que podem ser feitos com o estoque atual dos itens (considera quantidade fracionada, ex: 0.5 por serviço = 1 item dá 2 serviços). */
@@ -314,9 +385,21 @@ function ServicesPage() {
         },
         ...(canEdit(MODULES.SERVICES)
             ? [{
-                title: '', key: 'act', width: 120, align: 'center' as const,
+                title: '', key: 'act', width: 160, align: 'center' as const,
                 render: (_: any, r: Service) => (
-                    <Space size={4}>
+                    <Space size={4} wrap>
+                        {(r as any).needs_cost_update && (
+                            <Button
+                                type="link"
+                                size="small"
+                                icon={<ReloadOutlined />}
+                                loading={updatingServiceId === r.id}
+                                onClick={() => handleUpdateService(r.id)}
+                                style={{ color: '#16a34a' }}
+                            >
+                                Atualizar serviço
+                            </Button>
+                        )}
                         <Tooltip title="Editar">
                             <Button type="text" size="small" icon={<EditOutlined />}
                                 onClick={() => router.push(`/servicos/${r.id}`)} />
@@ -344,6 +427,16 @@ function ServicesPage() {
                 <Space>
                     {canEdit(MODULES.SERVICES) && (
                         <>
+                            {services.some((s: any) => s.needs_cost_update) && (
+                                <Button
+                                    icon={<ReloadOutlined />}
+                                    loading={updatingAllServices}
+                                    onClick={handleUpdateAllServices}
+                                    style={{ background: '#16a34a', borderColor: '#15803d', color: 'white' }}
+                                >
+                                    Atualizar todos os serviços
+                                </Button>
+                            )}
                             <Button type="primary" icon={<PlusOutlined />} onClick={() => router.push(ROUTES.NEW_SERVICE)}>
                                 Novo Serviço
                             </Button>

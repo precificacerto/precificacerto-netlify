@@ -119,13 +119,14 @@ const NewItemForm = ({ form }: Props) => {
     const priceStr = String(values.price || '0').replace(/\./g, '').replace(',', '.')
     const unitPrice = parseFloat(priceStr)
     const qty = parseFloat(values.quantity)
+    const measureQty = parseFloat(values.measure_quantity) || 1
     const unit = values.unitType || 'UN'
 
     const conv = UNIT_CONVERSIONS[unit] || { base: 'un', factor: 1 }
     setBaseUnitLabel(conv.base)
 
     if (unitPrice > 0 && qty > 0) {
-      const totalValue = unitPrice * qty
+      const totalValue = unitPrice * qty * measureQty
       setCostPerUnit(`R$ ${getMonetaryValue(totalValue)}`)
     } else {
       setCostPerUnit(null)
@@ -248,7 +249,7 @@ const NewItemForm = ({ form }: Props) => {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, alignItems: 'start' }}>
         <Form.Item
           name="unitType"
-          label="Unidade"
+          label="Unidade de medida"
           rules={[{ required: true, message: REQUIRED }]}
           initialValue="UN"
           style={{ marginBottom: 24 }}
@@ -268,6 +269,28 @@ const NewItemForm = ({ form }: Props) => {
         </Form.Item>
 
         <Form.Item
+          name="measure_quantity"
+          label={
+            <span>
+              QTD. Medida&nbsp;
+              <Tooltip title="Volume ou medida de cada unidade comprada (ex: 900 para uma garrafa de 900ml). Usado para fracionar o custo na precificação.">
+                <InfoCircleOutlined style={{ color: '#64748b' }} />
+              </Tooltip>
+            </span>
+          }
+          initialValue={1}
+          style={{ marginBottom: 24 }}
+        >
+          <InputNumber
+            min={0.001}
+            step="any"
+            style={{ width: '100%' }}
+            placeholder="Ex: 900"
+            onChange={() => setTimeout(recalcCostPerUnit, 50)}
+          />
+        </Form.Item>
+
+        <Form.Item
           name="price"
           label="Valor unitário"
           rules={[{ required: true, message: REQUIRED }]}
@@ -281,10 +304,12 @@ const NewItemForm = ({ form }: Props) => {
             onChange={({ target }) => handleChangePrice(target.value)}
           />
         </Form.Item>
+      </div>
 
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16, alignItems: 'start' }}>
         <Form.Item
           name="quantity"
-          label="Qtd. comprada"
+          label="QTD. Comprado"
           rules={[{ required: true, message: REQUIRED }]}
           tooltip="Quantidade total que você comprou (ex: 1 para 1kg, 500 para 500ml)"
           style={{ marginBottom: 24 }}
@@ -297,14 +322,13 @@ const NewItemForm = ({ form }: Props) => {
             onChange={() => setTimeout(recalcCostPerUnit, 50)}
           />
         </Form.Item>
-      </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
         <Form.Item
           name="min_limit"
-          label="Estoque mínimo (alerta)"
+          label="Estoque mínimo Alerta"
           initialValue={0}
           tooltip="Abaixo deste valor o item aparecerá em status Baixo/Crítico na aba Estoque."
+          style={{ marginBottom: 24 }}
         >
           <InputNumber min={0} step={1} style={{ width: '100%' }} placeholder="0" />
         </Form.Item>

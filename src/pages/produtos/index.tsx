@@ -8,7 +8,7 @@ import { useRouter } from 'next/router'
 import { ROUTES } from '@/constants/routes'
 import {
   PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined,
-  ExclamationCircleOutlined, MinusCircleOutlined, AppstoreAddOutlined,
+  ExclamationCircleOutlined, MinusCircleOutlined, AppstoreAddOutlined, ReloadOutlined,
 } from '@ant-design/icons'
 import { supabase } from '@/supabase/client'
 import { useProducts, useStock } from '@/hooks/use-data.hooks'
@@ -39,6 +39,7 @@ type ProductRow = {
   stock_quantity: number | null
   stock_unit: string
   profit_percent: number | null
+  needs_cost_update: boolean
 }
 
 type RenewProductOption = {
@@ -76,6 +77,8 @@ function Products() {
   const [savingDeleteQty, setSavingDeleteQty] = useState(false)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [deletingProduct, setDeletingProduct] = useState(false)
+  const [updatingProductId, setUpdatingProductId] = useState<string | null>(null)
+  const [updatingAllProductsFlag, setUpdatingAllProductsFlag] = useState(false)
   const effectiveTenantId = contextTenantId ?? currentUser?.tenant_id
 
   // Product sections state
@@ -179,6 +182,7 @@ function Products() {
         stock_quantity: stock ? stock.qty : null,
         stock_unit: stock?.unit || p.unit || 'UN',
         profit_percent: pricing?.pct_profit_margin != null ? Number(pricing.pct_profit_margin) : null,
+        needs_cost_update: Boolean(p.needs_cost_update),
       }
     })
   }, [rawProducts, stockByProductId])
@@ -490,6 +494,111 @@ function Products() {
     }
   }
 
+  const handleUpdateProduct = async (productId: string) => {
+    const tenantId = await getTenantId()
+    if (!tenantId) { message.error('Sessão inválida.'); return }
+    setUpdatingProductId(productId)
+    try {
+      const { data: prod } = await supabase
+        .from('products')
+        .select('id, yield_quantity, profit_percent, commission_percent, product_type, base_item_id')
+        .eq('id', productId)
+        .single()
+      if (!prod) return
+
+      let costTotal = 0
+
+      if ((prod as any).product_type === 'REVENDA' && (prod as any).base_item_id) {
+        const { data: baseItem } = await supabase
+          .from('items')
+          .select('cost_per_base_unit')
+          .eq('id', (prod as any).base_item_id)
+          .single()
+        if (baseItem) {
+          const yieldQty = Number((prod as any).yield_quantity) || 1
+          costTotal = (Number(baseItem.cost_per_base_unit) || 0) * yieldQty
+        }
+      } else {
+        const { data: recipe } = await supabase
+          .from('product_items')
+          .select('item_id, quantity_needed')
+          .eq('product_id', productId)
+        if (recipe?.length) {
+          const itemIds = recipe.map((r: any) => r.item_id)
+          const { data: itemsCosts } = await supabase
+            .from('items')
+            .select('id, cost_per_base_unit')
+            .in('id', itemIds)
+          const costByItem = (itemsCosts || []).reduce((acc: Record<string, number>, i: any) => {
+            acc[i.id] = Number(i.cost_per_base_unit) || 0
+            return acc
+          }, {})
+          for (const r of recipe) {
+            costTotal += (Number(r.quantity_needed) || 0) * (costByItem[r.item_id] ?? 0)
+          }
+        }
+      }
+
+      await supabase
+        .from('products')
+        .update({ cost_total: costTotal, updated_at: new Date().toISOString() })
+        .eq('id', productId)
+
+      const { data: pricingRow } = await supabase
+        .from('pricing_calculations')
+        .select('product_workload')
+        .eq('product_id', productId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      const workloadMinutes = Number((pricingRow as any)?.product_workload) || 0
+
+      const { data: calcResult } = await supabase.functions.invoke('calc-tax-engine', {
+        body: {
+          tenant_id: tenantId,
+          product_id: productId,
+          sale_scope: 'INTRAESTADUAL',
+          buyer_type: 'CONSUMIDOR_FINAL',
+          commission_percent: Number((prod as any).commission_percent) || 0,
+          profit_percent: Number((prod as any).profit_percent) || 0,
+          product_workload_minutes: workloadMinutes,
+        },
+      })
+      if (calcResult?.success && calcResult?.sale_price_per_unit != null) {
+        await supabase
+          .from('products')
+          .update({ sale_price: Number(calcResult.sale_price_per_unit) || 0, updated_at: new Date().toISOString() })
+          .eq('id', productId)
+      }
+
+      await supabase
+        .from('products')
+        .update({ needs_cost_update: false })
+        .eq('id', productId)
+
+      await Promise.all([reloadProducts(), reloadStock()])
+    } catch (e: any) {
+      message.error(e?.message || 'Erro ao atualizar produto.')
+    } finally {
+      setUpdatingProductId(null)
+    }
+  }
+
+  const handleUpdateAllProducts = async () => {
+    setUpdatingAllProductsFlag(true)
+    try {
+      const toUpdate = data.filter(p => p.needs_cost_update)
+      for (const p of toUpdate) {
+        await handleUpdateProduct(p.id)
+      }
+      message.success('Todos os produtos foram atualizados!')
+    } catch (e: any) {
+      message.error(e?.message || 'Erro ao atualizar produtos.')
+    } finally {
+      setUpdatingAllProductsFlag(false)
+    }
+  }
+
   const handleDelete = async (id: string): Promise<boolean> => {
     try {
       const res = await fetch('/api/delete/products', {
@@ -635,9 +744,21 @@ function Products() {
     },
     ...(canEdit(MODULES.PRODUCTS)
       ? [{
-          title: '', key: 'act', width: 140, align: 'center' as const,
+          title: '', key: 'act', width: 160, align: 'center' as const,
           render: (_: any, r: ProductRow) => (
-            <Space size={4}>
+            <Space size={4} wrap>
+              {r.needs_cost_update && (
+                <Button
+                  type="link"
+                  size="small"
+                  icon={<ReloadOutlined />}
+                  loading={updatingProductId === r.id}
+                  onClick={() => handleUpdateProduct(r.id)}
+                  style={{ color: '#16a34a' }}
+                >
+                  Atualizar produto
+                </Button>
+              )}
               {r.status === 'PENDING' ? (
                 <Tooltip title="Completar cadastro">
                   <Button type="primary" size="small"
@@ -678,6 +799,16 @@ function Products() {
         <Space>
           {canEdit(MODULES.PRODUCTS) && (
             <>
+              {data.some(p => p.needs_cost_update) && (
+                <Button
+                  icon={<ReloadOutlined />}
+                  loading={updatingAllProductsFlag}
+                  onClick={handleUpdateAllProducts}
+                  style={{ background: '#16a34a', borderColor: '#15803d', color: 'white' }}
+                >
+                  Atualizar todos os produtos
+                </Button>
+              )}
               <Button
                 icon={<AppstoreAddOutlined />}
                 onClick={() => { setSectionModalOpen(true); loadSections() }}
