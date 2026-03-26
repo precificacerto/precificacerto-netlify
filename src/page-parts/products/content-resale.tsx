@@ -58,6 +58,7 @@ export const ContentResale: FC<ContentResaleProps> = ({
               <Select
                 showSearch
                 filterOption={filterOption}
+                listHeight={512}
                 notFoundContent={
                   <div className="p-3 text-center text-neutral-500">
                     Não há itens, cadastre-os antes de criar um produto

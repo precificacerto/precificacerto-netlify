@@ -266,7 +266,7 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                                 <Card size="small" style={{ textAlign: 'center', borderRadius: 8, background: 'linear-gradient(135deg, rgba(18,183,106,0.06), rgba(18,183,106,0.02))' }}>
                                     <div style={{ fontSize: 12, color: 'var(--color-neutral-500)' }}>Alíquota Efetiva</div>
                                     <div style={{ fontSize: 24, fontWeight: 700, color: '#12B76A' }}>
-                                        {effectiveRate != null ? `${effectiveRate.toFixed(3)}%` : '—'}
+                                        {effectiveRate != null ? `${effectiveRate.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%` : '—'}
                                     </div>
                                     <div style={{ fontSize: 11, color: 'var(--color-neutral-400)', marginTop: 4 }}>
                                         Inclui ICMS, PIS, COFINS, ISS, IRPJ, CSLL, CPP
@@ -288,7 +288,7 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
                                 <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
                                     <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>ICMS Interno ({stateCode})</div>
-                                    <div style={{ fontSize: 18, fontWeight: 700 }}>{icmsPercent != null ? `${icmsPercent.toFixed(3)}%` : '—'}</div>
+                                    <div style={{ fontSize: 18, fontWeight: 700 }}>{icmsPercent != null ? `${icmsPercent.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%` : '—'}</div>
                                 </Card>
                                 <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
                                     <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>PIS (cumulativo)</div>
@@ -300,7 +300,7 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                                 </Card>
                                 <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
                                     <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>ISS Municipal</div>
-                                    <div style={{ fontSize: 18, fontWeight: 700 }}>{issPercent.toFixed(3)}%</div>
+                                    <div style={{ fontSize: 18, fontWeight: 700 }}>{issPercent.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%</div>
                                     <div style={{ fontSize: 10, color: 'var(--color-neutral-400)' }}>Detectado via CNPJ</div>
                                 </Card>
                                 <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
@@ -320,7 +320,7 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
                                 <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
                                     <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>ICMS Interno ({stateCode})</div>
-                                    <div style={{ fontSize: 18, fontWeight: 700 }}>{icmsPercent != null ? `${icmsPercent.toFixed(3)}%` : '—'}</div>
+                                    <div style={{ fontSize: 18, fontWeight: 700 }}>{icmsPercent != null ? `${icmsPercent.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%` : '—'}</div>
                                 </Card>
                                 <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
                                     <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>PIS (não-cumulativo)</div>
@@ -332,7 +332,7 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                                 </Card>
                                 <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
                                     <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>ISS Municipal</div>
-                                    <div style={{ fontSize: 18, fontWeight: 700 }}>{issPercent.toFixed(3)}%</div>
+                                    <div style={{ fontSize: 18, fontWeight: 700 }}>{issPercent.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%</div>
                                     <div style={{ fontSize: 10, color: 'var(--color-neutral-400)' }}>Detectado via CNPJ</div>
                                 </Card>
                                 <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>

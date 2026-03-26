@@ -142,7 +142,7 @@ export const ContentService: FC<ContentServiceProps> = ({
               display: 'inline-block', padding: '4px 12px', background: 'rgba(255,255,255,0.04)',
               borderRadius: 4, fontSize: 13, minWidth: 80, textAlign: 'right',
             }}>
-              {pct.toFixed(3)}%
+              {pct.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%
             </span>
           )}
         </td>
@@ -263,7 +263,7 @@ export const ContentService: FC<ContentServiceProps> = ({
 
           <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 13 }}>
             <span style={{ color: '#94a3b8' }}>Margem de contribuição total aplicada</span>
-            <span style={{ fontWeight: 600 }}>{svcTotalPct.toFixed(3)}%</span>
+            <span style={{ fontWeight: 600 }}>{svcTotalPct.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%</span>
           </div>
 
           <div style={{
@@ -286,7 +286,7 @@ export const ContentService: FC<ContentServiceProps> = ({
                   {fmt(svcProfitVal)}
                 </div>
                 {svcTotal > 0 && (
-                  <div style={{ fontSize: 11, color: '#94a3b8' }}>Margem: {svcProfitPct.toFixed(3)}%</div>
+                  <div style={{ fontSize: 11, color: '#94a3b8' }}>Margem: {svcProfitPct.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%</div>
                 )}
               </div>
             </div>
@@ -358,7 +358,7 @@ export const ContentService: FC<ContentServiceProps> = ({
 
           <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 13 }}>
             <span style={{ color: '#94a3b8' }}>Margem de contribuição total aplicada</span>
-            <span style={{ fontWeight: 600 }}>{prdTotalPct.toFixed(3)}%</span>
+            <span style={{ fontWeight: 600 }}>{prdTotalPct.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%</span>
           </div>
 
           <div style={{
@@ -381,7 +381,7 @@ export const ContentService: FC<ContentServiceProps> = ({
                   {fmt(prdProfitVal)}
                 </div>
                 {prdTotal > 0 && (
-                  <div style={{ fontSize: 11, color: '#94a3b8' }}>Margem: {prdProfitPct.toFixed(3)}%</div>
+                  <div style={{ fontSize: 11, color: '#94a3b8' }}>Margem: {prdProfitPct.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%</div>
                 )}
               </div>
             </div>

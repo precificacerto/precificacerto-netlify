@@ -118,7 +118,7 @@ export const ProductPrice: FC<Props> = ({
                 borderRadius: 4, fontSize: 13, minWidth: 80, textAlign: 'right',
                 cursor: 'help',
               }}>
-                {pct.toFixed(3)}%
+                {pct.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%
                 <InfoCircleOutlined style={{ marginLeft: 4, fontSize: 10, color: '#64748b' }} />
               </span>
             </Tooltip>
@@ -192,7 +192,7 @@ export const ProductPrice: FC<Props> = ({
 
         <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 13 }}>
           <span style={{ color: '#94a3b8' }}>Margem de contribuição total aplicada</span>
-          <span style={{ fontWeight: 600 }}>{(100 - totalPct).toFixed(3)}%</span>
+          <span style={{ fontWeight: 600 }}>{(100 - totalPct).toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%</span>
         </div>
 
         {/* Result box */}
@@ -203,7 +203,18 @@ export const ProductPrice: FC<Props> = ({
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
-              <Tooltip title="Este é o preço de venda por unidade (igual ao campo Preço de venda salvo no produto). Não confundir com o lucro líquido à direita.">
+              <div style={{ fontSize: 11, color: '#94a3b8' }}>Lucro líquido</div>
+              <div style={{ fontSize: 20, fontWeight: 700, color: profitVal >= 0 ? '#027A48' : '#B42318' }}>
+                {fmt(profitVal)}
+              </div>
+              {totalPrice > 0 && (
+                <div style={{ fontSize: 11, color: '#94a3b8' }}>
+                  Margem: {profitPct.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%
+                </div>
+              )}
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <Tooltip title="Este é o preço de venda por unidade (igual ao campo Preço de venda salvo no produto). Não confundir com o lucro líquido à esquerda.">
                 <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 2, textTransform: 'uppercase' as const, letterSpacing: 0.5, cursor: 'help' }}>
                   Preço de Venda por Unidade
                 </div>
@@ -214,17 +225,6 @@ export const ProductPrice: FC<Props> = ({
               {yieldQty > 1 && (
                 <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>
                   Total receita ({yieldQty} {unit || 'UN'}): {fmt(priceRecipeTotal)}
-                </div>
-              )}
-            </div>
-            <div style={{ textAlign: 'right' }}>
-              <div style={{ fontSize: 11, color: '#94a3b8' }}>Lucro líquido</div>
-              <div style={{ fontSize: 20, fontWeight: 700, color: profitVal >= 0 ? '#027A48' : '#B42318' }}>
-                {fmt(profitVal)}
-              </div>
-              {totalPrice > 0 && (
-                <div style={{ fontSize: 11, color: '#94a3b8' }}>
-                  Margem: {profitPct.toFixed(3)}%
                 </div>
               )}
             </div>

@@ -375,7 +375,7 @@ export default function CashFlow() {
         const rows = data.map((r: any) => {
             const displayAmount = r.type === 'INCOME' ? getEffectiveIncomeAmount(r) : Number(r.amount || 0)
             return [
-                dayjs(r.due_date).format('DD/MM/YYYY'),
+                r.due_date ? r.due_date.substring(8, 10) + '/' + r.due_date.substring(5, 7) + '/' + r.due_date.substring(0, 4) : '',
                 r.description || '',
                 r.type === 'INCOME' ? 'Receita' : 'Despesa',
                 `${r.type === 'INCOME' ? '+' : '-'} ${formatCurrency(displayAmount)}`,
@@ -473,6 +473,41 @@ export default function CashFlow() {
             }
         }
         return { totals, daysInMonth }
+    }, [data, month])
+
+    // ── Pivot: per-day per-category amounts for Excel-like grid ──
+    const pivotByDay = useMemo(() => {
+        const daysInMonth = month.daysInMonth()
+        const result: Record<string, Record<number, number>> = {}
+        const allKeys = [...INCOME_LABELS, ...EXPENSE_SECTIONS.map(s => s.header), 'Outras Despesas']
+        for (const cat of allKeys) {
+            result[cat] = {}
+            for (let d = 1; d <= daysInMonth; d++) result[cat][d] = 0
+        }
+        for (const entry of data) {
+            if (!entry.due_date) continue
+            const day = parseInt(entry.due_date.substring(8, 10), 10)
+            if (day < 1 || day > daysInMonth) continue
+            if (entry.type === 'INCOME') {
+                if (entry.payment_method === 'BOLETO' && !entry.paid_date) continue
+                const label = getIncomeLabel(entry)
+                if (label && result[label]) result[label][day] = (result[label][day] || 0) + getEffectiveIncomeAmount(entry)
+            } else {
+                let matched = false
+                for (const section of EXPENSE_SECTIONS) {
+                    if (matched) break
+                    for (const item of section.items) {
+                        if (matchesDescription(entry.description, item.descMatch)) {
+                            result[section.header][day] = (result[section.header][day] || 0) + (Number(entry.amount) || 0)
+                            matched = true
+                            break
+                        }
+                    }
+                }
+                if (!matched) result['Outras Despesas'][day] = (result['Outras Despesas'][day] || 0) + (Number(entry.amount) || 0)
+            }
+        }
+        return { data: result, daysInMonth }
     }, [data, month])
 
     // ── Saldo do Mês Anterior (Item 11) ──
@@ -632,199 +667,183 @@ export default function CashFlow() {
                 </Space>
             </div>
 
-            {/* ── DFC Report ── */}
-            <div style={{ background: '#0d1b2a', borderRadius: 8, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.06)' }}>
+            {/* ── Pivot Table: Excel-like Grid ── */}
+            <div style={{ background: '#0d1b2a', borderRadius: 8, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.06)', marginTop: 0 }}>
                 {/* Header */}
-                <div style={{ padding: '16px 20px', borderBottom: '1px solid rgba(255,255,255,0.06)', background: '#1a2744' }}>
+                <div style={{ padding: '16px 20px', borderBottom: '1px solid rgba(255,255,255,0.06)', background: '#1a2744', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ fontSize: 16, fontWeight: 700, color: '#e2e8f0' }}>
-                        Fluxo de Caixa — Extrato
+                        Fluxo de Caixa — {month.format('MMMM [de] YYYY')}
                     </span>
-                    <span style={{ marginLeft: 12, fontSize: 13, color: '#94a3b8' }}>
-                        {month.format('MMMM [de] YYYY')}
-                    </span>
+                    <span style={{ fontSize: 12, color: '#94a3b8' }}>Visão por dia (todos os dias do mês)</span>
                 </div>
 
-                {/* ── Daily Calendar Row (Item 9) ── */}
-                <div style={{ padding: '10px 20px', background: '#0f2035', borderBottom: '1px solid rgba(255,255,255,0.06)', overflowX: 'auto' }}>
-                    <div style={{ display: 'flex', gap: 4, minWidth: 'max-content' }}>
-                        {Array.from({ length: dailyTotals.daysInMonth }, (_, i) => i + 1).map((day) => {
-                            const val = dailyTotals.totals[day] || 0
-                            const isSelected = selectedDay === day
-                            const isPositive = val > 0
-                            const isNegative = val < 0
-                            return (
-                                <div
-                                    key={day}
-                                    onClick={() => setSelectedDay(prev => prev === day ? null : day)}
-                                    style={{
-                                        width: 44,
-                                        minWidth: 44,
-                                        padding: '4px 2px',
-                                        borderRadius: 6,
-                                        cursor: 'pointer',
-                                        textAlign: 'center',
-                                        background: isSelected
-                                            ? (isPositive ? '#166534' : isNegative ? '#7f1d1d' : '#1e3a5f')
-                                            : (isPositive ? '#166534aa' : isNegative ? '#7f1d1d88' : 'rgba(255,255,255,0.04)'),
-                                        border: isSelected ? '2px solid #60a5fa' : '2px solid transparent',
-                                        transition: 'all 0.15s',
-                                    }}
-                                >
-                                    <div style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600 }}>{day}</div>
-                                    <div style={{
-                                        fontSize: 10,
-                                        color: isPositive ? '#4ade80' : isNegative ? '#f87171' : '#475569',
-                                        fontVariantNumeric: 'tabular-nums',
-                                        whiteSpace: 'nowrap',
-                                        overflow: 'hidden',
-                                        textOverflow: 'ellipsis',
-                                    }}>
-                                        {val !== 0 ? (val > 0 ? '+' : '') + new Intl.NumberFormat('pt-BR', { notation: 'compact', maximumFractionDigits: 1 }).format(val) : '—'}
-                                    </div>
-                                </div>
-                            )
-                        })}
-                    </div>
-                    {selectedDay !== null && (
-                        <div style={{ marginTop: 6, fontSize: 12, color: '#94a3b8' }}>
-                            Filtrando por dia <strong style={{ color: '#60a5fa' }}>{selectedDay}</strong> — clique novamente para remover filtro
-                        </div>
-                    )}
-                </div>
-
-                {/* ── ENTRADAS ── */}
-                <div style={{ padding: '12px 20px', background: '#00B050', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontWeight: 700, color: '#fff', fontSize: 14, textTransform: 'uppercase', letterSpacing: 1 }}>Entradas</span>
-                    <span style={{ fontWeight: 700, color: '#fff', fontSize: 14 }}>Valor</span>
-                </div>
-                {INCOME_LABELS.filter(label => (extratoData.incomeByLabel[label] || 0) !== 0).map((label, idx) => {
-                    const val = extratoData.incomeByLabel[label] || 0
-                    return (
-                        <div key={label} style={{
-                            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                            padding: '8px 20px', background: idx % 2 === 0 ? '#e2efda22' : '#e2efda11',
-                            borderLeft: '4px solid #00B050',
-                        }}>
-                            <span style={{ color: '#cbd5e1', fontSize: 13 }}>{label}</span>
-                            <span style={{ color: val > 0 ? '#4ade80' : '#64748b', fontWeight: 500, fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
-                                {val > 0 ? formatCurrency(val) : '—'}
-                            </span>
-                        </div>
-                    )
-                })}
-                <div style={{
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                    padding: '10px 20px', background: '#00B050',
-                }}>
-                    <span style={{ fontWeight: 700, color: '#fff', fontSize: 13 }}>TOTAL ENTRADAS</span>
-                    <span style={{ fontWeight: 700, color: '#fff', fontSize: 14, fontVariantNumeric: 'tabular-nums' }}>
-                        {formatCurrency(extratoData.totalEntradas)}
-                    </span>
-                </div>
-
-                {/* Spacer */}
-                <div style={{ height: 16, background: '#0d1b2a' }} />
-
-                {/* ── SAIDAS ── */}
-                <div style={{ padding: '12px 20px', background: '#DC2626', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontWeight: 700, color: '#fff', fontSize: 14, textTransform: 'uppercase', letterSpacing: 1 }}>Saidas</span>
-                    <span style={{ fontWeight: 700, color: '#fff', fontSize: 14 }}>Valor</span>
-                </div>
-
-                {EXPENSE_SECTIONS.map((section) => {
-                    const sectionColor: Record<string, string> = {
-                        'Custo produto': '#EF4444',
-                        'Custo Mao de obra Producao': '#7C3AED',
-                        'Despesa Mao de obra Indireta': '#A855F7',
-                        'Despesas fixas': '#2563EB',
-                        'Despesas variaveis': '#059669',
-                        'Despesas Financeiras': '#D97706',
-                        'Impostos': '#DC2626',
-                        'Regime Tributario': '#B91C1C',
-                        'Lucro': '#0891B2',
-                    }
-                    const color = sectionColor[section.header] || '#64748b'
-                    const sectionTotal = extratoData.sectionTotals[section.header] || 0
-                    const items = extratoData.expenseBySectionItem[section.header] || {}
-
-                    // Item 10: hide sections where all items are zero
-                    if (sectionTotal === 0) return null
-
-                    // Item 10: filter out zero-value items within section
-                    const visibleItems = section.items.filter(item => (items[item.label] || 0) !== 0)
-
-                    return (
-                        <div key={section.header}>
-                            <div style={{
-                                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                                padding: '8px 20px', background: `${color}cc`,
-                            }}>
-                                <span style={{ fontWeight: 700, color: '#fff', fontSize: 13 }}>{section.header}</span>
-                                <span style={{ fontWeight: 700, color: '#fff', fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
-                                    {sectionTotal > 0 ? formatCurrency(sectionTotal) : '—'}
-                                </span>
-                            </div>
-                            {visibleItems.map((item, idx) => {
-                                const val = items[item.label] || 0
+                {/* Pivot Table */}
+                <div style={{ overflowX: 'auto', width: '100%' }}>
+                    <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 12 }}>
+                        <thead>
+                            <tr style={{ background: '#1a2744' }}>
+                                <th style={{ padding: '8px 12px', textAlign: 'left', color: '#94a3b8', fontWeight: 600, minWidth: 180, position: 'sticky', left: 0, background: '#1a2744', zIndex: 2, borderRight: '1px solid rgba(255,255,255,0.1)' }}>
+                                    Categoria
+                                </th>
+                                {Array.from({ length: pivotByDay.daysInMonth }, (_, i) => i + 1).map(day => (
+                                    <th key={day} style={{ padding: '6px 4px', textAlign: 'center', color: '#94a3b8', fontWeight: 600, minWidth: 72, borderRight: '1px solid rgba(255,255,255,0.04)' }}>
+                                        {String(day).padStart(2, '0')}
+                                    </th>
+                                ))}
+                                <th style={{ padding: '8px 12px', textAlign: 'right', color: '#e2e8f0', fontWeight: 700, minWidth: 110, background: '#1a2744', borderLeft: '1px solid rgba(255,255,255,0.1)' }}>
+                                    TOTAL
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {/* ── ENTRADAS header ── */}
+                            <tr style={{ background: '#00B050' }}>
+                                <td colSpan={pivotByDay.daysInMonth + 2} style={{ padding: '7px 12px', fontWeight: 700, color: '#fff', fontSize: 13, letterSpacing: 1, position: 'sticky', left: 0 }}>
+                                    ENTRADAS
+                                </td>
+                            </tr>
+                            {INCOME_LABELS.map((label, idx) => {
+                                const rowTotal = Object.values(pivotByDay.data[label] || {}).reduce((a, b) => a + b, 0)
                                 return (
-                                    <div key={item.label} style={{
-                                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                                        padding: '7px 20px 7px 36px',
-                                        background: idx % 2 === 0 ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.04)',
-                                        borderLeft: `4px solid ${color}`,
-                                    }}>
-                                        <span style={{ color: '#94a3b8', fontSize: 12 }}>{item.label}</span>
-                                        <span style={{ color: val > 0 ? '#f87171' : '#475569', fontWeight: 500, fontSize: 12, fontVariantNumeric: 'tabular-nums' }}>
-                                            {val > 0 ? formatCurrency(val) : '—'}
-                                        </span>
-                                    </div>
+                                    <tr key={label} style={{ background: idx % 2 === 0 ? 'rgba(0,176,80,0.06)' : 'rgba(0,176,80,0.03)', borderLeft: '3px solid #00B050' }}>
+                                        <td style={{ padding: '6px 12px', color: '#cbd5e1', position: 'sticky', left: 0, background: idx % 2 === 0 ? '#0d2a1a' : '#0a2016', borderRight: '1px solid rgba(255,255,255,0.06)', zIndex: 1, whiteSpace: 'nowrap', overflow: 'hidden', maxWidth: 180, textOverflow: 'ellipsis' }}>
+                                            {label}
+                                        </td>
+                                        {Array.from({ length: pivotByDay.daysInMonth }, (_, i) => i + 1).map(day => {
+                                            const val = (pivotByDay.data[label] || {})[day] || 0
+                                            return (
+                                                <td key={day} style={{ padding: '5px 4px', textAlign: 'right', color: val > 0 ? '#4ade80' : '#334155', fontVariantNumeric: 'tabular-nums', borderRight: '1px solid rgba(255,255,255,0.04)', fontSize: 11 }}>
+                                                    {val > 0 ? new Intl.NumberFormat('pt-BR', { notation: 'compact', maximumFractionDigits: 1 }).format(val) : ''}
+                                                </td>
+                                            )
+                                        })}
+                                        <td style={{ padding: '5px 12px', textAlign: 'right', color: rowTotal > 0 ? '#4ade80' : '#64748b', fontWeight: 600, fontVariantNumeric: 'tabular-nums', borderLeft: '1px solid rgba(255,255,255,0.1)' }}>
+                                            {rowTotal > 0 ? formatCurrency(rowTotal) : '—'}
+                                        </td>
+                                    </tr>
                                 )
                             })}
-                        </div>
-                    )
-                })}
+                            {/* Total Entradas */}
+                            <tr style={{ background: '#00B050' }}>
+                                <td style={{ padding: '7px 12px', fontWeight: 700, color: '#fff', fontSize: 12, position: 'sticky', left: 0, background: '#00B050', zIndex: 1 }}>
+                                    TOTAL ENTRADAS
+                                </td>
+                                {Array.from({ length: pivotByDay.daysInMonth }, (_, i) => i + 1).map(day => {
+                                    const dayTotal = INCOME_LABELS.reduce((sum, label) => sum + ((pivotByDay.data[label] || {})[day] || 0), 0)
+                                    return (
+                                        <td key={day} style={{ padding: '5px 4px', textAlign: 'right', color: dayTotal > 0 ? '#fff' : 'rgba(255,255,255,0.3)', fontWeight: 600, fontSize: 11, fontVariantNumeric: 'tabular-nums' }}>
+                                            {dayTotal > 0 ? new Intl.NumberFormat('pt-BR', { notation: 'compact', maximumFractionDigits: 1 }).format(dayTotal) : ''}
+                                        </td>
+                                    )
+                                })}
+                                <td style={{ padding: '7px 12px', textAlign: 'right', color: '#fff', fontWeight: 700, fontVariantNumeric: 'tabular-nums', borderLeft: '1px solid rgba(255,255,255,0.2)' }}>
+                                    {formatCurrency(extratoData.totalEntradas)}
+                                </td>
+                            </tr>
 
-                {extratoData.unmatchedTotal > 0 && (
-                    <div style={{
-                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                        padding: '7px 20px 7px 36px', background: 'rgba(255,255,255,0.02)',
-                        borderLeft: '4px solid #64748b',
-                    }}>
-                        <span style={{ color: '#94a3b8', fontSize: 12 }}>OUTRAS DESPESAS</span>
-                        <span style={{ color: '#f87171', fontWeight: 500, fontSize: 12, fontVariantNumeric: 'tabular-nums' }}>
-                            {formatCurrency(extratoData.unmatchedTotal)}
-                        </span>
-                    </div>
-                )}
+                            {/* Spacer */}
+                            <tr><td colSpan={pivotByDay.daysInMonth + 2} style={{ height: 8, background: '#0d1b2a' }} /></tr>
 
-                <div style={{
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                    padding: '10px 20px', background: '#DC2626',
-                }}>
-                    <span style={{ fontWeight: 700, color: '#fff', fontSize: 13 }}>TOTAL SAIDAS</span>
-                    <span style={{ fontWeight: 700, color: '#fff', fontSize: 14, fontVariantNumeric: 'tabular-nums' }}>
-                        {formatCurrency(extratoData.totalSaidas)}
-                    </span>
-                </div>
+                            {/* ── SAIDAS header ── */}
+                            <tr style={{ background: '#DC2626' }}>
+                                <td colSpan={pivotByDay.daysInMonth + 2} style={{ padding: '7px 12px', fontWeight: 700, color: '#fff', fontSize: 13, letterSpacing: 1, position: 'sticky', left: 0 }}>
+                                    SAÍDAS
+                                </td>
+                            </tr>
+                            {EXPENSE_SECTIONS.map((section, sIdx) => {
+                                const sectionTotal = extratoData.sectionTotals[section.header] || 0
+                                if (sectionTotal === 0) return null
+                                const sectionColors: Record<string, string> = {
+                                    'Custo produto': '#EF4444',
+                                    'Custo Mao de obra Producao': '#7C3AED',
+                                    'Despesa Mao de obra Indireta': '#A855F7',
+                                    'Despesas fixas': '#2563EB',
+                                    'Despesas variaveis': '#059669',
+                                    'Despesas Financeiras': '#D97706',
+                                    'Impostos': '#DC2626',
+                                    'Regime Tributario': '#B91C1C',
+                                    'Lucro': '#0891B2',
+                                }
+                                const color = sectionColors[section.header] || '#64748b'
+                                return (
+                                    <tr key={section.header} style={{ background: `${color}22`, borderLeft: `3px solid ${color}` }}>
+                                        <td style={{ padding: '6px 12px', color: '#e2e8f0', fontWeight: 600, position: 'sticky', left: 0, background: `${color}33`, borderRight: '1px solid rgba(255,255,255,0.06)', zIndex: 1, whiteSpace: 'nowrap', overflow: 'hidden', maxWidth: 180, textOverflow: 'ellipsis' }}>
+                                            {section.header}
+                                        </td>
+                                        {Array.from({ length: pivotByDay.daysInMonth }, (_, i) => i + 1).map(day => {
+                                            const val = (pivotByDay.data[section.header] || {})[day] || 0
+                                            return (
+                                                <td key={day} style={{ padding: '5px 4px', textAlign: 'right', color: val > 0 ? '#f87171' : '#334155', fontVariantNumeric: 'tabular-nums', borderRight: '1px solid rgba(255,255,255,0.04)', fontSize: 11 }}>
+                                                    {val > 0 ? new Intl.NumberFormat('pt-BR', { notation: 'compact', maximumFractionDigits: 1 }).format(val) : ''}
+                                                </td>
+                                            )
+                                        })}
+                                        <td style={{ padding: '5px 12px', textAlign: 'right', color: sectionTotal > 0 ? '#f87171' : '#64748b', fontWeight: 600, fontVariantNumeric: 'tabular-nums', borderLeft: '1px solid rgba(255,255,255,0.1)' }}>
+                                            {sectionTotal > 0 ? formatCurrency(sectionTotal) : '—'}
+                                        </td>
+                                    </tr>
+                                )
+                            })}
+                            {extratoData.unmatchedTotal > 0 && (
+                                <tr style={{ background: 'rgba(100,116,139,0.1)', borderLeft: '3px solid #64748b' }}>
+                                    <td style={{ padding: '6px 12px', color: '#94a3b8', position: 'sticky', left: 0, background: '#0d1b2a', borderRight: '1px solid rgba(255,255,255,0.06)', zIndex: 1 }}>
+                                        Outras Despesas
+                                    </td>
+                                    {Array.from({ length: pivotByDay.daysInMonth }, (_, i) => i + 1).map(day => {
+                                        const val = (pivotByDay.data['Outras Despesas'] || {})[day] || 0
+                                        return (
+                                            <td key={day} style={{ padding: '5px 4px', textAlign: 'right', color: val > 0 ? '#f87171' : '#334155', fontVariantNumeric: 'tabular-nums', borderRight: '1px solid rgba(255,255,255,0.04)', fontSize: 11 }}>
+                                                {val > 0 ? new Intl.NumberFormat('pt-BR', { notation: 'compact', maximumFractionDigits: 1 }).format(val) : ''}
+                                            </td>
+                                        )
+                                    })}
+                                    <td style={{ padding: '5px 12px', textAlign: 'right', color: '#f87171', fontWeight: 600, fontVariantNumeric: 'tabular-nums', borderLeft: '1px solid rgba(255,255,255,0.1)' }}>
+                                        {formatCurrency(extratoData.unmatchedTotal)}
+                                    </td>
+                                </tr>
+                            )}
+                            {/* Total Saidas */}
+                            <tr style={{ background: '#DC2626' }}>
+                                <td style={{ padding: '7px 12px', fontWeight: 700, color: '#fff', fontSize: 12, position: 'sticky', left: 0, background: '#DC2626', zIndex: 1 }}>
+                                    TOTAL SAÍDAS
+                                </td>
+                                {Array.from({ length: pivotByDay.daysInMonth }, (_, i) => i + 1).map(day => {
+                                    const dayTotal = [...EXPENSE_SECTIONS.map(s => s.header), 'Outras Despesas'].reduce((sum, key) => sum + ((pivotByDay.data[key] || {})[day] || 0), 0)
+                                    return (
+                                        <td key={day} style={{ padding: '5px 4px', textAlign: 'right', color: dayTotal > 0 ? '#fff' : 'rgba(255,255,255,0.3)', fontWeight: 600, fontSize: 11, fontVariantNumeric: 'tabular-nums' }}>
+                                            {dayTotal > 0 ? new Intl.NumberFormat('pt-BR', { notation: 'compact', maximumFractionDigits: 1 }).format(dayTotal) : ''}
+                                        </td>
+                                    )
+                                })}
+                                <td style={{ padding: '7px 12px', textAlign: 'right', color: '#fff', fontWeight: 700, fontVariantNumeric: 'tabular-nums', borderLeft: '1px solid rgba(255,255,255,0.2)' }}>
+                                    {formatCurrency(extratoData.totalSaidas)}
+                                </td>
+                            </tr>
 
-                {/* Spacer */}
-                <div style={{ height: 16, background: '#0d1b2a' }} />
+                            {/* Spacer */}
+                            <tr><td colSpan={pivotByDay.daysInMonth + 2} style={{ height: 8, background: '#0d1b2a' }} /></tr>
 
-                {/* ── RESULTADO ── */}
-                <div style={{
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                    padding: '16px 20px',
-                    background: extratoData.resultado >= 0 ? '#065f4620' : '#7f1d1d20',
-                    borderLeft: `5px solid ${extratoData.resultado >= 0 ? '#22c55e' : '#ef4444'}`,
-                    borderTop: '2px solid rgba(255,255,255,0.06)',
-                }}>
-                    <span style={{ fontWeight: 700, color: '#e2e8f0', fontSize: 15 }}>RESULTADO DO MES</span>
-                    <span style={{
-                        fontWeight: 800, fontSize: 20, fontVariantNumeric: 'tabular-nums',
-                        color: extratoData.resultado >= 0 ? '#4ade80' : '#f87171',
-                    }}>
-                        {formatCurrency(extratoData.resultado)}
-                    </span>
+                            {/* ── RESULTADO ── */}
+                            <tr style={{ background: extratoData.resultado >= 0 ? '#065f4630' : '#7f1d1d30', borderLeft: `5px solid ${extratoData.resultado >= 0 ? '#22c55e' : '#ef4444'}` }}>
+                                <td style={{ padding: '10px 12px', fontWeight: 700, color: '#e2e8f0', fontSize: 14, position: 'sticky', left: 0, background: extratoData.resultado >= 0 ? '#0a2e1a' : '#2a0a0a', borderRight: '1px solid rgba(255,255,255,0.1)', zIndex: 1 }}>
+                                    RESULTADO DO MÊS
+                                </td>
+                                {Array.from({ length: pivotByDay.daysInMonth }, (_, i) => i + 1).map(day => {
+                                    const incomeDay = INCOME_LABELS.reduce((s, l) => s + ((pivotByDay.data[l] || {})[day] || 0), 0)
+                                    const expenseDay = [...EXPENSE_SECTIONS.map(s => s.header), 'Outras Despesas'].reduce((s, k) => s + ((pivotByDay.data[k] || {})[day] || 0), 0)
+                                    const res = incomeDay - expenseDay
+                                    return (
+                                        <td key={day} style={{ padding: '5px 4px', textAlign: 'right', color: res > 0 ? '#4ade80' : res < 0 ? '#f87171' : '#475569', fontWeight: 700, fontSize: 11, fontVariantNumeric: 'tabular-nums' }}>
+                                            {res !== 0 ? new Intl.NumberFormat('pt-BR', { notation: 'compact', maximumFractionDigits: 1 }).format(res) : ''}
+                                        </td>
+                                    )
+                                })}
+                                <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, fontSize: 16, fontVariantNumeric: 'tabular-nums', color: extratoData.resultado >= 0 ? '#4ade80' : '#f87171', borderLeft: '1px solid rgba(255,255,255,0.15)' }}>
+                                    {formatCurrency(extratoData.resultado)}
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
                 </div>
             </div>
 
@@ -853,7 +872,7 @@ export default function CashFlow() {
                                 dataIndex: 'due_date',
                                 key: 'due_date',
                                 width: 100,
-                                render: (v: string) => v ? dayjs(v).format('DD/MM/YYYY') : '—',
+                                render: (v: string) => v ? v.substring(8, 10) + '/' + v.substring(5, 7) + '/' + v.substring(0, 4) : '—',
                             },
                             {
                                 title: 'Descrição',

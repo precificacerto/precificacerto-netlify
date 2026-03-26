@@ -126,7 +126,7 @@ const NewItemForm = ({ form }: Props) => {
     setBaseUnitLabel(conv.base)
 
     if (unitPrice > 0 && qty > 0) {
-      const totalValue = unitPrice * qty * measureQty
+      const totalValue = unitPrice * qty
       setCostPerUnit(`R$ ${getMonetaryValue(totalValue)}`)
     } else {
       setCostPerUnit(null)

@@ -341,7 +341,6 @@ function Stock() {
                 width: 200,
                 render: (_: unknown, record: StockRow) => (
                     <Space>
-                        <Button type="link" size="small" onClick={() => handleEditUnified(record)}>Editar</Button>
                         <Button type="link" size="small" danger onClick={() => handleOpenDeleteQty(record)}>Excluir quantidade</Button>
                     </Space>
                 ),
@@ -373,11 +372,21 @@ function Stock() {
             ),
         },
         {
+            title: 'Seção',
+            key: 'section_name',
+            width: 120,
+            render: (_: unknown, r: StockRow) => {
+                const section = sections.find(s => s.id === r.section_id)
+                return section ? <span>{section.name}</span> : <span style={{ color: '#D0D5DD' }}>—</span>
+            },
+        },
+        {
             title: 'Margem de Lucro',
             dataIndex: 'profitPercent',
             key: 'profitPercent',
             width: 140,
-            render: (v: number) => <span style={{ fontWeight: 600 }}>{v.toFixed(3)}%</span>,
+            align: 'center',
+            render: (v: number) => <span style={{ fontWeight: 600 }}>{v.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%</span>,
         },
         {
             title: 'Preço de Venda',
@@ -402,10 +411,9 @@ function Stock() {
             ? [{
                 title: 'Ações',
                 key: 'action',
-                width: 200,
+                width: 140,
                 render: (_: unknown, record: StockRow) => (
                     <Space>
-                        <Button type="link" size="small" onClick={() => handleEditUnified(record)}>Editar</Button>
                         <Button type="link" size="small" danger onClick={() => handleOpenDeleteQty(record)}>Excluir quantidade</Button>
                     </Space>
                 ),
@@ -706,7 +714,7 @@ function Stock() {
                                 dataIndex: 'profitPercent',
                                 key: 'profitPercent',
                                 width: 140,
-                                render: (v: number) => <span style={{ fontWeight: 600 }}>{v.toFixed(3)}%</span>,
+                                render: (v: number) => <span style={{ fontWeight: 600 }}>{v.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%</span>,
                             },
                             {
                                 title: 'Preço Venda',

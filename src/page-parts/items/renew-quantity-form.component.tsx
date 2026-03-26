@@ -100,8 +100,8 @@ const RenewQuantityForm = ({ form, items, mode, onModeChange }: Props) => {
             form.resetFields(['quantity', 'price', 'supplier_name', 'supplier_state'])
           }}
         >
-          <Radio.Button value="include">+ Incluir mais itens</Radio.Button>
-          <Radio.Button value="partial_delete">- Excluir parcialmente</Radio.Button>
+          <Radio.Button value="include">+ Adicionar quantidade</Radio.Button>
+          <Radio.Button value="partial_delete">- Remover quantidade</Radio.Button>
         </Radio.Group>
       </div>
 
@@ -110,6 +110,40 @@ const RenewQuantityForm = ({ form, items, mode, onModeChange }: Props) => {
           <Divider orientation="left" style={{ fontSize: 12, color: '#94a3b8' }}>
             Dados da recompra
           </Divider>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <Form.Item
+              name="quantity"
+              label="Quantidade comprada"
+              rules={[
+                { required: true, message: REQUIRED },
+                () => ({
+                  validator(_, value) {
+                    const n = parseFloat(value)
+                    if (value == null || value === '') return Promise.reject(new Error(REQUIRED))
+                    if (isNaN(n) || n < 0.001) return Promise.reject(new Error('Informe uma quantidade válida (maior que zero)'))
+                    return Promise.resolve()
+                  },
+                }),
+              ]}
+              tooltip="Quantidade que está entrando nesta recompra"
+            >
+              <Input type="number" min="0.001" step="any" placeholder="Ex: 20" />
+            </Form.Item>
+
+            <Form.Item
+              name="price"
+              label="Valor unitário (R$)"
+              tooltip="Valor unitário desta recompra"
+            >
+              <Input
+                prefix="R$"
+                autoComplete="off"
+                placeholder="0,00"
+                onChange={({ target }) => handleChangePrice(target.value)}
+              />
+            </Form.Item>
+          </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <Form.Item name="supplier_name" label="Fornecedor">
@@ -135,41 +169,6 @@ const RenewQuantityForm = ({ form, items, mode, onModeChange }: Props) => {
                   <Select.Option key={s} value={s}>{s}</Select.Option>
                 ))}
               </Select>
-            </Form.Item>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <Form.Item
-              name="quantity"
-              label="Quantidade comprada"
-              rules={[
-                { required: true, message: REQUIRED },
-                () => ({
-                  validator(_, value) {
-                    const n = parseFloat(value)
-                    if (value == null || value === '') return Promise.reject(new Error(REQUIRED))
-                    if (isNaN(n) || n < 0.001) return Promise.reject(new Error('Informe uma quantidade válida (maior que zero)'))
-                    return Promise.resolve()
-                  },
-                }),
-              ]}
-              tooltip="Quantidade que está entrando nesta recompra"
-            >
-              <Input type="number" min="0.001" step="any" placeholder="Ex: 20" />
-            </Form.Item>
-
-            <Form.Item
-              name="price"
-              label="Valor pago (R$)"
-              rules={[{ required: true, message: REQUIRED }]}
-              tooltip="Valor total pago nesta recompra"
-            >
-              <Input
-                prefix="R$"
-                autoComplete="off"
-                placeholder="0,00"
-                onChange={({ target }) => handleChangePrice(target.value)}
-              />
             </Form.Item>
           </div>
         </>

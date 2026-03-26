@@ -69,6 +69,8 @@ function Items() {
   const [dirtyItems, setDirtyItems] = useState<Set<string>>(new Set())
   const [updatingAllProducts, setUpdatingAllProducts] = useState(false)
   const savedCostInitializedRef = useRef(false)
+  const [deleteConfirmItem, setDeleteConfirmItem] = useState<ItemRow | null>(null)
+  const [deletingItem, setDeletingItem] = useState(false)
 
   const [form] = Form.useForm()
   const [renewForm] = Form.useForm()
@@ -175,30 +177,30 @@ function Items() {
   }
 
   function handleDeleteItem(record: ItemRow) {
-    Modal.confirm({
-      title: 'Excluir item',
-      content: `Tem certeza que deseja excluir "${record.name}"? Esta ação não pode ser desfeita.`,
-      okText: 'Sim, excluir',
-      okType: 'danger',
-      cancelText: 'Cancelar',
-      onOk: async () => {
-        try {
-          const res = await fetch('/api/delete/items', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id: record.id }),
-          })
-          if (!res.ok) {
-            const body = await res.json().catch(() => ({}))
-            throw new Error(body?.message || `Erro ${res.status}`)
-          }
-          await reloadItems()
-          messageApi.success('Item excluído com sucesso!')
-        } catch (error: any) {
-          messageApi.error('Erro ao excluir item: ' + (error?.message || 'Erro desconhecido'))
-        }
-      },
-    })
+    setDeleteConfirmItem(record)
+  }
+
+  async function handleConfirmDeleteItem() {
+    if (!deleteConfirmItem) return
+    setDeletingItem(true)
+    try {
+      const res = await fetch('/api/delete/items', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: deleteConfirmItem.id }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body?.message || `Erro ${res.status}`)
+      }
+      await reloadItems()
+      messageApi.success('Item excluído com sucesso!')
+      setDeleteConfirmItem(null)
+    } catch (error: any) {
+      messageApi.error('Erro ao excluir item: ' + (error?.message || 'Erro desconhecido'))
+    } finally {
+      setDeletingItem(false)
+    }
   }
 
   async function handleConfirmDeleteQty() {
@@ -431,11 +433,12 @@ function Items() {
         return
       }
 
-      // ── Modo: Incluir mais itens (comportamento original) ──
+      // ── Modo: Adicionar quantidade ──
       const newQty = Number(values.quantity) || 0
-      const valuePaid = parseFloat(
+      const unitPrice = parseFloat(
         String(values.price || '0').replace(/\./g, '').replace(',', '.')
       )
+      const addedCost = unitPrice > 0 ? unitPrice * newQty : 0
 
       if (newQty < 0.001) {
         messageApi.error('Informe uma quantidade válida.')
@@ -445,8 +448,8 @@ function Items() {
       const currentQty = Number(currentItem.quantity) || 0
       const currentCost = Number(currentItem.cost_price) || 0
       const totalQty = currentQty + newQty
-      const totalCost = currentCost + valuePaid
-      const newUnitCost = totalQty > 0 ? totalCost / totalQty : 0
+      const totalCost = currentCost + addedCost
+      const newUnitCost = unitPrice > 0 ? unitPrice : (totalQty > 0 ? totalCost / totalQty : 0)
       const oldCost = Number((currentItem as any).cost_per_base_unit) || 0
       const costChanged = Math.abs(newUnitCost - oldCost) > 0.0001
 
@@ -822,6 +825,8 @@ function Items() {
       )
 
       const qty = Number(values.quantity) || 1
+      const measureQty = Number(values.measure_quantity) || 1
+      const stockQty = qty * measureQty
       const costPerBaseUnit = priceNumber
       const totalCost = priceNumber * qty
 
@@ -873,7 +878,7 @@ function Items() {
             tenant_id: tenantId,
             item_id: savedItem.id,
             stock_type: 'ITEM',
-            quantity_current: qty,
+            quantity_current: stockQty,
             min_limit: values.min_limit ?? 0,
             unit: values.unitType || 'UN',
           })
@@ -887,7 +892,7 @@ function Items() {
           if (stockRec) {
             await supabase.from('stock_movements').insert({
               stock_id: stockRec.id,
-              delta_quantity: qty,
+              delta_quantity: stockQty,
               reason: 'Entrada inicial — cadastro do item',
               created_by: createdBy,
             })
@@ -902,7 +907,7 @@ function Items() {
           if (existingStock) {
             await supabase.from('stock')
               .update({
-                quantity_current: qty,
+                quantity_current: stockQty,
                 min_limit: values.min_limit ?? 0,
                 unit: values.unitType || 'UN',
                 updated_at: new Date().toISOString(),
@@ -1160,6 +1165,19 @@ function Items() {
           }))}
         />
       </Drawer>
+
+      <Modal
+        title="Excluir item"
+        open={!!deleteConfirmItem}
+        onCancel={() => setDeleteConfirmItem(null)}
+        onOk={handleConfirmDeleteItem}
+        okText="Sim, excluir"
+        cancelText="Cancelar"
+        okButtonProps={{ danger: true, loading: deletingItem }}
+      >
+        <p>Tem certeza que deseja excluir <strong>"{deleteConfirmItem?.name}"</strong>?</p>
+        <p style={{ color: '#94a3b8', fontSize: 13 }}>Esta ação não pode ser desfeita.</p>
+      </Modal>
 
       <Drawer
         title={`Excluir item: ${selectedItemForDelete?.name || ''}`}

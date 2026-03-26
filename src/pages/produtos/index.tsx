@@ -90,13 +90,14 @@ function Products() {
   const [savingSection, setSavingSection] = useState(false)
 
   const loadSections = async () => {
-    if (!effectiveTenantId) return
+    const tenantId = await getTenantId()
+    if (!tenantId) return
     setLoadingSections(true)
     try {
       const { data, error } = await supabase
         .from('product_sections')
         .select('id, name')
-        .eq('tenant_id', effectiveTenantId)
+        .eq('tenant_id', tenantId)
         .order('name', { ascending: true })
       if (!error && data) setSections(data)
     } finally {
@@ -108,7 +109,7 @@ function Products() {
     const name = newSectionName.trim()
     if (!name) { message.warning('Informe o nome da seção.'); return }
 
-    const tenantId = effectiveTenantId
+    const tenantId = await getTenantId()
     if (!tenantId) {
       message.error('Sessão inválida. Recarregue a página.')
       return
@@ -129,7 +130,7 @@ function Products() {
       }
 
       setNewSectionName('')
-      await loadSections()
+      setSections(prev => [...prev, { id: data.id, name: data.name }].sort((a, b) => a.name.localeCompare(b.name)))
       message.success('Seção criada com sucesso!')
     } catch (ex: any) {
       message.error('Erro inesperado: ' + ex.message)
@@ -718,22 +719,21 @@ function Products() {
       render: (v: string) => v ? <Tag>{v}</Tag> : <span style={{ color: '#D0D5DD' }}>—</span>,
     },
     {
-      title: 'Seção', key: 'section_name', width: 120,
-      render: (_: any, record: ProductRow) => {
-        const section = sections.find(s => s.id === record.section_id)
-        return section ? <span>{section.name}</span> : <span style={{ color: '#D0D5DD' }}>—</span>
-      },
-    },
-    {
       title: 'Produto', dataIndex: 'name', key: 'name',
       sorter: (a, b) => a.name.localeCompare(b.name),
       render: (n: string, r: ProductRow) => (
         <div>
           <div style={{ fontWeight: 600, fontSize: 14 }}>{n}</div>
-          {r.description && <div style={{ fontSize: 11, color: '#94a3b8' }}>{r.description}</div>}
           {r.code && <div style={{ fontSize: 10, color: '#64748b' }}>Cód: {r.code}</div>}
         </div>
       ),
+    },
+    {
+      title: 'Seção', key: 'section_name', width: 120,
+      render: (_: any, record: ProductRow) => {
+        const section = sections.find(s => s.id === record.section_id)
+        return section ? <span>{section.name}</span> : <span style={{ color: '#D0D5DD' }}>—</span>
+      },
     },
     {
       title: 'Qtd. estoque', key: 'stock_quantity', width: 110, align: 'center',
@@ -749,11 +749,12 @@ function Products() {
       title: 'Margem de Lucro',
       key: 'profit_percent',
       width: 130,
+      align: 'center',
       render: (_: any, r: ProductRow) => {
         const margin = r.profit_percent
         if (margin == null) return <span style={{ fontSize: 13, color: '#94a3b8' }}>—</span>
         const color = margin >= 30 ? '#12B76A' : margin >= 15 ? '#F79009' : '#F04438'
-        return <span style={{ fontWeight: 600, color, fontSize: 13 }}>{margin.toFixed(3)}%</span>
+        return <span style={{ fontWeight: 600, color, fontSize: 13 }}>{margin.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%</span>
       },
     },
     {

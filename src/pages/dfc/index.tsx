@@ -134,7 +134,7 @@ function formatBRL(value: number): string {
 
 function formatPct(value: number): string {
   if (value === 0) return '-'
-  return `${value.toFixed(3)}%`
+  return `${value.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%`
 }
 
 /** Returns true if the given period column is fully closed (current date has passed the last day of the period in the selected year) */
@@ -507,7 +507,7 @@ function buildDreSimplesNacional(agg: AggregatedData, calcType: CalcType, dasRat
   if (!isMei) {
     for (const k of MONTH_KEYS) das[k] = receitaBruta[k] * dasRate
   }
-  const dasLabel = isMei ? '(-) DAS (MEI — fixo mensal)' : `(-) DAS (Simples Nacional — ${(dasRate * 100).toFixed(3)}%)`
+  const dasLabel = isMei ? '(-) DAS (MEI — fixo mensal)' : `(-) DAS (Simples Nacional — ${(dasRate * 100).toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%)`
   rows.push(buildRow('das', dasLabel, das, receitaLiquida, { sign: '-' }))
 
   // CMV
@@ -615,7 +615,7 @@ export default function DfcPage() {
       const totalStr = showTotal
         ? (row.total !== 0 ? row.total.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—')
         : null
-      const pctStr = row.pctOfRL ? `${(row.pctOfRL.total).toFixed(3)}%` : '—'
+      const pctStr = row.pctOfRL ? `${(row.pctOfRL.total).toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%` : '—'
       return [row.label, ...periodValues, ...(totalStr !== null ? [totalStr] : []), pctStr]
     })
     const regimeLabel = getVariantLabel(taxRegime)

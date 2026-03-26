@@ -372,7 +372,7 @@ function ServicesPage() {
                 const margin = Number(r.profit_percent)
                 if (r.profit_percent == null) return <span style={{ fontSize: 13, color: '#94a3b8' }}>—</span>
                 const color = margin >= 0 ? '#4ade80' : '#f87171'
-                return <span style={{ fontSize: 13, fontWeight: 600, color }}>{margin.toFixed(3)}%</span>
+                return <span style={{ fontSize: 13, fontWeight: 600, color }}>{margin.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%</span>
             },
         },
         {
