@@ -100,13 +100,18 @@ export const ProductPrice: FC<Props> = ({
         <td style={{ width: 140, padding: '6px 0' }}>
           {editable ? (
             <InputNumber
-              size="small" min={0} max={99} step={0.1} precision={2}
+              size="small" min={0} max={100} step={0.001} precision={3}
               value={pct}
               onChange={handleEditableChange}
               style={{ width: 110 }}
-              formatter={(v) => `${v}%`}
+              formatter={(v) => {
+                if (v == null || v === '') return '%'
+                const n = typeof v === 'string' ? parseFloat(v.replace(',', '.')) : Number(v)
+                if (isNaN(n)) return '%'
+                return n.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 }) + '%'
+              }}
               parser={(v) => {
-                const raw = (v || '0').toString().replace('%', '').replace(',', '.').trim()
+                const raw = (v || '0').toString().replace('%', '').replace(/\./g, '').replace(',', '.').trim()
                 const n = Number(raw)
                 return isNaN(n) ? 0 : n
               }}

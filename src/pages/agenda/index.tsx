@@ -131,9 +131,11 @@ function Schedule() {
 
     // Recurrence state for booking form
     const [recurActive, setRecurActive] = useState(false)
-    const [recurType, setRecurType] = useState<'weekly' | 'biweekly' | 'weekdays'>('weekly')
+    const [recurType, setRecurType] = useState<'weekly' | 'biweekly' | 'every_20_days' | 'custom' | 'weekdays'>('weekly')
     const [recurWeekdays, setRecurWeekdays] = useState<number[]>([]) // 0=Mon..6=Sun (isoWeekday-based)
     const [recurEndDate, setRecurEndDate] = useState<dayjs.Dayjs | null>(null)
+    const [recurForever, setRecurForever] = useState(false)
+    const [recurCustomDays, setRecurCustomDays] = useState(7)
 
     const weekEnd = weekStart.add(6, 'day').endOf('day')
     const weekDates = useMemo(() => Array.from({ length: 7 }, (_, i) => weekStart.add(i, 'day')), [weekStart])
@@ -260,6 +262,8 @@ function Schedule() {
         setRecurType('weekly')
         setRecurWeekdays([])
         setRecurEndDate(null)
+        setRecurForever(false)
+        setRecurCustomDays(7)
         if (empId) form.setFieldValue('employee_id', empId)
         if (date) form.setFieldValue('date', date)
         if (time) form.setFieldValue('time', dayjs(time, 'HH:mm'))
@@ -320,19 +324,26 @@ function Schedule() {
                 if (error) throw error
 
                 // Create recurrence occurrences if active
-                if (recurActive && recurEndDate) {
+                if (recurActive && (recurEndDate || recurForever)) {
                     const recurInserts: any[] = []
                     let cursor = startLocal.add(1, 'day')
-                    const endLimit = recurEndDate.endOf('day')
+                    const endLimit = recurForever
+                        ? startLocal.add(1, 'year').endOf('day')
+                        : recurEndDate!.endOf('day')
                     const isoWeekdaySet = new Set(recurWeekdays.map(d => d + 1)) // isoWeekday: 1=Mon..7=Sun
 
                     while (cursor.isBefore(endLimit)) {
                         let matches = false
+                        const diffDays = cursor.diff(startLocal, 'day')
                         if (recurType === 'weekly') {
                             matches = cursor.isoWeekday() === startLocal.isoWeekday()
                         } else if (recurType === 'biweekly') {
                             const diffWeeks = cursor.diff(startLocal, 'week')
                             matches = diffWeeks % 2 === 0 && cursor.isoWeekday() === startLocal.isoWeekday()
+                        } else if (recurType === 'every_20_days') {
+                            matches = diffDays % 20 === 0
+                        } else if (recurType === 'custom') {
+                            matches = diffDays % Math.max(1, recurCustomDays) === 0
                         } else if (recurType === 'weekdays') {
                             matches = isoWeekdaySet.has(cursor.isoWeekday())
                         }
@@ -635,8 +646,8 @@ function Schedule() {
                         status: 'PENDING',
                         created_by: createdBy,
                     })
-                } else if (v.payment_method === 'CHEQUE_PRE_DATADO') {
-                    // Cheque pré-datado: gera cash_entries com paid_date = NULL e due_dates futuros
+                } else if (v.payment_method === 'CHEQUE_PRE_DATADO' || v.payment_method === 'BOLETO') {
+                    // Cheque pré-datado / Boleto: gera cash_entries com paid_date = NULL e due_dates futuros
                     const chequeCondition = v.cheque_condition || '30'
                     const baseDate = dayjs(payEvt.start_time)
                     type ChequeEntry = { days: number; fraction: number }
@@ -680,14 +691,13 @@ function Schedule() {
                     }
                     await sbp.from('cash_entries').insert(installmentEntries)
                 } else {
-                    const isBoleto = v.payment_method === 'BOLETO'
                     await sbp.from('cash_entries').insert({
                         tenant_id: tid,
                         type: 'INCOME',
                         description: descricaoCompleta,
                         amount: amountPaid,
                         due_date: dayjs(payEvt.start_time).format('YYYY-MM-DD'),
-                        paid_date: isBoleto ? null : dayjs().format('YYYY-MM-DD'),
+                        paid_date: dayjs().format('YYYY-MM-DD'),
                         payment_method: v.payment_method,
                         origin_type: 'SALE',
                         origin_id: payEvt.id,
@@ -1527,12 +1537,24 @@ function Schedule() {
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                                     <div>
                                         <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 6 }}>Frequência</div>
-                                        <Radio.Group value={recurType} onChange={(e) => setRecurType(e.target.value)} size="small">
+                                        <Radio.Group value={recurType} onChange={(e) => { setRecurType(e.target.value); setRecurWeekdays([]) }} size="small" style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                                             <Radio.Button value="weekly">Semanal</Radio.Button>
                                             <Radio.Button value="biweekly">Quinzenal</Radio.Button>
+                                            <Radio.Button value="every_20_days">20 dias</Radio.Button>
+                                            <Radio.Button value="custom">Customizado</Radio.Button>
                                             <Radio.Button value="weekdays">Dias fixos</Radio.Button>
                                         </Radio.Group>
                                     </div>
+                                    {recurType === 'custom' && (
+                                        <div>
+                                            <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 6 }}>Repetir a cada (dias)</div>
+                                            <InputNumber
+                                                min={1} max={365} value={recurCustomDays}
+                                                onChange={(v) => setRecurCustomDays(Number(v) || 1)}
+                                                style={{ width: 120 }} addonAfter="dias"
+                                            />
+                                        </div>
+                                    )}
                                     {recurType === 'weekdays' && (
                                         <div>
                                             <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 6 }}>Dias da semana</div>
@@ -1544,15 +1566,31 @@ function Schedule() {
                                         </div>
                                     )}
                                     <div>
-                                        <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 6 }}>Repetir até</div>
-                                        <DatePicker
-                                            style={{ width: '100%' }}
-                                            format="DD/MM/YYYY"
-                                            value={recurEndDate}
-                                            onChange={(d) => setRecurEndDate(d)}
-                                            disabledDate={(c) => c.isBefore(dayjs(), 'day')}
-                                            placeholder="Selecione a data final"
-                                        />
+                                        <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 6 }}>Período</div>
+                                        <Radio.Group
+                                            value={recurForever ? 'forever' : 'until_date'}
+                                            onChange={(e) => { setRecurForever(e.target.value === 'forever'); if (e.target.value === 'forever') setRecurEndDate(null) }}
+                                            size="small"
+                                            style={{ marginBottom: 8 }}
+                                        >
+                                            <Radio.Button value="until_date">Até uma data</Radio.Button>
+                                            <Radio.Button value="forever">Para sempre</Radio.Button>
+                                        </Radio.Group>
+                                        {!recurForever && (
+                                            <DatePicker
+                                                style={{ width: '100%' }}
+                                                format="DD/MM/YYYY"
+                                                value={recurEndDate}
+                                                onChange={(d) => setRecurEndDate(d)}
+                                                disabledDate={(c) => c.isBefore(dayjs(), 'day')}
+                                                placeholder="Selecione a data final"
+                                            />
+                                        )}
+                                        {recurForever && (
+                                            <div style={{ fontSize: 11, color: '#64748b' }}>
+                                                Serão criados agendamentos por 1 ano a partir da data selecionada.
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                             )}
@@ -1605,8 +1643,8 @@ function Schedule() {
                                     </Select>
                                 </Form.Item>
                             )}
-                            {payMethod === 'CHEQUE_PRE_DATADO' && (
-                                <Form.Item name="cheque_condition" label="Condição de Cheque" rules={[{ required: true, message: 'Selecione a condição' }]} style={{ marginBottom: 16 }}>
+                            {(payMethod === 'CHEQUE_PRE_DATADO' || payMethod === 'BOLETO') && (
+                                <Form.Item name="cheque_condition" label="Condição de Pagamento" rules={[{ required: true, message: 'Selecione a condição' }]} style={{ marginBottom: 16 }}>
                                     <Select size="large" placeholder="Selecione a condição">
                                         {CHEQUE_PRE_DATADO_CONDITIONS.map(c => (
                                             <Select.Option key={c.value} value={c.value}>{c.label}</Select.Option>

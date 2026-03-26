@@ -519,9 +519,10 @@ export const Content: FC<ContentProps> = ({
 
     const unitType = (selectedItem.unitType || 'UN').toString().toUpperCase()
     const recipeQty = 1
-    const costPerUnitRaw = Number(selectedItem.price) ?? Number((selectedItem as any).cost_per_base_unit) ?? 0
+    // Usar cost_per_base_unit (custo por unidade base: /ml, /g, /cm etc.) como referência de preço
+    const costPerUnitRaw = Number((selectedItem as any).cost_per_base_unit) || Number(selectedItem.price) || 0
     const costPerUnit = Math.max(0.01, costPerUnitRaw)
-    // Custo do item na receita = quantidade × custo por unidade do item. referenceQuantity=1 para não dividir pela qtd em estoque.
+    // Custo do item na receita = quantidade × custo por unidade base. referenceQuantity=1 pois referencePrice já é por unidade base.
     const priceForSchema = Math.max(0.01, recipeQty * costPerUnit)
 
     const newItem = await itemProductSchema.validate({
@@ -843,7 +844,7 @@ export const Content: FC<ContentProps> = ({
       const updatedItem = items.find((item) => id === item.id)
       if (!updatedItem) return
 
-      const costPerUnit = Number(updatedItem.price) ?? Number((updatedItem as any).cost_per_base_unit) ?? 0
+      const costPerUnit = Number((updatedItem as any).cost_per_base_unit) || Number(updatedItem.price) || 0
       const refPrice = Math.max(0.01, costPerUnit)
 
       const updatedItemsData = productItemsData.map((item) => {
@@ -886,17 +887,21 @@ export const Content: FC<ContentProps> = ({
       dataIndex: 'quantity',
       key: 'quantity',
       width: '16%',
-      render: (text, record) => (
-        <Input
-          key={record.id}
-          value={text}
-          type="number"
-          step="0.01"
-          min="0.01"
-          onChange={(e) => handleQuantityChange(record.id, e.target.value)}
-          suffix={getUnitLabel(record.unitType)}
-        />
-      ),
+      render: (text, record) => {
+        const unit = (record.unitType || 'UN').toUpperCase()
+        const isIntUnit = ['ML', 'L', 'G', 'KG', 'M', 'CM', 'MM', 'KM', 'M2', 'M3'].includes(unit)
+        return (
+          <Input
+            key={record.id}
+            value={text}
+            type="number"
+            step={isIntUnit ? '1' : '0.01'}
+            min={isIntUnit ? '1' : '0.01'}
+            onChange={(e) => handleQuantityChange(record.id, isIntUnit ? String(Math.round(Number(e.target.value) || 0) || 1) : e.target.value)}
+            suffix={getUnitLabel(record.unitType)}
+          />
+        )
+      },
     },
     {
       title: 'Qtd. Total',

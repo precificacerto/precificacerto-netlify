@@ -27,6 +27,23 @@ function formatCurrency(v: number) {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 }).format(v)
 }
 
+const EXPENSE_PAYMENT_METHODS = [
+    { value: 'DINHEIRO', label: '💵 Dinheiro' },
+    { value: 'PIX', label: '⚡ PIX' },
+    { value: 'TRANSFERENCIA', label: '🏦 Transferência' },
+    { value: 'CARTAO_DEBITO', label: '💳 Cartão de Débito' },
+    { value: 'CARTAO_CREDITO', label: '💳 Cartão de Crédito' },
+    { value: 'BOLETO', label: '📄 Boleto' },
+    { value: 'CHEQUE', label: '🧾 Cheque' },
+    { value: 'CHEQUE_PRE_DATADO', label: '🗓️ Cheque Pré-datado' },
+]
+
+const PAYMENT_CONDITIONS = [
+    { value: '30', label: '30 dias' },
+    { value: '30_60', label: '30/60 dias' },
+    { value: '30_60_90', label: '30/60/90 dias' },
+]
+
 const CATEGORY_GROUP_MAP: { category: string; group: string }[] = [
     // Mão de Obra Produtiva
     { category: 'Salários Produção', group: 'MAO_DE_OBRA_PRODUTIVA' },
@@ -228,10 +245,10 @@ export default function CashFlow() {
     const [month, setMonth] = useState(dayjs())
 
     const [drawerOpen, setDrawerOpen] = useState(false)
-    const [drawerType, setDrawerType] = useState<'INCOME' | 'EXPENSE'>('EXPENSE')
     const [expenseAmount, setExpenseAmount] = useState('')
     const [selectedDay, setSelectedDay] = useState<number | null>(null)
     const [loadingPrevBalance, setLoadingPrevBalance] = useState(false)
+    const [expPaymentMethod, setExpPaymentMethod] = useState<string>('')
 
     const [form] = Form.useForm()
 
@@ -277,7 +294,7 @@ export default function CashFlow() {
 
     useEffect(() => { fetchData() }, [month])
 
-    const isSimples = taxRegime === 'SIMPLES_NACIONAL'
+    const isSimples = taxRegime === 'SIMPLES_NACIONAL' || taxRegime === 'MEI'
     const activeCategoryOptions = isSimples ? SN_EXPENSE_CATEGORY_OPTIONS : EXPENSE_CATEGORY_OPTIONS
     const activeGroupForCategory = (cat: string) => isSimples ? getSNGroupForCategory(cat) : getGroupForCategory(cat)
 
@@ -480,6 +497,12 @@ export default function CashFlow() {
         const daysInMonth = month.daysInMonth()
         const result: Record<string, Record<number, number>> = {}
         const allKeys = [...INCOME_LABELS, ...EXPENSE_SECTIONS.map(s => s.header), 'Outras Despesas']
+        // Also track item-level keys
+        for (const section of EXPENSE_SECTIONS) {
+            for (const item of section.items) {
+                allKeys.push(`${section.header}||${item.label}`)
+            }
+        }
         for (const cat of allKeys) {
             result[cat] = {}
             for (let d = 1; d <= daysInMonth; d++) result[cat][d] = 0
@@ -499,6 +522,7 @@ export default function CashFlow() {
                     for (const item of section.items) {
                         if (matchesDescription(entry.description, item.descMatch)) {
                             result[section.header][day] = (result[section.header][day] || 0) + (Number(entry.amount) || 0)
+                            result[`${section.header}||${item.label}`][day] = (result[`${section.header}||${item.label}`][day] || 0) + (Number(entry.amount) || 0)
                             matched = true
                             break
                         }
@@ -509,6 +533,19 @@ export default function CashFlow() {
         }
         return { data: result, daysInMonth }
     }, [data, month])
+
+    // ── Saldo acumulado por dia (saldo do dia anterior) ──
+    const saldoDiaAnterior = useMemo(() => {
+        const result: Record<number, number> = {}
+        let running = 0
+        for (let d = 1; d <= pivotByDay.daysInMonth; d++) {
+            result[d] = running
+            const incomeDay = INCOME_LABELS.reduce((s, l) => s + ((pivotByDay.data[l] || {})[d] || 0), 0)
+            const expenseDay = [...EXPENSE_SECTIONS.map(sec => sec.header), 'Outras Despesas'].reduce((s, k) => s + ((pivotByDay.data[k] || {})[d] || 0), 0)
+            running += incomeDay - expenseDay
+        }
+        return result
+    }, [pivotByDay])
 
     // ── Saldo do Mês Anterior (Item 11) ──
     const handlePrevMonthBalance = async () => {
@@ -570,23 +607,7 @@ export default function CashFlow() {
             const tenant_id = await getTenantId()
             if (!tenant_id) return
 
-            if (drawerType === 'INCOME') {
-                const isBoleto = values.payment_method === 'BOLETO'
-                await supabase.from('cash_entries').insert({
-                    tenant_id,
-                    description: values.description,
-                    amount: values.amount,
-                    type: 'INCOME',
-                    due_date: values.due_date.format('YYYY-MM-DD'),
-                    paid_date: isBoleto
-                        ? null
-                        : (values.paid_date ? values.paid_date.format('YYYY-MM-DD') : values.due_date.format('YYYY-MM-DD')),
-                    category_id: values.category_id,
-                    payment_method: values.payment_method,
-                    origin_type: 'MANUAL'
-                })
-                messageApi.success('Lançamento salvo!')
-            } else {
+            {
                 const amountNum = parseCurrencyFn(expenseAmount)
                 if (amountNum <= 0) { messageApi.warning('Informe o valor da despesa.'); return }
                 if (!values.expense_category) { messageApi.warning('Selecione a categoria.'); return }
@@ -598,24 +619,53 @@ export default function CashFlow() {
                 const parcelas: number = values.parcelas && values.parcelas >= 1 ? Math.floor(values.parcelas) : 1
                 const startDate: dayjs.Dayjs = values.expense_start_date || month.startOf('month')
                 const expenseGroup = activeGroupForCategory(values.expense_category) || 'DESPESA_FIXA'
-                const parcelValue = parcelas === 1 ? amountNum : Math.round((amountNum / parcelas) * 100) / 100
+                const paymentMethod: string = values.payment_method || ''
+                const isBoletoOrCheque = paymentMethod === 'BOLETO' || paymentMethod === 'CHEQUE_PRE_DATADO'
+                const payCondition: string = values.payment_condition || '30'
 
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const entries: any[] = []
 
-                for (let i = 0; i < parcelas; i++) {
-                    const due = startDate.add(i, 'month')
-                    entries.push({
-                        tenant_id,
-                        type: 'EXPENSE' as const,
-                        origin_type: 'MANUAL',
-                        recurrence_type: 'ONCE',
-                        description: parcelas > 1 ? `${desc} (${i + 1}/${parcelas})` : desc,
-                        amount: parcelValue,
-                        due_date: due.format('YYYY-MM-DD'),
-                        expense_group: expenseGroup,
-                        expense_category: values.expense_category,
+                if (isBoletoOrCheque) {
+                    // Generate entries based on payment condition (30 / 30-60 / 30-60-90)
+                    type CondSlice = { days: number; fraction: number }
+                    const conditionMap: Record<string, CondSlice[]> = {
+                        '30': [{ days: 30, fraction: 1 }],
+                        '30_60': [{ days: 30, fraction: 0.5 }, { days: 60, fraction: 0.5 }],
+                        '30_60_90': [{ days: 30, fraction: 1 / 3 }, { days: 60, fraction: 1 / 3 }, { days: 90, fraction: 1 / 3 }],
+                    }
+                    const slices = conditionMap[payCondition] || conditionMap['30']
+                    slices.forEach((s, idx) => {
+                        entries.push({
+                            tenant_id,
+                            type: 'EXPENSE' as const,
+                            origin_type: 'MANUAL',
+                            recurrence_type: 'ONCE',
+                            description: slices.length > 1 ? `${desc} (${idx + 1}/${slices.length})` : desc,
+                            amount: Math.round(amountNum * s.fraction * 100) / 100,
+                            due_date: startDate.add(s.days, 'day').format('YYYY-MM-DD'),
+                            expense_group: expenseGroup,
+                            expense_category: values.expense_category,
+                            payment_method: paymentMethod,
+                        })
                     })
+                } else {
+                    const parcelValue = parcelas === 1 ? amountNum : Math.round((amountNum / parcelas) * 100) / 100
+                    for (let i = 0; i < parcelas; i++) {
+                        const due = startDate.add(i, 'month')
+                        entries.push({
+                            tenant_id,
+                            type: 'EXPENSE' as const,
+                            origin_type: 'MANUAL',
+                            recurrence_type: 'ONCE',
+                            description: parcelas > 1 ? `${desc} (${i + 1}/${parcelas})` : desc,
+                            amount: parcelValue,
+                            due_date: due.format('YYYY-MM-DD'),
+                            expense_group: expenseGroup,
+                            expense_category: values.expense_category,
+                            ...(paymentMethod ? { payment_method: paymentMethod } : {}),
+                        })
+                    }
                 }
 
                 if (entries.length > 0) {
@@ -629,6 +679,7 @@ export default function CashFlow() {
             setDrawerOpen(false)
             form.resetFields()
             setExpenseAmount('')
+            setExpPaymentMethod('')
             await fetchData()
         } catch {
             messageApi.error('Preencha os campos obrigatórios.')
@@ -652,7 +703,7 @@ export default function CashFlow() {
                             <Button loading={loadingPrevBalance} onClick={handlePrevMonthBalance}>
                                 Saldo do Mês Anterior
                             </Button>
-                            <Button type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setExpenseAmount(''); setDrawerType('EXPENSE'); setDrawerOpen(true) }}>
+                            <Button type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setExpenseAmount(''); setExpPaymentMethod(''); setDrawerOpen(true) }}>
                                 + Novo Lançamento
                             </Button>
                         </>
@@ -696,6 +747,22 @@ export default function CashFlow() {
                             </tr>
                         </thead>
                         <tbody>
+                            {/* ── Saldo Dia Anterior ── */}
+                            <tr style={{ background: '#1e3a5f', borderLeft: '3px solid #3b82f6' }}>
+                                <td style={{ padding: '6px 12px', color: '#93c5fd', fontWeight: 700, position: 'sticky', left: 0, background: '#162f4d', borderRight: '1px solid rgba(255,255,255,0.06)', zIndex: 1, whiteSpace: 'nowrap', fontSize: 12 }}>
+                                    Saldo do Dia Anterior
+                                </td>
+                                {Array.from({ length: pivotByDay.daysInMonth }, (_, i) => i + 1).map(day => {
+                                    const val = saldoDiaAnterior[day] || 0
+                                    return (
+                                        <td key={day} style={{ padding: '5px 4px', textAlign: 'right', color: val > 0 ? '#4ade80' : val < 0 ? '#f87171' : '#334155', fontWeight: 600, fontVariantNumeric: 'tabular-nums', borderRight: '1px solid rgba(255,255,255,0.04)', fontSize: 11 }}>
+                                            {val !== 0 ? new Intl.NumberFormat('pt-BR', { notation: 'compact', maximumFractionDigits: 1 }).format(val) : ''}
+                                        </td>
+                                    )
+                                })}
+                                <td style={{ padding: '5px 12px', textAlign: 'right', color: '#93c5fd', fontWeight: 600, fontVariantNumeric: 'tabular-nums', borderLeft: '1px solid rgba(255,255,255,0.1)' }}>—</td>
+                            </tr>
+
                             {/* ── ENTRADAS header ── */}
                             <tr style={{ background: '#00B050' }}>
                                 <td colSpan={pivotByDay.daysInMonth + 2} style={{ padding: '7px 12px', fontWeight: 700, color: '#fff', fontSize: 13, letterSpacing: 1, position: 'sticky', left: 0 }}>
@@ -704,6 +771,7 @@ export default function CashFlow() {
                             </tr>
                             {INCOME_LABELS.map((label, idx) => {
                                 const rowTotal = Object.values(pivotByDay.data[label] || {}).reduce((a, b) => a + b, 0)
+                                if (rowTotal === 0) return null
                                 return (
                                     <tr key={label} style={{ background: idx % 2 === 0 ? 'rgba(0,176,80,0.06)' : 'rgba(0,176,80,0.03)', borderLeft: '3px solid #00B050' }}>
                                         <td style={{ padding: '6px 12px', color: '#cbd5e1', position: 'sticky', left: 0, background: idx % 2 === 0 ? '#0d2a1a' : '#0a2016', borderRight: '1px solid rgba(255,255,255,0.06)', zIndex: 1, whiteSpace: 'nowrap', overflow: 'hidden', maxWidth: 180, textOverflow: 'ellipsis' }}>
@@ -750,7 +818,7 @@ export default function CashFlow() {
                                     SAÍDAS
                                 </td>
                             </tr>
-                            {EXPENSE_SECTIONS.map((section, sIdx) => {
+                            {EXPENSE_SECTIONS.map((section) => {
                                 const sectionTotal = extratoData.sectionTotals[section.header] || 0
                                 if (sectionTotal === 0) return null
                                 const sectionColors: Record<string, string> = {
@@ -766,22 +834,49 @@ export default function CashFlow() {
                                 }
                                 const color = sectionColors[section.header] || '#64748b'
                                 return (
-                                    <tr key={section.header} style={{ background: `${color}22`, borderLeft: `3px solid ${color}` }}>
-                                        <td style={{ padding: '6px 12px', color: '#e2e8f0', fontWeight: 600, position: 'sticky', left: 0, background: `${color}33`, borderRight: '1px solid rgba(255,255,255,0.06)', zIndex: 1, whiteSpace: 'nowrap', overflow: 'hidden', maxWidth: 180, textOverflow: 'ellipsis' }}>
-                                            {section.header}
-                                        </td>
-                                        {Array.from({ length: pivotByDay.daysInMonth }, (_, i) => i + 1).map(day => {
-                                            const val = (pivotByDay.data[section.header] || {})[day] || 0
+                                    <React.Fragment key={section.header}>
+                                        {/* Section header row */}
+                                        <tr style={{ background: `${color}33`, borderLeft: `4px solid ${color}` }}>
+                                            <td style={{ padding: '6px 12px', color: '#e2e8f0', fontWeight: 700, position: 'sticky', left: 0, background: `${color}44`, borderRight: '1px solid rgba(255,255,255,0.06)', zIndex: 1, whiteSpace: 'nowrap', overflow: 'hidden', maxWidth: 180, textOverflow: 'ellipsis', fontSize: 12 }}>
+                                                {section.header}
+                                            </td>
+                                            {Array.from({ length: pivotByDay.daysInMonth }, (_, i) => i + 1).map(day => {
+                                                const val = (pivotByDay.data[section.header] || {})[day] || 0
+                                                return (
+                                                    <td key={day} style={{ padding: '5px 4px', textAlign: 'right', color: val > 0 ? '#f87171' : '#334155', fontVariantNumeric: 'tabular-nums', borderRight: '1px solid rgba(255,255,255,0.04)', fontSize: 11 }}>
+                                                        {val > 0 ? new Intl.NumberFormat('pt-BR', { notation: 'compact', maximumFractionDigits: 1 }).format(val) : ''}
+                                                    </td>
+                                                )
+                                            })}
+                                            <td style={{ padding: '5px 12px', textAlign: 'right', color: '#f87171', fontWeight: 700, fontVariantNumeric: 'tabular-nums', borderLeft: '1px solid rgba(255,255,255,0.1)' }}>
+                                                {formatCurrency(sectionTotal)}
+                                            </td>
+                                        </tr>
+                                        {/* Item sub-rows */}
+                                        {section.items.map(item => {
+                                            const itemKey = `${section.header}||${item.label}`
+                                            const itemTotal = Object.values(pivotByDay.data[itemKey] || {}).reduce((a: number, b: number) => a + b, 0)
+                                            if (itemTotal === 0) return null
                                             return (
-                                                <td key={day} style={{ padding: '5px 4px', textAlign: 'right', color: val > 0 ? '#f87171' : '#334155', fontVariantNumeric: 'tabular-nums', borderRight: '1px solid rgba(255,255,255,0.04)', fontSize: 11 }}>
-                                                    {val > 0 ? new Intl.NumberFormat('pt-BR', { notation: 'compact', maximumFractionDigits: 1 }).format(val) : ''}
-                                                </td>
+                                                <tr key={itemKey} style={{ background: `${color}11`, borderLeft: `4px solid ${color}` }}>
+                                                    <td style={{ padding: '4px 12px 4px 28px', color: '#94a3b8', position: 'sticky', left: 0, background: `${color}18`, borderRight: '1px solid rgba(255,255,255,0.04)', zIndex: 1, whiteSpace: 'nowrap', overflow: 'hidden', maxWidth: 180, textOverflow: 'ellipsis', fontSize: 11 }}>
+                                                        ↳ {item.label}
+                                                    </td>
+                                                    {Array.from({ length: pivotByDay.daysInMonth }, (_, i) => i + 1).map(day => {
+                                                        const val = (pivotByDay.data[itemKey] || {})[day] || 0
+                                                        return (
+                                                            <td key={day} style={{ padding: '4px 4px', textAlign: 'right', color: val > 0 ? '#fca5a5' : '#334155', fontVariantNumeric: 'tabular-nums', borderRight: '1px solid rgba(255,255,255,0.02)', fontSize: 10 }}>
+                                                                {val > 0 ? new Intl.NumberFormat('pt-BR', { notation: 'compact', maximumFractionDigits: 1 }).format(val) : ''}
+                                                            </td>
+                                                        )
+                                                    })}
+                                                    <td style={{ padding: '4px 12px', textAlign: 'right', color: '#fca5a5', fontWeight: 500, fontVariantNumeric: 'tabular-nums', borderLeft: '1px solid rgba(255,255,255,0.06)', fontSize: 11 }}>
+                                                        {formatCurrency(itemTotal)}
+                                                    </td>
+                                                </tr>
                                             )
                                         })}
-                                        <td style={{ padding: '5px 12px', textAlign: 'right', color: sectionTotal > 0 ? '#f87171' : '#64748b', fontWeight: 600, fontVariantNumeric: 'tabular-nums', borderLeft: '1px solid rgba(255,255,255,0.1)' }}>
-                                            {sectionTotal > 0 ? formatCurrency(sectionTotal) : '—'}
-                                        </td>
-                                    </tr>
+                                    </React.Fragment>
                                 )
                             })}
                             {extratoData.unmatchedTotal > 0 && (
@@ -912,76 +1007,67 @@ export default function CashFlow() {
                 </div>
             </div>
 
-            {/* Drawer: Novo Lançamento */}
-            <Drawer title="Novo Lançamento" width={680} open={drawerOpen} onClose={() => setDrawerOpen(false)}
+            {/* Drawer: Novo Lançamento (Despesa) */}
+            <Drawer title="Novo Lançamento de Despesa" width={680} open={drawerOpen} onClose={() => { setDrawerOpen(false); setExpPaymentMethod('') }}
                 extra={<Button type="primary" onClick={handleSaveEntry}>Salvar</Button>}>
-                <div style={{ marginBottom: 16 }}>
-                    <span style={{ fontWeight: 500, marginRight: 8 }}>Tipo:</span>
-                    <Select
-                        value={drawerType}
-                        onChange={(v) => { setDrawerType(v); form.resetFields(); setExpenseAmount('') }}
-                        style={{ width: 220 }}
-                    >
-                        <Select.Option value="EXPENSE">Despesa (Saída)</Select.Option>
-                        <Select.Option value="INCOME">Receita (Entrada)</Select.Option>
-                    </Select>
-                </div>
-                {drawerType === 'INCOME' ? (
-                    <Form form={form} layout="vertical">
-                        <Form.Item name="description" label="Descrição" rules={[{ required: true }]}>
-                            <Input />
-                        </Form.Item>
-                        <Form.Item name="amount" label="Valor" rules={[{ required: true }]}>
-                            <InputNumber style={{ width: '100%' }} prefix="R$" step={0.01} />
-                        </Form.Item>
-                        <Form.Item name="due_date" label="Data Vencimento" rules={[{ required: true }]}>
-                            <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
-                        </Form.Item>
-                        <Form.Item name="payment_method" label="Pagamento">
-                            <Select allowClear>
-                                {PAYMENT_METHODS.map(p => <Select.Option key={p.value} value={p.value}>{p.label}</Select.Option>)}
-                            </Select>
-                        </Form.Item>
-                        <Form.Item name="paid_date" label="Data Pagamento (opcional)">
-                            <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" placeholder="Se já foi pago" />
-                        </Form.Item>
-                    </Form>
-                ) : (
-                    <Form form={form} layout="vertical">
-                        <Form.Item name="expense_category" label="Categoria da Despesa" rules={[{ required: true, message: 'Selecione a categoria' }]}>
-                            <Select
-                                placeholder="Selecione a categoria"
-                                options={activeCategoryOptions}
-                                showSearch
-                                listHeight={320}
-                                filterOption={(input, option) => (option?.label as string || '').toLowerCase().includes(input.toLowerCase())}
-                            />
-                        </Form.Item>
-                        <Form.Item name="expense_description" label="Descrição (opcional)">
-                            <Input placeholder="Ex: Conta de luz da loja" />
-                        </Form.Item>
-                        <Form.Item label="Valor Total" required>
-                            <Input
-                                prefix="R$"
-                                placeholder="0,00"
-                                value={expenseAmount}
-                                onChange={(e) => setExpenseAmount(currencyMaskFn(e.target.value))}
-                            />
-                        </Form.Item>
-                        <div style={{ marginBottom: 8, color: '#94a3b8', fontSize: 13, fontWeight: 500 }}>Condição de Pagamento</div>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                            <Form.Item name="parcelas" label="Número de parcelas" initialValue={1}>
-                                <InputNumber min={1} max={120} style={{ width: '100%' }} placeholder="1 = à vista" />
+                <Form form={form} layout="vertical">
+                    <Form.Item name="expense_category" label="Categoria da Despesa" rules={[{ required: true, message: 'Selecione a categoria' }]}>
+                        <Select
+                            placeholder="Selecione a categoria"
+                            options={activeCategoryOptions}
+                            showSearch
+                            listHeight={320}
+                            filterOption={(input, option) => (option?.label as string || '').toLowerCase().includes(input.toLowerCase())}
+                        />
+                    </Form.Item>
+                    <Form.Item name="expense_description" label="Descrição (opcional)">
+                        <Input placeholder="Ex: Conta de luz da loja" />
+                    </Form.Item>
+                    <Form.Item label="Valor Total" required>
+                        <Input
+                            prefix="R$"
+                            placeholder="0,00"
+                            value={expenseAmount}
+                            onChange={(e) => setExpenseAmount(currencyMaskFn(e.target.value))}
+                        />
+                    </Form.Item>
+                    <Form.Item name="payment_method" label="Método de Pagamento">
+                        <Select
+                            placeholder="Selecione o método (opcional)"
+                            allowClear
+                            options={EXPENSE_PAYMENT_METHODS}
+                            onChange={(v) => { setExpPaymentMethod(v || ''); form.setFieldValue('payment_condition', '30') }}
+                        />
+                    </Form.Item>
+                    {(expPaymentMethod === 'BOLETO' || expPaymentMethod === 'CHEQUE_PRE_DATADO') ? (
+                        <>
+                            <Form.Item name="payment_condition" label="Condição de Pagamento" initialValue="30">
+                                <Select options={PAYMENT_CONDITIONS} />
                             </Form.Item>
-                            <Form.Item name="expense_start_date" label="Data de início">
+                            <Form.Item name="expense_start_date" label="Data de referência">
                                 <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" placeholder="Hoje" />
                             </Form.Item>
-                        </div>
-                        <div style={{ fontSize: 12, color: '#64748b', marginTop: -8 }}>
-                            1 parcela = à vista. 2+ parcelas = parcelado mensalmente a partir da data de início.
-                        </div>
-                    </Form>
-                )}
+                            <div style={{ fontSize: 12, color: '#64748b', marginTop: -8 }}>
+                                As parcelas são geradas com vencimento 30/60/90 dias a partir da data de referência.
+                            </div>
+                        </>
+                    ) : (
+                        <>
+                            <div style={{ marginBottom: 8, color: '#94a3b8', fontSize: 13, fontWeight: 500 }}>Condição de Pagamento</div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                                <Form.Item name="parcelas" label="Número de parcelas" initialValue={1}>
+                                    <InputNumber min={1} max={120} style={{ width: '100%' }} placeholder="1 = à vista" />
+                                </Form.Item>
+                                <Form.Item name="expense_start_date" label="Data de início">
+                                    <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" placeholder="Hoje" />
+                                </Form.Item>
+                            </div>
+                            <div style={{ fontSize: 12, color: '#64748b', marginTop: -8 }}>
+                                1 parcela = à vista. 2+ parcelas = parcelado mensalmente a partir da data de início.
+                            </div>
+                        </>
+                    )}
+                </Form>
             </Drawer>
 
             {/* Export range modal */}

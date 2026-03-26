@@ -22,6 +22,17 @@ type Props = {
 
 const dateFormat = 'DD/MM/YYYY'
 
+const EXPENSE_PAYMENT_METHODS = [
+  { value: 'DINHEIRO', label: '💵 Dinheiro' },
+  { value: 'PIX', label: '⚡ PIX' },
+  { value: 'TRANSFERENCIA', label: '🏦 Transferência' },
+  { value: 'CARTAO_DEBITO', label: '💳 Cartão de Débito' },
+  { value: 'CARTAO_CREDITO', label: '💳 Cartão de Crédito' },
+  { value: 'BOLETO', label: '📄 Boleto' },
+  { value: 'CHEQUE', label: '🧾 Cheque' },
+  { value: 'CHEQUE_PRE_DATADO', label: '🗓️ Cheque Pré-datado' },
+]
+
 const NewPaymentRevenueForm = ({ form, year, month, type, onClickDelete, regime }: Props) => {
   const [groupAutoSet, setGroupAutoSet] = useState(false)
   const expenseCategoryOptions = getExpenseCategoryOptionsForRegime(regime)
@@ -132,6 +143,16 @@ const NewPaymentRevenueForm = ({ form, year, month, type, onClickDelete, regime 
             className="w-full"
           />
         </Form.Item>
+
+        {isExpense && (
+          <Form.Item name="payment_method" label="Método de Pagamento">
+            <Select
+              placeholder="Selecione o método (opcional)"
+              allowClear
+              options={EXPENSE_PAYMENT_METHODS}
+            />
+          </Form.Item>
+        )}
 
         {isExpense && !titleId && (
           <>

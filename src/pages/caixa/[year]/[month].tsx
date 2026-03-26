@@ -598,6 +598,7 @@ function Cashier() {
 
         const entries: any[] = []
 
+        const pmValue = values.payment_method || null
         if (recurrence === 'WEEKLY' || recurrence === 'BIWEEKLY') {
           const daysStep = recurrence === 'WEEKLY' ? 7 : 14
           const cursor = new Date(startY, startM, 1)
@@ -612,6 +613,7 @@ function Cashier() {
               amount,
               due_date: cursor.toISOString().substring(0, 10),
               expense_group: values.expense_group || null,
+              ...(pmValue ? { payment_method: pmValue } : {}),
             })
             cursor.setDate(cursor.getDate() + daysStep)
           }
@@ -628,6 +630,7 @@ function Cashier() {
               amount,
               due_date: `${y}-${String(m + 1).padStart(2, '0')}-01`,
               expense_group: values.expense_group || null,
+              ...(pmValue ? { payment_method: pmValue } : {}),
             })
             m += monthStep
             if (m > 11) { y += Math.floor(m / 12); m = m % 12 }
@@ -658,6 +661,7 @@ function Cashier() {
 
       if (isExpense) {
         entryData.expense_group = values.expense_group || null
+        if (values.payment_method) entryData.payment_method = values.payment_method
       }
 
       let savedEntry: any

@@ -316,7 +316,7 @@ function Items() {
       quantity: record.quantity,
       measure_quantity: record.measure_quantity,
       unitType: record.unitType,
-      price: record.cost_per_base_unit.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+      price: (record.cost_per_base_unit * record.measure_quantity).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
       has_st: record.has_st,
       is_monofasico: record.is_monofasico,
       supplier_name: record.supplier_name,
@@ -365,7 +365,7 @@ function Items() {
 
       const { data: currentItem, error: fetchError } = await supabase
         .from('items')
-        .select('id, quantity, cost_price, cost_per_base_unit, unit, item_type')
+        .select('id, quantity, cost_price, cost_per_base_unit, unit, item_type, measure_quantity')
         .eq('id', itemId)
         .single()
 
@@ -449,7 +449,11 @@ function Items() {
       const currentCost = Number(currentItem.cost_price) || 0
       const totalQty = currentQty + newQty
       const totalCost = currentCost + addedCost
-      const newUnitCost = unitPrice > 0 ? unitPrice : (totalQty > 0 ? totalCost / totalQty : 0)
+      const measureQtyForItem = Number((currentItem as any).measure_quantity) || 1
+      // custo por unidade base = preço por embalagem ÷ measure_quantity
+      const newUnitCost = unitPrice > 0
+        ? unitPrice / measureQtyForItem
+        : (totalQty > 0 ? totalCost / (totalQty * measureQtyForItem) : 0)
       const oldCost = Number((currentItem as any).cost_per_base_unit) || 0
       const costChanged = Math.abs(newUnitCost - oldCost) > 0.0001
 
@@ -827,7 +831,8 @@ function Items() {
       const qty = Number(values.quantity) || 1
       const measureQty = Number(values.measure_quantity) || 1
       const stockQty = qty * measureQty
-      const costPerBaseUnit = priceNumber
+      // cost_per_base_unit = preço por unidade base (ex: R$0,02/ml para item de 1000ml a R$20)
+      const costPerBaseUnit = measureQty > 0 ? priceNumber / measureQty : priceNumber
       const totalCost = priceNumber * qty
 
       const itemData = {
@@ -1161,6 +1166,7 @@ function Items() {
             ncm_code: d.ncm_code,
             unitType: d.unitType,
             quantity: d.quantity,
+            measure_quantity: d.measure_quantity || 1,
             cost_price: d.price,
           }))}
         />

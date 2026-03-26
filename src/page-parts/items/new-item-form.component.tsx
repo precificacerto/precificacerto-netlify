@@ -125,9 +125,10 @@ const NewItemForm = ({ form }: Props) => {
     const conv = UNIT_CONVERSIONS[unit] || { base: 'un', factor: 1 }
     setBaseUnitLabel(conv.base)
 
-    if (unitPrice > 0 && qty > 0) {
-      const totalValue = unitPrice * qty
-      setCostPerUnit(`R$ ${getMonetaryValue(totalValue)}`)
+    if (unitPrice > 0 && measureQty > 0) {
+      // custo por unidade base = preço por embalagem ÷ measure_quantity
+      const costPerBase = unitPrice / measureQty
+      setCostPerUnit(`R$ ${getMonetaryValue(costPerBase)}`)
     } else {
       setCostPerUnit(null)
     }

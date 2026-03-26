@@ -28,6 +28,7 @@ export type ItemOption = {
   ncm_code: string
   unitType: string
   quantity: number
+  measure_quantity: number
   cost_price: number
 }
 
@@ -88,6 +89,14 @@ const RenewQuantityForm = ({ form, items, mode, onModeChange }: Props) => {
           <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 8, marginBottom: 4 }}>Unidade de medida</div>
           <div style={{ fontSize: 14, fontWeight: 500 }}>
             {(UNIT_TYPE as Record<string, string>)[selectedItem.unitType] || selectedItem.unitType}
+          </div>
+          <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 8, marginBottom: 4 }}>QTD. Medida</div>
+          <div style={{ fontSize: 14, fontWeight: 500 }}>
+            {selectedItem.measure_quantity} {(UNIT_TYPE as Record<string, string>)[selectedItem.unitType] || selectedItem.unitType}
+          </div>
+          <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 8, marginBottom: 4 }}>Estoque atual</div>
+          <div style={{ fontSize: 14, fontWeight: 500 }}>
+            {selectedItem.quantity} {unitLabel}
           </div>
         </div>
       )}

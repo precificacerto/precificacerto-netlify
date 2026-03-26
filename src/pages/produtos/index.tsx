@@ -721,11 +721,8 @@ function Products() {
     {
       title: 'Produto', dataIndex: 'name', key: 'name',
       sorter: (a, b) => a.name.localeCompare(b.name),
-      render: (n: string, r: ProductRow) => (
-        <div>
-          <div style={{ fontWeight: 600, fontSize: 14 }}>{n}</div>
-          {r.code && <div style={{ fontSize: 10, color: '#64748b' }}>Cód: {r.code}</div>}
-        </div>
+      render: (n: string) => (
+        <span style={{ fontWeight: 600, fontSize: 14 }}>{n}</span>
       ),
     },
     {
