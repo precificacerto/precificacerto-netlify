@@ -272,7 +272,12 @@ function Schedule() {
         setRecurEndDate(null)
         setRecurForever(false)
         setRecurCustomDays(7)
-        if (empId) form.setFieldValue('employee_id', empId)
+        setBookingEmpServiceTables([])
+        setBookingSelectedServiceTableId(null)
+        if (empId) {
+            form.setFieldValue('employee_id', empId)
+            fetchBookingServiceTables(empId)
+        }
         if (date) form.setFieldValue('date', date)
         if (time) form.setFieldValue('time', dayjs(time, 'HH:mm'))
         setDrawerOpen(true)
@@ -283,6 +288,9 @@ function Schedule() {
         setServiceInputMode(ev.service_id ? 'select' : 'custom')
         const dur = Math.round((new Date(ev.end_time).getTime() - new Date(ev.start_time).getTime()) / 60000)
         form.setFieldsValue({ title: ev.title, date: dayjs(ev.start_time), time: dayjs(ev.start_time), duration_minutes: String(dur), customer_id: ev.customer_id || undefined, employee_id: ev.employee_id || undefined, service_id: ev.service_id || undefined, status: ev.status, notes: ev.description || '' })
+        setBookingEmpServiceTables([])
+        setBookingSelectedServiceTableId(null)
+        if (ev.employee_id) fetchBookingServiceTables(ev.employee_id)
         setDrawerOpen(true)
     }, [])
 
@@ -883,34 +891,40 @@ function Schedule() {
     const payMethod = Form.useWatch('payment_method', payForm)
     const bookingEmployeeId = Form.useWatch('employee_id', form)
 
-    // Fetch SERVICE commission tables when booking employee changes
+    async function fetchBookingServiceTables(empId: string) {
+        latestBookingEmpRef.current = empId
+        setBookingEmpServiceTables([])
+        setBookingSelectedServiceTableId(null)
+        const { data } = await (supabase as any)
+            .from('employee_commission_tables')
+            .select('commission_tables(id, name, type)')
+            .eq('employee_id', empId)
+        if (empId !== latestBookingEmpRef.current) return
+        const tables = (data || []).map((r: any) => r.commission_tables).filter(Boolean)
+        const serviceTables = tables.filter((t: any) => t.type === 'SERVICE')
+        setBookingEmpServiceTables(serviceTables)
+        setBookingSelectedServiceTableId(serviceTables[0]?.id || null)
+    }
+
+    // Also watch form changes for when user manually selects employee in the form
     useEffect(() => {
-        latestBookingEmpRef.current = bookingEmployeeId
         if (!bookingEmployeeId) {
+            latestBookingEmpRef.current = undefined
             setBookingEmpServiceTables([])
             setBookingSelectedServiceTableId(null)
             return
         }
-        const empIdAtFetch = bookingEmployeeId
-        ;(async () => {
-            const { data } = await (supabase as any)
-                .from('employee_commission_tables')
-                .select('commission_tables(id, name, type)')
-                .eq('employee_id', empIdAtFetch)
-            if (empIdAtFetch !== latestBookingEmpRef.current) return
-            const tables = (data || []).map((r: any) => r.commission_tables).filter(Boolean)
-            const serviceTables = tables.filter((t: any) => t.type === 'SERVICE')
-            setBookingEmpServiceTables(serviceTables)
-            setBookingSelectedServiceTableId(serviceTables[0]?.id || null)
-        })()
+        if (bookingEmployeeId !== latestBookingEmpRef.current) {
+            fetchBookingServiceTables(bookingEmployeeId)
+        }
     }, [bookingEmployeeId])
 
     // Services filtered by selected SERVICE table for booking form
     const filteredBookingServices = useMemo(() => {
-        if (!bookingEmployeeId || bookingEmpServiceTables.length === 0) return regServices
+        if (bookingEmpServiceTables.length === 0) return regServices
         if (!bookingSelectedServiceTableId) return []
         return regServices.filter((s: any) => s.commission_table_id === bookingSelectedServiceTableId)
-    }, [regServices, bookingEmployeeId, bookingEmpServiceTables, bookingSelectedServiceTableId])
+    }, [regServices, bookingEmpServiceTables, bookingSelectedServiceTableId])
 
     // Used table IDs in payment sections (for availability check)
     const payUsedTableIds = payTableSections.map(s => s.tableId).filter(Boolean) as string[]

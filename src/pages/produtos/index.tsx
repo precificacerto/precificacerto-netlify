@@ -248,8 +248,8 @@ function Products() {
   }, [rawProducts, stockByProductId])
 
   const filteredData = useMemo<ProductRow[]>(() => {
-    let result = data
-    if (tableFilter) result = result.filter(p => p.commission_table_id === tableFilter)
+    if (!tableFilter) return []
+    let result = data.filter(p => p.commission_table_id === tableFilter)
     if (!searchText) return result
     const s = searchText.toLowerCase()
     return result.filter(p => p.name.toLowerCase().includes(s) || p.code.toLowerCase().includes(s))
@@ -1172,7 +1172,7 @@ function Products() {
           rowKey="id"
           loading={isLoading}
           pagination={{ pageSize: 15 }}
-          locale={{ emptyText: <Empty description="Nenhum produto cadastrado" /> }}
+          locale={{ emptyText: <Empty description={tableFilter ? "Nenhum produto cadastrado nesta tabela" : "Selecione uma tabela para ver os produtos"} /> }}
           size="middle"
         />
       </div>

@@ -120,8 +120,8 @@ function ServicesPage() {
     useEffect(() => { fetchAll() }, [])
 
     const filtered = useMemo(() => {
-        let result = services
-        if (tableFilter) result = result.filter((sv: any) => sv.commission_table_id === tableFilter)
+        if (!tableFilter) return []
+        let result = services.filter((sv: any) => sv.commission_table_id === tableFilter)
         if (!searchText) return result
         const s = searchText.toLowerCase()
         return result.filter(sv => sv.name.toLowerCase().includes(s))
@@ -614,7 +614,7 @@ function ServicesPage() {
 
             <div className="pc-card" style={{ padding: 0 }}>
                 <Table columns={columns} dataSource={filtered} rowKey="id" loading={loading}
-                    pagination={{ pageSize: 15 }} locale={{ emptyText: <Empty description="Nenhum serviço cadastrado" /> }}
+                    pagination={{ pageSize: 15 }} locale={{ emptyText: <Empty description={tableFilter ? "Nenhum serviço cadastrado nesta tabela" : "Selecione uma tabela para ver os serviços"} /> }}
                     size="middle" />
             </div>
 
