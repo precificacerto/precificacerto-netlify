@@ -141,6 +141,8 @@ function Schedule() {
     // Commission table states
     const [bookingEmpServiceTables, setBookingEmpServiceTables] = useState<{id: string; name: string}[]>([])
     const [bookingSelectedServiceTableId, setBookingSelectedServiceTableId] = useState<string | null>(null)
+    const [bookingTablesLoading, setBookingTablesLoading] = useState(false)
+    const [bookingTablesLoaded, setBookingTablesLoaded] = useState(false)
     const [payAllEmpTables, setPayAllEmpTables] = useState<{id: string; name: string; type: string}[]>([])
     const [payTableSections, setPayTableSections] = useState<{key: string; tableId: string | null}[]>([{key: 'pts-0', tableId: null}])
     const latestBookingEmpRef = useRef<string | undefined>(undefined)
@@ -274,6 +276,9 @@ function Schedule() {
         setRecurCustomDays(7)
         setBookingEmpServiceTables([])
         setBookingSelectedServiceTableId(null)
+        setBookingTablesLoading(false)
+        setBookingTablesLoaded(false)
+        latestBookingEmpRef.current = undefined
         if (empId) {
             form.setFieldValue('employee_id', empId)
             fetchBookingServiceTables(empId)
@@ -290,6 +295,9 @@ function Schedule() {
         form.setFieldsValue({ title: ev.title, date: dayjs(ev.start_time), time: dayjs(ev.start_time), duration_minutes: String(dur), customer_id: ev.customer_id || undefined, employee_id: ev.employee_id || undefined, service_id: ev.service_id || undefined, status: ev.status, notes: ev.description || '' })
         setBookingEmpServiceTables([])
         setBookingSelectedServiceTableId(null)
+        setBookingTablesLoading(false)
+        setBookingTablesLoaded(false)
+        latestBookingEmpRef.current = undefined
         if (ev.employee_id) fetchBookingServiceTables(ev.employee_id)
         setDrawerOpen(true)
     }, [])
@@ -895,6 +903,8 @@ function Schedule() {
         latestBookingEmpRef.current = empId
         setBookingEmpServiceTables([])
         setBookingSelectedServiceTableId(null)
+        setBookingTablesLoading(true)
+        setBookingTablesLoaded(false)
         const { data } = await (supabase as any)
             .from('employee_commission_tables')
             .select('commission_tables(id, name, type)')
@@ -904,27 +914,28 @@ function Schedule() {
         const serviceTables = tables.filter((t: any) => t.type === 'SERVICE')
         setBookingEmpServiceTables(serviceTables)
         setBookingSelectedServiceTableId(serviceTables[0]?.id || null)
+        setBookingTablesLoading(false)
+        setBookingTablesLoaded(true)
     }
 
-    // Also watch form changes for when user manually selects employee in the form
+    // Watch form changes for when user manually selects employee in the dropdown
     useEffect(() => {
         if (!bookingEmployeeId) {
             latestBookingEmpRef.current = undefined
             setBookingEmpServiceTables([])
             setBookingSelectedServiceTableId(null)
+            setBookingTablesLoading(false)
+            setBookingTablesLoaded(false)
             return
         }
-        if (bookingEmployeeId !== latestBookingEmpRef.current) {
-            fetchBookingServiceTables(bookingEmployeeId)
-        }
+        fetchBookingServiceTables(bookingEmployeeId)
     }, [bookingEmployeeId])
 
     // Services filtered by selected SERVICE table for booking form
     const filteredBookingServices = useMemo(() => {
-        if (bookingEmpServiceTables.length === 0) return regServices
         if (!bookingSelectedServiceTableId) return []
         return regServices.filter((s: any) => s.commission_table_id === bookingSelectedServiceTableId)
-    }, [regServices, bookingEmpServiceTables, bookingSelectedServiceTableId])
+    }, [regServices, bookingSelectedServiceTableId])
 
     // Used table IDs in payment sections (for availability check)
     const payUsedTableIds = payTableSections.map(s => s.tableId).filter(Boolean) as string[]
@@ -1554,16 +1565,24 @@ function Schedule() {
                         </Select>
                     </Form.Item>
 
-                    {bookingEmployeeId && bookingEmpServiceTables.length > 0 && (
+                    {bookingEmployeeId && (
                         <div style={{ marginBottom: 16 }}>
                             <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Tabela de Serviços</div>
-                            <Select
-                                style={{ width: '100%' }}
-                                placeholder="Selecione a tabela de serviço"
-                                value={bookingSelectedServiceTableId || undefined}
-                                onChange={(val) => { setBookingSelectedServiceTableId(val); form.setFieldValue('service_id', undefined) }}
-                                options={bookingEmpServiceTables.map((t: any) => ({ value: t.id, label: t.name }))}
-                            />
+                            {bookingTablesLoading ? (
+                                <div style={{ fontSize: 12, color: '#94a3b8' }}>Buscando tabelas...</div>
+                            ) : bookingTablesLoaded && bookingEmpServiceTables.length === 0 ? (
+                                <div style={{ fontSize: 12, color: '#f59e0b', padding: '8px 12px', background: 'rgba(245,158,11,0.08)', borderRadius: 6, border: '1px solid rgba(245,158,11,0.2)' }}>
+                                    Este funcionário não tem tabela de serviços vinculada. Vincule uma tabela ao funcionário antes de agendar.
+                                </div>
+                            ) : (
+                                <Select
+                                    style={{ width: '100%' }}
+                                    placeholder="Selecione a tabela de serviço"
+                                    value={bookingSelectedServiceTableId || undefined}
+                                    onChange={(val) => { setBookingSelectedServiceTableId(val); form.setFieldValue('service_id', undefined) }}
+                                    options={bookingEmpServiceTables.map((t: any) => ({ value: t.id, label: t.name }))}
+                                />
+                            )}
                         </div>
                     )}
 
@@ -1576,13 +1595,20 @@ function Schedule() {
                         </Radio.Group>
                     </div>
 
-                    {serviceInputMode === 'select' && (filteredBookingServices.length > 0 || regServices.length > 0) && (
+                    {serviceInputMode === 'select' && (
                         <Form.Item name="service_id" label="Serviço Cadastrado">
-                            <Select placeholder="Escolha um serviço (preenche automático)" allowClear showSearch optionFilterProp="children" onChange={(v) => { if (v) onServiceSelect(v) }}>
+                            <Select
+                                placeholder={!bookingEmployeeId ? 'Selecione o funcionário primeiro' : !bookingSelectedServiceTableId ? 'Selecione a tabela de serviço acima' : 'Escolha um serviço'}
+                                allowClear
+                                showSearch
+                                optionFilterProp="children"
+                                disabled={!bookingSelectedServiceTableId}
+                                onChange={(v) => { if (v) onServiceSelect(v) }}
+                            >
                                 {filteredBookingServices.map((s: any) => <Select.Option key={s.id} value={s.id}>{s.name} — {fmt(s.base_price || 0)} — {s.estimated_duration_minutes || 60}min</Select.Option>)}
                             </Select>
-                            {bookingEmployeeId && bookingEmpServiceTables.length > 0 && filteredBookingServices.length === 0 && (
-                                <div style={{ fontSize: 11, color: '#f59e0b', marginTop: 4 }}>Nenhum serviço vinculado às tabelas deste funcionário.</div>
+                            {bookingSelectedServiceTableId && filteredBookingServices.length === 0 && (
+                                <div style={{ fontSize: 11, color: '#f59e0b', marginTop: 4 }}>Nenhum serviço cadastrado nesta tabela.</div>
                             )}
                         </Form.Item>
                     )}
