@@ -96,7 +96,7 @@ const RenewQuantityForm = ({ form, items, mode, onModeChange }: Props) => {
           </div>
           <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 8, marginBottom: 4 }}>Estoque atual</div>
           <div style={{ fontSize: 14, fontWeight: 500 }}>
-            {selectedItem.quantity} {unitLabel}
+            {selectedItem.quantity} unidade(s)
           </div>
         </div>
       )}
@@ -199,7 +199,7 @@ const RenewQuantityForm = ({ form, items, mode, onModeChange }: Props) => {
               fontSize: 13,
               color: '#fca5a5',
             }}>
-              Disponível: <strong>{selectedItem.quantity} {unitLabel}</strong>
+              Disponível: <strong>{selectedItem.quantity} unidade(s)</strong>
             </div>
           )}
 
@@ -214,7 +214,7 @@ const RenewQuantityForm = ({ form, items, mode, onModeChange }: Props) => {
                   const max = selectedItem?.quantity ?? 0
                   if (value == null || value === '') return Promise.reject(new Error(REQUIRED))
                   if (isNaN(n) || n <= 0) return Promise.reject(new Error('Informe uma quantidade válida (maior que zero)'))
-                  if (n > max) return Promise.reject(new Error(`Máximo permitido: ${max} ${unitLabel}`))
+                  if (n > max) return Promise.reject(new Error(`Máximo permitido: ${max} unidade(s)`))
                   return Promise.resolve()
                 },
               }),

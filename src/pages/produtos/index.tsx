@@ -42,6 +42,7 @@ type ProductRow = {
   stock_unit: string
   profit_percent: number | null
   needs_cost_update: boolean
+  product_type: string
 }
 
 type RenewProductOption = {
@@ -93,6 +94,7 @@ function Products() {
   // Commission tables state
   const [commissionTables, setCommissionTables] = useState<{ id: string; name: string; commission_percent: number }[]>([])
   const [tableFilter, setTableFilter] = useState<string | null>(null)
+  const [calcType, setCalcType] = useState<string | null>(null)
   const [tableModalOpen, setTableModalOpen] = useState(false)
   const [newTableName, setNewTableName] = useState('')
   const [newTableCommission, setNewTableCommission] = useState<number>(0)
@@ -167,10 +169,27 @@ function Products() {
       .select('id, name, commission_percent')
       .eq('type', 'PRODUCT')
       .order('name')
-    if (data) setCommissionTables(data.map((t: any) => ({ ...t, commission_percent: Number(t.commission_percent) })))
+    if (data) {
+      setCommissionTables(data.map((t: any) => ({ ...t, commission_percent: Number(t.commission_percent) })))
+      if (data.length > 0) setTableFilter(data[0].id)
+    }
   }
 
   useEffect(() => { loadCommissionTables() }, [])
+
+  useEffect(() => {
+    const fetchCalcType = async () => {
+      const tenantId = await getTenantId()
+      if (!tenantId) return
+      const { data } = await (supabase as any)
+        .from('tenant_settings')
+        .select('calc_type')
+        .eq('tenant_id', tenantId)
+        .maybeSingle()
+      if (data?.calc_type) setCalcType(data.calc_type)
+    }
+    fetchCalcType()
+  }, [])
 
   const handleCreateTable = async () => {
     const name = newTableName.trim()
@@ -243,6 +262,7 @@ function Products() {
         stock_unit: stock?.unit || p.unit || 'UN',
         profit_percent: pricing?.pct_profit_margin != null ? Number(pricing.pct_profit_margin) : null,
         needs_cost_update: Boolean(p.needs_cost_update),
+        product_type: p.product_type || 'PRODUZIDO',
       }
     })
   }, [rawProducts, stockByProductId])
@@ -250,10 +270,14 @@ function Products() {
   const filteredData = useMemo<ProductRow[]>(() => {
     if (!tableFilter) return []
     let result = data.filter(p => p.commission_table_id === tableFilter)
+    // Update #2: Para regime Prestação de Serviço, exibir apenas produtos de REVENDA
+    if (calcType === 'SERVICO') {
+      result = result.filter(p => p.product_type === 'REVENDA')
+    }
     if (!searchText) return result
     const s = searchText.toLowerCase()
     return result.filter(p => p.name.toLowerCase().includes(s) || p.code.toLowerCase().includes(s))
-  }, [data, searchText, tableFilter])
+  }, [data, searchText, tableFilter, calcType])
 
   useEffect(() => {
     if (!renewDrawerOpen || !effectiveTenantId) return

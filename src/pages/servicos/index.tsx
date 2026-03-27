@@ -68,7 +68,10 @@ function ServicesPage() {
             .select('id, name, commission_percent')
             .eq('type', 'SERVICE')
             .order('name')
-        if (data) setCommissionTables(data.map((t: any) => ({ ...t, commission_percent: Number(t.commission_percent) })))
+        if (data) {
+            setCommissionTables(data.map((t: any) => ({ ...t, commission_percent: Number(t.commission_percent) })))
+            if (data.length > 0) setTableFilter(data[0].id)
+        }
     }
 
     const handleCreateTable = async () => {

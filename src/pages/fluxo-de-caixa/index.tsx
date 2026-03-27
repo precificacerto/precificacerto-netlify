@@ -244,6 +244,8 @@ const INSTALLMENT_PRESETS = [
     { value: '30', label: '30' },
     { value: '30_60', label: '30/60' },
     { value: '30_60_90', label: '30/60/90' },
+    { value: '30_60_90_120', label: '30/60/90/120' },
+    { value: '30_60_90_120_150', label: '30/60/90/120/150' },
 ]
 
 function buildInstallmentsByPreset(preset: string): { date: any; amount: number }[] {
@@ -251,6 +253,8 @@ function buildInstallmentsByPreset(preset: string): { date: any; amount: number 
     if (preset === '30') return [{ date: today.add(30, 'day'), amount: 0 }]
     if (preset === '30_60') return [{ date: today.add(30, 'day'), amount: 0 }, { date: today.add(60, 'day'), amount: 0 }]
     if (preset === '30_60_90') return [{ date: today.add(30, 'day'), amount: 0 }, { date: today.add(60, 'day'), amount: 0 }, { date: today.add(90, 'day'), amount: 0 }]
+    if (preset === '30_60_90_120') return [{ date: today.add(30, 'day'), amount: 0 }, { date: today.add(60, 'day'), amount: 0 }, { date: today.add(90, 'day'), amount: 0 }, { date: today.add(120, 'day'), amount: 0 }]
+    if (preset === '30_60_90_120_150') return [{ date: today.add(30, 'day'), amount: 0 }, { date: today.add(60, 'day'), amount: 0 }, { date: today.add(90, 'day'), amount: 0 }, { date: today.add(120, 'day'), amount: 0 }, { date: today.add(150, 'day'), amount: 0 }]
     return [{ date: null, amount: 0 }]
 }
 
@@ -266,9 +270,11 @@ export default function CashFlow() {
     const [expenseAmount, setExpenseAmount] = useState('')
     const [selectedDay, setSelectedDay] = useState<number | null>(null)
     const [loadingPrevBalance, setLoadingPrevBalance] = useState(false)
+    const [prevBalanceModalOpen, setPrevBalanceModalOpen] = useState(false)
+    const [prevBalanceInput, setPrevBalanceInput] = useState<number>(0)
     const [expPaymentMethod, setExpPaymentMethod] = useState<string>('')
     const [expInstallments, setExpInstallments] = useState<{ date: any; amount: number }[]>([{ date: null, amount: 0 }])
-    const [expInstallmentPreset, setExpInstallmentPreset] = useState<'customizado' | '30' | '30_60' | '30_60_90'>('customizado')
+    const [expInstallmentPreset, setExpInstallmentPreset] = useState<'customizado' | '30' | '30_60' | '30_60_90' | '30_60_90_120' | '30_60_90_120_150'>('customizado')
 
     const [form] = Form.useForm()
 
@@ -434,12 +440,15 @@ export default function CashFlow() {
         return <Layout title={PAGE_TITLES.CASH_FLOW}><div style={{ padding: 40, textAlign: 'center' }}>Você não tem acesso a este módulo.</div></Layout>
     }
 
+    // ── Regular entries (exclude PREV_MONTH_BALANCE from all calculations) ──
+    const regularData = useMemo(() => data.filter((e: any) => e.origin_type !== 'PREV_MONTH_BALANCE'), [data])
+
     // ── Filtered data for DFC (respects day selection from calendar) ──
     const dfcData = useMemo(() => {
-        if (selectedDay === null) return data
+        if (selectedDay === null) return regularData
         const dayStr = String(selectedDay).padStart(2, '0')
-        return data.filter((e: any) => e.due_date && e.due_date.substring(8, 10) === dayStr)
-    }, [data, selectedDay])
+        return regularData.filter((e: any) => e.due_date && e.due_date.substring(8, 10) === dayStr)
+    }, [regularData, selectedDay])
 
     // ── Extrato structured data (mirrors Excel export format) ──
     const extratoData = useMemo(() => {
@@ -498,7 +507,7 @@ export default function CashFlow() {
         const daysInMonth = month.daysInMonth()
         const totals: Record<number, number> = {}
         for (let d = 1; d <= daysInMonth; d++) totals[d] = 0
-        for (const entry of data) {
+        for (const entry of regularData) {
             if (!entry.due_date) continue
             const day = parseInt(entry.due_date.substring(8, 10), 10)
             if (day < 1 || day > daysInMonth) continue
@@ -510,7 +519,7 @@ export default function CashFlow() {
             }
         }
         return { totals, daysInMonth }
-    }, [data, month])
+    }, [regularData, month])
 
     // ── Pivot: per-day per-category amounts for Excel-like grid ──
     const pivotByDay = useMemo(() => {
@@ -527,7 +536,7 @@ export default function CashFlow() {
             result[cat] = {}
             for (let d = 1; d <= daysInMonth; d++) result[cat][d] = 0
         }
-        for (const entry of data) {
+        for (const entry of regularData) {
             if (!entry.due_date) continue
             const day = parseInt(entry.due_date.substring(8, 10), 10)
             if (day < 1 || day > daysInMonth) continue
@@ -552,12 +561,19 @@ export default function CashFlow() {
             }
         }
         return { data: result, daysInMonth }
-    }, [data, month])
+    }, [regularData, month])
+
+    // ── Saldo do Mês Anterior (valor fixo inserido pelo usuário) ──
+    const prevMonthBalanceValue = useMemo(() => {
+        const entry = (data as any[]).find((e) => e.origin_type === 'PREV_MONTH_BALANCE')
+        if (!entry) return 0
+        return entry.type === 'INCOME' ? Number(entry.amount) : -Number(entry.amount)
+    }, [data])
 
     // ── Saldo acumulado por dia (saldo do dia anterior) ──
     const saldoDiaAnterior = useMemo(() => {
         const result: Record<number, number> = {}
-        let running = 0
+        let running = prevMonthBalanceValue
         for (let d = 1; d <= pivotByDay.daysInMonth; d++) {
             result[d] = running
             const incomeDay = INCOME_LABELS.reduce((s, l) => s + ((pivotByDay.data[l] || {})[d] || 0), 0)
@@ -565,56 +581,50 @@ export default function CashFlow() {
             running += incomeDay - expenseDay
         }
         return result
-    }, [pivotByDay])
+    }, [pivotByDay, prevMonthBalanceValue])
 
-    // ── Saldo do Mês Anterior (Item 11) ──
-    const handlePrevMonthBalance = async () => {
+    // ── Saldo do Mês Anterior (Item 11) — usuário insere valor manualmente ──
+    const handlePrevMonthBalance = () => {
+        setPrevBalanceInput(0)
+        setPrevBalanceModalOpen(true)
+    }
+
+    const handleSavePrevBalance = async () => {
         setLoadingPrevBalance(true)
         try {
             const tenant_id = await getTenantId()
             if (!tenant_id) { messageApi.warning('Sessão inválida.'); return }
 
-            const prevMonth = month.subtract(1, 'month')
-            const prevStart = prevMonth.startOf('month').format('YYYY-MM-DD')
-            const prevEnd = prevMonth.endOf('month').format('YYYY-MM-DD')
-
-            const { data: prevEntries } = await (supabase as any)
-                .from('cash_entries')
-                .select('type, amount, payment_method, paid_date, sale_price, unit_sale_price, quantity')
-                .gte('due_date', prevStart)
-                .lte('due_date', prevEnd)
-                .eq('is_active', true)
-
-            let prevIncome = 0
-            let prevExpense = 0
-            for (const e of (prevEntries || [])) {
-                if (e.type === 'INCOME') {
-                    if (e.payment_method === 'BOLETO' && !e.paid_date) continue
-                    prevIncome += getEffectiveIncomeAmount(e)
-                } else {
-                    prevExpense += Number(e.amount) || 0
-                }
-            }
-            const balance = prevIncome - prevExpense
-
+            const value = prevBalanceInput
+            const absValue = Math.abs(value)
             const currentMonthStr = month.format('YYYY-MM')
             const due_date = `${currentMonthStr}-01`
-            const absBalance = Math.abs(balance)
 
-            const { error } = await (supabase as any).from('cash_entries').insert({
-                tenant_id,
-                type: balance >= 0 ? 'INCOME' : 'EXPENSE',
-                origin_type: 'MANUAL',
-                description: 'Saldo do mês anterior',
-                amount: absBalance,
-                due_date,
-                expense_group: balance < 0 ? 'DESPESA_FIXA' : undefined,
-            })
-            if (error) throw error
-            messageApi.success(`Saldo do mês anterior inserido: ${balance >= 0 ? '+' : '-'} ${formatCurrency(absBalance)}`)
+            // Remover lançamento anterior do mesmo mês (se houver)
+            await (supabase as any).from('cash_entries')
+                .delete()
+                .eq('tenant_id', tenant_id)
+                .eq('origin_type', 'PREV_MONTH_BALANCE')
+                .gte('due_date', startOfMonth)
+                .lte('due_date', endOfMonth)
+
+            if (absValue > 0) {
+                const { error } = await (supabase as any).from('cash_entries').insert({
+                    tenant_id,
+                    type: value >= 0 ? 'INCOME' : 'EXPENSE',
+                    origin_type: 'PREV_MONTH_BALANCE',
+                    description: 'Saldo do mês anterior',
+                    amount: absValue,
+                    due_date,
+                })
+                if (error) throw error
+            }
+
+            messageApi.success(`Saldo do mês anterior salvo: ${formatCurrency(value)}`)
+            setPrevBalanceModalOpen(false)
             await fetchData()
-        } catch {
-            messageApi.error('Erro ao inserir saldo do mês anterior.')
+        } catch (err: any) {
+            messageApi.error('Erro ao salvar saldo do mês anterior: ' + (err?.message || ''))
         } finally {
             setLoadingPrevBalance(false)
         }
@@ -698,8 +708,14 @@ export default function CashFlow() {
             setExpenseAmount('')
             setExpPaymentMethod('')
             await fetchData()
-        } catch {
-            messageApi.error('Preencha os campos obrigatórios.')
+        } catch (err: any) {
+            if (err && err.name === 'ValidateError') {
+                messageApi.error('Preencha os campos obrigatórios.')
+            } else if (err && err.message) {
+                messageApi.error('Erro ao salvar lançamento: ' + err.message)
+            } else {
+                messageApi.error('Preencha os campos obrigatórios.')
+            }
         }
     }
 
@@ -764,6 +780,23 @@ export default function CashFlow() {
                             </tr>
                         </thead>
                         <tbody>
+                            {/* ── Saldo Mês Anterior ── */}
+                            {prevMonthBalanceValue !== 0 && (
+                                <tr style={{ background: '#1a2f4a', borderLeft: '3px solid #f59e0b' }}>
+                                    <td style={{ padding: '6px 12px', color: '#fbbf24', fontWeight: 700, position: 'sticky', left: 0, background: '#12233a', borderRight: '1px solid rgba(255,255,255,0.06)', zIndex: 1, whiteSpace: 'nowrap', fontSize: 12 }}>
+                                        Saldo Mês Anterior
+                                    </td>
+                                    {Array.from({ length: pivotByDay.daysInMonth }, (_, i) => i + 1).map(day => (
+                                        <td key={day} style={{ padding: '5px 4px', textAlign: 'right', color: '#fbbf24', fontWeight: 600, fontVariantNumeric: 'tabular-nums', borderRight: '1px solid rgba(255,255,255,0.04)', fontSize: 11 }}>
+                                            {day === 1 ? formatCurrency(prevMonthBalanceValue) : ''}
+                                        </td>
+                                    ))}
+                                    <td style={{ padding: '5px 12px', textAlign: 'right', color: prevMonthBalanceValue >= 0 ? '#4ade80' : '#f87171', fontWeight: 700, fontVariantNumeric: 'tabular-nums', borderLeft: '1px solid rgba(255,255,255,0.1)' }}>
+                                        {formatCurrency(prevMonthBalanceValue)}
+                                    </td>
+                                </tr>
+                            )}
+
                             {/* ── Saldo Dia Anterior ── */}
                             <tr style={{ background: '#1e3a5f', borderLeft: '3px solid #3b82f6' }}>
                                 <td style={{ padding: '6px 12px', color: '#93c5fd', fontWeight: 700, position: 'sticky', left: 0, background: '#162f4d', borderRight: '1px solid rgba(255,255,255,0.06)', zIndex: 1, whiteSpace: 'nowrap', fontSize: 12 }}>
@@ -1118,6 +1151,38 @@ export default function CashFlow() {
                     )}
                 </Form>
             </Drawer>
+
+            {/* Modal: Saldo do Mês Anterior */}
+            <Modal
+                title="Saldo do Mês Anterior"
+                open={prevBalanceModalOpen}
+                onCancel={() => setPrevBalanceModalOpen(false)}
+                onOk={handleSavePrevBalance}
+                confirmLoading={loadingPrevBalance}
+                okText="Salvar"
+                cancelText="Cancelar"
+            >
+                <div style={{ marginBottom: 12, color: '#94a3b8', fontSize: 13 }}>
+                    Informe o saldo do mês anterior. Use valores negativos para saldo negativo.
+                    <br />Mês atual: <strong>{month.format('MMMM/YYYY')}</strong>
+                </div>
+                <InputNumber
+                    style={{ width: '100%' }}
+                    size="large"
+                    step={0.01}
+                    precision={2}
+                    value={prevBalanceInput}
+                    onChange={(v) => setPrevBalanceInput(Number(v) || 0)}
+                    formatter={(v) => `R$ ${v}`.replace('.', ',')}
+                    parser={(v) => Number((v || '0').replace('R$ ', '').replace(',', '.')) as any}
+                    placeholder="Ex: 5000 ou -1500"
+                />
+                {prevBalanceInput !== 0 && (
+                    <div style={{ marginTop: 8, fontSize: 13, color: prevBalanceInput >= 0 ? '#4ade80' : '#f87171' }}>
+                        {prevBalanceInput >= 0 ? '✅ Saldo positivo' : '⚠️ Saldo negativo'}: {formatCurrency(Math.abs(prevBalanceInput))}
+                    </div>
+                )}
+            </Modal>
 
             {/* Export range modal */}
             <Modal

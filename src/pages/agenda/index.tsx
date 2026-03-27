@@ -17,7 +17,7 @@ import {
     ClockCircleOutlined, DeleteOutlined, CheckCircleOutlined,
     UserAddOutlined, CalendarOutlined, DollarOutlined,
     ShoppingOutlined, PercentageOutlined, FilterOutlined,
-    PaperClipOutlined, UploadOutlined, SyncOutlined,
+    PaperClipOutlined, UploadOutlined, SyncOutlined, ExclamationCircleOutlined,
 } from '@ant-design/icons'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import { useAuth } from '@/hooks/use-auth.hook'
@@ -52,6 +52,8 @@ const INSTALLMENT_PRESETS = [
     { value: '30', label: '30' },
     { value: '30_60', label: '30/60' },
     { value: '30_60_90', label: '30/60/90' },
+    { value: '30_60_90_120', label: '30/60/90/120' },
+    { value: '30_60_90_120_150', label: '30/60/90/120/150' },
 ]
 
 function buildInstallmentsByPreset(preset: string): { date: any; amount: number }[] {
@@ -59,6 +61,8 @@ function buildInstallmentsByPreset(preset: string): { date: any; amount: number 
     if (preset === '30') return [{ date: today.add(30, 'day'), amount: 0 }]
     if (preset === '30_60') return [{ date: today.add(30, 'day'), amount: 0 }, { date: today.add(60, 'day'), amount: 0 }]
     if (preset === '30_60_90') return [{ date: today.add(30, 'day'), amount: 0 }, { date: today.add(60, 'day'), amount: 0 }, { date: today.add(90, 'day'), amount: 0 }]
+    if (preset === '30_60_90_120') return [{ date: today.add(30, 'day'), amount: 0 }, { date: today.add(60, 'day'), amount: 0 }, { date: today.add(90, 'day'), amount: 0 }, { date: today.add(120, 'day'), amount: 0 }]
+    if (preset === '30_60_90_120_150') return [{ date: today.add(30, 'day'), amount: 0 }, { date: today.add(60, 'day'), amount: 0 }, { date: today.add(90, 'day'), amount: 0 }, { date: today.add(120, 'day'), amount: 0 }, { date: today.add(150, 'day'), amount: 0 }]
     return [{ date: null, amount: 0 }]
 }
 
@@ -133,7 +137,7 @@ function Schedule() {
     const [discountTick, setDiscountTick] = useState(0)
     const [isSplitPay, setIsSplitPay] = useState(false)
     const [customInstallments, setCustomInstallments] = useState<{ date: any; amount: number }[]>([{ date: null, amount: 0 }])
-    const [installmentPreset, setInstallmentPreset] = useState<'customizado' | '30' | '30_60' | '30_60_90'>('customizado')
+    const [installmentPreset, setInstallmentPreset] = useState<'customizado' | '30' | '30_60' | '30_60_90' | '30_60_90_120' | '30_60_90_120_150'>('customizado')
     const [extraProds, setExtraProds] = useState<ExtraProd[]>([])
     const [attachFile, setAttachFile] = useState<File | null>(null)
     const [attachDesc, setAttachDesc] = useState('')
@@ -148,6 +152,8 @@ function Schedule() {
     const [recurEndDate, setRecurEndDate] = useState<dayjs.Dayjs | null>(null)
     const [recurForever, setRecurForever] = useState(false)
     const [recurCustomDays, setRecurCustomDays] = useState(7)
+    const [isLastRecurrence, setIsLastRecurrence] = useState(false)
+    const [renewalAlertOpen, setRenewalAlertOpen] = useState(false)
 
     // Commission table states
     const [bookingEmpServiceTables, setBookingEmpServiceTables] = useState<{id: string; name: string}[]>([])
@@ -360,6 +366,14 @@ function Schedule() {
 
                 // Create recurrence occurrences if active
                 if (recurActive && (recurEndDate || recurForever)) {
+                    const recurrenceGroupId = crypto.randomUUID()
+                    // Atualizar o evento original com recurrence_group_id
+                    await (supabase as any).from('calendar_events')
+                        .update({ recurrence_group_id: recurrenceGroupId })
+                        .eq('start_time', s)
+                        .eq('tenant_id', tid)
+                        .eq('title', v.title)
+
                     const recurInserts: any[] = []
                     let cursor = startLocal.add(1, 'day')
                     const endLimit = recurForever
@@ -399,7 +413,7 @@ function Schedule() {
                         if (matches) {
                             const rStart = cursor.hour(startLocal.hour()).minute(startLocal.minute()).second(0)
                             const rEnd = rStart.add(dur, 'minute')
-                            recurInserts.push({ ...baseData, start_time: rStart.toISOString(), end_time: rEnd.toISOString() })
+                            recurInserts.push({ ...baseData, start_time: rStart.toISOString(), end_time: rEnd.toISOString(), recurrence_group_id: recurrenceGroupId })
                         }
                         cursor = cursor.add(1, 'day')
                     }
@@ -443,13 +457,29 @@ function Schedule() {
 
     // ─── Payment Modal (só abre se o agendamento ainda não foi concluído por outra pessoa) ───
     async function openPayModal(ev: CalendarEvent) {
-        const { data: fresh } = await (supabase as any).from('calendar_events').select('id, status, start_time, end_time, title, service_id, employee_id, customer_id, amount_charged').eq('id', ev.id).single()
+        const { data: fresh } = await (supabase as any).from('calendar_events').select('id, status, start_time, end_time, title, service_id, employee_id, customer_id, amount_charged, recurrence_group_id').eq('id', ev.id).single()
         if (fresh?.status === 'COMPLETED') {
             msgApi.info('Este agendamento já foi concluído e o pagamento lançado.')
             await fetchAll()
             return
         }
         const evToUse = fresh ? { ...ev, ...fresh } : ev
+
+        // Verificar se é o último agendamento da recorrência
+        setIsLastRecurrence(false)
+        if (fresh?.recurrence_group_id) {
+            const { data: futureRec } = await (supabase as any)
+                .from('calendar_events')
+                .select('id')
+                .eq('recurrence_group_id', fresh.recurrence_group_id)
+                .neq('id', fresh.id)
+                .eq('is_active', true)
+                .in('status', ['SCHEDULED', 'CONFIRMED'])
+                .gt('start_time', new Date().toISOString())
+            if (!futureRec || futureRec.length === 0) {
+                setIsLastRecurrence(true)
+            }
+        }
         setPayEvt(evToUse)
         const svc = regServices.find((s: any) => s.id === evToUse.service_id)
         const basePrice = evToUse.amount_charged || svc?.base_price || 0
@@ -913,8 +943,12 @@ function Schedule() {
             }
 
             msgApi.success('Serviço concluído e lançado no caixa!')
-            setPayOpen(false); setPayEvt(null); setExtraProds([]); setAttachFile(null); setAttachDesc(''); setCustomInstallments([{ date: null, amount: 0 }]); setInstallmentPreset('customizado'); setPayTableSections([{key: 'pts-0', tableId: null}])
+            const wasLastRecurrence = isLastRecurrence
+            setPayOpen(false); setPayEvt(null); setExtraProds([]); setAttachFile(null); setAttachDesc(''); setCustomInstallments([{ date: null, amount: 0 }]); setInstallmentPreset('customizado'); setPayTableSections([{key: 'pts-0', tableId: null}]); setIsLastRecurrence(false)
             await fetchAll()
+            if (wasLastRecurrence) {
+                setRenewalAlertOpen(true)
+            }
         } catch (e: any) { msgApi.error(e.message || '') }
     }
 
@@ -1643,7 +1677,7 @@ function Schedule() {
                     <Form.Item name="duration_minutes" label="Duração" initialValue="60">
                         <Select>{[15, 30, 45, 60, 90, 120, 180, 240].map(m => <Select.Option key={m} value={String(m)}>{m < 60 ? `${m} min` : m % 60 === 0 ? `${m / 60}h` : `${Math.floor(m / 60)}h${m % 60}min`}</Select.Option>)}</Select>
                     </Form.Item>
-                    <Form.Item name="customer_id" label="Cliente"><Select placeholder="(opcional)" allowClear showSearch optionFilterProp="children">{customers.map(c => <Select.Option key={c.id} value={c.id}>{c.name}</Select.Option>)}</Select></Form.Item>
+                    <Form.Item name="customer_id" label="Cliente" rules={[{ required: true, message: 'O cliente é obrigatório' }]}><Select placeholder="Selecione o cliente" showSearch optionFilterProp="children">{customers.map(c => <Select.Option key={c.id} value={c.id}>{c.name}</Select.Option>)}</Select></Form.Item>
                     {editingEvt && <Form.Item name="status" label="Status"><Select>{Object.entries(statusCfg).map(([k, c]) => <Select.Option key={k} value={k}><Tag color={c.tagColor} style={{ margin: 0 }}>{c.label}</Tag></Select.Option>)}</Select></Form.Item>}
                     <Form.Item name="notes" label="Observações"><Input.TextArea rows={2} /></Form.Item>
 
@@ -1707,11 +1741,7 @@ function Schedule() {
                                                 placeholder="Selecione a data final"
                                             />
                                         )}
-                                        {recurForever && (
-                                            <div style={{ fontSize: 11, color: '#64748b' }}>
-                                                Serão criados agendamentos por 1 ano a partir da data selecionada.
-                                            </div>
-                                        )}
+                                        {recurForever && null}
                                     </div>
                                 </div>
                             )}
@@ -1735,6 +1765,15 @@ function Schedule() {
             >
                 {payEvt && (
                     <>
+                        {isLastRecurrence && (
+                            <Alert
+                                type="warning"
+                                showIcon
+                                style={{ marginBottom: 12 }}
+                                message="Último agendamento da recorrência"
+                                description="Este é o último agendamento desta série recorrente. Após concluir, lembre-se de renovar o agendamento recorrente para este cliente, se necessário."
+                            />
+                        )}
                         <div style={{ padding: 12, background: 'rgba(34, 197, 94, 0.1)', borderRadius: 8, marginBottom: 16, border: '1px solid #BBF7D0' }}>
                             <div style={{ fontWeight: 700, fontSize: 15 }}>{payEvt.title}</div>
                             <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>
@@ -2044,6 +2083,28 @@ function Schedule() {
                         </div>
                     </>
                 )}
+            </Modal>
+
+            {/* Renewal Alert Modal — shown after completing last recurrence */}
+            <Modal
+                title={<span><ExclamationCircleOutlined style={{ color: '#f59e0b', marginRight: 8 }} />Recorrência Concluída</span>}
+                open={renewalAlertOpen}
+                onCancel={() => setRenewalAlertOpen(false)}
+                footer={[
+                    <Button key="no" onClick={() => setRenewalAlertOpen(false)}>Não renovar</Button>,
+                    <Button key="yes" type="primary" onClick={() => { setRenewalAlertOpen(false); setDrawerOpen(true) }}>
+                        Criar novo agendamento recorrente
+                    </Button>,
+                ]}
+                width={480}
+            >
+                <Alert
+                    type="warning"
+                    showIcon
+                    style={{ marginBottom: 16 }}
+                    message="Este foi o último agendamento da série recorrente"
+                    description="A recorrência deste cliente chegou ao fim. Deseja criar um novo agendamento recorrente para continuar os atendimentos?"
+                />
             </Modal>
         </Layout>
     )
