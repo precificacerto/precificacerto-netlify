@@ -72,6 +72,7 @@ interface BudgetItemRow {
     discount_percent: number
     max_discount_percent: number | null
     total: number
+    commission_table_id?: string | null
     /** true = item digitado manualmente (não está na base de produtos) */
     isManual?: boolean
     /** true = item de serviço do catálogo */
@@ -105,10 +106,9 @@ function Budgets() {
     const [attachDesc, setAttachDesc] = useState('')
     const [customerMode, setCustomerMode] = useState<'existing' | 'manual'>('existing')
     const [messageApi, contextHolder] = message.useMessage()
-    const [empProductTables, setEmpProductTables] = useState<{id: string; name: string}[]>([])
-    const [empServiceTables, setEmpServiceTables] = useState<{id: string; name: string}[]>([])
-    const [selectedProductTableIds, setSelectedProductTableIds] = useState<string[]>([])
-    const [selectedServiceTableIds, setSelectedServiceTableIds] = useState<string[]>([])
+    const [empProductTables, setEmpProductTables] = useState<{id: string; name: string; type: string}[]>([])
+    const [empServiceTables, setEmpServiceTables] = useState<{id: string; name: string; type: string}[]>([])
+    const [tableSections, setTableSections] = useState<{key: string; tableId: string | null}[]>([{key: 'ts-0', tableId: null}])
     const skipTableAutoSelectRef = useRef(false)
 
     useEffect(() => {
@@ -159,7 +159,7 @@ function Budgets() {
     const totalValue = budgets.filter(b => !['REJECTED', 'EXPIRED'].includes(b.status)).reduce((s, b) => s + Number(b.total_value || 0), 0)
 
     // ── Adicionar item ao orçamento ──
-    const handleAddProduct = () => {
+    const handleAddProduct = (tableId: string) => {
         setBudgetItems(prev => [...prev, {
             key: Date.now().toString(),
             product_id: '',
@@ -171,6 +171,7 @@ function Budgets() {
             max_discount_percent: null,
             total: 0,
             isManual: false,
+            commission_table_id: tableId,
         }])
     }
 
@@ -189,7 +190,7 @@ function Budgets() {
         }])
     }
 
-    const handleAddService = () => {
+    const handleAddService = (tableId: string) => {
         setBudgetItems(prev => [...prev, {
             key: Date.now().toString(),
             product_id: null,
@@ -202,6 +203,7 @@ function Budgets() {
             max_discount_percent: null,
             total: 0,
             isService: true,
+            commission_table_id: tableId,
         }])
     }
 
@@ -286,8 +288,8 @@ function Budgets() {
         if (!selectedEmployeeId) {
             setEmpProductTables([])
             setEmpServiceTables([])
-            setSelectedProductTableIds([])
-            setSelectedServiceTableIds([])
+            setTableSections([{key: 'ts-0', tableId: null}])
+            setBudgetItems([])
             return
         }
         latestEmployeeIdRef.current = selectedEmployeeId
@@ -307,17 +309,14 @@ function Budgets() {
             const serviceTables = tables.filter((t: any) => t.type === 'SERVICE')
             setEmpProductTables(productTables)
             setEmpServiceTables(serviceTables)
-            setSelectedProductTableIds(productTables.length > 0 ? [productTables[0].id] : [])
-            setSelectedServiceTableIds(serviceTables.length > 0 ? [serviceTables[0].id] : [])
+            const firstTable = productTables[0] || serviceTables[0]
+            setTableSections([{key: 'ts-0', tableId: firstTable?.id || null}])
+            setBudgetItems([])
         })()
     }, [selectedEmployeeId])
 
-    const filteredProducts = selectedProductTableIds.length > 0
-        ? (products as any[]).filter((p: any) => selectedProductTableIds.includes(p.commission_table_id))
-        : []
-    const filteredServices = selectedServiceTableIds.length > 0
-        ? (services as any[]).filter((s: any) => selectedServiceTableIds.includes(s.commission_table_id))
-        : []
+    const allEmpTables = useMemo(() => [...empProductTables, ...empServiceTables], [empProductTables, empServiceTables])
+    const usedTableIds = tableSections.map(s => s.tableId).filter(Boolean) as string[]
     const employeeHasNoTables = !!selectedEmployeeId && empProductTables.length === 0 && empServiceTables.length === 0
     const getItemTotalWithCommission = (item: BudgetItemRow) => {
         const effUnit = item.unit_price  // sempre preço fechado, sem comissão
@@ -509,10 +508,13 @@ function Budgets() {
                 usedServiceTableIds.add(it.services.commission_table_id)
             }
         }
-        const validProductIds = productTables.map((t: any) => t.id).filter((id: string) => usedProductTableIds.has(id))
-        const validServiceIds = serviceTables.map((t: any) => t.id).filter((id: string) => usedServiceTableIds.has(id))
-        setSelectedProductTableIds(validProductIds.length > 0 ? validProductIds : productTables.length > 0 ? [productTables[0].id] : [])
-        setSelectedServiceTableIds(validServiceIds.length > 0 ? validServiceIds : serviceTables.length > 0 ? [serviceTables[0].id] : [])
+        // Build table sections from tables actually used by items
+        const allUsedTableIds = new Set([...usedProductTableIds, ...usedServiceTableIds])
+        const usedTables = tables.filter((t: any) => allUsedTableIds.has(t.id))
+        const sectionsFromEdit = usedTables.length > 0
+            ? usedTables.map((t: any, i: number) => ({key: `ts-edit-${i}`, tableId: t.id}))
+            : [{key: 'ts-0', tableId: tables[0]?.id || null}]
+        setTableSections(sectionsFromEdit)
 
         skipTableAutoSelectRef.current = true
 
@@ -527,6 +529,7 @@ function Budgets() {
                 ? Number(it.products.max_discount_percent)
                 : null
             const isService = !!it.service_id
+            const commissionTableId = it.products?.commission_table_id ?? it.services?.commission_table_id ?? null
             return {
                 key: `edit-${record.id}-${idx}`,
                 product_id: it.product_id ?? null,
@@ -540,6 +543,7 @@ function Budgets() {
                 total: subtotal - Number(it.discount ?? 0),
                 isManual: !!(it.manual_description && !it.service_id),
                 isService,
+                commission_table_id: commissionTableId,
             }
         })
         setBudgetItems(rows)
@@ -1044,8 +1048,14 @@ function Budgets() {
         {
             title: 'Produto / Serviço / Descrição',
             key: 'product',
-            render: (_, record) =>
-                record.isManual ? (
+            render: (_, record) => {
+                const rowProds = record.commission_table_id
+                    ? (products as any[]).filter((p: any) => p.commission_table_id === record.commission_table_id)
+                    : (products as any[])
+                const rowSvcs = record.commission_table_id
+                    ? (services as any[]).filter((s: any) => s.commission_table_id === record.commission_table_id)
+                    : (services as any[])
+                return record.isManual ? (
                     <Input
                         placeholder="Descreva o item manualmente"
                         value={record.product_name}
@@ -1054,31 +1064,32 @@ function Budgets() {
                     />
                 ) : record.isService ? (
                     <Select
-                        placeholder={filteredServices.length === 0 ? 'Selecione uma tabela de serviços' : 'Selecione o serviço'}
+                        placeholder="Selecione o serviço"
                         showSearch
                         optionFilterProp="children"
                         style={{ width: '100%' }}
                         value={record.service_id || undefined}
                         onChange={(v) => handleServiceSelect(record.key, v)}
                     >
-                        {filteredServices.map((s: any) => (
+                        {rowSvcs.map((s: any) => (
                             <Select.Option key={s.id} value={s.id}>{s.name}</Select.Option>
                         ))}
                     </Select>
                 ) : (
                     <Select
-                        placeholder={filteredProducts.length === 0 ? 'Selecione uma tabela de produtos' : 'Selecione o produto'}
+                        placeholder="Selecione o produto"
                         showSearch
                         optionFilterProp="children"
                         style={{ width: '100%' }}
                         value={record.product_id || undefined}
                         onChange={(v) => handleProductSelect(record.key, v)}
                     >
-                        {filteredProducts.map((p: any) => (
+                        {rowProds.map((p: any) => (
                             <Select.Option key={p.id} value={p.id}>{p.name}</Select.Option>
                         ))}
                     </Select>
-                ),
+                )
+            },
         },
         {
             title: 'Qtd',
@@ -1209,10 +1220,10 @@ function Budgets() {
                 title={editingBudgetId ? 'Editar Orçamento' : 'Novo Orçamento'}
                 width={680}
                 open={drawerOpen}
-                onClose={() => { setDrawerOpen(false); setEditingBudgetId(null); form.resetFields(); setBudgetItems([]); setSelectedProductTableIds([]); setSelectedServiceTableIds([]); setEmpProductTables([]); setEmpServiceTables([]) }}
+                onClose={() => { setDrawerOpen(false); setEditingBudgetId(null); form.resetFields(); setBudgetItems([]); setTableSections([{key: 'ts-0', tableId: null}]); setEmpProductTables([]); setEmpServiceTables([]) }}
                 extra={
                     <Space>
-                        <Button onClick={() => { setDrawerOpen(false); setEditingBudgetId(null); form.resetFields(); setBudgetItems([]); setSelectedProductTableIds([]); setSelectedServiceTableIds([]); setEmpProductTables([]); setEmpServiceTables([]) }}>Cancelar</Button>
+                        <Button onClick={() => { setDrawerOpen(false); setEditingBudgetId(null); form.resetFields(); setBudgetItems([]); setTableSections([{key: 'ts-0', tableId: null}]); setEmpProductTables([]); setEmpServiceTables([]) }}>Cancelar</Button>
                         <Button onClick={editingBudgetId ? handleUpdate : handleSave} type="primary" loading={saving}>
                             {editingBudgetId ? 'Salvar alterações' : 'Criar Orçamento'}
                         </Button>
@@ -1233,33 +1244,6 @@ function Budgets() {
                             Este funcionário não possui tabelas de comissão vinculadas. Apenas lançamento manual está disponível.
                         </div>
                     )}
-                    {selectedEmployeeId && empProductTables.length > 0 && (
-                        <div style={{ marginBottom: 16 }}>
-                            <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 6 }}>Tabelas de Produtos</div>
-                            <Select
-                                mode="multiple"
-                                placeholder="Selecione tabela(s) de produtos"
-                                style={{ width: '100%' }}
-                                value={selectedProductTableIds}
-                                onChange={(v: string[]) => { setSelectedProductTableIds(v); setBudgetItems(prev => prev.filter(i => i.isManual || i.isService)) }}
-                                options={empProductTables.map(t => ({ value: t.id, label: t.name }))}
-                            />
-                        </div>
-                    )}
-                    {selectedEmployeeId && empServiceTables.length > 0 && (
-                        <div style={{ marginBottom: 16 }}>
-                            <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 6 }}>Tabelas de Serviços</div>
-                            <Select
-                                mode="multiple"
-                                placeholder="Selecione tabela(s) de serviços"
-                                style={{ width: '100%' }}
-                                value={selectedServiceTableIds}
-                                onChange={(v: string[]) => { setSelectedServiceTableIds(v); setBudgetItems(prev => prev.filter(i => i.isManual || !i.isService)) }}
-                                options={empServiceTables.map(t => ({ value: t.id, label: t.name }))}
-                            />
-                        </div>
-                    )}
-
                     <Divider orientation="left" style={{ fontSize: 12, color: '#94a3b8' }}>Cliente</Divider>
 
                     <Form.Item label="Origem do cliente" style={{ marginBottom: 8 }}>
@@ -1318,23 +1302,82 @@ function Budgets() {
 
                     <Divider orientation="left" style={{ fontSize: 12, color: '#94a3b8' }}>Produtos e Serviços</Divider>
 
-                    <Table columns={itemColumns} dataSource={budgetItems} rowKey="key" pagination={false} size="small"
-                        locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Adicione produtos, serviços ou itens manuais ao orçamento" /> }}
-                    />
+                    {selectedEmployeeId && allEmpTables.length > 0 && (
+                        <div style={{ marginBottom: 8 }}>
+                            {tableSections.map((section, idx) => {
+                                const table = allEmpTables.find(t => t.id === section.tableId)
+                                const isProduct = (table as any)?.type === 'PRODUCT'
+                                const isService = (table as any)?.type === 'SERVICE'
+                                const availableForSection = allEmpTables.filter(t =>
+                                    t.id === section.tableId || !usedTableIds.includes(t.id)
+                                )
+                                const sectionItems = budgetItems.filter(i => i.commission_table_id === section.tableId)
+                                return (
+                                    <div key={section.key} style={{ marginBottom: 12, padding: '10px 12px', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8 }}>
+                                        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: section.tableId ? 8 : 0 }}>
+                                            <Select
+                                                style={{ flex: 1 }}
+                                                placeholder="Selecionar tabela..."
+                                                value={section.tableId || undefined}
+                                                onChange={(val) => {
+                                                    setBudgetItems(prev => prev.filter(i => i.commission_table_id !== section.tableId))
+                                                    setTableSections(prev => prev.map(s => s.key === section.key ? { ...s, tableId: val } : s))
+                                                }}
+                                                options={availableForSection.map((t: any) => ({
+                                                    value: t.id,
+                                                    label: `${t.name} — ${t.type === 'PRODUCT' ? 'Produto' : 'Serviço'}`,
+                                                }))}
+                                            />
+                                            {idx > 0 && (
+                                                <Button size="small" danger icon={<DeleteOutlined />}
+                                                    onClick={() => {
+                                                        setBudgetItems(prev => prev.filter(i => i.commission_table_id !== section.tableId))
+                                                        setTableSections(prev => prev.filter(s => s.key !== section.key))
+                                                    }}
+                                                />
+                                            )}
+                                        </div>
+                                        {section.tableId && (
+                                            <>
+                                                <Table columns={itemColumns} dataSource={sectionItems} rowKey="key" pagination={false} size="small"
+                                                    locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Nenhum item adicionado desta tabela" /> }}
+                                                    style={{ marginBottom: 8 }}
+                                                />
+                                                <Space style={{ marginTop: 4 }}>
+                                                    {isProduct && (
+                                                        <Button size="small" type="dashed" icon={<PlusOutlined />} onClick={() => handleAddProduct(section.tableId!)}>
+                                                            Adicionar Produto
+                                                        </Button>
+                                                    )}
+                                                    {isService && (
+                                                        <Button size="small" type="dashed" icon={<ToolOutlined />} onClick={() => handleAddService(section.tableId!)}>
+                                                            Adicionar Serviço
+                                                        </Button>
+                                                    )}
+                                                </Space>
+                                            </>
+                                        )}
+                                    </div>
+                                )
+                            })}
+                            {usedTableIds.filter(Boolean).length < allEmpTables.length && (
+                                <Button type="dashed" icon={<PlusOutlined />} style={{ width: '100%', marginBottom: 8 }}
+                                    onClick={() => setTableSections(prev => [...prev, {key: `ts-${Date.now()}`, tableId: null}])}>
+                                    + Adicionar outra tabela
+                                </Button>
+                            )}
+                        </div>
+                    )}
 
-                    <Space.Compact block style={{ marginTop: 12, display: 'flex', gap: 8 }}>
-                        {selectedEmployeeId && empProductTables.length > 0 && (
-                            <Button type="dashed" onClick={handleAddProduct} icon={<PlusOutlined />} style={{ flex: 1 }}
-                                disabled={selectedProductTableIds.length === 0}>
-                                Adicionar Produto
-                            </Button>
-                        )}
-                        {selectedEmployeeId && empServiceTables.length > 0 && (
-                            <Button type="dashed" onClick={handleAddService} icon={<ToolOutlined />} style={{ flex: 1 }}
-                                disabled={selectedServiceTableIds.length === 0}>
-                                Adicionar Serviço
-                            </Button>
-                        )}
+                    {budgetItems.filter(i => i.isManual).length > 0 && (
+                        <div style={{ marginBottom: 8 }}>
+                            <Table columns={itemColumns} dataSource={budgetItems.filter(i => i.isManual)} rowKey="key" pagination={false} size="small"
+                                locale={{ emptyText: null }}
+                            />
+                        </div>
+                    )}
+
+                    <Space.Compact block style={{ marginTop: 4, display: 'flex', gap: 8 }}>
                         <Button type="dashed" onClick={handleAddManualItem} icon={<PlusOutlined />} style={{ flex: 1 }}
                             disabled={!selectedEmployeeId}>
                             Adicionar item manual

@@ -88,6 +88,7 @@ interface ExtraProd {
     profit_percent: number
     is_manual?: boolean
     is_service?: boolean
+    commission_table_id?: string | null
 }
 
 function Schedule() {
@@ -139,8 +140,9 @@ function Schedule() {
 
     // Commission table states
     const [bookingEmpServiceTables, setBookingEmpServiceTables] = useState<{id: string; name: string}[]>([])
-    const [payEmpProductTables, setPayEmpProductTables] = useState<{id: string; name: string}[]>([])
-    const [paySelectedProductTableIds, setPaySelectedProductTableIds] = useState<string[]>([])
+    const [bookingSelectedServiceTableId, setBookingSelectedServiceTableId] = useState<string | null>(null)
+    const [payAllEmpTables, setPayAllEmpTables] = useState<{id: string; name: string; type: string}[]>([])
+    const [payTableSections, setPayTableSections] = useState<{key: string; tableId: string | null}[]>([{key: 'pts-0', tableId: null}])
     const latestBookingEmpRef = useRef<string | undefined>(undefined)
 
     const weekEnd = weekStart.add(6, 'day').endOf('day')
@@ -416,17 +418,17 @@ function Schedule() {
         setExtraProds([])
         setAttachFile(null)
         setAttachDesc('')
-        setPayEmpProductTables([])
-        setPaySelectedProductTableIds([])
+        setPayAllEmpTables([])
+        setPayTableSections([{key: 'pts-0', tableId: null}])
         if (evToUse.employee_id) {
             const { data: tablesData } = await (supabase as any)
                 .from('employee_commission_tables')
                 .select('commission_tables(id, name, type)')
                 .eq('employee_id', evToUse.employee_id)
             const allTables = (tablesData || []).map((r: any) => r.commission_tables).filter(Boolean)
-            const productTables = allTables.filter((t: any) => t.type === 'PRODUCT')
-            setPayEmpProductTables(productTables)
-            if (productTables.length > 0) setPaySelectedProductTableIds([productTables[0].id])
+            setPayAllEmpTables(allTables)
+            const firstTable = allTables[0]
+            setPayTableSections([{key: 'pts-0', tableId: firstTable?.id || null}])
         }
         setPayOpen(true)
     }
@@ -449,20 +451,20 @@ function Schedule() {
         return finalPrice + extrasTotal
     }
 
-    function handleAddExtraProduct() {
+    function handleAddExtraProduct(tableId: string) {
         const newItem: ExtraProd = {
             key: `ep-${Date.now()}`, product_id: '', product_name: '', quantity: 1,
             unit_price: 0, discount: 0, total: 0, cost_total: 0, commission_percent: 0,
-            profit_percent: 0, is_manual: false, is_service: false,
+            profit_percent: 0, is_manual: false, is_service: false, commission_table_id: tableId,
         }
         setExtraProds(prev => [...prev, newItem])
     }
 
-    function handleAddExtraService() {
+    function handleAddExtraService(tableId: string) {
         const newItem: ExtraProd = {
             key: `es-${Date.now()}`, product_id: '', service_id: '', product_name: '', quantity: 1,
             unit_price: 0, discount: 0, total: 0, cost_total: 0, commission_percent: 0,
-            profit_percent: 0, is_manual: false, is_service: true,
+            profit_percent: 0, is_manual: false, is_service: true, commission_table_id: tableId,
         }
         setExtraProds(prev => [...prev, newItem])
     }
@@ -873,7 +875,7 @@ function Schedule() {
             }
 
             msgApi.success('Serviço concluído e lançado no caixa!')
-            setPayOpen(false); setPayEvt(null); setExtraProds([]); setAttachFile(null); setAttachDesc('')
+            setPayOpen(false); setPayEvt(null); setExtraProds([]); setAttachFile(null); setAttachDesc(''); setPayTableSections([{key: 'pts-0', tableId: null}])
             await fetchAll()
         } catch (e: any) { msgApi.error(e.message || '') }
     }
@@ -886,6 +888,7 @@ function Schedule() {
         latestBookingEmpRef.current = bookingEmployeeId
         if (!bookingEmployeeId) {
             setBookingEmpServiceTables([])
+            setBookingSelectedServiceTableId(null)
             return
         }
         const empIdAtFetch = bookingEmployeeId
@@ -896,22 +899,21 @@ function Schedule() {
                 .eq('employee_id', empIdAtFetch)
             if (empIdAtFetch !== latestBookingEmpRef.current) return
             const tables = (data || []).map((r: any) => r.commission_tables).filter(Boolean)
-            setBookingEmpServiceTables(tables.filter((t: any) => t.type === 'SERVICE'))
+            const serviceTables = tables.filter((t: any) => t.type === 'SERVICE')
+            setBookingEmpServiceTables(serviceTables)
+            setBookingSelectedServiceTableId(serviceTables[0]?.id || null)
         })()
     }, [bookingEmployeeId])
 
-    // Services filtered by employee's SERVICE tables for booking form
+    // Services filtered by selected SERVICE table for booking form
     const filteredBookingServices = useMemo(() => {
         if (!bookingEmployeeId || bookingEmpServiceTables.length === 0) return regServices
-        const tableIds = new Set(bookingEmpServiceTables.map((t: any) => t.id))
-        return regServices.filter((s: any) => tableIds.has(s.commission_table_id))
-    }, [regServices, bookingEmployeeId, bookingEmpServiceTables])
+        if (!bookingSelectedServiceTableId) return []
+        return regServices.filter((s: any) => s.commission_table_id === bookingSelectedServiceTableId)
+    }, [regServices, bookingEmployeeId, bookingEmpServiceTables, bookingSelectedServiceTableId])
 
-    // Products filtered by selected PRODUCT tables for payment modal
-    const filteredPayProds = useMemo(() => {
-        if (paySelectedProductTableIds.length === 0) return availProds
-        return availProds.filter((p: any) => paySelectedProductTableIds.includes(p.commission_table_id))
-    }, [availProds, paySelectedProductTableIds])
+    // Used table IDs in payment sections (for availability check)
+    const payUsedTableIds = payTableSections.map(s => s.tableId).filter(Boolean) as string[]
 
     const todayStr = dayjs().format('YYYY-MM-DD')
     const selectedEmp = schedEmps.find(e => e.id === selectedEmpId)
@@ -1538,6 +1540,19 @@ function Schedule() {
                         </Select>
                     </Form.Item>
 
+                    {bookingEmployeeId && bookingEmpServiceTables.length > 0 && (
+                        <div style={{ marginBottom: 16 }}>
+                            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Tabela de Serviços</div>
+                            <Select
+                                style={{ width: '100%' }}
+                                placeholder="Selecione a tabela de serviço"
+                                value={bookingSelectedServiceTableId || undefined}
+                                onChange={(val) => { setBookingSelectedServiceTableId(val); form.setFieldValue('service_id', undefined) }}
+                                options={bookingEmpServiceTables.map((t: any) => ({ value: t.id, label: t.name }))}
+                            />
+                        </div>
+                    )}
+
                     {/* Service: choose mode */}
                     <div style={{ marginBottom: 16 }}>
                         <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Tipo de serviço</div>
@@ -1773,121 +1788,156 @@ function Schedule() {
 
                         <div>
                             <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8 }}><ShoppingOutlined style={{ marginRight: 6 }} />Itens Adicionais</div>
-                            <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 8 }}>Produtos, serviços ou itens manuais além do serviço principal</div>
-                            {payEmpProductTables.length > 0 && (
-                                <div style={{ marginBottom: 10 }}>
-                                    <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Tabela(s) de Produto:</div>
-                                    <Select
-                                        mode="multiple"
-                                        size="small"
-                                        style={{ width: '100%' }}
-                                        placeholder="Selecione a tabela de produto"
-                                        value={paySelectedProductTableIds}
-                                        onChange={(vals: string[]) => setPaySelectedProductTableIds(vals)}
-                                        options={payEmpProductTables.map((t: any) => ({ value: t.id, label: t.name }))}
-                                    />
-                                </div>
-                            )}
-                            <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-                                {payEmpProductTables.length > 0 && (
-                                    <Button size="small" icon={<PlusOutlined />} onClick={handleAddExtraProduct}>Adicionar Produto</Button>
-                                )}
-                                <Button size="small" icon={<PlusOutlined />} onClick={handleAddExtraService}>Adicionar Serviço</Button>
-                                <Button size="small" icon={<PlusOutlined />} onClick={handleAddExtraManual}>Adicionar Item Manual</Button>
-                            </div>
-                            {extraProds.length > 0 && (
-                                <div style={{ border: '1px solid rgba(255,255,255,0.06)', borderRadius: 6, overflow: 'hidden', marginBottom: 12 }}>
-                                    {extraProds.map(ep => (
-                                        <div key={ep.key} style={{ padding: '8px 10px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                                            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
-                                                {ep.is_manual ? (
-                                                    <Input
-                                                        placeholder="Nome do item"
-                                                        value={ep.product_name}
-                                                        onChange={(e) => handleExtraItemChange(ep.key, 'product_name', e.target.value)}
+                            <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 8 }}>Produtos e serviços por tabela + itens manuais além do serviço principal</div>
+
+                            {payAllEmpTables.length > 0 && (
+                                <div style={{ marginBottom: 12 }}>
+                                    {payTableSections.map((section, idx) => {
+                                        const table = payAllEmpTables.find(t => t.id === section.tableId)
+                                        const isProduct = table?.type === 'PRODUCT'
+                                        const isService = table?.type === 'SERVICE'
+                                        const availableForSection = payAllEmpTables.filter(t =>
+                                            t.id === section.tableId || !payUsedTableIds.includes(t.id)
+                                        )
+                                        const sectionItems = extraProds.filter(ep => ep.commission_table_id === section.tableId && !ep.is_manual)
+                                        return (
+                                            <div key={section.key} style={{ border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, padding: '10px 12px', marginBottom: 8, background: 'rgba(255,255,255,0.02)' }}>
+                                                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: section.tableId ? 10 : 0 }}>
+                                                    <Select
                                                         size="small"
                                                         style={{ flex: 1 }}
+                                                        placeholder="Selecionar tabela..."
+                                                        value={section.tableId || undefined}
+                                                        onChange={(val) => {
+                                                            setExtraProds(prev => prev.filter(ep => ep.commission_table_id !== section.tableId))
+                                                            setPayTableSections(prev => prev.map(s => s.key === section.key ? { ...s, tableId: val } : s))
+                                                        }}
+                                                        options={availableForSection.map((t: any) => ({
+                                                            value: t.id,
+                                                            label: `${t.name} — ${t.type === 'PRODUCT' ? 'Produto' : 'Serviço'}`,
+                                                        }))}
                                                     />
-                                                ) : ep.is_service ? (
-                                                    <Select
-                                                        placeholder="Selecione serviço"
-                                                        value={ep.service_id || undefined}
-                                                        onChange={(val) => handleExtraServiceSelect(ep.key, val)}
-                                                        size="small"
-                                                        style={{ flex: 1 }}
-                                                        showSearch
-                                                        optionFilterProp="children"
-                                                    >
-                                                        {regServices.map((s: any) => (
-                                                            <Select.Option key={s.id} value={s.id}>{s.name} — {fmt(Number(s.base_price) || 0)}</Select.Option>
-                                                        ))}
-                                                    </Select>
-                                                ) : (
-                                                    <Select
-                                                        placeholder="Selecione produto"
-                                                        value={ep.product_id || undefined}
-                                                        onChange={(val) => handleExtraProductSelect(ep.key, val)}
-                                                        size="small"
-                                                        style={{ flex: 1 }}
-                                                        showSearch
-                                                        optionFilterProp="children"
-                                                    >
-                                                        {filteredPayProds.map((p: any) => (
-                                                            <Select.Option key={p.id} value={p.id}>{p.name} — {fmt(Number(p.sale_price) || 0)}</Select.Option>
-                                                        ))}
-                                                    </Select>
+                                                    {idx > 0 && (
+                                                        <Button size="small" danger icon={<DeleteOutlined />}
+                                                            onClick={() => {
+                                                                setExtraProds(prev => prev.filter(ep => ep.commission_table_id !== section.tableId))
+                                                                setPayTableSections(prev => prev.filter(s => s.key !== section.key))
+                                                            }}
+                                                        />
+                                                    )}
+                                                </div>
+                                                {section.tableId && (
+                                                    <>
+                                                        {sectionItems.length > 0 && (
+                                                            <div style={{ border: '1px solid rgba(255,255,255,0.06)', borderRadius: 6, overflow: 'hidden', marginBottom: 8 }}>
+                                                                {sectionItems.map(ep => (
+                                                                    <div key={ep.key} style={{ padding: '8px 10px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                                                                        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+                                                                            {ep.is_service ? (
+                                                                                <Select
+                                                                                    placeholder="Selecione serviço"
+                                                                                    value={ep.service_id || undefined}
+                                                                                    onChange={(val) => handleExtraServiceSelect(ep.key, val)}
+                                                                                    size="small"
+                                                                                    style={{ flex: 1 }}
+                                                                                    showSearch
+                                                                                    optionFilterProp="children"
+                                                                                >
+                                                                                    {regServices.filter((s: any) => s.commission_table_id === section.tableId).map((s: any) => (
+                                                                                        <Select.Option key={s.id} value={s.id}>{s.name} — {fmt(Number(s.base_price) || 0)}</Select.Option>
+                                                                                    ))}
+                                                                                </Select>
+                                                                            ) : (
+                                                                                <Select
+                                                                                    placeholder="Selecione produto"
+                                                                                    value={ep.product_id || undefined}
+                                                                                    onChange={(val) => handleExtraProductSelect(ep.key, val)}
+                                                                                    size="small"
+                                                                                    style={{ flex: 1 }}
+                                                                                    showSearch
+                                                                                    optionFilterProp="children"
+                                                                                >
+                                                                                    {availProds.filter((p: any) => p.commission_table_id === section.tableId).map((p: any) => (
+                                                                                        <Select.Option key={p.id} value={p.id}>{p.name} — {fmt(Number(p.sale_price) || 0)}</Select.Option>
+                                                                                    ))}
+                                                                                </Select>
+                                                                            )}
+                                                                            <Tag color={ep.is_service ? 'blue' : 'green'} style={{ margin: 0, fontSize: 10 }}>
+                                                                                {ep.is_service ? 'Serviço' : 'Produto'}
+                                                                            </Tag>
+                                                                            <Button type="text" danger size="small" icon={<DeleteOutlined />} onClick={() => setExtraProds(p => p.filter(x => x.key !== ep.key))} />
+                                                                        </div>
+                                                                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                                                                            <div style={{ flex: 0 }}>
+                                                                                <div style={{ fontSize: 10, color: '#94a3b8', marginBottom: 2 }}>Qtd</div>
+                                                                                <InputNumber min={1} value={ep.quantity} onChange={(val) => handleExtraItemChange(ep.key, 'quantity', val || 1)} size="small" style={{ width: 60 }} />
+                                                                            </div>
+                                                                            <div style={{ flex: 1 }}>
+                                                                                <div style={{ fontSize: 10, color: '#94a3b8', marginBottom: 2 }}>Preço Un.</div>
+                                                                                <InputNumber min={0} step={0.5} precision={2} value={ep.unit_price} onChange={(val) => handleExtraItemChange(ep.key, 'unit_price', val || 0)} size="small" style={{ width: '100%' }} formatter={(v) => `${v}`.replace('.', ',')} parser={(v) => Number((v || '0').replace(',', '.'))} />
+                                                                            </div>
+                                                                            <div style={{ flex: 0 }}>
+                                                                                <div style={{ fontSize: 10, color: '#94a3b8', marginBottom: 2 }}>Desc.%</div>
+                                                                                <InputNumber min={0} max={100} value={ep.discount} onChange={(val) => handleExtraItemChange(ep.key, 'discount', val || 0)} size="small" style={{ width: 65 }} />
+                                                                            </div>
+                                                                            <div style={{ flex: 0, textAlign: 'right', minWidth: 80 }}>
+                                                                                <div style={{ fontSize: 10, color: '#94a3b8', marginBottom: 2 }}>Total</div>
+                                                                                <div style={{ fontSize: 13, fontWeight: 700, color: '#4ade80', lineHeight: '24px' }}>{fmt(ep.total)}</div>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                        <Space size="small">
+                                                            {isProduct && <Button size="small" icon={<PlusOutlined />} onClick={() => handleAddExtraProduct(section.tableId!)}>Adicionar Produto</Button>}
+                                                            {isService && <Button size="small" icon={<PlusOutlined />} onClick={() => handleAddExtraService(section.tableId!)}>Adicionar Serviço</Button>}
+                                                        </Space>
+                                                    </>
                                                 )}
-                                                <Tag color={ep.is_manual ? 'orange' : ep.is_service ? 'blue' : 'green'} style={{ margin: 0, fontSize: 10 }}>
-                                                    {ep.is_manual ? 'Manual' : ep.is_service ? 'Serviço' : 'Produto'}
-                                                </Tag>
-                                                <Button type="text" danger size="small" icon={<DeleteOutlined />} onClick={() => setExtraProds(p => p.filter(x => x.key !== ep.key))} />
                                             </div>
-                                            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                                                <div style={{ flex: 0 }}>
-                                                    <div style={{ fontSize: 10, color: '#94a3b8', marginBottom: 2 }}>Qtd</div>
-                                                    <InputNumber
-                                                        min={1}
-                                                        value={ep.quantity}
-                                                        onChange={(val) => handleExtraItemChange(ep.key, 'quantity', val || 1)}
-                                                        size="small"
-                                                        style={{ width: 60 }}
-                                                    />
-                                                </div>
-                                                <div style={{ flex: 1 }}>
-                                                    <div style={{ fontSize: 10, color: '#94a3b8', marginBottom: 2 }}>Preço Un.</div>
-                                                    <InputNumber
-                                                        min={0}
-                                                        step={0.5}
-                                                        precision={2}
-                                                        value={ep.unit_price}
-                                                        onChange={(val) => handleExtraItemChange(ep.key, 'unit_price', val || 0)}
-                                                        size="small"
-                                                        style={{ width: '100%' }}
-                                                        formatter={(v) => `${v}`.replace('.', ',')}
-                                                        parser={(v) => Number((v || '0').replace(',', '.'))}
-                                                    />
-                                                </div>
-                                                <div style={{ flex: 0 }}>
-                                                    <div style={{ fontSize: 10, color: '#94a3b8', marginBottom: 2 }}>Desc.%</div>
-                                                    <InputNumber
-                                                        min={0}
-                                                        max={100}
-                                                        value={ep.discount}
-                                                        onChange={(val) => handleExtraItemChange(ep.key, 'discount', val || 0)}
-                                                        size="small"
-                                                        style={{ width: 65 }}
-                                                        disabled={ep.is_manual}
-                                                    />
-                                                </div>
-                                                <div style={{ flex: 0, textAlign: 'right', minWidth: 80 }}>
-                                                    <div style={{ fontSize: 10, color: '#94a3b8', marginBottom: 2 }}>Total</div>
-                                                    <div style={{ fontSize: 13, fontWeight: 700, color: '#4ade80', lineHeight: '24px' }}>{fmt(ep.total)}</div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    ))}
+                                        )
+                                    })}
+                                    {payUsedTableIds.filter(Boolean).length < payAllEmpTables.length && (
+                                        <Button type="dashed" size="small" style={{ width: '100%', marginBottom: 8 }}
+                                            onClick={() => setPayTableSections(prev => [...prev, {key: `pts-${Date.now()}`, tableId: null}])}>
+                                            + Adicionar outra tabela
+                                        </Button>
+                                    )}
                                 </div>
                             )}
+
+                            {/* Itens manuais (fora de qualquer tabela) */}
+                            {extraProds.filter(ep => ep.is_manual).map(ep => (
+                                <div key={ep.key} style={{ border: '1px solid rgba(255,255,255,0.06)', borderRadius: 6, padding: '8px 10px', marginBottom: 8 }}>
+                                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+                                        <Input
+                                            placeholder="Nome do item"
+                                            value={ep.product_name}
+                                            onChange={(e) => handleExtraItemChange(ep.key, 'product_name', e.target.value)}
+                                            size="small"
+                                            style={{ flex: 1 }}
+                                        />
+                                        <Tag color="orange" style={{ margin: 0, fontSize: 10 }}>Manual</Tag>
+                                        <Button type="text" danger size="small" icon={<DeleteOutlined />} onClick={() => setExtraProds(p => p.filter(x => x.key !== ep.key))} />
+                                    </div>
+                                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                                        <div style={{ flex: 0 }}>
+                                            <div style={{ fontSize: 10, color: '#94a3b8', marginBottom: 2 }}>Qtd</div>
+                                            <InputNumber min={1} value={ep.quantity} onChange={(val) => handleExtraItemChange(ep.key, 'quantity', val || 1)} size="small" style={{ width: 60 }} />
+                                        </div>
+                                        <div style={{ flex: 1 }}>
+                                            <div style={{ fontSize: 10, color: '#94a3b8', marginBottom: 2 }}>Preço Un.</div>
+                                            <InputNumber min={0} step={0.5} precision={2} value={ep.unit_price} onChange={(val) => handleExtraItemChange(ep.key, 'unit_price', val || 0)} size="small" style={{ width: '100%' }} formatter={(v) => `${v}`.replace('.', ',')} parser={(v) => Number((v || '0').replace(',', '.'))} />
+                                        </div>
+                                        <div style={{ flex: 0, textAlign: 'right', minWidth: 80 }}>
+                                            <div style={{ fontSize: 10, color: '#94a3b8', marginBottom: 2 }}>Total</div>
+                                            <div style={{ fontSize: 13, fontWeight: 700, color: '#4ade80', lineHeight: '24px' }}>{fmt(ep.total)}</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                            <Button size="small" icon={<PlusOutlined />} onClick={handleAddExtraManual}>Adicionar Item Manual</Button>
                         </div>
 
                         <div style={{ padding: 12, background: 'rgba(34, 197, 94, 0.1)', borderRadius: 8, border: '1px solid #BBF7D0' }}>
