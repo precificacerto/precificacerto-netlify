@@ -65,6 +65,22 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
     const [commissionPercent, setCommissionPercent] = useState(0)
     const [profitPercent, setProfitPercent] = useState(0)
 
+    // Commission tables
+    const [commissionTables, setCommissionTables] = useState<{ id: string; name: string; commission_percent: number }[]>([])
+    const [commissionTableId, setCommissionTableId] = useState<string | null>(serviceData?.commission_table_id || null)
+
+    useEffect(() => {
+        async function loadTables() {
+            const { data } = await (supabase as any)
+                .from('commission_tables')
+                .select('id, name, commission_percent')
+                .eq('type', 'SERVICE')
+                .order('name')
+            if (data) setCommissionTables(data.map((t: any) => ({ ...t, commission_percent: Number(t.commission_percent) })))
+        }
+        loadTables()
+    }, [])
+
     const [recurrenceActive, setRecurrenceActive] = useState<boolean>(serviceData?.recurrence_active ?? false)
     const [recurrenceModalOpen, setRecurrenceModalOpen] = useState(false)
     const [recurrenceDays, setRecurrenceDays] = useState<number | null>(serviceData?.recurrence_days ?? null)
@@ -258,6 +274,11 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                 return
             }
 
+            if (!commissionTableId) {
+                msgApi.error('Selecione a tabela de comissão antes de salvar.')
+                return
+            }
+
             const data: Record<string, any> = {
                 name: v.name,
                 description: v.description || null,
@@ -269,6 +290,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                 commission_percent: commissionPercent,
                 profit_percent: profitPercent,
                 taxable_regime_percent: taxableRegimePercent,
+                commission_table_id: commissionTableId || null,
                 min_quantity: 0,
                 recurrence_active: recurrenceActive,
                 recurrence_days: recurrenceActive && recurrenceDays ? recurrenceDays : null,
@@ -463,6 +485,25 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                             )}
                         </div>
                     </Form.Item>
+
+                    <div style={{ marginBottom: 16 }}>
+                        <label style={{ fontSize: 13, fontWeight: 500, display: 'block', marginBottom: 6 }}>
+                            Tabela de Comissão <span style={{ color: '#f04438' }}>*</span>
+                        </label>
+                        <Select
+                            placeholder="Selecione a tabela de comissão"
+                            style={{ width: '100%' }}
+                            value={commissionTableId}
+                            options={commissionTables.map(t => ({ value: t.id, label: `${t.name} — ${t.commission_percent}%` }))}
+                            showSearch
+                            filterOption={(input, option) => (option?.label as string || '').toLowerCase().includes(input.toLowerCase())}
+                            onChange={(tableId: string) => {
+                                setCommissionTableId(tableId)
+                                const table = commissionTables.find(t => t.id === tableId)
+                                if (table) setCommissionPercent(Number(table.commission_percent) || 0)
+                            }}
+                        />
+                    </div>
 
                     <Modal
                         title="Configurar Recorrência"

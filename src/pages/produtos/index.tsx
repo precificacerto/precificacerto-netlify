@@ -30,6 +30,7 @@ type ProductRow = {
   id: string
   code: string
   section_id: string | null
+  commission_table_id: string | null
   name: string
   description: string
   sale_price: number
@@ -88,6 +89,14 @@ function Products() {
   const [loadingSections, setLoadingSections] = useState(false)
   const [newSectionName, setNewSectionName] = useState('')
   const [savingSection, setSavingSection] = useState(false)
+
+  // Commission tables state
+  const [commissionTables, setCommissionTables] = useState<{ id: string; name: string; commission_percent: number }[]>([])
+  const [tableFilter, setTableFilter] = useState<string | null>(null)
+  const [tableModalOpen, setTableModalOpen] = useState(false)
+  const [newTableName, setNewTableName] = useState('')
+  const [newTableCommission, setNewTableCommission] = useState<number>(0)
+  const [savingTable, setSavingTable] = useState(false)
 
   const loadSections = async () => {
     const tenantId = await getTenantId()
@@ -150,6 +159,42 @@ function Products() {
     }
   }
 
+  const loadCommissionTables = async () => {
+    const tenantId = await getTenantId()
+    if (!tenantId) return
+    const { data } = await (supabase as any)
+      .from('commission_tables')
+      .select('id, name, commission_percent')
+      .eq('type', 'PRODUCT')
+      .order('name')
+    if (data) setCommissionTables(data.map((t: any) => ({ ...t, commission_percent: Number(t.commission_percent) })))
+  }
+
+  useEffect(() => { loadCommissionTables() }, [])
+
+  const handleCreateTable = async () => {
+    const name = newTableName.trim()
+    if (!name) { message.warning('Informe o nome da tabela.'); return }
+    const tenantId = await getTenantId()
+    if (!tenantId) { message.error('Sessão inválida.'); return }
+    setSavingTable(true)
+    try {
+      const { data, error } = await (supabase as any)
+        .from('commission_tables')
+        .insert({ tenant_id: tenantId, type: 'PRODUCT', name, commission_percent: newTableCommission })
+        .select()
+        .single()
+      if (error) { message.error('Erro ao criar tabela: ' + error.message); return }
+      setCommissionTables(prev => [...prev, { id: data.id, name: data.name, commission_percent: Number(data.commission_percent) }].sort((a, b) => a.name.localeCompare(b.name)))
+      setNewTableName('')
+      setNewTableCommission(0)
+      setTableModalOpen(false)
+      message.success('Tabela criada!')
+    } finally {
+      setSavingTable(false)
+    }
+  }
+
   const stockByProductId = useMemo(() => {
     const map: Record<string, { qty: number; unit: string }> = {}
     if (!rawStock) return map
@@ -186,6 +231,7 @@ function Products() {
         id: p.id,
         code: p.code || '',
         section_id: p.section_id || null,
+        commission_table_id: p.commission_table_id || null,
         name: p.name,
         description: p.description || '',
         sale_price: salePrice,
@@ -202,10 +248,12 @@ function Products() {
   }, [rawProducts, stockByProductId])
 
   const filteredData = useMemo<ProductRow[]>(() => {
-    if (!searchText) return data
+    let result = data
+    if (tableFilter) result = result.filter(p => p.commission_table_id === tableFilter)
+    if (!searchText) return result
     const s = searchText.toLowerCase()
-    return data.filter(p => p.name.toLowerCase().includes(s) || p.code.toLowerCase().includes(s))
-  }, [data, searchText])
+    return result.filter(p => p.name.toLowerCase().includes(s) || p.code.toLowerCase().includes(s))
+  }, [data, searchText, tableFilter])
 
   useEffect(() => {
     if (!renewDrawerOpen || !effectiveTenantId) return
@@ -810,14 +858,24 @@ function Products() {
   return (
     <Layout title={PAGE_TITLES.PRODUCTS} subtitle="Gerencie seus produtos cadastrados">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
-        <Input
-          placeholder="Buscar produto..."
-          prefix={<SearchOutlined style={{ color: '#D0D5DD' }} />}
-          value={searchText}
-          onChange={e => setSearchText(e.target.value)}
-          style={{ width: 280 }}
-          allowClear
-        />
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <Input
+            placeholder="Buscar produto..."
+            prefix={<SearchOutlined style={{ color: '#D0D5DD' }} />}
+            value={searchText}
+            onChange={e => setSearchText(e.target.value)}
+            style={{ width: 280 }}
+            allowClear
+          />
+          <Select
+            allowClear
+            placeholder="Filtrar por tabela..."
+            style={{ width: 200 }}
+            value={tableFilter}
+            onChange={v => setTableFilter(v || null)}
+            options={commissionTables.map(t => ({ value: t.id, label: t.name }))}
+          />
+        </div>
         <Space>
           {canEdit(MODULES.PRODUCTS) && (
             <>
@@ -831,6 +889,11 @@ function Products() {
                   Atualizar todos os produtos
                 </Button>
               )}
+              <Button
+                onClick={() => setTableModalOpen(true)}
+              >
+                Criar Tabela
+              </Button>
               <Button
                 icon={<AppstoreAddOutlined />}
                 onClick={() => { setSectionModalOpen(true); loadSections() }}
@@ -890,6 +953,47 @@ function Products() {
             ))}
           </div>
         )}
+      </Modal>
+
+      {/* Commission Table Modal */}
+      <Modal
+        title="Criar Tabela de Comissão"
+        open={tableModalOpen}
+        onCancel={() => { setTableModalOpen(false); setNewTableName(''); setNewTableCommission(0) }}
+        onOk={handleCreateTable}
+        okText="Criar"
+        okButtonProps={{ loading: savingTable }}
+        width={460}
+      >
+        <div style={{ padding: '8px 0' }}>
+          <div style={{ background: 'rgba(245, 158, 11, 0.1)', border: '1px solid rgba(245, 158, 11, 0.3)', borderRadius: 6, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: '#f59e0b' }}>
+            ⚠️ <strong>Importante:</strong> Nomeie as tabelas de forma bem específica (ex: &quot;Linha Premium – Bolos&quot;, &quot;Atacado Geral&quot;) para não confundir na hora de vincular funcionários e produtos.
+          </div>
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ fontSize: 13, fontWeight: 500, display: 'block', marginBottom: 4 }}>Nome da Tabela <span style={{ color: '#f04438' }}>*</span></label>
+            <Input
+              placeholder="Nome específico da tabela"
+              value={newTableName}
+              onChange={e => setNewTableName(e.target.value)}
+              onPressEnter={handleCreateTable}
+              maxLength={100}
+            />
+          </div>
+          <div>
+            <label style={{ fontSize: 13, fontWeight: 500, display: 'block', marginBottom: 4 }}>Comissão do Vendedor (%)</label>
+            <InputNumber
+              min={0}
+              max={100}
+              step={0.5}
+              precision={3}
+              style={{ width: '100%' }}
+              placeholder="Ex: 10"
+              addonAfter="%"
+              value={newTableCommission}
+              onChange={v => setNewTableCommission(v ?? 0)}
+            />
+          </div>
+        </div>
       </Modal>
 
       <Drawer

@@ -120,6 +120,24 @@ function Employees() {
     const [itemAccessMode, setItemAccessMode] = useState<'all' | 'specific'>('all')
     const [selectedItemIds, setSelectedItemIds] = useState<string[]>([])
 
+    // Commission tables
+    const [productCommissionTables, setProductCommissionTables] = useState<{ id: string; name: string; commission_percent: number }[]>([])
+    const [serviceCommissionTables, setServiceCommissionTables] = useState<{ id: string; name: string; commission_percent: number }[]>([])
+    const [selectedProductTableIds, setSelectedProductTableIds] = useState<string[]>([])
+    const [selectedServiceTableIds, setSelectedServiceTableIds] = useState<string[]>([])
+
+    React.useEffect(() => {
+        async function loadTables() {
+            const [prodRes, svcRes] = await Promise.all([
+                (supabase as any).from('commission_tables').select('id, name, commission_percent').eq('type', 'PRODUCT').order('name'),
+                (supabase as any).from('commission_tables').select('id, name, commission_percent').eq('type', 'SERVICE').order('name'),
+            ])
+            if (prodRes.data) setProductCommissionTables(prodRes.data.map((t: any) => ({ ...t, commission_percent: Number(t.commission_percent) })))
+            if (svcRes.data) setServiceCommissionTables(svcRes.data.map((t: any) => ({ ...t, commission_percent: Number(t.commission_percent) })))
+        }
+        loadTables()
+    }, [])
+
     const filteredData = useMemo(() => {
         if (!searchText) return employees
         return employees.filter(e =>
@@ -330,6 +348,17 @@ function Employees() {
         setModulePerms(perms)
         setItemAccessMode(accessMode)
         setSelectedItemIds(itemIds)
+
+        // Load employee commission tables
+        const { data: empTables } = await (supabase as any)
+            .from('employee_commission_tables')
+            .select('commission_table_id, commission_tables(type)')
+            .eq('employee_id', record.id)
+        const prodIds = (empTables || []).filter((et: any) => et.commission_tables?.type === 'PRODUCT').map((et: any) => et.commission_table_id)
+        const svcIds = (empTables || []).filter((et: any) => et.commission_tables?.type === 'SERVICE').map((et: any) => et.commission_table_id)
+        setSelectedProductTableIds(prodIds)
+        setSelectedServiceTableIds(svcIds)
+
         setDrawerOpen(true)
     }
 
@@ -357,6 +386,8 @@ function Employees() {
         setModulePerms(buildEmptyPerms())
         setItemAccessMode('all')
         setSelectedItemIds([])
+        setSelectedProductTableIds([])
+        setSelectedServiceTableIds([])
         setUserType('user')
         setDrawerOpen(true)
     }
@@ -398,6 +429,27 @@ function Employees() {
                 throw new Error(result.error || 'Erro ao salvar funcionário')
             }
 
+            // Save employee commission tables (two-phase: delete + insert)
+            const savedEmployeeId = result.employee?.id || editingId
+            if (savedEmployeeId) {
+                const { error: deleteError } = await (supabase as any)
+                    .from('employee_commission_tables')
+                    .delete()
+                    .eq('employee_id', savedEmployeeId)
+                if (deleteError) throw new Error('Erro ao atualizar tabelas do funcionário: ' + deleteError.message)
+
+                const allTableLinks = [
+                    ...selectedProductTableIds.map((tid: string) => ({ tenant_id, employee_id: savedEmployeeId, commission_table_id: tid })),
+                    ...selectedServiceTableIds.map((tid: string) => ({ tenant_id, employee_id: savedEmployeeId, commission_table_id: tid })),
+                ]
+                if (allTableLinks.length > 0) {
+                    const { error: insertError } = await (supabase as any)
+                        .from('employee_commission_tables')
+                        .insert(allTableLinks)
+                    if (insertError) throw new Error('Erro ao vincular tabelas ao funcionário: ' + insertError.message)
+                }
+            }
+
             messageApi.success(editingId ? 'Funcionário atualizado!' : 'Funcionário adicionado!')
             await reloadEmployees()
             setDrawerOpen(false)
@@ -405,6 +457,8 @@ function Employees() {
             setModulePerms(buildEmptyPerms())
             setItemAccessMode('all')
             setSelectedItemIds([])
+            setSelectedProductTableIds([])
+            setSelectedServiceTableIds([])
         } catch (error: any) {
             console.error('Erro ao salvar:', error)
             messageApi.error('Erro ao salvar: ' + (error.message || 'Preencha todos os campos obrigatórios.'))
@@ -487,6 +541,8 @@ function Employees() {
                     setModulePerms(buildEmptyPerms())
                     setItemAccessMode('all')
                     setSelectedItemIds([])
+                    setSelectedProductTableIds([])
+                    setSelectedServiceTableIds([])
                     setUserType('user')
                 }}
                 extra={
@@ -531,32 +587,56 @@ function Employees() {
                         <Input placeholder="000.000.000-00" />
                     </Form.Item>
 
+                    <Form.Item name="salary" label="Salário (R$)">
+                        <InputNumber
+                            min={0}
+                            step={0.01}
+                            precision={2}
+                            style={{ width: '100%' }}
+                            placeholder="0,00"
+                            prefix="R$"
+                            decimalSeparator=","
+                            formatter={(value) => {
+                                if (!value && value !== 0) return ''
+                                const parts = String(value).split('.')
+                                const intPart = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, '.')
+                                const decPart = parts[1] !== undefined ? parts[1].padEnd(2, '0').slice(0, 2) : '00'
+                                return `${intPart},${decPart}`
+                            }}
+                            parser={(value) => {
+                                const clean = value?.replace(/R\$\s?/g, '').replace(/\./g, '').replace(',', '.') || '0'
+                                return Number(clean) as any
+                            }}
+                        />
+                    </Form.Item>
+
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-                        <Form.Item name="salary" label="Salário (R$)">
-                            <InputNumber
-                                min={0}
-                                step={0.01}
-                                precision={2}
+                        <div>
+                            <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 6 }}>Tabelas de Produto</div>
+                            <Select
+                                mode="multiple"
+                                placeholder="Selecione tabelas de produto..."
                                 style={{ width: '100%' }}
-                                placeholder="0,00"
-                                prefix="R$"
-                                decimalSeparator=","
-                                formatter={(value) => {
-                                    if (!value && value !== 0) return ''
-                                    const parts = String(value).split('.')
-                                    const intPart = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, '.')
-                                    const decPart = parts[1] !== undefined ? parts[1].padEnd(2, '0').slice(0, 2) : '00'
-                                    return `${intPart},${decPart}`
-                                }}
-                                parser={(value) => {
-                                    const clean = value?.replace(/R\$\s?/g, '').replace(/\./g, '').replace(',', '.') || '0'
-                                    return Number(clean) as any
-                                }}
+                                value={selectedProductTableIds}
+                                onChange={setSelectedProductTableIds}
+                                options={productCommissionTables.map(t => ({ value: t.id, label: `${t.name} (${t.commission_percent}%)` }))}
+                                allowClear
+                                maxTagCount="responsive"
                             />
-                        </Form.Item>
-                        <Form.Item name="commission_percent" label="Comissão sobre vendas (%)">
-                            <InputNumber min={0} max={100} step={0.5} precision={2} style={{ width: '100%' }} placeholder="0,00" suffix="%" />
-                        </Form.Item>
+                        </div>
+                        <div>
+                            <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 6 }}>Tabelas de Serviço</div>
+                            <Select
+                                mode="multiple"
+                                placeholder="Selecione tabelas de serviço..."
+                                style={{ width: '100%' }}
+                                value={selectedServiceTableIds}
+                                onChange={setSelectedServiceTableIds}
+                                options={serviceCommissionTables.map(t => ({ value: t.id, label: `${t.name} (${t.commission_percent}%)` }))}
+                                allowClear
+                                maxTagCount="responsive"
+                            />
+                        </div>
                     </div>
 
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 16 }}>

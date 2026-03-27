@@ -194,6 +194,7 @@ const ProductDetails = () => {
             custom_tax_percent: p.custom_tax_percent != null ? Number(p.custom_tax_percent) : null,
             recurrence_days: p.recurrence_days != null ? Number(p.recurrence_days) : null,
             section_id: p.section_id || null,
+            commission_table_id: p.commission_table_id || null,
           } as any)
         }
 

@@ -52,6 +52,50 @@ function ServicesPage() {
     const [updatingServiceId, setUpdatingServiceId] = useState<string | null>(null)
     const [updatingAllServices, setUpdatingAllServices] = useState(false)
 
+    // Commission tables
+    const [commissionTables, setCommissionTables] = useState<{ id: string; name: string; commission_percent: number }[]>([])
+    const [tableFilter, setTableFilter] = useState<string | null>(null)
+    const [tableModalOpen, setTableModalOpen] = useState(false)
+    const [newTableName, setNewTableName] = useState('')
+    const [newTableCommission, setNewTableCommission] = useState<number>(0)
+    const [savingTable, setSavingTable] = useState(false)
+
+    const loadCommissionTables = async () => {
+        const tenantId = await getTenantId()
+        if (!tenantId) return
+        const { data } = await (supabase as any)
+            .from('commission_tables')
+            .select('id, name, commission_percent')
+            .eq('type', 'SERVICE')
+            .order('name')
+        if (data) setCommissionTables(data.map((t: any) => ({ ...t, commission_percent: Number(t.commission_percent) })))
+    }
+
+    const handleCreateTable = async () => {
+        const name = newTableName.trim()
+        if (!name) { msgApi.warning('Informe o nome da tabela.'); return }
+        const tenantId = await getTenantId()
+        if (!tenantId) { msgApi.error('Sessão inválida.'); return }
+        setSavingTable(true)
+        try {
+            const { data, error } = await (supabase as any)
+                .from('commission_tables')
+                .insert({ tenant_id: tenantId, type: 'SERVICE', name, commission_percent: newTableCommission })
+                .select()
+                .single()
+            if (error) { msgApi.error('Erro ao criar tabela: ' + error.message); return }
+            setCommissionTables(prev => [...prev, { id: data.id, name: data.name, commission_percent: Number(data.commission_percent) }].sort((a, b) => a.name.localeCompare(b.name)))
+            setNewTableName('')
+            setNewTableCommission(0)
+            setTableModalOpen(false)
+            msgApi.success('Tabela criada!')
+        } finally {
+            setSavingTable(false)
+        }
+    }
+
+    useEffect(() => { loadCommissionTables() }, [])
+
     async function fetchAll() {
         setLoading(true)
         try {
@@ -76,10 +120,12 @@ function ServicesPage() {
     useEffect(() => { fetchAll() }, [])
 
     const filtered = useMemo(() => {
-        if (!searchText) return services
+        let result = services
+        if (tableFilter) result = result.filter((sv: any) => sv.commission_table_id === tableFilter)
+        if (!searchText) return result
         const s = searchText.toLowerCase()
-        return services.filter(sv => sv.name.toLowerCase().includes(s))
-    }, [services, searchText])
+        return result.filter(sv => sv.name.toLowerCase().includes(s))
+    }, [services, searchText, tableFilter])
 
     function calcServiceMaterialCost(svc: any) {
         return (svc.service_items || []).reduce((sum: number, si: any) => {
@@ -422,8 +468,18 @@ function ServicesPage() {
             {ctx}
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
-                <Input placeholder="Buscar serviço..." prefix={<SearchOutlined style={{ color: '#D0D5DD' }} />}
-                    value={searchText} onChange={e => setSearchText(e.target.value)} style={{ width: 280 }} allowClear />
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <Input placeholder="Buscar serviço..." prefix={<SearchOutlined style={{ color: '#D0D5DD' }} />}
+                        value={searchText} onChange={e => setSearchText(e.target.value)} style={{ width: 280 }} allowClear />
+                    <Select
+                        allowClear
+                        placeholder="Filtrar por tabela..."
+                        style={{ width: 200 }}
+                        value={tableFilter}
+                        onChange={v => setTableFilter(v || null)}
+                        options={commissionTables.map(t => ({ value: t.id, label: t.name }))}
+                    />
+                </div>
                 <Space>
                     {canEdit(MODULES.SERVICES) && (
                         <>
@@ -437,6 +493,9 @@ function ServicesPage() {
                                     Atualizar todos os serviços
                                 </Button>
                             )}
+                            <Button onClick={() => setTableModalOpen(true)}>
+                                Criar Tabela
+                            </Button>
                             <Button type="primary" icon={<PlusOutlined />} onClick={() => router.push(ROUTES.NEW_SERVICE)}>
                                 Novo Serviço
                             </Button>
@@ -444,6 +503,47 @@ function ServicesPage() {
                     )}
                 </Space>
             </div>
+
+            {/* Commission Table Modal */}
+            <Modal
+                title="Criar Tabela de Comissão"
+                open={tableModalOpen}
+                onCancel={() => { setTableModalOpen(false); setNewTableName(''); setNewTableCommission(0) }}
+                onOk={handleCreateTable}
+                okText="Criar"
+                okButtonProps={{ loading: savingTable }}
+                width={460}
+            >
+                <div style={{ padding: '8px 0' }}>
+                    <div style={{ background: 'rgba(245, 158, 11, 0.1)', border: '1px solid rgba(245, 158, 11, 0.3)', borderRadius: 6, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: '#f59e0b' }}>
+                        ⚠️ <strong>Importante:</strong> Nomeie as tabelas de forma bem específica (ex: &quot;Massagens – Premium&quot;, &quot;Pacote Casal&quot;) para não confundir na hora de vincular funcionários e serviços.
+                    </div>
+                    <div style={{ marginBottom: 12 }}>
+                        <label style={{ fontSize: 13, fontWeight: 500, display: 'block', marginBottom: 4 }}>Nome da Tabela <span style={{ color: '#f04438' }}>*</span></label>
+                        <Input
+                            placeholder="Nome específico da tabela"
+                            value={newTableName}
+                            onChange={e => setNewTableName(e.target.value)}
+                            onPressEnter={handleCreateTable}
+                            maxLength={100}
+                        />
+                    </div>
+                    <div>
+                        <label style={{ fontSize: 13, fontWeight: 500, display: 'block', marginBottom: 4 }}>Comissão do Vendedor (%)</label>
+                        <InputNumber
+                            min={0}
+                            max={100}
+                            step={0.5}
+                            precision={3}
+                            style={{ width: '100%' }}
+                            placeholder="Ex: 10"
+                            addonAfter="%"
+                            value={newTableCommission}
+                            onChange={v => setNewTableCommission(v ?? 0)}
+                        />
+                    </div>
+                </div>
+            </Modal>
 
             <Drawer
                 title="Renovar quantidade"

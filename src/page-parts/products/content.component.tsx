@@ -182,6 +182,20 @@ export const Content: FC<ContentProps> = ({
 
   useEffect(() => { loadSections() }, [loadSections])
 
+  // Commission tables
+  const [commissionTables, setCommissionTables] = useState<{ id: string; name: string; commission_percent: number }[]>([])
+
+  const loadCommissionTables = useCallback(async () => {
+    const { data } = await (supabase as any)
+      .from('commission_tables')
+      .select('id, name, commission_percent')
+      .eq('type', 'PRODUCT')
+      .order('name')
+    if (data) setCommissionTables(data.map((t: any) => ({ ...t, commission_percent: Number(t.commission_percent) })))
+  }, [])
+
+  useEffect(() => { loadCommissionTables() }, [loadCommissionTables])
+
   const handleCreateSectionInline = async () => {
     const name = newSectionName.trim()
     if (!name) return
@@ -616,6 +630,7 @@ export const Content: FC<ContentProps> = ({
         name: values.name,
         description: values.description || null,
         section_id: values.section_id || null,
+        commission_table_id: values.commission_table_id || null,
         yield_quantity: yieldQty,
         yield_unit: values.unitType || 'UN',
         unit: values.unitType || 'UN',
@@ -1194,6 +1209,28 @@ export const Content: FC<ContentProps> = ({
               </div>
             </Form.Item>
           </div>
+
+          <Form.Item
+            name="commission_table_id"
+            label="Tabela de Comissão"
+            style={{ marginTop: 8 }}
+          >
+            <Select
+              placeholder="Selecione a tabela de comissão"
+              options={commissionTables.map(t => ({ value: t.id, label: `${t.name} — ${t.commission_percent}%` }))}
+              showSearch
+              filterOption={(input, option) => (option?.label as string || '').toLowerCase().includes(input.toLowerCase())}
+              onChange={(tableId: string) => {
+                const table = commissionTables.find(t => t.id === tableId)
+                if (table) {
+                  setProductPriceInfo(prev => prev ? ({
+                    ...prev,
+                    salesCommissionPercent: Number(table.commission_percent) || 0,
+                  }) : prev)
+                }
+              }}
+            />
+          </Form.Item>
 
           <Modal
             title="Configurar Recorrência"
