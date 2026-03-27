@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react'
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import {
     Button, Card, Drawer, Form, Input, InputNumber, Select, Space, Tag, TimePicker,
     DatePicker, message, Popconfirm, Tooltip, Avatar, Empty, Modal, Divider,
@@ -137,6 +137,12 @@ function Schedule() {
     const [recurForever, setRecurForever] = useState(false)
     const [recurCustomDays, setRecurCustomDays] = useState(7)
 
+    // Commission table states
+    const [bookingEmpServiceTables, setBookingEmpServiceTables] = useState<{id: string; name: string}[]>([])
+    const [payEmpProductTables, setPayEmpProductTables] = useState<{id: string; name: string}[]>([])
+    const [paySelectedProductTableIds, setPaySelectedProductTableIds] = useState<string[]>([])
+    const latestBookingEmpRef = useRef<string | undefined>(undefined)
+
     const weekEnd = weekStart.add(6, 'day').endOf('day')
     const weekDates = useMemo(() => Array.from({ length: 7 }, (_, i) => weekStart.add(i, 'day')), [weekStart])
 
@@ -164,8 +170,8 @@ function Schedule() {
                 sb.from('customers').select('id, name').eq('is_active', true).order('name'),
                 sb.from('employees').select('id, name, position, status, commission_percent').eq('status', 'ACTIVE').eq('is_active', true).order('name'),
                 sb.from('schedule_employees').select('employee_id').eq('tenant_id', tid),
-                sb.from('services').select('id, name, base_price, estimated_duration_minutes, commission_percent, profit_percent, cost_total, recurrence_days').eq('status', 'ACTIVE').order('name'),
-                sb.from('products').select('id, name, sale_price, cost_total, commission_percent, profit_percent, recurrence_days').eq('status', 'ACTIVE').order('name'),
+                sb.from('services').select('id, name, base_price, estimated_duration_minutes, commission_percent, profit_percent, cost_total, recurrence_days, commission_table_id').eq('status', 'ACTIVE').order('name'),
+                sb.from('products').select('id, name, sale_price, cost_total, commission_percent, profit_percent, recurrence_days, commission_table_id').eq('status', 'ACTIVE').order('name'),
             ])
             setEvents(evR.data || [])
             setCustomers(cuR.data || [])
@@ -410,6 +416,18 @@ function Schedule() {
         setExtraProds([])
         setAttachFile(null)
         setAttachDesc('')
+        setPayEmpProductTables([])
+        setPaySelectedProductTableIds([])
+        if (evToUse.employee_id) {
+            const { data: tablesData } = await (supabase as any)
+                .from('employee_commission_tables')
+                .select('commission_tables(id, name, type)')
+                .eq('employee_id', evToUse.employee_id)
+            const allTables = (tablesData || []).map((r: any) => r.commission_tables).filter(Boolean)
+            const productTables = allTables.filter((t: any) => t.type === 'PRODUCT')
+            setPayEmpProductTables(productTables)
+            if (productTables.length > 0) setPaySelectedProductTableIds([productTables[0].id])
+        }
         setPayOpen(true)
     }
 
@@ -861,6 +879,40 @@ function Schedule() {
     }
 
     const payMethod = Form.useWatch('payment_method', payForm)
+    const bookingEmployeeId = Form.useWatch('employee_id', form)
+
+    // Fetch SERVICE commission tables when booking employee changes
+    useEffect(() => {
+        latestBookingEmpRef.current = bookingEmployeeId
+        if (!bookingEmployeeId) {
+            setBookingEmpServiceTables([])
+            return
+        }
+        const empIdAtFetch = bookingEmployeeId
+        ;(async () => {
+            const { data } = await (supabase as any)
+                .from('employee_commission_tables')
+                .select('commission_tables(id, name, type)')
+                .eq('employee_id', empIdAtFetch)
+            if (empIdAtFetch !== latestBookingEmpRef.current) return
+            const tables = (data || []).map((r: any) => r.commission_tables).filter(Boolean)
+            setBookingEmpServiceTables(tables.filter((t: any) => t.type === 'SERVICE'))
+        })()
+    }, [bookingEmployeeId])
+
+    // Services filtered by employee's SERVICE tables for booking form
+    const filteredBookingServices = useMemo(() => {
+        if (!bookingEmployeeId || bookingEmpServiceTables.length === 0) return regServices
+        const tableIds = new Set(bookingEmpServiceTables.map((t: any) => t.id))
+        return regServices.filter((s: any) => tableIds.has(s.commission_table_id))
+    }, [regServices, bookingEmployeeId, bookingEmpServiceTables])
+
+    // Products filtered by selected PRODUCT tables for payment modal
+    const filteredPayProds = useMemo(() => {
+        if (paySelectedProductTableIds.length === 0) return availProds
+        return availProds.filter((p: any) => paySelectedProductTableIds.includes(p.commission_table_id))
+    }, [availProds, paySelectedProductTableIds])
+
     const todayStr = dayjs().format('YYYY-MM-DD')
     const selectedEmp = schedEmps.find(e => e.id === selectedEmpId)
     const selectedEmpColor = selectedEmpId ? (empColor[selectedEmpId] || '#7A5AF8') : '#7A5AF8'
@@ -1495,11 +1547,14 @@ function Schedule() {
                         </Radio.Group>
                     </div>
 
-                    {serviceInputMode === 'select' && regServices.length > 0 && (
+                    {serviceInputMode === 'select' && (filteredBookingServices.length > 0 || regServices.length > 0) && (
                         <Form.Item name="service_id" label="Serviço Cadastrado">
                             <Select placeholder="Escolha um serviço (preenche automático)" allowClear showSearch optionFilterProp="children" onChange={(v) => { if (v) onServiceSelect(v) }}>
-                                {regServices.map((s: any) => <Select.Option key={s.id} value={s.id}>{s.name} — {fmt(s.base_price || 0)} — {s.estimated_duration_minutes || 60}min</Select.Option>)}
+                                {filteredBookingServices.map((s: any) => <Select.Option key={s.id} value={s.id}>{s.name} — {fmt(s.base_price || 0)} — {s.estimated_duration_minutes || 60}min</Select.Option>)}
                             </Select>
+                            {bookingEmployeeId && bookingEmpServiceTables.length > 0 && filteredBookingServices.length === 0 && (
+                                <div style={{ fontSize: 11, color: '#f59e0b', marginTop: 4 }}>Nenhum serviço vinculado às tabelas deste funcionário.</div>
+                            )}
                         </Form.Item>
                     )}
 
@@ -1719,8 +1774,24 @@ function Schedule() {
                         <div>
                             <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8 }}><ShoppingOutlined style={{ marginRight: 6 }} />Itens Adicionais</div>
                             <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 8 }}>Produtos, serviços ou itens manuais além do serviço principal</div>
+                            {payEmpProductTables.length > 0 && (
+                                <div style={{ marginBottom: 10 }}>
+                                    <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Tabela(s) de Produto:</div>
+                                    <Select
+                                        mode="multiple"
+                                        size="small"
+                                        style={{ width: '100%' }}
+                                        placeholder="Selecione a tabela de produto"
+                                        value={paySelectedProductTableIds}
+                                        onChange={(vals: string[]) => setPaySelectedProductTableIds(vals)}
+                                        options={payEmpProductTables.map((t: any) => ({ value: t.id, label: t.name }))}
+                                    />
+                                </div>
+                            )}
                             <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-                                <Button size="small" icon={<PlusOutlined />} onClick={handleAddExtraProduct}>Adicionar Produto</Button>
+                                {payEmpProductTables.length > 0 && (
+                                    <Button size="small" icon={<PlusOutlined />} onClick={handleAddExtraProduct}>Adicionar Produto</Button>
+                                )}
                                 <Button size="small" icon={<PlusOutlined />} onClick={handleAddExtraService}>Adicionar Serviço</Button>
                                 <Button size="small" icon={<PlusOutlined />} onClick={handleAddExtraManual}>Adicionar Item Manual</Button>
                             </div>
@@ -1761,7 +1832,7 @@ function Schedule() {
                                                         showSearch
                                                         optionFilterProp="children"
                                                     >
-                                                        {availProds.map((p: any) => (
+                                                        {filteredPayProds.map((p: any) => (
                                                             <Select.Option key={p.id} value={p.id}>{p.name} — {fmt(Number(p.sale_price) || 0)}</Select.Option>
                                                         ))}
                                                     </Select>

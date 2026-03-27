@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useRef, useMemo } from 'react'
 import {
     Button, Drawer, Form, Input, InputNumber, Select, Space, Table, Tag,
     message, DatePicker, Steps, Popconfirm, Divider, Empty, Modal, Upload,
@@ -107,8 +107,9 @@ function Budgets() {
     const [messageApi, contextHolder] = message.useMessage()
     const [empProductTables, setEmpProductTables] = useState<{id: string; name: string}[]>([])
     const [empServiceTables, setEmpServiceTables] = useState<{id: string; name: string}[]>([])
-    const [selectedProductTableId, setSelectedProductTableId] = useState<string | null>(null)
-    const [selectedServiceTableId, setSelectedServiceTableId] = useState<string | null>(null)
+    const [selectedProductTableIds, setSelectedProductTableIds] = useState<string[]>([])
+    const [selectedServiceTableIds, setSelectedServiceTableIds] = useState<string[]>([])
+    const skipTableAutoSelectRef = useRef(false)
 
     useEffect(() => {
         async function fetchSettings() {
@@ -275,6 +276,7 @@ function Budgets() {
     }
 
     const selectedEmployeeId = Form.useWatch('employee_id', form)
+    const latestEmployeeIdRef = useRef<string | undefined>(undefined)
     const selectedEmployee = employees.find((e: any) => e.id === selectedEmployeeId)
     const sellerCommissionPct = (selectedEmployee?.commission_percent != null && Number(selectedEmployee.commission_percent) > 0)
         ? Number(selectedEmployee.commission_percent) / 100
@@ -284,28 +286,37 @@ function Budgets() {
         if (!selectedEmployeeId) {
             setEmpProductTables([])
             setEmpServiceTables([])
-            setSelectedProductTableId(null)
-            setSelectedServiceTableId(null)
+            setSelectedProductTableIds([])
+            setSelectedServiceTableIds([])
             return
         }
+        latestEmployeeIdRef.current = selectedEmployeeId
+        if (skipTableAutoSelectRef.current) {
+            skipTableAutoSelectRef.current = false
+            return
+        }
+        const empIdAtFetch = selectedEmployeeId
         ;(async () => {
             const { data } = await (supabase as any)
                 .from('employee_commission_tables')
                 .select('commission_tables(id, name, type)')
-                .eq('employee_id', selectedEmployeeId)
+                .eq('employee_id', empIdAtFetch)
+            if (empIdAtFetch !== latestEmployeeIdRef.current) return
             const tables = (data || []).map((r: any) => r.commission_tables).filter(Boolean)
-            setEmpProductTables(tables.filter((t: any) => t.type === 'PRODUCT'))
-            setEmpServiceTables(tables.filter((t: any) => t.type === 'SERVICE'))
-            setSelectedProductTableId(null)
-            setSelectedServiceTableId(null)
+            const productTables = tables.filter((t: any) => t.type === 'PRODUCT')
+            const serviceTables = tables.filter((t: any) => t.type === 'SERVICE')
+            setEmpProductTables(productTables)
+            setEmpServiceTables(serviceTables)
+            setSelectedProductTableIds(productTables.length > 0 ? [productTables[0].id] : [])
+            setSelectedServiceTableIds(serviceTables.length > 0 ? [serviceTables[0].id] : [])
         })()
     }, [selectedEmployeeId])
 
-    const filteredProducts = selectedProductTableId
-        ? (products as any[]).filter((p: any) => p.commission_table_id === selectedProductTableId)
+    const filteredProducts = selectedProductTableIds.length > 0
+        ? (products as any[]).filter((p: any) => selectedProductTableIds.includes(p.commission_table_id))
         : []
-    const filteredServices = selectedServiceTableId
-        ? (services as any[]).filter((s: any) => s.commission_table_id === selectedServiceTableId)
+    const filteredServices = selectedServiceTableIds.length > 0
+        ? (services as any[]).filter((s: any) => selectedServiceTableIds.includes(s.commission_table_id))
         : []
     const employeeHasNoTables = !!selectedEmployeeId && empProductTables.length === 0 && empServiceTables.length === 0
     const getItemTotalWithCommission = (item: BudgetItemRow) => {
@@ -474,17 +485,38 @@ function Budgets() {
     const handleEdit = async (record: any) => {
         setEditingBudgetId(record.id)
         setCustomerMode(record.customer_id ? 'existing' : 'manual')
-        form.setFieldsValue({
-            customer_id: record.customer_id || undefined,
-            employee_id: record.employee_id || undefined,
-            expiration_date: record.expiration_date ? dayjs(record.expiration_date) : undefined,
-            notes: record.notes || undefined,
-        })
-        const { data: items } = await supabase
-            .from('budget_items')
-            .select('*, products(id, name, code, max_discount_percent), services(id, name), manual_description')
-            .eq('budget_id', record.id)
-        const rows: BudgetItemRow[] = (items || []).map((it: any, idx: number) => {
+
+        const [itemsResult, tablesResult] = await Promise.all([
+            supabase.from('budget_items').select('*, products(id, name, code, max_discount_percent, commission_table_id), services(id, name, commission_table_id), manual_description').eq('budget_id', record.id),
+            record.employee_id
+                ? (supabase as any).from('employee_commission_tables').select('commission_tables(id, name, type)').eq('employee_id', record.employee_id)
+                : Promise.resolve({ data: [] }),
+        ])
+
+        const tables = (tablesResult.data || []).map((r: any) => r.commission_tables).filter(Boolean)
+        const productTables = tables.filter((t: any) => t.type === 'PRODUCT')
+        const serviceTables = tables.filter((t: any) => t.type === 'SERVICE')
+        setEmpProductTables(productTables)
+        setEmpServiceTables(serviceTables)
+
+        const usedProductTableIds = new Set<string>()
+        const usedServiceTableIds = new Set<string>()
+        for (const it of (itemsResult.data || [])) {
+            if (it.product_id && it.products?.commission_table_id) {
+                usedProductTableIds.add(it.products.commission_table_id)
+            }
+            if (it.service_id && it.services?.commission_table_id) {
+                usedServiceTableIds.add(it.services.commission_table_id)
+            }
+        }
+        const validProductIds = productTables.map((t: any) => t.id).filter((id: string) => usedProductTableIds.has(id))
+        const validServiceIds = serviceTables.map((t: any) => t.id).filter((id: string) => usedServiceTableIds.has(id))
+        setSelectedProductTableIds(validProductIds.length > 0 ? validProductIds : productTables.length > 0 ? [productTables[0].id] : [])
+        setSelectedServiceTableIds(validServiceIds.length > 0 ? validServiceIds : serviceTables.length > 0 ? [serviceTables[0].id] : [])
+
+        skipTableAutoSelectRef.current = true
+
+        const rows: BudgetItemRow[] = (itemsResult.data || []).map((it: any, idx: number) => {
             const unitPrice = Number(it.unit_price ?? 0)
             const qty = it.quantity ?? 1
             const subtotal = unitPrice * qty
@@ -511,6 +543,12 @@ function Budgets() {
             }
         })
         setBudgetItems(rows)
+        form.setFieldsValue({
+            customer_id: record.customer_id || undefined,
+            employee_id: record.employee_id || undefined,
+            expiration_date: record.expiration_date ? dayjs(record.expiration_date) : undefined,
+            notes: record.notes || undefined,
+        })
         setDrawerOpen(true)
     }
 
@@ -1016,7 +1054,7 @@ function Budgets() {
                     />
                 ) : record.isService ? (
                     <Select
-                        placeholder="Selecione o serviço"
+                        placeholder={filteredServices.length === 0 ? 'Selecione uma tabela de serviços' : 'Selecione o serviço'}
                         showSearch
                         optionFilterProp="children"
                         style={{ width: '100%' }}
@@ -1029,7 +1067,7 @@ function Budgets() {
                     </Select>
                 ) : (
                     <Select
-                        placeholder="Selecione o produto"
+                        placeholder={filteredProducts.length === 0 ? 'Selecione uma tabela de produtos' : 'Selecione o produto'}
                         showSearch
                         optionFilterProp="children"
                         style={{ width: '100%' }}
@@ -1171,10 +1209,10 @@ function Budgets() {
                 title={editingBudgetId ? 'Editar Orçamento' : 'Novo Orçamento'}
                 width={680}
                 open={drawerOpen}
-                onClose={() => { setDrawerOpen(false); setEditingBudgetId(null); form.resetFields(); setBudgetItems([]); setSelectedProductTableId(null); setSelectedServiceTableId(null); setEmpProductTables([]); setEmpServiceTables([]) }}
+                onClose={() => { setDrawerOpen(false); setEditingBudgetId(null); form.resetFields(); setBudgetItems([]); setSelectedProductTableIds([]); setSelectedServiceTableIds([]); setEmpProductTables([]); setEmpServiceTables([]) }}
                 extra={
                     <Space>
-                        <Button onClick={() => { setDrawerOpen(false); setEditingBudgetId(null); form.resetFields(); setBudgetItems([]); setSelectedProductTableId(null); setSelectedServiceTableId(null); setEmpProductTables([]); setEmpServiceTables([]) }}>Cancelar</Button>
+                        <Button onClick={() => { setDrawerOpen(false); setEditingBudgetId(null); form.resetFields(); setBudgetItems([]); setSelectedProductTableIds([]); setSelectedServiceTableIds([]); setEmpProductTables([]); setEmpServiceTables([]) }}>Cancelar</Button>
                         <Button onClick={editingBudgetId ? handleUpdate : handleSave} type="primary" loading={saving}>
                             {editingBudgetId ? 'Salvar alterações' : 'Criar Orçamento'}
                         </Button>
@@ -1197,29 +1235,27 @@ function Budgets() {
                     )}
                     {selectedEmployeeId && empProductTables.length > 0 && (
                         <div style={{ marginBottom: 16 }}>
-                            <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 6 }}>Tabela de Produtos</div>
+                            <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 6 }}>Tabelas de Produtos</div>
                             <Select
-                                placeholder="Selecione a tabela de produtos"
+                                mode="multiple"
+                                placeholder="Selecione tabela(s) de produtos"
                                 style={{ width: '100%' }}
-                                value={selectedProductTableId}
-                                onChange={(v: string) => { setSelectedProductTableId(v); setBudgetItems(prev => prev.filter(i => i.isManual || i.isService)) }}
+                                value={selectedProductTableIds}
+                                onChange={(v: string[]) => { setSelectedProductTableIds(v); setBudgetItems(prev => prev.filter(i => i.isManual || i.isService)) }}
                                 options={empProductTables.map(t => ({ value: t.id, label: t.name }))}
-                                allowClear
-                                onClear={() => { setSelectedProductTableId(null); setBudgetItems(prev => prev.filter(i => i.isManual || i.isService)) }}
                             />
                         </div>
                     )}
                     {selectedEmployeeId && empServiceTables.length > 0 && (
                         <div style={{ marginBottom: 16 }}>
-                            <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 6 }}>Tabela de Serviços</div>
+                            <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 6 }}>Tabelas de Serviços</div>
                             <Select
-                                placeholder="Selecione a tabela de serviços"
+                                mode="multiple"
+                                placeholder="Selecione tabela(s) de serviços"
                                 style={{ width: '100%' }}
-                                value={selectedServiceTableId}
-                                onChange={(v: string) => { setSelectedServiceTableId(v); setBudgetItems(prev => prev.filter(i => i.isManual || !i.isService)) }}
+                                value={selectedServiceTableIds}
+                                onChange={(v: string[]) => { setSelectedServiceTableIds(v); setBudgetItems(prev => prev.filter(i => i.isManual || !i.isService)) }}
                                 options={empServiceTables.map(t => ({ value: t.id, label: t.name }))}
-                                allowClear
-                                onClear={() => { setSelectedServiceTableId(null); setBudgetItems(prev => prev.filter(i => i.isManual || !i.isService)) }}
                             />
                         </div>
                     )}
@@ -1287,14 +1323,18 @@ function Budgets() {
                     />
 
                     <Space.Compact block style={{ marginTop: 12, display: 'flex', gap: 8 }}>
-                        <Button type="dashed" onClick={handleAddProduct} icon={<PlusOutlined />} style={{ flex: 1 }}
-                            disabled={!selectedEmployeeId || empProductTables.length === 0 || !selectedProductTableId}>
-                            Adicionar Produto
-                        </Button>
-                        <Button type="dashed" onClick={handleAddService} icon={<ToolOutlined />} style={{ flex: 1 }}
-                            disabled={!selectedEmployeeId || empServiceTables.length === 0 || !selectedServiceTableId}>
-                            Adicionar Serviço
-                        </Button>
+                        {selectedEmployeeId && empProductTables.length > 0 && (
+                            <Button type="dashed" onClick={handleAddProduct} icon={<PlusOutlined />} style={{ flex: 1 }}
+                                disabled={selectedProductTableIds.length === 0}>
+                                Adicionar Produto
+                            </Button>
+                        )}
+                        {selectedEmployeeId && empServiceTables.length > 0 && (
+                            <Button type="dashed" onClick={handleAddService} icon={<ToolOutlined />} style={{ flex: 1 }}
+                                disabled={selectedServiceTableIds.length === 0}>
+                                Adicionar Serviço
+                            </Button>
+                        )}
                         <Button type="dashed" onClick={handleAddManualItem} icon={<PlusOutlined />} style={{ flex: 1 }}
                             disabled={!selectedEmployeeId}>
                             Adicionar item manual

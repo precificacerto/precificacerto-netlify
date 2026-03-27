@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import {
     Button, Drawer, Form, Input, InputNumber, Select, Space, Table, Tag,
     message, Popconfirm, DatePicker, Empty, Divider, Modal, Upload, Checkbox,
@@ -118,36 +118,42 @@ function Sales() {
     const [customInstallments, setCustomInstallments] = useState<{ date: any; amount: number }[]>([{ date: null, amount: 0 }])
     const [empProductTablesV, setEmpProductTablesV] = useState<{id: string; name: string}[]>([])
     const [empServiceTablesV, setEmpServiceTablesV] = useState<{id: string; name: string}[]>([])
-    const [selectedProductTableIdV, setSelectedProductTableIdV] = useState<string | null>(null)
-    const [selectedServiceTableIdV, setSelectedServiceTableIdV] = useState<string | null>(null)
+    const [selectedProductTableIdsV, setSelectedProductTableIdsV] = useState<string[]>([])
+    const [selectedServiceTableIdsV, setSelectedServiceTableIdsV] = useState<string[]>([])
     const selectedEmployeeIdV = Form.useWatch('employee_id', form)
+    const latestEmployeeIdVRef = useRef<string | undefined>(undefined)
 
     useEffect(() => {
+        latestEmployeeIdVRef.current = selectedEmployeeIdV
         if (!selectedEmployeeIdV) {
             setEmpProductTablesV([])
             setEmpServiceTablesV([])
-            setSelectedProductTableIdV(null)
-            setSelectedServiceTableIdV(null)
+            setSelectedProductTableIdsV([])
+            setSelectedServiceTableIdsV([])
             return
         }
+        const empIdAtFetch = selectedEmployeeIdV
         ;(async () => {
             const { data } = await (supabase as any)
                 .from('employee_commission_tables')
                 .select('commission_tables(id, name, type)')
-                .eq('employee_id', selectedEmployeeIdV)
+                .eq('employee_id', empIdAtFetch)
+            if (empIdAtFetch !== latestEmployeeIdVRef.current) return
             const tables = (data || []).map((r: any) => r.commission_tables).filter(Boolean)
-            setEmpProductTablesV(tables.filter((t: any) => t.type === 'PRODUCT'))
-            setEmpServiceTablesV(tables.filter((t: any) => t.type === 'SERVICE'))
-            setSelectedProductTableIdV(null)
-            setSelectedServiceTableIdV(null)
+            const productTables = tables.filter((t: any) => t.type === 'PRODUCT')
+            const serviceTables = tables.filter((t: any) => t.type === 'SERVICE')
+            setEmpProductTablesV(productTables)
+            setEmpServiceTablesV(serviceTables)
+            setSelectedProductTableIdsV(productTables.length > 0 ? [productTables[0].id] : [])
+            setSelectedServiceTableIdsV(serviceTables.length > 0 ? [serviceTables[0].id] : [])
         })()
     }, [selectedEmployeeIdV])
 
-    const filteredProductsV = selectedProductTableIdV
-        ? products.filter((p: any) => p.commission_table_id === selectedProductTableIdV)
+    const filteredProductsV = selectedProductTableIdsV.length > 0
+        ? products.filter((p: any) => selectedProductTableIdsV.includes(p.commission_table_id))
         : []
-    const filteredServicesV = selectedServiceTableIdV
-        ? services.filter((s: any) => s.commission_table_id === selectedServiceTableIdV)
+    const filteredServicesV = selectedServiceTableIdsV.length > 0
+        ? services.filter((s: any) => selectedServiceTableIdsV.includes(s.commission_table_id))
         : []
     const employeeHasNoTablesV = !!selectedEmployeeIdV && empProductTablesV.length === 0 && empServiceTablesV.length === 0
 
@@ -198,24 +204,24 @@ function Sales() {
 
             // Products: try with recurrence_days, fall back without
             let prods: any[] | null = null
-            const { data: prodsFull, error: prodsErr } = await supabase.from('products').select('id, name, sale_price, cost_total, recurrence_days').order('name')
+            const { data: prodsFull, error: prodsErr } = await supabase.from('products').select('id, name, sale_price, cost_total, commission_table_id, recurrence_days').order('name')
             if (!prodsErr) {
                 prods = prodsFull
             } else {
-                console.warn('Products query with recurrence_days failed, falling back:', prodsErr.message)
-                const { data: prodsSimple } = await supabase.from('products').select('id, name, sale_price, cost_total').order('name')
+                console.warn('Products query failed, falling back:', prodsErr.message)
+                const { data: prodsSimple } = await supabase.from('products').select('id, name, sale_price, cost_total, commission_table_id').order('name')
                 prods = prodsSimple
             }
 
             // Services: try with recurrence_days, fall back without
             let svcs: any[] | null = null
             const svb = supabase as any
-            const { data: svcsFull, error: svcsErr } = await svb.from('services').select('id, name, base_price, commission_percent, recurrence_days').eq('status', 'ACTIVE').order('name')
+            const { data: svcsFull, error: svcsErr } = await svb.from('services').select('id, name, base_price, commission_percent, commission_table_id, recurrence_days').eq('status', 'ACTIVE').order('name')
             if (!svcsErr) {
                 svcs = svcsFull
             } else {
-                console.warn('Services query with recurrence_days failed, falling back:', svcsErr.message)
-                const { data: svcsSimple } = await svb.from('services').select('id, name, base_price, commission_percent').eq('status', 'ACTIVE').order('name')
+                console.warn('Services query failed, falling back:', svcsErr.message)
+                const { data: svcsSimple } = await svb.from('services').select('id, name, base_price, commission_percent, commission_table_id').eq('status', 'ACTIVE').order('name')
                 svcs = svcsSimple
             }
 
@@ -1099,16 +1105,16 @@ function Sales() {
                     style={{ width: '100%' }}
                 />
             ) : r.is_service ? (
-                <Select placeholder="Selecione o serviço" showSearch optionFilterProp="children" style={{ width: '100%' }}
+                <Select placeholder={filteredServicesV.length === 0 ? 'Selecione uma tabela de serviços' : 'Selecione o serviço'} showSearch optionFilterProp="children" style={{ width: '100%' }}
                     value={r.service_id || undefined} onChange={(v) => handleServiceSelect(r.key, v)}>
-                    {(selectedServiceTableIdV ? filteredServicesV : services).map((s: any) => (
+                    {filteredServicesV.map((s: any) => (
                         <Select.Option key={s.id} value={s.id}>{s.name}</Select.Option>
                     ))}
                 </Select>
             ) : (
-                <Select placeholder="Selecione" showSearch optionFilterProp="children" style={{ width: '100%' }}
+                <Select placeholder={filteredProductsV.length === 0 ? 'Selecione uma tabela de produtos' : 'Selecione'} showSearch optionFilterProp="children" style={{ width: '100%' }}
                     value={r.product_id || undefined} onChange={(v) => handleProductSelect(r.key, v)}>
-                    {(selectedProductTableIdV ? filteredProductsV : products).map(p => (
+                    {filteredProductsV.map(p => (
                         <Select.Option key={p.id} value={p.id}>{p.name}</Select.Option>
                     ))}
                 </Select>
@@ -1264,8 +1270,8 @@ function Sales() {
                 title="🏪 Venda no Balcão"
                 width={680}
                 open={drawerOpen}
-                onClose={() => { setDrawerOpen(false); setReceiptFile([]); setAttachDesc(''); setIsSplitPay(false); setCustomInstallments([{ date: null, amount: 0 }]) }}
-                extra={<Space><Button onClick={() => { setDrawerOpen(false); setReceiptFile([]); setAttachDesc(''); setIsSplitPay(false); setCustomInstallments([{ date: null, amount: 0 }]) }}>Cancelar</Button><Button onClick={handleSaveSale} type="primary" loading={saving}>Registrar Venda</Button></Space>}
+                onClose={() => { setDrawerOpen(false); form.resetFields(); setSaleItems([]); setEmpProductTablesV([]); setEmpServiceTablesV([]); setSelectedProductTableIdsV([]); setSelectedServiceTableIdsV([]); setReceiptFile([]); setAttachDesc(''); setIsSplitPay(false); setCustomInstallments([{ date: null, amount: 0 }]) }}
+                extra={<Space><Button onClick={() => { setDrawerOpen(false); form.resetFields(); setSaleItems([]); setEmpProductTablesV([]); setEmpServiceTablesV([]); setSelectedProductTableIdsV([]); setSelectedServiceTableIdsV([]); setReceiptFile([]); setAttachDesc(''); setIsSplitPay(false); setCustomInstallments([{ date: null, amount: 0 }]) }}>Cancelar</Button><Button onClick={handleSaveSale} type="primary" loading={saving}>Registrar Venda</Button></Space>}
             >
                 <Form form={form} layout="vertical">
                     <Divider orientation="left" style={{ fontSize: 12, color: '#94a3b8', marginTop: 0 }}>Vendedor</Divider>
@@ -1283,29 +1289,27 @@ function Sales() {
                     )}
                     {selectedEmployeeIdV && empProductTablesV.length > 0 && (
                         <div style={{ marginBottom: 16 }}>
-                            <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 6 }}>Tabela de Produtos</div>
+                            <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 6 }}>Tabelas de Produtos</div>
                             <Select
-                                placeholder="Selecione a tabela de produtos"
+                                mode="multiple"
+                                placeholder="Selecione tabela(s) de produtos"
                                 style={{ width: '100%' }}
-                                value={selectedProductTableIdV}
-                                onChange={(v: string) => { setSelectedProductTableIdV(v); setSaleItems(prev => prev.filter(i => i.is_manual || i.is_service)) }}
+                                value={selectedProductTableIdsV}
+                                onChange={(v: string[]) => { setSelectedProductTableIdsV(v); setSaleItems(prev => prev.filter(i => i.is_manual || i.is_service)) }}
                                 options={empProductTablesV.map(t => ({ value: t.id, label: t.name }))}
-                                allowClear
-                                onClear={() => { setSelectedProductTableIdV(null); setSaleItems(prev => prev.filter(i => i.is_manual || i.is_service)) }}
                             />
                         </div>
                     )}
                     {selectedEmployeeIdV && empServiceTablesV.length > 0 && (
                         <div style={{ marginBottom: 16 }}>
-                            <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 6 }}>Tabela de Serviços</div>
+                            <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 6 }}>Tabelas de Serviços</div>
                             <Select
-                                placeholder="Selecione a tabela de serviços"
+                                mode="multiple"
+                                placeholder="Selecione tabela(s) de serviços"
                                 style={{ width: '100%' }}
-                                value={selectedServiceTableIdV}
-                                onChange={(v: string) => { setSelectedServiceTableIdV(v); setSaleItems(prev => prev.filter(i => i.is_manual || !i.is_service)) }}
+                                value={selectedServiceTableIdsV}
+                                onChange={(v: string[]) => { setSelectedServiceTableIdsV(v); setSaleItems(prev => prev.filter(i => i.is_manual || !i.is_service)) }}
                                 options={empServiceTablesV.map(t => ({ value: t.id, label: t.name }))}
-                                allowClear
-                                onClear={() => { setSelectedServiceTableIdV(null); setSaleItems(prev => prev.filter(i => i.is_manual || !i.is_service)) }}
                             />
                         </div>
                     )}
@@ -1317,17 +1321,17 @@ function Sales() {
                     />
 
                     <Space.Compact block style={{ marginTop: 12, display: 'flex', gap: 8 }}>
-                        {!employeeHasNoTablesV && (
-                            <>
-                                <Button type="dashed" onClick={handleAddProduct} icon={<PlusOutlined />} style={{ flex: 1 }}
-                                    disabled={!selectedEmployeeIdV || (empProductTablesV.length > 0 && !selectedProductTableIdV)}>
-                                    Adicionar Produto
-                                </Button>
-                                <Button type="dashed" onClick={handleAddService} icon={<ToolOutlined />} style={{ flex: 1 }}
-                                    disabled={!selectedEmployeeIdV || (empServiceTablesV.length > 0 && !selectedServiceTableIdV)}>
-                                    Adicionar Serviço
-                                </Button>
-                            </>
+                        {selectedEmployeeIdV && empProductTablesV.length > 0 && (
+                            <Button type="dashed" onClick={handleAddProduct} icon={<PlusOutlined />} style={{ flex: 1 }}
+                                disabled={selectedProductTableIdsV.length === 0}>
+                                Adicionar Produto
+                            </Button>
+                        )}
+                        {selectedEmployeeIdV && empServiceTablesV.length > 0 && (
+                            <Button type="dashed" onClick={handleAddService} icon={<ToolOutlined />} style={{ flex: 1 }}
+                                disabled={selectedServiceTableIdsV.length === 0}>
+                                Adicionar Serviço
+                            </Button>
                         )}
                         <Button type="dashed" onClick={handleAddManualProduct} icon={<PlusOutlined />} style={{ flex: 1 }}
                             disabled={!selectedEmployeeIdV}>
