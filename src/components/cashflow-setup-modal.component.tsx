@@ -5,7 +5,7 @@ import dayjs from 'dayjs'
 import { supabase } from '@/supabase/client'
 import { useAuth } from '@/hooks/use-auth.hook'
 import { mergeExpenseConfig } from '@/utils/recalc-expense-config'
-import { EXPENSE_SETUP_BLOCKS } from '@/constants/expense-setup-blocks'
+import { EXPENSE_SETUP_BLOCKS, EXPENSE_SETUP_BLOCKS_SN } from '@/constants/expense-setup-blocks'
 import type { ExpenseGroupKey } from '@/constants/cashier-category'
 
 interface ExpenseRow {
@@ -40,20 +40,26 @@ const RECURRENCE_OPTIONS = [
   { label: 'Trimestral', value: 'QUARTERLY' },
 ]
 
-function buildInitialRowsForBlock(blockId: number): ExpenseRow[] {
-  const block = EXPENSE_SETUP_BLOCKS.find(b => b.id === blockId)
-  if (!block) return []
-  return block.items.map((item, idx) => ({
-    key: `block-${blockId}-${item.key}-${idx}`,
-    categoryLabel: block.categoryLabel,
-    expense_group: block.expense_group,
-    description: item.label,
-    amount: '',
-    recurrence: 'MONTHLY',
-    start_month: null,
-    end_month: null,
-    isManual: false,
-  }))
+const SN_REGIMES = ['SIMPLES_NACIONAL', 'MEI']
+
+function buildInitialRowsForBlocks(blocks: typeof EXPENSE_SETUP_BLOCKS): Record<number, ExpenseRow[]> {
+  const initial: Record<number, ExpenseRow[]> = {}
+  blocks.forEach(block => {
+    initial[block.id] = block.items.map((item, idx) => ({
+      key: `block-${block.id}-${item.key}-${idx}`,
+      categoryLabel: block.categoryLabel,
+      expense_group: block.expense_group,
+      description: item.label,
+      amount: '',
+      recurrence: 'MONTHLY',
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      start_month: null as any,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      end_month: null as any,
+      isManual: false,
+    }))
+  })
+  return initial
 }
 
 export function CashflowSetupModal({ open, onDone }: { open: boolean; onDone: () => void }) {
@@ -61,15 +67,31 @@ export function CashflowSetupModal({ open, onDone }: { open: boolean; onDone: ()
   const [saving, setSaving] = useState(false)
   const [messageApi, contextHolder] = message.useMessage()
   const [currentStep, setCurrentStep] = useState(0)
-  const [blockRows, setBlockRows] = useState<Record<number, ExpenseRow[]>>(() => {
-    const initial: Record<number, ExpenseRow[]> = {}
-    EXPENSE_SETUP_BLOCKS.forEach(b => {
-      initial[b.id] = buildInitialRowsForBlock(b.id)
-    })
-    return initial
-  })
+  const [taxRegime, setTaxRegime] = useState<string | null>(null)
 
-  const currentBlock = EXPENSE_SETUP_BLOCKS[currentStep]
+  const activeBlocks = taxRegime && SN_REGIMES.includes(taxRegime) ? EXPENSE_SETUP_BLOCKS_SN : EXPENSE_SETUP_BLOCKS
+
+  const [blockRows, setBlockRows] = useState<Record<number, ExpenseRow[]>>(() =>
+    buildInitialRowsForBlocks(EXPENSE_SETUP_BLOCKS)
+  )
+
+  // Fetch regime and reset rows when modal opens
+  React.useEffect(() => {
+    if (!open) return
+    const tenantId = currentUser?.tenant_id
+    if (!tenantId) return
+    supabase.from('tenant_settings').select('tax_regime').eq('tenant_id', tenantId).maybeSingle()
+      .then(({ data }) => {
+        const regime = data?.tax_regime ?? null
+        setTaxRegime(regime)
+        const blocks = regime && SN_REGIMES.includes(regime) ? EXPENSE_SETUP_BLOCKS_SN : EXPENSE_SETUP_BLOCKS
+        setBlockRows(buildInitialRowsForBlocks(blocks))
+        setCurrentStep(0)
+      })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
+
+  const currentBlock = activeBlocks[currentStep]
   const rows = currentBlock ? blockRows[currentBlock.id] ?? [] : []
 
   const addManualRow = () => {
@@ -121,7 +143,7 @@ export function CashflowSetupModal({ open, onDone }: { open: boolean; onDone: ()
 
   const allValidRows = useMemo(() => {
     const collected: ExpenseRow[] = []
-    EXPENSE_SETUP_BLOCKS.forEach(block => {
+    activeBlocks.forEach(block => {
       const blockList = blockRows[block.id] ?? []
       const withValue = blockList.filter(
         r => r.description && r.amount && parseCurrency(r.amount) > 0 && r.recurrence
@@ -129,10 +151,11 @@ export function CashflowSetupModal({ open, onDone }: { open: boolean; onDone: ()
       collected.push(...withValue)
     })
     return collected
-  }, [blockRows])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blockRows, activeBlocks])
 
   const handleSave = async () => {
-    const rowsWithAmount = EXPENSE_SETUP_BLOCKS.flatMap(
+    const rowsWithAmount = activeBlocks.flatMap(
       block => (blockRows[block.id] ?? []).filter(r => parseCurrency(r.amount) > 0)
     )
     const missingFrequency = rowsWithAmount.some(r => !r.recurrence)
@@ -220,7 +243,8 @@ export function CashflowSetupModal({ open, onDone }: { open: boolean; onDone: ()
 
       await supabase
         .from('tenant_settings')
-        .update({ cashflow_setup_done: true, expense_setup_done: true })
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .update({ cashflow_setup_done: true, expense_setup_done: true } as any)
         .eq('tenant_id', tenantId)
 
       await refreshUser()
@@ -235,7 +259,7 @@ export function CashflowSetupModal({ open, onDone }: { open: boolean; onDone: ()
   }
 
   const goNext = () => {
-    if (currentStep < EXPENSE_SETUP_BLOCKS.length - 1) {
+    if (currentStep < activeBlocks.length - 1) {
       setCurrentStep(s => s + 1)
     }
   }
@@ -244,7 +268,7 @@ export function CashflowSetupModal({ open, onDone }: { open: boolean; onDone: ()
     if (currentStep > 0) setCurrentStep(s => s - 1)
   }
 
-  const isLastStep = currentStep === EXPENSE_SETUP_BLOCKS.length - 1
+  const isLastStep = currentStep === activeBlocks.length - 1
 
   return (
     <Modal
@@ -266,7 +290,7 @@ export function CashflowSetupModal({ open, onDone }: { open: boolean; onDone: ()
         size="small"
         style={{ marginBottom: 24 }}
       >
-        {EXPENSE_SETUP_BLOCKS.map((b, i) => (
+        {activeBlocks.map((b, i) => (
           <Steps.Step
             key={b.id}
             title={b.title}

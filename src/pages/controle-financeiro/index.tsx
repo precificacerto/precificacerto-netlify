@@ -113,11 +113,11 @@ const SN_CATEGORY_GROUP_MAP: { category: string; group: string }[] = [
     { category: 'Décimo terceiro (Pró-Labo / Admin / Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
     { category: 'Férias colaboradores (Pró-Labo / Admin / Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
     { category: 'FGTS (Pró-Labo / Admin / Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
-    { category: 'Horas extras — Salários (Admin)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
+    { category: 'Horas extras — Salários', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
     { category: 'INSS (Pró-Labo / Admin / Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
     { category: 'INSS patronal (Pró-Labo / Admin / Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
     { category: 'Plano de saúde (Pró-Labo / Admin / Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
-    { category: 'RAT / FAP (Admin)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
+    { category: 'RAT / FAP', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
     { category: 'Vale alimentação (Pró-Labo / Admin / Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
     { category: 'Vale transporte (Pró-Labo / Admin / Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
     // Despesa Fixa
@@ -129,7 +129,7 @@ const SN_CATEGORY_GROUP_MAP: { category: string; group: string }[] = [
     { category: 'Depreciação', group: 'DESPESA_FIXA' },
     { category: 'Empréstimos / Financiamentos', group: 'DESPESA_FIXA' },
     { category: 'Energia elétrica', group: 'DESPESA_FIXA' },
-    { category: 'Impostos IPTU / IPVA', group: 'IMPOSTO' },
+    { category: 'Impostos IPTU / IPVA', group: 'DESPESA_FIXA' },
     { category: 'Internet', group: 'DESPESA_FIXA' },
     { category: 'Segurança / Monitoramento', group: 'DESPESA_FIXA' },
     { category: 'Seguros imóveis e veículos', group: 'DESPESA_FIXA' },
@@ -137,7 +137,7 @@ const SN_CATEGORY_GROUP_MAP: { category: string; group: string }[] = [
     { category: 'Taxas de licenciamento', group: 'DESPESA_FIXA' },
     { category: 'Telefone', group: 'DESPESA_FIXA' },
     { category: 'Saúde trabalhista / Ocupacional', group: 'DESPESA_FIXA' },
-    { category: 'MEI (Microempreendedor Individual)', group: 'IMPOSTO' },
+    { category: 'MEI (Microempreendedor Individual)', group: 'DESPESA_FIXA' },
     // Despesa Variável
     { category: 'Combustíveis', group: 'DESPESA_VARIAVEL' },
     { category: 'Correios', group: 'DESPESA_VARIAVEL' },
@@ -149,7 +149,7 @@ const SN_CATEGORY_GROUP_MAP: { category: string; group: string }[] = [
     { category: 'Rescisões / Indenizações', group: 'DESPESA_VARIAVEL' },
     { category: 'Terceirizações (prestadores de serviços)', group: 'DESPESA_VARIAVEL' },
     { category: 'Uso e consumo', group: 'DESPESA_VARIAVEL' },
-    { category: 'Vale alimentação (variável)', group: 'DESPESA_VARIAVEL' },
+    { category: 'Vale alimentação', group: 'DESPESA_VARIAVEL' },
     { category: 'Viagens (hotéis / passagens / alimentação / etc)', group: 'DESPESA_VARIAVEL' },
     // Despesa Financeira
     { category: 'Juros', group: 'DESPESA_FINANCEIRA' },
@@ -158,31 +158,49 @@ const SN_CATEGORY_GROUP_MAP: { category: string; group: string }[] = [
     { category: 'Troca cheque', group: 'DESPESA_FINANCEIRA' },
     { category: 'IOF', group: 'DESPESA_FINANCEIRA' },
     // Atividades Terceirizadas
-    { category: 'Fretes / Logísticas de entrega terceirizados', group: 'DESPESA_VARIAVEL' },
-    { category: 'Seguro de transporte entrega', group: 'DESPESA_VARIAVEL' },
-    { category: 'Despesas acessórias', group: 'DESPESA_VARIAVEL' },
-    { category: 'Gastos com logísticas externas', group: 'DESPESA_VARIAVEL' },
+    { category: 'Fretes / Logísticas de entrega terceirizados', group: 'ATIVIDADES_TERCEIRIZADAS' },
+    { category: 'Seguro de transporte entrega', group: 'ATIVIDADES_TERCEIRIZADAS' },
+    { category: 'Despesas acessórias', group: 'ATIVIDADES_TERCEIRIZADAS' },
+    { category: 'Gastos com logísticas externas', group: 'ATIVIDADES_TERCEIRIZADAS' },
     // Regime Tributário
-    { category: 'Simples Nacional', group: 'IMPOSTO' },
+    { category: 'Simples Nacional', group: 'REGIME_TRIBUTARIO' },
     // Comissões
-    { category: 'Comissões de venda', group: 'DESPESA_VARIAVEL' },
+    { category: 'Comissões de venda', group: 'COMISSOES' },
     // Lucro
-    { category: 'Investimentos (máquinas, equipamentos, expansão e melhorias)', group: 'DESPESA_FIXA' },
-    { category: 'Distribuição de lucros', group: 'DESPESA_FIXA' },
+    { category: 'Investimentos (máquinas, equipamentos, expansão e melhorias)', group: 'LUCRO' },
+    { category: 'Distribuição de lucros', group: 'LUCRO' },
 ]
 
 const SN_EXPENSE_CATEGORY_OPTIONS = [
-    { label: '── Custo de Produtos ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'CUSTO_PRODUTOS').map(c => ({ label: c.category, value: c.category })) },
+    { label: '── Custo dos Produtos ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'CUSTO_PRODUTOS').map(c => ({ label: c.category, value: c.category })) },
     { label: '── Mão de Obra Produção ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'MAO_DE_OBRA_PRODUTIVA').map(c => ({ label: c.category, value: c.category })) },
     { label: '── Mão de Obra Administrativa ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'MAO_DE_OBRA_ADMINISTRATIVA').map(c => ({ label: c.category, value: c.category })) },
     { label: '── Despesas Fixas ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_FIXA').map(c => ({ label: c.category, value: c.category })) },
     { label: '── Despesas Variáveis ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_VARIAVEL').map(c => ({ label: c.category, value: c.category })) },
     { label: '── Despesas Financeiras ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_FINANCEIRA').map(c => ({ label: c.category, value: c.category })) },
-    { label: '── Impostos ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'IMPOSTO').map(c => ({ label: c.category, value: c.category })) },
+    { label: '── Atividades Terceirizadas Operacionais de Entrega ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'ATIVIDADES_TERCEIRIZADAS').map(c => ({ label: c.category, value: c.category })) },
+    { label: '── Regime Tributário ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'REGIME_TRIBUTARIO').map(c => ({ label: c.category, value: c.category })) },
+    { label: '── Comissões ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'COMISSOES').map(c => ({ label: c.category, value: c.category })) },
+    { label: '── Lucro ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'LUCRO').map(c => ({ label: c.category, value: c.category })) },
 ]
 
 function getSNGroupForCategory(cat: string): string | undefined {
     return SN_CATEGORY_GROUP_MAP.find(c => c.category === cat)?.group
+}
+
+const INSTALLMENT_PRESETS = [
+    { value: 'customizado', label: 'Customizado' },
+    { value: '30', label: '30' },
+    { value: '30_60', label: '30/60' },
+    { value: '30_60_90', label: '30/60/90' },
+]
+
+function buildInstallmentsByPreset(preset: string): { date: any; amount: number }[] {
+    const today = dayjs()
+    if (preset === '30') return [{ date: today.add(30, 'day'), amount: 0 }]
+    if (preset === '30_60') return [{ date: today.add(30, 'day'), amount: 0 }, { date: today.add(60, 'day'), amount: 0 }]
+    if (preset === '30_60_90') return [{ date: today.add(30, 'day'), amount: 0 }, { date: today.add(60, 'day'), amount: 0 }, { date: today.add(90, 'day'), amount: 0 }]
+    return [{ date: null, amount: 0 }]
 }
 
 const currencyMaskFn = (value: string) => {
@@ -236,6 +254,9 @@ export default function ControleFinanceiro() {
     const [drawerOpen, setDrawerOpen] = useState(false)
     const [drawerType, setDrawerType] = useState<'INCOME' | 'EXPENSE'>('EXPENSE')
     const [expenseAmount, setExpenseAmount] = useState('')
+    const [expPaymentMethod, setExpPaymentMethod] = useState<string>('')
+    const [expInstallments, setExpInstallments] = useState<{ date: any; amount: number }[]>([{ date: null, amount: 0 }])
+    const [expInstallmentPreset, setExpInstallmentPreset] = useState<'customizado' | '30' | '30_60' | '30_60_90'>('customizado')
     const [editDrawerOpen, setEditDrawerOpen] = useState(false)
     const [editingEntry, setEditingEntry] = useState<any>(null)
     const [editAmount, setEditAmount] = useState('')
@@ -403,6 +424,28 @@ export default function ControleFinanceiro() {
                     : values.expense_category
 
                 const autoGroup = activeGroupForCategory(values.expense_category) || 'DESPESA_FIXA'
+                const paymentMethod: string = expPaymentMethod || ''
+                const isBoletoOrCheque = paymentMethod === 'BOLETO' || paymentMethod === 'CHEQUE_PRE_DATADO'
+                const entries: any[] = []
+
+                if (isBoletoOrCheque) {
+                    const validInst = expInstallments.filter(r => r.date && r.amount > 0)
+                    if (validInst.length === 0) { messageApi.error('Informe ao menos uma data e valor de vencimento.'); return }
+                    validInst.forEach((inst, idx) => {
+                        entries.push({
+                            tenant_id,
+                            type: 'EXPENSE',
+                            origin_type: 'MANUAL',
+                            recurrence_type: 'ONCE',
+                            description: validInst.length > 1 ? `${desc} (${idx + 1}/${validInst.length})` : desc,
+                            amount: inst.amount,
+                            due_date: inst.date.format('YYYY-MM-DD'),
+                            expense_group: autoGroup,
+                            expense_category: values.expense_category,
+                            payment_method: paymentMethod,
+                        })
+                    })
+                } else {
                 const parcelas: number = Math.max(1, values.parcelas || 1)
                 const valorParcela = parcelas === 1 ? amountNum : amountNum / parcelas
 
@@ -415,7 +458,6 @@ export default function ControleFinanceiro() {
                     startDate = new Date(todayBR.getFullYear(), todayBR.getMonth(), 1)
                 }
 
-                const entries: any[] = []
                 for (let i = 0; i < parcelas; i++) {
                     const dueDate = new Date(startDate.getFullYear(), startDate.getMonth() + i, startDate.getDate())
                     const dueDateStr = `${dueDate.getFullYear()}-${String(dueDate.getMonth() + 1).padStart(2, '0')}-${String(dueDate.getDate()).padStart(2, '0')}`
@@ -428,7 +470,9 @@ export default function ControleFinanceiro() {
                         amount: valorParcela,
                         due_date: dueDateStr,
                         expense_group: autoGroup,
+                        ...(paymentMethod ? { payment_method: paymentMethod } : {}),
                     })
+                }
                 }
 
                 if (entries.length > 0) {
@@ -442,6 +486,9 @@ export default function ControleFinanceiro() {
             setDrawerOpen(false)
             form.resetFields()
             setExpenseAmount('')
+            setExpPaymentMethod('')
+            setExpInstallments([{ date: null, amount: 0 }])
+            setExpInstallmentPreset('customizado')
             await fetchData()
         } catch {
             messageApi.error('Preencha os campos obrigatórios.')
@@ -957,7 +1004,7 @@ export default function ControleFinanceiro() {
                 title={drawerType === 'INCOME' ? 'Nova Receita' : 'Nova Despesa'}
                 width={680}
                 open={drawerOpen}
-                onClose={() => setDrawerOpen(false)}
+                onClose={() => { setDrawerOpen(false); setExpPaymentMethod(''); setExpInstallments([{ date: null, amount: 0 }]); setExpInstallmentPreset('customizado') }}
                 extra={
                     <Space>
                         <Button
@@ -1008,6 +1055,60 @@ export default function ControleFinanceiro() {
                         <Form.Item label="Valor Total" required>
                             <Input prefix="R$" placeholder="0,00" value={expenseAmount} onChange={(e) => setExpenseAmount(currencyMaskFn(e.target.value))} />
                         </Form.Item>
+                        <Form.Item label="Método de Pagamento (opcional)">
+                            <Select
+                                value={expPaymentMethod || undefined}
+                                placeholder="Selecione (opcional)"
+                                allowClear
+                                options={PAYMENT_METHODS.map(p => ({ value: p.value, label: p.label }))}
+                                onChange={(v) => { setExpPaymentMethod(v || ''); setExpInstallments([{ date: null, amount: 0 }]); setExpInstallmentPreset('customizado') }}
+                            />
+                        </Form.Item>
+                        {(expPaymentMethod === 'BOLETO' || expPaymentMethod === 'CHEQUE_PRE_DATADO') ? (
+                            <div style={{ marginBottom: 16, padding: 12, background: 'rgba(96, 165, 250, 0.08)', border: '1px solid rgba(96,165,250,0.25)', borderRadius: 8 }}>
+                                <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>
+                                    Datas e valores de vencimento
+                                </div>
+                                <div style={{ marginBottom: 10 }}>
+                                    <Radio.Group
+                                        value={expInstallmentPreset}
+                                        onChange={(e) => {
+                                            const p = e.target.value
+                                            setExpInstallmentPreset(p)
+                                            setExpInstallments(buildInstallmentsByPreset(p))
+                                        }}
+                                        size="small"
+                                    >
+                                        {INSTALLMENT_PRESETS.map(p => <Radio.Button key={p.value} value={p.value}>{p.label}</Radio.Button>)}
+                                    </Radio.Group>
+                                </div>
+                                {expInstallments.map((item, idx) => (
+                                    <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8, marginBottom: 8, alignItems: 'center' }}>
+                                        <DatePicker
+                                            placeholder="Data de vencimento"
+                                            format="DD/MM/YYYY"
+                                            value={item.date}
+                                            onChange={(d) => setExpInstallments(prev => prev.map((r, i) => i === idx ? { ...r, date: d } : r))}
+                                            style={{ width: '100%' }}
+                                        />
+                                        <InputNumber
+                                            min={0} step={0.01} precision={2} style={{ width: '100%' }}
+                                            placeholder="Valor (R$)" value={item.amount || undefined} addonBefore="R$"
+                                            onChange={(v) => setExpInstallments(prev => prev.map((r, i) => i === idx ? { ...r, amount: Number(v) || 0 } : r))}
+                                        />
+                                        <Button danger size="small" type="text"
+                                            disabled={expInstallmentPreset !== 'customizado' || expInstallments.length === 1}
+                                            onClick={() => setExpInstallments(prev => prev.filter((_, i) => i !== idx))}>✕</Button>
+                                    </div>
+                                ))}
+                                {expInstallmentPreset === 'customizado' && (
+                                    <Button type="dashed" size="small" style={{ width: '100%' }}
+                                        onClick={() => setExpInstallments(prev => [...prev, { date: null, amount: 0 }])}>
+                                        + Adicionar data/valor
+                                    </Button>
+                                )}
+                            </div>
+                        ) : (
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                             <Form.Item name="parcelas" label="Número de parcelas" initialValue={1}>
                                 <InputNumber min={1} max={120} style={{ width: '100%' }} />
@@ -1016,6 +1117,8 @@ export default function ControleFinanceiro() {
                                 <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" placeholder={dayjs().format('DD/MM/YYYY')} />
                             </Form.Item>
                         </div>
+                        )}
+                        {(expPaymentMethod !== 'BOLETO' && expPaymentMethod !== 'CHEQUE_PRE_DATADO') && (
                         <Alert
                             type="info"
                             showIcon
@@ -1023,6 +1126,7 @@ export default function ControleFinanceiro() {
                             description="Se parcelas = 1, será criado 1 lançamento. Se parcelas > 1, o valor total será dividido igualmente entre as parcelas com vencimento mensal a partir da data de início."
                             style={{ marginTop: 8 }}
                         />
+                        )}
                     </Form>
                 )}
             </Drawer>

@@ -830,7 +830,7 @@ function Items() {
 
       const qty = Number(values.quantity) || 1
       const measureQty = Number(values.measure_quantity) || 1
-      const stockQty = qty * measureQty
+      const stockQty = qty  // Estoque em unidades compradas (não convertido para unidade base)
       // cost_per_base_unit = preço por unidade base (ex: R$0,02/ml para item de 1000ml a R$20)
       const costPerBaseUnit = measureQty > 0 ? priceNumber / measureQty : priceNumber
       const totalCost = priceNumber * qty
@@ -1043,12 +1043,12 @@ function Items() {
       render: (_, record) => `${record.measure_quantity} ${(UNIT_TYPE as any)[record.unitType] || record.unitType}`,
     },
     {
-      title: 'Custo/Unid.',
+      title: 'Valor Unitário',
       key: 'unit_price',
-      width: 120,
+      width: 130,
       render: (_, record) => {
-        const perUnit = record.cost_per_base_unit ?? (record.quantity > 0 ? record.price / record.quantity : 0)
-        return `R$ ${getMonetaryValue(perUnit)}`
+        const valorUnitario = record.cost_per_base_unit * (record.measure_quantity || 1)
+        return `R$ ${getMonetaryValue(valorUnitario)}`
       },
     },
     {
@@ -1059,7 +1059,7 @@ function Items() {
       render: (_, record) => {
         const qty = stockMap[record.id]
         return qty !== undefined
-          ? `${qty} ${(UNIT_TYPE as any)[record.unitType] || record.unitType}`
+          ? `${qty} ${qty === 1 ? 'unidade' : 'unidades'}`
           : <span style={{ color: '#D0D5DD' }}>—</span>
       },
     },

@@ -155,6 +155,83 @@ export const BLOCK_DESPESAS_FINANCEIRAS: ExpenseSetupItem[] = [
   { key: 'DISTRIBUICAO_DE_LUCROS', label: 'Distribuição de Lucros', expense_group: 'DESPESA_FINANCEIRA' },
 ]
 
+/** Bloco SN: Custo dos produtos */
+export const BLOCK_CUSTO_PRODUTOS_SN: ExpenseSetupItem[] = [
+  { key: 'FORNECEDORES', label: 'Fornecedores — Produtos para Revenda', expense_group: 'CUSTO_PRODUTOS' },
+  { key: 'MATERIA_PRIMA_BASE_DOS_PROD_ROUPA_ALIMENTO_MADEIRA', label: 'Matéria-prima — Base dos produtos', expense_group: 'CUSTO_PRODUTOS' },
+  { key: 'EMBALAGENS', label: 'Embalagens individuais', expense_group: 'CUSTO_PRODUTOS' },
+]
+
+/** Bloco SN: Despesas Fixas (sem Investimentos que vão para Lucro) */
+export const BLOCK_DESPESAS_FIXAS_SN: ExpenseSetupItem[] = [
+  { key: 'AGUA', label: 'Água', expense_group: 'DESPESA_FIXA' },
+  { key: 'ALUGUEL', label: 'Aluguel', expense_group: 'DESPESA_FIXA' },
+  { key: 'APLICACOES_CONSORCIOS', label: 'Aplicações / Consórcios', expense_group: 'DESPESA_FIXA' },
+  { key: 'CONSULTORIA', label: 'Consultoria', expense_group: 'DESPESA_FIXA' },
+  { key: 'CONTABILIDADE', label: 'Contabilidade', expense_group: 'DESPESA_FIXA' },
+  { key: 'DEPRECIACAO', label: 'Depreciação', expense_group: 'DESPESA_FIXA' },
+  { key: 'EMPRESTIMOS', label: 'Empréstimos / Financiamentos', expense_group: 'DESPESA_FIXA' },
+  { key: 'ENERGIA_ELETRICA', label: 'Energia elétrica', expense_group: 'DESPESA_FIXA' },
+  { key: 'IMPOSTOS_IPTU_IPVA', label: 'Impostos IPTU / IPVA', expense_group: 'DESPESA_FIXA' },
+  { key: 'INTERNET', label: 'Internet', expense_group: 'DESPESA_FIXA' },
+  { key: 'SEGURANCA_MONITORAMENTO', label: 'Segurança / Monitoramento', expense_group: 'DESPESA_FIXA' },
+  { key: 'SEGUROS_IMOVEIS_VEICULOS', label: 'Seguros imóveis e veículos', expense_group: 'DESPESA_FIXA' },
+  { key: 'SISTEMA_DE_GESTAO_SOFTWARES', label: 'Sistema de gestão / Softwares', expense_group: 'DESPESA_FIXA' },
+  { key: 'TAXAS_LICENCIAMENTO', label: 'Taxas de licenciamento', expense_group: 'DESPESA_FIXA' },
+  { key: 'TELEFONE', label: 'Telefone', expense_group: 'DESPESA_FIXA' },
+  { key: 'SAUDE_TRABALHISTA_OCUPACIONAL', label: 'Saúde trabalhista / Ocupacional', expense_group: 'DESPESA_FIXA' },
+  { key: 'MEI', label: 'MEI (Microempreendedor Individual)', expense_group: 'DESPESA_FIXA' },
+]
+
+/** Bloco SN: Despesas Variáveis (sem atividades terceirizadas e sem comissões) */
+export const BLOCK_DESPESAS_VARIAVEIS_SN: ExpenseSetupItem[] = [
+  { key: 'COMBUSTIVEIS', label: 'Combustíveis', expense_group: 'DESPESA_VARIAVEL' },
+  { key: 'CORREIOS', label: 'Correios', expense_group: 'DESPESA_VARIAVEL' },
+  { key: 'DEPARTAMENTO_JURIDICO', label: 'Departamento jurídico', expense_group: 'DESPESA_VARIAVEL' },
+  { key: 'EMBALAGENS_DIVERSAS', label: 'Embalagens diversas', expense_group: 'DESPESA_VARIAVEL' },
+  { key: 'MANUTENCOES', label: 'Manutenções', expense_group: 'DESPESA_VARIAVEL' },
+  { key: 'MARKETING_PUBLICIDADES_E_RELACIONADOS', label: 'Marketing (publicidades e relacionados)', expense_group: 'DESPESA_VARIAVEL' },
+  { key: 'PEDAGIOS', label: 'Pedágios', expense_group: 'DESPESA_VARIAVEL' },
+  { key: 'RESCISOES_INDENIZACOES', label: 'Rescisões / Indenizações', expense_group: 'DESPESA_VARIAVEL' },
+  { key: 'TERCERIZACOES', label: 'Terceirizações (prestadores de serviços)', expense_group: 'DESPESA_VARIAVEL' },
+  { key: 'USO_E_CONSUMO', label: 'Uso e consumo', expense_group: 'DESPESA_VARIAVEL' },
+  { key: 'VALE_ALIMENTACAO_TERCERIZADOS', label: 'Vale alimentação', expense_group: 'DESPESA_VARIAVEL' },
+  { key: 'VIAGENS_HOTEIS_PASSAGENS_ALIMENTACAO_ETC', label: 'Viagens (hotéis / passagens / alimentação / etc)', expense_group: 'DESPESA_VARIAVEL' },
+]
+
+/** Bloco SN: Despesas Financeiras (sem Distribuição de lucros que vai para Lucro) */
+export const BLOCK_DESPESAS_FINANCEIRAS_SN: ExpenseSetupItem[] = [
+  { key: 'JUROS', label: 'Juros', expense_group: 'DESPESA_FINANCEIRA' },
+  { key: 'TAXAS_CARTAO', label: 'Taxas cartão', expense_group: 'DESPESA_FINANCEIRA' },
+  { key: 'TAXAS_BANCARIAS', label: 'Taxas bancárias', expense_group: 'DESPESA_FINANCEIRA' },
+  { key: 'TROCA_CHEQUE', label: 'Troca cheque', expense_group: 'DESPESA_FINANCEIRA' },
+  { key: 'IMPOSTO_IOF', label: 'IOF', expense_group: 'DESPESA_FINANCEIRA' },
+]
+
+/** Bloco SN: Atividades terceirizadas operacionais de entrega */
+export const BLOCK_ATIVIDADES_TERCEIRIZADAS_SN: ExpenseSetupItem[] = [
+  { key: 'FRETES_LOGISTICA_ENTREGA_TERCEIRIZADOS', label: 'Fretes / Logísticas de entrega terceirizados', expense_group: 'ATIVIDADES_TERCEIRIZADAS' },
+  { key: 'SEGURO_TRANSPORTE_ENTREGA', label: 'Seguro de transporte entrega', expense_group: 'ATIVIDADES_TERCEIRIZADAS' },
+  { key: 'DESPESAS_ACESSORIAS', label: 'Despesas acessórias', expense_group: 'ATIVIDADES_TERCEIRIZADAS' },
+  { key: 'GASTOS_LOGISTICAS_EXTERNAS', label: 'Gastos com logísticas externas', expense_group: 'ATIVIDADES_TERCEIRIZADAS' },
+]
+
+/** Bloco SN: Regime tributário */
+export const BLOCK_REGIME_TRIBUTARIO_SN: ExpenseSetupItem[] = [
+  { key: 'REGIME_TRIBUTARIO_SIMPLES', label: 'Simples Nacional', expense_group: 'REGIME_TRIBUTARIO' },
+]
+
+/** Bloco SN: Comissões */
+export const BLOCK_COMISSOES_SN: ExpenseSetupItem[] = [
+  { key: 'COMISSOES_DE_VENDA', label: 'Comissões de venda', expense_group: 'COMISSOES' },
+]
+
+/** Bloco SN: Lucro */
+export const BLOCK_LUCRO_SN: ExpenseSetupItem[] = [
+  { key: 'INVESTIMENTOS_MAQUINAS_E_EQUIPAMENTOS', label: 'Investimentos (máquinas, equipamentos, expansão e melhorias)', expense_group: 'LUCRO' },
+  { key: 'DISTRIBUICAO_DE_LUCROS', label: 'Distribuição de lucros', expense_group: 'LUCRO' },
+]
+
 export interface ExpenseSetupBlockDef {
   id: number
   title: string
@@ -204,5 +281,89 @@ export const EXPENSE_SETUP_BLOCKS: ExpenseSetupBlockDef[] = [
     categoryLabel: 'Despesa Financeira',
     items: BLOCK_DESPESAS_FINANCEIRAS,
     expense_group: 'DESPESA_FINANCEIRA',
+  },
+]
+
+/** 10 blocos para Simples Nacional / MEI */
+export const EXPENSE_SETUP_BLOCKS_SN: ExpenseSetupBlockDef[] = [
+  {
+    id: 1,
+    title: 'Custo dos produtos',
+    subtitle: 'Preencha os custos de aquisição e insumos dos produtos que você revende ou fabrica.',
+    categoryLabel: 'Custo dos Produtos',
+    items: BLOCK_CUSTO_PRODUTOS_SN,
+    expense_group: 'CUSTO_PRODUTOS',
+  },
+  {
+    id: 2,
+    title: 'Mão de obra produtiva',
+    subtitle: 'Preencha os valores que se aplicam à equipe produtiva. Não é obrigatório preencher todos.',
+    categoryLabel: 'Mão de obra produtiva',
+    items: BLOCK_MAO_DE_OBRA_PRODUTIVA,
+    expense_group: 'MAO_DE_OBRA',
+  },
+  {
+    id: 3,
+    title: 'Mão de obra administrativa',
+    subtitle: 'Preencha os valores que se aplicam à equipe administrativa e comercial.',
+    categoryLabel: 'Mão de obra administrativa',
+    items: BLOCK_MAO_DE_OBRA_ADMINISTRATIVA,
+    expense_group: 'MAO_DE_OBRA',
+  },
+  {
+    id: 4,
+    title: 'Despesas fixas',
+    subtitle: 'Preencha o valor nas linhas que se aplicam. Os valores serão distribuídos no cálculo de preço.',
+    categoryLabel: 'Despesa Fixa',
+    items: BLOCK_DESPESAS_FIXAS_SN,
+    expense_group: 'DESPESA_FIXA',
+  },
+  {
+    id: 5,
+    title: 'Despesas variáveis',
+    subtitle: 'Despesas que variam conforme a produção ou as vendas.',
+    categoryLabel: 'Despesa Variável',
+    items: BLOCK_DESPESAS_VARIAVEIS_SN,
+    expense_group: 'DESPESA_VARIAVEL',
+  },
+  {
+    id: 6,
+    title: 'Despesas financeiras',
+    subtitle: 'Taxas, juros e demais despesas financeiras.',
+    categoryLabel: 'Despesa Financeira',
+    items: BLOCK_DESPESAS_FINANCEIRAS_SN,
+    expense_group: 'DESPESA_FINANCEIRA',
+  },
+  {
+    id: 7,
+    title: 'Atividades terceirizadas operacionais de entrega',
+    subtitle: 'Custos com logística e entrega terceirizados.',
+    categoryLabel: 'Atividades Terceirizadas',
+    items: BLOCK_ATIVIDADES_TERCEIRIZADAS_SN,
+    expense_group: 'ATIVIDADES_TERCEIRIZADAS',
+  },
+  {
+    id: 8,
+    title: 'Regime tributário',
+    subtitle: 'Impostos do regime Simples Nacional.',
+    categoryLabel: 'Regime Tributário',
+    items: BLOCK_REGIME_TRIBUTARIO_SN,
+    expense_group: 'REGIME_TRIBUTARIO',
+  },
+  {
+    id: 9,
+    title: 'Comissões',
+    subtitle: 'Comissões de venda pagas à equipe comercial.',
+    categoryLabel: 'Comissões',
+    items: BLOCK_COMISSOES_SN,
+    expense_group: 'COMISSOES',
+  },
+  {
+    id: 10,
+    title: 'Lucro',
+    subtitle: 'Investimentos e distribuição de lucros.',
+    categoryLabel: 'Lucro',
+    items: BLOCK_LUCRO_SN,
+    expense_group: 'LUCRO',
   },
 ]

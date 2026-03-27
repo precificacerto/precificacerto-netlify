@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import {
     Button, Select, DatePicker, Space, message,
-    Form, Input, InputNumber, Drawer, Modal, Table, Tag,
+    Form, Input, InputNumber, Drawer, Modal, Table, Tag, Radio,
 } from 'antd'
 import dayjs from 'dayjs'
 import { Layout } from '@/components/layout/layout.component'
@@ -164,11 +164,11 @@ const SN_CATEGORY_GROUP_MAP: { category: string; group: string }[] = [
     { category: 'Décimo terceiro (Pró-Labo / Admin / Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
     { category: 'Férias colaboradores (Pró-Labo / Admin / Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
     { category: 'FGTS (Pró-Labo / Admin / Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
-    { category: 'Horas extras — Salários (Admin)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
+    { category: 'Horas extras — Salários', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
     { category: 'INSS (Pró-Labo / Admin / Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
     { category: 'INSS patronal (Pró-Labo / Admin / Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
     { category: 'Plano de saúde (Pró-Labo / Admin / Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
-    { category: 'RAT / FAP (Admin)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
+    { category: 'RAT / FAP', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
     { category: 'Vale alimentação (Pró-Labo / Admin / Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
     { category: 'Vale transporte (Pró-Labo / Admin / Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
     // Despesa Fixa
@@ -180,7 +180,7 @@ const SN_CATEGORY_GROUP_MAP: { category: string; group: string }[] = [
     { category: 'Depreciação', group: 'DESPESA_FIXA' },
     { category: 'Empréstimos / Financiamentos', group: 'DESPESA_FIXA' },
     { category: 'Energia elétrica', group: 'DESPESA_FIXA' },
-    { category: 'Impostos IPTU / IPVA', group: 'IMPOSTO' },
+    { category: 'Impostos IPTU / IPVA', group: 'DESPESA_FIXA' },
     { category: 'Internet', group: 'DESPESA_FIXA' },
     { category: 'Segurança / Monitoramento', group: 'DESPESA_FIXA' },
     { category: 'Seguros imóveis e veículos', group: 'DESPESA_FIXA' },
@@ -188,7 +188,7 @@ const SN_CATEGORY_GROUP_MAP: { category: string; group: string }[] = [
     { category: 'Taxas de licenciamento', group: 'DESPESA_FIXA' },
     { category: 'Telefone', group: 'DESPESA_FIXA' },
     { category: 'Saúde trabalhista / Ocupacional', group: 'DESPESA_FIXA' },
-    { category: 'MEI (Microempreendedor Individual)', group: 'IMPOSTO' },
+    { category: 'MEI (Microempreendedor Individual)', group: 'DESPESA_FIXA' },
     // Despesa Variável
     { category: 'Combustíveis', group: 'DESPESA_VARIAVEL' },
     { category: 'Correios', group: 'DESPESA_VARIAVEL' },
@@ -200,7 +200,7 @@ const SN_CATEGORY_GROUP_MAP: { category: string; group: string }[] = [
     { category: 'Rescisões / Indenizações', group: 'DESPESA_VARIAVEL' },
     { category: 'Terceirizações (prestadores de serviços)', group: 'DESPESA_VARIAVEL' },
     { category: 'Uso e consumo', group: 'DESPESA_VARIAVEL' },
-    { category: 'Vale alimentação (variável)', group: 'DESPESA_VARIAVEL' },
+    { category: 'Vale alimentação', group: 'DESPESA_VARIAVEL' },
     { category: 'Viagens (hotéis / passagens / alimentação / etc)', group: 'DESPESA_VARIAVEL' },
     // Despesa Financeira
     { category: 'Juros', group: 'DESPESA_FINANCEIRA' },
@@ -209,31 +209,49 @@ const SN_CATEGORY_GROUP_MAP: { category: string; group: string }[] = [
     { category: 'Troca cheque', group: 'DESPESA_FINANCEIRA' },
     { category: 'IOF', group: 'DESPESA_FINANCEIRA' },
     // Atividades Terceirizadas
-    { category: 'Fretes / Logísticas de entrega terceirizados', group: 'DESPESA_VARIAVEL' },
-    { category: 'Seguro de transporte entrega', group: 'DESPESA_VARIAVEL' },
-    { category: 'Despesas acessórias', group: 'DESPESA_VARIAVEL' },
-    { category: 'Gastos com logísticas externas', group: 'DESPESA_VARIAVEL' },
+    { category: 'Fretes / Logísticas de entrega terceirizados', group: 'ATIVIDADES_TERCEIRIZADAS' },
+    { category: 'Seguro de transporte entrega', group: 'ATIVIDADES_TERCEIRIZADAS' },
+    { category: 'Despesas acessórias', group: 'ATIVIDADES_TERCEIRIZADAS' },
+    { category: 'Gastos com logísticas externas', group: 'ATIVIDADES_TERCEIRIZADAS' },
     // Regime Tributário
-    { category: 'Simples Nacional', group: 'IMPOSTO' },
+    { category: 'Simples Nacional', group: 'REGIME_TRIBUTARIO' },
     // Comissões
-    { category: 'Comissões de venda', group: 'DESPESA_VARIAVEL' },
+    { category: 'Comissões de venda', group: 'COMISSOES' },
     // Lucro
-    { category: 'Investimentos (máquinas, equipamentos, expansão e melhorias)', group: 'DESPESA_FIXA' },
-    { category: 'Distribuição de lucros', group: 'DESPESA_FIXA' },
+    { category: 'Investimentos (máquinas, equipamentos, expansão e melhorias)', group: 'LUCRO' },
+    { category: 'Distribuição de lucros', group: 'LUCRO' },
 ]
 
 const SN_EXPENSE_CATEGORY_OPTIONS = [
-    { label: '── Custo de Produtos ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'CUSTO_PRODUTOS').map(c => ({ label: c.category, value: c.category })) },
+    { label: '── Custo dos Produtos ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'CUSTO_PRODUTOS').map(c => ({ label: c.category, value: c.category })) },
     { label: '── Mão de Obra Produção ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'MAO_DE_OBRA_PRODUTIVA').map(c => ({ label: c.category, value: c.category })) },
     { label: '── Mão de Obra Administrativa ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'MAO_DE_OBRA_ADMINISTRATIVA').map(c => ({ label: c.category, value: c.category })) },
     { label: '── Despesas Fixas ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_FIXA').map(c => ({ label: c.category, value: c.category })) },
     { label: '── Despesas Variáveis ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_VARIAVEL').map(c => ({ label: c.category, value: c.category })) },
     { label: '── Despesas Financeiras ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_FINANCEIRA').map(c => ({ label: c.category, value: c.category })) },
-    { label: '── Impostos ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'IMPOSTO').map(c => ({ label: c.category, value: c.category })) },
+    { label: '── Atividades Terceirizadas Operacionais de Entrega ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'ATIVIDADES_TERCEIRIZADAS').map(c => ({ label: c.category, value: c.category })) },
+    { label: '── Regime Tributário ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'REGIME_TRIBUTARIO').map(c => ({ label: c.category, value: c.category })) },
+    { label: '── Comissões ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'COMISSOES').map(c => ({ label: c.category, value: c.category })) },
+    { label: '── Lucro ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'LUCRO').map(c => ({ label: c.category, value: c.category })) },
 ]
 
 function getSNGroupForCategory(cat: string): string | undefined {
     return SN_CATEGORY_GROUP_MAP.find(c => c.category === cat)?.group
+}
+
+const INSTALLMENT_PRESETS = [
+    { value: 'customizado', label: 'Customizado' },
+    { value: '30', label: '30' },
+    { value: '30_60', label: '30/60' },
+    { value: '30_60_90', label: '30/60/90' },
+]
+
+function buildInstallmentsByPreset(preset: string): { date: any; amount: number }[] {
+    const today = dayjs()
+    if (preset === '30') return [{ date: today.add(30, 'day'), amount: 0 }]
+    if (preset === '30_60') return [{ date: today.add(30, 'day'), amount: 0 }, { date: today.add(60, 'day'), amount: 0 }]
+    if (preset === '30_60_90') return [{ date: today.add(30, 'day'), amount: 0 }, { date: today.add(60, 'day'), amount: 0 }, { date: today.add(90, 'day'), amount: 0 }]
+    return [{ date: null, amount: 0 }]
 }
 
 export default function CashFlow() {
@@ -249,6 +267,8 @@ export default function CashFlow() {
     const [selectedDay, setSelectedDay] = useState<number | null>(null)
     const [loadingPrevBalance, setLoadingPrevBalance] = useState(false)
     const [expPaymentMethod, setExpPaymentMethod] = useState<string>('')
+    const [expInstallments, setExpInstallments] = useState<{ date: any; amount: number }[]>([{ date: null, amount: 0 }])
+    const [expInstallmentPreset, setExpInstallmentPreset] = useState<'customizado' | '30' | '30_60' | '30_60_90'>('customizado')
 
     const [form] = Form.useForm()
 
@@ -627,23 +647,20 @@ export default function CashFlow() {
                 const entries: any[] = []
 
                 if (isBoletoOrCheque) {
-                    // Generate entries based on payment condition (30 / 30-60 / 30-60-90)
-                    type CondSlice = { days: number; fraction: number }
-                    const conditionMap: Record<string, CondSlice[]> = {
-                        '30': [{ days: 30, fraction: 1 }],
-                        '30_60': [{ days: 30, fraction: 0.5 }, { days: 60, fraction: 0.5 }],
-                        '30_60_90': [{ days: 30, fraction: 1 / 3 }, { days: 60, fraction: 1 / 3 }, { days: 90, fraction: 1 / 3 }],
+                    const validInst = expInstallments.filter(r => r.date && r.amount > 0)
+                    if (validInst.length === 0) {
+                        messageApi.error('Informe ao menos uma data e valor de vencimento.')
+                        return
                     }
-                    const slices = conditionMap[payCondition] || conditionMap['30']
-                    slices.forEach((s, idx) => {
+                    validInst.forEach((inst, idx) => {
                         entries.push({
                             tenant_id,
                             type: 'EXPENSE' as const,
                             origin_type: 'MANUAL',
                             recurrence_type: 'ONCE',
-                            description: slices.length > 1 ? `${desc} (${idx + 1}/${slices.length})` : desc,
-                            amount: Math.round(amountNum * s.fraction * 100) / 100,
-                            due_date: startDate.add(s.days, 'day').format('YYYY-MM-DD'),
+                            description: validInst.length > 1 ? `${desc} (${idx + 1}/${validInst.length})` : desc,
+                            amount: inst.amount,
+                            due_date: inst.date.format('YYYY-MM-DD'),
                             expense_group: expenseGroup,
                             expense_category: values.expense_category,
                             payment_method: paymentMethod,
@@ -703,7 +720,7 @@ export default function CashFlow() {
                             <Button loading={loadingPrevBalance} onClick={handlePrevMonthBalance}>
                                 Saldo do Mês Anterior
                             </Button>
-                            <Button type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setExpenseAmount(''); setExpPaymentMethod(''); setDrawerOpen(true) }}>
+                            <Button type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setExpenseAmount(''); setExpPaymentMethod(''); setExpInstallments([{ date: null, amount: 0 }]); setExpInstallmentPreset('customizado'); setDrawerOpen(true) }}>
                                 + Novo Lançamento
                             </Button>
                         </>
@@ -756,7 +773,7 @@ export default function CashFlow() {
                                     const val = saldoDiaAnterior[day] || 0
                                     return (
                                         <td key={day} style={{ padding: '5px 4px', textAlign: 'right', color: val > 0 ? '#4ade80' : val < 0 ? '#f87171' : '#334155', fontWeight: 600, fontVariantNumeric: 'tabular-nums', borderRight: '1px solid rgba(255,255,255,0.04)', fontSize: 11 }}>
-                                            {val !== 0 ? new Intl.NumberFormat('pt-BR', { notation: 'compact', maximumFractionDigits: 1 }).format(val) : ''}
+                                            {val !== 0 ? formatCurrency(val) : ''}
                                         </td>
                                     )
                                 })}
@@ -781,7 +798,7 @@ export default function CashFlow() {
                                             const val = (pivotByDay.data[label] || {})[day] || 0
                                             return (
                                                 <td key={day} style={{ padding: '5px 4px', textAlign: 'right', color: val > 0 ? '#4ade80' : '#334155', fontVariantNumeric: 'tabular-nums', borderRight: '1px solid rgba(255,255,255,0.04)', fontSize: 11 }}>
-                                                    {val > 0 ? new Intl.NumberFormat('pt-BR', { notation: 'compact', maximumFractionDigits: 1 }).format(val) : ''}
+                                                    {val > 0 ? formatCurrency(val) : ''}
                                                 </td>
                                             )
                                         })}
@@ -800,7 +817,7 @@ export default function CashFlow() {
                                     const dayTotal = INCOME_LABELS.reduce((sum, label) => sum + ((pivotByDay.data[label] || {})[day] || 0), 0)
                                     return (
                                         <td key={day} style={{ padding: '5px 4px', textAlign: 'right', color: dayTotal > 0 ? '#fff' : 'rgba(255,255,255,0.3)', fontWeight: 600, fontSize: 11, fontVariantNumeric: 'tabular-nums' }}>
-                                            {dayTotal > 0 ? new Intl.NumberFormat('pt-BR', { notation: 'compact', maximumFractionDigits: 1 }).format(dayTotal) : ''}
+                                            {dayTotal > 0 ? formatCurrency(dayTotal) : ''}
                                         </td>
                                     )
                                 })}
@@ -844,7 +861,7 @@ export default function CashFlow() {
                                                 const val = (pivotByDay.data[section.header] || {})[day] || 0
                                                 return (
                                                     <td key={day} style={{ padding: '5px 4px', textAlign: 'right', color: val > 0 ? '#f87171' : '#334155', fontVariantNumeric: 'tabular-nums', borderRight: '1px solid rgba(255,255,255,0.04)', fontSize: 11 }}>
-                                                        {val > 0 ? new Intl.NumberFormat('pt-BR', { notation: 'compact', maximumFractionDigits: 1 }).format(val) : ''}
+                                                        {val > 0 ? formatCurrency(val) : ''}
                                                     </td>
                                                 )
                                             })}
@@ -866,7 +883,7 @@ export default function CashFlow() {
                                                         const val = (pivotByDay.data[itemKey] || {})[day] || 0
                                                         return (
                                                             <td key={day} style={{ padding: '4px 4px', textAlign: 'right', color: val > 0 ? '#fca5a5' : '#334155', fontVariantNumeric: 'tabular-nums', borderRight: '1px solid rgba(255,255,255,0.02)', fontSize: 10 }}>
-                                                                {val > 0 ? new Intl.NumberFormat('pt-BR', { notation: 'compact', maximumFractionDigits: 1 }).format(val) : ''}
+                                                                {val > 0 ? formatCurrency(val) : ''}
                                                             </td>
                                                         )
                                                     })}
@@ -888,7 +905,7 @@ export default function CashFlow() {
                                         const val = (pivotByDay.data['Outras Despesas'] || {})[day] || 0
                                         return (
                                             <td key={day} style={{ padding: '5px 4px', textAlign: 'right', color: val > 0 ? '#f87171' : '#334155', fontVariantNumeric: 'tabular-nums', borderRight: '1px solid rgba(255,255,255,0.04)', fontSize: 11 }}>
-                                                {val > 0 ? new Intl.NumberFormat('pt-BR', { notation: 'compact', maximumFractionDigits: 1 }).format(val) : ''}
+                                                {val > 0 ? formatCurrency(val) : ''}
                                             </td>
                                         )
                                     })}
@@ -906,7 +923,7 @@ export default function CashFlow() {
                                     const dayTotal = [...EXPENSE_SECTIONS.map(s => s.header), 'Outras Despesas'].reduce((sum, key) => sum + ((pivotByDay.data[key] || {})[day] || 0), 0)
                                     return (
                                         <td key={day} style={{ padding: '5px 4px', textAlign: 'right', color: dayTotal > 0 ? '#fff' : 'rgba(255,255,255,0.3)', fontWeight: 600, fontSize: 11, fontVariantNumeric: 'tabular-nums' }}>
-                                            {dayTotal > 0 ? new Intl.NumberFormat('pt-BR', { notation: 'compact', maximumFractionDigits: 1 }).format(dayTotal) : ''}
+                                            {dayTotal > 0 ? formatCurrency(dayTotal) : ''}
                                         </td>
                                     )
                                 })}
@@ -929,7 +946,7 @@ export default function CashFlow() {
                                     const res = incomeDay - expenseDay
                                     return (
                                         <td key={day} style={{ padding: '5px 4px', textAlign: 'right', color: res > 0 ? '#4ade80' : res < 0 ? '#f87171' : '#475569', fontWeight: 700, fontSize: 11, fontVariantNumeric: 'tabular-nums' }}>
-                                            {res !== 0 ? new Intl.NumberFormat('pt-BR', { notation: 'compact', maximumFractionDigits: 1 }).format(res) : ''}
+                                            {res !== 0 ? formatCurrency(res) : ''}
                                         </td>
                                     )
                                 })}
@@ -1008,7 +1025,7 @@ export default function CashFlow() {
             </div>
 
             {/* Drawer: Novo Lançamento (Despesa) */}
-            <Drawer title="Novo Lançamento de Despesa" width={680} open={drawerOpen} onClose={() => { setDrawerOpen(false); setExpPaymentMethod('') }}
+            <Drawer title="Novo Lançamento de Despesa" width={680} open={drawerOpen} onClose={() => { setDrawerOpen(false); setExpPaymentMethod(''); setExpInstallments([{ date: null, amount: 0 }]); setExpInstallmentPreset('customizado') }}
                 extra={<Button type="primary" onClick={handleSaveEntry}>Salvar</Button>}>
                 <Form form={form} layout="vertical">
                     <Form.Item name="expense_category" label="Categoria da Despesa" rules={[{ required: true, message: 'Selecione a categoria' }]}>
@@ -1036,21 +1053,53 @@ export default function CashFlow() {
                             placeholder="Selecione o método (opcional)"
                             allowClear
                             options={EXPENSE_PAYMENT_METHODS}
-                            onChange={(v) => { setExpPaymentMethod(v || ''); form.setFieldValue('payment_condition', '30') }}
+                            onChange={(v) => { setExpPaymentMethod(v || ''); setExpInstallments([{ date: null, amount: 0 }]); setExpInstallmentPreset('customizado') }}
                         />
                     </Form.Item>
                     {(expPaymentMethod === 'BOLETO' || expPaymentMethod === 'CHEQUE_PRE_DATADO') ? (
-                        <>
-                            <Form.Item name="payment_condition" label="Condição de Pagamento" initialValue="30">
-                                <Select options={PAYMENT_CONDITIONS} />
-                            </Form.Item>
-                            <Form.Item name="expense_start_date" label="Data de referência">
-                                <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" placeholder="Hoje" />
-                            </Form.Item>
-                            <div style={{ fontSize: 12, color: '#64748b', marginTop: -8 }}>
-                                As parcelas são geradas com vencimento 30/60/90 dias a partir da data de referência.
+                        <div style={{ marginBottom: 16, padding: 12, background: 'rgba(96, 165, 250, 0.08)', border: '1px solid rgba(96,165,250,0.25)', borderRadius: 8 }}>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: '#93c5fd', marginBottom: 8 }}>
+                                Datas e valores de vencimento
                             </div>
-                        </>
+                            <div style={{ marginBottom: 10 }}>
+                                <Radio.Group
+                                    value={expInstallmentPreset}
+                                    onChange={(e) => {
+                                        const p = e.target.value
+                                        setExpInstallmentPreset(p)
+                                        setExpInstallments(buildInstallmentsByPreset(p))
+                                    }}
+                                    size="small"
+                                >
+                                    {INSTALLMENT_PRESETS.map(p => <Radio.Button key={p.value} value={p.value}>{p.label}</Radio.Button>)}
+                                </Radio.Group>
+                            </div>
+                            {expInstallments.map((item, idx) => (
+                                <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8, marginBottom: 8, alignItems: 'center' }}>
+                                    <DatePicker
+                                        placeholder="Data de vencimento"
+                                        format="DD/MM/YYYY"
+                                        value={item.date}
+                                        onChange={(d) => setExpInstallments(prev => prev.map((r, i) => i === idx ? { ...r, date: d } : r))}
+                                        style={{ width: '100%' }}
+                                    />
+                                    <InputNumber
+                                        min={0} step={0.01} precision={2} style={{ width: '100%' }}
+                                        placeholder="Valor (R$)" value={item.amount || undefined} addonBefore="R$"
+                                        onChange={(v) => setExpInstallments(prev => prev.map((r, i) => i === idx ? { ...r, amount: Number(v) || 0 } : r))}
+                                    />
+                                    <Button danger size="small" type="text"
+                                        disabled={expInstallmentPreset !== 'customizado' || expInstallments.length === 1}
+                                        onClick={() => setExpInstallments(prev => prev.filter((_, i) => i !== idx))}>✕</Button>
+                                </div>
+                            ))}
+                            {expInstallmentPreset === 'customizado' && (
+                                <Button type="dashed" size="small" style={{ width: '100%' }}
+                                    onClick={() => setExpInstallments(prev => [...prev, { date: null, amount: 0 }])}>
+                                    + Adicionar data/valor
+                                </Button>
+                            )}
+                        </div>
                     ) : (
                         <>
                             <div style={{ marginBottom: 8, color: '#94a3b8', fontSize: 13, fontWeight: 500 }}>Condição de Pagamento</div>

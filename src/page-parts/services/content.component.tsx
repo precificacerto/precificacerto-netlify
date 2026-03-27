@@ -393,7 +393,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                 <td style={{ width: 140, padding: '6px 0' }}>
                     {editable ? (
                         <InputNumber
-                            size="small" min={0} max={99} step={0.1} precision={2}
+                            size="small" min={0} max={100} step={0.001} precision={3}
                             value={pct}
                             onChange={(v) => {
                                 if (editable === 'commission') setCommissionPercent(v ?? 0)

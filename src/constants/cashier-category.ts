@@ -1,6 +1,7 @@
-export type ExpenseGroupKey = 'MAO_DE_OBRA' | 'DESPESA_FIXA' | 'DESPESA_FINANCEIRA' | 'DESPESA_VARIAVEL' | 'IMPOSTO'
+export type ExpenseGroupKey = 'MAO_DE_OBRA' | 'DESPESA_FIXA' | 'DESPESA_FINANCEIRA' | 'DESPESA_VARIAVEL' | 'IMPOSTO' | 'CUSTO_PRODUTOS' | 'ATIVIDADES_TERCEIRIZADAS' | 'REGIME_TRIBUTARIO' | 'COMISSOES' | 'LUCRO'
 
-export const EXPENSE_GROUPS: Record<ExpenseGroupKey, { key: ExpenseGroupKey; label: string; color: string }> = {
+type StandardExpenseGroupKey = 'MAO_DE_OBRA' | 'DESPESA_FIXA' | 'DESPESA_FINANCEIRA' | 'DESPESA_VARIAVEL' | 'IMPOSTO'
+export const EXPENSE_GROUPS: Record<StandardExpenseGroupKey, { key: StandardExpenseGroupKey; label: string; color: string }> = {
   MAO_DE_OBRA:        { key: 'MAO_DE_OBRA',        label: 'Mão de Obra',        color: '#7C3AED' },
   DESPESA_FIXA:       { key: 'DESPESA_FIXA',        label: 'Despesa Fixa',       color: '#2563EB' },
   DESPESA_FINANCEIRA: { key: 'DESPESA_FINANCEIRA',  label: 'Despesa Financeira', color: '#D97706' },
@@ -384,11 +385,11 @@ const SN_CATEGORY_GROUP_MAP: { category: string; group: string }[] = [
   { category: 'Décimo terceiro (Pró-Labo / Admin / Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
   { category: 'Férias colaboradores (Pró-Labo / Admin / Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
   { category: 'FGTS (Pró-Labo / Admin / Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
-  { category: 'Horas extras — Salários (Admin)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
+  { category: 'Horas extras — Salários', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
   { category: 'INSS (Pró-Labo / Admin / Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
   { category: 'INSS patronal (Pró-Labo / Admin / Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
   { category: 'Plano de saúde (Pró-Labo / Admin / Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
-  { category: 'RAT / FAP (Admin)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
+  { category: 'RAT / FAP', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
   { category: 'Vale alimentação (Pró-Labo / Admin / Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
   { category: 'Vale transporte (Pró-Labo / Admin / Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
   { category: 'Água', group: 'DESPESA_FIXA' },
@@ -406,10 +407,10 @@ const SN_CATEGORY_GROUP_MAP: { category: string; group: string }[] = [
   { category: 'Taxas de licenciamento', group: 'DESPESA_FIXA' },
   { category: 'Telefone', group: 'DESPESA_FIXA' },
   { category: 'Saúde trabalhista / Ocupacional', group: 'DESPESA_FIXA' },
-  { category: 'Investimentos (máquinas, equipamentos, expansão e melhorias)', group: 'DESPESA_FIXA' },
-  { category: 'Distribuição de lucros', group: 'DESPESA_FIXA' },
+  { category: 'Investimentos (máquinas, equipamentos, expansão e melhorias)', group: 'LUCRO' },
+  { category: 'Distribuição de lucros', group: 'LUCRO' },
   { category: 'Combustíveis', group: 'DESPESA_VARIAVEL' },
-  { category: 'Comissões de venda', group: 'DESPESA_VARIAVEL' },
+  { category: 'Comissões de venda', group: 'COMISSOES' },
   { category: 'Correios', group: 'DESPESA_VARIAVEL' },
   { category: 'Departamento jurídico', group: 'DESPESA_VARIAVEL' },
   { category: 'Embalagens diversas', group: 'DESPESA_VARIAVEL' },
@@ -419,41 +420,48 @@ const SN_CATEGORY_GROUP_MAP: { category: string; group: string }[] = [
   { category: 'Rescisões / Indenizações', group: 'DESPESA_VARIAVEL' },
   { category: 'Terceirizações (prestadores de serviços)', group: 'DESPESA_VARIAVEL' },
   { category: 'Uso e consumo', group: 'DESPESA_VARIAVEL' },
-  { category: 'Vale alimentação (variável)', group: 'DESPESA_VARIAVEL' },
+  { category: 'Vale alimentação', group: 'DESPESA_VARIAVEL' },
   { category: 'Viagens (hotéis / passagens / alimentação / etc)', group: 'DESPESA_VARIAVEL' },
-  { category: 'Fretes / Logísticas de entrega terceirizados', group: 'DESPESA_VARIAVEL' },
-  { category: 'Seguro de transporte entrega', group: 'DESPESA_VARIAVEL' },
-  { category: 'Despesas acessórias', group: 'DESPESA_VARIAVEL' },
-  { category: 'Gastos com logísticas externas', group: 'DESPESA_VARIAVEL' },
+  { category: 'Fretes / Logísticas de entrega terceirizados', group: 'ATIVIDADES_TERCEIRIZADAS' },
+  { category: 'Seguro de transporte entrega', group: 'ATIVIDADES_TERCEIRIZADAS' },
+  { category: 'Despesas acessórias', group: 'ATIVIDADES_TERCEIRIZADAS' },
+  { category: 'Gastos com logísticas externas', group: 'ATIVIDADES_TERCEIRIZADAS' },
   { category: 'Juros', group: 'DESPESA_FINANCEIRA' },
   { category: 'Taxas cartão', group: 'DESPESA_FINANCEIRA' },
   { category: 'Taxas bancárias', group: 'DESPESA_FINANCEIRA' },
   { category: 'Troca cheque', group: 'DESPESA_FINANCEIRA' },
   { category: 'IOF', group: 'DESPESA_FINANCEIRA' },
-  { category: 'Simples Nacional', group: 'IMPOSTO' },
-  { category: 'Impostos IPTU / IPVA', group: 'IMPOSTO' },
-  { category: 'MEI (Microempreendedor Individual)', group: 'IMPOSTO' },
+  { category: 'Impostos IPTU / IPVA', group: 'DESPESA_FIXA' },
+  { category: 'MEI (Microempreendedor Individual)', group: 'DESPESA_FIXA' },
+  { category: 'Simples Nacional', group: 'REGIME_TRIBUTARIO' },
 ]
 
-// Maps SN-specific group names to the standard 5 ExpenseGroupKey values
+// Maps SN-specific group names to ExpenseGroupKey values (stored in DB)
 const SN_GROUP_TO_STANDARD: Record<string, ExpenseGroupKey> = {
-  CUSTO_PRODUTOS: 'DESPESA_VARIAVEL',
+  CUSTO_PRODUTOS: 'CUSTO_PRODUTOS',
   MAO_DE_OBRA_PRODUTIVA: 'MAO_DE_OBRA',
   MAO_DE_OBRA_ADMINISTRATIVA: 'MAO_DE_OBRA',
   DESPESA_FIXA: 'DESPESA_FIXA',
   DESPESA_VARIAVEL: 'DESPESA_VARIAVEL',
   DESPESA_FINANCEIRA: 'DESPESA_FINANCEIRA',
   IMPOSTO: 'IMPOSTO',
+  ATIVIDADES_TERCEIRIZADAS: 'ATIVIDADES_TERCEIRIZADAS',
+  REGIME_TRIBUTARIO: 'REGIME_TRIBUTARIO',
+  COMISSOES: 'COMISSOES',
+  LUCRO: 'LUCRO',
 }
 
 const SN_EXPENSE_CATEGORY_OPTIONS = [
-  { label: '── Custo de Produtos ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'CUSTO_PRODUTOS').map(c => ({ label: c.category, value: c.category })) },
+  { label: '── Custo dos Produtos ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'CUSTO_PRODUTOS').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Mão de Obra Produção ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'MAO_DE_OBRA_PRODUTIVA').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Mão de Obra Administrativa ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'MAO_DE_OBRA_ADMINISTRATIVA').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Despesas Fixas ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_FIXA').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Despesas Variáveis ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_VARIAVEL').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Despesas Financeiras ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_FINANCEIRA').map(c => ({ label: c.category, value: c.category })) },
-  { label: '── Impostos ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'IMPOSTO').map(c => ({ label: c.category, value: c.category })) },
+  { label: '── Atividades Terceirizadas Operacionais ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'ATIVIDADES_TERCEIRIZADAS').map(c => ({ label: c.category, value: c.category })) },
+  { label: '── Regime Tributário ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'REGIME_TRIBUTARIO').map(c => ({ label: c.category, value: c.category })) },
+  { label: '── Comissões ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'COMISSOES').map(c => ({ label: c.category, value: c.category })) },
+  { label: '── Lucro ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'LUCRO').map(c => ({ label: c.category, value: c.category })) },
 ]
 
 /** Category options filtered by tax regime */
@@ -511,16 +519,21 @@ const EXPENSE_TYPE_LABELS: Record<string, string> = {
   DESPESA_VARIAVEL: 'Despesa Variável',
   DESPESA_FINANCEIRA: 'Despesa Financeira',
   IMPOSTO: 'Imposto',
+  CUSTO_PRODUTOS: 'Custo dos Produtos',
+  ATIVIDADES_TERCEIRIZADAS: 'Atividades Terceirizadas Operacionais',
+  REGIME_TRIBUTARIO: 'Regime Tributário',
+  COMISSOES: 'Comissões',
+  LUCRO: 'Lucro',
 }
 
 export function getExpenseGroupLabel(groupKey: string): string {
-  return EXPENSE_GROUPS[groupKey as ExpenseGroupKey]?.label
+  return EXPENSE_GROUPS[groupKey as StandardExpenseGroupKey]?.label
     ?? EXPENSE_TYPE_LABELS[groupKey]
     ?? groupKey
 }
 
 export function getExpenseGroupColor(groupKey: string): string {
-  return EXPENSE_GROUPS[groupKey as ExpenseGroupKey]?.color ?? '#6B7280'
+  return EXPENSE_GROUPS[groupKey as StandardExpenseGroupKey]?.color ?? '#6B7280'
 }
 
 /** Tax category keys available for Lucro Real, Lucro Presumido, Simples Híbrido */

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
 import {
     Button, Drawer, Form, Input, InputNumber, Select, Space, Table, Tag,
-    message, Popconfirm, DatePicker, Empty, Divider, Modal, Upload, Checkbox,
+    message, Popconfirm, DatePicker, Empty, Divider, Modal, Upload, Checkbox, Radio,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import type { UploadFile } from 'antd/es/upload/interface'
@@ -78,6 +78,21 @@ function formatCurrency(v: number): string {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v)
 }
 
+function buildInstallmentsByPreset(preset: string): { date: any; amount: number }[] {
+    const today = dayjs()
+    if (preset === '30') return [{ date: today.add(30, 'day'), amount: 0 }]
+    if (preset === '30_60') return [{ date: today.add(30, 'day'), amount: 0 }, { date: today.add(60, 'day'), amount: 0 }]
+    if (preset === '30_60_90') return [{ date: today.add(30, 'day'), amount: 0 }, { date: today.add(60, 'day'), amount: 0 }, { date: today.add(90, 'day'), amount: 0 }]
+    return [{ date: null, amount: 0 }]
+}
+
+const INSTALLMENT_PRESETS = [
+    { value: 'customizado', label: 'Customizado' },
+    { value: '30', label: '30' },
+    { value: '30_60', label: '30/60' },
+    { value: '30_60_90', label: '30/60/90' },
+]
+
 interface PendingBudget {
     id: string
     customer_name: string
@@ -117,6 +132,8 @@ function Sales() {
 
     // Parcelas customizadas para Cheque pré-datado / Boleto (Venda no Balcão)
     const [customInstallments, setCustomInstallments] = useState<{ date: any; amount: number }[]>([{ date: null, amount: 0 }])
+    const [installmentPreset, setInstallmentPreset] = useState<'customizado' | '30' | '30_60' | '30_60_90'>('customizado')
+    const [registerInstallmentPreset, setRegisterInstallmentPreset] = useState<'customizado' | '30' | '30_60' | '30_60_90'>('customizado')
     const [empProductTablesV, setEmpProductTablesV] = useState<{id: string; name: string; type: string}[]>([])
     const [empServiceTablesV, setEmpServiceTablesV] = useState<{id: string; name: string; type: string}[]>([])
     const [tableSectionsV, setTableSectionsV] = useState<{key: string; tableId: string | null}[]>([{key: 'ts-0', tableId: null}])
@@ -1277,8 +1294,8 @@ function Sales() {
                 title="🏪 Venda no Balcão"
                 width={680}
                 open={drawerOpen}
-                onClose={() => { setDrawerOpen(false); form.resetFields(); setSaleItems([]); setEmpProductTablesV([]); setEmpServiceTablesV([]); setTableSectionsV([{key: 'ts-0', tableId: null}]); setReceiptFile([]); setAttachDesc(''); setIsSplitPay(false); setCustomInstallments([{ date: null, amount: 0 }]) }}
-                extra={<Space><Button onClick={() => { setDrawerOpen(false); form.resetFields(); setSaleItems([]); setEmpProductTablesV([]); setEmpServiceTablesV([]); setTableSectionsV([{key: 'ts-0', tableId: null}]); setReceiptFile([]); setAttachDesc(''); setIsSplitPay(false); setCustomInstallments([{ date: null, amount: 0 }]) }}>Cancelar</Button><Button onClick={handleSaveSale} type="primary" loading={saving}>Registrar Venda</Button></Space>}
+                onClose={() => { setDrawerOpen(false); form.resetFields(); setSaleItems([]); setEmpProductTablesV([]); setEmpServiceTablesV([]); setTableSectionsV([{key: 'ts-0', tableId: null}]); setReceiptFile([]); setAttachDesc(''); setIsSplitPay(false); setCustomInstallments([{ date: null, amount: 0 }]); setInstallmentPreset('customizado') }}
+                extra={<Space><Button onClick={() => { setDrawerOpen(false); form.resetFields(); setSaleItems([]); setEmpProductTablesV([]); setEmpServiceTablesV([]); setTableSectionsV([{key: 'ts-0', tableId: null}]); setReceiptFile([]); setAttachDesc(''); setIsSplitPay(false); setCustomInstallments([{ date: null, amount: 0 }]); setInstallmentPreset('customizado') }}>Cancelar</Button><Button onClick={handleSaveSale} type="primary" loading={saving}>Registrar Venda</Button></Space>}
             >
                 <Form form={form} layout="vertical">
                     <Divider orientation="left" style={{ fontSize: 12, color: '#94a3b8', marginTop: 0 }}>Vendedor</Divider>
@@ -1416,6 +1433,19 @@ function Sales() {
                                     <div style={{ fontSize: 13, fontWeight: 600, color: '#93c5fd', marginBottom: 8 }}>
                                         Datas e valores de recebimento
                                     </div>
+                                    <div style={{ marginBottom: 10 }}>
+                                        <Radio.Group
+                                            value={installmentPreset}
+                                            onChange={(e) => {
+                                                const p = e.target.value
+                                                setInstallmentPreset(p)
+                                                setCustomInstallments(buildInstallmentsByPreset(p))
+                                            }}
+                                            size="small"
+                                        >
+                                            {INSTALLMENT_PRESETS.map(p => <Radio.Button key={p.value} value={p.value}>{p.label}</Radio.Button>)}
+                                        </Radio.Group>
+                                    </div>
                                     {customInstallments.map((item, idx) => (
                                         <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8, marginBottom: 8, alignItems: 'center' }}>
                                             <DatePicker
@@ -1441,15 +1471,17 @@ function Sales() {
                                             />
                                             <Button
                                                 danger size="small" type="text"
-                                                disabled={customInstallments.length === 1}
+                                                disabled={installmentPreset !== 'customizado' || customInstallments.length === 1}
                                                 onClick={() => setCustomInstallments(prev => prev.filter((_, i) => i !== idx))}
                                             >✕</Button>
                                         </div>
                                     ))}
-                                    <Button
-                                        type="dashed" size="small" style={{ width: '100%' }}
-                                        onClick={() => setCustomInstallments(prev => [...prev, { date: null, amount: 0 }])}
-                                    >+ Adicionar data/valor</Button>
+                                    {installmentPreset === 'customizado' && (
+                                        <Button
+                                            type="dashed" size="small" style={{ width: '100%' }}
+                                            onClick={() => setCustomInstallments(prev => [...prev, { date: null, amount: 0 }])}
+                                        >+ Adicionar data/valor</Button>
+                                    )}
                                     {customInstallments.length > 1 && (
                                         <div style={{ marginTop: 6, fontSize: 12, color: '#94a3b8' }}>
                                             Total parcelas: <strong style={{ color: '#e2e8f0' }}>{formatCurrency(customInstallments.reduce((s, r) => s + (r.amount || 0), 0))}</strong>
@@ -1609,7 +1641,7 @@ function Sales() {
             <Modal
                 title="Registrar Venda"
                 open={registerModalOpen}
-                onCancel={() => { setRegisterModalOpen(false); setRegisterReceiptFile([]); setRegisterAttachDesc(''); setRegisterCustomInstallments([{ date: null, amount: 0 }]) }}
+                onCancel={() => { setRegisterModalOpen(false); setRegisterReceiptFile([]); setRegisterAttachDesc(''); setRegisterCustomInstallments([{ date: null, amount: 0 }]); setRegisterInstallmentPreset('customizado') }}
                 onOk={handleRegisterSaleFromBudget}
                 confirmLoading={registerSaving}
                 okText="Confirmar Venda"
@@ -1650,6 +1682,19 @@ function Sales() {
                                     <div style={{ fontSize: 13, fontWeight: 600, color: '#93c5fd', marginBottom: 8 }}>
                                         Datas e valores de recebimento
                                     </div>
+                                    <div style={{ marginBottom: 10 }}>
+                                        <Radio.Group
+                                            value={registerInstallmentPreset}
+                                            onChange={(e) => {
+                                                const p = e.target.value
+                                                setRegisterInstallmentPreset(p)
+                                                setRegisterCustomInstallments(buildInstallmentsByPreset(p))
+                                            }}
+                                            size="small"
+                                        >
+                                            {INSTALLMENT_PRESETS.map(p => <Radio.Button key={p.value} value={p.value}>{p.label}</Radio.Button>)}
+                                        </Radio.Group>
+                                    </div>
                                     {registerCustomInstallments.map((item, idx) => (
                                         <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8, marginBottom: 8, alignItems: 'center' }}>
                                             <DatePicker
@@ -1665,14 +1710,16 @@ function Sales() {
                                                 onChange={(v) => setRegisterCustomInstallments(prev => prev.map((r, i) => i === idx ? { ...r, amount: Number(v) || 0 } : r))}
                                             />
                                             <Button danger size="small" type="text"
-                                                disabled={registerCustomInstallments.length === 1}
+                                                disabled={registerInstallmentPreset !== 'customizado' || registerCustomInstallments.length === 1}
                                                 onClick={() => setRegisterCustomInstallments(prev => prev.filter((_, i) => i !== idx))}>✕</Button>
                                         </div>
                                     ))}
-                                    <Button type="dashed" size="small" style={{ width: '100%' }}
-                                        onClick={() => setRegisterCustomInstallments(prev => [...prev, { date: null, amount: 0 }])}>
-                                        + Adicionar data/valor
-                                    </Button>
+                                    {registerInstallmentPreset === 'customizado' && (
+                                        <Button type="dashed" size="small" style={{ width: '100%' }}
+                                            onClick={() => setRegisterCustomInstallments(prev => [...prev, { date: null, amount: 0 }])}>
+                                            + Adicionar data/valor
+                                        </Button>
+                                    )}
                                 </div>
                             )
                         }}

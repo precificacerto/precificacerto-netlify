@@ -47,11 +47,20 @@ const PAYMENT_METHODS = [
     { value: 'LANCAMENTOS_A_RECEBER', label: 'Lançamentos a Receber' },
 ]
 
-const CHEQUE_PRE_DATADO_CONDITIONS = [
-    { value: '30', label: '30 dias' },
-    { value: '30_60', label: '30/60 dias' },
-    { value: '30_60_90', label: '30/60/90 dias' },
+const INSTALLMENT_PRESETS = [
+    { value: 'customizado', label: 'Customizado' },
+    { value: '30', label: '30' },
+    { value: '30_60', label: '30/60' },
+    { value: '30_60_90', label: '30/60/90' },
 ]
+
+function buildInstallmentsByPreset(preset: string): { date: any; amount: number }[] {
+    const today = dayjs()
+    if (preset === '30') return [{ date: today.add(30, 'day'), amount: 0 }]
+    if (preset === '30_60') return [{ date: today.add(30, 'day'), amount: 0 }, { date: today.add(60, 'day'), amount: 0 }]
+    if (preset === '30_60_90') return [{ date: today.add(30, 'day'), amount: 0 }, { date: today.add(60, 'day'), amount: 0 }, { date: today.add(90, 'day'), amount: 0 }]
+    return [{ date: null, amount: 0 }]
+}
 
 // Horários de 00:00 até 24:00 (intervalos de 30 min)
 const TIME_SLOTS: string[] = []
@@ -123,6 +132,8 @@ function Schedule() {
     const [hasDiscount, setHasDiscount] = useState(false)
     const [discountTick, setDiscountTick] = useState(0)
     const [isSplitPay, setIsSplitPay] = useState(false)
+    const [customInstallments, setCustomInstallments] = useState<{ date: any; amount: number }[]>([{ date: null, amount: 0 }])
+    const [installmentPreset, setInstallmentPreset] = useState<'customizado' | '30' | '30_60' | '30_60_90'>('customizado')
     const [extraProds, setExtraProds] = useState<ExtraProd[]>([])
     const [attachFile, setAttachFile] = useState<File | null>(null)
     const [attachDesc, setAttachDesc] = useState('')
@@ -132,7 +143,7 @@ function Schedule() {
 
     // Recurrence state for booking form
     const [recurActive, setRecurActive] = useState(false)
-    const [recurType, setRecurType] = useState<'weekly' | 'biweekly' | 'every_20_days' | 'custom' | 'weekdays'>('weekly')
+    const [recurType, setRecurType] = useState<'weekly' | 'biweekly' | 'every_20_days' | 'monthly'>('weekly')
     const [recurWeekdays, setRecurWeekdays] = useState<number[]>([]) // 0=Mon..6=Sun (isoWeekday-based)
     const [recurEndDate, setRecurEndDate] = useState<dayjs.Dayjs | null>(null)
     const [recurForever, setRecurForever] = useState(false)
@@ -356,20 +367,34 @@ function Schedule() {
                         : recurEndDate!.endOf('day')
                     const isoWeekdaySet = new Set(recurWeekdays.map(d => d + 1)) // isoWeekday: 1=Mon..7=Sun
 
+                    // Target weekday: use recurWeekdays[0] if set, else start date's weekday
+                    const targetIsoWeekday = recurWeekdays.length > 0 ? (recurWeekdays[0] + 1) : startLocal.isoWeekday()
+
                     while (cursor.isBefore(endLimit)) {
                         let matches = false
                         const diffDays = cursor.diff(startLocal, 'day')
                         if (recurType === 'weekly') {
-                            matches = cursor.isoWeekday() === startLocal.isoWeekday()
+                            matches = cursor.isoWeekday() === targetIsoWeekday
                         } else if (recurType === 'biweekly') {
-                            const diffWeeks = cursor.diff(startLocal, 'week')
-                            matches = diffWeeks % 2 === 0 && cursor.isoWeekday() === startLocal.isoWeekday()
+                            // Every 2 weeks on the target weekday
+                            matches = cursor.isoWeekday() === targetIsoWeekday && Math.floor(diffDays / 7) % 2 === 0
                         } else if (recurType === 'every_20_days') {
-                            matches = diffDays % 20 === 0
-                        } else if (recurType === 'custom') {
-                            matches = diffDays % Math.max(1, recurCustomDays) === 0
-                        } else if (recurType === 'weekdays') {
-                            matches = isoWeekdaySet.has(cursor.isoWeekday())
+                            matches = diffDays % 20 === 0 && cursor.isoWeekday() === targetIsoWeekday
+                        } else if (recurType === 'monthly') {
+                            // Once per month: first occurrence of target weekday on or after the monthly anniversary
+                            const monthDiff = cursor.diff(startLocal, 'month')
+                            if (monthDiff > 0) {
+                                const monthAnniversary = startLocal.add(monthDiff, 'month')
+                                // Check if cursor is the first occurrence of the target weekday in that month
+                                const dayOfWeek = cursor.isoWeekday()
+                                if (dayOfWeek === targetIsoWeekday && cursor.month() === monthAnniversary.month() && cursor.year() === monthAnniversary.year()) {
+                                    // First occurrence of target weekday in this month
+                                    const firstOccurrence = cursor.startOf('month')
+                                    let first = firstOccurrence
+                                    while (first.isoWeekday() !== targetIsoWeekday) first = first.add(1, 'day')
+                                    matches = cursor.isSame(first, 'day')
+                                }
+                            }
                         }
                         if (matches) {
                             const rStart = cursor.hour(startLocal.hour()).minute(startLocal.minute()).second(0)
@@ -683,24 +708,21 @@ function Schedule() {
                         created_by: createdBy,
                     })
                 } else if (v.payment_method === 'CHEQUE_PRE_DATADO' || v.payment_method === 'BOLETO') {
-                    // Cheque pré-datado / Boleto: gera cash_entries com paid_date = NULL e due_dates futuros
-                    const chequeCondition = v.cheque_condition || '30'
-                    const baseDate = dayjs(payEvt.start_time)
-                    type ChequeEntry = { days: number; fraction: number }
-                    const conditionMap: Record<string, ChequeEntry[]> = {
-                        '30': [{ days: 30, fraction: 1 }],
-                        '30_60': [{ days: 30, fraction: 0.5 }, { days: 60, fraction: 0.5 }],
-                        '30_60_90': [{ days: 30, fraction: 1 / 3 }, { days: 60, fraction: 1 / 3 }, { days: 90, fraction: 1 / 3 }],
+                    // Cheque pré-datado / Boleto: gera cash_entries com datas e valores informados pelo usuário
+                    const validInstallments = customInstallments.filter(r => r.date && r.amount > 0)
+                    if (validInstallments.length === 0) {
+                        msgApi.error('Informe ao menos uma data e valor de recebimento.')
+                        return
                     }
-                    const slices = conditionMap[chequeCondition] || conditionMap['30']
-                    const chequeEntries = slices.map((s, idx) => ({
+                    const chequeEntries = validInstallments.map((inst, idx) => ({
                         tenant_id: tid, type: 'INCOME',
-                        description: slices.length > 1
-                            ? `${descricaoCompleta} (${idx + 1}/${slices.length})`
+                        description: validInstallments.length > 1
+                            ? `${descricaoCompleta} (${idx + 1}/${validInstallments.length})`
                             : descricaoCompleta,
-                        amount: Math.round((totalRevenue * s.fraction) * 100) / 100,
-                        due_date: baseDate.add(s.days, 'day').format('YYYY-MM-DD'),
-                        paid_date: null,
+                        amount: inst.amount,
+                        due_date: inst.date.format('YYYY-MM-DD'),
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        paid_date: null as any,
                         payment_method: v.payment_method,
                         origin_type: 'SALE', origin_id: payEvt.id,
                         contact_id: payEvt.customer_id || null,
@@ -891,7 +913,7 @@ function Schedule() {
             }
 
             msgApi.success('Serviço concluído e lançado no caixa!')
-            setPayOpen(false); setPayEvt(null); setExtraProds([]); setAttachFile(null); setAttachDesc(''); setPayTableSections([{key: 'pts-0', tableId: null}])
+            setPayOpen(false); setPayEvt(null); setExtraProds([]); setAttachFile(null); setAttachDesc(''); setCustomInstallments([{ date: null, amount: 0 }]); setInstallmentPreset('customizado'); setPayTableSections([{key: 'pts-0', tableId: null}])
             await fetchAll()
         } catch (e: any) { msgApi.error(e.message || '') }
     }
@@ -1652,30 +1674,18 @@ function Schedule() {
                                             <Radio.Button value="weekly">Semanal</Radio.Button>
                                             <Radio.Button value="biweekly">Quinzenal</Radio.Button>
                                             <Radio.Button value="every_20_days">20 dias</Radio.Button>
-                                            <Radio.Button value="custom">Customizado</Radio.Button>
-                                            <Radio.Button value="weekdays">Dias fixos</Radio.Button>
+                                            <Radio.Button value="monthly">Mensal</Radio.Button>
                                         </Radio.Group>
                                     </div>
-                                    {recurType === 'custom' && (
-                                        <div>
-                                            <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 6 }}>Repetir a cada (dias)</div>
-                                            <InputNumber
-                                                min={1} max={365} value={recurCustomDays}
-                                                onChange={(v) => setRecurCustomDays(Number(v) || 1)}
-                                                style={{ width: 120 }} addonAfter="dias"
-                                            />
-                                        </div>
-                                    )}
-                                    {recurType === 'weekdays' && (
-                                        <div>
-                                            <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 6 }}>Dias da semana</div>
-                                            <Checkbox.Group
-                                                options={WEEK_DAYS_SHORT.map((d, i) => ({ label: d, value: i }))}
-                                                value={recurWeekdays}
-                                                onChange={(v) => setRecurWeekdays(v as number[])}
-                                            />
-                                        </div>
-                                    )}
+                                    <div>
+                                        <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 6 }}>Dia da semana</div>
+                                        <Checkbox.Group
+                                            options={WEEK_DAYS_SHORT.map((d, i) => ({ label: d, value: i }))}
+                                            value={recurWeekdays}
+                                            onChange={(v) => setRecurWeekdays((v as number[]).slice(-1))}
+                                        />
+                                        <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>Selecione o dia da semana para a recorrência.</div>
+                                    </div>
                                     <div>
                                         <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 6 }}>Período</div>
                                         <Radio.Group
@@ -1714,9 +1724,9 @@ function Schedule() {
             <Modal
                 title={<span style={{ fontSize: 16 }}><CheckCircleOutlined style={{ color: '#12B76A', marginRight: 8 }} />Lançar Pagamento do Serviço</span>}
                 open={payOpen}
-                onCancel={() => { setPayOpen(false); setPayEvt(null); setExtraProds([]); setAttachFile(null); setAttachDesc('') }}
+                onCancel={() => { setPayOpen(false); setPayEvt(null); setExtraProds([]); setAttachFile(null); setAttachDesc(''); setCustomInstallments([{ date: null, amount: 0 }]); setInstallmentPreset('customizado') }}
                 footer={[
-                    <Button key="cancel" onClick={() => { setPayOpen(false); setPayEvt(null); setExtraProds([]); setAttachFile(null); setAttachDesc('') }}>Cancelar</Button>,
+                    <Button key="cancel" onClick={() => { setPayOpen(false); setPayEvt(null); setExtraProds([]); setAttachFile(null); setAttachDesc(''); setCustomInstallments([{ date: null, amount: 0 }]); setInstallmentPreset('customizado') }}>Cancelar</Button>,
                     <Button key="ok" type="primary" size="large" style={{ background: '#12B76A', borderColor: '#12B76A' }} icon={<CheckCircleOutlined />} onClick={handleCompletePay}>
                         Concluir e Lançar no Caixa
                     </Button>,
@@ -1755,13 +1765,54 @@ function Schedule() {
                                 </Form.Item>
                             )}
                             {(payMethod === 'CHEQUE_PRE_DATADO' || payMethod === 'BOLETO') && (
-                                <Form.Item name="cheque_condition" label="Condição de Pagamento" rules={[{ required: true, message: 'Selecione a condição' }]} style={{ marginBottom: 16 }}>
-                                    <Select size="large" placeholder="Selecione a condição">
-                                        {CHEQUE_PRE_DATADO_CONDITIONS.map(c => (
-                                            <Select.Option key={c.value} value={c.value}>{c.label}</Select.Option>
-                                        ))}
-                                    </Select>
-                                </Form.Item>
+                                <div style={{ marginBottom: 16, padding: 12, background: 'rgba(96, 165, 250, 0.08)', border: '1px solid rgba(96,165,250,0.25)', borderRadius: 8 }}>
+                                    <div style={{ fontSize: 13, fontWeight: 600, color: '#93c5fd', marginBottom: 8 }}>
+                                        Datas e valores de recebimento
+                                    </div>
+                                    <div style={{ marginBottom: 10 }}>
+                                        <Radio.Group
+                                            value={installmentPreset}
+                                            onChange={(e) => {
+                                                const p = e.target.value
+                                                setInstallmentPreset(p)
+                                                setCustomInstallments(buildInstallmentsByPreset(p))
+                                            }}
+                                            size="small"
+                                        >
+                                            {INSTALLMENT_PRESETS.map(p => <Radio.Button key={p.value} value={p.value}>{p.label}</Radio.Button>)}
+                                        </Radio.Group>
+                                    </div>
+                                    {customInstallments.map((item, idx) => (
+                                        <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8, marginBottom: 8, alignItems: 'center' }}>
+                                            <DatePicker
+                                                placeholder="Data de recebimento"
+                                                format="DD/MM/YYYY"
+                                                value={item.date}
+                                                onChange={(d) => setCustomInstallments(prev => prev.map((r, i) => i === idx ? { ...r, date: d } : r))}
+                                                style={{ width: '100%' }}
+                                            />
+                                            <InputNumber
+                                                min={0} step={0.01} precision={2} style={{ width: '100%' }}
+                                                placeholder="Valor (R$)" value={item.amount || undefined} addonBefore="R$"
+                                                onChange={(v) => setCustomInstallments(prev => prev.map((r, i) => i === idx ? { ...r, amount: Number(v) || 0 } : r))}
+                                            />
+                                            <Button danger size="small" type="text"
+                                                disabled={installmentPreset !== 'customizado' || customInstallments.length === 1}
+                                                onClick={() => setCustomInstallments(prev => prev.filter((_, i) => i !== idx))}>✕</Button>
+                                        </div>
+                                    ))}
+                                    {installmentPreset === 'customizado' && (
+                                        <Button type="dashed" size="small" style={{ width: '100%' }}
+                                            onClick={() => setCustomInstallments(prev => [...prev, { date: null, amount: 0 }])}>
+                                            + Adicionar data/valor
+                                        </Button>
+                                    )}
+                                    {customInstallments.length > 1 && (
+                                        <div style={{ marginTop: 6, fontSize: 12, color: '#94a3b8' }}>
+                                            Total parcelas: <strong>{customInstallments.reduce((s, r) => s + (r.amount || 0), 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong>
+                                        </div>
+                                    )}
+                                </div>
                             )}
                             <div style={{ marginBottom: 16 }}>
                                 <Checkbox checked={hasDiscount} onChange={(e) => { setHasDiscount(e.target.checked); if (!e.target.checked) payForm.setFieldsValue({ discount_percent: 0, discount_value: 0 }) }}>

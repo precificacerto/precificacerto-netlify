@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
 import {
     Button, Drawer, Form, Input, InputNumber, Select, Space, Table, Tag,
-    message, DatePicker, Steps, Popconfirm, Divider, Empty, Modal, Upload,
+    message, DatePicker, Steps, Popconfirm, Divider, Empty, Modal, Upload, Radio,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { Layout } from '@/components/layout/layout.component'
@@ -26,6 +26,21 @@ import { calculateDiscountedPrice } from '@/utils/calculate-discount'
 function formatCurrency(v: number): string {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v)
 }
+
+function buildInstallmentsByPreset(preset: string): { date: any; amount: number }[] {
+    const today = dayjs()
+    if (preset === '30') return [{ date: today.add(30, 'day'), amount: 0 }]
+    if (preset === '30_60') return [{ date: today.add(30, 'day'), amount: 0 }, { date: today.add(60, 'day'), amount: 0 }]
+    if (preset === '30_60_90') return [{ date: today.add(30, 'day'), amount: 0 }, { date: today.add(60, 'day'), amount: 0 }, { date: today.add(90, 'day'), amount: 0 }]
+    return [{ date: null, amount: 0 }]
+}
+
+const INSTALLMENT_PRESETS = [
+    { value: 'customizado', label: 'Customizado' },
+    { value: '30', label: '30' },
+    { value: '30_60', label: '30/60' },
+    { value: '30_60_90', label: '30/60/90' },
+]
 
 /** Célula de cabeçalho que mantém título + ícone de ordenação + ícone de filtro agrupados à esquerda */
 function TableHeaderCell(props: React.HTMLAttributes<HTMLTableCellElement> & { children?: React.ReactNode }) {
@@ -102,6 +117,8 @@ function Budgets() {
     const [budgetMessageTemplate, setBudgetMessageTemplate] = useState<string | null>(null)
     const [form] = Form.useForm()
     const [paymentForm] = Form.useForm()
+    const [customInstallments, setCustomInstallments] = useState<{ date: any; amount: number }[]>([{ date: null, amount: 0 }])
+    const [installmentPreset, setInstallmentPreset] = useState<'customizado' | '30' | '30_60' | '30_60_90'>('customizado')
     const [attachFile, setAttachFile] = useState<File | null>(null)
     const [attachDesc, setAttachDesc] = useState('')
     const [customerMode, setCustomerMode] = useState<'existing' | 'manual'>('existing')
@@ -737,6 +754,28 @@ function Budgets() {
                     status: 'PENDING',
                     created_by: createdBy,
                 })
+            } else if (values.payment_method === 'CHEQUE_PRE_DATADO' || values.payment_method === 'BOLETO') {
+                const validInstallments = customInstallments.filter(r => r.date && r.amount > 0)
+                if (validInstallments.length === 0) {
+                    messageApi.error('Informe ao menos uma data e valor de recebimento.')
+                    setSaving(false)
+                    return
+                }
+                const payLabelOrc = PAYMENT_METHODS.find(p => p.value === values.payment_method)?.label || values.payment_method
+                const boletoEntries = validInstallments.map((inst, idx) => ({
+                    tenant_id,
+                    type: 'INCOME',
+                    amount: inst.amount,
+                    due_date: inst.date.format('YYYY-MM-DD'),
+                    description: validInstallments.length > 1
+                        ? `Venda: ORC-${selectedBudget.id.substring(0, 4).toUpperCase()} — ${payLabelOrc} (${idx + 1}/${validInstallments.length})`
+                        : `Venda: ORC-${selectedBudget.id.substring(0, 4).toUpperCase()} — ${payLabelOrc}`,
+                    payment_method: values.payment_method,
+                    origin_type: 'SALE',
+                    origin_id: sale.id,
+                    created_by: createdBy,
+                }))
+                await (supabase as any).from('cash_entries').insert(boletoEntries)
             } else if (values.payment_method === 'CARTAO_CREDITO') {
                 const totalValue = Number(selectedBudget.total_value)
                 const amountPerInstallment = totalValue / numInstallments
@@ -1506,7 +1545,7 @@ function Budgets() {
             <Modal
                 title="💳 Finalizar Pagamento"
                 open={paymentModalOpen}
-                onCancel={() => { setPaymentModalOpen(false); setAttachFile(null); setAttachDesc('') }}
+                onCancel={() => { setPaymentModalOpen(false); setAttachFile(null); setAttachDesc(''); setCustomInstallments([{ date: null, amount: 0 }]); setInstallmentPreset('customizado') }}
                 onOk={handleFinalizeBudget}
                 okText="Confirmar Pagamento"
                 width={420}
@@ -1540,6 +1579,63 @@ function Budgets() {
                                 </Form.Item>
                             ) : null
                         }
+                    </Form.Item>
+
+                    <Form.Item noStyle shouldUpdate={(prev, curr) => prev.payment_method !== curr.payment_method}>
+                        {({ getFieldValue }) => {
+                            const pm = getFieldValue('payment_method')
+                            if (pm !== 'CHEQUE_PRE_DATADO' && pm !== 'BOLETO') return null
+                            return (
+                                <div style={{ marginBottom: 16, padding: 12, background: 'rgba(96, 165, 250, 0.08)', border: '1px solid rgba(96,165,250,0.25)', borderRadius: 8 }}>
+                                    <div style={{ fontSize: 13, fontWeight: 600, color: '#93c5fd', marginBottom: 8 }}>
+                                        Datas e valores de recebimento
+                                    </div>
+                                    <div style={{ marginBottom: 10 }}>
+                                        <Radio.Group
+                                            value={installmentPreset}
+                                            onChange={(e) => {
+                                                const p = e.target.value
+                                                setInstallmentPreset(p)
+                                                setCustomInstallments(buildInstallmentsByPreset(p))
+                                            }}
+                                            size="small"
+                                        >
+                                            {INSTALLMENT_PRESETS.map(p => <Radio.Button key={p.value} value={p.value}>{p.label}</Radio.Button>)}
+                                        </Radio.Group>
+                                    </div>
+                                    {customInstallments.map((item, idx) => (
+                                        <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8, marginBottom: 8, alignItems: 'center' }}>
+                                            <DatePicker
+                                                placeholder="Data de recebimento"
+                                                format="DD/MM/YYYY"
+                                                value={item.date}
+                                                onChange={(d) => setCustomInstallments(prev => prev.map((r, i) => i === idx ? { ...r, date: d } : r))}
+                                                style={{ width: '100%' }}
+                                            />
+                                            <InputNumber
+                                                min={0} step={0.01} precision={2} style={{ width: '100%' }}
+                                                placeholder="Valor (R$)" value={item.amount || undefined} addonBefore="R$"
+                                                onChange={(v) => setCustomInstallments(prev => prev.map((r, i) => i === idx ? { ...r, amount: Number(v) || 0 } : r))}
+                                            />
+                                            <Button danger size="small" type="text"
+                                                disabled={installmentPreset !== 'customizado' || customInstallments.length === 1}
+                                                onClick={() => setCustomInstallments(prev => prev.filter((_, i) => i !== idx))}>✕</Button>
+                                        </div>
+                                    ))}
+                                    {installmentPreset === 'customizado' && (
+                                        <Button type="dashed" size="small" style={{ width: '100%' }}
+                                            onClick={() => setCustomInstallments(prev => [...prev, { date: null, amount: 0 }])}>
+                                            + Adicionar data/valor
+                                        </Button>
+                                    )}
+                                    {customInstallments.length > 1 && (
+                                        <div style={{ marginTop: 6, fontSize: 12, color: '#94a3b8' }}>
+                                            Total parcelas: <strong style={{ color: '#e2e8f0' }}>{formatCurrency(customInstallments.reduce((s, r) => s + (r.amount || 0), 0))}</strong>
+                                        </div>
+                                    )}
+                                </div>
+                            )
+                        }}
                     </Form.Item>
 
                     <div style={{ padding: 12, background: '#0a1628', borderRadius: 8, border: '1px solid rgba(255,255,255,0.06)', marginBottom: 16 }}>
