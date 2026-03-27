@@ -1473,6 +1473,19 @@ function Schedule() {
                     <Button size="small" type="primary" onClick={handleSave} loading={loading}>Salvar</Button>
                 </Space>}>
                 <Form form={form} layout="vertical">
+                    <Form.Item name="employee_id" label="Funcionário" rules={[{ required: true, message: 'Selecione' }]}>
+                        <Select placeholder="Selecione" showSearch optionFilterProp="children">
+                            {schedEmps.map(e => (
+                                <Select.Option key={e.id} value={e.id}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                        <div style={{ width: 8, height: 8, borderRadius: '50%', background: empColor[e.id] }} />
+                                        {e.name}
+                                    </div>
+                                </Select.Option>
+                            ))}
+                        </Select>
+                    </Form.Item>
+
                     {/* Service: choose mode */}
                     <div style={{ marginBottom: 16 }}>
                         <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Tipo de serviço</div>
@@ -1491,18 +1504,6 @@ function Schedule() {
                     )}
 
                     <Form.Item name="title" label="Serviço / Título" rules={[{ required: true, message: 'Informe o serviço' }]}><Input placeholder="Ex: Corte, Tintura, Escova..." /></Form.Item>
-                    <Form.Item name="employee_id" label="Funcionário" rules={[{ required: true, message: 'Selecione' }]}>
-                        <Select placeholder="Selecione" showSearch optionFilterProp="children">
-                            {schedEmps.map(e => (
-                                <Select.Option key={e.id} value={e.id}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                        <div style={{ width: 8, height: 8, borderRadius: '50%', background: empColor[e.id] }} />
-                                        {e.name}
-                                    </div>
-                                </Select.Option>
-                            ))}
-                        </Select>
-                    </Form.Item>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                         <Form.Item name="date" label="Data" rules={[{ required: true }]}><DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" /></Form.Item>
                         <Form.Item name="time" label="Horário" rules={[{ required: true }]}><TimePicker style={{ width: '100%' }} format="HH:mm" minuteStep={5} /></Form.Item>

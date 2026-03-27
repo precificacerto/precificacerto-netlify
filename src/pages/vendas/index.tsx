@@ -116,8 +116,43 @@ function Sales() {
 
     // Parcelas customizadas para Cheque pré-datado / Boleto (Venda no Balcão)
     const [customInstallments, setCustomInstallments] = useState<{ date: any; amount: number }[]>([{ date: null, amount: 0 }])
+    const [empProductTablesV, setEmpProductTablesV] = useState<{id: string; name: string}[]>([])
+    const [empServiceTablesV, setEmpServiceTablesV] = useState<{id: string; name: string}[]>([])
+    const [selectedProductTableIdV, setSelectedProductTableIdV] = useState<string | null>(null)
+    const [selectedServiceTableIdV, setSelectedServiceTableIdV] = useState<string | null>(null)
+    const selectedEmployeeIdV = Form.useWatch('employee_id', form)
+
+    useEffect(() => {
+        if (!selectedEmployeeIdV) {
+            setEmpProductTablesV([])
+            setEmpServiceTablesV([])
+            setSelectedProductTableIdV(null)
+            setSelectedServiceTableIdV(null)
+            return
+        }
+        ;(async () => {
+            const { data } = await (supabase as any)
+                .from('employee_commission_tables')
+                .select('commission_tables(id, name, type)')
+                .eq('employee_id', selectedEmployeeIdV)
+            const tables = (data || []).map((r: any) => r.commission_tables).filter(Boolean)
+            setEmpProductTablesV(tables.filter((t: any) => t.type === 'PRODUCT'))
+            setEmpServiceTablesV(tables.filter((t: any) => t.type === 'SERVICE'))
+            setSelectedProductTableIdV(null)
+            setSelectedServiceTableIdV(null)
+        })()
+    }, [selectedEmployeeIdV])
+
+    const filteredProductsV = selectedProductTableIdV
+        ? products.filter((p: any) => p.commission_table_id === selectedProductTableIdV)
+        : []
+    const filteredServicesV = selectedServiceTableIdV
+        ? services.filter((s: any) => s.commission_table_id === selectedServiceTableIdV)
+        : []
+    const employeeHasNoTablesV = !!selectedEmployeeIdV && empProductTablesV.length === 0 && empServiceTablesV.length === 0
+
     // Parcelas customizadas para Cheque pré-datado / Boleto (Registrar venda de orçamento)
-    const [registerCustomInstallments, setRegisterCustomInstallments] = useState<{ date: any; amount: number }[]>([{ date: null, amount: 0 }])
+    const [registerCustomInstallments, setRegisterCustomInstallments] = useState<{ date: null; amount: number }[]>([{ date: null, amount: 0 }])
 
     const { canView, canEdit } = usePermissions()
     if (!canView(MODULES.SALES)) {
@@ -1066,14 +1101,14 @@ function Sales() {
             ) : r.is_service ? (
                 <Select placeholder="Selecione o serviço" showSearch optionFilterProp="children" style={{ width: '100%' }}
                     value={r.service_id || undefined} onChange={(v) => handleServiceSelect(r.key, v)}>
-                    {services.map((s: any) => (
+                    {(selectedServiceTableIdV ? filteredServicesV : services).map((s: any) => (
                         <Select.Option key={s.id} value={s.id}>{s.name}</Select.Option>
                     ))}
                 </Select>
             ) : (
                 <Select placeholder="Selecione" showSearch optionFilterProp="children" style={{ width: '100%' }}
                     value={r.product_id || undefined} onChange={(v) => handleProductSelect(r.key, v)}>
-                    {products.map(p => (
+                    {(selectedProductTableIdV ? filteredProductsV : products).map(p => (
                         <Select.Option key={p.id} value={p.id}>{p.name}</Select.Option>
                     ))}
                 </Select>
@@ -1233,20 +1268,69 @@ function Sales() {
                 extra={<Space><Button onClick={() => { setDrawerOpen(false); setReceiptFile([]); setAttachDesc(''); setIsSplitPay(false); setCustomInstallments([{ date: null, amount: 0 }]) }}>Cancelar</Button><Button onClick={handleSaveSale} type="primary" loading={saving}>Registrar Venda</Button></Space>}
             >
                 <Form form={form} layout="vertical">
-                    <Divider orientation="left" style={{ fontSize: 12, color: '#94a3b8', marginTop: 0 }}>Produtos e Serviços</Divider>
+                    <Divider orientation="left" style={{ fontSize: 12, color: '#94a3b8', marginTop: 0 }}>Vendedor</Divider>
+
+                    <Form.Item name="employee_id" label="Vendedor" rules={[{ required: true, message: 'Selecione o vendedor' }]}>
+                        <Select placeholder="Selecione o vendedor" showSearch optionFilterProp="children">
+                            {employees.map((e: any) => (<Select.Option key={e.id} value={e.id}>{e.name}</Select.Option>))}
+                        </Select>
+                    </Form.Item>
+
+                    {selectedEmployeeIdV && employeeHasNoTablesV && (
+                        <div style={{ background: 'rgba(249,115,22,0.1)', border: '1px solid rgba(249,115,22,0.3)', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 12, color: '#fdba74' }}>
+                            Este funcionário não possui tabelas de comissão vinculadas. Apenas lançamento manual está disponível.
+                        </div>
+                    )}
+                    {selectedEmployeeIdV && empProductTablesV.length > 0 && (
+                        <div style={{ marginBottom: 16 }}>
+                            <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 6 }}>Tabela de Produtos</div>
+                            <Select
+                                placeholder="Selecione a tabela de produtos"
+                                style={{ width: '100%' }}
+                                value={selectedProductTableIdV}
+                                onChange={(v: string) => { setSelectedProductTableIdV(v); setSaleItems(prev => prev.filter(i => i.is_manual || i.is_service)) }}
+                                options={empProductTablesV.map(t => ({ value: t.id, label: t.name }))}
+                                allowClear
+                                onClear={() => { setSelectedProductTableIdV(null); setSaleItems(prev => prev.filter(i => i.is_manual || i.is_service)) }}
+                            />
+                        </div>
+                    )}
+                    {selectedEmployeeIdV && empServiceTablesV.length > 0 && (
+                        <div style={{ marginBottom: 16 }}>
+                            <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 6 }}>Tabela de Serviços</div>
+                            <Select
+                                placeholder="Selecione a tabela de serviços"
+                                style={{ width: '100%' }}
+                                value={selectedServiceTableIdV}
+                                onChange={(v: string) => { setSelectedServiceTableIdV(v); setSaleItems(prev => prev.filter(i => i.is_manual || !i.is_service)) }}
+                                options={empServiceTablesV.map(t => ({ value: t.id, label: t.name }))}
+                                allowClear
+                                onClear={() => { setSelectedServiceTableIdV(null); setSaleItems(prev => prev.filter(i => i.is_manual || !i.is_service)) }}
+                            />
+                        </div>
+                    )}
+
+                    <Divider orientation="left" style={{ fontSize: 12, color: '#94a3b8' }}>Produtos e Serviços</Divider>
 
                     <Table columns={itemColumns} dataSource={saleItems} rowKey="key" pagination={false} size="small"
                         locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Adicione produtos ou serviços à venda" /> }}
                     />
 
                     <Space.Compact block style={{ marginTop: 12, display: 'flex', gap: 8 }}>
-                        <Button type="dashed" onClick={handleAddProduct} icon={<PlusOutlined />} style={{ flex: 1 }}>
-                            Adicionar Produto
-                        </Button>
-                        <Button type="dashed" onClick={handleAddService} icon={<ToolOutlined />} style={{ flex: 1 }}>
-                            Adicionar Serviço
-                        </Button>
-                        <Button type="dashed" onClick={handleAddManualProduct} icon={<PlusOutlined />} style={{ flex: 1 }}>
+                        {!employeeHasNoTablesV && (
+                            <>
+                                <Button type="dashed" onClick={handleAddProduct} icon={<PlusOutlined />} style={{ flex: 1 }}
+                                    disabled={!selectedEmployeeIdV || (empProductTablesV.length > 0 && !selectedProductTableIdV)}>
+                                    Adicionar Produto
+                                </Button>
+                                <Button type="dashed" onClick={handleAddService} icon={<ToolOutlined />} style={{ flex: 1 }}
+                                    disabled={!selectedEmployeeIdV || (empServiceTablesV.length > 0 && !selectedServiceTableIdV)}>
+                                    Adicionar Serviço
+                                </Button>
+                            </>
+                        )}
+                        <Button type="dashed" onClick={handleAddManualProduct} icon={<PlusOutlined />} style={{ flex: 1 }}
+                            disabled={!selectedEmployeeIdV}>
                             Adicionar item manual
                         </Button>
                     </Space.Compact>
@@ -1364,12 +1448,6 @@ function Sales() {
                     <Form.Item name="customer_id" label="Cliente (opcional)">
                         <Select placeholder="Selecione o cliente" showSearch optionFilterProp="children" allowClear>
                             {customers.map(c => (<Select.Option key={c.id} value={c.id}>{c.name}</Select.Option>))}
-                        </Select>
-                    </Form.Item>
-
-                    <Form.Item name="employee_id" label="Vendedor (opcional)">
-                        <Select placeholder="Selecione o vendedor" showSearch optionFilterProp="children" allowClear>
-                            {employees.map((e: any) => (<Select.Option key={e.id} value={e.id}>{e.name}</Select.Option>))}
                         </Select>
                     </Form.Item>
 

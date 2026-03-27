@@ -105,6 +105,10 @@ function Budgets() {
     const [attachDesc, setAttachDesc] = useState('')
     const [customerMode, setCustomerMode] = useState<'existing' | 'manual'>('existing')
     const [messageApi, contextHolder] = message.useMessage()
+    const [empProductTables, setEmpProductTables] = useState<{id: string; name: string}[]>([])
+    const [empServiceTables, setEmpServiceTables] = useState<{id: string; name: string}[]>([])
+    const [selectedProductTableId, setSelectedProductTableId] = useState<string | null>(null)
+    const [selectedServiceTableId, setSelectedServiceTableId] = useState<string | null>(null)
 
     useEffect(() => {
         async function fetchSettings() {
@@ -275,6 +279,35 @@ function Budgets() {
     const sellerCommissionPct = (selectedEmployee?.commission_percent != null && Number(selectedEmployee.commission_percent) > 0)
         ? Number(selectedEmployee.commission_percent) / 100
         : 0
+
+    useEffect(() => {
+        if (!selectedEmployeeId) {
+            setEmpProductTables([])
+            setEmpServiceTables([])
+            setSelectedProductTableId(null)
+            setSelectedServiceTableId(null)
+            return
+        }
+        ;(async () => {
+            const { data } = await (supabase as any)
+                .from('employee_commission_tables')
+                .select('commission_tables(id, name, type)')
+                .eq('employee_id', selectedEmployeeId)
+            const tables = (data || []).map((r: any) => r.commission_tables).filter(Boolean)
+            setEmpProductTables(tables.filter((t: any) => t.type === 'PRODUCT'))
+            setEmpServiceTables(tables.filter((t: any) => t.type === 'SERVICE'))
+            setSelectedProductTableId(null)
+            setSelectedServiceTableId(null)
+        })()
+    }, [selectedEmployeeId])
+
+    const filteredProducts = selectedProductTableId
+        ? (products as any[]).filter((p: any) => p.commission_table_id === selectedProductTableId)
+        : []
+    const filteredServices = selectedServiceTableId
+        ? (services as any[]).filter((s: any) => s.commission_table_id === selectedServiceTableId)
+        : []
+    const employeeHasNoTables = !!selectedEmployeeId && empProductTables.length === 0 && empServiceTables.length === 0
     const getItemTotalWithCommission = (item: BudgetItemRow) => {
         const effUnit = item.unit_price  // sempre preço fechado, sem comissão
         const subtotal = effUnit * item.quantity
@@ -990,7 +1023,7 @@ function Budgets() {
                         value={record.service_id || undefined}
                         onChange={(v) => handleServiceSelect(record.key, v)}
                     >
-                        {services.map((s: any) => (
+                        {filteredServices.map((s: any) => (
                             <Select.Option key={s.id} value={s.id}>{s.name}</Select.Option>
                         ))}
                     </Select>
@@ -1003,7 +1036,7 @@ function Budgets() {
                         value={record.product_id || undefined}
                         onChange={(v) => handleProductSelect(record.key, v)}
                     >
-                        {products.map(p => (
+                        {filteredProducts.map((p: any) => (
                             <Select.Option key={p.id} value={p.id}>{p.name}</Select.Option>
                         ))}
                     </Select>
@@ -1138,10 +1171,10 @@ function Budgets() {
                 title={editingBudgetId ? 'Editar Orçamento' : 'Novo Orçamento'}
                 width={680}
                 open={drawerOpen}
-                onClose={() => { setDrawerOpen(false); setEditingBudgetId(null); form.resetFields(); setBudgetItems([]) }}
+                onClose={() => { setDrawerOpen(false); setEditingBudgetId(null); form.resetFields(); setBudgetItems([]); setSelectedProductTableId(null); setSelectedServiceTableId(null); setEmpProductTables([]); setEmpServiceTables([]) }}
                 extra={
                     <Space>
-                        <Button onClick={() => { setDrawerOpen(false); setEditingBudgetId(null); form.resetFields(); setBudgetItems([]) }}>Cancelar</Button>
+                        <Button onClick={() => { setDrawerOpen(false); setEditingBudgetId(null); form.resetFields(); setBudgetItems([]); setSelectedProductTableId(null); setSelectedServiceTableId(null); setEmpProductTables([]); setEmpServiceTables([]) }}>Cancelar</Button>
                         <Button onClick={editingBudgetId ? handleUpdate : handleSave} type="primary" loading={saving}>
                             {editingBudgetId ? 'Salvar alterações' : 'Criar Orçamento'}
                         </Button>
@@ -1149,7 +1182,49 @@ function Budgets() {
                 }
             >
                 <Form form={form} layout="vertical">
-                    <Divider orientation="left" style={{ fontSize: 12, color: '#94a3b8', marginTop: 0 }}>Cliente</Divider>
+                    <Divider orientation="left" style={{ fontSize: 12, color: '#94a3b8', marginTop: 0 }}>Vendedor</Divider>
+
+                    <Form.Item name="employee_id" label="Funcionário responsável" rules={[{ required: true, message: 'Selecione o funcionário responsável' }]}>
+                        <Select placeholder="Selecione o funcionário" showSearch optionFilterProp="children">
+                            {employees.map((emp: any) => (<Select.Option key={emp.id} value={emp.id}>{emp.name}</Select.Option>))}
+                        </Select>
+                    </Form.Item>
+
+                    {selectedEmployeeId && employeeHasNoTables && (
+                        <div style={{ background: 'rgba(249,115,22,0.1)', border: '1px solid rgba(249,115,22,0.3)', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 12, color: '#fdba74' }}>
+                            Este funcionário não possui tabelas de comissão vinculadas. Apenas lançamento manual está disponível.
+                        </div>
+                    )}
+                    {selectedEmployeeId && empProductTables.length > 0 && (
+                        <div style={{ marginBottom: 16 }}>
+                            <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 6 }}>Tabela de Produtos</div>
+                            <Select
+                                placeholder="Selecione a tabela de produtos"
+                                style={{ width: '100%' }}
+                                value={selectedProductTableId}
+                                onChange={(v: string) => { setSelectedProductTableId(v); setBudgetItems(prev => prev.filter(i => i.isManual || i.isService)) }}
+                                options={empProductTables.map(t => ({ value: t.id, label: t.name }))}
+                                allowClear
+                                onClear={() => { setSelectedProductTableId(null); setBudgetItems(prev => prev.filter(i => i.isManual || i.isService)) }}
+                            />
+                        </div>
+                    )}
+                    {selectedEmployeeId && empServiceTables.length > 0 && (
+                        <div style={{ marginBottom: 16 }}>
+                            <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 6 }}>Tabela de Serviços</div>
+                            <Select
+                                placeholder="Selecione a tabela de serviços"
+                                style={{ width: '100%' }}
+                                value={selectedServiceTableId}
+                                onChange={(v: string) => { setSelectedServiceTableId(v); setBudgetItems(prev => prev.filter(i => i.isManual || !i.isService)) }}
+                                options={empServiceTables.map(t => ({ value: t.id, label: t.name }))}
+                                allowClear
+                                onClear={() => { setSelectedServiceTableId(null); setBudgetItems(prev => prev.filter(i => i.isManual || !i.isService)) }}
+                            />
+                        </div>
+                    )}
+
+                    <Divider orientation="left" style={{ fontSize: 12, color: '#94a3b8' }}>Cliente</Divider>
 
                     <Form.Item label="Origem do cliente" style={{ marginBottom: 8 }}>
                         <Select
@@ -1201,12 +1276,6 @@ function Budgets() {
                         </>
                     )}
 
-                    <Form.Item name="employee_id" label="Funcionário responsável">
-                        <Select placeholder="Opcional — vincular a um funcionário" allowClear showSearch optionFilterProp="children">
-                            {employees.map((emp: any) => (<Select.Option key={emp.id} value={emp.id}>{emp.name}</Select.Option>))}
-                        </Select>
-                    </Form.Item>
-
                     <Form.Item name="expiration_date" label="Orçamento válido até">
                         <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
                     </Form.Item>
@@ -1218,13 +1287,16 @@ function Budgets() {
                     />
 
                     <Space.Compact block style={{ marginTop: 12, display: 'flex', gap: 8 }}>
-                        <Button type="dashed" onClick={handleAddProduct} icon={<PlusOutlined />} style={{ flex: 1 }}>
+                        <Button type="dashed" onClick={handleAddProduct} icon={<PlusOutlined />} style={{ flex: 1 }}
+                            disabled={!selectedEmployeeId || empProductTables.length === 0 || !selectedProductTableId}>
                             Adicionar Produto
                         </Button>
-                        <Button type="dashed" onClick={handleAddService} icon={<ToolOutlined />} style={{ flex: 1 }}>
+                        <Button type="dashed" onClick={handleAddService} icon={<ToolOutlined />} style={{ flex: 1 }}
+                            disabled={!selectedEmployeeId || empServiceTables.length === 0 || !selectedServiceTableId}>
                             Adicionar Serviço
                         </Button>
-                        <Button type="dashed" onClick={handleAddManualItem} icon={<PlusOutlined />} style={{ flex: 1 }}>
+                        <Button type="dashed" onClick={handleAddManualItem} icon={<PlusOutlined />} style={{ flex: 1 }}
+                            disabled={!selectedEmployeeId}>
                             Adicionar item manual
                         </Button>
                     </Space.Compact>

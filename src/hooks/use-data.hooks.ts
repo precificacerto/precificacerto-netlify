@@ -99,7 +99,7 @@ export function useServices() {
     async () => {
       const { data, error } = await supabase
         .from('services')
-        .select('id, name, base_price, cost_total, commission_percent, profit_percent, recurrence_days')
+        .select('id, name, base_price, cost_total, commission_percent, profit_percent, recurrence_days, commission_table_id')
         .eq('status', 'ACTIVE')
         .order('name')
       if (error) throw error
