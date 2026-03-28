@@ -1312,6 +1312,7 @@ function Schedule() {
                                         >
                                             <Avatar size={20} style={{ background: empColor[emp.id] || '#7A5AF8', fontSize: 10, marginBottom: 2 }} icon={<UserOutlined />} />
                                             <div style={{ fontSize: 11, fontWeight: 700, color: empColor[emp.id] || '#7A5AF8', textAlign: 'center', lineHeight: 1.1, maxWidth: '90%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{emp.name}</div>
+                                            <div style={{ fontSize: 9, color: '#64748b', textAlign: 'center', marginTop: 1, lineHeight: 1.2 }}>Clique e veja a agenda</div>
                                         </div>
 
                                         {/* Time slots */}

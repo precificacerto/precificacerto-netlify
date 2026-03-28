@@ -59,6 +59,11 @@ function ServicesPage() {
     const [newTableName, setNewTableName] = useState('')
     const [newTableCommission, setNewTableCommission] = useState<number>(0)
     const [savingTable, setSavingTable] = useState(false)
+    // Edit table name state
+    const [editTableModalOpen, setEditTableModalOpen] = useState(false)
+    const [editingTableId, setEditingTableId] = useState<string | null>(null)
+    const [editTableName, setEditTableName] = useState('')
+    const [savingEditTable, setSavingEditTable] = useState(false)
 
     const loadCommissionTables = async () => {
         const tenantId = await getTenantId()
@@ -94,6 +99,30 @@ function ServicesPage() {
             msgApi.success('Tabela criada!')
         } finally {
             setSavingTable(false)
+        }
+    }
+
+    const handleOpenEditTable = (id: string, currentName: string) => {
+        setEditingTableId(id)
+        setEditTableName(currentName)
+        setEditTableModalOpen(true)
+    }
+
+    const handleSaveEditTable = async () => {
+        const name = editTableName.trim()
+        if (!name || !editingTableId) { msgApi.warning('Informe o nome da tabela.'); return }
+        setSavingEditTable(true)
+        try {
+            const { error } = await (supabase as any)
+                .from('commission_tables')
+                .update({ name })
+                .eq('id', editingTableId)
+            if (error) { msgApi.error('Erro ao atualizar tabela: ' + error.message); return }
+            setCommissionTables(prev => prev.map(t => t.id === editingTableId ? { ...t, name } : t))
+            setEditTableModalOpen(false)
+            msgApi.success('Nome da tabela atualizado!')
+        } finally {
+            setSavingEditTable(false)
         }
     }
 
@@ -482,6 +511,18 @@ function ServicesPage() {
                         onChange={v => setTableFilter(v || null)}
                         options={commissionTables.map(t => ({ value: t.id, label: t.name }))}
                     />
+                    {tableFilter && commissionTables.find(t => t.id === tableFilter) && (
+                        <Tooltip title="Editar nome da tabela">
+                            <Button
+                                icon={<EditOutlined />}
+                                size="small"
+                                onClick={() => {
+                                    const t = commissionTables.find(x => x.id === tableFilter)
+                                    if (t) handleOpenEditTable(t.id, t.name)
+                                }}
+                            />
+                        </Tooltip>
+                    )}
                 </div>
                 <Space>
                     {canEdit(MODULES.SERVICES) && (
@@ -545,6 +586,28 @@ function ServicesPage() {
                             onChange={v => setNewTableCommission(v ?? 0)}
                         />
                     </div>
+                </div>
+            </Modal>
+
+            {/* Edit Commission Table Name Modal */}
+            <Modal
+                title="Editar Nome da Tabela de Comissão"
+                open={editTableModalOpen}
+                onCancel={() => setEditTableModalOpen(false)}
+                onOk={handleSaveEditTable}
+                okText="Salvar"
+                okButtonProps={{ loading: savingEditTable }}
+                width={400}
+            >
+                <div style={{ padding: '8px 0' }}>
+                    <label style={{ fontSize: 13, fontWeight: 500, display: 'block', marginBottom: 4 }}>Nome da Tabela <span style={{ color: '#f04438' }}>*</span></label>
+                    <Input
+                        placeholder="Nome da tabela"
+                        value={editTableName}
+                        onChange={e => setEditTableName(e.target.value)}
+                        onPressEnter={handleSaveEditTable}
+                        maxLength={100}
+                    />
                 </div>
             </Modal>
 

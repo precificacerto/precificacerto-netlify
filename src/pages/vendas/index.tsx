@@ -31,7 +31,7 @@ const PAYMENT_METHODS = [
     { value: 'BOLETO', label: '📄 Boleto' },
     { value: 'TRANSFERENCIA', label: '🏦 Transferência' },
     { value: 'CHEQUE', label: '🧾 Cheque' },
-    { value: 'CHEQUE_PRE_DATADO', label: '🗓️ Cheque Pré-datado' },
+    { value: 'CHEQUE_PRE_DATADO', label: '📦 Customizado' },
     { value: 'LANCAMENTOS_A_RECEBER', label: '📋 Lançamentos a Receber' },
 ]
 
@@ -39,6 +39,8 @@ const CHEQUE_PRE_DATADO_CONDITIONS = [
     { value: '30', label: '30 dias' },
     { value: '30_60', label: '30/60 dias' },
     { value: '30_60_90', label: '30/60/90 dias' },
+    { value: '30_60_90_120', label: '30/60/90/120 dias' },
+    { value: '30_60_90_120_150', label: '30/60/90/120/150 dias' },
 ]
 
 interface SaleRow {
@@ -83,6 +85,8 @@ function buildInstallmentsByPreset(preset: string): { date: any; amount: number 
     if (preset === '30') return [{ date: today.add(30, 'day'), amount: 0 }]
     if (preset === '30_60') return [{ date: today.add(30, 'day'), amount: 0 }, { date: today.add(60, 'day'), amount: 0 }]
     if (preset === '30_60_90') return [{ date: today.add(30, 'day'), amount: 0 }, { date: today.add(60, 'day'), amount: 0 }, { date: today.add(90, 'day'), amount: 0 }]
+    if (preset === '30_60_90_120') return [{ date: today.add(30, 'day'), amount: 0 }, { date: today.add(60, 'day'), amount: 0 }, { date: today.add(90, 'day'), amount: 0 }, { date: today.add(120, 'day'), amount: 0 }]
+    if (preset === '30_60_90_120_150') return [{ date: today.add(30, 'day'), amount: 0 }, { date: today.add(60, 'day'), amount: 0 }, { date: today.add(90, 'day'), amount: 0 }, { date: today.add(120, 'day'), amount: 0 }, { date: today.add(150, 'day'), amount: 0 }]
     return [{ date: null, amount: 0 }]
 }
 
@@ -91,6 +95,8 @@ const INSTALLMENT_PRESETS = [
     { value: '30', label: '30' },
     { value: '30_60', label: '30/60' },
     { value: '30_60_90', label: '30/60/90' },
+    { value: '30_60_90_120', label: '30/60/90/120' },
+    { value: '30_60_90_120_150', label: '30/60/90/120/150' },
 ]
 
 interface PendingBudget {
@@ -132,8 +138,8 @@ function Sales() {
 
     // Parcelas customizadas para Cheque pré-datado / Boleto (Venda no Balcão)
     const [customInstallments, setCustomInstallments] = useState<{ date: any; amount: number }[]>([{ date: null, amount: 0 }])
-    const [installmentPreset, setInstallmentPreset] = useState<'customizado' | '30' | '30_60' | '30_60_90'>('customizado')
-    const [registerInstallmentPreset, setRegisterInstallmentPreset] = useState<'customizado' | '30' | '30_60' | '30_60_90'>('customizado')
+    const [installmentPreset, setInstallmentPreset] = useState<'customizado' | '30' | '30_60' | '30_60_90' | '30_60_90_120' | '30_60_90_120_150'>('customizado')
+    const [registerInstallmentPreset, setRegisterInstallmentPreset] = useState<'customizado' | '30' | '30_60' | '30_60_90' | '30_60_90_120' | '30_60_90_120_150'>('customizado')
     const [empProductTablesV, setEmpProductTablesV] = useState<{id: string; name: string; type: string}[]>([])
     const [empServiceTablesV, setEmpServiceTablesV] = useState<{id: string; name: string; type: string}[]>([])
     const [tableSectionsV, setTableSectionsV] = useState<{key: string; tableId: string | null}[]>([{key: 'ts-0', tableId: null}])

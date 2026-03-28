@@ -1140,8 +1140,8 @@ export default function CashFlow() {
                                 <Form.Item name="parcelas" label="Número de parcelas" initialValue={1}>
                                     <InputNumber min={1} max={120} style={{ width: '100%' }} placeholder="1 = à vista" />
                                 </Form.Item>
-                                <Form.Item name="expense_start_date" label="Data de início">
-                                    <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" placeholder="Hoje" />
+                                <Form.Item name="expense_start_date" label="Data de início" rules={[{ required: true, message: 'Informe a data de início' }]}>
+                                    <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" placeholder="DD/MM/AAAA" />
                                 </Form.Item>
                             </div>
                             <div style={{ fontSize: 12, color: '#64748b', marginTop: -8 }}>
