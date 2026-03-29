@@ -105,6 +105,7 @@ export const BLOCK_CUSTO_PRODUTOS: ExpenseSetupItem[] = [
 /** Bloco Impostos — Simples Nacional (apenas para dropdown genérico) */
 export const BLOCK_IMPOSTOS_SIMPLES: ExpenseSetupItem[] = [
   { key: 'REGIME_TRIBUTARIO_SIMPLES', label: 'Simples Nacional', expense_group: 'REGIME_TRIBUTARIO' },
+  { key: 'IMPOSTO_DAS', label: 'DAS (Documento de Arrecadação do Simples Nacional)', expense_group: 'REGIME_TRIBUTARIO' },
   { key: 'IMPOSTOS_IPTU_IPVA', label: 'Impostos IPTU / IPVA', expense_group: 'DESPESA_FIXA' },
   { key: 'MEI', label: 'MEI (Microempreendedor Individual)', expense_group: 'DESPESA_FIXA' },
   { key: 'IMPOSTO_OUTROS', label: 'Imposto Outros', expense_group: 'IMPOSTO' },
@@ -240,6 +241,7 @@ export const BLOCK_ATIVIDADES_TERCEIRIZADAS_SN: ExpenseSetupItem[] = [
 /** Bloco SN: Regime tributário */
 export const BLOCK_REGIME_TRIBUTARIO_SN: ExpenseSetupItem[] = [
   { key: 'REGIME_TRIBUTARIO_SIMPLES', label: 'Simples Nacional', expense_group: 'REGIME_TRIBUTARIO' },
+  { key: 'IMPOSTO_DAS', label: 'DAS (Documento de Arrecadação do Simples Nacional)', expense_group: 'REGIME_TRIBUTARIO' },
 ]
 
 /** Bloco SN: Comissões */
