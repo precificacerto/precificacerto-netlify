@@ -18,7 +18,7 @@ import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 
 import {
     exportCashFlowToExcel, exportCashFlowMultiMonth,
-    INCOME_LABELS, EXPENSE_SECTIONS, matchesDescription, getIncomeLabel,
+    INCOME_LABELS, getIncomeLabel,
 } from '@/utils/export-cash-flow-excel'
 import { ExportFormatModal } from '@/components/ui/export-format-modal.component'
 import { exportTableToPdf } from '@/utils/export-generic-pdf'
@@ -117,6 +117,39 @@ const EXPENSE_CATEGORY_OPTIONS = [
 
 function getGroupForCategory(cat: string): string | undefined {
     return CATEGORY_GROUP_MAP.find(c => c.category === cat)?.group
+}
+
+// ── Ordered list of expense groups for display ──
+const GROUP_ORDER = [
+    'CUSTO_PRODUTOS',
+    'MAO_DE_OBRA_PRODUTIVA',
+    'MAO_DE_OBRA_ADMINISTRATIVA',
+    'MAO_DE_OBRA',
+    'DESPESA_FIXA',
+    'DESPESA_VARIAVEL',
+    'DESPESA_FINANCEIRA',
+    'IMPOSTO',
+    'REGIME_TRIBUTARIO',
+    'ATIVIDADES_TERCEIRIZADAS',
+    'COMISSOES',
+    'LUCRO',
+    'OUTROS',
+]
+
+const GROUP_COLORS: Record<string, string> = {
+    CUSTO_PRODUTOS:             '#EF4444',
+    MAO_DE_OBRA_PRODUTIVA:      '#7C3AED',
+    MAO_DE_OBRA_ADMINISTRATIVA: '#A855F7',
+    MAO_DE_OBRA:                '#8B5CF6',
+    DESPESA_FIXA:               '#2563EB',
+    DESPESA_VARIAVEL:           '#059669',
+    DESPESA_FINANCEIRA:         '#D97706',
+    IMPOSTO:                    '#DC2626',
+    REGIME_TRIBUTARIO:          '#B91C1C',
+    ATIVIDADES_TERCEIRIZADAS:   '#0891B2',
+    COMISSOES:                  '#14B8A6',
+    LUCRO:                      '#16A34A',
+    OUTROS:                     '#64748b',
 }
 
 const currencyMaskFn = (value: string) => {
@@ -531,24 +564,14 @@ export default function CashFlow() {
         return regularData.filter((e: any) => e.due_date && e.due_date.substring(8, 10) === dayStr)
     }, [regularData, selectedDay])
 
-    // ── Extrato structured data (mirrors Excel export format) ──
+    // ── Extrato structured data (grouped by expense_group) ──
     const extratoData = useMemo(() => {
         // Income by label
         const incomeByLabel: Record<string, number> = {}
         for (const label of INCOME_LABELS) incomeByLabel[label] = 0
 
-        // Expense by section/item
-        const expenseBySectionItem: Record<string, Record<string, number>> = {}
-        const sectionTotals: Record<string, number> = {}
-        for (const section of EXPENSE_SECTIONS) {
-            expenseBySectionItem[section.header] = {}
-            sectionTotals[section.header] = 0
-            for (const item of section.items) {
-                expenseBySectionItem[section.header][item.label] = 0
-            }
-        }
-
-        let unmatchedTotal = 0
+        // Expense grouped by expense_group
+        const groupTotals: Record<string, number> = {}
 
         for (const entry of dfcData) {
             if (entry.type === 'INCOME') {
@@ -558,29 +581,16 @@ export default function CashFlow() {
                     incomeByLabel[label] += getEffectiveIncomeAmount(entry)
                 }
             } else {
-                let matched = false
-                for (const section of EXPENSE_SECTIONS) {
-                    for (const item of section.items) {
-                        if (matchesDescription(entry.description, item.descMatch)) {
-                            expenseBySectionItem[section.header][item.label] += Number(entry.amount) || 0
-                            sectionTotals[section.header] += Number(entry.amount) || 0
-                            matched = true
-                            break
-                        }
-                    }
-                    if (matched) break
-                }
-                if (!matched) {
-                    unmatchedTotal += Number(entry.amount) || 0
-                }
+                const group = (entry as any).expense_group || getGroupForCategory(entry.description) || 'OUTROS'
+                groupTotals[group] = (groupTotals[group] || 0) + (Number(entry.amount) || 0)
             }
         }
 
         const totalEntradas = Object.values(incomeByLabel).reduce((a, b) => a + b, 0)
-        const totalSaidas = Object.values(sectionTotals).reduce((a, b) => a + b, 0) + unmatchedTotal
+        const totalSaidas = Object.values(groupTotals).reduce((a, b) => a + b, 0)
         const resultado = totalEntradas - totalSaidas
 
-        return { incomeByLabel, expenseBySectionItem, sectionTotals, unmatchedTotal, totalEntradas, totalSaidas, resultado }
+        return { incomeByLabel, groupTotals, totalEntradas, totalSaidas, resultado }
     }, [dfcData])
 
     // ── Daily totals for the calendar row (Item 9) ──
@@ -602,32 +612,32 @@ export default function CashFlow() {
         return { totals, daysInMonth }
     }, [regularData, month])
 
-    // ── Pivot: per-day per-category amounts for Excel-like grid ──
+    // ── Pivot: per-day per-group/description amounts for grid ──
     const pivotByDay = useMemo(() => {
         const daysInMonth = month.daysInMonth()
-        const result: Record<string, Record<number, number>> = {}       // total amounts (paid + unpaid)
-        const unpaidAmounts: Record<string, Record<number, number>> = {} // amounts from unpaid entries only
-        const entriesMap: Record<string, Record<number, any[]>> = {}    // unpaid entries (for click handler)
-        const paidEntriesMap: Record<string, Record<number, any[]>> = {} // paid entries (for edit/cancel)
-        const allKeys = [...INCOME_LABELS, ...EXPENSE_SECTIONS.map(s => s.header), 'Outras Despesas']
-        // Also track item-level keys
-        for (const section of EXPENSE_SECTIONS) {
-            for (const item of section.items) {
-                allKeys.push(`${section.header}||${item.label}`)
-            }
-        }
-        for (const cat of allKeys) {
-            result[cat] = {}
-            unpaidAmounts[cat] = {}
-            entriesMap[cat] = {}
-            paidEntriesMap[cat] = {}
+        const result: Record<string, Record<number, number>> = {}
+        const unpaidAmounts: Record<string, Record<number, number>> = {}
+        const entriesMap: Record<string, Record<number, any[]>> = {}
+        const paidEntriesMap: Record<string, Record<number, any[]>> = {}
+
+        // Initialize income labels
+        for (const label of INCOME_LABELS) {
+            result[label] = {}; unpaidAmounts[label] = {}; entriesMap[label] = {}; paidEntriesMap[label] = {}
             for (let d = 1; d <= daysInMonth; d++) {
-                result[cat][d] = 0
-                unpaidAmounts[cat][d] = 0
-                entriesMap[cat][d] = []
-                paidEntriesMap[cat][d] = []
+                result[label][d] = 0; unpaidAmounts[label][d] = 0; entriesMap[label][d] = []; paidEntriesMap[label][d] = []
             }
         }
+
+        const ensureKey = (key: string) => {
+            if (result[key]) return
+            result[key] = {}; unpaidAmounts[key] = {}; entriesMap[key] = {}; paidEntriesMap[key] = {}
+            for (let d = 1; d <= daysInMonth; d++) {
+                result[key][d] = 0; unpaidAmounts[key][d] = 0; entriesMap[key][d] = []; paidEntriesMap[key][d] = []
+            }
+        }
+
+        const descsByGroup: Record<string, string[]> = {}
+
         for (const entry of regularData) {
             if (!entry.due_date) continue
             const day = parseInt(entry.due_date.substring(8, 10), 10)
@@ -637,41 +647,39 @@ export default function CashFlow() {
                 const label = getIncomeLabel(entry)
                 if (label && result[label]) result[label][day] = (result[label][day] || 0) + getEffectiveIncomeAmount(entry)
             } else {
-                // Include ALL expenses (paid and unpaid) in total — paid = white, unpaid = red+clickable
                 const amt = Number(entry.amount) || 0
-                let matched = false
-                for (const section of EXPENSE_SECTIONS) {
-                    if (matched) break
-                    for (const item of section.items) {
-                        if (matchesDescription(entry.description, item.descMatch)) {
-                            result[section.header][day] = (result[section.header][day] || 0) + amt
-                            result[`${section.header}||${item.label}`][day] = (result[`${section.header}||${item.label}`][day] || 0) + amt
-                            if (!entry.paid_date) {
-                                unpaidAmounts[section.header][day] = (unpaidAmounts[section.header][day] || 0) + amt
-                                unpaidAmounts[`${section.header}||${item.label}`][day] = (unpaidAmounts[`${section.header}||${item.label}`][day] || 0) + amt
-                                entriesMap[section.header][day] = [...(entriesMap[section.header][day] || []), entry]
-                                entriesMap[`${section.header}||${item.label}`][day] = [...(entriesMap[`${section.header}||${item.label}`][day] || []), entry]
-                            } else {
-                                paidEntriesMap[section.header][day] = [...(paidEntriesMap[section.header][day] || []), entry]
-                                paidEntriesMap[`${section.header}||${item.label}`][day] = [...(paidEntriesMap[`${section.header}||${item.label}`][day] || []), entry]
-                            }
-                            matched = true
-                            break
-                        }
-                    }
-                }
-                if (!matched) {
-                    result['Outras Despesas'][day] = (result['Outras Despesas'][day] || 0) + amt
-                    if (!entry.paid_date) {
-                        unpaidAmounts['Outras Despesas'][day] = (unpaidAmounts['Outras Despesas'][day] || 0) + amt
-                        entriesMap['Outras Despesas'][day] = [...(entriesMap['Outras Despesas'][day] || []), entry]
-                    } else {
-                        paidEntriesMap['Outras Despesas'][day] = [...(paidEntriesMap['Outras Despesas'][day] || []), entry]
-                    }
+                const group = (entry as any).expense_group || getGroupForCategory(entry.description) || 'OUTROS'
+                const desc = entry.description || '—'
+                const descKey = `${group}||${desc}`
+
+                ensureKey(group)
+                ensureKey(descKey)
+
+                if (!descsByGroup[group]) descsByGroup[group] = []
+                if (!descsByGroup[group].includes(desc)) descsByGroup[group].push(desc)
+
+                result[group][day] = (result[group][day] || 0) + amt
+                result[descKey][day] = (result[descKey][day] || 0) + amt
+
+                if (!entry.paid_date) {
+                    unpaidAmounts[group][day] = (unpaidAmounts[group][day] || 0) + amt
+                    unpaidAmounts[descKey][day] = (unpaidAmounts[descKey][day] || 0) + amt
+                    entriesMap[group][day] = [...(entriesMap[group][day] || []), entry]
+                    entriesMap[descKey][day] = [...(entriesMap[descKey][day] || []), entry]
+                } else {
+                    paidEntriesMap[group][day] = [...(paidEntriesMap[group][day] || []), entry]
+                    paidEntriesMap[descKey][day] = [...(paidEntriesMap[descKey][day] || []), entry]
                 }
             }
         }
-        return { data: result, daysInMonth, unpaidAmounts, entriesMap, paidEntriesMap }
+
+        // Group totals for ordering/filtering
+        const groupTotals: Record<string, number> = {}
+        for (const group of Object.keys(descsByGroup)) {
+            groupTotals[group] = Object.values(result[group] || {}).reduce((a: number, b: number) => a + b, 0)
+        }
+
+        return { data: result, daysInMonth, unpaidAmounts, entriesMap, paidEntriesMap, groupTotals, descsByGroup }
     }, [regularData, month])
 
     // ── Saldo do Mês Anterior (valor fixo inserido pelo usuário) ──
@@ -688,7 +696,7 @@ export default function CashFlow() {
         for (let d = 1; d <= pivotByDay.daysInMonth; d++) {
             result[d] = running
             const incomeDay = INCOME_LABELS.reduce((s, l) => s + ((pivotByDay.data[l] || {})[d] || 0), 0)
-            const expenseDay = [...EXPENSE_SECTIONS.map(sec => sec.header), 'Outras Despesas'].reduce((s, k) => s + ((pivotByDay.data[k] || {})[d] || 0), 0)
+            const expenseDay = GROUP_ORDER.reduce((s, k) => s + ((pivotByDay.data[k] || {})[d] || 0), 0)
             running += incomeDay - expenseDay
         }
         return result
@@ -979,33 +987,24 @@ export default function CashFlow() {
                                     SAÍDAS
                                 </td>
                             </tr>
-                            {EXPENSE_SECTIONS.map((section) => {
-                                const sectionTotal = extratoData.sectionTotals[section.header] || 0
-                                if (sectionTotal === 0) return null
-                                const sectionColors: Record<string, string> = {
-                                    'Custo produto': '#EF4444',
-                                    'Custo Mao de obra Producao': '#7C3AED',
-                                    'Despesa Mao de obra Indireta': '#A855F7',
-                                    'Despesas fixas': '#2563EB',
-                                    'Despesas variaveis': '#059669',
-                                    'Despesas Financeiras': '#D97706',
-                                    'Impostos': '#DC2626',
-                                    'Regime Tributario': '#B91C1C',
-                                    'Lucro': '#0891B2',
-                                }
-                                const color = sectionColors[section.header] || '#64748b'
+                            {GROUP_ORDER.map(group => {
+                                const groupTotal = extratoData.groupTotals[group] || 0
+                                if (groupTotal === 0) return null
+                                const color = GROUP_COLORS[group] || '#64748b'
+                                const label = getExpenseGroupLabel(group)
+                                const descs = pivotByDay.descsByGroup[group] || []
                                 return (
-                                    <React.Fragment key={section.header}>
-                                        {/* Section header row */}
+                                    <React.Fragment key={group}>
+                                        {/* Group header row */}
                                         <tr style={{ background: `${color}33`, borderLeft: `4px solid ${color}` }}>
                                             <td style={{ padding: '6px 12px', color: '#e2e8f0', fontWeight: 700, position: 'sticky', left: 0, background: `${color}44`, borderRight: '1px solid rgba(255,255,255,0.06)', zIndex: 1, whiteSpace: 'nowrap', overflow: 'hidden', maxWidth: 180, textOverflow: 'ellipsis', fontSize: 12 }}>
-                                                {section.header}
+                                                {label}
                                             </td>
                                             {Array.from({ length: pivotByDay.daysInMonth }, (_, i) => i + 1).map(day => {
-                                                const val = (pivotByDay.data[section.header] || {})[day] || 0
-                                                const hasUnpaid = ((pivotByDay.unpaidAmounts[section.header] || {})[day] || 0) > 0
-                                                const cellEntries = (pivotByDay.entriesMap[section.header] || {})[day] || []
-                                                const paidCellEntries = (pivotByDay.paidEntriesMap[section.header] || {})[day] || []
+                                                const val = (pivotByDay.data[group] || {})[day] || 0
+                                                const hasUnpaid = ((pivotByDay.unpaidAmounts[group] || {})[day] || 0) > 0
+                                                const cellEntries = (pivotByDay.entriesMap[group] || {})[day] || []
+                                                const paidCellEntries = (pivotByDay.paidEntriesMap[group] || {})[day] || []
                                                 const textColor = val > 0 ? (hasUnpaid ? '#f87171' : 'rgba(255,255,255,0.3)') : '#334155'
                                                 const clickEntry = hasUnpaid ? cellEntries[0] : paidCellEntries[0]
                                                 return (
@@ -1023,24 +1022,24 @@ export default function CashFlow() {
                                                 )
                                             })}
                                             <td style={{ padding: '5px 12px', textAlign: 'right', color: '#f87171', fontWeight: 700, fontVariantNumeric: 'tabular-nums', borderLeft: '1px solid rgba(255,255,255,0.1)' }}>
-                                                {formatCurrency(sectionTotal)}
+                                                {formatCurrency(groupTotal)}
                                             </td>
                                         </tr>
-                                        {/* Item sub-rows */}
-                                        {section.items.map(item => {
-                                            const itemKey = `${section.header}||${item.label}`
-                                            const itemTotal = Object.values(pivotByDay.data[itemKey] || {}).reduce((a: number, b: number) => a + b, 0)
-                                            if (itemTotal === 0) return null
+                                        {/* Description sub-rows */}
+                                        {descs.map(desc => {
+                                            const descKey = `${group}||${desc}`
+                                            const descTotal = Object.values(pivotByDay.data[descKey] || {}).reduce((a: number, b: number) => a + b, 0)
+                                            if (descTotal === 0) return null
                                             return (
-                                                <tr key={itemKey} style={{ background: `${color}11`, borderLeft: `4px solid ${color}` }}>
+                                                <tr key={descKey} style={{ background: `${color}11`, borderLeft: `4px solid ${color}` }}>
                                                     <td style={{ padding: '4px 12px 4px 28px', color: '#94a3b8', position: 'sticky', left: 0, background: `${color}18`, borderRight: '1px solid rgba(255,255,255,0.04)', zIndex: 1, whiteSpace: 'nowrap', overflow: 'hidden', maxWidth: 180, textOverflow: 'ellipsis', fontSize: 11 }}>
-                                                        ↳ {item.label}
+                                                        ↳ {desc}
                                                     </td>
                                                     {Array.from({ length: pivotByDay.daysInMonth }, (_, i) => i + 1).map(day => {
-                                                        const val = (pivotByDay.data[itemKey] || {})[day] || 0
-                                                        const hasUnpaid = ((pivotByDay.unpaidAmounts[itemKey] || {})[day] || 0) > 0
-                                                        const cellEntries = (pivotByDay.entriesMap[itemKey] || {})[day] || []
-                                                        const paidCellEntries = (pivotByDay.paidEntriesMap[itemKey] || {})[day] || []
+                                                        const val = (pivotByDay.data[descKey] || {})[day] || 0
+                                                        const hasUnpaid = ((pivotByDay.unpaidAmounts[descKey] || {})[day] || 0) > 0
+                                                        const cellEntries = (pivotByDay.entriesMap[descKey] || {})[day] || []
+                                                        const paidCellEntries = (pivotByDay.paidEntriesMap[descKey] || {})[day] || []
                                                         const textColor = val > 0 ? (hasUnpaid ? '#fca5a5' : 'rgba(255,255,255,0.3)') : '#334155'
                                                         const clickEntry = hasUnpaid ? cellEntries[0] : paidCellEntries[0]
                                                         return (
@@ -1058,7 +1057,7 @@ export default function CashFlow() {
                                                         )
                                                     })}
                                                     <td style={{ padding: '4px 12px', textAlign: 'right', color: '#fca5a5', fontWeight: 500, fontVariantNumeric: 'tabular-nums', borderLeft: '1px solid rgba(255,255,255,0.06)', fontSize: 11 }}>
-                                                        {formatCurrency(itemTotal)}
+                                                        {formatCurrency(descTotal)}
                                                     </td>
                                                 </tr>
                                             )
@@ -1066,44 +1065,13 @@ export default function CashFlow() {
                                     </React.Fragment>
                                 )
                             })}
-                            {extratoData.unmatchedTotal > 0 && (
-                                <tr style={{ background: 'rgba(100,116,139,0.1)', borderLeft: '3px solid #64748b' }}>
-                                    <td style={{ padding: '6px 12px', color: '#94a3b8', position: 'sticky', left: 0, background: '#0d1b2a', borderRight: '1px solid rgba(255,255,255,0.06)', zIndex: 1 }}>
-                                        Outras Despesas
-                                    </td>
-                                    {Array.from({ length: pivotByDay.daysInMonth }, (_, i) => i + 1).map(day => {
-                                        const val = (pivotByDay.data['Outras Despesas'] || {})[day] || 0
-                                        const hasUnpaid = ((pivotByDay.unpaidAmounts['Outras Despesas'] || {})[day] || 0) > 0
-                                        const cellEntries = (pivotByDay.entriesMap['Outras Despesas'] || {})[day] || []
-                                        const paidCellEntries = (pivotByDay.paidEntriesMap['Outras Despesas'] || {})[day] || []
-                                        const textColor = val > 0 ? (hasUnpaid ? '#f87171' : 'rgba(255,255,255,0.3)') : '#334155'
-                                        const clickEntry = hasUnpaid ? cellEntries[0] : paidCellEntries[0]
-                                        return (
-                                            <td key={day} style={{ padding: '5px 4px', textAlign: 'right', color: textColor, fontVariantNumeric: 'tabular-nums', borderRight: '1px solid rgba(255,255,255,0.04)', fontSize: 11 }}>
-                                                {val > 0 && clickEntry ? (
-                                                    <span
-                                                        onClick={() => handleOpenPaymentModal(clickEntry)}
-                                                        style={{ cursor: 'pointer', borderBottom: hasUnpaid ? '1px dashed rgba(248,113,113,0.6)' : '1px dashed rgba(255,255,255,0.2)' }}
-                                                        title={hasUnpaid ? 'Clique para registrar pagamento' : 'Pago — clique para editar ou cancelar'}
-                                                    >
-                                                        {formatCurrency(val)}
-                                                    </span>
-                                                ) : val > 0 ? formatCurrency(val) : ''}
-                                            </td>
-                                        )
-                                    })}
-                                    <td style={{ padding: '5px 12px', textAlign: 'right', color: '#f87171', fontWeight: 600, fontVariantNumeric: 'tabular-nums', borderLeft: '1px solid rgba(255,255,255,0.1)' }}>
-                                        {formatCurrency(extratoData.unmatchedTotal)}
-                                    </td>
-                                </tr>
-                            )}
                             {/* Total Saidas */}
                             <tr style={{ background: '#DC2626' }}>
                                 <td style={{ padding: '7px 12px', fontWeight: 700, color: '#fff', fontSize: 12, position: 'sticky', left: 0, background: '#DC2626', zIndex: 1 }}>
                                     TOTAL SAÍDAS
                                 </td>
                                 {Array.from({ length: pivotByDay.daysInMonth }, (_, i) => i + 1).map(day => {
-                                    const dayTotal = [...EXPENSE_SECTIONS.map(s => s.header), 'Outras Despesas'].reduce((sum, key) => sum + ((pivotByDay.data[key] || {})[day] || 0), 0)
+                                    const dayTotal = GROUP_ORDER.reduce((sum, g) => sum + ((pivotByDay.data[g] || {})[day] || 0), 0)
                                     return (
                                         <td key={day} style={{ padding: '5px 4px', textAlign: 'right', color: dayTotal > 0 ? '#fff' : 'rgba(255,255,255,0.3)', fontWeight: 600, fontSize: 11, fontVariantNumeric: 'tabular-nums' }}>
                                             {dayTotal > 0 ? formatCurrency(dayTotal) : ''}
@@ -1125,7 +1093,7 @@ export default function CashFlow() {
                                 </td>
                                 {Array.from({ length: pivotByDay.daysInMonth }, (_, i) => i + 1).map(day => {
                                     const incomeDay = INCOME_LABELS.reduce((s, l) => s + ((pivotByDay.data[l] || {})[day] || 0), 0)
-                                    const expenseDay = [...EXPENSE_SECTIONS.map(s => s.header), 'Outras Despesas'].reduce((s, k) => s + ((pivotByDay.data[k] || {})[day] || 0), 0)
+                                    const expenseDay = GROUP_ORDER.reduce((s, k) => s + ((pivotByDay.data[k] || {})[day] || 0), 0)
                                     const res = incomeDay - expenseDay
                                     return (
                                         <td key={day} style={{ padding: '5px 4px', textAlign: 'right', color: res > 0 ? '#4ade80' : res < 0 ? '#f87171' : '#475569', fontWeight: 700, fontSize: 11, fontVariantNumeric: 'tabular-nums' }}>
