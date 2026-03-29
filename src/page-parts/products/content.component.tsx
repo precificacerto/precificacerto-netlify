@@ -319,9 +319,14 @@ export const Content: FC<ContentProps> = ({
       if (baseItem) {
         const qty = Number(baseItem.quantity) || 1
         const totalCost = Number(baseItem.price) ?? Number((baseItem as any).cost_price) ?? 0
-        const costPerUnit = baseItem.cost_per_base_unit != null
-          ? Number(baseItem.cost_per_base_unit)
-          : qty > 0 ? totalCost / qty : totalCost
+        const measureQty = Number((baseItem as any).measure_quantity) || 1
+        const isLucroReal = currentUser?.taxableRegime === 'LUCRO_REAL'
+        const costNet = Number((baseItem as any).cost_net) || 0
+        const costPerUnit = (isLucroReal && costNet > 0)
+          ? costNet / measureQty
+          : baseItem.cost_per_base_unit != null
+            ? Number(baseItem.cost_per_base_unit)
+            : qty > 0 ? totalCost / qty : totalCost
         const newItem: IItemProductModel = {
           id: baseItem.id,
           name: baseItem.name,
@@ -532,8 +537,13 @@ export const Content: FC<ContentProps> = ({
 
     const unitType = (selectedItem.unitType || 'UN').toString().toUpperCase()
     const recipeQty = 1
-    // Usar cost_per_base_unit (custo por unidade base: /ml, /g, /cm etc.) como referência de preço
-    const costPerUnitRaw = Number((selectedItem as any).cost_per_base_unit) || Number(selectedItem.price) || 0
+    // Usar cost_net/measure_quantity (Lucro Real) ou cost_per_base_unit como referência de preço
+    const isLucroRealCtx = currentUser?.taxableRegime === 'LUCRO_REAL'
+    const itemCostNet = Number((selectedItem as any).cost_net) || 0
+    const itemMeasureQty = Number((selectedItem as any).measure_quantity) || 1
+    const costPerUnitRaw = (isLucroRealCtx && itemCostNet > 0)
+      ? itemCostNet / itemMeasureQty
+      : Number((selectedItem as any).cost_per_base_unit) || Number(selectedItem.price) || 0
     const costPerUnit = Math.max(0.01, costPerUnitRaw)
     // Custo do item na receita = quantidade × custo por unidade base. referenceQuantity=1 pois referencePrice já é por unidade base.
     const priceForSchema = Math.max(0.01, recipeQty * costPerUnit)

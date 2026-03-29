@@ -307,6 +307,7 @@ function Items() {
       const { data: st } = await supabase.from('stock').select('min_limit').eq('item_id', record.id).eq('stock_type', 'ITEM').maybeSingle()
       if (st) minLimit = Number(st.min_limit) || 0
     }
+    const rawItem = (rawItems || []).find((i: any) => i.id === record.id)
     form.setFieldsValue({
       id: record.id,
       name: record.name,
@@ -323,6 +324,12 @@ function Items() {
       supplier_state: record.supplier_state || undefined,
       observation: record.observation,
       min_limit: minLimit,
+      // Alíquotas salvas (Lucro Real)
+      icms_rate: rawItem?.icms_rate ? Number(rawItem.icms_rate) : undefined,
+      ipi_rate: Number(rawItem?.ipi_rate) || 0,
+      pis_rate: Number(rawItem?.pis_rate) || 0,
+      cofins_rate: Number(rawItem?.cofins_rate) || 0,
+      cost_net: Number(rawItem?.cost_net) || 0,
     })
     setNewItemOpen(true)
   }
@@ -835,6 +842,9 @@ function Items() {
       const costPerBaseUnit = measureQty > 0 ? priceNumber / measureQty : priceNumber
       const totalCost = priceNumber * qty
 
+      const isLucroReal = currentUser?.taxableRegime === 'LUCRO_REAL'
+      const costNet = isLucroReal ? (Number(values.cost_net) || 0) : 0
+
       const itemData = {
         tenant_id: tenantId,
         name: values.name,
@@ -845,7 +855,13 @@ function Items() {
         measure_quantity: Number(values.measure_quantity) || 1,
         unit: values.unitType,
         cost_price: totalCost,
+        cost_gross: priceNumber,
+        cost_net: costNet,
         cost_per_base_unit: costPerBaseUnit,
+        icms_rate: isLucroReal ? (Number(values.icms_rate) || 0) : 0,
+        ipi_rate: isLucroReal ? (Number(values.ipi_rate) || 0) : 0,
+        pis_rate: isLucroReal ? (Number(values.pis_rate) || 0) : 0,
+        cofins_rate: isLucroReal ? (Number(values.cofins_rate) || 0) : 0,
         has_st: values.has_st || false,
         is_monofasico: values.is_monofasico || false,
         supplier_name: values.supplier_name || null,
@@ -1141,7 +1157,7 @@ function Items() {
           </Space>
         }
       >
-        <NewItemForm form={form} />
+        <NewItemForm form={form} taxableRegime={currentUser?.taxableRegime} />
       </Drawer>
 
       <Drawer

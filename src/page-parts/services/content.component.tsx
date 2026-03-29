@@ -237,7 +237,11 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
 
         const measureQty = Number((it as any).measure_quantity) || 1
         const refQty = (Number(it.quantity) || 1) * measureQty
-        const proportionalCost = calculateItemPrice(addItemQty, it.cost_price, refQty)
+        const isLucroReal = currentUser?.taxableRegime === 'LUCRO_REAL'
+        const itemCostNet = Number((it as any).cost_net) || 0
+        // Para Lucro Real com cost_net calculado, usar custo líquido; caso contrário, custo bruto
+        const effectiveCost = (isLucroReal && itemCostNet > 0) ? itemCostNet : it.cost_price
+        const proportionalCost = calculateItemPrice(addItemQty, effectiveCost, refQty)
         setTempItems(prev => [...prev, {
             key: `n-${Date.now()}`,
             item_id: it.id,
@@ -245,7 +249,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
             unit: it.unit,
             needed_qty: addItemQty,
             ref_qty: refQty,
-            ref_price: it.cost_price,
+            ref_price: effectiveCost,
             proportional_cost: proportionalCost,
         }])
         setAddItemId(null)

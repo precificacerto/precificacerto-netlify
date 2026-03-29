@@ -7,6 +7,7 @@ import { supabase } from '@/supabase/client'
 
 type Props = {
   form: FormInstance
+  taxableRegime?: string | null
 }
 
 const STATES = [
@@ -40,15 +41,58 @@ interface NcmSuggestion {
   description: string
 }
 
-const NewItemForm = ({ form }: Props) => {
+const NewItemForm = ({ form, taxableRegime }: Props) => {
+  const isLucroReal = taxableRegime === 'LUCRO_REAL'
+
   const [costPerUnit, setCostPerUnit] = useState<string | null>(null)
   const [baseUnitLabel, setBaseUnitLabel] = useState<string>('un')
   const [ncmSuggestions, setNcmSuggestions] = useState<NcmSuggestion[]>([])
   const [ncmSearching, setNcmSearching] = useState(false)
   const [ncmOptions, setNcmOptions] = useState<{ value: string; label: React.ReactNode }[]>([])
   const [ncmFieldSearching, setNcmFieldSearching] = useState(false)
+  const [netCostDisplay, setNetCostDisplay] = useState<string | null>(null)
   const nameDebounceRef = useRef<NodeJS.Timeout | null>(null)
   const ncmDebounceRef = useRef<NodeJS.Timeout | null>(null)
+
+  const recalcNetCost = useCallback(() => {
+    if (!isLucroReal) return
+    const values = form.getFieldsValue()
+    const priceStr = String(values.price || '0').replace(/\./g, '').replace(',', '.')
+    const priceNum = parseFloat(priceStr) || 0
+    const icms = Number(values.icms_rate) || 0
+    const pis = Number(values.pis_rate) || 0
+    const cofins = Number(values.cofins_rate) || 0
+
+    if (priceNum > 0) {
+      const valorSemIcms = priceNum * (1 - icms / 100)
+      const valorLiquido = valorSemIcms * (1 - (pis + cofins) / 100)
+      setNetCostDisplay(getMonetaryValue(valorLiquido))
+      form.setFieldsValue({ cost_net: valorLiquido })
+    } else {
+      setNetCostDisplay(null)
+      form.setFieldsValue({ cost_net: 0 })
+    }
+  }, [form, isLucroReal])
+
+  const fetchAndFillNcmRates = useCallback(async (code: string) => {
+    if (!code || !isLucroReal) return
+    const cleanCode = code.replace(/\D/g, '')
+    try {
+      const { data } = await supabase
+        .from('ncm_codes')
+        .select('ipi_rate, pis_rate_cumulativo, cofins_rate_cumulativo')
+        .eq('code', cleanCode)
+        .maybeSingle()
+      if (data) {
+        form.setFieldsValue({
+          ipi_rate: data.ipi_rate != null ? Number((Number(data.ipi_rate) * 100).toFixed(4)) : 0,
+          pis_rate: data.pis_rate_cumulativo != null ? Number((Number(data.pis_rate_cumulativo) * 100).toFixed(4)) : 0,
+          cofins_rate: data.cofins_rate_cumulativo != null ? Number((Number(data.cofins_rate_cumulativo) * 100).toFixed(4)) : 0,
+        })
+        setTimeout(recalcNetCost, 50)
+      }
+    } catch { /* silent */ }
+  }, [form, isLucroReal, recalcNetCost])
 
   const searchNcmByName = useCallback(async (name: string) => {
     if (name.length < 2) { setNcmSuggestions([]); return }
@@ -78,7 +122,8 @@ const NewItemForm = ({ form }: Props) => {
   const handleSelectNcm = useCallback((code: string) => {
     form.setFieldsValue({ ncm_code: code })
     setNcmSuggestions([])
-  }, [form])
+    fetchAndFillNcmRates(code)
+  }, [form, fetchAndFillNcmRates])
 
   const searchNcmField = useCallback(async (term: string) => {
     const clean = term.replace(/\D/g, '')
@@ -109,9 +154,15 @@ const NewItemForm = ({ form }: Props) => {
     ncmDebounceRef.current = setTimeout(() => searchNcmField(value), 250)
   }, [searchNcmField])
 
+  const handleNcmFieldSelect = useCallback((value: string) => {
+    form.setFieldsValue({ ncm_code: value })
+    fetchAndFillNcmRates(value)
+  }, [form, fetchAndFillNcmRates])
+
   const handleChangePrice = (value: string) => {
     form.setFieldsValue({ price: currencyMask(value) })
     recalcCostPerUnit()
+    setTimeout(recalcNetCost, 50)
   }
 
   const recalcCostPerUnit = () => {
@@ -126,7 +177,6 @@ const NewItemForm = ({ form }: Props) => {
     setBaseUnitLabel(conv.base)
 
     if (unitPrice > 0 && measureQty > 0) {
-      // custo por unidade base = preço por embalagem ÷ measure_quantity
       const costPerBase = unitPrice / measureQty
       setCostPerUnit(`R$ ${getMonetaryValue(costPerBase)}`)
     } else {
@@ -139,9 +189,41 @@ const NewItemForm = ({ form }: Props) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Quantidade comprado e estoque mínimo — usados em ambos os layouts
+  const quantidadeField = (
+    <Form.Item
+      name="quantity"
+      label="QTD. Comprado"
+      rules={[{ required: true, message: REQUIRED }]}
+      tooltip="Quantidade total que você comprou (ex: 1 para 1kg, 500 para 500ml)"
+      style={{ marginBottom: 24 }}
+    >
+      <Input
+        type="number"
+        min="0.001"
+        step="any"
+        placeholder="Ex: 1"
+        onChange={() => setTimeout(recalcCostPerUnit, 50)}
+      />
+    </Form.Item>
+  )
+
+  const estoqueField = (
+    <Form.Item
+      name="min_limit"
+      label="Estoque mínimo Alerta"
+      initialValue={0}
+      tooltip="Abaixo deste valor o item aparecerá em status Baixo/Crítico na aba Estoque."
+      style={{ marginBottom: 24 }}
+    >
+      <InputNumber min={0} step={1} style={{ width: '100%' }} placeholder="0" />
+    </Form.Item>
+  )
+
   return (
     <Form layout="vertical" form={form}>
       <Form.Item name="id" hidden><Input /></Form.Item>
+      <Form.Item name="cost_net" hidden><InputNumber /></Form.Item>
 
       <Divider orientation="left" style={{ fontSize: 12, color: '#94a3b8', marginTop: 0 }}>
         Identificação
@@ -236,7 +318,7 @@ const NewItemForm = ({ form }: Props) => {
         <AutoComplete
           options={ncmOptions}
           onSearch={handleNcmSearch}
-          onSelect={(value: string) => form.setFieldsValue({ ncm_code: value })}
+          onSelect={handleNcmFieldSelect}
           placeholder="Digite o NCM ou pesquise (ex: farinha, 1901...)"
           notFoundContent={ncmFieldSearching ? <Spin size="small" /> : null}
           allowClear
@@ -247,6 +329,7 @@ const NewItemForm = ({ form }: Props) => {
         Dados da Compra
       </Divider>
 
+      {/* Linha 1: Unidade de medida | QTD. Medida | Valor unitário */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, alignItems: 'end' }}>
         <Form.Item
           name="unitType"
@@ -313,33 +396,143 @@ const NewItemForm = ({ form }: Props) => {
         </Form.Item>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16, alignItems: 'start' }}>
-        <Form.Item
-          name="quantity"
-          label="QTD. Comprado"
-          rules={[{ required: true, message: REQUIRED }]}
-          tooltip="Quantidade total que você comprou (ex: 1 para 1kg, 500 para 500ml)"
-          style={{ marginBottom: 24 }}
-        >
-          <Input
-            type="number"
-            min="0.001"
-            step="any"
-            placeholder="Ex: 1"
-            onChange={() => setTimeout(recalcCostPerUnit, 50)}
-          />
-        </Form.Item>
+      {/* Linha 2 (Lucro Real): ICMS | IPI | PIS | COFINS */}
+      {isLucroReal && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, alignItems: 'end' }}>
+          <Form.Item
+            name="icms_rate"
+            label={
+              <span>
+                ICMS (%)&nbsp;
+                <Tooltip title="Alíquota ICMS de entrada. Preencha manualmente conforme a nota fiscal do fornecedor.">
+                  <InfoCircleOutlined style={{ color: '#64748b' }} />
+                </Tooltip>
+              </span>
+            }
+            rules={[{ required: true, message: REQUIRED }]}
+            initialValue={undefined}
+            style={{ marginBottom: 24 }}
+          >
+            <InputNumber
+              min={0}
+              max={100}
+              step={0.01}
+              precision={2}
+              style={{ width: '100%' }}
+              placeholder="Ex: 12"
+              suffix="%"
+              onChange={() => setTimeout(recalcNetCost, 50)}
+            />
+          </Form.Item>
 
-        <Form.Item
-          name="min_limit"
-          label="Estoque mínimo Alerta"
-          initialValue={0}
-          tooltip="Abaixo deste valor o item aparecerá em status Baixo/Crítico na aba Estoque."
-          style={{ marginBottom: 24 }}
-        >
-          <InputNumber min={0} step={1} style={{ width: '100%' }} placeholder="0" />
-        </Form.Item>
-      </div>
+          <Form.Item
+            name="ipi_rate"
+            label={
+              <span>
+                IPI (%)&nbsp;
+                <Tooltip title="Alíquota IPI puxada do NCM. Editável se necessário.">
+                  <InfoCircleOutlined style={{ color: '#64748b' }} />
+                </Tooltip>
+              </span>
+            }
+            initialValue={0}
+            style={{ marginBottom: 24 }}
+          >
+            <InputNumber
+              min={0}
+              max={100}
+              step={0.01}
+              precision={4}
+              style={{ width: '100%' }}
+              placeholder="0,00"
+              suffix="%"
+            />
+          </Form.Item>
+
+          <Form.Item
+            name="pis_rate"
+            label={
+              <span>
+                PIS (%)&nbsp;
+                <Tooltip title="Alíquota PIS puxada do NCM (regime cumulativo). Editável se necessário.">
+                  <InfoCircleOutlined style={{ color: '#64748b' }} />
+                </Tooltip>
+              </span>
+            }
+            initialValue={0}
+            style={{ marginBottom: 24 }}
+          >
+            <InputNumber
+              min={0}
+              max={100}
+              step={0.01}
+              precision={4}
+              style={{ width: '100%' }}
+              placeholder="0,00"
+              suffix="%"
+              onChange={() => setTimeout(recalcNetCost, 50)}
+            />
+          </Form.Item>
+
+          <Form.Item
+            name="cofins_rate"
+            label={
+              <span>
+                COFINS (%)&nbsp;
+                <Tooltip title="Alíquota COFINS puxada do NCM (regime cumulativo). Editável se necessário.">
+                  <InfoCircleOutlined style={{ color: '#64748b' }} />
+                </Tooltip>
+              </span>
+            }
+            initialValue={0}
+            style={{ marginBottom: 24 }}
+          >
+            <InputNumber
+              min={0}
+              max={100}
+              step={0.01}
+              precision={4}
+              style={{ width: '100%' }}
+              placeholder="0,00"
+              suffix="%"
+              onChange={() => setTimeout(recalcNetCost, 50)}
+            />
+          </Form.Item>
+        </div>
+      )}
+
+      {/* Linha 3 (Lucro Real): Valor custo líquido | QTD. Comprado | Estoque mínimo */}
+      {isLucroReal ? (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, alignItems: 'end' }}>
+          <Form.Item
+            label={
+              <span>
+                Valor custo líquido&nbsp;
+                <Tooltip title="Calculado: Valor unit. → deduz ICMS → deduz PIS+COFINS. Fórmula: preço × (1 - ICMS%) × (1 - (PIS+COFINS)%)">
+                  <InfoCircleOutlined style={{ color: '#64748b' }} />
+                </Tooltip>
+              </span>
+            }
+            style={{ marginBottom: 24 }}
+          >
+            <Input
+              prefix="R$"
+              value={netCostDisplay || ''}
+              disabled
+              placeholder="Preencha valor e ICMS"
+              style={{ background: 'rgba(34, 197, 94, 0.08)', borderColor: 'rgba(34, 197, 94, 0.3)', color: '#22C55E', fontWeight: 600 }}
+            />
+          </Form.Item>
+
+          {quantidadeField}
+          {estoqueField}
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16, alignItems: 'start' }}>
+          {quantidadeField}
+          {estoqueField}
+        </div>
+      )}
 
       <div style={{
         background: 'rgba(34, 197, 94, 0.12)',
@@ -375,13 +568,17 @@ const NewItemForm = ({ form }: Props) => {
           label={
             <span>
               Estado do fornecedor&nbsp;
-              <Tooltip title="Usado para calcular ICMS na entrada (crédito)">
+              <Tooltip title={isLucroReal ? 'Usado para calcular ICMS na entrada (crédito) e o Valor Custo Líquido' : 'Usado para calcular ICMS na entrada (crédito)'}>
                 <InfoCircleOutlined style={{ color: '#64748b' }} />
               </Tooltip>
             </span>
           }
         >
-          <Select placeholder="UF" showSearch allowClear>
+          <Select
+            placeholder="UF"
+            showSearch
+            allowClear
+          >
             {STATES.map(s => (
               <Select.Option key={s} value={s}>{s}</Select.Option>
             ))}
