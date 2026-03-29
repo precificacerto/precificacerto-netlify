@@ -871,7 +871,10 @@ function Products() {
     },
     {
       title: 'Preço Venda', dataIndex: 'sale_price', key: 'price', width: 130, align: 'right',
-      render: (v: number) => <span style={{ fontWeight: 700, color: '#4ade80', fontSize: 14 }}>{fmt(v)}</span>,
+      render: (v: number, r: ProductRow) => {
+        if (isLucroReal && !r.taxes_launched) return <span style={{ color: '#6b7280', fontSize: 13 }}>—</span>
+        return <span style={{ fontWeight: 700, color: '#4ade80', fontSize: 14 }}>{fmt(v)}</span>
+      },
     },
     {
       title: 'Status', dataIndex: 'status', key: 'status', width: 100, align: 'center',

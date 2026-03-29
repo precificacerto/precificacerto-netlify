@@ -465,7 +465,10 @@ function ServicesPage() {
         },
         {
             title: 'Preço Venda', dataIndex: 'base_price', key: 'price', width: 130, align: 'right',
-            render: (v: number) => <span style={{ fontWeight: 700, color: '#4ade80', fontSize: 14 }}>{fmt(v)}</span>,
+            render: (v: number, r: Service) => {
+                if (isLucroReal && !(r as any).taxes_launched) return <span style={{ color: '#6b7280', fontSize: 13 }}>—</span>
+                return <span style={{ fontWeight: 700, color: '#4ade80', fontSize: 14 }}>{fmt(v)}</span>
+            },
         },
         {
             title: 'Status', dataIndex: 'status', key: 'status', width: 80, align: 'center',
