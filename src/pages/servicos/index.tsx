@@ -14,7 +14,9 @@ import {
     PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined, MinusCircleOutlined, ReloadOutlined,
 } from '@ant-design/icons'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
+import { useAuth } from '@/hooks/use-auth.hook'
 import { calculateItemPrice } from '@/utils/calculate-item-price'
+import { LancamentoImpostosModal } from '@/components/lancamento-impostos-modal'
 import { computeServiceSellingPrice } from '@/utils/compute-service-price'
 import { fetchTaxPreview } from '@/utils/calc-tax-preview'
 import { useRouter } from 'next/router'
@@ -25,6 +27,8 @@ function fmt(v: number) {
 
 function ServicesPage() {
     const { canView, canEdit } = usePermissions()
+    const { currentUser } = useAuth()
+    const isLucroReal = currentUser?.taxableRegime === 'LUCRO_REAL'
     const router = useRouter()
 
     if (!canView(MODULES.SERVICES)) return (
@@ -51,6 +55,12 @@ function ServicesPage() {
     const [savingDeleteQty, setSavingDeleteQty] = useState(false)
     const [updatingServiceId, setUpdatingServiceId] = useState<string | null>(null)
     const [updatingAllServices, setUpdatingAllServices] = useState(false)
+
+    // Lançar Impostos modal state
+    const [lancamentoModalOpen, setLancamentoModalOpen] = useState(false)
+    const [lancamentoServiceId, setLancamentoServiceId] = useState<string | null>(null)
+    const [lancamentoServiceName, setLancamentoServiceName] = useState('')
+    const [lancamentoSalePrice, setLancamentoSalePrice] = useState(0)
 
     // Commission tables
     const [commissionTables, setCommissionTables] = useState<{ id: string; name: string; commission_percent: number }[]>([])
@@ -466,6 +476,25 @@ function ServicesPage() {
                 title: '', key: 'act', width: 160, align: 'center' as const,
                 render: (_: any, r: Service) => (
                     <Space size={4} wrap>
+                        {isLucroReal && (
+                            <Tooltip title={(r as any).taxes_launched ? 'Impostos já lançados — clique para editar' : 'Lançar impostos obrigatório para venda'}>
+                                <Button
+                                    size="small"
+                                    onClick={() => {
+                                        setLancamentoServiceId(r.id)
+                                        setLancamentoServiceName(r.name)
+                                        setLancamentoSalePrice(Number((r as any).base_price) || 0)
+                                        setLancamentoModalOpen(true)
+                                    }}
+                                    style={(r as any).taxes_launched
+                                        ? { background: '#16a34a', borderColor: '#15803d', color: 'white', fontSize: 11 }
+                                        : { background: '#dc2626', borderColor: '#b91c1c', color: 'white', fontSize: 11, animation: 'blink 1.2s step-start infinite' }
+                                    }
+                                >
+                                    {(r as any).taxes_launched ? '✓ Impostos' : '⚠ Lançar Impostos'}
+                                </Button>
+                            </Tooltip>
+                        )}
                         {(r as any).needs_cost_update && (
                             <Button
                                 type="link"
@@ -497,6 +526,18 @@ function ServicesPage() {
 
     return (
         <Layout title={PAGE_TITLES.SERVICES} subtitle="Cadastro e precificação de serviços">
+            <style>{`@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.35} }`}</style>
+            {lancamentoServiceId && (
+                <LancamentoImpostosModal
+                    open={lancamentoModalOpen}
+                    onClose={() => setLancamentoModalOpen(false)}
+                    onSuccess={() => fetchAll()}
+                    entityId={lancamentoServiceId}
+                    entityType="service"
+                    salePrice={lancamentoSalePrice}
+                    entityName={lancamentoServiceName}
+                />
+            )}
             {ctx}
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>

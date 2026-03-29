@@ -153,6 +153,15 @@ export const Content: FC<ContentProps> = ({
   const [additionalIrpjPercent, setAdditionalIrpjPercent] = useState<number>(
     (product as any)?.additional_irpj_percent != null ? Number((product as any).additional_irpj_percent) : 0
   )
+  const [freightValue, setFreightValue] = useState<number>(
+    (product as any)?.freight_value != null ? Number((product as any).freight_value) : 0
+  )
+  const [insuranceValue, setInsuranceValue] = useState<number>(
+    (product as any)?.insurance_value != null ? Number((product as any).insurance_value) : 0
+  )
+  const [accessoryExpensesValue, setAccessoryExpensesValue] = useState<number>(
+    (product as any)?.accessory_expenses_value != null ? Number((product as any).accessory_expenses_value) : 0
+  )
 
   const [recurrenceActive, setRecurrenceActive] = useState<boolean>((product as any)?.recurrence_active ?? false)
   const [recurrenceModalOpen, setRecurrenceModalOpen] = useState(false)
@@ -363,7 +372,8 @@ export const Content: FC<ContentProps> = ({
       productForm.setFieldsValue(product)
       setProductPriceInfo({
         ...PRODUCT_PRICE_INFO_BASE,
-        ...(product?.productPriceInfo || {}),
+        productProfitPercent: Number((product as any)?.profit_percent) || 0,
+        salesCommissionPercent: Number((product as any)?.commission_percent) || 0,
       } as ProductPriceInfoType)
       setUpdatedProductPriceInfoWithApi((prev) => prev + 1)
       // Load custom_tax_percent from product if editing
@@ -372,6 +382,16 @@ export const Content: FC<ContentProps> = ({
       }
       if ((product as any)?.additional_irpj_percent != null) {
         setAdditionalIrpjPercent(Number((product as any).additional_irpj_percent))
+      }
+      // Load atividades terceirizadas fields
+      if ((product as any)?.freight_value != null) {
+        setFreightValue(Number((product as any).freight_value))
+      }
+      if ((product as any)?.insurance_value != null) {
+        setInsuranceValue(Number((product as any).insurance_value))
+      }
+      if ((product as any)?.accessory_expenses_value != null) {
+        setAccessoryExpensesValue(Number((product as any).accessory_expenses_value))
       }
     }
   }, [productForm, isEditingMode, product])
@@ -413,12 +433,14 @@ export const Content: FC<ContentProps> = ({
       ? (calcBase.variableExpensePct + calcBase.financialExpensePct) / 100
       : (calcBase.structurePct + (Number(calcBase.indirectLaborPct) || 0)) / 100
     const isLucroRealProd = currentUser.taxableRegime === 'LUCRO_REAL'
+    const isLucroPresumidoProd = currentUser.taxableRegime === 'LUCRO_PRESUMIDO' || currentUser.taxableRegime === 'LUCRO_PRESUMIDO_RET'
     let effectiveTaxPct: number
-    if (isLucroRealProd) {
+    if (isLucroRealProd || isLucroPresumidoProd) {
       const nonRegimeTaxPct = calcBase.taxesPercent || 0
       const irpjPct = productPriceInfo.productProfitPercent * 0.15
       const csllPct = productPriceInfo.productProfitPercent * 0.09
-      effectiveTaxPct = nonRegimeTaxPct + irpjPct + csllPct + (additionalIrpjPercent || 0)
+      const adicionalPct = isLucroRealProd ? (additionalIrpjPercent || 0) : 0
+      effectiveTaxPct = nonRegimeTaxPct + irpjPct + csllPct + adicionalPct
     } else {
       effectiveTaxPct = customTaxPercent != null ? customTaxPercent : calcBase.taxPct
     }
@@ -627,7 +649,11 @@ export const Content: FC<ContentProps> = ({
 
       // DIRETO: salvar exatamente o valor que aparece em "Preço de Venda por Unidade" na tela
       // Sem recalcular — o valor já foi calculado pelo doProductCalc (preview)
-      const salePriceToSave = Number(productPriceInfo.totalProductPrice) || 0
+      const isLucroRealSave = currentUser?.taxableRegime === 'LUCRO_REAL'
+      const terceirizadasSum = isLucroRealSave
+        ? (freightValue || 0) + (insuranceValue || 0) + (accessoryExpensesValue || 0)
+        : 0
+      const salePriceToSave = (Number(productPriceInfo.totalProductPrice) || 0) + terceirizadasSum
       const costTotalToSave = Number(productPriceInfo.productCost) || 0
 
       let autoCode = values.code
@@ -700,6 +726,9 @@ export const Content: FC<ContentProps> = ({
       if (customTaxPercent != null) extraFields.custom_tax_percent = customTaxPercent
       else extraFields.custom_tax_percent = null
       extraFields.additional_irpj_percent = additionalIrpjPercent || 0
+      extraFields.freight_value = freightValue || 0
+      extraFields.insurance_value = insuranceValue || 0
+      extraFields.accessory_expenses_value = accessoryExpensesValue || 0
       extraFields.recurrence_active = recurrenceActive
       extraFields.recurrence_days = recurrenceActive && recurrenceDays ? recurrenceDays : null
       extraFields.recurrence_message = recurrenceActive && recurrenceMessage ? recurrenceMessage : null
@@ -1474,6 +1503,12 @@ export const Content: FC<ContentProps> = ({
           onCustomTaxPercentChange={setCustomTaxPercent}
           additionalIrpjPercent={additionalIrpjPercent}
           onAdditionalIrpjChange={setAdditionalIrpjPercent}
+          freightValue={freightValue}
+          onFreightChange={setFreightValue}
+          insuranceValue={insuranceValue}
+          onInsuranceChange={setInsuranceValue}
+          accessoryExpensesValue={accessoryExpensesValue}
+          onAccessoryExpensesChange={setAccessoryExpensesValue}
         />
       )}
       {productType === 'REVENDA' && isCalcTypeService && (
@@ -1495,6 +1530,12 @@ export const Content: FC<ContentProps> = ({
           onCustomTaxPercentChange={setCustomTaxPercent}
           additionalIrpjPercent={additionalIrpjPercent}
           onAdditionalIrpjChange={setAdditionalIrpjPercent}
+          freightValue={freightValue}
+          onFreightChange={setFreightValue}
+          insuranceValue={insuranceValue}
+          onInsuranceChange={setInsuranceValue}
+          accessoryExpensesValue={accessoryExpensesValue}
+          onAccessoryExpensesChange={setAccessoryExpensesValue}
         />
       )}
       {productType === 'REVENDA' && !isCalcTypeService && (
@@ -1515,6 +1556,12 @@ export const Content: FC<ContentProps> = ({
           onCustomTaxPercentChange={setCustomTaxPercent}
           additionalIrpjPercent={additionalIrpjPercent}
           onAdditionalIrpjChange={setAdditionalIrpjPercent}
+          freightValue={freightValue}
+          onFreightChange={setFreightValue}
+          insuranceValue={insuranceValue}
+          onInsuranceChange={setInsuranceValue}
+          accessoryExpensesValue={accessoryExpensesValue}
+          onAccessoryExpensesChange={setAccessoryExpensesValue}
         />
       )}
       <footer className="flex flex-row-reverse mt-5 mr-4">

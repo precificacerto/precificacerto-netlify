@@ -22,6 +22,12 @@ interface Props {
   onCustomTaxPercentChange?: (value: number) => void
   additionalIrpjPercent?: number
   onAdditionalIrpjChange?: (value: number) => void
+  freightValue?: number
+  onFreightChange?: (value: number) => void
+  insuranceValue?: number
+  onInsuranceChange?: (value: number) => void
+  accessoryExpensesValue?: number
+  onAccessoryExpensesChange?: (value: number) => void
 }
 
 export const ProductPrice: FC<Props> = ({
@@ -34,11 +40,19 @@ export const ProductPrice: FC<Props> = ({
   onCustomTaxPercentChange,
   additionalIrpjPercent,
   onAdditionalIrpjChange,
+  freightValue = 0,
+  onFreightChange,
+  insuranceValue = 0,
+  onInsuranceChange,
+  accessoryExpensesValue = 0,
+  onAccessoryExpensesChange,
 }: Props) => {
   const isCalcTypeResale = currentUser?.calcType === CALC_TYPE_ENUM.RESALE
   const isCalcTypeService = currentUser?.calcType === CALC_TYPE_ENUM.SERVICE
   const isMei = !!calcBase.isMei
   const isLucroReal = currentUser?.taxableRegime === 'LUCRO_REAL'
+  const isLucroPresumed = currentUser?.taxableRegime === 'LUCRO_PRESUMIDO' || currentUser?.taxableRegime === 'LUCRO_PRESUMIDO_RET'
+  const showIrpjCsll = isLucroReal || isLucroPresumed
 
   const totalPrice = productPriceInfo.totalProductPrice
   const laborPct = Number(calcBase.indirectLaborPct) || 0
@@ -68,16 +82,24 @@ export const ProductPrice: FC<Props> = ({
   const pricePerUnit = totalPrice
   const priceRecipeTotal = totalPrice * yieldQty
 
-  // LUCRO_REAL: IRPJ = 15% do lucro, CSLL = 9% do lucro, adicional = user-entered
-  const irpjPct = isLucroReal ? profitPct * 0.15 : 0
-  const csllPct = isLucroReal ? profitPct * 0.09 : 0
+  // Atividades Terceirizadas (apenas LUCRO_REAL): somadas ao preço de venda
+  const terceirizadasTotal = isLucroReal
+    ? (freightValue || 0) + (insuranceValue || 0) + (accessoryExpensesValue || 0)
+    : 0
+  const finalSalePrice = pricePerUnit + terceirizadasTotal
+
+  // LUCRO_REAL / LUCRO_PRESUMIDO: IRPJ = 15% do lucro, CSLL = 9% do lucro
+  const irpjVal = showIrpjCsll ? profitVal * 0.15 : 0
+  const csllVal = showIrpjCsll ? profitVal * 0.09 : 0
+  // % displayed = valor / preço de venda (quanto representa no preço final)
+  const irpjPct = showIrpjCsll && pricePerUnit > 0 ? (irpjVal / pricePerUnit) * 100 : 0
+  const csllPct = showIrpjCsll && pricePerUnit > 0 ? (csllVal / pricePerUnit) * 100 : 0
+  // Adicional IRPJ apenas para LUCRO_REAL (preenchido manualmente)
   const adicionalIrpjPct = isLucroReal ? (additionalIrpjPercent || 0) : 0
-  const irpjVal = isLucroReal ? profitVal * 0.15 : 0
-  const csllVal = isLucroReal ? profitVal * 0.09 : 0
   const adicionalIrpjVal = isLucroReal ? (pricePerUnit * adicionalIrpjPct / 100) : 0
 
-  // For LUCRO_REAL: replace taxPctDisplay with explicit IRPJ+CSLL+adicional in totalPct
-  const taxContribution = isLucroReal
+  // Para LUCRO_REAL/PRESUMIDO: IRPJ+CSLL são calculados sobre o lucro, não no taxPctDisplay
+  const taxContribution = showIrpjCsll
     ? irpjPct + csllPct + adicionalIrpjPct
     : taxPctDisplay
 
@@ -201,7 +223,7 @@ export const ProductPrice: FC<Props> = ({
             {!isCalcTypeService && pricingRow('Despesas fixas', fixedPct, fixedVal)}
             {pricingRow('Despesas variáveis', variablePct, variableVal)}
             {pricingRow('Despesas financeiras', financialPct, financialVal)}
-            {!isLucroReal && pricingRow(taxLabel, taxPctDisplay, taxValDisplay, 'customTaxPercent', 'Alíquota efetiva herdada do regime tributário. Edite para ajustar apenas neste produto/serviço.')}
+            {!showIrpjCsll && pricingRow(taxLabel, taxPctDisplay, taxValDisplay, 'customTaxPercent', 'Alíquota efetiva herdada do regime tributário. Edite para ajustar apenas neste produto/serviço.')}
             {pricingRow(
               'Comissão total do vendedor',
               commissionPct,
@@ -210,8 +232,8 @@ export const ProductPrice: FC<Props> = ({
               'Se deixar 0%, a comissão cadastrada no funcionário será aplicada automaticamente.'
             )}
             {pricingRow('Lucro', profitPct, profitVal, 'productProfitPercent')}
-            {isLucroReal && pricingRow('IRPJ (15% sobre lucro)', irpjPct, irpjVal, undefined, 'Imposto de Renda Pessoa Jurídica — calculado automaticamente como 15% sobre o valor do lucro.')}
-            {isLucroReal && pricingRow('CSLL (9% sobre lucro)', csllPct, csllVal, undefined, 'Contribuição Social sobre o Lucro Líquido — calculada automaticamente como 9% sobre o valor do lucro.')}
+            {showIrpjCsll && pricingRow('IRPJ (15% sobre lucro)', irpjPct, irpjVal, undefined, 'Imposto de Renda Pessoa Jurídica — calculado automaticamente como 15% sobre o valor do lucro. A porcentagem exibida representa quanto esse imposto ocupa no preço de venda.')}
+            {showIrpjCsll && pricingRow('CSLL (9% sobre lucro)', csllPct, csllVal, undefined, 'Contribuição Social sobre o Lucro Líquido — calculada automaticamente como 9% sobre o valor do lucro. A porcentagem exibida representa quanto esse imposto ocupa no preço de venda.')}
             {isLucroReal && pricingRow('Alíq. adicional IRPJ', adicionalIrpjPct, adicionalIrpjVal, 'additionalIrpj', 'Alíquota da parcela adicional do IRPJ. Informe manualmente conforme enquadramento.')}
           </tbody>
         </table>
@@ -223,11 +245,61 @@ export const ProductPrice: FC<Props> = ({
           <span style={{ fontWeight: 600 }}>{(100 - totalPct).toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%</span>
         </div>
 
+        {/* Atividades Terceirizadas — apenas LUCRO_REAL */}
+        {isLucroReal && (
+          <div style={{ marginTop: 14, background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '12px 14px', border: '1px solid rgba(255,255,255,0.07)' }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' as const, letterSpacing: 0.6, marginBottom: 10 }}>
+              Atividades Terceirizadas
+            </div>
+            <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0 4px' }}>
+              <tbody>
+                {[
+                  { label: 'Frete', value: freightValue, onChange: onFreightChange },
+                  { label: 'Seguros', value: insuranceValue, onChange: onInsuranceChange },
+                  { label: 'Despesas Acessórias', value: accessoryExpensesValue, onChange: onAccessoryExpensesChange },
+                ].map(({ label, value, onChange }) => (
+                  <tr key={label}>
+                    <td style={{ fontSize: 13, color: '#cbd5e1', paddingRight: 12 }}>{label}</td>
+                    <td style={{ textAlign: 'right' }}>
+                      <InputNumber
+                        size="small"
+                        min={0}
+                        step={0.01}
+                        precision={2}
+                        value={value}
+                        onChange={(v) => onChange?.(v ?? 0)}
+                        style={{ width: 130 }}
+                        formatter={(v) => {
+                          if (v == null || v === '') return 'R$ 0,00'
+                          const n = typeof v === 'string' ? parseFloat(v.replace(',', '.')) : Number(v)
+                          if (isNaN(n)) return 'R$ 0,00'
+                          return 'R$ ' + n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                        }}
+                        parser={(v) => {
+                          const raw = (v || '0').replace('R$', '').replace(/\s/g, '').replace(/\./g, '').replace(',', '.').trim()
+                          const n = Number(raw)
+                          return isNaN(n) ? 0 : n
+                        }}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {terceirizadasTotal > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.06)', fontSize: 12, color: '#94a3b8' }}>
+                <span>Total terceirizadas</span>
+                <span style={{ fontWeight: 600, color: '#e2e8f0' }}>{fmt(terceirizadasTotal)}</span>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Result box */}
         <div style={{
           padding: '16px 20px', borderRadius: 8, marginTop: 12,
-          background: totalPrice > 0 ? '#ECFDF5' : '#FEF2F2',
-          border: `1px solid ${totalPrice > 0 ? '#6CE9A6' : '#FDA29B'}`,
+          background: finalSalePrice > 0 ? '#ECFDF5' : '#FEF2F2',
+          border: `1px solid ${finalSalePrice > 0 ? '#6CE9A6' : '#FDA29B'}`,
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
@@ -235,24 +307,29 @@ export const ProductPrice: FC<Props> = ({
               <div style={{ fontSize: 20, fontWeight: 700, color: profitVal >= 0 ? '#027A48' : '#B42318' }}>
                 {fmt(profitVal)}
               </div>
-              {totalPrice > 0 && (
+              {finalSalePrice > 0 && (
                 <div style={{ fontSize: 11, color: '#94a3b8' }}>
                   Margem: {profitPct.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%
                 </div>
               )}
             </div>
             <div style={{ textAlign: 'right' }}>
-              <Tooltip title="Este é o preço de venda por unidade (igual ao campo Preço de venda salvo no produto). Não confundir com o lucro líquido à esquerda.">
+              <Tooltip title="Este é o preço de venda por unidade, incluindo atividades terceirizadas (Frete, Seguros, Despesas Acessórias) quando aplicável.">
                 <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 2, textTransform: 'uppercase' as const, letterSpacing: 0.5, cursor: 'help' }}>
                   Preço de Venda por Unidade
                 </div>
               </Tooltip>
-              <div style={{ fontSize: 28, fontWeight: 800, color: pricePerUnit > 0 ? '#027A48' : '#B42318' }}>
-                {fmt(pricePerUnit)}
+              <div style={{ fontSize: 28, fontWeight: 800, color: finalSalePrice > 0 ? '#027A48' : '#B42318' }}>
+                {fmt(finalSalePrice)}
               </div>
+              {isLucroReal && terceirizadasTotal > 0 && (
+                <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
+                  Base: {fmt(pricePerUnit)} + Terceirizadas: {fmt(terceirizadasTotal)}
+                </div>
+              )}
               {yieldQty > 1 && (
                 <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>
-                  Total receita ({yieldQty} {unit || 'UN'}): {fmt(priceRecipeTotal)}
+                  Total receita ({yieldQty} {unit || 'UN'}): {fmt(finalSalePrice * yieldQty)}
                 </div>
               )}
             </div>
@@ -270,8 +347,8 @@ export const ProductPrice: FC<Props> = ({
               <Tooltip title={`Despesas: ${fmt(expensesTotal)}`}>
                 <div style={{ width: `${(expensesTotal / totalPrice) * 100}%`, background: '#F79009' }} />
               </Tooltip>
-              <Tooltip title={`Impostos: ${fmt(isLucroReal ? irpjVal + csllVal + adicionalIrpjVal : taxesTotal)}`}>
-                <div style={{ width: `${((isLucroReal ? irpjVal + csllVal + adicionalIrpjVal : taxesTotal) / totalPrice) * 100}%`, background: '#667085' }} />
+              <Tooltip title={`Impostos: ${fmt(showIrpjCsll ? irpjVal + csllVal + adicionalIrpjVal : taxesTotal)}`}>
+                <div style={{ width: `${((showIrpjCsll ? irpjVal + csllVal + adicionalIrpjVal : taxesTotal) / totalPrice) * 100}%`, background: '#667085' }} />
               </Tooltip>
               <Tooltip title={`Comissão: ${fmt(commissionVal)}`}>
                 <div style={{ width: `${(commissionVal / totalPrice) * 100}%`, background: '#7A5AF8' }} />

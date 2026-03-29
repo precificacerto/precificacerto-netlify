@@ -25,6 +25,12 @@ interface ContentResaleProps {
   onCustomTaxPercentChange?: (value: number) => void
   additionalIrpjPercent?: number
   onAdditionalIrpjChange?: (value: number) => void
+  freightValue?: number
+  onFreightChange?: (value: number) => void
+  insuranceValue?: number
+  onInsuranceChange?: (value: number) => void
+  accessoryExpensesValue?: number
+  onAccessoryExpensesChange?: (value: number) => void
 }
 export const ContentResale: FC<ContentResaleProps> = ({
   itemsForm,
@@ -43,6 +49,12 @@ export const ContentResale: FC<ContentResaleProps> = ({
   onCustomTaxPercentChange,
   additionalIrpjPercent,
   onAdditionalIrpjChange,
+  freightValue,
+  onFreightChange,
+  insuranceValue,
+  onInsuranceChange,
+  accessoryExpensesValue,
+  onAccessoryExpensesChange,
 }: ContentResaleProps) => {
   return (
     <>
@@ -95,6 +107,12 @@ export const ContentResale: FC<ContentResaleProps> = ({
         onCustomTaxPercentChange={onCustomTaxPercentChange}
         additionalIrpjPercent={additionalIrpjPercent}
         onAdditionalIrpjChange={onAdditionalIrpjChange}
+        freightValue={freightValue}
+        onFreightChange={onFreightChange}
+        insuranceValue={insuranceValue}
+        onInsuranceChange={onInsuranceChange}
+        accessoryExpensesValue={accessoryExpensesValue}
+        onAccessoryExpensesChange={onAccessoryExpensesChange}
       />
     </>
   )

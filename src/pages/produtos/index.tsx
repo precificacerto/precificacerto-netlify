@@ -16,6 +16,7 @@ import { useAuth } from '@/hooks/use-auth.hook'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import { getTenantId, getCurrentUserId } from '@/utils/get-tenant-id'
 import { calculateItemPrice } from '@/utils/calculate-item-price'
+import { LancamentoImpostosModal } from '@/components/lancamento-impostos-modal'
 
 const UNIT_LABELS: Record<string, string> = {
   G: 'g', KG: 'kg', ML: 'ml', L: 'l', UN: 'un', M: 'm', CM: 'cm', MM: 'mm',
@@ -43,6 +44,7 @@ type ProductRow = {
   profit_percent: number | null
   needs_cost_update: boolean
   product_type: string
+  taxes_launched: boolean | null
 }
 
 type RenewProductOption = {
@@ -83,6 +85,13 @@ function Products() {
   const [updatingProductId, setUpdatingProductId] = useState<string | null>(null)
   const [updatingAllProductsFlag, setUpdatingAllProductsFlag] = useState(false)
   const effectiveTenantId = contextTenantId ?? currentUser?.tenant_id
+  const isLucroReal = currentUser?.taxableRegime === 'LUCRO_REAL'
+
+  // Lançar Impostos modal state
+  const [lancamentoModalOpen, setLancamentoModalOpen] = useState(false)
+  const [lancamentoProductId, setLancamentoProductId] = useState<string | null>(null)
+  const [lancamentoProductName, setLancamentoProductName] = useState('')
+  const [lancamentoSalePrice, setLancamentoSalePrice] = useState(0)
 
   // Product sections state
   const [sectionModalOpen, setSectionModalOpen] = useState(false)
@@ -292,6 +301,7 @@ function Products() {
         profit_percent: pricing?.pct_profit_margin != null ? Number(pricing.pct_profit_margin) : null,
         needs_cost_update: Boolean(p.needs_cost_update),
         product_type: p.product_type || 'PRODUZIDO',
+        taxes_launched: p.taxes_launched ?? null,
       }
     })
   }, [rawProducts, stockByProductId])
@@ -874,6 +884,25 @@ function Products() {
           title: '', key: 'act', width: 160, align: 'center' as const,
           render: (_: any, r: ProductRow) => (
             <Space size={4} wrap>
+              {isLucroReal && (
+                <Tooltip title={r.taxes_launched ? 'Impostos já lançados — clique para editar' : 'Lançar impostos obrigatório para venda'}>
+                  <Button
+                    size="small"
+                    onClick={() => {
+                      setLancamentoProductId(r.id)
+                      setLancamentoProductName(r.name)
+                      setLancamentoSalePrice(r.sale_price)
+                      setLancamentoModalOpen(true)
+                    }}
+                    style={r.taxes_launched
+                      ? { background: '#16a34a', borderColor: '#15803d', color: 'white', fontSize: 11 }
+                      : { background: '#dc2626', borderColor: '#b91c1c', color: 'white', fontSize: 11, animation: 'blink 1.2s step-start infinite' }
+                    }
+                  >
+                    {r.taxes_launched ? '✓ Impostos' : '⚠ Lançar Impostos'}
+                  </Button>
+                </Tooltip>
+              )}
               {r.needs_cost_update && (
                 <Button
                   type="link"
@@ -914,6 +943,18 @@ function Products() {
 
   return (
     <Layout title={PAGE_TITLES.PRODUCTS} subtitle="Gerencie seus produtos cadastrados">
+      <style>{`@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.35} }`}</style>
+      {lancamentoProductId && (
+        <LancamentoImpostosModal
+          open={lancamentoModalOpen}
+          onClose={() => setLancamentoModalOpen(false)}
+          onSuccess={() => reloadProducts()}
+          entityId={lancamentoProductId}
+          entityType="product"
+          salePrice={lancamentoSalePrice}
+          entityName={lancamentoProductName}
+        />
+      )}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <Input
