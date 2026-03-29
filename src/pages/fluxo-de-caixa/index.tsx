@@ -346,7 +346,6 @@ export default function CashFlow() {
             const { error } = await (supabase as any).from('cash_entries').update({
                 paid_date: paymentDate ? paymentDate.format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'),
                 payment_method: paymentMethodModal || null,
-                updated_at: new Date().toISOString(),
             }).eq('id', paymentEntry.id).eq('tenant_id', tenant_id)
             if (error) throw error
             messageApi.success('Pagamento registrado!')
