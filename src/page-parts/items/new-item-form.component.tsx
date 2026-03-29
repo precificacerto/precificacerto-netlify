@@ -76,18 +76,27 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
 
   const fetchAndFillNcmRates = useCallback(async (code: string) => {
     if (!code || !isLucroReal) return
-    const cleanCode = code.replace(/\D/g, '')
+    const digits = code.replace(/\D/g, '')
+    if (digits.length < 4) return
+    // ncm_codes armazena no formato "XXXX.XX.XX" — formatar para bater com o banco
+    const formatted = digits.length >= 8
+      ? `${digits.slice(0, 4)}.${digits.slice(4, 6)}.${digits.slice(6, 8)}`
+      : digits.length >= 6
+        ? `${digits.slice(0, 4)}.${digits.slice(4, 6)}`
+        : digits
     try {
-      const { data } = await supabase
+      const { data: rows } = await supabase
         .from('ncm_codes')
         .select('ipi_rate, pis_rate_cumulativo, cofins_rate_cumulativo')
-        .eq('code', cleanCode)
-        .maybeSingle()
+        .in('code', [formatted, digits])
+        .limit(1)
+      const data = rows?.[0]
       if (data) {
+        const toPercent = (v: any) => v != null ? parseFloat((Number(v) * 100).toFixed(2)) : 0
         form.setFieldsValue({
-          ipi_rate: data.ipi_rate != null ? Number((Number(data.ipi_rate) * 100).toFixed(4)) : 0,
-          pis_rate: data.pis_rate_cumulativo != null ? Number((Number(data.pis_rate_cumulativo) * 100).toFixed(4)) : 0,
-          cofins_rate: data.cofins_rate_cumulativo != null ? Number((Number(data.cofins_rate_cumulativo) * 100).toFixed(4)) : 0,
+          ipi_rate: toPercent(data.ipi_rate),
+          pis_rate: toPercent(data.pis_rate_cumulativo),
+          cofins_rate: toPercent(data.cofins_rate_cumulativo),
         })
         setTimeout(recalcNetCost, 50)
       }
@@ -442,7 +451,7 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
               min={0}
               max={100}
               step={0.01}
-              precision={4}
+              precision={2}
               style={{ width: '100%' }}
               placeholder="0,00"
               suffix="%"
@@ -466,7 +475,7 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
               min={0}
               max={100}
               step={0.01}
-              precision={4}
+              precision={2}
               style={{ width: '100%' }}
               placeholder="0,00"
               suffix="%"
@@ -491,7 +500,7 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
               min={0}
               max={100}
               step={0.01}
-              precision={4}
+              precision={2}
               style={{ width: '100%' }}
               placeholder="0,00"
               suffix="%"

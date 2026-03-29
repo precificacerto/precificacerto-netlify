@@ -28,7 +28,7 @@ function fmt(v: number) {
 }
 
 interface RawItem {
-    id: string; name: string; unit: string; cost_price: number; quantity: number; item_type?: string; measure_quantity?: number
+    id: string; name: string; unit: string; cost_price: number; quantity: number; item_type?: string; measure_quantity?: number; cost_net?: number
 }
 
 interface TempItem {

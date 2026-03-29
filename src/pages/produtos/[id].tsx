@@ -82,6 +82,8 @@ const ProductDetails = () => {
                 stockQuantity: stock ? stock.quantity_current : null,
                 stockUnit: stock ? stock.unit : unit,
                 cost_per_base_unit: costPerUnit,
+                cost_net: i.cost_net != null ? Number(i.cost_net) : 0,
+                measure_quantity: Number(i.measure_quantity) || 1,
               }
             })
           )
@@ -115,6 +117,8 @@ const ProductDetails = () => {
               price: qty * costPerUnit,
               referencePrice: costPerUnit,
               stockQuantity: item?.id ? stockByItemId[item.id] ?? null : null,
+              cost_net: item?.cost_net != null ? Number(item.cost_net) : 0,
+              measure_quantity: Number(item?.measure_quantity) || 1,
             }
           })
 
@@ -143,6 +147,8 @@ const ProductDetails = () => {
                   price: costPerUnit,
                   referencePrice: costPerUnit,
                   stockQuantity: stockByItemId[baseItem.id] ?? null,
+                  cost_net: baseItem.cost_net != null ? Number(baseItem.cost_net) : 0,
+                  measure_quantity: Number(baseItem.measure_quantity) || 1,
                 }]
               }
             }
