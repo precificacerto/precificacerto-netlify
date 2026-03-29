@@ -342,17 +342,18 @@ export default function CashFlow() {
         if (!paymentEntry) return
         setSavingPayment(true)
         try {
+            const tenant_id = await getTenantId()
             const { error } = await (supabase as any).from('cash_entries').update({
                 paid_date: paymentDate ? paymentDate.format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'),
                 payment_method: paymentMethodModal || null,
                 updated_at: new Date().toISOString(),
-            }).eq('id', paymentEntry.id)
+            }).eq('id', paymentEntry.id).eq('tenant_id', tenant_id)
             if (error) throw error
             messageApi.success('Pagamento registrado!')
             setPaymentModalOpen(false)
             await fetchData()
-        } catch {
-            messageApi.error('Erro ao registrar pagamento.')
+        } catch (err: any) {
+            messageApi.error('Erro ao registrar pagamento: ' + (err?.message || 'Erro desconhecido'))
         } finally {
             setSavingPayment(false)
         }
@@ -529,6 +530,8 @@ export default function CashFlow() {
                     incomeByLabel[label] += getEffectiveIncomeAmount(entry)
                 }
             } else {
+                // Skip paid expenses — they turn blank after payment
+                if (entry.paid_date) continue
                 let matched = false
                 for (const section of EXPENSE_SECTIONS) {
                     for (const item of section.items) {
@@ -567,6 +570,7 @@ export default function CashFlow() {
                 if (entry.payment_method === 'BOLETO' && !entry.paid_date) continue
                 totals[day] += getEffectiveIncomeAmount(entry)
             } else {
+                if (entry.paid_date) continue
                 totals[day] -= Number(entry.amount) || 0
             }
         }
@@ -577,6 +581,7 @@ export default function CashFlow() {
     const pivotByDay = useMemo(() => {
         const daysInMonth = month.daysInMonth()
         const result: Record<string, Record<number, number>> = {}
+        const entriesMap: Record<string, Record<number, any[]>> = {}
         const allKeys = [...INCOME_LABELS, ...EXPENSE_SECTIONS.map(s => s.header), 'Outras Despesas']
         // Also track item-level keys
         for (const section of EXPENSE_SECTIONS) {
@@ -586,7 +591,11 @@ export default function CashFlow() {
         }
         for (const cat of allKeys) {
             result[cat] = {}
-            for (let d = 1; d <= daysInMonth; d++) result[cat][d] = 0
+            entriesMap[cat] = {}
+            for (let d = 1; d <= daysInMonth; d++) {
+                result[cat][d] = 0
+                entriesMap[cat][d] = []
+            }
         }
         for (const entry of regularData) {
             if (!entry.due_date) continue
@@ -597,6 +606,8 @@ export default function CashFlow() {
                 const label = getIncomeLabel(entry)
                 if (label && result[label]) result[label][day] = (result[label][day] || 0) + getEffectiveIncomeAmount(entry)
             } else {
+                // Skip paid expenses — they "turn white/blank" after payment is registered
+                if (entry.paid_date) continue
                 let matched = false
                 for (const section of EXPENSE_SECTIONS) {
                     if (matched) break
@@ -604,15 +615,20 @@ export default function CashFlow() {
                         if (matchesDescription(entry.description, item.descMatch)) {
                             result[section.header][day] = (result[section.header][day] || 0) + (Number(entry.amount) || 0)
                             result[`${section.header}||${item.label}`][day] = (result[`${section.header}||${item.label}`][day] || 0) + (Number(entry.amount) || 0)
+                            entriesMap[section.header][day] = [...(entriesMap[section.header][day] || []), entry]
+                            entriesMap[`${section.header}||${item.label}`][day] = [...(entriesMap[`${section.header}||${item.label}`][day] || []), entry]
                             matched = true
                             break
                         }
                     }
                 }
-                if (!matched) result['Outras Despesas'][day] = (result['Outras Despesas'][day] || 0) + (Number(entry.amount) || 0)
+                if (!matched) {
+                    result['Outras Despesas'][day] = (result['Outras Despesas'][day] || 0) + (Number(entry.amount) || 0)
+                    entriesMap['Outras Despesas'][day] = [...(entriesMap['Outras Despesas'][day] || []), entry]
+                }
             }
         }
-        return { data: result, daysInMonth }
+        return { data: result, daysInMonth, entriesMap }
     }, [regularData, month])
 
     // ── Saldo do Mês Anterior (valor fixo inserido pelo usuário) ──
@@ -944,9 +960,18 @@ export default function CashFlow() {
                                             </td>
                                             {Array.from({ length: pivotByDay.daysInMonth }, (_, i) => i + 1).map(day => {
                                                 const val = (pivotByDay.data[section.header] || {})[day] || 0
+                                                const cellEntries = (pivotByDay.entriesMap[section.header] || {})[day] || []
                                                 return (
                                                     <td key={day} style={{ padding: '5px 4px', textAlign: 'right', color: val > 0 ? '#f87171' : '#334155', fontVariantNumeric: 'tabular-nums', borderRight: '1px solid rgba(255,255,255,0.04)', fontSize: 11 }}>
-                                                        {val > 0 ? formatCurrency(val) : ''}
+                                                        {val > 0 ? (
+                                                            <span
+                                                                onClick={() => cellEntries.length > 0 && handleOpenPaymentModal(cellEntries[0])}
+                                                                style={{ cursor: cellEntries.length > 0 ? 'pointer' : 'default', borderBottom: cellEntries.length > 0 ? '1px dashed rgba(248,113,113,0.6)' : 'none' }}
+                                                                title={cellEntries.length > 1 ? `${cellEntries.length} lançamentos — clique para registrar o primeiro` : 'Clique para registrar pagamento'}
+                                                            >
+                                                                {formatCurrency(val)}
+                                                            </span>
+                                                        ) : ''}
                                                     </td>
                                                 )
                                             })}
@@ -966,9 +991,18 @@ export default function CashFlow() {
                                                     </td>
                                                     {Array.from({ length: pivotByDay.daysInMonth }, (_, i) => i + 1).map(day => {
                                                         const val = (pivotByDay.data[itemKey] || {})[day] || 0
+                                                        const cellEntries = (pivotByDay.entriesMap[itemKey] || {})[day] || []
                                                         return (
                                                             <td key={day} style={{ padding: '4px 4px', textAlign: 'right', color: val > 0 ? '#fca5a5' : '#334155', fontVariantNumeric: 'tabular-nums', borderRight: '1px solid rgba(255,255,255,0.02)', fontSize: 10 }}>
-                                                                {val > 0 ? formatCurrency(val) : ''}
+                                                                {val > 0 ? (
+                                                                    <span
+                                                                        onClick={() => cellEntries.length > 0 && handleOpenPaymentModal(cellEntries[0])}
+                                                                        style={{ cursor: cellEntries.length > 0 ? 'pointer' : 'default', borderBottom: cellEntries.length > 0 ? '1px dashed rgba(252,165,165,0.6)' : 'none' }}
+                                                                        title={cellEntries.length > 1 ? `${cellEntries.length} lançamentos — clique para registrar o primeiro` : 'Clique para registrar pagamento'}
+                                                                    >
+                                                                        {formatCurrency(val)}
+                                                                    </span>
+                                                                ) : ''}
                                                             </td>
                                                         )
                                                     })}
@@ -988,9 +1022,18 @@ export default function CashFlow() {
                                     </td>
                                     {Array.from({ length: pivotByDay.daysInMonth }, (_, i) => i + 1).map(day => {
                                         const val = (pivotByDay.data['Outras Despesas'] || {})[day] || 0
+                                        const cellEntries = (pivotByDay.entriesMap['Outras Despesas'] || {})[day] || []
                                         return (
                                             <td key={day} style={{ padding: '5px 4px', textAlign: 'right', color: val > 0 ? '#f87171' : '#334155', fontVariantNumeric: 'tabular-nums', borderRight: '1px solid rgba(255,255,255,0.04)', fontSize: 11 }}>
-                                                {val > 0 ? formatCurrency(val) : ''}
+                                                {val > 0 ? (
+                                                    <span
+                                                        onClick={() => cellEntries.length > 0 && handleOpenPaymentModal(cellEntries[0])}
+                                                        style={{ cursor: cellEntries.length > 0 ? 'pointer' : 'default', borderBottom: cellEntries.length > 0 ? '1px dashed rgba(248,113,113,0.6)' : 'none' }}
+                                                        title="Clique para registrar pagamento"
+                                                    >
+                                                        {formatCurrency(val)}
+                                                    </span>
+                                                ) : ''}
                                             </td>
                                         )
                                     })}
@@ -1096,6 +1139,13 @@ export default function CashFlow() {
                                 render: (_: any, r: any) => {
                                     const val = r.type === 'INCOME' ? getEffectiveIncomeAmount(r) : Number(r.amount || 0)
                                     if (r.type === 'EXPENSE') {
+                                        if (r.paid_date) {
+                                            return (
+                                                <strong style={{ color: 'rgba(255,255,255,0.15)', fontVariantNumeric: 'tabular-nums' }} title={`Pago em ${r.paid_date}`}>
+                                                    - {formatCurrency(val)}
+                                                </strong>
+                                            )
+                                        }
                                         return (
                                             <strong
                                                 onClick={() => handleOpenPaymentModal(r)}

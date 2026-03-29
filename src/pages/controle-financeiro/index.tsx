@@ -1152,7 +1152,7 @@ export default function ControleFinanceiro() {
                 open={editRecurringOpen}
                 onCancel={() => setEditRecurringOpen(false)}
                 footer={null}
-                width={520}
+                width={700}
             >
                 {editRecurringEntry && (
                     <div>
