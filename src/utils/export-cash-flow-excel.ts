@@ -339,7 +339,7 @@ function buildMonthSheet(workbook: ExcelJS.Workbook, data: CashEntry[], monthObj
 
     // ── Process entries ──
     for (const entry of data) {
-        const day = dayjs(entry.due_date).date()
+        const day = dayjs(entry.due_date + 'T00:00:00').date()
         const dayIdx = day - 1
         if (dayIdx < 0 || dayIdx >= daysInMonth) continue
 

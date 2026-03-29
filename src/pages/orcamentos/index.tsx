@@ -32,6 +32,8 @@ function buildInstallmentsByPreset(preset: string): { date: any; amount: number 
     if (preset === '30') return [{ date: today.add(30, 'day'), amount: 0 }]
     if (preset === '30_60') return [{ date: today.add(30, 'day'), amount: 0 }, { date: today.add(60, 'day'), amount: 0 }]
     if (preset === '30_60_90') return [{ date: today.add(30, 'day'), amount: 0 }, { date: today.add(60, 'day'), amount: 0 }, { date: today.add(90, 'day'), amount: 0 }]
+    if (preset === '30_60_90_120') return [{ date: today.add(30, 'day'), amount: 0 }, { date: today.add(60, 'day'), amount: 0 }, { date: today.add(90, 'day'), amount: 0 }, { date: today.add(120, 'day'), amount: 0 }]
+    if (preset === '30_60_90_120_150') return [{ date: today.add(30, 'day'), amount: 0 }, { date: today.add(60, 'day'), amount: 0 }, { date: today.add(90, 'day'), amount: 0 }, { date: today.add(120, 'day'), amount: 0 }, { date: today.add(150, 'day'), amount: 0 }]
     return [{ date: null, amount: 0 }]
 }
 
@@ -40,6 +42,8 @@ const INSTALLMENT_PRESETS = [
     { value: '30', label: '30' },
     { value: '30_60', label: '30/60' },
     { value: '30_60_90', label: '30/60/90' },
+    { value: '30_60_90_120', label: '30/60/90/120' },
+    { value: '30_60_90_120_150', label: '30/60/90/120/150' },
 ]
 
 /** Célula de cabeçalho que mantém título + ícone de ordenação + ícone de filtro agrupados à esquerda */
@@ -118,7 +122,7 @@ function Budgets() {
     const [form] = Form.useForm()
     const [paymentForm] = Form.useForm()
     const [customInstallments, setCustomInstallments] = useState<{ date: any; amount: number }[]>([{ date: null, amount: 0 }])
-    const [installmentPreset, setInstallmentPreset] = useState<'customizado' | '30' | '30_60' | '30_60_90'>('customizado')
+    const [installmentPreset, setInstallmentPreset] = useState<'customizado' | '30' | '30_60' | '30_60_90' | '30_60_90_120' | '30_60_90_120_150'>('customizado')
     const [attachFile, setAttachFile] = useState<File | null>(null)
     const [attachDesc, setAttachDesc] = useState('')
     const [customerMode, setCustomerMode] = useState<'existing' | 'manual'>('existing')
@@ -749,7 +753,7 @@ function Budgets() {
                     budget_id: selectedBudget.id,
                     amount: Number(selectedBudget.total_value),
                     description: `Venda via orçamento ORC-${selectedBudget.id.substring(0, 4).toUpperCase()}`,
-                    launch_date: new Date().toISOString().split('T')[0],
+                    launch_date: dayjs().format('YYYY-MM-DD'),
                     origin_type: 'BUDGET',
                     status: 'PENDING',
                     created_by: createdBy,
@@ -802,7 +806,7 @@ function Budgets() {
                     tenant_id,
                     type: 'INCOME',
                     amount: Number(selectedBudget.total_value),
-                    due_date: new Date().toISOString().split('T')[0],
+                    due_date: dayjs().format('YYYY-MM-DD'),
                     description: `Venda: ORC-${selectedBudget.id.substring(0, 4).toUpperCase()} — ${values.payment_method}${numInstallments > 1 ? ` (${numInstallments}x)` : ''}`,
                     created_by: createdBy,
                 })
@@ -813,7 +817,7 @@ function Budgets() {
                 status: 'PAID',
                 payment_method: values.payment_method,
                 installments: values.installments || 1,
-                paid_date: new Date().toISOString().split('T')[0],
+                paid_date: dayjs().format('YYYY-MM-DD'),
                 sale_id: sale.id,
                 updated_at: new Date().toISOString(),
             }).eq('id', selectedBudget.id).neq('status', 'PAID').select('id').single()
@@ -1596,7 +1600,11 @@ function Budgets() {
                                             onChange={(e) => {
                                                 const p = e.target.value
                                                 setInstallmentPreset(p)
-                                                setCustomInstallments(buildInstallmentsByPreset(p))
+                                                const insts = buildInstallmentsByPreset(p)
+                                                const total = Number(selectedBudget?.total_value) || 0
+                                                const n = insts.length
+                                                const amt = n > 0 && total > 0 ? Math.round((total / n) * 100) / 100 : 0
+                                                setCustomInstallments(insts.map(inst => ({ ...inst, amount: amt })))
                                             }}
                                             size="small"
                                         >

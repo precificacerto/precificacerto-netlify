@@ -958,7 +958,7 @@ function SalesReport() {
         {
             title: 'Data',
             dataIndex: 'launchDate',
-            render: (v: string) => dayjs(v).format('DD/MM/YYYY'),
+            render: (v: string) => dayjs(v + 'T00:00:00').format('DD/MM/YYYY'),
             sorter: (a, b) => a.launchDate.localeCompare(b.launchDate),
         },
         { title: 'Cliente', dataIndex: 'customerName', sorter: (a, b) => a.customerName.localeCompare(b.customerName) },

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import {
     Button, Select, Table, Tag, DatePicker, Space, message, Tabs,
-    Popconfirm, Form, Input, InputNumber, Drawer, Alert, Radio,
+    Popconfirm, Form, Input, InputNumber, Drawer, Alert, Radio, Modal,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import dayjs from 'dayjs'
@@ -193,6 +193,8 @@ const INSTALLMENT_PRESETS = [
     { value: '30', label: '30' },
     { value: '30_60', label: '30/60' },
     { value: '30_60_90', label: '30/60/90' },
+    { value: '30_60_90_120', label: '30/60/90/120' },
+    { value: '30_60_90_120_150', label: '30/60/90/120/150' },
 ]
 
 function buildInstallmentsByPreset(preset: string): { date: any; amount: number }[] {
@@ -200,6 +202,8 @@ function buildInstallmentsByPreset(preset: string): { date: any; amount: number 
     if (preset === '30') return [{ date: today.add(30, 'day'), amount: 0 }]
     if (preset === '30_60') return [{ date: today.add(30, 'day'), amount: 0 }, { date: today.add(60, 'day'), amount: 0 }]
     if (preset === '30_60_90') return [{ date: today.add(30, 'day'), amount: 0 }, { date: today.add(60, 'day'), amount: 0 }, { date: today.add(90, 'day'), amount: 0 }]
+    if (preset === '30_60_90_120') return [{ date: today.add(30, 'day'), amount: 0 }, { date: today.add(60, 'day'), amount: 0 }, { date: today.add(90, 'day'), amount: 0 }, { date: today.add(120, 'day'), amount: 0 }]
+    if (preset === '30_60_90_120_150') return [{ date: today.add(30, 'day'), amount: 0 }, { date: today.add(60, 'day'), amount: 0 }, { date: today.add(90, 'day'), amount: 0 }, { date: today.add(120, 'day'), amount: 0 }, { date: today.add(150, 'day'), amount: 0 }]
     return [{ date: null, amount: 0 }]
 }
 
@@ -256,10 +260,22 @@ export default function ControleFinanceiro() {
     const [expenseAmount, setExpenseAmount] = useState('')
     const [expPaymentMethod, setExpPaymentMethod] = useState<string>('')
     const [expInstallments, setExpInstallments] = useState<{ date: any; amount: number }[]>([{ date: null, amount: 0 }])
-    const [expInstallmentPreset, setExpInstallmentPreset] = useState<'customizado' | '30' | '30_60' | '30_60_90'>('customizado')
+    const [expInstallmentPreset, setExpInstallmentPreset] = useState<'customizado' | '30' | '30_60' | '30_60_90' | '30_60_90_120' | '30_60_90_120_150'>('customizado')
     const [editDrawerOpen, setEditDrawerOpen] = useState(false)
     const [editingEntry, setEditingEntry] = useState<any>(null)
     const [editAmount, setEditAmount] = useState('')
+
+    // Despesas Recorrentes: edit/delete modal state
+    const [editRecurringOpen, setEditRecurringOpen] = useState(false)
+    const [editRecurringEntry, setEditRecurringEntry] = useState<any>(null)
+    const [editRecurringScope, setEditRecurringScope] = useState<'CURRENT' | 'FUTURE' | 'SPECIFIC'>('CURRENT')
+    const [editRecurringMonth, setEditRecurringMonth] = useState<dayjs.Dayjs | null>(null)
+    const [editRecurringAmount, setEditRecurringAmount] = useState('')
+    const [editRecurringDate, setEditRecurringDate] = useState<dayjs.Dayjs | null>(null)
+    const [savingRecurring, setSavingRecurring] = useState(false)
+    const [deleteRecurringOpen, setDeleteRecurringOpen] = useState(false)
+    const [deleteRecurringEntry, setDeleteRecurringEntry] = useState<any>(null)
+    const [deleteRecurringMonth, setDeleteRecurringMonth] = useState<dayjs.Dayjs | null>(null)
 
     const [form] = Form.useForm()
     const [editForm] = Form.useForm()
@@ -390,6 +406,115 @@ export default function ControleFinanceiro() {
         return <Layout title={PAGE_TITLES.FINANCIAL_CONTROL}><div style={{ padding: 40, textAlign: 'center' }}>Você não tem acesso a este módulo.</div></Layout>
     }
 
+    // ── Despesas Recorrentes: Edit/Delete handlers ──
+    const handleOpenEditRecurring = (entry: any) => {
+        setEditRecurringEntry(entry)
+        setEditRecurringScope('CURRENT')
+        setEditRecurringMonth(null)
+        setEditRecurringAmount(Number(entry.amount).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }))
+        setEditRecurringDate(null)
+        setEditRecurringOpen(true)
+    }
+
+    const handleSaveRecurringEdit = async () => {
+        if (!editRecurringEntry) return
+        setSavingRecurring(true)
+        try {
+            const tenant_id = await getTenantId()
+            if (!tenant_id) return
+            const sbf = supabase as any
+
+            const updatePayload: any = { updated_at: new Date().toISOString() }
+            if (editRecurringAmount) {
+                const amt = parseCurrencyFn(editRecurringAmount)
+                if (amt > 0) updatePayload.amount = amt
+            }
+
+            if (editRecurringScope === 'CURRENT') {
+                if (editRecurringDate) updatePayload.due_date = editRecurringDate.format('YYYY-MM-DD')
+                await sbf.from('cash_entries').update(updatePayload).eq('id', editRecurringEntry.id)
+            } else if (editRecurringScope === 'FUTURE') {
+                const entryMonthEnd = dayjs(editRecurringEntry.due_date + 'T00:00:00').endOf('month').format('YYYY-MM-DD')
+                const { data: futureEntries } = await sbf.from('cash_entries')
+                    .select('id, due_date')
+                    .eq('description', editRecurringEntry.description)
+                    .eq('origin_type', editRecurringEntry.origin_type)
+                    .eq('tenant_id', tenant_id)
+                    .eq('is_active', true)
+                    .gt('due_date', entryMonthEnd)
+                for (const fe of (futureEntries || [])) {
+                    const entryUpdate: any = { ...updatePayload }
+                    if (editRecurringDate) {
+                        const newDay = editRecurringDate.date()
+                        const d = dayjs(fe.due_date + 'T00:00:00')
+                        const lastDay = d.endOf('month').date()
+                        entryUpdate.due_date = d.date(Math.min(newDay, lastDay)).format('YYYY-MM-DD')
+                    }
+                    await sbf.from('cash_entries').update(entryUpdate).eq('id', fe.id)
+                }
+            } else if (editRecurringScope === 'SPECIFIC' && editRecurringMonth) {
+                const monthStart = editRecurringMonth.startOf('month').format('YYYY-MM-DD')
+                const monthEnd = editRecurringMonth.endOf('month').format('YYYY-MM-DD')
+                const { data: specificEntries } = await sbf.from('cash_entries')
+                    .select('id, due_date')
+                    .eq('description', editRecurringEntry.description)
+                    .eq('origin_type', editRecurringEntry.origin_type)
+                    .eq('tenant_id', tenant_id)
+                    .eq('is_active', true)
+                    .gte('due_date', monthStart)
+                    .lte('due_date', monthEnd)
+                for (const se of (specificEntries || [])) {
+                    const entryUpdate: any = { ...updatePayload }
+                    if (editRecurringDate) entryUpdate.due_date = editRecurringDate.format('YYYY-MM-DD')
+                    await sbf.from('cash_entries').update(entryUpdate).eq('id', se.id)
+                }
+            }
+
+            messageApi.success('Despesa recorrente atualizada!')
+            setEditRecurringOpen(false)
+            mergeExpenseConfig(tenant_id).catch(() => {})
+            await fetchData()
+        } catch {
+            messageApi.error('Erro ao salvar alterações.')
+        } finally {
+            setSavingRecurring(false)
+        }
+    }
+
+    const handleDeleteRecurring = async () => {
+        if (!deleteRecurringEntry || !deleteRecurringMonth) {
+            messageApi.warning('Selecione o mês para excluir.')
+            return
+        }
+        try {
+            const tenant_id = await getTenantId()
+            if (!tenant_id) return
+            const sbf = supabase as any
+            const monthStart = deleteRecurringMonth.startOf('month').format('YYYY-MM-DD')
+            const monthEnd = deleteRecurringMonth.endOf('month').format('YYYY-MM-DD')
+            const { data: toDelete } = await sbf.from('cash_entries')
+                .select('id')
+                .eq('description', deleteRecurringEntry.description)
+                .eq('origin_type', deleteRecurringEntry.origin_type)
+                .eq('tenant_id', tenant_id)
+                .eq('is_active', true)
+                .gte('due_date', monthStart)
+                .lte('due_date', monthEnd)
+            for (const entry of (toDelete || [])) {
+                await fetch('/api/delete/cash-entries', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: entry.id }),
+                })
+            }
+            messageApi.success('Lançamento excluído do mês selecionado!')
+            setDeleteRecurringOpen(false)
+            await fetchData()
+        } catch {
+            messageApi.error('Erro ao excluir lançamento.')
+        }
+    }
+
     // ── Salvar Novo Lançamento ──
     const handleSaveEntry = async () => {
         try {
@@ -516,8 +641,8 @@ export default function ControleFinanceiro() {
         setEditAmount(Number(record.amount).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }))
         editForm.setFieldsValue({
             description: record.description,
-            due_date: dayjs(record.due_date),
-            paid_date: record.paid_date ? dayjs(record.paid_date) : undefined,
+            due_date: dayjs(record.due_date + 'T00:00:00'),
+            paid_date: record.paid_date ? dayjs(record.paid_date + 'T00:00:00') : undefined,
         })
         setEditDrawerOpen(true)
     }
@@ -590,7 +715,7 @@ export default function ControleFinanceiro() {
             key: 'due_date',
             width: 110,
             sorter: (a, b) => a.due_date.localeCompare(b.due_date),
-            render: (v) => dayjs(v).format('DD/MM/YYYY'),
+            render: (v) => dayjs(v + 'T00:00:00').format('DD/MM/YYYY'),
         },
         {
             title: 'Descrição',
@@ -823,26 +948,29 @@ export default function ControleFinanceiro() {
                         label: <span><BankOutlined style={{ marginRight: 4 }} />Despesas Recorrentes</span>,
                         key: 'recorrentes',
                         children: (() => {
-                            const allExpenses = data.filter((e: any) => e.type === 'EXPENSE')
-                            const sorted = [...allExpenses].sort((a: any, b: any) => (a.due_date || '').localeCompare(b.due_date || ''))
+                            const recurringExpenses = data.filter((e: any) =>
+                                e.type === 'EXPENSE' && (e.origin_type === 'FIXED_EXPENSE' || e.origin_type === 'SALARY')
+                            )
+                            const sorted = [...recurringExpenses].sort((a: any, b: any) => (a.due_date || '').localeCompare(b.due_date || ''))
+                            const today = dayjs()
                             return (
                                 <div className="pc-card--table">
                                     {sorted.length > 0 ? (
                                         <>
                                             <div style={{ marginBottom: 12, fontSize: 13, color: '#94a3b8' }}>
-                                                Todas as despesas lançadas em{' '}
+                                                Despesas recorrentes lançadas em{' '}
                                                 <strong style={{ color: '#e2e8f0' }}>{month.format('MMMM/YYYY')}</strong>
-                                                {' '}— discriminadas com a data de lançamento.
+                                                {' '}— fixas e salários.
                                             </div>
                                             <Table
                                                 columns={[
                                                     {
-                                                        title: 'Data de Lançamento',
+                                                        title: 'Data de Vencimento',
                                                         dataIndex: 'due_date',
-                                                        width: 140,
+                                                        width: 150,
                                                         sorter: (a: any, b: any) => a.due_date.localeCompare(b.due_date),
                                                         defaultSortOrder: 'ascend' as const,
-                                                        render: (v: string) => dayjs(v).format('DD/MM/YYYY'),
+                                                        render: (v: string) => dayjs(v + 'T00:00:00').format('DD/MM/YYYY'),
                                                     },
                                                     {
                                                         title: 'Descrição',
@@ -863,8 +991,37 @@ export default function ControleFinanceiro() {
                                                         title: 'Valor',
                                                         dataIndex: 'amount',
                                                         align: 'right' as const,
+                                                        width: 130,
                                                         render: (v: number) => <strong style={{ color: '#F04438' }}>{formatCurrency(Number(v))}</strong>,
                                                     },
+                                                    ...(canEdit(MODULES.CASH_FLOW) ? [{
+                                                        title: 'Ações',
+                                                        key: 'acoes',
+                                                        width: 110,
+                                                        render: (_: any, r: any) => {
+                                                            const isPast = dayjs(r.due_date + 'T00:00:00').isBefore(today.startOf('month'))
+                                                            return (
+                                                                <Space size={4}>
+                                                                    <Button
+                                                                        icon={<EditOutlined />}
+                                                                        size="small"
+                                                                        type="text"
+                                                                        disabled={isPast}
+                                                                        title={isPast ? 'Não é possível editar meses passados' : 'Editar lançamento'}
+                                                                        onClick={() => handleOpenEditRecurring(r)}
+                                                                    />
+                                                                    <Button
+                                                                        icon={<DeleteOutlined />}
+                                                                        size="small"
+                                                                        danger
+                                                                        type="text"
+                                                                        title="Excluir lançamento de um mês"
+                                                                        onClick={() => { setDeleteRecurringEntry(r); setDeleteRecurringMonth(null); setDeleteRecurringOpen(true) }}
+                                                                    />
+                                                                </Space>
+                                                            )
+                                                        },
+                                                    }] : []),
                                                 ]}
                                                 dataSource={sorted}
                                                 rowKey="id"
@@ -873,8 +1030,8 @@ export default function ControleFinanceiro() {
                                                 summary={() => (
                                                     <Table.Summary>
                                                         <Table.Summary.Row style={{ background: 'rgba(240, 68, 56, 0.08)' }}>
-                                                            <Table.Summary.Cell index={0} colSpan={3}><strong>Total de Despesas</strong></Table.Summary.Cell>
-                                                            <Table.Summary.Cell index={3} align="right">
+                                                            <Table.Summary.Cell index={0} colSpan={canEdit(MODULES.CASH_FLOW) ? 4 : 3}><strong>Total Recorrentes</strong></Table.Summary.Cell>
+                                                            <Table.Summary.Cell index={canEdit(MODULES.CASH_FLOW) ? 4 : 3} align="right">
                                                                 <strong style={{ color: '#F04438' }}>
                                                                     {formatCurrency(sorted.reduce((s: number, e: any) => s + Number(e.amount || 0), 0))}
                                                                 </strong>
@@ -887,7 +1044,8 @@ export default function ControleFinanceiro() {
                                     ) : (
                                         <div style={{ textAlign: 'center', padding: 40, color: '#98A2B3' }}>
                                             <BankOutlined style={{ fontSize: 36, marginBottom: 8 }} />
-                                            <p>Nenhuma despesa encontrada para {month.format('MMMM/YYYY')}.</p>
+                                            <p>Nenhuma despesa recorrente encontrada para {month.format('MMMM/YYYY')}.</p>
+                                            <p style={{ fontSize: 12, color: '#64748b' }}>Use "Gerar Contas do Mês" para lançar despesas fixas e salários.</p>
                                         </div>
                                     )}
                                 </div>
@@ -945,7 +1103,7 @@ export default function ControleFinanceiro() {
                                             title: 'Data Vencimento',
                                             dataIndex: 'due_date',
                                             width: 140,
-                                            render: (v: string) => dayjs(v).format('DD/MM/YYYY'),
+                                            render: (v: string) => dayjs(v + 'T00:00:00').format('DD/MM/YYYY'),
                                             sorter: (a: any, b: any) => a.due_date.localeCompare(b.due_date),
                                             defaultSortOrder: 'ascend' as const,
                                         },
@@ -987,6 +1145,142 @@ export default function ControleFinanceiro() {
                     },
                 ]}
             />
+
+            {/* Modal: Editar Despesa Recorrente */}
+            <Modal
+                title="Editar Despesa Recorrente"
+                open={editRecurringOpen}
+                onCancel={() => setEditRecurringOpen(false)}
+                footer={null}
+                width={520}
+            >
+                {editRecurringEntry && (
+                    <div>
+                        <div style={{ marginBottom: 16, padding: 10, background: 'rgba(240,68,56,0.06)', border: '1px solid rgba(240,68,56,0.15)', borderRadius: 8 }}>
+                            <div style={{ fontWeight: 600 }}>{editRecurringEntry.description?.split(' — ')[0] || editRecurringEntry.description}</div>
+                            <div style={{ color: '#F04438', fontWeight: 700, marginTop: 2 }}>{formatCurrency(Number(editRecurringEntry.amount))}</div>
+                            <div style={{ color: '#94a3b8', fontSize: 12, marginTop: 2 }}>Vencimento atual: {dayjs(editRecurringEntry.due_date + 'T00:00:00').format('DD/MM/YYYY')}</div>
+                        </div>
+
+                        <div style={{ marginBottom: 16 }}>
+                            <div style={{ fontWeight: 500, marginBottom: 8 }}>Aplicar a</div>
+                            <Radio.Group
+                                value={editRecurringScope}
+                                onChange={(e) => { setEditRecurringScope(e.target.value); setEditRecurringMonth(null) }}
+                                optionType="button"
+                                buttonStyle="solid"
+                                size="small"
+                            >
+                                <Radio.Button value="CURRENT">Mês atual</Radio.Button>
+                                <Radio.Button value="FUTURE">Próximos meses</Radio.Button>
+                                <Radio.Button value="SPECIFIC">Mês específico</Radio.Button>
+                            </Radio.Group>
+                            {editRecurringScope === 'FUTURE' && (
+                                <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 6 }}>
+                                    Altera todos os lançamentos futuros desta despesa recorrente.
+                                </div>
+                            )}
+                            {editRecurringScope === 'SPECIFIC' && (
+                                <div style={{ marginTop: 8 }}>
+                                    <DatePicker
+                                        picker="month"
+                                        value={editRecurringMonth}
+                                        onChange={setEditRecurringMonth}
+                                        format="MMMM/YYYY"
+                                        style={{ width: '100%' }}
+                                        placeholder="Selecione o mês"
+                                        disabledDate={(d) => d.isBefore(dayjs().startOf('month'))}
+                                    />
+                                </div>
+                            )}
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20 }}>
+                            <div>
+                                <div style={{ fontWeight: 500, marginBottom: 6 }}>Novo Valor (opcional)</div>
+                                <Input
+                                    prefix="R$"
+                                    placeholder="0,00"
+                                    value={editRecurringAmount}
+                                    onChange={(e) => setEditRecurringAmount(currencyMaskFn(e.target.value))}
+                                />
+                            </div>
+                            <div>
+                                <div style={{ fontWeight: 500, marginBottom: 6 }}>Nova Data de Vencimento (opcional)</div>
+                                <DatePicker
+                                    value={editRecurringDate}
+                                    onChange={setEditRecurringDate}
+                                    format="DD/MM/YYYY"
+                                    style={{ width: '100%' }}
+                                    placeholder="DD/MM/AAAA"
+                                    disabledDate={editRecurringScope !== 'SPECIFIC'
+                                        ? (d) => d.isBefore(dayjs().startOf('month'))
+                                        : undefined
+                                    }
+                                />
+                                {editRecurringScope === 'FUTURE' && (
+                                    <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>
+                                        O dia do mês será aplicado a todos os meses futuros.
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                            <Button onClick={() => setEditRecurringOpen(false)}>Cancelar</Button>
+                            <Button type="primary" loading={savingRecurring} onClick={handleSaveRecurringEdit}>
+                                Salvar Alterações
+                            </Button>
+                        </div>
+                    </div>
+                )}
+            </Modal>
+
+            {/* Modal: Excluir Despesa Recorrente */}
+            <Modal
+                title="Excluir Lançamento de Despesa Recorrente"
+                open={deleteRecurringOpen}
+                onCancel={() => { setDeleteRecurringOpen(false); setDeleteRecurringMonth(null) }}
+                footer={null}
+                width={440}
+            >
+                {deleteRecurringEntry && (
+                    <div>
+                        <div style={{ marginBottom: 16, padding: 10, background: 'rgba(240,68,56,0.06)', border: '1px solid rgba(240,68,56,0.15)', borderRadius: 8 }}>
+                            <div style={{ fontWeight: 600 }}>{deleteRecurringEntry.description?.split(' — ')[0] || deleteRecurringEntry.description}</div>
+                            <div style={{ color: '#F04438', fontWeight: 700, marginTop: 2 }}>{formatCurrency(Number(deleteRecurringEntry.amount))}</div>
+                        </div>
+                        <div style={{ marginBottom: 20 }}>
+                            <div style={{ fontWeight: 500, marginBottom: 6 }}>Selecione o mês para excluir</div>
+                            <DatePicker
+                                picker="month"
+                                value={deleteRecurringMonth}
+                                onChange={setDeleteRecurringMonth}
+                                format="MMMM/YYYY"
+                                style={{ width: '100%' }}
+                                placeholder="Selecione o mês"
+                            />
+                            <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 6 }}>
+                                Apenas o lançamento do mês selecionado será excluído. Os demais meses não serão afetados.
+                            </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                            <Button onClick={() => { setDeleteRecurringOpen(false); setDeleteRecurringMonth(null) }}>Cancelar</Button>
+                            <Popconfirm
+                                title={`Excluir lançamento de ${deleteRecurringMonth ? deleteRecurringMonth.format('MMMM/YYYY') : 'mês selecionado'}?`}
+                                description="Esta ação não pode ser desfeita."
+                                onConfirm={handleDeleteRecurring}
+                                okText="Excluir"
+                                cancelText="Cancelar"
+                                okButtonProps={{ danger: true }}
+                                disabled={!deleteRecurringMonth}
+                            >
+                                <Button danger disabled={!deleteRecurringMonth}>Excluir do Mês</Button>
+                            </Popconfirm>
+                        </div>
+                    </div>
+                )}
+            </Modal>
 
             {/* Drawer: Novo Lançamento */}
             {/* Item 13: Type selector removed from drawer UI; toggle via button in extra */}
@@ -1043,7 +1337,16 @@ export default function ControleFinanceiro() {
                             <Input placeholder="Ex: Conta de luz da loja" />
                         </Form.Item>
                         <Form.Item label="Valor Total" required>
-                            <Input prefix="R$" placeholder="0,00" value={expenseAmount} onChange={(e) => setExpenseAmount(currencyMaskFn(e.target.value))} />
+                            <Input prefix="R$" placeholder="0,00" value={expenseAmount} onChange={(e) => {
+                                const newVal = currencyMaskFn(e.target.value)
+                                setExpenseAmount(newVal)
+                                if (expInstallmentPreset !== 'customizado') {
+                                    const total = parseCurrencyFn(newVal)
+                                    const n = expInstallments.length
+                                    const amt = n > 0 && total > 0 ? Math.round((total / n) * 100) / 100 : 0
+                                    setExpInstallments(prev => prev.map(inst => ({ ...inst, amount: amt })))
+                                }
+                            }} />
                         </Form.Item>
                         <Form.Item label="Método de Pagamento (opcional)">
                             <Select
@@ -1065,7 +1368,11 @@ export default function ControleFinanceiro() {
                                         onChange={(e) => {
                                             const p = e.target.value
                                             setExpInstallmentPreset(p)
-                                            setExpInstallments(buildInstallmentsByPreset(p))
+                                            const insts = buildInstallmentsByPreset(p)
+                                            const total = parseCurrencyFn(expenseAmount)
+                                            const n = insts.length
+                                            const amt = n > 0 && total > 0 ? Math.round((total / n) * 100) / 100 : 0
+                                            setExpInstallments(insts.map(inst => ({ ...inst, amount: amt })))
                                         }}
                                         size="small"
                                     >

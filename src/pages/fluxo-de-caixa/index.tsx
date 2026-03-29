@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import {
     Button, Select, DatePicker, Space, message,
-    Form, Input, InputNumber, Drawer, Modal, Table, Tag, Radio,
+    Form, Input, InputNumber, Drawer, Modal, Table, Tag, Radio, Popconfirm,
 } from 'antd'
 import dayjs from 'dayjs'
 import { Layout } from '@/components/layout/layout.component'
@@ -280,6 +280,13 @@ export default function CashFlow() {
 
     const [messageApi, contextHolder] = message.useMessage()
 
+    // Payment modal state
+    const [paymentModalOpen, setPaymentModalOpen] = useState(false)
+    const [paymentEntry, setPaymentEntry] = useState<any>(null)
+    const [paymentDate, setPaymentDate] = useState<dayjs.Dayjs | null>(null)
+    const [paymentMethodModal, setPaymentMethodModal] = useState<string>('')
+    const [savingPayment, setSavingPayment] = useState(false)
+
     // Export modal
     const [exportModalOpen, setExportModalOpen] = useState(false)
     const [exportRange, setExportRange] = useState<[dayjs.Dayjs, dayjs.Dayjs]>([month.startOf('month'), month.endOf('month')])
@@ -323,6 +330,51 @@ export default function CashFlow() {
     const isSimples = taxRegime === 'SIMPLES_NACIONAL' || taxRegime === 'MEI'
     const activeCategoryOptions = isSimples ? SN_EXPENSE_CATEGORY_OPTIONS : EXPENSE_CATEGORY_OPTIONS
     const activeGroupForCategory = (cat: string) => isSimples ? getSNGroupForCategory(cat) : getGroupForCategory(cat)
+
+    const handleOpenPaymentModal = (entry: any) => {
+        setPaymentEntry(entry)
+        setPaymentDate(dayjs())
+        setPaymentMethodModal(entry.payment_method || '')
+        setPaymentModalOpen(true)
+    }
+
+    const handleRegisterPayment = async () => {
+        if (!paymentEntry) return
+        setSavingPayment(true)
+        try {
+            const { error } = await (supabase as any).from('cash_entries').update({
+                paid_date: paymentDate ? paymentDate.format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'),
+                payment_method: paymentMethodModal || null,
+                updated_at: new Date().toISOString(),
+            }).eq('id', paymentEntry.id)
+            if (error) throw error
+            messageApi.success('Pagamento registrado!')
+            setPaymentModalOpen(false)
+            await fetchData()
+        } catch {
+            messageApi.error('Erro ao registrar pagamento.')
+        } finally {
+            setSavingPayment(false)
+        }
+    }
+
+    const handleDeleteFromPaymentModal = async () => {
+        if (!paymentEntry) return
+        try {
+            const res = await fetch('/api/delete/cash-entries', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: paymentEntry.id }),
+            })
+            const result = await res.json()
+            if (!res.ok) throw new Error(result.error || 'Erro ao excluir')
+            messageApi.success('Lançamento excluído do fluxo!')
+            setPaymentModalOpen(false)
+            await fetchData()
+        } catch (err: any) {
+            messageApi.error(err.message || 'Erro ao excluir lançamento')
+        }
+    }
 
     const handleGenerateRecurring = async () => {
         try {
@@ -1043,9 +1095,20 @@ export default function CashFlow() {
                                 align: 'right' as const,
                                 render: (_: any, r: any) => {
                                     const val = r.type === 'INCOME' ? getEffectiveIncomeAmount(r) : Number(r.amount || 0)
+                                    if (r.type === 'EXPENSE') {
+                                        return (
+                                            <strong
+                                                onClick={() => handleOpenPaymentModal(r)}
+                                                style={{ color: '#f87171', fontVariantNumeric: 'tabular-nums', cursor: 'pointer', borderBottom: '1px dashed rgba(248,113,113,0.6)' }}
+                                                title="Clique para registrar pagamento ou excluir"
+                                            >
+                                                - {formatCurrency(val)}
+                                            </strong>
+                                        )
+                                    }
                                     return (
-                                        <strong style={{ color: r.type === 'INCOME' ? '#4ade80' : '#f87171', fontVariantNumeric: 'tabular-nums' }}>
-                                            {r.type === 'INCOME' ? '+' : '-'} {formatCurrency(val)}
+                                        <strong style={{ color: '#4ade80', fontVariantNumeric: 'tabular-nums' }}>
+                                            + {formatCurrency(val)}
                                         </strong>
                                     )
                                 },
@@ -1078,7 +1141,16 @@ export default function CashFlow() {
                             prefix="R$"
                             placeholder="0,00"
                             value={expenseAmount}
-                            onChange={(e) => setExpenseAmount(currencyMaskFn(e.target.value))}
+                            onChange={(e) => {
+                                const newVal = currencyMaskFn(e.target.value)
+                                setExpenseAmount(newVal)
+                                if (expInstallmentPreset !== 'customizado') {
+                                    const total = parseCurrencyFn(newVal)
+                                    const n = expInstallments.length
+                                    const amt = n > 0 && total > 0 ? Math.round((total / n) * 100) / 100 : 0
+                                    setExpInstallments(prev => prev.map(inst => ({ ...inst, amount: amt })))
+                                }
+                            }}
                         />
                     </Form.Item>
                     <Form.Item name="payment_method" label="Método de Pagamento">
@@ -1100,7 +1172,11 @@ export default function CashFlow() {
                                     onChange={(e) => {
                                         const p = e.target.value
                                         setExpInstallmentPreset(p)
-                                        setExpInstallments(buildInstallmentsByPreset(p))
+                                        const insts = buildInstallmentsByPreset(p)
+                                        const total = parseCurrencyFn(expenseAmount)
+                                        const n = insts.length
+                                        const amt = n > 0 && total > 0 ? Math.round((total / n) * 100) / 100 : 0
+                                        setExpInstallments(insts.map(inst => ({ ...inst, amount: amt })))
                                     }}
                                     size="small"
                                 >
@@ -1151,6 +1227,66 @@ export default function CashFlow() {
                     )}
                 </Form>
             </Drawer>
+
+            {/* Modal: Registrar Pagamento de Despesa */}
+            <Modal
+                title="Registrar Pagamento de Despesa"
+                open={paymentModalOpen}
+                onCancel={() => setPaymentModalOpen(false)}
+                footer={null}
+                width={480}
+            >
+                {paymentEntry && (
+                    <div>
+                        <div style={{ marginBottom: 16, padding: 12, background: 'rgba(240,68,56,0.08)', border: '1px solid rgba(240,68,56,0.2)', borderRadius: 8 }}>
+                            <div style={{ fontWeight: 600, fontSize: 14 }}>{paymentEntry.description}</div>
+                            <div style={{ color: '#f87171', fontWeight: 700, fontSize: 18, marginTop: 4 }}>
+                                {formatCurrency(Number(paymentEntry.amount))}
+                            </div>
+                            <div style={{ color: '#94a3b8', fontSize: 12, marginTop: 4 }}>
+                                Vencimento: {dayjs(paymentEntry.due_date + 'T00:00:00').format('DD/MM/YYYY')}
+                            </div>
+                        </div>
+                        <div style={{ marginBottom: 16 }}>
+                            <div style={{ fontWeight: 500, marginBottom: 6 }}>Data de Pagamento</div>
+                            <DatePicker
+                                value={paymentDate}
+                                onChange={(d) => setPaymentDate(d)}
+                                format="DD/MM/YYYY"
+                                style={{ width: '100%' }}
+                                placeholder="Selecione a data de pagamento"
+                            />
+                        </div>
+                        <div style={{ marginBottom: 24 }}>
+                            <div style={{ fontWeight: 500, marginBottom: 6 }}>Método de Pagamento</div>
+                            <Select
+                                value={paymentMethodModal || undefined}
+                                onChange={(v) => setPaymentMethodModal(v || '')}
+                                allowClear
+                                placeholder="Selecione o método (opcional)"
+                                options={EXPENSE_PAYMENT_METHODS}
+                                style={{ width: '100%' }}
+                            />
+                        </div>
+                        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                            <Popconfirm
+                                title="Excluir este lançamento?"
+                                description="O valor será removido do fluxo de caixa."
+                                onConfirm={handleDeleteFromPaymentModal}
+                                okText="Excluir"
+                                cancelText="Cancelar"
+                                okButtonProps={{ danger: true }}
+                            >
+                                <Button danger>Excluir Lançamento</Button>
+                            </Popconfirm>
+                            <Button onClick={() => setPaymentModalOpen(false)}>Cancelar</Button>
+                            <Button type="primary" loading={savingPayment} onClick={handleRegisterPayment}>
+                                Registrar Pagamento
+                            </Button>
+                        </div>
+                    </div>
+                )}
+            </Modal>
 
             {/* Modal: Saldo do Mês Anterior */}
             <Modal

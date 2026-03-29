@@ -309,7 +309,7 @@ function Cashier() {
   ) {
     form.setFieldsValue({
       category: record.category,
-      date: dayjs(record.date),
+      date: dayjs(record.date + 'T00:00:00'),
       description: record.description,
       id: record.id,
       price: record.price.toString().replace('.', ','),

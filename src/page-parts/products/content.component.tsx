@@ -307,9 +307,8 @@ export const Content: FC<ContentProps> = ({
     0
   )
 
-  // Items filtrados por tipo: para Revenda, só mostrar itens do tipo REVENDA
-  // Exception: SERVICE calcType uses REVENDA type but with industrialization form (all items)
-  const itemsForSelection = (productType === 'REVENDA' && !isCalcTypeService)
+  // Items filtrados por tipo: para Revenda, só mostrar itens do tipo REVENDA; para serviço/insumo, apenas não-REVENDA
+  const itemsForSelection = (productType === 'REVENDA')
     ? items.filter((i: any) => i.item_type === 'REVENDA' || !i.item_type)
     : items.filter((i: any) => i.item_type !== 'REVENDA')
 

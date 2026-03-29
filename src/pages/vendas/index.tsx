@@ -484,7 +484,7 @@ function Sales() {
                     }))
                     await (supabase as any).from('cash_entries').insert(customEntries)
                 } else {
-                const due = values.sale_date ? values.sale_date.format('YYYY-MM-DD') : new Date().toISOString().split('T')[0]
+                const due = values.sale_date ? values.sale_date.format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD')
                 await supabase.from('cash_entries').insert({
                     tenant_id: tenantId,
                     type: 'INCOME',
@@ -766,7 +766,7 @@ function Sales() {
             const curYear = now.getFullYear()
             const curMonth = now.getMonth()
             const saleDesc = `Venda balcão: ${saleItems.map(i => i.product_name).filter(Boolean).join(', ')}`
-            const saleDate = values.sale_date ? values.sale_date.format('YYYY-MM-DD') : new Date().toISOString().split('T')[0]
+            const saleDate = values.sale_date ? values.sale_date.format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD')
 
             if (values.payment_method === 'LANCAMENTOS_A_RECEBER') {
                 // Lançamentos a Receber: não vai para o caixa — registra em pending_receivables
@@ -1445,7 +1445,11 @@ function Sales() {
                                             onChange={(e) => {
                                                 const p = e.target.value
                                                 setInstallmentPreset(p)
-                                                setCustomInstallments(buildInstallmentsByPreset(p))
+                                                const insts = buildInstallmentsByPreset(p)
+                                                const total = saleTotal
+                                                const n = insts.length
+                                                const amt = n > 0 && total > 0 ? Math.round((total / n) * 100) / 100 : 0
+                                                setCustomInstallments(insts.map(inst => ({ ...inst, amount: amt })))
                                             }}
                                             size="small"
                                         >
@@ -1694,7 +1698,11 @@ function Sales() {
                                             onChange={(e) => {
                                                 const p = e.target.value
                                                 setRegisterInstallmentPreset(p)
-                                                setRegisterCustomInstallments(buildInstallmentsByPreset(p))
+                                                const insts = buildInstallmentsByPreset(p)
+                                                const total = Number(selectedBudget?.total_value) || 0
+                                                const n = insts.length
+                                                const amt = n > 0 && total > 0 ? Math.round((total / n) * 100) / 100 : 0
+                                                setRegisterCustomInstallments(insts.map(inst => ({ ...inst, amount: amt })))
                                             }}
                                             size="small"
                                         >

@@ -1788,7 +1788,15 @@ function Schedule() {
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
                                 <Form.Item name="base_price" label="Valor do Serviço (R$)" rules={[{ required: true }]}>
                                     <InputNumber style={{ width: '100%' }} min={0 as number} step={0.5} precision={2} size="large"
-                                        formatter={(v) => `${v}`.replace('.', ',')} parser={(v) => Number((v || '0').replace(',', '.'))} />
+                                        formatter={(v) => `${v}`.replace('.', ',')} parser={(v) => Number((v || '0').replace(',', '.'))}
+                                        onChange={(v) => {
+                                            if (installmentPreset !== 'customizado') {
+                                                const total = Number(v) || 0
+                                                const n = customInstallments.length
+                                                const amt = n > 0 && total > 0 ? Math.round((total / n) * 100) / 100 : 0
+                                                setCustomInstallments(prev => prev.map(inst => ({ ...inst, amount: amt })))
+                                            }
+                                        }} />
                                 </Form.Item>
                                 <Form.Item name="payment_method" label="Forma de Pagamento" rules={[{ required: true }]}>
                                     <Select size="large">{PAYMENT_METHODS.map(pm => <Select.Option key={pm.value} value={pm.value}>{pm.label}</Select.Option>)}</Select>
@@ -1815,7 +1823,11 @@ function Schedule() {
                                             onChange={(e) => {
                                                 const p = e.target.value
                                                 setInstallmentPreset(p)
-                                                setCustomInstallments(buildInstallmentsByPreset(p))
+                                                const insts = buildInstallmentsByPreset(p)
+                                                const total = Number(payForm.getFieldValue('base_price')) || 0
+                                                const n = insts.length
+                                                const amt = n > 0 && total > 0 ? Math.round((total / n) * 100) / 100 : 0
+                                                setCustomInstallments(insts.map(inst => ({ ...inst, amount: amt })))
                                             }}
                                             size="small"
                                         >
