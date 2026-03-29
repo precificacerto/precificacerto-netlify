@@ -293,13 +293,18 @@ export default function ControleFinanceiro() {
             const sbf = supabase as any
             const tenantId = await getTenantId()
             const [{ data: entries }, { data: emps }, { data: fixedList }, { data: tenantSettings }] = await Promise.all([
-                sbf.from('cash_entries')
-                    .select('*')
-                    .gte('due_date', startOfMonth)
-                    .lte('due_date', endOfMonth)
-                    .eq('is_active', true)
-                    .order('due_date', { ascending: false }),
-                sbf.from('employees').select('id, name, salary').eq('status', 'ACTIVE').eq('is_active', true),
+                tenantId
+                    ? sbf.from('cash_entries')
+                        .select('*')
+                        .eq('tenant_id', tenantId)
+                        .gte('due_date', startOfMonth)
+                        .lte('due_date', endOfMonth)
+                        .eq('is_active', true)
+                        .order('due_date', { ascending: false })
+                    : Promise.resolve({ data: [] }),
+                tenantId
+                    ? sbf.from('employees').select('id, name, salary').eq('tenant_id', tenantId).eq('status', 'ACTIVE').eq('is_active', true)
+                    : Promise.resolve({ data: [] }),
                 tenantId
                     ? sbf.from('fixed_expenses').select('id, description, amount, due_day, expense_category, expense_group').eq('tenant_id', tenantId).eq('is_active', true)
                     : Promise.resolve({ data: [] }),

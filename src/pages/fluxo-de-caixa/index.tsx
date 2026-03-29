@@ -305,13 +305,18 @@ export default function CashFlow() {
             const sbf = supabase as any
             const tenantId = await getTenantId()
             const [{ data: entries }, { data: emps }, { data: tenantSettings }] = await Promise.all([
-                sbf.from('cash_entries')
-                    .select('*')
-                    .gte('due_date', startOfMonth)
-                    .lte('due_date', endOfMonth)
-                    .eq('is_active', true)
-                    .order('due_date', { ascending: true }),
-                sbf.from('employees').select('id, name, salary').eq('status', 'ACTIVE').eq('is_active', true),
+                tenantId
+                    ? sbf.from('cash_entries')
+                        .select('*')
+                        .eq('tenant_id', tenantId)
+                        .gte('due_date', startOfMonth)
+                        .lte('due_date', endOfMonth)
+                        .eq('is_active', true)
+                        .order('due_date', { ascending: true })
+                    : Promise.resolve({ data: [] }),
+                tenantId
+                    ? sbf.from('employees').select('id, name, salary').eq('tenant_id', tenantId).eq('status', 'ACTIVE').eq('is_active', true)
+                    : Promise.resolve({ data: [] }),
                 tenantId
                     ? sbf.from('tenant_settings').select('tax_regime').eq('tenant_id', tenantId).maybeSingle()
                     : Promise.resolve({ data: null }),
@@ -460,9 +465,11 @@ export default function CashFlow() {
             while (current.isBefore(endMonth) || current.isSame(endMonth, 'month')) {
                 const s = current.startOf('month').format('YYYY-MM-DD')
                 const e = current.endOf('month').format('YYYY-MM-DD')
+                const exportTenantId = await getTenantId()
                 const { data: entries } = await (supabase as any)
                     .from('cash_entries')
                     .select('*')
+                    .eq('tenant_id', exportTenantId)
                     .gte('due_date', s)
                     .lte('due_date', e)
                     .eq('is_active', true)
