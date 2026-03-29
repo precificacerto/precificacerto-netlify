@@ -22,6 +22,7 @@ import {
 } from '@/utils/export-cash-flow-excel'
 import { ExportFormatModal } from '@/components/ui/export-format-modal.component'
 import { exportTableToPdf } from '@/utils/export-generic-pdf'
+import { getExpenseGroupLabel, getExpenseGroupColor } from '@/constants/cashier-category'
 
 function formatCurrency(v: number) {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 }).format(v)
@@ -1179,6 +1180,21 @@ export default function CashFlow() {
                                 ),
                             },
                             {
+                                title: 'Categoria',
+                                dataIndex: 'expense_group',
+                                key: 'expense_group',
+                                width: 140,
+                                render: (v: string, r: any) => {
+                                    if (r.type !== 'EXPENSE' || !v) return <span style={{ color: '#475569', fontSize: 11 }}>—</span>
+                                    const color = getExpenseGroupColor(v)
+                                    return (
+                                        <Tag style={{ fontSize: 10, background: color + '22', color, border: `1px solid ${color}55` }}>
+                                            {getExpenseGroupLabel(v)}
+                                        </Tag>
+                                    )
+                                },
+                            },
+                            {
                                 title: 'Valor',
                                 key: 'valor',
                                 width: 130,
@@ -1335,13 +1351,25 @@ export default function CashFlow() {
                 open={paymentModalOpen}
                 onCancel={() => setPaymentModalOpen(false)}
                 footer={null}
-                width={480}
+                width={620}
             >
                 {paymentEntry && (
                     <div>
-                        <div style={{ marginBottom: 16, padding: 12, background: paymentEntry.paid_date ? 'rgba(255,255,255,0.05)' : 'rgba(240,68,56,0.08)', border: `1px solid ${paymentEntry.paid_date ? 'rgba(255,255,255,0.15)' : 'rgba(240,68,56,0.2)'}`, borderRadius: 8 }}>
-                            <div style={{ fontWeight: 600, fontSize: 14 }}>{paymentEntry.description}</div>
-                            <div style={{ color: paymentEntry.paid_date ? 'rgba(255,255,255,0.5)' : '#f87171', fontWeight: 700, fontSize: 18, marginTop: 4 }}>
+                        <div style={{ marginBottom: 16, padding: 14, background: paymentEntry.paid_date ? 'rgba(255,255,255,0.05)' : 'rgba(240,68,56,0.08)', border: `1px solid ${paymentEntry.paid_date ? 'rgba(255,255,255,0.15)' : 'rgba(240,68,56,0.2)'}`, borderRadius: 8 }}>
+                            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
+                                <div style={{ fontWeight: 600, fontSize: 15, flex: 1 }}>{paymentEntry.description?.split(' — ')[0] || paymentEntry.description}</div>
+                                {paymentEntry.expense_group && (
+                                    <Tag style={{ flexShrink: 0, background: getExpenseGroupColor(paymentEntry.expense_group) + '33', color: getExpenseGroupColor(paymentEntry.expense_group), border: `1px solid ${getExpenseGroupColor(paymentEntry.expense_group)}66`, fontSize: 11 }}>
+                                        {getExpenseGroupLabel(paymentEntry.expense_group)}
+                                    </Tag>
+                                )}
+                            </div>
+                            {paymentEntry.description?.includes(' — ') && (
+                                <div style={{ color: '#94a3b8', fontSize: 12, marginTop: 2 }}>
+                                    {paymentEntry.description.split(' — ').slice(1).join(' — ')}
+                                </div>
+                            )}
+                            <div style={{ color: paymentEntry.paid_date ? 'rgba(255,255,255,0.5)' : '#f87171', fontWeight: 700, fontSize: 20, marginTop: 6 }}>
                                 {formatCurrency(Number(paymentEntry.amount))}
                             </div>
                             <div style={{ color: '#94a3b8', fontSize: 12, marginTop: 4 }}>
