@@ -424,7 +424,8 @@ export default function ControleFinanceiro() {
             if (!tenant_id) return
             const sbf = supabase as any
 
-            const updatePayload: any = { updated_at: new Date().toISOString() }
+            // Build payload — only include fields that actually exist in cash_entries
+            const updatePayload: any = {}
             if (editRecurringAmount) {
                 const amt = parseCurrencyFn(editRecurringAmount)
                 if (amt > 0) updatePayload.amount = amt
@@ -432,17 +433,21 @@ export default function ControleFinanceiro() {
 
             if (editRecurringScope === 'CURRENT') {
                 if (editRecurringDate) updatePayload.due_date = editRecurringDate.format('YYYY-MM-DD')
-                await sbf.from('cash_entries').update(updatePayload).eq('id', editRecurringEntry.id)
+                if (Object.keys(updatePayload).length === 0) { messageApi.warning('Nenhuma alteração informada.'); return }
+                const { error } = await sbf.from('cash_entries').update(updatePayload).eq('id', editRecurringEntry.id).eq('tenant_id', tenant_id)
+                if (error) throw error
             } else if (editRecurringScope === 'FUTURE') {
                 const entryMonthEnd = dayjs(editRecurringEntry.due_date + 'T00:00:00').endOf('month').format('YYYY-MM-DD')
-                const { data: futureEntries } = await sbf.from('cash_entries')
+                const { data: futureEntries, error: fetchErr } = await sbf.from('cash_entries')
                     .select('id, due_date')
                     .eq('description', editRecurringEntry.description)
                     .eq('origin_type', editRecurringEntry.origin_type)
                     .eq('tenant_id', tenant_id)
                     .eq('is_active', true)
                     .gt('due_date', entryMonthEnd)
-                for (const fe of (futureEntries || [])) {
+                if (fetchErr) throw fetchErr
+                if (!futureEntries?.length) { messageApi.info('Nenhum lançamento futuro encontrado.'); return }
+                for (const fe of futureEntries) {
                     const entryUpdate: any = { ...updatePayload }
                     if (editRecurringDate) {
                         const newDay = editRecurringDate.date()
@@ -450,12 +455,14 @@ export default function ControleFinanceiro() {
                         const lastDay = d.endOf('month').date()
                         entryUpdate.due_date = d.date(Math.min(newDay, lastDay)).format('YYYY-MM-DD')
                     }
-                    await sbf.from('cash_entries').update(entryUpdate).eq('id', fe.id)
+                    if (Object.keys(entryUpdate).length === 0) continue
+                    const { error } = await sbf.from('cash_entries').update(entryUpdate).eq('id', fe.id).eq('tenant_id', tenant_id)
+                    if (error) throw error
                 }
             } else if (editRecurringScope === 'SPECIFIC' && editRecurringMonth) {
                 const monthStart = editRecurringMonth.startOf('month').format('YYYY-MM-DD')
                 const monthEnd = editRecurringMonth.endOf('month').format('YYYY-MM-DD')
-                const { data: specificEntries } = await sbf.from('cash_entries')
+                const { data: specificEntries, error: fetchErr } = await sbf.from('cash_entries')
                     .select('id, due_date')
                     .eq('description', editRecurringEntry.description)
                     .eq('origin_type', editRecurringEntry.origin_type)
@@ -463,10 +470,14 @@ export default function ControleFinanceiro() {
                     .eq('is_active', true)
                     .gte('due_date', monthStart)
                     .lte('due_date', monthEnd)
-                for (const se of (specificEntries || [])) {
+                if (fetchErr) throw fetchErr
+                if (!specificEntries?.length) { messageApi.info('Nenhum lançamento encontrado no mês selecionado.'); return }
+                for (const se of specificEntries) {
                     const entryUpdate: any = { ...updatePayload }
                     if (editRecurringDate) entryUpdate.due_date = editRecurringDate.format('YYYY-MM-DD')
-                    await sbf.from('cash_entries').update(entryUpdate).eq('id', se.id)
+                    if (Object.keys(entryUpdate).length === 0) continue
+                    const { error } = await sbf.from('cash_entries').update(entryUpdate).eq('id', se.id).eq('tenant_id', tenant_id)
+                    if (error) throw error
                 }
             }
 
@@ -474,8 +485,8 @@ export default function ControleFinanceiro() {
             setEditRecurringOpen(false)
             mergeExpenseConfig(tenant_id).catch(() => {})
             await fetchData()
-        } catch {
-            messageApi.error('Erro ao salvar alterações.')
+        } catch (err: any) {
+            messageApi.error('Erro ao salvar alterações: ' + (err?.message || 'Erro desconhecido'))
         } finally {
             setSavingRecurring(false)
         }

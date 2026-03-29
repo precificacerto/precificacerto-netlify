@@ -333,9 +333,30 @@ export default function CashFlow() {
 
     const handleOpenPaymentModal = (entry: any) => {
         setPaymentEntry(entry)
-        setPaymentDate(dayjs())
+        // Pre-fill with existing paid_date if entry is already paid, otherwise default to today
+        setPaymentDate(entry.paid_date ? dayjs(entry.paid_date + 'T00:00:00') : dayjs())
         setPaymentMethodModal(entry.payment_method || '')
         setPaymentModalOpen(true)
+    }
+
+    const handleCancelPayment = async () => {
+        if (!paymentEntry) return
+        setSavingPayment(true)
+        try {
+            const tenant_id = await getTenantId()
+            const { error } = await (supabase as any).from('cash_entries').update({
+                paid_date: null,
+                payment_method: null,
+            }).eq('id', paymentEntry.id).eq('tenant_id', tenant_id)
+            if (error) throw error
+            messageApi.success('Pagamento cancelado — despesa voltou para não paga.')
+            setPaymentModalOpen(false)
+            await fetchData()
+        } catch (err: any) {
+            messageApi.error('Erro ao cancelar pagamento: ' + (err?.message || 'Erro desconhecido'))
+        } finally {
+            setSavingPayment(false)
+        }
     }
 
     const handleRegisterPayment = async () => {
@@ -529,8 +550,6 @@ export default function CashFlow() {
                     incomeByLabel[label] += getEffectiveIncomeAmount(entry)
                 }
             } else {
-                // Skip paid expenses — they turn blank after payment
-                if (entry.paid_date) continue
                 let matched = false
                 for (const section of EXPENSE_SECTIONS) {
                     for (const item of section.items) {
@@ -569,7 +588,6 @@ export default function CashFlow() {
                 if (entry.payment_method === 'BOLETO' && !entry.paid_date) continue
                 totals[day] += getEffectiveIncomeAmount(entry)
             } else {
-                if (entry.paid_date) continue
                 totals[day] -= Number(entry.amount) || 0
             }
         }
@@ -579,8 +597,10 @@ export default function CashFlow() {
     // ── Pivot: per-day per-category amounts for Excel-like grid ──
     const pivotByDay = useMemo(() => {
         const daysInMonth = month.daysInMonth()
-        const result: Record<string, Record<number, number>> = {}
-        const entriesMap: Record<string, Record<number, any[]>> = {}
+        const result: Record<string, Record<number, number>> = {}       // total amounts (paid + unpaid)
+        const unpaidAmounts: Record<string, Record<number, number>> = {} // amounts from unpaid entries only
+        const entriesMap: Record<string, Record<number, any[]>> = {}    // unpaid entries (for click handler)
+        const paidEntriesMap: Record<string, Record<number, any[]>> = {} // paid entries (for edit/cancel)
         const allKeys = [...INCOME_LABELS, ...EXPENSE_SECTIONS.map(s => s.header), 'Outras Despesas']
         // Also track item-level keys
         for (const section of EXPENSE_SECTIONS) {
@@ -590,10 +610,14 @@ export default function CashFlow() {
         }
         for (const cat of allKeys) {
             result[cat] = {}
+            unpaidAmounts[cat] = {}
             entriesMap[cat] = {}
+            paidEntriesMap[cat] = {}
             for (let d = 1; d <= daysInMonth; d++) {
                 result[cat][d] = 0
+                unpaidAmounts[cat][d] = 0
                 entriesMap[cat][d] = []
+                paidEntriesMap[cat][d] = []
             }
         }
         for (const entry of regularData) {
@@ -605,29 +629,41 @@ export default function CashFlow() {
                 const label = getIncomeLabel(entry)
                 if (label && result[label]) result[label][day] = (result[label][day] || 0) + getEffectiveIncomeAmount(entry)
             } else {
-                // Skip paid expenses — they "turn white/blank" after payment is registered
-                if (entry.paid_date) continue
+                // Include ALL expenses (paid and unpaid) in total — paid = white, unpaid = red+clickable
+                const amt = Number(entry.amount) || 0
                 let matched = false
                 for (const section of EXPENSE_SECTIONS) {
                     if (matched) break
                     for (const item of section.items) {
                         if (matchesDescription(entry.description, item.descMatch)) {
-                            result[section.header][day] = (result[section.header][day] || 0) + (Number(entry.amount) || 0)
-                            result[`${section.header}||${item.label}`][day] = (result[`${section.header}||${item.label}`][day] || 0) + (Number(entry.amount) || 0)
-                            entriesMap[section.header][day] = [...(entriesMap[section.header][day] || []), entry]
-                            entriesMap[`${section.header}||${item.label}`][day] = [...(entriesMap[`${section.header}||${item.label}`][day] || []), entry]
+                            result[section.header][day] = (result[section.header][day] || 0) + amt
+                            result[`${section.header}||${item.label}`][day] = (result[`${section.header}||${item.label}`][day] || 0) + amt
+                            if (!entry.paid_date) {
+                                unpaidAmounts[section.header][day] = (unpaidAmounts[section.header][day] || 0) + amt
+                                unpaidAmounts[`${section.header}||${item.label}`][day] = (unpaidAmounts[`${section.header}||${item.label}`][day] || 0) + amt
+                                entriesMap[section.header][day] = [...(entriesMap[section.header][day] || []), entry]
+                                entriesMap[`${section.header}||${item.label}`][day] = [...(entriesMap[`${section.header}||${item.label}`][day] || []), entry]
+                            } else {
+                                paidEntriesMap[section.header][day] = [...(paidEntriesMap[section.header][day] || []), entry]
+                                paidEntriesMap[`${section.header}||${item.label}`][day] = [...(paidEntriesMap[`${section.header}||${item.label}`][day] || []), entry]
+                            }
                             matched = true
                             break
                         }
                     }
                 }
                 if (!matched) {
-                    result['Outras Despesas'][day] = (result['Outras Despesas'][day] || 0) + (Number(entry.amount) || 0)
-                    entriesMap['Outras Despesas'][day] = [...(entriesMap['Outras Despesas'][day] || []), entry]
+                    result['Outras Despesas'][day] = (result['Outras Despesas'][day] || 0) + amt
+                    if (!entry.paid_date) {
+                        unpaidAmounts['Outras Despesas'][day] = (unpaidAmounts['Outras Despesas'][day] || 0) + amt
+                        entriesMap['Outras Despesas'][day] = [...(entriesMap['Outras Despesas'][day] || []), entry]
+                    } else {
+                        paidEntriesMap['Outras Despesas'][day] = [...(paidEntriesMap['Outras Despesas'][day] || []), entry]
+                    }
                 }
             }
         }
-        return { data: result, daysInMonth, entriesMap }
+        return { data: result, daysInMonth, unpaidAmounts, entriesMap, paidEntriesMap }
     }, [regularData, month])
 
     // ── Saldo do Mês Anterior (valor fixo inserido pelo usuário) ──
@@ -959,18 +995,22 @@ export default function CashFlow() {
                                             </td>
                                             {Array.from({ length: pivotByDay.daysInMonth }, (_, i) => i + 1).map(day => {
                                                 const val = (pivotByDay.data[section.header] || {})[day] || 0
+                                                const hasUnpaid = ((pivotByDay.unpaidAmounts[section.header] || {})[day] || 0) > 0
                                                 const cellEntries = (pivotByDay.entriesMap[section.header] || {})[day] || []
+                                                const paidCellEntries = (pivotByDay.paidEntriesMap[section.header] || {})[day] || []
+                                                const textColor = val > 0 ? (hasUnpaid ? '#f87171' : 'rgba(255,255,255,0.3)') : '#334155'
+                                                const clickEntry = hasUnpaid ? cellEntries[0] : paidCellEntries[0]
                                                 return (
-                                                    <td key={day} style={{ padding: '5px 4px', textAlign: 'right', color: val > 0 ? '#f87171' : '#334155', fontVariantNumeric: 'tabular-nums', borderRight: '1px solid rgba(255,255,255,0.04)', fontSize: 11 }}>
-                                                        {val > 0 ? (
+                                                    <td key={day} style={{ padding: '5px 4px', textAlign: 'right', color: textColor, fontVariantNumeric: 'tabular-nums', borderRight: '1px solid rgba(255,255,255,0.04)', fontSize: 11 }}>
+                                                        {val > 0 && clickEntry ? (
                                                             <span
-                                                                onClick={() => cellEntries.length > 0 && handleOpenPaymentModal(cellEntries[0])}
-                                                                style={{ cursor: cellEntries.length > 0 ? 'pointer' : 'default', borderBottom: cellEntries.length > 0 ? '1px dashed rgba(248,113,113,0.6)' : 'none' }}
-                                                                title={cellEntries.length > 1 ? `${cellEntries.length} lançamentos — clique para registrar o primeiro` : 'Clique para registrar pagamento'}
+                                                                onClick={() => handleOpenPaymentModal(clickEntry)}
+                                                                style={{ cursor: 'pointer', borderBottom: hasUnpaid ? '1px dashed rgba(248,113,113,0.6)' : '1px dashed rgba(255,255,255,0.2)' }}
+                                                                title={hasUnpaid ? 'Clique para registrar pagamento' : 'Pago — clique para editar ou cancelar'}
                                                             >
                                                                 {formatCurrency(val)}
                                                             </span>
-                                                        ) : ''}
+                                                        ) : val > 0 ? formatCurrency(val) : ''}
                                                     </td>
                                                 )
                                             })}
@@ -990,18 +1030,22 @@ export default function CashFlow() {
                                                     </td>
                                                     {Array.from({ length: pivotByDay.daysInMonth }, (_, i) => i + 1).map(day => {
                                                         const val = (pivotByDay.data[itemKey] || {})[day] || 0
+                                                        const hasUnpaid = ((pivotByDay.unpaidAmounts[itemKey] || {})[day] || 0) > 0
                                                         const cellEntries = (pivotByDay.entriesMap[itemKey] || {})[day] || []
+                                                        const paidCellEntries = (pivotByDay.paidEntriesMap[itemKey] || {})[day] || []
+                                                        const textColor = val > 0 ? (hasUnpaid ? '#fca5a5' : 'rgba(255,255,255,0.3)') : '#334155'
+                                                        const clickEntry = hasUnpaid ? cellEntries[0] : paidCellEntries[0]
                                                         return (
-                                                            <td key={day} style={{ padding: '4px 4px', textAlign: 'right', color: val > 0 ? '#fca5a5' : '#334155', fontVariantNumeric: 'tabular-nums', borderRight: '1px solid rgba(255,255,255,0.02)', fontSize: 10 }}>
-                                                                {val > 0 ? (
+                                                            <td key={day} style={{ padding: '4px 4px', textAlign: 'right', color: textColor, fontVariantNumeric: 'tabular-nums', borderRight: '1px solid rgba(255,255,255,0.02)', fontSize: 10 }}>
+                                                                {val > 0 && clickEntry ? (
                                                                     <span
-                                                                        onClick={() => cellEntries.length > 0 && handleOpenPaymentModal(cellEntries[0])}
-                                                                        style={{ cursor: cellEntries.length > 0 ? 'pointer' : 'default', borderBottom: cellEntries.length > 0 ? '1px dashed rgba(252,165,165,0.6)' : 'none' }}
-                                                                        title={cellEntries.length > 1 ? `${cellEntries.length} lançamentos — clique para registrar o primeiro` : 'Clique para registrar pagamento'}
+                                                                        onClick={() => handleOpenPaymentModal(clickEntry)}
+                                                                        style={{ cursor: 'pointer', borderBottom: hasUnpaid ? '1px dashed rgba(252,165,165,0.6)' : '1px dashed rgba(255,255,255,0.2)' }}
+                                                                        title={hasUnpaid ? 'Clique para registrar pagamento' : 'Pago — clique para editar ou cancelar'}
                                                                     >
                                                                         {formatCurrency(val)}
                                                                     </span>
-                                                                ) : ''}
+                                                                ) : val > 0 ? formatCurrency(val) : ''}
                                                             </td>
                                                         )
                                                     })}
@@ -1021,18 +1065,22 @@ export default function CashFlow() {
                                     </td>
                                     {Array.from({ length: pivotByDay.daysInMonth }, (_, i) => i + 1).map(day => {
                                         const val = (pivotByDay.data['Outras Despesas'] || {})[day] || 0
+                                        const hasUnpaid = ((pivotByDay.unpaidAmounts['Outras Despesas'] || {})[day] || 0) > 0
                                         const cellEntries = (pivotByDay.entriesMap['Outras Despesas'] || {})[day] || []
+                                        const paidCellEntries = (pivotByDay.paidEntriesMap['Outras Despesas'] || {})[day] || []
+                                        const textColor = val > 0 ? (hasUnpaid ? '#f87171' : 'rgba(255,255,255,0.3)') : '#334155'
+                                        const clickEntry = hasUnpaid ? cellEntries[0] : paidCellEntries[0]
                                         return (
-                                            <td key={day} style={{ padding: '5px 4px', textAlign: 'right', color: val > 0 ? '#f87171' : '#334155', fontVariantNumeric: 'tabular-nums', borderRight: '1px solid rgba(255,255,255,0.04)', fontSize: 11 }}>
-                                                {val > 0 ? (
+                                            <td key={day} style={{ padding: '5px 4px', textAlign: 'right', color: textColor, fontVariantNumeric: 'tabular-nums', borderRight: '1px solid rgba(255,255,255,0.04)', fontSize: 11 }}>
+                                                {val > 0 && clickEntry ? (
                                                     <span
-                                                        onClick={() => cellEntries.length > 0 && handleOpenPaymentModal(cellEntries[0])}
-                                                        style={{ cursor: cellEntries.length > 0 ? 'pointer' : 'default', borderBottom: cellEntries.length > 0 ? '1px dashed rgba(248,113,113,0.6)' : 'none' }}
-                                                        title="Clique para registrar pagamento"
+                                                        onClick={() => handleOpenPaymentModal(clickEntry)}
+                                                        style={{ cursor: 'pointer', borderBottom: hasUnpaid ? '1px dashed rgba(248,113,113,0.6)' : '1px dashed rgba(255,255,255,0.2)' }}
+                                                        title={hasUnpaid ? 'Clique para registrar pagamento' : 'Pago — clique para editar ou cancelar'}
                                                     >
                                                         {formatCurrency(val)}
                                                     </span>
-                                                ) : ''}
+                                                ) : val > 0 ? formatCurrency(val) : ''}
                                             </td>
                                         )
                                     })}
@@ -1140,7 +1188,11 @@ export default function CashFlow() {
                                     if (r.type === 'EXPENSE') {
                                         if (r.paid_date) {
                                             return (
-                                                <strong style={{ color: 'rgba(255,255,255,0.15)', fontVariantNumeric: 'tabular-nums' }} title={`Pago em ${r.paid_date}`}>
+                                                <strong
+                                                    onClick={() => handleOpenPaymentModal(r)}
+                                                    style={{ color: 'rgba(255,255,255,0.3)', fontVariantNumeric: 'tabular-nums', cursor: 'pointer', borderBottom: '1px dashed rgba(255,255,255,0.15)' }}
+                                                    title="Pago — clique para editar ou cancelar pagamento"
+                                                >
                                                     - {formatCurrency(val)}
                                                 </strong>
                                             )
@@ -1277,9 +1329,9 @@ export default function CashFlow() {
                 </Form>
             </Drawer>
 
-            {/* Modal: Registrar Pagamento de Despesa */}
+            {/* Modal: Registrar / Editar Pagamento de Despesa */}
             <Modal
-                title="Registrar Pagamento de Despesa"
+                title={paymentEntry?.paid_date ? 'Editar Pagamento Registrado' : 'Registrar Pagamento de Despesa'}
                 open={paymentModalOpen}
                 onCancel={() => setPaymentModalOpen(false)}
                 footer={null}
@@ -1287,14 +1339,20 @@ export default function CashFlow() {
             >
                 {paymentEntry && (
                     <div>
-                        <div style={{ marginBottom: 16, padding: 12, background: 'rgba(240,68,56,0.08)', border: '1px solid rgba(240,68,56,0.2)', borderRadius: 8 }}>
+                        <div style={{ marginBottom: 16, padding: 12, background: paymentEntry.paid_date ? 'rgba(255,255,255,0.05)' : 'rgba(240,68,56,0.08)', border: `1px solid ${paymentEntry.paid_date ? 'rgba(255,255,255,0.15)' : 'rgba(240,68,56,0.2)'}`, borderRadius: 8 }}>
                             <div style={{ fontWeight: 600, fontSize: 14 }}>{paymentEntry.description}</div>
-                            <div style={{ color: '#f87171', fontWeight: 700, fontSize: 18, marginTop: 4 }}>
+                            <div style={{ color: paymentEntry.paid_date ? 'rgba(255,255,255,0.5)' : '#f87171', fontWeight: 700, fontSize: 18, marginTop: 4 }}>
                                 {formatCurrency(Number(paymentEntry.amount))}
                             </div>
                             <div style={{ color: '#94a3b8', fontSize: 12, marginTop: 4 }}>
                                 Vencimento: {dayjs(paymentEntry.due_date + 'T00:00:00').format('DD/MM/YYYY')}
                             </div>
+                            {paymentEntry.paid_date && (
+                                <div style={{ color: '#4ade80', fontSize: 12, marginTop: 2, fontWeight: 500 }}>
+                                    ✓ Pago em: {dayjs(paymentEntry.paid_date + 'T00:00:00').format('DD/MM/YYYY')}
+                                    {paymentEntry.payment_method ? ` — ${paymentEntry.payment_method}` : ''}
+                                </div>
+                            )}
                         </div>
                         <div style={{ marginBottom: 16 }}>
                             <div style={{ fontWeight: 500, marginBottom: 6 }}>Data de Pagamento</div>
@@ -1326,11 +1384,23 @@ export default function CashFlow() {
                                 cancelText="Cancelar"
                                 okButtonProps={{ danger: true }}
                             >
-                                <Button danger>Excluir Lançamento</Button>
+                                <Button danger>Excluir</Button>
                             </Popconfirm>
-                            <Button onClick={() => setPaymentModalOpen(false)}>Cancelar</Button>
+                            {paymentEntry.paid_date && (
+                                <Popconfirm
+                                    title="Cancelar pagamento?"
+                                    description="A despesa voltará a aparecer como não paga (vermelha)."
+                                    onConfirm={handleCancelPayment}
+                                    okText="Cancelar pagamento"
+                                    cancelText="Não"
+                                    okButtonProps={{ danger: true }}
+                                >
+                                    <Button loading={savingPayment}>Cancelar Pagamento</Button>
+                                </Popconfirm>
+                            )}
+                            <Button onClick={() => setPaymentModalOpen(false)}>Fechar</Button>
                             <Button type="primary" loading={savingPayment} onClick={handleRegisterPayment}>
-                                Registrar Pagamento
+                                {paymentEntry.paid_date ? 'Salvar Edição' : 'Registrar Pagamento'}
                             </Button>
                         </div>
                     </div>
