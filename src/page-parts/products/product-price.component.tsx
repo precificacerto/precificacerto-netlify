@@ -63,6 +63,11 @@ export const ProductPrice: FC<Props> = ({
   const profitPct = productPriceInfo.productProfitPercent
   const profitVal = productPriceInfo.productProfitPrice
 
+  const yieldQty = Number(productForm.getFieldValue('quantity')) || 1
+  const unit = productForm.getFieldValue('unitType')
+  const pricePerUnit = totalPrice
+  const priceRecipeTotal = totalPrice * yieldQty
+
   // LUCRO_REAL: IRPJ = 15% do lucro, CSLL = 9% do lucro, adicional = user-entered
   const irpjPct = isLucroReal ? profitPct * 0.15 : 0
   const csllPct = isLucroReal ? profitPct * 0.09 : 0
@@ -85,11 +90,6 @@ export const ProductPrice: FC<Props> = ({
     ? variableVal + financialVal
     : laborVal + fixedVal + variableVal + financialVal
   const taxesTotal = taxValDisplay
-
-  const yieldQty = Number(productForm.getFieldValue('quantity')) || 1
-  const unit = productForm.getFieldValue('unitType')
-  const pricePerUnit = totalPrice
-  const priceRecipeTotal = totalPrice * yieldQty
 
   const fireChange = (name: string, value: number) => {
     handleChangePrecificationInputs({
