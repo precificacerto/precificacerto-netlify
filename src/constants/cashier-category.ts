@@ -1,4 +1,4 @@
-export type ExpenseGroupKey = 'MAO_DE_OBRA' | 'DESPESA_FIXA' | 'DESPESA_FINANCEIRA' | 'DESPESA_VARIAVEL' | 'IMPOSTO' | 'CUSTO_PRODUTOS' | 'ATIVIDADES_TERCEIRIZADAS' | 'REGIME_TRIBUTARIO' | 'COMISSOES' | 'LUCRO'
+export type ExpenseGroupKey = 'MAO_DE_OBRA' | 'MAO_DE_OBRA_PRODUTIVA' | 'MAO_DE_OBRA_ADMINISTRATIVA' | 'DESPESA_FIXA' | 'DESPESA_FINANCEIRA' | 'DESPESA_VARIAVEL' | 'IMPOSTO' | 'CUSTO_PRODUTOS' | 'ATIVIDADES_TERCEIRIZADAS' | 'REGIME_TRIBUTARIO' | 'COMISSOES' | 'LUCRO'
 
 type StandardExpenseGroupKey = 'MAO_DE_OBRA' | 'DESPESA_FIXA' | 'DESPESA_FINANCEIRA' | 'DESPESA_VARIAVEL' | 'IMPOSTO'
 export const EXPENSE_GROUPS: Record<StandardExpenseGroupKey, { key: StandardExpenseGroupKey; label: string; color: string }> = {
@@ -36,102 +36,102 @@ export const CASHIER_CATEGORY = {
   },
 
   EXPENSE: {
-    FORNECEDORES: { order: 8, key: 'FORNECEDORES', value: 'Fornecedores', group: 'DESPESA_VARIAVEL' as ExpenseGroupKey },
+    FORNECEDORES: { order: 8, key: 'FORNECEDORES', value: 'Fornecedores - Produtos para Revenda', group: 'CUSTO_PRODUTOS' as ExpenseGroupKey },
     MATERIA_PRIMA_BASE_DOS_PROD_ROUPA_ALIMENTO_MADEIRA: {
       order: 9,
       key: 'MATERIA_PRIMA_BASE_DOS_PROD_ROUPA_ALIMENTO_MADEIRA',
-      value: 'Matéria Prima - Base dos produtos (Roupa/Alimento/Madeira)',
-      group: 'DESPESA_VARIAVEL' as ExpenseGroupKey,
+      value: 'Matéria Prima - Base dos produtos',
+      group: 'CUSTO_PRODUTOS' as ExpenseGroupKey,
     },
-    EMBALAGENS: { order: 10, key: 'EMBALAGENS', value: 'Embalagens', group: 'DESPESA_VARIAVEL' as ExpenseGroupKey },
+    EMBALAGENS: { order: 10, key: 'EMBALAGENS', value: 'Embalagens Individuais', group: 'CUSTO_PRODUTOS' as ExpenseGroupKey },
     FRETES_FOB: {
       order: 11,
       key: 'FRETES_FOB',
       value: 'Fretes FOB (Valores relacionados a compra de suprimentos)',
-      group: 'DESPESA_VARIAVEL' as ExpenseGroupKey,
+      group: 'CUSTO_PRODUTOS' as ExpenseGroupKey,
     },
-    SALARIOS_PRODUCAO: { order: 12, key: 'SALARIOS_PRODUCAO', value: 'Salários Produção', group: 'MAO_DE_OBRA' as ExpenseGroupKey },
+    SALARIOS_PRODUCAO: { order: 12, key: 'SALARIOS_PRODUCAO', value: 'Salários Produção', group: 'MAO_DE_OBRA_PRODUTIVA' as ExpenseGroupKey },
     DECIMO_TERCEIRO_PRODUCAO: {
       order: 13,
       key: 'DECIMO_TERCEIRO_PRODUCAO',
       value: 'Décimo Terceiro (Setor Produtivo)',
-      group: 'MAO_DE_OBRA' as ExpenseGroupKey,
+      group: 'MAO_DE_OBRA_PRODUTIVA' as ExpenseGroupKey,
     },
     FERIAS_COLABORADORES_PRODUCAO: {
       order: 14,
       key: 'FERIAS_COLABORADORES_PRODUCAO',
       value: 'Férias Colaboradores (Setor Produtivo)',
-      group: 'MAO_DE_OBRA' as ExpenseGroupKey,
+      group: 'MAO_DE_OBRA_PRODUTIVA' as ExpenseGroupKey,
     },
-    FGTS_PRODUCAO: { order: 15, key: 'FGTS_PRODUCAO', value: 'FGTS (Setor Produtivo)', group: 'MAO_DE_OBRA' as ExpenseGroupKey },
-    INSS_PRODUCAO: { order: 16, key: 'INSS_PRODUCAO', value: 'INSS (Setor Produtivo)', group: 'MAO_DE_OBRA' as ExpenseGroupKey },
+    FGTS_PRODUCAO: { order: 15, key: 'FGTS_PRODUCAO', value: 'FGTS (Setor Produtivo)', group: 'MAO_DE_OBRA_PRODUTIVA' as ExpenseGroupKey },
+    INSS_PRODUCAO: { order: 16, key: 'INSS_PRODUCAO', value: 'INSS (Setor Produtivo)', group: 'MAO_DE_OBRA_PRODUTIVA' as ExpenseGroupKey },
     PLANO_DE_SAUDE_PRODUCAO: {
       order: 17,
       key: 'PLANO_DE_SAUDE_PRODUCAO',
       value: 'Plano de Saúde (Setor Produtivo)',
-      group: 'MAO_DE_OBRA' as ExpenseGroupKey,
+      group: 'MAO_DE_OBRA_PRODUTIVA' as ExpenseGroupKey,
     },
     VALE_ALIMENTACAO_PRODUCAO: {
       order: 18,
       key: 'VALE_ALIMENTACAO_PRODUCAO',
       value: 'Vale Alimentação (Setor Produtivo)',
-      group: 'MAO_DE_OBRA' as ExpenseGroupKey,
+      group: 'MAO_DE_OBRA_PRODUTIVA' as ExpenseGroupKey,
     },
     VALE_TRANSPORTE_PRODUCAO: {
       order: 19,
       key: 'VALE_TRANSPORTE_PRODUCAO',
       value: 'Vale Transporte (Setor Produtivo)',
-      group: 'MAO_DE_OBRA' as ExpenseGroupKey,
+      group: 'MAO_DE_OBRA_PRODUTIVA' as ExpenseGroupKey,
     },
-    PRO_LABORE: { order: 20, key: 'PRO_LABORE', value: 'Pró Labore', group: 'MAO_DE_OBRA' as ExpenseGroupKey },
+    PRO_LABORE: { order: 20, key: 'PRO_LABORE', value: 'Pró Labore', group: 'MAO_DE_OBRA_ADMINISTRATIVA' as ExpenseGroupKey },
     SALARIOS_ADMINISTRATIVOS: {
       order: 21,
       key: 'SALARIOS_ADMINISTRATIVOS',
       value: 'Salários Administrativos',
-      group: 'MAO_DE_OBRA' as ExpenseGroupKey,
+      group: 'MAO_DE_OBRA_ADMINISTRATIVA' as ExpenseGroupKey,
     },
-    SALARIOS_COMERCIAIS: { order: 22, key: 'SALARIOS_COMERCIAIS', value: 'Salários Comerciais', group: 'MAO_DE_OBRA' as ExpenseGroupKey },
+    SALARIOS_COMERCIAIS: { order: 22, key: 'SALARIOS_COMERCIAIS', value: 'Salários Comerciais', group: 'MAO_DE_OBRA_ADMINISTRATIVA' as ExpenseGroupKey },
     DECIMO_TERCEIRO_PRO_LABORE_ADMIN_COMER: {
       order: 23,
       key: 'DECIMO_TERCEIRO_PRO_LABORE_ADMIN_COMER',
       value: 'Décimo Terceiro (Pró-Labo/ Admin/ Comer)',
-      group: 'MAO_DE_OBRA' as ExpenseGroupKey,
+      group: 'MAO_DE_OBRA_ADMINISTRATIVA' as ExpenseGroupKey,
     },
     FERIAS_COLABORADORES_PRO_LABORE_ADMIN_COMER: {
       order: 24,
       key: 'FERIAS_COLABORADORES_PRO_LABORE_ADMIN_COMER',
       value: 'Férias Colaboradores (Pró-Labo/ Admin/ Comer)',
-      group: 'MAO_DE_OBRA' as ExpenseGroupKey,
+      group: 'MAO_DE_OBRA_ADMINISTRATIVA' as ExpenseGroupKey,
     },
     FGTS_PRO_LABORE_ADMIN_COMER: {
       order: 25,
       key: 'FGTS_PRO_LABORE_ADMIN_COMER',
       value: 'FGTS (Pró-Labo/ Admin/ Comer)',
-      group: 'MAO_DE_OBRA' as ExpenseGroupKey,
+      group: 'MAO_DE_OBRA_ADMINISTRATIVA' as ExpenseGroupKey,
     },
     INSS_PRO_LABORE_ADMIN_COMER: {
       order: 26,
       key: 'INSS_PRO_LABORE_ADMIN_COMER',
       value: 'INSS (Pró-Labo/ Admin/ Comer)',
-      group: 'MAO_DE_OBRA' as ExpenseGroupKey,
+      group: 'MAO_DE_OBRA_ADMINISTRATIVA' as ExpenseGroupKey,
     },
     PLANO_DE_SAUDE_PRO_LABORE_ADMIN_COMER: {
       order: 27,
       key: 'PLANO_DE_SAUDE_PRO_LABORE_ADMIN_COMER',
       value: 'Plano de Saúde (Pró-Labo/ Admin/ Comer)',
-      group: 'MAO_DE_OBRA' as ExpenseGroupKey,
+      group: 'MAO_DE_OBRA_ADMINISTRATIVA' as ExpenseGroupKey,
     },
     VALE_ALIMENTACAO_PRO_LABORE_ADMIN_COMER: {
       order: 28,
       key: 'VALE_ALIMENTACAO_PRO_LABORE_ADMIN_COMER',
       value: 'Vale Alimentação (Pró-Labo/ Admin/ Comer)',
-      group: 'MAO_DE_OBRA' as ExpenseGroupKey,
+      group: 'MAO_DE_OBRA_ADMINISTRATIVA' as ExpenseGroupKey,
     },
     VALE_TRANSPORTE_PRO_LABORE_ADMIN_COMER: {
       order: 29,
       key: 'VALE_TRANSPORTE_PRO_LABORE_ADMIN_COMER',
       value: 'Vale Transporte (Pró-Labo/ Admin/ Comer)',
-      group: 'MAO_DE_OBRA' as ExpenseGroupKey,
+      group: 'MAO_DE_OBRA_ADMINISTRATIVA' as ExpenseGroupKey,
     },
     AGUA: { order: 30, key: 'AGUA', value: 'Água', group: 'DESPESA_FIXA' as ExpenseGroupKey },
     ALUGUEL: { order: 31, key: 'ALUGUEL', value: 'Aluguel', group: 'DESPESA_FIXA' as ExpenseGroupKey },
@@ -139,14 +139,14 @@ export const CASHIER_CATEGORY = {
       order: 32,
       key: 'APLICACOES_CONSORCIOS',
       value: 'Aplicações / Consórcios',
-      group: 'DESPESA_FINANCEIRA' as ExpenseGroupKey,
+      group: 'DESPESA_FIXA' as ExpenseGroupKey,
     },
     CONSULTORIA: { order: 33, key: 'CONSULTORIA', value: 'Consultoria', group: 'DESPESA_FIXA' as ExpenseGroupKey },
     CONTABILIDADE: { order: 34, key: 'CONTABILIDADE', value: 'Contabilidade', group: 'DESPESA_FIXA' as ExpenseGroupKey },
     DEPRECIACAO: { order: 35, key: 'DEPRECIACAO', value: 'Depreciação', group: 'DESPESA_FIXA' as ExpenseGroupKey },
-    EMPRESTIMOS: { order: 36, key: 'EMPRESTIMOS', value: 'Empréstimos', group: 'DESPESA_FINANCEIRA' as ExpenseGroupKey },
+    EMPRESTIMOS: { order: 36, key: 'EMPRESTIMOS', value: 'Empréstimos / Financiamentos', group: 'DESPESA_FIXA' as ExpenseGroupKey },
     ENERGIA_ELETRICA: { order: 37, key: 'ENERGIA_ELETRICA', value: 'Energia Elétrica', group: 'DESPESA_FIXA' as ExpenseGroupKey },
-    IMPOSTOS_IPTU_IPVA: { order: 38, key: 'IMPOSTOS_IPTU_IPVA', value: 'Impostos IPTU / IPVA', group: 'IMPOSTO' as ExpenseGroupKey },
+    IMPOSTOS_IPTU_IPVA: { order: 38, key: 'IMPOSTOS_IPTU_IPVA', value: 'Impostos IPTU / IPVA', group: 'DESPESA_FIXA' as ExpenseGroupKey },
     INTERNET: { order: 39, key: 'INTERNET', value: 'Internet', group: 'DESPESA_FIXA' as ExpenseGroupKey },
     SEGURANCA_MONITORAMENTO: {
       order: 40,
@@ -166,16 +166,16 @@ export const CASHIER_CATEGORY = {
       order: 44,
       key: 'RESCISOES_INDENIZACOES',
       value: 'Recisões / Indenizações',
-      group: 'MAO_DE_OBRA' as ExpenseGroupKey,
+      group: 'DESPESA_VARIAVEL' as ExpenseGroupKey,
     },
     SAUDE_TRABALHISTA_OCUPACIONAL: {
       order: 45,
       key: 'SAUDE_TRABALHISTA_OCUPACIONAL',
       value: 'Saúde Trabalhista / Ocupacional',
-      group: 'MAO_DE_OBRA' as ExpenseGroupKey,
+      group: 'DESPESA_FIXA' as ExpenseGroupKey,
     },
     MEI: { order: 46, key: 'MEI', value: 'MEI (Microempreendedor Individual)', group: 'IMPOSTO' as ExpenseGroupKey },
-    COMISSOES_DE_VENDA: { order: 47, key: 'COMISSOES_DE_VENDA', value: 'Comissões de Venda', group: 'DESPESA_VARIAVEL' as ExpenseGroupKey },
+    COMISSOES_DE_VENDA: { order: 47, key: 'COMISSOES_DE_VENDA', value: 'Comissões de Venda', group: 'COMISSOES' as ExpenseGroupKey },
     COMBUSTIVEIS: { order: 48, key: 'COMBUSTIVEIS', value: 'Combustíveis', group: 'DESPESA_VARIAVEL' as ExpenseGroupKey },
     CORREIOS: { order: 49, key: 'CORREIOS', value: 'Correios', group: 'DESPESA_VARIAVEL' as ExpenseGroupKey },
     DEPARTAMENTO_JURIDICO: {
@@ -210,8 +210,8 @@ export const CASHIER_CATEGORY = {
     VALE_ALIMENTACAO_TERCERIZADOS: {
       order: 59,
       key: 'VALE_ALIMENTACAO_TERCERIZADOS',
-      value: 'Vale Alimentação Tercerizados',
-      group: 'MAO_DE_OBRA' as ExpenseGroupKey,
+      value: 'Vale Alimentação',
+      group: 'DESPESA_VARIAVEL' as ExpenseGroupKey,
     },
     VIAGENS_HOTEIS_PASSAGENS_ALIMENTACAO_ETC: {
       order: 60,
@@ -227,51 +227,51 @@ export const CASHIER_CATEGORY = {
     IMPOSTO_GA: { order: 66, key: 'IMPOSTO_GA', value: 'Imposto Guia Arrecadação (GA)', group: 'IMPOSTO' as ExpenseGroupKey },
     IMPOSTO_GARE: { order: 67, key: 'IMPOSTO_GARE', value: 'Imposto GARE', group: 'IMPOSTO' as ExpenseGroupKey },
     IMPOSTO_GPS: { order: 68, key: 'IMPOSTO_GPS', value: 'Imposto GPS', group: 'IMPOSTO' as ExpenseGroupKey },
-    IMPOSTO_IOF: { order: 69, key: 'IMPOSTO_IOF', value: 'Imposto IOF', group: 'IMPOSTO' as ExpenseGroupKey },
+    IMPOSTO_IOF: { order: 69, key: 'IMPOSTO_IOF', value: 'IOF', group: 'DESPESA_FINANCEIRA' as ExpenseGroupKey },
     IMPOSTO_ISS: { order: 70, key: 'IMPOSTO_ISS', value: 'Imposto ISS', group: 'IMPOSTO' as ExpenseGroupKey },
     IMPOSTO_OUTROS: { order: 71, key: 'IMPOSTO_OUTROS', value: 'Imposto Outros', group: 'IMPOSTO' as ExpenseGroupKey },
     IMPOSTO_DAS: { order: 72, key: 'IMPOSTO_DAS', value: 'Imposto DAS', group: 'IMPOSTO' as ExpenseGroupKey },
     INVESTIMENTOS_MAQUINAS_E_EQUIPAMENTOS: {
       order: 73,
       key: 'INVESTIMENTOS_MAQUINAS_E_EQUIPAMENTOS',
-      value: 'Investimentos (máquinas e equipamentos)',
-      group: 'DESPESA_FIXA' as ExpenseGroupKey,
+      value: 'Investimentos (máquinas, equipamentos, expansão e melhorias)',
+      group: 'LUCRO' as ExpenseGroupKey,
     },
     DISTRIBUICAO_DE_LUCROS: {
       order: 74,
       key: 'DISTRIBUICAO_DE_LUCROS',
       value: 'Distribuição de Lucros',
-      group: 'DESPESA_FINANCEIRA' as ExpenseGroupKey,
+      group: 'LUCRO' as ExpenseGroupKey,
     },
     INSS_PATRONAL_PRODUCAO: {
       order: 75,
       key: 'INSS_PATRONAL_PRODUCAO',
       value: 'INSS Patronal (Setor Produtivo)',
-      group: 'MAO_DE_OBRA' as ExpenseGroupKey,
+      group: 'MAO_DE_OBRA_PRODUTIVA' as ExpenseGroupKey,
     },
     RAT_FAP_PRODUCAO: {
       order: 76,
       key: 'RAT_FAP_PRODUCAO',
-      value: 'RAT / FAP (Setor Produtivo)',
-      group: 'MAO_DE_OBRA' as ExpenseGroupKey,
+      value: 'RAT / FAP',
+      group: 'MAO_DE_OBRA_PRODUTIVA' as ExpenseGroupKey,
     },
     MAO_DE_OBRA_TERCEIRIZADA: {
       order: 77,
       key: 'MAO_DE_OBRA_TERCEIRIZADA',
-      value: 'Mão de Obra Terceirizada',
-      group: 'MAO_DE_OBRA' as ExpenseGroupKey,
+      value: 'Mão de Obra Produtiva Terceirizada - Passível de crédito',
+      group: 'MAO_DE_OBRA_PRODUTIVA' as ExpenseGroupKey,
     },
     INSS_PATRONAL_ADMIN: {
       order: 78,
       key: 'INSS_PATRONAL_ADMIN',
       value: 'INSS Patronal (Pró-Labo/ Admin/ Comer)',
-      group: 'MAO_DE_OBRA' as ExpenseGroupKey,
+      group: 'MAO_DE_OBRA_ADMINISTRATIVA' as ExpenseGroupKey,
     },
     RAT_FAP_ADMIN: {
       order: 79,
       key: 'RAT_FAP_ADMIN',
-      value: 'RAT / FAP (Pró-Labo/ Admin/ Comer)',
-      group: 'MAO_DE_OBRA' as ExpenseGroupKey,
+      value: 'RAT / FAP',
+      group: 'MAO_DE_OBRA_ADMINISTRATIVA' as ExpenseGroupKey,
     },
     SEGUROS_IMOVEIS_VEICULOS: {
       order: 80,
@@ -304,13 +304,13 @@ export const CASHIER_CATEGORY = {
     IMPOSTO_ALIQUOTA_ADICIONAL_IRPJ: { order: 96, key: 'IMPOSTO_ALIQUOTA_ADICIONAL_IRPJ', value: 'Alíquota Adicional IRPJ', group: 'IMPOSTO' as ExpenseGroupKey },
     // Imposto regime Lucro Presumido RET
     IMPOSTO_RET: { order: 97, key: 'IMPOSTO_RET', value: 'RET (Lucro Presumido RET)', group: 'IMPOSTO' as ExpenseGroupKey },
-    // Despesas variáveis adicionais (logística)
-    FRETES_LOGISTICA_ENTREGA_TERCEIRIZADOS: { order: 98, key: 'FRETES_LOGISTICA_ENTREGA_TERCEIRIZADOS', value: 'Fretes Logística/Entrega Terceirizados', group: 'DESPESA_VARIAVEL' as ExpenseGroupKey },
-    SEGURO_TRANSPORTE_ENTREGA: { order: 99, key: 'SEGURO_TRANSPORTE_ENTREGA', value: 'Seguro Transporte/Entrega', group: 'DESPESA_VARIAVEL' as ExpenseGroupKey },
-    DESPESAS_ACESSORIAS: { order: 100, key: 'DESPESAS_ACESSORIAS', value: 'Despesas Acessórias', group: 'DESPESA_VARIAVEL' as ExpenseGroupKey },
-    GASTOS_LOGISTICAS_EXTERNAS: { order: 101, key: 'GASTOS_LOGISTICAS_EXTERNAS', value: 'Gastos Logísticas Externas', group: 'DESPESA_VARIAVEL' as ExpenseGroupKey },
-    // Imposto regime Simples Nacional
-    REGIME_TRIBUTARIO_SIMPLES: { order: 90, key: 'REGIME_TRIBUTARIO_SIMPLES', value: 'DAS (Regime Simples Nacional)', group: 'IMPOSTO' as ExpenseGroupKey },
+    // Atividades terceirizadas operacionais de entrega
+    FRETES_LOGISTICA_ENTREGA_TERCEIRIZADOS: { order: 98, key: 'FRETES_LOGISTICA_ENTREGA_TERCEIRIZADOS', value: 'Fretes / Logísticas de entrega Terceirizados', group: 'ATIVIDADES_TERCEIRIZADAS' as ExpenseGroupKey },
+    SEGURO_TRANSPORTE_ENTREGA: { order: 99, key: 'SEGURO_TRANSPORTE_ENTREGA', value: 'Seguro de transporte entrega', group: 'ATIVIDADES_TERCEIRIZADAS' as ExpenseGroupKey },
+    DESPESAS_ACESSORIAS: { order: 100, key: 'DESPESAS_ACESSORIAS', value: 'Despesas Acessórias', group: 'ATIVIDADES_TERCEIRIZADAS' as ExpenseGroupKey },
+    GASTOS_LOGISTICAS_EXTERNAS: { order: 101, key: 'GASTOS_LOGISTICAS_EXTERNAS', value: 'Gastos com Logísticas Externas', group: 'ATIVIDADES_TERCEIRIZADAS' as ExpenseGroupKey },
+    // Regime tributário
+    REGIME_TRIBUTARIO_SIMPLES: { order: 90, key: 'REGIME_TRIBUTARIO_SIMPLES', value: 'Simples Nacional', group: 'REGIME_TRIBUTARIO' as ExpenseGroupKey },
   },
 }
 
@@ -318,17 +318,25 @@ export const ALL_CASHIER_CATEGORIES = { ...CASHIER_CATEGORY.EXPENSE, ...CASHIER_
 
 /** Grouped options for expense categories — organized by onboarding blocks */
 import {
+  BLOCK_CUSTO_PRODUTOS,
   BLOCK_MAO_DE_OBRA_PRODUTIVA,
   BLOCK_MAO_DE_OBRA_ADMINISTRATIVA,
   BLOCK_DESPESAS_FIXAS,
   BLOCK_DESPESAS_VARIAVEIS,
+  BLOCK_ATIVIDADES_TERCEIRIZADAS,
   BLOCK_DESPESAS_FINANCEIRAS,
+  BLOCK_COMISSOES,
+  BLOCK_LUCRO,
   BLOCK_IMPOSTOS_SIMPLES,
   BLOCK_IMPOSTOS_LUCRO,
   BLOCK_IMPOSTOS_PRESUMIDO_RET,
 } from '@/constants/expense-setup-blocks'
 
 const BASE_EXPENSE_CATEGORY_OPTIONS = [
+  {
+    label: '── Custo dos Produtos ──',
+    options: BLOCK_CUSTO_PRODUTOS.map(i => ({ label: i.label, value: i.key })),
+  },
   {
     label: '── Mão de Obra Produtiva ──',
     options: BLOCK_MAO_DE_OBRA_PRODUTIVA.map(i => ({ label: i.label, value: i.key })),
@@ -346,8 +354,20 @@ const BASE_EXPENSE_CATEGORY_OPTIONS = [
     options: BLOCK_DESPESAS_VARIAVEIS.map(i => ({ label: i.label, value: i.key })),
   },
   {
+    label: '── Atividades Terceirizadas Operacionais ──',
+    options: BLOCK_ATIVIDADES_TERCEIRIZADAS.map(i => ({ label: i.label, value: i.key })),
+  },
+  {
     label: '── Despesas Financeiras ──',
     options: BLOCK_DESPESAS_FINANCEIRAS.map(i => ({ label: i.label, value: i.key })),
+  },
+  {
+    label: '── Comissões ──',
+    options: BLOCK_COMISSOES.map(i => ({ label: i.label, value: i.key })),
+  },
+  {
+    label: '── Lucro ──',
+    options: BLOCK_LUCRO.map(i => ({ label: i.label, value: i.key })),
   },
 ]
 
@@ -362,11 +382,12 @@ export const EXPENSE_CATEGORY_OPTIONS = [
   },
 ]
 
-// ── Categorias Simples Nacional (81 itens) ──
+// ── Categorias Simples Nacional ──
 const SN_CATEGORY_GROUP_MAP: { category: string; group: string }[] = [
-  { category: 'Fornecedores — Produtos para Revenda', group: 'CUSTO_PRODUTOS' },
-  { category: 'Matéria-prima — Base dos produtos', group: 'CUSTO_PRODUTOS' },
-  { category: 'Embalagens individuais', group: 'CUSTO_PRODUTOS' },
+  { category: 'Fornecedores - Produtos para Revenda', group: 'CUSTO_PRODUTOS' },
+  { category: 'Matéria Prima - Base dos produtos', group: 'CUSTO_PRODUTOS' },
+  { category: 'Embalagens Individuais', group: 'CUSTO_PRODUTOS' },
+  { category: 'Fretes FOB (Valores relacionados a compra de suprimentos)', group: 'CUSTO_PRODUTOS' },
   { category: 'Salários produção', group: 'MAO_DE_OBRA_PRODUTIVA' },
   { category: 'Décimo terceiro (Setor Produtivo)', group: 'MAO_DE_OBRA_PRODUTIVA' },
   { category: 'Férias colaboradores (Setor Produtivo)', group: 'MAO_DE_OBRA_PRODUTIVA' },
@@ -439,8 +460,8 @@ const SN_CATEGORY_GROUP_MAP: { category: string; group: string }[] = [
 // Maps SN-specific group names to ExpenseGroupKey values (stored in DB)
 const SN_GROUP_TO_STANDARD: Record<string, ExpenseGroupKey> = {
   CUSTO_PRODUTOS: 'CUSTO_PRODUTOS',
-  MAO_DE_OBRA_PRODUTIVA: 'MAO_DE_OBRA',
-  MAO_DE_OBRA_ADMINISTRATIVA: 'MAO_DE_OBRA',
+  MAO_DE_OBRA_PRODUTIVA: 'MAO_DE_OBRA_PRODUTIVA',
+  MAO_DE_OBRA_ADMINISTRATIVA: 'MAO_DE_OBRA_ADMINISTRATIVA',
   DESPESA_FIXA: 'DESPESA_FIXA',
   DESPESA_VARIAVEL: 'DESPESA_VARIAVEL',
   DESPESA_FINANCEIRA: 'DESPESA_FINANCEIRA',
@@ -512,7 +533,7 @@ export function getDefaultGroupForCategory(categoryKey: string): string | null {
 
 /** Extended labels for expense_group values that may be more specific than the 5 parent keys */
 const EXPENSE_TYPE_LABELS: Record<string, string> = {
-  MAO_DE_OBRA: 'Mão de Obra',
+  MAO_DE_OBRA: 'Mão de Obra (Geral)',
   MAO_DE_OBRA_PRODUTIVA: 'Mão de Obra Produtiva',
   MAO_DE_OBRA_ADMINISTRATIVA: 'Mão de Obra Administrativa',
   DESPESA_FIXA: 'Despesa Fixa',
