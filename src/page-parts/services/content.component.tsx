@@ -64,10 +64,14 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
     const [taxableRegimePercent, setTaxableRegimePercent] = useState(0)
     const [commissionPercent, setCommissionPercent] = useState(0)
     const [profitPercent, setProfitPercent] = useState(0)
+    const [additionalIrpjPercent, setAdditionalIrpjPercent] = useState<number>(
+        serviceData?.additional_irpj_percent != null ? Number(serviceData.additional_irpj_percent) : 0
+    )
 
     // Commission tables
     const [commissionTables, setCommissionTables] = useState<{ id: string; name: string; commission_percent: number }[]>([])
     const [commissionTableId, setCommissionTableId] = useState<string | null>(serviceData?.commission_table_id || null)
+    const [commissionTableError, setCommissionTableError] = useState(false)
 
     useEffect(() => {
         async function loadTables() {
@@ -137,6 +141,9 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
             setTaxableRegimePercent(serviceData.taxable_regime_percent || taxPreview?.taxableRegimePercent || currentUser?.taxableRegimeValue || 0)
             setCommissionPercent(serviceData.commission_percent || 0)
             setProfitPercent(serviceData.profit_percent || 0)
+            if (serviceData.additional_irpj_percent != null) {
+                setAdditionalIrpjPercent(Number(serviceData.additional_irpj_percent))
+            }
         } else {
             setTaxableRegimePercent(taxPreview?.taxableRegimePercent ?? currentUser?.taxableRegimeValue ?? 0)
         }
@@ -170,7 +177,15 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
         const structurePct = (variablePct + financialPct) / 100
 
         const taxesPct = taxPreview?.taxesPercent ?? 0
-        const taxPct = (taxesPct + taxableRegimePercent) / 100
+        const isLucroRealSvc = currentUser?.taxableRegime === 'LUCRO_REAL'
+        let taxPct: number
+        if (isLucroRealSvc) {
+            const irpjPct = profitPercent * 0.15
+            const csllPct = profitPercent * 0.09
+            taxPct = (taxesPct + irpjPct + csllPct + additionalIrpjPercent) / 100
+        } else {
+            taxPct = (taxesPct + taxableRegimePercent) / 100
+        }
 
         // Minutos de duração do serviço (productWorkloadMinutes para o motor)
         const productWorkloadMinutes = Number(form.getFieldValue('estimated_duration_minutes')) || 0
@@ -211,9 +226,17 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
         const commissionVal = result.commissionValue
         const profitVal = result.profitValue
 
+        // LUCRO_REAL: IRPJ/CSLL/adicional derivados do lucro
+        const irpjPctLR = isLucroRealSvc ? profitPercent * 0.15 : 0
+        const csllPctLR = isLucroRealSvc ? profitPercent * 0.09 : 0
+        const irpjValLR = isLucroRealSvc ? profitVal * 0.15 : 0
+        const csllValLR = isLucroRealSvc ? profitVal * 0.09 : 0
+        const adicionalIrpjValLR = isLucroRealSvc ? Number((priceUnit * additionalIrpjPercent / 100).toFixed(2)) : 0
+
         // MO administrativa e Despesas fixas incorporadas no custo por minuto
-        const totalPct = variablePct + financialPct + taxesPct +
-            taxableRegimePercent + commissionPercent + profitPercent
+        const totalPct = isLucroRealSvc
+            ? variablePct + financialPct + irpjPctLR + csllPctLR + additionalIrpjPercent + commissionPercent + profitPercent
+            : variablePct + financialPct + taxesPct + taxableRegimePercent + commissionPercent + profitPercent
         const isValid = result.isValid
 
         return {
@@ -223,11 +246,12 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
             financialVal,
             taxesVal,
             taxRegimeVal,
+            irpjPctLR, csllPctLR, irpjValLR, csllValLR, adicionalIrpjValLR,
             commissionVal,
             profitVal,
             totalPct, isValid,
         }
-    }, [materialCost, expenseConfig, currentUser, taxableRegimePercent, commissionPercent, profitPercent, taxPreview, form])
+    }, [materialCost, expenseConfig, currentUser, taxableRegimePercent, commissionPercent, profitPercent, taxPreview, form, additionalIrpjPercent])
 
     function handleAddItem() {
         if (!addItemId) return
@@ -279,9 +303,11 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
             }
 
             if (!commissionTableId) {
+                setCommissionTableError(true)
                 msgApi.error('Selecione a tabela de comissão antes de salvar.')
                 return
             }
+            setCommissionTableError(false)
 
             const data: Record<string, any> = {
                 name: v.name,
@@ -294,6 +320,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                 commission_percent: commissionPercent,
                 profit_percent: profitPercent,
                 taxable_regime_percent: taxableRegimePercent,
+                additional_irpj_percent: additionalIrpjPercent || 0,
                 commission_table_id: commissionTableId || null,
                 min_quantity: 0,
                 recurrence_active: recurrenceActive,
@@ -340,6 +367,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
     }
 
     const isSN = !!taxPreview?.regimeLabel?.includes('Simples Nacional')
+    const isLucroRealDisplay = currentUser?.taxableRegime === 'LUCRO_REAL'
 
     const tempItemCols: ColumnsType<TempItem> = [
         {
@@ -391,7 +419,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
         },
     ]
 
-    function pricingRow(label: string, pct: number, val: number, editable?: 'commission' | 'profit' | 'tax') {
+    function pricingRow(label: string, pct: number, val: number, editable?: 'commission' | 'profit' | 'tax' | 'additionalIrpj', tooltipText?: string) {
         return (
             <tr key={label}>
                 <td style={{ width: 140, padding: '6px 0' }}>
@@ -403,6 +431,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                                 if (editable === 'commission') setCommissionPercent(v ?? 0)
                                 if (editable === 'profit') setProfitPercent(v ?? 0)
                                 if (editable === 'tax') setTaxableRegimePercent(v ?? 0)
+                                if (editable === 'additionalIrpj') setAdditionalIrpjPercent(v ?? 0)
                             }}
                             style={{ width: 110 }}
                             formatter={(v) => `${v}%`}
@@ -421,7 +450,9 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                         </span>
                     )}
                 </td>
-                <td style={{ padding: '6px 12px', fontSize: 13 }}>{label}</td>
+                <td style={{ padding: '6px 12px', fontSize: 13 }}>
+                    {tooltipText ? <Tooltip title={tooltipText}><span style={{ cursor: 'help' }}>{label}</span></Tooltip> : label}
+                </td>
                 <td style={{ padding: '6px 0', textAlign: 'right', fontSize: 13, fontWeight: 500 }}>
                     R$ {getMonetaryValue(val)}
                 </td>
@@ -498,15 +529,20 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                             placeholder="Selecione a tabela de comissão"
                             style={{ width: '100%' }}
                             value={commissionTableId}
+                            status={commissionTableError ? 'error' : undefined}
                             options={commissionTables.map(t => ({ value: t.id, label: `${t.name} — ${t.commission_percent}%` }))}
                             showSearch
                             filterOption={(input, option) => (option?.label as string || '').toLowerCase().includes(input.toLowerCase())}
                             onChange={(tableId: string) => {
                                 setCommissionTableId(tableId)
+                                setCommissionTableError(false)
                                 const table = commissionTables.find(t => t.id === tableId)
                                 if (table) setCommissionPercent(Number(table.commission_percent) || 0)
                             }}
                         />
+                        {commissionTableError && (
+                            <div style={{ color: '#f04438', fontSize: 12, marginTop: 4 }}>Selecione a tabela de comissão!</div>
+                        )}
                     </div>
 
                     <Modal
@@ -689,12 +725,15 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                                 ? pricingRow(taxLabel, displayTaxPct, displayTaxVal, 'tax')
                                 : pricingRow(taxLabel, displayTaxPct, displayTaxVal)
                             }
-                            {!isSN && !taxPreview?.isMei && pricingRow(
+                            {!isSN && !taxPreview?.isMei && !isLucroRealDisplay && pricingRow(
                                 `Impostos${taxPreview?.regimeLabel ? ` (${taxPreview.regimeLabel})` : ''}`,
                                 taxableRegimePercent, pricing.taxRegimeVal, 'tax'
                             )}
                             {pricingRow('Comissão', commissionPercent, pricing.commissionVal, 'commission')}
                             {pricingRow('Lucro', profitPercent, pricing.profitVal, 'profit')}
+                            {isLucroRealDisplay && pricingRow('IRPJ (15% sobre lucro)', pricing.irpjPctLR, pricing.irpjValLR, undefined, 'Imposto de Renda Pessoa Jurídica — calculado automaticamente como 15% sobre o valor do lucro.')}
+                            {isLucroRealDisplay && pricingRow('CSLL (9% sobre lucro)', pricing.csllPctLR, pricing.csllValLR, undefined, 'Contribuição Social sobre o Lucro Líquido — calculada automaticamente como 9% sobre o valor do lucro.')}
+                            {isLucroRealDisplay && pricingRow('Alíq. adicional IRPJ', additionalIrpjPercent, pricing.adicionalIrpjValLR, 'additionalIrpj', 'Alíquota da parcela adicional do IRPJ. Informe manualmente conforme enquadramento.')}
                         </tbody>
                     </table>
 
@@ -743,8 +782,8 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                                 <Tooltip title={`Despesas: ${fmt(pricing.variableVal + pricing.financialVal)}`}>
                                     <div style={{ width: `${((pricing.variableVal + pricing.financialVal) / pricing.sellingPrice) * 100}%`, background: '#F79009' }} />
                                 </Tooltip>
-                                <Tooltip title={`Impostos: ${fmt(displayTaxVal + (isSN ? 0 : pricing.taxRegimeVal))}`}>
-                                    <div style={{ width: `${((displayTaxVal + (isSN ? 0 : pricing.taxRegimeVal)) / pricing.sellingPrice) * 100}%`, background: '#667085' }} />
+                                <Tooltip title={`Impostos: ${fmt(isLucroRealDisplay ? pricing.irpjValLR + pricing.csllValLR + pricing.adicionalIrpjValLR : displayTaxVal + (isSN ? 0 : pricing.taxRegimeVal))}`}>
+                                    <div style={{ width: `${((isLucroRealDisplay ? pricing.irpjValLR + pricing.csllValLR + pricing.adicionalIrpjValLR : displayTaxVal + (isSN ? 0 : pricing.taxRegimeVal)) / pricing.sellingPrice) * 100}%`, background: '#667085' }} />
                                 </Tooltip>
                                 <Tooltip title={`Comissão: ${fmt(pricing.commissionVal)}`}>
                                     <div style={{ width: `${(pricing.commissionVal / pricing.sellingPrice) * 100}%`, background: '#7A5AF8' }} />

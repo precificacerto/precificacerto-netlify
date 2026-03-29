@@ -24,6 +24,8 @@ interface ContentIndustrializationProps {
   currentUser: LoggedUser
   customTaxPercent?: number | null
   onCustomTaxPercentChange?: (value: number) => void
+  additionalIrpjPercent?: number
+  onAdditionalIrpjChange?: (value: number) => void
 }
 export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
   itemsForm,
@@ -40,6 +42,8 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
   currentUser,
   customTaxPercent,
   onCustomTaxPercentChange,
+  additionalIrpjPercent,
+  onAdditionalIrpjChange,
 }: ContentIndustrializationProps) => {
   return (
     <>
@@ -111,6 +115,8 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
         productForm={productForm}
         customTaxPercent={customTaxPercent}
         onCustomTaxPercentChange={onCustomTaxPercentChange}
+        additionalIrpjPercent={additionalIrpjPercent}
+        onAdditionalIrpjChange={onAdditionalIrpjChange}
       />
     </>
   )

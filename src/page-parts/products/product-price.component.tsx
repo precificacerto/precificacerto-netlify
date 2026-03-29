@@ -20,6 +20,8 @@ interface Props {
   productForm: FormInstance
   customTaxPercent?: number | null
   onCustomTaxPercentChange?: (value: number) => void
+  additionalIrpjPercent?: number
+  onAdditionalIrpjChange?: (value: number) => void
 }
 
 export const ProductPrice: FC<Props> = ({
@@ -30,10 +32,13 @@ export const ProductPrice: FC<Props> = ({
   productForm,
   customTaxPercent,
   onCustomTaxPercentChange,
+  additionalIrpjPercent,
+  onAdditionalIrpjChange,
 }: Props) => {
   const isCalcTypeResale = currentUser?.calcType === CALC_TYPE_ENUM.RESALE
   const isCalcTypeService = currentUser?.calcType === CALC_TYPE_ENUM.SERVICE
   const isMei = !!calcBase.isMei
+  const isLucroReal = currentUser?.taxableRegime === 'LUCRO_REAL'
 
   const totalPrice = productPriceInfo.totalProductPrice
   const laborPct = Number(calcBase.indirectLaborPct) || 0
@@ -58,10 +63,23 @@ export const ProductPrice: FC<Props> = ({
   const profitPct = productPriceInfo.productProfitPercent
   const profitVal = productPriceInfo.productProfitPrice
 
+  // LUCRO_REAL: IRPJ = 15% do lucro, CSLL = 9% do lucro, adicional = user-entered
+  const irpjPct = isLucroReal ? profitPct * 0.15 : 0
+  const csllPct = isLucroReal ? profitPct * 0.09 : 0
+  const adicionalIrpjPct = isLucroReal ? (additionalIrpjPercent || 0) : 0
+  const irpjVal = isLucroReal ? profitVal * 0.15 : 0
+  const csllVal = isLucroReal ? profitVal * 0.09 : 0
+  const adicionalIrpjVal = isLucroReal ? (pricePerUnit * adicionalIrpjPct / 100) : 0
+
+  // For LUCRO_REAL: replace taxPctDisplay with explicit IRPJ+CSLL+adicional in totalPct
+  const taxContribution = isLucroReal
+    ? irpjPct + csllPct + adicionalIrpjPct
+    : taxPctDisplay
+
   // When SERVICE, exclude laborPct and fixedPct from totalPct
   const totalPct = isCalcTypeService
-    ? variablePct + financialPct + taxPctDisplay + commissionPct + profitPct
-    : laborPct + fixedPct + variablePct + financialPct + taxPctDisplay + commissionPct + profitPct
+    ? variablePct + financialPct + taxContribution + commissionPct + profitPct
+    : laborPct + fixedPct + variablePct + financialPct + taxContribution + commissionPct + profitPct
   const costTotal = productPriceInfo.productCost
   const expensesTotal = isCalcTypeService
     ? variableVal + financialVal
@@ -84,12 +102,14 @@ export const ProductPrice: FC<Props> = ({
     label: string,
     pct: number,
     val: number,
-    editable?: 'salesCommissionPercent' | 'productProfitPercent' | 'customTaxPercent',
+    editable?: 'salesCommissionPercent' | 'productProfitPercent' | 'customTaxPercent' | 'additionalIrpj',
     tooltipText?: string,
   ) {
     const handleEditableChange = (v: number | null) => {
       if (editable === 'customTaxPercent' && onCustomTaxPercentChange) {
         onCustomTaxPercentChange(v ?? 0)
+      } else if (editable === 'additionalIrpj' && onAdditionalIrpjChange) {
+        onAdditionalIrpjChange(v ?? 0)
       } else if (editable) {
         fireChange(editable, v ?? 0)
       }
@@ -181,7 +201,7 @@ export const ProductPrice: FC<Props> = ({
             {!isCalcTypeService && pricingRow('Despesas fixas', fixedPct, fixedVal)}
             {pricingRow('Despesas variáveis', variablePct, variableVal)}
             {pricingRow('Despesas financeiras', financialPct, financialVal)}
-            {pricingRow(taxLabel, taxPctDisplay, taxValDisplay, 'customTaxPercent', 'Alíquota efetiva herdada do regime tributário. Edite para ajustar apenas neste produto/serviço.')}
+            {!isLucroReal && pricingRow(taxLabel, taxPctDisplay, taxValDisplay, 'customTaxPercent', 'Alíquota efetiva herdada do regime tributário. Edite para ajustar apenas neste produto/serviço.')}
             {pricingRow(
               'Comissão total do vendedor',
               commissionPct,
@@ -190,6 +210,9 @@ export const ProductPrice: FC<Props> = ({
               'Se deixar 0%, a comissão cadastrada no funcionário será aplicada automaticamente.'
             )}
             {pricingRow('Lucro', profitPct, profitVal, 'productProfitPercent')}
+            {isLucroReal && pricingRow('IRPJ (15% sobre lucro)', irpjPct, irpjVal, undefined, 'Imposto de Renda Pessoa Jurídica — calculado automaticamente como 15% sobre o valor do lucro.')}
+            {isLucroReal && pricingRow('CSLL (9% sobre lucro)', csllPct, csllVal, undefined, 'Contribuição Social sobre o Lucro Líquido — calculada automaticamente como 9% sobre o valor do lucro.')}
+            {isLucroReal && pricingRow('Alíq. adicional IRPJ', adicionalIrpjPct, adicionalIrpjVal, 'additionalIrpj', 'Alíquota da parcela adicional do IRPJ. Informe manualmente conforme enquadramento.')}
           </tbody>
         </table>
 
@@ -247,8 +270,8 @@ export const ProductPrice: FC<Props> = ({
               <Tooltip title={`Despesas: ${fmt(expensesTotal)}`}>
                 <div style={{ width: `${(expensesTotal / totalPrice) * 100}%`, background: '#F79009' }} />
               </Tooltip>
-              <Tooltip title={`Impostos: ${fmt(taxesTotal)}`}>
-                <div style={{ width: `${(taxesTotal / totalPrice) * 100}%`, background: '#667085' }} />
+              <Tooltip title={`Impostos: ${fmt(isLucroReal ? irpjVal + csllVal + adicionalIrpjVal : taxesTotal)}`}>
+                <div style={{ width: `${((isLucroReal ? irpjVal + csllVal + adicionalIrpjVal : taxesTotal) / totalPrice) * 100}%`, background: '#667085' }} />
               </Tooltip>
               <Tooltip title={`Comissão: ${fmt(commissionVal)}`}>
                 <div style={{ width: `${(commissionVal / totalPrice) * 100}%`, background: '#7A5AF8' }} />

@@ -23,6 +23,8 @@ interface ContentResaleProps {
   currentUser: LoggedUser
   customTaxPercent?: number | null
   onCustomTaxPercentChange?: (value: number) => void
+  additionalIrpjPercent?: number
+  onAdditionalIrpjChange?: (value: number) => void
 }
 export const ContentResale: FC<ContentResaleProps> = ({
   itemsForm,
@@ -39,6 +41,8 @@ export const ContentResale: FC<ContentResaleProps> = ({
   currentUser,
   customTaxPercent,
   onCustomTaxPercentChange,
+  additionalIrpjPercent,
+  onAdditionalIrpjChange,
 }: ContentResaleProps) => {
   return (
     <>
@@ -89,6 +93,8 @@ export const ContentResale: FC<ContentResaleProps> = ({
         productForm={productForm}
         customTaxPercent={customTaxPercent}
         onCustomTaxPercentChange={onCustomTaxPercentChange}
+        additionalIrpjPercent={additionalIrpjPercent}
+        onAdditionalIrpjChange={onAdditionalIrpjChange}
       />
     </>
   )

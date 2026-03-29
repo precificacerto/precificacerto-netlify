@@ -150,6 +150,9 @@ export const Content: FC<ContentProps> = ({
   const [customTaxPercent, setCustomTaxPercent] = useState<number | null>(
     (product as any)?.custom_tax_percent != null ? Number((product as any).custom_tax_percent) : null
   )
+  const [additionalIrpjPercent, setAdditionalIrpjPercent] = useState<number>(
+    (product as any)?.additional_irpj_percent != null ? Number((product as any).additional_irpj_percent) : 0
+  )
 
   const [recurrenceActive, setRecurrenceActive] = useState<boolean>((product as any)?.recurrence_active ?? false)
   const [recurrenceModalOpen, setRecurrenceModalOpen] = useState(false)
@@ -367,6 +370,9 @@ export const Content: FC<ContentProps> = ({
       if ((product as any)?.custom_tax_percent != null) {
         setCustomTaxPercent(Number((product as any).custom_tax_percent))
       }
+      if ((product as any)?.additional_irpj_percent != null) {
+        setAdditionalIrpjPercent(Number((product as any).additional_irpj_percent))
+      }
     }
   }, [productForm, isEditingMode, product])
 
@@ -406,7 +412,16 @@ export const Content: FC<ContentProps> = ({
     const structurePctForEngine = isCalcService
       ? (calcBase.variableExpensePct + calcBase.financialExpensePct) / 100
       : (calcBase.structurePct + (Number(calcBase.indirectLaborPct) || 0)) / 100
-    const effectiveTaxPct = customTaxPercent != null ? customTaxPercent : calcBase.taxPct
+    const isLucroRealProd = currentUser.taxableRegime === 'LUCRO_REAL'
+    let effectiveTaxPct: number
+    if (isLucroRealProd) {
+      const nonRegimeTaxPct = calcBase.taxesPercent || 0
+      const irpjPct = productPriceInfo.productProfitPercent * 0.15
+      const csllPct = productPriceInfo.productProfitPercent * 0.09
+      effectiveTaxPct = nonRegimeTaxPct + irpjPct + csllPct + (additionalIrpjPercent || 0)
+    } else {
+      effectiveTaxPct = customTaxPercent != null ? customTaxPercent : calcBase.taxPct
+    }
     const taxPctDecimal = effectiveTaxPct / 100
 
     // Produto REVENDA usa sempre calcType REVENDA (sem MO produtiva no CMV), independente do tenant
@@ -493,6 +508,7 @@ export const Content: FC<ContentProps> = ({
     productPriceInfo.salesCommissionPercentByProduct,
     productForm,
     customTaxPercent,
+    additionalIrpjPercent,
   ])
 
   useEffect(() => {
@@ -683,6 +699,7 @@ export const Content: FC<ContentProps> = ({
       const extraFields: Record<string, any> = {}
       if (customTaxPercent != null) extraFields.custom_tax_percent = customTaxPercent
       else extraFields.custom_tax_percent = null
+      extraFields.additional_irpj_percent = additionalIrpjPercent || 0
       extraFields.recurrence_active = recurrenceActive
       extraFields.recurrence_days = recurrenceActive && recurrenceDays ? recurrenceDays : null
       extraFields.recurrence_message = recurrenceActive && recurrenceMessage ? recurrenceMessage : null
@@ -1223,6 +1240,7 @@ export const Content: FC<ContentProps> = ({
             name="commission_table_id"
             label="Tabela de Comissão"
             style={{ marginTop: 8 }}
+            rules={[{ required: true, message: 'Selecione a tabela de comissão!' }]}
           >
             <Select
               placeholder="Selecione a tabela de comissão"
@@ -1454,6 +1472,8 @@ export const Content: FC<ContentProps> = ({
           productForm={productForm}
           customTaxPercent={customTaxPercent}
           onCustomTaxPercentChange={setCustomTaxPercent}
+          additionalIrpjPercent={additionalIrpjPercent}
+          onAdditionalIrpjChange={setAdditionalIrpjPercent}
         />
       )}
       {productType === 'REVENDA' && isCalcTypeService && (
@@ -1473,6 +1493,8 @@ export const Content: FC<ContentProps> = ({
           productForm={productForm}
           customTaxPercent={customTaxPercent}
           onCustomTaxPercentChange={setCustomTaxPercent}
+          additionalIrpjPercent={additionalIrpjPercent}
+          onAdditionalIrpjChange={setAdditionalIrpjPercent}
         />
       )}
       {productType === 'REVENDA' && !isCalcTypeService && (
@@ -1491,6 +1513,8 @@ export const Content: FC<ContentProps> = ({
           productForm={productForm}
           customTaxPercent={customTaxPercent}
           onCustomTaxPercentChange={setCustomTaxPercent}
+          additionalIrpjPercent={additionalIrpjPercent}
+          onAdditionalIrpjChange={setAdditionalIrpjPercent}
         />
       )}
       <footer className="flex flex-row-reverse mt-5 mr-4">
