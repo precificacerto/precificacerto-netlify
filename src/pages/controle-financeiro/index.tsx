@@ -540,7 +540,7 @@ export default function ControleFinanceiro() {
 
             if (drawerType === 'INCOME') {
                 const isBoleto = values.payment_method === 'BOLETO'
-                await supabase.from('cash_entries').insert({
+                const { error: incomeError } = await supabase.from('cash_entries').insert({
                     tenant_id,
                     description: values.description,
                     amount: values.amount,
@@ -552,7 +552,9 @@ export default function ControleFinanceiro() {
                     category_id: values.category_id,
                     payment_method: values.payment_method,
                     origin_type: 'MANUAL',
-                })
+                    is_active: true,
+                } as any)
+                if (incomeError) throw incomeError
                 messageApi.success('Lançamento salvo!')
             } else {
                 // Item 13: reworked expense logic with parcelas
@@ -584,6 +586,7 @@ export default function ControleFinanceiro() {
                             expense_group: autoGroup,
                             expense_category: values.expense_category,
                             payment_method: paymentMethod,
+                            is_active: true,
                         })
                     })
                 } else {
@@ -611,6 +614,8 @@ export default function ControleFinanceiro() {
                         amount: valorParcela,
                         due_date: dueDateStr,
                         expense_group: autoGroup,
+                        expense_category: values.expense_category,
+                        is_active: true,
                         ...(paymentMethod ? { payment_method: paymentMethod } : {}),
                     })
                 }
@@ -702,7 +707,7 @@ export default function ControleFinanceiro() {
                     const key = `${fe.description}|FIXED_EXPENSE|${Number(fe.amount)}`
                     if (existingKeys.has(key)) continue
                     existingKeys.add(key)
-                    toInsert.push({ tenant_id, type: 'EXPENSE', origin_type: 'FIXED_EXPENSE', recurrence_type: 'MONTHLY', description: fe.description, amount: Number(fe.amount), due_date, expense_group: 'DESPESA_FIXA' })
+                    toInsert.push({ tenant_id, type: 'EXPENSE', origin_type: 'FIXED_EXPENSE', recurrence_type: 'MONTHLY', description: fe.description, amount: Number(fe.amount), due_date, expense_group: 'DESPESA_FIXA', is_active: true })
                 }
             }
             for (const emp of employees) {
@@ -712,7 +717,7 @@ export default function ControleFinanceiro() {
                 const key = `${desc}|SALARY|${salary}`
                 if (existingKeys.has(key)) continue
                 existingKeys.add(key)
-                toInsert.push({ tenant_id, type: 'EXPENSE', origin_type: 'SALARY', recurrence_type: 'MONTHLY', description: desc, amount: salary, due_date: `${y}-${String(m + 1).padStart(2, '0')}-01`, expense_group: 'MAO_DE_OBRA_PRODUTIVA' })
+                toInsert.push({ tenant_id, type: 'EXPENSE', origin_type: 'SALARY', recurrence_type: 'MONTHLY', description: desc, amount: salary, due_date: `${y}-${String(m + 1).padStart(2, '0')}-01`, expense_group: 'MAO_DE_OBRA_PRODUTIVA', is_active: true })
             }
             if (toInsert.length === 0) { messageApi.info('Nenhum lançamento novo a gerar para este mês.'); return }
             const { error } = await supabase.from('cash_entries').insert(toInsert)
@@ -965,7 +970,11 @@ export default function ControleFinanceiro() {
                         key: 'recorrentes',
                         children: (() => {
                             const recurringExpenses = data.filter((e: any) =>
-                                e.type === 'EXPENSE' && (e.origin_type === 'FIXED_EXPENSE' || e.origin_type === 'SALARY')
+                                e.type === 'EXPENSE' && (
+                                    e.origin_type === 'FIXED_EXPENSE' ||
+                                    e.origin_type === 'SALARY' ||
+                                    e.recurrence_type === 'MONTHLY'
+                                )
                             )
                             const sorted = [...recurringExpenses].sort((a: any, b: any) => (a.due_date || '').localeCompare(b.due_date || ''))
                             const today = dayjs()
