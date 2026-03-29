@@ -5,7 +5,7 @@ import dayjs from 'dayjs'
 import { supabase } from '@/supabase/client'
 import { useAuth } from '@/hooks/use-auth.hook'
 import { mergeExpenseConfig } from '@/utils/recalc-expense-config'
-import { EXPENSE_SETUP_BLOCKS, EXPENSE_SETUP_BLOCKS_SN } from '@/constants/expense-setup-blocks'
+import { EXPENSE_SETUP_BLOCKS, EXPENSE_SETUP_BLOCKS_SN, EXPENSE_SETUP_BLOCKS_LP } from '@/constants/expense-setup-blocks'
 import type { ExpenseGroupKey } from '@/constants/cashier-category'
 
 interface ExpenseRow {
@@ -41,6 +41,13 @@ const RECURRENCE_OPTIONS = [
 ]
 
 const SN_REGIMES = ['SIMPLES_NACIONAL', 'MEI']
+const LP_REGIMES = ['LUCRO_PRESUMIDO']
+
+function getBlocksForRegime(regime: string | null): typeof EXPENSE_SETUP_BLOCKS {
+  if (regime && SN_REGIMES.includes(regime)) return EXPENSE_SETUP_BLOCKS_SN
+  if (regime && LP_REGIMES.includes(regime)) return EXPENSE_SETUP_BLOCKS_LP
+  return EXPENSE_SETUP_BLOCKS
+}
 
 function buildInitialRowsForBlocks(blocks: typeof EXPENSE_SETUP_BLOCKS): Record<number, ExpenseRow[]> {
   const initial: Record<number, ExpenseRow[]> = {}
@@ -69,7 +76,7 @@ export function CashflowSetupModal({ open, onDone }: { open: boolean; onDone: ()
   const [currentStep, setCurrentStep] = useState(0)
   const [taxRegime, setTaxRegime] = useState<string | null>(null)
 
-  const activeBlocks = taxRegime && SN_REGIMES.includes(taxRegime) ? EXPENSE_SETUP_BLOCKS_SN : EXPENSE_SETUP_BLOCKS
+  const activeBlocks = getBlocksForRegime(taxRegime)
 
   const [blockRows, setBlockRows] = useState<Record<number, ExpenseRow[]>>(() =>
     buildInitialRowsForBlocks(EXPENSE_SETUP_BLOCKS)
@@ -84,8 +91,7 @@ export function CashflowSetupModal({ open, onDone }: { open: boolean; onDone: ()
       .then(({ data }) => {
         const regime = data?.tax_regime ?? null
         setTaxRegime(regime)
-        const blocks = regime && SN_REGIMES.includes(regime) ? EXPENSE_SETUP_BLOCKS_SN : EXPENSE_SETUP_BLOCKS
-        setBlockRows(buildInitialRowsForBlocks(blocks))
+        setBlockRows(buildInitialRowsForBlocks(getBlocksForRegime(regime)))
         setCurrentStep(0)
       })
   // eslint-disable-next-line react-hooks/exhaustive-deps

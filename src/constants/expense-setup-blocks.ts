@@ -158,6 +158,14 @@ export const BLOCK_IMPOSTOS_PRESUMIDO_RET: ExpenseSetupItem[] = [
   { key: 'IMPOSTO_OUTROS', label: 'Imposto Outros', expense_group: 'IMPOSTO' },
 ]
 
+/** Bloco Impostos sobre compras — Lucro Presumido (CBS, IBS, ICMS, IPI) */
+export const BLOCK_IMPOSTOS_COMPRAS_LP: ExpenseSetupItem[] = [
+  { key: 'IMPOSTO_CBS', label: 'CBS (Contribuição sobre Bens e Serviços)', expense_group: 'IMPOSTO' },
+  { key: 'IMPOSTO_IBS', label: 'IBS (Imposto sobre Bens e Serviços)', expense_group: 'IMPOSTO' },
+  { key: 'IMPOSTO_ICMS', label: 'ICMS', expense_group: 'IMPOSTO' },
+  { key: 'IMPOSTO_IPI', label: 'IPI', expense_group: 'IMPOSTO' },
+]
+
 /** Bloco Despesas financeiras */
 export const BLOCK_DESPESAS_FINANCEIRAS: ExpenseSetupItem[] = [
   { key: 'JUROS', label: 'Juros', expense_group: 'DESPESA_FINANCEIRA' },
@@ -409,6 +417,90 @@ export const EXPENSE_SETUP_BLOCKS_SN: ExpenseSetupBlockDef[] = [
     subtitle: 'Investimentos e distribuição de lucros.',
     categoryLabel: 'Lucro',
     items: BLOCK_LUCRO_SN,
+    expense_group: 'LUCRO',
+  },
+]
+
+/** 10 blocos para Lucro Presumido (inclui Impostos sobre compras após Custo dos Produtos) */
+export const EXPENSE_SETUP_BLOCKS_LP: ExpenseSetupBlockDef[] = [
+  {
+    id: 1,
+    title: 'Custo dos produtos',
+    subtitle: 'Preencha os custos de aquisição e insumos dos produtos que você revende ou fabrica.',
+    categoryLabel: 'Custo dos Produtos',
+    items: BLOCK_CUSTO_PRODUTOS,
+    expense_group: 'CUSTO_PRODUTOS',
+  },
+  {
+    id: 2,
+    title: 'Impostos sobre compras',
+    subtitle: 'Impostos incidentes sobre a aquisição de produtos e insumos (passíveis de crédito).',
+    categoryLabel: 'Impostos sobre Compras',
+    items: BLOCK_IMPOSTOS_COMPRAS_LP,
+    expense_group: 'IMPOSTO',
+  },
+  {
+    id: 3,
+    title: 'Mão de obra produtiva',
+    subtitle: 'Preencha os valores que se aplicam à equipe produtiva. Não é obrigatório preencher todos.',
+    categoryLabel: 'Mão de Obra Produtiva',
+    items: BLOCK_MAO_DE_OBRA_PRODUTIVA,
+    expense_group: 'MAO_DE_OBRA_PRODUTIVA',
+  },
+  {
+    id: 4,
+    title: 'Mão de obra administrativa',
+    subtitle: 'Preencha os valores que se aplicam à equipe administrativa e comercial.',
+    categoryLabel: 'Mão de Obra Administrativa',
+    items: BLOCK_MAO_DE_OBRA_ADMINISTRATIVA,
+    expense_group: 'MAO_DE_OBRA_ADMINISTRATIVA',
+  },
+  {
+    id: 5,
+    title: 'Despesas fixas',
+    subtitle: 'Preencha o valor nas linhas que se aplicam. Os valores serão distribuídos no cálculo de preço.',
+    categoryLabel: 'Despesa Fixa',
+    items: BLOCK_DESPESAS_FIXAS,
+    expense_group: 'DESPESA_FIXA',
+  },
+  {
+    id: 6,
+    title: 'Despesas variáveis',
+    subtitle: 'Despesas que variam conforme a produção ou as vendas.',
+    categoryLabel: 'Despesa Variável',
+    items: BLOCK_DESPESAS_VARIAVEIS,
+    expense_group: 'DESPESA_VARIAVEL',
+  },
+  {
+    id: 7,
+    title: 'Atividades terceirizadas operacionais de entrega',
+    subtitle: 'Custos com logística e entrega terceirizados.',
+    categoryLabel: 'Atividades Terceirizadas',
+    items: BLOCK_ATIVIDADES_TERCEIRIZADAS,
+    expense_group: 'ATIVIDADES_TERCEIRIZADAS',
+  },
+  {
+    id: 8,
+    title: 'Despesas financeiras',
+    subtitle: 'Taxas, juros e demais despesas financeiras.',
+    categoryLabel: 'Despesa Financeira',
+    items: BLOCK_DESPESAS_FINANCEIRAS,
+    expense_group: 'DESPESA_FINANCEIRA',
+  },
+  {
+    id: 9,
+    title: 'Comissões',
+    subtitle: 'Comissões de venda pagas à equipe comercial.',
+    categoryLabel: 'Comissões',
+    items: BLOCK_COMISSOES,
+    expense_group: 'COMISSOES',
+  },
+  {
+    id: 10,
+    title: 'Lucro',
+    subtitle: 'Investimentos e distribuição de lucros.',
+    categoryLabel: 'Lucro',
+    items: BLOCK_LUCRO,
     expense_group: 'LUCRO',
   },
 ]
