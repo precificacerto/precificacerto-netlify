@@ -119,8 +119,8 @@ export function HubTab({ tenantId }: HubTabProps) {
             values: row.values,
             averagePct: row.averagePct,
             averageRS: row.averageRS,
-            // Só inclui children se tiver mais de uma categoria (caso único, o grupo já resume)
-            children: children.length > 1 ? children : undefined,
+            // Sempre mostra sub-linhas quando houver categorias com dados
+            children: children.length > 0 ? children : undefined,
         })
     }
 
@@ -278,9 +278,9 @@ export function HubTab({ tenantId }: HubTabProps) {
         },
     ]
 
-    // IDs dos grupos que devem começar expandidos (todos)
+    // Todos os grupos com categorias começam expandidos
     const defaultExpandedKeys = hubData.rows
-        .filter((r) => r.subRows.length > 1)
+        .filter((r) => r.subRows.length > 0)
         .map((r) => r.group)
 
     return (
