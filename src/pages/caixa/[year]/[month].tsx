@@ -143,7 +143,7 @@ function Cashier() {
   const router = useRouter()
   const { canView, canEdit } = usePermissions()
   const { currentUser } = useAuth()
-  const taxRegime = (currentUser as any)?.taxRegime ?? null
+  const taxRegime = currentUser?.taxableRegime ?? null
   if (!canView(MODULES.CASHIER)) {
     return <Layout tabTitle={PAGE_TITLES.CASHIER}><div style={{ padding: 40, textAlign: 'center' }}>Você não tem acesso a este módulo.</div></Layout>
   }

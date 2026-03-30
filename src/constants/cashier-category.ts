@@ -9,10 +9,16 @@ export const EXPENSE_GROUPS: Record<StandardExpenseGroupKey, { key: StandardExpe
   IMPOSTO:            { key: 'IMPOSTO',             label: 'Imposto',            color: '#DC2626' },
 }
 
-export const EXPENSE_GROUP_OPTIONS = Object.values(EXPENSE_GROUPS).map(g => ({
-  value: g.key,
-  label: g.label,
-}))
+export const EXPENSE_GROUP_OPTIONS: { value: string; label: string }[] = [
+  ...Object.values(EXPENSE_GROUPS).map(g => ({ value: g.key, label: g.label })),
+  { value: 'MAO_DE_OBRA_PRODUTIVA',      label: 'Mão de Obra Produtiva' },
+  { value: 'MAO_DE_OBRA_ADMINISTRATIVA', label: 'Mão de Obra Administrativa' },
+  { value: 'CUSTO_PRODUTOS',             label: 'Custo dos Produtos' },
+  { value: 'ATIVIDADES_TERCEIRIZADAS',   label: 'Atividades Terceirizadas Operacionais' },
+  { value: 'REGIME_TRIBUTARIO',          label: 'Regime Tributário' },
+  { value: 'COMISSOES',                  label: 'Comissões' },
+  { value: 'LUCRO',                      label: 'Lucro' },
+]
 
 export const CASHIER_CATEGORY = {
   INCOME: {
