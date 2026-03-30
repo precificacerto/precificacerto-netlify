@@ -16,8 +16,9 @@ import {
     DollarOutlined, ArrowUpOutlined, ArrowDownOutlined,
     PlusOutlined, DeleteOutlined, SyncOutlined, EditOutlined,
     CalendarOutlined, BankOutlined, PieChartOutlined, TeamOutlined,
-    CreditCardOutlined,
+    CreditCardOutlined, BarChartOutlined,
 } from '@ant-design/icons'
+import { HubTab } from '@/components/hub/hub-tab.component'
 import { useAuth } from '@/hooks/use-auth.hook'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import {
@@ -247,6 +248,7 @@ export default function ControleFinanceiro() {
     const [employees, setEmployees] = useState<any[]>([])
     const [fixedExpenses, setFixedExpenses] = useState<any[]>([])
     const [taxRegime, setTaxRegime] = useState<string | null>(null)
+    const [tenantId, setTenantId] = useState<string | null>(null)
     const [loading, setLoading] = useState(false)
     const [month, setMonth] = useState(dayjs())
     const [typeFilter, setTypeFilter] = useState<'ALL' | 'INCOME' | 'EXPENSE'>('ALL')
@@ -368,6 +370,11 @@ export default function ControleFinanceiro() {
     }, [])
 
     useEffect(() => { fetchData() }, [month])
+
+    // Resolve tenantId once on mount for sub-components (e.g. HubTab)
+    useEffect(() => {
+        getTenantId().then((id) => { if (id) setTenantId(id) })
+    }, [])
 
     const filteredData = useMemo(() => {
         if (typeFilter === 'ALL') return data
@@ -1165,6 +1172,21 @@ export default function ControleFinanceiro() {
                                     ) : null}
                                     locale={{ emptyText: 'Nenhuma parcela de cartão pendente de recebimento.' }}
                                 />
+                            </div>
+                        ),
+                    },
+                    {
+                        label: <span><BarChartOutlined style={{ marginRight: 4 }} />Hub</span>,
+                        key: 'hub',
+                        children: (
+                            <div style={{ padding: '16px 0' }}>
+                                {tenantId ? (
+                                    <HubTab tenantId={tenantId} />
+                                ) : (
+                                    <div style={{ textAlign: 'center', padding: 40, color: '#64748b' }}>
+                                        Carregando...
+                                    </div>
+                                )}
                             </div>
                         ),
                     },

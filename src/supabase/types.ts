@@ -79,6 +79,7 @@ export interface TenantSettings {
     whatsapp_budget_message?: string | null
     whatsapp_instance_mode?: 'OWN' | 'SHARED' | null
     whatsapp_shared_instance_user_id?: string | null
+    onboarding_mirrored_to_cashflow?: boolean | null
     created_at: string
     updated_at: string
 }

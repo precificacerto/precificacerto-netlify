@@ -2568,6 +2568,7 @@ export type Database = {
           num_administrative_employees: number | null
           num_commercial_employees: number | null
           num_productive_employees: number | null
+          onboarding_mirrored_to_cashflow: boolean | null
           sales_scope: string | null
           simples_anexo: string | null
           simples_revenue_12m: number | null
@@ -2600,6 +2601,7 @@ export type Database = {
           num_administrative_employees?: number | null
           num_commercial_employees?: number | null
           num_productive_employees?: number | null
+          onboarding_mirrored_to_cashflow?: boolean | null
           sales_scope?: string | null
           simples_anexo?: string | null
           simples_revenue_12m?: number | null
@@ -2632,6 +2634,7 @@ export type Database = {
           num_administrative_employees?: number | null
           num_commercial_employees?: number | null
           num_productive_employees?: number | null
+          onboarding_mirrored_to_cashflow?: boolean | null
           sales_scope?: string | null
           simples_anexo?: string | null
           simples_revenue_12m?: number | null

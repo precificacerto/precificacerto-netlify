@@ -124,6 +124,70 @@ export default function OnboardingExpenses() {
         if (error) throw error
       }
 
+      // Mirror onboarding values to cash_entries of previous month (for Hub baseline)
+      const { data: mirrorCheck } = await supabase
+        .from('tenant_settings')
+        .select('onboarding_mirrored_to_cashflow')
+        .eq('tenant_id', tenantId)
+        .single()
+
+      if (!mirrorCheck?.onboarding_mirrored_to_cashflow) {
+        // Calculate last day of previous month
+        const now = new Date()
+        const prevMonthLastDay = new Date(now.getFullYear(), now.getMonth(), 0)
+        const prevMonthDateStr = prevMonthLastDay.toISOString().substring(0, 10)
+
+        const productiveTotalCost =
+          (values.productive_salary_total || 0) +
+          (values.productive_fgts_total || 0) +
+          (values.productive_other_costs || 0)
+
+        const adminTotalCost =
+          (values.admin_salary_total || 0) +
+          (values.admin_fgts_total || 0) +
+          (values.admin_other_costs || 0)
+
+        const onboardingEntries: any[] = []
+
+        if (productiveTotalCost > 0) {
+          onboardingEntries.push({
+            tenant_id: tenantId,
+            type: 'EXPENSE',
+            amount: productiveTotalCost,
+            due_date: prevMonthDateStr,
+            description: 'MO Produtiva (Onboarding)',
+            expense_group: 'MAO_DE_OBRA_PRODUTIVA',
+            origin_type: 'FIXED_EXPENSE',
+            recurrence_type: 'MONTHLY',
+            is_active: true,
+          })
+        }
+
+        if (adminTotalCost > 0) {
+          onboardingEntries.push({
+            tenant_id: tenantId,
+            type: 'EXPENSE',
+            amount: adminTotalCost,
+            due_date: prevMonthDateStr,
+            description: 'MO Administrativa (Onboarding)',
+            expense_group: 'MAO_DE_OBRA_ADMINISTRATIVA',
+            origin_type: 'FIXED_EXPENSE',
+            recurrence_type: 'MONTHLY',
+            is_active: true,
+          })
+        }
+
+        if (onboardingEntries.length > 0) {
+          await supabase.from('cash_entries').insert(onboardingEntries)
+        }
+
+        // Mark as mirrored so we don't duplicate
+        await supabase
+          .from('tenant_settings')
+          .update({ onboarding_mirrored_to_cashflow: true } as any)
+          .eq('tenant_id', tenantId)
+      }
+
       const { error: settingsError } = await supabase
         .from('tenant_settings')
         .update({ expense_setup_done: true, updated_at: new Date().toISOString() })

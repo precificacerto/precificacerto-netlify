@@ -76,6 +76,30 @@ Deno.serve(async (req: Request) => {
     }
 
     const yieldForPricing = 1
+    const regime = ts.tax_regime || "SIMPLES_NACIONAL"
+
+    // --- Apply tax credits for Lucro Real (ICMS + PIS/COFINS creditáveis nas compras) ---
+    if (regime === "LUCRO_REAL") {
+      const itemIds = productItems
+        .map((pi: any) => pi.items?.id)
+        .filter(Boolean)
+
+      if (itemIds.length > 0) {
+        const { data: credits } = await supabase
+          .from("item_tax_credits")
+          .select("item_id, tax_type, credit_value, is_active")
+          .in("item_id", itemIds)
+          .eq("is_active", true)
+
+        if (credits && credits.length > 0) {
+          let totalCredit = 0
+          for (const credit of credits) {
+            totalCredit += Number(credit.credit_value) || 0
+          }
+          totalItemsCost = Math.max(0, totalItemsCost - totalCredit)
+        }
+      }
+    }
 
     // --- Build structure pct -------------------------------------------------
 
@@ -114,7 +138,6 @@ Deno.serve(async (req: Request) => {
     const states = statesRes.data || []
     const brackets = bracketsRes.data || []
     const lpRates = lpRatesRes.data || []
-    const regime = ts.tax_regime || "SIMPLES_NACIONAL"
 
     const basePricingInput: Omit<PricingInput, "taxPct"> = {
       calcType,
@@ -138,7 +161,10 @@ Deno.serve(async (req: Request) => {
     let irpjAdditionalEquiv = 0
     if (regime === "LUCRO_REAL" && result1.isValid && result1.priceUnit > 0) {
       const lucroMensal = result1.priceUnit * profitPctFromBody
-      const excedente = Math.max(0, lucroMensal - 2000000) // R$ 20.000 in centavos
+      // Adicional IRPJ: 10% sobre o lucro que excede R$ 20.000/mês (R$ 240.000/ano)
+      // lucroMensal aqui é a estimativa de lucro por unidade × margem (aproximação por produto)
+      const IRPJ_ADICIONAL_LIMITE_MENSAL = 20000 // R$ 20.000/mês
+      const excedente = Math.max(0, lucroMensal - IRPJ_ADICIONAL_LIMITE_MENSAL)
       if (excedente > 0) {
         irpjAdditionalEquiv = (excedente * 0.10) / result1.priceUnit
       }
@@ -315,6 +341,40 @@ function computeEffectiveTax(ts: any, states: any[], brackets: any[], lpRates: a
     }
 
     return { effectiveTaxPct: 0, label: "Simples Nacional", isMei: false, ...ZERO_BREAKDOWN }
+  }
+
+  if (regime === "SIMPLES_HIBRIDO") {
+    // Simples Híbrido usa a mesma lógica do Simples Nacional
+    const rawAnexo: string = ts.simples_anexo || "I"
+    const anexo = rawAnexo.replace(/^ANEXO_/i, "")
+    const revenue12m = Number(ts.simples_revenue_12m) || 0
+
+    const anexoBrackets = brackets.filter((b: any) => b.anexo === anexo)
+
+    let bracket: any = null
+    for (const b of anexoBrackets) {
+      if (revenue12m >= Number(b.revenue_min) && revenue12m <= Number(b.revenue_max)) {
+        bracket = b
+        break
+      }
+    }
+    if (!bracket && anexoBrackets.length > 0) bracket = anexoBrackets[0]
+
+    if (bracket) {
+      const nominalRate = Number(bracket.nominal_rate)
+      const deduction = Number(bracket.deduction)
+      const effectiveRate = revenue12m > 0
+        ? (revenue12m * nominalRate - deduction) / revenue12m
+        : nominalRate
+      return {
+        effectiveTaxPct: effectiveRate,
+        label: `Simples Híbrido (Anexo ${anexo})`,
+        isMei: false,
+        ...ZERO_BREAKDOWN,
+      }
+    }
+
+    return { effectiveTaxPct: 0, label: "Simples Híbrido", isMei: false, ...ZERO_BREAKDOWN }
   }
 
   if (regime === "LUCRO_PRESUMIDO_RET") {

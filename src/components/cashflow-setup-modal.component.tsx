@@ -245,6 +245,42 @@ export function CashflowSetupModal({ open, onDone }: { open: boolean; onDone: ()
         if (error) throw error
       }
 
+      // Mirror an INCOME baseline entry to the previous month if not yet done
+      const { data: mirrorCheck } = await supabase
+        .from('tenant_settings')
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .select('onboarding_mirrored_to_cashflow, simples_revenue_12m' as any)
+        .eq('tenant_id', tenantId)
+        .single()
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const mirrorData = mirrorCheck as any
+      if (!mirrorData?.onboarding_mirrored_to_cashflow) {
+        const revenue12m = Number(mirrorData?.simples_revenue_12m) || 0
+        const estimatedMonthlyRevenue = revenue12m > 0 ? revenue12m / 12 : 0
+
+        if (estimatedMonthlyRevenue > 0) {
+          const prevMonthLastDay = new Date(now.getFullYear(), now.getMonth(), 0)
+          const prevMonthDateStr = prevMonthLastDay.toISOString().substring(0, 10)
+
+          await supabase.from('cash_entries').insert({
+            tenant_id: tenantId,
+            type: 'INCOME',
+            origin_type: 'MANUAL',
+            recurrence_type: 'ONCE',
+            description: 'Faturamento Estimado (Onboarding)',
+            amount: estimatedMonthlyRevenue,
+            due_date: prevMonthDateStr,
+          })
+        }
+
+        await supabase
+          .from('tenant_settings')
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          .update({ onboarding_mirrored_to_cashflow: true } as any)
+          .eq('tenant_id', tenantId)
+      }
+
       await mergeExpenseConfig(tenantId)
 
       await supabase

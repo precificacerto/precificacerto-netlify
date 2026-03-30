@@ -100,6 +100,40 @@ export async function fetchTaxPreview(tenantId: string): Promise<TaxPreviewResul
     return buildResult(0, 0, 'Simples Nacional', false)
   }
 
+  if (regime === 'SIMPLES_HIBRIDO') {
+    const anexo = normalizeAnexo(ts.simples_anexo || '')
+    const revenue12m = Number(ts.simples_revenue_12m) || 0
+
+    const { data: brackets } = await supabase
+      .from('simples_nacional_brackets')
+      .select('*')
+      .eq('anexo', anexo)
+      .order('bracket_order', { ascending: true })
+
+    let bracket: any = null
+    if (brackets && brackets.length > 0) {
+      for (const b of brackets) {
+        if (revenue12m >= Number(b.revenue_min) && revenue12m <= Number(b.revenue_max)) {
+          bracket = b
+          break
+        }
+      }
+      if (!bracket) bracket = brackets[0]
+    }
+
+    if (bracket) {
+      const nominalRate = Number(bracket.nominal_rate)
+      const deduction = Number(bracket.deduction)
+      const effectiveRate = revenue12m > 0
+        ? (revenue12m * nominalRate - deduction) / revenue12m
+        : nominalRate
+      const pctTaxableRegime = round4(effectiveRate * 100)
+      return buildResult(0, pctTaxableRegime, `Simples Híbrido (Anexo ${anexo})`, false)
+    }
+
+    return buildResult(0, 0, 'Simples Híbrido', false)
+  }
+
   if (regime === 'LUCRO_PRESUMIDO_RET') {
     const retRate = Number(ts.ret_rate) || 0.04
     return {
