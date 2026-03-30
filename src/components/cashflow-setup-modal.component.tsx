@@ -12,6 +12,7 @@ interface ExpenseRow {
   key: string
   categoryLabel: string
   expense_group: ExpenseGroupKey
+  expense_category?: string
   description: string
   amount: string
   recurrence: string
@@ -56,6 +57,7 @@ function buildInitialRowsForBlocks(blocks: typeof EXPENSE_SETUP_BLOCKS): Record<
       key: `block-${block.id}-${item.key}-${idx}`,
       categoryLabel: block.categoryLabel,
       expense_group: block.expense_group,
+      expense_category: item.key,
       description: item.label,
       amount: '',
       recurrence: 'MONTHLY',
@@ -202,6 +204,7 @@ export function CashflowSetupModal({ open, onDone }: { open: boolean; onDone: ()
             amount: amountNum,
             due_date: `${startY}-${String(startM + 1).padStart(2, '0')}-01`,
             expense_group: r.expense_group,
+            expense_category: r.expense_category || null,
           })
         } else if (recurrence === 'WEEKLY' || recurrence === 'BIWEEKLY') {
           const daysStep = recurrence === 'WEEKLY' ? 7 : 14
@@ -217,6 +220,7 @@ export function CashflowSetupModal({ open, onDone }: { open: boolean; onDone: ()
               amount: amountNum,
               due_date: cursor.toISOString().substring(0, 10),
               expense_group: r.expense_group,
+              expense_category: r.expense_category || null,
             })
             cursor.setDate(cursor.getDate() + daysStep)
           }
@@ -233,6 +237,7 @@ export function CashflowSetupModal({ open, onDone }: { open: boolean; onDone: ()
               amount: amountNum,
               due_date: `${y}-${String(m + 1).padStart(2, '0')}-01`,
               expense_group: r.expense_group,
+              expense_category: r.expense_category || null,
             })
             m += monthStep
             while (m > 11) { m -= 12; y++ }

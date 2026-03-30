@@ -613,6 +613,7 @@ function Cashier() {
               amount,
               due_date: cursor.toISOString().substring(0, 10),
               expense_group: values.expense_group || null,
+              expense_category: values.category || null,
               ...(pmValue ? { payment_method: pmValue } : {}),
             })
             cursor.setDate(cursor.getDate() + daysStep)
@@ -630,6 +631,7 @@ function Cashier() {
               amount,
               due_date: `${y}-${String(m + 1).padStart(2, '0')}-01`,
               expense_group: values.expense_group || null,
+              expense_category: values.category || null,
               ...(pmValue ? { payment_method: pmValue } : {}),
             })
             m += monthStep
@@ -661,6 +663,7 @@ function Cashier() {
 
       if (isExpense) {
         entryData.expense_group = values.expense_group || null
+        entryData.expense_category = values.category || null
         if (values.payment_method) entryData.payment_method = values.payment_method
       }
 

@@ -453,7 +453,7 @@ export default function CashFlow() {
 
             const { data: fixedList } = await supabase
                 .from('fixed_expenses')
-                .select('id, description, amount, due_day')
+                .select('id, description, amount, due_day, expense_category, expense_group')
                 .eq('tenant_id', tenant_id)
                 .eq('is_active', true)
             if (fixedList?.length) {
@@ -463,7 +463,7 @@ export default function CashFlow() {
                     const key = `${fe.description}|FIXED_EXPENSE|${Number(fe.amount)}`
                     if (existingKeys.has(key)) continue
                     existingKeys.add(key)
-                    toInsert.push({ tenant_id, type: 'EXPENSE', origin_type: 'FIXED_EXPENSE', recurrence_type: 'MONTHLY', description: fe.description, amount: Number(fe.amount), due_date, expense_group: 'DESPESA_FIXA' })
+                    toInsert.push({ tenant_id, type: 'EXPENSE', origin_type: 'FIXED_EXPENSE', recurrence_type: 'MONTHLY', description: fe.description, amount: Number(fe.amount), due_date, expense_group: fe.expense_group || 'DESPESA_FIXA', expense_category: fe.expense_category || null })
                 }
             }
             for (const emp of employees) {

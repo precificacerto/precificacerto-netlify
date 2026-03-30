@@ -706,7 +706,7 @@ export default function ControleFinanceiro() {
             const existingKeys = new Set(data.map((e: any) => `${e.description ?? ''}|${e.origin_type ?? ''}|${Number(e.amount)}`))
             const toInsert: any[] = []
 
-            const { data: fixedList } = await supabase.from('fixed_expenses').select('id, description, amount, due_day').eq('tenant_id', tenant_id).eq('is_active', true)
+            const { data: fixedList } = await supabase.from('fixed_expenses').select('id, description, amount, due_day, expense_category, expense_group').eq('tenant_id', tenant_id).eq('is_active', true)
             if (fixedList?.length) {
                 for (const fe of fixedList) {
                     const day = Math.min(Math.max(1, fe.due_day), lastDay)
@@ -714,7 +714,7 @@ export default function ControleFinanceiro() {
                     const key = `${fe.description}|FIXED_EXPENSE|${Number(fe.amount)}`
                     if (existingKeys.has(key)) continue
                     existingKeys.add(key)
-                    toInsert.push({ tenant_id, type: 'EXPENSE', origin_type: 'FIXED_EXPENSE', recurrence_type: 'MONTHLY', description: fe.description, amount: Number(fe.amount), due_date, expense_group: 'DESPESA_FIXA', is_active: true })
+                    toInsert.push({ tenant_id, type: 'EXPENSE', origin_type: 'FIXED_EXPENSE', recurrence_type: 'MONTHLY', description: fe.description, amount: Number(fe.amount), due_date, expense_group: fe.expense_group || 'DESPESA_FIXA', expense_category: fe.expense_category || null, is_active: true })
                 }
             }
             for (const emp of employees) {
