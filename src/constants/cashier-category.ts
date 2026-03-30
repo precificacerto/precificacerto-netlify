@@ -454,6 +454,7 @@ const SN_CATEGORY_GROUP_MAP: { category: string; group: string }[] = [
   { category: 'IOF', group: 'DESPESA_FINANCEIRA' },
   { category: 'Impostos IPTU / IPVA', group: 'DESPESA_FIXA' },
   { category: 'MEI (Microempreendedor Individual)', group: 'DESPESA_FIXA' },
+  { category: 'DAS (Documento de Arrecadação do Simples Nacional)', group: 'REGIME_TRIBUTARIO' },
   { category: 'Simples Nacional', group: 'REGIME_TRIBUTARIO' },
 ]
 

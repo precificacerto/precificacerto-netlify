@@ -248,6 +248,7 @@ const SN_CATEGORY_GROUP_MAP: { category: string; group: string }[] = [
     { category: 'Despesas acessórias', group: 'ATIVIDADES_TERCEIRIZADAS' },
     { category: 'Gastos com logísticas externas', group: 'ATIVIDADES_TERCEIRIZADAS' },
     // Regime Tributário
+    { category: 'DAS (Documento de Arrecadação do Simples Nacional)', group: 'REGIME_TRIBUTARIO' },
     { category: 'Simples Nacional', group: 'REGIME_TRIBUTARIO' },
     // Comissões
     { category: 'Comissões de venda', group: 'COMISSOES' },
