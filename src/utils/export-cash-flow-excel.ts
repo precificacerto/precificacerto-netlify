@@ -7,7 +7,7 @@ const MONTH_NAMES_PT = [
     'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro',
 ]
 
-// ── Income row mapping (payment_method → Excel row label) ──
+// ── Income row mapping (payment_method OR category → Excel row label) ──
 export const INCOME_ROWS = [
     { key: 'CARTAO_CREDITO', label: 'CARTAO CREDITO' },
     { key: 'CARTAO_DEBITO', label: 'CARTAO DEBITO' },
@@ -17,12 +17,14 @@ export const INCOME_ROWS = [
     { key: 'DINHEIRO', label: 'DINHEIRO' },
     { key: 'PIX', label: 'PIX' },
     { key: 'TRANSFERENCIA', label: 'TRANSFERENCIA' },
+    { key: 'TRANSFERENCIA_BANCARIA', label: 'TRANSFERENCIA' },
     { key: 'BOLETO', label: 'TRANSFERENCIA' },
+    { key: 'PERMUTA', label: 'OUTROS' },
 ]
 
 // Unique income labels in display order
 export const INCOME_LABELS = [
-    'CARTAO CREDITO', 'CARTAO DEBITO', 'CHEQUES', 'DINHEIRO', 'PIX', 'TRANSFERENCIA',
+    'CARTAO CREDITO', 'CARTAO DEBITO', 'CHEQUES', 'DINHEIRO', 'PIX', 'TRANSFERENCIA', 'OUTROS',
 ]
 
 // ── Expense sections following the Excel template structure ──
@@ -156,11 +158,11 @@ export function matchesDescription(desc: string, patterns: string[]): boolean {
     })
 }
 
-export function getIncomeLabel(entry: { payment_method?: string }): string | null {
-    const pm = entry.payment_method
-    if (!pm) return null
-    const found = INCOME_ROWS.find(r => r.key === pm)
-    return found?.label ?? null
+export function getIncomeLabel(entry: { payment_method?: string | null; category?: string | null }): string {
+    // Try payment_method first, then category (entries from caixa store category, not payment_method)
+    const key = entry.payment_method || entry.category || ''
+    const found = INCOME_ROWS.find(r => r.key === key)
+    return found?.label ?? 'OUTROS'
 }
 
 interface CashEntry {
@@ -347,9 +349,8 @@ function buildMonthSheet(workbook: ExcelJS.Workbook, data: CashEntry[], monthObj
             // Skip unpaid boletos
             if (entry.payment_method === 'BOLETO' && !entry.paid_date) continue
             const label = getIncomeLabel(entry)
-            if (label && incomeByLabelDay[label]) {
-                incomeByLabelDay[label][dayIdx] += getEffectiveIncomeAmount(entry)
-            }
+            if (!incomeByLabelDay[label]) incomeByLabelDay[label] = new Array(daysInMonth).fill(0)
+            incomeByLabelDay[label][dayIdx] += getEffectiveIncomeAmount(entry)
         } else {
             // EXPENSE - match to section/item
             let matched = false

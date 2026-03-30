@@ -578,9 +578,7 @@ export default function CashFlow() {
             if (entry.type === 'INCOME') {
                 if (entry.payment_method === 'BOLETO' && !entry.paid_date) continue
                 const label = getIncomeLabel(entry)
-                if (label && incomeByLabel[label] !== undefined) {
-                    incomeByLabel[label] += getEffectiveIncomeAmount(entry)
-                }
+                incomeByLabel[label] = (incomeByLabel[label] || 0) + getEffectiveIncomeAmount(entry)
             } else {
                 const group = (entry as any).expense_group || getGroupForCategory(entry.description) || 'OUTROS'
                 groupTotals[group] = (groupTotals[group] || 0) + (Number(entry.amount) || 0)
@@ -646,7 +644,13 @@ export default function CashFlow() {
             if (entry.type === 'INCOME') {
                 if (entry.payment_method === 'BOLETO' && !entry.paid_date) continue
                 const label = getIncomeLabel(entry)
-                if (label && result[label]) result[label][day] = (result[label][day] || 0) + getEffectiveIncomeAmount(entry)
+                if (!result[label]) {
+                    result[label] = {}; unpaidAmounts[label] = {}; entriesMap[label] = {}; paidEntriesMap[label] = {}
+                    for (let d = 1; d <= daysInMonth; d++) {
+                        result[label][d] = 0; unpaidAmounts[label][d] = 0; entriesMap[label][d] = []; paidEntriesMap[label][d] = []
+                    }
+                }
+                result[label][day] = (result[label][day] || 0) + getEffectiveIncomeAmount(entry)
             } else {
                 const amt = Number(entry.amount) || 0
                 const group = (entry as any).expense_group || getGroupForCategory(entry.description) || 'OUTROS'

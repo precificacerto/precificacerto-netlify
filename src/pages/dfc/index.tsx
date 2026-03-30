@@ -147,6 +147,25 @@ function isPeriodClosed(col: PeriodColumn, viewYear: number): boolean {
   return today > lastDayOfPeriod
 }
 
+/** Returns true if at least one month in the period is closed (shows partial data while period is still in progress) */
+function isPeriodPartial(col: PeriodColumn, viewYear: number): boolean {
+  if (isPeriodClosed(col, viewYear)) return false
+  const today = new Date()
+  const firstMonthKey = col.monthKeys[0]
+  const firstMonthIndex = MONTH_KEYS.indexOf(firstMonthKey)
+  const lastDayOfFirstMonth = new Date(viewYear, firstMonthIndex + 1, 0)
+  return today > lastDayOfFirstMonth
+}
+
+/** How many months of this period are closed */
+function closedMonthsCount(col: PeriodColumn, viewYear: number): number {
+  const today = new Date()
+  return col.monthKeys.filter((k) => {
+    const mi = MONTH_KEYS.indexOf(k)
+    return today > new Date(viewYear, mi + 1, 0)
+  }).length
+}
+
 // ── Data fetching ──
 
 type CashEntry = {
@@ -154,6 +173,7 @@ type CashEntry = {
   type: 'INCOME' | 'EXPENSE'
   expense_group: string | null
   category: string | null
+  expense_category: string | null
   description: string | null
   due_date: string
   is_active: boolean
@@ -176,7 +196,7 @@ async function fetchYearEntries(tenantId: string, year: number): Promise<CashEnt
   // @ts-ignore — supabase generic chain too deep for TS
   const { data } = await supabase
     .from('cash_entries')
-    .select('amount, type, expense_group, category, description, due_date, is_active, payment_method, paid_date, anticipated_amount')
+    .select('amount, type, expense_group, category, expense_category, description, due_date, is_active, payment_method, paid_date, anticipated_amount')
     .eq('tenant_id', tenantId)
     .eq('is_active', true)
     .gte('due_date', startDate)
@@ -271,8 +291,9 @@ function aggregateEntries(entries: CashEntry[]): AggregatedData {
   const COMISSAO_KEYS = new Set(['COMISSOES_DE_VENDA'])
 
   for (const entry of entries) {
-    const d = new Date(entry.due_date)
-    const monthKey = MONTH_INDEX_TO_KEY[d.getMonth()]
+    // Parse month directly from YYYY-MM-DD to avoid UTC→local timezone shifts
+    const monthIndex = parseInt((entry.due_date || '').slice(5, 7), 10) - 1
+    const monthKey = MONTH_INDEX_TO_KEY[monthIndex]
     if (!monthKey) continue
 
     if (entry.type === 'INCOME') {
@@ -284,7 +305,8 @@ function aggregateEntries(entries: CashEntry[]): AggregatedData {
 
     // EXPENSE
     const group = entry.expense_group || ''
-    const cat = entry.category || ''
+    // Use expense_category first (newer field), fall back to category (legacy)
+    const cat = entry.expense_category || entry.category || ''
     const desc = entry.description || ''
 
     // Comissoes check — match by category key first, fallback to description text
@@ -293,8 +315,8 @@ function aggregateEntries(entries: CashEntry[]): AggregatedData {
       continue
     }
 
-    // Product cost check (CMV) - match by category key
-    if (PRODUCT_COST_KEYS.has(cat)) {
+    // Product cost check (CMV) — match by category key first, then by expense_group
+    if (PRODUCT_COST_KEYS.has(cat) || group === 'CUSTO_PRODUTOS') {
       data.custoProduto[monthKey] += entry.amount
       continue
     }
@@ -319,7 +341,14 @@ function aggregateEntries(entries: CashEntry[]): AggregatedData {
         data.despesaFinanceira[monthKey] += entry.amount
         break
       case 'IMPOSTO':
+      case 'REGIME_TRIBUTARIO': // DAS/impostos pelo regime caem em imposto
         data.imposto[monthKey] += entry.amount
+        break
+      case 'COMISSOES':
+        data.comissoes[monthKey] += entry.amount
+        break
+      case 'ATIVIDADES_TERCEIRIZADAS':
+        data.despesaVariavel[monthKey] += entry.amount
         break
       default:
         // Fallback: treat unknown as variable expense
@@ -745,9 +774,29 @@ export default function DfcPage() {
           <thead>
             <tr style={{ borderBottom: '2px solid var(--color-neutral-700, #374151)' }}>
               <th style={{ ...thStyle, width: 320, textAlign: 'left' }}>Descrição</th>
-              {periodColumns.map((col, i) => (
-                <th key={i} style={{ ...thStyle, textAlign: 'right', minWidth: 140 }}>{col.label}</th>
-              ))}
+              {periodColumns.map((col, i) => {
+                const closed = isPeriodClosed(col, year)
+                const partial = isPeriodPartial(col, year)
+                const n = closedMonthsCount(col, year)
+                return (
+                  <th key={i} style={{ ...thStyle, textAlign: 'right', minWidth: 140 }}>
+                    {col.label}
+                    {partial && (
+                      <div style={{ fontSize: 10, fontWeight: 400, color: 'var(--color-neutral-400, #9CA3AF)', fontStyle: 'italic' }}>
+                        {n}/{col.monthKeys.length} meses
+                      </div>
+                    )}
+                    {!closed && !partial && col.monthKeys.length > 0 && (() => {
+                      const firstMi = MONTH_KEYS.indexOf(col.monthKeys[0])
+                      return new Date() <= new Date(year, firstMi + 1, 0) ? (
+                        <div style={{ fontSize: 10, fontWeight: 400, color: 'var(--color-neutral-400, #9CA3AF)', fontStyle: 'italic' }}>
+                          Em andamento
+                        </div>
+                      ) : null
+                    })()}
+                  </th>
+                )
+              })}
               {showTotal && (
                 <th style={{ ...thStyle, textAlign: 'right', minWidth: 140, fontWeight: 700 }}>Total</th>
               )}
@@ -774,32 +823,65 @@ export default function DfcPage() {
                   </td>
                   {periodColumns.map((col, ci) => {
                     const closed = isPeriodClosed(col, year)
-                    const val = closed ? aggregatePeriodValue(row.values, col.monthKeys) : null
+                    const partial = isPeriodPartial(col, year)
+                    const hasData = closed || partial
+                    // For partial: only sum the closed months within the period
+                    const closedKeys = partial
+                      ? col.monthKeys.filter((k) => {
+                          const mi = MONTH_KEYS.indexOf(k)
+                          return new Date() > new Date(year, mi + 1, 0)
+                        })
+                      : col.monthKeys
+                    const val = hasData ? aggregatePeriodValue(row.values, closedKeys) : null
                     return (
                       <td key={ci} style={{
                         ...tdStyle,
                         textAlign: 'right',
                         fontWeight: row.isTotal || row.isSubtotal ? 600 : 400,
-                        color: closed ? getValueColor(val!, row) : 'var(--color-neutral-500, #6B7280)',
+                        color: hasData ? getValueColor(val!, row) : 'var(--color-neutral-500, #6B7280)',
+                        opacity: partial ? 0.75 : 1,
                       }}>
-                        {closed ? formatBRL(val!) : <span style={{ fontSize: 11, fontStyle: 'italic' }}>Em andamento</span>}
+                        {hasData ? (
+                          <>
+                            {formatBRL(val!)}
+                            {partial && <span style={{ fontSize: 10, fontStyle: 'italic', marginLeft: 4, color: 'var(--color-neutral-400, #9CA3AF)' }}>parcial</span>}
+                          </>
+                        ) : (
+                          <span style={{ fontSize: 11, fontStyle: 'italic' }}>Em andamento</span>
+                        )}
                       </td>
                     )
                   })}
                   {showTotal && (() => {
-                    // For total: sum only closed periods
-                    const closedTotal = periodColumns
-                      .filter(c => isPeriodClosed(c, year))
-                      .reduce((s, c) => s + aggregatePeriodValue(row.values, c.monthKeys), 0)
+                    // For total: sum closed + partial periods
+                    const closedTotal = periodColumns.reduce((s, c) => {
+                      if (isPeriodClosed(c, year)) return s + aggregatePeriodValue(row.values, c.monthKeys)
+                      if (isPeriodPartial(c, year)) {
+                        const closedKeys = c.monthKeys.filter((k) => {
+                          const mi = MONTH_KEYS.indexOf(k)
+                          return new Date() > new Date(year, mi + 1, 0)
+                        })
+                        return s + aggregatePeriodValue(row.values, closedKeys)
+                      }
+                      return s
+                    }, 0)
                     const allClosed = periodColumns.every(c => isPeriodClosed(c, year))
+                    const anyData = periodColumns.some(c => isPeriodClosed(c, year) || isPeriodPartial(c, year))
                     return (
                       <td style={{
                         ...tdStyle,
                         textAlign: 'right',
                         fontWeight: 700,
-                        color: allClosed ? getValueColor(closedTotal, row) : 'var(--color-neutral-500, #6B7280)',
+                        color: anyData ? getValueColor(closedTotal, row) : 'var(--color-neutral-500, #6B7280)',
                       }}>
-                        {allClosed ? formatBRL(closedTotal) : <span style={{ fontSize: 11, fontStyle: 'italic' }}>Parcial</span>}
+                        {anyData ? (
+                          <>
+                            {formatBRL(closedTotal)}
+                            {!allClosed && <span style={{ fontSize: 10, fontStyle: 'italic', marginLeft: 4, color: 'var(--color-neutral-400, #9CA3AF)' }}>parcial</span>}
+                          </>
+                        ) : (
+                          <span style={{ fontSize: 11, fontStyle: 'italic' }}>Em andamento</span>
+                        )}
                       </td>
                     )
                   })()}
@@ -821,10 +903,18 @@ export default function DfcPage() {
                     </td>
                     {periodColumns.map((col, ci) => {
                       const closed = isPeriodClosed(col, year)
-                      const pctVal = closed ? aggregatePeriodPct(row.pctOfRL, row, receitaLiquidaRow, col.monthKeys) : null
+                      const partial = isPeriodPartial(col, year)
+                      const hasData = closed || partial
+                      const closedKeys = partial
+                        ? col.monthKeys.filter((k) => {
+                            const mi = MONTH_KEYS.indexOf(k)
+                            return new Date() > new Date(year, mi + 1, 0)
+                          })
+                        : col.monthKeys
+                      const pctVal = hasData ? aggregatePeriodPct(row.pctOfRL, row, receitaLiquidaRow, closedKeys) : null
                       return (
                         <td key={ci} style={{ ...tdStyle, textAlign: 'right', fontSize: 11, color: 'var(--color-neutral-400, #9CA3AF)' }}>
-                          {closed ? formatPct(pctVal!) : '—'}
+                          {hasData ? formatPct(pctVal!) : '—'}
                         </td>
                       )
                     })}
