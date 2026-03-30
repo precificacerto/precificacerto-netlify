@@ -1,17 +1,29 @@
 import { supabase } from '@/supabase/client'
+import { CASHIER_CATEGORY } from '@/constants/cashier-category'
 
 export interface HubMonthData {
   [monthKey: string]: number // ex: '2025-01': 1500.00
 }
 
+export interface HubSubRow {
+  categoryKey: string  // ex: 'FORNECEDORES'
+  label: string        // ex: 'Fornecedores - Produtos para Revenda'
+  values: HubMonthData
+  totalSum: number
+  closedMonthsWithData: number
+  averageRS: number
+  averagePct: number
+}
+
 export interface HubRow {
   group: string
   label: string
-  values: HubMonthData       // R$ por mês
+  values: HubMonthData       // R$ por mês (total do grupo)
   totalSum: number           // soma total nos meses encerrados
   closedMonthsWithData: number // quantos meses tiveram valor > 0 neste grupo
   averageRS: number          // totalSum / closedMonthsWithData
   averagePct: number         // (totalSum / totalIncomeInSameMonths) × 100
+  subRows: HubSubRow[]       // detalhamento por categoria dentro do grupo
 }
 
 export interface HubData {
@@ -22,16 +34,30 @@ export interface HubData {
   totalIncomeMonthsCount: number
 }
 
+// Mapa de categoryKey → label a partir das constantes do projeto
+const CATEGORY_LABEL_MAP: Record<string, string> = Object.fromEntries(
+  Object.values(CASHIER_CATEGORY.EXPENSE).map((c: any) => [c.key, c.value])
+)
+
+// Mapa de categoryKey → order (para ordenação)
+const CATEGORY_ORDER_MAP: Record<string, number> = Object.fromEntries(
+  Object.values(CASHIER_CATEGORY.EXPENSE).map((c: any) => [c.key, c.order ?? 999])
+)
+
 // Ordem e labels dos grupos exibidos no Hub
 const HUB_GROUPS: { group: string; label: string }[] = [
+  { group: 'CUSTO_PRODUTOS',            label: 'Custo dos Produtos' },
   { group: 'MAO_DE_OBRA_PRODUTIVA',     label: 'MO Produtiva' },
   { group: 'MAO_DE_OBRA_ADMINISTRATIVA', label: 'MO Administrativa (Indireta)' },
   { group: 'MAO_DE_OBRA',               label: 'MO (Legado)' }, // retrocompat
   { group: 'DESPESA_FIXA',              label: 'Despesas Fixas' },
   { group: 'DESPESA_VARIAVEL',          label: 'Despesas Variáveis' },
+  { group: 'ATIVIDADES_TERCEIRIZADAS',  label: 'Atividades Terceirizadas' },
   { group: 'DESPESA_FINANCEIRA',        label: 'Despesas Financeiras' },
+  { group: 'COMISSOES',                 label: 'Comissões' },
   { group: 'IMPOSTO',                   label: 'Impostos' },
   { group: 'REGIME_TRIBUTARIO',         label: 'Tributos do Regime' },
+  { group: 'LUCRO',                     label: 'Lucro / Investimentos' },
 ]
 
 /**
@@ -47,10 +73,10 @@ export async function calculateHubData(tenantId: string): Promise<HubData> {
   // toISOString() usa UTC e pode retornar o dia errado em fusos negativos (Brasil UTC-3).
   const cutoffStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
 
-  // Busca todos os lançamentos de meses encerrados
+  // Busca todos os lançamentos de meses encerrados, incluindo expense_category
   const { data: entries, error } = await supabase
     .from('cash_entries')
-    .select('type, amount, due_date, expense_group, is_active')
+    .select('type, amount, due_date, expense_group, expense_category, is_active')
     .eq('tenant_id', tenantId)
     .eq('is_active', true)
     .lt('due_date', cutoffStr)
@@ -63,6 +89,8 @@ export async function calculateHubData(tenantId: string): Promise<HubData> {
   // Agrupa dados por mês (YYYY-MM)
   const incomeByMonth: HubMonthData = {}
   const expenseByGroupByMonth: Record<string, HubMonthData> = {}
+  // { categoryKey -> { group, values: { monthKey -> total } } }
+  const expenseByCategoryByMonth: Record<string, { group: string; values: HubMonthData }> = {}
 
   for (const entry of entries) {
     // Extrai YYYY-MM direto da string para evitar problema de timezone:
@@ -74,11 +102,22 @@ export async function calculateHubData(tenantId: string): Promise<HubData> {
     if (entry.type === 'INCOME') {
       incomeByMonth[monthKey] = (incomeByMonth[monthKey] || 0) + amount
     } else if (entry.type === 'EXPENSE' && entry.expense_group) {
+      // Nível grupo
       if (!expenseByGroupByMonth[entry.expense_group]) {
         expenseByGroupByMonth[entry.expense_group] = {}
       }
       expenseByGroupByMonth[entry.expense_group][monthKey] =
         (expenseByGroupByMonth[entry.expense_group][monthKey] || 0) + amount
+
+      // Nível categoria (detalhe dentro do grupo)
+      if (entry.expense_category) {
+        const catKey = entry.expense_category as string
+        if (!expenseByCategoryByMonth[catKey]) {
+          expenseByCategoryByMonth[catKey] = { group: entry.expense_group, values: {} }
+        }
+        expenseByCategoryByMonth[catKey].values[monthKey] =
+          (expenseByCategoryByMonth[catKey].values[monthKey] || 0) + amount
+      }
     }
   }
 
@@ -101,10 +140,28 @@ export async function calculateHubData(tenantId: string): Promise<HubData> {
       const totalSum = Object.values(values).reduce((s, v) => s + v, 0)
       const closedMonthsWithData = Object.values(values).filter((v) => v > 0).length
       const averageRS = closedMonthsWithData > 0 ? totalSum / closedMonthsWithData : 0
-
-      // Percentual: soma do grupo / soma do INCOME nos meses que tiveram ambos
-      // Para simplificar, usamos o totalIncome global (denominador único)
       const averagePct = totalIncome > 0 ? (totalSum / totalIncome) * 100 : 0
+
+      // Sub-rows: categorias com dados dentro deste grupo, ordenadas por order
+      const subRows: HubSubRow[] = Object.entries(expenseByCategoryByMonth)
+        .filter(([, cd]) => cd.group === g.group)
+        .sort(([a], [b]) => (CATEGORY_ORDER_MAP[a] ?? 999) - (CATEGORY_ORDER_MAP[b] ?? 999))
+        .map(([catKey, cd]) => {
+          const catValues = cd.values
+          const catTotalSum = Object.values(catValues).reduce((s, v) => s + v, 0)
+          const catClosedMonths = Object.values(catValues).filter((v) => v > 0).length
+          const catAverageRS = catClosedMonths > 0 ? catTotalSum / catClosedMonths : 0
+          const catAveragePct = totalIncome > 0 ? (catTotalSum / totalIncome) * 100 : 0
+          return {
+            categoryKey: catKey,
+            label: CATEGORY_LABEL_MAP[catKey] || catKey,
+            values: catValues,
+            totalSum: catTotalSum,
+            closedMonthsWithData: catClosedMonths,
+            averageRS: Math.round(catAverageRS * 100) / 100,
+            averagePct: Math.round(catAveragePct * 100) / 100,
+          }
+        })
 
       return {
         group: g.group,
@@ -114,6 +171,7 @@ export async function calculateHubData(tenantId: string): Promise<HubData> {
         closedMonthsWithData,
         averageRS: Math.round(averageRS * 100) / 100,
         averagePct: Math.round(averagePct * 100) / 100,
+        subRows,
       }
     })
 

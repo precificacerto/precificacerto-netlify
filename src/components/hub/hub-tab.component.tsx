@@ -17,20 +17,22 @@ function formatCurrency(v: number): string {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 }).format(v)
 }
 
-// Ordered list of groups to display (matching hub-engine HUB_GROUPS)
-const HUB_GROUP_ORDER = [
-    'MAO_DE_OBRA_PRODUTIVA',
-    'MAO_DE_OBRA_ADMINISTRATIVA',
-    'MAO_DE_OBRA',
-    'DESPESA_FIXA',
-    'DESPESA_VARIAVEL',
-    'DESPESA_FINANCEIRA',
-    'IMPOSTO',
-    'REGIME_TRIBUTARIO',
-]
-
 export interface HubTabProps {
     tenantId: string
+}
+
+// Tipo interno da tabela com suporte a children (hierarquia grupo → categoria)
+type TableRow = {
+    key: string
+    label: string
+    group: string
+    isIncome?: boolean
+    isTotal?: boolean
+    isSubRow?: boolean   // categoria dentro do grupo
+    values: Record<string, number>
+    averagePct?: number
+    averageRS?: number
+    children?: TableRow[]
 }
 
 export function HubTab({ tenantId }: HubTabProps) {
@@ -55,7 +57,6 @@ export function HubTab({ tenantId }: HubTabProps) {
         try {
             await mergeExpenseConfig(tenantId)
             messageApi.success('Precificação atualizada com sucesso!')
-            // Recarrega os dados do Hub para refletir os percentuais atualizados
             const updated = await calculateHubData(tenantId)
             setHubData(updated)
         } catch {
@@ -83,23 +84,11 @@ export function HubTab({ tenantId }: HubTabProps) {
         )
     }
 
-    // Build table datasource
-    // Row type for the table
-    type TableRow = {
-        key: string
-        label: string
-        group: string
-        isIncome?: boolean
-        isTotal?: boolean
-        values: Record<string, number>
-        averagePct?: number
-        averageRS?: number
-        totalSum?: number
-    }
+    // ── Constrói o dataSource com hierarquia grupo → sub-linhas de categoria ──
 
     const rows: TableRow[] = []
 
-    // Row 0: Faturamento
+    // Linha de Faturamento (sem children)
     rows.push({
         key: '__income__',
         label: 'Faturamento',
@@ -111,12 +100,18 @@ export function HubTab({ tenantId }: HubTabProps) {
             : 0,
     })
 
-    // Expense rows in configured order
-    const orderedRows = HUB_GROUP_ORDER
-        .map((g) => hubData.rows.find((r) => r.group === g))
-        .filter(Boolean) as typeof hubData.rows
+    // Linhas de despesa com children por categoria
+    for (const row of hubData.rows) {
+        const children: TableRow[] = row.subRows.map((sub) => ({
+            key: `${row.group}__${sub.categoryKey}`,
+            label: sub.label,
+            group: row.group,
+            isSubRow: true,
+            values: sub.values,
+            averagePct: sub.averagePct,
+            averageRS: sub.averageRS,
+        }))
 
-    for (const row of orderedRows) {
         rows.push({
             key: row.group,
             label: row.label,
@@ -124,16 +119,17 @@ export function HubTab({ tenantId }: HubTabProps) {
             values: row.values,
             averagePct: row.averagePct,
             averageRS: row.averageRS,
-            totalSum: row.totalSum,
+            // Só inclui children se tiver mais de uma categoria (caso único, o grupo já resume)
+            children: children.length > 1 ? children : undefined,
         })
     }
 
-    // Total row: sum all expense rows per month
+    // Linha Total Despesas
     const totalValues: Record<string, number> = {}
     for (const month of hubData.months) {
-        totalValues[month] = orderedRows.reduce((sum, r) => sum + (r.values[month] || 0), 0)
+        totalValues[month] = hubData.rows.reduce((sum, r) => sum + (r.values[month] || 0), 0)
     }
-    const totalAveragePct = orderedRows.reduce((sum, r) => sum + r.averagePct, 0)
+    const totalAveragePct = hubData.rows.reduce((sum, r) => sum + r.averagePct, 0)
     rows.push({
         key: '__total__',
         label: 'Total Despesas',
@@ -143,7 +139,7 @@ export function HubTab({ tenantId }: HubTabProps) {
         averagePct: Math.round(totalAveragePct * 100) / 100,
     })
 
-    // Build columns
+    // ── Colunas ──
     const avgColumnStyle: React.CSSProperties = {
         background: 'rgba(99, 102, 241, 0.08)',
         fontWeight: 700,
@@ -152,25 +148,30 @@ export function HubTab({ tenantId }: HubTabProps) {
 
     const columns: any[] = [
         {
-            title: 'Grupo',
+            title: 'Grupo / Categoria',
             dataIndex: 'label',
             key: 'label',
             fixed: 'left' as const,
-            width: 220,
+            width: 260,
             render: (text: string, record: TableRow) => {
                 if (record.isIncome) {
-                    return (
-                        <span style={{ fontWeight: 700, color: '#12B76A' }}>
-                            {text}
-                        </span>
-                    )
+                    return <span style={{ fontWeight: 700, color: '#12B76A' }}>{text}</span>
                 }
                 if (record.isTotal) {
                     return <strong style={{ color: '#F04438' }}>{text}</strong>
                 }
+                if (record.isSubRow) {
+                    // Categoria dentro do grupo: sem tag, fonte menor, cor neutra
+                    return (
+                        <span style={{ fontSize: 12, color: '#94a3b8', paddingLeft: 4 }}>
+                            {text}
+                        </span>
+                    )
+                }
+                // Cabeçalho do grupo
                 const color = getExpenseGroupColor(record.group)
                 return (
-                    <span>
+                    <span style={{ fontWeight: 600 }}>
                         <Tag color={color} style={{ marginRight: 6, fontSize: 10 }}>
                             {record.group.replace(/_/g, ' ')}
                         </Tag>
@@ -179,7 +180,7 @@ export function HubTab({ tenantId }: HubTabProps) {
                 )
             },
         },
-        // One column per month
+        // Uma coluna por mês encerrado
         ...hubData.months.map((monthKey) => ({
             title: formatMonthKey(monthKey),
             key: monthKey,
@@ -207,33 +208,38 @@ export function HubTab({ tenantId }: HubTabProps) {
                             <div style={{ fontSize: 13, fontWeight: 700, color: '#F04438' }}>
                                 {formatCurrency(amount)}
                             </div>
-                            <div style={{ fontSize: 11, color: '#94a3b8' }}>
-                                {pct.toFixed(2)}%
-                            </div>
+                            <div style={{ fontSize: 11, color: '#94a3b8' }}>{pct.toFixed(2)}%</div>
                         </div>
                     )
                 }
 
+                if (amount === 0) return <span style={{ color: '#334155', fontSize: 11 }}>—</span>
+
                 const income = hubData.incomeByMonth[monthKey] || 0
                 const pct = income > 0 ? (amount / income) * 100 : 0
+
+                if (record.isSubRow) {
+                    // Sub-linha de categoria: valores menores, estilo discreto
+                    return (
+                        <div style={{ textAlign: 'right' }}>
+                            <div style={{ fontSize: 11, color: '#94a3b8' }}>{formatCurrency(amount)}</div>
+                            <div style={{ fontSize: 10, color: '#475569' }}>{pct.toFixed(1)}%</div>
+                        </div>
+                    )
+                }
+
                 return (
                     <div style={{ textAlign: 'right' }}>
-                        <div style={{ fontSize: 12, color: '#e2e8f0' }}>
-                            {formatCurrency(amount)}
-                        </div>
-                        <div style={{ fontSize: 10, color: '#64748b' }}>
-                            {pct.toFixed(2)}%
-                        </div>
+                        <div style={{ fontSize: 12, color: '#e2e8f0' }}>{formatCurrency(amount)}</div>
+                        <div style={{ fontSize: 10, color: '#64748b' }}>{pct.toFixed(2)}%</div>
                     </div>
                 )
             },
         })),
-        // Média Total %
+        // Coluna Média Total %
         {
             title: (
-                <span style={{ color: '#a5b4fc', fontWeight: 700 }}>
-                    Média Total %
-                </span>
+                <span style={{ color: '#a5b4fc', fontWeight: 700 }}>Média Total %</span>
             ),
             key: '__avg__',
             fixed: 'right' as const,
@@ -256,6 +262,13 @@ export function HubTab({ tenantId }: HubTabProps) {
                         </div>
                     )
                 }
+                if (record.isSubRow) {
+                    return (
+                        <div style={{ textAlign: 'right', color: '#64748b', fontSize: 12 }}>
+                            {(record.averagePct ?? 0).toFixed(2)}%
+                        </div>
+                    )
+                }
                 return (
                     <div style={{ textAlign: 'right', fontWeight: 700, color: '#a5b4fc' }}>
                         {(record.averagePct ?? 0).toFixed(2)}%
@@ -265,11 +278,16 @@ export function HubTab({ tenantId }: HubTabProps) {
         },
     ]
 
+    // IDs dos grupos que devem começar expandidos (todos)
+    const defaultExpandedKeys = hubData.rows
+        .filter((r) => r.subRows.length > 1)
+        .map((r) => r.group)
+
     return (
         <div>
             {contextHolder}
 
-            {/* Header toolbar */}
+            {/* Barra de título e botão */}
             <div style={{
                 display: 'flex',
                 justifyContent: 'space-between',
@@ -281,7 +299,8 @@ export function HubTab({ tenantId }: HubTabProps) {
                         Hub de Despesas
                     </div>
                     <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
-                        Baseado em {hubData.months.length} {hubData.months.length === 1 ? 'mês encerrado' : 'meses encerrados'}.
+                        Baseado em {hubData.months.length}{' '}
+                        {hubData.months.length === 1 ? 'mês encerrado' : 'meses encerrados'}.
                         Faturamento total: {formatCurrency(hubData.totalIncome)}
                     </div>
                 </div>
@@ -303,10 +322,16 @@ export function HubTab({ tenantId }: HubTabProps) {
                 pagination={false}
                 scroll={{ x: 'max-content' }}
                 size="small"
+                expandable={{
+                    defaultExpandedRowKeys: defaultExpandedKeys,
+                    expandRowByClick: false,
+                    indentSize: 16,
+                }}
                 rowClassName={(record: TableRow) => {
                     if (record.isIncome) return 'hub-row--income'
                     if (record.isTotal) return 'hub-row--total'
-                    return ''
+                    if (record.isSubRow) return 'hub-row--sub'
+                    return 'hub-row--group'
                 }}
                 style={{ borderRadius: 8 }}
             />
@@ -320,6 +345,12 @@ export function HubTab({ tenantId }: HubTabProps) {
                     background: rgba(240, 68, 56, 0.06) !important;
                     border-top: 2px solid rgba(240, 68, 56, 0.2) !important;
                     font-weight: 700 !important;
+                }
+                .hub-row--group td {
+                    background: rgba(99, 102, 241, 0.04) !important;
+                }
+                .hub-row--sub td {
+                    background: transparent !important;
                 }
             `}</style>
         </div>
