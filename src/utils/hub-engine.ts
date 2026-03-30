@@ -43,9 +43,9 @@ const HUB_GROUPS: { group: string; label: string }[] = [
  */
 export async function calculateHubData(tenantId: string): Promise<HubData> {
   const now = new Date()
-  // Cutoff: primeiro dia do mês atual — meses encerrados são antes disso
-  const cutoff = new Date(now.getFullYear(), now.getMonth(), 1)
-  const cutoffStr = cutoff.toISOString().substring(0, 10) // 'YYYY-MM-DD'
+  // Cutoff: primeiro dia do mês atual no horário LOCAL (evita problema de timezone).
+  // toISOString() usa UTC e pode retornar o dia errado em fusos negativos (Brasil UTC-3).
+  const cutoffStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
 
   // Busca todos os lançamentos de meses encerrados
   const { data: entries, error } = await supabase
@@ -65,8 +65,10 @@ export async function calculateHubData(tenantId: string): Promise<HubData> {
   const expenseByGroupByMonth: Record<string, HubMonthData> = {}
 
   for (const entry of entries) {
-    const d = new Date(entry.due_date)
-    const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+    // Extrai YYYY-MM direto da string para evitar problema de timezone:
+    // new Date('2026-02-01') é interpretado como UTC, que no Brasil (UTC-3)
+    // vira 2026-01-31 no horário local, causando o mês errado.
+    const monthKey = (entry.due_date as string).substring(0, 7) // 'YYYY-MM'
     const amount = Number(entry.amount) || 0
 
     if (entry.type === 'INCOME') {
