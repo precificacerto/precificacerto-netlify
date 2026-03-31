@@ -179,6 +179,119 @@ export async function calculateHubData(tenantId: string): Promise<HubData> {
 }
 
 /**
+ * Calcula os dados do Hub baseando-se APENAS no mês anterior ao mês atual.
+ * "Mês anterior" = mês imediatamente antes do mês corrente.
+ *
+ * Exemplo: se estamos em março/2026, busca apenas fevereiro/2026.
+ *
+ * Use esta função para recalcular percentuais automáticos de estrutura,
+ * mantendo a base sempre no mês mais recente e completo.
+ */
+export async function calculateHubDataPrevMonth(tenantId: string): Promise<HubData> {
+  const now = new Date()
+  // Cutoff: primeiro dia do mês atual (excluir mês em andamento)
+  const cutoffStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
+  // Início do mês anterior: primeiro dia do mês anterior ao cutoff
+  const prevMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+  const prevMonthStr = `${prevMonthDate.getFullYear()}-${String(prevMonthDate.getMonth() + 1).padStart(2, '0')}-01`
+
+  // Busca lançamentos apenas do mês anterior (>= início mês anterior e < início mês atual)
+  const { data: entries, error } = await supabase
+    .from('cash_entries')
+    .select('type, amount, due_date, expense_group, expense_category, is_active')
+    .eq('tenant_id', tenantId)
+    .eq('is_active', true)
+    .gte('due_date', prevMonthStr)
+    .lt('due_date', cutoffStr)
+    .order('due_date', { ascending: true })
+
+  if (error || !entries || entries.length === 0) {
+    return { months: [], rows: [], incomeByMonth: {}, totalIncome: 0, totalIncomeMonthsCount: 0 }
+  }
+
+  // Agrupa dados por mês (YYYY-MM)
+  const incomeByMonth: HubMonthData = {}
+  const expenseByGroupByMonth: Record<string, HubMonthData> = {}
+  const expenseByCategoryByMonth: Record<string, { group: string; values: HubMonthData }> = {}
+
+  for (const entry of entries) {
+    const monthKey = (entry.due_date as string).substring(0, 7) // 'YYYY-MM'
+    const amount = Number(entry.amount) || 0
+
+    if (entry.type === 'INCOME') {
+      incomeByMonth[monthKey] = (incomeByMonth[monthKey] || 0) + amount
+    } else if (entry.type === 'EXPENSE' && entry.expense_group) {
+      if (!expenseByGroupByMonth[entry.expense_group]) {
+        expenseByGroupByMonth[entry.expense_group] = {}
+      }
+      expenseByGroupByMonth[entry.expense_group][monthKey] =
+        (expenseByGroupByMonth[entry.expense_group][monthKey] || 0) + amount
+
+      if (entry.expense_category) {
+        const catKey = entry.expense_category as string
+        if (!expenseByCategoryByMonth[catKey]) {
+          expenseByCategoryByMonth[catKey] = { group: entry.expense_group, values: {} }
+        }
+        expenseByCategoryByMonth[catKey].values[monthKey] =
+          (expenseByCategoryByMonth[catKey].values[monthKey] || 0) + amount
+      }
+    }
+  }
+
+  const allMonthsSet = new Set<string>([
+    ...Object.keys(incomeByMonth),
+    ...Object.values(expenseByGroupByMonth).flatMap((m) => Object.keys(m)),
+  ])
+  const months = Array.from(allMonthsSet).sort()
+
+  const totalIncome = Object.values(incomeByMonth).reduce((s, v) => s + v, 0)
+  const totalIncomeMonthsCount = Object.keys(incomeByMonth).length
+
+  const rows: HubRow[] = HUB_GROUPS
+    .filter((g) => expenseByGroupByMonth[g.group])
+    .map((g) => {
+      const values = expenseByGroupByMonth[g.group] || {}
+      const totalSum = Object.values(values).reduce((s, v) => s + v, 0)
+      const closedMonthsWithData = Object.values(values).filter((v) => v > 0).length
+      const averageRS = closedMonthsWithData > 0 ? totalSum / closedMonthsWithData : 0
+      const averagePct = totalIncome > 0 ? (totalSum / totalIncome) * 100 : 0
+
+      const subRows: HubSubRow[] = Object.entries(expenseByCategoryByMonth)
+        .filter(([, cd]) => cd.group === g.group)
+        .sort(([a], [b]) => (CATEGORY_ORDER_MAP[a] ?? 999) - (CATEGORY_ORDER_MAP[b] ?? 999))
+        .map(([catKey, cd]) => {
+          const catValues = cd.values
+          const catTotalSum = Object.values(catValues).reduce((s, v) => s + v, 0)
+          const catClosedMonths = Object.values(catValues).filter((v) => v > 0).length
+          const catAverageRS = catClosedMonths > 0 ? catTotalSum / catClosedMonths : 0
+          const catAveragePct = totalIncome > 0 ? (catTotalSum / totalIncome) * 100 : 0
+          return {
+            categoryKey: catKey,
+            label: CATEGORY_LABEL_MAP[catKey] || catKey,
+            values: catValues,
+            totalSum: catTotalSum,
+            closedMonthsWithData: catClosedMonths,
+            averageRS: Math.round(catAverageRS * 100) / 100,
+            averagePct: Math.round(catAveragePct * 100) / 100,
+          }
+        })
+
+      return {
+        group: g.group,
+        label: g.label,
+        values,
+        totalSum,
+        closedMonthsWithData,
+        averageRS: Math.round(averageRS * 100) / 100,
+        averagePct: Math.round(averagePct * 100) / 100,
+        subRows,
+      }
+    })
+
+  return { months, rows, incomeByMonth, totalIncome, totalIncomeMonthsCount }
+}
+
+/**
  * Extrai os percentuais de estrutura do Hub para alimentar tenant_expense_config.
  * Retorna os percentuais em DECIMAL 0-1 (ex: 0.1049 = 10,49%).
  */

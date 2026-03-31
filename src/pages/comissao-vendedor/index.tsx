@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react'
-import { Select, Table, Tag, DatePicker, Space, message, Button, Statistic, Card, Empty } from 'antd'
+import { Select, Table, Tag, DatePicker, Space, message, Button, Statistic, Card, Empty, Tooltip } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import dayjs from 'dayjs'
 import { Layout } from '@/components/layout/layout.component'
@@ -17,6 +17,7 @@ import {
   DollarOutlined,
   PercentageOutlined,
   DownloadOutlined,
+  SplitCellsOutlined,
 } from '@ant-design/icons'
 import { ExportFormatModal } from '@/components/ui/export-format-modal.component'
 
@@ -30,6 +31,7 @@ interface CommissionRow {
   commission_percent: number
   base_revenue: number
   commission_value: number
+  payment_mode: 'FULL' | 'INSTALLMENT'
 }
 
 export default function CommissionPage() {
@@ -41,7 +43,7 @@ export default function CommissionPage() {
   const [selectedEmployee, setSelectedEmployee] = useState<string | undefined>(undefined)
   const [commissionData, setCommissionData] = useState<CommissionRow[]>([])
 
-  // Fetch employees (all active — commission may come from employee or product/service)
+  // Fetch employees list for the filter dropdown (all active)
   useEffect(() => {
     ;(async () => {
       const tenantId = await getTenantId()
@@ -55,7 +57,7 @@ export default function CommissionPage() {
     })()
   }, [])
 
-  // Fetch commission data
+  // Fetch commission data whenever selected month changes
   useEffect(() => {
     let cancelled = false
     ;(async () => {
@@ -67,9 +69,10 @@ export default function CommissionPage() {
         const start = month.startOf('month').format('YYYY-MM-DD')
         const end = month.endOf('month').format('YYYY-MM-DD')
 
+        // Fetch employees including commission_payment_mode
         const { data: emps } = await supabase
           .from('employees')
-          .select('id, name, commission_percent')
+          .select('id, name, commission_percent, commission_payment_mode')
           .eq('status', 'ACTIVE')
           .eq('is_active', true)
 
@@ -77,6 +80,7 @@ export default function CommissionPage() {
           id: e.id,
           name: e.name,
           commission_percent: Number(e.commission_percent) || 0,
+          payment_mode: (e.commission_payment_mode as 'FULL' | 'INSTALLMENT') || 'FULL',
         }))
 
         if (allEmployees.length === 0) {
@@ -85,13 +89,19 @@ export default function CommissionPage() {
         }
 
         const empMap = new Map(
-          allEmployees.map((e: any) => [
+          allEmployees.map((e) => [
             e.id,
-            { name: e.name, commission_percent: e.commission_percent, base_revenue: 0, commission_value: 0 },
+            {
+              name: e.name,
+              commission_percent: e.commission_percent,
+              payment_mode: e.payment_mode,
+              base_revenue: 0,
+              commission_value: 0,
+            },
           ]),
         )
 
-        // Completed services — fetch service_id to look up service commission
+        // ── Completed services ──
         const { data: services } = await supabase
           .from('completed_services')
           .select('employee_id, total_revenue, service_id')
@@ -99,7 +109,6 @@ export default function CommissionPage() {
           .gte('service_date', start)
           .lte('service_date', end)
 
-        // Get service commission_percent for effective commission lookup
         const serviceIds = [...new Set((services || []).map((s: any) => s.service_id).filter(Boolean))]
         let svcCommMap = new Map<string, number>()
         if (serviceIds.length > 0) {
@@ -111,6 +120,9 @@ export default function CommissionPage() {
           if (!s.employee_id) continue
           const emp = empMap.get(s.employee_id)
           if (!emp) continue
+
+          // For services, INSTALLMENT mode: look for cash_entries linked to completed_service
+          // (services are typically paid in full or handled via cash flow — treat as FULL for services)
           const rev = Number(s.total_revenue) || 0
           const svcComm = s.service_id ? (svcCommMap.get(s.service_id) || 0) : 0
           const effectivePct = getEffectiveCommissionPercent(emp.commission_percent, svcComm)
@@ -119,33 +131,23 @@ export default function CommissionPage() {
           emp.commission_value += rev * (effectivePct / 100)
         }
 
-        // Sales (both budget and counter sales with employee)
-        // employee_id may not exist on sales table if migration not applied — query gracefully
+        // ── Sales ──
         let salesData: any[] = []
         try {
           const { data } = await supabase
             .from('sales')
-            .select('id, final_value, budget_id, employee_id')
+            .select('id, final_value, budget_id, employee_id, sale_date')
             .eq('is_active', true)
-            .gte('sale_date', start)
-            .lte('sale_date', end)
           salesData = data || []
         } catch {
-          // Fallback: query without employee_id if column doesn't exist
           const { data } = await supabase
             .from('sales')
-            .select('id, final_value, budget_id')
+            .select('id, final_value, budget_id, sale_date')
             .eq('is_active', true)
-            .gte('sale_date', start)
-            .lte('sale_date', end)
           salesData = (data || []).map((s: any) => ({ ...s, employee_id: null }))
         }
 
-        // For budget sales, get employee from budget; fallback to sale.employee_id
-        const budgetSales = salesData.filter((s: any) => s.budget_id)
-        const directSales = salesData.filter((s: any) => !s.budget_id && s.employee_id)
-
-        // Get all sale_items for product commission lookup (both budget and direct)
+        // Get all sale_items for product commission lookup
         const allSaleIds = salesData.map((s: any) => s.id)
         let allSaleItemRows: any[] = []
         let allProdCommMap = new Map<string, number>()
@@ -158,6 +160,7 @@ export default function CommissionPage() {
             allProdCommMap = new Map((prods || []).map((p: any) => [p.id, Number(p.commission_percent) || 0]))
           }
         }
+
         // Map sale_id → max product commission
         const saleProdCommMap = new Map<string, number>()
         for (const si of allSaleItemRows) {
@@ -166,27 +169,96 @@ export default function CommissionPage() {
           if (pComm > cur) saleProdCommMap.set(si.sale_id, pComm)
         }
 
+        // Fetch cash_entries for all sales (to support INSTALLMENT distribution)
+        // cash_entries with origin_type='SALE' and origin_id in sale ids
+        let cashEntriesBySale = new Map<string, { due_date: string; amount: number }[]>()
+        if (allSaleIds.length > 0) {
+          try {
+            const { data: ceRows } = await supabase
+              .from('cash_entries')
+              .select('origin_id, amount, due_date')
+              .eq('origin_type', 'SALE')
+              .eq('type', 'IN')
+              .in('origin_id', allSaleIds)
+            for (const ce of ceRows || []) {
+              if (!ce.origin_id || !ce.due_date) continue
+              const existing = cashEntriesBySale.get(ce.origin_id) || []
+              existing.push({ due_date: ce.due_date, amount: Number(ce.amount) || 0 })
+              cashEntriesBySale.set(ce.origin_id, existing)
+            }
+          } catch {
+            // If cash_entries query fails, fall back to FULL mode for all
+          }
+        }
+
+        /**
+         * Apply commission for a single sale to the employee accumulator.
+         * For FULL mode: entire commission credited in the selected month (if sale_date is in month).
+         * For INSTALLMENT mode: commission distributed proportionally across installment due_dates.
+         *   Only the portion whose due_date falls in the selected month is credited.
+         */
+        function applySaleCommission(
+          emp: { base_revenue: number; commission_value: number; payment_mode: 'FULL' | 'INSTALLMENT' },
+          saleId: string,
+          saleDate: string,
+          finalValue: number,
+          effectivePct: number,
+        ) {
+          if (effectivePct <= 0 || finalValue <= 0) return
+
+          if (emp.payment_mode === 'FULL') {
+            // Credit only if sale_date is in the selected month
+            if (saleDate >= start && saleDate <= end) {
+              emp.base_revenue += finalValue
+              emp.commission_value += finalValue * (effectivePct / 100)
+            }
+          } else {
+            // INSTALLMENT: distribute commission by cash_entry due_dates
+            const entries = cashEntriesBySale.get(saleId)
+            if (!entries || entries.length === 0) {
+              // No installment data — fallback: credit in the sale month
+              if (saleDate >= start && saleDate <= end) {
+                emp.base_revenue += finalValue
+                emp.commission_value += finalValue * (effectivePct / 100)
+              }
+              return
+            }
+
+            const totalInstallments = entries.reduce((s, e) => s + e.amount, 0)
+            if (totalInstallments <= 0) return
+
+            // Sum entries whose due_date falls in the selected month
+            const monthlyEntries = entries.filter(e => e.due_date >= start && e.due_date <= end)
+            const monthlyAmount = monthlyEntries.reduce((s, e) => s + e.amount, 0)
+            if (monthlyAmount <= 0) return
+
+            // Commission proportion = monthlyAmount / totalInstallments * total commission
+            const proportion = monthlyAmount / totalInstallments
+            emp.base_revenue += finalValue * proportion
+            emp.commission_value += finalValue * proportion * (effectivePct / 100)
+          }
+        }
+
+        // Budget sales
+        const budgetSales = salesData.filter((s: any) => s.budget_id)
+        const directSales = salesData.filter((s: any) => !s.budget_id && s.employee_id)
+
         if (budgetSales.length) {
           const budgetIds = [...new Set(budgetSales.map((s: any) => s.budget_id).filter(Boolean))]
           const { data: budgets } = await supabase.from('budgets').select('id, employee_id').in('id', budgetIds)
           const budgetEmp = new Map((budgets || []).map((b: any) => [b.id, b.employee_id]))
 
           for (const sale of budgetSales as any[]) {
-            // Try budget employee first, fallback to sale.employee_id
             const empId = budgetEmp.get(sale.budget_id) || sale.employee_id
             if (!empId) continue
             const emp = empMap.get(empId)
             if (!emp) continue
             const prodComm = saleProdCommMap.get(sale.id) || 0
             const effectivePct = getEffectiveCommissionPercent(emp.commission_percent, prodComm)
-            if (effectivePct <= 0) continue
-            const val = Number(sale.final_value) || 0
-            emp.base_revenue += val
-            emp.commission_value += val * (effectivePct / 100)
+            applySaleCommission(emp, sale.id, sale.sale_date || '', Number(sale.final_value) || 0, effectivePct)
           }
         }
 
-        // Direct sales (counter sales with employee_id on the sale itself)
         if (directSales.length) {
           for (const sale of directSales as any[]) {
             const empId = sale.employee_id
@@ -195,26 +267,23 @@ export default function CommissionPage() {
             if (!emp) continue
             const prodComm = saleProdCommMap.get(sale.id) || 0
             const effectivePct = getEffectiveCommissionPercent(emp.commission_percent, prodComm)
-            if (effectivePct <= 0) continue
-            const val = Number(sale.final_value) || 0
-            emp.base_revenue += val
-            emp.commission_value += val * (effectivePct / 100)
+            applySaleCommission(emp, sale.id, sale.sale_date || '', Number(sale.final_value) || 0, effectivePct)
           }
         }
 
         if (!cancelled) {
-          // Only show employees that actually have commission data
           const rows = allEmployees
-            .filter((e: any) => {
+            .filter((e) => {
               const emp = empMap.get(e.id)
               return emp && (emp.base_revenue > 0 || emp.commission_percent > 0)
             })
-            .map((e: any) => ({
+            .map((e) => ({
               employee_id: e.id,
               name: e.name,
               commission_percent: empMap.get(e.id)?.commission_percent ?? 0,
               base_revenue: empMap.get(e.id)?.base_revenue ?? 0,
               commission_value: empMap.get(e.id)?.commission_value ?? 0,
+              payment_mode: empMap.get(e.id)?.payment_mode ?? 'FULL',
             }))
           setCommissionData(rows)
         }
@@ -251,6 +320,23 @@ export default function CommissionPage() {
       width: 120,
       align: 'center',
       render: (v: number) => <Tag color="purple">{v}%</Tag>,
+    },
+    {
+      title: 'Modo Pagamento',
+      dataIndex: 'payment_mode',
+      key: 'payment_mode',
+      width: 160,
+      align: 'center',
+      render: (v: 'FULL' | 'INSTALLMENT') =>
+        v === 'INSTALLMENT' ? (
+          <Tooltip title="Comissão distribuída conforme parcelamento do cliente">
+            <Tag color="orange" icon={<SplitCellsOutlined />}>Parcelado</Tag>
+          </Tooltip>
+        ) : (
+          <Tooltip title="Comissão paga integralmente no mês da venda">
+            <Tag color="green">Mês da Venda</Tag>
+          </Tooltip>
+        ),
     },
     {
       title: 'Base (Receita)',
@@ -380,10 +466,11 @@ export default function CommissionPage() {
               <Table.Summary.Row style={{ background: '#1e1b4b' }}>
                 <Table.Summary.Cell index={0}><strong style={{ color: '#e2e8f0' }}>TOTAL</strong></Table.Summary.Cell>
                 <Table.Summary.Cell index={1} />
-                <Table.Summary.Cell index={2} align="right">
+                <Table.Summary.Cell index={2} />
+                <Table.Summary.Cell index={3} align="right">
                   <strong style={{ color: '#e2e8f0' }}>{formatCurrency(totalBase)}</strong>
                 </Table.Summary.Cell>
-                <Table.Summary.Cell index={3} align="right">
+                <Table.Summary.Cell index={4} align="right">
                   <strong style={{ color: '#a78bfa' }}>{formatCurrency(totalCommission)}</strong>
                 </Table.Summary.Cell>
               </Table.Summary.Row>

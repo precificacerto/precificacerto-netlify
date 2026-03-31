@@ -1,5 +1,5 @@
 import { supabase } from '@/supabase/client'
-import { calculateHubData, extractStructurePercents } from '@/utils/hub-engine'
+import { calculateHubDataPrevMonth, extractStructurePercents } from '@/utils/hub-engine'
 
 export interface ExpenseConfigResult {
   production_labor_cost: number
@@ -18,18 +18,18 @@ export interface ExpenseConfigResult {
 const round2 = (v: number) => Math.round(v * 100) / 100
 
 /**
- * Recalcula percentuais de despesa baseando-se exclusivamente em meses encerrados,
+ * Recalcula percentuais de despesa baseando-se APENAS no mês anterior ao mês atual,
  * usando os dados do Hub (cash_entries).
  *
- * Fórmula: % = (soma_grupo_meses_encerrados / soma_INCOME_meses_encerrados) × 100
+ * Fórmula: % = (soma_grupo_mês_anterior / soma_INCOME_mês_anterior) × 100
  *
- * Apenas meses encerrados (due_date < início do mês atual) são considerados.
+ * Apenas o mês anterior (due_date >= início mês anterior e < início mês atual) é considerado.
  * O mês em andamento é excluído para evitar distorção.
  */
 export async function recalcExpenseConfigFromCashflow(
   tenantId: string,
 ): Promise<ExpenseConfigResult | null> {
-  const hubData = await calculateHubData(tenantId)
+  const hubData = await calculateHubDataPrevMonth(tenantId)
 
   if (hubData.months.length === 0 || hubData.totalIncome === 0) return null
 

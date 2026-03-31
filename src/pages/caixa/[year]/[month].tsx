@@ -214,7 +214,7 @@ function Cashier() {
       const cashierMonth = monthsRes.data
 
       const incomes: IPaymentRevenueTitleModel[] = entries
-        .filter((e: any) => e.type === 'INCOME')
+        .filter((e: any) => e.type === 'INCOME' && e.origin_type !== 'PREV_MONTH_BALANCE')
         .map((e: any) => ({
           id: e.id,
           date: e.due_date ? new Date(e.due_date) : new Date(),

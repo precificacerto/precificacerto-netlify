@@ -144,6 +144,7 @@ export interface Employee {
     notes?: string | null
     avatar_url?: string | null
     commission_percent?: number | null
+    commission_payment_mode?: 'FULL' | 'INSTALLMENT' | null
     user_id?: string | null
     pending_permissions?: Record<string, any> | null
     created_at: string

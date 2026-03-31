@@ -10,12 +10,9 @@ import {
     BankOutlined,
     TeamOutlined,
     SaveOutlined,
-    InfoCircleOutlined,
-    DollarOutlined,
     LockOutlined,
     SettingOutlined,
 } from '@ant-design/icons'
-import { mergeExpenseConfig } from '@/utils/recalc-expense-config'
 import { useAuth } from '@/hooks/use-auth.hook'
 import { CALC_TYPE_ENUM } from '@/shared/enums/calc-type'
 import { UNIT_MEASURE_ENUM } from '@/shared/enums/unit-measure-type'
@@ -385,8 +382,6 @@ function Settings() {
     const [adminHoursPerDay, setAdminHoursPerDay] = useState(8)
     const [adminDaysPerMonth, setAdminDaysPerMonth] = useState(22)
 
-    const [expenseConfig, setExpenseConfig] = useState<any>(null)
-
     const getTenantId = async (): Promise<string | null> => fetchTenantId()
 
     const fetchAll = async () => {
@@ -395,11 +390,10 @@ function Settings() {
             const tenantId = await getTenantId()
             if (!tenantId) { messageApi.error('Não foi possível identificar o tenant.'); return }
 
-            const [tenantRes, settingsRes, statesRes, expCfgRes] = await Promise.all([
+            const [tenantRes, settingsRes, statesRes] = await Promise.all([
                 supabase.from('tenants').select('*').eq('id', tenantId).single(),
                 supabase.from('tenant_settings').select('*').eq('tenant_id', tenantId).single(),
                 supabase.from('brazilian_states').select('*').order('code', { ascending: true }),
-                supabase.from('tenant_expense_config').select('*').eq('tenant_id', tenantId).single(),
             ])
 
             if (tenantRes.data) {
@@ -428,17 +422,6 @@ function Settings() {
             }
 
             if (statesRes.data) setBrazilianStates(statesRes.data)
-            if (expCfgRes.data) {
-                const e = expCfgRes.data as any
-                const adminMonthly =
-                    (Number(e.admin_salary_total) || 0) +
-                    (Number(e.admin_fgts_total) || 0) +
-                    (Number(e.admin_other_costs) || 0)
-                setExpenseConfig({
-                    ...e,
-                    admin_labor_monthly: adminMonthly,
-                })
-            }
         } catch (error: any) {
             console.error('Erro ao carregar configurações:', error)
             messageApi.error('Erro ao carregar configurações: ' + (error.message || 'Erro desconhecido'))
@@ -461,9 +444,9 @@ function Settings() {
             numProductiveSectorEmployee: s.num_productive_employees ?? 1,
             numAdministrativeSectorEmployee: s.num_administrative_employees ?? 0,
             taxableRegime: reg,
-            taxableRegimeValue: Number(expenseConfig?.taxable_regime_percent) || 0,
+            taxableRegimeValue: 0,
         })
-    }, [tenantSettings, expenseConfig, calcForm])
+    }, [tenantSettings, calcForm])
 
     async function handleSaveBusiness() {
         try {
@@ -611,98 +594,6 @@ function Settings() {
         }
     }
 
-    async function handleSaveExpenseConfig() {
-        try {
-            if (!expenseConfig) {
-                const tenantId = await getTenantId()
-                if (!tenantId) return
-                const { error } = await supabase.from('tenant_expense_config').insert({
-                    tenant_id: tenantId,
-                    indirect_labor_percent: expenseConfig?.indirect_labor_percent ?? 0,
-                    fixed_expense_percent: expenseConfig?.fixed_expense_percent ?? 0,
-                    variable_expense_percent: expenseConfig?.variable_expense_percent ?? 0,
-                    financial_expense_percent: expenseConfig?.financial_expense_percent ?? 0,
-                    production_labor_cost: expenseConfig?.production_labor_cost ?? 0,
-                    admin_salary_total: expenseConfig?.admin_labor_monthly ?? 0,
-                    admin_fgts_total: 0,
-                    admin_other_costs: 0,
-                    admin_labor_percent: expenseConfig?.indirect_labor_percent ?? 0,
-                    commission_percent: expenseConfig?.commission_percent ?? 0,
-                    taxable_regime_percent: expenseConfig?.taxable_regime_percent ?? 0,
-                    updated_at: new Date().toISOString(),
-                })
-                if (error) throw error
-            } else {
-                const { error } = await supabase.from('tenant_expense_config').update({
-                    indirect_labor_percent: expenseConfig.indirect_labor_percent ?? 0,
-                    production_labor_cost: expenseConfig.production_labor_cost ?? 0,
-                    admin_salary_total: expenseConfig.admin_labor_monthly ?? 0,
-                    admin_fgts_total: 0,
-                    admin_other_costs: 0,
-                    admin_labor_percent: expenseConfig.indirect_labor_percent ?? 0,
-                    fixed_expense_percent: expenseConfig.fixed_expense_percent ?? 0,
-                    variable_expense_percent: expenseConfig.variable_expense_percent ?? 0,
-                    financial_expense_percent: expenseConfig.financial_expense_percent ?? 0,
-                    commission_percent: expenseConfig.commission_percent ?? 0,
-                    updated_at: new Date().toISOString(),
-                }).eq('id', expenseConfig.id)
-                if (error) throw error
-            }
-            messageApi.success('Custos e despesas atualizados!')
-            await fetchAll()
-        } catch (error: any) {
-            messageApi.error('Erro ao salvar: ' + (error.message || 'Erro'))
-        }
-    }
-
-    const [recalcLoading, setRecalcLoading] = useState(false)
-
-    async function handleRecalcFromCashflow() {
-        setRecalcLoading(true)
-        try {
-            const tenantId = await getTenantId()
-            if (!tenantId) return
-
-            const result = await mergeExpenseConfig(tenantId)
-            if (!result) {
-                messageApi.warning('Sem despesas ou faturamento registrado para recalcular.')
-                setRecalcLoading(false)
-                return
-            }
-
-            const totalStructure = (
-                result.indirect_labor_percent +
-                result.fixed_expense_percent +
-                result.variable_expense_percent +
-                result.financial_expense_percent
-            ).toFixed(2)
-
-            // Atualiza o estado local com os valores recalculados, incluindo MO administrativa em R$/mês.
-            setExpenseConfig((prev: any) => ({
-                ...(prev || {}),
-                production_labor_cost: result.production_labor_cost,
-                admin_labor_monthly: result.admin_labor_monthly,
-                indirect_labor_percent: result.indirect_labor_percent,
-                fixed_expense_percent: result.fixed_expense_percent,
-                variable_expense_percent: result.variable_expense_percent,
-                financial_expense_percent: result.financial_expense_percent,
-            }))
-            messageApi.success(
-                `Percentuais recalculados! Estrutura total: ${totalStructure}%. Esses valores serão usados automaticamente na precificação dos produtos.`,
-                5,
-            )
-            await fetchAll()
-        } catch (error: any) {
-            messageApi.error('Erro ao recalcular: ' + (error.message || 'Erro'))
-        } finally {
-            setRecalcLoading(false)
-        }
-    }
-
-    useEffect(() => {
-        if (activeTab !== 'costs') return
-        handleRecalcFromCashflow()
-    }, [activeTab])
 
     const totalMonthlyHours = hoursPerDay * daysPerMonth
     const adminTotalMonthlyHours = adminHoursPerDay * adminDaysPerMonth
@@ -762,160 +653,6 @@ function Settings() {
                             forceRender: true,
                             label: (<span><BankOutlined style={{ marginRight: 6 }} />Fiscal / Tributário</span>),
                             children: <TaxTabContent taxForm={taxForm} brazilianStates={brazilianStates} tenantSettings={tenantSettings} loading={loading} onSave={handleSaveTax} />,
-                        },
-                        {
-                            key: 'costs',
-                            label: (<span><DollarOutlined style={{ marginRight: 6 }} />Custos / Despesas</span>),
-                            children: (
-                                <div style={{ maxWidth: 720 }}>
-                                    <p style={{ color: 'var(--color-neutral-500)', fontSize: 13, marginBottom: 8 }}>
-                                        Percentuais de custos e despesas usados na precificação de produtos e serviços.
-                                    </p>
-                                    <Alert
-                                        type="info" showIcon
-                                        message="Esses valores são calculados automaticamente quando você configura o fluxo de caixa. Você também pode ajustá-los manualmente aqui."
-                                        style={{ marginBottom: 20, borderRadius: 8 }}
-                                    />
-
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>
-                                        <Card size="small" style={{ borderRadius: 8, background: '#F0F9FF', border: '1px solid #BAE6FD' }}>
-                                            <div style={{ fontSize: 12, color: 'var(--color-neutral-600)', marginBottom: 4 }}>
-                                                Mão de obra produtiva (R$/mês)
-                                            </div>
-                                            <div style={{ fontSize: 13, color: '#38bdf8', marginTop: 4 }}>
-                                                Custo total mensal com o setor produtivo: salários, INSS, férias e encargos da equipe que produz. Esse valor é distribuído por hora/minuto e entra no CMV de cada produto/serviço.
-                                            </div>
-                                        </Card>
-                                        <Card size="small" style={{ borderRadius: 8 }}>
-                                            <div style={{ fontSize: 12, color: 'var(--color-neutral-500)', marginBottom: 4 }}>
-                                                Custo Total Mão de Obra Produtiva (R$/mês)
-                                            </div>
-                                            <InputNumber
-                                                min={0} step={100} precision={2}
-                                                value={Number(expenseConfig?.production_labor_cost) || 0}
-                                                onChange={(v) => setExpenseConfig((prev: any) => ({ ...prev, production_labor_cost: v ?? 0 }))}
-                                                style={{ width: '100%' }}
-                                                prefix="R$"
-                                            />
-                                            <div style={{ fontSize: 11, color: 'var(--color-neutral-400)', marginTop: 4 }}>
-                                                Valor total gasto com mão de obra produtiva por mês
-                                            </div>
-                                        </Card>
-                                        <Card size="small" style={{ borderRadius: 8 }}>
-                                            <div style={{ fontSize: 12, color: 'var(--color-neutral-500)', marginBottom: 4 }}>
-                                                Mão de obra administrativa (R$/mês)
-                                            </div>
-                                            <InputNumber
-                                                min={0} step={100} precision={2}
-                                                value={Number(expenseConfig?.admin_labor_monthly) || 0}
-                                                onChange={(v) => setExpenseConfig((prev: any) => ({ ...prev, admin_labor_monthly: v ?? 0 }))}
-                                                style={{ width: '100%' }}
-                                                prefix="R$"
-                                            />
-                                            <div style={{ fontSize: 11, color: 'var(--color-neutral-400)', marginTop: 4 }}>
-                                                Custo total mensal com pró-labore, salários comerciais e administrativos
-                                            </div>
-                                        </Card>
-                                        <Card size="small" style={{ borderRadius: 8 }}>
-                                            <div style={{ fontSize: 12, color: 'var(--color-neutral-500)', marginBottom: 4 }}>
-                                                Mão de obra administrativa (%)
-                                            </div>
-                                            <InputNumber
-                                                min={0} max={100} step={0.1} precision={2}
-                                                value={Number(expenseConfig?.indirect_labor_percent) || 0}
-                                                onChange={(v) => setExpenseConfig((prev: any) => ({ ...prev, indirect_labor_percent: v ?? 0 }))}
-                                                style={{ width: '100%' }}
-                                                formatter={(v) => `${v}%`}
-                                                parser={(v) => Number((v || '0').replace('%', ''))}
-                                            />
-                                            <div style={{ fontSize: 11, color: 'var(--color-neutral-400)', marginTop: 4 }}>
-                                                Pró-labore e salários administrativos como % do faturamento
-                                            </div>
-                                        </Card>
-                                        <Card size="small" style={{ borderRadius: 8 }}>
-                                            <div style={{ fontSize: 12, color: 'var(--color-neutral-500)', marginBottom: 4 }}>
-                                                Despesas Fixas (%)
-                                            </div>
-                                            <InputNumber
-                                                min={0} max={100} step={0.1} precision={2}
-                                                value={Number(expenseConfig?.fixed_expense_percent) || 0}
-                                                onChange={(v) => setExpenseConfig((prev: any) => ({ ...prev, fixed_expense_percent: v ?? 0 }))}
-                                                style={{ width: '100%' }}
-                                                formatter={(v) => `${v}%`}
-                                                parser={(v) => Number((v || '0').replace('%', ''))}
-                                            />
-                                            <div style={{ fontSize: 11, color: 'var(--color-neutral-400)', marginTop: 4 }}>
-                                                Aluguel, água, luz, internet como % do faturamento
-                                            </div>
-                                        </Card>
-                                        <Card size="small" style={{ borderRadius: 8 }}>
-                                            <div style={{ fontSize: 12, color: 'var(--color-neutral-500)', marginBottom: 4 }}>
-                                                Despesas Variáveis (%)
-                                            </div>
-                                            <InputNumber
-                                                min={0} max={100} step={0.1} precision={2}
-                                                value={Number(expenseConfig?.variable_expense_percent) || 0}
-                                                onChange={(v) => setExpenseConfig((prev: any) => ({ ...prev, variable_expense_percent: v ?? 0 }))}
-                                                style={{ width: '100%' }}
-                                                formatter={(v) => `${v}%`}
-                                                parser={(v) => Number((v || '0').replace('%', ''))}
-                                            />
-                                            <div style={{ fontSize: 11, color: 'var(--color-neutral-400)', marginTop: 4 }}>
-                                                Embalagens, matéria-prima, marketing como % do faturamento
-                                            </div>
-                                        </Card>
-                                        <Card size="small" style={{ borderRadius: 8 }}>
-                                            <div style={{ fontSize: 12, color: 'var(--color-neutral-500)', marginBottom: 4 }}>
-                                                Despesas Financeiras (%)
-                                            </div>
-                                            <InputNumber
-                                                min={0} max={100} step={0.1} precision={2}
-                                                value={Number(expenseConfig?.financial_expense_percent) || 0}
-                                                onChange={(v) => setExpenseConfig((prev: any) => ({ ...prev, financial_expense_percent: v ?? 0 }))}
-                                                style={{ width: '100%' }}
-                                                formatter={(v) => `${v}%`}
-                                                parser={(v) => Number((v || '0').replace('%', ''))}
-                                            />
-                                            <div style={{ fontSize: 11, color: 'var(--color-neutral-400)', marginTop: 4 }}>
-                                                Taxas de cartão, tarifas bancárias, juros como % do faturamento
-                                            </div>
-                                        </Card>
-                                        <Card size="small" style={{ borderRadius: 8 }}>
-                                            <div style={{ fontSize: 12, color: 'var(--color-neutral-500)', marginBottom: 4 }}>
-                                                Comissão Vendedor (%)
-                                            </div>
-                                            <InputNumber
-                                                min={0} max={100} step={0.1} precision={2}
-                                                value={Number(expenseConfig?.commission_percent) || 0}
-                                                onChange={(v) => setExpenseConfig((prev: any) => ({ ...prev, commission_percent: v ?? 0 }))}
-                                                style={{ width: '100%' }}
-                                                formatter={(v) => `${v}%`}
-                                                parser={(v) => Number((v || '0').replace('%', ''))}
-                                            />
-                                            <div style={{ fontSize: 11, color: 'var(--color-neutral-400)', marginTop: 4 }}>
-                                                Percentual padrão de comissão sobre a venda
-                                            </div>
-                                        </Card>
-                                    </div>
-
-                                    <Alert
-                                        type="info"
-                                        showIcon
-                                        icon={<InfoCircleOutlined />}
-                                        style={{ marginBottom: 16 }}
-                                        message="Esses percentuais são usados automaticamente na precificação de todos os seus produtos."
-                                        description="Ao alterar ou recalcular os custos, o preço sugerido dos produtos será atualizado na próxima vez que você abrir a página de cada produto."
-                                    />
-                                    <div style={{ display: 'flex', gap: 12 }}>
-                                        <Button type="primary" icon={<SaveOutlined />} onClick={handleSaveExpenseConfig} loading={loading}>
-                                            Salvar Custos e Despesas
-                                        </Button>
-                                        <Button icon={<InfoCircleOutlined />} onClick={handleRecalcFromCashflow} loading={recalcLoading}>
-                                            Recalcular do Fluxo de Caixa
-                                        </Button>
-                                    </div>
-                                </div>
-                            ),
                         },
                         {
                             key: 'team',

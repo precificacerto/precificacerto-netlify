@@ -48,7 +48,7 @@ const PAYMENT_METHODS = [
 ]
 
 const INSTALLMENT_PRESETS = [
-    { value: 'customizado', label: 'Customizado' },
+    { value: 'customizado', label: 'Cheque pré-datado' },
     { value: '30', label: '30' },
     { value: '30_60', label: '30/60' },
     { value: '30_60_90', label: '30/60/90' },

@@ -24,6 +24,7 @@ import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import {
     getExpenseGroupLabel,
     getExpenseGroupColor,
+    EXPENSE_GROUP_OPTIONS,
     type ExpenseGroupKey,
 } from '@/constants/cashier-category'
 
@@ -191,7 +192,7 @@ function getSNGroupForCategory(cat: string): string | undefined {
 }
 
 const INSTALLMENT_PRESETS = [
-    { value: 'customizado', label: 'Customizado' },
+    { value: 'customizado', label: 'Cheque pré-datado' },
     { value: '30', label: '30' },
     { value: '30_60', label: '30/60' },
     { value: '30_60_90', label: '30/60/90' },
@@ -267,6 +268,13 @@ export default function ControleFinanceiro() {
     const [editDrawerOpen, setEditDrawerOpen] = useState(false)
     const [editingEntry, setEditingEntry] = useState<any>(null)
     const [editAmount, setEditAmount] = useState('')
+
+    // Despesas Recorrentes: nova despesa recorrente modal state
+    const [newRecurringOpen, setNewRecurringOpen] = useState(false)
+    const [newRecurringForm] = Form.useForm()
+    const [newRecurringCategory, setNewRecurringCategory] = useState<string>('')
+    const [newRecurringGroup, setNewRecurringGroup] = useState<string>('')
+    const [savingNewRecurring, setSavingNewRecurring] = useState(false)
 
     // Despesas Recorrentes: edit/delete modal state
     const [editRecurringOpen, setEditRecurringOpen] = useState(false)
@@ -536,6 +544,79 @@ export default function ControleFinanceiro() {
             await fetchData()
         } catch {
             messageApi.error('Erro ao excluir lançamento.')
+        }
+    }
+
+    // ── Salvar Nova Despesa Recorrente ──
+    const handleSaveNewRecurring = async () => {
+        try {
+            const values = await newRecurringForm.validateFields()
+            setSavingNewRecurring(true)
+            const tenant_id = await getTenantId()
+            if (!tenant_id) return
+            const sbf = supabase as any
+
+            const group = activeGroupForCategory(values.category) || 'DESPESA_FIXA'
+            const due_day = values.due_day
+
+            // Insert into recurring_expense_rules
+            const { error: ruleErr } = await sbf.from('recurring_expense_rules').insert({
+                tenant_id,
+                category: values.category,
+                expense_group: group,
+                amount: values.amount,
+                due_day,
+                description: values.description || null,
+                is_active: true,
+            })
+            if (ruleErr) throw ruleErr
+
+            // Generate cash_entries for the next 12 months (starting from current month)
+            const today = dayjs()
+            const entries: any[] = []
+            for (let i = 0; i < 12; i++) {
+                const targetMonth = today.add(i, 'month')
+                const year = targetMonth.year()
+                const month = targetMonth.month() + 1
+                const lastDayOfMonth = targetMonth.endOf('month').date()
+                const day = Math.min(due_day, lastDayOfMonth)
+                const due_date = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+                const desc = values.description
+                    ? `${values.category} — ${values.description}`
+                    : values.category
+                entries.push({
+                    tenant_id,
+                    type: 'EXPENSE',
+                    origin_type: 'RECURRING_EXPENSE',
+                    recurrence_type: 'MONTHLY',
+                    expense_group: group,
+                    expense_category: values.category,
+                    description: desc,
+                    amount: values.amount,
+                    due_date,
+                    paid_date: null,
+                    is_active: true,
+                })
+            }
+
+            const { error: entriesErr } = await sbf.from('cash_entries').insert(entries)
+            if (entriesErr) throw entriesErr
+
+            messageApi.success(`Despesa recorrente criada! ${entries.length} lançamentos gerados para os próximos 12 meses.`)
+            setNewRecurringOpen(false)
+            newRecurringForm.resetFields()
+            setNewRecurringCategory('')
+            setNewRecurringGroup('')
+            mergeExpenseConfig(tenant_id).catch(() => {})
+            await fetchData()
+        } catch (err: any) {
+            if (err?.errorFields) {
+                messageApi.warning('Preencha todos os campos obrigatórios.')
+            } else {
+                messageApi.error('Erro ao criar despesa recorrente: ' + (err?.message || 'Erro desconhecido'))
+            }
+        } finally {
+            setSavingNewRecurring(false)
         }
     }
 
@@ -980,6 +1061,7 @@ export default function ControleFinanceiro() {
                             const recurringExpenses = data.filter((e: any) =>
                                 e.type === 'EXPENSE' && (
                                     e.origin_type === 'FIXED_EXPENSE' ||
+                                    e.origin_type === 'RECURRING_EXPENSE' ||
                                     e.origin_type === 'SALARY' ||
                                     e.recurrence_type === 'MONTHLY'
                                 )
@@ -988,12 +1070,28 @@ export default function ControleFinanceiro() {
                             const today = dayjs()
                             return (
                                 <div className="pc-card--table">
+                                    {canEdit(MODULES.CASH_FLOW) && (
+                                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+                                            <Button
+                                                type="primary"
+                                                icon={<PlusOutlined />}
+                                                onClick={() => {
+                                                    newRecurringForm.resetFields()
+                                                    setNewRecurringCategory('')
+                                                    setNewRecurringGroup('')
+                                                    setNewRecurringOpen(true)
+                                                }}
+                                            >
+                                                + Nova Despesa Recorrente
+                                            </Button>
+                                        </div>
+                                    )}
                                     {sorted.length > 0 ? (
                                         <>
                                             <div style={{ marginBottom: 12, fontSize: 13, color: '#94a3b8' }}>
                                                 Despesas recorrentes lançadas em{' '}
                                                 <strong style={{ color: '#e2e8f0' }}>{month.format('MMMM/YYYY')}</strong>
-                                                {' '}— fixas e salários.
+                                                {' '}— fixas, recorrentes e salários.
                                             </div>
                                             <Table
                                                 columns={[
@@ -1016,6 +1114,7 @@ export default function ControleFinanceiro() {
                                                         width: 130,
                                                         render: (v: string) => {
                                                             if (v === 'FIXED_EXPENSE') return <Tag color="orange">Recorrente</Tag>
+                                                            if (v === 'RECURRING_EXPENSE') return <Tag color="purple">Recorrente</Tag>
                                                             if (v === 'SALARY') return <Tag color="blue">Salário</Tag>
                                                             return <Tag>Manual</Tag>
                                                         },
@@ -1078,7 +1177,7 @@ export default function ControleFinanceiro() {
                                         <div style={{ textAlign: 'center', padding: 40, color: '#98A2B3' }}>
                                             <BankOutlined style={{ fontSize: 36, marginBottom: 8 }} />
                                             <p>Nenhuma despesa recorrente encontrada para {month.format('MMMM/YYYY')}.</p>
-                                            <p style={{ fontSize: 12, color: '#64748b' }}>Use "Gerar Contas do Mês" para lançar despesas fixas e salários.</p>
+                                            <p style={{ fontSize: 12, color: '#64748b' }}>Use "Gerar Contas do Mês" para lançar despesas fixas e salários, ou clique em "+ Nova Despesa Recorrente" para criar uma nova.</p>
                                         </div>
                                     )}
                                 </div>
@@ -1193,6 +1292,94 @@ export default function ControleFinanceiro() {
                     },
                 ]}
             />
+
+            {/* Modal: Nova Despesa Recorrente */}
+            <Modal
+                title="Nova Despesa Recorrente"
+                open={newRecurringOpen}
+                onCancel={() => { setNewRecurringOpen(false); newRecurringForm.resetFields(); setNewRecurringCategory(''); setNewRecurringGroup('') }}
+                footer={null}
+                width={520}
+            >
+                <Form form={newRecurringForm} layout="vertical">
+                    <Form.Item
+                        name="category"
+                        label="Tipo de Despesa"
+                        rules={[{ required: true, message: 'Selecione o tipo de despesa' }]}
+                    >
+                        <Select
+                            placeholder="Selecione a categoria"
+                            options={activeCategoryOptions}
+                            showSearch
+                            listHeight={320}
+                            filterOption={(input, option) => (option?.label as string || '').toLowerCase().includes(input.toLowerCase())}
+                            onChange={(val: string) => {
+                                setNewRecurringCategory(val)
+                                const grp = activeGroupForCategory(val) || ''
+                                setNewRecurringGroup(grp)
+                            }}
+                        />
+                    </Form.Item>
+                    <Form.Item label="Grupo">
+                        <Input
+                            value={newRecurringGroup ? (
+                                EXPENSE_GROUP_OPTIONS.find(g => g.value === newRecurringGroup)?.label || newRecurringGroup
+                            ) : ''}
+                            readOnly
+                            placeholder="Preenchido automaticamente"
+                            style={{ background: 'rgba(255,255,255,0.04)', cursor: 'not-allowed', color: '#94a3b8' }}
+                        />
+                    </Form.Item>
+                    <Form.Item
+                        name="description"
+                        label="Descrição (opcional)"
+                    >
+                        <Input placeholder="Ex: Conta de luz da loja" />
+                    </Form.Item>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                        <Form.Item
+                            name="amount"
+                            label="Valor (R$)"
+                            rules={[{ required: true, message: 'Informe o valor' }, { type: 'number', min: 0.01, message: 'Valor deve ser maior que zero' }]}
+                        >
+                            <InputNumber
+                                style={{ width: '100%' }}
+                                prefix="R$"
+                                step={0.01}
+                                min={0.01}
+                                precision={2}
+                                placeholder="0,00"
+                                decimalSeparator=","
+                                thousandSeparator="."
+                            />
+                        </Form.Item>
+                        <Form.Item
+                            name="due_day"
+                            label="Dia do vencimento"
+                            rules={[{ required: true, message: 'Informe o dia' }, { type: 'number', min: 1, max: 31, message: 'Entre 1 e 31' }]}
+                        >
+                            <InputNumber
+                                style={{ width: '100%' }}
+                                min={1}
+                                max={31}
+                                precision={0}
+                                placeholder="Ex: 5"
+                            />
+                        </Form.Item>
+                    </div>
+                    <div style={{ fontSize: 12, color: '#64748b', marginBottom: 16, marginTop: -8 }}>
+                        Serão gerados lançamentos para os próximos 12 meses com <strong>paid_date = null</strong> (pendente de pagamento). Os lançamentos entram no caixa somente quando marcados como pagos.
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                        <Button onClick={() => { setNewRecurringOpen(false); newRecurringForm.resetFields(); setNewRecurringCategory(''); setNewRecurringGroup('') }}>
+                            Cancelar
+                        </Button>
+                        <Button type="primary" loading={savingNewRecurring} onClick={handleSaveNewRecurring}>
+                            Salvar
+                        </Button>
+                    </div>
+                </Form>
+            </Modal>
 
             {/* Modal: Editar Despesa Recorrente */}
             <Modal

@@ -21,7 +21,6 @@ import {
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import { formatCurrencyInput, parseCurrencyInput } from '@/utils/get-monetary-value'
 import dayjs from 'dayjs'
-import { calculateDiscountedPrice } from '@/utils/calculate-discount'
 
 function formatCurrency(v: number): string {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v)
@@ -38,7 +37,7 @@ function buildInstallmentsByPreset(preset: string): { date: any; amount: number 
 }
 
 const INSTALLMENT_PRESETS = [
-    { value: 'customizado', label: 'Customizado' },
+    { value: 'customizado', label: 'Cheque pré-datado' },
     { value: '30', label: '30' },
     { value: '30_60', label: '30/60' },
     { value: '30_60_90', label: '30/60/90' },
@@ -87,14 +86,11 @@ interface BudgetItemRow {
     product_name: string
     quantity: number
     unit_price: number
-    discount: number
-    discount_percent: number
-    max_discount_percent: number | null
     total: number
     commission_table_id?: string | null
-    /** true = item digitado manualmente (não está na base de produtos) */
+    commission_percent?: number
+    profit_percent?: number
     isManual?: boolean
-    /** true = item de serviço do catálogo */
     isService?: boolean
 }
 
@@ -127,9 +123,10 @@ function Budgets() {
     const [attachDesc, setAttachDesc] = useState('')
     const [customerMode, setCustomerMode] = useState<'existing' | 'manual'>('existing')
     const [messageApi, contextHolder] = message.useMessage()
-    const [empProductTables, setEmpProductTables] = useState<{id: string; name: string; type: string}[]>([])
-    const [empServiceTables, setEmpServiceTables] = useState<{id: string; name: string; type: string}[]>([])
+    const [empProductTables, setEmpProductTables] = useState<{id: string; name: string; type: string; commission_percent?: number}[]>([])
+    const [empServiceTables, setEmpServiceTables] = useState<{id: string; name: string; type: string; commission_percent?: number}[]>([])
     const [tableSections, setTableSections] = useState<{key: string; tableId: string | null}[]>([{key: 'ts-0', tableId: null}])
+    const [globalDiscountPercent, setGlobalDiscountPercent] = useState(0)
     const skipTableAutoSelectRef = useRef(false)
 
     useEffect(() => {
@@ -187,9 +184,6 @@ function Budgets() {
             product_name: '',
             quantity: 1,
             unit_price: 0,
-            discount: 0,
-            discount_percent: 0,
-            max_discount_percent: null,
             total: 0,
             isManual: false,
             commission_table_id: tableId,
@@ -203,9 +197,6 @@ function Budgets() {
             product_name: '',
             quantity: 1,
             unit_price: 0,
-            discount: 0,
-            discount_percent: 0,
-            max_discount_percent: null,
             total: 0,
             isManual: true,
         }])
@@ -219,9 +210,6 @@ function Budgets() {
             product_name: '',
             quantity: 1,
             unit_price: 0,
-            discount: 0,
-            discount_percent: 0,
-            max_discount_percent: null,
             total: 0,
             isService: true,
             commission_table_id: tableId,
@@ -230,37 +218,48 @@ function Budgets() {
 
     const handleServiceSelect = (key: string, serviceId: string) => {
         const svc = services.find((s: any) => s.id === serviceId)
-        setBudgetItems(prev => prev.map(item =>
-            item.key === key ? {
+        const allTables = [...empProductTables, ...empServiceTables]
+        setBudgetItems(prev => prev.map(item => {
+            if (item.key !== key) return item
+            const commTable = allTables.find(t => t.id === item.commission_table_id)
+            const commissionPercent = Number(commTable?.commission_percent || 0)
+            const basePrice = Number(svc?.base_price || 0)
+            const costTotal = Number(svc?.cost_total || 0)
+            const profitPercent = basePrice > 0 && costTotal > 0 ? Math.max(0, ((basePrice - costTotal) / basePrice) * 100) : 0
+            return {
                 ...item,
                 service_id: serviceId,
                 product_name: svc?.name || '',
-                unit_price: svc?.base_price || 0,
-                discount_percent: 0,
-                discount: 0,
-                max_discount_percent: null,
-                total: (svc?.base_price || 0) * item.quantity,
+                unit_price: basePrice,
+                commission_percent: commissionPercent,
+                profit_percent: profitPercent,
+                total: basePrice * item.quantity,
                 isService: true,
-            } : item
-        ))
+            }
+        }))
     }
 
     const handleProductSelect = (key: string, productId: string) => {
         const prod = products.find((p: any) => p.id === productId)
-        const maxDiscount = prod?.max_discount_percent != null ? Number(prod.max_discount_percent) : null
-        setBudgetItems(prev => prev.map(item =>
-            item.key === key ? {
+        const allTables = [...empProductTables, ...empServiceTables]
+        setBudgetItems(prev => prev.map(item => {
+            if (item.key !== key) return item
+            const commTable = allTables.find(t => t.id === item.commission_table_id)
+            const commissionPercent = Number(commTable?.commission_percent || 0)
+            const salePrice = Number(prod?.sale_price || 0)
+            const costTotal = Number(prod?.cost_total || 0)
+            const profitPercent = salePrice > 0 && costTotal > 0 ? Math.max(0, ((salePrice - costTotal) / salePrice) * 100) : 0
+            return {
                 ...item,
                 product_id: productId,
                 product_name: prod?.name || '',
-                unit_price: prod?.sale_price || 0,
-                discount_percent: 0,
-                discount: 0,
-                max_discount_percent: maxDiscount,
-                total: (prod?.sale_price || 0) * item.quantity,
+                unit_price: salePrice,
+                commission_percent: commissionPercent,
+                profit_percent: profitPercent,
+                total: salePrice * item.quantity,
                 isManual: false,
-            } : item
-        ))
+            }
+        }))
     }
 
     const handleManualDescriptionChange = (key: string, description: string) => {
@@ -273,23 +272,7 @@ function Budgets() {
         setBudgetItems(prev => prev.map(item => {
             if (item.key !== key) return item
             const updated = { ...item, [field]: value }
-            const subtotal = updated.unit_price * updated.quantity
-            const discPct = updated.discount_percent ?? 0
-            if (discPct > 0) {
-                // Desconto sai apenas da margem (comissão + lucro), não do custo
-                const prod = !updated.isService ? (products as any[]).find((p: any) => p.id === updated.product_id) : null
-                const svc = updated.isService ? (services as any[]).find((s: any) => s.id === updated.service_id) : null
-                const rawCost = Number(prod?.cost_total || svc?.cost_total || 0)
-                // Se cost_total não está preenchido, estimar como 50% do preço de venda (proteção)
-                const unitCost = rawCost > 0 ? rawCost : (updated.unit_price * 0.5)
-                const costWithTaxes = unitCost * updated.quantity
-                const { finalPrice, discountValue } = calculateDiscountedPrice(subtotal, costWithTaxes, discPct)
-                updated.discount = discountValue
-                updated.total = finalPrice
-            } else {
-                updated.discount = 0
-                updated.total = subtotal
-            }
+            updated.total = updated.unit_price * updated.quantity
             return updated
         }))
     }
@@ -300,7 +283,7 @@ function Budgets() {
 
     const selectedEmployeeId = Form.useWatch('employee_id', form)
     const latestEmployeeIdRef = useRef<string | undefined>(undefined)
-    const selectedEmployee = employees.find((e: any) => e.id === selectedEmployeeId)
+    const selectedEmployee = employees.find((e: any) => e.id === selectedEmployeeId) as any
     const sellerCommissionPct = (selectedEmployee?.commission_percent != null && Number(selectedEmployee.commission_percent) > 0)
         ? Number(selectedEmployee.commission_percent) / 100
         : 0
@@ -322,7 +305,7 @@ function Budgets() {
         ;(async () => {
             const { data } = await (supabase as any)
                 .from('employee_commission_tables')
-                .select('commission_tables(id, name, type)')
+                .select('commission_tables(id, name, type, commission_percent)')
                 .eq('employee_id', empIdAtFetch)
             if (empIdAtFetch !== latestEmployeeIdRef.current) return
             const tables = (data || []).map((r: any) => r.commission_tables).filter(Boolean)
@@ -339,12 +322,12 @@ function Budgets() {
     const allEmpTables = useMemo(() => [...empProductTables, ...empServiceTables], [empProductTables, empServiceTables])
     const usedTableIds = tableSections.map(s => s.tableId).filter(Boolean) as string[]
     const employeeHasNoTables = !!selectedEmployeeId && empProductTables.length === 0 && empServiceTables.length === 0
-    const getItemTotalWithCommission = (item: BudgetItemRow) => {
-        const effUnit = item.unit_price  // sempre preço fechado, sem comissão
-        const subtotal = effUnit * item.quantity
-        return subtotal * (1 - (item.discount_percent ?? 0) / 100)
-    }
+    const getItemTotalWithCommission = (item: BudgetItemRow) => item.unit_price * item.quantity
     const budgetTotal = budgetItems.reduce((s, i) => s + getItemTotalWithCommission(i), 0)
+    const maxDiscountPercent = budgetTotal > 0
+        ? Math.min(100, budgetItems.reduce((s, i) => s + i.unit_price * i.quantity * ((i.commission_percent || 0) + (i.profit_percent || 0)) / 100, 0) / budgetTotal * 100)
+        : 100
+    const budgetTotalWithDiscount = budgetTotal * (1 - globalDiscountPercent / 100)
 
     // ── Salvar orçamento ──
     const handleSave = async () => {
@@ -390,7 +373,8 @@ function Budgets() {
                 customer_id: customerId,
                 employee_id: values.employee_id || null,
                 status: 'DRAFT',
-                total_value: budgetTotal,
+                total_value: budgetTotalWithDiscount,
+                global_discount_percent: globalDiscountPercent,
                 expiration_date: values.expiration_date?.format('YYYY-MM-DD') || null,
                 notes: values.notes || null,
             }).select().single()
@@ -400,19 +384,16 @@ function Budgets() {
             // Salvar itens (produto da base, serviço ou item manual)
             const items = budgetItems
                 .filter(i => i.product_id || i.service_id || (i.isManual && i.product_name?.trim()))
-                .map(i => {
-                    const subtotal = i.unit_price * i.quantity
-                    return {
-                        budget_id: budget.id,
-                        product_id: i.product_id || null,
-                        service_id: i.service_id || null,
-                        manual_description: (i.isManual || i.isService) ? (i.product_name?.trim() || null) : null,
-                        quantity: i.quantity,
-                        unit_price: i.unit_price,
-                        discount_percent: i.discount_percent ?? 0,
-                        discount: subtotal * ((i.discount_percent ?? 0) / 100),
-                    }
-                })
+                .map(i => ({
+                    budget_id: budget.id,
+                    product_id: i.product_id || null,
+                    service_id: i.service_id || null,
+                    manual_description: (i.isManual || i.isService) ? (i.product_name?.trim() || null) : null,
+                    quantity: i.quantity,
+                    unit_price: i.unit_price,
+                    discount_percent: 0,
+                    discount: 0,
+                }))
 
             if (items.length > 0) {
                 const { error: itemsErr } = await supabase.from('budget_items').insert(items)
@@ -424,6 +405,7 @@ function Budgets() {
             setDrawerOpen(false)
             form.resetFields()
             setBudgetItems([])
+            setGlobalDiscountPercent(0)
             setEditingBudgetId(null)
         } catch (error: any) {
             messageApi.error('Erro: ' + (error.message || 'Preencha os campos.'))
@@ -464,26 +446,24 @@ function Budgets() {
             const { error } = await supabase.from('budgets').update({
                 customer_id: customerId,
                 employee_id: values.employee_id || null,
-                total_value: budgetTotal,
+                total_value: budgetTotalWithDiscount,
+                global_discount_percent: globalDiscountPercent,
                 expiration_date: values.expiration_date?.format('YYYY-MM-DD') || null,
                 notes: values.notes || null,
                 updated_at: new Date().toISOString(),
             }).eq('id', editingBudgetId)
             if (error) throw error
             await supabase.from('budget_items').delete().eq('budget_id', editingBudgetId)
-            const items = validItems.map(i => {
-                const subtotal = i.unit_price * i.quantity
-                return {
-                    budget_id: editingBudgetId,
-                    product_id: i.product_id || null,
-                    service_id: i.service_id || null,
-                    manual_description: (i.isManual || i.isService) ? (i.product_name?.trim() || null) : null,
-                    quantity: i.quantity,
-                    unit_price: i.unit_price,
-                    discount_percent: i.discount_percent ?? 0,
-                    discount: subtotal * ((i.discount_percent ?? 0) / 100),
-                }
-            })
+            const items = validItems.map(i => ({
+                budget_id: editingBudgetId,
+                product_id: i.product_id || null,
+                service_id: i.service_id || null,
+                manual_description: (i.isManual || i.isService) ? (i.product_name?.trim() || null) : null,
+                quantity: i.quantity,
+                unit_price: i.unit_price,
+                discount_percent: 0,
+                discount: 0,
+            }))
             if (items.length > 0) {
                 const { error: itemsErr } = await supabase.from('budget_items').insert(items)
                 if (itemsErr) throw itemsErr
@@ -493,6 +473,7 @@ function Budgets() {
             setDrawerOpen(false)
             form.resetFields()
             setBudgetItems([])
+            setGlobalDiscountPercent(0)
             setEditingBudgetId(null)
         } catch (error: any) {
             messageApi.error('Erro: ' + (error.message || 'Preencha os campos.'))
@@ -509,7 +490,7 @@ function Budgets() {
         const [itemsResult, tablesResult] = await Promise.all([
             supabase.from('budget_items').select('*, products(id, name, code, max_discount_percent, commission_table_id), services(id, name, commission_table_id), manual_description').eq('budget_id', record.id),
             record.employee_id
-                ? (supabase as any).from('employee_commission_tables').select('commission_tables(id, name, type)').eq('employee_id', record.employee_id)
+                ? (supabase as any).from('employee_commission_tables').select('commission_tables(id, name, type, commission_percent)').eq('employee_id', record.employee_id)
                 : Promise.resolve({ data: [] }),
         ])
 
@@ -538,19 +519,16 @@ function Budgets() {
         setTableSections(sectionsFromEdit)
 
         skipTableAutoSelectRef.current = true
+        setGlobalDiscountPercent(Number(record.global_discount_percent || 0))
 
+        const allLoadedTables = [...(tablesResult.data || []).map((r: any) => r.commission_tables).filter(Boolean)]
         const rows: BudgetItemRow[] = (itemsResult.data || []).map((it: any, idx: number) => {
             const unitPrice = Number(it.unit_price ?? 0)
             const qty = it.quantity ?? 1
-            const subtotal = unitPrice * qty
-            const discountPercent = it.discount_percent != null
-                ? Number(it.discount_percent)
-                : (subtotal > 0 ? (Number(it.discount ?? 0) / subtotal) * 100 : 0)
-            const maxDiscount = it.products?.max_discount_percent != null
-                ? Number(it.products.max_discount_percent)
-                : null
             const isService = !!it.service_id
             const commissionTableId = it.products?.commission_table_id ?? it.services?.commission_table_id ?? null
+            const commTable = allLoadedTables.find((t: any) => t.id === commissionTableId)
+            const commissionPercent = Number(commTable?.commission_percent || 0)
             return {
                 key: `edit-${record.id}-${idx}`,
                 product_id: it.product_id ?? null,
@@ -558,13 +536,11 @@ function Budgets() {
                 product_name: it.products?.name ?? it.services?.name ?? it.manual_description ?? '',
                 quantity: qty,
                 unit_price: unitPrice,
-                discount: Number(it.discount ?? 0),
-                discount_percent: discountPercent,
-                max_discount_percent: maxDiscount,
-                total: subtotal - Number(it.discount ?? 0),
+                total: unitPrice * qty,
                 isManual: !!(it.manual_description && !it.service_id),
                 isService,
                 commission_table_id: commissionTableId,
+                commission_percent: commissionPercent,
             }
         })
         setBudgetItems(rows)
@@ -1159,30 +1135,6 @@ function Budgets() {
             ),
         },
         {
-            title: 'Desconto',
-            key: 'discount',
-            width: 130,
-            render: (_, record) => {
-                const maxDiscount = record.max_discount_percent
-                return (
-                    <div>
-                        <InputNumber
-                            min={0}
-                            max={maxDiscount ?? 100}
-                            step={0.5}
-                            value={record.discount_percent}
-                            onChange={(v) => handleItemChange(record.key, 'discount_percent', v ?? 0)}
-                            style={{ width: '100%' }}
-                            addonAfter="%"
-                        />
-                        <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
-                            {maxDiscount != null ? `Máximo: ${maxDiscount}%` : 'Sem limite'}
-                        </div>
-                    </div>
-                )
-            },
-        },
-        {
             title: 'Total',
             key: 'total',
             width: 100,
@@ -1242,7 +1194,7 @@ function Budgets() {
                     />
                     <div style={{ flex: 1 }} />
                     {canEdit(MODULES.BUDGETS) && (
-                        <Button type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setBudgetItems([]); setEditingBudgetId(null); setDrawerOpen(true) }}>
+                        <Button type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setBudgetItems([]); setGlobalDiscountPercent(0); setEditingBudgetId(null); setDrawerOpen(true) }}>
                             Novo Orçamento
                         </Button>
                     )}
@@ -1263,10 +1215,10 @@ function Budgets() {
                 title={editingBudgetId ? 'Editar Orçamento' : 'Novo Orçamento'}
                 width={680}
                 open={drawerOpen}
-                onClose={() => { setDrawerOpen(false); setEditingBudgetId(null); form.resetFields(); setBudgetItems([]); setTableSections([{key: 'ts-0', tableId: null}]); setEmpProductTables([]); setEmpServiceTables([]) }}
+                onClose={() => { setDrawerOpen(false); setEditingBudgetId(null); form.resetFields(); setBudgetItems([]); setGlobalDiscountPercent(0); setTableSections([{key: 'ts-0', tableId: null}]); setEmpProductTables([]); setEmpServiceTables([]) }}
                 extra={
                     <Space>
-                        <Button onClick={() => { setDrawerOpen(false); setEditingBudgetId(null); form.resetFields(); setBudgetItems([]); setTableSections([{key: 'ts-0', tableId: null}]); setEmpProductTables([]); setEmpServiceTables([]) }}>Cancelar</Button>
+                        <Button onClick={() => { setDrawerOpen(false); setEditingBudgetId(null); form.resetFields(); setBudgetItems([]); setGlobalDiscountPercent(0); setTableSections([{key: 'ts-0', tableId: null}]); setEmpProductTables([]); setEmpServiceTables([]) }}>Cancelar</Button>
                         <Button onClick={editingBudgetId ? handleUpdate : handleSave} type="primary" loading={saving}>
                             {editingBudgetId ? 'Salvar alterações' : 'Criar Orçamento'}
                         </Button>
@@ -1434,6 +1386,36 @@ function Budgets() {
                         <strong>Total do Orçamento:</strong>
                         <strong style={{ color: '#12B76A', fontSize: 20 }}>{formatCurrency(budgetTotal)}</strong>
                     </div>
+
+                    {/* Desconto Global */}
+                    <div style={{ marginTop: 8, padding: '12px 16px', background: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.2)', borderRadius: 8 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <span style={{ fontSize: 14, color: '#94a3b8', whiteSpace: 'nowrap' }}>Desconto (%)</span>
+                                <InputNumber
+                                    min={0}
+                                    max={maxDiscountPercent > 0 ? maxDiscountPercent : 100}
+                                    step={0.5}
+                                    value={globalDiscountPercent}
+                                    onChange={(v) => setGlobalDiscountPercent(Math.min(v ?? 0, maxDiscountPercent > 0 ? maxDiscountPercent : 100))}
+                                    addonAfter="%"
+                                    style={{ width: 130 }}
+                                />
+                            </div>
+                            {maxDiscountPercent > 0 && (
+                                <span style={{ fontSize: 12, color: '#64748b' }}>
+                                    Máx: {maxDiscountPercent.toFixed(1)}% (comissão + lucro)
+                                </span>
+                            )}
+                        </div>
+                    </div>
+
+                    {globalDiscountPercent > 0 && (
+                        <div style={{ marginTop: 8, padding: '12px 16px', background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <strong style={{ color: '#f1f5f9', fontSize: 14 }}>Total Orçamento c/ Desconto:</strong>
+                            <strong style={{ color: '#f87171', fontSize: 20 }}>{formatCurrency(budgetTotalWithDiscount)}</strong>
+                        </div>
+                    )}
 
                     <Form.Item name="notes" label="Observações" style={{ marginTop: 16 }}>
                         <Input.TextArea rows={3} placeholder="Condições, prazos de entrega..." />

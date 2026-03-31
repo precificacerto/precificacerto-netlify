@@ -275,7 +275,7 @@ function getSNGroupForCategory(cat: string): string | undefined {
 }
 
 const INSTALLMENT_PRESETS = [
-    { value: 'customizado', label: 'Customizado' },
+    { value: 'customizado', label: 'Cheque pré-datado' },
     { value: '30', label: '30' },
     { value: '30_60', label: '30/60' },
     { value: '30_60_90', label: '30/60/90' },
@@ -707,6 +707,17 @@ export default function CashFlow() {
         return result
     }, [pivotByDay, prevMonthBalanceValue])
 
+    // ── Saldo Acumulado por dia (saldo ao FINAL de cada dia) ──
+    const dailyAccumulatedBalance = useMemo(() => {
+        const result: Record<number, number> = {}
+        for (let d = 1; d <= pivotByDay.daysInMonth; d++) {
+            const incomeDay = INCOME_LABELS.reduce((s, l) => s + ((pivotByDay.data[l] || {})[d] || 0), 0)
+            const expenseDay = GROUP_ORDER.reduce((s, k) => s + ((pivotByDay.data[k] || {})[d] || 0), 0)
+            result[d] = (saldoDiaAnterior[d] || 0) + incomeDay - expenseDay
+        }
+        return result
+    }, [pivotByDay, saldoDiaAnterior])
+
     // ── Saldo do Mês Anterior (Item 11) — usuário insere valor manualmente ──
     const handlePrevMonthBalance = () => {
         setPrevBalanceInput(0)
@@ -1108,6 +1119,24 @@ export default function CashFlow() {
                                 })}
                                 <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, fontSize: 16, fontVariantNumeric: 'tabular-nums', color: extratoData.resultado >= 0 ? '#4ade80' : '#f87171', borderLeft: '1px solid rgba(255,255,255,0.15)' }}>
                                     {formatCurrency(extratoData.resultado)}
+                                </td>
+                            </tr>
+
+                            {/* ── SALDO ACUMULADO ── */}
+                            <tr style={{ background: '#1e1b4b', borderLeft: '5px solid #818cf8' }}>
+                                <td style={{ padding: '10px 12px', fontWeight: 700, color: '#c7d2fe', fontSize: 13, position: 'sticky', left: 0, background: '#1e1b4b', borderRight: '1px solid rgba(255,255,255,0.1)', zIndex: 1, whiteSpace: 'nowrap' }}>
+                                    SALDO ACUMULADO
+                                </td>
+                                {Array.from({ length: pivotByDay.daysInMonth }, (_, i) => i + 1).map(day => {
+                                    const val = dailyAccumulatedBalance[day] ?? 0
+                                    return (
+                                        <td key={day} style={{ padding: '5px 4px', textAlign: 'right', color: val > 0 ? '#4ade80' : val < 0 ? '#f87171' : '#475569', fontWeight: 700, fontSize: 11, fontVariantNumeric: 'tabular-nums' }}>
+                                            {val !== 0 ? formatCurrency(val) : ''}
+                                        </td>
+                                    )
+                                })}
+                                <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, fontSize: 16, fontVariantNumeric: 'tabular-nums', color: (dailyAccumulatedBalance[pivotByDay.daysInMonth] ?? 0) >= 0 ? '#4ade80' : '#f87171', borderLeft: '1px solid rgba(255,255,255,0.15)' }}>
+                                    {formatCurrency(dailyAccumulatedBalance[pivotByDay.daysInMonth] ?? 0)}
                                 </td>
                             </tr>
                         </tbody>

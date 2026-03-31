@@ -54,6 +54,7 @@ async function handleCreate(res: NextApiResponse, employee: any, tenant_id: stri
             work_hours_per_day: employee.work_hours_per_day || 8,
             work_days_per_month: employee.work_days_per_month || 22,
             commission_percent: employee.commission_percent ?? 0,
+            commission_payment_mode: employee.commission_payment_mode || 'FULL',
             notes: employee.notes || null,
             pending_permissions: pendingPerms,
         })
@@ -145,6 +146,7 @@ async function handleUpdate(res: NextApiResponse, editing_id: string, employee: 
         work_hours_per_day: employee.work_hours_per_day || 8,
         work_days_per_month: employee.work_days_per_month || 22,
         commission_percent: employee.commission_percent ?? 0,
+        commission_payment_mode: employee.commission_payment_mode || 'FULL',
         notes: employee.notes || null,
         updated_at: new Date().toISOString(),
     }

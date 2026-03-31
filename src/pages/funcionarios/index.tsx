@@ -289,6 +289,7 @@ function Employees() {
             ...record,
             hire_date: undefined,
             birth_date: undefined,
+            commission_payment_mode: record.commission_payment_mode ?? 'FULL',
         })
 
         const perms = buildEmptyPerms()
@@ -555,7 +556,7 @@ function Employees() {
                 <Form
                     form={form}
                     layout="vertical"
-                    initialValues={{ role: 'PRODUCTIVE', work_hours_per_day: 8, work_days_per_month: 22 }}
+                    initialValues={{ role: 'PRODUCTIVE', work_hours_per_day: 8, work_days_per_month: 22, commission_payment_mode: 'FULL' }}
                 >
                     <Form.Item name="name" label="Nome Completo" rules={[{ required: true, message: 'Informe o nome' }]}>
                         <Input placeholder="Nome do funcionário" onChange={(e) => form.setFieldsValue({ name: capitalizeFirst(e.target.value) })} />
@@ -638,6 +639,17 @@ function Employees() {
                             />
                         </div>
                     </div>
+
+                    <Form.Item
+                        name="commission_payment_mode"
+                        label="Pagamento ao Funcionário"
+                        style={{ marginTop: 16 }}
+                    >
+                        <Radio.Group>
+                            <Radio value="FULL">Valor total no mês da venda</Radio>
+                            <Radio value="INSTALLMENT">Conforme parcelamento do cliente</Radio>
+                        </Radio.Group>
+                    </Form.Item>
 
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 16 }}>
                         <Form.Item name="status" label="Status">
