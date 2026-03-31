@@ -3,8 +3,12 @@ import { calculateHubData, extractStructurePercents } from '@/utils/hub-engine'
 
 export interface ExpenseConfigResult {
   production_labor_cost: number
+  /** Custo médio mensal de mão de obra produtiva do Hub (R$/mês). */
+  production_labor_cost_hub: number
   /** Custo médio mensal de mão de obra administrativa (R$/mês), apenas para exibição. */
   admin_labor_monthly: number
+  /** Custo médio mensal de despesas fixas do Hub (R$/mês). */
+  fixed_expense_monthly: number
   indirect_labor_percent: number
   fixed_expense_percent: number
   financial_expense_percent: number
@@ -45,9 +49,19 @@ export async function recalcExpenseConfigFromCashflow(
   )
   const adminLaborMonthly = moAdminRow ? round2(moAdminRow.averageRS) : 0
 
+  // Calcula MO Produtiva média em R$/mês a partir do Hub
+  const moProdRow = hubData.rows.find((r) => r.group === 'MAO_DE_OBRA_PRODUTIVA')
+  const productionLaborCostHub = moProdRow ? round2(moProdRow.averageRS) : 0
+
+  // Calcula Despesas Fixas média em R$/mês a partir do Hub
+  const despesaFixaRow = hubData.rows.find((r) => r.group === 'DESPESA_FIXA')
+  const fixedExpenseMonthly = despesaFixaRow ? round2(despesaFixaRow.averageRS) : 0
+
   return {
     production_labor_cost: Number(expConfig?.production_labor_cost) || 0,
+    production_labor_cost_hub: productionLaborCostHub,
     admin_labor_monthly: adminLaborMonthly,
+    fixed_expense_monthly: fixedExpenseMonthly,
     indirect_labor_percent: round2(percents.indirect_labor_percent * 100), // salva em %
     fixed_expense_percent: round2(percents.fixed_expense_percent * 100),
     financial_expense_percent: round2(percents.financial_expense_percent * 100),
@@ -78,6 +92,8 @@ export async function mergeExpenseConfig(tenantId: string): Promise<ExpenseConfi
     fixed_expense_percent: result.fixed_expense_percent,
     financial_expense_percent: result.financial_expense_percent,
     variable_expense_percent: result.variable_expense_percent,
+    production_labor_cost_hub: result.production_labor_cost_hub,
+    fixed_expense_monthly: result.fixed_expense_monthly,
     updated_at: new Date().toISOString(),
   }
 

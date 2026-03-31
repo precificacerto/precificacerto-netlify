@@ -156,7 +156,8 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
 
     const pricing = useMemo(() => {
         const cfg = expenseConfig || {}
-        const laborCostMonthly = Number(cfg.production_labor_cost) || 0
+        // Usa custo Hub (média de meses encerrados); fallback para valor manual se Hub ainda não tem dados
+        const laborCostMonthly = Number(cfg.production_labor_cost_hub) || Number(cfg.production_labor_cost) || 0
         const totalEmployees =
             (currentUser?.numProductiveSectorEmployee ?? 0) || 1
         const hoursPerMonth =
@@ -193,10 +194,13 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
         // Para serviços: o custo mensal de MO inclui produtiva + administrativa + despesas fixas
         // Isso faz com que o custo por minuto (laborCostMonthly / monthlyWorkloadMinutes)
         // já contemple os 3 componentes quando multiplicado pelos minutos do serviço
+        // MO Administrativa: média Hub (admin_salary_total) + FGTS + outros (já salvos pelo mergeExpenseConfig)
         const adminMonthlyTotal = Number(cfg.admin_salary_total || 0) +
             Number(cfg.admin_fgts_total || 0) +
             Number(cfg.admin_other_costs || 0)
-        const fixedMonthlyTotal = Number(cfg.fixed_expense_total || 0)
+        // Despesas Fixas: média Hub em R$/mês (novo campo)
+        const fixedMonthlyTotal = Number(cfg.fixed_expense_monthly || 0)
+        // Fórmula: (MO Produtiva + MO Adm + Desp. Fixas) / horas_equipe_produtiva / 60 = R$/min
         const combinedLaborCostMonthly = laborCostMonthly + adminMonthlyTotal + fixedMonthlyTotal
 
         const result = calculatePricing({
@@ -217,6 +221,10 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
         const laborCost = result.productiveLaborCost
         const totalCost = result.cmvUnit  // CMV inclui MO produtiva
         const sellingPrice = priceUnit
+        // Custo por minuto: base do cálculo de MO produtiva
+        const costPerMinute = monthlyWorkloadMinutes > 0
+            ? combinedLaborCostMonthly / monthlyWorkloadMinutes
+            : 0
 
         // Valores absolutos para exibição (calculados sobre priceUnit)
         const variableVal = Number((priceUnit * variablePct / 100).toFixed(2))
@@ -240,7 +248,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
         const isValid = result.isValid
 
         return {
-            laborCost, totalCost, sellingPrice,
+            laborCost, totalCost, sellingPrice, costPerMinute,
             variablePct, financialPct, taxesPct,
             variableVal,
             financialVal,
@@ -657,6 +665,21 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
             {/* Mão de obra produtiva — input de minutos */}
             <div className="pc-card" style={{ marginBottom: 16 }}>
                 <h3 style={{ margin: '0 0 12px', fontSize: 16, fontWeight: 700 }}>Mão de obra produtiva</h3>
+                {pricing.costPerMinute > 0 && (
+                    <div style={{
+                        display: 'flex', alignItems: 'center', gap: 8,
+                        background: 'rgba(247,144,9,0.08)', border: '1px solid rgba(247,144,9,0.25)',
+                        borderRadius: 6, padding: '6px 12px', marginBottom: 12, fontSize: 12,
+                    }}>
+                        <span style={{ color: '#94a3b8' }}>Custo/minuto (Hub):</span>
+                        <span style={{ fontWeight: 700, color: '#F79009' }}>
+                            {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 4, maximumFractionDigits: 4 }).format(pricing.costPerMinute)}
+                        </span>
+                        <Tooltip title="(MO Produtiva + MO Administrativa + Despesas Fixas) ÷ horas equipe produtiva ÷ 60">
+                            <InfoCircleOutlined style={{ color: '#64748b' }} />
+                        </Tooltip>
+                    </div>
+                )}
                 <div style={{ display: 'flex', alignItems: 'center' }}>
                     <div style={{ width: '36%', padding: '8px 16px', fontSize: 14 }}>Mão de obra produtiva</div>
                     <div style={{ width: '20%', padding: '4px 8px' }}>
@@ -677,7 +700,9 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                         {fmt(pricing.laborCost)}
                     </div>
                     <div style={{ width: '29%', padding: '4px 8px', fontSize: 11, color: '#94a3b8' }}>
-                        MO direta + administrativa + desp. fixas
+                        {pricing.costPerMinute > 0
+                            ? `${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 4, maximumFractionDigits: 4 }).format(pricing.costPerMinute)}/min × ${form.getFieldValue('estimated_duration_minutes') || 60} min`
+                            : 'MO direta + administrativa + desp. fixas'}
                     </div>
                 </div>
             </div>
