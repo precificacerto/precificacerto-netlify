@@ -248,7 +248,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
         const isValid = result.isValid
 
         return {
-            laborCost, totalCost, sellingPrice, costPerMinute,
+            laborCost, totalCost, sellingPrice, costPerMinute, totalEmployees,
             variablePct, financialPct, taxesPct,
             variableVal,
             financialVal,
@@ -667,16 +667,22 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                 <h3 style={{ margin: '0 0 12px', fontSize: 16, fontWeight: 700 }}>Mão de obra produtiva</h3>
                 {pricing.costPerMinute > 0 && (
                     <div style={{
-                        display: 'flex', alignItems: 'center', gap: 8,
+                        display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
                         background: 'rgba(247,144,9,0.08)', border: '1px solid rgba(247,144,9,0.25)',
-                        borderRadius: 6, padding: '6px 12px', marginBottom: 12, fontSize: 12,
+                        borderRadius: 6, padding: '8px 12px', marginBottom: 12, fontSize: 12,
                     }}>
-                        <span style={{ color: '#94a3b8' }}>Custo/minuto (Hub):</span>
-                        <span style={{ fontWeight: 700, color: '#F79009' }}>
-                            {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 4, maximumFractionDigits: 4 }).format(pricing.costPerMinute)}
-                        </span>
-                        <Tooltip title="(MO Produtiva + MO Administrativa + Despesas Fixas) ÷ horas equipe produtiva ÷ 60">
-                            <InfoCircleOutlined style={{ color: '#64748b' }} />
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ color: '#94a3b8' }}>Custo/minuto por funcionário:</span>
+                            <span style={{ fontWeight: 700, color: '#F79009', fontSize: 14 }}>
+                                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 4, maximumFractionDigits: 4 }).format(pricing.costPerMinute)}
+                            </span>
+                        </div>
+                        <div style={{ color: '#64748b' }}>·</div>
+                        <div style={{ color: '#94a3b8' }}>
+                            {pricing.totalEmployees} funcionário{pricing.totalEmployees !== 1 ? 's' : ''} produtivo{pricing.totalEmployees !== 1 ? 's' : ''}
+                        </div>
+                        <Tooltip title={`Fórmula: (MO Produtiva + MO Administrativa + Despesas Fixas) ÷ horas/funcionário ÷ 60 ÷ nº funcionários\nExemplo: total mensal ÷ ${pricing.totalEmployees} func. ÷ horas ÷ 60 = R$/min por funcionário`}>
+                            <InfoCircleOutlined style={{ color: '#64748b', cursor: 'help' }} />
                         </Tooltip>
                     </div>
                 )}
@@ -701,7 +707,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                     </div>
                     <div style={{ width: '29%', padding: '4px 8px', fontSize: 11, color: '#94a3b8' }}>
                         {pricing.costPerMinute > 0
-                            ? `${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 4, maximumFractionDigits: 4 }).format(pricing.costPerMinute)}/min × ${form.getFieldValue('estimated_duration_minutes') || 60} min`
+                            ? `${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 4, maximumFractionDigits: 4 }).format(pricing.costPerMinute)}/min × ${form.getFieldValue('estimated_duration_minutes') || 60} min (${pricing.totalEmployees} func.)`
                             : 'MO direta + administrativa + desp. fixas'}
                     </div>
                 </div>
