@@ -214,7 +214,8 @@ function Cashier() {
       const cashierMonth = monthsRes.data
 
       const incomes: IPaymentRevenueTitleModel[] = entries
-        .filter((e: any) => e.type === 'INCOME' && e.origin_type !== 'PREV_MONTH_BALANCE')
+        .filter((e: any) => e.type === 'INCOME' && e.origin_type !== 'PREV_MONTH_BALANCE'
+          && !((e.payment_method === 'BOLETO' || e.payment_method === 'CHEQUE_PRE_DATADO') && !e.paid_date))
         .map((e: any) => ({
           id: e.id,
           date: e.due_date ? new Date(e.due_date) : new Date(),
@@ -228,7 +229,7 @@ function Cashier() {
         } as any))
 
       const expenses: IPaymentRevenueTitleModel[] = entries
-        .filter((e: any) => e.type === 'EXPENSE')
+        .filter((e: any) => e.type === 'EXPENSE' && e.paid_date != null)
         .map((e: any) => {
           // description may contain "CATEGORY_KEY — extra info" from recurrent entries
           const rawDesc = e.description || 'DESPESA_GERAL'

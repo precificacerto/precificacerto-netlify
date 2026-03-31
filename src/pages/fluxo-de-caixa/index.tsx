@@ -695,13 +695,15 @@ export default function CashFlow() {
     }, [data])
 
     // ── Saldo acumulado por dia (saldo do dia anterior) ──
+    // Usa apenas lançamentos confirmados: income sem BOLETO/CHEQUE pendentes + despesas com paid_date
     const saldoDiaAnterior = useMemo(() => {
         const result: Record<number, number> = {}
         let running = prevMonthBalanceValue
         for (let d = 1; d <= pivotByDay.daysInMonth; d++) {
             result[d] = running
             const incomeDay = INCOME_LABELS.reduce((s, l) => s + ((pivotByDay.data[l] || {})[d] || 0), 0)
-            const expenseDay = GROUP_ORDER.reduce((s, k) => s + ((pivotByDay.data[k] || {})[d] || 0), 0)
+            // Somente despesas pagas (exclui unpaidAmounts)
+            const expenseDay = GROUP_ORDER.reduce((s, k) => s + (((pivotByDay.data[k] || {})[d] || 0) - ((pivotByDay.unpaidAmounts[k] || {})[d] || 0)), 0)
             running += incomeDay - expenseDay
         }
         return result
@@ -712,7 +714,8 @@ export default function CashFlow() {
         const result: Record<number, number> = {}
         for (let d = 1; d <= pivotByDay.daysInMonth; d++) {
             const incomeDay = INCOME_LABELS.reduce((s, l) => s + ((pivotByDay.data[l] || {})[d] || 0), 0)
-            const expenseDay = GROUP_ORDER.reduce((s, k) => s + ((pivotByDay.data[k] || {})[d] || 0), 0)
+            // Somente despesas pagas
+            const expenseDay = GROUP_ORDER.reduce((s, k) => s + (((pivotByDay.data[k] || {})[d] || 0) - ((pivotByDay.unpaidAmounts[k] || {})[d] || 0)), 0)
             result[d] = (saldoDiaAnterior[d] || 0) + incomeDay - expenseDay
         }
         return result

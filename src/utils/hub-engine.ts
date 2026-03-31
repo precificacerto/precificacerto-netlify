@@ -76,7 +76,7 @@ export async function calculateHubData(tenantId: string): Promise<HubData> {
   // Busca todos os lançamentos de meses encerrados, incluindo expense_category
   const { data: entries, error } = await supabase
     .from('cash_entries')
-    .select('type, amount, due_date, expense_group, expense_category, is_active')
+    .select('type, amount, due_date, expense_group, expense_category, is_active, paid_date, payment_method')
     .eq('tenant_id', tenantId)
     .eq('is_active', true)
     .lt('due_date', cutoffStr)
@@ -100,8 +100,12 @@ export async function calculateHubData(tenantId: string): Promise<HubData> {
     const amount = Number(entry.amount) || 0
 
     if (entry.type === 'INCOME') {
+      // Excluir BOLETO/CHEQUE pendentes (sem paid_date = não confirmados)
+      if ((entry.payment_method === 'BOLETO' || entry.payment_method === 'CHEQUE_PRE_DATADO') && !entry.paid_date) continue
       incomeByMonth[monthKey] = (incomeByMonth[monthKey] || 0) + amount
     } else if (entry.type === 'EXPENSE' && entry.expense_group) {
+      // Somente despesas confirmadas (paid_date preenchido)
+      if (!entry.paid_date) continue
       // Nível grupo
       if (!expenseByGroupByMonth[entry.expense_group]) {
         expenseByGroupByMonth[entry.expense_group] = {}

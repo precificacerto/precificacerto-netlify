@@ -135,6 +135,7 @@ function Schedule() {
     const [payForm] = Form.useForm()
     const [hasDiscount, setHasDiscount] = useState(false)
     const [discountTick, setDiscountTick] = useState(0)
+    const [globalDiscountPctAgenda, setGlobalDiscountPctAgenda] = useState(0)
     const [isSplitPay, setIsSplitPay] = useState(false)
     const [customInstallments, setCustomInstallments] = useState<{ date: any; amount: number }[]>([{ date: null, amount: 0 }])
     const [installmentPreset, setInstallmentPreset] = useState<'customizado' | '30' | '30_60' | '30_60_90' | '30_60_90_120' | '30_60_90_120_150'>('customizado')
@@ -485,6 +486,7 @@ function Schedule() {
         const basePrice = evToUse.amount_charged || svc?.base_price || 0
         payForm.setFieldsValue({ base_price: basePrice, discount_percent: 0, discount_value: 0, payment_method: 'PIX', payment_notes: '', amount_paid: basePrice, remaining_due_date: null, installments: 1 })
         setHasDiscount(false)
+        setGlobalDiscountPctAgenda(0)
         setIsSplitPay(false)
         setExtraProds([])
         setAttachFile(null)
@@ -504,22 +506,26 @@ function Schedule() {
         setPayOpen(true)
     }
 
+    function calcMaxDiscountPctAgenda() {
+        const base = Number(payForm.getFieldValue('base_price')) || 0
+        const extrasTotal = extraProds.reduce((s, p) => s + p.total, 0)
+        const total = base + extrasTotal
+        if (total <= 0) return 0
+        const svc = payEvt?.service_id ? regServices.find((s: any) => s.id === payEvt.service_id) : null
+        const emp = payEvt?.employee_id ? allEmployees.find((e: any) => e.id === payEvt.employee_id) : null
+        const svcCommPct = getEffectiveCommissionPercent(emp?.commission_percent, svc?.commission_percent)
+        const svcProfitPct = Number(svc?.profit_percent) || 0
+        const svcMarginValue = base * (svcCommPct + svcProfitPct) / 100
+        const extrasMarginValue = extraProds.reduce((s, p) => s + p.total * ((p.commission_percent || 0) + (p.profit_percent || 0)) / 100, 0)
+        return Math.min(100, (svcMarginValue + extrasMarginValue) / total * 100)
+    }
+
     function calcFinalPrice() {
         const base = Number(payForm.getFieldValue('base_price')) || 0
-        const discPct = Number(payForm.getFieldValue('discount_percent')) || 0
-        const discVal = Number(payForm.getFieldValue('discount_value')) || 0
         const extrasTotal = extraProds.reduce((s, p) => s + p.total, 0)
-        // Desconto sai apenas da margem (comissão + lucro), nunca do custo
-        const svc = payEvt?.service_id ? regServices.find((s: any) => s.id === payEvt.service_id) : null
-        const costWithTaxes = Number(svc?.cost_total) || 0
-        if (discVal > 0) {
-            // Desconto em R$: limitado à margem
-            const margin = Math.max(0, base - costWithTaxes)
-            const clampedDisc = Math.min(discVal, margin)
-            return (base - clampedDisc) + extrasTotal
-        }
-        const { finalPrice } = calculateDiscountedPrice(base, costWithTaxes, discPct)
-        return finalPrice + extrasTotal
+        const total = base + extrasTotal
+        if (!hasDiscount) return total
+        return total * (1 - globalDiscountPctAgenda / 100)
     }
 
     function handleAddExtraProduct(tableId: string) {
@@ -627,24 +633,11 @@ function Schedule() {
             }
 
             const basePrice = Number(v.base_price) || 0
-            const discPct = hasDiscount ? (Number(v.discount_percent) || 0) : 0
-            const discVal = hasDiscount ? (Number(v.discount_value) || 0) : 0
             const prodsTotal = extraProds.reduce((s, p) => s + p.total, 0)
-            // Desconto sai apenas da margem (comissão + lucro)
-            const svc = payEvt?.service_id ? regServices.find((s: any) => s.id === payEvt.service_id) : null
-            const costWithTaxes = Number(svc?.cost_total) || 0
-            let finalPrice: number
-            let discountAmt: number
-            if (discVal > 0) {
-                const margin = Math.max(0, basePrice - costWithTaxes)
-                discountAmt = Math.min(discVal, margin)
-                finalPrice = basePrice - discountAmt
-            } else {
-                const result = calculateDiscountedPrice(basePrice, costWithTaxes, discPct)
-                finalPrice = result.finalPrice
-                discountAmt = result.discountValue
-            }
-            const totalRevenue = finalPrice + prodsTotal
+            const grossRevenue = basePrice + prodsTotal
+            const discPct = hasDiscount ? globalDiscountPctAgenda : 0
+            const discountAmt = grossRevenue * discPct / 100
+            const totalRevenue = grossRevenue - discountAmt
 
             const amountPaid = isSplitPay ? (Number(v.amount_paid) || totalRevenue) : totalRevenue
             const remaining = Math.max(0, totalRevenue - amountPaid)
@@ -684,7 +677,7 @@ function Schedule() {
                 service_date: dayjs(payEvt.start_time).format('YYYY-MM-DD'),
                 start_time: payEvt.start_time, end_time: payEvt.end_time,
                 base_price: basePrice, discount_percent: discPct, discount_value: discountAmt,
-                final_price: finalPrice, amount_paid: amountPaid, remaining_amount: remaining,
+                final_price: basePrice * (1 - discPct / 100), amount_paid: amountPaid, remaining_amount: remaining,
                 remaining_due_date: remainingDate, payment_method: v.payment_method,
                 payment_notes: v.payment_notes || null, extra_products_total: prodsTotal,
                 total_revenue: totalRevenue,
@@ -703,7 +696,7 @@ function Schedule() {
             let descValores: string[] = [`Valor serviço: ${fmt(basePrice)}`]
             if (discountAmt > 0) {
                 descValores.push(`Desconto: -${fmt(discountAmt)}${discPct > 0 ? ` (${discPct}%)` : ''}`)
-                descValores.push(`Valor c/ desconto: ${fmt(finalPrice)}`)
+                descValores.push(`Valor c/ desconto: ${fmt(totalRevenue)}`)
             }
             if (extraProds.length > 0) {
                 const prodsDesc = extraProds.map(ep => `${ep.product_name} x${ep.quantity} (${fmt(ep.total)})`).join(', ')
@@ -1867,21 +1860,21 @@ function Schedule() {
                                 </div>
                             )}
                             <div style={{ marginBottom: 16 }}>
-                                <Checkbox checked={hasDiscount} onChange={(e) => { setHasDiscount(e.target.checked); if (!e.target.checked) payForm.setFieldsValue({ discount_percent: 0, discount_value: 0 }) }}>
+                                <Checkbox checked={hasDiscount} onChange={(e) => { setHasDiscount(e.target.checked); if (!e.target.checked) setGlobalDiscountPctAgenda(0) }}>
                                     <span style={{ fontWeight: 600 }}><PercentageOutlined style={{ marginRight: 4 }} />Conceder Desconto</span>
                                 </Checkbox>
-                                {hasDiscount && (
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 8, padding: 12, background: '#FFFBEB', borderRadius: 8, border: '1px solid #FEF3C7' }}>
-                                        <Form.Item name="discount_percent" label={<span style={{ color: '#000' }}>Desconto (%)</span>} style={{ margin: 0 }}>
-                                            <InputNumber style={{ width: '100%' }} min={0} max={100} step={1} suffix="%" onChange={(v) => { if (v && v > 0) payForm.setFieldValue('discount_value', 0); setDiscountTick(t => t + 1) }} />
-                                        </Form.Item>
-                                        <Form.Item name="discount_value" label={<span style={{ color: '#000' }}>Desconto (R$)</span>} style={{ margin: 0 }}>
-                                            <InputNumber style={{ width: '100%' }} min={0 as number} step={0.5} precision={2}
-                                                formatter={(v) => `${v}`.replace('.', ',')} parser={(v) => Number((v || '0').replace(',', '.'))}
-                                                onChange={(v) => { if (v && v > 0) payForm.setFieldValue('discount_percent', 0); setDiscountTick(t => t + 1) }} />
-                                        </Form.Item>
-                                    </div>
-                                )}
+                                {hasDiscount && (() => {
+                                    const maxPct = calcMaxDiscountPctAgenda()
+                                    return (
+                                        <div style={{ marginTop: 8, padding: 12, background: '#FFFBEB', borderRadius: 8, border: '1px solid #FEF3C7' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                                                <span style={{ color: '#000', fontSize: 13 }}>Desconto (%):</span>
+                                                <InputNumber style={{ width: 130 }} min={0} max={maxPct > 0 ? maxPct : 100} step={0.5} value={globalDiscountPctAgenda} onChange={(v) => { setGlobalDiscountPctAgenda(Math.min(v ?? 0, maxPct > 0 ? maxPct : 100)); setDiscountTick(t => t + 1) }} addonAfter="%" />
+                                                {maxPct > 0 && <span style={{ fontSize: 12, color: '#92400e' }}>Máx: {maxPct.toFixed(1)}%</span>}
+                                            </div>
+                                        </div>
+                                    )
+                                })()}
                             </div>
                             <div style={{ marginBottom: 16 }}>
                                 <Checkbox checked={isSplitPay} onChange={(e) => setIsSplitPay(e.target.checked)}>

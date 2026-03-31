@@ -70,6 +70,8 @@ interface SaleItemRow {
     discount: number
     total: number
     commission_table_id?: string | null
+    commission_percent?: number
+    profit_percent?: number
     /** true = item manual (nome/valor digitados), false = produto do catálogo */
     is_manual?: boolean
     /** true = item de servico do catalogo */
@@ -140,9 +142,10 @@ function Sales() {
     const [customInstallments, setCustomInstallments] = useState<{ date: any; amount: number }[]>([{ date: null, amount: 0 }])
     const [installmentPreset, setInstallmentPreset] = useState<'customizado' | '30' | '30_60' | '30_60_90' | '30_60_90_120' | '30_60_90_120_150'>('customizado')
     const [registerInstallmentPreset, setRegisterInstallmentPreset] = useState<'customizado' | '30' | '30_60' | '30_60_90' | '30_60_90_120' | '30_60_90_120_150'>('customizado')
-    const [empProductTablesV, setEmpProductTablesV] = useState<{id: string; name: string; type: string}[]>([])
-    const [empServiceTablesV, setEmpServiceTablesV] = useState<{id: string; name: string; type: string}[]>([])
+    const [empProductTablesV, setEmpProductTablesV] = useState<{id: string; name: string; type: string; commission_percent?: number}[]>([])
+    const [empServiceTablesV, setEmpServiceTablesV] = useState<{id: string; name: string; type: string; commission_percent?: number}[]>([])
     const [tableSectionsV, setTableSectionsV] = useState<{key: string; tableId: string | null}[]>([{key: 'ts-0', tableId: null}])
+    const [globalDiscountPercentV, setGlobalDiscountPercentV] = useState(0)
     const selectedEmployeeIdV = Form.useWatch('employee_id', form)
     const latestEmployeeIdVRef = useRef<string | undefined>(undefined)
 
@@ -159,7 +162,7 @@ function Sales() {
         ;(async () => {
             const { data } = await (supabase as any)
                 .from('employee_commission_tables')
-                .select('commission_tables(id, name, type)')
+                .select('commission_tables(id, name, type, commission_percent)')
                 .eq('employee_id', empIdAtFetch)
             if (empIdAtFetch !== latestEmployeeIdVRef.current) return
             const tables = (data || []).map((r: any) => r.commission_tables).filter(Boolean)
@@ -224,24 +227,24 @@ function Sales() {
 
             // Products: try with recurrence_days, fall back without
             let prods: any[] | null = null
-            const { data: prodsFull, error: prodsErr } = await supabase.from('products').select('id, name, sale_price, cost_total, commission_table_id, recurrence_days').order('name')
+            const { data: prodsFull, error: prodsErr } = await supabase.from('products').select('id, name, sale_price, cost_total, profit_percent, commission_table_id, recurrence_days').order('name')
             if (!prodsErr) {
                 prods = prodsFull
             } else {
                 console.warn('Products query failed, falling back:', prodsErr.message)
-                const { data: prodsSimple } = await supabase.from('products').select('id, name, sale_price, cost_total, commission_table_id').order('name')
+                const { data: prodsSimple } = await supabase.from('products').select('id, name, sale_price, cost_total, profit_percent, commission_table_id').order('name')
                 prods = prodsSimple
             }
 
             // Services: try with recurrence_days, fall back without
             let svcs: any[] | null = null
             const svb = supabase as any
-            const { data: svcsFull, error: svcsErr } = await svb.from('services').select('id, name, base_price, commission_percent, commission_table_id, recurrence_days').eq('status', 'ACTIVE').order('name')
+            const { data: svcsFull, error: svcsErr } = await svb.from('services').select('id, name, base_price, commission_percent, profit_percent, commission_table_id, recurrence_days').eq('status', 'ACTIVE').order('name')
             if (!svcsErr) {
                 svcs = svcsFull
             } else {
                 console.warn('Services query failed, falling back:', svcsErr.message)
-                const { data: svcsSimple } = await svb.from('services').select('id, name, base_price, commission_percent, commission_table_id').eq('status', 'ACTIVE').order('name')
+                const { data: svcsSimple } = await svb.from('services').select('id, name, base_price, commission_percent, profit_percent, commission_table_id').eq('status', 'ACTIVE').order('name')
                 svcs = svcsSimple
             }
 
@@ -576,15 +579,15 @@ function Sales() {
 
     const handleServiceSelect = (key: string, serviceId: string) => {
         const svc = services.find((s: any) => s.id === serviceId)
-        setSaleItems(prev => prev.map(item =>
-            item.key === key ? {
-                ...item,
-                service_id: serviceId,
-                product_name: svc?.name || '',
-                unit_price: svc?.base_price || 0,
-                total: (svc?.base_price || 0) * item.quantity - item.discount,
-            } : item
-        ))
+        setSaleItems(prev => prev.map(item => {
+            if (item.key !== key) return item
+            const price = Number(svc?.base_price || 0)
+            const allTables = [...empProductTablesV, ...empServiceTablesV]
+            const commTable = allTables.find(t => t.id === item.commission_table_id)
+            const commPct = Number(commTable?.commission_percent || svc?.commission_percent || 0)
+            const profitPct = Number(svc?.profit_percent || 0)
+            return { ...item, service_id: serviceId, product_name: svc?.name || '', unit_price: price, discount: 0, commission_percent: commPct, profit_percent: profitPct, total: price * item.quantity }
+        }))
     }
 
     const handleManualItemNameChange = (key: string, productName: string) => {
@@ -595,38 +598,33 @@ function Sales() {
 
     const handleProductSelect = (key: string, productId: string) => {
         const prod = products.find(p => p.id === productId)
-        setSaleItems(prev => prev.map(item =>
-            item.key === key ? {
-                ...item,
-                product_id: productId,
-                product_name: prod?.name || '',
-                unit_price: prod?.sale_price || 0,
-                total: (prod?.sale_price || 0) * item.quantity - item.discount,
-            } : item
-        ))
+        setSaleItems(prev => prev.map(item => {
+            if (item.key !== key) return item
+            const price = Number(prod?.sale_price || 0)
+            const allTables = [...empProductTablesV, ...empServiceTablesV]
+            const commTable = allTables.find(t => t.id === item.commission_table_id)
+            const commPct = Number(commTable?.commission_percent || 0)
+            const profitPct = Number(prod?.profit_percent || 0)
+            return { ...item, product_id: productId, product_name: prod?.name || '', unit_price: price, discount: 0, commission_percent: commPct, profit_percent: profitPct, total: price * item.quantity }
+        }))
     }
 
     const handleItemChange = (key: string, field: string, value: number) => {
         setSaleItems(prev => prev.map(item => {
             if (item.key !== key) return item
             const updated = { ...item, [field]: value }
-            const grossTotal = updated.unit_price * updated.quantity
-            // Desconto sai apenas da margem (comissão + lucro)
-            if (updated.discount > 0) {
-                const prod = !updated.is_service ? products.find((p: any) => p.id === updated.product_id) : null
-                const svc = updated.is_service ? services.find((s: any) => s.id === updated.service_id) : null
-                const costWithTaxes = Number(prod?.cost_total || svc?.cost_total || 0) * updated.quantity
-                const margin = Math.max(0, grossTotal - costWithTaxes)
-                const clampedDiscount = Math.min(updated.discount, margin)
-                updated.total = grossTotal - clampedDiscount
-            } else {
-                updated.total = grossTotal
-            }
+            updated.total = updated.unit_price * updated.quantity
             return updated
         }))
     }
 
     const saleTotal = saleItems.reduce((s, i) => s + i.total, 0)
+
+    // Percentual máximo de desconto = (soma de comissão+lucro de todos os itens) / total
+    const maxDiscountPercentV = saleTotal > 0
+        ? Math.min(100, saleItems.reduce((s, i) => s + i.total * ((i.commission_percent || 0) + (i.profit_percent || 0)) / 100, 0) / saleTotal * 100)
+        : 0
+    const saleTotalWithDiscount = saleTotal * (1 - globalDiscountPercentV / 100)
 
     // ── Salvar venda manual (balcão) ──
     const handleSaveSale = async () => {
@@ -664,8 +662,8 @@ function Sales() {
                 created_by: createdBy,
                 customer_id: values.customer_id || null,
                 quantity: saleItems.reduce((s, i) => s + i.quantity, 0),
-                unit_price: saleTotal,
-                final_value: saleTotal,
+                unit_price: saleTotalWithDiscount,
+                final_value: saleTotalWithDiscount,
                 payment_method: values.payment_method,
                 installments: values.installments || 1,
                 description: values.description || 'Venda no balcão',
@@ -776,7 +774,7 @@ function Sales() {
                     customer_id: values.customer_id,
                     employee_id: empId,
                     sale_id: sale.id,
-                    amount: saleTotal,
+                    amount: saleTotalWithDiscount,
                     description: saleDesc,
                     launch_date: saleDate,
                     origin_type: 'SALE',
@@ -807,7 +805,7 @@ function Sales() {
                 }))
                 await (supabase as any).from('cash_entries').insert(customEntries)
             } else if (values.payment_method === 'CARTAO_CREDITO') {
-                const amountPerInstallment = saleTotal / numInstallments
+                const amountPerInstallment = saleTotalWithDiscount / numInstallments
                 const installmentEntries = []
                 for (let i = 1; i <= numInstallments; i++) {
                     const dueDate = new Date(curYear, curMonth + i, 1)
@@ -829,8 +827,8 @@ function Sales() {
                 await (supabase as any).from('cash_entries').insert(installmentEntries)
             } else if (isSplitPay) {
                 // Pagamento parcelado/dividido: parte agora + pending_receivable para o restante
-                const amountPaid = Number(values.amount_paid) || saleTotal
-                const remaining = Math.max(0, saleTotal - amountPaid)
+                const amountPaid = Number(values.amount_paid) || saleTotalWithDiscount
+                const remaining = Math.max(0, saleTotalWithDiscount - amountPaid)
                 const remainingDate = remaining > 0 ? values.remaining_due_date?.format('YYYY-MM-DD') || null : null
                 if (amountPaid > 0) {
                     await supabase.from('cash_entries').insert({
@@ -852,7 +850,7 @@ function Sales() {
                         customer_id: values.customer_id || null,
                         employee_id: values.employee_id || null,
                         sale_id: sale.id,
-                        amount: saleTotal,
+                        amount: saleTotalWithDiscount,
                         amount_paid: amountPaid,
                         amount_remaining: remaining,
                         due_date: remainingDate,
@@ -867,7 +865,7 @@ function Sales() {
                 await supabase.from('cash_entries').insert({
                     tenant_id: tenantId,
                     type: 'INCOME',
-                    amount: saleTotal,
+                    amount: saleTotalWithDiscount,
                     due_date: saleDate,
                     description: `${saleDesc} — ${payLabel}${numInstallments > 1 ? ` (${numInstallments}x)` : ''}`,
                     origin_type: 'SALE',
@@ -932,6 +930,7 @@ function Sales() {
             setDrawerOpen(false)
             form.resetFields()
             setSaleItems([])
+            setGlobalDiscountPercentV(0)
             setReceiptFile([])
             setAttachDesc('')
             setIsSplitPay(false)
@@ -1169,37 +1168,6 @@ function Sales() {
             ),
         },
         {
-            title: 'Desc.%', key: 'discount', width: 80,
-            render: (_, r) => (
-                <InputNumber
-                    min={0}
-                    max={100}
-                    step={1}
-                    value={(() => {
-                        const grossTotal = r.unit_price * r.quantity
-                        const prod = !r.is_service ? products.find((p: any) => p.id === r.product_id) : null
-                        const svc = r.is_service ? services.find((s: any) => s.id === r.service_id) : null
-                        const cost = Number(prod?.cost_total || svc?.cost_total || 0) * r.quantity
-                        const margin = Math.max(0, grossTotal - cost)
-                        return margin > 0 ? Math.round((r.discount / margin) * 100) : 0
-                    })()}
-                    onChange={(v) => {
-                        const pct = Number(v) || 0
-                        const grossTotal = r.unit_price * r.quantity
-                        const prod = !r.is_service ? products.find((p: any) => p.id === r.product_id) : null
-                        const svc = r.is_service ? services.find((s: any) => s.id === r.service_id) : null
-                        const cost = Number(prod?.cost_total || svc?.cost_total || 0) * r.quantity
-                        const margin = Math.max(0, grossTotal - cost)
-                        const discountValue = margin * (pct / 100)
-                        handleItemChange(r.key, 'discount', discountValue)
-                    }}
-                    style={{ width: '100%' }}
-                    formatter={(v) => `${v}%`}
-                    parser={(s) => Number(String(s).replace('%', '')) || 0}
-                />
-            ),
-        },
-        {
             title: 'Total', key: 'total', width: 100,
             render: (_, r) => <strong>{formatCurrency(r.total)}</strong>,
         },
@@ -1408,6 +1376,23 @@ function Sales() {
                         <strong style={{ color: '#12B76A', fontSize: 20 }}>{formatCurrency(saleTotal)}</strong>
                     </div>
 
+                    {/* Desconto Global */}
+                    <div style={{ marginTop: 8, padding: '12px 16px', background: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.2)', borderRadius: 8 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <span style={{ fontSize: 14, color: '#94a3b8', whiteSpace: 'nowrap' }}>Desconto (%)</span>
+                                <InputNumber min={0} max={maxDiscountPercentV > 0 ? maxDiscountPercentV : 100} step={0.5} value={globalDiscountPercentV} onChange={(v) => setGlobalDiscountPercentV(Math.min(v ?? 0, maxDiscountPercentV > 0 ? maxDiscountPercentV : 100))} addonAfter="%" style={{ width: 130 }} />
+                            </div>
+                            {maxDiscountPercentV > 0 && (<span style={{ fontSize: 12, color: '#64748b' }}>Máx: {maxDiscountPercentV.toFixed(1)}% (comissão + lucro)</span>)}
+                        </div>
+                    </div>
+                    {globalDiscountPercentV > 0 && (
+                        <div style={{ marginTop: 8, padding: '12px 16px', background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <strong style={{ fontSize: 14 }}>Total c/ Desconto:</strong>
+                            <strong style={{ color: '#f87171', fontSize: 20 }}>{formatCurrency(saleTotalWithDiscount)}</strong>
+                        </div>
+                    )}
+
                     <Divider orientation="left" style={{ fontSize: 12, color: '#94a3b8' }}>Pagamento</Divider>
 
                     <Form.Item name="payment_method" label="Forma de recebimento" rules={[{ required: true, message: 'Selecione' }]}>
@@ -1422,7 +1407,7 @@ function Sales() {
                                 <Form.Item name="installments" label="Parcelas" initialValue={1}>
                                     <Select>
                                         {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(n => (
-                                            <Select.Option key={n} value={n}>{n}x de {formatCurrency(saleTotal / n)}</Select.Option>
+                                            <Select.Option key={n} value={n}>{n}x de {formatCurrency(saleTotalWithDiscount / n)}</Select.Option>
                                         ))}
                                     </Select>
                                 </Form.Item>
