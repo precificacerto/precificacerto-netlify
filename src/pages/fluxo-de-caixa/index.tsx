@@ -653,7 +653,20 @@ export default function CashFlow() {
             const day = parseInt(entry.due_date.substring(8, 10), 10)
             if (day < 1 || day > daysInMonth) continue
             if (entry.type === 'INCOME') {
-                if ((entry.payment_method === 'BOLETO' || entry.payment_method === 'CHEQUE_PRE_DATADO') && !entry.paid_date) continue
+                if ((entry.payment_method === 'BOLETO' || entry.payment_method === 'CHEQUE_PRE_DATADO') && !entry.paid_date) {
+                    // Track as pending income (a receber) instead of confirmed income
+                    const pendingKey = '__PENDING_INCOME__'
+                    if (!result[pendingKey]) {
+                        result[pendingKey] = {}; unpaidAmounts[pendingKey] = {}; entriesMap[pendingKey] = {}; paidEntriesMap[pendingKey] = {}
+                        for (let d = 1; d <= daysInMonth; d++) {
+                            result[pendingKey][d] = 0; unpaidAmounts[pendingKey][d] = 0; entriesMap[pendingKey][d] = []; paidEntriesMap[pendingKey][d] = []
+                        }
+                    }
+                    result[pendingKey][day] = (result[pendingKey][day] || 0) + getEffectiveIncomeAmount(entry)
+                    unpaidAmounts[pendingKey][day] = (unpaidAmounts[pendingKey][day] || 0) + getEffectiveIncomeAmount(entry)
+                    entriesMap[pendingKey][day] = [...(entriesMap[pendingKey][day] || []), entry]
+                    continue
+                }
                 const label = getIncomeLabel(entry)
                 if (!result[label]) {
                     result[label] = {}; unpaidAmounts[label] = {}; entriesMap[label] = {}; paidEntriesMap[label] = {}
@@ -1008,6 +1021,39 @@ export default function CashFlow() {
                                     </tr>
                                 )
                             })}
+                            {/* Pending income row (Boleto/Cheque a receber) */}
+                            {(() => {
+                                const pendingKey = '__PENDING_INCOME__'
+                                const pendingRowTotal = Object.values(pivotByDay.data[pendingKey] || {}).reduce((a: number, b: number) => a + b, 0)
+                                if (pendingRowTotal === 0) return null
+                                return (
+                                    <tr style={{ background: 'rgba(251,191,36,0.08)', borderLeft: '3px solid #f59e0b' }}>
+                                        <td style={{ padding: '6px 12px', color: '#fbbf24', position: 'sticky', left: 0, background: '#1a1500', borderRight: '1px solid rgba(255,255,255,0.06)', zIndex: 1, whiteSpace: 'nowrap', overflow: 'hidden', maxWidth: 180, textOverflow: 'ellipsis', fontSize: 12 }}>
+                                            ⏳ A Receber (Boleto/Cheque)
+                                        </td>
+                                        {Array.from({ length: pivotByDay.daysInMonth }, (_, i) => i + 1).map(day => {
+                                            const val = (pivotByDay.data[pendingKey] || {})[day] || 0
+                                            const cellEntries = (pivotByDay.entriesMap[pendingKey] || {})[day] || []
+                                            return (
+                                                <td key={day} style={{ padding: '5px 4px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', borderRight: '1px solid rgba(255,255,255,0.04)', fontSize: 11 }}>
+                                                    {val > 0 && cellEntries[0] ? (
+                                                        <span
+                                                            onClick={() => handleOpenPaymentModal(cellEntries[0])}
+                                                            style={{ cursor: 'pointer', color: '#fbbf24', borderBottom: '1px dashed rgba(251,191,36,0.6)' }}
+                                                            title="Clique para confirmar recebimento"
+                                                        >
+                                                            {formatCurrency(val)}
+                                                        </span>
+                                                    ) : val > 0 ? <span style={{ color: '#fbbf24' }}>{formatCurrency(val)}</span> : ''}
+                                                </td>
+                                            )
+                                        })}
+                                        <td style={{ padding: '5px 12px', textAlign: 'right', color: '#fbbf24', fontWeight: 600, fontVariantNumeric: 'tabular-nums', borderLeft: '1px solid rgba(255,255,255,0.1)' }}>
+                                            {formatCurrency(pendingRowTotal)}
+                                        </td>
+                                    </tr>
+                                )
+                            })()}
                             {/* Total Entradas */}
                             <tr style={{ background: '#00B050' }}>
                                 <td style={{ padding: '7px 12px', fontWeight: 700, color: '#fff', fontSize: 12, position: 'sticky', left: 0, background: '#00B050', zIndex: 1 }}>

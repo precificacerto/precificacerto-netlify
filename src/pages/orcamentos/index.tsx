@@ -222,7 +222,9 @@ function Budgets() {
         setBudgetItems(prev => prev.map(item => {
             if (item.key !== key) return item
             const commTable = allTables.find(t => t.id === item.commission_table_id)
-            const commissionPercent = Number(commTable?.commission_percent || 0)
+            const commissionPercent = (svc?.commission_percent != null && Number(svc.commission_percent) > 0)
+                ? Number(svc.commission_percent)
+                : Number(commTable?.commission_percent || 0)
             const basePrice = Number(svc?.base_price || 0)
             const costTotal = Number(svc?.cost_total || 0)
             const profitPercent = (svc?.profit_percent != null && Number(svc.profit_percent) > 0)
@@ -247,7 +249,9 @@ function Budgets() {
         setBudgetItems(prev => prev.map(item => {
             if (item.key !== key) return item
             const commTable = allTables.find(t => t.id === item.commission_table_id)
-            const commissionPercent = Number(commTable?.commission_percent || 0)
+            const commissionPercent = (prod?.commission_percent != null && Number(prod.commission_percent) > 0)
+                ? Number(prod.commission_percent)
+                : Number(commTable?.commission_percent || 0)
             const salePrice = Number(prod?.sale_price || 0)
             const costTotal = Number(prod?.cost_total || 0)
             const profitPercent = (prod?.profit_percent != null && Number(prod.profit_percent) > 0)
@@ -525,7 +529,7 @@ function Budgets() {
         setCustomerMode(record.customer_id ? 'existing' : 'manual')
 
         const [itemsResult, tablesResult] = await Promise.all([
-            supabase.from('budget_items').select('*, products(id, name, code, max_discount_percent, commission_table_id, profit_percent, sale_price, cost_total), services(id, name, commission_table_id, profit_percent, base_price, cost_total), manual_description').eq('budget_id', record.id),
+            supabase.from('budget_items').select('*, products(id, name, code, max_discount_percent, commission_table_id, commission_percent, profit_percent, sale_price, cost_total), services(id, name, commission_table_id, commission_percent, profit_percent, base_price, cost_total), manual_description').eq('budget_id', record.id),
             record.employee_id
                 ? (supabase as any).from('employee_commission_tables').select('commission_tables(id, name, type, commission_percent)').eq('employee_id', record.employee_id)
                 : Promise.resolve({ data: [] }),
@@ -565,7 +569,10 @@ function Budgets() {
             const isService = !!it.service_id
             const commissionTableId = it.products?.commission_table_id ?? it.services?.commission_table_id ?? null
             const commTable = allLoadedTables.find((t: any) => t.id === commissionTableId)
-            const commissionPercent = Number(commTable?.commission_percent || 0)
+            const storedCommission = isService ? it.services?.commission_percent : it.products?.commission_percent
+            const commissionPercent = (storedCommission != null && Number(storedCommission) > 0)
+                ? Number(storedCommission)
+                : Number(commTable?.commission_percent || 0)
             // Lê profit_percent do produto/serviço vinculado; fallback para cálculo por custo
             let profitPercent = 0
             if (isService) {

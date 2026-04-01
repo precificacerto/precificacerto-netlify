@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/router'
 import { Button, Drawer, Form, Input, Select, Space, Table, message, Alert, Spin, Tag } from 'antd'
 import { Layout } from '@/components/layout/layout.component'
@@ -60,6 +60,7 @@ const PAYMENT_METHOD_LABELS: Record<string, string> = {
   BOLETO: 'Boleto',
   TRANSFERENCIA: 'Transferência',
   CHEQUE: 'Cheque',
+  CHEQUE_PRE_DATADO: 'Cheque Pré-datado',
 }
 
 function makeIncomeColumns(customerMap: Record<string, string>): ColumnsType<any> {
@@ -169,6 +170,28 @@ function Cashier() {
 
   const [form] = Form.useForm()
   const [messageApi, contextHolder] = message.useMessage()
+
+  // Merge multiple Fornecedores entries into a single row for display
+  const mergedExpenseData = useMemo(() => {
+    const fornecedoresEntries = expenseData.filter(e => {
+      const cat = (e.description || e.category || '').split(' — ')[0].split(' - ')[0].trim()
+      return cat === 'Fornecedores'
+    })
+    const otherEntries = expenseData.filter(e => {
+      const cat = (e.description || e.category || '').split(' — ')[0].split(' - ')[0].trim()
+      return cat !== 'Fornecedores'
+    })
+    if (fornecedoresEntries.length <= 1) return expenseData
+    const merged: IPaymentRevenueTitleModel = {
+      id: 'merged-fornecedores',
+      date: fornecedoresEntries.reduce((latest, e) => e.date.getTime() > latest.getTime() ? e.date : latest, fornecedoresEntries[0].date),
+      price: fornecedoresEntries.reduce((sum, e) => sum + e.price, 0),
+      category: 'Fornecedores',
+      description: 'Fornecedores',
+      expense_group: fornecedoresEntries[0].expense_group,
+    }
+    return [...otherEntries, merged]
+  }, [expenseData])
 
   async function fetchCashierData() {
     setLoading(true)
@@ -323,7 +346,7 @@ function Cashier() {
 
   function renderTable(type: PAYMENT_REVENUE_TITLE_TYPE) {
     const title = type === PAYMENT_REVENUE_TITLE_TYPE.INCOME ? 'Entradas' : 'Saídas'
-    const data = type === PAYMENT_REVENUE_TITLE_TYPE.INCOME ? incomeData : expenseData
+    const data = type === PAYMENT_REVENUE_TITLE_TYPE.INCOME ? incomeData : mergedExpenseData
     const borderColor = type === PAYMENT_REVENUE_TITLE_TYPE.INCOME
       ? 'var(--color-success)' : 'var(--color-error)'
     const cols = type === PAYMENT_REVENUE_TITLE_TYPE.INCOME ? makeIncomeColumns(customerMap) : expenseColumns
