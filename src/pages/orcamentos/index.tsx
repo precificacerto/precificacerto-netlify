@@ -329,6 +329,19 @@ function Budgets() {
         : 100
     const budgetTotalWithDiscount = budgetTotal * (1 - globalDiscountPercent / 100)
 
+    // ── Comissão e Lucro calculados após desconto ──
+    const totalCommissionPct = budgetTotal > 0
+        ? budgetItems.reduce((s, i) => s + i.unit_price * i.quantity * (i.commission_percent || 0) / 100, 0) / budgetTotal * 100
+        : 0
+    const totalProfitPct = budgetTotal > 0
+        ? budgetItems.reduce((s, i) => s + i.unit_price * i.quantity * (i.profit_percent || 0) / 100, 0) / budgetTotal * 100
+        : 0
+    const commissionPlusProfit = maxDiscountPercent > globalDiscountPercent
+        ? budgetTotalWithDiscount * (maxDiscountPercent - globalDiscountPercent) / 100
+        : 0
+    const commissionAmount = maxDiscountPercent > 0 ? commissionPlusProfit * totalCommissionPct / maxDiscountPercent : 0
+    const profitAmount = maxDiscountPercent > 0 ? commissionPlusProfit * totalProfitPct / maxDiscountPercent : 0
+
     // ── Salvar orçamento ──
     const handleSave = async () => {
         try {
@@ -367,7 +380,7 @@ function Budgets() {
                 customerId = newCustomer.id
             }
 
-            const { data: budget, error } = await supabase.from('budgets').insert({
+            const { data: budget, error } = await (supabase as any).from('budgets').insert({
                 tenant_id,
                 created_by: createdBy,
                 customer_id: customerId,
@@ -375,6 +388,8 @@ function Budgets() {
                 status: 'DRAFT',
                 total_value: budgetTotalWithDiscount,
                 global_discount_percent: globalDiscountPercent,
+                commission_amount: commissionAmount,
+                profit_amount: profitAmount,
                 expiration_date: values.expiration_date?.format('YYYY-MM-DD') || null,
                 notes: values.notes || null,
             }).select().single()
@@ -448,6 +463,8 @@ function Budgets() {
                 employee_id: values.employee_id || null,
                 total_value: budgetTotalWithDiscount,
                 global_discount_percent: globalDiscountPercent,
+                commission_amount: commissionAmount,
+                profit_amount: profitAmount,
                 expiration_date: values.expiration_date?.format('YYYY-MM-DD') || null,
                 notes: values.notes || null,
                 updated_at: new Date().toISOString(),
@@ -615,7 +632,7 @@ function Budgets() {
 
     // ── Abrir modal de pagamento (só se orçamento ainda não foi pago por outra pessoa) ──
     const handleOpenPayment = async (budget: any) => {
-        const { data: fresh } = await supabase.from('budgets').select('id, status, total_value, customer_id, customer:customers(name)').eq('id', budget.id).single()
+        const { data: fresh } = await supabase.from('budgets').select('id, status, total_value, customer_id, employee_id, commission_amount, profit_amount, customer:customers(name)').eq('id', budget.id).single()
         if (fresh?.status === 'PAID') {
             messageApi.info('Este orçamento já foi finalizado e o pagamento lançado.')
             await reloadBudgets()
@@ -655,12 +672,13 @@ function Budgets() {
             }
 
             // 1) Criar venda
-            const { data: sale, error: saleErr } = await supabase.from('sales').insert({
+            const { data: sale, error: saleErr } = await (supabase as any).from('sales').insert({
                 tenant_id,
                 created_by: createdBy,
                 product_id: null,
                 budget_id: selectedBudget.id,
                 customer_id: selectedBudget.customer_id || null,
+                employee_id: selectedBudget.employee_id || null,
                 quantity: 1,
                 unit_price: Number(selectedBudget.total_value),
                 final_value: Number(selectedBudget.total_value),
@@ -670,6 +688,8 @@ function Budgets() {
                 sale_date: new Date().toISOString(),
                 sale_type: 'FROM_BUDGET',
                 status: 'COMPLETED',
+                commission_amount: Number(selectedBudget.commission_amount || 0),
+                profit_amount: Number(selectedBudget.profit_amount || 0),
             }).select().single()
 
             if (saleErr) throw saleErr
@@ -1414,6 +1434,25 @@ function Budgets() {
                         <div style={{ marginTop: 8, padding: '12px 16px', background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <strong style={{ color: '#f1f5f9', fontSize: 14 }}>Total Orçamento c/ Desconto:</strong>
                             <strong style={{ color: '#f87171', fontSize: 20 }}>{formatCurrency(budgetTotalWithDiscount)}</strong>
+                        </div>
+                    )}
+
+                    {/* Resumo de Comissão e Lucro */}
+                    {maxDiscountPercent > 0 && budgetTotal > 0 && (
+                        <div style={{ marginTop: 8, padding: '12px 16px', background: 'rgba(99, 102, 241, 0.08)', border: '1px solid rgba(99, 102, 241, 0.25)', borderRadius: 8 }}>
+                            <div style={{ fontSize: 12, fontWeight: 600, color: '#a5b4fc', marginBottom: 8 }}>Distribuição do resultado</div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                                <div style={{ padding: '8px 12px', background: 'rgba(99,102,241,0.12)', borderRadius: 6 }}>
+                                    <div style={{ fontSize: 11, color: '#94a3b8' }}>Comissão do Vendedor</div>
+                                    <div style={{ fontSize: 16, fontWeight: 700, color: '#818cf8' }}>{formatCurrency(commissionAmount)}</div>
+                                    <div style={{ fontSize: 11, color: '#64748b' }}>{totalCommissionPct.toFixed(3)}% → {maxDiscountPercent > 0 ? (totalCommissionPct * (maxDiscountPercent - globalDiscountPercent) / maxDiscountPercent).toFixed(3) : '0.000'}% após desconto</div>
+                                </div>
+                                <div style={{ padding: '8px 12px', background: 'rgba(16,185,129,0.12)', borderRadius: 6 }}>
+                                    <div style={{ fontSize: 11, color: '#94a3b8' }}>Lucro da Empresa</div>
+                                    <div style={{ fontSize: 16, fontWeight: 700, color: '#34d399' }}>{formatCurrency(profitAmount)}</div>
+                                    <div style={{ fontSize: 11, color: '#64748b' }}>{totalProfitPct.toFixed(3)}% → {maxDiscountPercent > 0 ? (totalProfitPct * (maxDiscountPercent - globalDiscountPercent) / maxDiscountPercent).toFixed(3) : '0.000'}% após desconto</div>
+                                </div>
+                            </div>
                         </div>
                     )}
 

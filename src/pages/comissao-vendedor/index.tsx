@@ -136,7 +136,7 @@ export default function CommissionPage() {
         try {
           const { data } = await supabase
             .from('sales')
-            .select('id, final_value, budget_id, employee_id, sale_date')
+            .select('id, final_value, budget_id, employee_id, sale_date, sale_type, commission_amount')
             .eq('is_active', true)
           salesData = data || []
         } catch {
@@ -253,6 +253,36 @@ export default function CommissionPage() {
             if (!empId) continue
             const emp = empMap.get(empId)
             if (!emp) continue
+
+            // If commission was pre-calculated from commission_tables (budget flow), use it directly
+            const storedCommission = Number(sale.commission_amount || 0)
+            if (storedCommission > 0 && sale.sale_type === 'FROM_BUDGET') {
+              const saleDate = (sale.sale_date || '').substring(0, 10)
+              if (emp.payment_mode === 'FULL') {
+                if (saleDate >= start && saleDate <= end) {
+                  emp.base_revenue += Number(sale.final_value) || 0
+                  emp.commission_value += storedCommission
+                }
+              } else {
+                const entries = cashEntriesBySale.get(sale.id)
+                if (!entries || entries.length === 0) {
+                  if (saleDate >= start && saleDate <= end) {
+                    emp.base_revenue += Number(sale.final_value) || 0
+                    emp.commission_value += storedCommission
+                  }
+                } else {
+                  const totalAmt = entries.reduce((s, e) => s + e.amount, 0)
+                  const monthlyAmt = entries.filter(e => e.due_date >= start && e.due_date <= end).reduce((s, e) => s + e.amount, 0)
+                  if (totalAmt > 0 && monthlyAmt > 0) {
+                    const prop = monthlyAmt / totalAmt
+                    emp.base_revenue += (Number(sale.final_value) || 0) * prop
+                    emp.commission_value += storedCommission * prop
+                  }
+                }
+              }
+              continue
+            }
+
             const prodComm = saleProdCommMap.get(sale.id) || 0
             const effectivePct = getEffectiveCommissionPercent(emp.commission_percent, prodComm)
             applySaleCommission(emp, sale.id, sale.sale_date || '', Number(sale.final_value) || 0, effectivePct)

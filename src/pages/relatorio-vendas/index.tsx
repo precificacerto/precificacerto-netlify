@@ -369,7 +369,7 @@ function SalesReport() {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             let budgetsQuery: any = (supabase
                 .from('budgets') as any)
-                .select('id, employee_id, customer_id, created_at')
+                .select('id, employee_id, customer_id, created_at, commission_amount, total_value')
                 .eq('tenant_id', effectiveTenantId)
                 .eq('status', 'PAID')
                 .eq('is_active', true)
@@ -393,17 +393,19 @@ function SalesReport() {
 
             const budgetIds = budgets.map((b: any) => b.id)
 
-            // Build employee map with commission_percent
-            const employeeMap = new Map<string, { name: string; commissionPercent: number }>()
+            // Build employee map with commission_percent and pre-calculated commission_amount
+            const employeeMap = new Map<string, { name: string; commissionPercent: number; commissionAmount: number; totalValue: number }>()
             budgets.forEach((b: any) => {
                 if (b.employee_id) {
                     const emp = (employees as any[]).find((e: any) => e.id === b.employee_id)
                     employeeMap.set(b.id, {
                         name: emp?.name || 'Desconhecido',
                         commissionPercent: Number(emp?.commission_percent) || 0,
+                        commissionAmount: Number(b.commission_amount) || 0,
+                        totalValue: Number(b.total_value) || 0,
                     })
                 } else {
-                    employeeMap.set(b.id, { name: 'Sem vendedor', commissionPercent: 0 })
+                    employeeMap.set(b.id, { name: 'Sem vendedor', commissionPercent: 0, commissionAmount: 0, totalValue: 0 })
                 }
             })
 
@@ -457,16 +459,24 @@ function SalesReport() {
                 const costPerUnit = Number(product.cost_total) || 0
                 const totalCost = costPerUnit * qty
 
-                const empInfo = employeeMap.get(item.budget_id) || { name: 'Sem vendedor', commissionPercent: 0 }
+                const empInfo = employeeMap.get(item.budget_id) || { name: 'Sem vendedor', commissionPercent: 0, commissionAmount: 0, totalValue: 0 }
                 const empName = empInfo.name
                 const empCommPct = empInfo.commissionPercent
 
-                // Calculate commission: only when a seller is selected or when splitting by seller for client filter
+                // Calculate commission: use pre-calculated commission_amount from budget when available (commission_tables flow)
+                // otherwise fall back to employee.commission_percent
                 let commissionPct = 0
                 let commissionVal = 0
                 if (hasSellerFilter || shouldSplitBySeller) {
-                    commissionPct = empCommPct
-                    commissionVal = revenue * (empCommPct / 100)
+                    if (empInfo.commissionAmount > 0 && empInfo.totalValue > 0) {
+                        // Distribute budget commission proportionally by item revenue
+                        const itemProportion = revenue / empInfo.totalValue
+                        commissionVal = empInfo.commissionAmount * itemProportion
+                        commissionPct = revenue > 0 ? (commissionVal / revenue) * 100 : 0
+                    } else {
+                        commissionPct = empCommPct
+                        commissionVal = revenue * (empCommPct / 100)
+                    }
                 }
 
                 const aggKey = shouldSplitBySeller

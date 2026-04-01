@@ -576,7 +576,7 @@ export default function CashFlow() {
 
         for (const entry of dfcData) {
             if (entry.type === 'INCOME') {
-                if (entry.payment_method === 'BOLETO' && !entry.paid_date) continue
+                if ((entry.payment_method === 'BOLETO' || entry.payment_method === 'CHEQUE_PRE_DATADO') && !entry.paid_date) continue
                 const label = getIncomeLabel(entry)
                 incomeByLabel[label] = (incomeByLabel[label] || 0) + getEffectiveIncomeAmount(entry)
             } else {
@@ -602,7 +602,7 @@ export default function CashFlow() {
             const day = parseInt(entry.due_date.substring(8, 10), 10)
             if (day < 1 || day > daysInMonth) continue
             if (entry.type === 'INCOME') {
-                if (entry.payment_method === 'BOLETO' && !entry.paid_date) continue
+                if ((entry.payment_method === 'BOLETO' || entry.payment_method === 'CHEQUE_PRE_DATADO') && !entry.paid_date) continue
                 totals[day] += getEffectiveIncomeAmount(entry)
             } else {
                 totals[day] -= Number(entry.amount) || 0
@@ -642,7 +642,7 @@ export default function CashFlow() {
             const day = parseInt(entry.due_date.substring(8, 10), 10)
             if (day < 1 || day > daysInMonth) continue
             if (entry.type === 'INCOME') {
-                if (entry.payment_method === 'BOLETO' && !entry.paid_date) continue
+                if ((entry.payment_method === 'BOLETO' || entry.payment_method === 'CHEQUE_PRE_DATADO') && !entry.paid_date) continue
                 const label = getIncomeLabel(entry)
                 if (!result[label]) {
                     result[label] = {}; unpaidAmounts[label] = {}; entriesMap[label] = {}; paidEntriesMap[label] = {}
@@ -695,15 +695,15 @@ export default function CashFlow() {
     }, [data])
 
     // ── Saldo acumulado por dia (saldo do dia anterior) ──
-    // Usa apenas lançamentos confirmados: income sem BOLETO/CHEQUE pendentes + despesas com paid_date
+    // Receitas: apenas confirmadas (BOLETO/CHEQUE_PRE_DATADO exigem paid_date)
+    // Despesas: TODAS contam (lançadas = comprometidas)
     const saldoDiaAnterior = useMemo(() => {
         const result: Record<number, number> = {}
         let running = prevMonthBalanceValue
         for (let d = 1; d <= pivotByDay.daysInMonth; d++) {
             result[d] = running
             const incomeDay = INCOME_LABELS.reduce((s, l) => s + ((pivotByDay.data[l] || {})[d] || 0), 0)
-            // Somente despesas pagas (exclui unpaidAmounts)
-            const expenseDay = GROUP_ORDER.reduce((s, k) => s + (((pivotByDay.data[k] || {})[d] || 0) - ((pivotByDay.unpaidAmounts[k] || {})[d] || 0)), 0)
+            const expenseDay = GROUP_ORDER.reduce((s, k) => s + ((pivotByDay.data[k] || {})[d] || 0), 0)
             running += incomeDay - expenseDay
         }
         return result
@@ -714,8 +714,7 @@ export default function CashFlow() {
         const result: Record<number, number> = {}
         for (let d = 1; d <= pivotByDay.daysInMonth; d++) {
             const incomeDay = INCOME_LABELS.reduce((s, l) => s + ((pivotByDay.data[l] || {})[d] || 0), 0)
-            // Somente despesas pagas
-            const expenseDay = GROUP_ORDER.reduce((s, k) => s + (((pivotByDay.data[k] || {})[d] || 0) - ((pivotByDay.unpaidAmounts[k] || {})[d] || 0)), 0)
+            const expenseDay = GROUP_ORDER.reduce((s, k) => s + ((pivotByDay.data[k] || {})[d] || 0), 0)
             result[d] = (saldoDiaAnterior[d] || 0) + incomeDay - expenseDay
         }
         return result
@@ -1102,29 +1101,6 @@ export default function CashFlow() {
                                 </td>
                             </tr>
 
-                            {/* Spacer */}
-                            <tr><td colSpan={pivotByDay.daysInMonth + 2} style={{ height: 8, background: '#0d1b2a' }} /></tr>
-
-                            {/* ── RESULTADO ── */}
-                            <tr style={{ background: extratoData.resultado >= 0 ? '#065f4630' : '#7f1d1d30', borderLeft: `5px solid ${extratoData.resultado >= 0 ? '#22c55e' : '#ef4444'}` }}>
-                                <td style={{ padding: '10px 12px', fontWeight: 700, color: '#e2e8f0', fontSize: 14, position: 'sticky', left: 0, background: extratoData.resultado >= 0 ? '#0a2e1a' : '#2a0a0a', borderRight: '1px solid rgba(255,255,255,0.1)', zIndex: 1 }}>
-                                    RESULTADO DO MÊS
-                                </td>
-                                {Array.from({ length: pivotByDay.daysInMonth }, (_, i) => i + 1).map(day => {
-                                    const incomeDay = INCOME_LABELS.reduce((s, l) => s + ((pivotByDay.data[l] || {})[day] || 0), 0)
-                                    const expenseDay = GROUP_ORDER.reduce((s, k) => s + ((pivotByDay.data[k] || {})[day] || 0), 0)
-                                    const res = incomeDay - expenseDay
-                                    return (
-                                        <td key={day} style={{ padding: '5px 4px', textAlign: 'right', color: res > 0 ? '#4ade80' : res < 0 ? '#f87171' : '#475569', fontWeight: 700, fontSize: 11, fontVariantNumeric: 'tabular-nums' }}>
-                                            {res !== 0 ? formatCurrency(res) : ''}
-                                        </td>
-                                    )
-                                })}
-                                <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, fontSize: 16, fontVariantNumeric: 'tabular-nums', color: extratoData.resultado >= 0 ? '#4ade80' : '#f87171', borderLeft: '1px solid rgba(255,255,255,0.15)' }}>
-                                    {formatCurrency(extratoData.resultado)}
-                                </td>
-                            </tr>
-
                             {/* ── SALDO ACUMULADO ── */}
                             <tr style={{ background: '#1e1b4b', borderLeft: '5px solid #818cf8' }}>
                                 <td style={{ padding: '10px 12px', fontWeight: 700, color: '#c7d2fe', fontSize: 13, position: 'sticky', left: 0, background: '#1e1b4b', borderRight: '1px solid rgba(255,255,255,0.1)', zIndex: 1, whiteSpace: 'nowrap' }}>
@@ -1232,6 +1208,29 @@ export default function CashFlow() {
                                                 title="Clique para registrar pagamento ou excluir"
                                             >
                                                 - {formatCurrency(val)}
+                                            </strong>
+                                        )
+                                    }
+                                    const needsConfirmation = r.payment_method === 'BOLETO' || r.payment_method === 'CHEQUE_PRE_DATADO'
+                                    if (needsConfirmation) {
+                                        if (r.paid_date) {
+                                            return (
+                                                <strong
+                                                    onClick={() => handleOpenPaymentModal(r)}
+                                                    style={{ color: 'rgba(74,222,128,0.4)', fontVariantNumeric: 'tabular-nums', cursor: 'pointer', borderBottom: '1px dashed rgba(74,222,128,0.3)' }}
+                                                    title="Recebido — clique para editar ou desfazer confirmação"
+                                                >
+                                                    + {formatCurrency(val)}
+                                                </strong>
+                                            )
+                                        }
+                                        return (
+                                            <strong
+                                                onClick={() => handleOpenPaymentModal(r)}
+                                                style={{ color: '#fbbf24', fontVariantNumeric: 'tabular-nums', cursor: 'pointer', borderBottom: '1px dashed rgba(251,191,36,0.6)' }}
+                                                title="Aguardando recebimento — clique para confirmar"
+                                            >
+                                                + {formatCurrency(val)}
                                             </strong>
                                         )
                                     }
@@ -1357,9 +1356,13 @@ export default function CashFlow() {
                 </Form>
             </Drawer>
 
-            {/* Modal: Registrar / Editar Pagamento de Despesa */}
+            {/* Modal: Registrar / Confirmar Pagamento ou Recebimento */}
             <Modal
-                title={paymentEntry?.paid_date ? 'Editar Pagamento Registrado' : 'Registrar Pagamento de Despesa'}
+                title={
+                    paymentEntry?.type === 'INCOME'
+                        ? (paymentEntry?.paid_date ? 'Editar Recebimento Confirmado' : 'Confirmar Recebimento')
+                        : (paymentEntry?.paid_date ? 'Editar Pagamento Registrado' : 'Registrar Pagamento de Despesa')
+                }
                 open={paymentModalOpen}
                 onCancel={() => setPaymentModalOpen(false)}
                 footer={null}
@@ -1367,7 +1370,7 @@ export default function CashFlow() {
             >
                 {paymentEntry && (
                     <div>
-                        <div style={{ marginBottom: 16, padding: 14, background: paymentEntry.paid_date ? 'rgba(255,255,255,0.05)' : 'rgba(240,68,56,0.08)', border: `1px solid ${paymentEntry.paid_date ? 'rgba(255,255,255,0.15)' : 'rgba(240,68,56,0.2)'}`, borderRadius: 8 }}>
+                        <div style={{ marginBottom: 16, padding: 14, background: paymentEntry.paid_date ? 'rgba(255,255,255,0.05)' : (paymentEntry.type === 'INCOME' ? 'rgba(251,191,36,0.08)' : 'rgba(240,68,56,0.08)'), border: `1px solid ${paymentEntry.paid_date ? 'rgba(255,255,255,0.15)' : (paymentEntry.type === 'INCOME' ? 'rgba(251,191,36,0.3)' : 'rgba(240,68,56,0.2)')}`, borderRadius: 8 }}>
                             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
                                 <div style={{ fontWeight: 600, fontSize: 15, flex: 1 }}>{paymentEntry.description?.split(' — ')[0] || paymentEntry.description}</div>
                                 {paymentEntry.expense_group && (
@@ -1381,27 +1384,27 @@ export default function CashFlow() {
                                     {paymentEntry.description.split(' — ').slice(1).join(' — ')}
                                 </div>
                             )}
-                            <div style={{ color: paymentEntry.paid_date ? 'rgba(255,255,255,0.5)' : '#f87171', fontWeight: 700, fontSize: 20, marginTop: 6 }}>
-                                {formatCurrency(Number(paymentEntry.amount))}
+                            <div style={{ color: paymentEntry.paid_date ? 'rgba(255,255,255,0.5)' : (paymentEntry.type === 'INCOME' ? '#fbbf24' : '#f87171'), fontWeight: 700, fontSize: 20, marginTop: 6 }}>
+                                {paymentEntry.type === 'INCOME' ? '+' : '-'} {formatCurrency(Number(paymentEntry.amount))}
                             </div>
                             <div style={{ color: '#94a3b8', fontSize: 12, marginTop: 4 }}>
                                 Vencimento: {dayjs(paymentEntry.due_date + 'T00:00:00').format('DD/MM/YYYY')}
                             </div>
                             {paymentEntry.paid_date && (
                                 <div style={{ color: '#4ade80', fontSize: 12, marginTop: 2, fontWeight: 500 }}>
-                                    ✓ Pago em: {dayjs(paymentEntry.paid_date + 'T00:00:00').format('DD/MM/YYYY')}
+                                    ✓ {paymentEntry.type === 'INCOME' ? 'Recebido em' : 'Pago em'}: {dayjs(paymentEntry.paid_date + 'T00:00:00').format('DD/MM/YYYY')}
                                     {paymentEntry.payment_method ? ` — ${paymentEntry.payment_method}` : ''}
                                 </div>
                             )}
                         </div>
                         <div style={{ marginBottom: 16 }}>
-                            <div style={{ fontWeight: 500, marginBottom: 6 }}>Data de Pagamento</div>
+                            <div style={{ fontWeight: 500, marginBottom: 6 }}>{paymentEntry.type === 'INCOME' ? 'Data de Recebimento' : 'Data de Pagamento'}</div>
                             <DatePicker
                                 value={paymentDate}
                                 onChange={(d) => setPaymentDate(d)}
                                 format="DD/MM/YYYY"
                                 style={{ width: '100%' }}
-                                placeholder="Selecione a data de pagamento"
+                                placeholder={paymentEntry.type === 'INCOME' ? 'Selecione a data de recebimento' : 'Selecione a data de pagamento'}
                             />
                         </div>
                         <div style={{ marginBottom: 24 }}>
@@ -1428,19 +1431,19 @@ export default function CashFlow() {
                             </Popconfirm>
                             {paymentEntry.paid_date && (
                                 <Popconfirm
-                                    title="Cancelar pagamento?"
-                                    description="A despesa voltará a aparecer como não paga (vermelha)."
+                                    title={paymentEntry.type === 'INCOME' ? 'Desfazer confirmação?' : 'Cancelar pagamento?'}
+                                    description={paymentEntry.type === 'INCOME' ? 'O valor voltará para pendente de recebimento (amarelo).' : 'A despesa voltará a aparecer como não paga (vermelha).'}
                                     onConfirm={handleCancelPayment}
-                                    okText="Cancelar pagamento"
+                                    okText={paymentEntry.type === 'INCOME' ? 'Desfazer' : 'Cancelar pagamento'}
                                     cancelText="Não"
                                     okButtonProps={{ danger: true }}
                                 >
-                                    <Button loading={savingPayment}>Cancelar Pagamento</Button>
+                                    <Button loading={savingPayment}>{paymentEntry.type === 'INCOME' ? 'Desfazer Confirmação' : 'Cancelar Pagamento'}</Button>
                                 </Popconfirm>
                             )}
                             <Button onClick={() => setPaymentModalOpen(false)}>Fechar</Button>
                             <Button type="primary" loading={savingPayment} onClick={handleRegisterPayment}>
-                                {paymentEntry.paid_date ? 'Salvar Edição' : 'Registrar Pagamento'}
+                                {paymentEntry.paid_date ? 'Salvar Edição' : (paymentEntry.type === 'INCOME' ? 'Confirmar Recebimento' : 'Registrar Pagamento')}
                             </Button>
                         </div>
                     </div>
