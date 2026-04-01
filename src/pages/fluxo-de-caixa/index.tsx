@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import {
-    Button, Select, DatePicker, Space, message,
+    Button, Select, DatePicker, Space, message, Alert,
     Form, Input, InputNumber, Drawer, Modal, Table, Tag, Radio, Popconfirm,
 } from 'antd'
 import dayjs from 'dayjs'
@@ -558,6 +558,17 @@ export default function CashFlow() {
     // ── Regular entries (exclude PREV_MONTH_BALANCE from all calculations) ──
     const regularData = useMemo(() => data.filter((e: any) => e.origin_type !== 'PREV_MONTH_BALANCE'), [data])
 
+    // ── Aviso de ações pendentes para HOJE ──
+    const todayStr = dayjs().format('YYYY-MM-DD')
+    const todayPendingEntries = useMemo(() => {
+        return regularData.filter((e: any) => {
+            if (e.due_date !== todayStr) return false
+            if (e.type === 'EXPENSE') return !e.paid_date
+            if (e.type === 'INCOME') return (e.payment_method === 'BOLETO' || e.payment_method === 'CHEQUE_PRE_DATADO') && !e.paid_date
+            return false
+        })
+    }, [regularData, todayStr])
+
     // ── Filtered data for DFC (respects day selection from calendar) ──
     const dfcData = useMemo(() => {
         if (selectedDay === null) return regularData
@@ -654,7 +665,8 @@ export default function CashFlow() {
             } else {
                 const amt = Number(entry.amount) || 0
                 const group = (entry as any).expense_group || getGroupForCategory(entry.description) || 'OUTROS'
-                const desc = entry.description || '—'
+                const rawDesc = entry.description || '—'
+                const desc = rawDesc.startsWith('Fornecedores') ? 'Fornecedores' : rawDesc
                 const descKey = `${group}||${desc}`
 
                 ensureKey(group)
@@ -887,6 +899,24 @@ export default function CashFlow() {
                     </Button>
                 </Space>
             </div>
+
+            {/* ── Aviso de ações pendentes hoje ── */}
+            {todayPendingEntries.length > 0 && (
+                <Alert
+                    type="warning"
+                    showIcon
+                    style={{ marginBottom: 16 }}
+                    message={`Você tem ${todayPendingEntries.length} lançamento${todayPendingEntries.length > 1 ? 's' : ''} pendente${todayPendingEntries.length > 1 ? 's' : ''} para hoje (${dayjs().format('DD/MM/YYYY')})`}
+                    description={(() => {
+                        const expenses = todayPendingEntries.filter((e: any) => e.type === 'EXPENSE')
+                        const incomes = todayPendingEntries.filter((e: any) => e.type === 'INCOME')
+                        const parts: string[] = []
+                        if (expenses.length > 0) parts.push(`${expenses.length} despesa${expenses.length > 1 ? 's' : ''} a pagar`)
+                        if (incomes.length > 0) parts.push(`${incomes.length} recebimento${incomes.length > 1 ? 's' : ''} a confirmar`)
+                        return `Ações a tomar: ${parts.join(' e ')}. Clique nos valores na tabela para registrar.`
+                    })()}
+                />
+            )}
 
             {/* ── Pivot Table: Excel-like Grid ── */}
             <div style={{ background: '#0d1b2a', borderRadius: 8, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.06)', marginTop: 0 }}>

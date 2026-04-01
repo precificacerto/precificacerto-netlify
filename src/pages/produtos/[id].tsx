@@ -154,8 +154,8 @@ const ProductDetails = () => {
             }
           }
 
-          const commissionPct = pricing ? Number(pricing.pct_commission) : Number(p?.commission_percent)
-          const profitPct = pricing ? Number(pricing.pct_profit_margin) : Number(p?.profit_percent)
+          const commissionPct = p?.commission_percent != null ? Number(p.commission_percent) : (pricing ? Number(pricing.pct_commission) : 0)
+          const profitPct = p?.profit_percent != null ? Number(p.profit_percent) : (pricing ? Number(pricing.pct_profit_margin) : 0)
           const productPriceInfo = {
                 salesCommissionPercent: Number(commissionPct) || 0,
                 salesCommissionPrice: Number(pricing?.val_commission) || 0,

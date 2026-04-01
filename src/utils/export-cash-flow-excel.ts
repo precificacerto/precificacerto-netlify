@@ -12,6 +12,7 @@ export const INCOME_ROWS = [
     { key: 'CARTAO_CREDITO', label: 'CARTAO CREDITO' },
     { key: 'CARTAO_DEBITO', label: 'CARTAO DEBITO' },
     { key: 'CHEQUE', label: 'CHEQUES' },
+    { key: 'CHEQUE_PRE_DATADO', label: 'CHEQUES' },
     { key: 'CHEQUES_A_VISTA', label: 'CHEQUES' },
     { key: 'CHEQUES_PRE_DATADOS', label: 'CHEQUES' },
     { key: 'DINHEIRO', label: 'DINHEIRO' },

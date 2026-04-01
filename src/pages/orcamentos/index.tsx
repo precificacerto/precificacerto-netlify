@@ -225,7 +225,9 @@ function Budgets() {
             const commissionPercent = Number(commTable?.commission_percent || 0)
             const basePrice = Number(svc?.base_price || 0)
             const costTotal = Number(svc?.cost_total || 0)
-            const profitPercent = basePrice > 0 && costTotal > 0 ? Math.max(0, ((basePrice - costTotal) / basePrice) * 100) : 0
+            const profitPercent = (svc?.profit_percent != null && Number(svc.profit_percent) > 0)
+                ? Number(svc.profit_percent)
+                : (basePrice > 0 && costTotal > 0 ? Math.max(0, ((basePrice - costTotal) / basePrice) * 100) : 0)
             return {
                 ...item,
                 service_id: serviceId,
@@ -248,7 +250,9 @@ function Budgets() {
             const commissionPercent = Number(commTable?.commission_percent || 0)
             const salePrice = Number(prod?.sale_price || 0)
             const costTotal = Number(prod?.cost_total || 0)
-            const profitPercent = salePrice > 0 && costTotal > 0 ? Math.max(0, ((salePrice - costTotal) / salePrice) * 100) : 0
+            const profitPercent = (prod?.profit_percent != null && Number(prod.profit_percent) > 0)
+                ? Number(prod.profit_percent)
+                : (salePrice > 0 && costTotal > 0 ? Math.max(0, ((salePrice - costTotal) / salePrice) * 100) : 0)
             return {
                 ...item,
                 product_id: productId,
@@ -329,18 +333,34 @@ function Budgets() {
         : 100
     const budgetTotalWithDiscount = budgetTotal * (1 - globalDiscountPercent / 100)
 
-    // ── Comissão e Lucro calculados após desconto ──
+    // ── Comissão e Lucro calculados após desconto (fórmula proporcional por item) ──
+    // Para cada item: o desconto reduz somente o pool (comissão+lucro),
+    // mantendo as proporções originais entre as duas categorias.
+    // newCombinedPct = combinedPct - discountPct
+    // profitValue  = priceComDesconto × newCombinedPct% × (profit  / combined)
+    // commValue    = priceComDesconto × newCombinedPct% × (commission / combined)
     const totalCommissionPct = budgetTotal > 0
         ? budgetItems.reduce((s, i) => s + i.unit_price * i.quantity * (i.commission_percent || 0) / 100, 0) / budgetTotal * 100
         : 0
     const totalProfitPct = budgetTotal > 0
         ? budgetItems.reduce((s, i) => s + i.unit_price * i.quantity * (i.profit_percent || 0) / 100, 0) / budgetTotal * 100
         : 0
-    const commissionPlusProfit = maxDiscountPercent > globalDiscountPercent
-        ? budgetTotalWithDiscount * (maxDiscountPercent - globalDiscountPercent) / 100
-        : 0
-    const commissionAmount = maxDiscountPercent > 0 ? commissionPlusProfit * totalCommissionPct / maxDiscountPercent : 0
-    const profitAmount = maxDiscountPercent > 0 ? commissionPlusProfit * totalProfitPct / maxDiscountPercent : 0
+    const profitAmount = budgetItems.reduce((s, i) => {
+        const combinedPct = (i.commission_percent || 0) + (i.profit_percent || 0)
+        if (combinedPct <= 0) return s
+        const newCombinedPct = Math.max(0, combinedPct - globalDiscountPercent)
+        const profitProportion = (i.profit_percent || 0) / combinedPct
+        const priceWithDiscount = i.unit_price * i.quantity * (1 - globalDiscountPercent / 100)
+        return s + priceWithDiscount * newCombinedPct / 100 * profitProportion
+    }, 0)
+    const commissionAmount = budgetItems.reduce((s, i) => {
+        const combinedPct = (i.commission_percent || 0) + (i.profit_percent || 0)
+        if (combinedPct <= 0) return s
+        const newCombinedPct = Math.max(0, combinedPct - globalDiscountPercent)
+        const commissionProportion = (i.commission_percent || 0) / combinedPct
+        const priceWithDiscount = i.unit_price * i.quantity * (1 - globalDiscountPercent / 100)
+        return s + priceWithDiscount * newCombinedPct / 100 * commissionProportion
+    }, 0)
 
     // ── Salvar orçamento ──
     const handleSave = async () => {
@@ -505,7 +525,7 @@ function Budgets() {
         setCustomerMode(record.customer_id ? 'existing' : 'manual')
 
         const [itemsResult, tablesResult] = await Promise.all([
-            supabase.from('budget_items').select('*, products(id, name, code, max_discount_percent, commission_table_id), services(id, name, commission_table_id), manual_description').eq('budget_id', record.id),
+            supabase.from('budget_items').select('*, products(id, name, code, max_discount_percent, commission_table_id, profit_percent, sale_price, cost_total), services(id, name, commission_table_id, profit_percent, base_price, cost_total), manual_description').eq('budget_id', record.id),
             record.employee_id
                 ? (supabase as any).from('employee_commission_tables').select('commission_tables(id, name, type, commission_percent)').eq('employee_id', record.employee_id)
                 : Promise.resolve({ data: [] }),
@@ -546,6 +566,27 @@ function Budgets() {
             const commissionTableId = it.products?.commission_table_id ?? it.services?.commission_table_id ?? null
             const commTable = allLoadedTables.find((t: any) => t.id === commissionTableId)
             const commissionPercent = Number(commTable?.commission_percent || 0)
+            // Lê profit_percent do produto/serviço vinculado; fallback para cálculo por custo
+            let profitPercent = 0
+            if (isService) {
+                const stored = it.services?.profit_percent
+                if (stored != null && Number(stored) > 0) {
+                    profitPercent = Number(stored)
+                } else {
+                    const basePrice = Number(it.services?.base_price || unitPrice)
+                    const costTotal = Number(it.services?.cost_total || 0)
+                    profitPercent = basePrice > 0 && costTotal > 0 ? Math.max(0, ((basePrice - costTotal) / basePrice) * 100) : 0
+                }
+            } else if (it.product_id) {
+                const stored = it.products?.profit_percent
+                if (stored != null && Number(stored) > 0) {
+                    profitPercent = Number(stored)
+                } else {
+                    const salePrice = Number(it.products?.sale_price || unitPrice)
+                    const costTotal = Number(it.products?.cost_total || 0)
+                    profitPercent = salePrice > 0 && costTotal > 0 ? Math.max(0, ((salePrice - costTotal) / salePrice) * 100) : 0
+                }
+            }
             return {
                 key: `edit-${record.id}-${idx}`,
                 product_id: it.product_id ?? null,
@@ -558,6 +599,7 @@ function Budgets() {
                 isService,
                 commission_table_id: commissionTableId,
                 commission_percent: commissionPercent,
+                profit_percent: profitPercent,
             }
         })
         setBudgetItems(rows)
@@ -803,7 +845,9 @@ function Budgets() {
                     type: 'INCOME',
                     amount: Number(selectedBudget.total_value),
                     due_date: dayjs().format('YYYY-MM-DD'),
+                    paid_date: dayjs().format('YYYY-MM-DD'),
                     description: `Venda: ORC-${selectedBudget.id.substring(0, 4).toUpperCase()} — ${values.payment_method}${numInstallments > 1 ? ` (${numInstallments}x)` : ''}`,
+                    payment_method: values.payment_method,
                     created_by: createdBy,
                 })
             }
@@ -1445,12 +1489,12 @@ function Budgets() {
                                 <div style={{ padding: '8px 12px', background: 'rgba(99,102,241,0.12)', borderRadius: 6 }}>
                                     <div style={{ fontSize: 11, color: '#94a3b8' }}>Comissão do Vendedor</div>
                                     <div style={{ fontSize: 16, fontWeight: 700, color: '#818cf8' }}>{formatCurrency(commissionAmount)}</div>
-                                    <div style={{ fontSize: 11, color: '#64748b' }}>{totalCommissionPct.toFixed(3)}% → {maxDiscountPercent > 0 ? (totalCommissionPct * (maxDiscountPercent - globalDiscountPercent) / maxDiscountPercent).toFixed(3) : '0.000'}% após desconto</div>
+                                    <div style={{ fontSize: 11, color: '#64748b' }}>{totalCommissionPct.toFixed(3)}% → {budgetTotalWithDiscount > 0 ? (commissionAmount / budgetTotalWithDiscount * 100).toFixed(3) : '0.000'}% após desconto</div>
                                 </div>
                                 <div style={{ padding: '8px 12px', background: 'rgba(16,185,129,0.12)', borderRadius: 6 }}>
                                     <div style={{ fontSize: 11, color: '#94a3b8' }}>Lucro da Empresa</div>
                                     <div style={{ fontSize: 16, fontWeight: 700, color: '#34d399' }}>{formatCurrency(profitAmount)}</div>
-                                    <div style={{ fontSize: 11, color: '#64748b' }}>{totalProfitPct.toFixed(3)}% → {maxDiscountPercent > 0 ? (totalProfitPct * (maxDiscountPercent - globalDiscountPercent) / maxDiscountPercent).toFixed(3) : '0.000'}% após desconto</div>
+                                    <div style={{ fontSize: 11, color: '#64748b' }}>{totalProfitPct.toFixed(3)}% → {budgetTotalWithDiscount > 0 ? (profitAmount / budgetTotalWithDiscount * 100).toFixed(3) : '0.000'}% após desconto</div>
                                 </div>
                             </div>
                         </div>
