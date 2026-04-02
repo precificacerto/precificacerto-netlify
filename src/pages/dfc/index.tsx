@@ -171,7 +171,7 @@ type CashEntry = {
   amount: number
   type: 'INCOME' | 'EXPENSE'
   expense_group: string | null
-  category: string | null
+  category?: string | null
   expense_category: string | null
   description: string | null
   due_date: string
@@ -194,7 +194,7 @@ async function fetchYearEntries(tenantId: string, year: number): Promise<CashEnt
   const endDate = `${year}-12-31`
   const { data, error } = await (supabase as any)
     .from('cash_entries')
-    .select('amount, type, expense_group, category, expense_category, description, due_date, is_active, payment_method, paid_date')
+    .select('amount, type, expense_group, expense_category, description, due_date, is_active, payment_method, paid_date')
     .eq('tenant_id', tenantId)
     .eq('is_active', true)
     .gte('due_date', startDate)
