@@ -196,7 +196,7 @@ async function fetchYearEntries(tenantId: string, year: number): Promise<CashEnt
   // @ts-ignore — supabase generic chain too deep for TS
   const { data } = await supabase
     .from('cash_entries')
-    .select('amount, type, expense_group, category, expense_category, description, due_date, is_active, payment_method, paid_date, anticipated_amount')
+    .select('amount, type, expense_group, category, expense_category, description, due_date, is_active, payment_method, paid_date')
     .eq('tenant_id', tenantId)
     .eq('is_active', true)
     .gte('due_date', startDate)
@@ -204,7 +204,7 @@ async function fetchYearEntries(tenantId: string, year: number): Promise<CashEnt
   return (data || []).map((e: any) => ({
     ...e,
     amount: Number(e.amount) || 0,
-    anticipated_amount: e.anticipated_amount != null ? Number(e.anticipated_amount) : null,
+    anticipated_amount: null,
   }))
 }
 

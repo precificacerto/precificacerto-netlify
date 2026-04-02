@@ -210,7 +210,7 @@ function Sales() {
             const sbv = supabase as any
             const { data: salesFull, error: salesErr } = await sbv
                 .from('sales')
-                .select('*, products(name), services(name), customers(name), employees(name)')
+                .select('*, products(name), customers(name), employees(name)')
                 .eq('is_active', true)
                 .order('sale_date', { ascending: false })
             if (!salesErr) {
@@ -219,7 +219,7 @@ function Sales() {
                 console.warn('Sales query with employees join failed, falling back:', salesErr.message)
                 const { data: salesSimple } = await sbv
                     .from('sales')
-                    .select('*, products(name), services(name), customers(name)')
+                    .select('*, products(name), customers(name)')
                     .eq('is_active', true)
                     .order('sale_date', { ascending: false })
                 salesData = salesSimple
@@ -260,7 +260,7 @@ function Sales() {
 
             const rows: SaleRow[] = (salesData || []).map((s: any) => ({
                 id: s.id,
-                productName: s.products?.name || s.services?.name || s.description || '-',
+                productName: s.products?.name || s.description || '-',
                 quantity: s.quantity || 1,
                 unitPrice: s.unit_price || s.final_value || 0,
                 finalValue: s.final_value || 0,
