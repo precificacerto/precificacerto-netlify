@@ -1451,18 +1451,41 @@ export default function CashFlow() {
                     <div>
                         <div style={{ marginBottom: 16, padding: 14, background: paymentEntry.paid_date ? 'rgba(255,255,255,0.05)' : (paymentEntry.type === 'INCOME' ? 'rgba(251,191,36,0.08)' : 'rgba(240,68,56,0.08)'), border: `1px solid ${paymentEntry.paid_date ? 'rgba(255,255,255,0.15)' : (paymentEntry.type === 'INCOME' ? 'rgba(251,191,36,0.3)' : 'rgba(240,68,56,0.2)')}`, borderRadius: 8 }}>
                             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
-                                <div style={{ fontWeight: 600, fontSize: 15, flex: 1 }}>{paymentEntry.description?.split(' — ')[0] || paymentEntry.description}</div>
+                                <div style={{ fontWeight: 600, fontSize: 15, flex: 1 }}>{paymentEntry.description?.split(' — ')[0]?.split('|')[0]?.replace(/^Serviço:\s*/i, '').replace(/^Venda balcão:\s*/i, '').trim() || paymentEntry.description}</div>
                                 {paymentEntry.expense_group && (
                                     <Tag style={{ flexShrink: 0, background: getExpenseGroupColor(paymentEntry.expense_group) + '33', color: getExpenseGroupColor(paymentEntry.expense_group), border: `1px solid ${getExpenseGroupColor(paymentEntry.expense_group)}66`, fontSize: 11 }}>
                                         {getExpenseGroupLabel(paymentEntry.expense_group)}
                                     </Tag>
                                 )}
                             </div>
-                            {paymentEntry.description?.includes(' — ') && (
-                                <div style={{ color: '#94a3b8', fontSize: 12, marginTop: 2 }}>
-                                    {paymentEntry.description.split(' — ').slice(1).join(' — ')}
-                                </div>
-                            )}
+                            {(() => {
+                                const desc = paymentEntry.description || ''
+                                const segments = desc.split('|').map((s: string) => s.trim()).filter(Boolean)
+                                const infoSegments = segments.slice(1) // skip first (service/product name)
+                                const afterDash = desc.includes(' — ') ? desc.split(' — ').slice(1).join(' — ') : ''
+                                const parsed: { label: string; value: string }[] = []
+                                for (const seg of infoSegments) {
+                                    const colonIdx = seg.indexOf(':')
+                                    if (colonIdx > -1) {
+                                        parsed.push({ label: seg.slice(0, colonIdx).trim(), value: seg.slice(colonIdx + 1).trim() })
+                                    } else if (seg) {
+                                        parsed.push({ label: '', value: seg })
+                                    }
+                                }
+                                if (afterDash && !infoSegments.length) {
+                                    parsed.push({ label: '', value: afterDash })
+                                }
+                                if (!parsed.length) return null
+                                return (
+                                    <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                        {parsed.map((p, i) => (
+                                            <div key={i} style={{ fontSize: 12, color: '#94a3b8' }}>
+                                                {p.label ? <><span style={{ color: '#64748b' }}>{p.label}:</span> {p.value}</> : p.value}
+                                            </div>
+                                        ))}
+                                    </div>
+                                )
+                            })()}
                             <div style={{ marginTop: 8 }}>
                                 <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Valor</div>
                                 <InputNumber

@@ -67,6 +67,7 @@ interface TimelineEntry {
     attachmentMimeType?: string
     fileSize?: number
     employeeName?: string
+    attachments?: { url: string; name: string; size?: number }[]
 }
 
 function Clients() {
@@ -124,7 +125,7 @@ function Clients() {
                 .order('created_at', { ascending: false }),
             supabase
                 .from('customer_attachments')
-                .select('id, file_path, file_name, file_size, mime_type, description, created_at')
+                .select('id, file_path, file_name, file_size, mime_type, description, created_at, origin_type, origin_id')
                 .eq('customer_id', customerId)
                 .order('created_at', { ascending: false }),
             supabase
@@ -136,9 +137,45 @@ function Clients() {
         ])
         if (signal?.cancelled) return
 
+        // Fetch cash_entries for BOLETO/CHEQUE budgets to check if all parcelas were paid
+        const boletoBudgetIds = (budgetRes.data || [])
+            .filter((b: any) => (b as any).payment_method === 'BOLETO' || (b as any).payment_method === 'CHEQUE_PRE_DATADO')
+            .map((b: any) => b.id)
+        const cashEntriesByBudget: Record<string, { paid_date: string | null }[]> = {}
+        if (boletoBudgetIds.length > 0) {
+            const { data: ceData } = await supabase
+                .from('cash_entries')
+                .select('origin_id, paid_date')
+                .in('origin_id', boletoBudgetIds)
+                .eq('is_active', true)
+            for (const ce of ceData || []) {
+                if (!cashEntriesByBudget[ce.origin_id]) cashEntriesByBudget[ce.origin_id] = []
+                cashEntriesByBudget[ce.origin_id].push({ paid_date: ce.paid_date })
+            }
+        }
+        if (signal?.cancelled) return
+
+        // Generate signed URLs and build attachment map grouped by origin
+        const attachMap: Record<string, { url: string; name: string; size?: number }[]> = {}
+        const orphanAttachments: any[] = []
+        for (const aRaw of attachRes.data || []) {
+            const a = aRaw as any
+            const { data: urlData } = await supabase.storage.from('comprovantes').createSignedUrl(a.file_path, 3600)
+            const item = { url: urlData?.signedUrl || '', name: a.file_name, size: a.file_size ?? undefined }
+            if (a.origin_type && a.origin_id) {
+                const key = `${a.origin_type}:${a.origin_id}`
+                if (!attachMap[key]) attachMap[key] = []
+                attachMap[key].push(item)
+            } else {
+                orphanAttachments.push({ ...a, signedUrl: urlData?.signedUrl })
+            }
+        }
+
         const entries: TimelineEntry[] = []
 
-        for (const h of histRes.data || []) {
+        for (const hRaw of histRes.data || []) {
+            const h = hRaw as any
+            const agendaAtts = h.calendar_event_id ? attachMap[`AGENDA:${h.calendar_event_id}`] : undefined
             entries.push({
                 id: `svc-${h.id}`,
                 date: h.created_at,
@@ -149,11 +186,12 @@ function Clients() {
                 badgeColor: h.history_type === 'BUDGET_SENT' ? 'blue' : 'green',
                 serviceObservation: h.service_observation || undefined,
                 employeeName: h.employee_id ? (employeeMap.get(h.employee_id) || undefined) : undefined,
+                attachments: agendaAtts,
             })
         }
 
-        for (const a of attachRes.data || []) {
-            const { data: urlData } = await supabase.storage.from('comprovantes').createSignedUrl(a.file_path, 3600)
+        // Orphan attachments (no origin_type) as standalone entries
+        for (const a of orphanAttachments) {
             entries.push({
                 id: `att-${a.id}`,
                 date: a.created_at,
@@ -162,7 +200,7 @@ function Clients() {
                 description: a.description || '',
                 badgeLabel: 'Anexo',
                 badgeColor: 'purple',
-                downloadUrl: urlData?.signedUrl,
+                downloadUrl: a.signedUrl,
                 fileName: a.file_name,
                 attachmentDescription: a.description || undefined,
                 fileSize: a.file_size ?? undefined,
@@ -174,14 +212,23 @@ function Clients() {
             const items = (b as any).budget_items || []
             const summary = items.slice(0, 3).map((i: any) => i.products?.name || i.manual_description || 'Item').join(', ')
             const suffix = items.length > 3 ? ` +${items.length - 3}` : ''
-            const isPendingPayment = (
-                ((b as any).payment_method === 'BOLETO' || (b as any).payment_method === 'CHEQUE_PRE_DATADO') &&
-                !(b as any).paid_date
-            )
+
+            let isPendingPayment = false
+            if ((b as any).payment_method === 'BOLETO' || (b as any).payment_method === 'CHEQUE_PRE_DATADO') {
+                if (b.status === 'PAID') {
+                    isPendingPayment = false
+                } else {
+                    const ces = cashEntriesByBudget[(b as any).id] || []
+                    isPendingPayment = ces.length === 0 || ces.some(ce => !ce.paid_date)
+                }
+            }
+
             const statusLabel = isPendingPayment
                 ? 'Pendente'
                 : b.status === 'PAID' ? 'Pago' : b.status === 'APPROVED' ? 'Aprovado' : 'Enviado'
             const badgeColor = isPendingPayment ? 'orange' : b.status === 'PAID' ? 'green' : 'blue'
+
+            const budgetAtts = attachMap[`BUDGET:${b.id}`]
             entries.push({
                 id: `bgt-${b.id}`,
                 date: b.created_at,
@@ -193,6 +240,7 @@ function Clients() {
                 amount: Number(b.total_value || 0),
                 budgetItems: summary + suffix,
                 budgetStatus: statusLabel,
+                attachments: budgetAtts,
             })
         }
 
@@ -559,6 +607,33 @@ function Clients() {
                                                                         <span style={{ color: '#64748b' }}>({(entry.fileSize / 1024).toFixed(0)} KB)</span>
                                                                     )}
                                                                 </a>
+                                                            </div>
+                                                        )}
+                                                        {entry.attachments && entry.attachments.length > 0 && (
+                                                            <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                                                <div style={{ fontSize: 11, color: '#64748b', marginBottom: 2 }}>
+                                                                    <PaperClipOutlined style={{ marginRight: 4 }} />Anexos ({entry.attachments.length})
+                                                                </div>
+                                                                {entry.attachments.map((att, idx) => (
+                                                                    <a
+                                                                        key={idx}
+                                                                        href={att.url}
+                                                                        target="_blank"
+                                                                        rel="noopener noreferrer"
+                                                                        onClick={(e) => e.stopPropagation()}
+                                                                        style={{
+                                                                            display: 'inline-flex', alignItems: 'center', gap: 6,
+                                                                            padding: '6px 12px', background: '#111c2e', border: '1px solid rgba(122,90,248,0.3)',
+                                                                            borderRadius: 6, fontSize: 12, color: '#e2e8f0',
+                                                                            textDecoration: 'none',
+                                                                        }}
+                                                                    >
+                                                                        <DownloadOutlined style={{ color: '#7A5AF8' }} /> {att.name}
+                                                                        {att.size != null && (
+                                                                            <span style={{ color: '#64748b' }}>({(att.size / 1024).toFixed(0)} KB)</span>
+                                                                        )}
+                                                                    </a>
+                                                                ))}
                                                             </div>
                                                         )}
                                                     </div>

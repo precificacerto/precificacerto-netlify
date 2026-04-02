@@ -1,12 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/router'
-import { Button, Drawer, Form, Input, Select, Space, Table, message, Alert, Spin, Tag } from 'antd'
+import { Button, Input, Select, Table, message, Alert, Spin } from 'antd'
 import { Layout } from '@/components/layout/layout.component'
 import { Months } from '@/components/months/months.component'
 import { Month, MonthObjectType, monthObjects } from '@/constants/month'
 import { PAGE_TITLES } from '@/constants/page-titles'
 import { PAYMENT_REVENUE_TITLE_TYPE } from '@/constants/payment-revenue-title'
-import { NewPaymentRevenueForm } from '@/page-parts/cashier/new-payment-revenue-form.component'
 import { IPaymentRevenueTitleModel } from '@/server/model/payment-revenue-title'
 import { getFormattedDate } from '@/utils/get-formatted-date'
 import { getMonetaryValue } from '@/utils/get-monetary-value'
@@ -28,7 +27,6 @@ import {
 import { supabase } from '@/supabase/client'
 import { getTenantId } from '@/utils/get-tenant-id'
 import { getEffectiveIncomeAmount } from '@/utils/cash-entry-amount'
-import { mergeExpenseConfig } from '@/utils/recalc-expense-config'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import { useAuth } from '@/hooks/use-auth.hook'
 
@@ -158,17 +156,15 @@ function Cashier() {
   const nextYear = currentYear + 1
 
   const [loading, setLoading] = useState(true)
-  const [formOpen, setFormOpen] = useState(false)
   const [incomeData, setIncomeData] = useState<IPaymentRevenueTitleModel[]>([])
   const [expenseData, setExpenseData] = useState<IPaymentRevenueTitleModel[]>([])
-  const [currentTitleType, setCurrentTitleType] = useState<PAYMENT_REVENUE_TITLE_TYPE>(null)
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
   const [goalPrice, setGoalPrice] = useState<GoalPrice>({ value: null, formattedValue: '' })
   const [customerMap, setCustomerMap] = useState<Record<string, string>>({})
   const monthEnum = month as Month
   const [warningMessage, setWarningMessage] = useState<string>('')
   const [alertMessage, setAlertMessage] = useState<string>('')
 
-  const [form] = Form.useForm()
   const [messageApi, contextHolder] = message.useMessage()
 
 
@@ -301,28 +297,6 @@ function Cashier() {
     router.push(`${ROUTES.CASHIER}/${selectedYear}/${monthParam}`)
   }
 
-  function handleClickAddPaymenteRevenue(type: PAYMENT_REVENUE_TITLE_TYPE) {
-    setCurrentTitleType(type)
-    setFormOpen(true)
-  }
-
-  function handleClickTableItem(
-    record: IPaymentRevenueTitleModel,
-    type: PAYMENT_REVENUE_TITLE_TYPE
-  ) {
-    form.setFieldsValue({
-      category: record.category,
-      date: dayjs(record.date + 'T00:00:00'),
-      description: record.description,
-      id: record.id,
-      price: record.price.toString().replace('.', ','),
-      expense_group: record.expense_group || undefined,
-    })
-
-    setCurrentTitleType(type)
-    setFormOpen(true)
-  }
-
   function renderTable(type: PAYMENT_REVENUE_TITLE_TYPE) {
     const title = type === PAYMENT_REVENUE_TITLE_TYPE.INCOME ? 'Entradas' : 'Saídas'
     const data = type === PAYMENT_REVENUE_TITLE_TYPE.INCOME ? incomeData : expenseData
@@ -349,9 +323,6 @@ function Cashier() {
           dataSource={data}
           pagination={false}
           size="small"
-          onRow={(record) => ({
-            onClick: () => handleClickTableItem(record, type),
-          })}
         />
       </div>
     )
@@ -539,200 +510,6 @@ function Cashier() {
     )
   }
 
-  function addNewItemToTable(newItem: IPaymentRevenueTitleModel) {
-    const prepareUpdate = (prev: IPaymentRevenueTitleModel[]) => {
-      const idx = prev.findIndex((item) => item.id === newItem.id)
-      if (idx > -1) {
-        const copy = [...prev]
-        copy[idx] = newItem
-        return copy
-      }
-      return [newItem, ...prev]
-    }
-
-    if (currentTitleType === PAYMENT_REVENUE_TITLE_TYPE.INCOME) setIncomeData(prepareUpdate)
-    if (currentTitleType === PAYMENT_REVENUE_TITLE_TYPE.EXPENSE) setExpenseData(prepareUpdate)
-  }
-
-  function removeItemFromTable(idKey: string) {
-    const prepareUpdate = (prev: IPaymentRevenueTitleModel[]) =>
-      prev.filter(({ id }) => id !== idKey)
-
-    if (currentTitleType === PAYMENT_REVENUE_TITLE_TYPE.INCOME) setIncomeData(prepareUpdate)
-    if (currentTitleType === PAYMENT_REVENUE_TITLE_TYPE.EXPENSE) setExpenseData(prepareUpdate)
-  }
-
-  async function handleSave() {
-    try {
-      await form.validateFields()
-      const values = form.getFieldsValue()
-      const tenantId = await getTenantId()
-      if (!tenantId) {
-        messageApi.error('Não foi possível identificar o tenant.')
-        return
-      }
-
-      const amount = parseFloat(
-        String(values.price).replace(/\./g, '').replace(',', '.')
-      )
-
-      const isExpense = currentTitleType === PAYMENT_REVENUE_TITLE_TYPE.EXPENSE
-      const recurrence: string = values.recurrence || 'ONCE'
-      const isEditing = !!values.id
-
-      // For new expense entries with recurrence (not ONCE), create multiple entries
-      if (isExpense && !isEditing && recurrence !== 'ONCE') {
-        const now = new Date()
-        const curYear = now.getFullYear()
-        const curMonth = now.getMonth()
-
-        let startY = curYear, startM = curMonth
-        if (values.start_month) { startY = values.start_month.year(); startM = values.start_month.month() }
-
-        let endY = curYear, endM = 11
-        if (values.end_month) { endY = values.end_month.year(); endM = values.end_month.month() }
-
-        const desc = values.description
-          ? `${values.category} — ${values.description}`
-          : values.category
-
-        const entries: any[] = []
-
-        const pmValue = values.payment_method || null
-        if (recurrence === 'WEEKLY' || recurrence === 'BIWEEKLY') {
-          const daysStep = recurrence === 'WEEKLY' ? 7 : 14
-          const cursor = new Date(startY, startM, 1)
-          const endDate = new Date(endY, endM + 1, 0)
-          while (cursor <= endDate) {
-            entries.push({
-              tenant_id: tenantId,
-              type: 'EXPENSE',
-              origin_type: 'FIXED_EXPENSE',
-              recurrence_type: recurrence,
-              description: desc,
-              amount,
-              due_date: cursor.toISOString().substring(0, 10),
-              expense_group: values.expense_group || null,
-              expense_category: values.category || null,
-              ...(pmValue ? { payment_method: pmValue } : {}),
-            })
-            cursor.setDate(cursor.getDate() + daysStep)
-          }
-        } else {
-          const monthStep = recurrence === 'QUARTERLY' ? 3 : 1
-          let y = startY, m = startM
-          while (y < endY || (y === endY && m <= endM)) {
-            entries.push({
-              tenant_id: tenantId,
-              type: 'EXPENSE',
-              origin_type: 'FIXED_EXPENSE',
-              recurrence_type: recurrence,
-              description: desc,
-              amount,
-              due_date: `${y}-${String(m + 1).padStart(2, '0')}-01`,
-              expense_group: values.expense_group || null,
-              expense_category: values.category || null,
-              ...(pmValue ? { payment_method: pmValue } : {}),
-            })
-            m += monthStep
-            if (m > 11) { y += Math.floor(m / 12); m = m % 12 }
-          }
-        }
-
-        if (entries.length > 0) {
-          const { error } = await supabase.from('cash_entries').insert(entries)
-          if (error) throw error
-        }
-
-        form.resetFields()
-        messageApi.success(`${entries.length} lançamento(s) criado(s) com sucesso!`)
-        onClose()
-        fetchCashierData()
-        mergeExpenseConfig(tenantId).catch(() => {})
-        return
-      }
-
-      // Single entry (ONCE, income, or editing)
-      const entryData: any = {
-        tenant_id: tenantId,
-        type: isExpense ? 'EXPENSE' : 'INCOME',
-        amount,
-        due_date: values.date.format('YYYY-MM-DD'),
-        description: values.category || null,
-      }
-
-      if (isExpense) {
-        entryData.expense_group = values.expense_group || null
-        entryData.expense_category = values.category || null
-        if (values.payment_method) entryData.payment_method = values.payment_method
-      }
-
-      let savedEntry: any
-
-      if (isEditing) {
-        const { data, error } = await supabase
-          .from('cash_entries')
-          .update(entryData)
-          .eq('id', values.id)
-          .select()
-          .single()
-        if (error) throw error
-        savedEntry = data
-      } else {
-        const { data, error } = await supabase
-          .from('cash_entries')
-          .insert(entryData)
-          .select()
-          .single()
-        if (error) throw error
-        savedEntry = data
-      }
-
-      const newItem: IPaymentRevenueTitleModel = {
-        id: savedEntry.id,
-        date: savedEntry.due_date ? new Date(savedEntry.due_date) : new Date(),
-        price: Number(savedEntry.amount) || 0,
-        category: savedEntry.description || '',
-        description: savedEntry.description || '',
-        expense_group: savedEntry.expense_group || null,
-      }
-
-      addNewItemToTable(newItem)
-      form.resetFields()
-      messageApi.success('Caixa atualizado!')
-      onClose()
-      mergeExpenseConfig(tenantId).catch(() => {})
-    } catch (ex: any) {
-      messageApi.error(ex?.message || 'Preencha todos os campos corretamente para salvar.')
-    }
-  }
-
-  async function handleDelete(idKey: string) {
-    try {
-      const res = await fetch('/api/delete/cash-entries', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: idKey }),
-      })
-      const result = await res.json()
-      if (!res.ok) throw new Error(result.error || 'Erro ao desativar')
-
-      removeItemFromTable(idKey)
-      onClose()
-      messageApi.success('Desativado com sucesso!')
-
-      const tenantId = await getTenantId()
-      if (tenantId) mergeExpenseConfig(tenantId).catch(() => {})
-    } catch (ex: any) {
-      messageApi.error(ex?.message || 'Erro ao desativar')
-    }
-  }
-
-  function onClose() {
-    setFormOpen(false)
-    form.resetFields()
-  }
-
   function handleChangeGoalPrice(value: string) {
     const formattedValue = currencyMask(value)
     setGoalPrice({
@@ -843,28 +620,6 @@ function Cashier() {
         </div>
       </div>
 
-      <Drawer
-        width={680}
-        onClose={onClose}
-        open={formOpen}
-        extra={
-          <Space>
-            <Button onClick={onClose}>Cancelar</Button>
-            <Button onClick={handleSave} type="primary">
-              Salvar
-            </Button>
-          </Space>
-        }
-      >
-        <NewPaymentRevenueForm
-          form={form}
-          year={year}
-          month={monthEnum}
-          type={currentTitleType}
-          onClickDelete={handleDelete}
-          regime={taxRegime}
-        />
-      </Drawer>
     </Layout>
   )
 }

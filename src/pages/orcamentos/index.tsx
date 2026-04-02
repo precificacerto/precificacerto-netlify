@@ -119,6 +119,9 @@ function Budgets() {
     const [paymentForm] = Form.useForm()
     const [customInstallments, setCustomInstallments] = useState<{ date: any; amount: number }[]>([{ date: null, amount: 0 }])
     const [installmentPreset, setInstallmentPreset] = useState<'customizado' | '30' | '30_60' | '30_60_90' | '30_60_90_120' | '30_60_90_120_150'>('customizado')
+    // Informative installments in the budget create/edit form (not saved to DB)
+    const [budgetFormInstallmentPreset, setBudgetFormInstallmentPreset] = useState<string>('customizado')
+    const [budgetFormCustomInstallments, setBudgetFormCustomInstallments] = useState<{ date: any; amount: number }[]>([{ date: null, amount: 0 }])
     const [attachFile, setAttachFile] = useState<File | null>(null)
     const [attachDesc, setAttachDesc] = useState('')
     const [customerMode, setCustomerMode] = useState<'existing' | 'manual'>('existing')
@@ -619,6 +622,8 @@ function Budgets() {
             notes: record.notes || undefined,
             payment_method: (record as any).payment_method || undefined,
         })
+        setBudgetFormInstallmentPreset('customizado')
+        setBudgetFormCustomInstallments([{ date: null, amount: 0 }])
         setDrawerOpen(true)
     }
 
@@ -690,9 +695,13 @@ function Budgets() {
             await reloadBudgets()
             return
         }
-        setSelectedBudget(fresh || budget)
+        const budgetData = fresh || budget
+        setSelectedBudget(budgetData)
         paymentForm.resetFields()
-        paymentForm.setFieldsValue({ installments: 1 })
+        paymentForm.setFieldsValue({
+            installments: 1,
+            payment_method: budgetData.payment_method || undefined,
+        })
         setAttachFile(null)
         setAttachDesc('')
         setPaymentModalOpen(true)
@@ -1268,7 +1277,7 @@ function Budgets() {
                     />
                     <div style={{ flex: 1 }} />
                     {canEdit(MODULES.BUDGETS) && (
-                        <Button type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setBudgetItems([]); setGlobalDiscountPercent(0); setEditingBudgetId(null); setDrawerOpen(true) }}>
+                        <Button type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setBudgetItems([]); setGlobalDiscountPercent(0); setEditingBudgetId(null); setBudgetFormInstallmentPreset('customizado'); setBudgetFormCustomInstallments([{ date: null, amount: 0 }]); setDrawerOpen(true) }}>
                             Novo Orçamento
                         </Button>
                     )}
@@ -1289,10 +1298,10 @@ function Budgets() {
                 title={editingBudgetId ? 'Editar Orçamento' : 'Novo Orçamento'}
                 width={680}
                 open={drawerOpen}
-                onClose={() => { setDrawerOpen(false); setEditingBudgetId(null); form.resetFields(); setBudgetItems([]); setGlobalDiscountPercent(0); setTableSections([{key: 'ts-0', tableId: null}]); setEmpProductTables([]); setEmpServiceTables([]) }}
+                onClose={() => { setDrawerOpen(false); setEditingBudgetId(null); form.resetFields(); setBudgetItems([]); setGlobalDiscountPercent(0); setTableSections([{key: 'ts-0', tableId: null}]); setEmpProductTables([]); setEmpServiceTables([]); setBudgetFormInstallmentPreset('customizado'); setBudgetFormCustomInstallments([{ date: null, amount: 0 }]) }}
                 extra={
                     <Space>
-                        <Button onClick={() => { setDrawerOpen(false); setEditingBudgetId(null); form.resetFields(); setBudgetItems([]); setGlobalDiscountPercent(0); setTableSections([{key: 'ts-0', tableId: null}]); setEmpProductTables([]); setEmpServiceTables([]) }}>Cancelar</Button>
+                        <Button onClick={() => { setDrawerOpen(false); setEditingBudgetId(null); form.resetFields(); setBudgetItems([]); setGlobalDiscountPercent(0); setTableSections([{key: 'ts-0', tableId: null}]); setEmpProductTables([]); setEmpServiceTables([]); setBudgetFormInstallmentPreset('customizado'); setBudgetFormCustomInstallments([{ date: null, amount: 0 }]) }}>Cancelar</Button>
                         <Button onClick={editingBudgetId ? handleUpdate : handleSave} type="primary" loading={saving}>
                             {editingBudgetId ? 'Salvar alterações' : 'Criar Orçamento'}
                         </Button>
@@ -1515,7 +1524,72 @@ function Budgets() {
                             allowClear
                             placeholder="Selecione (opcional)"
                             options={PAYMENT_METHODS}
+                            onChange={() => {
+                                setBudgetFormInstallmentPreset('customizado')
+                                setBudgetFormCustomInstallments([{ date: null, amount: 0 }])
+                            }}
                         />
+                    </Form.Item>
+
+                    <Form.Item noStyle shouldUpdate={(prev, curr) => prev.payment_method !== curr.payment_method}>
+                        {({ getFieldValue }) => {
+                            const pm = getFieldValue('payment_method')
+                            if (pm !== 'CHEQUE_PRE_DATADO' && pm !== 'BOLETO') return null
+                            const totalValue = (() => {
+                                const items: BudgetItemRow[] = budgetItems
+                                return items.reduce((s, r) => s + (r.total || 0), 0)
+                            })()
+                            return (
+                                <div style={{ marginBottom: 16, padding: 12, background: 'rgba(96, 165, 250, 0.06)', border: '1px solid rgba(96,165,250,0.2)', borderRadius: 8 }}>
+                                    <div style={{ fontSize: 13, fontWeight: 600, color: '#93c5fd', marginBottom: 6 }}>
+                                        📅 Previsão de parcelas (informativo)
+                                    </div>
+                                    <div style={{ fontSize: 11, color: '#64748b', marginBottom: 8 }}>
+                                        Estas datas são apenas informativas e não são salvas no orçamento.
+                                    </div>
+                                    <Radio.Group
+                                        value={budgetFormInstallmentPreset}
+                                        onChange={(e) => {
+                                            const p = e.target.value
+                                            setBudgetFormInstallmentPreset(p)
+                                            const insts = buildInstallmentsByPreset(p)
+                                            const n = insts.length
+                                            const amt = n > 0 && totalValue > 0 ? Math.round((totalValue / n) * 100) / 100 : 0
+                                            setBudgetFormCustomInstallments(insts.map(inst => ({ ...inst, amount: amt })))
+                                        }}
+                                        size="small"
+                                        style={{ marginBottom: 10 }}
+                                    >
+                                        {INSTALLMENT_PRESETS.map(p => <Radio.Button key={p.value} value={p.value}>{p.label}</Radio.Button>)}
+                                    </Radio.Group>
+                                    {budgetFormCustomInstallments.map((item, idx) => (
+                                        <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8, marginBottom: 8, alignItems: 'center' }}>
+                                            <DatePicker
+                                                placeholder="Data prevista"
+                                                format="DD/MM/YYYY"
+                                                value={item.date}
+                                                onChange={(d) => setBudgetFormCustomInstallments(prev => prev.map((r, i) => i === idx ? { ...r, date: d } : r))}
+                                                style={{ width: '100%' }}
+                                            />
+                                            <InputNumber
+                                                min={0} step={0.01} precision={2} style={{ width: '100%' }}
+                                                placeholder="Valor (R$)" value={item.amount || undefined} addonBefore="R$"
+                                                onChange={(v) => setBudgetFormCustomInstallments(prev => prev.map((r, i) => i === idx ? { ...r, amount: Number(v) || 0 } : r))}
+                                            />
+                                            <Button danger size="small" type="text"
+                                                disabled={budgetFormInstallmentPreset !== 'customizado' || budgetFormCustomInstallments.length === 1}
+                                                onClick={() => setBudgetFormCustomInstallments(prev => prev.filter((_, i) => i !== idx))}>✕</Button>
+                                        </div>
+                                    ))}
+                                    {budgetFormInstallmentPreset === 'customizado' && (
+                                        <Button type="dashed" size="small" style={{ width: '100%' }}
+                                            onClick={() => setBudgetFormCustomInstallments(prev => [...prev, { date: null, amount: 0 }])}>
+                                            + Adicionar parcela
+                                        </Button>
+                                    )}
+                                </div>
+                            )
+                        }}
                     </Form.Item>
 
                     <Form.Item name="notes" label="Observações">
