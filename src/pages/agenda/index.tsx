@@ -683,6 +683,54 @@ function Schedule() {
                 total_revenue: totalRevenue,
             })
 
+            // ─── Registrar venda (mesmo fluxo de Vendas no balcão) ───
+            const installmentCount = v.payment_method === 'CARTAO_CREDITO'
+                ? (v.installments ?? 1)
+                : (v.payment_method === 'CHEQUE_PRE_DATADO' || v.payment_method === 'BOLETO')
+                    ? (customInstallments.filter(r => r.date && r.amount > 0).length || 1)
+                    : 1
+            const { data: agendaSale } = await sbp.from('sales').insert({
+                tenant_id: tid,
+                created_by: createdBy,
+                customer_id: payEvt.customer_id || null,
+                quantity: 1 + extraProds.length,
+                unit_price: totalRevenue,
+                final_value: totalRevenue,
+                payment_method: v.payment_method,
+                installments: installmentCount,
+                description: payEvt.title,
+                sale_date: dayjs(payEvt.start_time).toISOString(),
+                sale_type: 'MANUAL',
+                status: 'COMPLETED',
+            }).select('id').single()
+            if (agendaSale?.id) {
+                if (payEvt.employee_id) {
+                    await sbp.from('sales').update({ employee_id: payEvt.employee_id }).eq('id', agendaSale.id)
+                }
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const agendaSaleItems: any[] = [{
+                    sale_id: agendaSale.id,
+                    product_id: null,
+                    service_id: payEvt.service_id || null,
+                    quantity: 1,
+                    unit_price: basePrice * (1 - discPct / 100),
+                    discount: discPct,
+                    description: payEvt.title,
+                }]
+                for (const ep of extraProds) {
+                    agendaSaleItems.push({
+                        sale_id: agendaSale.id,
+                        product_id: ep.product_id || null,
+                        service_id: ep.service_id || null,
+                        quantity: ep.quantity,
+                        unit_price: ep.unit_price,
+                        discount: 0,
+                        description: ep.product_name,
+                    })
+                }
+                await sbp.from('sale_items').insert(agendaSaleItems)
+            }
+
             const clienteNome = payEvt.customer?.name || null
             const funcNome = payEvt.employee?.name || null
             const dataServico = dayjs(payEvt.start_time).format('DD/MM/YYYY')

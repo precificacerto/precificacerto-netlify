@@ -383,15 +383,25 @@ function SalesReport() {
                 budgetsQuery = budgetsQuery.eq('customer_id', abcClientFilter)
             }
 
-            const { data: budgets, error: budgetsErr } = await budgetsQuery as { data: any[] | null; error: any }
-            if (budgetsErr) throw budgetsErr
-            if (!budgets || budgets.length === 0) {
-                setAbcData([])
-                setAbcLoading(false)
-                return
-            }
+            // Also fetch direct (balcão) sales in parallel
+            let salesQuery: any = (supabase as any)
+                .from('sales')
+                .select('id, employee_id, customer_id, sale_date, commission_amount, final_value')
+                .eq('tenant_id', effectiveTenantId)
+                .eq('sale_type', 'MANUAL')
+                .eq('is_active', true)
+                .gte('sale_date', startDate)
+                .lte('sale_date', endDate)
+            if (abcEmployeeFilter) salesQuery = salesQuery.eq('employee_id', abcEmployeeFilter)
+            if (abcClientFilter) salesQuery = salesQuery.eq('customer_id', abcClientFilter)
 
-            const budgetIds = budgets.map((b: any) => b.id)
+            const [{ data: budgets, error: budgetsErr }, { data: directSales }] = await Promise.all([
+                budgetsQuery as Promise<{ data: any[] | null; error: any }>,
+                salesQuery as Promise<{ data: any[] | null; error: any }>,
+            ])
+            if (budgetsErr) throw budgetsErr
+
+            const budgetIds = (budgets || []).map((b: any) => b.id)
 
             // Build employee map with commission_percent and pre-calculated commission_amount
             const employeeMap = new Map<string, { name: string; commissionPercent: number; commissionAmount: number; totalValue: number }>()
@@ -415,17 +425,40 @@ function SalesReport() {
                 budgetToEmployeeId.set(b.id, b.employee_id || null)
             })
 
-            let itemsQuery = supabase
-                .from('budget_items')
-                .select('budget_id, product_id, quantity, unit_price, discount, product:products(id, name, cost_total, product_sections(id, name))')
-                .in('budget_id', budgetIds)
+            const queries: Promise<any>[] = []
 
-            if (abcProductFilter) {
-                itemsQuery = itemsQuery.eq('product_id', abcProductFilter)
+            if (budgetIds.length > 0) {
+                let itemsQuery: any = supabase
+                    .from('budget_items')
+                    .select('budget_id, product_id, quantity, unit_price, discount, product:products(id, name, cost_total, product_sections(id, name))')
+                    .in('budget_id', budgetIds)
+                if (abcProductFilter) itemsQuery = itemsQuery.eq('product_id', abcProductFilter)
+                queries.push(itemsQuery)
+            } else {
+                queries.push(Promise.resolve({ data: [], error: null }))
             }
 
-            const { data: items, error: itemsErr } = await itemsQuery
+            const directSaleIds = (directSales || []).map((s: any) => s.id)
+            if (directSaleIds.length > 0) {
+                let saleItemsQuery: any = (supabase as any)
+                    .from('sale_items')
+                    .select('sale_id, product_id, quantity, unit_price, discount, product:products(id, name, cost_total, product_sections(id, name))')
+                    .in('sale_id', directSaleIds)
+                    .not('product_id', 'is', null)
+                if (abcProductFilter) saleItemsQuery = saleItemsQuery.eq('product_id', abcProductFilter)
+                queries.push(saleItemsQuery)
+            } else {
+                queries.push(Promise.resolve({ data: [], error: null }))
+            }
+
+            const [{ data: items, error: itemsErr }, { data: saleItems }] = await Promise.all(queries)
             if (itemsErr) throw itemsErr
+
+            if ((!items || items.length === 0) && (!saleItems || saleItems.length === 0) && (!directSales || directSales.length === 0)) {
+                setAbcData([])
+                setAbcLoading(false)
+                return
+            }
 
             // Determine if we need per-seller rows (when client is selected but no specific seller)
             const hasSellerFilter = !!abcEmployeeFilter
@@ -505,6 +538,60 @@ function SalesReport() {
                         employees: new Set([empName]),
                         commissionPercent: commissionPct,
                         commissionValue: commissionVal,
+                    })
+                }
+            }
+
+            // Build sale_id → sale info map for direct sales
+            const saleInfoMap = new Map<string, any>()
+            ;(directSales || []).forEach((s: any) => { saleInfoMap.set(s.id, s) })
+
+            // Process sale_items into productAgg
+            for (const item of (saleItems || [])) {
+                const product = (item as any).product
+                if (!product) continue
+                const productId = product.id
+                const productName = product.name || 'Sem nome'
+                const sectionName = (product as any).product_sections?.name || '—'
+                const qty = Number(item.quantity) || 1
+                const unitPrice = Number(item.unit_price) || 0
+                const discount = Number(item.discount) || 0
+                const revenue = (unitPrice * qty) - discount
+                const costPerUnit = Number(product.cost_total) || 0
+                const totalCost = costPerUnit * qty
+
+                const sale = saleInfoMap.get(item.sale_id)
+                const emp = sale?.employee_id
+                    ? (employees as any[]).find((e: any) => e.id === sale.employee_id)
+                    : null
+                const empName = emp?.name || 'Sem vendedor'
+                const empCommPct = Number(emp?.commission_percent) || 0
+                const saleEmployeeId = sale?.employee_id || null
+
+                let commissionPct = 0
+                let commissionVal = 0
+                if (hasSellerFilter || shouldSplitBySeller) {
+                    commissionPct = empCommPct
+                    commissionVal = revenue * (empCommPct / 100)
+                }
+
+                const aggKey = shouldSplitBySeller
+                    ? `${productId}::${saleEmployeeId || 'none'}`
+                    : productId
+
+                const existing = productAgg.get(aggKey)
+                if (existing) {
+                    existing.qtdSold += qty
+                    existing.totalRevenue += revenue
+                    existing.totalCost += totalCost
+                    existing.employees.add(empName)
+                    existing.commissionValue += commissionVal
+                    if (shouldSplitBySeller && commissionPct > 0) existing.commissionPercent = commissionPct
+                } else {
+                    productAgg.set(aggKey, {
+                        productId, productName, sectionName, qtdSold: qty,
+                        totalRevenue: revenue, totalCost, employees: new Set([empName]),
+                        commissionPercent: commissionPct, commissionValue: commissionVal,
                     })
                 }
             }

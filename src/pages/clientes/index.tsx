@@ -129,7 +129,7 @@ function Clients() {
                 .order('created_at', { ascending: false }),
             supabase
                 .from('budgets')
-                .select('id, total_value, status, created_at, budget_items(product_id, quantity, unit_price, products(name), manual_description)')
+                .select('id, total_value, status, payment_method, paid_date, created_at, budget_items(product_id, quantity, unit_price, products(name), manual_description)')
                 .eq('customer_id', customerId)
                 .in('status', ['SENT', 'APPROVED', 'PAID'])
                 .order('created_at', { ascending: false }),
@@ -153,7 +153,7 @@ function Clients() {
         }
 
         for (const a of attachRes.data || []) {
-            const { data: urlData } = supabase.storage.from('comprovantes').getPublicUrl(a.file_path)
+            const { data: urlData } = await supabase.storage.from('comprovantes').createSignedUrl(a.file_path, 3600)
             entries.push({
                 id: `att-${a.id}`,
                 date: a.created_at,
@@ -162,7 +162,7 @@ function Clients() {
                 description: a.description || '',
                 badgeLabel: 'Anexo',
                 badgeColor: 'purple',
-                downloadUrl: urlData?.publicUrl,
+                downloadUrl: urlData?.signedUrl,
                 fileName: a.file_name,
                 attachmentDescription: a.description || undefined,
                 fileSize: a.file_size ?? undefined,
@@ -174,7 +174,14 @@ function Clients() {
             const items = (b as any).budget_items || []
             const summary = items.slice(0, 3).map((i: any) => i.products?.name || i.manual_description || 'Item').join(', ')
             const suffix = items.length > 3 ? ` +${items.length - 3}` : ''
-            const statusLabel = b.status === 'PAID' ? 'Pago' : b.status === 'APPROVED' ? 'Aprovado' : 'Enviado'
+            const isPendingPayment = (
+                ((b as any).payment_method === 'BOLETO' || (b as any).payment_method === 'CHEQUE_PRE_DATADO') &&
+                !(b as any).paid_date
+            )
+            const statusLabel = isPendingPayment
+                ? 'Pendente'
+                : b.status === 'PAID' ? 'Pago' : b.status === 'APPROVED' ? 'Aprovado' : 'Enviado'
+            const badgeColor = isPendingPayment ? 'orange' : b.status === 'PAID' ? 'green' : 'blue'
             entries.push({
                 id: `bgt-${b.id}`,
                 date: b.created_at,
@@ -182,7 +189,7 @@ function Clients() {
                 title: `ORC-${b.id.substring(0, 4).toUpperCase()}`,
                 description: summary + suffix,
                 badgeLabel: statusLabel,
-                badgeColor: b.status === 'PAID' ? 'green' : 'blue',
+                badgeColor,
                 amount: Number(b.total_value || 0),
                 budgetItems: summary + suffix,
                 budgetStatus: statusLabel,

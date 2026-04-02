@@ -320,6 +320,7 @@ export default function CashFlow() {
     const [paymentEntry, setPaymentEntry] = useState<any>(null)
     const [paymentDate, setPaymentDate] = useState<dayjs.Dayjs | null>(null)
     const [paymentMethodModal, setPaymentMethodModal] = useState<string>('')
+    const [paymentAmount, setPaymentAmount] = useState<number>(0)
     const [savingPayment, setSavingPayment] = useState(false)
 
     // Export modal
@@ -376,6 +377,7 @@ export default function CashFlow() {
         // Pre-fill with existing paid_date if entry is already paid, otherwise default to today
         setPaymentDate(entry.paid_date ? dayjs(entry.paid_date + 'T00:00:00') : dayjs())
         setPaymentMethodModal(entry.payment_method || '')
+        setPaymentAmount(Number(entry.amount) || 0)
         setPaymentModalOpen(true)
     }
 
@@ -407,6 +409,7 @@ export default function CashFlow() {
             const { error } = await (supabase as any).from('cash_entries').update({
                 paid_date: paymentDate ? paymentDate.format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'),
                 payment_method: paymentMethodModal || null,
+                amount: paymentAmount > 0 ? paymentAmount : paymentEntry.amount,
             }).eq('id', paymentEntry.id).eq('tenant_id', tenant_id)
             if (error) throw error
             messageApi.success('Pagamento registrado!')
@@ -1460,8 +1463,17 @@ export default function CashFlow() {
                                     {paymentEntry.description.split(' — ').slice(1).join(' — ')}
                                 </div>
                             )}
-                            <div style={{ color: paymentEntry.paid_date ? 'rgba(255,255,255,0.5)' : (paymentEntry.type === 'INCOME' ? '#fbbf24' : '#f87171'), fontWeight: 700, fontSize: 20, marginTop: 6 }}>
-                                {paymentEntry.type === 'INCOME' ? '+' : '-'} {formatCurrency(Number(paymentEntry.amount))}
+                            <div style={{ marginTop: 8 }}>
+                                <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Valor</div>
+                                <InputNumber
+                                    value={paymentAmount}
+                                    onChange={(v) => setPaymentAmount(Number(v) || 0)}
+                                    min={0}
+                                    precision={2}
+                                    decimalSeparator=","
+                                    prefix={paymentEntry.type === 'INCOME' ? '+R$' : '-R$'}
+                                    style={{ width: '100%', fontWeight: 700, fontSize: 16 }}
+                                />
                             </div>
                             <div style={{ color: '#94a3b8', fontSize: 12, marginTop: 4 }}>
                                 Vencimento: {dayjs(paymentEntry.due_date + 'T00:00:00').format('DD/MM/YYYY')}

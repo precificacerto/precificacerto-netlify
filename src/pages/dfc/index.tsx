@@ -297,8 +297,6 @@ function aggregateEntries(entries: CashEntry[]): AggregatedData {
     if (!monthKey) continue
 
     if (entry.type === 'INCOME') {
-      // Skip unpaid boletos/cheques pré-datados — mirrors fluxo-de-caixa/extrato behavior
-      if ((entry.payment_method === 'BOLETO' || entry.payment_method === 'CHEQUE_PRE_DATADO') && !entry.paid_date) continue
       data.receitaBruta[monthKey] += effectiveIncomeAmount(entry)
       continue
     }
