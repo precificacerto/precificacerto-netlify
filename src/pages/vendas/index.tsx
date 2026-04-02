@@ -107,6 +107,7 @@ interface PendingBudget {
     total_value: number
     created_at: string
     status: string
+    payment_method?: string
 }
 
 function Sales() {
@@ -289,7 +290,7 @@ function Sales() {
     const fetchPendingBudgets = async () => {
         const { data } = await supabase
             .from('budgets')
-            .select('id, total_value, created_at, status, sale_id, customer:customers(name)')
+            .select('id, total_value, created_at, status, sale_id, payment_method, customer:customers(name)')
             .in('status', ['APPROVED', 'SENT', 'AWAITING_PAYMENT'])
             .is('sale_id', null)
             .order('created_at', { ascending: false })
@@ -299,19 +300,30 @@ function Sales() {
             total_value: Number(b.total_value) || 0,
             created_at: b.created_at,
             status: b.status,
+            payment_method: b.payment_method || undefined,
         })))
     }
 
     const handleOpenRegisterSale = async (budget: PendingBudget) => {
-        const { data: fresh } = await supabase.from('budgets').select('id, status, total_value, created_at, customer:customers(name)').eq('id', budget.id).single()
+        const { data: fresh } = await (supabase as any).from('budgets').select('id, status, total_value, created_at, payment_method, customer:customers(name)').eq('id', budget.id).single()
         if (fresh?.status === 'PAID') {
             messageApi.info('Este orçamento já foi finalizado e o pagamento lançado.')
             await fetchPendingBudgets()
             return
         }
-        setSelectedBudget(fresh ? { id: fresh.id, customer_name: (fresh as any).customer?.name || 'Sem cliente', total_value: Number(fresh.total_value) || 0, created_at: fresh.created_at, status: fresh.status } : budget)
+        const freshBudget = fresh ? {
+            id: fresh.id,
+            customer_name: (fresh as any).customer?.name || 'Sem cliente',
+            total_value: Number(fresh.total_value) || 0,
+            created_at: fresh.created_at,
+            status: fresh.status,
+            payment_method: (fresh as any).payment_method || undefined,
+        } : budget
+        setSelectedBudget(freshBudget)
         registerForm.resetFields()
-        registerForm.setFieldsValue({ sale_date: dayjs() })
+        const prefill: any = { sale_date: dayjs() }
+        if (freshBudget.payment_method) prefill.payment_method = freshBudget.payment_method
+        registerForm.setFieldsValue(prefill)
         setRegisterModalOpen(true)
     }
 

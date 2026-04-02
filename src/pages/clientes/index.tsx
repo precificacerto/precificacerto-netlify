@@ -117,7 +117,7 @@ function Clients() {
 
     const fetchTimeline = async (customerId: string, signal?: { cancelled: boolean }) => {
         setTimelineLoading(true)
-        const [histRes, attachRes, budgetRes] = await Promise.all([
+        const [histRes, attachRes, budgetRes, salesRes] = await Promise.all([
             supabase
                 .from('customer_service_history')
                 .select('id, service_observation, created_at, calendar_event_id, history_type, employee_id')
@@ -134,23 +134,33 @@ function Clients() {
                 .eq('customer_id', customerId)
                 .in('status', ['SENT', 'APPROVED', 'PAID'])
                 .order('created_at', { ascending: false }),
+            (supabase as any)
+                .from('sales')
+                .select('id, final_value, payment_method, installments, sale_date, created_at, employee_id, description, status, sale_type')
+                .eq('customer_id', customerId)
+                .eq('is_active', true)
+                .order('created_at', { ascending: false }),
         ])
         if (signal?.cancelled) return
 
-        // Fetch cash_entries for BOLETO/CHEQUE budgets to check if all parcelas were paid
+        // Fetch cash_entries for BOLETO/CHEQUE budgets and sales to check if all parcelas were paid
         const boletoBudgetIds = (budgetRes.data || [])
             .filter((b: any) => (b as any).payment_method === 'BOLETO' || (b as any).payment_method === 'CHEQUE_PRE_DATADO')
             .map((b: any) => b.id)
-        const cashEntriesByBudget: Record<string, { paid_date: string | null }[]> = {}
-        if (boletoBudgetIds.length > 0) {
+        const boletoSaleIds = (salesRes.data || [])
+            .filter((s: any) => s.payment_method === 'BOLETO' || s.payment_method === 'CHEQUE_PRE_DATADO')
+            .map((s: any) => s.id)
+        const allBoletoOriginIds = [...boletoBudgetIds, ...boletoSaleIds]
+        const cashEntriesByOrigin: Record<string, { paid_date: string | null }[]> = {}
+        if (allBoletoOriginIds.length > 0) {
             const { data: ceData } = await supabase
                 .from('cash_entries')
                 .select('origin_id, paid_date')
-                .in('origin_id', boletoBudgetIds)
+                .in('origin_id', allBoletoOriginIds)
                 .eq('is_active', true)
             for (const ce of ceData || []) {
-                if (!cashEntriesByBudget[ce.origin_id]) cashEntriesByBudget[ce.origin_id] = []
-                cashEntriesByBudget[ce.origin_id].push({ paid_date: ce.paid_date })
+                if (!cashEntriesByOrigin[ce.origin_id]) cashEntriesByOrigin[ce.origin_id] = []
+                cashEntriesByOrigin[ce.origin_id].push({ paid_date: ce.paid_date })
             }
         }
         if (signal?.cancelled) return
@@ -218,7 +228,7 @@ function Clients() {
                 if (b.status === 'PAID') {
                     isPendingPayment = false
                 } else {
-                    const ces = cashEntriesByBudget[(b as any).id] || []
+                    const ces = cashEntriesByOrigin[(b as any).id] || []
                     isPendingPayment = ces.length === 0 || ces.some(ce => !ce.paid_date)
                 }
             }
@@ -241,6 +251,33 @@ function Clients() {
                 budgetItems: summary + suffix,
                 budgetStatus: statusLabel,
                 attachments: budgetAtts,
+            })
+        }
+
+        // Sales from Vendas Balcão
+        for (const s of salesRes.data || []) {
+            const isBoletoOrCheque = s.payment_method === 'BOLETO' || s.payment_method === 'CHEQUE_PRE_DATADO'
+            let saleStatus = 'Pago'
+            let saleBadgeColor = 'green'
+            if (isBoletoOrCheque) {
+                const ces = cashEntriesByOrigin[s.id] || []
+                const allPaid = ces.length > 0 && ces.every((ce: any) => ce.paid_date)
+                if (!allPaid) { saleStatus = 'Pendente'; saleBadgeColor = 'orange' }
+            }
+            const saleAtts = attachMap[`SALE:${s.id}`]
+            const empName = s.employee_id ? (employeeMap.get(s.employee_id) || undefined) : undefined
+            const cleanDesc = s.description?.replace(/^Venda balcão:\s*/i, '').replace(/^Venda via orçamento\s*—\s*/i, '').split('—')[0].trim() || 'Venda'
+            entries.push({
+                id: `sale-${s.id}`,
+                date: s.sale_date || s.created_at,
+                type: 'SALE',
+                title: `Venda — ${cleanDesc}`,
+                description: s.description || '',
+                badgeLabel: saleStatus,
+                badgeColor: saleBadgeColor,
+                amount: Number(s.final_value || 0),
+                employeeName: empName,
+                attachments: saleAtts,
             })
         }
 
@@ -501,6 +538,7 @@ function Clients() {
     const renderGroupedTimeline = (entries: TimelineEntry[], maxHeight?: number) => {
         const typeGroups: { key: string; label: string; icon: React.ReactNode }[] = [
             { key: 'SERVICE', label: 'Serviços Realizados', icon: <ClockCircleOutlined style={{ color: '#12B76A' }} /> },
+            { key: 'SALE', label: 'Vendas', icon: <ShopOutlined style={{ color: '#F79009' }} /> },
             { key: 'BUDGET', label: 'Orçamentos', icon: <FileTextOutlined style={{ color: '#2E90FA' }} /> },
             { key: 'ATTACHMENT', label: 'Anexos e Documentos', icon: <PaperClipOutlined style={{ color: '#7A5AF8' }} /> },
         ]

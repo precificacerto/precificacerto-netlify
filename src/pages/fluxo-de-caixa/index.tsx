@@ -297,6 +297,7 @@ export default function CashFlow() {
     const [data, setData] = useState<any[]>([])
     const { canView, canEdit } = usePermissions()
     const [employees, setEmployees] = useState<any[]>([])
+    const [customerMap, setCustomerMap] = useState<Record<string, string>>({})
     const [taxRegime, setTaxRegime] = useState<string | null>(null)
     const [loading, setLoading] = useState(false)
     const [month, setMonth] = useState(dayjs())
@@ -319,9 +320,14 @@ export default function CashFlow() {
     const [paymentModalOpen, setPaymentModalOpen] = useState(false)
     const [paymentEntry, setPaymentEntry] = useState<any>(null)
     const [paymentDate, setPaymentDate] = useState<dayjs.Dayjs | null>(null)
+    const [paymentDueDate, setPaymentDueDate] = useState<dayjs.Dayjs | null>(null)
     const [paymentMethodModal, setPaymentMethodModal] = useState<string>('')
     const [paymentAmount, setPaymentAmount] = useState<number>(0)
     const [savingPayment, setSavingPayment] = useState(false)
+
+    // Selection modal for multiple pending income entries on same day
+    const [pendingSelectOpen, setPendingSelectOpen] = useState(false)
+    const [pendingSelectEntries, setPendingSelectEntries] = useState<any[]>([])
 
     // Export modal
     const [exportModalOpen, setExportModalOpen] = useState(false)
@@ -339,7 +345,7 @@ export default function CashFlow() {
         try {
             const sbf = supabase as any
             const tenantId = await getTenantId()
-            const [{ data: entries }, { data: emps }, { data: tenantSettings }] = await Promise.all([
+            const [{ data: entries }, { data: emps }, { data: tenantSettings }, { data: custs }] = await Promise.all([
                 tenantId
                     ? sbf.from('cash_entries')
                         .select('*')
@@ -355,9 +361,15 @@ export default function CashFlow() {
                 tenantId
                     ? sbf.from('tenant_settings').select('tax_regime').eq('tenant_id', tenantId).maybeSingle()
                     : Promise.resolve({ data: null }),
+                tenantId
+                    ? sbf.from('customers').select('id, name').eq('tenant_id', tenantId).eq('is_active', true)
+                    : Promise.resolve({ data: [] }),
             ])
             setData(entries || [])
             setEmployees(emps || [])
+            const cMap: Record<string, string> = {}
+            ;(custs || []).forEach((c: any) => { cMap[c.id] = c.name })
+            setCustomerMap(cMap)
             if (tenantSettings?.tax_regime) setTaxRegime(tenantSettings.tax_regime)
         } catch {
             messageApi.error('Erro ao carregar dados.')
@@ -374,8 +386,8 @@ export default function CashFlow() {
 
     const handleOpenPaymentModal = (entry: any) => {
         setPaymentEntry(entry)
-        // Pre-fill with existing paid_date if entry is already paid, otherwise default to today
         setPaymentDate(entry.paid_date ? dayjs(entry.paid_date + 'T00:00:00') : dayjs())
+        setPaymentDueDate(entry.due_date ? dayjs(entry.due_date + 'T00:00:00') : null)
         setPaymentMethodModal(entry.payment_method || '')
         setPaymentAmount(Number(entry.amount) || 0)
         setPaymentModalOpen(true)
@@ -386,12 +398,15 @@ export default function CashFlow() {
         setSavingPayment(true)
         try {
             const tenant_id = await getTenantId()
-            const { error } = await (supabase as any).from('cash_entries').update({
-                paid_date: null,
-                payment_method: null,
-            }).eq('id', paymentEntry.id).eq('tenant_id', tenant_id)
+            // For BOLETO/CHEQUE income: preserve payment_method so the entry stays visible as pending (yellow)
+            const isBoletoOrChequeIncome = paymentEntry.type === 'INCOME' &&
+                (paymentEntry.payment_method === 'BOLETO' || paymentEntry.payment_method === 'CHEQUE_PRE_DATADO')
+            const updatePayload: any = { paid_date: null }
+            if (!isBoletoOrChequeIncome) updatePayload.payment_method = null
+            const { error } = await (supabase as any).from('cash_entries').update(updatePayload)
+                .eq('id', paymentEntry.id).eq('tenant_id', tenant_id)
             if (error) throw error
-            messageApi.success('Pagamento cancelado — despesa voltou para não paga.')
+            messageApi.success(paymentEntry.type === 'INCOME' ? 'Recebimento desfeito — voltou para pendente.' : 'Pagamento cancelado — despesa voltou para não paga.')
             setPaymentModalOpen(false)
             await fetchData()
         } catch (err: any) {
@@ -406,11 +421,17 @@ export default function CashFlow() {
         setSavingPayment(true)
         try {
             const tenant_id = await getTenantId()
-            const { error } = await (supabase as any).from('cash_entries').update({
+            const originalDueDate = paymentEntry.due_date
+            const newDueDate = paymentDueDate ? paymentDueDate.format('YYYY-MM-DD') : originalDueDate
+            const dueDateChanged = newDueDate !== originalDueDate
+            const updatePayload: any = {
                 paid_date: paymentDate ? paymentDate.format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'),
                 payment_method: paymentMethodModal || null,
                 amount: paymentAmount > 0 ? paymentAmount : paymentEntry.amount,
-            }).eq('id', paymentEntry.id).eq('tenant_id', tenant_id)
+            }
+            if (dueDateChanged) updatePayload.due_date = newDueDate
+            const { error } = await (supabase as any).from('cash_entries').update(updatePayload)
+                .eq('id', paymentEntry.id).eq('tenant_id', tenant_id)
             if (error) throw error
             messageApi.success('Pagamento registrado!')
             setPaymentModalOpen(false)
@@ -1039,13 +1060,21 @@ export default function CashFlow() {
                                             const cellEntries = (pivotByDay.entriesMap[pendingKey] || {})[day] || []
                                             return (
                                                 <td key={day} style={{ padding: '5px 4px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', borderRight: '1px solid rgba(255,255,255,0.04)', fontSize: 11 }}>
-                                                    {val > 0 && cellEntries[0] ? (
+                                                    {val > 0 && cellEntries.length > 0 ? (
                                                         <span
-                                                            onClick={() => handleOpenPaymentModal(cellEntries[0])}
+                                                            onClick={() => {
+                                                                if (cellEntries.length === 1) {
+                                                                    handleOpenPaymentModal(cellEntries[0])
+                                                                } else {
+                                                                    setPendingSelectEntries(cellEntries)
+                                                                    setPendingSelectOpen(true)
+                                                                }
+                                                            }}
                                                             style={{ cursor: 'pointer', color: '#fbbf24', borderBottom: '1px dashed rgba(251,191,36,0.6)' }}
-                                                            title="Clique para confirmar recebimento"
+                                                            title={cellEntries.length > 1 ? `${cellEntries.length} lançamentos — clique para selecionar` : 'Clique para confirmar recebimento'}
                                                         >
                                                             {formatCurrency(val)}
+                                                            {cellEntries.length > 1 && <span style={{ fontSize: 10, marginLeft: 3, background: '#f59e0b', color: '#000', borderRadius: 8, padding: '0 4px' }}>{cellEntries.length}</span>}
                                                         </span>
                                                     ) : val > 0 ? <span style={{ color: '#fbbf24' }}>{formatCurrency(val)}</span> : ''}
                                                 </td>
@@ -1450,6 +1479,18 @@ export default function CashFlow() {
                 {paymentEntry && (
                     <div>
                         <div style={{ marginBottom: 16, padding: 14, background: paymentEntry.paid_date ? 'rgba(255,255,255,0.05)' : (paymentEntry.type === 'INCOME' ? 'rgba(251,191,36,0.08)' : 'rgba(240,68,56,0.08)'), border: `1px solid ${paymentEntry.paid_date ? 'rgba(255,255,255,0.15)' : (paymentEntry.type === 'INCOME' ? 'rgba(251,191,36,0.3)' : 'rgba(240,68,56,0.2)')}`, borderRadius: 8 }}>
+                            {/* Client and employee info */}
+                            {(() => {
+                                const clientName = (paymentEntry.customer_id && customerMap[paymentEntry.customer_id]) || (paymentEntry.contact_id && customerMap[paymentEntry.contact_id]) || null
+                                const empName = paymentEntry.employee_id ? employees.find((e: any) => e.id === paymentEntry.employee_id)?.name : null
+                                if (!clientName && !empName) return null
+                                return (
+                                    <div style={{ marginBottom: 8, display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                                        {clientName && <span style={{ fontSize: 12, color: '#94a3b8' }}>👤 Cliente: <strong style={{ color: '#e2e8f0' }}>{clientName}</strong></span>}
+                                        {empName && <span style={{ fontSize: 12, color: '#94a3b8' }}>🧑‍💼 Vendedor: <strong style={{ color: '#e2e8f0' }}>{empName}</strong></span>}
+                                    </div>
+                                )
+                            })()}
                             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
                                 <div style={{ fontWeight: 600, fontSize: 15, flex: 1 }}>{paymentEntry.description?.split(' — ')[0]?.split('|')[0]?.replace(/^Serviço:\s*/i, '').replace(/^Venda balcão:\s*/i, '').trim() || paymentEntry.description}</div>
                                 {paymentEntry.expense_group && (
@@ -1498,9 +1539,23 @@ export default function CashFlow() {
                                     style={{ width: '100%', fontWeight: 700, fontSize: 16 }}
                                 />
                             </div>
-                            <div style={{ color: '#94a3b8', fontSize: 12, marginTop: 4 }}>
-                                Vencimento: {dayjs(paymentEntry.due_date + 'T00:00:00').format('DD/MM/YYYY')}
-                            </div>
+                            {/* Due date: editable for BOLETO/CHEQUE income, readonly otherwise */}
+                            {(paymentEntry.type === 'INCOME' && (paymentEntry.payment_method === 'BOLETO' || paymentEntry.payment_method === 'CHEQUE_PRE_DATADO')) ? (
+                                <div style={{ marginTop: 8 }}>
+                                    <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Data de vencimento (editar para transferir data)</div>
+                                    <DatePicker
+                                        value={paymentDueDate}
+                                        onChange={(d) => setPaymentDueDate(d)}
+                                        format="DD/MM/YYYY"
+                                        style={{ width: '100%' }}
+                                        placeholder="Data de vencimento"
+                                    />
+                                </div>
+                            ) : (
+                                <div style={{ color: '#94a3b8', fontSize: 12, marginTop: 4 }}>
+                                    Vencimento: {dayjs(paymentEntry.due_date + 'T00:00:00').format('DD/MM/YYYY')}
+                                </div>
+                            )}
                             {paymentEntry.paid_date && (
                                 <div style={{ color: '#4ade80', fontSize: 12, marginTop: 2, fontWeight: 500 }}>
                                     ✓ {paymentEntry.type === 'INCOME' ? 'Recebido em' : 'Pago em'}: {dayjs(paymentEntry.paid_date + 'T00:00:00').format('DD/MM/YYYY')}
@@ -1529,7 +1584,7 @@ export default function CashFlow() {
                                 style={{ width: '100%' }}
                             />
                         </div>
-                        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
                             <Popconfirm
                                 title="Excluir este lançamento?"
                                 description="O valor será removido do fluxo de caixa."
@@ -1552,6 +1607,34 @@ export default function CashFlow() {
                                     <Button loading={savingPayment}>{paymentEntry.type === 'INCOME' ? 'Desfazer Confirmação' : 'Cancelar Pagamento'}</Button>
                                 </Popconfirm>
                             )}
+                            {/* Transfer due date button for BOLETO/CHEQUE income that hasn't been confirmed yet */}
+                            {!paymentEntry.paid_date && paymentEntry.type === 'INCOME' &&
+                             (paymentEntry.payment_method === 'BOLETO' || paymentEntry.payment_method === 'CHEQUE_PRE_DATADO') &&
+                             paymentDueDate && paymentDueDate.format('YYYY-MM-DD') !== paymentEntry.due_date && (
+                                <Button
+                                    loading={savingPayment}
+                                    onClick={async () => {
+                                        if (!paymentEntry || !paymentDueDate) return
+                                        setSavingPayment(true)
+                                        try {
+                                            const tenant_id = await getTenantId()
+                                            const { error } = await (supabase as any).from('cash_entries').update({
+                                                due_date: paymentDueDate.format('YYYY-MM-DD'),
+                                            }).eq('id', paymentEntry.id).eq('tenant_id', tenant_id)
+                                            if (error) throw error
+                                            messageApi.success('Data de vencimento transferida!')
+                                            setPaymentModalOpen(false)
+                                            await fetchData()
+                                        } catch (err: any) {
+                                            messageApi.error('Erro ao transferir data: ' + (err?.message || ''))
+                                        } finally {
+                                            setSavingPayment(false)
+                                        }
+                                    }}
+                                >
+                                    Transferir Data
+                                </Button>
+                            )}
                             <Button onClick={() => setPaymentModalOpen(false)}>Fechar</Button>
                             <Button type="primary" loading={savingPayment} onClick={handleRegisterPayment}>
                                 {paymentEntry.paid_date ? 'Salvar Edição' : (paymentEntry.type === 'INCOME' ? 'Confirmar Recebimento' : 'Registrar Pagamento')}
@@ -1559,6 +1642,44 @@ export default function CashFlow() {
                         </div>
                     </div>
                 )}
+            </Modal>
+
+            {/* Modal: Selecionar lançamento pendente (múltiplos no mesmo dia) */}
+            <Modal
+                title="Selecionar lançamento para confirmar"
+                open={pendingSelectOpen}
+                onCancel={() => setPendingSelectOpen(false)}
+                footer={<Button onClick={() => setPendingSelectOpen(false)}>Fechar</Button>}
+                width={600}
+            >
+                <div style={{ marginBottom: 12, color: '#94a3b8', fontSize: 13 }}>
+                    Há {pendingSelectEntries.length} lançamentos pendentes neste dia. Selecione qual deseja confirmar:
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {pendingSelectEntries.map((entry: any, idx: number) => {
+                        const clientName = (entry.customer_id && customerMap[entry.customer_id]) || (entry.contact_id && customerMap[entry.contact_id]) || null
+                        const empName = entry.employee_id ? employees.find((e: any) => e.id === entry.employee_id)?.name : null
+                        const cleanDesc = entry.description?.split('|')[0]?.replace(/^Serviço:\s*/i,'').replace(/^Venda balcão:\s*/i,'').replace(/^Venda orçamento:\s*/i,'').split('—')[0]?.trim() || entry.description || '—'
+                        return (
+                            <div
+                                key={entry.id || idx}
+                                onClick={() => { setPendingSelectOpen(false); handleOpenPaymentModal(entry) }}
+                                style={{ padding: '10px 14px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: 8, cursor: 'pointer' }}
+                            >
+                                <div style={{ fontWeight: 600, color: '#fbbf24', fontSize: 14, marginBottom: 4 }}>
+                                    {formatCurrency(Number(entry.amount) || 0)}
+                                </div>
+                                <div style={{ fontSize: 12, color: '#e2e8f0' }}>{cleanDesc}</div>
+                                {clientName && <div style={{ fontSize: 11, color: '#94a3b8' }}>Cliente: {clientName}</div>}
+                                {empName && <div style={{ fontSize: 11, color: '#94a3b8' }}>Vendedor: {empName}</div>}
+                                <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+                                    Venc: {entry.due_date ? entry.due_date.substring(8,10)+'/'+entry.due_date.substring(5,7)+'/'+entry.due_date.substring(0,4) : '—'}
+                                    {entry.payment_method ? ` • ${entry.payment_method}` : ''}
+                                </div>
+                            </div>
+                        )
+                    })}
+                </div>
             </Modal>
 
             {/* Modal: Saldo do Mês Anterior */}

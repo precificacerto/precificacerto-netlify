@@ -581,6 +581,9 @@ function Cashier() {
         </div>
 
         <Months currentMonth={monthEnum} onChangeMonth={handleChangeMonth} />
+        <div style={{ marginTop: 8, padding: '8px 12px', background: 'rgba(96,165,250,0.08)', border: '1px solid rgba(96,165,250,0.2)', borderRadius: 6, fontSize: 12, color: '#93c5fd', textAlign: 'center' }}>
+          Qualquer alteração nos lançamentos precisa ser feita dentro do Fluxo de caixa.
+        </div>
       </div>
 
       {warningMessage && <Alert style={{ marginBottom: 8 }} message={warningMessage} type="warning" />}

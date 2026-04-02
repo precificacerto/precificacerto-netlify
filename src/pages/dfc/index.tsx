@@ -7,7 +7,6 @@ import { exportTableToPdf } from '@/utils/export-generic-pdf'
 import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
 import { supabase } from '@/supabase/client'
-import { useAuth } from '@/hooks/use-auth.hook'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import { getTenantId } from '@/utils/get-tenant-id'
 
@@ -193,14 +192,14 @@ function effectiveIncomeAmount(entry: CashEntry): number {
 async function fetchYearEntries(tenantId: string, year: number): Promise<CashEntry[]> {
   const startDate = `${year}-01-01`
   const endDate = `${year}-12-31`
-  // @ts-ignore — supabase generic chain too deep for TS
-  const { data } = await supabase
+  const { data, error } = await (supabase as any)
     .from('cash_entries')
     .select('amount, type, expense_group, category, expense_category, description, due_date, is_active, payment_method, paid_date')
     .eq('tenant_id', tenantId)
     .eq('is_active', true)
     .gte('due_date', startDate)
     .lte('due_date', endDate)
+  if (error) throw new Error(`Erro ao buscar lançamentos: ${error.message}`)
   return (data || []).map((e: any) => ({
     ...e,
     amount: Number(e.amount) || 0,
@@ -610,7 +609,6 @@ function getVariantLabel(taxRegime: TaxRegime): string {
 // ── Component ──
 
 export default function DfcPage() {
-  const { currentUser } = useAuth()
   const { canView } = usePermissions()
   const currentYear = new Date().getFullYear()
   const [year, setYear] = useState(currentYear)
@@ -669,7 +667,7 @@ export default function DfcPage() {
     setLoading(true)
     setError(null)
     try {
-      const tenantId = currentUser?.tenant_id || await getTenantId()
+      const tenantId = await getTenantId()
       if (!tenantId) { setError('Não foi possível identificar o tenant.'); return }
 
       const [entries, settings] = await Promise.all([
@@ -698,7 +696,7 @@ export default function DfcPage() {
     } finally {
       setLoading(false)
     }
-  }, [year, currentUser?.tenant_id])
+  }, [year])
 
   useEffect(() => {
     loadData()
