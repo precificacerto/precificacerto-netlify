@@ -1539,23 +1539,17 @@ export default function CashFlow() {
                                     style={{ width: '100%', fontWeight: 700, fontSize: 16 }}
                                 />
                             </div>
-                            {/* Due date: editable for BOLETO/CHEQUE income, readonly otherwise */}
-                            {(paymentEntry.type === 'INCOME' && (paymentEntry.payment_method === 'BOLETO' || paymentEntry.payment_method === 'CHEQUE_PRE_DATADO')) ? (
-                                <div style={{ marginTop: 8 }}>
-                                    <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Data de vencimento (editar para transferir data)</div>
-                                    <DatePicker
-                                        value={paymentDueDate}
-                                        onChange={(d) => setPaymentDueDate(d)}
-                                        format="DD/MM/YYYY"
-                                        style={{ width: '100%' }}
-                                        placeholder="Data de vencimento"
-                                    />
-                                </div>
-                            ) : (
-                                <div style={{ color: '#94a3b8', fontSize: 12, marginTop: 4 }}>
-                                    Vencimento: {dayjs(paymentEntry.due_date + 'T00:00:00').format('DD/MM/YYYY')}
-                                </div>
-                            )}
+                            {/* Due date: editable for all entry types */}
+                            <div style={{ marginTop: 8 }}>
+                                <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Data de vencimento (altere para salvar nova data)</div>
+                                <DatePicker
+                                    value={paymentDueDate}
+                                    onChange={(d) => setPaymentDueDate(d)}
+                                    format="DD/MM/YYYY"
+                                    style={{ width: '100%' }}
+                                    placeholder="Data de vencimento"
+                                />
+                            </div>
                             {paymentEntry.paid_date && (
                                 <div style={{ color: '#4ade80', fontSize: 12, marginTop: 2, fontWeight: 500 }}>
                                     ✓ {paymentEntry.type === 'INCOME' ? 'Recebido em' : 'Pago em'}: {dayjs(paymentEntry.paid_date + 'T00:00:00').format('DD/MM/YYYY')}
@@ -1607,10 +1601,8 @@ export default function CashFlow() {
                                     <Button loading={savingPayment}>{paymentEntry.type === 'INCOME' ? 'Desfazer Confirmação' : 'Cancelar Pagamento'}</Button>
                                 </Popconfirm>
                             )}
-                            {/* Transfer due date button for BOLETO/CHEQUE income that hasn't been confirmed yet */}
-                            {!paymentEntry.paid_date && paymentEntry.type === 'INCOME' &&
-                             (paymentEntry.payment_method === 'BOLETO' || paymentEntry.payment_method === 'CHEQUE_PRE_DATADO') &&
-                             paymentDueDate && paymentDueDate.format('YYYY-MM-DD') !== paymentEntry.due_date && (
+                            {/* Save due date button — appears whenever date is changed, for any entry type */}
+                            {paymentDueDate && paymentDueDate.format('YYYY-MM-DD') !== paymentEntry.due_date && (
                                 <Button
                                     loading={savingPayment}
                                     onClick={async () => {
@@ -1622,17 +1614,17 @@ export default function CashFlow() {
                                                 due_date: paymentDueDate.format('YYYY-MM-DD'),
                                             }).eq('id', paymentEntry.id).eq('tenant_id', tenant_id)
                                             if (error) throw error
-                                            messageApi.success('Data de vencimento transferida!')
+                                            messageApi.success('Data de vencimento salva!')
                                             setPaymentModalOpen(false)
                                             await fetchData()
                                         } catch (err: any) {
-                                            messageApi.error('Erro ao transferir data: ' + (err?.message || ''))
+                                            messageApi.error('Erro ao salvar data: ' + (err?.message || ''))
                                         } finally {
                                             setSavingPayment(false)
                                         }
                                     }}
                                 >
-                                    Transferir Data
+                                    Salvar Data
                                 </Button>
                             )}
                             <Button onClick={() => setPaymentModalOpen(false)}>Fechar</Button>

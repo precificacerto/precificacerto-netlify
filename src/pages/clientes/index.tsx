@@ -130,24 +130,42 @@ function Clients() {
                 .order('created_at', { ascending: false }),
             supabase
                 .from('budgets')
-                .select('id, total_value, status, payment_method, paid_date, created_at, budget_items(product_id, quantity, unit_price, products(name), manual_description)')
+                .select('id, total_value, status, payment_method, paid_date, sale_id, created_at, budget_items(product_id, quantity, unit_price, products(name), manual_description)')
                 .eq('customer_id', customerId)
                 .in('status', ['SENT', 'APPROVED', 'PAID'])
                 .order('created_at', { ascending: false }),
             (supabase as any)
                 .from('sales')
-                .select('id, final_value, payment_method, installments, sale_date, created_at, employee_id, description, status, sale_type')
+                .select('id, final_value, payment_method, installments, sale_date, created_at, employee_id, description, status, sale_type, budget_id')
                 .eq('customer_id', customerId)
                 .eq('is_active', true)
                 .order('created_at', { ascending: false }),
         ])
         if (signal?.cancelled) return
 
+        // Fetch FROM_BUDGET sales (may not have customer_id set — look up by budget_id)
+        const allBudgetIds = (budgetRes.data || []).map((b: any) => b.id)
+        let fromBudgetSalesData: any[] = []
+        if (allBudgetIds.length > 0) {
+            const { data: fbSales } = await (supabase as any)
+                .from('sales')
+                .select('id, final_value, payment_method, installments, sale_date, created_at, employee_id, description, status, sale_type, budget_id')
+                .in('budget_id', allBudgetIds)
+                .eq('is_active', true)
+            fromBudgetSalesData = fbSales || []
+        }
+        // Merge and deduplicate sales (prefer entries from customer-based query)
+        const salesByCustomer = salesRes.data || []
+        const seenSaleIds = new Set<string>(salesByCustomer.map((s: any) => s.id))
+        const allSales = [...salesByCustomer, ...fromBudgetSalesData.filter((s: any) => !seenSaleIds.has(s.id))]
+
+        if (signal?.cancelled) return
+
         // Fetch cash_entries for BOLETO/CHEQUE budgets and sales to check if all parcelas were paid
         const boletoBudgetIds = (budgetRes.data || [])
-            .filter((b: any) => (b as any).payment_method === 'BOLETO' || (b as any).payment_method === 'CHEQUE_PRE_DATADO')
+            .filter((b: any) => !(b as any).sale_id && ((b as any).payment_method === 'BOLETO' || (b as any).payment_method === 'CHEQUE_PRE_DATADO'))
             .map((b: any) => b.id)
-        const boletoSaleIds = (salesRes.data || [])
+        const boletoSaleIds = allSales
             .filter((s: any) => s.payment_method === 'BOLETO' || s.payment_method === 'CHEQUE_PRE_DATADO')
             .map((s: any) => s.id)
         const allBoletoOriginIds = [...boletoBudgetIds, ...boletoSaleIds]
@@ -219,24 +237,16 @@ function Clients() {
         }
 
         for (const b of budgetRes.data || []) {
+            // Budgets converted to sales appear in the SALE section
+            if ((b as any).sale_id) continue
+
             const items = (b as any).budget_items || []
             const summary = items.slice(0, 3).map((i: any) => i.products?.name || i.manual_description || 'Item').join(', ')
             const suffix = items.length > 3 ? ` +${items.length - 3}` : ''
 
-            let isPendingPayment = false
-            if ((b as any).payment_method === 'BOLETO' || (b as any).payment_method === 'CHEQUE_PRE_DATADO') {
-                if (b.status === 'PAID') {
-                    isPendingPayment = false
-                } else {
-                    const ces = cashEntriesByOrigin[(b as any).id] || []
-                    isPendingPayment = ces.length === 0 || ces.some(ce => !ce.paid_date)
-                }
-            }
-
-            const statusLabel = isPendingPayment
-                ? 'Pendente'
-                : b.status === 'PAID' ? 'Pago' : b.status === 'APPROVED' ? 'Aprovado' : 'Enviado'
-            const badgeColor = isPendingPayment ? 'orange' : b.status === 'PAID' ? 'green' : 'blue'
+            // All remaining budgets (not yet converted to sales) are awaiting payment
+            const statusLabel = 'Aguardando Pagamento'
+            const badgeColor = 'orange'
 
             const budgetAtts = attachMap[`BUDGET:${b.id}`]
             entries.push({
@@ -254,17 +264,22 @@ function Clients() {
             })
         }
 
-        // Sales from Vendas Balcão
-        for (const s of salesRes.data || []) {
+        // Sales (from Vendas Balcão and converted from budgets)
+        for (const s of allSales) {
             const isBoletoOrCheque = s.payment_method === 'BOLETO' || s.payment_method === 'CHEQUE_PRE_DATADO'
             let saleStatus = 'Pago'
             let saleBadgeColor = 'green'
             if (isBoletoOrCheque) {
                 const ces = cashEntriesByOrigin[s.id] || []
                 const allPaid = ces.length > 0 && ces.every((ce: any) => ce.paid_date)
-                if (!allPaid) { saleStatus = 'Pendente'; saleBadgeColor = 'orange' }
+                if (!allPaid) { saleStatus = 'Aguardando Pagamento'; saleBadgeColor = 'orange' }
             }
-            const saleAtts = attachMap[`SALE:${s.id}`]
+            // Merge attachments from SALE origin and BUDGET origin (for FROM_BUDGET sales)
+            const saleAttsArr = [
+                ...(attachMap[`SALE:${s.id}`] || []),
+                ...(s.budget_id ? (attachMap[`BUDGET:${s.budget_id}`] || []) : []),
+            ]
+            const saleAtts = saleAttsArr.length > 0 ? saleAttsArr : undefined
             const empName = s.employee_id ? (employeeMap.get(s.employee_id) || undefined) : undefined
             const cleanDesc = s.description?.replace(/^Venda balcão:\s*/i, '').replace(/^Venda via orçamento\s*—\s*/i, '').split('—')[0].trim() || 'Venda'
             entries.push({

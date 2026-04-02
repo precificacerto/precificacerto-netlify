@@ -104,6 +104,7 @@ const INSTALLMENT_PRESETS = [
 interface PendingBudget {
     id: string
     customer_name: string
+    customer_id?: string
     total_value: number
     created_at: string
     status: string
@@ -290,13 +291,14 @@ function Sales() {
     const fetchPendingBudgets = async () => {
         const { data } = await supabase
             .from('budgets')
-            .select('id, total_value, created_at, status, sale_id, payment_method, customer:customers(name)')
+            .select('id, total_value, created_at, status, sale_id, payment_method, customer_id, customer:customers(name)')
             .in('status', ['APPROVED', 'SENT', 'AWAITING_PAYMENT'])
             .is('sale_id', null)
             .order('created_at', { ascending: false })
         setPendingBudgets((data || []).map((b: any) => ({
             id: b.id,
             customer_name: b.customer?.name || 'Sem cliente',
+            customer_id: b.customer_id || undefined,
             total_value: Number(b.total_value) || 0,
             created_at: b.created_at,
             status: b.status,
@@ -305,7 +307,7 @@ function Sales() {
     }
 
     const handleOpenRegisterSale = async (budget: PendingBudget) => {
-        const { data: fresh } = await (supabase as any).from('budgets').select('id, status, total_value, created_at, payment_method, customer:customers(name)').eq('id', budget.id).single()
+        const { data: fresh } = await (supabase as any).from('budgets').select('id, status, total_value, created_at, payment_method, customer_id, customer:customers(name)').eq('id', budget.id).single()
         if (fresh?.status === 'PAID') {
             messageApi.info('Este orçamento já foi finalizado e o pagamento lançado.')
             await fetchPendingBudgets()
@@ -314,6 +316,7 @@ function Sales() {
         const freshBudget = fresh ? {
             id: fresh.id,
             customer_name: (fresh as any).customer?.name || 'Sem cliente',
+            customer_id: (fresh as any).customer_id || undefined,
             total_value: Number(fresh.total_value) || 0,
             created_at: fresh.created_at,
             status: fresh.status,
@@ -364,6 +367,7 @@ function Sales() {
                 tenant_id: tenantId,
                 created_by: createdBy,
                 budget_id: selectedBudget.id,
+                customer_id: selectedBudget.customer_id || null,
                 quantity: 1,
                 unit_price: selectedBudget.total_value,
                 final_value: selectedBudget.total_value,
