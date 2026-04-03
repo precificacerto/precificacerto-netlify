@@ -52,6 +52,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const settingsUpdate: Record<string, any> = {
       tax_regime: settings.tax_regime,
       calc_type: settings.calc_type,
+      cashflow_setup_done: true,
+      expense_setup_done: true,
       state_code: company.state_code || null,
       cnae_code: settings.cnae_code || null,
       simples_anexo: settings.simples_anexo || null,

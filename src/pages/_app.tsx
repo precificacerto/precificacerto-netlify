@@ -11,7 +11,6 @@ import { Loader } from '@/components/loader.component'
 import { inter } from '@/styles/fonts'
 import { antThemeToken } from '@/styles/design-tokens'
 import { ROUTES } from '@/constants/routes'
-import { CashflowSetupModal } from '@/components/cashflow-setup-modal.component'
 import { sessionStorageCacheProvider } from '@/lib/swr-cache-provider'
 
 const PUBLIC_ROUTES = [ROUTES.LOGIN, ROUTES.RESET_PASSWORD, ROUTES.SUPER_ADMIN_LOGIN, '/cadastro', '/criar-senha']
@@ -130,19 +129,7 @@ function AuthGuard({ children }: { children: ReactNode }) {
     )
   }
 
-  const showCashflowSetup = !!(
-    currentUser?.onboardingCompleted &&
-    !currentUser?.cashflowSetupDone &&
-    !currentUser?.is_super_admin &&
-    !PUBLIC_ROUTES.some(r => router.pathname === r || router.pathname.startsWith(r + '/'))
-  )
-
-  return (
-    <>
-      {children}
-      <CashflowSetupModal open={showCashflowSetup} onDone={() => {}} />
-    </>
-  )
+  return <>{children}</>
 }
 
 export default function App({ Component, pageProps }: AppProps) {
