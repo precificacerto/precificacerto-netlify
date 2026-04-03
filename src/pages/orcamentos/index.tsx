@@ -17,7 +17,9 @@ import {
     DollarOutlined, SearchOutlined, PlusOutlined, DeleteOutlined,
     CreditCardOutlined, WhatsAppOutlined, SendOutlined, EditOutlined,
     PaperClipOutlined, UploadOutlined, ShoppingCartOutlined, ToolOutlined,
+    UnorderedListOutlined, FilePdfOutlined,
 } from '@ant-design/icons'
+import { exportTableToPdf } from '@/utils/export-generic-pdf'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import { formatCurrencyInput, parseCurrencyInput } from '@/utils/get-monetary-value'
 import dayjs from 'dayjs'
@@ -132,6 +134,26 @@ function Budgets() {
     const [globalDiscountPercent, setGlobalDiscountPercent] = useState(0)
     const skipTableAutoSelectRef = useRef(false)
 
+    // ── Products-in-budgets drawer state ──
+    const [prodBudgetDrawerOpen, setProdBudgetDrawerOpen] = useState(false)
+    const [prodBudgetLoading, setProdBudgetLoading] = useState(false)
+    const [commissionTables, setCommissionTables] = useState<{id: string; name: string}[]>([])
+    const [prodBudgetRows, setProdBudgetRows] = useState<{
+        budgetId: string
+        budgetNum: string
+        customerName: string
+        employeeName: string
+        customerId: string | null
+        employeeId: string | null
+        items: {productId: string | null; productName: string; commissionTableId: string | null; quantity: number; unitPrice: number}[]
+        matchItems?: {productId: string | null; productName: string; quantity: number; unitPrice: number}[]
+    }[]>([])
+    const [pbFilterTable, setPbFilterTable] = useState<string | undefined>()
+    const [pbFilterProduct, setPbFilterProduct] = useState<string | undefined>()
+    const [pbFilterCustomer, setPbFilterCustomer] = useState<string | undefined>()
+    const [pbFilterEmployee, setPbFilterEmployee] = useState<string | undefined>()
+    const [pbTableProducts, setPbTableProducts] = useState<{id: string; name: string}[]>([])
+
     useEffect(() => {
         async function fetchSettings() {
             const { data: settings } = await supabase
@@ -166,6 +188,90 @@ function Budgets() {
             b.id.toLowerCase().includes(searchText.toLowerCase())
         )
     }, [budgets, searchText])
+
+    // ── Fetch data for "Ver produtos em orçamentos" drawer ──
+    const openProdBudgetDrawer = async () => {
+        setProdBudgetDrawerOpen(true)
+        setProdBudgetLoading(true)
+        try {
+            const [tablesRes, budgetsRes] = await Promise.all([
+                (supabase as any).from('commission_tables').select('id, name').order('name'),
+                (supabase as any)
+                    .from('budgets')
+                    .select('id, customer:customers(id, name), employee:employees(id, name), budget_items(product_id, quantity, unit_price, products(id, name, commission_table_id))')
+                    .in('status', ['DRAFT', 'SENT', 'APPROVED'])
+                    .eq('is_active', true)
+                    .order('created_at', { ascending: false }),
+            ])
+            setCommissionTables((tablesRes.data || []) as {id: string; name: string}[])
+            const rows = (budgetsRes.data || []).map((b: any) => ({
+                budgetId: b.id,
+                budgetNum: b.id.substring(0, 8).toUpperCase(),
+                customerName: b.customer?.name || '—',
+                employeeName: b.employee?.name || '—',
+                customerId: b.customer?.id || null,
+                employeeId: b.employee?.id || null,
+                items: (b.budget_items || []).map((i: any) => ({
+                    productId: i.product_id || null,
+                    productName: i.products?.name || 'Item manual',
+                    commissionTableId: i.products?.commission_table_id || null,
+                    quantity: Number(i.quantity) || 0,
+                    unitPrice: Number(i.unit_price) || 0,
+                })),
+            }))
+            setProdBudgetRows(rows)
+        } finally {
+            setProdBudgetLoading(false)
+        }
+    }
+
+    // Update product list when table filter changes
+    const handlePbTableChange = (tableId: string | undefined) => {
+        setPbFilterTable(tableId)
+        setPbFilterProduct(undefined)
+        if (!tableId) {
+            setPbTableProducts([])
+            return
+        }
+        // Collect unique products from that table across all budget rows
+        const seen = new Set<string>()
+        const prods: {id: string; name: string}[] = []
+        for (const row of prodBudgetRows) {
+            for (const item of row.items) {
+                if (item.commissionTableId === tableId && item.productId && !seen.has(item.productId)) {
+                    seen.add(item.productId)
+                    prods.push({ id: item.productId, name: item.productName })
+                }
+            }
+        }
+        prods.sort((a, b) => a.name.localeCompare(b.name))
+        setPbTableProducts(prods)
+    }
+
+    // Compute filtered rows for the drawer
+    const pbFilteredRows = useMemo(() => {
+        return prodBudgetRows.filter(row => {
+            if (pbFilterCustomer && row.customerId !== pbFilterCustomer) return false
+            if (pbFilterEmployee && row.employeeId !== pbFilterEmployee) return false
+            const matchItems = row.items.filter(item => {
+                if (pbFilterTable && item.commissionTableId !== pbFilterTable) return false
+                if (pbFilterProduct && item.productId !== pbFilterProduct) return false
+                return true
+            })
+            return matchItems.length > 0
+        }).map(row => ({
+            ...row,
+            matchItems: row.items.filter(item => {
+                if (pbFilterTable && item.commissionTableId !== pbFilterTable) return false
+                if (pbFilterProduct && item.productId !== pbFilterProduct) return false
+                return true
+            }),
+        }))
+    }, [prodBudgetRows, pbFilterTable, pbFilterProduct, pbFilterCustomer, pbFilterEmployee])
+
+    const pbTotalQty = useMemo(() =>
+        pbFilteredRows.reduce((s, r) => s + r.matchItems.reduce((ss, i) => ss + i.quantity, 0), 0),
+    [pbFilteredRows])
 
     const { canView, canEdit } = usePermissions()
     if (!canView(MODULES.BUDGETS)) {
@@ -1276,6 +1382,9 @@ function Budgets() {
                         allowClear
                     />
                     <div style={{ flex: 1 }} />
+                    <Button icon={<UnorderedListOutlined />} onClick={openProdBudgetDrawer}>
+                        Ver produtos em orçamentos
+                    </Button>
                     {canEdit(MODULES.BUDGETS) && (
                         <Button type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setBudgetItems([]); setGlobalDiscountPercent(0); setEditingBudgetId(null); setBudgetFormInstallmentPreset('customizado'); setBudgetFormCustomInstallments([{ date: null, amount: 0 }]); setDrawerOpen(true) }}>
                             Novo Orçamento
@@ -1841,6 +1950,147 @@ function Budgets() {
                     </div>
                 </Form>
             </Modal>
+            {/* ── Drawer: Ver produtos em orçamentos ── */}
+            <Drawer
+                title="Produtos em Orçamentos"
+                width={800}
+                open={prodBudgetDrawerOpen}
+                onClose={() => { setProdBudgetDrawerOpen(false); setPbFilterTable(undefined); setPbFilterProduct(undefined); setPbFilterCustomer(undefined); setPbFilterEmployee(undefined); setPbTableProducts([]) }}
+                extra={
+                    <Button
+                        icon={<FilePdfOutlined />}
+                        onClick={() => {
+                            const headers = ['Orçamento', 'Cliente', 'Funcionário', 'Produtos', 'Qtd. Total']
+                            const rows = pbFilteredRows.map(r => [
+                                r.budgetNum,
+                                r.customerName,
+                                r.employeeName,
+                                r.matchItems.map(i => `${i.productName} (${i.quantity}x)`).join('; '),
+                                r.matchItems.reduce((s, i) => s + i.quantity, 0),
+                            ])
+                            exportTableToPdf({
+                                title: 'Produtos em Orçamentos',
+                                subtitle: `Total de itens: ${pbTotalQty}`,
+                                headers,
+                                rows,
+                                filename: 'produtos-em-orcamentos.pdf',
+                                orientation: 'landscape',
+                            })
+                        }}
+                    >
+                        Exportar PDF
+                    </Button>
+                }
+            >
+                {/* Filters */}
+                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+                    <Select
+                        allowClear
+                        placeholder="Tabela"
+                        style={{ minWidth: 180 }}
+                        value={pbFilterTable}
+                        onChange={handlePbTableChange}
+                        options={commissionTables.map(t => ({ value: t.id, label: t.name }))}
+                    />
+                    <Select
+                        allowClear
+                        placeholder="Produto"
+                        style={{ minWidth: 200 }}
+                        value={pbFilterProduct}
+                        onChange={v => setPbFilterProduct(v)}
+                        disabled={!pbFilterTable}
+                        options={pbTableProducts.map(p => ({ value: p.id, label: p.name }))}
+                        showSearch
+                        filterOption={(input, opt) => (opt?.label as string || '').toLowerCase().includes(input.toLowerCase())}
+                    />
+                    <Select
+                        allowClear
+                        placeholder="Cliente"
+                        style={{ minWidth: 180 }}
+                        value={pbFilterCustomer}
+                        onChange={v => setPbFilterCustomer(v)}
+                        options={customers.map((c: any) => ({ value: c.id, label: c.name }))}
+                        showSearch
+                        filterOption={(input, opt) => (opt?.label as string || '').toLowerCase().includes(input.toLowerCase())}
+                    />
+                    <Select
+                        allowClear
+                        placeholder="Funcionário"
+                        style={{ minWidth: 180 }}
+                        value={pbFilterEmployee}
+                        onChange={v => setPbFilterEmployee(v)}
+                        options={employees.map((e: any) => ({ value: e.id, label: e.name }))}
+                        showSearch
+                        filterOption={(input, opt) => (opt?.label as string || '').toLowerCase().includes(input.toLowerCase())}
+                    />
+                </div>
+
+                {/* Counter */}
+                {pbFilterProduct && (
+                    <div style={{ marginBottom: 16, padding: '10px 16px', background: 'rgba(124, 58, 237, 0.1)', border: '1px solid rgba(124,58,237,0.3)', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <ShoppingCartOutlined style={{ color: '#7c3aed' }} />
+                        <span style={{ fontWeight: 600 }}>
+                            Total do produto selecionado: {pbTotalQty} unidade{pbTotalQty !== 1 ? 's' : ''}
+                        </span>
+                    </div>
+                )}
+
+                {/* Table */}
+                <Table
+                    loading={prodBudgetLoading}
+                    dataSource={pbFilteredRows}
+                    rowKey="budgetId"
+                    size="small"
+                    pagination={{ pageSize: 20, showTotal: (t) => `${t} orçamentos` }}
+                    columns={[
+                        {
+                            title: 'Orçamento',
+                            dataIndex: 'budgetNum',
+                            width: 110,
+                            render: (v: string) => <Tag>#{v}</Tag>,
+                        },
+                        {
+                            title: 'Cliente',
+                            dataIndex: 'customerName',
+                            width: 160,
+                        },
+                        {
+                            title: 'Funcionário',
+                            dataIndex: 'employeeName',
+                            width: 160,
+                        },
+                        {
+                            title: 'Produtos / Quantidades',
+                            render: (_: any, row: any) => (
+                                <div>
+                                    {row.matchItems.map((item: any, idx: number) => (
+                                        <div key={idx} style={{ fontSize: 12, lineHeight: '20px' }}>
+                                            <span style={{ color: '#94a3b8', marginRight: 4 }}>{item.quantity}×</span>
+                                            {item.productName}
+                                        </div>
+                                    ))}
+                                </div>
+                            ),
+                        },
+                        {
+                            title: 'Qtd.',
+                            width: 70,
+                            align: 'right' as const,
+                            render: (_: any, row: any) => row.matchItems.reduce((s: number, i: any) => s + i.quantity, 0),
+                        },
+                    ]}
+                    summary={() => (
+                        <Table.Summary.Row>
+                            <Table.Summary.Cell index={0} colSpan={4} align="right">
+                                <strong>Total geral</strong>
+                            </Table.Summary.Cell>
+                            <Table.Summary.Cell index={4} align="right">
+                                <strong>{pbTotalQty}</strong>
+                            </Table.Summary.Cell>
+                        </Table.Summary.Row>
+                    )}
+                />
+            </Drawer>
         </Layout>
     )
 }

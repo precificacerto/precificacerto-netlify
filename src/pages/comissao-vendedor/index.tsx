@@ -254,9 +254,9 @@ export default function CommissionPage() {
             const emp = empMap.get(empId)
             if (!emp) continue
 
-            // If commission was pre-calculated from commission_tables (budget flow), use it directly
+            // If commission was pre-calculated (budget flow or direct sale), use it directly
             const storedCommission = Number(sale.commission_amount || 0)
-            if (storedCommission > 0 && sale.sale_type === 'FROM_BUDGET') {
+            if (storedCommission > 0 && (sale.sale_type === 'FROM_BUDGET' || sale.sale_type === 'MANUAL')) {
               const saleDate = (sale.sale_date || '').substring(0, 10)
               if (emp.payment_mode === 'FULL') {
                 if (saleDate >= start && saleDate <= end) {

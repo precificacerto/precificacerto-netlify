@@ -185,25 +185,33 @@ function Clients() {
 
         // Generate signed URLs and build attachment map grouped by origin
         const attachMap: Record<string, { url: string; name: string; size?: number }[]> = {}
+        // Raw data map (with signedUrl) for generating standalone entries of unconsumed attachments
+        const attachRawByKey: Record<string, any[]> = {}
         const orphanAttachments: any[] = []
         for (const aRaw of attachRes.data || []) {
             const a = aRaw as any
             const { data: urlData } = await supabase.storage.from('comprovantes').createSignedUrl(a.file_path, 3600)
-            const item = { url: urlData?.signedUrl || '', name: a.file_name, size: a.file_size ?? undefined }
+            const signedUrl = urlData?.signedUrl || ''
+            const item = { url: signedUrl, name: a.file_name, size: a.file_size ?? undefined }
             if (a.origin_type && a.origin_id) {
                 const key = `${a.origin_type}:${a.origin_id}`
-                if (!attachMap[key]) attachMap[key] = []
+                if (!attachMap[key]) { attachMap[key] = []; attachRawByKey[key] = [] }
                 attachMap[key].push(item)
+                attachRawByKey[key].push({ ...a, signedUrl })
             } else {
-                orphanAttachments.push({ ...a, signedUrl: urlData?.signedUrl })
+                orphanAttachments.push({ ...a, signedUrl })
             }
         }
 
         const entries: TimelineEntry[] = []
+        // Track which attachMap keys were consumed by a parent timeline entry
+        const consumedAttachKeys = new Set<string>()
 
         for (const hRaw of histRes.data || []) {
             const h = hRaw as any
-            const agendaAtts = h.calendar_event_id ? attachMap[`AGENDA:${h.calendar_event_id}`] : undefined
+            const agendaKey = h.calendar_event_id ? `AGENDA:${h.calendar_event_id}` : null
+            const agendaAtts = agendaKey ? attachMap[agendaKey] : undefined
+            if (agendaKey) consumedAttachKeys.add(agendaKey)
             entries.push({
                 id: `svc-${h.id}`,
                 date: h.created_at,
@@ -237,6 +245,9 @@ function Clients() {
         }
 
         for (const b of budgetRes.data || []) {
+            // Mark budget attachment key as consumed (whether or not we render the budget row)
+            consumedAttachKeys.add(`BUDGET:${b.id}`)
+
             // Budgets converted to sales appear in the SALE section
             if ((b as any).sale_id) continue
 
@@ -266,6 +277,9 @@ function Clients() {
 
         // Sales (from Vendas Balcão and converted from budgets)
         for (const s of allSales) {
+            consumedAttachKeys.add(`SALE:${s.id}`)
+            if (s.budget_id) consumedAttachKeys.add(`BUDGET:${s.budget_id}`)
+
             const isBoletoOrCheque = s.payment_method === 'BOLETO' || s.payment_method === 'CHEQUE_PRE_DATADO'
             let saleStatus = 'Pago'
             let saleBadgeColor = 'green'
@@ -294,6 +308,27 @@ function Clients() {
                 employeeName: empName,
                 attachments: saleAtts,
             })
+        }
+
+        // Unconsumed attachments (e.g. AGENDA files with no service history entry) → standalone entries
+        for (const [key, raws] of Object.entries(attachRawByKey)) {
+            if (consumedAttachKeys.has(key)) continue
+            for (const a of raws) {
+                entries.push({
+                    id: `att-${a.id}`,
+                    date: a.created_at,
+                    type: 'ATTACHMENT',
+                    title: a.file_name,
+                    description: a.description || '',
+                    badgeLabel: 'Anexo',
+                    badgeColor: 'purple',
+                    downloadUrl: a.signedUrl,
+                    fileName: a.file_name,
+                    attachmentDescription: a.description || undefined,
+                    fileSize: a.file_size ?? undefined,
+                    attachmentMimeType: a.mime_type || undefined,
+                })
+            }
         }
 
         entries.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())

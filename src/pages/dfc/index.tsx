@@ -521,20 +521,19 @@ function buildDreSimplesNacional(agg: AggregatedData, calcType: CalcType, dasRat
   const receitaBruta = agg.receitaBruta
   rows.push(buildRow('receita_bruta', 'Receita Bruta', receitaBruta, receitaBruta, { isHeader: true, sign: '+' }))
 
-  // Deduções tributárias = 0 (impostos "por dentro")
-  const deducoesZero: MonthlyValues = { ...EMPTY_MONTHS }
-  rows.push(buildRow('deducoes_trib', '(-) Deduções Tributárias', deducoesZero, receitaBruta, { sign: '-', indent: 1 }))
-
-  const receitaLiquida = receitaBruta
-  rows.push(buildRow('receita_liquida', '(=) Receita Líquida', receitaLiquida, receitaLiquida, { isSubtotal: true, sign: '=' }))
-
   // DAS (taxa real do tenant ou fallback)
   const das: MonthlyValues = { ...EMPTY_MONTHS }
   if (!isMei) {
     for (const k of MONTH_KEYS) das[k] = receitaBruta[k] * dasRate
   }
   const dasLabel = isMei ? '(-) DAS (MEI — fixo mensal)' : `(-) DAS (Simples Nacional — ${(dasRate * 100).toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%)`
-  rows.push(buildRow('das', dasLabel, das, receitaLiquida, { sign: '-' }))
+
+  // Deduções tributárias = DAS (incluído dentro da Receita Bruta)
+  rows.push(buildRow('deducoes_trib', '(-) Deduções Tributárias', das, receitaBruta, { sign: '-', indent: 1 }))
+  rows.push(buildRow('das', dasLabel, das, receitaBruta, { sign: '-', indent: 2 }))
+
+  const receitaLiquida = subtractMonths(receitaBruta, das)
+  rows.push(buildRow('receita_liquida', '(=) Receita Líquida', receitaLiquida, receitaLiquida, { isSubtotal: true, sign: '=' }))
 
   // CMV
   let cmv = agg.custoProduto
@@ -547,7 +546,7 @@ function buildDreSimplesNacional(agg: AggregatedData, calcType: CalcType, dasRat
     rows.push(buildRow('cmv_mo_direta', 'MO Direta', agg.maoDeObraProdutiva, receitaLiquida, { indent: 2 }))
   }
 
-  const lucroBruto = subtractMonths(subtractMonths(receitaLiquida, das), cmv)
+  const lucroBruto = subtractMonths(receitaLiquida, cmv)
   rows.push(buildRow('lucro_bruto', '(=) Lucro Bruto', lucroBruto, receitaLiquida, { isSubtotal: true, sign: '=' }))
 
   // Despesas Operacionais

@@ -672,6 +672,18 @@ function Sales() {
             const createdBy = await getCurrentUserId()
             if (!createdBy) { messageApi.error('Sessão inválida. Faça login novamente.'); setSaving(false); return }
 
+            // Calculate commission amount per item: effective_pct = commission_pct - (discount_pct × commission_pct / (commission_pct + profit_pct))
+            const commissionAmount = saleItems.reduce((sum, item) => {
+                const commPct = item.commission_percent || 0
+                const profPct = item.profit_percent || 0
+                if (commPct === 0) return sum
+                const combined = commPct + profPct
+                const effectivePct = combined > 0
+                    ? commPct - (globalDiscountPercentV * commPct / combined)
+                    : commPct
+                return sum + item.total * Math.max(0, effectivePct) / 100
+            }, 0)
+
             // 1) Criar venda (employee_id saved separately to handle missing column)
             const { data: sale, error: saleErr } = await supabase.from('sales').insert({
                 tenant_id: tenantId,
@@ -686,6 +698,7 @@ function Sales() {
                 sale_date: values.sale_date ? values.sale_date.toISOString() : new Date().toISOString(),
                 sale_type: 'MANUAL',
                 status: 'COMPLETED',
+                commission_amount: commissionAmount,
             }).select().single()
 
             if (saleErr) throw saleErr
