@@ -887,7 +887,7 @@ function Sales() {
                         amount_paid: amountPaid,
                         amount_remaining: remaining,
                         due_date: remainingDate,
-                        description: `${saleDesc} — ${payLabel} | Pago: R$ ${amountPaid.toFixed(2)} | Restante: R$ ${remaining.toFixed(2)}`,
+                        description: `${saleDesc} — ${payLabel} | Pago: R$ ${amountPaid.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} | Restante: R$ ${remaining.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
                         launch_date: saleDate,
                         origin_type: 'SALE',
                         status: 'PENDING',
@@ -1416,9 +1416,9 @@ function Sales() {
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                 <span style={{ fontSize: 14, color: '#94a3b8', whiteSpace: 'nowrap' }}>Desconto (%)</span>
-                                <InputNumber min={0} max={maxDiscountPercentV > 0 ? maxDiscountPercentV : 100} step={0.5} value={globalDiscountPercentV} onChange={(v) => setGlobalDiscountPercentV(Math.min(v ?? 0, maxDiscountPercentV > 0 ? maxDiscountPercentV : 100))} addonAfter="%" style={{ width: 130 }} />
+                                <InputNumber min={0} max={maxDiscountPercentV > 0 ? maxDiscountPercentV : 100} step={0.5} value={globalDiscountPercentV} onChange={(v) => setGlobalDiscountPercentV(Math.min(v ?? 0, maxDiscountPercentV > 0 ? maxDiscountPercentV : 100))} formatter={(v) => v != null ? String(v).replace('.', ',') : ''} parser={(v) => Number((v || '0').replace(',', '.'))} addonAfter="%" style={{ width: 130 }} />
                             </div>
-                            {maxDiscountPercentV > 0 && (<span style={{ fontSize: 12, color: '#64748b' }}>Máx: {maxDiscountPercentV.toFixed(1)}% (comissão + lucro)</span>)}
+                            {maxDiscountPercentV > 0 && (<span style={{ fontSize: 12, color: '#64748b' }}>Máx: {maxDiscountPercentV.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}% (comissão + lucro)</span>)}
                         </div>
                     </div>
                     {globalDiscountPercentV > 0 && (

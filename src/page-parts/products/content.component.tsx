@@ -981,7 +981,7 @@ export const Content: FC<ContentProps> = ({
         const total = (record.quantity || 0) * yieldQty
         return (
           <span style={{ background: 'rgba(255,255,255,0.06)', padding: '4px 8px', borderRadius: 4, fontSize: 13 }}>
-            {total % 1 === 0 ? total : total.toFixed(2)} {getUnitLabel(record.unitType)}
+            {total % 1 === 0 ? total : total.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {getUnitLabel(record.unitType)}
           </span>
         )
       },
@@ -1228,7 +1228,7 @@ export const Content: FC<ContentProps> = ({
               label="Desconto máximo permitido"
               tooltip="Limite máximo de desconto permitido para este produto em orçamentos/vendas. Deixe vazio para sem limite."
             >
-              <InputNumber min={0} max={100} step={1} style={{ width: '100%' }} placeholder="Ex: 10" addonAfter="%" />
+              <InputNumber min={0} max={100} step={1} style={{ width: '100%' }} placeholder="Ex: 10" formatter={(v) => v != null ? String(v).replace('.', ',') : ''} parser={(v) => Number((v || '0').replace(',', '.'))} addonAfter="%" />
             </Form.Item>
 
             <Form.Item

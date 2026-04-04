@@ -489,7 +489,7 @@ function buildDrePresumidoRET(agg: AggregatedData, retRate: number = 0.04): DreR
   const folha = sumMonths(sumMonths(agg.maoDeObraProdutiva, agg.maoDeObraAdministrativa), agg.maoDeObra)
   const deducoesFaturamento = sumMonths(sumMonths(ret4, agg.custoProduto), folha)
   rows.push(buildRow('deducoes_faturamento', '(-) Deduções Tributárias Faturamento', deducoesFaturamento, receitaLiquida, { sign: '-' }))
-  rows.push(buildRow('ret_4', `RET ${(retRate * 100).toFixed(0)}%`, ret4, receitaLiquida, { indent: 2 }))
+  rows.push(buildRow('ret_4', `RET ${(retRate * 100).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}%`, ret4, receitaLiquida, { indent: 2 }))
   rows.push(buildRow('custo_produtos_ret', 'Custo Produtos', agg.custoProduto, receitaLiquida, { indent: 2 }))
   rows.push(buildRow('folha_ret', 'Folha', folha, receitaLiquida, { indent: 2 }))
 

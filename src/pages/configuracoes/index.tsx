@@ -219,7 +219,7 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                             tooltip="Alíquota única que engloba IRPJ, CSLL, PIS e COFINS. Padrão 4% para construção civil e incorporação imobiliária. Confirme com seu contador."
                             initialValue={4}
                         >
-                            <InputNumber min={0} max={100} step={0.1} style={{ width: 200 }} addonAfter="%" />
+                            <InputNumber min={0} max={100} step={0.1} style={{ width: 200 }} formatter={(v) => v != null ? String(v).replace('.', ',') : ''} parser={(v) => Number((v || '0').replace(',', '.'))} addonAfter="%" />
                         </Form.Item>
                         <Alert
                             type="info"

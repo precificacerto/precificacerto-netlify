@@ -1037,7 +1037,7 @@ export default function ControleFinanceiro() {
                                                                 callbacks: {
                                                                     label: (ctx: any) => {
                                                                         const total = (ctx.dataset.data as number[]).reduce((a: number, b: number) => a + b, 0)
-                                                                        const pct = total > 0 ? ((ctx.raw / total) * 100).toFixed(3) : '0.000'
+                                                                        const pct = total > 0 ? ((ctx.raw / total) * 100).toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 }) : '0,000'
                                                                         return ` ${ctx.label}: ${formatCurrency(ctx.raw)} (${pct}%)`
                                                                     },
                                                                 },

@@ -206,7 +206,7 @@ export function HubTab({ tenantId }: HubTabProps) {
                     return (
                         <div style={{ textAlign: 'right' }}>
                             <div style={{ fontSize: 13, fontWeight: 700, color: '#F04438' }}>{formatCurrency(amount)}</div>
-                            <div style={{ fontSize: 11, color: '#94a3b8' }}>{pct.toFixed(2)}%</div>
+                            <div style={{ fontSize: 11, color: '#94a3b8' }}>{pct.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</div>
                         </div>
                     )
                 }
@@ -218,7 +218,7 @@ export function HubTab({ tenantId }: HubTabProps) {
                     return amount > 0 ? (
                         <div style={{ textAlign: 'right' }}>
                             <div style={{ fontSize: 12, color: '#64748b', fontWeight: 600 }}>{formatCurrency(amount)}</div>
-                            <div style={{ fontSize: 10, color: '#475569' }}>{pct.toFixed(1)}%</div>
+                            <div style={{ fontSize: 10, color: '#475569' }}>{pct.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%</div>
                         </div>
                     ) : <span style={{ color: '#334155', fontSize: 11 }}>—</span>
                 }
@@ -230,7 +230,7 @@ export function HubTab({ tenantId }: HubTabProps) {
                 return (
                     <div style={{ textAlign: 'right' }}>
                         <div style={{ fontSize: 12, color: '#e2e8f0' }}>{formatCurrency(amount)}</div>
-                        <div style={{ fontSize: 10, color: '#64748b' }}>{pct.toFixed(2)}%</div>
+                        <div style={{ fontSize: 10, color: '#64748b' }}>{pct.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</div>
                     </div>
                 )
             },
@@ -250,11 +250,11 @@ export function HubTab({ tenantId }: HubTabProps) {
                     case 'income':
                         return <div style={{ textAlign: 'right', fontWeight: 700, color: '#12B76A' }}>{formatCurrency(record.averageRS ?? 0)}</div>
                     case 'total':
-                        return <div style={{ textAlign: 'right', fontWeight: 700, color: '#F04438' }}>{(record.averagePct ?? 0).toFixed(2)}%</div>
+                        return <div style={{ textAlign: 'right', fontWeight: 700, color: '#F04438' }}>{(record.averagePct ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</div>
                     case 'group-header':
-                        return <div style={{ textAlign: 'right', fontWeight: 700, color: '#a5b4fc' }}>{(record.averagePct ?? 0).toFixed(2)}%</div>
+                        return <div style={{ textAlign: 'right', fontWeight: 700, color: '#a5b4fc' }}>{(record.averagePct ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</div>
                     case 'category':
-                        return <div style={{ textAlign: 'right', color: '#64748b', fontSize: 12 }}>{(record.averagePct ?? 0).toFixed(2)}%</div>
+                        return <div style={{ textAlign: 'right', color: '#64748b', fontSize: 12 }}>{(record.averagePct ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</div>
                     default:
                         return null
                 }

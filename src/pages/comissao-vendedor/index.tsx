@@ -669,7 +669,7 @@ export default function CommissionPage() {
       key: 'commission_percent',
       width: 110,
       align: 'center',
-      render: (v: number) => <Tag color="purple">{v.toFixed(2)}%</Tag>,
+      render: (v: number) => <Tag color="purple">{v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</Tag>,
     },
     {
       title: 'Valor Base',
@@ -713,7 +713,7 @@ export default function CommissionPage() {
       align: 'center',
       render: (v: number) => (
         <Tooltip title="Média ponderada das % de comissão dos produtos/serviços lançados">
-          <Tag color="purple">{v.toFixed(2)}%</Tag>
+          <Tag color="purple">{v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</Tag>
         </Tooltip>
       ),
     },
@@ -950,7 +950,7 @@ export default function CommissionPage() {
               <div style={{ textAlign: 'right' }}>
                 <div style={{ color: '#9ca3af', fontSize: 11 }}>% Comissão Média</div>
                 <div style={{ color: '#a78bfa', fontWeight: 700, fontSize: 18 }}>
-                  {drawerRow.avg_commission_percent.toFixed(2)}%
+                  {drawerRow.avg_commission_percent.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%
                 </div>
               </div>
               <div style={{ textAlign: 'right' }}>

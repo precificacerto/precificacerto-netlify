@@ -1102,6 +1102,8 @@ function Products() {
               style={{ width: '100%' }}
               placeholder="Ex: 10"
               addonAfter="%"
+              formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
+              parser={(v) => Number((v || '0').replace(',', '.'))}
               value={newTableCommission}
               onChange={v => setNewTableCommission(v ?? 0)}
             />

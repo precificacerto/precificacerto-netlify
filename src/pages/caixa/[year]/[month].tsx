@@ -457,7 +457,7 @@ function Cashier() {
     }
 
     const renderGroupCard = (key: string, label: string, color: string, val: number) => {
-      const pct = total > 0 ? ((val / total) * 100).toFixed(3) : '0.000'
+      const pct = total > 0 ? ((val / total) * 100).toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 }) : '0,000'
       const isExpanded = expandedGroups.has(key)
       const cats = categoriesByGroup[key] || {}
       return (

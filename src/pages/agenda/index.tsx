@@ -1917,8 +1917,8 @@ function Schedule() {
                                         <div style={{ marginTop: 8, padding: 12, background: '#FFFBEB', borderRadius: 8, border: '1px solid #FEF3C7' }}>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
                                                 <span style={{ color: '#000', fontSize: 13 }}>Desconto (%):</span>
-                                                <InputNumber style={{ width: 130 }} min={0} max={maxPct > 0 ? maxPct : 100} step={0.5} value={globalDiscountPctAgenda} onChange={(v) => { setGlobalDiscountPctAgenda(Math.min(v ?? 0, maxPct > 0 ? maxPct : 100)); setDiscountTick(t => t + 1) }} addonAfter="%" />
-                                                {maxPct > 0 && <span style={{ fontSize: 12, color: '#92400e' }}>Máx: {maxPct.toFixed(1)}%</span>}
+                                                <InputNumber style={{ width: 130 }} min={0} max={maxPct > 0 ? maxPct : 100} step={0.5} value={globalDiscountPctAgenda} onChange={(v) => { setGlobalDiscountPctAgenda(Math.min(v ?? 0, maxPct > 0 ? maxPct : 100)); setDiscountTick(t => t + 1) }} formatter={(v) => v != null ? String(v).replace('.', ',') : ''} parser={(v) => Number((v || '0').replace(',', '.'))} addonAfter="%" />
+                                                {maxPct > 0 && <span style={{ fontSize: 12, color: '#92400e' }}>Máx: {maxPct.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%</span>}
                                             </div>
                                         </div>
                                     )

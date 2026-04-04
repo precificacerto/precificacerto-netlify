@@ -1590,13 +1590,15 @@ function Budgets() {
                                     step={0.5}
                                     value={globalDiscountPercent}
                                     onChange={(v) => setGlobalDiscountPercent(Math.min(v ?? 0, maxDiscountPercent > 0 ? maxDiscountPercent : 100))}
+                                    formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
+                                    parser={(v) => Number((v || '0').replace(',', '.'))}
                                     addonAfter="%"
                                     style={{ width: 130 }}
                                 />
                             </div>
                             {maxDiscountPercent > 0 && (
                                 <span style={{ fontSize: 12, color: '#64748b' }}>
-                                    Máx: {maxDiscountPercent.toFixed(1)}% (comissão + lucro)
+                                    Máx: {maxDiscountPercent.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}% (comissão + lucro)
                                 </span>
                             )}
                         </div>
@@ -1617,12 +1619,12 @@ function Budgets() {
                                 <div style={{ padding: '8px 12px', background: 'rgba(99,102,241,0.12)', borderRadius: 6 }}>
                                     <div style={{ fontSize: 11, color: '#94a3b8' }}>Comissão do Vendedor</div>
                                     <div style={{ fontSize: 16, fontWeight: 700, color: '#818cf8' }}>{formatCurrency(commissionAmount)}</div>
-                                    <div style={{ fontSize: 11, color: '#64748b' }}>{totalCommissionPct.toFixed(3)}% → {budgetTotalWithDiscount > 0 ? (commissionAmount / budgetTotalWithDiscount * 100).toFixed(3) : '0.000'}% após desconto</div>
+                                    <div style={{ fontSize: 11, color: '#64748b' }}>{totalCommissionPct.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}% → {budgetTotalWithDiscount > 0 ? (commissionAmount / budgetTotalWithDiscount * 100).toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 }) : '0,000'}% após desconto</div>
                                 </div>
                                 <div style={{ padding: '8px 12px', background: 'rgba(16,185,129,0.12)', borderRadius: 6 }}>
                                     <div style={{ fontSize: 11, color: '#94a3b8' }}>Lucro da Empresa</div>
                                     <div style={{ fontSize: 16, fontWeight: 700, color: '#34d399' }}>{formatCurrency(profitAmount)}</div>
-                                    <div style={{ fontSize: 11, color: '#64748b' }}>{totalProfitPct.toFixed(3)}% → {budgetTotalWithDiscount > 0 ? (profitAmount / budgetTotalWithDiscount * 100).toFixed(3) : '0.000'}% após desconto</div>
+                                    <div style={{ fontSize: 11, color: '#64748b' }}>{totalProfitPct.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}% → {budgetTotalWithDiscount > 0 ? (profitAmount / budgetTotalWithDiscount * 100).toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 }) : '0,000'}% após desconto</div>
                                 </div>
                             </div>
                         </div>

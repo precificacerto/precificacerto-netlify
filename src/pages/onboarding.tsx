@@ -750,7 +750,7 @@ export default function Onboarding() {
                     initialValue={4}
                     tooltip="Alíquota única que engloba IRPJ, CSLL, PIS e COFINS. Padrão 4% para construção civil e incorporação imobiliária. Confirme com seu contador."
                   >
-                    <InputNumber min={0} max={100} step={0.1} style={{ width: '100%' }} addonAfter="%" />
+                    <InputNumber min={0} max={100} step={0.1} style={{ width: '100%' }} formatter={(v) => v != null ? String(v).replace('.', ',') : ''} parser={(v) => Number((v || '0').replace(',', '.'))} addonAfter="%" />
                   </Form.Item>
                 )}
 

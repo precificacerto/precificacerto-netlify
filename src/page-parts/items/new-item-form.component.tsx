@@ -430,6 +430,8 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
               style={{ width: '100%' }}
               placeholder="Ex: 12"
               suffix="%"
+              formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
+              parser={(v) => Number((v || '0').replace(',', '.'))}
               onChange={() => setTimeout(recalcNetCost, 50)}
             />
           </Form.Item>
@@ -455,6 +457,8 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
               style={{ width: '100%' }}
               placeholder="0,00"
               suffix="%"
+              formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
+              parser={(v) => Number((v || '0').replace(',', '.'))}
             />
           </Form.Item>
 
@@ -479,6 +483,8 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
               style={{ width: '100%' }}
               placeholder="0,00"
               suffix="%"
+              formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
+              parser={(v) => Number((v || '0').replace(',', '.'))}
               onChange={() => setTimeout(recalcNetCost, 50)}
             />
           </Form.Item>
@@ -504,6 +510,8 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
               style={{ width: '100%' }}
               placeholder="0,00"
               suffix="%"
+              formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
+              parser={(v) => Number((v || '0').replace(',', '.'))}
               onChange={() => setTimeout(recalcNetCost, 50)}
             />
           </Form.Item>
