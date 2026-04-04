@@ -25,6 +25,13 @@ function formatCurrency(v: number) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 }).format(v)
 }
 
+// Métodos que exigem confirmação manual de recebimento antes de entrar na comissão confirmada
+const PENDING_PAYMENT_METHODS = ['BOLETO', 'CHEQUE_PRE_DATADO']
+
+function isPendingEntry(e: { paid_date?: string | null; payment_method?: string | null }): boolean {
+  return PENDING_PAYMENT_METHODS.includes((e.payment_method || '').toUpperCase()) && !e.paid_date
+}
+
 interface CommissionDetailRow {
   key: string
   type: 'VENDA' | 'SERVIÇO'
@@ -35,6 +42,7 @@ interface CommissionDetailRow {
   commission_percent: number
   commission_amount: number
   is_installment?: boolean
+  pending?: boolean
 }
 
 interface CommissionRow {
@@ -44,6 +52,8 @@ interface CommissionRow {
   avg_commission_percent: number
   base_revenue: number
   commission_value: number
+  pending_revenue: number
+  pending_commission: number
   payment_mode: 'FULL' | 'INSTALLMENT'
   detail_rows: CommissionDetailRow[]
 }
@@ -113,6 +123,8 @@ export default function CommissionPage() {
               payment_mode: e.payment_mode,
               base_revenue: 0,
               commission_value: 0,
+              pending_revenue: 0,
+              pending_commission: 0,
               sum_weighted_pct: 0,
               sum_value: 0,
               detail_rows: [] as CommissionDetailRow[],
@@ -184,20 +196,25 @@ export default function CommissionPage() {
           }
         }
 
-        // Fetch cash_entries for all sales (to support INSTALLMENT distribution)
-        let cashEntriesBySale = new Map<string, { due_date: string; amount: number }[]>()
+        // Fetch cash_entries for all sales (to support INSTALLMENT distribution + pending detection)
+        let cashEntriesBySale = new Map<string, { due_date: string; amount: number; paid_date: string | null; payment_method: string | null }[]>()
         if (allSaleIds.length > 0) {
           try {
             const { data: ceRows } = await supabase
               .from('cash_entries')
-              .select('origin_id, amount, due_date')
+              .select('origin_id, amount, due_date, paid_date, payment_method')
               .eq('origin_type', 'SALE')
               .eq('type', 'INCOME')
               .in('origin_id', allSaleIds)
             for (const ce of ceRows || []) {
               if (!ce.origin_id || !ce.due_date) continue
               const existing = cashEntriesBySale.get(ce.origin_id) || []
-              existing.push({ due_date: ce.due_date, amount: Number(ce.amount) || 0 })
+              existing.push({
+                due_date: ce.due_date,
+                amount: Number(ce.amount) || 0,
+                paid_date: (ce as any).paid_date || null,
+                payment_method: (ce as any).payment_method || null,
+              })
               cashEntriesBySale.set(ce.origin_id, existing)
             }
           } catch {
@@ -309,16 +326,29 @@ export default function CommissionPage() {
                   }
                 } else {
                   const totalAmt = entries.reduce((s, e) => s + e.amount, 0)
-                  const monthlyAmt = entries.filter(e => e.due_date >= start && e.due_date <= end).reduce((s, e) => s + e.amount, 0)
-                  if (totalAmt > 0 && monthlyAmt > 0) {
-                    const prop = monthlyAmt / totalAmt
+                  if (totalAmt <= 0) { continue }
+                  const monthlyEntries = entries.filter(e => e.due_date >= start && e.due_date <= end)
+                  const confirmedMonthly = monthlyEntries.filter(e => !isPendingEntry(e))
+                  const pendingMonthly = monthlyEntries.filter(e => isPendingEntry(e))
+                  const confirmedAmt = confirmedMonthly.reduce((s, e) => s + e.amount, 0)
+                  const pendingAmt = pendingMonthly.reduce((s, e) => s + e.amount, 0)
+                  if (confirmedAmt > 0) {
+                    const prop = confirmedAmt / totalAmt
                     const creditedValue = finalValue * prop
                     const creditedComm = storedCommission * prop
                     emp.base_revenue += creditedValue
                     emp.commission_value += creditedComm
                     emp.sum_weighted_pct += effPct * creditedValue
                     emp.sum_value += creditedValue
-                    emp.detail_rows.push({ key: sale.id, type: 'VENDA', description, client_name: clientName, date: saleDate, value: creditedValue, commission_percent: effPct, commission_amount: creditedComm, is_installment: true })
+                    emp.detail_rows.push({ key: `${sale.id}-bc`, type: 'VENDA', description, client_name: clientName, date: saleDate, value: creditedValue, commission_percent: effPct, commission_amount: creditedComm, is_installment: true, pending: false })
+                  }
+                  if (pendingAmt > 0) {
+                    const prop = pendingAmt / totalAmt
+                    const pendingValue = finalValue * prop
+                    const pendingComm = storedCommission * prop
+                    emp.pending_revenue += pendingValue
+                    emp.pending_commission += pendingComm
+                    emp.detail_rows.push({ key: `${sale.id}-bp`, type: 'VENDA', description, client_name: clientName, date: saleDate, value: pendingValue, commission_percent: effPct, commission_amount: pendingComm, is_installment: true, pending: true })
                   }
                 }
               }
@@ -352,16 +382,29 @@ export default function CommissionPage() {
               } else {
                 const totalInstallments = entries.reduce((s, e) => s + e.amount, 0)
                 if (totalInstallments <= 0) continue
-                const monthlyAmount = entries.filter(e => e.due_date >= start && e.due_date <= end).reduce((s, e) => s + e.amount, 0)
-                if (monthlyAmount <= 0) continue
-                const proportion = monthlyAmount / totalInstallments
-                const creditedValue = finalValue * proportion
-                const commAmount = creditedValue * (prodComm / 100)
-                emp.base_revenue += creditedValue
-                emp.commission_value += commAmount
-                emp.sum_weighted_pct += prodComm * creditedValue
-                emp.sum_value += creditedValue
-                emp.detail_rows.push({ key: sale.id, type: 'VENDA', description, client_name: clientName, date: saleDate, value: creditedValue, commission_percent: prodComm, commission_amount: commAmount, is_installment: true })
+                const monthlyEntries = entries.filter(e => e.due_date >= start && e.due_date <= end)
+                const confirmedMonthly = monthlyEntries.filter(e => !isPendingEntry(e))
+                const pendingMonthly = monthlyEntries.filter(e => isPendingEntry(e))
+                const confirmedAmt = confirmedMonthly.reduce((s, e) => s + e.amount, 0)
+                const pendingAmt = pendingMonthly.reduce((s, e) => s + e.amount, 0)
+                if (confirmedAmt > 0) {
+                  const proportion = confirmedAmt / totalInstallments
+                  const creditedValue = finalValue * proportion
+                  const commAmount = creditedValue * (prodComm / 100)
+                  emp.base_revenue += creditedValue
+                  emp.commission_value += commAmount
+                  emp.sum_weighted_pct += prodComm * creditedValue
+                  emp.sum_value += creditedValue
+                  emp.detail_rows.push({ key: `${sale.id}-bc`, type: 'VENDA', description, client_name: clientName, date: saleDate, value: creditedValue, commission_percent: prodComm, commission_amount: commAmount, is_installment: true, pending: false })
+                }
+                if (pendingAmt > 0) {
+                  const proportion = pendingAmt / totalInstallments
+                  const pendingValue = finalValue * proportion
+                  const pendingComm = pendingValue * (prodComm / 100)
+                  emp.pending_revenue += pendingValue
+                  emp.pending_commission += pendingComm
+                  emp.detail_rows.push({ key: `${sale.id}-bp`, type: 'VENDA', description, client_name: clientName, date: saleDate, value: pendingValue, commission_percent: prodComm, commission_amount: pendingComm, is_installment: true, pending: true })
+                }
               }
             }
           }
@@ -441,16 +484,29 @@ export default function CommissionPage() {
                   }
                 } else {
                   const totalAmt = entries.reduce((s, e) => s + e.amount, 0)
-                  const monthlyAmt = entries.filter(e => e.due_date >= start && e.due_date <= end).reduce((s, e) => s + e.amount, 0)
-                  if (totalAmt > 0 && monthlyAmt > 0) {
-                    const prop = monthlyAmt / totalAmt
+                  if (totalAmt <= 0) { continue }
+                  const monthlyEntries = entries.filter(e => e.due_date >= start && e.due_date <= end)
+                  const confirmedMonthly = monthlyEntries.filter(e => !isPendingEntry(e))
+                  const pendingMonthly = monthlyEntries.filter(e => isPendingEntry(e))
+                  const confirmedAmt = confirmedMonthly.reduce((s, e) => s + e.amount, 0)
+                  const pendingAmt = pendingMonthly.reduce((s, e) => s + e.amount, 0)
+                  if (confirmedAmt > 0) {
+                    const prop = confirmedAmt / totalAmt
                     const creditedValue = finalValue * prop
                     const creditedComm = storedCommission * prop
                     emp.base_revenue += creditedValue
                     emp.commission_value += creditedComm
                     emp.sum_weighted_pct += effPct * creditedValue
                     emp.sum_value += creditedValue
-                    emp.detail_rows.push({ key: sale.id, type: 'VENDA', description, client_name: clientName, date: saleDate, value: creditedValue, commission_percent: effPct, commission_amount: creditedComm, is_installment: true })
+                    emp.detail_rows.push({ key: `${sale.id}-dc`, type: 'VENDA', description, client_name: clientName, date: saleDate, value: creditedValue, commission_percent: effPct, commission_amount: creditedComm, is_installment: true, pending: false })
+                  }
+                  if (pendingAmt > 0) {
+                    const prop = pendingAmt / totalAmt
+                    const pendingValue = finalValue * prop
+                    const pendingComm = storedCommission * prop
+                    emp.pending_revenue += pendingValue
+                    emp.pending_commission += pendingComm
+                    emp.detail_rows.push({ key: `${sale.id}-dp`, type: 'VENDA', description, client_name: clientName, date: saleDate, value: pendingValue, commission_percent: effPct, commission_amount: pendingComm, is_installment: true, pending: true })
                   }
                 }
               }
@@ -484,16 +540,28 @@ export default function CommissionPage() {
                 const totalInstallments = entries.reduce((s, e) => s + e.amount, 0)
                 if (totalInstallments <= 0) continue
                 const monthlyEntries = entries.filter(e => e.due_date >= start && e.due_date <= end)
-                const monthlyAmount = monthlyEntries.reduce((s, e) => s + e.amount, 0)
-                if (monthlyAmount <= 0) continue
-                const proportion = monthlyAmount / totalInstallments
-                const creditedValue = finalValue * proportion
-                const commAmount = creditedValue * (prodComm / 100)
-                emp.base_revenue += creditedValue
-                emp.commission_value += commAmount
-                emp.sum_weighted_pct += prodComm * creditedValue
-                emp.sum_value += creditedValue
-                emp.detail_rows.push({ key: sale.id, type: 'VENDA', description, client_name: clientName, date: saleDate, value: creditedValue, commission_percent: prodComm, commission_amount: commAmount, is_installment: true })
+                const confirmedMonthly = monthlyEntries.filter(e => !isPendingEntry(e))
+                const pendingMonthly = monthlyEntries.filter(e => isPendingEntry(e))
+                const confirmedAmt = confirmedMonthly.reduce((s, e) => s + e.amount, 0)
+                const pendingAmt = pendingMonthly.reduce((s, e) => s + e.amount, 0)
+                if (confirmedAmt > 0) {
+                  const proportion = confirmedAmt / totalInstallments
+                  const creditedValue = finalValue * proportion
+                  const commAmount = creditedValue * (prodComm / 100)
+                  emp.base_revenue += creditedValue
+                  emp.commission_value += commAmount
+                  emp.sum_weighted_pct += prodComm * creditedValue
+                  emp.sum_value += creditedValue
+                  emp.detail_rows.push({ key: `${sale.id}-dc`, type: 'VENDA', description, client_name: clientName, date: saleDate, value: creditedValue, commission_percent: prodComm, commission_amount: commAmount, is_installment: true, pending: false })
+                }
+                if (pendingAmt > 0) {
+                  const proportion = pendingAmt / totalInstallments
+                  const pendingValue = finalValue * proportion
+                  const pendingComm = pendingValue * (prodComm / 100)
+                  emp.pending_revenue += pendingValue
+                  emp.pending_commission += pendingComm
+                  emp.detail_rows.push({ key: `${sale.id}-dp`, type: 'VENDA', description, client_name: clientName, date: saleDate, value: pendingValue, commission_percent: prodComm, commission_amount: pendingComm, is_installment: true, pending: true })
+                }
               }
             }
           }
@@ -503,7 +571,7 @@ export default function CommissionPage() {
           const rows = allEmployees
             .filter((e) => {
               const emp = empMap.get(e.id)
-              return emp && emp.base_revenue > 0
+              return emp && (emp.base_revenue > 0 || emp.pending_revenue > 0)
             })
             .map((e) => {
               const emp = empMap.get(e.id)!
@@ -515,6 +583,8 @@ export default function CommissionPage() {
                 avg_commission_percent: Math.round(avg * 100) / 100,
                 base_revenue: emp.base_revenue,
                 commission_value: emp.commission_value,
+                pending_revenue: emp.pending_revenue,
+                pending_commission: emp.pending_commission,
                 payment_mode: emp.payment_mode,
                 detail_rows: emp.detail_rows,
               }
@@ -539,6 +609,8 @@ export default function CommissionPage() {
   // Totals
   const totalBase = useMemo(() => filteredData.reduce((s, r) => s + r.base_revenue, 0), [filteredData])
   const totalCommission = useMemo(() => filteredData.reduce((s, r) => s + r.commission_value, 0), [filteredData])
+  const totalPendingRevenue = useMemo(() => filteredData.reduce((s, r) => s + r.pending_revenue, 0), [filteredData])
+  const totalPendingCommission = useMemo(() => filteredData.reduce((s, r) => s + r.pending_commission, 0), [filteredData])
 
   const detailColumns: ColumnsType<CommissionDetailRow> = [
     {
@@ -549,16 +621,28 @@ export default function CommissionPage() {
       render: (v: string) => <Tag color={v === 'SERVIÇO' ? 'blue' : 'purple'}>{v}</Tag>,
     },
     {
-      title: 'Pgto',
-      dataIndex: 'is_installment',
-      key: 'is_installment',
-      width: 100,
+      title: 'Status',
+      dataIndex: 'pending',
+      key: 'pending',
+      width: 150,
       align: 'center' as const,
-      render: (v?: boolean) => v ? (
-        <Tooltip title="Comissão distribuída conforme parcelas da venda">
-          <Tag color="orange" icon={<SplitCellsOutlined />}>Parcelado</Tag>
-        </Tooltip>
-      ) : null,
+      render: (_: unknown, row: CommissionDetailRow) => {
+        if (row.pending) {
+          return (
+            <Tooltip title="Boleto/Cheque: aguardando confirmação de recebimento no fluxo de caixa">
+              <Tag color="gold">⏳ Aguardando</Tag>
+            </Tooltip>
+          )
+        }
+        if (row.is_installment) {
+          return (
+            <Tooltip title="Parcela confirmada — valor já recebido no fluxo de caixa">
+              <Tag color="green" icon={<SplitCellsOutlined />}>Confirmado</Tag>
+            </Tooltip>
+          )
+        }
+        return null
+      },
     },
     {
       title: 'Data',
@@ -649,6 +733,28 @@ export default function CommissionPage() {
             <Tag color="green">Mês da Venda</Tag>
           </Tooltip>
         ),
+    },
+    {
+      title: (
+        <Tooltip title="Boleto/Cheque parcelado aguardando entrada no fluxo de caixa">
+          <span>Receita Aguardando</span>
+        </Tooltip>
+      ),
+      dataIndex: 'pending_revenue',
+      key: 'pending_revenue',
+      align: 'right' as const,
+      render: (v: number) => v > 0 ? <span style={{ color: '#B45309' }}>{formatCurrency(v)}</span> : <span style={{ color: '#6B7280' }}>—</span>,
+    },
+    {
+      title: (
+        <Tooltip title="Comissão vinculada a boleto/cheque aguardando confirmação">
+          <span>Comissão Aguardando</span>
+        </Tooltip>
+      ),
+      dataIndex: 'pending_commission',
+      key: 'pending_commission',
+      align: 'right' as const,
+      render: (v: number) => v > 0 ? <span style={{ color: '#B45309', fontWeight: 600 }}>{formatCurrency(v)}</span> : <span style={{ color: '#6B7280' }}>—</span>,
     },
     {
       title: 'Base (Receita)',
@@ -762,6 +868,28 @@ export default function CommissionPage() {
             valueStyle={{ color: '#a78bfa', fontSize: 24, fontWeight: 700 }}
           />
         </Card>
+        {totalPendingRevenue > 0 && (
+          <Card size="small" style={{ background: '#451a03', border: '1px solid #92400e' }}>
+            <Statistic
+              title={<Tooltip title="Boleto/Cheque aguardando confirmação no fluxo de caixa"><span style={{ color: '#fcd34d' }}>⏳ Receita Aguardando</span></Tooltip>}
+              value={totalPendingRevenue}
+              precision={2}
+              prefix="R$"
+              valueStyle={{ color: '#fbbf24', fontSize: 24 }}
+            />
+          </Card>
+        )}
+        {totalPendingCommission > 0 && (
+          <Card size="small" style={{ background: '#451a03', border: '1px solid #92400e' }}>
+            <Statistic
+              title={<Tooltip title="Comissão vinculada a boleto/cheque aguardando recebimento"><span style={{ color: '#fcd34d' }}>⏳ Comissão Aguardando</span></Tooltip>}
+              value={totalPendingCommission}
+              precision={2}
+              prefix="R$"
+              valueStyle={{ color: '#fbbf24', fontSize: 24, fontWeight: 700 }}
+            />
+          </Card>
+        )}
       </div>
 
       {/* Table */}
@@ -780,9 +908,15 @@ export default function CommissionPage() {
                 <Table.Summary.Cell index={1} />
                 <Table.Summary.Cell index={2} />
                 <Table.Summary.Cell index={3} align="right">
-                  <strong style={{ color: '#e2e8f0' }}>{formatCurrency(totalBase)}</strong>
+                  {totalPendingRevenue > 0 ? <strong style={{ color: '#fbbf24' }}>{formatCurrency(totalPendingRevenue)}</strong> : <span style={{ color: '#6B7280' }}>—</span>}
                 </Table.Summary.Cell>
                 <Table.Summary.Cell index={4} align="right">
+                  {totalPendingCommission > 0 ? <strong style={{ color: '#fbbf24' }}>{formatCurrency(totalPendingCommission)}</strong> : <span style={{ color: '#6B7280' }}>—</span>}
+                </Table.Summary.Cell>
+                <Table.Summary.Cell index={5} align="right">
+                  <strong style={{ color: '#e2e8f0' }}>{formatCurrency(totalBase)}</strong>
+                </Table.Summary.Cell>
+                <Table.Summary.Cell index={6} align="right">
                   <strong style={{ color: '#a78bfa' }}>{formatCurrency(totalCommission)}</strong>
                 </Table.Summary.Cell>
               </Table.Summary.Row>
