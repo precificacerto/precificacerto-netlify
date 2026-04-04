@@ -203,10 +203,12 @@ export default function CommissionPage() {
           effectivePct: number,
         ) {
           if (effectivePct <= 0 || finalValue <= 0) return
+          // Normalize to YYYY-MM-DD to avoid ISO timestamp vs date comparison bug
+          const saleDateNorm = saleDate.substring(0, 10)
 
           if (emp.payment_mode === 'FULL') {
             // Credit only if sale_date is in the selected month
-            if (saleDate >= start && saleDate <= end) {
+            if (saleDateNorm >= start && saleDateNorm <= end) {
               emp.base_revenue += finalValue
               emp.commission_value += finalValue * (effectivePct / 100)
             }
@@ -215,7 +217,7 @@ export default function CommissionPage() {
             const entries = cashEntriesBySale.get(saleId)
             if (!entries || entries.length === 0) {
               // No installment data — fallback: credit in the sale month
-              if (saleDate >= start && saleDate <= end) {
+              if (saleDateNorm >= start && saleDateNorm <= end) {
                 emp.base_revenue += finalValue
                 emp.commission_value += finalValue * (effectivePct / 100)
               }
@@ -243,8 +245,9 @@ export default function CommissionPage() {
 
         if (budgetSales.length) {
           const budgetIds = [...new Set(budgetSales.map((s: any) => s.budget_id).filter(Boolean))]
-          const { data: budgets } = await supabase.from('budgets').select('id, employee_id').in('id', budgetIds)
+          const { data: budgets } = await supabase.from('budgets').select('id, employee_id, commission_amount').in('id', budgetIds)
           const budgetEmp = new Map((budgets || []).map((b: any) => [b.id, b.employee_id]))
+          const budgetCommMap = new Map((budgets || []).map((b: any) => [b.id, Number(b.commission_amount) || 0]))
 
           for (const sale of budgetSales as any[]) {
             const empId = budgetEmp.get(sale.budget_id) || sale.employee_id
@@ -253,7 +256,8 @@ export default function CommissionPage() {
             if (!emp) continue
 
             // If commission was pre-calculated from commission_tables (budget flow), use it directly
-            const storedCommission = Number(sale.commission_amount || 0)
+            // Fallback: check the budget's commission_amount when the sale doesn't have it stored yet
+            const storedCommission = Number(sale.commission_amount || 0) || budgetCommMap.get(sale.budget_id) || 0
             if (storedCommission > 0 && sale.sale_type === 'FROM_BUDGET') {
               const saleDate = (sale.sale_date || '').substring(0, 10)
               if (emp.payment_mode === 'FULL') {
@@ -282,7 +286,7 @@ export default function CommissionPage() {
             }
 
             const prodComm = saleProdCommMap.get(sale.id) || 0
-            applySaleCommission(emp, sale.id, sale.sale_date || '', Number(sale.final_value) || 0, prodComm)
+            applySaleCommission(emp, sale.id, (sale.sale_date || '').substring(0, 10), Number(sale.final_value) || 0, prodComm)
           }
         }
 
@@ -323,7 +327,7 @@ export default function CommissionPage() {
             }
 
             const prodComm = saleProdCommMap.get(sale.id) || 0
-            applySaleCommission(emp, sale.id, sale.sale_date || '', Number(sale.final_value) || 0, prodComm)
+            applySaleCommission(emp, sale.id, (sale.sale_date || '').substring(0, 10), Number(sale.final_value) || 0, prodComm)
           }
         }
 
