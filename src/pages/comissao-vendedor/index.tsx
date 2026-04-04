@@ -192,7 +192,7 @@ export default function CommissionPage() {
               .from('cash_entries')
               .select('origin_id, amount, due_date')
               .eq('origin_type', 'SALE')
-              .eq('type', 'IN')
+              .eq('type', 'INCOME')
               .in('origin_id', allSaleIds)
             for (const ce of ceRows || []) {
               if (!ce.origin_id || !ce.due_date) continue
