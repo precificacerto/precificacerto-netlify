@@ -42,6 +42,15 @@ const EMPTY_MONTHS: MonthlyValues = {
 const MONTH_KEYS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'] as const
 const MONTH_LABELS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
 
+// Row keys that represent revenue deductions (above/at receita_liquida).
+// These rows should be shown as % of Receita Bruta, not Receita Líquida.
+const RECEITA_BRUTA_DENOMINATOR_KEYS = new Set([
+  'receita_bruta',
+  'deducoes_trib', 'das',                            // Simples Nacional / MEI
+  'deducoes_trib_receita', 'deducoes_trib_compras',  // Lucro Real / Presumido
+  'receita_liquida',                                  // All variants
+])
+
 // ── Period aggregation ──
 
 type PeriodType = 'mensal' | 'trimestral' | 'semestral' | 'anual'
@@ -78,12 +87,6 @@ function aggregatePeriodValue(values: MonthlyValues, monthKeys: (keyof MonthlyVa
   return monthKeys.reduce((sum, k) => sum + values[k], 0)
 }
 
-function aggregatePeriodPct(pctOfRL: (MonthlyValues & { total: number }) | undefined, row: DreRow, receitaLiquidaRow: DreRow | undefined, monthKeys: (keyof MonthlyValues)[]): number {
-  if (!receitaLiquidaRow) return pctOfRL?.total ?? 0
-  const numValue = aggregatePeriodValue(row.values, monthKeys)
-  const denValue = aggregatePeriodValue(receitaLiquidaRow.values, monthKeys)
-  return denValue !== 0 ? (numValue / denValue) * 100 : 0
-}
 
 // Map due_date month index (0-based) to our MonthlyValues key
 const MONTH_INDEX_TO_KEY: Record<number, keyof MonthlyValues> = {
@@ -120,6 +123,26 @@ function pctMonths(numerator: MonthlyValues, denominator: MonthlyValues): Monthl
   }
   r.total = denTotal !== 0 ? (numTotal / denTotal) * 100 : 0
   return r
+}
+
+/**
+ * Compute the correct period-specific % for a DRE row.
+ * Rows above/at receita_liquida use receitaBrutaRow as denominator (% RB).
+ * All rows below use receitaLiquidaRow as denominator (% RL).
+ * Returns null when no closed keys or denominator is unavailable.
+ */
+function computePeriodPct(
+  row: DreRow,
+  closedKeys: (keyof MonthlyValues)[],
+  receitaBrutaRow: DreRow | undefined,
+  receitaLiquidaRow: DreRow | undefined,
+): number | null {
+  if (closedKeys.length === 0) return null
+  const denominatorRow = RECEITA_BRUTA_DENOMINATOR_KEYS.has(row.key) ? receitaBrutaRow : receitaLiquidaRow
+  if (!denominatorRow) return null
+  const numVal = closedKeys.reduce((s, k) => s + row.values[k], 0)
+  const denVal = closedKeys.reduce((s, k) => s + denominatorRow.values[k], 0)
+  return denVal !== 0 ? (numVal / denVal) * 100 : 0
 }
 
 function formatBRL(value: number): string {
@@ -623,8 +646,9 @@ export default function DfcPage() {
   const periodColumns = useMemo(() => getPeriodColumns(periodType, selectedMonth), [periodType, selectedMonth])
   const showTotal = periodType !== 'mensal' && periodType !== 'anual'
 
-  // Find receita liquida row for proper percentage calculation
+  // Find reference rows for period-specific % calculation
   const receitaLiquidaRow = useMemo(() => dreRows.find(r => r.key === 'receita_liquida'), [dreRows])
+  const receitaBrutaRow = useMemo(() => dreRows.find(r => r.key === 'receita_bruta'), [dreRows])
 
   const handleExportDfcPdf = () => {
     if (dreRows.length === 0) return
@@ -639,7 +663,16 @@ export default function DfcPage() {
       const totalStr = showTotal
         ? (row.total !== 0 ? row.total.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—')
         : null
-      const pctStr = row.pctOfRL ? `${(row.pctOfRL.total).toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%` : '—'
+      const pdfKeys: (keyof MonthlyValues)[] = pCols.flatMap(c => {
+        if (isPeriodClosed(c, year)) return [...c.monthKeys] as (keyof MonthlyValues)[]
+        if (isPeriodPartial(c, year)) return c.monthKeys.filter(k => {
+          const mi = MONTH_KEYS.indexOf(k)
+          return new Date() > new Date(year, mi + 1, 0)
+        }) as (keyof MonthlyValues)[]
+        return [] as (keyof MonthlyValues)[]
+      })
+      const pdfPct = computePeriodPct(row, pdfKeys, receitaBrutaRow, receitaLiquidaRow)
+      const pctStr = pdfPct !== null ? `${pdfPct.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%` : '—'
       return [row.label, ...periodValues, ...(totalStr !== null ? [totalStr] : []), pctStr]
     })
     const regimeLabel = getVariantLabel(taxRegime)
@@ -887,14 +920,26 @@ export default function DfcPage() {
                     color: 'var(--color-neutral-400, #9CA3AF)',
                     fontSize: 12,
                   }}>
-                    {row.pctOfRL && periodColumns.every(c => isPeriodClosed(c, year)) ? formatPct(row.pctOfRL.total) : '—'}
+                    {(() => {
+                      if (!row.pctOfRL) return '—'
+                      const allClosedKeys: (keyof MonthlyValues)[] = periodColumns.flatMap(c => {
+                        if (isPeriodClosed(c, year)) return [...c.monthKeys] as (keyof MonthlyValues)[]
+                        if (isPeriodPartial(c, year)) return c.monthKeys.filter(k => {
+                          const mi = MONTH_KEYS.indexOf(k)
+                          return new Date() > new Date(year, mi + 1, 0)
+                        }) as (keyof MonthlyValues)[]
+                        return [] as (keyof MonthlyValues)[]
+                      })
+                      const pct = computePeriodPct(row, allClosedKeys, receitaBrutaRow, receitaLiquidaRow)
+                      return pct !== null ? formatPct(pct) : '—'
+                    })()}
                   </td>
                 </tr>
                 {/* Per-period percentage row */}
                 {row.pctOfRL && periodColumns.length > 1 && (
                   <tr style={{ opacity: 0.6 }}>
                     <td style={{ ...tdStyle, paddingLeft: (row.indent || 0) * 20 + 8, fontSize: 11, color: 'var(--color-neutral-400, #9CA3AF)' }}>
-                      % Receita Líquida
+                      {RECEITA_BRUTA_DENOMINATOR_KEYS.has(row.key) ? '% Receita Bruta' : '% Receita Líquida'}
                     </td>
                     {periodColumns.map((col, ci) => {
                       const closed = isPeriodClosed(col, year)
@@ -906,16 +951,27 @@ export default function DfcPage() {
                             return new Date() > new Date(year, mi + 1, 0)
                           })
                         : col.monthKeys
-                      const pctVal = hasData ? aggregatePeriodPct(row.pctOfRL, row, receitaLiquidaRow, closedKeys) : null
+                      const pctVal = hasData ? computePeriodPct(row, closedKeys as (keyof MonthlyValues)[], receitaBrutaRow, receitaLiquidaRow) : null
                       return (
                         <td key={ci} style={{ ...tdStyle, textAlign: 'right', fontSize: 11, color: 'var(--color-neutral-400, #9CA3AF)' }}>
-                          {hasData ? formatPct(pctVal!) : '—'}
+                          {hasData && pctVal !== null ? formatPct(pctVal) : '—'}
                         </td>
                       )
                     })}
                     {showTotal && (
                       <td style={{ ...tdStyle, textAlign: 'right', fontSize: 11, color: 'var(--color-neutral-400, #9CA3AF)', fontWeight: 600 }}>
-                        {formatPct(row.pctOfRL!.total)}
+                        {(() => {
+                          const allDisplayKeys: (keyof MonthlyValues)[] = periodColumns.flatMap(c => {
+                            if (isPeriodClosed(c, year)) return [...c.monthKeys] as (keyof MonthlyValues)[]
+                            if (isPeriodPartial(c, year)) return c.monthKeys.filter(k => {
+                              const mi = MONTH_KEYS.indexOf(k)
+                              return new Date() > new Date(year, mi + 1, 0)
+                            }) as (keyof MonthlyValues)[]
+                            return [] as (keyof MonthlyValues)[]
+                          })
+                          const pct = computePeriodPct(row, allDisplayKeys, receitaBrutaRow, receitaLiquidaRow)
+                          return pct !== null ? formatPct(pct) : '—'
+                        })()}
                       </td>
                     )}
                     <td style={{ ...tdStyle, textAlign: 'right', fontSize: 11, color: 'var(--color-neutral-400, #9CA3AF)' }}>
