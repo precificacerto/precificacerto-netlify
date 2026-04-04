@@ -109,6 +109,7 @@ interface PendingBudget {
     created_at: string
     status: string
     payment_method?: string
+    commission_amount?: number
 }
 
 function Sales() {
@@ -291,7 +292,7 @@ function Sales() {
     const fetchPendingBudgets = async () => {
         const { data } = await supabase
             .from('budgets')
-            .select('id, total_value, created_at, status, sale_id, payment_method, customer_id, customer:customers(name)')
+            .select('id, total_value, created_at, status, sale_id, payment_method, commission_amount, customer_id, customer:customers(name)')
             .in('status', ['APPROVED', 'SENT', 'AWAITING_PAYMENT'])
             .is('sale_id', null)
             .order('created_at', { ascending: false })
@@ -303,11 +304,12 @@ function Sales() {
             created_at: b.created_at,
             status: b.status,
             payment_method: b.payment_method || undefined,
+            commission_amount: Number(b.commission_amount) || 0,
         })))
     }
 
     const handleOpenRegisterSale = async (budget: PendingBudget) => {
-        const { data: fresh } = await (supabase as any).from('budgets').select('id, status, total_value, created_at, payment_method, customer_id, customer:customers(name)').eq('id', budget.id).single()
+        const { data: fresh } = await (supabase as any).from('budgets').select('id, status, total_value, created_at, payment_method, commission_amount, customer_id, customer:customers(name)').eq('id', budget.id).single()
         if (fresh?.status === 'PAID') {
             messageApi.info('Este orçamento já foi finalizado e o pagamento lançado.')
             await fetchPendingBudgets()
@@ -321,6 +323,7 @@ function Sales() {
             created_at: fresh.created_at,
             status: fresh.status,
             payment_method: (fresh as any).payment_method || undefined,
+            commission_amount: Number((fresh as any).commission_amount) || 0,
         } : budget
         setSelectedBudget(freshBudget)
         registerForm.resetFields()
@@ -377,6 +380,7 @@ function Sales() {
                 sale_date: values.sale_date ? values.sale_date.toISOString() : new Date().toISOString(),
                 sale_type: 'FROM_BUDGET',
                 status: 'COMPLETED',
+                commission_amount: selectedBudget.commission_amount || 0,
             }).select().single()
             if (saleErr) throw saleErr
 
@@ -1671,6 +1675,11 @@ function Sales() {
                 onOk={handleRegisterSaleFromBudget}
                 confirmLoading={registerSaving}
                 okText="Confirmar Venda"
+                afterOpenChange={(open) => {
+                    if (open && selectedBudget?.payment_method) {
+                        registerForm.setFieldsValue({ payment_method: selectedBudget.payment_method })
+                    }
+                }}
             >
                 {selectedBudget && (
                     <div style={{ padding: 12, background: 'rgba(34, 197, 94, 0.1)', border: '1px solid #86efac', borderRadius: 8, marginBottom: 16 }}>

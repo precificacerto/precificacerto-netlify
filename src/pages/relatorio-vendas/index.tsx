@@ -369,7 +369,7 @@ function SalesReport() {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             let budgetsQuery: any = (supabase
                 .from('budgets') as any)
-                .select('id, employee_id, customer_id, created_at, commission_amount, total_value')
+                .select('id, employee_id, customer_id, created_at, commission_amount, total_value, global_discount_percent')
                 .eq('tenant_id', effectiveTenantId)
                 .eq('status', 'PAID')
                 .eq('is_active', true)
@@ -423,6 +423,12 @@ function SalesReport() {
             const budgetToEmployeeId = new Map<string, string | null>()
             budgets.forEach((b: any) => {
                 budgetToEmployeeId.set(b.id, b.employee_id || null)
+            })
+
+            // Build budget -> global_discount_percent map (to apply proportionally per item)
+            const budgetDiscountMap = new Map<string, number>()
+            budgets.forEach((b: any) => {
+                budgetDiscountMap.set(b.id, Number(b.global_discount_percent) || 0)
             })
 
             const queries: Promise<any>[] = []
@@ -488,7 +494,8 @@ function SalesReport() {
                 const qty = Number(item.quantity) || 1
                 const unitPrice = Number(item.unit_price) || 0
                 const discount = Number(item.discount) || 0
-                const revenue = (unitPrice * qty) - discount
+                const globalDiscountPct = budgetDiscountMap.get(item.budget_id) || 0
+                const revenue = ((unitPrice * qty) - discount) * (1 - globalDiscountPct / 100)
                 const costPerUnit = Number(product.cost_total) || 0
                 const totalCost = costPerUnit * qty
 

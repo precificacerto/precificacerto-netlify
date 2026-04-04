@@ -9,7 +9,6 @@ import { getTenantId } from '@/utils/get-tenant-id'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import { exportCommissionToExcel } from '@/utils/export-commission-excel'
 import { exportCommissionToPdf } from '@/utils/export-commission-pdf'
-import { getEffectiveCommissionPercent } from '@/utils/get-effective-commission'
 import {
   FileExcelOutlined,
   FilePdfOutlined,
@@ -125,10 +124,9 @@ export default function CommissionPage() {
           // (services are typically paid in full or handled via cash flow — treat as FULL for services)
           const rev = Number(s.total_revenue) || 0
           const svcComm = s.service_id ? (svcCommMap.get(s.service_id) || 0) : 0
-          const effectivePct = getEffectiveCommissionPercent(emp.commission_percent, svcComm)
-          if (effectivePct <= 0) continue
+          if (svcComm <= 0) continue
           emp.base_revenue += rev
-          emp.commission_value += rev * (effectivePct / 100)
+          emp.commission_value += rev * (svcComm / 100)
         }
 
         // ── Sales ──
@@ -284,8 +282,7 @@ export default function CommissionPage() {
             }
 
             const prodComm = saleProdCommMap.get(sale.id) || 0
-            const effectivePct = getEffectiveCommissionPercent(emp.commission_percent, prodComm)
-            applySaleCommission(emp, sale.id, sale.sale_date || '', Number(sale.final_value) || 0, effectivePct)
+            applySaleCommission(emp, sale.id, sale.sale_date || '', Number(sale.final_value) || 0, prodComm)
           }
         }
 
@@ -326,8 +323,7 @@ export default function CommissionPage() {
             }
 
             const prodComm = saleProdCommMap.get(sale.id) || 0
-            const effectivePct = getEffectiveCommissionPercent(emp.commission_percent, prodComm)
-            applySaleCommission(emp, sale.id, sale.sale_date || '', Number(sale.final_value) || 0, effectivePct)
+            applySaleCommission(emp, sale.id, sale.sale_date || '', Number(sale.final_value) || 0, prodComm)
           }
         }
 
@@ -335,7 +331,7 @@ export default function CommissionPage() {
           const rows = allEmployees
             .filter((e) => {
               const emp = empMap.get(e.id)
-              return emp && (emp.base_revenue > 0 || emp.commission_percent > 0)
+              return emp && emp.base_revenue > 0
             })
             .map((e) => ({
               employee_id: e.id,

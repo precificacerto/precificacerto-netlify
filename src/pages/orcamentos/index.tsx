@@ -199,14 +199,14 @@ function Budgets() {
                 (supabase as any)
                     .from('budgets')
                     .select('id, customer:customers(id, name), employee:employees(id, name), budget_items(product_id, quantity, unit_price, products(id, name, commission_table_id))')
-                    .in('status', ['DRAFT', 'SENT', 'APPROVED'])
+                    .in('status', ['DRAFT', 'SENT', 'APPROVED', 'AWAITING_PAYMENT'])
                     .eq('is_active', true)
                     .order('created_at', { ascending: false }),
             ])
             setCommissionTables((tablesRes.data || []) as {id: string; name: string}[])
             const rows = (budgetsRes.data || []).map((b: any) => ({
                 budgetId: b.id,
-                budgetNum: b.id.substring(0, 8).toUpperCase(),
+                budgetNum: `ORC-${b.id.substring(0, 4).toUpperCase()}`,
                 customerName: b.customer?.name || '—',
                 employeeName: b.employee?.name || '—',
                 customerId: b.customer?.id || null,
@@ -2047,7 +2047,7 @@ function Budgets() {
                             title: 'Orçamento',
                             dataIndex: 'budgetNum',
                             width: 110,
-                            render: (v: string) => <Tag>#{v}</Tag>,
+                            render: (v: string) => <Tag>{v}</Tag>,
                         },
                         {
                             title: 'Cliente',
