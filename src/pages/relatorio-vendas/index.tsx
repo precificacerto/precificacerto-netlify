@@ -650,24 +650,48 @@ function SalesReport() {
             const startDate = svcDateRange[0].startOf('day').format('YYYY-MM-DD')
             const endDate = svcDateRange[1].endOf('day').format('YYYY-MM-DD')
 
+            // ── Fonte 1: completed_services (serviços via Agenda) ──
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            let query: any = (supabase as any)
+            let csQuery: any = (supabase as any)
                 .from('completed_services')
                 .select('id, service_id, service_name, employee_id, customer_id, base_price, final_price, total_revenue, service_date')
                 .eq('tenant_id', effectiveTenantId)
                 .gte('service_date', startDate)
                 .lte('service_date', endDate)
+            if (svcEmployeeFilter) csQuery = csQuery.eq('employee_id', svcEmployeeFilter)
+            if (svcClientFilter) csQuery = csQuery.eq('customer_id', svcClientFilter)
 
-            if (svcEmployeeFilter) {
-                query = query.eq('employee_id', svcEmployeeFilter)
-            }
-            if (svcClientFilter) {
-                query = query.eq('customer_id', svcClientFilter)
+            // ── Fonte 2: sale_items com service_id (serviços via Vendas) ──
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            let salesQuery: any = (supabase as any)
+                .from('sales')
+                .select('id, employee_id, customer_id, sale_date')
+                .eq('tenant_id', effectiveTenantId)
+                .eq('is_active', true)
+                .gte('sale_date', startDate)
+                .lte('sale_date', endDate)
+            if (svcEmployeeFilter) salesQuery = salesQuery.eq('employee_id', svcEmployeeFilter)
+            if (svcClientFilter) salesQuery = salesQuery.eq('customer_id', svcClientFilter)
+
+            const [{ data: completedServices, error: csErr }, { data: directSales }] = await Promise.all([
+                csQuery as Promise<{ data: any[] | null; error: any }>,
+                salesQuery as Promise<{ data: any[] | null; error: any }>,
+            ])
+            if (csErr) throw csErr
+
+            // Buscar sale_items de serviços para as vendas encontradas
+            let saleServiceItems: any[] = []
+            const directSaleIds = (directSales || []).map((s: any) => s.id)
+            if (directSaleIds.length > 0) {
+                const { data: siData } = await (supabase as any)
+                    .from('sale_items')
+                    .select('sale_id, service_id, quantity, unit_price, discount, description, service:services(id, name, cost_total)')
+                    .in('sale_id', directSaleIds)
+                    .not('service_id', 'is', null)
+                saleServiceItems = siData || []
             }
 
-            const { data: services, error: svcErr } = await query as { data: any[] | null; error: any }
-            if (svcErr) throw svcErr
-            if (!services || services.length === 0) {
+            if ((!completedServices || completedServices.length === 0) && saleServiceItems.length === 0) {
                 setSvcData([])
                 setSvcLoading(false)
                 return
@@ -689,7 +713,8 @@ function SalesReport() {
                 commissionValue: number
             }>()
 
-            for (const svc of services) {
+            // ── Processar completed_services (Agenda) ──
+            for (const svc of (completedServices || [])) {
                 const serviceKey = svc.service_id || `name:${svc.service_name}`
                 const serviceName = svc.service_name || 'Sem nome'
                 const revenue = Number(svc.total_revenue) || Number(svc.final_price) || 0
@@ -709,8 +734,8 @@ function SalesReport() {
                 }
 
                 const aggKey = shouldSplitBySeller
-                    ? `${serviceKey}::${svc.employee_id || 'none'}`
-                    : serviceKey
+                    ? `cs:${serviceKey}::${svc.employee_id || 'none'}`
+                    : `cs:${serviceKey}`
 
                 const existing = serviceAgg.get(aggKey)
                 if (existing) {
@@ -719,9 +744,7 @@ function SalesReport() {
                     existing.totalCost += cost
                     existing.employees.add(empName)
                     existing.commissionValue += commissionVal
-                    if (shouldSplitBySeller && commissionPct > 0) {
-                        existing.commissionPercent = commissionPct
-                    }
+                    if (shouldSplitBySeller && commissionPct > 0) existing.commissionPercent = commissionPct
                 } else {
                     serviceAgg.set(aggKey, {
                         serviceId: svc.service_id || svc.id,
@@ -729,6 +752,62 @@ function SalesReport() {
                         qtdSold: 1,
                         totalRevenue: revenue,
                         totalCost: cost,
+                        employees: new Set([empName]),
+                        commissionPercent: commissionPct,
+                        commissionValue: commissionVal,
+                    })
+                }
+            }
+
+            // ── Processar sale_items de serviços (Vendas) ──
+            const saleInfoMap = new Map<string, any>()
+            ;(directSales || []).forEach((s: any) => { saleInfoMap.set(s.id, s) })
+
+            for (const item of saleServiceItems) {
+                const service = (item as any).service
+                const serviceId = item.service_id
+                const serviceName = service?.name || item.description || 'Sem nome'
+                const qty = Number(item.quantity) || 1
+                const unitPrice = Number(item.unit_price) || 0
+                const discount = Number(item.discount) || 0
+                const revenue = (unitPrice * qty) - discount
+                const costTotal = Number(service?.cost_total) || 0
+                const totalCost = costTotal * qty
+
+                const sale = saleInfoMap.get(item.sale_id)
+                const emp = sale?.employee_id
+                    ? (employees as any[]).find((e: any) => e.id === sale.employee_id)
+                    : null
+                const empName = emp?.name || 'Sem vendedor'
+                const empCommPct = Number(emp?.commission_percent) || 0
+                const saleEmployeeId = sale?.employee_id || null
+
+                let commissionPct = 0
+                let commissionVal = 0
+                if (hasSellerFilter || shouldSplitBySeller) {
+                    commissionPct = empCommPct
+                    commissionVal = revenue * (empCommPct / 100)
+                }
+
+                const aggKey = shouldSplitBySeller
+                    ? `si:${serviceId}::${saleEmployeeId || 'none'}`
+                    : `si:${serviceId}`
+
+                const existing = serviceAgg.get(aggKey)
+                if (existing) {
+                    existing.qtdSold += qty
+                    existing.totalRevenue += revenue
+                    existing.totalCost += totalCost
+                    existing.employees.add(empName)
+                    existing.commissionValue += commissionVal
+                    if (shouldSplitBySeller && commissionPct > 0) existing.commissionPercent = commissionPct
+                } else {
+                    serviceAgg.set(aggKey, {
+                        serviceId,
+                        serviceName,
+                        qtdSold: qty,
+                        totalRevenue: revenue,
+                        totalCost,
                         employees: new Set([empName]),
                         commissionPercent: commissionPct,
                         commissionValue: commissionVal,
