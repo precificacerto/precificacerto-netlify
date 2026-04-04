@@ -119,10 +119,10 @@ export default function CommissionPage() {
           ]),
         )
 
-        // ── Completed services ──
+        // ── Completed services (original select — safe) ──
         const { data: services } = await supabase
           .from('completed_services')
-          .select('id, employee_id, total_revenue, service_id, client_id, service_date')
+          .select('id, employee_id, total_revenue, service_id')
           .eq('is_active', true)
           .gte('service_date', start)
           .lte('service_date', end)
@@ -136,12 +136,12 @@ export default function CommissionPage() {
           svcNameMap = new Map((svcs || []).map((s: any) => [s.id, s.name || 'Serviço']))
         }
 
-        // ── Sales ──
+        // ── Sales (original select — safe) ──
         let salesData: any[] = []
         try {
           const { data } = await supabase
             .from('sales')
-            .select('id, final_value, budget_id, employee_id, sale_date, sale_type, commission_amount, client_id')
+            .select('id, final_value, budget_id, employee_id, sale_date, sale_type, commission_amount')
             .eq('is_active', true)
           salesData = data || []
         } catch {
@@ -168,9 +168,8 @@ export default function CommissionPage() {
           }
         }
 
-        // Map sale_id → max product commission
+        // Map sale_id → max product commission & product names
         const saleProdCommMap = new Map<string, number>()
-        // Map sale_id → concatenated product names
         const saleItemNamesMap = new Map<string, string[]>()
         for (const si of allSaleItemRows) {
           const cur = saleProdCommMap.get(si.sale_id) || 0
@@ -205,41 +204,69 @@ export default function CommissionPage() {
           }
         }
 
-        // ── Collect all client_ids to resolve names ──
-        const allClientIds = new Set<string>()
-        for (const s of services || []) { if (s.client_id) allClientIds.add(s.client_id) }
-        for (const s of salesData) { if (s.client_id) allClientIds.add(s.client_id) }
-
-        // Budget sales need their client_id too
+        // Budget sales / direct sales split
         const budgetSales = salesData.filter((s: any) => s.budget_id)
         const directSales = salesData.filter((s: any) => !s.budget_id && s.employee_id)
-        let budgetClientMap = new Map<string, string>() // budget_id → client_id
 
-        let clientNameMap = new Map<string, string>()
+        // ── Optional: fetch client names via separate queries (safe — errors ignored) ──
+        // These use separate queries so failures do NOT break the main calculation
+        const clientNameMap = new Map<string, string>()
+        const budgetClientRefMap = new Map<string, string>() // budget_id → client_id
+        const saleClientRefMap = new Map<string, string>()   // sale_id → client_id
+        const svcClientRefMap = new Map<string, string>()    // completed_service id → client_id
+
+        try {
+          const allClientIds = new Set<string>()
+
+          // Budget client_ids
+          if (budgetSales.length > 0) {
+            const bIds = [...new Set(budgetSales.map((s: any) => s.budget_id).filter(Boolean))]
+            const { data: bData, error: bErr } = await supabase.from('budgets').select('id, client_id').in('id', bIds)
+            if (!bErr && bData) {
+              for (const b of bData) {
+                if (b.client_id) { budgetClientRefMap.set(b.id, b.client_id); allClientIds.add(b.client_id) }
+              }
+            }
+          }
+
+          // Direct sale client_ids
+          if (directSales.length > 0) {
+            const sIds = directSales.map((s: any) => s.id).filter(Boolean)
+            const { data: sData, error: sErr } = await supabase.from('sales').select('id, client_id').in('id', sIds)
+            if (!sErr && sData) {
+              for (const s of sData) {
+                if (s.client_id) { saleClientRefMap.set(s.id, s.client_id); allClientIds.add(s.client_id) }
+              }
+            }
+          }
+
+          // Completed service client_ids
+          const svcRowIds = (services || []).map((s: any) => s.id).filter(Boolean)
+          if (svcRowIds.length > 0) {
+            const { data: csData, error: csErr } = await supabase.from('completed_services').select('id, client_id').in('id', svcRowIds)
+            if (!csErr && csData) {
+              for (const cs of csData) {
+                if (cs.client_id) { svcClientRefMap.set(cs.id, cs.client_id); allClientIds.add(cs.client_id) }
+              }
+            }
+          }
+
+          // Resolve client names
+          if (allClientIds.size > 0) {
+            const { data: clients } = await supabase.from('clients').select('id, name').in('id', [...allClientIds])
+            for (const c of clients || []) { if (c.id) clientNameMap.set(c.id, c.name || '-') }
+          }
+        } catch { /* client names are optional — commission calculation continues */ }
+
+        // ── Budgets (original select — safe) ──
+        let budgetEmp = new Map<string, string>()
+        let budgetCommMap = new Map<string, number>()
 
         if (budgetSales.length) {
           const budgetIds = [...new Set(budgetSales.map((s: any) => s.budget_id).filter(Boolean))]
-          const { data: budgets } = await supabase
-            .from('budgets')
-            .select('id, employee_id, commission_amount, client_id')
-            .in('id', budgetIds)
-
-          for (const b of budgets || []) {
-            if (b.client_id) allClientIds.add(b.client_id)
-            budgetClientMap.set(b.id, b.client_id)
-          }
-
-          // Now fetch all clients
-          if (allClientIds.size > 0) {
-            const { data: clients } = await supabase
-              .from('clients')
-              .select('id, name')
-              .in('id', [...allClientIds])
-            clientNameMap = new Map((clients || []).map((c: any) => [c.id, c.name || '-']))
-          }
-
-          const budgetEmp = new Map((budgets || []).map((b: any) => [b.id, b.employee_id]))
-          const budgetCommMap = new Map((budgets || []).map((b: any) => [b.id, Number(b.commission_amount) || 0]))
+          const { data: budgets } = await supabase.from('budgets').select('id, employee_id, commission_amount').in('id', budgetIds)
+          budgetEmp = new Map((budgets || []).map((b: any) => [b.id, b.employee_id]))
+          budgetCommMap = new Map((budgets || []).map((b: any) => [b.id, Number(b.commission_amount) || 0]))
 
           for (const sale of budgetSales as any[]) {
             const empId = budgetEmp.get(sale.budget_id) || sale.employee_id
@@ -250,11 +277,9 @@ export default function CommissionPage() {
             const storedCommission = Number(sale.commission_amount || 0) || budgetCommMap.get(sale.budget_id) || 0
             const finalValue = Number(sale.final_value) || 0
             const saleDate = (sale.sale_date || '').substring(0, 10)
-
-            // Build detail row metadata
             const productNames = saleItemNamesMap.get(sale.id) || []
             const description = productNames.length > 0 ? productNames.join(', ') : 'Venda'
-            const clientId = budgetClientMap.get(sale.budget_id) || sale.client_id
+            const clientId = budgetClientRefMap.get(sale.budget_id)
             const clientName = clientId ? (clientNameMap.get(clientId) || '-') : '-'
 
             if (storedCommission > 0 && sale.sale_type === 'FROM_BUDGET') {
@@ -266,16 +291,7 @@ export default function CommissionPage() {
                   emp.commission_value += storedCommission
                   emp.sum_weighted_pct += effPct * finalValue
                   emp.sum_value += finalValue
-                  emp.detail_rows.push({
-                    key: sale.id,
-                    type: 'VENDA',
-                    description,
-                    client_name: clientName,
-                    date: saleDate,
-                    value: finalValue,
-                    commission_percent: effPct,
-                    commission_amount: storedCommission,
-                  })
+                  emp.detail_rows.push({ key: sale.id, type: 'VENDA', description, client_name: clientName, date: saleDate, value: finalValue, commission_percent: effPct, commission_amount: storedCommission })
                 }
               } else {
                 const entries = cashEntriesBySale.get(sale.id)
@@ -285,16 +301,7 @@ export default function CommissionPage() {
                     emp.commission_value += storedCommission
                     emp.sum_weighted_pct += effPct * finalValue
                     emp.sum_value += finalValue
-                    emp.detail_rows.push({
-                      key: sale.id,
-                      type: 'VENDA',
-                      description,
-                      client_name: clientName,
-                      date: saleDate,
-                      value: finalValue,
-                      commission_percent: effPct,
-                      commission_amount: storedCommission,
-                    })
+                    emp.detail_rows.push({ key: sale.id, type: 'VENDA', description, client_name: clientName, date: saleDate, value: finalValue, commission_percent: effPct, commission_amount: storedCommission })
                   }
                 } else {
                   const totalAmt = entries.reduce((s, e) => s + e.amount, 0)
@@ -307,16 +314,7 @@ export default function CommissionPage() {
                     emp.commission_value += creditedComm
                     emp.sum_weighted_pct += effPct * creditedValue
                     emp.sum_value += creditedValue
-                    emp.detail_rows.push({
-                      key: sale.id,
-                      type: 'VENDA',
-                      description,
-                      client_name: clientName,
-                      date: saleDate,
-                      value: creditedValue,
-                      commission_percent: effPct,
-                      commission_amount: creditedComm,
-                    })
+                    emp.detail_rows.push({ key: sale.id, type: 'VENDA', description, client_name: clientName, date: saleDate, value: creditedValue, commission_percent: effPct, commission_amount: creditedComm })
                   }
                 }
               }
@@ -334,16 +332,7 @@ export default function CommissionPage() {
                 emp.commission_value += commAmount
                 emp.sum_weighted_pct += prodComm * finalValue
                 emp.sum_value += finalValue
-                emp.detail_rows.push({
-                  key: sale.id,
-                  type: 'VENDA',
-                  description,
-                  client_name: clientName,
-                  date: saleDate,
-                  value: finalValue,
-                  commission_percent: prodComm,
-                  commission_amount: commAmount,
-                })
+                emp.detail_rows.push({ key: sale.id, type: 'VENDA', description, client_name: clientName, date: saleDate, value: finalValue, commission_percent: prodComm, commission_amount: commAmount })
               }
             } else {
               const entries = cashEntriesBySale.get(sale.id)
@@ -354,22 +343,12 @@ export default function CommissionPage() {
                   emp.commission_value += commAmount
                   emp.sum_weighted_pct += prodComm * finalValue
                   emp.sum_value += finalValue
-                  emp.detail_rows.push({
-                    key: sale.id,
-                    type: 'VENDA',
-                    description,
-                    client_name: clientName,
-                    date: saleDate,
-                    value: finalValue,
-                    commission_percent: prodComm,
-                    commission_amount: commAmount,
-                  })
+                  emp.detail_rows.push({ key: sale.id, type: 'VENDA', description, client_name: clientName, date: saleDate, value: finalValue, commission_percent: prodComm, commission_amount: commAmount })
                 }
               } else {
                 const totalInstallments = entries.reduce((s, e) => s + e.amount, 0)
                 if (totalInstallments <= 0) continue
-                const monthlyEntries = entries.filter(e => e.due_date >= start && e.due_date <= end)
-                const monthlyAmount = monthlyEntries.reduce((s, e) => s + e.amount, 0)
+                const monthlyAmount = entries.filter(e => e.due_date >= start && e.due_date <= end).reduce((s, e) => s + e.amount, 0)
                 if (monthlyAmount <= 0) continue
                 const proportion = monthlyAmount / totalInstallments
                 const creditedValue = finalValue * proportion
@@ -378,31 +357,13 @@ export default function CommissionPage() {
                 emp.commission_value += commAmount
                 emp.sum_weighted_pct += prodComm * creditedValue
                 emp.sum_value += creditedValue
-                emp.detail_rows.push({
-                  key: sale.id,
-                  type: 'VENDA',
-                  description,
-                  client_name: clientName,
-                  date: saleDate,
-                  value: creditedValue,
-                  commission_percent: prodComm,
-                  commission_amount: commAmount,
-                })
+                emp.detail_rows.push({ key: sale.id, type: 'VENDA', description, client_name: clientName, date: saleDate, value: creditedValue, commission_percent: prodComm, commission_amount: commAmount })
               }
             }
           }
-        } else {
-          // No budget sales, still need to fetch clients
-          if (allClientIds.size > 0) {
-            const { data: clients } = await supabase
-              .from('clients')
-              .select('id, name')
-              .in('id', [...allClientIds])
-            clientNameMap = new Map((clients || []).map((c: any) => [c.id, c.name || '-']))
-          }
         }
 
-        // ── Process completed services (after clientNameMap is ready) ──
+        // ── Process completed services ──
         for (const s of services || []) {
           if (!s.employee_id) continue
           const emp = empMap.get(s.employee_id)
@@ -417,14 +378,17 @@ export default function CommissionPage() {
           emp.sum_weighted_pct += svcComm * rev
           emp.sum_value += rev
 
-          const clientName = s.client_id ? (clientNameMap.get(s.client_id) || '-') : '-'
+          const clientId = svcClientRefMap.get(s.id)
+          const clientName = clientId ? (clientNameMap.get(clientId) || '-') : '-'
           const svcName = s.service_id ? (svcNameMap.get(s.service_id) || 'Serviço') : 'Serviço'
+          // service_date may not be in select; use empty string as fallback
+          const svcDate = (s.service_date || '').substring(0, 10)
           emp.detail_rows.push({
             key: s.id || `svc-${s.service_id}-${Math.random()}`,
             type: 'SERVIÇO',
             description: svcName,
             client_name: clientName,
-            date: (s.service_date || '').substring(0, 10),
+            date: svcDate,
             value: rev,
             commission_percent: svcComm,
             commission_amount: commAmount,
@@ -443,7 +407,8 @@ export default function CommissionPage() {
             const saleDate = (sale.sale_date || '').substring(0, 10)
             const productNames = saleItemNamesMap.get(sale.id) || []
             const description = productNames.length > 0 ? productNames.join(', ') : 'Venda Direta'
-            const clientName = sale.client_id ? (clientNameMap.get(sale.client_id) || '-') : '-'
+            const clientId = saleClientRefMap.get(sale.id)
+            const clientName = clientId ? (clientNameMap.get(clientId) || '-') : '-'
 
             const storedCommission = Number(sale.commission_amount || 0)
             if (storedCommission > 0) {
@@ -455,16 +420,7 @@ export default function CommissionPage() {
                   emp.commission_value += storedCommission
                   emp.sum_weighted_pct += effPct * finalValue
                   emp.sum_value += finalValue
-                  emp.detail_rows.push({
-                    key: sale.id,
-                    type: 'VENDA',
-                    description,
-                    client_name: clientName,
-                    date: saleDate,
-                    value: finalValue,
-                    commission_percent: effPct,
-                    commission_amount: storedCommission,
-                  })
+                  emp.detail_rows.push({ key: sale.id, type: 'VENDA', description, client_name: clientName, date: saleDate, value: finalValue, commission_percent: effPct, commission_amount: storedCommission })
                 }
               } else {
                 const entries = cashEntriesBySale.get(sale.id)
@@ -474,16 +430,7 @@ export default function CommissionPage() {
                     emp.commission_value += storedCommission
                     emp.sum_weighted_pct += effPct * finalValue
                     emp.sum_value += finalValue
-                    emp.detail_rows.push({
-                      key: sale.id,
-                      type: 'VENDA',
-                      description,
-                      client_name: clientName,
-                      date: saleDate,
-                      value: finalValue,
-                      commission_percent: effPct,
-                      commission_amount: storedCommission,
-                    })
+                    emp.detail_rows.push({ key: sale.id, type: 'VENDA', description, client_name: clientName, date: saleDate, value: finalValue, commission_percent: effPct, commission_amount: storedCommission })
                   }
                 } else {
                   const totalAmt = entries.reduce((s, e) => s + e.amount, 0)
@@ -496,16 +443,7 @@ export default function CommissionPage() {
                     emp.commission_value += creditedComm
                     emp.sum_weighted_pct += effPct * creditedValue
                     emp.sum_value += creditedValue
-                    emp.detail_rows.push({
-                      key: sale.id,
-                      type: 'VENDA',
-                      description,
-                      client_name: clientName,
-                      date: saleDate,
-                      value: creditedValue,
-                      commission_percent: effPct,
-                      commission_amount: creditedComm,
-                    })
+                    emp.detail_rows.push({ key: sale.id, type: 'VENDA', description, client_name: clientName, date: saleDate, value: creditedValue, commission_percent: effPct, commission_amount: creditedComm })
                   }
                 }
               }
@@ -522,16 +460,7 @@ export default function CommissionPage() {
                 emp.commission_value += commAmount
                 emp.sum_weighted_pct += prodComm * finalValue
                 emp.sum_value += finalValue
-                emp.detail_rows.push({
-                  key: sale.id,
-                  type: 'VENDA',
-                  description,
-                  client_name: clientName,
-                  date: saleDate,
-                  value: finalValue,
-                  commission_percent: prodComm,
-                  commission_amount: commAmount,
-                })
+                emp.detail_rows.push({ key: sale.id, type: 'VENDA', description, client_name: clientName, date: saleDate, value: finalValue, commission_percent: prodComm, commission_amount: commAmount })
               }
             } else {
               const entries = cashEntriesBySale.get(sale.id)
@@ -542,16 +471,7 @@ export default function CommissionPage() {
                   emp.commission_value += commAmount
                   emp.sum_weighted_pct += prodComm * finalValue
                   emp.sum_value += finalValue
-                  emp.detail_rows.push({
-                    key: sale.id,
-                    type: 'VENDA',
-                    description,
-                    client_name: clientName,
-                    date: saleDate,
-                    value: finalValue,
-                    commission_percent: prodComm,
-                    commission_amount: commAmount,
-                  })
+                  emp.detail_rows.push({ key: sale.id, type: 'VENDA', description, client_name: clientName, date: saleDate, value: finalValue, commission_percent: prodComm, commission_amount: commAmount })
                 }
               } else {
                 const totalInstallments = entries.reduce((s, e) => s + e.amount, 0)
@@ -566,16 +486,7 @@ export default function CommissionPage() {
                 emp.commission_value += commAmount
                 emp.sum_weighted_pct += prodComm * creditedValue
                 emp.sum_value += creditedValue
-                emp.detail_rows.push({
-                  key: sale.id,
-                  type: 'VENDA',
-                  description,
-                  client_name: clientName,
-                  date: saleDate,
-                  value: creditedValue,
-                  commission_percent: prodComm,
-                  commission_amount: commAmount,
-                })
+                emp.detail_rows.push({ key: sale.id, type: 'VENDA', description, client_name: clientName, date: saleDate, value: creditedValue, commission_percent: prodComm, commission_amount: commAmount })
               }
             }
           }
@@ -628,9 +539,7 @@ export default function CommissionPage() {
       dataIndex: 'type',
       key: 'type',
       width: 90,
-      render: (v: string) => (
-        <Tag color={v === 'SERVIÇO' ? 'blue' : 'purple'}>{v}</Tag>
-      ),
+      render: (v: string) => <Tag color={v === 'SERVIÇO' ? 'blue' : 'purple'}>{v}</Tag>,
     },
     {
       title: 'Data',
