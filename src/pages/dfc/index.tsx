@@ -237,44 +237,19 @@ async function fetchYearEntries(tenantId: string, year: number): Promise<CashEnt
 type TenantSettingsResult = {
   tax_regime: string | null
   calc_type: string | null
-  simples_revenue_12m: number
-  simples_anexo: string | null
-  ret_rate: number | null
 }
 
 async function fetchTenantSettings(tenantId: string): Promise<TenantSettingsResult> {
   const { data } = await supabase
     .from('tenant_settings')
-    .select('tax_regime, calc_type, simples_revenue_12m, simples_anexo, ret_rate')
+    .select('tax_regime, calc_type')
     .eq('tenant_id', tenantId)
     .single()
   const d = data as any
   return {
     tax_regime: d?.tax_regime ?? null,
     calc_type: d?.calc_type ?? null,
-    simples_revenue_12m: Number(d?.simples_revenue_12m) || 0,
-    simples_anexo: d?.simples_anexo ?? null,
-    ret_rate: d?.ret_rate != null ? Number(d.ret_rate) : null,
   }
-}
-
-async function fetchSimplesEffectiveRate(anexo: string, revenue12m: number): Promise<number> {
-  const a = (anexo || '').replace(/^ANEXO_/i, '') || 'I'
-  const { data: brackets } = await supabase
-    .from('simples_nacional_brackets')
-    .select('nominal_rate, deduction, revenue_min, revenue_max')
-    .eq('anexo', a)
-    .order('bracket_order', { ascending: true })
-  if (brackets && brackets.length > 0) {
-    let bracket = brackets[0]
-    for (const b of brackets) {
-      if (revenue12m >= Number(b.revenue_min) && revenue12m <= Number(b.revenue_max)) { bracket = b; break }
-    }
-    const nom = Number(bracket.nominal_rate)
-    const ded = Number(bracket.deduction)
-    return revenue12m > 0 ? (revenue12m * nom - ded) / revenue12m : nom
-  }
-  return 0.08 // fallback
 }
 
 // ── Aggregate entries into MonthlyValues by groups ──
@@ -422,25 +397,12 @@ function buildDreLucroRealPresumido(
 
   rows.push(buildRow('receita_bruta', 'Receita Bruta', receitaBruta, tempRL, { isHeader: true, sign: '+' }))
 
-  // Deduções Tributárias Sobre Receita (impostos sobre faturamento from IMPOSTO group)
+  // Deduções Tributárias Sobre Receita — usa valores reais do HUB (cash_entries pagos)
   const deducoesTribReceita = agg.imposto
   rows.push(buildRow('deducoes_trib_receita', '(-) Deduções Tributárias Sobre Receita', deducoesTribReceita, tempRL, { sign: '-', indent: 1 }))
 
-  // Deduções Tributárias Sobre Compras (créditos de impostos sobre compras)
-  // Lucro Real: PIS 1.65% + COFINS 7.6% = 9.25% (não-cumulativo, gera créditos)
-  // Lucro Presumido: PIS 0.65% + COFINS 3% = cumulativo, SEM créditos de compras
-  const isLucroReal = taxRegime === 'LUCRO_REAL'
-  const creditRate = isLucroReal ? 0.0925 : 0 // Presumido não tem crédito de compras
-  const deducoesTribCompras: MonthlyValues = { ...EMPTY_MONTHS }
-  for (const k of MONTH_KEYS) {
-    deducoesTribCompras[k] = agg.custoProduto[k] * creditRate
-  }
-  if (isLucroReal) {
-    rows.push(buildRow('deducoes_trib_compras', '(-) Deduções Tributárias Sobre Compras (Crédito)', deducoesTribCompras, tempRL, { sign: '-', indent: 1 }))
-  }
-
   // Receita Líquida
-  const receitaLiquida = subtractMonths(subtractMonths(receitaBruta, deducoesTribReceita), deducoesTribCompras)
+  const receitaLiquida = subtractMonths(receitaBruta, deducoesTribReceita)
   rows.push(buildRow('receita_liquida', '(=) Receita Líquida de Venda Interna', receitaLiquida, receitaLiquida, { isSubtotal: true, sign: '=' }))
 
   // CMV
@@ -483,24 +445,13 @@ function buildDreLucroRealPresumido(
   const resultadoFinanceiro = subtractMonths(lucroOperacional, agg.despesaFinanceira)
   rows.push(buildRow('resultado_financeiro', '(=) Resultado Financeiro', resultadoFinanceiro, receitaLiquida, { isSubtotal: true, sign: '=' }))
 
-  // Impostos sobre o Lucro (IRPJ + CSLL)
-  // Estimate: IRPJ 15% + CSLL 9% = 24% on positive profit. Simplified approach.
-  const impostosSobreLucro: MonthlyValues = { ...EMPTY_MONTHS }
-  for (const k of MONTH_KEYS) {
-    if (resultadoFinanceiro[k] > 0) {
-      impostosSobreLucro[k] = resultadoFinanceiro[k] * 0.24
-    }
-  }
-  rows.push(buildRow('impostos_lucro', '(-) Impostos sobre o Lucro (IRPJ + CSLL)', impostosSobreLucro, receitaLiquida, { sign: '-' }))
-
-  // Lucro Líquido
-  const lucroLiquido = subtractMonths(resultadoFinanceiro, impostosSobreLucro)
-  rows.push(buildRow('lucro_liquido', '(=) Lucro Líquido', lucroLiquido, receitaLiquida, { isTotal: true, sign: '=' }))
+  // Lucro Líquido (sem estimativa de IRPJ/CSLL — usa apenas valores reais do HUB)
+  rows.push(buildRow('lucro_liquido', '(=) Lucro Líquido', resultadoFinanceiro, receitaLiquida, { isTotal: true, sign: '=' }))
 
   return rows
 }
 
-function buildDrePresumidoRET(agg: AggregatedData, retRate: number = 0.04): DreRow[] {
+function buildDrePresumidoRET(agg: AggregatedData): DreRow[] {
   const rows: DreRow[] = []
 
   const receitaBruta = agg.receitaBruta
@@ -513,13 +464,12 @@ function buildDrePresumidoRET(agg: AggregatedData, retRate: number = 0.04): DreR
   const receitaLiquida = receitaBruta
   rows.push(buildRow('receita_liquida', '(=) Receita Líquida', receitaLiquida, receitaLiquida, { isSubtotal: true, sign: '=' }))
 
-  // RET (taxa configurada) + Custo Produtos + Folha
-  const ret4: MonthlyValues = { ...EMPTY_MONTHS }
-  for (const k of MONTH_KEYS) ret4[k] = receitaBruta[k] * retRate
+  // RET (valores reais do HUB) + Custo Produtos + Folha
+  const retPago = agg.imposto
   const folha = sumMonths(sumMonths(agg.maoDeObraProdutiva, agg.maoDeObraAdministrativa), agg.maoDeObra)
-  const deducoesFaturamento = sumMonths(sumMonths(ret4, agg.custoProduto), folha)
+  const deducoesFaturamento = sumMonths(sumMonths(retPago, agg.custoProduto), folha)
   rows.push(buildRow('deducoes_faturamento', '(-) Deduções Tributárias Faturamento', deducoesFaturamento, receitaLiquida, { sign: '-' }))
-  rows.push(buildRow('ret_4', `RET ${(retRate * 100).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}%`, ret4, receitaLiquida, { indent: 2 }))
+  rows.push(buildRow('ret_4', 'RET (pago)', retPago, receitaLiquida, { indent: 2 }))
   rows.push(buildRow('custo_produtos_ret', 'Custo Produtos', agg.custoProduto, receitaLiquida, { indent: 2 }))
   rows.push(buildRow('folha_ret', 'Folha', folha, receitaLiquida, { indent: 2 }))
 
@@ -544,23 +494,19 @@ function buildDrePresumidoRET(agg: AggregatedData, retRate: number = 0.04): DreR
   return rows
 }
 
-function buildDreSimplesNacional(agg: AggregatedData, calcType: CalcType, dasRate: number = 0.08, isMei: boolean = false): DreRow[] {
+function buildDreSimplesNacional(agg: AggregatedData, calcType: CalcType): DreRow[] {
   const rows: DreRow[] = []
   const isIndustrializacao = calcType === 'INDUSTRIALIZATION'
 
   const receitaBruta = agg.receitaBruta
   rows.push(buildRow('receita_bruta', 'Receita Bruta', receitaBruta, receitaBruta, { isHeader: true, sign: '+' }))
 
-  // DAS (taxa real do tenant ou fallback)
-  const das: MonthlyValues = { ...EMPTY_MONTHS }
-  if (!isMei) {
-    for (const k of MONTH_KEYS) das[k] = receitaBruta[k] * dasRate
-  }
-  const dasLabel = isMei ? '(-) DAS (MEI — fixo mensal)' : `(-) DAS (Simples Nacional — ${(dasRate * 100).toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%)`
+  // DAS — usa valores reais pagos do HUB (expense_group IMPOSTO / REGIME_TRIBUTARIO)
+  const das = { ...agg.imposto }
 
   // Deduções tributárias = DAS (incluído dentro da Receita Bruta)
   rows.push(buildRow('deducoes_trib', '(-) Deduções Tributárias', das, receitaBruta, { sign: '-', indent: 1 }))
-  rows.push(buildRow('das', dasLabel, das, receitaBruta, { sign: '-', indent: 2 }))
+  rows.push(buildRow('das', '(-) DAS / Impostos do Regime (pago)', das, receitaBruta, { sign: '-', indent: 2 }))
 
   const receitaLiquida = subtractMonths(receitaBruta, das)
   rows.push(buildRow('receita_liquida', '(=) Receita Líquida', receitaLiquida, receitaLiquida, { isSubtotal: true, sign: '=' }))
@@ -608,16 +554,12 @@ function buildDre(
   agg: AggregatedData,
   taxRegime: TaxRegime,
   calcType: CalcType,
-  opts?: { dasRate?: number; retRate?: number },
 ): DreRow[] {
   if (taxRegime === 'PRESUMIDO_RET' || taxRegime === 'LUCRO_PRESUMIDO_RET') {
-    return buildDrePresumidoRET(agg, opts?.retRate ?? 0.04)
+    return buildDrePresumidoRET(agg)
   }
-  if (taxRegime === 'SIMPLES_NACIONAL' || taxRegime === 'SIMPLES_HIBRIDO') {
-    return buildDreSimplesNacional(agg, calcType, opts?.dasRate ?? 0.08)
-  }
-  if (taxRegime === 'MEI') {
-    return buildDreSimplesNacional(agg, calcType, 0, true)
+  if (taxRegime === 'SIMPLES_NACIONAL' || taxRegime === 'SIMPLES_HIBRIDO' || taxRegime === 'MEI') {
+    return buildDreSimplesNacional(agg, calcType)
   }
   // Default: Lucro Real / Lucro Presumido
   return buildDreLucroRealPresumido(agg, calcType, taxRegime)
@@ -719,15 +661,8 @@ export default function DfcPage() {
       setTaxRegime(regime)
       setCalcType(ct)
 
-      // Fetch real tax rates based on regime
-      let dasRate = 0.08
-      if ((regime === 'SIMPLES_NACIONAL' || regime === 'SIMPLES_HIBRIDO') && settings.simples_anexo && settings.simples_revenue_12m > 0) {
-        dasRate = await fetchSimplesEffectiveRate(settings.simples_anexo, settings.simples_revenue_12m)
-      }
-      const retRate = settings.ret_rate != null ? settings.ret_rate : 0.04
-
       const agg = aggregateEntries(entries)
-      const rows = buildDre(agg, regime, ct, { dasRate, retRate })
+      const rows = buildDre(agg, regime, ct)
       setDreRows(rows)
     } catch (err: any) {
       console.error('Erro ao carregar DFC:', err)
