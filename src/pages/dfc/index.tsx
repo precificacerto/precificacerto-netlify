@@ -215,6 +215,9 @@ function effectiveIncomeAmount(entry: CashEntry): number {
 async function fetchYearEntries(tenantId: string, year: number): Promise<CashEntry[]> {
   const startDate = `${year}-01-01`
   const endDate = `${year}-12-31`
+  // Espelha o HUB: somente meses encerrados (due_date < início do mês atual)
+  const now = new Date()
+  const cutoff = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
   const { data, error } = await (supabase as any)
     .from('cash_entries')
     .select('amount, type, expense_group, expense_category, description, due_date, is_active, payment_method, paid_date')
@@ -222,6 +225,7 @@ async function fetchYearEntries(tenantId: string, year: number): Promise<CashEnt
     .eq('is_active', true)
     .gte('due_date', startDate)
     .lte('due_date', endDate)
+    .lt('due_date', cutoff)
   if (error) throw new Error(`Erro ao buscar lançamentos: ${error.message}`)
   return (data || []).map((e: any) => ({
     ...e,
@@ -319,11 +323,14 @@ function aggregateEntries(entries: CashEntry[]): AggregatedData {
     if (!monthKey) continue
 
     if (entry.type === 'INCOME') {
+      // Mesma regra do HUB: exclui BOLETO/CHEQUE pendentes (sem paid_date = não confirmados)
+      if ((entry.payment_method === 'BOLETO' || entry.payment_method === 'CHEQUE_PRE_DATADO') && !entry.paid_date) continue
       data.receitaBruta[monthKey] += effectiveIncomeAmount(entry)
       continue
     }
 
-    // EXPENSE
+    // EXPENSE — mesma regra do HUB: só despesas confirmadas (paid_date preenchido)
+    if (!entry.paid_date) continue
     const group = entry.expense_group || ''
     // Use expense_category first (newer field), fall back to category (legacy)
     const cat = entry.expense_category || entry.category || ''
