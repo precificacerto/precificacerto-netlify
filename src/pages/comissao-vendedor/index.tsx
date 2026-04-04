@@ -34,6 +34,7 @@ interface CommissionDetailRow {
   value: number
   commission_percent: number
   commission_amount: number
+  is_installment?: boolean
 }
 
 interface CommissionRow {
@@ -141,13 +142,13 @@ export default function CommissionPage() {
         try {
           const { data } = await supabase
             .from('sales')
-            .select('id, final_value, budget_id, employee_id, sale_date, sale_type, commission_amount')
+            .select('id, final_value, budget_id, employee_id, sale_date, sale_type, commission_amount, installments')
             .eq('is_active', true)
           salesData = data || []
         } catch {
           const { data } = await supabase
             .from('sales')
-            .select('id, final_value, budget_id, sale_date')
+            .select('id, final_value, budget_id, sale_date, installments')
             .eq('is_active', true)
           salesData = (data || []).map((s: any) => ({ ...s, employee_id: null }))
         }
@@ -281,11 +282,14 @@ export default function CommissionPage() {
             const description = productNames.length > 0 ? productNames.join(', ') : 'Venda'
             const clientId = budgetClientRefMap.get(sale.budget_id)
             const clientName = clientId ? (clientNameMap.get(clientId) || '-') : '-'
+            const saleInstallments = Number(sale.installments) || 1
+            // Usa distribuição por parcelas se: (1) funcionário configurado como INSTALLMENT, OU (2) venda foi registrada como parcelada
+            const useInstallment = emp.payment_mode === 'INSTALLMENT' || saleInstallments > 1
 
             if (storedCommission > 0 && sale.sale_type === 'FROM_BUDGET') {
               const effPct = finalValue > 0 ? (storedCommission / finalValue) * 100 : 0
 
-              if (emp.payment_mode === 'FULL') {
+              if (!useInstallment) {
                 if (saleDate >= start && saleDate <= end) {
                   emp.base_revenue += finalValue
                   emp.commission_value += storedCommission
@@ -314,7 +318,7 @@ export default function CommissionPage() {
                     emp.commission_value += creditedComm
                     emp.sum_weighted_pct += effPct * creditedValue
                     emp.sum_value += creditedValue
-                    emp.detail_rows.push({ key: sale.id, type: 'VENDA', description, client_name: clientName, date: saleDate, value: creditedValue, commission_percent: effPct, commission_amount: creditedComm })
+                    emp.detail_rows.push({ key: sale.id, type: 'VENDA', description, client_name: clientName, date: saleDate, value: creditedValue, commission_percent: effPct, commission_amount: creditedComm, is_installment: true })
                   }
                 }
               }
@@ -325,7 +329,7 @@ export default function CommissionPage() {
             const prodComm = saleProdCommMap.get(sale.id) || 0
             if (prodComm <= 0 || finalValue <= 0) continue
 
-            if (emp.payment_mode === 'FULL') {
+            if (!useInstallment) {
               if (saleDate >= start && saleDate <= end) {
                 const commAmount = finalValue * (prodComm / 100)
                 emp.base_revenue += finalValue
@@ -357,7 +361,7 @@ export default function CommissionPage() {
                 emp.commission_value += commAmount
                 emp.sum_weighted_pct += prodComm * creditedValue
                 emp.sum_value += creditedValue
-                emp.detail_rows.push({ key: sale.id, type: 'VENDA', description, client_name: clientName, date: saleDate, value: creditedValue, commission_percent: prodComm, commission_amount: commAmount })
+                emp.detail_rows.push({ key: sale.id, type: 'VENDA', description, client_name: clientName, date: saleDate, value: creditedValue, commission_percent: prodComm, commission_amount: commAmount, is_installment: true })
               }
             }
           }
@@ -409,12 +413,15 @@ export default function CommissionPage() {
             const description = productNames.length > 0 ? productNames.join(', ') : 'Venda Direta'
             const clientId = saleClientRefMap.get(sale.id)
             const clientName = clientId ? (clientNameMap.get(clientId) || '-') : '-'
+            const saleInstallments = Number(sale.installments) || 1
+            // Usa distribuição por parcelas se: (1) funcionário configurado como INSTALLMENT, OU (2) venda foi registrada como parcelada
+            const useInstallment = emp.payment_mode === 'INSTALLMENT' || saleInstallments > 1
 
             const storedCommission = Number(sale.commission_amount || 0)
             if (storedCommission > 0) {
               const effPct = finalValue > 0 ? (storedCommission / finalValue) * 100 : 0
 
-              if (emp.payment_mode === 'FULL') {
+              if (!useInstallment) {
                 if (saleDate >= start && saleDate <= end) {
                   emp.base_revenue += finalValue
                   emp.commission_value += storedCommission
@@ -443,7 +450,7 @@ export default function CommissionPage() {
                     emp.commission_value += creditedComm
                     emp.sum_weighted_pct += effPct * creditedValue
                     emp.sum_value += creditedValue
-                    emp.detail_rows.push({ key: sale.id, type: 'VENDA', description, client_name: clientName, date: saleDate, value: creditedValue, commission_percent: effPct, commission_amount: creditedComm })
+                    emp.detail_rows.push({ key: sale.id, type: 'VENDA', description, client_name: clientName, date: saleDate, value: creditedValue, commission_percent: effPct, commission_amount: creditedComm, is_installment: true })
                   }
                 }
               }
@@ -453,7 +460,7 @@ export default function CommissionPage() {
             const prodComm = saleProdCommMap.get(sale.id) || 0
             if (prodComm <= 0 || finalValue <= 0) continue
 
-            if (emp.payment_mode === 'FULL') {
+            if (!useInstallment) {
               if (saleDate >= start && saleDate <= end) {
                 const commAmount = finalValue * (prodComm / 100)
                 emp.base_revenue += finalValue
@@ -486,7 +493,7 @@ export default function CommissionPage() {
                 emp.commission_value += commAmount
                 emp.sum_weighted_pct += prodComm * creditedValue
                 emp.sum_value += creditedValue
-                emp.detail_rows.push({ key: sale.id, type: 'VENDA', description, client_name: clientName, date: saleDate, value: creditedValue, commission_percent: prodComm, commission_amount: commAmount })
+                emp.detail_rows.push({ key: sale.id, type: 'VENDA', description, client_name: clientName, date: saleDate, value: creditedValue, commission_percent: prodComm, commission_amount: commAmount, is_installment: true })
               }
             }
           }
@@ -540,6 +547,18 @@ export default function CommissionPage() {
       key: 'type',
       width: 90,
       render: (v: string) => <Tag color={v === 'SERVIÇO' ? 'blue' : 'purple'}>{v}</Tag>,
+    },
+    {
+      title: 'Pgto',
+      dataIndex: 'is_installment',
+      key: 'is_installment',
+      width: 100,
+      align: 'center' as const,
+      render: (v?: boolean) => v ? (
+        <Tooltip title="Comissão distribuída conforme parcelas da venda">
+          <Tag color="orange" icon={<SplitCellsOutlined />}>Parcelado</Tag>
+        </Tooltip>
+      ) : null,
     },
     {
       title: 'Data',
