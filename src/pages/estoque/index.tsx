@@ -199,7 +199,7 @@ function Stock() {
 
 
     const stockRows = useMemo<StockRow[]>(() => {
-        return (rawStock || []).map((s: any) => {
+        const mapped = (rawStock || []).map((s: any) => {
             const item = s.items
             const product = s.products
             const name = item?.name || product?.name || 'Sem nome'
@@ -231,6 +231,29 @@ function Stock() {
                 raw: s,
             }
         })
+
+        // Deduplica pelo product_id (PRODUCT) ou item_id (ITEM) — soma quantidades e mantém os dados mais completos
+        const seen = new Map<string, StockRow>()
+        for (const row of mapped) {
+            const dedupeKey = row.type === 'PRODUCT'
+                ? (row.raw.product_id || row.id)
+                : (row.raw.item_id || row.id)
+
+            if (seen.has(dedupeKey)) {
+                const existing = seen.get(dedupeKey)!
+                existing.currentQty += row.currentQty
+                if (!existing.section_id && row.section_id) existing.section_id = row.section_id
+                if (!existing.code && row.code) existing.code = row.code
+                if (existing.costPrice === 0 && row.costPrice > 0) existing.costPrice = row.costPrice
+                if (existing.salePrice === 0 && row.salePrice > 0) existing.salePrice = row.salePrice
+                if (existing.profitPercent === 0 && row.profitPercent > 0) existing.profitPercent = row.profitPercent
+                existing.status = deriveStatus(existing.currentQty, existing.minQty)
+            } else {
+                seen.set(dedupeKey, { ...row })
+            }
+        }
+
+        return Array.from(seen.values())
     }, [rawStock])
 
     const { canView, canEdit } = usePermissions()
