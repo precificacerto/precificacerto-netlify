@@ -908,12 +908,7 @@ export default function ControleFinanceiro() {
                 </Space>
                 <Space>
                     {canEdit(MODULES.CASH_FLOW) && (
-                        <>
-                            <Button icon={<SyncOutlined />} onClick={handleGenerateRecurring}>Gerar Contas do Mês (Fixas/Salários)</Button>
-                            <Button type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setExpenseAmount(''); setDrawerType('EXPENSE'); setDrawerOpen(true) }}>
-                                + Novo Lançamento
-                            </Button>
-                        </>
+                        <Button icon={<SyncOutlined />} onClick={handleGenerateRecurring}>Gerar Contas do Mês (Fixas/Salários)</Button>
                     )}
                 </Space>
             </div>

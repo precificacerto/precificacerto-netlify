@@ -45,6 +45,8 @@ const CHEQUE_PRE_DATADO_CONDITIONS = [
 
 interface SaleRow {
     id: string
+    sale_code: string | null
+    budget_id: string | null
     productName: string
     quantity: number
     unitPrice: number
@@ -263,6 +265,8 @@ function Sales() {
 
             const rows: SaleRow[] = (salesData || []).map((s: any) => ({
                 id: s.id,
+                sale_code: s.sale_code || null,
+                budget_id: s.budget_id || null,
                 productName: s.products?.name || s.description || '-',
                 quantity: s.quantity || 1,
                 unitPrice: s.unit_price || s.final_value || 0,
@@ -383,6 +387,12 @@ function Sales() {
                 commission_amount: selectedBudget.commission_amount || 0,
             }).select().single()
             if (saleErr) throw saleErr
+
+            // Gerar e salvar código da venda (VD-XXXXXX)
+            if (sale?.id) {
+                const saleCode = `VD-${sale.id.slice(0, 6).toUpperCase()}`
+                await (supabase as any).from('sales').update({ sale_code: saleCode }).eq('id', sale.id)
+            }
 
             // Try to set employee_id separately (column may not exist yet)
             if (budgetEmployeeId && sale?.id) {
@@ -707,6 +717,12 @@ function Sales() {
 
             if (saleErr) throw saleErr
 
+            // Gerar e salvar código da venda (VD-XXXXXX)
+            if (sale?.id) {
+                const saleCode = `VD-${sale.id.slice(0, 6).toUpperCase()}`
+                await (supabase as any).from('sales').update({ sale_code: saleCode }).eq('id', sale.id)
+            }
+
             // Try to set employee_id separately (column may not exist yet)
             if (values.employee_id && sale?.id) {
                 const { error: empErr } = await (supabase as any).from('sales').update({ employee_id: values.employee_id }).eq('id', sale.id)
@@ -983,7 +999,7 @@ function Sales() {
         setReceiptSignedUrl(null)
         const { data: items } = await supabase
             .from('sale_items')
-            .select('*, products(name), services(name)')
+            .select('*, products(name, code), services(name)')
             .eq('sale_id', record.id)
         setDetailItems(items || [])
         if (record.receiptUrl) {
@@ -1079,6 +1095,16 @@ function Sales() {
     }
 
     const columns: ColumnsType<SaleRow> = [
+        {
+            title: 'Código',
+            key: 'sale_code',
+            width: 120,
+            render: (_, record) => (
+                <span style={{ fontFamily: 'monospace', fontSize: 12, color: '#7A5AF8', fontWeight: 600 }}>
+                    {record.sale_code || '—'}
+                </span>
+            ),
+        },
         {
             title: 'Produto(s)',
             dataIndex: 'productName',
@@ -1606,8 +1632,17 @@ function Sales() {
 
             {/* ── Drawer: Detalhes da venda ── */}
             <Drawer
-                title="Detalhes da Venda"
-                width={450}
+                title={
+                    <div>
+                        <div>Detalhes da Venda</div>
+                        {selectedSale?.sale_code && (
+                            <div style={{ fontFamily: 'monospace', fontSize: 13, color: '#7A5AF8', fontWeight: 700, marginTop: 2 }}>
+                                {selectedSale.sale_code}
+                            </div>
+                        )}
+                    </div>
+                }
+                width={520}
                 open={detailDrawerOpen}
                 onClose={() => setDetailDrawerOpen(false)}
             >
@@ -1615,11 +1650,19 @@ function Sales() {
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                         <div style={{ padding: 16, background: 'var(--color-neutral-50)', borderRadius: 8 }}>
                             <div style={{ display: 'grid', gap: 8, fontSize: 13 }}>
-                                <div><span style={{ color: 'var(--color-neutral-500)' }}>Tipo:</span> {selectedSale.saleType === 'FROM_BUDGET' ? '📋 Via orçamento' : '🏪 Balcão'}</div>
+                                <div><span style={{ color: 'var(--color-neutral-500)' }}>Tipo:</span> {selectedSale.saleType === 'FROM_BUDGET' ? '📋 Via orçamento' : selectedSale.saleType === 'AGENDA' ? '📅 Via agenda' : '🏪 Balcão'}</div>
+                                {selectedSale.saleType === 'FROM_BUDGET' && selectedSale.budget_id && (
+                                    <div>
+                                        <span style={{ color: 'var(--color-neutral-500)' }}>Orçamento:</span>{' '}
+                                        <Tag color="purple" style={{ fontFamily: 'monospace', fontWeight: 600 }}>
+                                            ORC-{selectedSale.budget_id.slice(0, 4).toUpperCase()}
+                                        </Tag>
+                                    </div>
+                                )}
                                 <div><span style={{ color: 'var(--color-neutral-500)' }}>Cliente:</span> <strong>{selectedSale.customerName}</strong></div>
                                 <div><span style={{ color: 'var(--color-neutral-500)' }}>Vendedor:</span> <strong>{selectedSale.sellerName && selectedSale.sellerName !== '-' ? selectedSale.sellerName : 'Sem vendedor'}</strong></div>
                                 <div><span style={{ color: 'var(--color-neutral-500)' }}>Data:</span> {new Date(selectedSale.saleDate).toLocaleDateString('pt-BR')}</div>
-                                <div><span style={{ color: 'var(--color-neutral-500)' }}>Valor:</span> <strong style={{ fontSize: 18, color: '#12B76A' }}>{formatCurrency(selectedSale.finalValue)}</strong></div>
+                                <div><span style={{ color: 'var(--color-neutral-500)' }}>Valor total:</span> <strong style={{ fontSize: 18, color: '#12B76A' }}>{formatCurrency(selectedSale.finalValue)}</strong></div>
                                 <div>
                                     <span style={{ color: 'var(--color-neutral-500)' }}>Pagamento:</span>{' '}
                                     <Tag color="green">{PAYMENT_METHODS.find(p => p.value === selectedSale.paymentMethod)?.label || selectedSale.paymentMethod}</Tag>
@@ -1631,12 +1674,43 @@ function Sales() {
                         {detailItems.length > 0 && (
                             <div style={{ padding: 16, background: 'var(--color-neutral-50)', borderRadius: 8 }}>
                                 <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>Produtos e Serviços</div>
-                                {detailItems.map((item: any, idx: number) => (
-                                    <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #eee', fontSize: 13 }}>
-                                        <span>{item.products?.name || item.services?.name || item.description || 'Item'} × {item.quantity}</span>
-                                        <strong>{formatCurrency(item.unit_price * item.quantity - (item.discount || 0))}</strong>
-                                    </div>
-                                ))}
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto', gap: '4px 12px', fontSize: 12, color: 'var(--color-neutral-400)', marginBottom: 8, fontWeight: 600 }}>
+                                    <span>Item</span>
+                                    <span style={{ textAlign: 'right' }}>Qtd</span>
+                                    <span style={{ textAlign: 'right' }}>Preço unit.</span>
+                                    <span style={{ textAlign: 'right' }}>Total</span>
+                                </div>
+                                {detailItems.map((item: any, idx: number) => {
+                                    const itemName = item.products?.name || item.services?.name || item.description || 'Item'
+                                    const productCode = item.products?.code ? ` (Cód: ${item.products.code})` : ''
+                                    const unitPrice = Number(item.unit_price || 0)
+                                    const qty = Number(item.quantity || 1)
+                                    const discount = Number(item.discount || 0)
+                                    // discount pode ser % (agenda) ou valor fixo
+                                    const totalBeforeDiscount = unitPrice * qty
+                                    // Se discount > 1 provavelmente é percentual, senão é valor
+                                    const discountAmt = discount > 1 && discount <= 100 && discount === Math.round(discount) ? totalBeforeDiscount * discount / 100 : discount
+                                    const total = Math.max(0, totalBeforeDiscount - discountAmt)
+                                    return (
+                                        <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto', gap: '4px 12px', padding: '6px 0', borderBottom: '1px solid rgba(255,255,255,0.06)', fontSize: 13, alignItems: 'center' }}>
+                                            <span style={{ fontWeight: 500 }}>
+                                                {itemName}
+                                                {productCode && <span style={{ fontSize: 11, color: '#94a3b8' }}>{productCode}</span>}
+                                                {discount > 0 && (
+                                                    <span style={{ fontSize: 11, color: '#F04438', marginLeft: 6 }}>
+                                                        {discount > 1 && discount <= 100 ? `(-${discount}%)` : `(-${formatCurrency(discount)})`}
+                                                    </span>
+                                                )}
+                                            </span>
+                                            <span style={{ textAlign: 'right', color: '#94a3b8' }}>{qty}x</span>
+                                            <span style={{ textAlign: 'right', color: '#94a3b8' }}>{formatCurrency(unitPrice)}</span>
+                                            <strong style={{ textAlign: 'right', color: '#12B76A' }}>{formatCurrency(total)}</strong>
+                                        </div>
+                                    )
+                                })}
+                                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.1)', fontSize: 14, fontWeight: 700, color: '#12B76A' }}>
+                                    Total: {formatCurrency(selectedSale.finalValue)}
+                                </div>
                             </div>
                         )}
 

@@ -53,6 +53,7 @@ interface PendingReceivableRow {
 interface ABCReportRow {
     position: number
     productId: string
+    productCode: string | null
     productName: string
     sectionName: string
     qtdSold: number
@@ -69,6 +70,7 @@ interface ABCReportRow {
 interface ABCServiceRow {
     position: number
     serviceId: string
+    serviceCode: string | null
     serviceName: string
     qtdSold: number
     totalRevenue: number
@@ -140,8 +142,8 @@ function SalesReport() {
         import('exceljs').then(({ Workbook }) => {
             const wb = new Workbook()
             const ws = wb.addWorksheet('Curva ABC Produtos')
-            ws.addRow(['#', 'Produto', 'Qtd. Vendida', 'Receita', 'Comissão %', 'Valor da Comissão', 'Curva', 'Vendedor'])
-            abcData.forEach(r => ws.addRow([r.position, r.productName, r.qtdSold, r.totalRevenue, `${r.commissionPercent.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%`, r.commissionValue, r.curve, r.employeeName]))
+            ws.addRow(['#', 'Código', 'Produto', 'Qtd. Vendida', 'Receita', 'Comissão %', 'Valor da Comissão', 'Curva', 'Vendedor'])
+            abcData.forEach(r => ws.addRow([r.position, r.productCode || '—', r.productName, r.qtdSold, r.totalRevenue, `${r.commissionPercent.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%`, r.commissionValue, r.curve, r.employeeName]))
             ws.getRow(1).font = { bold: true }
             wb.xlsx.writeBuffer().then(buf => {
                 const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
@@ -157,8 +159,8 @@ function SalesReport() {
         exportTableToPdf({
             title: 'Curva ABC - Produtos',
             subtitle: `Período: ${abcDateRange[0].format('DD/MM/YYYY')} a ${abcDateRange[1].format('DD/MM/YYYY')}`,
-            headers: ['#', 'Produto', 'Qtd.', 'Receita', 'Comissão %', 'Valor Comissão', 'Curva', 'Vendedor'],
-            rows: abcData.map(r => [r.position, r.productName, r.qtdSold, formatCurrency(r.totalRevenue), `${r.commissionPercent.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%`, formatCurrency(r.commissionValue), r.curve, r.employeeName]),
+            headers: ['#', 'Código', 'Produto', 'Qtd.', 'Receita', 'Comissão %', 'Valor Comissão', 'Curva', 'Vendedor'],
+            rows: abcData.map(r => [r.position, r.productCode || '—', r.productName, r.qtdSold, formatCurrency(r.totalRevenue), `${r.commissionPercent.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%`, formatCurrency(r.commissionValue), r.curve, r.employeeName]),
             filename: 'curva-abc-produtos.pdf',
         })
     }
@@ -168,8 +170,8 @@ function SalesReport() {
         exportTableToPdf({
             title: 'Curva ABC - Serviços',
             subtitle: `Período: ${svcDateRange[0].format('DD/MM/YYYY')} a ${svcDateRange[1].format('DD/MM/YYYY')}`,
-            headers: ['#', 'Serviço', 'Qtd.', 'Receita', 'Comissão %', 'Valor Comissão', 'Curva', 'Profissional'],
-            rows: svcData.map(r => [r.position, r.serviceName, r.qtdSold, formatCurrency(r.totalRevenue), `${r.commissionPercent.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%`, formatCurrency(r.commissionValue), r.curve, r.employeeName]),
+            headers: ['#', 'Código', 'Serviço', 'Qtd.', 'Receita', 'Comissão %', 'Valor Comissão', 'Curva', 'Profissional'],
+            rows: svcData.map(r => [r.position, r.serviceCode || '—', r.serviceName, r.qtdSold, formatCurrency(r.totalRevenue), `${r.commissionPercent.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%`, formatCurrency(r.commissionValue), r.curve, r.employeeName]),
             filename: 'curva-abc-servicos.pdf',
         })
     }
@@ -179,8 +181,8 @@ function SalesReport() {
         import('exceljs').then(({ Workbook }) => {
             const wb = new Workbook()
             const ws = wb.addWorksheet('Curva ABC Serviços')
-            ws.addRow(['#', 'Serviço', 'Qtd. Vendida', 'Receita', 'Comissão %', 'Valor da Comissão', 'Curva', 'Profissional'])
-            svcData.forEach(r => ws.addRow([r.position, r.serviceName, r.qtdSold, r.totalRevenue, `${r.commissionPercent.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%`, r.commissionValue, r.curve, r.employeeName]))
+            ws.addRow(['#', 'Código', 'Serviço', 'Qtd. Vendida', 'Receita', 'Comissão %', 'Valor da Comissão', 'Curva', 'Profissional'])
+            svcData.forEach(r => ws.addRow([r.position, r.serviceCode || '—', r.serviceName, r.qtdSold, r.totalRevenue, `${r.commissionPercent.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%`, r.commissionValue, r.curve, r.employeeName]))
             ws.getRow(1).font = { bold: true }
             wb.xlsx.writeBuffer().then(buf => {
                 const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
@@ -436,7 +438,7 @@ function SalesReport() {
             if (budgetIds.length > 0) {
                 let itemsQuery: any = supabase
                     .from('budget_items')
-                    .select('budget_id, product_id, quantity, unit_price, discount, product:products(id, name, cost_total, product_sections(id, name))')
+                    .select('budget_id, product_id, quantity, unit_price, discount, product:products(id, name, code, cost_total, product_sections(id, name))')
                     .in('budget_id', budgetIds)
                 if (abcProductFilter) itemsQuery = itemsQuery.eq('product_id', abcProductFilter)
                 queries.push(itemsQuery)
@@ -448,7 +450,7 @@ function SalesReport() {
             if (directSaleIds.length > 0) {
                 let saleItemsQuery: any = (supabase as any)
                     .from('sale_items')
-                    .select('sale_id, product_id, quantity, unit_price, discount, product:products(id, name, cost_total, product_sections(id, name))')
+                    .select('sale_id, product_id, quantity, unit_price, discount, product:products(id, name, code, cost_total, product_sections(id, name))')
                     .in('sale_id', directSaleIds)
                     .not('product_id', 'is', null)
                 if (abcProductFilter) saleItemsQuery = saleItemsQuery.eq('product_id', abcProductFilter)
@@ -475,6 +477,7 @@ function SalesReport() {
 
             const productAgg = new Map<string, {
                 productId: string
+                productCode: string | null
                 productName: string
                 sectionName: string
                 qtdSold: number
@@ -483,12 +486,14 @@ function SalesReport() {
                 employees: Set<string>
                 commissionPercent: number
                 commissionValue: number
+                commissionWeightedSum: number
             }>()
 
             for (const item of (items || [])) {
                 const product = (item as any).product
                 if (!product) continue
                 const productId = product.id
+                const productCode = product.code || null
                 const productName = product.name || 'Sem nome'
                 const sectionName = (product as any).product_sections?.name || '—'
                 const qty = Number(item.quantity) || 1
@@ -503,21 +508,15 @@ function SalesReport() {
                 const empName = empInfo.name
                 const empCommPct = empInfo.commissionPercent
 
-                // Calculate commission: use pre-calculated commission_amount from budget when available (commission_tables flow)
-                // otherwise fall back to employee.commission_percent
-                let commissionPct = 0
+                // Always calculate commission (weighted)
                 let commissionVal = 0
-                if (hasSellerFilter || shouldSplitBySeller) {
-                    if (empInfo.commissionAmount > 0 && empInfo.totalValue > 0) {
-                        // Distribute budget commission proportionally by item revenue
-                        const itemProportion = revenue / empInfo.totalValue
-                        commissionVal = empInfo.commissionAmount * itemProportion
-                        commissionPct = revenue > 0 ? (commissionVal / revenue) * 100 : 0
-                    } else {
-                        commissionPct = empCommPct
-                        commissionVal = revenue * (empCommPct / 100)
-                    }
+                if (empInfo.commissionAmount > 0 && empInfo.totalValue > 0) {
+                    const itemProportion = revenue / empInfo.totalValue
+                    commissionVal = empInfo.commissionAmount * itemProportion
+                } else {
+                    commissionVal = revenue * (empCommPct / 100)
                 }
+                const commissionPct = revenue > 0 ? (commissionVal / revenue) * 100 : empCommPct
 
                 const aggKey = shouldSplitBySeller
                     ? `${productId}::${budgetToEmployeeId.get(item.budget_id) || 'none'}`
@@ -530,13 +529,11 @@ function SalesReport() {
                     existing.totalCost += totalCost
                     existing.employees.add(empName)
                     existing.commissionValue += commissionVal
-                    // Use the commission percent of the seller (same seller for split rows)
-                    if (shouldSplitBySeller && commissionPct > 0) {
-                        existing.commissionPercent = commissionPct
-                    }
+                    existing.commissionWeightedSum += commissionPct * revenue
                 } else {
                     productAgg.set(aggKey, {
                         productId,
+                        productCode,
                         productName,
                         sectionName,
                         qtdSold: qty,
@@ -545,6 +542,7 @@ function SalesReport() {
                         employees: new Set([empName]),
                         commissionPercent: commissionPct,
                         commissionValue: commissionVal,
+                        commissionWeightedSum: commissionPct * revenue,
                     })
                 }
             }
@@ -558,6 +556,7 @@ function SalesReport() {
                 const product = (item as any).product
                 if (!product) continue
                 const productId = product.id
+                const productCode = product.code || null
                 const productName = product.name || 'Sem nome'
                 const sectionName = (product as any).product_sections?.name || '—'
                 const qty = Number(item.quantity) || 1
@@ -575,12 +574,9 @@ function SalesReport() {
                 const empCommPct = Number(emp?.commission_percent) || 0
                 const saleEmployeeId = sale?.employee_id || null
 
-                let commissionPct = 0
-                let commissionVal = 0
-                if (hasSellerFilter || shouldSplitBySeller) {
-                    commissionPct = empCommPct
-                    commissionVal = revenue * (empCommPct / 100)
-                }
+                // Always calculate commission
+                const commissionPct = empCommPct
+                const commissionVal = revenue * (empCommPct / 100)
 
                 const aggKey = shouldSplitBySeller
                     ? `${productId}::${saleEmployeeId || 'none'}`
@@ -593,12 +589,13 @@ function SalesReport() {
                     existing.totalCost += totalCost
                     existing.employees.add(empName)
                     existing.commissionValue += commissionVal
-                    if (shouldSplitBySeller && commissionPct > 0) existing.commissionPercent = commissionPct
+                    existing.commissionWeightedSum += commissionPct * revenue
                 } else {
                     productAgg.set(aggKey, {
-                        productId, productName, sectionName, qtdSold: qty,
+                        productId, productCode, productName, sectionName, qtdSold: qty,
                         totalRevenue: revenue, totalCost, employees: new Set([empName]),
                         commissionPercent: commissionPct, commissionValue: commissionVal,
+                        commissionWeightedSum: commissionPct * revenue,
                     })
                 }
             }
@@ -616,10 +613,13 @@ function SalesReport() {
 
                 const profitMargin = p.totalRevenue - p.totalCost
                 const marginPercent = p.totalRevenue > 0 ? (profitMargin / p.totalRevenue) * 100 : 0
+                // Média ponderada de comissão % por receita
+                const avgCommissionPct = p.totalRevenue > 0 ? p.commissionWeightedSum / p.totalRevenue : p.commissionPercent
 
                 return {
                     position: idx + 1,
                     productId: p.productId,
+                    productCode: p.productCode,
                     productName: p.productName,
                     sectionName: p.sectionName,
                     qtdSold: p.qtdSold,
@@ -627,7 +627,7 @@ function SalesReport() {
                     totalCost: p.totalCost,
                     profitMargin,
                     marginPercent,
-                    commissionPercent: p.commissionPercent,
+                    commissionPercent: avgCommissionPct,
                     commissionValue: p.commissionValue,
                     curve,
                     employeeName: Array.from(p.employees).join(', '),
@@ -654,7 +654,7 @@ function SalesReport() {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             let csQuery: any = (supabase as any)
                 .from('completed_services')
-                .select('id, service_id, service_name, employee_id, customer_id, base_price, final_price, total_revenue, service_date')
+                .select('id, service_id, service_name, employee_id, customer_id, base_price, final_price, total_revenue, service_date, service:services(code)')
                 .eq('tenant_id', effectiveTenantId)
                 .gte('service_date', startDate)
                 .lte('service_date', endDate)
@@ -685,7 +685,7 @@ function SalesReport() {
             if (directSaleIds.length > 0) {
                 const { data: siData } = await (supabase as any)
                     .from('sale_items')
-                    .select('sale_id, service_id, quantity, unit_price, discount, description, service:services(id, name, cost_total)')
+                    .select('sale_id, service_id, quantity, unit_price, discount, description, service:services(id, name, code, cost_total)')
                     .in('sale_id', directSaleIds)
                     .not('service_id', 'is', null)
                 saleServiceItems = siData || []
@@ -704,6 +704,7 @@ function SalesReport() {
             // Aggregate by service_id (or service_name for unlinked services)
             const serviceAgg = new Map<string, {
                 serviceId: string
+                serviceCode: string | null
                 serviceName: string
                 qtdSold: number
                 totalRevenue: number
@@ -711,12 +712,15 @@ function SalesReport() {
                 employees: Set<string>
                 commissionPercent: number
                 commissionValue: number
+                commissionWeightedSum: number
             }>()
 
             // ── Processar completed_services (Agenda) ──
             for (const svc of (completedServices || [])) {
+                // Use serviceId as key to unify with sale_items from the same service
                 const serviceKey = svc.service_id || `name:${svc.service_name}`
                 const serviceName = svc.service_name || 'Sem nome'
+                const serviceCode = (svc as any).service?.code || null
                 const revenue = Number(svc.total_revenue) || Number(svc.final_price) || 0
                 const cost = Number(svc.base_price) || 0
 
@@ -726,16 +730,13 @@ function SalesReport() {
                 const empName = emp?.name || (svc.employee_id ? 'Desconhecido' : 'Sem vendedor')
                 const empCommPct = Number(emp?.commission_percent) || 0
 
-                let commissionPct = 0
-                let commissionVal = 0
-                if (hasSellerFilter || shouldSplitBySeller) {
-                    commissionPct = empCommPct
-                    commissionVal = revenue * (empCommPct / 100)
-                }
+                // Always calculate commission
+                const commissionPct = empCommPct
+                const commissionVal = revenue * (empCommPct / 100)
 
                 const aggKey = shouldSplitBySeller
-                    ? `cs:${serviceKey}::${svc.employee_id || 'none'}`
-                    : `cs:${serviceKey}`
+                    ? `${serviceKey}::${svc.employee_id || 'none'}`
+                    : serviceKey
 
                 const existing = serviceAgg.get(aggKey)
                 if (existing) {
@@ -744,10 +745,11 @@ function SalesReport() {
                     existing.totalCost += cost
                     existing.employees.add(empName)
                     existing.commissionValue += commissionVal
-                    if (shouldSplitBySeller && commissionPct > 0) existing.commissionPercent = commissionPct
+                    existing.commissionWeightedSum += commissionPct * revenue
                 } else {
                     serviceAgg.set(aggKey, {
                         serviceId: svc.service_id || svc.id,
+                        serviceCode,
                         serviceName,
                         qtdSold: 1,
                         totalRevenue: revenue,
@@ -755,6 +757,7 @@ function SalesReport() {
                         employees: new Set([empName]),
                         commissionPercent: commissionPct,
                         commissionValue: commissionVal,
+                        commissionWeightedSum: commissionPct * revenue,
                     })
                 }
             }
@@ -766,6 +769,7 @@ function SalesReport() {
             for (const item of saleServiceItems) {
                 const service = (item as any).service
                 const serviceId = item.service_id
+                const serviceCode = service?.code || null
                 const serviceName = service?.name || item.description || 'Sem nome'
                 const qty = Number(item.quantity) || 1
                 const unitPrice = Number(item.unit_price) || 0
@@ -782,16 +786,14 @@ function SalesReport() {
                 const empCommPct = Number(emp?.commission_percent) || 0
                 const saleEmployeeId = sale?.employee_id || null
 
-                let commissionPct = 0
-                let commissionVal = 0
-                if (hasSellerFilter || shouldSplitBySeller) {
-                    commissionPct = empCommPct
-                    commissionVal = revenue * (empCommPct / 100)
-                }
+                // Always calculate commission
+                const commissionPct = empCommPct
+                const commissionVal = revenue * (empCommPct / 100)
 
+                // Use same key format as completed_services to merge both sources
                 const aggKey = shouldSplitBySeller
-                    ? `si:${serviceId}::${saleEmployeeId || 'none'}`
-                    : `si:${serviceId}`
+                    ? `${serviceId}::${saleEmployeeId || 'none'}`
+                    : serviceId
 
                 const existing = serviceAgg.get(aggKey)
                 if (existing) {
@@ -800,10 +802,12 @@ function SalesReport() {
                     existing.totalCost += totalCost
                     existing.employees.add(empName)
                     existing.commissionValue += commissionVal
-                    if (shouldSplitBySeller && commissionPct > 0) existing.commissionPercent = commissionPct
+                    existing.commissionWeightedSum += commissionPct * revenue
+                    if (!existing.serviceCode && serviceCode) existing.serviceCode = serviceCode
                 } else {
                     serviceAgg.set(aggKey, {
                         serviceId,
+                        serviceCode,
                         serviceName,
                         qtdSold: qty,
                         totalRevenue: revenue,
@@ -811,6 +815,7 @@ function SalesReport() {
                         employees: new Set([empName]),
                         commissionPercent: commissionPct,
                         commissionValue: commissionVal,
+                        commissionWeightedSum: commissionPct * revenue,
                     })
                 }
             }
@@ -828,17 +833,20 @@ function SalesReport() {
 
                 const profitMargin = s.totalRevenue - s.totalCost
                 const marginPercent = s.totalRevenue > 0 ? (profitMargin / s.totalRevenue) * 100 : 0
+                // Média ponderada de comissão % por receita
+                const avgCommissionPct = s.totalRevenue > 0 ? s.commissionWeightedSum / s.totalRevenue : s.commissionPercent
 
                 return {
                     position: idx + 1,
                     serviceId: s.serviceId,
+                    serviceCode: s.serviceCode,
                     serviceName: s.serviceName,
                     qtdSold: s.qtdSold,
                     totalRevenue: s.totalRevenue,
                     totalCost: s.totalCost,
                     profitMargin,
                     marginPercent,
-                    commissionPercent: s.commissionPercent,
+                    commissionPercent: avgCommissionPct,
                     commissionValue: s.commissionValue,
                     curve,
                     employeeName: Array.from(s.employees).join(', '),
@@ -892,7 +900,16 @@ function SalesReport() {
             dataIndex: 'productName',
             key: 'productName',
             sorter: (a, b) => a.productName.localeCompare(b.productName),
-            render: (text: string) => <span style={{ fontWeight: 500 }}>{text}</span>,
+            render: (text: string, r: ABCReportRow) => (
+                <div>
+                    <span style={{ fontWeight: 500 }}>{text}</span>
+                    {r.productCode && (
+                        <div style={{ fontSize: 11, fontFamily: 'monospace', color: '#7A5AF8', fontWeight: 600 }}>
+                            {r.productCode}
+                        </div>
+                    )}
+                </div>
+            ),
         },
         {
             title: 'Seção',
@@ -987,7 +1004,16 @@ function SalesReport() {
             dataIndex: 'serviceName',
             key: 'serviceName',
             sorter: (a, b) => a.serviceName.localeCompare(b.serviceName),
-            render: (text: string) => <span style={{ fontWeight: 500 }}>{text}</span>,
+            render: (text: string, r: ABCServiceRow) => (
+                <div>
+                    <span style={{ fontWeight: 500 }}>{text}</span>
+                    {r.serviceCode && (
+                        <div style={{ fontSize: 11, fontFamily: 'monospace', color: '#7A5AF8', fontWeight: 600 }}>
+                            {r.serviceCode}
+                        </div>
+                    )}
+                </div>
+            ),
         },
         {
             title: 'Qtd Vendida',

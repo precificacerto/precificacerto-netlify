@@ -704,6 +704,11 @@ function Schedule() {
                 status: 'COMPLETED',
             }).select('id').single()
             if (agendaSale?.id) {
+                // Gerar código AG-XXXXXX e salvar na venda e no evento da agenda
+                const agendaCode = `AG-${agendaSale.id.slice(0, 6).toUpperCase()}`
+                await sbp.from('sales').update({ sale_code: agendaCode }).eq('id', agendaSale.id)
+                await sbp.from('calendar_events').update({ agenda_code: agendaCode }).eq('id', payEvt.id)
+
                 if (payEvt.employee_id) {
                     await sbp.from('sales').update({ employee_id: payEvt.employee_id }).eq('id', agendaSale.id)
                 }

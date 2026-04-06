@@ -112,6 +112,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
         if (isEditing && serviceData) {
             form.setFieldsValue({
                 name: serviceData.name,
+                code: (serviceData as any).code || '',
                 description: serviceData.description || '',
                 estimated_duration_minutes: serviceData.estimated_duration_minutes,
             })
@@ -319,6 +320,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
 
             const data: Record<string, any> = {
                 name: v.name,
+                code: v.code ? v.code.trim() : null,
                 description: v.description || null,
                 estimated_duration_minutes: v.estimated_duration_minutes || 60,
                 base_price: pricing.sellingPrice,
@@ -491,6 +493,13 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                                 if (v.length > 0 && v[0] !== v[0].toUpperCase()) {
                                     form.setFieldsValue({ name: v.charAt(0).toUpperCase() + v.slice(1) })
                                 }
+                            }} />
+                    </Form.Item>
+                    <Form.Item name="code" label="Código do Serviço">
+                        <Input placeholder="Ex: SVC-001, CORT-M, TINT-A..." style={{ textTransform: 'uppercase' }}
+                            onChange={(e) => {
+                                const val = e.target.value.toUpperCase()
+                                form.setFieldsValue({ code: val })
                             }} />
                     </Form.Item>
                     <Form.Item name="description" label="Descrição">

@@ -437,6 +437,16 @@ function ServicesPage() {
 
     const columns: ColumnsType<Service> = [
         {
+            title: 'Código',
+            key: 'code',
+            width: 110,
+            render: (_, r: any) => r.code ? (
+                <span style={{ fontFamily: 'monospace', fontSize: 12, color: '#7A5AF8', fontWeight: 600 }}>
+                    {r.code}
+                </span>
+            ) : <span style={{ color: '#475569', fontSize: 12 }}>—</span>,
+        },
+        {
             title: 'Serviço', dataIndex: 'name', key: 'name',
             render: (n: string, r: Service) => (
                 <div>

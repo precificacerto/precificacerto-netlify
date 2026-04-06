@@ -246,6 +246,16 @@ function Reports() {
 
     const eventListColumns: ColumnsType<any> = [
         {
+            title: 'Código',
+            key: 'agenda_code',
+            width: 110,
+            render: (_, r) => r.agenda_code ? (
+                <span style={{ fontFamily: 'monospace', fontSize: 12, color: '#7A5AF8', fontWeight: 600 }}>
+                    {r.agenda_code}
+                </span>
+            ) : <span style={{ color: '#94a3b8', fontSize: 12 }}>—</span>,
+        },
+        {
             title: 'Data / Hora',
             key: 'datetime',
             width: 140,

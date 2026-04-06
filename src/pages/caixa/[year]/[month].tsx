@@ -61,7 +61,7 @@ const PAYMENT_METHOD_LABELS: Record<string, string> = {
   CHEQUE_PRE_DATADO: 'Cheque Pré-datado',
 }
 
-function makeIncomeColumns(customerMap: Record<string, string>): ColumnsType<any> {
+function makeIncomeColumns(customerMap: Record<string, string>, saleCodeMap: Record<string, string>): ColumnsType<any> {
   return [
     {
       title: 'Data',
@@ -72,12 +72,27 @@ function makeIncomeColumns(customerMap: Record<string, string>): ColumnsType<any
       defaultSortOrder: 'ascend' as const,
     },
     {
+      title: 'Código',
+      key: 'sale_code',
+      width: 120,
+      render: (_: any, r: any) => {
+        const saleCode = r.origin_id ? saleCodeMap[r.origin_id] : null
+        if (!saleCode) return <span style={{ color: '#475569', fontSize: 12 }}>—</span>
+        return (
+          <span style={{ fontFamily: 'monospace', fontSize: 12, color: '#7A5AF8', fontWeight: 600 }}>
+            {saleCode}
+          </span>
+        )
+      },
+    },
+    {
       title: 'Cliente',
       key: 'cliente',
       render: (_: any, r: any) => {
         const customerId = r.customer_id || r.contact_id
         const customerName = customerId ? customerMap[customerId] : null
-        return customerName || extractCleanDescription(r.description || '') || '—'
+        if (!customerName) return <span style={{ color: '#475569' }}>—</span>
+        return customerName
       },
     },
     {
@@ -161,6 +176,7 @@ function Cashier() {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
   const [goalPrice, setGoalPrice] = useState<GoalPrice>({ value: null, formattedValue: '' })
   const [customerMap, setCustomerMap] = useState<Record<string, string>>({})
+  const [saleCodeMap, setSaleCodeMap] = useState<Record<string, string>>({})
   const monthEnum = month as Month
   const [warningMessage, setWarningMessage] = useState<string>('')
   const [alertMessage, setAlertMessage] = useState<string>('')
@@ -224,7 +240,25 @@ function Cashier() {
           payment_method: e.payment_method || null,
           contact_id: e.contact_id || null,
           customer_id: e.customer_id || null,
+          origin_type: e.origin_type || null,
+          origin_id: e.origin_id || null,
         } as any))
+
+      // Buscar sale_code para entradas de vendas
+      const saleOriginIds = incomes
+        .filter((e: any) => e.origin_type === 'SALE' && e.origin_id)
+        .map((e: any) => e.origin_id)
+      const scMap: Record<string, string> = {}
+      if (saleOriginIds.length > 0) {
+        const { data: salesCodes } = await (supabase as any)
+          .from('sales')
+          .select('id, sale_code')
+          .in('id', saleOriginIds)
+        ;(salesCodes || []).forEach((s: any) => {
+          if (s.sale_code) scMap[s.id] = s.sale_code
+        })
+      }
+      setSaleCodeMap(scMap)
 
       const expenses: IPaymentRevenueTitleModel[] = entries
         .filter((e: any) => e.type === 'EXPENSE' && e.paid_date != null)
@@ -302,7 +336,7 @@ function Cashier() {
     const data = type === PAYMENT_REVENUE_TITLE_TYPE.INCOME ? incomeData : expenseData
     const borderColor = type === PAYMENT_REVENUE_TITLE_TYPE.INCOME
       ? 'var(--color-success)' : 'var(--color-error)'
-    const cols = type === PAYMENT_REVENUE_TITLE_TYPE.INCOME ? makeIncomeColumns(customerMap) : expenseColumns
+    const cols = type === PAYMENT_REVENUE_TITLE_TYPE.INCOME ? makeIncomeColumns(customerMap, saleCodeMap) : expenseColumns
 
     return (
       <div className="pc-card--table" style={{ borderTop: `3px solid ${borderColor}` }}>
