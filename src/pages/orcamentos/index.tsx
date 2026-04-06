@@ -526,6 +526,9 @@ function Budgets() {
                 expiration_date: values.expiration_date?.format('YYYY-MM-DD') || null,
                 notes: values.notes || null,
                 payment_method: values.payment_method || null,
+                installment_preset: (values.payment_method === 'BOLETO' || values.payment_method === 'CHEQUE_PRE_DATADO')
+                    ? budgetFormInstallmentPreset
+                    : null,
             }).select().single()
 
             if (error) throw error
@@ -602,6 +605,9 @@ function Budgets() {
                 expiration_date: values.expiration_date?.format('YYYY-MM-DD') || null,
                 notes: values.notes || null,
                 payment_method: values.payment_method || null,
+                installment_preset: (values.payment_method === 'BOLETO' || values.payment_method === 'CHEQUE_PRE_DATADO')
+                    ? budgetFormInstallmentPreset
+                    : null,
                 updated_at: new Date().toISOString(),
             }).eq('id', editingBudgetId)
             if (error) throw error

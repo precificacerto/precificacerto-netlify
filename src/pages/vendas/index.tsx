@@ -51,6 +51,7 @@ interface SaleRow {
     quantity: number
     unitPrice: number
     finalValue: number
+    commissionAmount: number
     customerName: string
     sellerName: string
     description: string
@@ -112,6 +113,7 @@ interface PendingBudget {
     status: string
     payment_method?: string
     commission_amount?: number
+    installment_preset?: string | null
 }
 
 function Sales() {
@@ -271,6 +273,7 @@ function Sales() {
                 quantity: s.quantity || 1,
                 unitPrice: s.unit_price || s.final_value || 0,
                 finalValue: s.final_value || 0,
+                commissionAmount: Number(s.commission_amount) || 0,
                 customerName: s.customers?.name || '-',
                 sellerName: s.employees?.name || '-',
                 description: s.description || '',
@@ -296,7 +299,7 @@ function Sales() {
     const fetchPendingBudgets = async () => {
         const { data } = await supabase
             .from('budgets')
-            .select('id, total_value, created_at, status, sale_id, payment_method, commission_amount, customer_id, customer:customers(name)')
+            .select('id, total_value, created_at, status, sale_id, payment_method, commission_amount, installment_preset, customer_id, customer:customers(name)')
             .in('status', ['APPROVED', 'SENT', 'AWAITING_PAYMENT'])
             .is('sale_id', null)
             .order('created_at', { ascending: false })
@@ -309,11 +312,12 @@ function Sales() {
             status: b.status,
             payment_method: b.payment_method || undefined,
             commission_amount: Number(b.commission_amount) || 0,
+            installment_preset: (b as any).installment_preset || null,
         })))
     }
 
     const handleOpenRegisterSale = async (budget: PendingBudget) => {
-        const { data: fresh } = await (supabase as any).from('budgets').select('id, status, total_value, created_at, payment_method, commission_amount, customer_id, customer:customers(name)').eq('id', budget.id).single()
+        const { data: fresh } = await (supabase as any).from('budgets').select('id, status, total_value, created_at, payment_method, commission_amount, installment_preset, customer_id, customer:customers(name)').eq('id', budget.id).single()
         if (fresh?.status === 'PAID') {
             messageApi.info('Este orçamento já foi finalizado e o pagamento lançado.')
             await fetchPendingBudgets()
@@ -328,12 +332,25 @@ function Sales() {
             status: fresh.status,
             payment_method: (fresh as any).payment_method || undefined,
             commission_amount: Number((fresh as any).commission_amount) || 0,
+            installment_preset: (fresh as any).installment_preset || null,
         } : budget
         setSelectedBudget(freshBudget)
         registerForm.resetFields()
         const prefill: any = { sale_date: dayjs() }
         if (freshBudget.payment_method) prefill.payment_method = freshBudget.payment_method
         registerForm.setFieldsValue(prefill)
+        // Pre-populate installment preset from budget
+        const preset = (freshBudget.installment_preset || 'customizado') as any
+        setRegisterInstallmentPreset(preset)
+        if (preset !== 'customizado') {
+            const insts = buildInstallmentsByPreset(preset)
+            const total = Number(freshBudget.total_value) || 0
+            const n = insts.length
+            const amt = n > 0 && total > 0 ? Math.round((total / n) * 100) / 100 : 0
+            setRegisterCustomInstallments(insts.map(inst => ({ ...inst, amount: amt })))
+        } else {
+            setRegisterCustomInstallments([{ date: null, amount: 0 }])
+        }
         setRegisterModalOpen(true)
     }
 
@@ -410,13 +427,25 @@ function Sales() {
                 return
             }
 
-            // Descontar estoque dos produtos do orçamento
-            const { data: budgetItems } = await supabase
+            // Copiar budget_items → sale_items e descontar estoque
+            const { data: budgetItems } = await (supabase as any)
                 .from('budget_items')
-                .select('product_id, quantity')
+                .select('product_id, service_id, quantity, unit_price, discount, manual_description')
                 .eq('budget_id', selectedBudget.id)
 
             if (budgetItems && budgetItems.length > 0) {
+                // Criar sale_items a partir dos budget_items
+                const saleItemsToInsert = budgetItems.map((bi: any) => ({
+                    sale_id: sale.id,
+                    product_id: bi.product_id || null,
+                    service_id: bi.service_id || null,
+                    quantity: bi.quantity,
+                    unit_price: bi.unit_price,
+                    discount: bi.discount || 0,
+                    description: bi.manual_description || null,
+                }))
+                await (supabase as any).from('sale_items').insert(saleItemsToInsert)
+
                 for (const bi of budgetItems) {
                     if (!bi.product_id) continue
                     const { data: ps } = await supabase
@@ -1001,7 +1030,23 @@ function Sales() {
             .from('sale_items')
             .select('*, products(name, code), services(name)')
             .eq('sale_id', record.id)
-        setDetailItems(items || [])
+        if (items && items.length > 0) {
+            setDetailItems(items)
+        } else if (record.saleType === 'FROM_BUDGET' && record.budget_id) {
+            // Fallback: buscar budget_items para vendas antigas que não têm sale_items
+            const { data: bItems } = await (supabase as any)
+                .from('budget_items')
+                .select('*, products(name, code), services(name)')
+                .eq('budget_id', record.budget_id)
+            setDetailItems((bItems || []).map((bi: any) => ({
+                ...bi,
+                unit_price: bi.unit_price,
+                quantity: bi.quantity,
+                discount: bi.discount || 0,
+            })))
+        } else {
+            setDetailItems([])
+        }
         if (record.receiptUrl) {
             const url = await getReceiptUrl(record.receiptUrl)
             setReceiptSignedUrl(url)
@@ -1103,20 +1148,6 @@ function Sales() {
                 <span style={{ fontFamily: 'monospace', fontSize: 12, color: '#7A5AF8', fontWeight: 600 }}>
                     {record.sale_code || '—'}
                 </span>
-            ),
-        },
-        {
-            title: 'Produto(s)',
-            dataIndex: 'productName',
-            key: 'productName',
-            sorter: (a, b) => a.productName.localeCompare(b.productName),
-            render: (text, record) => (
-                <div>
-                    <span style={{ fontWeight: 500 }}>{text}</span>
-                    <div style={{ fontSize: 11, color: '#64748b' }}>
-                        {record.saleType === 'FROM_BUDGET' ? '📋 Via orçamento' : '🏪 Balcão'}
-                    </div>
-                </div>
             ),
         },
         {
@@ -1663,6 +1694,9 @@ function Sales() {
                                 <div><span style={{ color: 'var(--color-neutral-500)' }}>Vendedor:</span> <strong>{selectedSale.sellerName && selectedSale.sellerName !== '-' ? selectedSale.sellerName : 'Sem vendedor'}</strong></div>
                                 <div><span style={{ color: 'var(--color-neutral-500)' }}>Data:</span> {new Date(selectedSale.saleDate).toLocaleDateString('pt-BR')}</div>
                                 <div><span style={{ color: 'var(--color-neutral-500)' }}>Valor total:</span> <strong style={{ fontSize: 18, color: '#12B76A' }}>{formatCurrency(selectedSale.finalValue)}</strong></div>
+                                {selectedSale.commissionAmount > 0 && (
+                                    <div><span style={{ color: 'var(--color-neutral-500)' }}>Comissão paga:</span> <strong style={{ color: '#F59E0B' }}>{formatCurrency(selectedSale.commissionAmount)}</strong></div>
+                                )}
                                 <div>
                                     <span style={{ color: 'var(--color-neutral-500)' }}>Pagamento:</span>{' '}
                                     <Tag color="green">{PAYMENT_METHODS.find(p => p.value === selectedSale.paymentMethod)?.label || selectedSale.paymentMethod}</Tag>
