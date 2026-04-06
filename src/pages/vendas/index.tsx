@@ -130,6 +130,7 @@ function Sales() {
     const [detailItems, setDetailItems] = useState<any[]>([])
     const [saving, setSaving] = useState(false)
     const [searchText, setSearchText] = useState('')
+    const [dateRange, setDateRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null]>([null, null])
     const [form] = Form.useForm()
     const [messageApi, contextHolder] = message.useMessage()
     const [pendingBudgets, setPendingBudgets] = useState<PendingBudget[]>([])
@@ -586,12 +587,20 @@ function Sales() {
     const avgTicket = monthSales.length > 0 ? totalRevenue / monthSales.length : 0
     const fromBudget = monthSales.filter(s => s.saleType === 'FROM_BUDGET').length
 
-    const filteredSales = sales.filter(s =>
-        s.productName.toLowerCase().includes(searchText.toLowerCase()) ||
-        s.customerName.toLowerCase().includes(searchText.toLowerCase()) ||
-        s.sellerName.toLowerCase().includes(searchText.toLowerCase()) ||
-        s.description.toLowerCase().includes(searchText.toLowerCase())
-    )
+    const filteredSales = sales.filter(s => {
+        const matchesText =
+            s.productName.toLowerCase().includes(searchText.toLowerCase()) ||
+            s.customerName.toLowerCase().includes(searchText.toLowerCase()) ||
+            s.sellerName.toLowerCase().includes(searchText.toLowerCase()) ||
+            s.description.toLowerCase().includes(searchText.toLowerCase())
+        if (!matchesText) return false
+        const [start, end] = dateRange
+        if (start && end && s.saleDate) {
+            const saleDay = dayjs(s.saleDate)
+            if (saleDay.isBefore(start, 'day') || saleDay.isAfter(end, 'day')) return false
+        }
+        return true
+    })
 
     // ── Items no drawer de nova venda ──
     const handleAddProduct = (tableId: string) => {
@@ -1336,8 +1345,16 @@ function Sales() {
                         prefix={<SearchOutlined />}
                         value={searchText}
                         onChange={(e) => setSearchText(e.target.value)}
-                        style={{ maxWidth: 360 }}
+                        style={{ maxWidth: 320 }}
                         allowClear
+                    />
+                    <DatePicker.RangePicker
+                        format="DD/MM/YYYY"
+                        placeholder={['Data início', 'Data fim']}
+                        value={dateRange}
+                        onChange={(vals) => setDateRange(vals ? [vals[0], vals[1]] : [null, null])}
+                        allowClear
+                        style={{ minWidth: 240 }}
                     />
                     <div style={{ flex: 1 }} />
                     <Button icon={<DownloadOutlined />} onClick={() => setExportModalOpen(true)}>

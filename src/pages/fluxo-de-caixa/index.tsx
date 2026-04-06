@@ -329,6 +329,10 @@ export default function CashFlow() {
     const [pendingSelectOpen, setPendingSelectOpen] = useState(false)
     const [pendingSelectEntries, setPendingSelectEntries] = useState<any[]>([])
 
+    // Selection modal for multiple expense entries on same day
+    const [expenseSelectOpen, setExpenseSelectOpen] = useState(false)
+    const [expenseSelectEntries, setExpenseSelectEntries] = useState<any[]>([])
+
     // Export modal
     const [exportModalOpen, setExportModalOpen] = useState(false)
     const [exportRange, setExportRange] = useState<[dayjs.Dayjs, dayjs.Dayjs]>([month.startOf('month'), month.endOf('month')])
@@ -1132,16 +1136,24 @@ export default function CashFlow() {
                                                 const cellEntries = (pivotByDay.entriesMap[group] || {})[day] || []
                                                 const paidCellEntries = (pivotByDay.paidEntriesMap[group] || {})[day] || []
                                                 const textColor = val > 0 ? (hasUnpaid ? '#f87171' : 'rgba(255,255,255,0.3)') : '#334155'
-                                                const clickEntry = hasUnpaid ? cellEntries[0] : paidCellEntries[0]
+                                                const activeEntries = hasUnpaid ? cellEntries : paidCellEntries
                                                 return (
                                                     <td key={day} style={{ padding: '5px 4px', textAlign: 'right', color: textColor, fontVariantNumeric: 'tabular-nums', borderRight: '1px solid rgba(255,255,255,0.04)', fontSize: 11 }}>
-                                                        {val > 0 && clickEntry ? (
+                                                        {val > 0 && activeEntries.length > 0 ? (
                                                             <span
-                                                                onClick={() => handleOpenPaymentModal(clickEntry)}
+                                                                onClick={() => {
+                                                                    if (activeEntries.length === 1) {
+                                                                        handleOpenPaymentModal(activeEntries[0])
+                                                                    } else {
+                                                                        setExpenseSelectEntries(activeEntries)
+                                                                        setExpenseSelectOpen(true)
+                                                                    }
+                                                                }}
                                                                 style={{ cursor: 'pointer', borderBottom: hasUnpaid ? '1px dashed rgba(248,113,113,0.6)' : '1px dashed rgba(255,255,255,0.2)' }}
-                                                                title={hasUnpaid ? 'Clique para registrar pagamento' : 'Pago — clique para editar ou cancelar'}
+                                                                title={activeEntries.length > 1 ? `${activeEntries.length} lançamentos — clique para selecionar` : (hasUnpaid ? 'Clique para registrar pagamento' : 'Pago — clique para editar ou cancelar')}
                                                             >
                                                                 {formatCurrency(val)}
+                                                                {activeEntries.length > 1 && <span style={{ fontSize: 10, marginLeft: 3, background: '#ef4444', color: '#fff', borderRadius: 8, padding: '0 4px' }}>{activeEntries.length}</span>}
                                                             </span>
                                                         ) : val > 0 ? formatCurrency(val) : ''}
                                                     </td>
@@ -1167,16 +1179,24 @@ export default function CashFlow() {
                                                         const cellEntries = (pivotByDay.entriesMap[descKey] || {})[day] || []
                                                         const paidCellEntries = (pivotByDay.paidEntriesMap[descKey] || {})[day] || []
                                                         const textColor = val > 0 ? (hasUnpaid ? '#fca5a5' : 'rgba(255,255,255,0.3)') : '#334155'
-                                                        const clickEntry = hasUnpaid ? cellEntries[0] : paidCellEntries[0]
+                                                        const activeDescEntries = hasUnpaid ? cellEntries : paidCellEntries
                                                         return (
                                                             <td key={day} style={{ padding: '4px 4px', textAlign: 'right', color: textColor, fontVariantNumeric: 'tabular-nums', borderRight: '1px solid rgba(255,255,255,0.02)', fontSize: 10 }}>
-                                                                {val > 0 && clickEntry ? (
+                                                                {val > 0 && activeDescEntries.length > 0 ? (
                                                                     <span
-                                                                        onClick={() => handleOpenPaymentModal(clickEntry)}
+                                                                        onClick={() => {
+                                                                            if (activeDescEntries.length === 1) {
+                                                                                handleOpenPaymentModal(activeDescEntries[0])
+                                                                            } else {
+                                                                                setExpenseSelectEntries(activeDescEntries)
+                                                                                setExpenseSelectOpen(true)
+                                                                            }
+                                                                        }}
                                                                         style={{ cursor: 'pointer', borderBottom: hasUnpaid ? '1px dashed rgba(252,165,165,0.6)' : '1px dashed rgba(255,255,255,0.2)' }}
-                                                                        title={hasUnpaid ? 'Clique para registrar pagamento' : 'Pago — clique para editar ou cancelar'}
+                                                                        title={activeDescEntries.length > 1 ? `${activeDescEntries.length} lançamentos — clique para selecionar` : (hasUnpaid ? 'Clique para registrar pagamento' : 'Pago — clique para editar ou cancelar')}
                                                                     >
                                                                         {formatCurrency(val)}
+                                                                        {activeDescEntries.length > 1 && <span style={{ fontSize: 9, marginLeft: 3, background: '#ef4444', color: '#fff', borderRadius: 8, padding: '0 3px' }}>{activeDescEntries.length}</span>}
                                                                     </span>
                                                                 ) : val > 0 ? formatCurrency(val) : ''}
                                                             </td>
@@ -1664,6 +1684,42 @@ export default function CashFlow() {
                                 <div style={{ fontSize: 12, color: '#e2e8f0' }}>{cleanDesc}</div>
                                 {clientName && <div style={{ fontSize: 11, color: '#94a3b8' }}>Cliente: {clientName}</div>}
                                 {empName && <div style={{ fontSize: 11, color: '#94a3b8' }}>Vendedor: {empName}</div>}
+                                <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+                                    Venc: {entry.due_date ? entry.due_date.substring(8,10)+'/'+entry.due_date.substring(5,7)+'/'+entry.due_date.substring(0,4) : '—'}
+                                    {entry.payment_method ? ` • ${entry.payment_method}` : ''}
+                                </div>
+                            </div>
+                        )
+                    })}
+                </div>
+            </Modal>
+
+            {/* Modal: Selecionar lançamento de despesa (múltiplos no mesmo dia) */}
+            <Modal
+                title="Selecionar despesa para confirmar"
+                open={expenseSelectOpen}
+                onCancel={() => setExpenseSelectOpen(false)}
+                footer={<Button onClick={() => setExpenseSelectOpen(false)}>Fechar</Button>}
+                width={600}
+            >
+                <div style={{ marginBottom: 12, color: '#94a3b8', fontSize: 13 }}>
+                    Há {expenseSelectEntries.length} lançamentos neste dia. Selecione qual deseja confirmar:
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {expenseSelectEntries.map((entry: any, idx: number) => {
+                        const cleanDesc = entry.description?.split('|')[0]?.trim() || entry.description || '—'
+                        const isPaid = entry.paid === true || entry.status === 'paid'
+                        return (
+                            <div
+                                key={entry.id || idx}
+                                onClick={() => { setExpenseSelectOpen(false); handleOpenPaymentModal(entry) }}
+                                style={{ padding: '10px 14px', background: 'rgba(239,68,68,0.08)', border: `1px solid ${isPaid ? 'rgba(100,116,139,0.3)' : 'rgba(239,68,68,0.3)'}`, borderRadius: 8, cursor: 'pointer' }}
+                            >
+                                <div style={{ fontWeight: 600, color: isPaid ? '#94a3b8' : '#f87171', fontSize: 14, marginBottom: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    {formatCurrency(Number(entry.amount) || 0)}
+                                    {isPaid && <span style={{ fontSize: 11, background: '#1e293b', color: '#64748b', borderRadius: 4, padding: '1px 6px' }}>Pago</span>}
+                                </div>
+                                <div style={{ fontSize: 12, color: '#e2e8f0' }}>{cleanDesc}</div>
                                 <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
                                     Venc: {entry.due_date ? entry.due_date.substring(8,10)+'/'+entry.due_date.substring(5,7)+'/'+entry.due_date.substring(0,4) : '—'}
                                     {entry.payment_method ? ` • ${entry.payment_method}` : ''}

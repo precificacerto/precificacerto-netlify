@@ -811,7 +811,6 @@ function Clients() {
                                         name="document"
                                         label={isPf ? "CPF" : "CNPJ"}
                                         rules={[
-                                            { required: true, message: 'Informe o documento' },
                                             {
                                                 validator: (_, value) => {
                                                     if (!value) return Promise.resolve()
@@ -852,7 +851,7 @@ function Clients() {
                         <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
                             <WhatsAppOutlined style={{ color: '#25D366' }} /> WhatsApp para Disparos
                         </div>
-                        <Form.Item name="whatsapp_phone" label="Número WhatsApp" style={{ marginBottom: 0 }}>
+                        <Form.Item name="whatsapp_phone" label="Número WhatsApp" style={{ marginBottom: 0 }} rules={[{ required: true, message: 'Informe o WhatsApp para disparos' }]}>
                             <Input placeholder="(00) 00000-0000" maxLength={15} onChange={(e) => form.setFieldsValue({ whatsapp_phone: phoneMask(e.target.value) })} />
                         </Form.Item>
                         <div style={{ fontSize: 11, color: 'var(--color-neutral-400)', marginTop: 4 }}>
