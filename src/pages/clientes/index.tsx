@@ -407,16 +407,15 @@ function Clients() {
             ),
         },
         {
-            title: 'Telefone',
-            key: 'phone',
+            title: 'WhatsApp',
+            key: 'whatsapp_phone',
             render: (_, record) => (
                 <div>
-                    <div>{record.phone || '-'}</div>
-                    {record.whatsapp_phone && (
-                        <div style={{ fontSize: 11, color: '#25D366' }}>
-                            <WhatsAppOutlined /> WhatsApp
+                    {record.whatsapp_phone ? (
+                        <div style={{ color: '#25D366', display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <WhatsAppOutlined /> {record.whatsapp_phone}
                         </div>
-                    )}
+                    ) : '-'}
                 </div>
             ),
         },
@@ -542,7 +541,6 @@ function Clients() {
                 return
             }
 
-            if (values.phone) values.phone = values.phone.replace(/\D/g, '')
             if (values.whatsapp_phone) values.whatsapp_phone = values.whatsapp_phone.replace(/\D/g, '')
 
             const owner_id = isAdminRole ? (values.owner_id || null) : (currentUser?.employee_id ?? values.owner_id ?? null)
@@ -845,16 +843,11 @@ function Clients() {
                         </Form.Item>
                     </div>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-                        <Form.Item name="email" label="Email">
-                            <Input placeholder="email@exemplo.com" />
-                        </Form.Item>
-                        <Form.Item name="phone" label="Telefone">
-                            <Input placeholder="(00) 00000-0000" maxLength={15} onChange={(e) => form.setFieldsValue({ phone: phoneMask(e.target.value) })} />
-                        </Form.Item>
-                    </div>
+                    <Form.Item name="email" label="Email">
+                        <Input placeholder="email@exemplo.com" />
+                    </Form.Item>
 
-                    {/* WhatsApp Section */}
+                    {/* WhatsApp para Disparos */}
                     <div style={{ background: 'linear-gradient(135deg, rgba(37,211,102,0.06), rgba(37,211,102,0.02))', border: '1px solid rgba(37,211,102,0.15)', padding: 12, borderRadius: 8, marginBottom: 16 }}>
                         <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
                             <WhatsAppOutlined style={{ color: '#25D366' }} /> WhatsApp para Disparos

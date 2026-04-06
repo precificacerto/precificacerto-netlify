@@ -15,6 +15,7 @@ import {
     ReloadOutlined,
     CloseCircleOutlined,
     CalendarOutlined,
+    ClockCircleOutlined,
     FileTextOutlined,
     UserOutlined,
     InfoCircleOutlined,
@@ -508,13 +509,15 @@ function Conectividade() {
                                 }
                             >
                                 <div style={{ fontSize: 12, color: 'var(--color-neutral-500)', marginBottom: 8 }}>
-                                    Disparado 24h antes do agendamento. Use a variável para o nome do cliente.
+                                    Disparado 24h antes do agendamento. Use as variáveis para personalizar a mensagem com nome, data e horário.
                                 </div>
-                                <div style={{ marginBottom: 8 }}>
-                                    <span style={{ fontSize: 12, color: 'var(--color-neutral-500)', marginRight: 6 }}>Inserir variável:</span>
+                                <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
+                                    <span style={{ fontSize: 12, color: 'var(--color-neutral-500)', marginRight: 2 }}>Inserir variável:</span>
                                     <Tag color="green" style={{ cursor: 'pointer', fontSize: 11 }} icon={<UserOutlined />} onClick={() => insertVariable('{{nome_cliente}}', reminderMessage, setReminderMessage, reminderTextareaRef)}>{'{{nome_cliente}}'}</Tag>
+                                    <Tag color="blue" style={{ cursor: 'pointer', fontSize: 11 }} icon={<CalendarOutlined />} onClick={() => insertVariable('{{data_agendamento}}', reminderMessage, setReminderMessage, reminderTextareaRef)}>{'{{data_agendamento}}'}</Tag>
+                                    <Tag color="orange" style={{ cursor: 'pointer', fontSize: 11 }} icon={<ClockCircleOutlined />} onClick={() => insertVariable('{{horario_agendamento}}', reminderMessage, setReminderMessage, reminderTextareaRef)}>{'{{horario_agendamento}}'}</Tag>
                                 </div>
-                                <Input.TextArea ref={reminderTextareaRef} rows={6} value={reminderMessage} onChange={e => setReminderMessage(e.target.value)} placeholder="Olá, {{nome_cliente}}! Lembrete do seu agendamento." style={{ borderRadius: 8, resize: 'vertical', fontSize: 13 }} />
+                                <Input.TextArea ref={reminderTextareaRef} rows={6} value={reminderMessage} onChange={e => setReminderMessage(e.target.value)} placeholder="Olá, {{nome_cliente}}! Lembrete do seu agendamento no dia {{data_agendamento}} às {{horario_agendamento}}." style={{ borderRadius: 8, resize: 'vertical', fontSize: 13 }} />
                             </Card>
                             <Card
                                 size="small"
