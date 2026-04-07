@@ -654,7 +654,7 @@ function SalesReport() {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             let csQuery: any = (supabase as any)
                 .from('completed_services')
-                .select('id, service_id, service_name, employee_id, customer_id, base_price, final_price, total_revenue, service_date, service:services(code)')
+                .select('id, service_id, service_name, employee_id, customer_id, base_price, final_price, total_revenue, service_date, service:services(code, commission_percent)')
                 .eq('tenant_id', effectiveTenantId)
                 .gte('service_date', startDate)
                 .lte('service_date', endDate)
@@ -685,7 +685,7 @@ function SalesReport() {
             if (directSaleIds.length > 0) {
                 const { data: siData } = await (supabase as any)
                     .from('sale_items')
-                    .select('sale_id, service_id, quantity, unit_price, discount, description, service:services(id, name, code, cost_total)')
+                    .select('sale_id, service_id, quantity, unit_price, discount, description, service:services(id, name, code, cost_total, commission_percent)')
                     .in('sale_id', directSaleIds)
                     .not('service_id', 'is', null)
                 saleServiceItems = siData || []
@@ -728,11 +728,11 @@ function SalesReport() {
                     ? (employees as any[]).find((e: any) => e.id === svc.employee_id)
                     : null
                 const empName = emp?.name || (svc.employee_id ? 'Desconhecido' : 'Sem vendedor')
-                const empCommPct = Number(emp?.commission_percent) || 0
+                const svcCommPct = Number((svc as any).service?.commission_percent) || 0
 
-                // Always calculate commission
-                const commissionPct = empCommPct
-                const commissionVal = revenue * (empCommPct / 100)
+                // Always calculate commission using service commission %
+                const commissionPct = svcCommPct
+                const commissionVal = revenue * (svcCommPct / 100)
 
                 const aggKey = shouldSplitBySeller
                     ? `${serviceKey}::${svc.employee_id || 'none'}`
@@ -783,12 +783,12 @@ function SalesReport() {
                     ? (employees as any[]).find((e: any) => e.id === sale.employee_id)
                     : null
                 const empName = emp?.name || 'Sem vendedor'
-                const empCommPct = Number(emp?.commission_percent) || 0
+                const svcItemCommPct = Number((item as any).service?.commission_percent) || 0
                 const saleEmployeeId = sale?.employee_id || null
 
-                // Always calculate commission
-                const commissionPct = empCommPct
-                const commissionVal = revenue * (empCommPct / 100)
+                // Always calculate commission using service commission %
+                const commissionPct = svcItemCommPct
+                const commissionVal = revenue * (svcItemCommPct / 100)
 
                 // Use same key format as completed_services to merge both sources
                 const aggKey = shouldSplitBySeller

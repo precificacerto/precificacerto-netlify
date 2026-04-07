@@ -229,7 +229,13 @@ async function processReminderEvent(ev: EventRow): Promise<{ event_id: string; s
         }
 
         const template = (settings.whatsapp_reminder_message || 'Olá, {{nome_cliente}}! Lembrete do seu agendamento.').trim()
-        const text = template.replace(/\{\{nome_cliente\}\}/gi, customerName)
+        const startDate = new Date(ev.start_time)
+        const dateFormatted = startDate.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })
+        const timeFormatted = startDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' })
+        const text = template
+            .replace(/\{\{nome_cliente\}\}/gi, customerName)
+            .replace(/\{\{data_agendamento\}\}/gi, dateFormatted)
+            .replace(/\{\{horario_agendamento\}\}/gi, timeFormatted)
 
         const mode = settings.whatsapp_instance_mode || 'OWN'
         const sharedOwnerId = settings.whatsapp_shared_instance_user_id ?? null
