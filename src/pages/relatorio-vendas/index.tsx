@@ -438,7 +438,7 @@ function SalesReport() {
             if (budgetIds.length > 0) {
                 let itemsQuery: any = supabase
                     .from('budget_items')
-                    .select('budget_id, product_id, quantity, unit_price, discount, product:products(id, name, code, cost_total, product_sections(id, name))')
+                    .select('budget_id, product_id, quantity, unit_price, discount, product:products(id, name, code, cost_total, commission_percent, product_sections(id, name))')
                     .in('budget_id', budgetIds)
                 if (abcProductFilter) itemsQuery = itemsQuery.eq('product_id', abcProductFilter)
                 queries.push(itemsQuery)
@@ -450,7 +450,7 @@ function SalesReport() {
             if (directSaleIds.length > 0) {
                 let saleItemsQuery: any = (supabase as any)
                     .from('sale_items')
-                    .select('sale_id, product_id, quantity, unit_price, discount, product:products(id, name, code, cost_total, product_sections(id, name))')
+                    .select('sale_id, product_id, quantity, unit_price, discount, product:products(id, name, code, cost_total, commission_percent, product_sections(id, name))')
                     .in('sale_id', directSaleIds)
                     .not('product_id', 'is', null)
                 if (abcProductFilter) saleItemsQuery = saleItemsQuery.eq('product_id', abcProductFilter)
@@ -506,17 +506,11 @@ function SalesReport() {
 
                 const empInfo = employeeMap.get(item.budget_id) || { name: 'Sem vendedor', commissionPercent: 0, commissionAmount: 0, totalValue: 0 }
                 const empName = empInfo.name
-                const empCommPct = empInfo.commissionPercent
+                const prodCommPct = Number(product.commission_percent) || 0
 
-                // Always calculate commission (weighted)
-                let commissionVal = 0
-                if (empInfo.commissionAmount > 0 && empInfo.totalValue > 0) {
-                    const itemProportion = revenue / empInfo.totalValue
-                    commissionVal = empInfo.commissionAmount * itemProportion
-                } else {
-                    commissionVal = revenue * (empCommPct / 100)
-                }
-                const commissionPct = revenue > 0 ? (commissionVal / revenue) * 100 : empCommPct
+                // Always calculate commission using product commission %
+                const commissionVal = revenue * (prodCommPct / 100)
+                const commissionPct = prodCommPct
 
                 const aggKey = shouldSplitBySeller
                     ? `${productId}::${budgetToEmployeeId.get(item.budget_id) || 'none'}`
@@ -571,12 +565,12 @@ function SalesReport() {
                     ? (employees as any[]).find((e: any) => e.id === sale.employee_id)
                     : null
                 const empName = emp?.name || 'Sem vendedor'
-                const empCommPct = Number(emp?.commission_percent) || 0
+                const prodItemCommPct = Number(product.commission_percent) || 0
                 const saleEmployeeId = sale?.employee_id || null
 
-                // Always calculate commission
-                const commissionPct = empCommPct
-                const commissionVal = revenue * (empCommPct / 100)
+                // Always calculate commission using product commission %
+                const commissionPct = prodItemCommPct
+                const commissionVal = revenue * (prodItemCommPct / 100)
 
                 const aggKey = shouldSplitBySeller
                     ? `${productId}::${saleEmployeeId || 'none'}`
