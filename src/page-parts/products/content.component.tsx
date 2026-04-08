@@ -1583,7 +1583,7 @@ export const Content: FC<ContentProps> = ({
           onAccessoryExpensesChange={setAccessoryExpensesValue}
         />
       )}
-      {productType === 'REVENDA' && !isCalcTypeService && (
+      {productType === 'REVENDA' && !isCalcTypeService && !isCalcTypeResale && (
         <ContentResale
           itemsForm={itemsForm}
           handleClickAddItem={handleClickAddItem}
