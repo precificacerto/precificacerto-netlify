@@ -1067,7 +1067,7 @@ export const Content: FC<ContentProps> = ({
             </div>
             <div style={{
               background: '#FFF7E6', border: '1px solid #FFD591', borderRadius: 8,
-              padding: '10px 14px', fontSize: 12, marginBottom: 16,
+              padding: '10px 14px', fontSize: 12, marginBottom: 16, color: '#000000',
             }}>
               <InfoCircleOutlined style={{ color: '#FA8C16', marginRight: 6 }} />
               <strong>Revenda:</strong> Selecione um item do tipo &ldquo;Mercadoria para revenda&rdquo; como base do custo.
@@ -1120,7 +1120,7 @@ export const Content: FC<ContentProps> = ({
             {productType === 'REVENDA' && (
               <div style={{
                 background: '#FFF7E6', border: '1px solid #FFD591', borderRadius: 8,
-                padding: '10px 14px', fontSize: 12, marginBottom: 16,
+                padding: '10px 14px', fontSize: 12, marginBottom: 16, color: '#000000',
               }}>
                 <InfoCircleOutlined style={{ color: '#FA8C16', marginRight: 6 }} />
                 <strong>Revenda:</strong> Selecione um item do tipo &ldquo;Mercadoria para revenda&rdquo; como base do custo.
