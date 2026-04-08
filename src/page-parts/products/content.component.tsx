@@ -137,9 +137,10 @@ export const Content: FC<ContentProps> = ({
 
   const isRevendaFromDb = (product as any)?.productType === 'REVENDA'
   const isCalcTypeService = currentUser?.calcType === CALC_TYPE_ENUM.SERVICE
+  const isCalcTypeResale = currentUser?.calcType === CALC_TYPE_ENUM.RESALE
 
   const [productType, setProductType] = useState<'PRODUZIDO' | 'REVENDA'>(
-    isCalcTypeService ? 'REVENDA' : ((product as any)?.productType || 'PRODUZIDO')
+    (isCalcTypeService || isCalcTypeResale) ? 'REVENDA' : ((product as any)?.productType || 'PRODUZIDO')
   )
   const [baseItemId, setBaseItemId] = useState<string | null>(
     (product as any)?.baseItemId || null
@@ -1051,6 +1052,50 @@ export const Content: FC<ContentProps> = ({
               padding: '4px 14px', fontWeight: 600, fontSize: 13, color: '#0a0a0a',
             }}>📦 Revenda</span>
           </div>
+        ) : isCalcTypeResale ? (
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 16 }}>
+              <strong style={{ fontSize: 14 }}>Tipo do produto:</strong>
+              <Radio.Group
+                value={productType}
+                onChange={(e) => setProductType(e.target.value)}
+                optionType="button"
+                buttonStyle="solid"
+              >
+                <Radio.Button value="REVENDA">📦 Revenda (produto acabado)</Radio.Button>
+              </Radio.Group>
+            </div>
+            <div style={{
+              background: '#FFF7E6', border: '1px solid #FFD591', borderRadius: 8,
+              padding: '10px 14px', fontSize: 12, marginBottom: 16,
+            }}>
+              <InfoCircleOutlined style={{ color: '#FA8C16', marginRight: 6 }} />
+              <strong>Revenda:</strong> Selecione um item do tipo &ldquo;Mercadoria para revenda&rdquo; como base do custo.
+              O custo do produto será o custo desse item.
+            </div>
+            <Form.Item label="Item base (mercadoria para revenda)" style={{ maxWidth: 400 }}>
+              <Select
+                showSearch
+                placeholder="Selecione o item de revenda"
+                value={baseItemId}
+                onChange={(val) => setBaseItemId(val)}
+                filterOption={(input, option) =>
+                  (option?.children as unknown as string || '').toLowerCase().includes(input.toLowerCase())
+                }
+                notFoundContent={
+                  <div style={{ padding: 12, textAlign: 'center', color: '#64748b' }}>
+                    Nenhum item do tipo &ldquo;Revenda&rdquo; cadastrado.
+                  </div>
+                }
+              >
+                {itemsForSelection.map((item) => (
+                  <Select.Option key={item.id} value={item.id}>
+                    {item.name}
+                  </Select.Option>
+                ))}
+              </Select>
+            </Form.Item>
+          </>
         ) : (
           <>
             <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 16 }}>
