@@ -607,7 +607,7 @@ export const Content: FC<ContentProps> = ({
 
   const validateProductItems = () => {
     if (productType === 'REVENDA' && !isCalcTypeService) {
-      if (!baseItemId) {
+      if (!baseItemId && !productItemsData.length) {
         return 'Selecione o item de revenda como base do custo.'
       }
       return undefined
@@ -1583,7 +1583,7 @@ export const Content: FC<ContentProps> = ({
           onAccessoryExpensesChange={setAccessoryExpensesValue}
         />
       )}
-      {productType === 'REVENDA' && !isCalcTypeService && !isCalcTypeResale && (
+      {productType === 'REVENDA' && !isCalcTypeService && (
         <ContentResale
           itemsForm={itemsForm}
           handleClickAddItem={handleClickAddItem}
