@@ -92,6 +92,7 @@ function formatCurrency(value: number): string {
 function SalesReport() {
     const { tenantId, currentUser } = useAuth()
     const effectiveTenantId = tenantId ?? currentUser?.tenant_id
+    const isRevenda = currentUser?.calcType === 'RESALE'
     const { data: employees = [] } = useEmployees()
     const { data: rawProducts } = useProducts()
     const { data: customers = [] } = useCustomers()
@@ -1284,12 +1285,12 @@ function SalesReport() {
                                 <span><ShoppingOutlined style={{ marginRight: 6 }} />Curva ABC - Produtos</span>
                             ),
                         },
-                        {
+                        ...(!isRevenda ? [{
                             key: 'SERVICES',
                             label: (
                                 <span><CustomerServiceOutlined style={{ marginRight: 6 }} />Curva ABC - Serviços</span>
                             ),
-                        },
+                        }] : []),
                     ]}
                 />
 

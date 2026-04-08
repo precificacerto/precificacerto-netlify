@@ -4,6 +4,7 @@ import { currencyMask } from '@/utils/currency-mask'
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { getMonetaryValue } from '@/utils/get-monetary-value'
 import { supabase } from '@/supabase/client'
+import { useAuth } from '@/hooks/use-auth.hook'
 
 type Props = {
   form: FormInstance
@@ -43,6 +44,8 @@ interface NcmSuggestion {
 
 const NewItemForm = ({ form, taxableRegime }: Props) => {
   const isLucroReal = taxableRegime === 'LUCRO_REAL'
+  const { currentUser } = useAuth()
+  const isRevenda = currentUser?.calcType === 'RESALE'
 
   const [costPerUnit, setCostPerUnit] = useState<string | null>(null)
   const [baseUnitLabel, setBaseUnitLabel] = useState<string>('un')
@@ -305,10 +308,10 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
           </span>
         }
         rules={[{ required: true, message: REQUIRED }]}
-        initialValue="INSUMO"
+        initialValue={isRevenda ? 'REVENDA' : 'INSUMO'}
       >
         <Select>
-          <Select.Option value="INSUMO">🧪 Insumos para beneficiamento</Select.Option>
+          {!isRevenda && <Select.Option value="INSUMO">🧪 Insumos para beneficiamento</Select.Option>}
           <Select.Option value="REVENDA">📦 Mercadoria para revenda</Select.Option>
         </Select>
       </Form.Item>

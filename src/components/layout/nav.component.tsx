@@ -72,6 +72,7 @@ interface NavItemConfig {
   superAdminOnly?: boolean
   hideForRepresentative?: boolean
   hideForSuperAdmin?: boolean
+  hideForRevenda?: boolean
   hidden?: boolean
   external?: boolean
   module?: ModuleKey
@@ -98,12 +99,13 @@ const Nav = () => {
   const isRepresentative = currentUser?.permissions?.find(
     (value) => value === PERMISSIONS.REPRESENTATIVE
   )
+  const isRevenda = currentUser?.calcType === 'RESALE'
 
   const navigationItems: NavItemConfig[] = [
     { key: 'home', label: 'Home', icon: 'dashboard', href: ROUTES.DASHBOARD, section: 'geral', module: MODULES.HOME },
     { key: 'items', label: 'Itens', icon: 'unordered-list', href: ROUTES.ITEMS, section: 'cadastros', module: MODULES.ITEMS },
     { key: 'products', label: 'Produtos', icon: 'appstore', href: ROUTES.PRODUCTS, section: 'cadastros', module: MODULES.PRODUCTS },
-    { key: 'services', label: 'Serviços', icon: 'tool', href: ROUTES.SERVICES, section: 'cadastros', module: MODULES.SERVICES },
+    { key: 'services', label: 'Serviços', icon: 'tool', href: ROUTES.SERVICES, section: 'cadastros', module: MODULES.SERVICES, hideForRevenda: true },
     { key: 'stock', label: 'Estoque', icon: 'database', href: ROUTES.STOCK, section: 'cadastros', module: MODULES.STOCK },
     { key: 'production', label: 'Produção', icon: 'tool', href: ROUTES.PRODUCTION, section: 'cadastros', module: MODULES.STOCK, hidden: true },
     { key: 'clients', label: 'Clientes', icon: 'team', href: ROUTES.CLIENTS, section: 'cadastros', module: MODULES.CUSTOMERS },
@@ -150,6 +152,7 @@ const Nav = () => {
     if (item.superAdminOnly && !isSuperAdmin) return false
     if (item.hideForRepresentative && isRepresentative) return false
     if (item.hideForSuperAdmin && isSuperAdmin) return false
+    if (item.hideForRevenda && isRevenda) return false
     if (item.module && !canView(item.module)) return false
     // Super_admin: ocultar abas de usuário (home, caixa, hub, cadastro, comercial, financeiro, operacional)
     if (isSuperAdmin && item.section && sectionsToHideForSuperAdmin.includes(item.section)) return false
