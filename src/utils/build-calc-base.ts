@@ -12,7 +12,7 @@ export function buildCalcBase(expense: any, taxPreview?: TaxPreviewResult): Calc
   const fixed = expense?.fixed_expense_percent ? Number(expense.fixed_expense_percent) : 0
   const variable = expense?.variable_expense_percent ? Number(expense.variable_expense_percent) : 0
   const financial = expense?.financial_expense_percent ? Number(expense.financial_expense_percent) : 0
-  const laborCost = expense?.production_labor_cost ? Number(expense.production_labor_cost) : 0
+  const laborCost = Number(expense?.production_labor_cost_hub) || Number(expense?.production_labor_cost) || 0
   const laborPct = expense?.production_labor_percent ? Number(expense.production_labor_percent) : 0
   const profitBase = expense?.profit_margin_percent ? Number(expense.profit_margin_percent) : 0
 

@@ -42,6 +42,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       .eq('tenant_id', caller.tenant_id)
     if (error) throw error
 
+    // Remove os lançamentos de caixa vinculados a esta venda
+    await supabaseAdmin
+      .from('cash_entries')
+      .update({ is_active: false })
+      .eq('origin_type', 'SALE')
+      .eq('origin_id', id)
+      .eq('tenant_id', caller.tenant_id)
+
     return res.status(200).json({ success: true })
   } catch (error: any) {
     console.error('Deactivate sale error:', error?.message || 'Unknown error')

@@ -143,7 +143,7 @@ Deno.serve(async (req: Request) => {
       calcType,
       totalItemsCost,
       yieldQuantity: yieldForPricing,
-      laborCostMonthly: Number(expense?.production_labor_cost) || 0,
+      laborCostMonthly: Number(expense?.production_labor_cost_hub) || Number(expense?.production_labor_cost) || 0,
       numProductiveEmployees,
       monthlyWorkloadMinutes,
       productWorkloadMinutes: product_workload_minutes || 0,

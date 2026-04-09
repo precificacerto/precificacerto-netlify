@@ -382,11 +382,10 @@ function buildRow(
 
 function buildDreLucroRealPresumido(
   agg: AggregatedData,
-  calcType: CalcType,
+  _calcType: CalcType,
   taxRegime: TaxRegime,
 ): DreRow[] {
   const rows: DreRow[] = []
-  const isIndustrializacao = calcType === 'INDUSTRIALIZATION'
 
   // Receita Bruta
   const receitaBruta = agg.receitaBruta
@@ -401,31 +400,24 @@ function buildDreLucroRealPresumido(
   const receitaLiquida = subtractMonths(receitaBruta, deducoesTribReceita)
   rows.push(buildRow('receita_liquida', '(=) Receita Líquida de Venda Interna', receitaLiquida, receitaBruta, { isSubtotal: true, sign: '=' }))
 
-  // CMV
+  // CMV — MO Produtiva sempre aparece como linha separada (independente do calcType)
   const custoProdutos = agg.custoProduto
-  rows.push(buildRow('cmv_header', '(-) Custos Líquido dos Produtos (CMV)', custoProdutos, receitaBruta, { sign: '-' }))
+  const cmvTotal = sumMonths(custoProdutos, agg.maoDeObraProdutiva)
+  rows.push(buildRow('cmv_header', '(-) Custos Líquido dos Produtos (CMV)', cmvTotal, receitaBruta, { sign: '-' }))
   rows.push(buildRow('cmv_custo_prod', 'Custo Líquido dos Produtos', custoProdutos, receitaBruta, { indent: 2 }))
-
-  let cmvTotal = custoProdutos
-  if (isIndustrializacao) {
-    rows.push(buildRow('cmv_mo_direta', 'Custo Mão de Obra Direta', agg.maoDeObraProdutiva, receitaBruta, { indent: 2 }))
-    cmvTotal = sumMonths(custoProdutos, agg.maoDeObraProdutiva)
-  }
+  rows.push(buildRow('cmv_mo_direta', 'Custo Mão de Obra Direta (Produtiva)', agg.maoDeObraProdutiva, receitaBruta, { indent: 2 }))
 
   // Lucro Bruto
   const lucroBruto = subtractMonths(receitaLiquida, cmvTotal)
   rows.push(buildRow('lucro_bruto', '(=) Lucro Bruto', lucroBruto, receitaBruta, { isSubtotal: true, sign: '=' }))
 
-  // Despesas Operacionais
-  const moIndireta = isIndustrializacao
-    ? sumMonths(agg.maoDeObraAdministrativa, agg.maoDeObra)
-    : sumMonths(sumMonths(agg.maoDeObraProdutiva, agg.maoDeObraAdministrativa), agg.maoDeObra)
+  // Despesas Operacionais — MO Indireta/Administrativa (exclui MO Produtiva que já está no CMV)
+  const moIndireta = sumMonths(agg.maoDeObraAdministrativa, agg.maoDeObra)
 
   const despesasOp = sumMonths(sumMonths(sumMonths(moIndireta, agg.despesaFixa), agg.despesaVariavel), agg.comissoes)
   rows.push(buildRow('desp_op_header', '(-) Despesas Operacionais', despesasOp, receitaBruta, { sign: '-' }))
 
-  const moLabel = isIndustrializacao ? 'Despesa MO Indireta' : 'MO Direta + Indireta'
-  rows.push(buildRow('desp_mo_indireta', moLabel, moIndireta, receitaBruta, { indent: 2 }))
+  rows.push(buildRow('desp_mo_indireta', 'Despesa MO Indireta', moIndireta, receitaBruta, { indent: 2 }))
   rows.push(buildRow('desp_fixa', 'Despesa Fixa', agg.despesaFixa, receitaBruta, { indent: 2 }))
   rows.push(buildRow('desp_variavel', 'Despesa Variável', agg.despesaVariavel, receitaBruta, { indent: 2 }))
   rows.push(buildRow('desp_comissoes', 'Comissões', agg.comissoes, receitaBruta, { indent: 2 }))
@@ -490,9 +482,8 @@ function buildDrePresumidoRET(agg: AggregatedData): DreRow[] {
   return rows
 }
 
-function buildDreSimplesNacional(agg: AggregatedData, calcType: CalcType): DreRow[] {
+function buildDreSimplesNacional(agg: AggregatedData, _calcType: CalcType): DreRow[] {
   const rows: DreRow[] = []
-  const isIndustrializacao = calcType === 'INDUSTRIALIZATION'
 
   const receitaBruta = agg.receitaBruta
   rows.push(buildRow('receita_bruta', 'Receita Bruta', receitaBruta, receitaBruta, { isHeader: true, sign: '+' }))
@@ -507,24 +498,17 @@ function buildDreSimplesNacional(agg: AggregatedData, calcType: CalcType): DreRo
   const receitaLiquida = subtractMonths(receitaBruta, das)
   rows.push(buildRow('receita_liquida', '(=) Receita Líquida', receitaLiquida, receitaBruta, { isSubtotal: true, sign: '=' }))
 
-  // CMV
-  let cmv = agg.custoProduto
-  if (isIndustrializacao) {
-    cmv = sumMonths(agg.custoProduto, agg.maoDeObraProdutiva)
-  }
-  rows.push(buildRow('cmv', '(-) CMV (Custo Produtos' + (isIndustrializacao ? ' + MO Direta' : '') + ')', cmv, receitaBruta, { sign: '-' }))
+  // CMV — MO Produtiva sempre aparece como linha separada (independente do calcType)
+  const cmv = sumMonths(agg.custoProduto, agg.maoDeObraProdutiva)
+  rows.push(buildRow('cmv', '(-) CMV (Custo Produtos + MO Direta)', cmv, receitaBruta, { sign: '-' }))
   rows.push(buildRow('cmv_custo_prod', 'Custo Produtos', agg.custoProduto, receitaBruta, { indent: 2 }))
-  if (isIndustrializacao) {
-    rows.push(buildRow('cmv_mo_direta', 'MO Direta', agg.maoDeObraProdutiva, receitaBruta, { indent: 2 }))
-  }
+  rows.push(buildRow('cmv_mo_direta', 'MO Direta (Produtiva)', agg.maoDeObraProdutiva, receitaBruta, { indent: 2 }))
 
   const lucroBruto = subtractMonths(receitaLiquida, cmv)
   rows.push(buildRow('lucro_bruto', '(=) Lucro Bruto', lucroBruto, receitaBruta, { isSubtotal: true, sign: '=' }))
 
-  // Despesas Operacionais
-  const moIndireta = isIndustrializacao
-    ? sumMonths(agg.maoDeObraAdministrativa, agg.maoDeObra)
-    : sumMonths(sumMonths(agg.maoDeObraProdutiva, agg.maoDeObraAdministrativa), agg.maoDeObra)
+  // Despesas Operacionais — MO Indireta/Administrativa (exclui MO Produtiva que já está no CMV)
+  const moIndireta = sumMonths(agg.maoDeObraAdministrativa, agg.maoDeObra)
 
   const despesasOp = sumMonths(sumMonths(sumMonths(moIndireta, agg.despesaFixa), agg.despesaVariavel), agg.comissoes)
   rows.push(buildRow('desp_op', '(-) Despesas Operacionais', despesasOp, receitaBruta, { sign: '-' }))
