@@ -592,7 +592,7 @@ export default function CashFlow() {
         return regularData.filter((e: any) => {
             if (e.due_date !== todayStr) return false
             if (e.type === 'EXPENSE') return !e.paid_date
-            if (e.type === 'INCOME') return (e.payment_method === 'BOLETO' || e.payment_method === 'CHEQUE_PRE_DATADO') && !e.paid_date
+            if (e.type === 'INCOME') return ((e.payment_method === 'BOLETO' || e.payment_method === 'CHEQUE_PRE_DATADO') || (e as any).is_split_remaining) && !e.paid_date
             return false
         })
     }, [regularData, todayStr])
@@ -615,7 +615,7 @@ export default function CashFlow() {
 
         for (const entry of dfcData) {
             if (entry.type === 'INCOME') {
-                if ((entry.payment_method === 'BOLETO' || entry.payment_method === 'CHEQUE_PRE_DATADO') && !entry.paid_date) continue
+                if (((entry.payment_method === 'BOLETO' || entry.payment_method === 'CHEQUE_PRE_DATADO') || (entry as any).is_split_remaining) && !entry.paid_date) continue
                 const label = getIncomeLabel(entry)
                 incomeByLabel[label] = (incomeByLabel[label] || 0) + getEffectiveIncomeAmount(entry)
             } else {
@@ -641,7 +641,7 @@ export default function CashFlow() {
             const day = parseInt(entry.due_date.substring(8, 10), 10)
             if (day < 1 || day > daysInMonth) continue
             if (entry.type === 'INCOME') {
-                if ((entry.payment_method === 'BOLETO' || entry.payment_method === 'CHEQUE_PRE_DATADO') && !entry.paid_date) continue
+                if (((entry.payment_method === 'BOLETO' || entry.payment_method === 'CHEQUE_PRE_DATADO') || (entry as any).is_split_remaining) && !entry.paid_date) continue
                 totals[day] += getEffectiveIncomeAmount(entry)
             } else {
                 totals[day] -= Number(entry.amount) || 0
@@ -681,7 +681,7 @@ export default function CashFlow() {
             const day = parseInt(entry.due_date.substring(8, 10), 10)
             if (day < 1 || day > daysInMonth) continue
             if (entry.type === 'INCOME') {
-                if ((entry.payment_method === 'BOLETO' || entry.payment_method === 'CHEQUE_PRE_DATADO') && !entry.paid_date) {
+                if (((entry.payment_method === 'BOLETO' || entry.payment_method === 'CHEQUE_PRE_DATADO') && !entry.paid_date) || ((entry as any).is_split_remaining && !entry.paid_date)) {
                     // Track as pending income (a receber) instead of confirmed income
                     const pendingKey = '__PENDING_INCOME__'
                     if (!result[pendingKey]) {

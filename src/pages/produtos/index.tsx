@@ -101,6 +101,7 @@ function Products() {
   const [savingSection, setSavingSection] = useState(false)
 
   // Commission tables state
+  const [commissionTablesLoaded, setCommissionTablesLoaded] = useState(false)
   const [commissionTables, setCommissionTables] = useState<{ id: string; name: string; commission_percent: number }[]>([])
   const [tableFilter, setTableFilter] = useState<string | null>(null)
   const [calcType, setCalcType] = useState<string | null>(null)
@@ -187,6 +188,7 @@ function Products() {
       setCommissionTables(data.map((t: any) => ({ ...t, commission_percent: Number(t.commission_percent) })))
       if (data.length > 0) setTableFilter(data[0].id)
     }
+    setCommissionTablesLoaded(true)
   }
 
   useEffect(() => { loadCommissionTables() }, [])
@@ -958,6 +960,14 @@ function Products() {
           entityName={lancamentoProductName}
         />
       )}
+      {commissionTablesLoaded && commissionTables.length === 0 && (
+        <div style={{ marginBottom: 16, padding: '12px 16px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: 18 }}>⚠️</span>
+          <span style={{ color: '#92400e', fontSize: 13 }}>
+            Para criar um produto, primeiro crie uma <strong>Tabela de Comissão</strong> clicando no botão ao lado.
+          </span>
+        </div>
+      )}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <Input
@@ -1004,6 +1014,10 @@ function Products() {
               )}
               <Button
                 onClick={() => setTableModalOpen(true)}
+                style={commissionTablesLoaded && commissionTables.length === 0 ? {
+                  background: '#16a34a', borderColor: '#16a34a', color: 'white',
+                  animation: 'pulse-green 1.5s infinite',
+                } : {}}
               >
                 Criar Tabela
               </Button>
@@ -1013,7 +1027,17 @@ function Products() {
               >
                 Criar Seção
               </Button>
-              <Button type="primary" icon={<PlusOutlined />} onClick={() => router.push(ROUTES.NEW_PRODUCT)}>
+              <Button
+                type="primary"
+                icon={<PlusOutlined />}
+                onClick={() => {
+                  if (commissionTablesLoaded && commissionTables.length === 0) {
+                    message.warning('Crie uma Tabela de Comissão antes de adicionar produtos.')
+                    return
+                  }
+                  router.push(ROUTES.NEW_PRODUCT)
+                }}
+              >
                 Adicionar produto
               </Button>
             </>

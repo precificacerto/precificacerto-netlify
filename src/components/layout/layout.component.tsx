@@ -43,6 +43,8 @@ const Layout = ({ children, showAside = true, title, tabTitle, subtitle }: Props
       currentUser.numAdministrativeSectorEmployee === undefined
     ) {
       setShowCalcModal(true)
+    } else {
+      setShowCalcModal(false)
     }
   }, [currentUser])
 

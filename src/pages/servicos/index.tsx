@@ -63,6 +63,7 @@ function ServicesPage() {
     const [lancamentoSalePrice, setLancamentoSalePrice] = useState(0)
 
     // Commission tables
+    const [commissionTablesLoaded, setCommissionTablesLoaded] = useState(false)
     const [commissionTables, setCommissionTables] = useState<{ id: string; name: string; commission_percent: number }[]>([])
     const [tableFilter, setTableFilter] = useState<string | null>(null)
     const [tableModalOpen, setTableModalOpen] = useState(false)
@@ -87,6 +88,7 @@ function ServicesPage() {
             setCommissionTables(data.map((t: any) => ({ ...t, commission_percent: Number(t.commission_percent) })))
             if (data.length > 0) setTableFilter(data[0].id)
         }
+        setCommissionTablesLoaded(true)
     }
 
     const handleCreateTable = async () => {
@@ -553,6 +555,14 @@ function ServicesPage() {
             )}
             {ctx}
 
+            {commissionTablesLoaded && commissionTables.length === 0 && (
+                <div style={{ marginBottom: 16, padding: '12px 16px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span style={{ fontSize: 18 }}>⚠️</span>
+                    <span style={{ color: '#92400e', fontSize: 13 }}>
+                        Para criar um serviço, primeiro crie uma <strong>Tabela de Comissão</strong> clicando no botão ao lado.
+                    </span>
+                </div>
+            )}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                     <Input placeholder="Buscar serviço..." prefix={<SearchOutlined style={{ color: '#D0D5DD' }} />}
@@ -591,10 +601,26 @@ function ServicesPage() {
                                     Atualizar todos os serviços
                                 </Button>
                             )}
-                            <Button onClick={() => setTableModalOpen(true)}>
+                            <Button
+                                onClick={() => setTableModalOpen(true)}
+                                style={commissionTablesLoaded && commissionTables.length === 0 ? {
+                                    background: '#16a34a', borderColor: '#16a34a', color: 'white',
+                                    animation: 'pulse-green 1.5s infinite',
+                                } : {}}
+                            >
                                 Criar Tabela
                             </Button>
-                            <Button type="primary" icon={<PlusOutlined />} onClick={() => router.push(ROUTES.NEW_SERVICE)}>
+                            <Button
+                                type="primary"
+                                icon={<PlusOutlined />}
+                                onClick={() => {
+                                    if (commissionTablesLoaded && commissionTables.length === 0) {
+                                        msgApi.warning('Crie uma Tabela de Comissão antes de adicionar serviços.')
+                                        return
+                                    }
+                                    router.push(ROUTES.NEW_SERVICE)
+                                }}
+                            >
                                 Novo Serviço
                             </Button>
                         </>

@@ -137,6 +137,7 @@ function Schedule() {
     const [discountTick, setDiscountTick] = useState(0)
     const [globalDiscountPctAgenda, setGlobalDiscountPctAgenda] = useState(0)
     const [isSplitPay, setIsSplitPay] = useState(false)
+    const [splitAmountPaid, setSplitAmountPaid] = useState<number>(0)
     const [customInstallments, setCustomInstallments] = useState<{ date: any; amount: number }[]>([{ date: null, amount: 0 }])
     const [installmentPreset, setInstallmentPreset] = useState<'customizado' | '30' | '30_60' | '30_60_90' | '30_60_90_120' | '30_60_90_120_150'>('customizado')
     const [extraProds, setExtraProds] = useState<ExtraProd[]>([])
@@ -164,6 +165,10 @@ function Schedule() {
     const [payAllEmpTables, setPayAllEmpTables] = useState<{id: string; name: string; type: string}[]>([])
     const [payTableSections, setPayTableSections] = useState<{key: string; tableId: string | null}[]>([{key: 'pts-0', tableId: null}])
     const latestBookingEmpRef = useRef<string | undefined>(undefined)
+
+    // WhatsApp dispatch status per event
+    const [eventDispatchMap, setEventDispatchMap] = useState<Record<string, { status: string; error_message?: string | null }>>({})
+
 
     const weekEnd = weekStart.add(6, 'day').endOf('day')
     const weekDates = useMemo(() => Array.from({ length: 7 }, (_, i) => weekStart.add(i, 'day')), [weekStart])
@@ -195,12 +200,30 @@ function Schedule() {
                 sb.from('services').select('id, name, base_price, estimated_duration_minutes, commission_percent, profit_percent, cost_total, recurrence_days, commission_table_id').eq('status', 'ACTIVE').order('name'),
                 sb.from('products').select('id, name, sale_price, cost_total, commission_percent, profit_percent, recurrence_days, commission_table_id').eq('status', 'ACTIVE').order('name'),
             ])
-            setEvents(evR.data || [])
+            const loadedEvents: any[] = evR.data || []
+            setEvents(loadedEvents)
             setCustomers(cuR.data || [])
             setAllEmployees(emR.data || [])
             setSchedEmpIds((scR.data || []).map((s: any) => s.employee_id))
             setRegServices(svR.data || [])
             setAvailProds(prR.data || [])
+
+            // Buscar último disparo WhatsApp por evento
+            const eventIds = loadedEvents.map((e: any) => e.id)
+            if (eventIds.length > 0) {
+                const { data: dispatches } = await sb
+                    .from('whatsapp_dispatches')
+                    .select('calendar_event_id, status, error_message, created_at')
+                    .in('calendar_event_id', eventIds)
+                    .order('created_at', { ascending: false })
+                const dispMap: Record<string, { status: string; error_message?: string | null }> = {}
+                for (const d of (dispatches || [])) {
+                    if (!dispMap[d.calendar_event_id]) {
+                        dispMap[d.calendar_event_id] = { status: d.status, error_message: d.error_message }
+                    }
+                }
+                setEventDispatchMap(dispMap)
+            }
         } catch (e: any) { msgApi.error('Erro: ' + (e.message || '')) }
         finally { setLoading(false) }
     }, [weekStart, isAdminOrSuper, myEmployeeId])
@@ -356,7 +379,54 @@ function Schedule() {
                     updateData.reminder_send_at = reminderSendAt
                 }
                 const { error } = await supabase.from('calendar_events').update(updateData).eq('id', editingEvt.id)
-                if (error) throw error; msgApi.success('Atualizado!')
+                if (error) throw error
+
+                // Lógica de disparo WhatsApp no reagendamento
+                const dateChanged = editingEvt.start_time !== s
+                if (dateChanged && v.customer_id) {
+                    const cust = (customers as any[]).find((c: any) => c.id === v.customer_id)
+                    const phone = cust?.phone || null
+                    if (phone) {
+                        const formattedDate = dayjs(s).format('DD/MM/YYYY')
+                        const formattedTime = dayjs(s).format('HH:mm')
+                        const msgBody = `Seu agendamento foi remarcado para ${formattedDate} às ${formattedTime}.`
+                        const uid = currentUser?.uid ?? (await getCurrentUserId())
+                        const sb2 = supabase as any
+
+                        const { data: sentDispatches } = await sb2
+                            .from('whatsapp_dispatches')
+                            .select('id')
+                            .eq('calendar_event_id', editingEvt.id)
+                            .in('status', ['SENT', 'DELIVERED', 'READ'])
+
+                        if (sentDispatches && sentDispatches.length > 0) {
+                            // Já foi enviado → criar novo PENDING para notificar do novo horário
+                            await sb2.from('whatsapp_dispatches').insert({
+                                tenant_id: tid, calendar_event_id: editingEvt.id,
+                                customer_id: v.customer_id, status: 'PENDING',
+                                type: 'REMINDER', phone, message_body: msgBody,
+                                sent_by: uid || 'system',
+                            })
+                        } else {
+                            // Ainda não enviado → atualizar PENDING existente ou criar
+                            const { data: pending } = await sb2
+                                .from('whatsapp_dispatches').select('id')
+                                .eq('calendar_event_id', editingEvt.id).eq('status', 'PENDING').maybeSingle()
+                            if (pending?.id) {
+                                await sb2.from('whatsapp_dispatches').update({ message_body: msgBody }).eq('id', pending.id)
+                            } else {
+                                await sb2.from('whatsapp_dispatches').insert({
+                                    tenant_id: tid, calendar_event_id: editingEvt.id,
+                                    customer_id: v.customer_id, status: 'PENDING',
+                                    type: 'REMINDER', phone, message_body: msgBody,
+                                    sent_by: uid || 'system',
+                                })
+                            }
+                        }
+                    }
+                }
+
+                msgApi.success('Atualizado!')
             } else {
                 const uid = currentUser?.uid ?? (await getCurrentUserId())
                 const baseData: any = { tenant_id: tid, user_id: uid || null, event_type: 'SERVICE', title: v.title, status: 'SCHEDULED', customer_id: v.customer_id || null, employee_id: v.employee_id || null, service_id: serviceInputMode === 'select' ? (v.service_id || null) : null, description: v.notes || null }
@@ -853,7 +923,7 @@ function Schedule() {
                     amount: remaining, due_date: remainingDate, paid_date: null,
                     payment_method: v.payment_method, origin_type: 'SALE',
                     origin_id: payEvt.id, contact_id: payEvt.customer_id || null,
-                    created_by: createdBy,
+                    created_by: createdBy, is_split_remaining: true,
                 })
             }
 
@@ -1609,9 +1679,23 @@ function Schedule() {
                                                         </div>
                                                     </div>
                                                     <div>
-                                                        <div style={{ marginTop: 2, display: 'flex', alignItems: 'center', gap: 4 }}>
+                                                        <div style={{ marginTop: 2, display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
                                                             <Tag color={cfg.tagColor} style={{ fontSize: 8, lineHeight: '14px', padding: '0 4px', margin: 0 }}>{cfg.label}</Tag>
                                                             {ev.amount_charged != null && ev.amount_charged > 0 && <span style={{ fontSize: 9, color: '#4ade80', fontWeight: 600 }}>{fmt(ev.amount_charged)}</span>}
+                                                            {(() => {
+                                                                const disp = eventDispatchMap[ev.id]
+                                                                if (!disp) return null
+                                                                if (['SENT', 'DELIVERED', 'READ'].includes(disp.status)) {
+                                                                    return <Tooltip title="Mensagem enviada ao cliente"><CheckCircleOutlined style={{ color: '#16a34a', fontSize: 9 }} /></Tooltip>
+                                                                }
+                                                                if (disp.status === 'FAILED') {
+                                                                    return <Tooltip title={`Falha no envio: ${disp.error_message || 'erro desconhecido'}`}><ExclamationCircleOutlined style={{ color: '#dc2626', fontSize: 9 }} /></Tooltip>
+                                                                }
+                                                                if (disp.status === 'PENDING') {
+                                                                    return <Tooltip title="Mensagem agendada para envio"><ClockCircleOutlined style={{ color: '#94a3b8', fontSize: 9 }} /></Tooltip>
+                                                                }
+                                                                return null
+                                                            })()}
                                                         </div>
                                                         {(ev.status === 'SCHEDULED' || ev.status === 'CONFIRMED') && (
                                                             <Button
@@ -1667,6 +1751,7 @@ function Schedule() {
                             ))}
                         </Select>
                     </Form.Item>
+                    <Form.Item name="customer_id" label="Cliente" rules={[{ required: true, message: 'O cliente é obrigatório' }]}><Select placeholder="Selecione o cliente" showSearch optionFilterProp="children">{customers.map(c => <Select.Option key={c.id} value={c.id}>{c.name}</Select.Option>)}</Select></Form.Item>
 
                     {bookingEmployeeId && (
                         <div style={{ marginBottom: 16 }}>
@@ -1724,7 +1809,6 @@ function Schedule() {
                     <Form.Item name="duration_minutes" label="Duração" initialValue="60">
                         <Select>{[15, 30, 45, 60, 90, 120, 180, 240].map(m => <Select.Option key={m} value={String(m)}>{m < 60 ? `${m} min` : m % 60 === 0 ? `${m / 60}h` : `${Math.floor(m / 60)}h${m % 60}min`}</Select.Option>)}</Select>
                     </Form.Item>
-                    <Form.Item name="customer_id" label="Cliente" rules={[{ required: true, message: 'O cliente é obrigatório' }]}><Select placeholder="Selecione o cliente" showSearch optionFilterProp="children">{customers.map(c => <Select.Option key={c.id} value={c.id}>{c.name}</Select.Option>)}</Select></Form.Item>
                     {editingEvt && <Form.Item name="status" label="Status"><Select>{Object.entries(statusCfg).map(([k, c]) => <Select.Option key={k} value={k}><Tag color={c.tagColor} style={{ margin: 0 }}>{c.label}</Tag></Select.Option>)}</Select></Form.Item>}
                     <Form.Item name="notes" label="Observações"><Input.TextArea rows={2} /></Form.Item>
 
@@ -1830,7 +1914,7 @@ function Schedule() {
                             </div>
                         </div>
 
-                        <Form form={payForm} layout="vertical">
+                        <Form form={payForm} layout="vertical" onValuesChange={(changed) => { if ('amount_paid' in changed) setSplitAmountPaid(Number(changed.amount_paid) || 0) }}>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
                                 <Form.Item name="base_price" label="Valor do Serviço (R$)" rules={[{ required: true }]}>
                                     <InputNumber style={{ width: '100%' }} min={0 as number} step={0.5} precision={2} size="large"
@@ -1930,7 +2014,7 @@ function Schedule() {
                                 })()}
                             </div>
                             <div style={{ marginBottom: 16 }}>
-                                <Checkbox checked={isSplitPay} onChange={(e) => setIsSplitPay(e.target.checked)}>
+                                <Checkbox checked={isSplitPay} onChange={(e) => { setIsSplitPay(e.target.checked); if (!e.target.checked) setSplitAmountPaid(0) }}>
                                     <span style={{ fontWeight: 600 }}><DollarOutlined style={{ marginRight: 4 }} />Pagamento Parcelado / Dividido</span>
                                 </Checkbox>
                                 {isSplitPay && (
@@ -2132,11 +2216,11 @@ function Schedule() {
                         <div style={{ padding: 12, background: 'rgba(34, 197, 94, 0.1)', borderRadius: 8, border: '1px solid #BBF7D0' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 16, fontWeight: 700 }}>
                                 <span>Total a Lançar</span>
-                                <span style={{ color: '#4ade80' }}>{fmt(calcFinalPrice())}</span>
+                                <span style={{ color: '#4ade80' }}>{isSplitPay ? fmt(splitAmountPaid) : fmt(calcFinalPrice())}</span>
                             </div>
                             {isSplitPay && (
                                 <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>
-                                    Pago agora: {fmt(Number(payForm.getFieldValue('amount_paid')) || 0)} · Restante: {fmt(Math.max(0, calcFinalPrice() - (Number(payForm.getFieldValue('amount_paid')) || 0)))}
+                                    Pago agora: {fmt(splitAmountPaid)} · Restante: {fmt(Math.max(0, calcFinalPrice() - splitAmountPaid))}
                                 </div>
                             )}
                         </div>
