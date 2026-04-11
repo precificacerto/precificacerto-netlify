@@ -106,6 +106,30 @@ const CATEGORY_GROUP_MAP: { category: string; group: string }[] = [
     { category: 'Troca Cheque', group: 'DESPESA_FINANCEIRA' },
 ]
 
+// Grupos exclusivos Lucro Real — acrescentados ao final da lista
+const LR_CUSTO_PRODUTOS = [
+    { category: 'Fornecedores - Produtos para Revenda', group: 'CUSTO_PRODUTOS' },
+    { category: 'Matéria Prima - Base dos produtos', group: 'CUSTO_PRODUTOS' },
+    { category: 'Embalagens Individuais', group: 'CUSTO_PRODUTOS' },
+    { category: 'Fretes FOB (Valores relacionados a compra de suprimentos)', group: 'CUSTO_PRODUTOS' },
+]
+
+const LR_IMPOSTOS_COMPRAS = [
+    { category: 'IPI custo', group: 'IMPOSTO' },
+    { category: 'ICMS DIFAL', group: 'IMPOSTO' },
+    { category: 'ICMS-ST (Substituição Tributária)', group: 'IMPOSTO' },
+    { category: 'IS (Imposto Seletivo)', group: 'IMPOSTO' },
+    { category: 'FCP (Fundo de Combate à Pobreza)', group: 'IMPOSTO' },
+]
+
+const LR_IMPOSTOS_RECUPERAVEIS = [
+    { category: 'ICMS (recuperável)', group: 'IMPOSTO' },
+    { category: 'PIS/COFINS (recuperável)', group: 'IMPOSTO' },
+    { category: 'IPI (recuperável)', group: 'IMPOSTO' },
+    { category: 'CBS (Contribuição sobre Bens e Serviços)', group: 'IMPOSTO' },
+    { category: 'IBS (Imposto sobre Bens e Serviços)', group: 'IMPOSTO' },
+]
+
 const EXPENSE_CATEGORY_OPTIONS = [
     { label: '── Mão de Obra Produtiva ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'MAO_DE_OBRA_PRODUTIVA').map(c => ({ label: c.category, value: c.category })) },
     { label: '── Mão de Obra Administrativa ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'MAO_DE_OBRA_ADMINISTRATIVA').map(c => ({ label: c.category, value: c.category })) },
@@ -113,6 +137,13 @@ const EXPENSE_CATEGORY_OPTIONS = [
     { label: '── Despesas Variáveis ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_VARIAVEL').map(c => ({ label: c.category, value: c.category })) },
     { label: '── Despesas Financeiras ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_FINANCEIRA').map(c => ({ label: c.category, value: c.category })) },
     { label: '── Impostos ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'IMPOSTO').map(c => ({ label: c.category, value: c.category })) },
+]
+
+const LR_EXPENSE_CATEGORY_OPTIONS = [
+    ...EXPENSE_CATEGORY_OPTIONS,
+    { label: '── Custo dos Produtos ──', options: LR_CUSTO_PRODUTOS.map(c => ({ label: c.category, value: c.category })) },
+    { label: '── Impostos sobre compras ──', options: LR_IMPOSTOS_COMPRAS.map(c => ({ label: c.category, value: c.category })) },
+    { label: '── Impostos Recuperáveis sobre compras ──', options: LR_IMPOSTOS_RECUPERAVEIS.map(c => ({ label: c.category, value: c.category })) },
 ]
 
 function getGroupForCategory(cat: string): string | undefined {
@@ -385,8 +416,18 @@ export default function CashFlow() {
     useEffect(() => { fetchData() }, [month])
 
     const isSimples = taxRegime === 'SIMPLES_NACIONAL' || taxRegime === 'MEI'
-    const activeCategoryOptions = isSimples ? SN_EXPENSE_CATEGORY_OPTIONS : EXPENSE_CATEGORY_OPTIONS
-    const activeGroupForCategory = (cat: string) => isSimples ? getSNGroupForCategory(cat) : getGroupForCategory(cat)
+    const isLucroReal = taxRegime === 'LUCRO_REAL'
+    const activeCategoryOptions = isSimples
+        ? SN_EXPENSE_CATEGORY_OPTIONS
+        : isLucroReal
+            ? LR_EXPENSE_CATEGORY_OPTIONS
+            : EXPENSE_CATEGORY_OPTIONS
+    const activeGroupForCategory = (cat: string) => {
+        if (isSimples) return getSNGroupForCategory(cat)
+        const lrEntry = [...LR_CUSTO_PRODUTOS, ...LR_IMPOSTOS_COMPRAS, ...LR_IMPOSTOS_RECUPERAVEIS].find(c => c.category === cat)
+        if (lrEntry) return lrEntry.group
+        return getGroupForCategory(cat)
+    }
 
     const handleOpenPaymentModal = (entry: any) => {
         setPaymentEntry(entry)
