@@ -1,4 +1,4 @@
-import { Input, Form, InputNumber, Select, FormInstance, Divider, Tooltip, Tag, AutoComplete, Spin } from 'antd'
+import { Input, Form, InputNumber, Select, FormInstance, Divider, Tooltip, Tag, AutoComplete, Spin, Switch } from 'antd'
 import { InfoCircleOutlined, SearchOutlined } from '@ant-design/icons'
 import { currencyMask } from '@/utils/currency-mask'
 import { useEffect, useState, useRef, useCallback } from 'react'
@@ -42,6 +42,9 @@ interface NcmSuggestion {
   description: string
 }
 
+const formatBRL3 = (v: number) =>
+  v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 3 })
+
 const NewItemForm = ({ form, taxableRegime }: Props) => {
   const isLucroReal = taxableRegime === 'LUCRO_REAL'
   const { currentUser } = useAuth()
@@ -54,25 +57,43 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
   const [ncmOptions, setNcmOptions] = useState<{ value: string; label: React.ReactNode }[]>([])
   const [ncmFieldSearching, setNcmFieldSearching] = useState(false)
   const [netCostDisplay, setNetCostDisplay] = useState<string | null>(null)
+  const [impostosRecuperaveisDisplay, setImpostosRecuperaveisDisplay] = useState<number>(0)
   const nameDebounceRef = useRef<NodeJS.Timeout | null>(null)
   const ncmDebounceRef = useRef<NodeJS.Timeout | null>(null)
+
+  // Lê diretamente do form para evitar dependência de estado
+  const icmsDeferidoEnabled = Form.useWatch('icms_deferido_enabled', form) ?? false
 
   const recalcNetCost = useCallback(() => {
     if (!isLucroReal) return
     const values = form.getFieldsValue()
+    const isDeferidoEnabled = Boolean(values.icms_deferido_enabled)
     const priceStr = String(values.price || '0').replace(/\./g, '').replace(',', '.')
     const priceNum = parseFloat(priceStr) || 0
     const icms = Number(values.icms_rate) || 0
+    const icmsDeferido = isDeferidoEnabled ? (Number(values.icms_deferido_rate) || 0) : 0
     const pis = Number(values.pis_rate) || 0
     const cofins = Number(values.cofins_rate) || 0
+    const ipi = Number(values.ipi_rate) || 0
 
     if (priceNum > 0) {
-      const valorSemIcms = priceNum * (1 - icms / 100)
-      const valorLiquido = valorSemIcms * (1 - (pis + cofins) / 100)
+      // Impostos recuperáveis: quando deferido ativo = ICMS% × (1 - deferido%); senão = ICMS%
+      const impostosRec = isDeferidoEnabled
+        ? icms * (1 - icmsDeferido / 100)
+        : icms
+      setImpostosRecuperaveisDisplay(parseFloat(impostosRec.toFixed(4)))
+
+      // Deduções para chegar no valor custo líquido
+      const deducao1 = priceNum * impostosRec / 100
+      const deducao2 = (priceNum - priceNum * icms / 100) * (pis + cofins) / 100
+      const deducao3 = priceNum * ipi / 100
+      const valorLiquido = priceNum - deducao1 - deducao2 - deducao3
+
       setNetCostDisplay(getMonetaryValue(valorLiquido))
       form.setFieldsValue({ cost_net: valorLiquido })
     } else {
       setNetCostDisplay(null)
+      setImpostosRecuperaveisDisplay(0)
       form.setFieldsValue({ cost_net: 0 })
     }
   }, [form, isLucroReal])
@@ -81,7 +102,6 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
     if (!code || !isLucroReal) return
     const digits = code.replace(/\D/g, '')
     if (digits.length < 4) return
-    // ncm_codes armazena no formato "XXXX.XX.XX" — formatar para bater com o banco
     const formatted = digits.length >= 8
       ? `${digits.slice(0, 4)}.${digits.slice(4, 6)}.${digits.slice(6, 8)}`
       : digits.length >= 6
@@ -90,7 +110,7 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
     try {
       const { data: rows } = await supabase
         .from('ncm_codes')
-        .select('ipi_rate, pis_rate_cumulativo, cofins_rate_cumulativo')
+        .select('ipi_rate, pis_rate_nao_cumulativo, cofins_rate_nao_cumulativo')
         .in('code', [formatted, digits])
         .limit(1)
       const data = rows?.[0]
@@ -98,8 +118,8 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
         const toPercent = (v: any) => v != null ? parseFloat((Number(v) * 100).toFixed(2)) : 0
         form.setFieldsValue({
           ipi_rate: toPercent(data.ipi_rate),
-          pis_rate: toPercent(data.pis_rate_cumulativo),
-          cofins_rate: toPercent(data.cofins_rate_cumulativo),
+          pis_rate: toPercent(data.pis_rate_nao_cumulativo),
+          cofins_rate: toPercent(data.cofins_rate_nao_cumulativo),
         })
         setTimeout(recalcNetCost, 50)
       }
@@ -201,7 +221,15 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Quantidade comprado e estoque mínimo — usados em ambos os layouts
+  const handleDeferidoToggle = (checked: boolean) => {
+    form.setFieldsValue({
+      icms_deferido_enabled: checked,
+      ...(checked ? {} : { icms_deferido_rate: undefined }),
+    })
+    setTimeout(recalcNetCost, 50)
+  }
+
+  // Campos reutilizados nos dois layouts
   const quantidadeField = (
     <Form.Item
       name="quantity"
@@ -236,6 +264,7 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
     <Form layout="vertical" form={form}>
       <Form.Item name="id" hidden><Input /></Form.Item>
       <Form.Item name="cost_net" hidden><InputNumber /></Form.Item>
+      <Form.Item name="icms_deferido_enabled" hidden><Input /></Form.Item>
 
       <Divider orientation="left" style={{ fontSize: 12, color: '#94a3b8', marginTop: 0 }}>
         Identificação
@@ -391,7 +420,7 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
           label={
             <span>
               Valor unitário&nbsp;
-              <Tooltip title="Valor unitário do item (por unidade de medida). O valor total será calculado automaticamente.">
+              <Tooltip title="Valor unitário do item (por unidade de medida). O valor custo líquido será calculado automaticamente.">
                 <InfoCircleOutlined style={{ color: '#64748b' }} />
               </Tooltip>
             </span>
@@ -408,175 +437,271 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
         </Form.Item>
       </div>
 
-      {/* Linha 2 (Lucro Real): ICMS | IPI | PIS | COFINS */}
+      {/* Linha de impostos 1 (Lucro Real): ICMS | ICMS Deferido | Impostos Recuperáveis */}
       {isLucroReal && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, alignItems: 'end' }}>
-          <Form.Item
-            name="icms_rate"
-            label={
-              <span>
-                ICMS (%)&nbsp;
-                <Tooltip title="Alíquota ICMS de entrada. Preencha manualmente conforme a nota fiscal do fornecedor.">
-                  <InfoCircleOutlined style={{ color: '#64748b' }} />
-                </Tooltip>
-              </span>
-            }
-            rules={[{ required: true, message: REQUIRED }]}
-            initialValue={undefined}
-            style={{ marginBottom: 24 }}
-          >
-            <InputNumber
-              min={0}
-              max={100}
-              step={0.01}
-              precision={2}
-              style={{ width: '100%' }}
-              placeholder="Ex: 12"
-              suffix="%"
-              formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
-              parser={(v) => Number((v || '0').replace(',', '.'))}
-              onChange={() => setTimeout(recalcNetCost, 50)}
-            />
-          </Form.Item>
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, alignItems: 'end' }}>
+            <Form.Item
+              name="icms_rate"
+              label={
+                <span>
+                  ICMS (%)&nbsp;
+                  <Tooltip title="Alíquota ICMS de entrada. Preencha manualmente conforme a nota fiscal do fornecedor.">
+                    <InfoCircleOutlined style={{ color: '#64748b' }} />
+                  </Tooltip>
+                </span>
+              }
+              rules={[{ required: true, message: REQUIRED }]}
+              initialValue={undefined}
+              style={{ marginBottom: 24 }}
+            >
+              <InputNumber
+                min={0}
+                max={100}
+                step={0.01}
+                precision={2}
+                style={{ width: '100%' }}
+                placeholder="Ex: 17"
+                suffix="%"
+                formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
+                parser={(v) => Number((v || '0').replace(',', '.'))}
+                onChange={() => setTimeout(recalcNetCost, 50)}
+              />
+            </Form.Item>
 
-          <Form.Item
-            name="ipi_rate"
-            label={
-              <span>
-                IPI (%)&nbsp;
-                <Tooltip title="Alíquota IPI puxada do NCM. Editável se necessário.">
-                  <InfoCircleOutlined style={{ color: '#64748b' }} />
-                </Tooltip>
-              </span>
-            }
-            initialValue={0}
-            style={{ marginBottom: 24 }}
-          >
-            <InputNumber
-              min={0}
-              max={100}
-              step={0.01}
-              precision={2}
-              style={{ width: '100%' }}
-              placeholder="0,00"
-              suffix="%"
-              formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
-              parser={(v) => Number((v || '0').replace(',', '.'))}
-            />
-          </Form.Item>
+            <Form.Item
+              label={
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Switch
+                    size="small"
+                    checked={icmsDeferidoEnabled}
+                    onChange={handleDeferidoToggle}
+                  />
+                  <span>ICMS Deferido (%)&nbsp;</span>
+                  <Tooltip title="Ative para informar o percentual de diferimento do ICMS. Quando ativo, os impostos recuperáveis são recalculados automaticamente.">
+                    <InfoCircleOutlined style={{ color: '#64748b' }} />
+                  </Tooltip>
+                </span>
+              }
+              name="icms_deferido_rate"
+              style={{ marginBottom: 24 }}
+            >
+              <InputNumber
+                min={0}
+                max={100}
+                step={0.001}
+                precision={3}
+                style={{ width: '100%' }}
+                placeholder="Ex: 29,411"
+                suffix="%"
+                disabled={!icmsDeferidoEnabled}
+                formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
+                parser={(v) => Number((v || '0').replace(',', '.'))}
+                onChange={() => setTimeout(recalcNetCost, 50)}
+              />
+            </Form.Item>
 
-          <Form.Item
-            name="pis_rate"
-            label={
-              <span>
-                PIS (%)&nbsp;
-                <Tooltip title="Alíquota PIS puxada do NCM (regime cumulativo). Editável se necessário.">
-                  <InfoCircleOutlined style={{ color: '#64748b' }} />
-                </Tooltip>
-              </span>
-            }
-            initialValue={0}
-            style={{ marginBottom: 24 }}
-          >
-            <InputNumber
-              min={0}
-              max={100}
-              step={0.01}
-              precision={2}
-              style={{ width: '100%' }}
-              placeholder="0,00"
-              suffix="%"
-              formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
-              parser={(v) => Number((v || '0').replace(',', '.'))}
-              onChange={() => setTimeout(recalcNetCost, 50)}
-            />
-          </Form.Item>
+            <Form.Item
+              label={
+                <span>
+                  Impostos recuperáveis (%)&nbsp;
+                  <Tooltip title="Calculado automaticamente: quando ICMS Deferido ativo = ICMS% × (1 - Deferido%); caso contrário = ICMS%.">
+                    <InfoCircleOutlined style={{ color: '#64748b' }} />
+                  </Tooltip>
+                </span>
+              }
+              style={{ marginBottom: 24 }}
+            >
+              <InputNumber
+                value={impostosRecuperaveisDisplay}
+                min={0}
+                max={100}
+                precision={3}
+                style={{ width: '100%' }}
+                suffix="%"
+                disabled
+                formatter={(v) => v != null ? String(v).replace('.', ',') : '0'}
+              />
+            </Form.Item>
+          </div>
 
-          <Form.Item
-            name="cofins_rate"
-            label={
-              <span>
-                COFINS (%)&nbsp;
-                <Tooltip title="Alíquota COFINS puxada do NCM (regime cumulativo). Editável se necessário.">
-                  <InfoCircleOutlined style={{ color: '#64748b' }} />
-                </Tooltip>
-              </span>
-            }
-            initialValue={0}
-            style={{ marginBottom: 24 }}
-          >
-            <InputNumber
-              min={0}
-              max={100}
-              step={0.01}
-              precision={2}
-              style={{ width: '100%' }}
-              placeholder="0,00"
-              suffix="%"
-              formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
-              parser={(v) => Number((v || '0').replace(',', '.'))}
-              onChange={() => setTimeout(recalcNetCost, 50)}
-            />
-          </Form.Item>
-        </div>
+          {/* Linha de impostos 2 (Lucro Real): PIS | COFINS | IPI */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, alignItems: 'end' }}>
+            <Form.Item
+              name="pis_rate"
+              label={
+                <span>
+                  PIS (%)&nbsp;
+                  <Tooltip title="Alíquota PIS não-cumulativo puxada do NCM (1,65%). Preenchida automaticamente ao selecionar o NCM.">
+                    <InfoCircleOutlined style={{ color: '#64748b' }} />
+                  </Tooltip>
+                </span>
+              }
+              initialValue={0}
+              style={{ marginBottom: 24 }}
+            >
+              <InputNumber
+                min={0}
+                max={100}
+                step={0.01}
+                precision={2}
+                style={{ width: '100%' }}
+                placeholder="0,00"
+                suffix="%"
+                disabled
+                formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
+                parser={(v) => Number((v || '0').replace(',', '.'))}
+              />
+            </Form.Item>
+
+            <Form.Item
+              name="cofins_rate"
+              label={
+                <span>
+                  COFINS (%)&nbsp;
+                  <Tooltip title="Alíquota COFINS não-cumulativo puxada do NCM (7,6%). Preenchida automaticamente ao selecionar o NCM.">
+                    <InfoCircleOutlined style={{ color: '#64748b' }} />
+                  </Tooltip>
+                </span>
+              }
+              initialValue={0}
+              style={{ marginBottom: 24 }}
+            >
+              <InputNumber
+                min={0}
+                max={100}
+                step={0.01}
+                precision={2}
+                style={{ width: '100%' }}
+                placeholder="0,00"
+                suffix="%"
+                disabled
+                formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
+                parser={(v) => Number((v || '0').replace(',', '.'))}
+              />
+            </Form.Item>
+
+            <Form.Item
+              name="ipi_rate"
+              label={
+                <span>
+                  IPI (%)&nbsp;
+                  <Tooltip title="Alíquota IPI puxada do NCM. Editável se necessário.">
+                    <InfoCircleOutlined style={{ color: '#64748b' }} />
+                  </Tooltip>
+                </span>
+              }
+              initialValue={0}
+              style={{ marginBottom: 24 }}
+            >
+              <InputNumber
+                min={0}
+                max={100}
+                step={0.01}
+                precision={2}
+                style={{ width: '100%' }}
+                placeholder="0,00"
+                suffix="%"
+                formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
+                parser={(v) => Number((v || '0').replace(',', '.'))}
+                onChange={() => setTimeout(recalcNetCost, 50)}
+              />
+            </Form.Item>
+          </div>
+
+          {/* Linha de impostos 3 (Lucro Real): Valor custo líquido | QTD. Comprado | Estoque mínimo */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, alignItems: 'end' }}>
+            <Form.Item
+              label={
+                <span>
+                  Valor custo líquido&nbsp;
+                  <Tooltip title="Calculado: Valor unit. − Impostos recuperáveis − (PIS+COFINS sobre base ICMS) − IPI.">
+                    <InfoCircleOutlined style={{ color: '#64748b' }} />
+                  </Tooltip>
+                </span>
+              }
+              style={{ marginBottom: 24 }}
+            >
+              <Input
+                prefix="R$"
+                value={netCostDisplay || ''}
+                disabled
+                placeholder="Preencha valor e impostos"
+                style={{ background: 'rgba(34, 197, 94, 0.08)', borderColor: 'rgba(34, 197, 94, 0.3)', color: '#22C55E', fontWeight: 600 }}
+              />
+            </Form.Item>
+
+            {quantidadeField}
+            {estoqueField}
+          </div>
+        </>
       )}
 
-      {/* Linha 3 (Lucro Real): Valor custo líquido | QTD. Comprado | Estoque mínimo */}
-      {isLucroReal ? (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, alignItems: 'end' }}>
-          <Form.Item
-            label={
-              <span>
-                Valor custo líquido&nbsp;
-                <Tooltip title="Calculado: Valor unit. → deduz ICMS → deduz PIS+COFINS. Fórmula: preço × (1 - ICMS%) × (1 - (PIS+COFINS)%)">
-                  <InfoCircleOutlined style={{ color: '#64748b' }} />
-                </Tooltip>
-              </span>
-            }
-            style={{ marginBottom: 24 }}
-          >
-            <Input
-              prefix="R$"
-              value={netCostDisplay || ''}
-              disabled
-              placeholder="Preencha valor e ICMS"
-              style={{ background: 'rgba(34, 197, 94, 0.08)', borderColor: 'rgba(34, 197, 94, 0.3)', color: '#22C55E', fontWeight: 600 }}
-            />
-          </Form.Item>
-
-          {quantidadeField}
-          {estoqueField}
-        </div>
-      ) : (
+      {/* Linha QTD + Estoque para não-Lucro Real */}
+      {!isLucroReal && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16, alignItems: 'start' }}>
           {quantidadeField}
           {estoqueField}
         </div>
       )}
 
-      <div style={{
-        background: 'rgba(34, 197, 94, 0.12)',
-        border: '1px solid rgba(34, 197, 94, 0.3)',
-        borderRadius: 8,
-        padding: '10px 14px',
-        fontSize: 12,
-        color: '#e2e8f0',
-        marginBottom: 16,
-      }}>
-        <InfoCircleOutlined style={{ color: '#22C55E', marginRight: 6 }} />
-        <strong>Valor total (auto calculado):</strong>{' '}
-        {costPerUnit ? (
-          <Tag color="green" style={{ fontSize: 13, fontWeight: 600 }}>
-            {costPerUnit}
-          </Tag>
-        ) : (
-          <span style={{ color: '#64748b' }}>Preencha valor unitário e quantidade para calcular</span>
-        )}
-        <br />
-        <span style={{ fontSize: 11, color: '#94a3b8', marginTop: 4, display: 'inline-block' }}>
-          Ex: valor unitário R$&nbsp;5,00 × 10&nbsp;un = Valor total R$&nbsp;50,00.
-        </span>
-      </div>
+      {/* Observação */}
+      {isLucroReal ? (() => {
+        const vals = form.getFieldsValue()
+        const priceStr = String(vals.price || '0').replace(/\./g, '').replace(',', '.')
+        const priceNum = parseFloat(priceStr) || 0
+        const costNet = Number(vals.cost_net) || 0
+        const qty = Number(vals.quantity) || 0
+        const totalNet = costNet * qty
+        return (
+          <div style={{
+            background: 'rgba(34, 197, 94, 0.12)',
+            border: '1px solid rgba(34, 197, 94, 0.3)',
+            borderRadius: 8,
+            padding: '10px 14px',
+            fontSize: 12,
+            color: '#e2e8f0',
+            marginBottom: 16,
+          }}>
+            <InfoCircleOutlined style={{ color: '#22C55E', marginRight: 6 }} />
+            <strong>Valor Unitário cheio:&nbsp;</strong>
+            <Tag color="blue" style={{ fontSize: 13, fontWeight: 600 }}>
+              R$&nbsp;{priceNum > 0 ? getMonetaryValue(priceNum) : '—'}
+            </Tag>
+            <br />
+            <span style={{ fontSize: 11, color: '#94a3b8', marginTop: 4, display: 'inline-block' }}>
+              {costNet > 0 && qty > 0
+                ? `Ex: valor custo líquido R$ ${formatBRL3(costNet)} × ${qty} un = Valor total R$ ${getMonetaryValue(totalNet)}`
+                : 'Preencha o valor unitário e os impostos para calcular o custo líquido total.'
+              }
+            </span>
+          </div>
+        )
+      })() : (
+        <div style={{
+          background: 'rgba(34, 197, 94, 0.12)',
+          border: '1px solid rgba(34, 197, 94, 0.3)',
+          borderRadius: 8,
+          padding: '10px 14px',
+          fontSize: 12,
+          color: '#e2e8f0',
+          marginBottom: 16,
+        }}>
+          <InfoCircleOutlined style={{ color: '#22C55E', marginRight: 6 }} />
+          <strong>Valor total (auto calculado):</strong>{' '}
+          {costPerUnit ? (
+            <Tag color="green" style={{ fontSize: 13, fontWeight: 600 }}>
+              {costPerUnit}
+            </Tag>
+          ) : (
+            <span style={{ color: '#64748b' }}>Preencha valor unitário e quantidade para calcular</span>
+          )}
+          <br />
+          <span style={{ fontSize: 11, color: '#94a3b8', marginTop: 4, display: 'inline-block' }}>
+            Ex: valor unitário R$&nbsp;5,00 × 10&nbsp;un = Valor total R$&nbsp;50,00.
+          </span>
+        </div>
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }}>
         <Form.Item name="supplier_name" label="Fornecedor">

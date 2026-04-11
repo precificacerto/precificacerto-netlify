@@ -914,19 +914,25 @@ export type Database = {
           base_unit: Database["public"]["Enums"]["unit_measure"] | null
           c_class_trib: string | null
           code: string | null
+          cofins_rate: number | null
           cost_gross: number | null
           cost_net: number | null
           cost_per_base_unit: number | null
           cost_price: number
           created_at: string
           has_st: boolean | null
+          icms_deferido_rate: number | null
+          icms_rate: number | null
           id: string
+          ipi_rate: number | null
           is_monofasico: boolean | null
           item_type: Database["public"]["Enums"]["item_type"] | null
+          measure_quantity: number | null
           name: string
           nbs_code: string | null
           ncm_code: string | null
           observation: string | null
+          pis_rate: number | null
           quantity: number | null
           supplier_id: string | null
           supplier_name: string | null
@@ -939,19 +945,25 @@ export type Database = {
           base_unit?: Database["public"]["Enums"]["unit_measure"] | null
           c_class_trib?: string | null
           code?: string | null
+          cofins_rate?: number | null
           cost_gross?: number | null
           cost_net?: number | null
           cost_per_base_unit?: number | null
           cost_price?: number
           created_at?: string
           has_st?: boolean | null
+          icms_deferido_rate?: number | null
+          icms_rate?: number | null
           id?: string
+          ipi_rate?: number | null
           is_monofasico?: boolean | null
           item_type?: Database["public"]["Enums"]["item_type"] | null
+          measure_quantity?: number | null
           name: string
           nbs_code?: string | null
           ncm_code?: string | null
           observation?: string | null
+          pis_rate?: number | null
           quantity?: number | null
           supplier_id?: string | null
           supplier_name?: string | null
@@ -964,19 +976,25 @@ export type Database = {
           base_unit?: Database["public"]["Enums"]["unit_measure"] | null
           c_class_trib?: string | null
           code?: string | null
+          cofins_rate?: number | null
           cost_gross?: number | null
           cost_net?: number | null
           cost_per_base_unit?: number | null
           cost_price?: number
           created_at?: string
           has_st?: boolean | null
+          icms_deferido_rate?: number | null
+          icms_rate?: number | null
           id?: string
+          ipi_rate?: number | null
           is_monofasico?: boolean | null
           item_type?: Database["public"]["Enums"]["item_type"] | null
+          measure_quantity?: number | null
           name?: string
           nbs_code?: string | null
           ncm_code?: string | null
           observation?: string | null
+          pis_rate?: number | null
           quantity?: number | null
           supplier_id?: string | null
           supplier_name?: string | null

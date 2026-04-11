@@ -34,6 +34,7 @@ type ItemRow = {
   unitType: string
   price: number
   cost_per_base_unit: number
+  cost_net: number
   has_st: boolean
   is_monofasico: boolean
   supplier_name: string
@@ -91,6 +92,7 @@ function Items() {
       unitType: item.unit || 'UN',
       price: Number(item.cost_price) || 0,
       cost_per_base_unit: Number(item.cost_per_base_unit) || 0,
+      cost_net: Number(item.cost_net) || 0,
       has_st: item.has_st || false,
       is_monofasico: item.is_monofasico || false,
       supplier_name: item.supplier_name || '',
@@ -317,7 +319,13 @@ function Items() {
       quantity: record.quantity,
       measure_quantity: record.measure_quantity,
       unitType: record.unitType,
-      price: (record.cost_per_base_unit * record.measure_quantity).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+      price: (() => {
+        const isLucroReal = currentUser?.taxableRegime === 'LUCRO_REAL'
+        const gross = rawItem?.cost_gross ? Number(rawItem.cost_gross) : null
+        const computed = record.cost_per_base_unit * record.measure_quantity
+        const value = isLucroReal && gross != null && gross > 0 ? gross : computed
+        return value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      })(),
       has_st: record.has_st,
       is_monofasico: record.is_monofasico,
       supplier_name: record.supplier_name,
@@ -329,6 +337,8 @@ function Items() {
       ipi_rate: Number(rawItem?.ipi_rate) || 0,
       pis_rate: Number(rawItem?.pis_rate) || 0,
       cofins_rate: Number(rawItem?.cofins_rate) || 0,
+      icms_deferido_rate: rawItem?.icms_deferido_rate ? Number(rawItem.icms_deferido_rate) : undefined,
+      icms_deferido_enabled: Boolean(rawItem?.icms_deferido_rate && Number(rawItem.icms_deferido_rate) > 0),
       cost_net: Number(rawItem?.cost_net) || 0,
     })
     setNewItemOpen(true)
@@ -838,12 +848,14 @@ function Items() {
       const qty = Number(values.quantity) || 1
       const measureQty = Number(values.measure_quantity) || 1
       const stockQty = qty  // Estoque em unidades compradas (não convertido para unidade base)
-      // cost_per_base_unit = preço por unidade base (ex: R$0,02/ml para item de 1000ml a R$20)
-      const costPerBaseUnit = measureQty > 0 ? priceNumber / measureQty : priceNumber
-      const totalCost = priceNumber * qty
-
       const isLucroReal = currentUser?.taxableRegime === 'LUCRO_REAL'
       const costNet = isLucroReal ? (Number(values.cost_net) || 0) : 0
+      // Para Lucro Real: cost_per_base_unit usa o custo líquido (valor usado na precificação)
+      // Para outros regimes: usa o preço bruto
+      const costPerBaseUnit = isLucroReal && costNet > 0
+        ? (measureQty > 0 ? costNet / measureQty : costNet)
+        : (measureQty > 0 ? priceNumber / measureQty : priceNumber)
+      const totalCost = priceNumber * qty
 
       const itemData = {
         tenant_id: tenantId,
@@ -862,6 +874,7 @@ function Items() {
         ipi_rate: isLucroReal ? (Number(values.ipi_rate) || 0) : 0,
         pis_rate: isLucroReal ? (Number(values.pis_rate) || 0) : 0,
         cofins_rate: isLucroReal ? (Number(values.cofins_rate) || 0) : 0,
+        icms_deferido_rate: isLucroReal ? (Number(values.icms_deferido_rate) || null) : null,
         has_st: values.has_st || false,
         is_monofasico: values.is_monofasico || false,
         supplier_name: values.supplier_name || null,
@@ -1063,6 +1076,10 @@ function Items() {
       key: 'unit_price',
       width: 130,
       render: (_, record) => {
+        const isLucroReal = currentUser?.taxableRegime === 'LUCRO_REAL'
+        if (isLucroReal && record.cost_net > 0) {
+          return `R$ ${record.cost_net.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 3 })}`
+        }
         const valorUnitario = record.cost_per_base_unit * (record.measure_quantity || 1)
         return `R$ ${getMonetaryValue(valorUnitario)}`
       },
