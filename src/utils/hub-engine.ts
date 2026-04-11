@@ -39,6 +39,14 @@ const CATEGORY_LABEL_MAP: Record<string, string> = Object.fromEntries(
   Object.values(CASHIER_CATEGORY.EXPENSE).map((c: any) => [c.key, c.value])
 )
 
+// Labels das sub-categorias virtuais de impostos (Lucro Real — Custo dos Produtos)
+const LR_TAX_CATEGORY_LABELS: Record<string, string> = {
+  'LR_ICMS_CUSTO':   'ICMS (custo produto)',
+  'LR_PIS_CUSTO':    'PIS (custo produto)',
+  'LR_COFINS_CUSTO': 'COFINS (custo produto)',
+  'LR_IPI_CUSTO':    'IPI (custo produto)',
+}
+
 // Mapa de categoryKey → order (para ordenação)
 const CATEGORY_ORDER_MAP: Record<string, number> = Object.fromEntries(
   Object.values(CASHIER_CATEGORY.EXPENSE).map((c: any) => [c.key, c.order ?? 999])
@@ -73,10 +81,10 @@ export async function calculateHubData(tenantId: string): Promise<HubData> {
   // toISOString() usa UTC e pode retornar o dia errado em fusos negativos (Brasil UTC-3).
   const cutoffStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
 
-  // Busca todos os lançamentos de meses encerrados, incluindo expense_category
+  // Busca todos os lançamentos de meses encerrados, incluindo expense_category e breakdown LR
   const { data: entries, error } = await supabase
     .from('cash_entries')
-    .select('type, amount, due_date, expense_group, expense_category, is_active, paid_date, payment_method')
+    .select('type, amount, due_date, expense_group, expense_category, is_active, paid_date, payment_method, valor_nf, valor_icms, valor_pis, valor_cofins, valor_ipi')
     .eq('tenant_id', tenantId)
     .eq('is_active', true)
     .lt('due_date', cutoffStr)
@@ -106,7 +114,10 @@ export async function calculateHubData(tenantId: string): Promise<HubData> {
     } else if (entry.type === 'EXPENSE' && entry.expense_group) {
       // Somente despesas confirmadas (paid_date preenchido)
       if (!entry.paid_date) continue
-      // Nível grupo
+
+      const hasLrBreakdown = entry.valor_nf !== null && entry.valor_nf !== undefined
+
+      // Nível grupo: sempre usa o amount total (NF + impostos)
       if (!expenseByGroupByMonth[entry.expense_group]) {
         expenseByGroupByMonth[entry.expense_group] = {}
       }
@@ -116,11 +127,29 @@ export async function calculateHubData(tenantId: string): Promise<HubData> {
       // Nível categoria (detalhe dentro do grupo)
       if (entry.expense_category) {
         const catKey = entry.expense_category as string
+        // Para entradas com breakdown LR: usa valor_nf para a categoria principal
+        const catAmount = hasLrBreakdown ? (Number(entry.valor_nf) || 0) : amount
         if (!expenseByCategoryByMonth[catKey]) {
           expenseByCategoryByMonth[catKey] = { group: entry.expense_group, values: {} }
         }
         expenseByCategoryByMonth[catKey].values[monthKey] =
-          (expenseByCategoryByMonth[catKey].values[monthKey] || 0) + amount
+          (expenseByCategoryByMonth[catKey].values[monthKey] || 0) + catAmount
+
+        // Sub-categorias virtuais de impostos (Lucro Real)
+        if (hasLrBreakdown) {
+          const addTaxCat = (key: string, val: number) => {
+            if (!val) return
+            if (!expenseByCategoryByMonth[key]) {
+              expenseByCategoryByMonth[key] = { group: entry.expense_group as string, values: {} }
+            }
+            expenseByCategoryByMonth[key].values[monthKey] =
+              (expenseByCategoryByMonth[key].values[monthKey] || 0) + val
+          }
+          addTaxCat('LR_ICMS_CUSTO', Number(entry.valor_icms) || 0)
+          addTaxCat('LR_PIS_CUSTO', Number(entry.valor_pis) || 0)
+          addTaxCat('LR_COFINS_CUSTO', Number(entry.valor_cofins) || 0)
+          addTaxCat('LR_IPI_CUSTO', Number(entry.valor_ipi) || 0)
+        }
       }
     }
   }
@@ -158,7 +187,7 @@ export async function calculateHubData(tenantId: string): Promise<HubData> {
           const catAveragePct = totalIncome > 0 ? (catTotalSum / totalIncome) * 100 : 0
           return {
             categoryKey: catKey,
-            label: CATEGORY_LABEL_MAP[catKey] || catKey,
+            label: CATEGORY_LABEL_MAP[catKey] || LR_TAX_CATEGORY_LABELS[catKey] || catKey,
             values: catValues,
             totalSum: catTotalSum,
             closedMonthsWithData: catClosedMonths,
@@ -202,7 +231,7 @@ export async function calculateHubDataPrevMonth(tenantId: string): Promise<HubDa
   // Busca lançamentos apenas do mês anterior (>= início mês anterior e < início mês atual)
   const { data: entries, error } = await supabase
     .from('cash_entries')
-    .select('type, amount, due_date, expense_group, expense_category, is_active')
+    .select('type, amount, due_date, expense_group, expense_category, is_active, valor_nf, valor_icms, valor_pis, valor_cofins, valor_ipi')
     .eq('tenant_id', tenantId)
     .eq('is_active', true)
     .gte('due_date', prevMonthStr)
@@ -225,6 +254,8 @@ export async function calculateHubDataPrevMonth(tenantId: string): Promise<HubDa
     if (entry.type === 'INCOME') {
       incomeByMonth[monthKey] = (incomeByMonth[monthKey] || 0) + amount
     } else if (entry.type === 'EXPENSE' && entry.expense_group) {
+      const hasLrBreakdown = entry.valor_nf !== null && entry.valor_nf !== undefined
+
       if (!expenseByGroupByMonth[entry.expense_group]) {
         expenseByGroupByMonth[entry.expense_group] = {}
       }
@@ -233,11 +264,27 @@ export async function calculateHubDataPrevMonth(tenantId: string): Promise<HubDa
 
       if (entry.expense_category) {
         const catKey = entry.expense_category as string
+        const catAmount = hasLrBreakdown ? (Number(entry.valor_nf) || 0) : amount
         if (!expenseByCategoryByMonth[catKey]) {
           expenseByCategoryByMonth[catKey] = { group: entry.expense_group, values: {} }
         }
         expenseByCategoryByMonth[catKey].values[monthKey] =
-          (expenseByCategoryByMonth[catKey].values[monthKey] || 0) + amount
+          (expenseByCategoryByMonth[catKey].values[monthKey] || 0) + catAmount
+
+        if (hasLrBreakdown) {
+          const addTaxCat = (key: string, val: number) => {
+            if (!val) return
+            if (!expenseByCategoryByMonth[key]) {
+              expenseByCategoryByMonth[key] = { group: entry.expense_group as string, values: {} }
+            }
+            expenseByCategoryByMonth[key].values[monthKey] =
+              (expenseByCategoryByMonth[key].values[monthKey] || 0) + val
+          }
+          addTaxCat('LR_ICMS_CUSTO', Number(entry.valor_icms) || 0)
+          addTaxCat('LR_PIS_CUSTO', Number(entry.valor_pis) || 0)
+          addTaxCat('LR_COFINS_CUSTO', Number(entry.valor_cofins) || 0)
+          addTaxCat('LR_IPI_CUSTO', Number(entry.valor_ipi) || 0)
+        }
       }
     }
   }
@@ -271,7 +318,7 @@ export async function calculateHubDataPrevMonth(tenantId: string): Promise<HubDa
           const catAveragePct = totalIncome > 0 ? (catTotalSum / totalIncome) * 100 : 0
           return {
             categoryKey: catKey,
-            label: CATEGORY_LABEL_MAP[catKey] || catKey,
+            label: CATEGORY_LABEL_MAP[catKey] || LR_TAX_CATEGORY_LABELS[catKey] || catKey,
             values: catValues,
             totalSum: catTotalSum,
             closedMonthsWithData: catClosedMonths,
