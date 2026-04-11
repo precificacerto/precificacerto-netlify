@@ -167,6 +167,24 @@ export const BLOCK_IMPOSTOS_COMPRAS_LP: ExpenseSetupItem[] = [
   { key: 'IMPOSTO_IPI', label: 'IPI', expense_group: 'IMPOSTO' },
 ]
 
+/** Bloco Impostos sobre compras — Lucro Real */
+export const BLOCK_IMPOSTOS_COMPRAS_LR: ExpenseSetupItem[] = [
+  { key: 'IMPOSTO_IPI_CUSTO', label: 'IPI custo', expense_group: 'IMPOSTO' },
+  { key: 'IMPOSTO_ICMS_DIFAL', label: 'ICMS DIFAL', expense_group: 'IMPOSTO' },
+  { key: 'IMPOSTO_ICMS_ST', label: 'ICMS-ST (Substituição Tributária)', expense_group: 'IMPOSTO' },
+  { key: 'IMPOSTO_IS', label: 'IS (Imposto Seletivo)', expense_group: 'IMPOSTO' },
+  { key: 'IMPOSTO_FCP', label: 'FCP (Fundo de Combate à Pobreza)', expense_group: 'IMPOSTO' },
+]
+
+/** Bloco Impostos Recuperáveis sobre compras — Lucro Real */
+export const BLOCK_IMPOSTOS_RECUPERAVEIS_LR: ExpenseSetupItem[] = [
+  { key: 'IMPOSTO_ICMS', label: 'ICMS', expense_group: 'IMPOSTO' },
+  { key: 'IMPOSTO_PIS_COFINS', label: 'PIS/COFINS', expense_group: 'IMPOSTO' },
+  { key: 'IMPOSTO_IPI', label: 'IPI', expense_group: 'IMPOSTO' },
+  { key: 'IMPOSTO_CBS', label: 'CBS (Contribuição sobre Bens e Serviços)', expense_group: 'IMPOSTO' },
+  { key: 'IMPOSTO_IBS', label: 'IBS (Imposto sobre Bens e Serviços)', expense_group: 'IMPOSTO' },
+]
+
 /** Bloco Despesas financeiras */
 export const BLOCK_DESPESAS_FINANCEIRAS: ExpenseSetupItem[] = [
   { key: 'JUROS', label: 'Juros', expense_group: 'DESPESA_FINANCEIRA' },

@@ -317,6 +317,8 @@ export const CASHIER_CATEGORY = {
     GASTOS_LOGISTICAS_EXTERNAS: { order: 101, key: 'GASTOS_LOGISTICAS_EXTERNAS', value: 'Gastos com Logísticas Externas', group: 'ATIVIDADES_TERCEIRIZADAS' as ExpenseGroupKey },
     // Regime tributário
     REGIME_TRIBUTARIO_SIMPLES: { order: 90, key: 'REGIME_TRIBUTARIO_SIMPLES', value: 'Simples Nacional', group: 'REGIME_TRIBUTARIO' as ExpenseGroupKey },
+    // Impostos sobre compras — Lucro Real
+    IMPOSTO_IPI_CUSTO: { order: 102, key: 'IMPOSTO_IPI_CUSTO', value: 'IPI custo', group: 'IMPOSTO' as ExpenseGroupKey },
   },
 }
 
@@ -336,6 +338,8 @@ import {
   BLOCK_IMPOSTOS_SIMPLES,
   BLOCK_IMPOSTOS_LUCRO,
   BLOCK_IMPOSTOS_PRESUMIDO_RET,
+  BLOCK_IMPOSTOS_COMPRAS_LR,
+  BLOCK_IMPOSTOS_RECUPERAVEIS_LR,
 } from '@/constants/expense-setup-blocks'
 
 const BASE_EXPENSE_CATEGORY_OPTIONS = [
@@ -498,13 +502,26 @@ export function getExpenseCategoryOptionsForRegime(regime: string | null | undef
   const impostoBlock = (regime === 'LUCRO_PRESUMIDO_RET' || regime === 'PRESUMIDO_RET')
     ? BLOCK_IMPOSTOS_PRESUMIDO_RET
     : BLOCK_IMPOSTOS_LUCRO
-  return [
+  const base = [
     ...BASE_EXPENSE_CATEGORY_OPTIONS,
     {
       label: '── Impostos ──',
       options: impostoBlock.map(i => ({ label: i.label, value: i.key })),
     },
   ]
+  if (regime === 'LUCRO_REAL') {
+    base.push(
+      {
+        label: '── Impostos sobre compras ──',
+        options: BLOCK_IMPOSTOS_COMPRAS_LR.map(i => ({ label: i.label, value: i.key })),
+      },
+      {
+        label: '── Impostos Recuperáveis sobre compras ──',
+        options: BLOCK_IMPOSTOS_RECUPERAVEIS_LR.map(i => ({ label: i.label, value: i.key })),
+      },
+    )
+  }
+  return base
 }
 
 export const YEARLY_AVERAGE_CATEGORIES = [

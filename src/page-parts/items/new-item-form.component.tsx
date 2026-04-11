@@ -83,9 +83,9 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
       setImpostosRecuperaveisDisplay(parseFloat(impostosRec.toFixed(4)))
 
       // Deduções para chegar no valor custo líquido
-      // deducao1: ICMS recuperável sobre valor unitário
-      // deducao2: PIS+COFINS sobre (valor unitário − ICMS recuperável)
-      const deducao1 = priceNum * impostosRec / 100
+      // deducao1: ICMS% sempre usa o valor bruto do campo ICMS (toggle deferido não afeta o cálculo)
+      // deducao2: PIS+COFINS sobre (valor unitário − deducao1)
+      const deducao1 = priceNum * icms / 100
       const deducao2 = (priceNum - deducao1) * (pis + cofins) / 100
       const valorLiquido = priceNum - deducao1 - deducao2
 
@@ -587,7 +587,7 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
               label={
                 <span>
                   Valor custo líquido&nbsp;
-                  <Tooltip title="Calculado: Valor unit. − ICMS recuperável − (PIS+COFINS sobre base após ICMS).">
+                  <Tooltip title="Calculado: Valor unit. − (Valor unit. × ICMS%) − ((Valor unit. − ICMS) × PIS+COFINS%).">
                     <InfoCircleOutlined style={{ color: '#64748b' }} />
                   </Tooltip>
                 </span>
