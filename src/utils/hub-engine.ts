@@ -115,9 +115,10 @@ export async function calculateHubData(tenantId: string): Promise<HubData> {
       // Somente despesas confirmadas (paid_date preenchido)
       if (!entry.paid_date) continue
 
-      const hasLrBreakdown = entry.valor_nf !== null && entry.valor_nf !== undefined
+      // Breakdown LR: detectado por qualquer coluna de imposto preenchida
+      const hasLrBreakdown = entry.valor_icms != null || entry.valor_pis != null || entry.valor_cofins != null || entry.valor_ipi != null
 
-      // Nível grupo: sempre usa o amount total (NF + impostos)
+      // Nível grupo: sempre usa o amount total
       if (!expenseByGroupByMonth[entry.expense_group]) {
         expenseByGroupByMonth[entry.expense_group] = {}
       }
@@ -127,15 +128,14 @@ export async function calculateHubData(tenantId: string): Promise<HubData> {
       // Nível categoria (detalhe dentro do grupo)
       if (entry.expense_category) {
         const catKey = entry.expense_category as string
-        // Para entradas com breakdown LR: usa valor_nf para a categoria principal
-        const catAmount = hasLrBreakdown ? (Number(entry.valor_nf) || 0) : amount
+        // Categoria principal sempre usa o amount total
         if (!expenseByCategoryByMonth[catKey]) {
           expenseByCategoryByMonth[catKey] = { group: entry.expense_group, values: {} }
         }
         expenseByCategoryByMonth[catKey].values[monthKey] =
-          (expenseByCategoryByMonth[catKey].values[monthKey] || 0) + catAmount
+          (expenseByCategoryByMonth[catKey].values[monthKey] || 0) + amount
 
-        // Sub-categorias virtuais de impostos (Lucro Real)
+        // Sub-categorias virtuais de impostos (Lucro Real) — informativos, não somam no grupo
         if (hasLrBreakdown) {
           const addTaxCat = (key: string, val: number) => {
             if (!val) return
@@ -254,7 +254,7 @@ export async function calculateHubDataPrevMonth(tenantId: string): Promise<HubDa
     if (entry.type === 'INCOME') {
       incomeByMonth[monthKey] = (incomeByMonth[monthKey] || 0) + amount
     } else if (entry.type === 'EXPENSE' && entry.expense_group) {
-      const hasLrBreakdown = entry.valor_nf !== null && entry.valor_nf !== undefined
+      const hasLrBreakdown = entry.valor_icms != null || entry.valor_pis != null || entry.valor_cofins != null || entry.valor_ipi != null
 
       if (!expenseByGroupByMonth[entry.expense_group]) {
         expenseByGroupByMonth[entry.expense_group] = {}
@@ -264,12 +264,11 @@ export async function calculateHubDataPrevMonth(tenantId: string): Promise<HubDa
 
       if (entry.expense_category) {
         const catKey = entry.expense_category as string
-        const catAmount = hasLrBreakdown ? (Number(entry.valor_nf) || 0) : amount
         if (!expenseByCategoryByMonth[catKey]) {
           expenseByCategoryByMonth[catKey] = { group: entry.expense_group, values: {} }
         }
         expenseByCategoryByMonth[catKey].values[monthKey] =
-          (expenseByCategoryByMonth[catKey].values[monthKey] || 0) + catAmount
+          (expenseByCategoryByMonth[catKey].values[monthKey] || 0) + amount
 
         if (hasLrBreakdown) {
           const addTaxCat = (key: string, val: number) => {

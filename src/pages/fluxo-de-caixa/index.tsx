@@ -883,10 +883,7 @@ export default function CashFlow() {
             if (!tenant_id) return
 
             {
-                const valorNf = parseCurrencyFn(expenseAmount)
-                const amountNum = isLrCustoProdutos
-                    ? valorNf + lrValorIcms + lrValorPis + lrValorCofins + lrValorIpi
-                    : valorNf
+                const amountNum = parseCurrencyFn(expenseAmount)
                 if (amountNum <= 0) { messageApi.warning('Informe o valor da despesa.'); return }
                 if (!values.expense_category) { messageApi.warning('Selecione a categoria.'); return }
 
@@ -925,7 +922,6 @@ export default function CashFlow() {
                             expense_category: values.expense_category,
                             payment_method: paymentMethod,
                             ...(isLrCustoProdutos ? {
-                                valor_nf: Math.round(valorNf * ratio * 100) / 100,
                                 valor_icms: Math.round(lrValorIcms * ratio * 100) / 100,
                                 valor_pis: Math.round(lrValorPis * ratio * 100) / 100,
                                 valor_cofins: Math.round(lrValorCofins * ratio * 100) / 100,
@@ -949,7 +945,6 @@ export default function CashFlow() {
                             expense_category: values.expense_category,
                             ...(paymentMethod ? { payment_method: paymentMethod } : {}),
                             ...(isLrCustoProdutos ? {
-                                valor_nf: Math.round(valorNf / parcelas * 100) / 100,
                                 valor_icms: Math.round(lrValorIcms / parcelas * 100) / 100,
                                 valor_pis: Math.round(lrValorPis / parcelas * 100) / 100,
                                 valor_cofins: Math.round(lrValorCofins / parcelas * 100) / 100,
@@ -1478,7 +1473,7 @@ export default function CashFlow() {
                     <Form.Item name="expense_description" label="Descrição (opcional)">
                         <Input placeholder="Ex: Conta de luz da loja" />
                     </Form.Item>
-                    <Form.Item label={isLrCustoProdutos ? 'Valor Total dos Produtos (NF)' : 'Valor Total'} required>
+                    <Form.Item label="Valor Total" required>
                         <Input
                             prefix="R$"
                             placeholder="0,00"
@@ -1487,10 +1482,7 @@ export default function CashFlow() {
                                 const newVal = currencyMaskFn(e.target.value)
                                 setExpenseAmount(newVal)
                                 if (expInstallmentPreset !== 'customizado') {
-                                    const nf = parseCurrencyFn(newVal)
-                                    const total = isLrCustoProdutos
-                                        ? nf + lrValorIcms + lrValorPis + lrValorCofins + lrValorIpi
-                                        : nf
+                                    const total = parseCurrencyFn(newVal)
                                     const n = expInstallments.length
                                     const amt = n > 0 && total > 0 ? Math.round((total / n) * 100) / 100 : 0
                                     setExpInstallments(prev => prev.map(inst => ({ ...inst, amount: amt })))
@@ -1499,10 +1491,11 @@ export default function CashFlow() {
                         />
                     </Form.Item>
                     {isLrCustoProdutos && (
-                        <>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+                        <div style={{ marginBottom: 16, padding: '12px 14px', background: 'rgba(99,102,241,0.06)', borderRadius: 6, border: '1px solid rgba(99,102,241,0.2)' }}>
+                            <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 10 }}>Impostos recuperáveis (informativo — registrados no Hub)</div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                                 <div>
-                                    <div style={{ fontSize: 13, color: '#94a3b8', marginBottom: 4 }}>Valor ICMS</div>
+                                    <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Valor ICMS</div>
                                     <InputNumber
                                         min={0} step={0.01} precision={2} style={{ width: '100%' }}
                                         addonBefore="R$" value={lrValorIcms || undefined} placeholder="0,00"
@@ -1510,7 +1503,7 @@ export default function CashFlow() {
                                     />
                                 </div>
                                 <div>
-                                    <div style={{ fontSize: 13, color: '#94a3b8', marginBottom: 4 }}>Valor PIS</div>
+                                    <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Valor PIS</div>
                                     <InputNumber
                                         min={0} step={0.01} precision={2} style={{ width: '100%' }}
                                         addonBefore="R$" value={lrValorPis || undefined} placeholder="0,00"
@@ -1518,7 +1511,7 @@ export default function CashFlow() {
                                     />
                                 </div>
                                 <div>
-                                    <div style={{ fontSize: 13, color: '#94a3b8', marginBottom: 4 }}>Valor COFINS</div>
+                                    <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Valor COFINS</div>
                                     <InputNumber
                                         min={0} step={0.01} precision={2} style={{ width: '100%' }}
                                         addonBefore="R$" value={lrValorCofins || undefined} placeholder="0,00"
@@ -1526,7 +1519,7 @@ export default function CashFlow() {
                                     />
                                 </div>
                                 <div>
-                                    <div style={{ fontSize: 13, color: '#94a3b8', marginBottom: 4 }}>Valor IPI</div>
+                                    <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Valor IPI</div>
                                     <InputNumber
                                         min={0} step={0.01} precision={2} style={{ width: '100%' }}
                                         addonBefore="R$" value={lrValorIpi || undefined} placeholder="0,00"
@@ -1534,13 +1527,7 @@ export default function CashFlow() {
                                     />
                                 </div>
                             </div>
-                            <div style={{ marginBottom: 16, padding: '10px 14px', background: 'rgba(59,130,246,0.08)', borderRadius: 6, border: '1px solid rgba(59,130,246,0.2)' }}>
-                                <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 2 }}>Valor Total a lançar no Fluxo de Caixa (NF + Impostos):</div>
-                                <div style={{ fontSize: 17, fontWeight: 700, color: '#60a5fa' }}>
-                                    R$ {(parseCurrencyFn(expenseAmount) + lrValorIcms + lrValorPis + lrValorCofins + lrValorIpi).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                </div>
-                            </div>
-                        </>
+                        </div>
                     )}
                     <Form.Item name="payment_method" label="Método de Pagamento">
                         <Select
