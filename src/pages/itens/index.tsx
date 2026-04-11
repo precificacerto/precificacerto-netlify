@@ -334,7 +334,6 @@ function Items() {
       min_limit: minLimit,
       // Alíquotas salvas (Lucro Real)
       icms_rate: rawItem?.icms_rate ? Number(rawItem.icms_rate) : undefined,
-      ipi_rate: Number(rawItem?.ipi_rate) || 0,
       pis_rate: Number(rawItem?.pis_rate) || 0,
       cofins_rate: Number(rawItem?.cofins_rate) || 0,
       icms_deferido_rate: rawItem?.icms_deferido_rate ? Number(rawItem.icms_deferido_rate) : undefined,
@@ -871,7 +870,6 @@ function Items() {
         cost_net: costNet,
         cost_per_base_unit: costPerBaseUnit,
         icms_rate: isLucroReal ? (Number(values.icms_rate) || 0) : 0,
-        ipi_rate: isLucroReal ? (Number(values.ipi_rate) || 0) : 0,
         pis_rate: isLucroReal ? (Number(values.pis_rate) || 0) : 0,
         cofins_rate: isLucroReal ? (Number(values.cofins_rate) || 0) : 0,
         icms_deferido_rate: isLucroReal ? (Number(values.icms_deferido_rate) || null) : null,

@@ -74,7 +74,6 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
     const icmsDeferido = isDeferidoEnabled ? (Number(values.icms_deferido_rate) || 0) : 0
     const pis = Number(values.pis_rate) || 0
     const cofins = Number(values.cofins_rate) || 0
-    const ipi = Number(values.ipi_rate) || 0
 
     if (priceNum > 0) {
       // Impostos recuperáveis: quando deferido ativo = ICMS% × (1 - deferido%); senão = ICMS%
@@ -84,10 +83,11 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
       setImpostosRecuperaveisDisplay(parseFloat(impostosRec.toFixed(4)))
 
       // Deduções para chegar no valor custo líquido
+      // deducao1: ICMS recuperável sobre valor unitário
+      // deducao2: PIS+COFINS sobre (valor unitário − ICMS recuperável)
       const deducao1 = priceNum * impostosRec / 100
-      const deducao2 = (priceNum - priceNum * icms / 100) * (pis + cofins) / 100
-      const deducao3 = priceNum * ipi / 100
-      const valorLiquido = priceNum - deducao1 - deducao2 - deducao3
+      const deducao2 = (priceNum - deducao1) * (pis + cofins) / 100
+      const valorLiquido = priceNum - deducao1 - deducao2
 
       setNetCostDisplay(getMonetaryValue(valorLiquido))
       form.setFieldsValue({ cost_net: valorLiquido })
@@ -110,14 +110,13 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
     try {
       const { data: rows } = await supabase
         .from('ncm_codes')
-        .select('ipi_rate, pis_rate_nao_cumulativo, cofins_rate_nao_cumulativo')
+        .select('pis_rate_nao_cumulativo, cofins_rate_nao_cumulativo')
         .in('code', [formatted, digits])
         .limit(1)
       const data = rows?.[0]
       if (data) {
         const toPercent = (v: any) => v != null ? parseFloat((Number(v) * 100).toFixed(2)) : 0
         form.setFieldsValue({
-          ipi_rate: toPercent(data.ipi_rate),
           pis_rate: toPercent(data.pis_rate_nao_cumulativo),
           cofins_rate: toPercent(data.cofins_rate_nao_cumulativo),
         })
@@ -525,8 +524,8 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
             </Form.Item>
           </div>
 
-          {/* Linha de impostos 2 (Lucro Real): PIS | COFINS | IPI */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, alignItems: 'end' }}>
+          {/* Linha de impostos 2 (Lucro Real): PIS | COFINS */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, alignItems: 'end' }}>
             <Form.Item
               name="pis_rate"
               label={
@@ -580,33 +579,6 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
                 parser={(v) => Number((v || '0').replace(',', '.'))}
               />
             </Form.Item>
-
-            <Form.Item
-              name="ipi_rate"
-              label={
-                <span>
-                  IPI (%)&nbsp;
-                  <Tooltip title="Alíquota IPI puxada do NCM. Editável se necessário.">
-                    <InfoCircleOutlined style={{ color: '#64748b' }} />
-                  </Tooltip>
-                </span>
-              }
-              initialValue={0}
-              style={{ marginBottom: 24 }}
-            >
-              <InputNumber
-                min={0}
-                max={100}
-                step={0.01}
-                precision={2}
-                style={{ width: '100%' }}
-                placeholder="0,00"
-                suffix="%"
-                formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
-                parser={(v) => Number((v || '0').replace(',', '.'))}
-                onChange={() => setTimeout(recalcNetCost, 50)}
-              />
-            </Form.Item>
           </div>
 
           {/* Linha de impostos 3 (Lucro Real): Valor custo líquido | QTD. Comprado | Estoque mínimo */}
@@ -615,7 +587,7 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
               label={
                 <span>
                   Valor custo líquido&nbsp;
-                  <Tooltip title="Calculado: Valor unit. − Impostos recuperáveis − (PIS+COFINS sobre base ICMS) − IPI.">
+                  <Tooltip title="Calculado: Valor unit. − ICMS recuperável − (PIS+COFINS sobre base após ICMS).">
                     <InfoCircleOutlined style={{ color: '#64748b' }} />
                   </Tooltip>
                 </span>
