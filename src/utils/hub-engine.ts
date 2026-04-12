@@ -54,18 +54,20 @@ const CATEGORY_ORDER_MAP: Record<string, number> = Object.fromEntries(
 
 // Ordem e labels dos grupos exibidos no Hub
 const HUB_GROUPS: { group: string; label: string }[] = [
-  { group: 'CUSTO_PRODUTOS',            label: 'Custo dos Produtos' },
-  { group: 'MAO_DE_OBRA_PRODUTIVA',     label: 'MO Produtiva' },
-  { group: 'MAO_DE_OBRA_ADMINISTRATIVA', label: 'MO Administrativa (Indireta)' },
-  { group: 'MAO_DE_OBRA',               label: 'MO (Legado)' }, // retrocompat
-  { group: 'DESPESA_FIXA',              label: 'Despesas Fixas' },
-  { group: 'DESPESA_VARIAVEL',          label: 'Despesas Variáveis' },
-  { group: 'ATIVIDADES_TERCEIRIZADAS',  label: 'Atividades Terceirizadas' },
-  { group: 'DESPESA_FINANCEIRA',        label: 'Despesas Financeiras' },
-  { group: 'COMISSOES',                 label: 'Comissões' },
-  { group: 'IMPOSTO',                   label: 'Impostos' },
-  { group: 'REGIME_TRIBUTARIO',         label: 'Tributos do Regime' },
-  { group: 'LUCRO',                     label: 'Lucro / Investimentos' },
+  { group: 'CUSTO_PRODUTOS',              label: 'Custo dos Produtos' },
+  { group: 'MAO_DE_OBRA_PRODUTIVA',       label: 'MO Produtiva' },
+  { group: 'MAO_DE_OBRA_ADMINISTRATIVA',  label: 'MO Administrativa (Indireta)' },
+  { group: 'MAO_DE_OBRA',                 label: 'MO (Legado)' }, // retrocompat
+  { group: 'DESPESA_FIXA',                label: 'Despesas Fixas' },
+  { group: 'DESPESA_VARIAVEL',            label: 'Despesas Variáveis' },
+  { group: 'ATIVIDADES_TERCEIRIZADAS',    label: 'Atividades Terceirizadas' },
+  { group: 'DESPESA_FINANCEIRA',          label: 'Despesas Financeiras' },
+  { group: 'COMISSOES',                   label: 'Comissões' },
+  { group: 'LUCRO',                       label: 'Lucro / Investimentos' },
+  { group: 'IMPOSTO_LUCRO',              label: 'Impostos sobre o Lucro' },
+  { group: 'IMPOSTO_FATURAMENTO_DENTRO', label: 'Impostos sobre o Faturamento (Por dentro)' },
+  { group: 'IMPOSTO',                     label: 'Impostos sobre o Faturamento (Por fora)' },
+  { group: 'REGIME_TRIBUTARIO',           label: 'Tributos do Regime' },
 ]
 
 /**
@@ -128,15 +130,23 @@ export async function calculateHubData(tenantId: string): Promise<HubData> {
       // Nível categoria (detalhe dentro do grupo)
       if (entry.expense_category) {
         const catKey = entry.expense_category as string
-        // Categoria principal sempre usa o amount total
         if (!expenseByCategoryByMonth[catKey]) {
           expenseByCategoryByMonth[catKey] = { group: entry.expense_group, values: {} }
         }
-        expenseByCategoryByMonth[catKey].values[monthKey] =
-          (expenseByCategoryByMonth[catKey].values[monthKey] || 0) + amount
 
-        // Sub-categorias virtuais de impostos (Lucro Real) — informativos, não somam no grupo
-        if (hasLrBreakdown) {
+        // Para CUSTO_PRODUTOS com breakdown LR: valor da categoria = amount − impostos recuperáveis
+        // (os impostos aparecem como sub-rows somados separadamente)
+        const isCustoProdutos = entry.expense_group === 'CUSTO_PRODUTOS'
+        const taxDeduction = (hasLrBreakdown && isCustoProdutos)
+          ? (Number(entry.valor_icms) || 0) + (Number(entry.valor_pis) || 0)
+            + (Number(entry.valor_cofins) || 0) + (Number(entry.valor_ipi) || 0)
+          : 0
+
+        expenseByCategoryByMonth[catKey].values[monthKey] =
+          (expenseByCategoryByMonth[catKey].values[monthKey] || 0) + amount - taxDeduction
+
+        // Sub-rows de impostos (Lucro Real — Custo dos Produtos): somados de todas as categorias
+        if (hasLrBreakdown && isCustoProdutos) {
           const addTaxCat = (key: string, val: number) => {
             if (!val) return
             if (!expenseByCategoryByMonth[key]) {
@@ -267,10 +277,17 @@ export async function calculateHubDataPrevMonth(tenantId: string): Promise<HubDa
         if (!expenseByCategoryByMonth[catKey]) {
           expenseByCategoryByMonth[catKey] = { group: entry.expense_group, values: {} }
         }
-        expenseByCategoryByMonth[catKey].values[monthKey] =
-          (expenseByCategoryByMonth[catKey].values[monthKey] || 0) + amount
 
-        if (hasLrBreakdown) {
+        const isCustoProdutos = entry.expense_group === 'CUSTO_PRODUTOS'
+        const taxDeduction = (hasLrBreakdown && isCustoProdutos)
+          ? (Number(entry.valor_icms) || 0) + (Number(entry.valor_pis) || 0)
+            + (Number(entry.valor_cofins) || 0) + (Number(entry.valor_ipi) || 0)
+          : 0
+
+        expenseByCategoryByMonth[catKey].values[monthKey] =
+          (expenseByCategoryByMonth[catKey].values[monthKey] || 0) + amount - taxDeduction
+
+        if (hasLrBreakdown && isCustoProdutos) {
           const addTaxCat = (key: string, val: number) => {
             if (!val) return
             if (!expenseByCategoryByMonth[key]) {

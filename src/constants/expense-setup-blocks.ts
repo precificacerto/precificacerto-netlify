@@ -111,7 +111,7 @@ export const BLOCK_IMPOSTOS_SIMPLES: ExpenseSetupItem[] = [
   { key: 'IMPOSTO_OUTROS', label: 'Imposto Outros', expense_group: 'IMPOSTO' },
 ]
 
-/** Bloco Impostos sobre faturamento — Lucro Real / Lucro Presumido */
+/** Bloco Impostos sobre o faturamento (Por fora) — Lucro Real / Lucro Presumido */
 export const BLOCK_IMPOSTOS_LUCRO: ExpenseSetupItem[] = [
   { key: 'IMPOSTO_CBS', label: 'CBS (Contribuição sobre Bens e Serviços)', expense_group: 'IMPOSTO' },
   { key: 'IMPOSTO_IBS', label: 'IBS (Imposto sobre Bens e Serviços)', expense_group: 'IMPOSTO' },
@@ -124,16 +124,26 @@ export const BLOCK_IMPOSTOS_LUCRO: ExpenseSetupItem[] = [
   { key: 'IMPOSTO_PIS_COFINS', label: 'PIS / COFINS', expense_group: 'IMPOSTO' },
   { key: 'IMPOSTO_PIS_COFINS_MONOFASICO', label: 'PIS/COFINS Monofásico', expense_group: 'IMPOSTO' },
   { key: 'IMPOSTO_FCP', label: 'FCP (Fundo de Combate à Pobreza)', expense_group: 'IMPOSTO' },
-  { key: 'IMPOSTO_IRPJ', label: 'IRPJ (Imposto de Renda da Pessoa Jurídica)', expense_group: 'IMPOSTO' },
-  { key: 'IMPOSTO_CSLL', label: 'CSLL (Contribuição Social sobre o Lucro Líquido)', expense_group: 'IMPOSTO' },
-  { key: 'IMPOSTO_ALIQUOTA_ADICIONAL_IRPJ', label: 'Alíquota Adicional da parcela do IRPJ', expense_group: 'IMPOSTO' },
   { key: 'IMPOSTO_DARF', label: 'Imposto DARF', expense_group: 'IMPOSTO' },
   { key: 'IMPOSTO_GA', label: 'Imposto Guia Arrecadação (GA)', expense_group: 'IMPOSTO' },
   { key: 'IMPOSTO_GARE', label: 'Imposto GARE', expense_group: 'IMPOSTO' },
   { key: 'IMPOSTO_GPS', label: 'Imposto GPS', expense_group: 'IMPOSTO' },
   { key: 'IMPOSTO_ISS', label: 'Imposto ISS', expense_group: 'IMPOSTO' },
-  { key: 'IMPOSTOS_IPTU_IPVA', label: 'Impostos IPTU / IPVA', expense_group: 'DESPESA_FIXA' },
   { key: 'IMPOSTO_OUTROS', label: 'Imposto Outros', expense_group: 'IMPOSTO' },
+]
+
+/** Bloco Impostos sobre o Lucro — Lucro Real */
+export const BLOCK_IMPOSTOS_SOBRE_LUCRO_LR: ExpenseSetupItem[] = [
+  { key: 'IMPOSTO_IRPJ', label: 'IRPJ (Imposto de Renda de Pessoa Jurídica)', expense_group: 'IMPOSTO_LUCRO' },
+  { key: 'IMPOSTO_CSLL', label: 'CSLL (Contribuição Social sobre o Lucro Líquido)', expense_group: 'IMPOSTO_LUCRO' },
+  { key: 'IMPOSTO_ALIQUOTA_ADICIONAL_IRPJ', label: 'Alíquota Adicional da parcela do IRPJ', expense_group: 'IMPOSTO_LUCRO' },
+]
+
+/** Bloco Impostos sobre o Faturamento (Por dentro) — Lucro Real */
+export const BLOCK_IMPOSTOS_FATURAMENTO_DENTRO_LR: ExpenseSetupItem[] = [
+  { key: 'ICMS_PROPRIO', label: 'ICMS Próprio', expense_group: 'IMPOSTO_FATURAMENTO_DENTRO' },
+  { key: 'PIS_POR_DENTRO', label: 'PIS', expense_group: 'IMPOSTO_FATURAMENTO_DENTRO' },
+  { key: 'COFINS_POR_DENTRO', label: 'COFINS', expense_group: 'IMPOSTO_FATURAMENTO_DENTRO' },
 ]
 
 /** Bloco Impostos sobre faturamento — Lucro Presumido RET */
@@ -155,7 +165,6 @@ export const BLOCK_IMPOSTOS_PRESUMIDO_RET: ExpenseSetupItem[] = [
   { key: 'IMPOSTO_GARE', label: 'Imposto GARE', expense_group: 'IMPOSTO' },
   { key: 'IMPOSTO_GPS', label: 'Imposto GPS', expense_group: 'IMPOSTO' },
   { key: 'IMPOSTO_ISS', label: 'Imposto ISS', expense_group: 'IMPOSTO' },
-  { key: 'IMPOSTOS_IPTU_IPVA', label: 'Impostos IPTU / IPVA', expense_group: 'DESPESA_FIXA' },
   { key: 'IMPOSTO_OUTROS', label: 'Imposto Outros', expense_group: 'IMPOSTO' },
 ]
 

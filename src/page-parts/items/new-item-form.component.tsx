@@ -220,6 +220,14 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Recalcula impostos recuperáveis e custo líquido na montagem do form
+  // Necessário para edição de itens existentes (form já preenchido pelo componente pai)
+  useEffect(() => {
+    if (!isLucroReal) return
+    setTimeout(recalcNetCost, 150)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLucroReal])
+
   const handleDeferidoToggle = (checked: boolean) => {
     form.setFieldsValue({
       icms_deferido_enabled: checked,
