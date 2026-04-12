@@ -201,6 +201,14 @@ const ProductDetails = () => {
             recurrence_days: p.recurrence_days != null ? Number(p.recurrence_days) : null,
             section_id: p.section_id || null,
             commission_table_id: p.commission_table_id || null,
+            additional_irpj_percent: p.additional_irpj_percent != null ? Number(p.additional_irpj_percent) : null,
+            icms_pct: p.icms_pct != null ? Number(p.icms_pct) : null,
+            pis_cofins_pct: p.pis_cofins_pct != null ? Number(p.pis_cofins_pct) : null,
+            freight_value: p.freight_value != null ? Number(p.freight_value) : null,
+            insurance_value: p.insurance_value != null ? Number(p.insurance_value) : null,
+            accessory_expenses_value: p.accessory_expenses_value != null ? Number(p.accessory_expenses_value) : null,
+            profit_percent: p.profit_percent != null ? Number(p.profit_percent) : null,
+            commission_percent: p.commission_percent != null ? Number(p.commission_percent) : null,
           } as any)
         }
 

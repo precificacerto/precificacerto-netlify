@@ -402,6 +402,7 @@ export const Content: FC<ContentProps> = ({
         ...PRODUCT_PRICE_INFO_BASE,
         productProfitPercent: Number((product as any)?.productPriceInfo?.productProfitPercent ?? (product as any)?.profit_percent) || 0,
         salesCommissionPercent: Number((product as any)?.productPriceInfo?.salesCommissionPercent ?? (product as any)?.commission_percent) || 0,
+        productWorkloadInMinutes: Number((product as any)?.productPriceInfo?.productWorkloadInMinutes) || 0,
       } as ProductPriceInfoType)
       setUpdatedProductPriceInfoWithApi((prev) => prev + 1)
       // Load custom_tax_percent from product if editing
