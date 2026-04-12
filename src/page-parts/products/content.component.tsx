@@ -289,6 +289,22 @@ export const Content: FC<ContentProps> = ({
     nameDebounceRef.current = setTimeout(() => searchNcmByName(name), 280)
   }, [productForm, searchNcmByName])
 
+  const fetchNcmRatesForLR = useCallback(async (code: string) => {
+    if (!isLucroRealProd || !code) return
+    try {
+      const { data } = await (supabase as any)
+        .from('ncm_codes')
+        .select('pis_rate_nao_cumulativo, cofins_rate_nao_cumulativo')
+        .eq('code', code)
+        .single()
+      if (data) {
+        const pis = (Number(data.pis_rate_nao_cumulativo) || 0) * 100
+        const cofins = (Number(data.cofins_rate_nao_cumulativo) || 0) * 100
+        setPisCofinsLRPct(parseFloat((pis + cofins).toFixed(4)))
+      }
+    } catch { /* silent */ }
+  }, [isLucroRealProd])
+
   const handleSelectNcmSuggestion = useCallback((code: string) => {
     productForm.setFieldsValue({ ncm_code: code })
     setNcmSuggestions([])
@@ -323,22 +339,6 @@ export const Content: FC<ContentProps> = ({
     if (ncmDebounceRef.current) clearTimeout(ncmDebounceRef.current)
     ncmDebounceRef.current = setTimeout(() => searchNcmField(value), 250)
   }, [searchNcmField])
-
-  const fetchNcmRatesForLR = useCallback(async (code: string) => {
-    if (!isLucroRealProd || !code) return
-    try {
-      const { data } = await (supabase as any)
-        .from('ncm_codes')
-        .select('pis_rate_nao_cumulativo, cofins_rate_nao_cumulativo')
-        .eq('code', code)
-        .single()
-      if (data) {
-        const pis = (Number(data.pis_rate_nao_cumulativo) || 0) * 100
-        const cofins = (Number(data.cofins_rate_nao_cumulativo) || 0) * 100
-        setPisCofinsLRPct(parseFloat((pis + cofins).toFixed(4)))
-      }
-    } catch { /* silent */ }
-  }, [isLucroRealProd])
 
   const router = useRouter()
 
