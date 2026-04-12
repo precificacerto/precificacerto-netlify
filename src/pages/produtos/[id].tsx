@@ -102,9 +102,13 @@ const ProductDetails = () => {
             const item = pi.items
             const refQty = item ? Number(item.quantity) || 1 : 1
             const totalCost = item ? Number(item.cost_price) || 0 : 0
-            const costPerUnit = item?.cost_per_base_unit != null && item?.cost_per_base_unit !== ''
+            const liveCostPerUnit = item?.cost_per_base_unit != null && item?.cost_per_base_unit !== ''
               ? Number(item.cost_per_base_unit)
               : refQty > 0 ? totalCost / refQty : totalCost
+            // item_cost_gross is the referencePrice saved at product creation/edit time.
+            // Use it as primary source so the cost is always restored correctly on edit.
+            const savedCostPerUnit = Number(pi.item_cost_gross) || 0
+            const costPerUnit = savedCostPerUnit > 0 ? savedCostPerUnit : liveCostPerUnit
             const qty = Number(pi.quantity_needed) || 1
             const unit = (item?.unit || 'UN').toString().toUpperCase()
             // referenceQuantity=1 para que Valor (Custo) = quantidade × custo/unidade (custo do item cadastrado).
