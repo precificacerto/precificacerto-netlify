@@ -135,18 +135,12 @@ export const ProductPrice: FC<Props> = ({
   const icmsValDisplay = grossedPriceDisplay * icmsPct / 100
   const pisCofinsValDisplay = grossedPriceDisplay * pisCofinsLRPct / 100
 
-  // Margem de contribuição:
-  // LUCRO_REAL: MC% = (PV − custos variáveis) / PV
-  //   Variáveis: custo do produto, desp. variáveis, desp. financeiras, ICMS, PIS/Cofins, comissão
-  //   Fixos (cobertos pela MC, não deduzidos): MO administrativa, desp. fixas, IRPJ, CSLL, adicional IRPJ, lucro
-  // Outros regimes: mantém fórmula original (100 - totalPct)
-  const mcPct = isLucroReal && pricePerUnit > 0
-    ? (() => {
-        const costPct = (costTotal / pricePerUnit) * 100
-        const icmsDisplayPct = (icmsValDisplay / pricePerUnit) * 100
-        const pisCofinsDisplayPct = (pisCofinsValDisplay / pricePerUnit) * 100
-        return 100 - (costPct + variablePct + financialPct + icmsDisplayPct + pisCofinsDisplayPct + commissionPct)
-      })()
+  // Margem de contribuição (coeficiente):
+  // MC% = 100% − soma de todos os percentuais (exceto custo do produto)
+  // Para LUCRO_REAL: totalPct ainda não inclui icmsPct e pisCofinsLRPct (são brutos, não derivados)
+  // → mc = 100 - totalPct - icmsPct (produto) - pisCofinsLRPct
+  const mcPct = isLucroReal
+    ? 100 - totalPct - (isCalcTypeService ? 0 : icmsPct) - pisCofinsLRPct
     : 100 - totalPct
 
   function pricingRow(

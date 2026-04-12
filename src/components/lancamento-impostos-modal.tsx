@@ -18,16 +18,15 @@ function fmt(v: number) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 }).format(v)
 }
 
-// ICMS e PIS/COFINS agora vêm do cadastro do produto/serviço (preenchidos na aba de precificação)
-function calcTaxes(salePrice: number, icmsPct: number, pisCofinsFixed: number, isPct: number, ibsPct: number, cbsPct: number, ipiPct: number) {
-  const denominator = (100 - icmsPct - pisCofinsFixed) / 100
-  const priceGrossed = denominator > 0 ? salePrice / denominator : salePrice
+// ICMS e PIS/COFINS já estão embutidos "por dentro" no preço de venda (calculados na precificação).
+// Aqui só entram os impostos "por fora": IS, IBS, CBS, IPI.
+function calcTaxes(salePrice: number, isPct: number, ibsPct: number, cbsPct: number, ipiPct: number) {
   const isValue = salePrice * (isPct / 100)
   const ibsValue = (salePrice + isValue) * (ibsPct / 100)
   const cbsValue = (salePrice + isValue) * (cbsPct / 100)
-  const ipiValue = priceGrossed * (ipiPct / 100)
-  const finalPrice = priceGrossed + isValue + ibsValue + cbsValue + ipiValue
-  return { pisCofins: pisCofinsFixed, priceGrossed, isValue, ibsValue, cbsValue, ipiValue, finalPrice }
+  const ipiValue = salePrice * (ipiPct / 100)
+  const finalPrice = salePrice + isValue + ibsValue + cbsValue + ipiValue
+  return { isValue, ibsValue, cbsValue, ipiValue, finalPrice }
 }
 
 export const LancamentoImpostosModal: FC<LancamentoImpostosModalProps> = ({
@@ -43,11 +42,7 @@ export const LancamentoImpostosModal: FC<LancamentoImpostosModalProps> = ({
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(false)
 
-  // ICMS e PIS/COFINS são gerenciados no cadastro do produto/serviço
-  const [storedIcmsPct, setStoredIcmsPct] = useState(0)
-  const [storedPisCofinsLRPct, setStoredPisCofinsLRPct] = useState(0)
-
-  const [calc, setCalc] = useState(() => calcTaxes(salePrice, 0, 0, 0, 0, 0, 0))
+  const [calc, setCalc] = useState(() => calcTaxes(salePrice, 0, 0, 0, 0))
 
   const table = entityType === 'product' ? 'products' : 'services'
 
@@ -61,10 +56,6 @@ export const LancamentoImpostosModal: FC<LancamentoImpostosModalProps> = ({
         .eq('id', entityId)
         .single()
       if (data) {
-        const icms = Number(data.icms_pct) || 0
-        const pisCofins = Number(data.pis_cofins_pct) || 0
-        setStoredIcmsPct(icms)
-        setStoredPisCofinsLRPct(pisCofins)
         const vals = {
           is_pct: Number(data.is_pct) || 0,
           ibs_pct: Number(data.ibs_pct) || 0,
@@ -72,12 +63,10 @@ export const LancamentoImpostosModal: FC<LancamentoImpostosModalProps> = ({
           ipi_pct: Number(data.ipi_pct) || 0,
         }
         form.setFieldsValue(vals)
-        setCalc(calcTaxes(salePrice, icms, pisCofins, vals.is_pct, vals.ibs_pct, vals.cbs_pct, vals.ipi_pct))
+        setCalc(calcTaxes(salePrice, vals.is_pct, vals.ibs_pct, vals.cbs_pct, vals.ipi_pct))
       } else {
         form.resetFields()
-        setStoredIcmsPct(0)
-        setStoredPisCofinsLRPct(0)
-        setCalc(calcTaxes(salePrice, 0, 0, 0, 0, 0, 0))
+        setCalc(calcTaxes(salePrice, 0, 0, 0, 0))
       }
       setLoading(false)
     })()
@@ -87,8 +76,6 @@ export const LancamentoImpostosModal: FC<LancamentoImpostosModalProps> = ({
     const v = form.getFieldsValue()
     setCalc(calcTaxes(
       salePrice,
-      storedIcmsPct,
-      storedPisCofinsLRPct,
       Number(v.is_pct) || 0,
       Number(v.ibs_pct) || 0,
       Number(v.cbs_pct) || 0,
@@ -102,8 +89,8 @@ export const LancamentoImpostosModal: FC<LancamentoImpostosModalProps> = ({
     const ibsPct = Number(v.ibs_pct) || 0
     const cbsPct = Number(v.cbs_pct) || 0
     const ipiPct = Number(v.ipi_pct) || 0
-    const { priceGrossed, isValue, ibsValue, cbsValue, ipiValue, finalPrice } =
-      calcTaxes(salePrice, storedIcmsPct, storedPisCofinsLRPct, isPct, ibsPct, cbsPct, ipiPct)
+    const { isValue, ibsValue, cbsValue, ipiValue, finalPrice } =
+      calcTaxes(salePrice, isPct, ibsPct, cbsPct, ipiPct)
 
     setSaving(true)
     try {
@@ -157,25 +144,6 @@ export const LancamentoImpostosModal: FC<LancamentoImpostosModalProps> = ({
           <Text strong>{fmt(salePrice)}</Text>
         </div>
 
-        {(storedIcmsPct > 0 || storedPisCofinsLRPct > 0) && (
-          <div style={{
-            background: '#1e293b', padding: '8px 14px', borderRadius: 6,
-            fontSize: 12, color: '#94a3b8', marginBottom: 14,
-            display: 'flex', gap: 24, alignItems: 'center',
-          }}>
-            {storedIcmsPct > 0 && (
-              <span>ICMS: <strong style={{ color: '#e2e8f0' }}>
-                {storedIcmsPct.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%
-              </strong></span>
-            )}
-            {storedPisCofinsLRPct > 0 && (
-              <span>PIS/COFINS: <strong style={{ color: '#e2e8f0' }}>
-                {storedPisCofinsLRPct.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%
-              </strong></span>
-            )}
-            <span style={{ color: '#64748b', fontSize: 11 }}>(configurados no produto — edite na aba de precificação)</span>
-          </div>
-        )}
 
         <Form form={form} layout="vertical" onValuesChange={handleValuesChange}>
           <Row gutter={16}>
@@ -209,8 +177,8 @@ export const LancamentoImpostosModal: FC<LancamentoImpostosModalProps> = ({
 
         <div style={{ background: '#1a1a2e', padding: 14, borderRadius: 8, fontSize: 13 }}>
           <Row gutter={8} style={{ marginBottom: 6 }}>
-            <Col span={14}><Text type="secondary">Preço grosseado (base + ICMS + PIS/COFINS)</Text></Col>
-            <Col span={10} style={{ textAlign: 'right' }}><Text>{fmt(calc.priceGrossed)}</Text></Col>
+            <Col span={14}><Text type="secondary">Preço de venda base</Text></Col>
+            <Col span={10} style={{ textAlign: 'right' }}><Text>{fmt(salePrice)}</Text></Col>
           </Row>
           <Row gutter={8} style={{ marginBottom: 6 }}>
             <Col span={14}><Text type="secondary">+ Valor IS</Text></Col>
