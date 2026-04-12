@@ -75,7 +75,7 @@ const CATEGORY_GROUP_MAP: { category: string; group: string }[] = [
     { category: 'Depreciação', group: 'DESPESA_FIXA' },
     { category: 'Empréstimos', group: 'DESPESA_FIXA' },
     { category: 'Energia Elétrica', group: 'DESPESA_FIXA' },
-    { category: 'Impostos IPTU / IPVA', group: 'IMPOSTO' },
+    { category: 'Impostos IPTU / IPVA', group: 'DESPESA_FIXA' },
     { category: 'Internet', group: 'DESPESA_FIXA' },
     { category: 'Segurança / Monitoramento', group: 'DESPESA_FIXA' },
     { category: 'Seguros', group: 'DESPESA_FIXA' },
@@ -83,9 +83,9 @@ const CATEGORY_GROUP_MAP: { category: string; group: string }[] = [
     { category: 'Telefone', group: 'DESPESA_FIXA' },
     { category: 'Recisões / Indenizações', group: 'DESPESA_FIXA' },
     { category: 'Saúde Trabalhista / Ocupacional', group: 'DESPESA_FIXA' },
-    { category: 'MEI (Microempreendedor Individual)', group: 'IMPOSTO' },
+    { category: 'MEI (Microempreendedor Individual)', group: 'DESPESA_FIXA' },
     // Despesas Variáveis
-    { category: 'Comissões de Venda', group: 'DESPESA_VARIAVEL' },
+    { category: 'Comissões de Venda', group: 'COMISSOES' },
     { category: 'Combustíveis', group: 'DESPESA_VARIAVEL' },
     { category: 'Correios', group: 'DESPESA_VARIAVEL' },
     { category: 'Departamento Jurídico', group: 'DESPESA_VARIAVEL' },
@@ -106,7 +106,7 @@ const CATEGORY_GROUP_MAP: { category: string; group: string }[] = [
     { category: 'Troca Cheque', group: 'DESPESA_FINANCEIRA' },
 ]
 
-// Grupos exclusivos Lucro Real — acrescentados ao final da lista
+// Grupos exclusivos Lucro Real — Custo dos Produtos
 const LR_CUSTO_PRODUTOS = [
     { category: 'Fornecedores - Produtos para Revenda', group: 'CUSTO_PRODUTOS' },
     { category: 'Matéria Prima - Base dos produtos', group: 'CUSTO_PRODUTOS' },
@@ -114,20 +114,41 @@ const LR_CUSTO_PRODUTOS = [
     { category: 'Fretes FOB (Valores relacionados a compra de suprimentos)', group: 'CUSTO_PRODUTOS' },
 ]
 
-const LR_IMPOSTOS_COMPRAS = [
+// Atividades Terceirizadas Operacionais de Entrega (Lucro Real)
+const LR_ATIVIDADES_TERCEIRIZADAS = [
+    { category: 'Fretes/Logísticas de Entrega Terceirizados', group: 'ATIVIDADES_TERCEIRIZADAS' },
+    { category: 'Seguro de Transporte Entrega', group: 'ATIVIDADES_TERCEIRIZADAS' },
+    { category: 'Despesas Acessórias', group: 'ATIVIDADES_TERCEIRIZADAS' },
+    { category: 'Gastos com Logísticas Externas', group: 'ATIVIDADES_TERCEIRIZADAS' },
+]
+
+// Lucro (Lucro Real)
+const LR_LUCRO = [
+    { category: 'INVESTIMENTOS (Máquinas, Equipamentos, Expansão e Melhorias)', group: 'LUCRO' },
+    { category: 'DISTRIBUIÇÃO DE LUCROS', group: 'LUCRO' },
+]
+
+// Impostos sobre o Lucro (Lucro Real)
+const LR_IMPOSTOS_SOBRE_LUCRO = [
+    { category: 'IRPJ (Imposto de Renda de Pessoa Jurídica)', group: 'IMPOSTO_LUCRO' },
+    { category: 'CSLL (Contribuição Social sobre o Lucro Líquido)', group: 'IMPOSTO_LUCRO' },
+    { category: 'Alíquota Adicional da Parcela do IRPJ', group: 'IMPOSTO_LUCRO' },
+]
+
+// Impostos sobre o Faturamento — Por dentro (Lucro Real)
+const LR_IMPOSTOS_FATURAMENTO_DENTRO = [
+    { category: 'ICMS Próprio', group: 'IMPOSTO_FATURAMENTO_DENTRO' },
+    { category: 'PIS', group: 'IMPOSTO_FATURAMENTO_DENTRO' },
+    { category: 'COFINS', group: 'IMPOSTO_FATURAMENTO_DENTRO' },
+]
+
+// Impostos sobre o Faturamento — Por fora (Lucro Real)
+const LR_IMPOSTOS_FATURAMENTO_FORA = [
     { category: 'IPI custo', group: 'IMPOSTO' },
     { category: 'ICMS DIFAL', group: 'IMPOSTO' },
     { category: 'ICMS-ST (Substituição Tributária)', group: 'IMPOSTO' },
     { category: 'IS (Imposto Seletivo)', group: 'IMPOSTO' },
     { category: 'FCP (Fundo de Combate à Pobreza)', group: 'IMPOSTO' },
-]
-
-const LR_IMPOSTOS_RECUPERAVEIS = [
-    { category: 'ICMS (recuperável)', group: 'IMPOSTO' },
-    { category: 'PIS/COFINS (recuperável)', group: 'IMPOSTO' },
-    { category: 'IPI (recuperável)', group: 'IMPOSTO' },
-    { category: 'CBS (Contribuição sobre Bens e Serviços)', group: 'IMPOSTO' },
-    { category: 'IBS (Imposto sobre Bens e Serviços)', group: 'IMPOSTO' },
 ]
 
 // Categorias que ativam o detalhamento de impostos (Lucro Real)
@@ -142,14 +163,22 @@ const EXPENSE_CATEGORY_OPTIONS = [
     { label: '── Despesas Fixas ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_FIXA').map(c => ({ label: c.category, value: c.category })) },
     { label: '── Despesas Variáveis ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_VARIAVEL').map(c => ({ label: c.category, value: c.category })) },
     { label: '── Despesas Financeiras ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_FINANCEIRA').map(c => ({ label: c.category, value: c.category })) },
-    { label: '── Impostos ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'IMPOSTO').map(c => ({ label: c.category, value: c.category })) },
+    { label: '── Comissões ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'COMISSOES').map(c => ({ label: c.category, value: c.category })) },
 ]
 
 const LR_EXPENSE_CATEGORY_OPTIONS = [
-    ...EXPENSE_CATEGORY_OPTIONS,
     { label: '── Custo dos Produtos ──', options: LR_CUSTO_PRODUTOS.map(c => ({ label: c.category, value: c.category })) },
-    { label: '── Impostos sobre compras ──', options: LR_IMPOSTOS_COMPRAS.map(c => ({ label: c.category, value: c.category })) },
-    { label: '── Impostos Recuperáveis sobre compras ──', options: LR_IMPOSTOS_RECUPERAVEIS.map(c => ({ label: c.category, value: c.category })) },
+    { label: '── Mão de Obra Produtiva ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'MAO_DE_OBRA_PRODUTIVA').map(c => ({ label: c.category, value: c.category })) },
+    { label: '── Mão de Obra Administrativa ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'MAO_DE_OBRA_ADMINISTRATIVA').map(c => ({ label: c.category, value: c.category })) },
+    { label: '── Despesas Fixas ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_FIXA').map(c => ({ label: c.category, value: c.category })) },
+    { label: '── Despesas Variáveis ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_VARIAVEL').map(c => ({ label: c.category, value: c.category })) },
+    { label: '── Atividades Terceirizadas Operacionais de Entrega ──', options: LR_ATIVIDADES_TERCEIRIZADAS.map(c => ({ label: c.category, value: c.category })) },
+    { label: '── Despesas Financeiras ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_FINANCEIRA').map(c => ({ label: c.category, value: c.category })) },
+    { label: '── Comissões ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'COMISSOES').map(c => ({ label: c.category, value: c.category })) },
+    { label: '── Lucro ──', options: LR_LUCRO.map(c => ({ label: c.category, value: c.category })) },
+    { label: '── Impostos sobre o Lucro ──', options: LR_IMPOSTOS_SOBRE_LUCRO.map(c => ({ label: c.category, value: c.category })) },
+    { label: '── Impostos sobre o Faturamento (Por dentro) ──', options: LR_IMPOSTOS_FATURAMENTO_DENTRO.map(c => ({ label: c.category, value: c.category })) },
+    { label: '── Impostos sobre o Faturamento (Por fora) ──', options: LR_IMPOSTOS_FATURAMENTO_FORA.map(c => ({ label: c.category, value: c.category })) },
 ]
 
 function getGroupForCategory(cat: string): string | undefined {
@@ -164,29 +193,33 @@ const GROUP_ORDER = [
     'MAO_DE_OBRA',
     'DESPESA_FIXA',
     'DESPESA_VARIAVEL',
-    'DESPESA_FINANCEIRA',
-    'IMPOSTO',
-    'REGIME_TRIBUTARIO',
     'ATIVIDADES_TERCEIRIZADAS',
+    'DESPESA_FINANCEIRA',
     'COMISSOES',
     'LUCRO',
+    'IMPOSTO_LUCRO',
+    'IMPOSTO_FATURAMENTO_DENTRO',
+    'IMPOSTO',
+    'REGIME_TRIBUTARIO',
     'OUTROS',
 ]
 
 const GROUP_COLORS: Record<string, string> = {
-    CUSTO_PRODUTOS:             '#EF4444',
-    MAO_DE_OBRA_PRODUTIVA:      '#7C3AED',
-    MAO_DE_OBRA_ADMINISTRATIVA: '#A855F7',
-    MAO_DE_OBRA:                '#8B5CF6',
-    DESPESA_FIXA:               '#2563EB',
-    DESPESA_VARIAVEL:           '#059669',
-    DESPESA_FINANCEIRA:         '#D97706',
-    IMPOSTO:                    '#DC2626',
-    REGIME_TRIBUTARIO:          '#B91C1C',
-    ATIVIDADES_TERCEIRIZADAS:   '#0891B2',
-    COMISSOES:                  '#14B8A6',
-    LUCRO:                      '#16A34A',
-    OUTROS:                     '#64748b',
+    CUSTO_PRODUTOS:              '#EF4444',
+    MAO_DE_OBRA_PRODUTIVA:       '#7C3AED',
+    MAO_DE_OBRA_ADMINISTRATIVA:  '#A855F7',
+    MAO_DE_OBRA:                 '#8B5CF6',
+    DESPESA_FIXA:                '#2563EB',
+    DESPESA_VARIAVEL:            '#059669',
+    ATIVIDADES_TERCEIRIZADAS:    '#0891B2',
+    DESPESA_FINANCEIRA:          '#D97706',
+    COMISSOES:                   '#14B8A6',
+    LUCRO:                       '#16A34A',
+    IMPOSTO_LUCRO:               '#9B1C1C',
+    IMPOSTO_FATURAMENTO_DENTRO:  '#C81E1E',
+    IMPOSTO:                     '#DC2626',
+    REGIME_TRIBUTARIO:           '#B91C1C',
+    OUTROS:                      '#64748b',
 }
 
 const currencyMaskFn = (value: string) => {
@@ -438,7 +471,14 @@ export default function CashFlow() {
             : EXPENSE_CATEGORY_OPTIONS
     const activeGroupForCategory = (cat: string) => {
         if (isSimples) return getSNGroupForCategory(cat)
-        const lrEntry = [...LR_CUSTO_PRODUTOS, ...LR_IMPOSTOS_COMPRAS, ...LR_IMPOSTOS_RECUPERAVEIS].find(c => c.category === cat)
+        const lrEntry = [
+            ...LR_CUSTO_PRODUTOS,
+            ...LR_ATIVIDADES_TERCEIRIZADAS,
+            ...LR_LUCRO,
+            ...LR_IMPOSTOS_SOBRE_LUCRO,
+            ...LR_IMPOSTOS_FATURAMENTO_DENTRO,
+            ...LR_IMPOSTOS_FATURAMENTO_FORA,
+        ].find(c => c.category === cat)
         if (lrEntry) return lrEntry.group
         return getGroupForCategory(cat)
     }
