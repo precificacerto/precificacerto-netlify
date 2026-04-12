@@ -135,6 +135,20 @@ export const ProductPrice: FC<Props> = ({
   const icmsValDisplay = grossedPriceDisplay * icmsPct / 100
   const pisCofinsValDisplay = grossedPriceDisplay * pisCofinsLRPct / 100
 
+  // Margem de contribuição:
+  // LUCRO_REAL: MC% = (PV − custos variáveis) / PV
+  //   Variáveis: custo do produto, desp. variáveis, desp. financeiras, ICMS, PIS/Cofins, comissão
+  //   Fixos (cobertos pela MC, não deduzidos): MO administrativa, desp. fixas, IRPJ, CSLL, adicional IRPJ, lucro
+  // Outros regimes: mantém fórmula original (100 - totalPct)
+  const mcPct = isLucroReal && pricePerUnit > 0
+    ? (() => {
+        const costPct = (costTotal / pricePerUnit) * 100
+        const icmsDisplayPct = (icmsValDisplay / pricePerUnit) * 100
+        const pisCofinsDisplayPct = (pisCofinsValDisplay / pricePerUnit) * 100
+        return 100 - (costPct + variablePct + financialPct + icmsDisplayPct + pisCofinsDisplayPct + commissionPct)
+      })()
+    : 100 - totalPct
+
   function pricingRow(
     label: string,
     pct: number,
@@ -271,7 +285,7 @@ export const ProductPrice: FC<Props> = ({
 
         <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 13 }}>
           <span style={{ color: '#94a3b8' }}>Margem de contribuição total aplicada</span>
-          <span style={{ fontWeight: 600 }}>{(100 - totalPct).toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%</span>
+          <span style={{ fontWeight: 600 }}>{mcPct.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%</span>
         </div>
 
         {/* Atividades Terceirizadas — apenas LUCRO_REAL */}
