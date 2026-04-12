@@ -22,6 +22,10 @@ interface Props {
   onCustomTaxPercentChange?: (value: number) => void
   additionalIrpjPercent?: number
   onAdditionalIrpjChange?: (value: number) => void
+  icmsPct?: number
+  onIcmsPctChange?: (value: number) => void
+  pisCofinsLRPct?: number
+  onPisCofinsLRPctChange?: (value: number) => void
   freightValue?: number
   onFreightChange?: (value: number) => void
   insuranceValue?: number
@@ -40,6 +44,10 @@ export const ProductPrice: FC<Props> = ({
   onCustomTaxPercentChange,
   additionalIrpjPercent,
   onAdditionalIrpjChange,
+  icmsPct = 0,
+  onIcmsPctChange,
+  pisCofinsLRPct = 0,
+  onPisCofinsLRPctChange,
   freightValue = 0,
   onFreightChange,
   insuranceValue = 0,
@@ -120,11 +128,18 @@ export const ProductPrice: FC<Props> = ({
     } as any)
   }
 
+  // Valores aproximados de ICMS e PIS/COFINS no preço grosseado (para exibição)
+  const totalIcmsPisCofins = icmsPct + pisCofinsLRPct
+  const grossDenominator = totalIcmsPisCofins > 0 ? (100 - totalIcmsPisCofins) / 100 : 1
+  const grossedPriceDisplay = grossDenominator > 0 ? pricePerUnit / grossDenominator : pricePerUnit
+  const icmsValDisplay = grossedPriceDisplay * icmsPct / 100
+  const pisCofinsValDisplay = grossedPriceDisplay * pisCofinsLRPct / 100
+
   function pricingRow(
     label: string,
     pct: number,
     val: number,
-    editable?: 'salesCommissionPercent' | 'productProfitPercent' | 'customTaxPercent' | 'additionalIrpj',
+    editable?: 'salesCommissionPercent' | 'productProfitPercent' | 'customTaxPercent' | 'additionalIrpj' | 'icms' | 'pisCofins',
     tooltipText?: string,
   ) {
     const handleEditableChange = (v: number | null) => {
@@ -132,6 +147,10 @@ export const ProductPrice: FC<Props> = ({
         onCustomTaxPercentChange(v ?? 0)
       } else if (editable === 'additionalIrpj' && onAdditionalIrpjChange) {
         onAdditionalIrpjChange(v ?? 0)
+      } else if (editable === 'icms' && onIcmsPctChange) {
+        onIcmsPctChange(v ?? 0)
+      } else if (editable === 'pisCofins' && onPisCofinsLRPctChange) {
+        onPisCofinsLRPctChange(v ?? 0)
       } else if (editable) {
         fireChange(editable, v ?? 0)
       }
@@ -235,6 +254,16 @@ export const ProductPrice: FC<Props> = ({
             {showIrpjCsll && pricingRow('IRPJ (15% sobre lucro)', irpjPct, irpjVal, undefined, 'Imposto de Renda Pessoa Jurídica — calculado automaticamente como 15% sobre o valor do lucro. A porcentagem exibida representa quanto esse imposto ocupa no preço de venda.')}
             {showIrpjCsll && pricingRow('CSLL (9% sobre lucro)', csllPct, csllVal, undefined, 'Contribuição Social sobre o Lucro Líquido — calculada automaticamente como 9% sobre o valor do lucro. A porcentagem exibida representa quanto esse imposto ocupa no preço de venda.')}
             {isLucroReal && pricingRow('Alíq. adicional IRPJ', adicionalIrpjPct, adicionalIrpjVal, 'additionalIrpj', 'Alíquota da parcela adicional do IRPJ. Informe manualmente conforme enquadramento.')}
+            {isLucroReal && !isCalcTypeService && pricingRow('ICMS (%)', icmsPct, icmsValDisplay, 'icms', 'ICMS sobre venda — informe manualmente conforme alíquota do seu produto.')}
+            {isLucroReal && pricingRow(
+              isCalcTypeService ? 'PIS/Cofins (%)' : 'PIS/Cofins (% NCM)',
+              pisCofinsLRPct,
+              pisCofinsValDisplay,
+              'pisCofins',
+              isCalcTypeService
+                ? 'PIS + COFINS — informe manualmente para serviços.'
+                : 'PIS + COFINS não cumulativo — preenchido automaticamente a partir do NCM cadastrado (editável).',
+            )}
           </tbody>
         </table>
 

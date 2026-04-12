@@ -18,16 +18,16 @@ function fmt(v: number) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 }).format(v)
 }
 
-function calcTaxes(salePrice: number, icmsPct: number, isPct: number, ibsPct: number, cbsPct: number, ipiPct: number) {
-  const pisCofins = 9.25 * (1 - icmsPct / 100)
-  const denominator = (100 - icmsPct - pisCofins) / 100
+// ICMS e PIS/COFINS agora vêm do cadastro do produto/serviço (preenchidos na aba de precificação)
+function calcTaxes(salePrice: number, icmsPct: number, pisCofinsFixed: number, isPct: number, ibsPct: number, cbsPct: number, ipiPct: number) {
+  const denominator = (100 - icmsPct - pisCofinsFixed) / 100
   const priceGrossed = denominator > 0 ? salePrice / denominator : salePrice
   const isValue = salePrice * (isPct / 100)
   const ibsValue = (salePrice + isValue) * (ibsPct / 100)
   const cbsValue = (salePrice + isValue) * (cbsPct / 100)
   const ipiValue = priceGrossed * (ipiPct / 100)
   const finalPrice = priceGrossed + isValue + ibsValue + cbsValue + ipiValue
-  return { pisCofins, priceGrossed, isValue, ibsValue, cbsValue, ipiValue, finalPrice }
+  return { pisCofins: pisCofinsFixed, priceGrossed, isValue, ibsValue, cbsValue, ipiValue, finalPrice }
 }
 
 export const LancamentoImpostosModal: FC<LancamentoImpostosModalProps> = ({
@@ -42,7 +42,12 @@ export const LancamentoImpostosModal: FC<LancamentoImpostosModalProps> = ({
   const [form] = Form.useForm()
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(false)
-  const [calc, setCalc] = useState(() => calcTaxes(salePrice, 0, 0, 0, 0, 0))
+
+  // ICMS e PIS/COFINS são gerenciados no cadastro do produto/serviço
+  const [storedIcmsPct, setStoredIcmsPct] = useState(0)
+  const [storedPisCofinsLRPct, setStoredPisCofinsLRPct] = useState(0)
+
+  const [calc, setCalc] = useState(() => calcTaxes(salePrice, 0, 0, 0, 0, 0, 0))
 
   const table = entityType === 'product' ? 'products' : 'services'
 
@@ -56,18 +61,23 @@ export const LancamentoImpostosModal: FC<LancamentoImpostosModalProps> = ({
         .eq('id', entityId)
         .single()
       if (data) {
+        const icms = Number(data.icms_pct) || 0
+        const pisCofins = Number(data.pis_cofins_pct) || 0
+        setStoredIcmsPct(icms)
+        setStoredPisCofinsLRPct(pisCofins)
         const vals = {
-          icms_pct: Number(data.icms_pct) || 0,
           is_pct: Number(data.is_pct) || 0,
           ibs_pct: Number(data.ibs_pct) || 0,
           cbs_pct: Number(data.cbs_pct) || 0,
           ipi_pct: Number(data.ipi_pct) || 0,
         }
         form.setFieldsValue(vals)
-        setCalc(calcTaxes(salePrice, vals.icms_pct, vals.is_pct, vals.ibs_pct, vals.cbs_pct, vals.ipi_pct))
+        setCalc(calcTaxes(salePrice, icms, pisCofins, vals.is_pct, vals.ibs_pct, vals.cbs_pct, vals.ipi_pct))
       } else {
         form.resetFields()
-        setCalc(calcTaxes(salePrice, 0, 0, 0, 0, 0))
+        setStoredIcmsPct(0)
+        setStoredPisCofinsLRPct(0)
+        setCalc(calcTaxes(salePrice, 0, 0, 0, 0, 0, 0))
       }
       setLoading(false)
     })()
@@ -77,7 +87,8 @@ export const LancamentoImpostosModal: FC<LancamentoImpostosModalProps> = ({
     const v = form.getFieldsValue()
     setCalc(calcTaxes(
       salePrice,
-      Number(v.icms_pct) || 0,
+      storedIcmsPct,
+      storedPisCofinsLRPct,
       Number(v.is_pct) || 0,
       Number(v.ibs_pct) || 0,
       Number(v.cbs_pct) || 0,
@@ -87,13 +98,12 @@ export const LancamentoImpostosModal: FC<LancamentoImpostosModalProps> = ({
 
   const handleConfirm = async () => {
     const v = form.getFieldsValue()
-    const icmsPct = Number(v.icms_pct) || 0
     const isPct = Number(v.is_pct) || 0
     const ibsPct = Number(v.ibs_pct) || 0
     const cbsPct = Number(v.cbs_pct) || 0
     const ipiPct = Number(v.ipi_pct) || 0
-    const { pisCofins, priceGrossed, isValue, ibsValue, cbsValue, ipiValue, finalPrice } =
-      calcTaxes(salePrice, icmsPct, isPct, ibsPct, cbsPct, ipiPct)
+    const { priceGrossed, isValue, ibsValue, cbsValue, ipiValue, finalPrice } =
+      calcTaxes(salePrice, storedIcmsPct, storedPisCofinsLRPct, isPct, ibsPct, cbsPct, ipiPct)
 
     setSaving(true)
     try {
@@ -101,8 +111,6 @@ export const LancamentoImpostosModal: FC<LancamentoImpostosModalProps> = ({
         .from(table)
         .update({
           taxes_launched: true,
-          icms_pct: icmsPct,
-          pis_cofins_pct: pisCofins,
           is_pct: isPct,
           is_value: isValue,
           ibs_pct: ibsPct,
@@ -149,25 +157,27 @@ export const LancamentoImpostosModal: FC<LancamentoImpostosModalProps> = ({
           <Text strong>{fmt(salePrice)}</Text>
         </div>
 
-        <Form form={form} layout="vertical" onValuesChange={handleValuesChange}>
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item label="ICMS (%)" name="icms_pct">
-                <InputNumber min={0} max={100} step={0.01} precision={2} style={{ width: '100%' }} placeholder="0,00" />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item label="PIS/COFINS (% — calculado automaticamente)">
-                <InputNumber
-                  value={parseFloat(calc.pisCofins.toFixed(4))}
-                  disabled
-                  style={{ width: '100%' }}
-                  formatter={v => `${v}`}
-                />
-              </Form.Item>
-            </Col>
-          </Row>
+        {(storedIcmsPct > 0 || storedPisCofinsLRPct > 0) && (
+          <div style={{
+            background: '#1e293b', padding: '8px 14px', borderRadius: 6,
+            fontSize: 12, color: '#94a3b8', marginBottom: 14,
+            display: 'flex', gap: 24, alignItems: 'center',
+          }}>
+            {storedIcmsPct > 0 && (
+              <span>ICMS: <strong style={{ color: '#e2e8f0' }}>
+                {storedIcmsPct.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%
+              </strong></span>
+            )}
+            {storedPisCofinsLRPct > 0 && (
+              <span>PIS/COFINS: <strong style={{ color: '#e2e8f0' }}>
+                {storedPisCofinsLRPct.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%
+              </strong></span>
+            )}
+            <span style={{ color: '#64748b', fontSize: 11 }}>(configurados no produto — edite na aba de precificação)</span>
+          </div>
+        )}
 
+        <Form form={form} layout="vertical" onValuesChange={handleValuesChange}>
           <Row gutter={16}>
             <Col span={12}>
               <Form.Item label="IS — Imposto Seletivo (%)" name="is_pct">

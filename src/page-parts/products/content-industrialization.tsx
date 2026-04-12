@@ -26,6 +26,10 @@ interface ContentIndustrializationProps {
   onCustomTaxPercentChange?: (value: number) => void
   additionalIrpjPercent?: number
   onAdditionalIrpjChange?: (value: number) => void
+  icmsPct?: number
+  onIcmsPctChange?: (value: number) => void
+  pisCofinsLRPct?: number
+  onPisCofinsLRPctChange?: (value: number) => void
   freightValue?: number
   onFreightChange?: (value: number) => void
   insuranceValue?: number
@@ -50,6 +54,10 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
   onCustomTaxPercentChange,
   additionalIrpjPercent,
   onAdditionalIrpjChange,
+  icmsPct,
+  onIcmsPctChange,
+  pisCofinsLRPct,
+  onPisCofinsLRPctChange,
   freightValue,
   onFreightChange,
   insuranceValue,
@@ -129,6 +137,10 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
         onCustomTaxPercentChange={onCustomTaxPercentChange}
         additionalIrpjPercent={additionalIrpjPercent}
         onAdditionalIrpjChange={onAdditionalIrpjChange}
+        icmsPct={icmsPct}
+        onIcmsPctChange={onIcmsPctChange}
+        pisCofinsLRPct={pisCofinsLRPct}
+        onPisCofinsLRPctChange={onPisCofinsLRPctChange}
         freightValue={freightValue}
         onFreightChange={onFreightChange}
         insuranceValue={insuranceValue}

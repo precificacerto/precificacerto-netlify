@@ -164,6 +164,16 @@ export const Content: FC<ContentProps> = ({
     (product as any)?.accessory_expenses_value != null ? Number((product as any).accessory_expenses_value) : 0
   )
 
+  const isLucroRealProd = currentUser?.taxableRegime === 'LUCRO_REAL'
+
+  // ICMS e PIS/COFINS para Lucro Real (migrados do modal de lançar impostos)
+  const [icmsPct, setIcmsPct] = useState<number>(
+    (product as any)?.icms_pct != null ? Number((product as any).icms_pct) : 0
+  )
+  const [pisCofinsLRPct, setPisCofinsLRPct] = useState<number>(
+    (product as any)?.pis_cofins_pct != null ? Number((product as any).pis_cofins_pct) : 0
+  )
+
   const [recurrenceActive, setRecurrenceActive] = useState<boolean>((product as any)?.recurrence_active ?? false)
   const [recurrenceModalOpen, setRecurrenceModalOpen] = useState(false)
   const [recurrenceDays, setRecurrenceDays] = useState<number | null>((product as any)?.recurrence_days ?? null)
@@ -282,7 +292,8 @@ export const Content: FC<ContentProps> = ({
   const handleSelectNcmSuggestion = useCallback((code: string) => {
     productForm.setFieldsValue({ ncm_code: code })
     setNcmSuggestions([])
-  }, [productForm])
+    fetchNcmRatesForLR(code)
+  }, [productForm, fetchNcmRatesForLR])
 
   const searchNcmField = useCallback(async (term: string) => {
     const clean = term.replace(/\D/g, '')
@@ -312,6 +323,22 @@ export const Content: FC<ContentProps> = ({
     if (ncmDebounceRef.current) clearTimeout(ncmDebounceRef.current)
     ncmDebounceRef.current = setTimeout(() => searchNcmField(value), 250)
   }, [searchNcmField])
+
+  const fetchNcmRatesForLR = useCallback(async (code: string) => {
+    if (!isLucroRealProd || !code) return
+    try {
+      const { data } = await (supabase as any)
+        .from('ncm_codes')
+        .select('pis_rate_nao_cumulativo, cofins_rate_nao_cumulativo')
+        .eq('code', code)
+        .single()
+      if (data) {
+        const pis = (Number(data.pis_rate_nao_cumulativo) || 0) * 100
+        const cofins = (Number(data.cofins_rate_nao_cumulativo) || 0) * 100
+        setPisCofinsLRPct(parseFloat((pis + cofins).toFixed(4)))
+      }
+    } catch { /* silent */ }
+  }, [isLucroRealProd])
 
   const router = useRouter()
 
@@ -393,6 +420,13 @@ export const Content: FC<ContentProps> = ({
       }
       if ((product as any)?.accessory_expenses_value != null) {
         setAccessoryExpensesValue(Number((product as any).accessory_expenses_value))
+      }
+      // Load ICMS e PIS/COFINS (Lucro Real)
+      if ((product as any)?.icms_pct != null) {
+        setIcmsPct(Number((product as any).icms_pct))
+      }
+      if ((product as any)?.pis_cofins_pct != null) {
+        setPisCofinsLRPct(Number((product as any).pis_cofins_pct))
       }
     }
   }, [productForm, isEditingMode, product])
@@ -730,6 +764,10 @@ export const Content: FC<ContentProps> = ({
       extraFields.freight_value = freightValue || 0
       extraFields.insurance_value = insuranceValue || 0
       extraFields.accessory_expenses_value = accessoryExpensesValue || 0
+      if (isLucroRealProd) {
+        extraFields.icms_pct = icmsPct || 0
+        extraFields.pis_cofins_pct = pisCofinsLRPct || 0
+      }
       extraFields.recurrence_active = recurrenceActive
       extraFields.recurrence_days = recurrenceActive && recurrenceDays ? recurrenceDays : null
       extraFields.recurrence_message = recurrenceActive && recurrenceMessage ? recurrenceMessage : null
@@ -1216,7 +1254,10 @@ export const Content: FC<ContentProps> = ({
               <AutoComplete
                 options={ncmOptions}
                 onSearch={handleNcmSearch}
-                onSelect={(value: string) => productForm.setFieldsValue({ ncm_code: value })}
+                onSelect={(value: string) => {
+                  productForm.setFieldsValue({ ncm_code: value })
+                  fetchNcmRatesForLR(value)
+                }}
                 placeholder="Digite o NCM ou pesquise (ex: bolo, 1905...)"
                 notFoundContent={ncmFieldSearching ? <Spin size="small" /> : null}
                 allowClear
@@ -1548,6 +1589,10 @@ export const Content: FC<ContentProps> = ({
           onCustomTaxPercentChange={setCustomTaxPercent}
           additionalIrpjPercent={additionalIrpjPercent}
           onAdditionalIrpjChange={setAdditionalIrpjPercent}
+          icmsPct={icmsPct}
+          onIcmsPctChange={setIcmsPct}
+          pisCofinsLRPct={pisCofinsLRPct}
+          onPisCofinsLRPctChange={setPisCofinsLRPct}
           freightValue={freightValue}
           onFreightChange={setFreightValue}
           insuranceValue={insuranceValue}
@@ -1575,6 +1620,10 @@ export const Content: FC<ContentProps> = ({
           onCustomTaxPercentChange={setCustomTaxPercent}
           additionalIrpjPercent={additionalIrpjPercent}
           onAdditionalIrpjChange={setAdditionalIrpjPercent}
+          icmsPct={icmsPct}
+          onIcmsPctChange={setIcmsPct}
+          pisCofinsLRPct={pisCofinsLRPct}
+          onPisCofinsLRPctChange={setPisCofinsLRPct}
           freightValue={freightValue}
           onFreightChange={setFreightValue}
           insuranceValue={insuranceValue}
@@ -1601,6 +1650,10 @@ export const Content: FC<ContentProps> = ({
           onCustomTaxPercentChange={setCustomTaxPercent}
           additionalIrpjPercent={additionalIrpjPercent}
           onAdditionalIrpjChange={setAdditionalIrpjPercent}
+          icmsPct={icmsPct}
+          onIcmsPctChange={setIcmsPct}
+          pisCofinsLRPct={pisCofinsLRPct}
+          onPisCofinsLRPctChange={setPisCofinsLRPct}
           freightValue={freightValue}
           onFreightChange={setFreightValue}
           insuranceValue={insuranceValue}

@@ -67,6 +67,10 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
     const [additionalIrpjPercent, setAdditionalIrpjPercent] = useState<number>(
         serviceData?.additional_irpj_percent != null ? Number(serviceData.additional_irpj_percent) : 0
     )
+    const [pisCofinsLRPct, setPisCofinsLRPct] = useState<number>(
+        serviceData?.pis_cofins_pct != null ? Number(serviceData.pis_cofins_pct) : 0
+    )
+    const isLucroRealSvcComp = currentUser?.taxableRegime === 'LUCRO_REAL'
 
     // Commission tables
     const [commissionTables, setCommissionTables] = useState<{ id: string; name: string; commission_percent: number }[]>([])
@@ -143,6 +147,9 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
             setProfitPercent(serviceData.profit_percent || 0)
             if (serviceData.additional_irpj_percent != null) {
                 setAdditionalIrpjPercent(Number(serviceData.additional_irpj_percent))
+            }
+            if (serviceData.pis_cofins_pct != null) {
+                setPisCofinsLRPct(Number(serviceData.pis_cofins_pct))
             }
         } else {
             setTaxableRegimePercent(taxPreview?.taxableRegimePercent ?? currentUser?.taxableRegimeValue ?? 0)
@@ -329,6 +336,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                 profit_percent: profitPercent,
                 taxable_regime_percent: taxableRegimePercent,
                 additional_irpj_percent: additionalIrpjPercent || 0,
+                pis_cofins_pct: isLucroRealSvcComp ? (pisCofinsLRPct || 0) : 0,
                 commission_table_id: commissionTableId || null,
                 min_quantity: 0,
                 recurrence_active: recurrenceActive,
@@ -443,7 +451,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
         },
     ]
 
-    function pricingRow(label: string, pct: number, val: number, editable?: 'commission' | 'profit' | 'tax' | 'additionalIrpj', tooltipText?: string) {
+    function pricingRow(label: string, pct: number, val: number, editable?: 'commission' | 'profit' | 'tax' | 'additionalIrpj' | 'pisCofins', tooltipText?: string) {
         return (
             <tr key={label}>
                 <td style={{ width: 140, padding: '6px 0' }}>
@@ -456,6 +464,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                                 if (editable === 'profit') setProfitPercent(v ?? 0)
                                 if (editable === 'tax') setTaxableRegimePercent(v ?? 0)
                                 if (editable === 'additionalIrpj') setAdditionalIrpjPercent(v ?? 0)
+                                if (editable === 'pisCofins') setPisCofinsLRPct(v ?? 0)
                             }}
                             style={{ width: 110 }}
                             formatter={(v) => `${v}%`}
@@ -781,6 +790,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                             {isLucroRealDisplay && pricingRow('IRPJ (15% sobre lucro)', pricing.irpjPctLR, pricing.irpjValLR, undefined, 'Imposto de Renda Pessoa Jurídica — calculado automaticamente como 15% sobre o valor do lucro.')}
                             {isLucroRealDisplay && pricingRow('CSLL (9% sobre lucro)', pricing.csllPctLR, pricing.csllValLR, undefined, 'Contribuição Social sobre o Lucro Líquido — calculada automaticamente como 9% sobre o valor do lucro.')}
                             {isLucroRealDisplay && pricingRow('Alíq. adicional IRPJ', additionalIrpjPercent, pricing.adicionalIrpjValLR, 'additionalIrpj', 'Alíquota da parcela adicional do IRPJ. Informe manualmente conforme enquadramento.')}
+                            {isLucroRealDisplay && pricingRow('PIS/Cofins (%)', pisCofinsLRPct, pricing.sellingPrice * pisCofinsLRPct / 100, 'pisCofins', 'PIS + COFINS — informe manualmente para serviços (regime não cumulativo).')}
                         </tbody>
                     </table>
 
