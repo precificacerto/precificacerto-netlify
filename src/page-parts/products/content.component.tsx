@@ -402,7 +402,15 @@ export const Content: FC<ContentProps> = ({
         ...PRODUCT_PRICE_INFO_BASE,
         productProfitPercent: Number((product as any)?.productPriceInfo?.productProfitPercent ?? (product as any)?.profit_percent) || 0,
         salesCommissionPercent: Number((product as any)?.productPriceInfo?.salesCommissionPercent ?? (product as any)?.commission_percent) || 0,
-        productWorkloadInMinutes: Number((product as any)?.productPriceInfo?.productWorkloadInMinutes) || 0,
+        productWorkloadInMinutes: (() => {
+          const stored = Number((product as any)?.productPriceInfo?.productWorkloadInMinutes) || 0
+          const wUnit = currentUser.unitMeasure || 'MINUTES'
+          const wIsService = currentUser.calcType === CALC_TYPE_ENUM.SERVICE
+          if (wIsService) return stored
+          if (wUnit === 'HOURS') return stored / 60
+          if (wUnit === 'DAYS') return stored / 480
+          return stored
+        })(),
       } as ProductPriceInfoType)
       setUpdatedProductPriceInfoWithApi((prev) => prev + 1)
       // Load custom_tax_percent from product if editing
@@ -496,7 +504,11 @@ export const Content: FC<ContentProps> = ({
       laborCostMonthly: effectiveCalcType === 'REVENDA' ? 0 : calcBase.laborCostMonthly,
       numProductiveEmployees: totalEmployees,
       monthlyWorkloadMinutes,
-      productWorkloadMinutes: effectiveCalcType === 'REVENDA' ? 0 : (productPriceInfo.productWorkloadInMinutes || 0),
+      productWorkloadMinutes: effectiveCalcType === 'REVENDA' ? 0 : normalizeToMinutes(
+        productPriceInfo.productWorkloadInMinutes || 0,
+        (currentUser.unitMeasure || 'MINUTES') as 'MINUTES' | 'HOURS' | 'DAYS' | 'ACTIVITIES',
+        isCalcService,
+      ),
       structurePct: structurePctForEngine,
       taxPct: taxPctDecimal,
       commissionPct: productPriceInfo.salesCommissionPercent / 100,
