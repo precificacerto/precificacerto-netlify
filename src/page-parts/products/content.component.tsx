@@ -173,6 +173,18 @@ export const Content: FC<ContentProps> = ({
   const [pisCofinsLRPct, setPisCofinsLRPct] = useState<number>(
     (product as any)?.pis_cofins_pct != null ? Number((product as any).pis_cofins_pct) : 0
   )
+  const [ibsPct, setIbsPct] = useState<number>(
+    (product as any)?.ibs_pct != null ? Number((product as any).ibs_pct) : 0
+  )
+  const [cbsPct, setCbsPct] = useState<number>(
+    (product as any)?.cbs_pct != null ? Number((product as any).cbs_pct) : 0
+  )
+  const [isPct, setIsPct] = useState<number>(
+    (product as any)?.is_pct != null ? Number((product as any).is_pct) : 0
+  )
+  const [ipiPct, setIpiPct] = useState<number>(
+    (product as any)?.ipi_pct != null ? Number((product as any).ipi_pct) : 0
+  )
 
   const [recurrenceActive, setRecurrenceActive] = useState<boolean>((product as any)?.recurrence_active ?? false)
   const [recurrenceModalOpen, setRecurrenceModalOpen] = useState(false)
@@ -770,6 +782,23 @@ export const Content: FC<ContentProps> = ({
       }
 
       // Try to save columns that may not exist yet (pending migration)
+      // Calcular preço final para LUCRO_REAL (com impostos IBS/CBS/IS/IPI)
+      let finalSalePriceForSave = salePriceToSave
+      if (isLucroRealProd) {
+        const _totalEmb = (icmsPct || 0) + (pisCofinsLRPct || 0)
+        const _grossDen = _totalEmb > 0 ? (100 - _totalEmb) / 100 : 1
+        const _grossed = _grossDen > 0 ? salePriceToSave / _grossDen : salePriceToSave
+        const _icmsForBase = _grossed * (icmsPct || 0) / 100
+        const _pisCofForBase = _grossed * (pisCofinsLRPct || 0) / 100
+        const _ibsCbsBase = Math.max(0, salePriceToSave - _icmsForBase - _pisCofForBase)
+        const _isVal = salePriceToSave * (isPct || 0) / 100
+        const _ibsVal = _ibsCbsBase * (ibsPct || 0) / 100
+        const _cbsVal = _ibsCbsBase * (cbsPct || 0) / 100
+        const _ipiVal = salePriceToSave * (ipiPct || 0) / 100
+        const _totalTax = _isVal + _ibsVal + _cbsVal + _ipiVal
+        if (_totalTax > 0) finalSalePriceForSave = salePriceToSave + _totalTax
+      }
+
       const extraFields: Record<string, any> = {}
       if (customTaxPercent != null) extraFields.custom_tax_percent = customTaxPercent
       else extraFields.custom_tax_percent = null
@@ -780,6 +809,28 @@ export const Content: FC<ContentProps> = ({
       if (isLucroRealProd) {
         extraFields.icms_pct = icmsPct || 0
         extraFields.pis_cofins_pct = pisCofinsLRPct || 0
+        // Impostos IBS/CBS/IS/IPI — calculados acima
+        const _totalEmb2 = (icmsPct || 0) + (pisCofinsLRPct || 0)
+        const _grossDen2 = _totalEmb2 > 0 ? (100 - _totalEmb2) / 100 : 1
+        const _grossed2 = _grossDen2 > 0 ? salePriceToSave / _grossDen2 : salePriceToSave
+        const _icmsForBase2 = _grossed2 * (icmsPct || 0) / 100
+        const _pisCofForBase2 = _grossed2 * (pisCofinsLRPct || 0) / 100
+        const _ibsCbsBase2 = Math.max(0, salePriceToSave - _icmsForBase2 - _pisCofForBase2)
+        const _isVal2 = salePriceToSave * (isPct || 0) / 100
+        const _ibsVal2 = _ibsCbsBase2 * (ibsPct || 0) / 100
+        const _cbsVal2 = _ibsCbsBase2 * (cbsPct || 0) / 100
+        const _ipiVal2 = salePriceToSave * (ipiPct || 0) / 100
+        extraFields.taxes_launched = true
+        extraFields.is_pct = isPct || 0
+        extraFields.is_value = _isVal2
+        extraFields.ibs_pct = ibsPct || 0
+        extraFields.ibs_value = _ibsVal2
+        extraFields.cbs_pct = cbsPct || 0
+        extraFields.cbs_value = _cbsVal2
+        extraFields.ipi_pct = ipiPct || 0
+        extraFields.ipi_value = _ipiVal2
+        extraFields.sale_price_base = salePriceToSave
+        extraFields.sale_price_after_taxes = finalSalePriceForSave
       }
       extraFields.recurrence_active = recurrenceActive
       extraFields.recurrence_days = recurrenceActive && recurrenceDays ? recurrenceDays : null
@@ -917,8 +968,10 @@ export const Content: FC<ContentProps> = ({
       })
 
       // Garantir que sale_price = valor do "Preço de Venda por Unidade" (edge function pode sobrescrever)
-      if (salePriceToSave > 0) {
-        await supabase.from('products').update({ sale_price: salePriceToSave }).eq('id', productId)
+      // Para LUCRO_REAL: usa finalSalePriceForSave (inclui impostos IBS/CBS/IS/IPI se preenchidos)
+      const effectiveSalePrice = isLucroRealProd ? finalSalePriceForSave : salePriceToSave
+      if (effectiveSalePrice > 0) {
+        await supabase.from('products').update({ sale_price: effectiveSalePrice }).eq('id', productId)
       }
 
       const calcFailed = !!calcError || !calcResult?.success
@@ -1612,6 +1665,14 @@ export const Content: FC<ContentProps> = ({
           onInsuranceChange={setInsuranceValue}
           accessoryExpensesValue={accessoryExpensesValue}
           onAccessoryExpensesChange={setAccessoryExpensesValue}
+          ibsPct={ibsPct}
+          onIbsPctChange={setIbsPct}
+          cbsPct={cbsPct}
+          onCbsPctChange={setCbsPct}
+          isPct={isPct}
+          onIsPctChange={setIsPct}
+          ipiPct={ipiPct}
+          onIpiPctChange={setIpiPct}
         />
       )}
       {productType === 'REVENDA' && isCalcTypeService && (
@@ -1643,6 +1704,14 @@ export const Content: FC<ContentProps> = ({
           onInsuranceChange={setInsuranceValue}
           accessoryExpensesValue={accessoryExpensesValue}
           onAccessoryExpensesChange={setAccessoryExpensesValue}
+          ibsPct={ibsPct}
+          onIbsPctChange={setIbsPct}
+          cbsPct={cbsPct}
+          onCbsPctChange={setCbsPct}
+          isPct={isPct}
+          onIsPctChange={setIsPct}
+          ipiPct={ipiPct}
+          onIpiPctChange={setIpiPct}
         />
       )}
       {productType === 'REVENDA' && !isCalcTypeService && (
@@ -1673,6 +1742,14 @@ export const Content: FC<ContentProps> = ({
           onInsuranceChange={setInsuranceValue}
           accessoryExpensesValue={accessoryExpensesValue}
           onAccessoryExpensesChange={setAccessoryExpensesValue}
+          ibsPct={ibsPct}
+          onIbsPctChange={setIbsPct}
+          cbsPct={cbsPct}
+          onCbsPctChange={setCbsPct}
+          isPct={isPct}
+          onIsPctChange={setIsPct}
+          ipiPct={ipiPct}
+          onIpiPctChange={setIpiPct}
         />
       )}
       <footer className="flex flex-row-reverse mt-5 mr-4">

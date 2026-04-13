@@ -70,6 +70,18 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
     const [pisCofinsLRPct, setPisCofinsLRPct] = useState<number>(
         serviceData?.pis_cofins_pct != null ? Number(serviceData.pis_cofins_pct) : 0
     )
+    const [ibsPct, setIbsPct] = useState<number>(
+        serviceData?.ibs_pct != null ? Number(serviceData.ibs_pct) : 0
+    )
+    const [cbsPct, setCbsPct] = useState<number>(
+        serviceData?.cbs_pct != null ? Number(serviceData.cbs_pct) : 0
+    )
+    const [isPct, setIsPct] = useState<number>(
+        serviceData?.is_pct != null ? Number(serviceData.is_pct) : 0
+    )
+    const [ipiPct, setIpiPct] = useState<number>(
+        serviceData?.ipi_pct != null ? Number(serviceData.ipi_pct) : 0
+    )
     const isLucroRealSvcComp = currentUser?.taxableRegime === 'LUCRO_REAL'
 
     // Commission tables
@@ -151,6 +163,10 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
             if (serviceData.pis_cofins_pct != null) {
                 setPisCofinsLRPct(Number(serviceData.pis_cofins_pct))
             }
+            if (serviceData.ibs_pct != null) setIbsPct(Number(serviceData.ibs_pct))
+            if (serviceData.cbs_pct != null) setCbsPct(Number(serviceData.cbs_pct))
+            if (serviceData.is_pct != null) setIsPct(Number(serviceData.is_pct))
+            if (serviceData.ipi_pct != null) setIpiPct(Number(serviceData.ipi_pct))
         } else {
             setTaxableRegimePercent(taxPreview?.taxableRegimePercent ?? currentUser?.taxableRegimeValue ?? 0)
         }
@@ -324,11 +340,28 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
             }
             setCommissionTableError(false)
 
+            // Calcular impostos IBS/CBS/IS/IPI para LUCRO_REAL
+            let svcFinalPrice = pricing.sellingPrice
+            let svcIsVal = 0, svcIbsVal = 0, svcCbsVal = 0, svcIpiVal = 0
+            if (isLucroRealSvcComp) {
+                const _pisCof = pisCofinsLRPct || 0
+                const _grossDen = _pisCof > 0 ? (100 - _pisCof) / 100 : 1
+                const _grossed = _grossDen > 0 ? pricing.sellingPrice / _grossDen : pricing.sellingPrice
+                const _pisCofVal = _grossed * _pisCof / 100
+                const _ibsCbsBase = Math.max(0, pricing.sellingPrice - _pisCofVal)
+                svcIsVal = pricing.sellingPrice * (isPct || 0) / 100
+                svcIbsVal = _ibsCbsBase * (ibsPct || 0) / 100
+                svcCbsVal = _ibsCbsBase * (cbsPct || 0) / 100
+                svcIpiVal = pricing.sellingPrice * (ipiPct || 0) / 100
+                const totalTax = svcIsVal + svcIbsVal + svcCbsVal + svcIpiVal
+                if (totalTax > 0) svcFinalPrice = pricing.sellingPrice + totalTax
+            }
+
             const data: Record<string, any> = {
                 name: v.name,
                 description: v.description || null,
                 estimated_duration_minutes: v.estimated_duration_minutes || 60,
-                base_price: pricing.sellingPrice,
+                base_price: svcFinalPrice,
                 cost_total: pricing.totalCost,
                 labor_minutes: v.estimated_duration_minutes || 60,
                 labor_cost: pricing.laborCost,
@@ -339,6 +372,17 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                 pis_cofins_pct: isLucroRealSvcComp ? (pisCofinsLRPct || 0) : 0,
                 commission_table_id: commissionTableId || null,
                 min_quantity: 0,
+                taxes_launched: true,
+                is_pct: isLucroRealSvcComp ? (isPct || 0) : 0,
+                is_value: isLucroRealSvcComp ? svcIsVal : 0,
+                ibs_pct: isLucroRealSvcComp ? (ibsPct || 0) : 0,
+                ibs_value: isLucroRealSvcComp ? svcIbsVal : 0,
+                cbs_pct: isLucroRealSvcComp ? (cbsPct || 0) : 0,
+                cbs_value: isLucroRealSvcComp ? svcCbsVal : 0,
+                ipi_pct: isLucroRealSvcComp ? (ipiPct || 0) : 0,
+                ipi_value: isLucroRealSvcComp ? svcIpiVal : 0,
+                sale_price_base: isLucroRealSvcComp ? pricing.sellingPrice : null,
+                sale_price_after_taxes: isLucroRealSvcComp ? svcFinalPrice : null,
                 recurrence_active: recurrenceActive,
                 recurrence_days: recurrenceActive && recurrenceDays ? recurrenceDays : null,
                 recurrence_message: recurrenceActive && recurrenceMessage ? recurrenceMessage : null,
@@ -800,6 +844,81 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                         <span style={{ color: '#94a3b8' }}>Margem de contribuição total aplicada</span>
                         <span style={{ fontWeight: 600 }}>{(100 - pricing.totalPct).toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%</span>
                     </div>
+
+                    {/* Impostos por fora: IBS, CBS, IS, IPI — apenas LUCRO_REAL */}
+                    {isLucroRealDisplay && (() => {
+                        const _pisCof = pisCofinsLRPct || 0
+                        const _grossDen = _pisCof > 0 ? (100 - _pisCof) / 100 : 1
+                        const _grossed = _grossDen > 0 ? pricing.sellingPrice / _grossDen : pricing.sellingPrice
+                        const _pisCofVal = _grossed * _pisCof / 100
+                        const _ibsCbsBase = Math.max(0, pricing.sellingPrice - _pisCofVal)
+                        const _isVal = pricing.sellingPrice * (isPct || 0) / 100
+                        const _ibsVal = _ibsCbsBase * (ibsPct || 0) / 100
+                        const _cbsVal = _ibsCbsBase * (cbsPct || 0) / 100
+                        const _ipiVal = pricing.sellingPrice * (ipiPct || 0) / 100
+                        const _total = _isVal + _ibsVal + _cbsVal + _ipiVal
+                        const _finalPrice = _total > 0 ? pricing.sellingPrice + _total : pricing.sellingPrice
+                        return (
+                            <div style={{ marginTop: 14, background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '12px 14px', border: '1px solid rgba(255,255,255,0.07)' }}>
+                                <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' as const, letterSpacing: 0.6, marginBottom: 10 }}>
+                                    Impostos (IBS / CBS / IS / IPI)
+                                </div>
+                                <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0 4px' }}>
+                                    <tbody>
+                                        {([
+                                            { label: 'IBS — Imposto sobre Bens e Serv. (%)', value: ibsPct, setter: setIbsPct },
+                                            { label: 'CBS — Contrib. sobre Bens e Serv. (%)', value: cbsPct, setter: setCbsPct },
+                                            { label: 'IS — Imposto Seletivo (%)', value: isPct, setter: setIsPct },
+                                            { label: 'IPI (%)', value: ipiPct, setter: setIpiPct },
+                                        ] as { label: string; value: number; setter: (v: number) => void }[]).map(({ label, value, setter }) => (
+                                            <tr key={label}>
+                                                <td style={{ fontSize: 13, color: '#cbd5e1', paddingRight: 12, paddingTop: 4, paddingBottom: 4 }}>{label}</td>
+                                                <td style={{ textAlign: 'right' }}>
+                                                    <InputNumber
+                                                        size="small"
+                                                        min={0}
+                                                        max={100}
+                                                        step={0.01}
+                                                        precision={2}
+                                                        value={value}
+                                                        onChange={(v) => setter(v ?? 0)}
+                                                        style={{ width: 110 }}
+                                                        formatter={(v) => {
+                                                            if (v == null || v === '') return '%'
+                                                            const n = typeof v === 'string' ? parseFloat(v.replace(',', '.')) : Number(v)
+                                                            if (isNaN(n)) return '%'
+                                                            return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '%'
+                                                        }}
+                                                        parser={(v) => {
+                                                            const raw = (v || '0').toString().replace('%', '').replace(/\./g, '').replace(',', '.').trim()
+                                                            const n = Number(raw)
+                                                            return isNaN(n) ? 0 : n
+                                                        }}
+                                                    />
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                                {_total > 0 && (
+                                    <div style={{ background: '#1a1a2e', padding: 12, borderRadius: 8, fontSize: 12, marginTop: 10 }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                                            <span style={{ color: '#94a3b8' }}>Preço base</span>
+                                            <span>{fmt(pricing.sellingPrice)}</span>
+                                        </div>
+                                        {_isVal > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}><span style={{ color: '#94a3b8' }}>+ IS</span><span>{fmt(_isVal)}</span></div>}
+                                        {_ibsVal > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}><span style={{ color: '#94a3b8' }}>+ IBS</span><span>{fmt(_ibsVal)}</span></div>}
+                                        {_cbsVal > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}><span style={{ color: '#94a3b8' }}>+ CBS</span><span>{fmt(_cbsVal)}</span></div>}
+                                        {_ipiVal > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}><span style={{ color: '#94a3b8' }}>+ IPI</span><span>{fmt(_ipiVal)}</span></div>}
+                                        <div style={{ borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: 6, marginTop: 4, display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
+                                            <span style={{ color: '#4ade80' }}>Preço Final com Impostos</span>
+                                            <span style={{ color: '#4ade80' }}>{fmt(_finalPrice)}</span>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )
+                    })()}
 
                     <div style={{
                         padding: '16px 20px', borderRadius: 8, marginTop: 12,

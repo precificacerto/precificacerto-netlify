@@ -36,6 +36,14 @@ interface ContentIndustrializationProps {
   onInsuranceChange?: (value: number) => void
   accessoryExpensesValue?: number
   onAccessoryExpensesChange?: (value: number) => void
+  ibsPct?: number
+  onIbsPctChange?: (value: number) => void
+  cbsPct?: number
+  onCbsPctChange?: (value: number) => void
+  isPct?: number
+  onIsPctChange?: (value: number) => void
+  ipiPct?: number
+  onIpiPctChange?: (value: number) => void
 }
 export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
   itemsForm,
@@ -64,6 +72,14 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
   onInsuranceChange,
   accessoryExpensesValue,
   onAccessoryExpensesChange,
+  ibsPct,
+  onIbsPctChange,
+  cbsPct,
+  onCbsPctChange,
+  isPct,
+  onIsPctChange,
+  ipiPct,
+  onIpiPctChange,
 }: ContentIndustrializationProps) => {
   return (
     <>
@@ -151,6 +167,14 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
         onInsuranceChange={onInsuranceChange}
         accessoryExpensesValue={accessoryExpensesValue}
         onAccessoryExpensesChange={onAccessoryExpensesChange}
+        ibsPct={ibsPct}
+        onIbsPctChange={onIbsPctChange}
+        cbsPct={cbsPct}
+        onCbsPctChange={onCbsPctChange}
+        isPct={isPct}
+        onIsPctChange={onIsPctChange}
+        ipiPct={ipiPct}
+        onIpiPctChange={onIpiPctChange}
       />
     </>
   )

@@ -32,6 +32,14 @@ interface Props {
   onInsuranceChange?: (value: number) => void
   accessoryExpensesValue?: number
   onAccessoryExpensesChange?: (value: number) => void
+  ibsPct?: number
+  onIbsPctChange?: (value: number) => void
+  cbsPct?: number
+  onCbsPctChange?: (value: number) => void
+  isPct?: number
+  onIsPctChange?: (value: number) => void
+  ipiPct?: number
+  onIpiPctChange?: (value: number) => void
 }
 
 export const ProductPrice: FC<Props> = ({
@@ -54,6 +62,14 @@ export const ProductPrice: FC<Props> = ({
   onInsuranceChange,
   accessoryExpensesValue = 0,
   onAccessoryExpensesChange,
+  ibsPct = 0,
+  onIbsPctChange,
+  cbsPct = 0,
+  onCbsPctChange,
+  isPct = 0,
+  onIsPctChange,
+  ipiPct = 0,
+  onIpiPctChange,
 }: Props) => {
   const isCalcTypeResale = currentUser?.calcType === CALC_TYPE_ENUM.RESALE
   const isCalcTypeService = currentUser?.calcType === CALC_TYPE_ENUM.SERVICE
@@ -95,6 +111,22 @@ export const ProductPrice: FC<Props> = ({
     ? (freightValue || 0) + (insuranceValue || 0) + (accessoryExpensesValue || 0)
     : 0
   const finalSalePrice = pricePerUnit + terceirizadasTotal
+
+  // Impostos "por fora" (IBS/CBS/IS/IPI) — apenas LUCRO_REAL
+  // Base IBS/CBS = finalSalePrice menos ICMS e PIS/COFINS embutidos "por dentro"
+  const _lrTotalEmb = isLucroReal ? (icmsPct + pisCofinsLRPct) : 0
+  const _lrGrossDen = _lrTotalEmb > 0 ? (100 - _lrTotalEmb) / 100 : 1
+  const _lrGrossed = _lrGrossDen > 0 ? finalSalePrice / _lrGrossDen : finalSalePrice
+  const _lrIcmsForBase = _lrGrossed * icmsPct / 100
+  const _lrPisCofForBase = _lrGrossed * pisCofinsLRPct / 100
+  const ibsCbsBase = isLucroReal ? Math.max(0, finalSalePrice - _lrIcmsForBase - _lrPisCofForBase) : finalSalePrice
+  const taxIsValue = finalSalePrice * (isPct || 0) / 100
+  const taxIbsValue = ibsCbsBase * (ibsPct || 0) / 100
+  const taxCbsValue = ibsCbsBase * (cbsPct || 0) / 100
+  const taxIpiValue = finalSalePrice * (ipiPct || 0) / 100
+  const totalInlineTax = taxIsValue + taxIbsValue + taxCbsValue + taxIpiValue
+  const finalPriceWithTaxes = totalInlineTax > 0 ? finalSalePrice + totalInlineTax : finalSalePrice
+  const hasInlineTaxes = isLucroReal && totalInlineTax > 0
 
   // LUCRO_REAL / LUCRO_PRESUMIDO: IRPJ = 15% do lucro, CSLL = 9% do lucro
   const irpjVal = showIrpjCsll ? profitVal * 0.15 : 0
@@ -332,6 +364,88 @@ export const ProductPrice: FC<Props> = ({
           </div>
         )}
 
+        {/* Impostos por fora: IBS, CBS, IS, IPI — apenas LUCRO_REAL */}
+        {isLucroReal && (
+          <div style={{ marginTop: 14, background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '12px 14px', border: '1px solid rgba(255,255,255,0.07)' }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' as const, letterSpacing: 0.6, marginBottom: 10 }}>
+              Impostos (IBS / CBS / IS / IPI)
+            </div>
+            <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0 4px' }}>
+              <tbody>
+                {([
+                  { label: 'IBS — Imposto sobre Bens e Serv. (%)', value: ibsPct, onChange: onIbsPctChange },
+                  { label: 'CBS — Contrib. sobre Bens e Serv. (%)', value: cbsPct, onChange: onCbsPctChange },
+                  { label: 'IS — Imposto Seletivo (%)', value: isPct, onChange: onIsPctChange },
+                  { label: 'IPI (%)', value: ipiPct, onChange: onIpiPctChange },
+                ] as { label: string; value: number; onChange?: (v: number) => void }[]).map(({ label, value, onChange }) => (
+                  <tr key={label}>
+                    <td style={{ fontSize: 13, color: '#cbd5e1', paddingRight: 12, paddingTop: 4, paddingBottom: 4 }}>{label}</td>
+                    <td style={{ textAlign: 'right' }}>
+                      <InputNumber
+                        size="small"
+                        min={0}
+                        max={100}
+                        step={0.01}
+                        precision={2}
+                        value={value}
+                        onChange={(v) => onChange?.(v ?? 0)}
+                        style={{ width: 110 }}
+                        formatter={(v) => {
+                          if (v == null || v === '') return '%'
+                          const n = typeof v === 'string' ? parseFloat(v.replace(',', '.')) : Number(v)
+                          if (isNaN(n)) return '%'
+                          return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '%'
+                        }}
+                        parser={(v) => {
+                          const raw = (v || '0').toString().replace('%', '').replace(/\./g, '').replace(',', '.').trim()
+                          const n = Number(raw)
+                          return isNaN(n) ? 0 : n
+                        }}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {hasInlineTaxes && (
+              <div style={{ background: '#1a1a2e', padding: 12, borderRadius: 8, fontSize: 12, marginTop: 10 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                  <span style={{ color: '#94a3b8' }}>Preço base</span>
+                  <span>{fmt(finalSalePrice)}</span>
+                </div>
+                {taxIsValue > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                    <span style={{ color: '#94a3b8' }}>+ IS</span>
+                    <span>{fmt(taxIsValue)}</span>
+                  </div>
+                )}
+                {taxIbsValue > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                    <span style={{ color: '#94a3b8' }}>+ IBS</span>
+                    <span>{fmt(taxIbsValue)}</span>
+                  </div>
+                )}
+                {taxCbsValue > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                    <span style={{ color: '#94a3b8' }}>+ CBS</span>
+                    <span>{fmt(taxCbsValue)}</span>
+                  </div>
+                )}
+                {taxIpiValue > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                    <span style={{ color: '#94a3b8' }}>+ IPI</span>
+                    <span>{fmt(taxIpiValue)}</span>
+                  </div>
+                )}
+                <div style={{ borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: 6, marginTop: 4, display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
+                  <span style={{ color: '#4ade80' }}>Preço Final com Impostos</span>
+                  <span style={{ color: '#4ade80' }}>{fmt(finalPriceWithTaxes)}</span>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Result box */}
         <div style={{
           padding: '16px 20px', borderRadius: 8, marginTop: 12,
@@ -351,15 +465,20 @@ export const ProductPrice: FC<Props> = ({
               )}
             </div>
             <div style={{ textAlign: 'right' }}>
-              <Tooltip title="Este é o preço de venda por unidade, incluindo atividades terceirizadas (Frete, Seguros, Despesas Acessórias) quando aplicável.">
+              <Tooltip title={hasInlineTaxes ? 'Preço de venda por unidade incluindo impostos (IBS, CBS, IS, IPI) aplicados sobre o preço base.' : 'Este é o preço de venda por unidade, incluindo atividades terceirizadas (Frete, Seguros, Despesas Acessórias) quando aplicável.'}>
                 <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 2, textTransform: 'uppercase' as const, letterSpacing: 0.5, cursor: 'help' }}>
-                  Preço de Venda por Unidade
+                  Preço de Venda por Unidade{hasInlineTaxes ? ' (com impostos)' : ''}
                 </div>
               </Tooltip>
               <div style={{ fontSize: 28, fontWeight: 800, color: finalSalePrice > 0 ? '#027A48' : '#B42318' }}>
-                {fmt(finalSalePrice)}
+                {fmt(hasInlineTaxes ? finalPriceWithTaxes : finalSalePrice)}
               </div>
-              {isLucroReal && terceirizadasTotal > 0 && (
+              {isLucroReal && hasInlineTaxes && (
+                <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
+                  Base: {fmt(finalSalePrice)} + Impostos: {fmt(totalInlineTax)}
+                </div>
+              )}
+              {isLucroReal && !hasInlineTaxes && terceirizadasTotal > 0 && (
                 <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
                   Base: {fmt(pricePerUnit)} + Terceirizadas: {fmt(terceirizadasTotal)}
                 </div>

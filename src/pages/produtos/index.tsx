@@ -16,7 +16,6 @@ import { useAuth } from '@/hooks/use-auth.hook'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import { getTenantId, getCurrentUserId } from '@/utils/get-tenant-id'
 import { calculateItemPrice } from '@/utils/calculate-item-price'
-import { LancamentoImpostosModal } from '@/components/lancamento-impostos-modal'
 
 const UNIT_LABELS: Record<string, string> = {
   G: 'g', KG: 'kg', ML: 'ml', L: 'l', UN: 'un', M: 'm', CM: 'cm', MM: 'mm',
@@ -85,13 +84,6 @@ function Products() {
   const [updatingProductId, setUpdatingProductId] = useState<string | null>(null)
   const [updatingAllProductsFlag, setUpdatingAllProductsFlag] = useState(false)
   const effectiveTenantId = contextTenantId ?? currentUser?.tenant_id
-  const isLucroReal = currentUser?.taxableRegime === 'LUCRO_REAL'
-
-  // Lançar Impostos modal state
-  const [lancamentoModalOpen, setLancamentoModalOpen] = useState(false)
-  const [lancamentoProductId, setLancamentoProductId] = useState<string | null>(null)
-  const [lancamentoProductName, setLancamentoProductName] = useState('')
-  const [lancamentoSalePrice, setLancamentoSalePrice] = useState(0)
 
   // Product sections state
   const [sectionModalOpen, setSectionModalOpen] = useState(false)
@@ -873,8 +865,7 @@ function Products() {
     },
     {
       title: 'Preço Venda', dataIndex: 'sale_price', key: 'price', width: 130, align: 'right',
-      render: (v: number, r: ProductRow) => {
-        if (isLucroReal && !r.taxes_launched) return <span style={{ color: '#6b7280', fontSize: 13 }}>—</span>
+      render: (v: number) => {
         return <span style={{ fontWeight: 700, color: '#4ade80', fontSize: 14 }}>{fmt(v)}</span>
       },
     },
@@ -889,25 +880,6 @@ function Products() {
           title: '', key: 'act', width: 160, align: 'center' as const,
           render: (_: any, r: ProductRow) => (
             <Space size={4} wrap>
-              {isLucroReal && (
-                <Tooltip title={r.taxes_launched ? 'Impostos já lançados — clique para editar' : 'Lançar impostos obrigatório para venda'}>
-                  <Button
-                    size="small"
-                    onClick={() => {
-                      setLancamentoProductId(r.id)
-                      setLancamentoProductName(r.name)
-                      setLancamentoSalePrice(r.sale_price)
-                      setLancamentoModalOpen(true)
-                    }}
-                    style={r.taxes_launched
-                      ? { background: '#16a34a', borderColor: '#15803d', color: 'white', fontSize: 11 }
-                      : { background: '#dc2626', borderColor: '#b91c1c', color: 'white', fontSize: 11, animation: 'blink 1.2s step-start infinite' }
-                    }
-                  >
-                    {r.taxes_launched ? '✓ Impostos' : '⚠ Lançar Impostos'}
-                  </Button>
-                </Tooltip>
-              )}
               {r.needs_cost_update && (
                 <Button
                   type="link"
@@ -948,18 +920,6 @@ function Products() {
 
   return (
     <Layout title={PAGE_TITLES.PRODUCTS} subtitle="Gerencie seus produtos cadastrados">
-      <style>{`@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.35} }`}</style>
-      {lancamentoProductId && (
-        <LancamentoImpostosModal
-          open={lancamentoModalOpen}
-          onClose={() => setLancamentoModalOpen(false)}
-          onSuccess={() => reloadProducts()}
-          entityId={lancamentoProductId}
-          entityType="product"
-          salePrice={lancamentoSalePrice}
-          entityName={lancamentoProductName}
-        />
-      )}
       {commissionTablesLoaded && commissionTables.length === 0 && (
         <div style={{ marginBottom: 16, padding: '12px 16px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ fontSize: 18 }}>⚠️</span>

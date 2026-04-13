@@ -35,6 +35,14 @@ interface ContentResaleProps {
   onInsuranceChange?: (value: number) => void
   accessoryExpensesValue?: number
   onAccessoryExpensesChange?: (value: number) => void
+  ibsPct?: number
+  onIbsPctChange?: (value: number) => void
+  cbsPct?: number
+  onCbsPctChange?: (value: number) => void
+  isPct?: number
+  onIsPctChange?: (value: number) => void
+  ipiPct?: number
+  onIpiPctChange?: (value: number) => void
 }
 export const ContentResale: FC<ContentResaleProps> = ({
   itemsForm,
@@ -63,6 +71,14 @@ export const ContentResale: FC<ContentResaleProps> = ({
   onInsuranceChange,
   accessoryExpensesValue,
   onAccessoryExpensesChange,
+  ibsPct,
+  onIbsPctChange,
+  cbsPct,
+  onCbsPctChange,
+  isPct,
+  onIsPctChange,
+  ipiPct,
+  onIpiPctChange,
 }: ContentResaleProps) => {
   return (
     <>
@@ -125,6 +141,14 @@ export const ContentResale: FC<ContentResaleProps> = ({
         onInsuranceChange={onInsuranceChange}
         accessoryExpensesValue={accessoryExpensesValue}
         onAccessoryExpensesChange={onAccessoryExpensesChange}
+        ibsPct={ibsPct}
+        onIbsPctChange={onIbsPctChange}
+        cbsPct={cbsPct}
+        onCbsPctChange={onCbsPctChange}
+        isPct={isPct}
+        onIsPctChange={onIsPctChange}
+        ipiPct={ipiPct}
+        onIpiPctChange={onIpiPctChange}
       />
     </>
   )
