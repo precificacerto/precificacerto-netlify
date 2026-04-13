@@ -383,6 +383,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                 ipi_value: isLucroRealSvcComp ? svcIpiVal : 0,
                 sale_price_base: isLucroRealSvcComp ? pricing.sellingPrice : null,
                 sale_price_after_taxes: isLucroRealSvcComp ? svcFinalPrice : null,
+                valor_precificado_icms_piscofins: isLucroRealSvcComp ? pricing.sellingPrice : null,
                 recurrence_active: recurrenceActive,
                 recurrence_days: recurrenceActive && recurrenceDays ? recurrenceDays : null,
                 recurrence_message: recurrenceActive && recurrenceMessage ? recurrenceMessage : null,
@@ -844,6 +845,13 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                         <span style={{ color: '#94a3b8' }}>Margem de contribuição total aplicada</span>
                         <span style={{ fontWeight: 600 }}>{(100 - pricing.totalPct).toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%</span>
                     </div>
+
+                    {isLucroRealDisplay && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 12, marginTop: 4 }}>
+                            <span style={{ color: '#64748b' }}>Valor do produto precificado com ICMS, PIS/COFINS</span>
+                            <span style={{ fontWeight: 600, color: '#e2e8f0' }}>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 }).format(pricing.sellingPrice)}</span>
+                        </div>
+                    )}
 
                     {/* IBS / CBS — apenas LUCRO_REAL */}
                     {isLucroRealDisplay && (() => {

@@ -314,6 +314,13 @@ export const ProductPrice: FC<Props> = ({
           <span style={{ fontWeight: 600 }}>{mcPct.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%</span>
         </div>
 
+        {isLucroReal && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 12, marginTop: 4 }}>
+            <span style={{ color: '#64748b' }}>Valor do produto precificado com ICMS, PIS/COFINS</span>
+            <span style={{ fontWeight: 600, color: '#e2e8f0' }}>{fmt(pricePerUnit)}</span>
+          </div>
+        )}
+
         {/* Atividades Terceirizadas — apenas LUCRO_REAL */}
         {isLucroReal && (
           <div style={{ marginTop: 14, background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '12px 14px', border: '1px solid rgba(255,255,255,0.07)' }}>

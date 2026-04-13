@@ -48,6 +48,7 @@ export const ContentService: FC<ContentServiceProps> = ({
   itemsPriceSum,
 }: ContentServiceProps) => {
   const isMei = !!calcBase.isMei
+  const isLucroRealSvc = currentUser?.taxableRegime === 'LUCRO_REAL'
 
   /* Unified tax (V2): single taxPct + taxLabel */
   const svcTaxPct = calcBase.taxPct
@@ -271,6 +272,13 @@ export const ContentService: FC<ContentServiceProps> = ({
             <span style={{ fontWeight: 600 }}>{svcTotalPct.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%</span>
           </div>
 
+          {isLucroRealSvc && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 12, marginTop: 4 }}>
+              <span style={{ color: '#64748b' }}>Valor do produto precificado com ICMS, PIS/COFINS</span>
+              <span style={{ fontWeight: 600, color: '#e2e8f0' }}>{fmt(svcTotal)}</span>
+            </div>
+          )}
+
           <div style={{
             padding: '16px 20px', borderRadius: 8, marginTop: 12,
             background: svcTotal > 0 ? '#ECFDF5' : '#FEF2F2',
@@ -365,6 +373,13 @@ export const ContentService: FC<ContentServiceProps> = ({
             <span style={{ color: '#94a3b8' }}>Margem de contribuição total aplicada</span>
             <span style={{ fontWeight: 600 }}>{prdTotalPct.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%</span>
           </div>
+
+          {isLucroRealSvc && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 12, marginTop: 4 }}>
+              <span style={{ color: '#64748b' }}>Valor do produto precificado com ICMS, PIS/COFINS</span>
+              <span style={{ fontWeight: 600, color: '#e2e8f0' }}>{fmt(prdTotal)}</span>
+            </div>
+          )}
 
           <div style={{
             padding: '16px 20px', borderRadius: 8, marginTop: 12,

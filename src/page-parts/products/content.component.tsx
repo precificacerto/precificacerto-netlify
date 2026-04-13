@@ -831,6 +831,7 @@ export const Content: FC<ContentProps> = ({
         extraFields.ipi_value = _ipiVal2
         extraFields.sale_price_base = salePriceToSave
         extraFields.sale_price_after_taxes = finalSalePriceForSave
+        extraFields.valor_precificado_icms_piscofins = Number(productPriceInfo.totalProductPrice) || 0
       }
       extraFields.recurrence_active = recurrenceActive
       extraFields.recurrence_days = recurrenceActive && recurrenceDays ? recurrenceDays : null
