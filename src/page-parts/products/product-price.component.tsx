@@ -373,14 +373,14 @@ export const ProductPrice: FC<Props> = ({
             <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0 4px' }}>
               <tbody>
                 {([
-                  { label: 'IBS — Imposto sobre Bens e Serv. (%)', value: ibsPct, onChange: onIbsPctChange },
-                  { label: 'CBS — Contrib. sobre Bens e Serv. (%)', value: cbsPct, onChange: onCbsPctChange },
-                  { label: 'IS — Imposto Seletivo (%)', value: isPct, onChange: onIsPctChange },
-                  { label: 'IPI (%)', value: ipiPct, onChange: onIpiPctChange },
-                ] as { label: string; value: number; onChange?: (v: number) => void }[]).map(({ label, value, onChange }) => (
+                  { label: 'IBS — Imposto sobre Bens e Serv. (%)', value: ibsPct, onChange: onIbsPctChange, taxValue: taxIbsValue },
+                  { label: 'CBS — Contrib. sobre Bens e Serv. (%)', value: cbsPct, onChange: onCbsPctChange, taxValue: taxCbsValue },
+                  { label: 'IS — Imposto Seletivo (%)', value: isPct, onChange: onIsPctChange, taxValue: taxIsValue },
+                  { label: 'IPI (%)', value: ipiPct, onChange: onIpiPctChange, taxValue: taxIpiValue },
+                ] as { label: string; value: number; onChange?: (v: number) => void; taxValue: number }[]).map(({ label, value, onChange, taxValue }) => (
                   <tr key={label}>
                     <td style={{ fontSize: 13, color: '#cbd5e1', paddingRight: 12, paddingTop: 4, paddingBottom: 4 }}>{label}</td>
-                    <td style={{ textAlign: 'right' }}>
+                    <td style={{ textAlign: 'right', whiteSpace: 'nowrap' as const }}>
                       <InputNumber
                         size="small"
                         min={0}
@@ -402,6 +402,9 @@ export const ProductPrice: FC<Props> = ({
                           return isNaN(n) ? 0 : n
                         }}
                       />
+                      <span style={{ marginLeft: 10, fontSize: 12, color: taxValue > 0 ? '#4ade80' : '#64748b', minWidth: 80, display: 'inline-block', textAlign: 'right' }}>
+                        {fmt(taxValue)}
+                      </span>
                     </td>
                   </tr>
                 ))}

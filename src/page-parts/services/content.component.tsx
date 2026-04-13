@@ -866,14 +866,14 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                                 <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0 4px' }}>
                                     <tbody>
                                         {([
-                                            { label: 'IBS — Imposto sobre Bens e Serv. (%)', value: ibsPct, setter: setIbsPct },
-                                            { label: 'CBS — Contrib. sobre Bens e Serv. (%)', value: cbsPct, setter: setCbsPct },
-                                            { label: 'IS — Imposto Seletivo (%)', value: isPct, setter: setIsPct },
-                                            { label: 'IPI (%)', value: ipiPct, setter: setIpiPct },
-                                        ] as { label: string; value: number; setter: (v: number) => void }[]).map(({ label, value, setter }) => (
+                                            { label: 'IBS — Imposto sobre Bens e Serv. (%)', value: ibsPct, setter: setIbsPct, taxValue: _ibsVal },
+                                            { label: 'CBS — Contrib. sobre Bens e Serv. (%)', value: cbsPct, setter: setCbsPct, taxValue: _cbsVal },
+                                            { label: 'IS — Imposto Seletivo (%)', value: isPct, setter: setIsPct, taxValue: _isVal },
+                                            { label: 'IPI (%)', value: ipiPct, setter: setIpiPct, taxValue: _ipiVal },
+                                        ] as { label: string; value: number; setter: (v: number) => void; taxValue: number }[]).map(({ label, value, setter, taxValue }) => (
                                             <tr key={label}>
                                                 <td style={{ fontSize: 13, color: '#cbd5e1', paddingRight: 12, paddingTop: 4, paddingBottom: 4 }}>{label}</td>
-                                                <td style={{ textAlign: 'right' }}>
+                                                <td style={{ textAlign: 'right', whiteSpace: 'nowrap' as const }}>
                                                     <InputNumber
                                                         size="small"
                                                         min={0}
@@ -895,6 +895,9 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                                                             return isNaN(n) ? 0 : n
                                                         }}
                                                     />
+                                                    <span style={{ marginLeft: 10, fontSize: 12, color: taxValue > 0 ? '#4ade80' : '#64748b', minWidth: 80, display: 'inline-block', textAlign: 'right' }}>
+                                                        {fmt(taxValue)}
+                                                    </span>
                                                 </td>
                                             </tr>
                                         ))}
