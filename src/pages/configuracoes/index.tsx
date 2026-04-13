@@ -32,6 +32,12 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
     const [revenue12m, setRevenue12m] = useState<number>(Number(tenantSettings?.simples_revenue_12m) || 0)
     const [lpActivity, setLpActivity] = useState<string>(tenantSettings?.lucro_presumido_activity || 'COMERCIO')
     const [effectiveRate, setEffectiveRate] = useState<number | null>(null)
+    const [ibsReferencePct, setIbsReferencePct] = useState<number | null>(
+        tenantSettings?.ibs_reference_pct != null ? Number(tenantSettings.ibs_reference_pct) : null
+    )
+    const [cbsReferencePct, setCbsReferencePct] = useState<number | null>(
+        tenantSettings?.cbs_reference_pct != null ? Number(tenantSettings.cbs_reference_pct) : null
+    )
 
     useEffect(() => {
         if (tenantSettings) {
@@ -42,6 +48,8 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
             setAnexo(tenantSettings.simples_anexo || '')
             setRevenue12m(Number(tenantSettings.simples_revenue_12m) || 0)
             setLpActivity(tenantSettings.lucro_presumido_activity || 'COMERCIO')
+            setIbsReferencePct(tenantSettings.ibs_reference_pct != null ? Number(tenantSettings.ibs_reference_pct) : null)
+            setCbsReferencePct(tenantSettings.cbs_reference_pct != null ? Number(tenantSettings.cbs_reference_pct) : null)
             taxForm.setFieldsValue({
                 regime: r,
                 state_code: sc,
@@ -50,6 +58,8 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                 revenue_value: Number(tenantSettings.simples_revenue_12m) || undefined,
                 lucro_presumido_activity: tenantSettings.lucro_presumido_activity || 'COMERCIO',
                 ret_rate: tenantSettings.ret_rate != null ? Number(tenantSettings.ret_rate) * 100 : 4,
+                ibs_reference_pct: tenantSettings.ibs_reference_pct != null ? Number(tenantSettings.ibs_reference_pct) : undefined,
+                cbs_reference_pct: tenantSettings.cbs_reference_pct != null ? Number(tenantSettings.cbs_reference_pct) : undefined,
             })
             if (r === 'SIMPLES_NACIONAL' && tenantSettings.simples_anexo) {
                 calcSimplesRate(tenantSettings.simples_anexo, Number(tenantSettings.simples_revenue_12m) || 0)
@@ -314,35 +324,75 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                         )}
 
                         {isLR && (
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
-                                <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
-                                    <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>ICMS Interno ({stateCode})</div>
-                                    <div style={{ fontSize: 18, fontWeight: 700 }}>{icmsPercent != null ? `${icmsPercent.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%` : '—'}</div>
-                                </Card>
-                                <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
-                                    <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>PIS (não-cumulativo)</div>
-                                    <div style={{ fontSize: 18, fontWeight: 700 }}>1,65%</div>
-                                </Card>
-                                <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
-                                    <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>COFINS (não-cumulativo)</div>
-                                    <div style={{ fontSize: 18, fontWeight: 700 }}>7,60%</div>
-                                </Card>
-                                <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
-                                    <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>ISS Municipal</div>
-                                    <div style={{ fontSize: 18, fontWeight: 700 }}>{issPercent.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%</div>
-                                    <div style={{ fontSize: 10, color: 'var(--color-neutral-400)' }}>Detectado via CNPJ</div>
-                                </Card>
-                                <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
-                                    <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>IRPJ (estimativa)</div>
-                                    <div style={{ fontSize: 18, fontWeight: 700 }}>1,20%</div>
-                                    <div style={{ fontSize: 10, color: 'var(--color-neutral-400)' }}>8% × 15%</div>
-                                </Card>
-                                <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
-                                    <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>CSLL (estimativa)</div>
-                                    <div style={{ fontSize: 18, fontWeight: 700 }}>1,08%</div>
-                                    <div style={{ fontSize: 10, color: 'var(--color-neutral-400)' }}>12% × 9%</div>
-                                </Card>
-                            </div>
+                            <>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+                                    <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
+                                        <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>ICMS Interno ({stateCode})</div>
+                                        <div style={{ fontSize: 18, fontWeight: 700 }}>{icmsPercent != null ? `${icmsPercent.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%` : '—'}</div>
+                                    </Card>
+                                    <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
+                                        <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>PIS (não-cumulativo)</div>
+                                        <div style={{ fontSize: 18, fontWeight: 700 }}>1,65%</div>
+                                    </Card>
+                                    <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
+                                        <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>COFINS (não-cumulativo)</div>
+                                        <div style={{ fontSize: 18, fontWeight: 700 }}>7,60%</div>
+                                    </Card>
+                                    <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
+                                        <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>ISS Municipal</div>
+                                        <div style={{ fontSize: 18, fontWeight: 700 }}>{issPercent.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%</div>
+                                        <div style={{ fontSize: 10, color: 'var(--color-neutral-400)' }}>Detectado via CNPJ</div>
+                                    </Card>
+                                    <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
+                                        <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>IRPJ (estimativa)</div>
+                                        <div style={{ fontSize: 18, fontWeight: 700 }}>1,20%</div>
+                                        <div style={{ fontSize: 10, color: 'var(--color-neutral-400)' }}>8% × 15%</div>
+                                    </Card>
+                                    <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
+                                        <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>CSLL (estimativa)</div>
+                                        <div style={{ fontSize: 18, fontWeight: 700 }}>1,08%</div>
+                                        <div style={{ fontSize: 10, color: 'var(--color-neutral-400)' }}>12% × 9%</div>
+                                    </Card>
+                                </div>
+                                <div style={{ marginTop: 16 }}>
+                                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-neutral-300)', marginBottom: 8 }}>
+                                        IVA DUAL — Alíquotas de Referência
+                                        <span style={{ fontWeight: 400, fontSize: 12, color: 'var(--color-neutral-400)', marginLeft: 8 }}>
+                                            Editáveis · usadas para calcular IBS e CBS por produto/serviço
+                                        </span>
+                                    </div>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                                        <Form.Item
+                                            name="ibs_reference_pct"
+                                            label="IBS — Imposto sobre Bens e Serviços"
+                                            style={{ marginBottom: 0 }}
+                                        >
+                                            <InputNumber
+                                                min={0} max={100} step={0.01}
+                                                style={{ width: '100%' }}
+                                                addonAfter="%"
+                                                onChange={(v) => setIbsReferencePct(v ?? null)}
+                                                formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
+                                                parser={(v) => Number((v || '0').replace(',', '.'))}
+                                            />
+                                        </Form.Item>
+                                        <Form.Item
+                                            name="cbs_reference_pct"
+                                            label="CBS — Contribuição sobre Bens e Serviços"
+                                            style={{ marginBottom: 0 }}
+                                        >
+                                            <InputNumber
+                                                min={0} max={100} step={0.01}
+                                                style={{ width: '100%' }}
+                                                addonAfter="%"
+                                                onChange={(v) => setCbsReferencePct(v ?? null)}
+                                                formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
+                                                parser={(v) => Number((v || '0').replace(',', '.'))}
+                                            />
+                                        </Form.Item>
+                                    </div>
+                                </div>
+                            </>
                         )}
                     </>
                 )}
@@ -488,6 +538,10 @@ function Settings() {
             }
             if (values.regime === 'LUCRO_PRESUMIDO_RET') {
                 updateData.ret_rate = (Number(values.ret_rate) || 4) / 100
+            }
+            if (values.regime === 'LUCRO_REAL') {
+                updateData.ibs_reference_pct = values.ibs_reference_pct != null ? Number(values.ibs_reference_pct) : null
+                updateData.cbs_reference_pct = values.cbs_reference_pct != null ? Number(values.cbs_reference_pct) : null
             }
             const { error } = await supabase.from('tenant_settings').update(updateData).eq('id', tenantSettings.id)
             if (error) throw error

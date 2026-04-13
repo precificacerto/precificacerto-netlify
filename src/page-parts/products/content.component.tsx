@@ -166,19 +166,67 @@ export const Content: FC<ContentProps> = ({
 
   const isLucroRealProd = currentUser?.taxableRegime === 'LUCRO_REAL'
 
+  // Alíquotas de referência IBS/CBS do tenant (Lucro Real)
+  const [ibsReferencePct, setIbsReferencePct] = useState<number>(0)
+  const [cbsReferencePct, setCbsReferencePct] = useState<number>(0)
+
+  useEffect(() => {
+    if (!isLucroRealProd) return
+    async function fetchIvaRefRates() {
+      const tenantId = currentUser?.tenant_id
+      if (!tenantId) return
+      const { data } = await (supabase as any)
+        .from('tenant_settings')
+        .select('ibs_reference_pct, cbs_reference_pct')
+        .eq('tenant_id', tenantId)
+        .single()
+      if (data) {
+        if (data.ibs_reference_pct != null) setIbsReferencePct(Number(data.ibs_reference_pct))
+        if (data.cbs_reference_pct != null) setCbsReferencePct(Number(data.cbs_reference_pct))
+      }
+    }
+    fetchIvaRefRates()
+  }, [isLucroRealProd, currentUser?.tenant_id])
+
   // ICMS e PIS/COFINS para Lucro Real (migrados do modal de lançar impostos)
-  const [icmsPct, setIcmsPct] = useState<number>(
-    (product as any)?.icms_pct != null ? Number((product as any).icms_pct) : 0
+  const initialIcms = (product as any)?.icms_pct != null ? Number((product as any).icms_pct) : 0
+  const initialPisCofins = (product as any)?.pis_cofins_pct != null
+    ? Number((product as any).pis_cofins_pct)
+    : 0
+  const [icmsPct, setIcmsPct] = useState<number>(initialIcms)
+  const [pisCofinsLRPct, setPisCofinsLRPct] = useState<number>(initialPisCofins)
+
+  // IVA DUAL — fator de redução por produto
+  const [ivaDualReductionFactor, setIvaDualReductionFactor] = useState<number | null>(
+    (product as any)?.iva_dual_reduction_factor != null ? Number((product as any).iva_dual_reduction_factor) : null
   )
-  const [pisCofinsLRPct, setPisCofinsLRPct] = useState<number>(
-    (product as any)?.pis_cofins_pct != null ? Number((product as any).pis_cofins_pct) : 0
-  )
+
   const [ibsPct, setIbsPct] = useState<number>(
     (product as any)?.ibs_pct != null ? Number((product as any).ibs_pct) : 0
   )
   const [cbsPct, setCbsPct] = useState<number>(
     (product as any)?.cbs_pct != null ? Number((product as any).cbs_pct) : 0
   )
+
+  // Handler: ICMS muda → auto-recalcula PIS/COFINS via fórmula
+  function handleIcmsPctChange(val: number) {
+    setIcmsPct(val)
+    if (isLucroRealProd) {
+      const newPisCofins = parseFloat((9.25 * (1 - val / 100)).toFixed(4))
+      setPisCofinsLRPct(newPisCofins)
+    }
+  }
+
+  // Handler: fator IVA DUAL muda → auto-recalcula IBS e CBS
+  function handleIvaDualFactorChange(factor: number | null) {
+    setIvaDualReductionFactor(factor)
+    if (factor != null && ibsReferencePct > 0) {
+      setIbsPct(parseFloat((ibsReferencePct * (1 - factor / 100)).toFixed(4)))
+    }
+    if (factor != null && cbsReferencePct > 0) {
+      setCbsPct(parseFloat((cbsReferencePct * (1 - factor / 100)).toFixed(4)))
+    }
+  }
   const [isPct, setIsPct] = useState<number>(
     (product as any)?.is_pct != null ? Number((product as any).is_pct) : 0
   )
@@ -448,6 +496,10 @@ export const Content: FC<ContentProps> = ({
       }
       if ((product as any)?.pis_cofins_pct != null) {
         setPisCofinsLRPct(Number((product as any).pis_cofins_pct))
+      }
+      // Load IVA DUAL
+      if ((product as any)?.iva_dual_reduction_factor != null) {
+        setIvaDualReductionFactor(Number((product as any).iva_dual_reduction_factor))
       }
     }
   }, [productForm, isEditingMode, product])
@@ -810,6 +862,7 @@ export const Content: FC<ContentProps> = ({
       if (isLucroRealProd) {
         extraFields.icms_pct = icmsPct || 0
         extraFields.pis_cofins_pct = pisCofinsLRPct || 0
+        extraFields.iva_dual_reduction_factor = ivaDualReductionFactor ?? null
         // Impostos IBS/CBS/IS/IPI — calculados acima
         const _totalEmb2 = (icmsPct || 0) + (pisCofinsLRPct || 0)
         const _grossDen2 = _totalEmb2 > 0 ? (100 - _totalEmb2) / 100 : 1
@@ -1627,6 +1680,35 @@ export const Content: FC<ContentProps> = ({
               </Select>
             </div>
           )}
+
+          {isLucroRealProd && (
+            <div>
+              <label style={{ display: 'block', marginBottom: 6, fontWeight: 500, fontSize: 13 }}>
+                Fator de redução da alíquota do IVA DUAL&nbsp;
+                <Tooltip title="Percentual de redução aplicado sobre as alíquotas de referência de IBS e CBS configuradas nas Configurações Fiscais. Ex: 50% reduz IBS de 17% para 8,5%.">
+                  <InfoCircleOutlined style={{ color: '#64748b' }} />
+                </Tooltip>
+              </label>
+              <Select
+                placeholder="Selecione"
+                value={ivaDualReductionFactor}
+                onChange={(val) => handleIvaDualFactorChange(val)}
+                style={{ width: '100%' }}
+                allowClear
+              >
+                {[30, 40, 50, 60, 70].map(v => (
+                  <Select.Option key={v} value={v}>{v}%</Select.Option>
+                ))}
+              </Select>
+              {ivaDualReductionFactor != null && (ibsReferencePct > 0 || cbsReferencePct > 0) && (
+                <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>
+                  IBS: {parseFloat((ibsReferencePct * (1 - ivaDualReductionFactor / 100)).toFixed(4)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}%
+                  &nbsp;·&nbsp;
+                  CBS: {parseFloat((cbsReferencePct * (1 - ivaDualReductionFactor / 100)).toFixed(4)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}%
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <div style={{
@@ -1659,7 +1741,7 @@ export const Content: FC<ContentProps> = ({
           additionalIrpjPercent={additionalIrpjPercent}
           onAdditionalIrpjChange={setAdditionalIrpjPercent}
           icmsPct={icmsPct}
-          onIcmsPctChange={setIcmsPct}
+          onIcmsPctChange={handleIcmsPctChange}
           pisCofinsLRPct={pisCofinsLRPct}
           onPisCofinsLRPctChange={setPisCofinsLRPct}
           freightValue={freightValue}
@@ -1698,7 +1780,7 @@ export const Content: FC<ContentProps> = ({
           additionalIrpjPercent={additionalIrpjPercent}
           onAdditionalIrpjChange={setAdditionalIrpjPercent}
           icmsPct={icmsPct}
-          onIcmsPctChange={setIcmsPct}
+          onIcmsPctChange={handleIcmsPctChange}
           pisCofinsLRPct={pisCofinsLRPct}
           onPisCofinsLRPctChange={setPisCofinsLRPct}
           freightValue={freightValue}
@@ -1736,7 +1818,7 @@ export const Content: FC<ContentProps> = ({
           additionalIrpjPercent={additionalIrpjPercent}
           onAdditionalIrpjChange={setAdditionalIrpjPercent}
           icmsPct={icmsPct}
-          onIcmsPctChange={setIcmsPct}
+          onIcmsPctChange={handleIcmsPctChange}
           pisCofinsLRPct={pisCofinsLRPct}
           onPisCofinsLRPctChange={setPisCofinsLRPct}
           freightValue={freightValue}

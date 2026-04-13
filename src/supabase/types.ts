@@ -80,6 +80,8 @@ export interface TenantSettings {
     whatsapp_instance_mode?: 'OWN' | 'SHARED' | null
     whatsapp_shared_instance_user_id?: string | null
     onboarding_mirrored_to_cashflow?: boolean | null
+    ibs_reference_pct?: number | null
+    cbs_reference_pct?: number | null
     created_at: string
     updated_at: string
 }

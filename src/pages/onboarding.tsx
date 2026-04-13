@@ -240,6 +240,7 @@ export default function Onboarding() {
   const icmsContribuinte = Form.useWatch('icms_contribuinte', taxForm)
   const isSimples = taxRegime === 'SIMPLES_NACIONAL'
   const isRet = taxRegime === 'LUCRO_PRESUMIDO_RET'
+  const isLucroReal = taxRegime === 'LUCRO_REAL'
 
   const isSuperAdmin =
     currentUser?.is_super_admin ||
@@ -430,6 +431,8 @@ export default function Onboarding() {
               : null,
             cnae_code: (tax.cnae_code || '').replace(/\D/g, ''),
             icms_contribuinte: tax.icms_contribuinte ?? false,
+            ibs_reference_pct: tax.tax_regime === 'LUCRO_REAL' ? (tax.ibs_reference_pct ?? null) : null,
+            cbs_reference_pct: tax.tax_regime === 'LUCRO_REAL' ? (tax.cbs_reference_pct ?? null) : null,
             inscricao_estadual: tax.inscricao_estadual || null,
             ie_state_code: tax.ie_state_code || null,
             sales_scope: tax.sales_scope || 'INTRAESTADUAL',
@@ -1035,6 +1038,53 @@ export default function Onboarding() {
                     </div>
                   )}
                 </div>
+                {/* IVA DUAL — apenas Lucro Real */}
+                {isLucroReal && (
+                  <div style={{
+                    background: 'rgba(255, 255, 255, 0.03)',
+                    border: '1px solid rgba(255, 255, 255, 0.06)',
+                    borderRadius: 12,
+                    padding: '20px',
+                    marginTop: 16,
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                      <CalculatorOutlined style={{ fontSize: 18, color: '#22C55E' }} />
+                      <span style={{ fontSize: 14, fontWeight: 600, color: '#e2e8f0' }}>
+                        Alíquotas de Referência — IBS e CBS
+                      </span>
+                    </div>
+                    <p style={{ fontSize: 12, color: '#94a3b8', marginBottom: 16 }}>
+                      Informe as alíquotas-base do IVA DUAL. Elas serão usadas como referência para calcular as alíquotas efetivas
+                      de IBS e CBS nos produtos e serviços, com base no fator de redução cadastrado em cada item.
+                    </p>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                      <Form.Item
+                        name="ibs_reference_pct"
+                        label="IBS — Imposto sobre Bens e Serviços (%)"
+                        tooltip="Alíquota-base de referência para o IBS. Exemplo: 17,00%"
+                      >
+                        <InputNumber
+                          min={0} max={100} step={0.01} style={{ width: '100%' }}
+                          addonAfter="%"
+                          formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
+                          parser={(v) => Number((v || '0').replace(',', '.'))}
+                        />
+                      </Form.Item>
+                      <Form.Item
+                        name="cbs_reference_pct"
+                        label="CBS — Contribuição sobre Bens e Serviços (%)"
+                        tooltip="Alíquota-base de referência para o CBS. Exemplo: 9,50%"
+                      >
+                        <InputNumber
+                          min={0} max={100} step={0.01} style={{ width: '100%' }}
+                          addonAfter="%"
+                          formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
+                          parser={(v) => Number((v || '0').replace(',', '.'))}
+                        />
+                      </Form.Item>
+                    </div>
+                  </div>
+                )}
               </Form>
             </div>
 

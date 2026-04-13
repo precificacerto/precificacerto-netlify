@@ -84,6 +84,44 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
     )
     const isLucroRealSvcComp = currentUser?.taxableRegime === 'LUCRO_REAL'
 
+    // IVA DUAL — fator de redução por serviço
+    const [ivaDualReductionFactor, setIvaDualReductionFactor] = useState<number | null>(
+        serviceData?.iva_dual_reduction_factor != null ? Number(serviceData.iva_dual_reduction_factor) : null
+    )
+
+    // Alíquotas de referência IBS/CBS do tenant (Lucro Real)
+    const [ibsReferencePct, setIbsReferencePct] = useState<number>(0)
+    const [cbsReferencePct, setCbsReferencePct] = useState<number>(0)
+
+    useEffect(() => {
+        if (!isLucroRealSvcComp) return
+        async function fetchIvaRefRates() {
+            const tenantId = currentUser?.tenant_id
+            if (!tenantId) return
+            const { data } = await (supabase as any)
+                .from('tenant_settings')
+                .select('ibs_reference_pct, cbs_reference_pct')
+                .eq('tenant_id', tenantId)
+                .single()
+            if (data) {
+                if (data.ibs_reference_pct != null) setIbsReferencePct(Number(data.ibs_reference_pct))
+                if (data.cbs_reference_pct != null) setCbsReferencePct(Number(data.cbs_reference_pct))
+            }
+        }
+        fetchIvaRefRates()
+    }, [isLucroRealSvcComp, currentUser?.tenant_id])
+
+    // Handler: fator IVA DUAL muda → auto-recalcula IBS e CBS
+    function handleIvaDualFactorChange(factor: number | null) {
+        setIvaDualReductionFactor(factor)
+        if (factor != null && ibsReferencePct > 0) {
+            setIbsPct(parseFloat((ibsReferencePct * (1 - factor / 100)).toFixed(4)))
+        }
+        if (factor != null && cbsReferencePct > 0) {
+            setCbsPct(parseFloat((cbsReferencePct * (1 - factor / 100)).toFixed(4)))
+        }
+    }
+
     // Commission tables
     const [commissionTables, setCommissionTables] = useState<{ id: string; name: string; commission_percent: number }[]>([])
     const [commissionTableId, setCommissionTableId] = useState<string | null>(serviceData?.commission_table_id || null)
@@ -167,6 +205,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
             if (serviceData.cbs_pct != null) setCbsPct(Number(serviceData.cbs_pct))
             if (serviceData.is_pct != null) setIsPct(Number(serviceData.is_pct))
             if (serviceData.ipi_pct != null) setIpiPct(Number(serviceData.ipi_pct))
+            if (serviceData.iva_dual_reduction_factor != null) setIvaDualReductionFactor(Number(serviceData.iva_dual_reduction_factor))
         } else {
             setTaxableRegimePercent(taxPreview?.taxableRegimePercent ?? currentUser?.taxableRegimeValue ?? 0)
         }
@@ -385,6 +424,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                 sale_price_base: isLucroRealSvcComp ? pricing.sellingPrice : null,
                 sale_price_after_taxes: isLucroRealSvcComp ? svcFinalPrice : null,
                 valor_precificado_icms_piscofins: isLucroRealSvcComp ? pricing.sellingPrice : null,
+                iva_dual_reduction_factor: isLucroRealSvcComp ? (ivaDualReductionFactor ?? null) : null,
                 recurrence_active: recurrenceActive,
                 recurrence_days: recurrenceActive && recurrenceDays ? recurrenceDays : null,
                 recurrence_message: recurrenceActive && recurrenceMessage ? recurrenceMessage : null,
@@ -851,6 +891,35 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                         <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 12, marginTop: 4 }}>
                             <span style={{ color: '#64748b' }}>Valor do produto precificado com ICMS, PIS/COFINS</span>
                             <span style={{ fontWeight: 600, color: '#e2e8f0' }}>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 }).format(pricing.sellingPrice)}</span>
+                        </div>
+                    )}
+
+                    {/* Fator de redução IVA DUAL — apenas LUCRO_REAL */}
+                    {isLucroRealDisplay && (
+                        <div style={{ marginTop: 14, background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '12px 14px', border: '1px solid rgba(255,255,255,0.07)' }}>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 10 }}>
+                                Fator de Redução da Alíquota do IVA DUAL
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                                <Select
+                                    placeholder="Selecione o fator (%)"
+                                    value={ivaDualReductionFactor}
+                                    onChange={(val) => handleIvaDualFactorChange(val)}
+                                    style={{ width: 220 }}
+                                    allowClear
+                                >
+                                    {[30, 40, 50, 60, 70].map(v => (
+                                        <Select.Option key={v} value={v}>{v}%</Select.Option>
+                                    ))}
+                                </Select>
+                                {ivaDualReductionFactor != null && (ibsReferencePct > 0 || cbsReferencePct > 0) && (
+                                    <span style={{ fontSize: 12, color: '#64748b' }}>
+                                        IBS: {parseFloat((ibsReferencePct * (1 - ivaDualReductionFactor / 100)).toFixed(4)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}%
+                                        &nbsp;·&nbsp;
+                                        CBS: {parseFloat((cbsReferencePct * (1 - ivaDualReductionFactor / 100)).toFixed(4)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}%
+                                    </span>
+                                )}
+                            </div>
                         </div>
                     )}
 

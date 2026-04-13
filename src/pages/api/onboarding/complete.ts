@@ -65,6 +65,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       num_administrative_employees: settings.num_administrative_employees || 0,
       administrative_monthly_workload: settings.administrative_monthly_workload || 176,
       icms_contribuinte: settings.icms_contribuinte ?? false,
+      ibs_reference_pct: settings.ibs_reference_pct != null ? Number(settings.ibs_reference_pct) : null,
+      cbs_reference_pct: settings.cbs_reference_pct != null ? Number(settings.cbs_reference_pct) : null,
       inscricao_estadual: settings.inscricao_estadual || null,
       ie_state_code: settings.ie_state_code || null,
       sales_scope: settings.sales_scope || 'INTRAESTADUAL',
@@ -80,8 +82,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (settingsError.message?.includes('inscricao_estadual') ||
           settingsError.message?.includes('ie_state_code') ||
           settingsError.message?.includes('sales_scope') ||
-          settingsError.message?.includes('buyer_type')) {
-        const { inscricao_estadual, ie_state_code, sales_scope, buyer_type, ...fallbackUpdate } = settingsUpdate
+          settingsError.message?.includes('buyer_type') ||
+          settingsError.message?.includes('ibs_reference_pct') ||
+          settingsError.message?.includes('cbs_reference_pct')) {
+        const { inscricao_estadual, ie_state_code, sales_scope, buyer_type, ibs_reference_pct, cbs_reference_pct, ...fallbackUpdate } = settingsUpdate
         const { error: fallbackError } = await supabaseAdmin
           .from('tenant_settings')
           .update(fallbackUpdate)
