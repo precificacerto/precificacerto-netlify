@@ -845,7 +845,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                         <span style={{ fontWeight: 600 }}>{(100 - pricing.totalPct).toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%</span>
                     </div>
 
-                    {/* Impostos por fora: IBS, CBS, IS, IPI — apenas LUCRO_REAL */}
+                    {/* IBS / CBS — apenas LUCRO_REAL */}
                     {isLucroRealDisplay && (() => {
                         const _pisCof = pisCofinsLRPct || 0
                         const _grossDen = _pisCof > 0 ? (100 - _pisCof) / 100 : 1
@@ -858,51 +858,61 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                         const _ipiVal = pricing.sellingPrice * (ipiPct || 0) / 100
                         const _total = _isVal + _ibsVal + _cbsVal + _ipiVal
                         const _finalPrice = _total > 0 ? pricing.sellingPrice + _total : pricing.sellingPrice
+                        const ibsCbsRows = [
+                            { label: 'IBS — Imposto sobre Bens e Serv. (%)', value: ibsPct, setter: setIbsPct, taxValue: _ibsVal },
+                            { label: 'CBS — Contrib. sobre Bens e Serv. (%)', value: cbsPct, setter: setCbsPct, taxValue: _cbsVal },
+                        ] as { label: string; value: number; setter: (v: number) => void; taxValue: number }[]
+                        const isIpiRows = [
+                            { label: 'IS — Imposto Seletivo (%)', value: isPct, setter: setIsPct, taxValue: _isVal },
+                            { label: 'IPI (%)', value: ipiPct, setter: setIpiPct, taxValue: _ipiVal },
+                        ] as { label: string; value: number; setter: (v: number) => void; taxValue: number }[]
+                        const renderRow = ({ label, value, setter, taxValue }: { label: string; value: number; setter: (v: number) => void; taxValue: number }) => (
+                            <tr key={label}>
+                                <td style={{ fontSize: 13, color: '#cbd5e1', paddingRight: 12, paddingTop: 4, paddingBottom: 4 }}>{label}</td>
+                                <td style={{ textAlign: 'right', whiteSpace: 'nowrap' as const }}>
+                                    <InputNumber
+                                        size="small" min={0} max={100} step={0.01} precision={2}
+                                        value={value}
+                                        onChange={(v) => setter(v ?? 0)}
+                                        style={{ width: 110 }}
+                                        formatter={(v) => {
+                                            if (v == null || v === '') return '%'
+                                            const n = typeof v === 'string' ? parseFloat(v.replace(',', '.')) : Number(v)
+                                            if (isNaN(n)) return '%'
+                                            return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '%'
+                                        }}
+                                        parser={(v) => {
+                                            const raw = (v || '0').toString().replace('%', '').replace(/\./g, '').replace(',', '.').trim()
+                                            const n = Number(raw)
+                                            return isNaN(n) ? 0 : n
+                                        }}
+                                    />
+                                    <span style={{ marginLeft: 10, fontSize: 12, color: taxValue > 0 ? '#4ade80' : '#64748b', minWidth: 80, display: 'inline-block', textAlign: 'right' }}>
+                                        {fmt(taxValue)}
+                                    </span>
+                                </td>
+                            </tr>
+                        )
                         return (
-                            <div style={{ marginTop: 14, background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '12px 14px', border: '1px solid rgba(255,255,255,0.07)' }}>
-                                <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' as const, letterSpacing: 0.6, marginBottom: 10 }}>
-                                    Impostos (IBS / CBS / IS / IPI)
+                            <>
+                                <div style={{ marginTop: 14, background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '12px 14px', border: '1px solid rgba(255,255,255,0.07)' }}>
+                                    <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' as const, letterSpacing: 0.6, marginBottom: 10 }}>
+                                        Impostos (IBS / CBS)
+                                    </div>
+                                    <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0 4px' }}>
+                                        <tbody>{ibsCbsRows.map(renderRow)}</tbody>
+                                    </table>
                                 </div>
-                                <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0 4px' }}>
-                                    <tbody>
-                                        {([
-                                            { label: 'IBS — Imposto sobre Bens e Serv. (%)', value: ibsPct, setter: setIbsPct, taxValue: _ibsVal },
-                                            { label: 'CBS — Contrib. sobre Bens e Serv. (%)', value: cbsPct, setter: setCbsPct, taxValue: _cbsVal },
-                                            { label: 'IS — Imposto Seletivo (%)', value: isPct, setter: setIsPct, taxValue: _isVal },
-                                            { label: 'IPI (%)', value: ipiPct, setter: setIpiPct, taxValue: _ipiVal },
-                                        ] as { label: string; value: number; setter: (v: number) => void; taxValue: number }[]).map(({ label, value, setter, taxValue }) => (
-                                            <tr key={label}>
-                                                <td style={{ fontSize: 13, color: '#cbd5e1', paddingRight: 12, paddingTop: 4, paddingBottom: 4 }}>{label}</td>
-                                                <td style={{ textAlign: 'right', whiteSpace: 'nowrap' as const }}>
-                                                    <InputNumber
-                                                        size="small"
-                                                        min={0}
-                                                        max={100}
-                                                        step={0.01}
-                                                        precision={2}
-                                                        value={value}
-                                                        onChange={(v) => setter(v ?? 0)}
-                                                        style={{ width: 110 }}
-                                                        formatter={(v) => {
-                                                            if (v == null || v === '') return '%'
-                                                            const n = typeof v === 'string' ? parseFloat(v.replace(',', '.')) : Number(v)
-                                                            if (isNaN(n)) return '%'
-                                                            return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '%'
-                                                        }}
-                                                        parser={(v) => {
-                                                            const raw = (v || '0').toString().replace('%', '').replace(/\./g, '').replace(',', '.').trim()
-                                                            const n = Number(raw)
-                                                            return isNaN(n) ? 0 : n
-                                                        }}
-                                                    />
-                                                    <span style={{ marginLeft: 10, fontSize: 12, color: taxValue > 0 ? '#4ade80' : '#64748b', minWidth: 80, display: 'inline-block', textAlign: 'right' }}>
-                                                        {fmt(taxValue)}
-                                                    </span>
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
+
+                                <div style={{ marginTop: 8, background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '12px 14px', border: '1px solid rgba(255,255,255,0.07)' }}>
+                                    <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' as const, letterSpacing: 0.6, marginBottom: 10 }}>
+                                        Impostos (IS / IPI)
+                                    </div>
+                                    <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0 4px' }}>
+                                        <tbody>{isIpiRows.map(renderRow)}</tbody>
+                                    </table>
+                                </div>
+
                                 {_total > 0 && (
                                     <div style={{ background: '#1a1a2e', padding: 12, borderRadius: 8, fontSize: 12, marginTop: 10 }}>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
@@ -919,7 +929,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                                         </div>
                                     </div>
                                 )}
-                            </div>
+                            </>
                         )
                     })()}
 

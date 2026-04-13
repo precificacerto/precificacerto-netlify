@@ -364,88 +364,133 @@ export const ProductPrice: FC<Props> = ({
           </div>
         )}
 
-        {/* Impostos por fora: IBS, CBS, IS, IPI — apenas LUCRO_REAL */}
-        {isLucroReal && (
-          <div style={{ marginTop: 14, background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '12px 14px', border: '1px solid rgba(255,255,255,0.07)' }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' as const, letterSpacing: 0.6, marginBottom: 10 }}>
-              Impostos (IBS / CBS / IS / IPI)
+        {/* IBS / CBS — apenas LUCRO_REAL */}
+        {isLucroReal && (() => {
+          const ibsCbsRows = [
+            { label: 'IBS — Imposto sobre Bens e Serv. (%)', value: ibsPct, onChange: onIbsPctChange, taxValue: taxIbsValue },
+            { label: 'CBS — Contrib. sobre Bens e Serv. (%)', value: cbsPct, onChange: onCbsPctChange, taxValue: taxCbsValue },
+          ] as { label: string; value: number; onChange?: (v: number) => void; taxValue: number }[]
+          return (
+            <div style={{ marginTop: 14, background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '12px 14px', border: '1px solid rgba(255,255,255,0.07)' }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' as const, letterSpacing: 0.6, marginBottom: 10 }}>
+                Impostos (IBS / CBS)
+              </div>
+              <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0 4px' }}>
+                <tbody>
+                  {ibsCbsRows.map(({ label, value, onChange, taxValue }) => (
+                    <tr key={label}>
+                      <td style={{ fontSize: 13, color: '#cbd5e1', paddingRight: 12, paddingTop: 4, paddingBottom: 4 }}>{label}</td>
+                      <td style={{ textAlign: 'right', whiteSpace: 'nowrap' as const }}>
+                        <InputNumber
+                          size="small" min={0} max={100} step={0.01} precision={2}
+                          value={value}
+                          onChange={(v) => onChange?.(v ?? 0)}
+                          style={{ width: 110 }}
+                          formatter={(v) => {
+                            if (v == null || v === '') return '%'
+                            const n = typeof v === 'string' ? parseFloat(v.replace(',', '.')) : Number(v)
+                            if (isNaN(n)) return '%'
+                            return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '%'
+                          }}
+                          parser={(v) => {
+                            const raw = (v || '0').toString().replace('%', '').replace(/\./g, '').replace(',', '.').trim()
+                            const n = Number(raw)
+                            return isNaN(n) ? 0 : n
+                          }}
+                        />
+                        <span style={{ marginLeft: 10, fontSize: 12, color: taxValue > 0 ? '#4ade80' : '#64748b', minWidth: 80, display: 'inline-block', textAlign: 'right' }}>
+                          {fmt(taxValue)}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-            <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0 4px' }}>
-              <tbody>
-                {([
-                  { label: 'IBS — Imposto sobre Bens e Serv. (%)', value: ibsPct, onChange: onIbsPctChange, taxValue: taxIbsValue },
-                  { label: 'CBS — Contrib. sobre Bens e Serv. (%)', value: cbsPct, onChange: onCbsPctChange, taxValue: taxCbsValue },
-                  { label: 'IS — Imposto Seletivo (%)', value: isPct, onChange: onIsPctChange, taxValue: taxIsValue },
-                  { label: 'IPI (%)', value: ipiPct, onChange: onIpiPctChange, taxValue: taxIpiValue },
-                ] as { label: string; value: number; onChange?: (v: number) => void; taxValue: number }[]).map(({ label, value, onChange, taxValue }) => (
-                  <tr key={label}>
-                    <td style={{ fontSize: 13, color: '#cbd5e1', paddingRight: 12, paddingTop: 4, paddingBottom: 4 }}>{label}</td>
-                    <td style={{ textAlign: 'right', whiteSpace: 'nowrap' as const }}>
-                      <InputNumber
-                        size="small"
-                        min={0}
-                        max={100}
-                        step={0.01}
-                        precision={2}
-                        value={value}
-                        onChange={(v) => onChange?.(v ?? 0)}
-                        style={{ width: 110 }}
-                        formatter={(v) => {
-                          if (v == null || v === '') return '%'
-                          const n = typeof v === 'string' ? parseFloat(v.replace(',', '.')) : Number(v)
-                          if (isNaN(n)) return '%'
-                          return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '%'
-                        }}
-                        parser={(v) => {
-                          const raw = (v || '0').toString().replace('%', '').replace(/\./g, '').replace(',', '.').trim()
-                          const n = Number(raw)
-                          return isNaN(n) ? 0 : n
-                        }}
-                      />
-                      <span style={{ marginLeft: 10, fontSize: 12, color: taxValue > 0 ? '#4ade80' : '#64748b', minWidth: 80, display: 'inline-block', textAlign: 'right' }}>
-                        {fmt(taxValue)}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {hasInlineTaxes && (
-              <div style={{ background: '#1a1a2e', padding: 12, borderRadius: 8, fontSize: 12, marginTop: 10 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                  <span style={{ color: '#94a3b8' }}>Preço base</span>
-                  <span>{fmt(finalSalePrice)}</span>
-                </div>
-                {taxIsValue > 0 && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                    <span style={{ color: '#94a3b8' }}>+ IS</span>
-                    <span>{fmt(taxIsValue)}</span>
-                  </div>
-                )}
-                {taxIbsValue > 0 && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                    <span style={{ color: '#94a3b8' }}>+ IBS</span>
-                    <span>{fmt(taxIbsValue)}</span>
-                  </div>
-                )}
-                {taxCbsValue > 0 && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                    <span style={{ color: '#94a3b8' }}>+ CBS</span>
-                    <span>{fmt(taxCbsValue)}</span>
-                  </div>
-                )}
-                {taxIpiValue > 0 && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                    <span style={{ color: '#94a3b8' }}>+ IPI</span>
-                    <span>{fmt(taxIpiValue)}</span>
-                  </div>
-                )}
-                <div style={{ borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: 6, marginTop: 4, display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
-                  <span style={{ color: '#4ade80' }}>Preço Final com Impostos</span>
-                  <span style={{ color: '#4ade80' }}>{fmt(finalPriceWithTaxes)}</span>
-                </div>
+          )
+        })()}
+
+        {/* IS / IPI — apenas LUCRO_REAL */}
+        {isLucroReal && (() => {
+          const isIpiRows = [
+            { label: 'IS — Imposto Seletivo (%)', value: isPct, onChange: onIsPctChange, taxValue: taxIsValue },
+            { label: 'IPI (%)', value: ipiPct, onChange: onIpiPctChange, taxValue: taxIpiValue },
+          ] as { label: string; value: number; onChange?: (v: number) => void; taxValue: number }[]
+          return (
+            <div style={{ marginTop: 8, background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '12px 14px', border: '1px solid rgba(255,255,255,0.07)' }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' as const, letterSpacing: 0.6, marginBottom: 10 }}>
+                Impostos (IS / IPI)
+              </div>
+              <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0 4px' }}>
+                <tbody>
+                  {isIpiRows.map(({ label, value, onChange, taxValue }) => (
+                    <tr key={label}>
+                      <td style={{ fontSize: 13, color: '#cbd5e1', paddingRight: 12, paddingTop: 4, paddingBottom: 4 }}>{label}</td>
+                      <td style={{ textAlign: 'right', whiteSpace: 'nowrap' as const }}>
+                        <InputNumber
+                          size="small" min={0} max={100} step={0.01} precision={2}
+                          value={value}
+                          onChange={(v) => onChange?.(v ?? 0)}
+                          style={{ width: 110 }}
+                          formatter={(v) => {
+                            if (v == null || v === '') return '%'
+                            const n = typeof v === 'string' ? parseFloat(v.replace(',', '.')) : Number(v)
+                            if (isNaN(n)) return '%'
+                            return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '%'
+                          }}
+                          parser={(v) => {
+                            const raw = (v || '0').toString().replace('%', '').replace(/\./g, '').replace(',', '.').trim()
+                            const n = Number(raw)
+                            return isNaN(n) ? 0 : n
+                          }}
+                        />
+                        <span style={{ marginLeft: 10, fontSize: 12, color: taxValue > 0 ? '#4ade80' : '#64748b', minWidth: 80, display: 'inline-block', textAlign: 'right' }}>
+                          {fmt(taxValue)}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        })()}
+
+        {/* Breakdown total de impostos — apenas quando há valores */}
+        {hasInlineTaxes && (
+          <div style={{ background: '#1a1a2e', padding: 12, borderRadius: 8, fontSize: 12, marginTop: 10 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+              <span style={{ color: '#94a3b8' }}>Preço base</span>
+              <span>{fmt(finalSalePrice)}</span>
+            </div>
+            {taxIsValue > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                <span style={{ color: '#94a3b8' }}>+ IS</span>
+                <span>{fmt(taxIsValue)}</span>
               </div>
             )}
+            {taxIbsValue > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                <span style={{ color: '#94a3b8' }}>+ IBS</span>
+                <span>{fmt(taxIbsValue)}</span>
+              </div>
+            )}
+            {taxCbsValue > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                <span style={{ color: '#94a3b8' }}>+ CBS</span>
+                <span>{fmt(taxCbsValue)}</span>
+              </div>
+            )}
+            {taxIpiValue > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                <span style={{ color: '#94a3b8' }}>+ IPI</span>
+                <span>{fmt(taxIpiValue)}</span>
+              </div>
+            )}
+            <div style={{ borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: 6, marginTop: 4, display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
+              <span style={{ color: '#4ade80' }}>Preço Final com Impostos</span>
+              <span style={{ color: '#4ade80' }}>{fmt(finalPriceWithTaxes)}</span>
+            </div>
           </div>
         )}
 
