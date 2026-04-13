@@ -349,9 +349,10 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                 const _grossed = _grossDen > 0 ? pricing.sellingPrice / _grossDen : pricing.sellingPrice
                 const _pisCofVal = _grossed * _pisCof / 100
                 const _ibsCbsBase = Math.max(0, pricing.sellingPrice - _pisCofVal)
-                svcIsVal = pricing.sellingPrice * (isPct || 0) / 100
-                svcIbsVal = _ibsCbsBase * (ibsPct || 0) / 100
-                svcCbsVal = _ibsCbsBase * (cbsPct || 0) / 100
+                svcIsVal = _ibsCbsBase * (isPct || 0) / 100
+                const _ibsCbsWithIs = _ibsCbsBase + svcIsVal
+                svcIbsVal = _ibsCbsWithIs * (ibsPct || 0) / 100
+                svcCbsVal = _ibsCbsWithIs * (cbsPct || 0) / 100
                 svcIpiVal = pricing.sellingPrice * (ipiPct || 0) / 100
                 const totalTax = svcIsVal + svcIbsVal + svcCbsVal + svcIpiVal
                 if (totalTax > 0) svcFinalPrice = pricing.sellingPrice + totalTax
@@ -860,9 +861,10 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                         const _grossed = _grossDen > 0 ? pricing.sellingPrice / _grossDen : pricing.sellingPrice
                         const _pisCofVal = _grossed * _pisCof / 100
                         const _ibsCbsBase = Math.max(0, pricing.sellingPrice - _pisCofVal)
-                        const _isVal = pricing.sellingPrice * (isPct || 0) / 100
-                        const _ibsVal = _ibsCbsBase * (ibsPct || 0) / 100
-                        const _cbsVal = _ibsCbsBase * (cbsPct || 0) / 100
+                        const _isVal = _ibsCbsBase * (isPct || 0) / 100
+                        const _ibsCbsWithIs = _ibsCbsBase + _isVal
+                        const _ibsVal = _ibsCbsWithIs * (ibsPct || 0) / 100
+                        const _cbsVal = _ibsCbsWithIs * (cbsPct || 0) / 100
                         const _ipiVal = pricing.sellingPrice * (ipiPct || 0) / 100
                         const _total = _isVal + _ibsVal + _cbsVal + _ipiVal
                         const _finalPrice = _total > 0 ? pricing.sellingPrice + _total : pricing.sellingPrice

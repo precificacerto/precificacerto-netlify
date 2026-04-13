@@ -113,16 +113,20 @@ export const ProductPrice: FC<Props> = ({
   const finalSalePrice = pricePerUnit + terceirizadasTotal
 
   // Impostos "por fora" (IBS/CBS/IS/IPI) — apenas LUCRO_REAL
-  // Base IBS/CBS = finalSalePrice menos ICMS e PIS/COFINS embutidos "por dentro"
+  // IS e IBS/CBS: base LIMPA (sem ICMS+PIS/COFINS embutidos) + despesas acessórias
+  //   IS  base = preço limpo + terceirizadas
+  //   IBS/CBS base = preço limpo + terceirizadas + valor IS
+  // IPI: base CHEIA (com ICMS+PIS/COFINS embutidos) + despesas acessórias
   const _lrTotalEmb = isLucroReal ? (icmsPct + pisCofinsLRPct) : 0
   const _lrGrossDen = _lrTotalEmb > 0 ? (100 - _lrTotalEmb) / 100 : 1
   const _lrGrossed = _lrGrossDen > 0 ? finalSalePrice / _lrGrossDen : finalSalePrice
   const _lrIcmsForBase = _lrGrossed * icmsPct / 100
   const _lrPisCofForBase = _lrGrossed * pisCofinsLRPct / 100
   const ibsCbsBase = isLucroReal ? Math.max(0, finalSalePrice - _lrIcmsForBase - _lrPisCofForBase) : finalSalePrice
-  const taxIsValue = finalSalePrice * (isPct || 0) / 100
-  const taxIbsValue = ibsCbsBase * (ibsPct || 0) / 100
-  const taxCbsValue = ibsCbsBase * (cbsPct || 0) / 100
+  const taxIsValue = ibsCbsBase * (isPct || 0) / 100
+  const ibsCbsWithIs = ibsCbsBase + taxIsValue
+  const taxIbsValue = ibsCbsWithIs * (ibsPct || 0) / 100
+  const taxCbsValue = ibsCbsWithIs * (cbsPct || 0) / 100
   const taxIpiValue = finalSalePrice * (ipiPct || 0) / 100
   const totalInlineTax = taxIsValue + taxIbsValue + taxCbsValue + taxIpiValue
   const finalPriceWithTaxes = totalInlineTax > 0 ? finalSalePrice + totalInlineTax : finalSalePrice
