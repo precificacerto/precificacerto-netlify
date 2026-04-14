@@ -8,7 +8,6 @@ import { CalcBaseType } from '@/types/calc-base.type'
 import { LoggedUser } from '@/types/logged-user.type'
 import { ProductPriceInfoType } from './content.component'
 import { getMonetaryValue } from '@/utils/get-monetary-value'
-import { UNIT_MEASURE_ENUM } from '@/shared/enums/unit-measure-type'
 import { Input } from 'antd'
 
 function fmt(v: number) {
@@ -60,16 +59,7 @@ export const ContentService: FC<ContentServiceProps> = ({
   const quantity = productForm.getFieldValue('quantity')
   const unit = productForm.getFieldValue('unitType')
 
-  const getUnitMeasure = () => {
-    if (!currentUser) return
-    switch (currentUser.unitMeasure) {
-      case UNIT_MEASURE_ENUM.MINUTES: return 'Minuto(s)'
-      case UNIT_MEASURE_ENUM.HOURS: return 'Hora(s)'
-      case UNIT_MEASURE_ENUM.DAYS: return 'Dia(s)'
-      case UNIT_MEASURE_ENUM.ACTIVITIES: return 'Atividade(s)'
-      default: return ''
-    }
-  }
+  const getUnitMeasure = () => 'Minuto(s)'
 
   const fireChange = (name: string, value: number) => {
     handleChangePrecificationInputs({

@@ -127,11 +127,7 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
               name="productWorkloadInMinutes"
               placeholder="Inserir manualmente"
               autoComplete="off"
-              suffix={
-                currentUser?.unitMeasure === 'HOURS' ? 'Hora(s)'
-                : currentUser?.unitMeasure === 'DAYS' ? 'Dia(s)'
-                : 'Minuto(s)'
-              }
+              suffix="Minuto(s)"
               className="w-[89%]"
               type="number"
               min={1}

@@ -13,7 +13,7 @@ import { IProductModel } from '@/server/model/product'
 import { ROUTES } from '@/constants/routes'
 import { getMonetaryValue } from '@/utils/get-monetary-value'
 import { CalcBaseType } from '@/types/calc-base.type'
-import { calculatePricing, normalizeToMinutes } from '@/utils/pricing-engine'
+import { calculatePricing } from '@/utils/pricing-engine'
 import { CALC_TYPE_ENUM } from '@/shared/enums/calc-type'
 import { ContentIndustrialization } from './content-industrialization'
 import { ContentResale } from './content-resale'
@@ -177,16 +177,29 @@ export const Content: FC<ContentProps> = ({
       if (!tenantId) return
       const { data } = await (supabase as any)
         .from('tenant_settings')
-        .select('ibs_reference_pct, cbs_reference_pct')
+        .select('ibs_reference_pct, cbs_reference_pct, state_code')
         .eq('tenant_id', tenantId)
         .single()
       if (data) {
         if (data.ibs_reference_pct != null) setIbsReferencePct(Number(data.ibs_reference_pct))
         if (data.cbs_reference_pct != null) setCbsReferencePct(Number(data.cbs_reference_pct))
+        // Auto-preenchimento do ICMS interno apenas para novos produtos (Lucro Real)
+        if (!isEditingMode && data.state_code) {
+          const { data: stateData } = await (supabase as any)
+            .from('brazilian_states')
+            .select('icms_internal_rate')
+            .eq('code', data.state_code.trim())
+            .single()
+          if (stateData?.icms_internal_rate != null) {
+            const autoIcmsPct = Number(stateData.icms_internal_rate) * 100
+            setIcmsPct(autoIcmsPct)
+            setPisCofinsLRPct(parseFloat((9.25 * (1 - autoIcmsPct / 100)).toFixed(4)))
+          }
+        }
       }
     }
     fetchIvaRefRates()
-  }, [isLucroRealProd, currentUser?.tenant_id])
+  }, [isLucroRealProd, currentUser?.tenant_id, isEditingMode])
 
   // ICMS e PIS/COFINS para Lucro Real (migrados do modal de lançar impostos)
   const initialIcms = (product as any)?.icms_pct != null ? Number((product as any).icms_pct) : 0
@@ -462,15 +475,7 @@ export const Content: FC<ContentProps> = ({
         ...PRODUCT_PRICE_INFO_BASE,
         productProfitPercent: Number((product as any)?.productPriceInfo?.productProfitPercent ?? (product as any)?.profit_percent) || 0,
         salesCommissionPercent: Number((product as any)?.productPriceInfo?.salesCommissionPercent ?? (product as any)?.commission_percent) || 0,
-        productWorkloadInMinutes: (() => {
-          const stored = Number((product as any)?.productPriceInfo?.productWorkloadInMinutes) || 0
-          const wUnit = currentUser.unitMeasure || 'MINUTES'
-          const wIsService = currentUser.calcType === CALC_TYPE_ENUM.SERVICE
-          if (wIsService) return stored
-          if (wUnit === 'HOURS') return stored / 60
-          if (wUnit === 'DAYS') return stored / 480
-          return stored
-        })(),
+        productWorkloadInMinutes: Number((product as any)?.productPriceInfo?.productWorkloadInMinutes) || 0,
       } as ProductPriceInfoType)
       setUpdatedProductPriceInfoWithApi((prev) => prev + 1)
       // Load custom_tax_percent from product if editing
@@ -568,11 +573,7 @@ export const Content: FC<ContentProps> = ({
       laborCostMonthly: effectiveCalcType === 'REVENDA' ? 0 : calcBase.laborCostMonthly,
       numProductiveEmployees: totalEmployees,
       monthlyWorkloadMinutes,
-      productWorkloadMinutes: effectiveCalcType === 'REVENDA' ? 0 : normalizeToMinutes(
-        productPriceInfo.productWorkloadInMinutes || 0,
-        (currentUser.unitMeasure || 'MINUTES') as 'MINUTES' | 'HOURS' | 'DAYS' | 'ACTIVITIES',
-        isCalcService,
-      ),
+      productWorkloadMinutes: effectiveCalcType === 'REVENDA' ? 0 : (productPriceInfo.productWorkloadInMinutes || 0),
       structurePct: structurePctForEngine,
       taxPct: taxPctDecimal,
       commissionPct: productPriceInfo.salesCommissionPercent / 100,
@@ -1002,13 +1003,7 @@ export const Content: FC<ContentProps> = ({
         }
       }
 
-      // Normalize workload to minutes before sending to edge (same normalization as preview)
-      const unitMeasure = (currentUser.unitMeasure || 'MINUTES') as 'MINUTES' | 'HOURS' | 'DAYS' | 'ACTIVITIES'
-      const normalizedWorkloadMinutes = normalizeToMinutes(
-        productPriceInfo.productWorkloadInMinutes || 0,
-        unitMeasure,
-        isCalcService,
-      )
+      const normalizedWorkloadMinutes = productPriceInfo.productWorkloadInMinutes || 0
 
       const { data: calcResult, error: calcError } = await supabase.functions.invoke('calc-tax-engine', {
         body: {
