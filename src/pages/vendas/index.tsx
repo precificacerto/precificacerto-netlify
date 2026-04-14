@@ -1490,7 +1490,16 @@ function Sales() {
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                 <span style={{ fontSize: 14, color: '#94a3b8', whiteSpace: 'nowrap' }}>Desconto (%)</span>
-                                <InputNumber min={0} max={maxDiscountPercentV > 0 ? maxDiscountPercentV : 100} step={0.5} value={globalDiscountPercentV} onChange={(v) => setGlobalDiscountPercentV(Math.min(v ?? 0, maxDiscountPercentV > 0 ? maxDiscountPercentV : 100))} formatter={(v) => v != null ? String(v).replace('.', ',') : ''} parser={(v) => Number((v || '0').replace(',', '.'))} addonAfter="%" style={{ width: 130 }} />
+                                <InputNumber min={0} max={maxDiscountPercentV > 0 ? maxDiscountPercentV : 100} step={0.5} value={globalDiscountPercentV} onChange={(v) => {
+                                    const newDiscount = Math.min(v ?? 0, maxDiscountPercentV > 0 ? maxDiscountPercentV : 100)
+                                    setGlobalDiscountPercentV(newDiscount)
+                                    if (installmentPreset !== 'customizado') {
+                                        const discountedTotal = saleTotal * (1 - newDiscount / 100)
+                                        const n = customInstallments.length
+                                        const amt = n > 0 && discountedTotal > 0 ? Math.round((discountedTotal / n) * 100) / 100 : 0
+                                        setCustomInstallments(prev => prev.map(inst => ({ ...inst, amount: amt })))
+                                    }
+                                }} formatter={(v) => v != null ? String(v).replace('.', ',') : ''} parser={(v) => Number((v || '0').replace(',', '.'))} addonAfter="%" style={{ width: 130 }} />
                             </div>
                             {maxDiscountPercentV > 0 && (<span style={{ fontSize: 12, color: '#64748b' }}>Máx: {maxDiscountPercentV.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}% (comissão + lucro)</span>)}
                         </div>
@@ -1540,7 +1549,7 @@ function Sales() {
                                                 const p = e.target.value
                                                 setInstallmentPreset(p)
                                                 const insts = buildInstallmentsByPreset(p)
-                                                const total = saleTotal
+                                                const total = saleTotalWithDiscount
                                                 const n = insts.length
                                                 const amt = n > 0 && total > 0 ? Math.round((total / n) * 100) / 100 : 0
                                                 setCustomInstallments(insts.map(inst => ({ ...inst, amount: amt })))

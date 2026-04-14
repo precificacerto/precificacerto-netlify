@@ -1652,10 +1652,7 @@ function Budgets() {
                         {({ getFieldValue }) => {
                             const pm = getFieldValue('payment_method')
                             if (pm !== 'CHEQUE_PRE_DATADO' && pm !== 'BOLETO') return null
-                            const totalValue = (() => {
-                                const items: BudgetItemRow[] = budgetItems
-                                return items.reduce((s, r) => s + (r.total || 0), 0)
-                            })()
+                            const totalValue = budgetTotalWithDiscount
                             return (
                                 <div style={{ marginBottom: 16, padding: 12, background: 'rgba(96, 165, 250, 0.06)', border: '1px solid rgba(96,165,250,0.2)', borderRadius: 8 }}>
                                     <div style={{ fontSize: 13, fontWeight: 600, color: '#93c5fd', marginBottom: 6 }}>

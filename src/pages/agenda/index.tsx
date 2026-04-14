@@ -1921,9 +1921,11 @@ function Schedule() {
                                         formatter={(v) => `${v}`.replace('.', ',')} parser={(v) => Number((v || '0').replace(',', '.'))}
                                         onChange={(v) => {
                                             if (installmentPreset !== 'customizado') {
-                                                const total = Number(v) || 0
+                                                const base = Number(v) || 0
+                                                const extrasTotal = extraProds.reduce((s, p) => s + p.total, 0)
+                                                const discountedTotal = (base + extrasTotal) * (1 - globalDiscountPctAgenda / 100)
                                                 const n = customInstallments.length
-                                                const amt = n > 0 && total > 0 ? Math.round((total / n) * 100) / 100 : 0
+                                                const amt = n > 0 && discountedTotal > 0 ? Math.round((discountedTotal / n) * 100) / 100 : 0
                                                 setCustomInstallments(prev => prev.map(inst => ({ ...inst, amount: amt })))
                                             }
                                         }} />
@@ -1954,7 +1956,7 @@ function Schedule() {
                                                 const p = e.target.value
                                                 setInstallmentPreset(p)
                                                 const insts = buildInstallmentsByPreset(p)
-                                                const total = Number(payForm.getFieldValue('base_price')) || 0
+                                                const total = calcFinalPrice()
                                                 const n = insts.length
                                                 const amt = n > 0 && total > 0 ? Math.round((total / n) * 100) / 100 : 0
                                                 setCustomInstallments(insts.map(inst => ({ ...inst, amount: amt })))
@@ -2006,7 +2008,19 @@ function Schedule() {
                                         <div style={{ marginTop: 8, padding: 12, background: '#FFFBEB', borderRadius: 8, border: '1px solid #FEF3C7' }}>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
                                                 <span style={{ color: '#000', fontSize: 13 }}>Desconto (%):</span>
-                                                <InputNumber style={{ width: 130 }} min={0} max={maxPct > 0 ? maxPct : 100} step={0.5} value={globalDiscountPctAgenda} onChange={(v) => { setGlobalDiscountPctAgenda(Math.min(v ?? 0, maxPct > 0 ? maxPct : 100)); setDiscountTick(t => t + 1) }} formatter={(v) => v != null ? String(v).replace('.', ',') : ''} parser={(v) => Number((v || '0').replace(',', '.'))} addonAfter="%" />
+                                                <InputNumber style={{ width: 130 }} min={0} max={maxPct > 0 ? maxPct : 100} step={0.5} value={globalDiscountPctAgenda} onChange={(v) => {
+                                                    const newDiscount = Math.min(v ?? 0, maxPct > 0 ? maxPct : 100)
+                                                    setGlobalDiscountPctAgenda(newDiscount)
+                                                    setDiscountTick(t => t + 1)
+                                                    if (installmentPreset !== 'customizado') {
+                                                        const base = Number(payForm.getFieldValue('base_price')) || 0
+                                                        const extrasTotal = extraProds.reduce((s, p) => s + p.total, 0)
+                                                        const discountedTotal = (base + extrasTotal) * (1 - newDiscount / 100)
+                                                        const n = customInstallments.length
+                                                        const amt = n > 0 && discountedTotal > 0 ? Math.round((discountedTotal / n) * 100) / 100 : 0
+                                                        setCustomInstallments(prev => prev.map(inst => ({ ...inst, amount: amt })))
+                                                    }
+                                                }} formatter={(v) => v != null ? String(v).replace('.', ',') : ''} parser={(v) => Number((v || '0').replace(',', '.'))} addonAfter="%" />
                                                 {maxPct > 0 && <span style={{ fontSize: 12, color: '#92400e' }}>Máx: {maxPct.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%</span>}
                                             </div>
                                         </div>
