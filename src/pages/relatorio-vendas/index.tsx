@@ -509,11 +509,13 @@ function SalesReport() {
                 const empName = empInfo.name
                 const prodCommPct = Number(product.commission_percent) || 0
 
-                // Discount reduces commission % by the same discount factor applied to revenue
-                const gross = unitPrice * qty
-                const effectiveCommPct = gross > 0 ? prodCommPct * (revenue / gross) : prodCommPct
-                const commissionVal = revenue * (effectiveCommPct / 100)
+                // Discount proportionally reduces commission: factor = applied% / (commission% + profit%)
+                const prodProfitPct = Number(product.profit_percent) || 0
+                const maxDiscPct = prodCommPct + prodProfitPct
+                const discountFactor = maxDiscPct > 0 ? globalDiscountPct / maxDiscPct : 0
+                const effectiveCommPct = prodCommPct * (1 - discountFactor)
                 const commissionPct = effectiveCommPct
+                const commissionVal = revenue * (effectiveCommPct / 100)
 
                 const aggKey = shouldSplitBySeller
                     ? `${productId}::${budgetToEmployeeId.get(item.budget_id) || 'none'}`
@@ -585,9 +587,12 @@ function SalesReport() {
                 const prodItemCommPct = Number(product.commission_percent) || 0
                 const saleEmployeeId = sale?.employee_id || null
 
-                // Discount reduces commission % by the same discount factor applied to revenue
-                const gross = unitPrice * qty
-                const effectiveCommPct = gross > 0 ? prodItemCommPct * (revenue / gross) : prodItemCommPct
+                // Discount proportionally reduces commission: factor = applied% / (commission% + profit%)
+                const prodProfitPct = Number(product.profit_percent) || 0
+                const maxDiscPct = prodItemCommPct + prodProfitPct
+                const appliedDiscPct = (1 - discountMultiplier) * 100
+                const discountFactor = maxDiscPct > 0 ? appliedDiscPct / maxDiscPct : 0
+                const effectiveCommPct = prodItemCommPct * (1 - discountFactor)
                 const commissionPct = effectiveCommPct
                 const commissionVal = revenue * (effectiveCommPct / 100)
 
@@ -744,8 +749,11 @@ function SalesReport() {
                 const svcCommPct = Number((svc as any).service?.commission_percent) || 0
                 const discPct = Number(svc.discount_percent) || 0
 
-                // Discount reduces commission % proportionally (discount removes from commission + profit)
-                const effectiveSvcCommPct = svcCommPct * (1 - discPct / 100)
+                // Discount proportionally reduces commission: factor = applied% / (commission% + profit%)
+                const svcProfitPct = Number((svc as any).service?.profit_percent) || 0
+                const maxDiscPct = svcCommPct + svcProfitPct
+                const discountFactor = maxDiscPct > 0 ? discPct / maxDiscPct : 0
+                const effectiveSvcCommPct = svcCommPct * (1 - discountFactor)
                 const commissionPct = effectiveSvcCommPct
                 const commissionVal = revenue * (effectiveSvcCommPct / 100)
 
@@ -815,9 +823,12 @@ function SalesReport() {
                 const svcItemCommPct = Number((item as any).service?.commission_percent) || 0
                 const saleEmployeeId = sale?.employee_id || null
 
-                // Discount reduces commission % by the same discount factor applied to revenue
-                const gross = unitPrice * qty
-                const effectiveSvcItemCommPct = gross > 0 ? svcItemCommPct * (revenue / gross) : svcItemCommPct
+                // Discount proportionally reduces commission: factor = applied% / (commission% + profit%)
+                const svcProfitPct = Number((item as any).service?.profit_percent) || 0
+                const maxDiscPct = svcItemCommPct + svcProfitPct
+                const appliedDiscPct = (1 - discountMultiplier) * 100
+                const discountFactor = maxDiscPct > 0 ? appliedDiscPct / maxDiscPct : 0
+                const effectiveSvcItemCommPct = svcItemCommPct * (1 - discountFactor)
                 const commissionPct = effectiveSvcItemCommPct
                 const commissionVal = revenue * (effectiveSvcItemCommPct / 100)
 

@@ -135,17 +135,19 @@ export default function CommissionPage() {
         // ── Completed services (original select — safe) ──
         const { data: services } = await supabase
           .from('completed_services')
-          .select('id, employee_id, total_revenue, service_id')
+          .select('id, employee_id, total_revenue, service_id, discount_percent')
           .eq('is_active', true)
           .gte('service_date', start)
           .lte('service_date', end)
 
         const serviceIds = [...new Set((services || []).map((s: any) => s.service_id).filter(Boolean))]
         let svcCommMap = new Map<string, number>()
+        let svcProfitMap = new Map<string, number>()
         let svcNameMap = new Map<string, string>()
         if (serviceIds.length > 0) {
-          const { data: svcs } = await supabase.from('services').select('id, commission_percent, name').in('id', serviceIds)
+          const { data: svcs } = await supabase.from('services').select('id, commission_percent, profit_percent, name').in('id', serviceIds)
           svcCommMap = new Map((svcs || []).map((s: any) => [s.id, Number(s.commission_percent) || 0]))
+          svcProfitMap = new Map((svcs || []).map((s: any) => [s.id, Number(s.profit_percent) || 0]))
           svcNameMap = new Map((svcs || []).map((s: any) => [s.id, s.name || 'Serviço']))
         }
 
@@ -419,10 +421,18 @@ export default function CommissionPage() {
           const rev = Number(s.total_revenue) || 0
           const svcComm = s.service_id ? (svcCommMap.get(s.service_id) || 0) : 0
           if (svcComm <= 0) continue
+
+          // Discount proportionally reduces commission: factor = applied% / (commission% + profit%)
+          const svcProfit = s.service_id ? (svcProfitMap.get(s.service_id) || 0) : 0
+          const discPct = Number((s as any).discount_percent) || 0
+          const maxDiscPct = svcComm + svcProfit
+          const discountFactor = maxDiscPct > 0 ? discPct / maxDiscPct : 0
+          const effectiveSvcComm = svcComm * (1 - discountFactor)
+
           emp.base_revenue += rev
-          const commAmount = rev * (svcComm / 100)
+          const commAmount = rev * (effectiveSvcComm / 100)
           emp.commission_value += commAmount
-          emp.sum_weighted_pct += svcComm * rev
+          emp.sum_weighted_pct += effectiveSvcComm * rev
           emp.sum_value += rev
 
           const clientId = svcClientRefMap.get(s.id)
@@ -437,7 +447,7 @@ export default function CommissionPage() {
             client_name: clientName,
             date: svcDate,
             value: rev,
-            commission_percent: svcComm,
+            commission_percent: effectiveSvcComm,
             commission_amount: commAmount,
           })
         }
