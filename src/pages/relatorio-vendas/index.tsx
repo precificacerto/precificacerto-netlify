@@ -439,7 +439,7 @@ function SalesReport() {
             if (budgetIds.length > 0) {
                 let itemsQuery: any = supabase
                     .from('budget_items')
-                    .select('budget_id, product_id, quantity, unit_price, discount, product:products(id, name, code, cost_total, commission_percent, product_sections(id, name))')
+                    .select('budget_id, product_id, quantity, unit_price, discount, product:products(id, name, code, cost_total, commission_percent, profit_percent, product_sections(id, name))')
                     .in('budget_id', budgetIds)
                 if (abcProductFilter) itemsQuery = itemsQuery.eq('product_id', abcProductFilter)
                 queries.push(itemsQuery)
@@ -451,7 +451,7 @@ function SalesReport() {
             if (directSaleIds.length > 0) {
                 let saleItemsQuery: any = (supabase as any)
                     .from('sale_items')
-                    .select('sale_id, product_id, quantity, unit_price, discount, product:products(id, name, code, cost_total, commission_percent, product_sections(id, name))')
+                    .select('sale_id, product_id, quantity, unit_price, discount, product:products(id, name, code, cost_total, commission_percent, profit_percent, product_sections(id, name))')
                     .in('sale_id', directSaleIds)
                     .not('product_id', 'is', null)
                 if (abcProductFilter) saleItemsQuery = saleItemsQuery.eq('product_id', abcProductFilter)
@@ -509,9 +509,11 @@ function SalesReport() {
                 const empName = empInfo.name
                 const prodCommPct = Number(product.commission_percent) || 0
 
-                // Always calculate commission using product commission %
-                const commissionVal = revenue * (prodCommPct / 100)
-                const commissionPct = prodCommPct
+                // Discount reduces commission % by the same discount factor applied to revenue
+                const gross = unitPrice * qty
+                const effectiveCommPct = gross > 0 ? prodCommPct * (revenue / gross) : prodCommPct
+                const commissionVal = revenue * (effectiveCommPct / 100)
+                const commissionPct = effectiveCommPct
 
                 const aggKey = shouldSplitBySeller
                     ? `${productId}::${budgetToEmployeeId.get(item.budget_id) || 'none'}`
@@ -546,6 +548,15 @@ function SalesReport() {
             const saleInfoMap = new Map<string, any>()
             ;(directSales || []).forEach((s: any) => { saleInfoMap.set(s.id, s) })
 
+            // Pre-calculate gross revenue per sale (before global discount) for sale_items
+            const saleGrossMap = new Map<string, number>()
+            for (const item of (saleItems || [])) {
+                const qty = Number(item.quantity) || 1
+                const unitPrice = Number(item.unit_price) || 0
+                const discount = Number(item.discount) || 0
+                saleGrossMap.set(item.sale_id, (saleGrossMap.get(item.sale_id) || 0) + (unitPrice * qty - discount))
+            }
+
             // Process sale_items into productAgg
             for (const item of (saleItems || [])) {
                 const product = (item as any).product
@@ -557,11 +568,16 @@ function SalesReport() {
                 const qty = Number(item.quantity) || 1
                 const unitPrice = Number(item.unit_price) || 0
                 const discount = Number(item.discount) || 0
-                const revenue = (unitPrice * qty) - discount
                 const costPerUnit = Number(product.cost_total) || 0
                 const totalCost = costPerUnit * qty
 
                 const sale = saleInfoMap.get(item.sale_id)
+                // Apply global discount from sale: final_value reflects total after discount
+                const saleGross = saleGrossMap.get(item.sale_id) || 0
+                const saleFinalVal = Number(sale?.final_value) || saleGross
+                const discountMultiplier = saleGross > 0 && saleFinalVal <= saleGross ? saleFinalVal / saleGross : 1
+                const revenue = ((unitPrice * qty) - discount) * discountMultiplier
+
                 const emp = sale?.employee_id
                     ? (employees as any[]).find((e: any) => e.id === sale.employee_id)
                     : null
@@ -569,9 +585,11 @@ function SalesReport() {
                 const prodItemCommPct = Number(product.commission_percent) || 0
                 const saleEmployeeId = sale?.employee_id || null
 
-                // Always calculate commission using product commission %
-                const commissionPct = prodItemCommPct
-                const commissionVal = revenue * (prodItemCommPct / 100)
+                // Discount reduces commission % by the same discount factor applied to revenue
+                const gross = unitPrice * qty
+                const effectiveCommPct = gross > 0 ? prodItemCommPct * (revenue / gross) : prodItemCommPct
+                const commissionPct = effectiveCommPct
+                const commissionVal = revenue * (effectiveCommPct / 100)
 
                 const aggKey = shouldSplitBySeller
                     ? `${productId}::${saleEmployeeId || 'none'}`
@@ -649,7 +667,7 @@ function SalesReport() {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             let csQuery: any = (supabase as any)
                 .from('completed_services')
-                .select('id, service_id, service_name, employee_id, customer_id, base_price, final_price, total_revenue, service_date, service:services(code, commission_percent)')
+                .select('id, service_id, service_name, employee_id, customer_id, base_price, final_price, total_revenue, discount_percent, service_date, service:services(code, commission_percent, profit_percent)')
                 .eq('tenant_id', effectiveTenantId)
                 .gte('service_date', startDate)
                 .lte('service_date', endDate)
@@ -660,7 +678,7 @@ function SalesReport() {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             let salesQuery: any = (supabase as any)
                 .from('sales')
-                .select('id, employee_id, customer_id, sale_date')
+                .select('id, employee_id, customer_id, sale_date, final_value')
                 .eq('tenant_id', effectiveTenantId)
                 .eq('is_active', true)
                 .gte('sale_date', startDate)
@@ -680,7 +698,7 @@ function SalesReport() {
             if (directSaleIds.length > 0) {
                 const { data: siData } = await (supabase as any)
                     .from('sale_items')
-                    .select('sale_id, service_id, quantity, unit_price, discount, description, service:services(id, name, code, cost_total, commission_percent)')
+                    .select('sale_id, service_id, quantity, unit_price, discount, description, service:services(id, name, code, cost_total, commission_percent, profit_percent)')
                     .in('sale_id', directSaleIds)
                     .not('service_id', 'is', null)
                 saleServiceItems = siData || []
@@ -724,10 +742,12 @@ function SalesReport() {
                     : null
                 const empName = emp?.name || (svc.employee_id ? 'Desconhecido' : 'Sem vendedor')
                 const svcCommPct = Number((svc as any).service?.commission_percent) || 0
+                const discPct = Number(svc.discount_percent) || 0
 
-                // Always calculate commission using service commission %
-                const commissionPct = svcCommPct
-                const commissionVal = revenue * (svcCommPct / 100)
+                // Discount reduces commission % proportionally (discount removes from commission + profit)
+                const effectiveSvcCommPct = svcCommPct * (1 - discPct / 100)
+                const commissionPct = effectiveSvcCommPct
+                const commissionVal = revenue * (effectiveSvcCommPct / 100)
 
                 const aggKey = shouldSplitBySeller
                     ? `${serviceKey}::${svc.employee_id || 'none'}`
@@ -761,6 +781,15 @@ function SalesReport() {
             const saleInfoMap = new Map<string, any>()
             ;(directSales || []).forEach((s: any) => { saleInfoMap.set(s.id, s) })
 
+            // Pre-calculate gross revenue per sale for service items
+            const svcSaleGrossMap = new Map<string, number>()
+            for (const item of saleServiceItems) {
+                const qty = Number(item.quantity) || 1
+                const unitPrice = Number(item.unit_price) || 0
+                const discount = Number(item.discount) || 0
+                svcSaleGrossMap.set(item.sale_id, (svcSaleGrossMap.get(item.sale_id) || 0) + (unitPrice * qty - discount))
+            }
+
             for (const item of saleServiceItems) {
                 const service = (item as any).service
                 const serviceId = item.service_id
@@ -769,11 +798,16 @@ function SalesReport() {
                 const qty = Number(item.quantity) || 1
                 const unitPrice = Number(item.unit_price) || 0
                 const discount = Number(item.discount) || 0
-                const revenue = (unitPrice * qty) - discount
                 const costTotal = Number(service?.cost_total) || 0
                 const totalCost = costTotal * qty
 
                 const sale = saleInfoMap.get(item.sale_id)
+                // Apply global discount from sale: final_value reflects total after discount
+                const saleGross = svcSaleGrossMap.get(item.sale_id) || 0
+                const saleFinalVal = Number(sale?.final_value) || saleGross
+                const discountMultiplier = saleGross > 0 && saleFinalVal <= saleGross ? saleFinalVal / saleGross : 1
+                const revenue = ((unitPrice * qty) - discount) * discountMultiplier
+
                 const emp = sale?.employee_id
                     ? (employees as any[]).find((e: any) => e.id === sale.employee_id)
                     : null
@@ -781,9 +815,11 @@ function SalesReport() {
                 const svcItemCommPct = Number((item as any).service?.commission_percent) || 0
                 const saleEmployeeId = sale?.employee_id || null
 
-                // Always calculate commission using service commission %
-                const commissionPct = svcItemCommPct
-                const commissionVal = revenue * (svcItemCommPct / 100)
+                // Discount reduces commission % by the same discount factor applied to revenue
+                const gross = unitPrice * qty
+                const effectiveSvcItemCommPct = gross > 0 ? svcItemCommPct * (revenue / gross) : svcItemCommPct
+                const commissionPct = effectiveSvcItemCommPct
+                const commissionVal = revenue * (effectiveSvcItemCommPct / 100)
 
                 // Use same key format as completed_services to merge both sources
                 const aggKey = shouldSplitBySeller
