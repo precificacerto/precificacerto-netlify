@@ -346,6 +346,8 @@ import {
   BLOCK_IMPOSTOS_PRESUMIDO_RET,
   BLOCK_IMPOSTOS_SOBRE_LUCRO_LR,
   BLOCK_IMPOSTOS_FATURAMENTO_DENTRO_LR,
+  BLOCK_IMPOSTOS_SOBRE_LUCRO_LP,
+  BLOCK_IMPOSTOS_FATURAMENTO_DENTRO_LP,
 } from '@/constants/expense-setup-blocks'
 
 const BASE_EXPENSE_CATEGORY_OPTIONS = [
@@ -518,6 +520,18 @@ export function getExpenseCategoryOptionsForRegime(regime: string | null | undef
       {
         label: '── Impostos sobre o faturamento (Por dentro) ──',
         options: BLOCK_IMPOSTOS_FATURAMENTO_DENTRO_LR.map(i => ({ label: i.label, value: i.key })),
+      },
+    )
+  }
+  if (regime === 'LUCRO_PRESUMIDO') {
+    base.push(
+      {
+        label: '── Impostos sobre o Lucro ──',
+        options: BLOCK_IMPOSTOS_SOBRE_LUCRO_LP.map(i => ({ label: i.label, value: i.key })),
+      },
+      {
+        label: '── Impostos sobre o faturamento (Por dentro) ──',
+        options: BLOCK_IMPOSTOS_FATURAMENTO_DENTRO_LP.map(i => ({ label: i.label, value: i.key })),
       },
     )
   }

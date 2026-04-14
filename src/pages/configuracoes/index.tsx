@@ -323,6 +323,47 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                             </div>
                         )}
 
+                        {isLP && (
+                            <div style={{ marginTop: 16 }}>
+                                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-neutral-300)', marginBottom: 8 }}>
+                                    IVA DUAL — Alíquotas de Referência
+                                    <span style={{ fontWeight: 400, fontSize: 12, color: 'var(--color-neutral-400)', marginLeft: 8 }}>
+                                        Editáveis · usadas para calcular IBS e CBS por produto/serviço
+                                    </span>
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                                    <Form.Item
+                                        name="ibs_reference_pct"
+                                        label="IBS — Imposto sobre Bens e Serviços"
+                                        style={{ marginBottom: 0 }}
+                                    >
+                                        <InputNumber
+                                            min={0} max={100} step={0.01}
+                                            style={{ width: '100%' }}
+                                            addonAfter="%"
+                                            onChange={(v) => setIbsReferencePct(v ?? null)}
+                                            formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
+                                            parser={(v) => Number((v || '0').replace(',', '.'))}
+                                        />
+                                    </Form.Item>
+                                    <Form.Item
+                                        name="cbs_reference_pct"
+                                        label="CBS — Contribuição sobre Bens e Serviços"
+                                        style={{ marginBottom: 0 }}
+                                    >
+                                        <InputNumber
+                                            min={0} max={100} step={0.01}
+                                            style={{ width: '100%' }}
+                                            addonAfter="%"
+                                            onChange={(v) => setCbsReferencePct(v ?? null)}
+                                            formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
+                                            parser={(v) => Number((v || '0').replace(',', '.'))}
+                                        />
+                                    </Form.Item>
+                                </div>
+                            </div>
+                        )}
+
                         {isLR && (
                             <>
                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
@@ -539,7 +580,7 @@ function Settings() {
             if (values.regime === 'LUCRO_PRESUMIDO_RET') {
                 updateData.ret_rate = (Number(values.ret_rate) || 4) / 100
             }
-            if (values.regime === 'LUCRO_REAL') {
+            if (values.regime === 'LUCRO_REAL' || values.regime === 'LUCRO_PRESUMIDO') {
                 updateData.ibs_reference_pct = values.ibs_reference_pct != null ? Number(values.ibs_reference_pct) : null
                 updateData.cbs_reference_pct = values.cbs_reference_pct != null ? Number(values.cbs_reference_pct) : null
             }

@@ -78,19 +78,20 @@ Deno.serve(async (req: Request) => {
     const yieldForPricing = 1
     const regime = ts.tax_regime || "SIMPLES_NACIONAL"
 
-    // --- Apply tax credits for Lucro Real (ICMS + PIS/COFINS creditáveis nas compras) ---
-    if (regime === "LUCRO_REAL") {
-      const itemIds = productItems
-        .map((pi: any) => pi.items?.id)
-        .filter(Boolean)
-
+    // --- Apply tax credits for Lucro Real (ICMS + PIS/COFINS) and Lucro Presumido (ICMS only) ---
+    if (regime === "LUCRO_REAL" || regime === "LUCRO_PRESUMIDO") {
+      const itemIds = productItems.map((pi: any) => pi.items?.id).filter(Boolean)
       if (itemIds.length > 0) {
-        const { data: credits } = await supabase
+        let creditsQuery = supabase
           .from("item_tax_credits")
           .select("item_id, tax_type, credit_value, is_active")
           .in("item_id", itemIds)
           .eq("is_active", true)
-
+        // LP: somente ICMS; LR: todos os créditos
+        if (regime === "LUCRO_PRESUMIDO") {
+          creditsQuery = creditsQuery.eq("tax_type", "ICMS")
+        }
+        const { data: credits } = await creditsQuery
         if (credits && credits.length > 0) {
           let totalCredit = 0
           for (const credit of credits) {
@@ -159,7 +160,7 @@ Deno.serve(async (req: Request) => {
 
     // 2nd pass — compute adicional IRPJ for Lucro Real based on 1st-pass price
     let irpjAdditionalEquiv = 0
-    if (regime === "LUCRO_REAL" && result1.isValid && result1.priceUnit > 0) {
+    if ((regime === "LUCRO_REAL" || regime === "LUCRO_PRESUMIDO") && result1.isValid && result1.priceUnit > 0) {
       const lucroMensal = result1.priceUnit * profitPctFromBody
       // Adicional IRPJ: 10% sobre o lucro que excede R$ 20.000/mês (R$ 240.000/ano)
       // lucroMensal aqui é a estimativa de lucro por unidade × margem (aproximação por produto)

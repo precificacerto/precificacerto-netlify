@@ -165,13 +165,15 @@ export const Content: FC<ContentProps> = ({
   )
 
   const isLucroRealProd = currentUser?.taxableRegime === 'LUCRO_REAL'
+  const isLucroPresumidoProdOnly = currentUser?.taxableRegime === 'LUCRO_PRESUMIDO'
+  const isLRorLP = isLucroRealProd || isLucroPresumidoProdOnly
 
   // Alíquotas de referência IBS/CBS do tenant (Lucro Real)
   const [ibsReferencePct, setIbsReferencePct] = useState<number>(0)
   const [cbsReferencePct, setCbsReferencePct] = useState<number>(0)
 
   useEffect(() => {
-    if (!isLucroRealProd) return
+    if (!isLRorLP) return
     async function fetchIvaRefRates() {
       const tenantId = currentUser?.tenant_id
       if (!tenantId) return
@@ -199,7 +201,7 @@ export const Content: FC<ContentProps> = ({
       }
     }
     fetchIvaRefRates()
-  }, [isLucroRealProd, currentUser?.tenant_id, isEditingMode])
+  }, [isLRorLP, currentUser?.tenant_id, isEditingMode])
 
   // ICMS e PIS/COFINS para Lucro Real (migrados do modal de lançar impostos)
   const initialIcms = (product as any)?.icms_pct != null ? Number((product as any).icms_pct) : 0
@@ -224,7 +226,7 @@ export const Content: FC<ContentProps> = ({
   // Handler: ICMS muda → auto-recalcula PIS/COFINS via fórmula
   function handleIcmsPctChange(val: number) {
     setIcmsPct(val)
-    if (isLucroRealProd) {
+    if (isLRorLP) {
       const newPisCofins = parseFloat((9.25 * (1 - val / 100)).toFixed(4))
       setPisCofinsLRPct(newPisCofins)
     }
@@ -363,7 +365,7 @@ export const Content: FC<ContentProps> = ({
   }, [productForm, searchNcmByName])
 
   const fetchNcmRatesForLR = useCallback(async (code: string) => {
-    if (!isLucroRealProd || !code) return
+    if (!isLRorLP || !code) return
     try {
       const { data } = await (supabase as any)
         .from('ncm_codes')
@@ -376,7 +378,7 @@ export const Content: FC<ContentProps> = ({
         setPisCofinsLRPct(parseFloat((pis + cofins).toFixed(4)))
       }
     } catch { /* silent */ }
-  }, [isLucroRealProd])
+  }, [isLRorLP])
 
   const handleSelectNcmSuggestion = useCallback((code: string) => {
     productForm.setFieldsValue({ ncm_code: code })
@@ -434,8 +436,10 @@ export const Content: FC<ContentProps> = ({
         const totalCost = Number(baseItem.price) ?? Number((baseItem as any).cost_price) ?? 0
         const measureQty = Number((baseItem as any).measure_quantity) || 1
         const isLucroReal = currentUser?.taxableRegime === 'LUCRO_REAL'
+        const isLucroPresumidoLocal = currentUser?.taxableRegime === 'LUCRO_PRESUMIDO'
+        const isLRorLPLocal = isLucroReal || isLucroPresumidoLocal
         const costNet = Number((baseItem as any).cost_net) || 0
-        const costPerUnit = (isLucroReal && costNet > 0)
+        const costPerUnit = (isLRorLPLocal && costNet > 0)
           ? costNet / measureQty
           : baseItem.cost_per_base_unit != null
             ? Number(baseItem.cost_per_base_unit)
@@ -552,7 +556,7 @@ export const Content: FC<ContentProps> = ({
       const nonRegimeTaxPct = calcBase.taxesPercent || 0
       const irpjPct = productPriceInfo.productProfitPercent * 0.15
       const csllPct = productPriceInfo.productProfitPercent * 0.09
-      const adicionalPct = isLucroRealProd ? (additionalIrpjPercent || 0) : 0
+      const adicionalPct = isLRorLP ? (additionalIrpjPercent || 0) : 0
       effectiveTaxPct = nonRegimeTaxPct + irpjPct + csllPct + adicionalPct
     } else {
       effectiveTaxPct = customTaxPercent != null ? customTaxPercent : calcBase.taxPct
@@ -688,11 +692,13 @@ export const Content: FC<ContentProps> = ({
 
     const unitType = (selectedItem.unitType || 'UN').toString().toUpperCase()
     const recipeQty = 1
-    // Usar cost_net/measure_quantity (Lucro Real) ou cost_per_base_unit como referência de preço
+    // Usar cost_net/measure_quantity (Lucro Real/Lucro Presumido) ou cost_per_base_unit como referência de preço
     const isLucroRealCtx = currentUser?.taxableRegime === 'LUCRO_REAL'
+    const isLucroPresumidoCtx = currentUser?.taxableRegime === 'LUCRO_PRESUMIDO'
+    const isLRorLPCtx = isLucroRealCtx || isLucroPresumidoCtx
     const itemCostNet = Number((selectedItem as any).cost_net) || 0
     const itemMeasureQty = Number((selectedItem as any).measure_quantity) || 1
-    const costPerUnitRaw = (isLucroRealCtx && itemCostNet > 0)
+    const costPerUnitRaw = (isLRorLPCtx && itemCostNet > 0)
       ? itemCostNet / itemMeasureQty
       : Number((selectedItem as any).cost_per_base_unit) || Number(selectedItem.price) || 0
     const costPerUnit = Math.max(0.01, costPerUnitRaw)
@@ -763,7 +769,9 @@ export const Content: FC<ContentProps> = ({
       // DIRETO: salvar exatamente o valor que aparece em "Preço de Venda por Unidade" na tela
       // Sem recalcular — o valor já foi calculado pelo doProductCalc (preview)
       const isLucroRealSave = currentUser?.taxableRegime === 'LUCRO_REAL'
-      const terceirizadasSum = isLucroRealSave
+      const isLucroPresumidoSave = currentUser?.taxableRegime === 'LUCRO_PRESUMIDO'
+      const isLRorLPSave = isLucroRealSave || isLucroPresumidoSave
+      const terceirizadasSum = isLRorLPSave
         ? (freightValue || 0) + (insuranceValue || 0) + (accessoryExpensesValue || 0)
         : 0
       const salePriceToSave = (Number(productPriceInfo.totalProductPrice) || 0) + terceirizadasSum
@@ -835,9 +843,9 @@ export const Content: FC<ContentProps> = ({
       }
 
       // Try to save columns that may not exist yet (pending migration)
-      // Calcular preço final para LUCRO_REAL (com impostos IBS/CBS/IS/IPI)
+      // Calcular preço final para LUCRO_REAL/LUCRO_PRESUMIDO (com impostos IBS/CBS/IS/IPI)
       let finalSalePriceForSave = salePriceToSave
-      if (isLucroRealProd) {
+      if (isLRorLP) {
         const _totalEmb = (icmsPct || 0) + (pisCofinsLRPct || 0)
         const _grossDen = _totalEmb > 0 ? (100 - _totalEmb) / 100 : 1
         const _grossed = _grossDen > 0 ? salePriceToSave / _grossDen : salePriceToSave
@@ -860,7 +868,7 @@ export const Content: FC<ContentProps> = ({
       extraFields.freight_value = freightValue || 0
       extraFields.insurance_value = insuranceValue || 0
       extraFields.accessory_expenses_value = accessoryExpensesValue || 0
-      if (isLucroRealProd) {
+      if (isLRorLP) {
         extraFields.icms_pct = icmsPct || 0
         extraFields.pis_cofins_pct = pisCofinsLRPct || 0
         extraFields.iva_dual_reduction_factor = ivaDualReductionFactor ?? null
@@ -1020,7 +1028,7 @@ export const Content: FC<ContentProps> = ({
 
       // Garantir que sale_price = valor do "Preço de Venda por Unidade" (edge function pode sobrescrever)
       // Para LUCRO_REAL: usa finalSalePriceForSave (inclui impostos IBS/CBS/IS/IPI se preenchidos)
-      const effectiveSalePrice = isLucroRealProd ? finalSalePriceForSave : salePriceToSave
+      const effectiveSalePrice = isLRorLP ? finalSalePriceForSave : salePriceToSave
       if (effectiveSalePrice > 0) {
         await supabase.from('products').update({ sale_price: effectiveSalePrice }).eq('id', productId)
       }
@@ -1676,7 +1684,7 @@ export const Content: FC<ContentProps> = ({
             </div>
           )}
 
-          {isLucroRealProd && (
+          {isLRorLP && (
             <div>
               <label style={{ display: 'block', marginBottom: 6, fontWeight: 500, fontSize: 13 }}>
                 Fator de redução da alíquota do IVA DUAL&nbsp;

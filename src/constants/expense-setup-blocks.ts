@@ -176,6 +176,20 @@ export const BLOCK_IMPOSTOS_COMPRAS_LP: ExpenseSetupItem[] = [
   { key: 'IMPOSTO_IPI', label: 'IPI', expense_group: 'IMPOSTO' },
 ]
 
+/** Bloco Impostos sobre o Lucro — Lucro Presumido (igual ao LR) */
+export const BLOCK_IMPOSTOS_SOBRE_LUCRO_LP: ExpenseSetupItem[] = [
+  { key: 'IMPOSTO_IRPJ', label: 'IRPJ (Imposto de Renda de Pessoa Jurídica)', expense_group: 'IMPOSTO_LUCRO' },
+  { key: 'IMPOSTO_CSLL', label: 'CSLL (Contribuição Social sobre o Lucro Líquido)', expense_group: 'IMPOSTO_LUCRO' },
+  { key: 'IMPOSTO_ALIQUOTA_ADICIONAL_IRPJ', label: 'Alíquota Adicional da parcela do IRPJ', expense_group: 'IMPOSTO_LUCRO' },
+]
+
+/** Bloco Impostos sobre o Faturamento (Por dentro) — Lucro Presumido */
+export const BLOCK_IMPOSTOS_FATURAMENTO_DENTRO_LP: ExpenseSetupItem[] = [
+  { key: 'ICMS_PROPRIO', label: 'ICMS Próprio', expense_group: 'IMPOSTO_FATURAMENTO_DENTRO' },
+  { key: 'PIS_POR_DENTRO', label: 'PIS (Cumulativo)', expense_group: 'IMPOSTO_FATURAMENTO_DENTRO' },
+  { key: 'COFINS_POR_DENTRO', label: 'COFINS (Cumulativo)', expense_group: 'IMPOSTO_FATURAMENTO_DENTRO' },
+]
+
 /** Bloco Impostos sobre compras — Lucro Real */
 export const BLOCK_IMPOSTOS_COMPRAS_LR: ExpenseSetupItem[] = [
   { key: 'IMPOSTO_IPI_CUSTO', label: 'IPI custo', expense_group: 'IMPOSTO' },
@@ -531,5 +545,21 @@ export const EXPENSE_SETUP_BLOCKS_LP: ExpenseSetupBlockDef[] = [
     categoryLabel: 'Lucro',
     items: BLOCK_LUCRO,
     expense_group: 'LUCRO',
+  },
+  {
+    id: 11,
+    title: 'Impostos sobre o Lucro',
+    subtitle: 'IRPJ, CSLL e alíquota adicional do IRPJ.',
+    categoryLabel: 'Impostos sobre o Lucro',
+    items: BLOCK_IMPOSTOS_SOBRE_LUCRO_LP,
+    expense_group: 'IMPOSTO_LUCRO',
+  },
+  {
+    id: 12,
+    title: 'Impostos sobre o Faturamento (Por dentro)',
+    subtitle: 'Impostos embutidos no preço de venda (ICMS próprio, PIS e COFINS cumulativos).',
+    categoryLabel: 'Impostos sobre o Faturamento (Por dentro)',
+    items: BLOCK_IMPOSTOS_FATURAMENTO_DENTRO_LP,
+    expense_group: 'IMPOSTO_FATURAMENTO_DENTRO',
   },
 ]

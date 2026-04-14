@@ -848,10 +848,12 @@ function Items() {
       const measureQty = Number(values.measure_quantity) || 1
       const stockQty = qty  // Estoque em unidades compradas (não convertido para unidade base)
       const isLucroReal = currentUser?.taxableRegime === 'LUCRO_REAL'
-      const costNet = isLucroReal ? (Number(values.cost_net) || 0) : 0
-      // Para Lucro Real: cost_per_base_unit usa o custo líquido (valor usado na precificação)
+      const isLucroPresumido = currentUser?.taxableRegime === 'LUCRO_PRESUMIDO'
+      const isLucroRealOrLP = isLucroReal || isLucroPresumido
+      const costNet = isLucroRealOrLP ? (Number(values.cost_net) || 0) : 0
+      // Para Lucro Real / Lucro Presumido: cost_per_base_unit usa o custo líquido (valor usado na precificação)
       // Para outros regimes: usa o preço bruto
-      const costPerBaseUnit = isLucroReal && costNet > 0
+      const costPerBaseUnit = isLucroRealOrLP && costNet > 0
         ? (measureQty > 0 ? costNet / measureQty : costNet)
         : (measureQty > 0 ? priceNumber / measureQty : priceNumber)
       const totalCost = priceNumber * qty
@@ -869,10 +871,10 @@ function Items() {
         cost_gross: priceNumber,
         cost_net: costNet,
         cost_per_base_unit: costPerBaseUnit,
-        icms_rate: isLucroReal ? (Number(values.icms_rate) || 0) : 0,
+        icms_rate: isLucroRealOrLP ? (Number(values.icms_rate) || 0) : 0,
         pis_rate: isLucroReal ? (Number(values.pis_rate) || 0) : 0,
         cofins_rate: isLucroReal ? (Number(values.cofins_rate) || 0) : 0,
-        icms_deferido_rate: isLucroReal ? (Number(values.icms_deferido_rate) || null) : null,
+        icms_deferido_rate: isLucroRealOrLP ? (Number(values.icms_deferido_rate) || null) : null,
         has_st: values.has_st || false,
         is_monofasico: values.is_monofasico || false,
         supplier_name: values.supplier_name || null,
@@ -1030,6 +1032,22 @@ function Items() {
         }
       }
 
+      // Salvar crédito de ICMS em item_tax_credits para Lucro Real e Lucro Presumido
+      if (isLucroRealOrLP && savedItem && Number(savedItem.icms_rate) > 0) {
+        const costNetVal = Number(savedItem.cost_net) || 0
+        const icmsRateVal = Number(savedItem.icms_rate) || 0
+        const icmsCredit = costNetVal * (icmsRateVal / 100)
+        if (icmsCredit > 0) {
+          await (supabase as any).from('item_tax_credits').upsert({
+            item_id: savedItem.id,
+            tenant_id: tenantId,
+            tax_type: 'ICMS',
+            credit_value: icmsCredit,
+            is_active: true,
+          }, { onConflict: 'item_id,tax_type' })
+        }
+      }
+
       await reloadItems()
       messageApi.success('Item salvo!')
       onClose()
@@ -1075,7 +1093,8 @@ function Items() {
       width: 130,
       render: (_, record) => {
         const isLucroReal = currentUser?.taxableRegime === 'LUCRO_REAL'
-        if (isLucroReal && record.cost_net > 0) {
+        const isLucroPresumido2 = currentUser?.taxableRegime === 'LUCRO_PRESUMIDO'
+        if ((isLucroReal || isLucroPresumido2) && record.cost_net > 0) {
           return `R$ ${record.cost_net.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 3 })}`
         }
         const valorUnitario = record.cost_per_base_unit * (record.measure_quantity || 1)

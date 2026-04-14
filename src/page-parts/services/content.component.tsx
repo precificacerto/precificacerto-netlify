@@ -83,6 +83,8 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
         serviceData?.ipi_pct != null ? Number(serviceData.ipi_pct) : 0
     )
     const isLucroRealSvcComp = currentUser?.taxableRegime === 'LUCRO_REAL'
+    const isLucroPresumidoSvcComp = currentUser?.taxableRegime === 'LUCRO_PRESUMIDO'
+    const isLRorLPSvcComp = isLucroRealSvcComp || isLucroPresumidoSvcComp
 
     // IVA DUAL — fator de redução por serviço
     const [ivaDualReductionFactor, setIvaDualReductionFactor] = useState<number | null>(
@@ -94,7 +96,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
     const [cbsReferencePct, setCbsReferencePct] = useState<number>(0)
 
     useEffect(() => {
-        if (!isLucroRealSvcComp) return
+        if (!isLRorLPSvcComp) return
         async function fetchIvaRefRates() {
             const tenantId = currentUser?.tenant_id
             if (!tenantId) return
@@ -109,7 +111,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
             }
         }
         fetchIvaRefRates()
-    }, [isLucroRealSvcComp, currentUser?.tenant_id])
+    }, [isLRorLPSvcComp, currentUser?.tenant_id])
 
     // Handler: fator IVA DUAL muda → auto-recalcula IBS e CBS
     function handleIvaDualFactorChange(factor: number | null) {
@@ -241,6 +243,8 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
 
         const taxesPct = taxPreview?.taxesPercent ?? 0
         const isLucroRealSvc = currentUser?.taxableRegime === 'LUCRO_REAL'
+        const isLucroPresumidoSvc = currentUser?.taxableRegime === 'LUCRO_PRESUMIDO'
+        const isLRorLPSvc = isLucroRealSvc || isLucroPresumidoSvc
         let taxPct: number
         if (isLucroRealSvc) {
             const irpjPct = profitPercent * 0.15
@@ -301,7 +305,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
         const csllPctLR = isLucroRealSvc ? profitPercent * 0.09 : 0
         const irpjValLR = isLucroRealSvc ? profitVal * 0.15 : 0
         const csllValLR = isLucroRealSvc ? profitVal * 0.09 : 0
-        const adicionalIrpjValLR = isLucroRealSvc ? Number((priceUnit * additionalIrpjPercent / 100).toFixed(2)) : 0
+        const adicionalIrpjValLR = isLRorLPSvc ? Number((priceUnit * additionalIrpjPercent / 100).toFixed(2)) : 0
 
         // MO administrativa e Despesas fixas incorporadas no custo por minuto
         const totalPct = isLucroRealSvc
@@ -332,9 +336,10 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
         const measureQty = Number((it as any).measure_quantity) || 1
         const refQty = (Number(it.quantity) || 1) * measureQty
         const isLucroReal = currentUser?.taxableRegime === 'LUCRO_REAL'
+        const isLucroPresumidoItem = currentUser?.taxableRegime === 'LUCRO_PRESUMIDO'
         const itemCostNet = Number((it as any).cost_net) || 0
-        // Para Lucro Real com cost_net calculado, usar custo líquido; caso contrário, custo bruto
-        const effectiveCost = (isLucroReal && itemCostNet > 0) ? itemCostNet : it.cost_price
+        // Para Lucro Real e Lucro Presumido com cost_net calculado, usar custo líquido; caso contrário, custo bruto
+        const effectiveCost = ((isLucroReal || isLucroPresumidoItem) && itemCostNet > 0) ? itemCostNet : it.cost_price
         const proportionalCost = calculateItemPrice(addItemQty, effectiveCost, refQty)
         setTempItems(prev => [...prev, {
             key: `n-${Date.now()}`,
@@ -379,10 +384,10 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
             }
             setCommissionTableError(false)
 
-            // Calcular impostos IBS/CBS/IS/IPI para LUCRO_REAL
+            // Calcular impostos IBS/CBS/IS/IPI para LUCRO_REAL e LUCRO_PRESUMIDO
             let svcFinalPrice = pricing.sellingPrice
             let svcIsVal = 0, svcIbsVal = 0, svcCbsVal = 0, svcIpiVal = 0
-            if (isLucroRealSvcComp) {
+            if (isLRorLPSvcComp) {
                 const _pisCof = pisCofinsLRPct || 0
                 const _grossDen = _pisCof > 0 ? (100 - _pisCof) / 100 : 1
                 const _grossed = _grossDen > 0 ? pricing.sellingPrice / _grossDen : pricing.sellingPrice
@@ -413,18 +418,18 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                 commission_table_id: commissionTableId || null,
                 min_quantity: 0,
                 taxes_launched: true,
-                is_pct: isLucroRealSvcComp ? (isPct || 0) : 0,
-                is_value: isLucroRealSvcComp ? svcIsVal : 0,
-                ibs_pct: isLucroRealSvcComp ? (ibsPct || 0) : 0,
-                ibs_value: isLucroRealSvcComp ? svcIbsVal : 0,
-                cbs_pct: isLucroRealSvcComp ? (cbsPct || 0) : 0,
-                cbs_value: isLucroRealSvcComp ? svcCbsVal : 0,
-                ipi_pct: isLucroRealSvcComp ? (ipiPct || 0) : 0,
-                ipi_value: isLucroRealSvcComp ? svcIpiVal : 0,
-                sale_price_base: isLucroRealSvcComp ? pricing.sellingPrice : null,
-                sale_price_after_taxes: isLucroRealSvcComp ? svcFinalPrice : null,
-                valor_precificado_icms_piscofins: isLucroRealSvcComp ? pricing.sellingPrice : null,
-                iva_dual_reduction_factor: isLucroRealSvcComp ? (ivaDualReductionFactor ?? null) : null,
+                is_pct: isLRorLPSvcComp ? (isPct || 0) : 0,
+                is_value: isLRorLPSvcComp ? svcIsVal : 0,
+                ibs_pct: isLRorLPSvcComp ? (ibsPct || 0) : 0,
+                ibs_value: isLRorLPSvcComp ? svcIbsVal : 0,
+                cbs_pct: isLRorLPSvcComp ? (cbsPct || 0) : 0,
+                cbs_value: isLRorLPSvcComp ? svcCbsVal : 0,
+                ipi_pct: isLRorLPSvcComp ? (ipiPct || 0) : 0,
+                ipi_value: isLRorLPSvcComp ? svcIpiVal : 0,
+                sale_price_base: isLRorLPSvcComp ? pricing.sellingPrice : null,
+                sale_price_after_taxes: isLRorLPSvcComp ? svcFinalPrice : null,
+                valor_precificado_icms_piscofins: isLRorLPSvcComp ? pricing.sellingPrice : null,
+                iva_dual_reduction_factor: isLRorLPSvcComp ? (ivaDualReductionFactor ?? null) : null,
                 recurrence_active: recurrenceActive,
                 recurrence_days: recurrenceActive && recurrenceDays ? recurrenceDays : null,
                 recurrence_message: recurrenceActive && recurrenceMessage ? recurrenceMessage : null,
@@ -486,6 +491,8 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
 
     const isSN = !!taxPreview?.regimeLabel?.includes('Simples Nacional')
     const isLucroRealDisplay = currentUser?.taxableRegime === 'LUCRO_REAL'
+    const isLucroPresumidoDisplay = currentUser?.taxableRegime === 'LUCRO_PRESUMIDO'
+    const isLRorLPDisplay = isLucroRealDisplay || isLucroPresumidoDisplay
 
     const tempItemCols: ColumnsType<TempItem> = [
         {
@@ -875,7 +882,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                             {pricingRow('Lucro', profitPercent, pricing.profitVal, 'profit')}
                             {isLucroRealDisplay && pricingRow('IRPJ (15% sobre lucro)', pricing.irpjPctLR, pricing.irpjValLR, undefined, 'Imposto de Renda Pessoa Jurídica — calculado automaticamente como 15% sobre o valor do lucro.')}
                             {isLucroRealDisplay && pricingRow('CSLL (9% sobre lucro)', pricing.csllPctLR, pricing.csllValLR, undefined, 'Contribuição Social sobre o Lucro Líquido — calculada automaticamente como 9% sobre o valor do lucro.')}
-                            {isLucroRealDisplay && pricingRow('Alíq. adicional IRPJ', additionalIrpjPercent, pricing.adicionalIrpjValLR, 'additionalIrpj', 'Alíquota da parcela adicional do IRPJ. Informe manualmente conforme enquadramento.')}
+                            {isLRorLPDisplay && pricingRow('Alíq. adicional IRPJ', additionalIrpjPercent, pricing.adicionalIrpjValLR, 'additionalIrpj', 'Alíquota da parcela adicional do IRPJ. Informe manualmente conforme enquadramento.')}
                             {isLucroRealDisplay && pricingRow('PIS/Cofins (%)', pisCofinsLRPct, pricing.sellingPrice * pisCofinsLRPct / 100, 'pisCofins', 'PIS + COFINS — informe manualmente para serviços (regime não cumulativo).')}
                         </tbody>
                     </table>
@@ -887,15 +894,15 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                         <span style={{ fontWeight: 600 }}>{(100 - pricing.totalPct).toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%</span>
                     </div>
 
-                    {isLucroRealDisplay && (
+                    {isLRorLPDisplay && (
                         <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 12, marginTop: 4 }}>
                             <span style={{ color: '#64748b' }}>Valor do produto precificado com ICMS, PIS/COFINS</span>
                             <span style={{ fontWeight: 600, color: '#e2e8f0' }}>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 }).format(pricing.sellingPrice)}</span>
                         </div>
                     )}
 
-                    {/* Fator de redução IVA DUAL — apenas LUCRO_REAL */}
-                    {isLucroRealDisplay && (
+                    {/* Fator de redução IVA DUAL */}
+                    {isLRorLPDisplay && (
                         <div style={{ marginTop: 14, background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '12px 14px', border: '1px solid rgba(255,255,255,0.07)' }}>
                             <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 10 }}>
                                 Fator de Redução da Alíquota do IVA DUAL
@@ -923,8 +930,8 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                         </div>
                     )}
 
-                    {/* IBS / CBS — apenas LUCRO_REAL */}
-                    {isLucroRealDisplay && (() => {
+                    {/* IBS / CBS */}
+                    {isLRorLPDisplay && (() => {
                         const _pisCof = pisCofinsLRPct || 0
                         const _grossDen = _pisCof > 0 ? (100 - _pisCof) / 100 : 1
                         const _grossed = _grossDen > 0 ? pricing.sellingPrice / _grossDen : pricing.sellingPrice
@@ -1050,8 +1057,8 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                                 <Tooltip title={`Despesas: ${fmt(pricing.variableVal + pricing.financialVal)}`}>
                                     <div style={{ width: `${((pricing.variableVal + pricing.financialVal) / pricing.sellingPrice) * 100}%`, background: '#F79009' }} />
                                 </Tooltip>
-                                <Tooltip title={`Impostos: ${fmt(isLucroRealDisplay ? pricing.irpjValLR + pricing.csllValLR + pricing.adicionalIrpjValLR : displayTaxVal + (isSN ? 0 : pricing.taxRegimeVal))}`}>
-                                    <div style={{ width: `${((isLucroRealDisplay ? pricing.irpjValLR + pricing.csllValLR + pricing.adicionalIrpjValLR : displayTaxVal + (isSN ? 0 : pricing.taxRegimeVal)) / pricing.sellingPrice) * 100}%`, background: '#667085' }} />
+                                <Tooltip title={`Impostos: ${fmt(isLucroRealDisplay ? pricing.irpjValLR + pricing.csllValLR + pricing.adicionalIrpjValLR : isLucroPresumidoDisplay ? displayTaxVal + (isSN ? 0 : pricing.taxRegimeVal) + pricing.adicionalIrpjValLR : displayTaxVal + (isSN ? 0 : pricing.taxRegimeVal))}`}>
+                                    <div style={{ width: `${((isLucroRealDisplay ? pricing.irpjValLR + pricing.csllValLR + pricing.adicionalIrpjValLR : isLucroPresumidoDisplay ? displayTaxVal + (isSN ? 0 : pricing.taxRegimeVal) + pricing.adicionalIrpjValLR : displayTaxVal + (isSN ? 0 : pricing.taxRegimeVal)) / pricing.sellingPrice) * 100}%`, background: '#667085' }} />
                                 </Tooltip>
                                 <Tooltip title={`Comissão: ${fmt(pricing.commissionVal)}`}>
                                     <div style={{ width: `${(pricing.commissionVal / pricing.sellingPrice) * 100}%`, background: '#7A5AF8' }} />

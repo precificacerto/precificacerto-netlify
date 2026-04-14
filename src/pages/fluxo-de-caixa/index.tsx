@@ -181,6 +181,35 @@ const LR_EXPENSE_CATEGORY_OPTIONS = [
     { label: '── Impostos sobre o Faturamento (Por fora) ──', options: LR_IMPOSTOS_FATURAMENTO_FORA.map(c => ({ label: c.category, value: c.category })) },
 ]
 
+// Impostos sobre o Lucro (Lucro Presumido)
+const LP_IMPOSTOS_SOBRE_LUCRO = [
+    { category: 'IRPJ (Imposto de Renda de Pessoa Jurídica)', group: 'IMPOSTO_LUCRO' },
+    { category: 'CSLL (Contribuição Social sobre o Lucro Líquido)', group: 'IMPOSTO_LUCRO' },
+    { category: 'Alíquota Adicional da parcela do IRPJ', group: 'IMPOSTO_LUCRO' },
+]
+
+// Impostos sobre o Faturamento — Por dentro (Lucro Presumido)
+const LP_IMPOSTOS_FATURAMENTO_DENTRO = [
+    { category: 'ICMS Próprio', group: 'IMPOSTO_FATURAMENTO_DENTRO' },
+    { category: 'PIS (Cumulativo)', group: 'IMPOSTO_FATURAMENTO_DENTRO' },
+    { category: 'COFINS (Cumulativo)', group: 'IMPOSTO_FATURAMENTO_DENTRO' },
+]
+
+const LP_EXPENSE_CATEGORY_OPTIONS = [
+    { label: '── Custo dos Produtos ──', options: LR_CUSTO_PRODUTOS.map(c => ({ label: c.category, value: c.category })) },
+    { label: '── Mão de Obra Produtiva ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'MAO_DE_OBRA_PRODUTIVA').map(c => ({ label: c.category, value: c.category })) },
+    { label: '── Mão de Obra Administrativa ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'MAO_DE_OBRA_ADMINISTRATIVA').map(c => ({ label: c.category, value: c.category })) },
+    { label: '── Despesas Fixas ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_FIXA').map(c => ({ label: c.category, value: c.category })) },
+    { label: '── Despesas Variáveis ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_VARIAVEL').map(c => ({ label: c.category, value: c.category })) },
+    { label: '── Atividades Terceirizadas Operacionais de Entrega ──', options: LR_ATIVIDADES_TERCEIRIZADAS.map(c => ({ label: c.category, value: c.category })) },
+    { label: '── Despesas Financeiras ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_FINANCEIRA').map(c => ({ label: c.category, value: c.category })) },
+    { label: '── Comissões ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'COMISSOES').map(c => ({ label: c.category, value: c.category })) },
+    { label: '── Lucro ──', options: LR_LUCRO.map(c => ({ label: c.category, value: c.category })) },
+    { label: '── Impostos sobre o Lucro ──', options: LP_IMPOSTOS_SOBRE_LUCRO.map(c => ({ label: c.category, value: c.category })) },
+    { label: '── Impostos sobre o Faturamento (Por dentro) ──', options: LP_IMPOSTOS_FATURAMENTO_DENTRO.map(c => ({ label: c.category, value: c.category })) },
+    { label: '── Impostos sobre o Faturamento (Por fora) ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'IMPOSTO').map(c => ({ label: c.category, value: c.category })) },
+]
+
 function getGroupForCategory(cat: string): string | undefined {
     return CATEGORY_GROUP_MAP.find(c => c.category === cat)?.group
 }
@@ -463,12 +492,15 @@ export default function CashFlow() {
 
     const isSimples = taxRegime === 'SIMPLES_NACIONAL' || taxRegime === 'MEI'
     const isLucroReal = taxRegime === 'LUCRO_REAL'
+    const isLucroPresumido = taxRegime === 'LUCRO_PRESUMIDO'
     const isLrCustoProdutos = isLucroReal && (LR_CUSTO_CATEGORIES_SPECIAL as readonly string[]).includes(selectedExpenseCategory)
     const activeCategoryOptions = isSimples
         ? SN_EXPENSE_CATEGORY_OPTIONS
         : isLucroReal
             ? LR_EXPENSE_CATEGORY_OPTIONS
-            : EXPENSE_CATEGORY_OPTIONS
+            : isLucroPresumido
+                ? LP_EXPENSE_CATEGORY_OPTIONS
+                : EXPENSE_CATEGORY_OPTIONS
     const activeGroupForCategory = (cat: string) => {
         if (isSimples) return getSNGroupForCategory(cat)
         const lrEntry = [
@@ -478,6 +510,8 @@ export default function CashFlow() {
             ...LR_IMPOSTOS_SOBRE_LUCRO,
             ...LR_IMPOSTOS_FATURAMENTO_DENTRO,
             ...LR_IMPOSTOS_FATURAMENTO_FORA,
+            ...LP_IMPOSTOS_SOBRE_LUCRO,
+            ...LP_IMPOSTOS_FATURAMENTO_DENTRO,
         ].find(c => c.category === cat)
         if (lrEntry) return lrEntry.group
         return getGroupForCategory(cat)

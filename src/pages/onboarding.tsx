@@ -431,8 +431,8 @@ export default function Onboarding() {
               : null,
             cnae_code: (tax.cnae_code || '').replace(/\D/g, ''),
             icms_contribuinte: tax.icms_contribuinte ?? false,
-            ibs_reference_pct: tax.tax_regime === 'LUCRO_REAL' ? (tax.ibs_reference_pct ?? null) : null,
-            cbs_reference_pct: tax.tax_regime === 'LUCRO_REAL' ? (tax.cbs_reference_pct ?? null) : null,
+            ibs_reference_pct: (tax.tax_regime === 'LUCRO_REAL' || tax.tax_regime === 'LUCRO_PRESUMIDO') ? (tax.ibs_reference_pct ?? null) : null,
+            cbs_reference_pct: (tax.tax_regime === 'LUCRO_REAL' || tax.tax_regime === 'LUCRO_PRESUMIDO') ? (tax.cbs_reference_pct ?? null) : null,
             inscricao_estadual: tax.inscricao_estadual || null,
             ie_state_code: tax.ie_state_code || null,
             sales_scope: tax.sales_scope || 'INTRAESTADUAL',
@@ -1038,8 +1038,8 @@ export default function Onboarding() {
                     </div>
                   )}
                 </div>
-                {/* IVA DUAL — apenas Lucro Real */}
-                {isLucroReal && (
+                {/* IVA DUAL — Lucro Real e Lucro Presumido */}
+                {(isLucroReal || taxRegime === 'LUCRO_PRESUMIDO') && (
                   <div style={{
                     background: 'rgba(255, 255, 255, 0.03)',
                     border: '1px solid rgba(255, 255, 255, 0.06)',

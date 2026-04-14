@@ -47,6 +47,8 @@ const formatBRL3 = (v: number) =>
 
 const NewItemForm = ({ form, taxableRegime }: Props) => {
   const isLucroReal = taxableRegime === 'LUCRO_REAL'
+  const isLucroPresumido = taxableRegime === 'LUCRO_PRESUMIDO'
+  const isLucroRealOrLP = isLucroReal || isLucroPresumido
   const { currentUser } = useAuth()
   const isRevenda = currentUser?.calcType === 'RESALE'
 
@@ -65,15 +67,15 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
   const icmsDeferidoEnabled = Form.useWatch('icms_deferido_enabled', form) ?? false
 
   const recalcNetCost = useCallback(() => {
-    if (!isLucroReal) return
+    if (!isLucroRealOrLP) return
     const values = form.getFieldsValue()
     const isDeferidoEnabled = Boolean(values.icms_deferido_enabled)
     const priceStr = String(values.price || '0').replace(/\./g, '').replace(',', '.')
     const priceNum = parseFloat(priceStr) || 0
     const icms = Number(values.icms_rate) || 0
     const icmsDeferido = isDeferidoEnabled ? (Number(values.icms_deferido_rate) || 0) : 0
-    const pis = Number(values.pis_rate) || 0
-    const cofins = Number(values.cofins_rate) || 0
+    const pis = isLucroReal ? (Number(values.pis_rate) || 0) : 0
+    const cofins = isLucroReal ? (Number(values.cofins_rate) || 0) : 0
 
     if (priceNum > 0) {
       // Impostos recuperáveis: quando deferido ativo = ICMS% × (1 - deferido%); senão = ICMS%
@@ -96,7 +98,7 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
       setImpostosRecuperaveisDisplay(0)
       form.setFieldsValue({ cost_net: 0 })
     }
-  }, [form, isLucroReal])
+  }, [form, isLucroReal, isLucroPresumido, isLucroRealOrLP])
 
   const fetchAndFillNcmRates = useCallback(async (code: string) => {
     if (!code || !isLucroReal) return
@@ -223,10 +225,10 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
   // Recalcula impostos recuperáveis e custo líquido na montagem do form
   // Necessário para edição de itens existentes (form já preenchido pelo componente pai)
   useEffect(() => {
-    if (!isLucroReal) return
+    if (!isLucroRealOrLP) return
     setTimeout(recalcNetCost, 150)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLucroReal])
+  }, [isLucroRealOrLP])
 
   const handleDeferidoToggle = (checked: boolean) => {
     form.setFieldsValue({
@@ -444,8 +446,8 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
         </Form.Item>
       </div>
 
-      {/* Linha de impostos 1 (Lucro Real): ICMS | ICMS Deferido | Impostos Recuperáveis */}
-      {isLucroReal && (
+      {/* Linha de impostos 1 (Lucro Real / Lucro Presumido): ICMS | ICMS Deferido | Impostos Recuperáveis */}
+      {isLucroRealOrLP && (
         <>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, alignItems: 'end' }}>
             <Form.Item
@@ -511,8 +513,8 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
             <Form.Item
               label={
                 <span>
-                  Impostos recuperáveis (%)&nbsp;
-                  <Tooltip title="Calculado automaticamente: quando ICMS Deferido ativo = ICMS% × (1 - Deferido%); caso contrário = ICMS%.">
+                  {isLucroPresumido ? 'ICMS recuperável (%)' : 'Impostos recuperáveis (%)'}&nbsp;
+                  <Tooltip title={isLucroPresumido ? 'ICMS recuperável na entrada: quando Deferido ativo = ICMS% × (1 - Deferido%); caso contrário = ICMS%.' : 'Calculado automaticamente: quando ICMS Deferido ativo = ICMS% × (1 - Deferido%); caso contrário = ICMS%.'}>
                     <InfoCircleOutlined style={{ color: '#64748b' }} />
                   </Tooltip>
                 </span>
@@ -532,70 +534,72 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
             </Form.Item>
           </div>
 
-          {/* Linha de impostos 2 (Lucro Real): PIS | COFINS */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, alignItems: 'end' }}>
-            <Form.Item
-              name="pis_rate"
-              label={
-                <span>
-                  PIS (%)&nbsp;
-                  <Tooltip title="Alíquota PIS não-cumulativo puxada do NCM (1,65%). Preenchida automaticamente ao selecionar o NCM.">
-                    <InfoCircleOutlined style={{ color: '#64748b' }} />
-                  </Tooltip>
-                </span>
-              }
-              initialValue={0}
-              style={{ marginBottom: 24 }}
-            >
-              <InputNumber
-                min={0}
-                max={100}
-                step={0.01}
-                precision={2}
-                style={{ width: '100%' }}
-                placeholder="0,00"
-                suffix="%"
-                disabled
-                formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
-                parser={(v) => Number((v || '0').replace(',', '.'))}
-              />
-            </Form.Item>
+          {/* Linha de impostos 2 (somente Lucro Real): PIS | COFINS não-cumulativo */}
+          {isLucroReal && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, alignItems: 'end' }}>
+              <Form.Item
+                name="pis_rate"
+                label={
+                  <span>
+                    PIS (%)&nbsp;
+                    <Tooltip title="Alíquota PIS não-cumulativo puxada do NCM (1,65%). Preenchida automaticamente ao selecionar o NCM.">
+                      <InfoCircleOutlined style={{ color: '#64748b' }} />
+                    </Tooltip>
+                  </span>
+                }
+                initialValue={0}
+                style={{ marginBottom: 24 }}
+              >
+                <InputNumber
+                  min={0}
+                  max={100}
+                  step={0.01}
+                  precision={2}
+                  style={{ width: '100%' }}
+                  placeholder="0,00"
+                  suffix="%"
+                  disabled
+                  formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
+                  parser={(v) => Number((v || '0').replace(',', '.'))}
+                />
+              </Form.Item>
 
-            <Form.Item
-              name="cofins_rate"
-              label={
-                <span>
-                  COFINS (%)&nbsp;
-                  <Tooltip title="Alíquota COFINS não-cumulativo puxada do NCM (7,6%). Preenchida automaticamente ao selecionar o NCM.">
-                    <InfoCircleOutlined style={{ color: '#64748b' }} />
-                  </Tooltip>
-                </span>
-              }
-              initialValue={0}
-              style={{ marginBottom: 24 }}
-            >
-              <InputNumber
-                min={0}
-                max={100}
-                step={0.01}
-                precision={2}
-                style={{ width: '100%' }}
-                placeholder="0,00"
-                suffix="%"
-                disabled
-                formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
-                parser={(v) => Number((v || '0').replace(',', '.'))}
-              />
-            </Form.Item>
-          </div>
+              <Form.Item
+                name="cofins_rate"
+                label={
+                  <span>
+                    COFINS (%)&nbsp;
+                    <Tooltip title="Alíquota COFINS não-cumulativo puxada do NCM (7,6%). Preenchida automaticamente ao selecionar o NCM.">
+                      <InfoCircleOutlined style={{ color: '#64748b' }} />
+                    </Tooltip>
+                  </span>
+                }
+                initialValue={0}
+                style={{ marginBottom: 24 }}
+              >
+                <InputNumber
+                  min={0}
+                  max={100}
+                  step={0.01}
+                  precision={2}
+                  style={{ width: '100%' }}
+                  placeholder="0,00"
+                  suffix="%"
+                  disabled
+                  formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
+                  parser={(v) => Number((v || '0').replace(',', '.'))}
+                />
+              </Form.Item>
+            </div>
+          )}
 
-          {/* Linha de impostos 3 (Lucro Real): Valor custo líquido | QTD. Comprado | Estoque mínimo */}
+          {/* Linha de impostos 3 (Lucro Real / Lucro Presumido): Valor custo líquido | QTD. Comprado | Estoque mínimo */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, alignItems: 'end' }}>
             <Form.Item
               label={
                 <span>
                   Valor custo líquido&nbsp;
-                  <Tooltip title="Calculado: Valor unit. − (Valor unit. × ICMS%) − ((Valor unit. − ICMS) × PIS+COFINS%).">
+                  <Tooltip title={isLucroPresumido ? 'Calculado: Valor unit. − (Valor unit. × ICMS%).' : 'Calculado: Valor unit. − (Valor unit. × ICMS%) − ((Valor unit. − ICMS) × PIS+COFINS%).'}>
                     <InfoCircleOutlined style={{ color: '#64748b' }} />
                   </Tooltip>
                 </span>
@@ -617,8 +621,8 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
         </>
       )}
 
-      {/* Linha QTD + Estoque para não-Lucro Real */}
-      {!isLucroReal && (
+      {/* Linha QTD + Estoque para não-Lucro Real e não-Lucro Presumido */}
+      {!isLucroRealOrLP && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16, alignItems: 'start' }}>
           {quantidadeField}
           {estoqueField}
@@ -626,7 +630,7 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
       )}
 
       {/* Observação */}
-      {isLucroReal ? (() => {
+      {isLucroRealOrLP ? (() => {
         const vals = form.getFieldsValue()
         const priceStr = String(vals.price || '0').replace(/\./g, '').replace(',', '.')
         const priceNum = parseFloat(priceStr) || 0
@@ -693,7 +697,7 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
           label={
             <span>
               Estado do fornecedor&nbsp;
-              <Tooltip title={isLucroReal ? 'Usado para calcular ICMS na entrada (crédito) e o Valor Custo Líquido' : 'Usado para calcular ICMS na entrada (crédito)'}>
+              <Tooltip title={isLucroRealOrLP ? 'Usado para calcular ICMS na entrada (crédito) e o Valor Custo Líquido' : 'Usado para calcular ICMS na entrada (crédito)'}>
                 <InfoCircleOutlined style={{ color: '#64748b' }} />
               </Tooltip>
             </span>

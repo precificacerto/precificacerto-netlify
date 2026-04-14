@@ -106,8 +106,8 @@ export const ProductPrice: FC<Props> = ({
   const pricePerUnit = totalPrice
   const priceRecipeTotal = totalPrice * yieldQty
 
-  // Atividades Terceirizadas (apenas LUCRO_REAL): somadas ao preço de venda
-  const terceirizadasTotal = isLucroReal
+  // Atividades Terceirizadas (apenas LUCRO_REAL / LUCRO_PRESUMIDO): somadas ao preço de venda
+  const terceirizadasTotal = (isLucroReal || isLucroPresumed)
     ? (freightValue || 0) + (insuranceValue || 0) + (accessoryExpensesValue || 0)
     : 0
   const finalSalePrice = pricePerUnit + terceirizadasTotal
@@ -117,12 +117,12 @@ export const ProductPrice: FC<Props> = ({
   //   IS  base = preço limpo + terceirizadas
   //   IBS/CBS base = preço limpo + terceirizadas + valor IS
   // IPI: base CHEIA (com ICMS+PIS/COFINS embutidos) + despesas acessórias
-  const _lrTotalEmb = isLucroReal ? (icmsPct + pisCofinsLRPct) : 0
+  const _lrTotalEmb = (isLucroReal || isLucroPresumed) ? (icmsPct + pisCofinsLRPct) : 0
   const _lrGrossDen = _lrTotalEmb > 0 ? (100 - _lrTotalEmb) / 100 : 1
   const _lrGrossed = _lrGrossDen > 0 ? finalSalePrice / _lrGrossDen : finalSalePrice
   const _lrIcmsForBase = _lrGrossed * icmsPct / 100
   const _lrPisCofForBase = _lrGrossed * pisCofinsLRPct / 100
-  const ibsCbsBase = isLucroReal ? Math.max(0, finalSalePrice - _lrIcmsForBase - _lrPisCofForBase) : finalSalePrice
+  const ibsCbsBase = (isLucroReal || isLucroPresumed) ? Math.max(0, finalSalePrice - _lrIcmsForBase - _lrPisCofForBase) : finalSalePrice
   const taxIsValue = ibsCbsBase * (isPct || 0) / 100
   const ibsCbsWithIs = ibsCbsBase + taxIsValue
   const taxIbsValue = ibsCbsWithIs * (ibsPct || 0) / 100
@@ -130,7 +130,7 @@ export const ProductPrice: FC<Props> = ({
   const taxIpiValue = finalSalePrice * (ipiPct || 0) / 100
   const totalInlineTax = taxIsValue + taxIbsValue + taxCbsValue + taxIpiValue
   const finalPriceWithTaxes = totalInlineTax > 0 ? finalSalePrice + totalInlineTax : finalSalePrice
-  const hasInlineTaxes = isLucroReal && totalInlineTax > 0
+  const hasInlineTaxes = (isLucroReal || isLucroPresumed) && totalInlineTax > 0
 
   // LUCRO_REAL / LUCRO_PRESUMIDO: IRPJ = 15% do lucro, CSLL = 9% do lucro
   const irpjVal = showIrpjCsll ? profitVal * 0.15 : 0
@@ -139,8 +139,8 @@ export const ProductPrice: FC<Props> = ({
   const irpjPct = showIrpjCsll && pricePerUnit > 0 ? (irpjVal / pricePerUnit) * 100 : 0
   const csllPct = showIrpjCsll && pricePerUnit > 0 ? (csllVal / pricePerUnit) * 100 : 0
   // Adicional IRPJ apenas para LUCRO_REAL (preenchido manualmente)
-  const adicionalIrpjPct = isLucroReal ? (additionalIrpjPercent || 0) : 0
-  const adicionalIrpjVal = isLucroReal ? (pricePerUnit * adicionalIrpjPct / 100) : 0
+  const adicionalIrpjPct = (isLucroReal || isLucroPresumed) ? (additionalIrpjPercent || 0) : 0
+  const adicionalIrpjVal = (isLucroReal || isLucroPresumed) ? (pricePerUnit * adicionalIrpjPct / 100) : 0
 
   // Para LUCRO_REAL/PRESUMIDO: IRPJ+CSLL são calculados sobre o lucro, não no taxPctDisplay
   const taxContribution = showIrpjCsll
@@ -175,7 +175,7 @@ export const ProductPrice: FC<Props> = ({
   // MC% = 100% − soma de todos os percentuais (exceto custo do produto)
   // Para LUCRO_REAL: totalPct ainda não inclui icmsPct e pisCofinsLRPct (são brutos, não derivados)
   // → mc = 100 - totalPct - icmsPct (produto) - pisCofinsLRPct
-  const mcPct = isLucroReal
+  const mcPct = (isLucroReal || isLucroPresumed)
     ? 100 - totalPct - (isCalcTypeService ? 0 : icmsPct) - pisCofinsLRPct
     : 100 - totalPct
 

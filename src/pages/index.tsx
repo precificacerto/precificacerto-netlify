@@ -150,7 +150,7 @@ function Home() {
           setShowPricingBanner(true)
         }
 
-        if (ts.tax_regime === 'LUCRO_REAL' && restitutionRes.data && restitutionRes.data.length > 0) {
+        if ((ts.tax_regime === 'LUCRO_REAL' || ts.tax_regime === 'LUCRO_PRESUMIDO') && restitutionRes.data && restitutionRes.data.length > 0) {
           const r = restitutionRes.data[0]
           setRestitutionSummary({
             monthLabel: new Date(r.reference_month + 'T00:00:00').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }),
@@ -596,7 +596,7 @@ function Home() {
         />
       </div>
 
-      {restitutionSummary && currentUser?.taxableRegime === 'LUCRO_REAL' && (
+      {restitutionSummary && (currentUser?.taxableRegime === 'LUCRO_REAL' || currentUser?.taxableRegime === 'LUCRO_PRESUMIDO') && (
         <RestitutionSummaryCard
           monthLabel={restitutionSummary.monthLabel}
           pisCredit={restitutionSummary.pis}
