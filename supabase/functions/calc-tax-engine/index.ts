@@ -158,12 +158,13 @@ Deno.serve(async (req: Request) => {
     const input1: PricingInput = { ...basePricingInput, taxPct: taxResult1.effectiveTaxPct }
     const result1 = calculatePricing(input1)
 
-    // 2nd pass — compute adicional IRPJ for Lucro Real based on 1st-pass price
+    // 2nd pass — compute adicional IRPJ for Lucro Real only (based on 1st-pass product price).
+    // For Lucro Presumido the adicional is computed inside computeEffectiveTax using
+    // lp_estimated_annual_revenue — no 2nd pass needed.
     let irpjAdditionalEquiv = 0
-    if ((regime === "LUCRO_REAL" || regime === "LUCRO_PRESUMIDO") && result1.isValid && result1.priceUnit > 0) {
+    if (regime === "LUCRO_REAL" && result1.isValid && result1.priceUnit > 0) {
       const lucroMensal = result1.priceUnit * profitPctFromBody
       // Adicional IRPJ: 10% sobre o lucro que excede R$ 20.000/mês (R$ 240.000/ano)
-      // lucroMensal aqui é a estimativa de lucro por unidade × margem (aproximação por produto)
       const IRPJ_ADICIONAL_LIMITE_MENSAL = 20000 // R$ 20.000/mês
       const excedente = Math.max(0, lucroMensal - IRPJ_ADICIONAL_LIMITE_MENSAL)
       if (excedente > 0) {
@@ -214,7 +215,9 @@ Deno.serve(async (req: Request) => {
       pct_iss: (taxResult.pctIss ?? 0) * 100,
       pct_irpj: (taxResult.pctIrpj ?? 0) * 100,
       pct_csll: (taxResult.pctCsll ?? 0) * 100,
-      pct_irpj_additional: irpjAdditionalEquiv * 100,
+      // LP: adicional já calculado dentro de computeEffectiveTax via lp_estimated_annual_revenue.
+      // LR: calculado no 2º passe com base no lucro mensal por produto.
+      pct_irpj_additional: ((taxResult.pctIrpjAdditional ?? 0) + irpjAdditionalEquiv) * 100,
       coefficient: result.coefficient,
       sale_price_internal: result.priceUnit,
       sale_price_total: result.priceUnit,
@@ -296,6 +299,10 @@ interface TaxCalcResult {
   pctIss: number
   pctIrpj: number
   pctCsll: number
+  // Adicional IRPJ separado do IRPJ base (para breakdown detalhado na gravação).
+  // Para LP: calculado com base em lp_estimated_annual_revenue × presunção.
+  // Para LR: calculado no 2º passe com base no lucro mensal por produto.
+  pctIrpjAdditional?: number
 }
 
 const ZERO_BREAKDOWN = { pctIcms: 0, pctPisCofins: 0, pctIss: 0, pctIrpj: 0, pctCsll: 0 }
@@ -421,12 +428,29 @@ function computeEffectiveTax(ts: any, states: any[], brackets: any[], lpRates: a
     const lpRate = lpRates.find((r: any) => r.activity_type === activity) || null
     let irpjEquiv = 0.08 * 0.15 // fallback COMERCIO/INDUSTRIA
     let csllEquiv = 0.12 * 0.09
+    let irpjPresumptionPct = 0.08 // fallback presunção IRPJ
     if (lpRate) {
-      irpjEquiv = Number(lpRate.irpj_presumption_percent) * Number(lpRate.irpj_rate)
+      irpjPresumptionPct = Number(lpRate.irpj_presumption_percent)
+      irpjEquiv = irpjPresumptionPct * Number(lpRate.irpj_rate)
       csllEquiv = Number(lpRate.csll_presumption_percent) * Number(lpRate.csll_rate)
     }
 
-    const effectiveTaxPct = lpIcms + pisCofins + iss + irpjEquiv + csllEquiv
+    // 5. Adicional IRPJ — calculado sobre a receita bruta anual estimada (lp_estimated_annual_revenue).
+    // Fórmula: adicional = max(0, (receita × presunção_irpj%) - 240.000) × 10% / receita
+    // Onde R$ 240.000 = R$ 20.000/mês × 12 meses (limite de isenção anual).
+    // Referência legal: Lei 9.249/95 art. 3 §1 e Lei 9.430/96 art. 2.
+    const IRPJ_ADICIONAL_LIMITE_ANUAL = 240000 // R$ 20.000/mês × 12
+    let lpIrpjAdditional = 0
+    const annualRevenue = Number(ts.lp_estimated_annual_revenue) || 0
+    if (annualRevenue > 0) {
+      const irpjBase = annualRevenue * irpjPresumptionPct
+      const excedente = Math.max(0, irpjBase - IRPJ_ADICIONAL_LIMITE_ANUAL)
+      if (excedente > 0) {
+        lpIrpjAdditional = (excedente * 0.10) / annualRevenue
+      }
+    }
+
+    const effectiveTaxPct = lpIcms + pisCofins + iss + irpjEquiv + csllEquiv + lpIrpjAdditional
     return {
       effectiveTaxPct,
       label: "Lucro Presumido",
@@ -436,6 +460,7 @@ function computeEffectiveTax(ts: any, states: any[], brackets: any[], lpRates: a
       pctIss: iss,
       pctIrpj: irpjEquiv,
       pctCsll: csllEquiv,
+      pctIrpjAdditional: lpIrpjAdditional,
     }
   }
 

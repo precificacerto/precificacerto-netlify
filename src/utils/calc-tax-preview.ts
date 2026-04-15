@@ -160,12 +160,12 @@ export async function fetchTaxPreview(tenantId: string): Promise<TaxPreviewResul
     // - ISS: LC 116/03 — alíquota municipal de 2% a 5%
     // - IRPJ presunção: Lei 9.249/95 art. 15 (8% comércio/indústria, 32% serviços, etc.)
     // - CSLL presunção: Lei 9.249/95 art. 20 (12% geral, 32% serviços)
-    // - IRPJ alíquota: 15% (+ adicional 10% sobre excedente R$20k/mês, não incluído nesta prévia)
+    // - IRPJ alíquota: 15% (+ adicional 10% sobre excedente acima de R$240k/ano de lucro presumido)
     // - CSLL alíquota: 9%
     //
-    // Nota: o adicional de IRPJ (10% sobre lucro presumido > R$60k/trimestre) NÃO está
-    // incluído nesta prévia. Ele depende do faturamento real e seria desproporcional
-    // em uma estimativa genérica.
+    // Adicional IRPJ: calculado a partir de ts.lp_estimated_annual_revenue (receita bruta anual estimada).
+    // Fórmula: max(0, (receita × presunção_irpj%) - 240.000) × 10% / receita.
+    // Se lp_estimated_annual_revenue não estiver preenchido, o adicional é zero.
 
     // 1. ICMS venda (decimal 0-1)
     let lpIcms = 0
@@ -203,19 +203,35 @@ export async function fetchTaxPreview(tenantId: string): Promise<TaxPreviewResul
 
     let irpjEquiv = 0.08 * 0.15 // fallback: COMERCIO/INDUSTRIA (presunção 8%, alíquota 15%)
     let csllEquiv = 0.12 * 0.09 // fallback: geral (presunção 12%, alíquota 9%)
+    let irpjPresumptionPct = 0.08 // fallback presunção IRPJ
     if (lpRate) {
-      irpjEquiv = Number(lpRate.irpj_presumption_percent) * Number(lpRate.irpj_rate)
+      irpjPresumptionPct = Number(lpRate.irpj_presumption_percent)
+      irpjEquiv = irpjPresumptionPct * Number(lpRate.irpj_rate)
       csllEquiv = Number(lpRate.csll_presumption_percent) * Number(lpRate.csll_rate)
     }
 
-    const taxPct = round4(lpIcms + pisCofins + iss + irpjEquiv + csllEquiv)
+    // Adicional IRPJ — calculado sobre a receita bruta anual estimada (lp_estimated_annual_revenue).
+    // Fórmula: adicional = max(0, (receita × presunção_irpj%) - 240.000) × 10% / receita
+    // R$ 240.000 = R$ 20.000/mês × 12 meses (limite de isenção anual do adicional de IRPJ).
+    const IRPJ_ADICIONAL_LIMITE_ANUAL = 240000
+    let lpIrpjAdditional = 0
+    const annualRevenue = Number(ts.lp_estimated_annual_revenue) || 0
+    if (annualRevenue > 0) {
+      const irpjBase = annualRevenue * irpjPresumptionPct
+      const excedente = Math.max(0, irpjBase - IRPJ_ADICIONAL_LIMITE_ANUAL)
+      if (excedente > 0) {
+        lpIrpjAdditional = (excedente * 0.10) / annualRevenue
+      }
+    }
+
+    const taxPct = round4(lpIcms + pisCofins + iss + irpjEquiv + csllEquiv + lpIrpjAdditional)
 
     return {
       effectiveTaxPct: taxPct,
       taxLabel: 'Lucro Presumido',
       isMei: false,
       taxesPercent: round4((lpIcms + pisCofins + iss) * 100),
-      taxableRegimePercent: round4((irpjEquiv + csllEquiv) * 100),
+      taxableRegimePercent: round4((irpjEquiv + csllEquiv + lpIrpjAdditional) * 100),
       regimeLabel: 'Lucro Presumido',
     }
   }

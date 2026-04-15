@@ -31,6 +31,9 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
     const [anexo, setAnexo] = useState<string>(tenantSettings?.simples_anexo || '')
     const [revenue12m, setRevenue12m] = useState<number>(Number(tenantSettings?.simples_revenue_12m) || 0)
     const [lpActivity, setLpActivity] = useState<string>(tenantSettings?.lucro_presumido_activity || 'COMERCIO')
+    const [lpEstimatedAnnualRevenue, setLpEstimatedAnnualRevenue] = useState<number | null>(
+        tenantSettings?.lp_estimated_annual_revenue != null ? Number(tenantSettings.lp_estimated_annual_revenue) : null
+    )
     const [effectiveRate, setEffectiveRate] = useState<number | null>(null)
     const [ibsReferencePct, setIbsReferencePct] = useState<number | null>(
         tenantSettings?.ibs_reference_pct != null ? Number(tenantSettings.ibs_reference_pct) : null
@@ -48,6 +51,7 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
             setAnexo(tenantSettings.simples_anexo || '')
             setRevenue12m(Number(tenantSettings.simples_revenue_12m) || 0)
             setLpActivity(tenantSettings.lucro_presumido_activity || 'COMERCIO')
+            setLpEstimatedAnnualRevenue(tenantSettings.lp_estimated_annual_revenue != null ? Number(tenantSettings.lp_estimated_annual_revenue) : null)
             setIbsReferencePct(tenantSettings.ibs_reference_pct != null ? Number(tenantSettings.ibs_reference_pct) : null)
             setCbsReferencePct(tenantSettings.cbs_reference_pct != null ? Number(tenantSettings.cbs_reference_pct) : null)
             taxForm.setFieldsValue({
@@ -57,6 +61,7 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                 revenue_input_type: 'TOTAL_12M',
                 revenue_value: Number(tenantSettings.simples_revenue_12m) || undefined,
                 lucro_presumido_activity: tenantSettings.lucro_presumido_activity || 'COMERCIO',
+                lp_estimated_annual_revenue: tenantSettings.lp_estimated_annual_revenue != null ? Number(tenantSettings.lp_estimated_annual_revenue) : undefined,
                 ret_rate: tenantSettings.ret_rate != null ? Number(tenantSettings.ret_rate) * 100 : 4,
                 ibs_reference_pct: tenantSettings.ibs_reference_pct != null ? Number(tenantSettings.ibs_reference_pct) : undefined,
                 cbs_reference_pct: tenantSettings.cbs_reference_pct != null ? Number(tenantSettings.cbs_reference_pct) : undefined,
@@ -92,6 +97,27 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
     const stateData = brazilianStates.find(s => s.code?.trim() === stateCode)
     const icmsPercent = stateData?.icms_internal_rate != null ? Number(stateData.icms_internal_rate) * 100 : null
     const issPercent = tenantSettings?.iss_municipality_rate ? Number(tenantSettings.iss_municipality_rate) * 100 : 5
+
+    // Lookup das alíquotas de presunção por tipo de atividade LP (espelho da tabela lucro_presumido_rates)
+    const LP_ACTIVITY_RATES: Record<string, { irpjPres: number; csllPres: number }> = {
+        COMERCIO:                  { irpjPres: 0.08,  csllPres: 0.12 },
+        INDUSTRIA:                 { irpjPres: 0.08,  csllPres: 0.12 },
+        SERVICO_GERAL:             { irpjPres: 0.32,  csllPres: 0.32 },
+        SERVICO_HOSPITALAR:        { irpjPres: 0.08,  csllPres: 0.12 },
+        SERVICO_TRANSPORTE_CARGA:  { irpjPres: 0.08,  csllPres: 0.12 },
+        SERVICO_TRANSPORTE_PASSAG: { irpjPres: 0.16,  csllPres: 0.12 },
+        REVENDA_COMBUSTIVEL:       { irpjPres: 0.016, csllPres: 0.12 },
+    }
+    const lpActivityRates = LP_ACTIVITY_RATES[lpActivity] ?? { irpjPres: 0.08, csllPres: 0.12 }
+    const lpIrpjDisplayPct  = lpActivityRates.irpjPres * 15 * 100  // resultado em % (ex: 1.20)
+    const lpCsllDisplayPct  = lpActivityRates.csllPres * 9  * 100  // resultado em % (ex: 1.08)
+    const lpIrpjAdditionalDisplayPct: number | null = (() => {
+        if (!lpEstimatedAnnualRevenue || lpEstimatedAnnualRevenue <= 0) return null
+        const irpjBase = lpEstimatedAnnualRevenue * lpActivityRates.irpjPres
+        const excedente = Math.max(0, irpjBase - 240000)
+        if (excedente <= 0) return 0
+        return (excedente * 0.10 / lpEstimatedAnnualRevenue) * 100
+    })()
 
     const isMei = regime === 'MEI'
     const isSN = regime === 'SIMPLES_NACIONAL'
@@ -242,17 +268,34 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                 )}
 
                 {isLP && (
-                    <Form.Item name="lucro_presumido_activity" label="Tipo de Atividade (presunção IRPJ/CSLL)">
-                        <Select onChange={(val: string) => setLpActivity(val)}>
-                            <Select.Option value="COMERCIO">Comércio em geral</Select.Option>
-                            <Select.Option value="INDUSTRIA">Indústria</Select.Option>
-                            <Select.Option value="SERVICO_GERAL">Serviço em geral</Select.Option>
-                            <Select.Option value="SERVICO_HOSPITALAR">Serviços hospitalares</Select.Option>
-                            <Select.Option value="SERVICO_TRANSPORTE_CARGA">Transporte de carga</Select.Option>
-                            <Select.Option value="SERVICO_TRANSPORTE_PASSAG">Transporte de passageiros</Select.Option>
-                            <Select.Option value="REVENDA_COMBUSTIVEL">Revenda de combustíveis</Select.Option>
-                        </Select>
-                    </Form.Item>
+                    <>
+                        <Form.Item name="lucro_presumido_activity" label="Tipo de Atividade (presunção IRPJ/CSLL)">
+                            <Select onChange={(val: string) => setLpActivity(val)}>
+                                <Select.Option value="COMERCIO">Comércio em geral</Select.Option>
+                                <Select.Option value="INDUSTRIA">Indústria</Select.Option>
+                                <Select.Option value="SERVICO_GERAL">Serviço em geral</Select.Option>
+                                <Select.Option value="SERVICO_HOSPITALAR">Serviços hospitalares</Select.Option>
+                                <Select.Option value="SERVICO_TRANSPORTE_CARGA">Transporte de carga</Select.Option>
+                                <Select.Option value="SERVICO_TRANSPORTE_PASSAG">Transporte de passageiros</Select.Option>
+                                <Select.Option value="REVENDA_COMBUSTIVEL">Revenda de combustíveis</Select.Option>
+                            </Select>
+                        </Form.Item>
+                        <Form.Item
+                            name="lp_estimated_annual_revenue"
+                            label="Receita Bruta Anual Estimada"
+                            tooltip="Usado para calcular o adicional de IRPJ (10% sobre o lucro presumido que excede R$ 240.000/ano). Deixe em branco se o faturamento anual for inferior a R$ 3.000.000 (empresa provavelmente abaixo do limite de isenção de R$ 240K de lucro presumido). Confirme com seu contador."
+                        >
+                            <InputNumber
+                                min={0}
+                                step={10000}
+                                style={{ width: '100%' }}
+                                formatter={(v) => v != null ? `R$ ${String(v).replace(/\B(?=(\d{3})+(?!\d))/g, '.')}` : ''}
+                                parser={(v) => Number((v || '0').replace(/R\$\s?|\./g, '').replace(',', '.'))}
+                                placeholder="Ex: 5.000.000,00"
+                                onChange={(val) => setLpEstimatedAnnualRevenue(val)}
+                            />
+                        </Form.Item>
+                    </>
                 )}
 
                 {regime && !isMei && (
@@ -312,13 +355,26 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                                 </Card>
                                 <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
                                     <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>IRPJ (estimativa)</div>
-                                    <div style={{ fontSize: 18, fontWeight: 700 }}>1,20%</div>
-                                    <div style={{ fontSize: 10, color: 'var(--color-neutral-400)' }}>8% × 15%</div>
+                                    <div style={{ fontSize: 18, fontWeight: 700 }}>{(lpIrpjDisplayPct / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</div>
+                                    <div style={{ fontSize: 10, color: 'var(--color-neutral-400)' }}>{(lpActivityRates.irpjPres * 100).toLocaleString('pt-BR')}% × 15%</div>
                                 </Card>
                                 <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
                                     <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>CSLL (estimativa)</div>
-                                    <div style={{ fontSize: 18, fontWeight: 700 }}>1,08%</div>
-                                    <div style={{ fontSize: 10, color: 'var(--color-neutral-400)' }}>12% × 9%</div>
+                                    <div style={{ fontSize: 18, fontWeight: 700 }}>{(lpCsllDisplayPct / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</div>
+                                    <div style={{ fontSize: 10, color: 'var(--color-neutral-400)' }}>{(lpActivityRates.csllPres * 100).toLocaleString('pt-BR')}% × 9%</div>
+                                </Card>
+                                <Card size="small" style={{ textAlign: 'center', borderRadius: 8, gridColumn: lpIrpjAdditionalDisplayPct != null ? 'auto' : undefined }}>
+                                    <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>Adicional IRPJ</div>
+                                    <div style={{ fontSize: 18, fontWeight: 700, color: lpIrpjAdditionalDisplayPct != null && lpIrpjAdditionalDisplayPct > 0 ? '#f59e0b' : undefined }}>
+                                        {lpIrpjAdditionalDisplayPct == null
+                                            ? '—'
+                                            : lpIrpjAdditionalDisplayPct === 0
+                                                ? '0,00%'
+                                                : `${lpIrpjAdditionalDisplayPct.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`}
+                                    </div>
+                                    <div style={{ fontSize: 10, color: 'var(--color-neutral-400)' }}>
+                                        {lpIrpjAdditionalDisplayPct == null ? 'Informe a receita estimada' : '10% s/ lucro pres. acima de R$ 240K/ano'}
+                                    </div>
                                 </Card>
                             </div>
                         )}
@@ -576,6 +632,9 @@ function Settings() {
             }
             if (values.regime === 'LUCRO_PRESUMIDO') {
                 updateData.lucro_presumido_activity = values.lucro_presumido_activity || 'COMERCIO'
+                updateData.lp_estimated_annual_revenue = values.lp_estimated_annual_revenue != null
+                    ? Number(values.lp_estimated_annual_revenue)
+                    : null
             }
             if (values.regime === 'LUCRO_PRESUMIDO_RET') {
                 updateData.ret_rate = (Number(values.ret_rate) || 4) / 100

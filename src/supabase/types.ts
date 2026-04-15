@@ -69,6 +69,8 @@ export interface TenantSettings {
     /** Número de meses do período do faturamento (média mensal = simples_revenue_12m / revenue_period_months). */
     revenue_period_months?: number | null
     lucro_presumido_activity?: string | null
+    /** Estimativa de receita bruta anual (R$) para cálculo do adicional IRPJ no Lucro Presumido. */
+    lp_estimated_annual_revenue?: number | null
     icms_contribuinte?: boolean | null
     iss_municipality_rate?: number | null
     tax_reduction_factor?: number | null
