@@ -166,6 +166,36 @@ async function computeTaxableRegimeValue(settings: any): Promise<number> {
     return round4((retRate + issRate) * 100)
   }
 
+  if (regime === 'SIMPLES_HIBRIDO') {
+    // Simples Híbrido espelha Lucro Real: PIS/COFINS 9,25% + ICMS + ISS + IRPJ 15% + CSLL 9%
+    // (simplificação para navbar/dashboard; calc-tax-preview.ts faz o cálculo preciso)
+    const calcType = settings.calc_type || 'INDUSTRIALIZACAO'
+    const originState = settings.state_code || 'SP'
+
+    const { data: statesData } = await supabase
+      .from('brazilian_states')
+      .select('code, icms_internal_rate')
+      .eq('code', originState)
+      .maybeSingle()
+
+    const icmsInternalRate = decimalToPercent(Number(statesData?.icms_internal_rate) || 0.18)
+
+    let total = 0
+    total += 1.65 + 7.60 // PIS 1,65% + COFINS 7,60% (não-cumulativo)
+
+    if (calcType !== 'SERVICO' && settings.icms_contribuinte) {
+      total += icmsInternalRate
+    }
+    if (calcType === 'SERVICO') {
+      total += decimalToPercent(Number(settings.iss_municipality_rate) || 0.05)
+    }
+
+    // IRPJ 15% + CSLL 9% sobre lucro projetado (presunção COMERCIO/INDUSTRIA como referência)
+    total += round4(8 / 100 * 15) + round4(12 / 100 * 9) // 1,20% + 1,08% = 2,28%
+
+    return round4(total)
+  }
+
   if (regime === 'LUCRO_PRESUMIDO' || regime === 'LUCRO_REAL') {
     const calcType = settings.calc_type || 'INDUSTRIALIZACAO'
     const originState = settings.state_code || 'SP'

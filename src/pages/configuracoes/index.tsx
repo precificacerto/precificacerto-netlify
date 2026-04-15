@@ -155,6 +155,7 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
     const isLP = regime === 'LUCRO_PRESUMIDO'
     const isRet = regime === 'LUCRO_PRESUMIDO_RET'
     const isLR = regime === 'LUCRO_REAL'
+    const isSH = regime === 'SIMPLES_HIBRIDO'
 
     return (
         <div style={{ maxWidth: 720 }}>
@@ -174,6 +175,7 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                         <Select.Option value="LUCRO_PRESUMIDO">Lucro Presumido</Select.Option>
                         <Select.Option value="LUCRO_PRESUMIDO_RET">Lucro Presumido RET</Select.Option>
                         <Select.Option value="LUCRO_REAL">Lucro Real</Select.Option>
+                        <Select.Option value="SIMPLES_HIBRIDO">Simples Híbrido</Select.Option>
                     </Select>
                 </Form.Item>
 
@@ -531,6 +533,67 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                             </div>
                         )}
 
+                        {isSH && (
+                            <>
+                                <Alert
+                                    message="Simples Híbrido — Regime de Precificação Comparativa"
+                                    description="⚠️ O Simples Híbrido é um regime de precificação do Precifica Certo e não substitui seu regime tributário legal. Consulte seu contador antes de usar estas alíquotas para fins fiscais."
+                                    type="warning"
+                                    showIcon
+                                    style={{ marginBottom: 16 }}
+                                />
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+                                    <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
+                                        <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>ICMS Interno ({stateCode})</div>
+                                        <div style={{ fontSize: 18, fontWeight: 700 }}>{icmsPercent != null ? `${icmsPercent.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%` : '—'}</div>
+                                    </Card>
+                                    <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
+                                        <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>PIS (não-cumulativo)</div>
+                                        <div style={{ fontSize: 18, fontWeight: 700 }}>1,65%</div>
+                                    </Card>
+                                    <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
+                                        <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>COFINS (não-cumulativo)</div>
+                                        <div style={{ fontSize: 18, fontWeight: 700 }}>7,60%</div>
+                                    </Card>
+                                    <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
+                                        <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>ISS Municipal</div>
+                                        <div style={{ fontSize: 18, fontWeight: 700 }}>{issPercent.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%</div>
+                                    </Card>
+                                    <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
+                                        <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>IRPJ (estimativa)</div>
+                                        <div style={{ fontSize: 18, fontWeight: 700 }}>1,20%</div>
+                                        <div style={{ fontSize: 10, color: 'var(--color-neutral-400)' }}>8% × 15%</div>
+                                    </Card>
+                                    <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
+                                        <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>CSLL (estimativa)</div>
+                                        <div style={{ fontSize: 18, fontWeight: 700 }}>1,08%</div>
+                                        <div style={{ fontSize: 10, color: 'var(--color-neutral-400)' }}>12% × 9%</div>
+                                    </Card>
+                                </div>
+                                <div style={{ marginTop: 16, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                                    <Form.Item name="iss_municipality_rate" label="ISS Municipal (%)">
+                                        <InputNumber min={0} max={10} step={0.1} style={{ width: '100%' }} addonAfter="%" formatter={(v) => v != null ? String(v).replace('.', ',') : ''} parser={(v) => Number((v || '0').replace(',', '.'))} />
+                                    </Form.Item>
+                                    <Form.Item name="lp_estimated_annual_revenue" label="Receita bruta anual estimada (R$)">
+                                        <InputNumber min={0} step={10000} style={{ width: '100%' }} formatter={(v) => v != null ? `R$ ${Number(v).toLocaleString('pt-BR')}` : 'R$ 0'} parser={(v) => Number((v || '0').replace('R$', '').replace(/\./g, '').replace(',', '.').trim())} />
+                                    </Form.Item>
+                                </div>
+                                <div style={{ marginTop: 8 }}>
+                                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-neutral-300)', marginBottom: 8 }}>
+                                        IVA DUAL — Alíquotas de Referência
+                                    </div>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                                        <Form.Item name="ibs_reference_pct" label="IBS — Imposto sobre Bens e Serviços" style={{ marginBottom: 0 }}>
+                                            <InputNumber min={0} max={100} step={0.01} style={{ width: '100%' }} addonAfter="%" onChange={(v) => setIbsReferencePct(v ?? null)} formatter={(v) => v != null ? String(v).replace('.', ',') : ''} parser={(v) => Number((v || '0').replace(',', '.'))} />
+                                        </Form.Item>
+                                        <Form.Item name="cbs_reference_pct" label="CBS — Contribuição sobre Bens e Serviços" style={{ marginBottom: 0 }}>
+                                            <InputNumber min={0} max={100} step={0.01} style={{ width: '100%' }} addonAfter="%" onChange={(v) => setCbsReferencePct(v ?? null)} formatter={(v) => v != null ? String(v).replace('.', ',') : ''} parser={(v) => Number((v || '0').replace(',', '.'))} />
+                                        </Form.Item>
+                                    </div>
+                                </div>
+                            </>
+                        )}
+
                         {isLR && (
                             <>
                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
@@ -759,9 +822,15 @@ function Settings() {
                 updateData.ret_estimated_monthly_revenue = Number(values.ret_estimated_monthly_revenue) || 0
                 updateData.iss_municipality_rate = (Number(values.iss_municipality_rate_ret) || 5) / 100
             }
-            if (values.regime === 'LUCRO_REAL' || values.regime === 'LUCRO_PRESUMIDO') {
+            if (values.regime === 'LUCRO_REAL' || values.regime === 'LUCRO_PRESUMIDO' || values.regime === 'SIMPLES_HIBRIDO') {
                 updateData.ibs_reference_pct = values.ibs_reference_pct != null ? Number(values.ibs_reference_pct) : null
                 updateData.cbs_reference_pct = values.cbs_reference_pct != null ? Number(values.cbs_reference_pct) : null
+            }
+            if (values.regime === 'SIMPLES_HIBRIDO') {
+                updateData.iss_municipality_rate = values.iss_municipality_rate != null
+                    ? (Number(values.iss_municipality_rate) || 0) / 100
+                    : null
+                updateData.lp_estimated_annual_revenue = simplesRevenue12m > 0 ? simplesRevenue12m : null
             }
             const { error } = await supabase.from('tenant_settings').update(updateData).eq('id', tenantSettings.id)
             if (error) throw error

@@ -113,6 +113,7 @@ const TAX_REGIMES = [
   { value: 'LUCRO_PRESUMIDO', label: 'Lucro Presumido' },
   { value: 'LUCRO_PRESUMIDO_RET', label: 'Lucro Presumido RET' },
   { value: 'LUCRO_REAL', label: 'Lucro Real' },
+  { value: 'SIMPLES_HIBRIDO', label: 'Simples Híbrido' },
   { value: 'MEI', label: 'MEI' },
 ]
 
@@ -242,6 +243,7 @@ export default function Onboarding() {
   const isRet = taxRegime === 'LUCRO_PRESUMIDO_RET'
   const isLucroReal = taxRegime === 'LUCRO_REAL'
   const isLP = taxRegime === 'LUCRO_PRESUMIDO'
+  const isSimplesHibrido = taxRegime === 'SIMPLES_HIBRIDO'
 
   const isSuperAdmin =
     currentUser?.is_super_admin ||
@@ -442,14 +444,14 @@ export default function Onboarding() {
               : (tax.iss_municipality_rate != null ? Number(tax.iss_municipality_rate) / 100 : null),
             cnae_code: (tax.cnae_code || '').replace(/\D/g, ''),
             icms_contribuinte: tax.icms_contribuinte ?? false,
-            ibs_reference_pct: (tax.tax_regime === 'LUCRO_REAL' || tax.tax_regime === 'LUCRO_PRESUMIDO') ? (tax.ibs_reference_pct ?? null) : null,
-            cbs_reference_pct: (tax.tax_regime === 'LUCRO_REAL' || tax.tax_regime === 'LUCRO_PRESUMIDO') ? (tax.cbs_reference_pct ?? null) : null,
+            ibs_reference_pct: (tax.tax_regime === 'LUCRO_REAL' || tax.tax_regime === 'LUCRO_PRESUMIDO' || tax.tax_regime === 'SIMPLES_HIBRIDO') ? (tax.ibs_reference_pct ?? null) : null,
+            cbs_reference_pct: (tax.tax_regime === 'LUCRO_REAL' || tax.tax_regime === 'LUCRO_PRESUMIDO' || tax.tax_regime === 'SIMPLES_HIBRIDO') ? (tax.cbs_reference_pct ?? null) : null,
             lucro_presumido_activity: tax.tax_regime === 'LUCRO_PRESUMIDO' ? (tax.lucro_presumido_activity || null) : null,
             lp_irpj_presumption_percent: tax.tax_regime === 'LUCRO_PRESUMIDO' && tax.lp_irpj_presumption_percent != null
               ? Number(tax.lp_irpj_presumption_percent) / 100 : null,
             lp_csll_presumption_percent: tax.tax_regime === 'LUCRO_PRESUMIDO' && tax.lp_csll_presumption_percent != null
               ? Number(tax.lp_csll_presumption_percent) / 100 : null,
-            lp_estimated_annual_revenue: tax.tax_regime === 'LUCRO_PRESUMIDO' ? (simplesRevenue12m || null) : null,
+            lp_estimated_annual_revenue: (tax.tax_regime === 'LUCRO_PRESUMIDO' || tax.tax_regime === 'SIMPLES_HIBRIDO') ? (tax.lp_estimated_annual_revenue || simplesRevenue12m || null) : null,
             inscricao_estadual: tax.inscricao_estadual || null,
             ie_state_code: tax.ie_state_code || null,
             sales_scope: tax.sales_scope || 'INTRAESTADUAL',
@@ -1199,8 +1201,67 @@ export default function Onboarding() {
                   </div>
                 )}
 
-                {/* IVA DUAL — Lucro Real e Lucro Presumido */}
-                {(isLucroReal || taxRegime === 'LUCRO_PRESUMIDO') && (
+                {/* Simples Híbrido — Configuração (espelha Lucro Real) */}
+                {isSimplesHibrido && (
+                  <div style={{
+                    background: 'rgba(255, 255, 255, 0.03)',
+                    border: '1px solid rgba(59, 130, 246, 0.25)',
+                    borderRadius: 12,
+                    padding: '20px',
+                    marginTop: 16,
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                      <CalculatorOutlined style={{ fontSize: 18, color: '#3B82F6' }} />
+                      <span style={{ fontSize: 14, fontWeight: 600, color: '#e2e8f0' }}>
+                        Simples Híbrido — Configuração Tributária
+                      </span>
+                    </div>
+                    <p style={{ fontSize: 12, color: '#94a3b8', marginBottom: 12 }}>
+                      Simples Híbrido usa PIS/COFINS não-cumulativo (9,25%), ICMS por dentro, IRPJ 15% e CSLL 9% sobre o lucro —
+                      ideal para simulação e planejamento tributário comparativo com o Lucro Real.
+                    </p>
+                    <div style={{
+                      background: 'rgba(234, 179, 8, 0.08)',
+                      border: '1px solid rgba(234, 179, 8, 0.3)',
+                      borderRadius: 8,
+                      padding: '10px 14px',
+                      marginBottom: 16,
+                      fontSize: 12,
+                      color: '#fde68a',
+                    }}>
+                      ⚠️ <strong>Atenção:</strong> O Simples Híbrido é um regime de precificação comparativa do Precifica Certo e
+                      não substitui seu regime tributário legal. Consulte seu contador antes de usar estas alíquotas para fins fiscais.
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                      <Form.Item
+                        name="iss_municipality_rate"
+                        label="Alíquota ISS municipal (%)"
+                        tooltip="ISS cobrado pelo município para serviços. Geralmente entre 2% e 5%. Deixe 0 para produtos."
+                      >
+                        <InputNumber
+                          min={0} max={10} step={0.1} style={{ width: '100%' }}
+                          addonAfter="%"
+                          formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
+                          parser={(v) => Number((v || '0').replace(',', '.'))}
+                        />
+                      </Form.Item>
+                      <Form.Item
+                        name="lp_estimated_annual_revenue"
+                        label="Receita bruta anual estimada (R$)"
+                        tooltip="Usado para calcular o adicional IRPJ quando o lucro mensal ultrapassa R$ 20.000."
+                      >
+                        <InputNumber
+                          min={0} step={10000} style={{ width: '100%' }}
+                          formatter={(v) => v != null ? `R$ ${Number(v).toLocaleString('pt-BR')}` : 'R$ 0'}
+                          parser={(v) => Number((v || '0').replace('R$', '').replace(/\./g, '').replace(',', '.').trim())}
+                        />
+                      </Form.Item>
+                    </div>
+                  </div>
+                )}
+
+                {/* IVA DUAL — Lucro Real, Lucro Presumido e Simples Híbrido */}
+                {(isLucroReal || taxRegime === 'LUCRO_PRESUMIDO' || isSimplesHibrido) && (
                   <div style={{
                     background: 'rgba(255, 255, 255, 0.03)',
                     border: '1px solid rgba(255, 255, 255, 0.06)',

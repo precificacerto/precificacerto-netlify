@@ -101,37 +101,45 @@ export async function fetchTaxPreview(tenantId: string): Promise<TaxPreviewResul
   }
 
   if (regime === 'SIMPLES_HIBRIDO') {
-    const anexo = normalizeAnexo(ts.simples_anexo || '')
-    const revenue12m = Number(ts.simples_revenue_12m) || 0
-
-    const { data: brackets } = await supabase
-      .from('simples_nacional_brackets')
-      .select('*')
-      .eq('anexo', anexo)
-      .order('bracket_order', { ascending: true })
-
-    let bracket: any = null
-    if (brackets && brackets.length > 0) {
-      for (const b of brackets) {
-        if (revenue12m >= Number(b.revenue_min) && revenue12m <= Number(b.revenue_max)) {
-          bracket = b
-          break
-        }
-      }
-      if (!bracket) bracket = brackets[0]
+    // Simples Híbrido espelha LUCRO_REAL: PIS/COFINS não-cumulativo (9,25%),
+    // ICMS por dentro, IRPJ 15% + CSLL 9% sobre lucro projetado.
+    // 1. ICMS venda (decimal 0-1)
+    let shIcms = 0
+    if (calcType === 'SERVICO') {
+      shIcms = 0
+    } else if (ts.icms_contribuinte) {
+      shIcms = icmsRateDecimal
     }
 
-    if (bracket) {
-      const nominalRate = Number(bracket.nominal_rate)
-      const deduction = Number(bracket.deduction)
-      const effectiveRate = revenue12m > 0
-        ? (revenue12m * nominalRate - deduction) / revenue12m
-        : nominalRate
-      const pctTaxableRegime = round4(effectiveRate * 100)
-      return buildResult(0, pctTaxableRegime, `Simples Híbrido (Anexo ${anexo})`, false)
-    }
+    // 2. PIS/COFINS não-cumulativo (9,25%) — ajuste de base pelo ICMS por dentro
+    const pisCofinsNominal = 0.0925
+    const shPisCofins = calcType === 'SERVICO'
+      ? pisCofinsNominal
+      : shIcms > 0
+        ? pisCofinsNominal * (1 - shIcms)
+        : pisCofinsNominal
 
-    return buildResult(0, 0, 'Simples Híbrido', false)
+    // 3. ISS (só para SERVICO)
+    const shIss = calcType === 'SERVICO'
+      ? (Number(ts.iss_municipality_rate) || 0.05)
+      : 0
+
+    // 4. IRPJ e CSLL sobre lucro PROJETADO (margem configurada pelo tenant)
+    const profitPctRaw = Number(expenseRes?.data?.profit_margin_percent) || 0.12
+    const profitPct = profitPctRaw > 0 && profitPctRaw < 1 ? profitPctRaw : profitPctRaw / 100
+    const shIrpj = profitPct * 0.15
+    const shCsll = profitPct * 0.09
+
+    const effectiveTaxPct = round4(shIcms + shPisCofins + shIss + shIrpj + shCsll)
+
+    return {
+      effectiveTaxPct,
+      taxLabel: 'Simples Híbrido',
+      isMei: false,
+      taxesPercent: round4((shIcms + shPisCofins + shIss) * 100),
+      taxableRegimePercent: round4((shIrpj + shCsll) * 100),
+      regimeLabel: 'Simples Híbrido',
+    }
   }
 
   if (regime === 'LUCRO_PRESUMIDO_RET') {

@@ -79,7 +79,7 @@ Deno.serve(async (req: Request) => {
     const regime = ts.tax_regime || "SIMPLES_NACIONAL"
 
     // --- Apply tax credits for Lucro Real (ICMS + PIS/COFINS) and Lucro Presumido (ICMS only) ---
-    if (regime === "LUCRO_REAL" || regime === "LUCRO_PRESUMIDO") {
+    if (regime === "LUCRO_REAL" || regime === "LUCRO_PRESUMIDO" || regime === "SIMPLES_HIBRIDO") {
       const itemIds = productItems.map((pi: any) => pi.items?.id).filter(Boolean)
       if (itemIds.length > 0) {
         let creditsQuery = supabase
@@ -162,7 +162,7 @@ Deno.serve(async (req: Request) => {
     // For Lucro Presumido the adicional is computed inside computeEffectiveTax using
     // lp_estimated_annual_revenue — no 2nd pass needed.
     let irpjAdditionalEquiv = 0
-    if (regime === "LUCRO_REAL" && result1.isValid && result1.priceUnit > 0) {
+    if ((regime === "LUCRO_REAL" || regime === "SIMPLES_HIBRIDO") && result1.isValid && result1.priceUnit > 0) {
       const lucroMensal = result1.priceUnit * profitPctFromBody
       // Adicional IRPJ: 10% sobre o lucro que excede R$ 20.000/mês (R$ 240.000/ano)
       const IRPJ_ADICIONAL_LIMITE_MENSAL = 20000 // R$ 20.000/mês
@@ -352,37 +352,44 @@ function computeEffectiveTax(ts: any, states: any[], brackets: any[], lpRates: a
   }
 
   if (regime === "SIMPLES_HIBRIDO") {
-    // Simples Híbrido usa a mesma lógica do Simples Nacional
-    const rawAnexo: string = ts.simples_anexo || "I"
-    const anexo = rawAnexo.replace(/^ANEXO_/i, "")
-    const revenue12m = Number(ts.simples_revenue_12m) || 0
-
-    const anexoBrackets = brackets.filter((b: any) => b.anexo === anexo)
-
-    let bracket: any = null
-    for (const b of anexoBrackets) {
-      if (revenue12m >= Number(b.revenue_min) && revenue12m <= Number(b.revenue_max)) {
-        bracket = b
-        break
-      }
-    }
-    if (!bracket && anexoBrackets.length > 0) bracket = anexoBrackets[0]
-
-    if (bracket) {
-      const nominalRate = Number(bracket.nominal_rate)
-      const deduction = Number(bracket.deduction)
-      const effectiveRate = revenue12m > 0
-        ? (revenue12m * nominalRate - deduction) / revenue12m
-        : nominalRate
-      return {
-        effectiveTaxPct: effectiveRate,
-        label: `Simples Híbrido (Anexo ${anexo})`,
-        isMei: false,
-        ...ZERO_BREAKDOWN,
-      }
+    // Simples Híbrido espelha LUCRO_REAL: PIS/COFINS não-cumulativo (9,25%),
+    // ICMS por dentro, IRPJ 15% + CSLL 9% sobre lucro, adicional IRPJ.
+    // 1. ICMS venda (decimal 0-1) — respeitar icms_contribuinte
+    let shIcms = 0
+    if (calcType === "SERVICO") {
+      shIcms = 0
+    } else if (ts.icms_contribuinte) {
+      shIcms = icmsRateDecimal
     }
 
-    return { effectiveTaxPct: 0, label: "Simples Híbrido", isMei: false, ...ZERO_BREAKDOWN }
+    // 2. PIS/COFINS não-cumulativo (9,25%) — ajuste de base pelo ICMS por dentro
+    const pisCofinsNominal = 0.0925
+    const shPisCofins = calcType === "SERVICO"
+      ? pisCofinsNominal
+      : shIcms > 0
+        ? pisCofinsNominal * (1 - shIcms)
+        : pisCofinsNominal
+
+    // 3. ISS (só para SERVICO)
+    const shIss = calcType === "SERVICO"
+      ? (Number(ts.iss_municipality_rate) || 0.05)
+      : 0
+
+    // 4. IRPJ e CSLL sobre lucro PROJETADO (margem configurada pelo tenant)
+    const shIrpj = profitPctOverride * 0.15
+    const shCsll = profitPctOverride * 0.09
+
+    const effectiveTaxPct = shIcms + shPisCofins + shIss + shIrpj + shCsll + irpjAdditionalEquiv
+    return {
+      effectiveTaxPct,
+      label: "Simples Híbrido",
+      isMei: false,
+      pctIcms: shIcms,
+      pctPisCofins: shPisCofins,
+      pctIss: shIss,
+      pctIrpj: shIrpj + irpjAdditionalEquiv,
+      pctCsll: shCsll,
+    }
   }
 
   if (regime === "LUCRO_PRESUMIDO_RET") {

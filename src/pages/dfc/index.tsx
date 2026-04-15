@@ -548,9 +548,10 @@ function buildDre(
   if (taxRegime === 'PRESUMIDO_RET' || taxRegime === 'LUCRO_PRESUMIDO_RET') {
     return buildDrePresumidoRET(agg)
   }
-  if (taxRegime === 'SIMPLES_NACIONAL' || taxRegime === 'SIMPLES_HIBRIDO' || taxRegime === 'MEI') {
+  if (taxRegime === 'SIMPLES_NACIONAL' || taxRegime === 'MEI') {
     return buildDreSimplesNacional(agg, calcType)
   }
+  // SIMPLES_HIBRIDO usa a mesma DRE do Lucro Real (espelho total)
   // Default: Lucro Real / Lucro Presumido
   return buildDreLucroRealPresumido(agg, calcType, taxRegime)
 }

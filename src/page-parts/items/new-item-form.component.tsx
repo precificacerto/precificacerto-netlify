@@ -48,7 +48,8 @@ const formatBRL3 = (v: number) =>
 const NewItemForm = ({ form, taxableRegime }: Props) => {
   const isLucroReal = taxableRegime === 'LUCRO_REAL'
   const isLucroPresumido = taxableRegime === 'LUCRO_PRESUMIDO'
-  const isLucroRealOrLP = isLucroReal || isLucroPresumido
+  const isSimplesHibrido = taxableRegime === 'SIMPLES_HIBRIDO'
+  const isLucroRealOrLP = isLucroReal || isLucroPresumido || isSimplesHibrido
   const { currentUser } = useAuth()
   const isRevenda = currentUser?.calcType === 'RESALE'
 
@@ -74,8 +75,8 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
     const priceNum = parseFloat(priceStr) || 0
     const icms = Number(values.icms_rate) || 0
     const icmsDeferido = isDeferidoEnabled ? (Number(values.icms_deferido_rate) || 0) : 0
-    const pis = isLucroReal ? (Number(values.pis_rate) || 0) : 0
-    const cofins = isLucroReal ? (Number(values.cofins_rate) || 0) : 0
+    const pis = (isLucroReal || isSimplesHibrido) ? (Number(values.pis_rate) || 0) : 0
+    const cofins = (isLucroReal || isSimplesHibrido) ? (Number(values.cofins_rate) || 0) : 0
 
     if (priceNum > 0) {
       // Impostos recuperáveis: quando deferido ativo = ICMS% × (1 - deferido%); senão = ICMS%
@@ -101,7 +102,7 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
   }, [form, isLucroReal, isLucroPresumido, isLucroRealOrLP])
 
   const fetchAndFillNcmRates = useCallback(async (code: string) => {
-    if (!code || !isLucroReal) return
+    if (!code || (!isLucroReal && !isSimplesHibrido)) return
     const digits = code.replace(/\D/g, '')
     if (digits.length < 4) return
     const formatted = digits.length >= 8
@@ -534,8 +535,8 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
             </Form.Item>
           </div>
 
-          {/* Linha de impostos 2 (somente Lucro Real): PIS | COFINS não-cumulativo */}
-          {isLucroReal && (
+          {/* Linha de impostos 2 (somente Lucro Real / Simples Híbrido): PIS | COFINS não-cumulativo */}
+          {(isLucroReal || isSimplesHibrido) && (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, alignItems: 'end' }}>
               <Form.Item
                 name="pis_rate"
