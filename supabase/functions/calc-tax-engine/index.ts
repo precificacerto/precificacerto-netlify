@@ -386,12 +386,24 @@ function computeEffectiveTax(ts: any, states: any[], brackets: any[], lpRates: a
   }
 
   if (regime === "LUCRO_PRESUMIDO_RET") {
+    // ret_rate: decimal 0-1 (ex: 0.04 = 4%). Nunca converter — banco armazena decimal.
+    // Composição RET: IRPJ 1,71% + CSLL 0,51% + PIS 0,37% + COFINS 1,41% = 4,00%
     const retRate = Number(ts.ret_rate) || 0.04
+    // ISS é cobrado separadamente pelo município (decimal 0-1)
+    const retIssSeparate = ts.ret_iss_separate !== false // default true
+    const issRate = retIssSeparate ? (Number(ts.iss_municipality_rate) || 0) : 0
+    // Override por item: ret_rate_override sobrepõe ret_rate do tenant
+    const effectiveRetRate = retRate
+    const effectiveTaxPct = effectiveRetRate + issRate
     return {
-      effectiveTaxPct: retRate,
-      label: "Lucro Presumido RET",
+      effectiveTaxPct,
+      label: `Lucro Presumido RET (${(effectiveRetRate * 100).toFixed(2)}%${issRate > 0 ? ` + ISS ${(issRate * 100).toFixed(2)}%` : ''})`,
       isMei: false,
-      ...ZERO_BREAKDOWN, // tudo embutido na alíquota única — sem breakdown separado
+      pctIcms: 0,
+      pctPisCofins: 0.0037 + 0.0141, // PIS 0,37% + COFINS 1,41% (dentro do RET)
+      pctIss: issRate,
+      pctIrpj: 0.0171, // 1,71% dentro do RET
+      pctCsll: 0.0051, // 0,51% dentro do RET
     }
   }
 

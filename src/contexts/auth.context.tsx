@@ -158,6 +158,14 @@ async function computeTaxableRegimeValue(settings: any): Promise<number> {
     return 0
   }
 
+  if (regime === 'LUCRO_PRESUMIDO_RET') {
+    // ret_rate + iss_municipality_rate (ambos decimal 0-1). Retorna em porcentagem (0-100).
+    const retRate = Number(settings.ret_rate) || 0.04
+    const retIssSeparate = settings.ret_iss_separate !== false // default true
+    const issRate = retIssSeparate ? (Number(settings.iss_municipality_rate) || 0) : 0
+    return round4((retRate + issRate) * 100)
+  }
+
   if (regime === 'LUCRO_PRESUMIDO' || regime === 'LUCRO_REAL') {
     const calcType = settings.calc_type || 'INDUSTRIALIZACAO'
     const originState = settings.state_code || 'SP'

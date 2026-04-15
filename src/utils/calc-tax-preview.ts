@@ -135,13 +135,19 @@ export async function fetchTaxPreview(tenantId: string): Promise<TaxPreviewResul
   }
 
   if (regime === 'LUCRO_PRESUMIDO_RET') {
+    // ret_rate: decimal 0-1 (ex: 0.04 = 4%). Banco armazena decimal — não converter.
+    // Composição: IRPJ 1,71% + CSLL 0,51% + PIS 0,37% + COFINS 1,41% = 4,00%
     const retRate = Number(ts.ret_rate) || 0.04
+    const retIssSeparate = ts.ret_iss_separate !== false // default true
+    const issRate = retIssSeparate ? (Number(ts.iss_municipality_rate) || 0) : 0
+    const effectiveTaxPct = round4(retRate + issRate)
+    const issLabel = issRate > 0 ? ` + ISS ${(issRate * 100).toFixed(2)}%` : ''
     return {
-      effectiveTaxPct: retRate,
-      taxLabel: 'Lucro Presumido RET',
+      effectiveTaxPct,
+      taxLabel: `Lucro Presumido RET (${(retRate * 100).toFixed(2)}%${issLabel})`,
       isMei: false,
-      taxesPercent: 0,
-      taxableRegimePercent: round4(retRate * 100),
+      taxesPercent: round4((0.0037 + 0.0141 + issRate) * 100), // PIS+COFINS dentro RET + ISS
+      taxableRegimePercent: round4((retRate + issRate) * 100),
       regimeLabel: 'Lucro Presumido RET',
     }
   }

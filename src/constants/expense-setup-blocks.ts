@@ -168,6 +168,32 @@ export const BLOCK_IMPOSTOS_PRESUMIDO_RET: ExpenseSetupItem[] = [
   { key: 'IMPOSTO_OUTROS', label: 'Imposto Outros', expense_group: 'IMPOSTO' },
 ]
 
+/** Bloco completo de despesas LP RET — paridade com Simples Nacional (LP-RET-007/013) */
+export const BLOCK_DESPESAS_LP_RET: ExpenseSetupItem[] = [
+  // Impostos sobre faturamento (RET recolhido via DARF 1068 por obra)
+  { key: 'IMPOSTO_RET', label: 'RET (IRPJ+CSLL+PIS+COFINS) — DARF 1068', expense_group: 'IMPOSTO' },
+  { key: 'IMPOSTO_RET_ISS', label: 'ISS Municipal (LP RET)', expense_group: 'IMPOSTO' },
+  { key: 'IMPOSTO_RET_INSS', label: 'INSS Patronal (LP RET)', expense_group: 'IMPOSTO' },
+  { key: 'IMPOSTO_ICMS', label: 'ICMS (materiais em obra)', expense_group: 'IMPOSTO' },
+  // Retenções na fonte (dedução de receita)
+  { key: 'INSS_RETIDO_FONTE', label: 'INSS Retido na Fonte (11% — cessão de mão de obra)', expense_group: 'DEDUCAO_RECEITA' },
+  { key: 'ISS_RETIDO_TOMADOR', label: 'ISS Retido pelo Tomador', expense_group: 'DEDUCAO_RECEITA' },
+  // Folha de pagamento
+  { key: 'FOLHA_PAGAMENTO', label: 'Folha de Pagamento (CLT)', expense_group: 'MAO_DE_OBRA' },
+  { key: 'ENCARGOS_FOLHA', label: 'Encargos Trabalhistas (FGTS, 13º, Férias)', expense_group: 'MAO_DE_OBRA' },
+  // Custos diretos de obra
+  { key: 'MATERIAIS_OBRA', label: 'Materiais de Obra', expense_group: 'CUSTO_PRODUTOS' },
+  { key: 'SUBEMPREITADA', label: 'Subempreitada / Serviços Terceirizados', expense_group: 'ATIVIDADES_TERCEIRIZADAS' },
+  { key: 'ALUGUEL_EQUIPAMENTOS', label: 'Aluguel de Equipamentos', expense_group: 'DESPESA_FIXA' },
+  // Despesas administrativas
+  { key: 'DESPESAS_ESCRITORIO', label: 'Despesas de Escritório e Administrativo', expense_group: 'DESPESA_FIXA' },
+  { key: 'HONORARIOS_CONTABILIDADE', label: 'Honorários de Contabilidade', expense_group: 'DESPESA_FIXA' },
+  { key: 'ALVARA_LICENCAS', label: 'Alvarás, Licenças e Taxas de Obra', expense_group: 'DESPESA_FIXA' },
+  // Despesas financeiras
+  { key: 'JUROS_ENCARGOS', label: 'Juros e Encargos Bancários', expense_group: 'DESPESA_FINANCEIRA' },
+  { key: 'SEGUROS', label: 'Seguros (obra, equipamentos)', expense_group: 'DESPESA_FIXA' },
+]
+
 /** Bloco Impostos sobre compras — Lucro Presumido (CBS, IBS, ICMS, IPI) */
 export const BLOCK_IMPOSTOS_COMPRAS_LP: ExpenseSetupItem[] = [
   { key: 'IMPOSTO_CBS', label: 'CBS (Contribuição sobre Bens e Serviços)', expense_group: 'IMPOSTO' },

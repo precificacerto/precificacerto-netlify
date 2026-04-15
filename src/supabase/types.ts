@@ -78,6 +78,14 @@ export interface TenantSettings {
     icms_contribuinte?: boolean | null
     iss_municipality_rate?: number | null
     tax_reduction_factor?: number | null
+    /** Alíquota consolidada LP RET (decimal 0-1). Ex: 0.04 = 4%. IRPJ+CSLL+PIS+COFINS. */
+    ret_rate?: number | null
+    /** ISS calculado separadamente do RET (true = padrão). */
+    ret_iss_separate?: boolean | null
+    /** Tipo de atividade LP RET: INCORPORACAO_IMOBILIARIA | CONSTRUCAO_CIVIL | PARCELAMENTO_SOLO | CONSTRUCAO_CASAS_POPULARES */
+    ret_activity_type?: string | null
+    /** Receita mensal estimada LP RET (R$). */
+    ret_estimated_monthly_revenue?: number | null
     whatsapp_connected?: boolean | null
     whatsapp_phone?: string | null
     n8n_webhook_url?: string | null

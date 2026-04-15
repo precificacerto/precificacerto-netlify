@@ -283,19 +283,73 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                         {isRet && (
                     <>
                         <Form.Item
+                            name="ret_activity_type"
+                            label="Tipo de Atividade RET"
+                            tooltip="Tipo de atividade conforme Lei 10.931/2004."
+                            initialValue={tenantSettings?.ret_activity_type || 'INCORPORACAO_IMOBILIARIA'}
+                        >
+                            <Select style={{ width: 320 }}>
+                                <Select.Option value="INCORPORACAO_IMOBILIARIA">Incorporação Imobiliária (CNAE 68xx)</Select.Option>
+                                <Select.Option value="CONSTRUCAO_CIVIL">Construção Civil (CNAE 41xx, 42xx, 43xx)</Select.Option>
+                                <Select.Option value="PARCELAMENTO_SOLO">Parcelamento de Solo</Select.Option>
+                                <Select.Option value="CONSTRUCAO_CASAS_POPULARES">Construção de Casas Populares</Select.Option>
+                            </Select>
+                        </Form.Item>
+
+                        <Form.Item
                             name="ret_rate"
                             label="Alíquota RET (%)"
-                            tooltip="Alíquota única que engloba IRPJ, CSLL, PIS e COFINS. Padrão 4% para construção civil e incorporação imobiliária. Confirme com seu contador."
-                            initialValue={4}
+                            tooltip="Alíquota consolidada: IRPJ 1,71% + CSLL 0,51% + PIS 0,37% + COFINS 1,41% = 4,00%."
+                            initialValue={(tenantSettings?.ret_rate ?? 0.04) * 100}
                         >
-                            <InputNumber min={0} max={100} step={0.1} style={{ width: 200 }} formatter={(v) => v != null ? String(v).replace('.', ',') : ''} parser={(v) => Number((v || '0').replace(',', '.'))} addonAfter="%" />
+                            <InputNumber min={0} max={100} step={0.01} style={{ width: 200 }} formatter={(v) => v != null ? String(v).replace('.', ',') : ''} parser={(v) => Number((v || '0').replace(',', '.'))} addonAfter="%" />
                         </Form.Item>
+
+                        <Form.Item
+                            name="iss_municipality_rate_ret"
+                            label="Alíquota ISS Municipal (%)"
+                            tooltip="ISS cobrado separadamente pelo município (2% a 5%). Confirme com seu contador."
+                            initialValue={(tenantSettings?.iss_municipality_rate ?? 0.05) * 100}
+                        >
+                            <InputNumber min={0} max={10} step={0.01} style={{ width: 200 }} formatter={(v) => v != null ? String(v).replace('.', ',') : ''} parser={(v) => Number((v || '0').replace(',', '.'))} addonAfter="%" />
+                        </Form.Item>
+
+                        <Form.Item
+                            name="ret_estimated_monthly_revenue"
+                            label="Receita Mensal Estimada (R$)"
+                            tooltip="Estimativa de faturamento mensal para planejamento e dashboard."
+                            initialValue={tenantSettings?.ret_estimated_monthly_revenue ?? 0}
+                        >
+                            <InputNumber min={0} step={1000} style={{ width: 280 }} formatter={(v) => v != null ? `R$ ${String(v).replace(/\B(?=(\d{3})+(?!\d))/g, '.')}` : 'R$ 0'} parser={(v) => Number((v || '0').replace(/[R$\s.]/g, '').replace(',', '.'))} />
+                        </Form.Item>
+
+                        {/* Cards de carga tributária LP RET */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginTop: 8, marginBottom: 16 }}>
+                            <Card size="small" style={{ textAlign: 'center', borderRadius: 8, background: 'linear-gradient(135deg, rgba(245,158,11,0.08), rgba(245,158,11,0.02))' }}>
+                                <div style={{ fontSize: 12, color: 'var(--color-neutral-500)' }}>Carga Total LP RET</div>
+                                <div style={{ fontSize: 24, fontWeight: 700, color: '#F59E0B' }}>
+                                    {((tenantSettings?.ret_rate ?? 0.04) * 100 + (tenantSettings?.iss_municipality_rate ?? 0.05) * 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%
+                                </div>
+                                <div style={{ fontSize: 11, color: 'var(--color-neutral-400)', marginTop: 4 }}>RET + ISS Municipal</div>
+                            </Card>
+                            <Card size="small" style={{ borderRadius: 8 }}>
+                                <div style={{ fontSize: 12, color: 'var(--color-neutral-500)', marginBottom: 6 }}>Breakdown RET</div>
+                                <div style={{ fontSize: 11, color: '#94a3b8', lineHeight: 1.8 }}>
+                                    <div>IRPJ: <strong style={{ color: '#e2e8f0' }}>1,71%</strong></div>
+                                    <div>CSLL: <strong style={{ color: '#e2e8f0' }}>0,51%</strong></div>
+                                    <div>PIS: <strong style={{ color: '#e2e8f0' }}>0,37%</strong></div>
+                                    <div>COFINS: <strong style={{ color: '#e2e8f0' }}>1,41%</strong></div>
+                                    <div>ISS: <strong style={{ color: '#F59E0B' }}>{((tenantSettings?.iss_municipality_rate ?? 0.05) * 100).toFixed(2)}%</strong> (municipal)</div>
+                                </div>
+                            </Card>
+                        </div>
+
                         <Alert
-                            type="info"
+                            type="warning"
                             showIcon
                             style={{ marginBottom: 16, borderRadius: 8 }}
-                            message="Lucro Presumido RET — Regime Especial de Tributação"
-                            description="Alíquota única que engloba IRPJ, CSLL, PIS e COFINS. Sem ICMS ou ISS separados. Sem créditos de compras. CMV bruto."
+                            message="LP RET — Regime Cumulativo"
+                            description="PIS/COFINS não geram crédito no LP RET. ISS cobrado separadamente pelo município. O RET é aplicado por obra/incorporação — certifique-se de optar em cada SPE junto à Receita Federal."
                         />
                     </>
                 )}
@@ -700,6 +754,10 @@ function Settings() {
             }
             if (values.regime === 'LUCRO_PRESUMIDO_RET') {
                 updateData.ret_rate = (Number(values.ret_rate) || 4) / 100
+                updateData.ret_activity_type = values.ret_activity_type || 'INCORPORACAO_IMOBILIARIA'
+                updateData.ret_iss_separate = true
+                updateData.ret_estimated_monthly_revenue = Number(values.ret_estimated_monthly_revenue) || 0
+                updateData.iss_municipality_rate = (Number(values.iss_municipality_rate_ret) || 5) / 100
             }
             if (values.regime === 'LUCRO_REAL' || values.regime === 'LUCRO_PRESUMIDO') {
                 updateData.ibs_reference_pct = values.ibs_reference_pct != null ? Number(values.ibs_reference_pct) : null

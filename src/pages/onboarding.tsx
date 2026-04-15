@@ -430,6 +430,16 @@ export default function Onboarding() {
             ret_rate: tax.tax_regime === 'LUCRO_PRESUMIDO_RET'
               ? (Number(tax.ret_rate) || 4) / 100
               : null,
+            ret_activity_type: tax.tax_regime === 'LUCRO_PRESUMIDO_RET'
+              ? (tax.ret_activity_type || 'INCORPORACAO_IMOBILIARIA')
+              : null,
+            ret_iss_separate: tax.tax_regime === 'LUCRO_PRESUMIDO_RET' ? true : null,
+            ret_estimated_monthly_revenue: tax.tax_regime === 'LUCRO_PRESUMIDO_RET'
+              ? (Number(tax.ret_estimated_monthly_revenue) || 0)
+              : null,
+            iss_municipality_rate: tax.tax_regime === 'LUCRO_PRESUMIDO_RET'
+              ? (Number(tax.iss_municipality_rate) || 5) / 100
+              : (tax.iss_municipality_rate != null ? Number(tax.iss_municipality_rate) / 100 : null),
             cnae_code: (tax.cnae_code || '').replace(/\D/g, ''),
             icms_contribuinte: tax.icms_contribuinte ?? false,
             ibs_reference_pct: (tax.tax_regime === 'LUCRO_REAL' || tax.tax_regime === 'LUCRO_PRESUMIDO') ? (tax.ibs_reference_pct ?? null) : null,
@@ -754,14 +764,73 @@ export default function Onboarding() {
                 )}
 
                 {isRet && (
-                  <Form.Item
-                    name="ret_rate"
-                    label="Alíquota RET (%)"
-                    initialValue={4}
-                    tooltip="Alíquota única que engloba IRPJ, CSLL, PIS e COFINS. Padrão 4% para construção civil e incorporação imobiliária. Confirme com seu contador."
-                  >
-                    <InputNumber min={0} max={100} step={0.1} style={{ width: '100%' }} formatter={(v) => v != null ? String(v).replace('.', ',') : ''} parser={(v) => Number((v || '0').replace(',', '.'))} addonAfter="%" />
-                  </Form.Item>
+                  <div style={{
+                    background: 'rgba(255, 255, 255, 0.03)',
+                    border: '1px solid rgba(255, 255, 255, 0.06)',
+                    borderRadius: 12,
+                    padding: '20px',
+                    marginTop: 16,
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                      <CalculatorOutlined style={{ fontSize: 18, color: '#F59E0B' }} />
+                      <span style={{ fontSize: 14, fontWeight: 600, color: '#e2e8f0' }}>
+                        Lucro Presumido RET — Regime Especial de Tributação
+                      </span>
+                    </div>
+                    <p style={{ fontSize: 12, color: '#94a3b8', marginBottom: 16 }}>
+                      Alíquota consolidada de 4% sobre a receita bruta (IRPJ + CSLL + PIS + COFINS), aplicável a incorporação imobiliária, construção civil e parcelamento de solo conforme Lei 10.931/2004. ISS é cobrado separadamente pelo município.
+                    </p>
+
+                    <Form.Item
+                      name="ret_activity_type"
+                      label="Tipo de Atividade RET"
+                      initialValue="INCORPORACAO_IMOBILIARIA"
+                      tooltip="Tipo de atividade conforme Lei 10.931/2004. Detectado automaticamente pelo CNAE quando possível."
+                    >
+                      <Select placeholder="Selecione o tipo de atividade">
+                        <Select.Option value="INCORPORACAO_IMOBILIARIA">Incorporação Imobiliária (CNAE 68xx)</Select.Option>
+                        <Select.Option value="CONSTRUCAO_CIVIL">Construção Civil (CNAE 41xx, 42xx, 43xx)</Select.Option>
+                        <Select.Option value="PARCELAMENTO_SOLO">Parcelamento de Solo</Select.Option>
+                        <Select.Option value="CONSTRUCAO_CASAS_POPULARES">Construção de Casas Populares</Select.Option>
+                      </Select>
+                    </Form.Item>
+
+                    <Form.Item
+                      name="ret_rate"
+                      label="Alíquota RET (%)"
+                      initialValue={4}
+                      tooltip="Alíquota consolidada que engloba IRPJ 1,71% + CSLL 0,51% + PIS 0,37% + COFINS 1,41% = 4,00%. Confirme com seu contador."
+                    >
+                      <InputNumber min={0} max={100} step={0.01} style={{ width: '100%' }} formatter={(v) => v != null ? String(v).replace('.', ',') : ''} parser={(v) => Number((v || '0').replace(',', '.'))} addonAfter="%" />
+                    </Form.Item>
+
+                    <div style={{ background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 12, color: '#94a3b8' }}>
+                      Composição padrão 4%: <strong style={{ color: '#e2e8f0' }}>IRPJ 1,71% + CSLL 0,51% + PIS 0,37% + COFINS 1,41%</strong>
+                    </div>
+
+                    <Form.Item
+                      name="iss_municipality_rate"
+                      label="Alíquota ISS Municipal (%)"
+                      initialValue={5}
+                      tooltip="ISS cobrado separadamente pelo município. Varia entre 2% e 5% conforme lei municipal. Confirme com seu contador."
+                    >
+                      <InputNumber min={0} max={10} step={0.01} style={{ width: '100%' }} formatter={(v) => v != null ? String(v).replace('.', ',') : ''} parser={(v) => Number((v || '0').replace(',', '.'))} addonAfter="%" />
+                    </Form.Item>
+
+                    <Form.Item
+                      name="ret_estimated_monthly_revenue"
+                      label="Receita Mensal Estimada (R$)"
+                      initialValue={0}
+                      tooltip="Estimativa de faturamento mensal para planejamento tributário e dashboard."
+                    >
+                      <InputNumber min={0} step={1000} style={{ width: '100%' }} formatter={(v) => v != null ? `R$ ${String(v).replace(/\B(?=(\d{3})+(?!\d))/g, '.')}` : 'R$ 0'} parser={(v) => Number((v || '0').replace(/[R$\s.]/g, '').replace(',', '.'))} />
+                    </Form.Item>
+
+                    <div style={{ background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.2)', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: '#94a3b8' }}>
+                      <InfoCircleOutlined style={{ marginRight: 6, color: '#22C55E' }} />
+                      O RET é aplicado por obra/incorporação. Certifique-se de optar pelo RET em cada SPE ou obra junto à Receita Federal.
+                    </div>
+                  </div>
                 )}
 
                 {/* Panorama de Referência — Prévia de Receita (estimativa inicial, NÃO alimenta fluxo de caixa) */}

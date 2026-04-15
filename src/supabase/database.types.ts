@@ -934,6 +934,7 @@ export type Database = {
           observation: string | null
           pis_rate: number | null
           quantity: number | null
+          ret_rate_override: number | null
           supplier_id: string | null
           supplier_name: string | null
           supplier_state: string | null
@@ -965,6 +966,7 @@ export type Database = {
           observation?: string | null
           pis_rate?: number | null
           quantity?: number | null
+          ret_rate_override?: number | null
           supplier_id?: string | null
           supplier_name?: string | null
           supplier_state?: string | null
@@ -996,6 +998,7 @@ export type Database = {
           observation?: string | null
           pis_rate?: number | null
           quantity?: number | null
+          ret_rate_override?: number | null
           supplier_id?: string | null
           supplier_name?: string | null
           supplier_state?: string | null
@@ -2590,6 +2593,10 @@ export type Database = {
           num_commercial_employees: number | null
           num_productive_employees: number | null
           onboarding_mirrored_to_cashflow: boolean | null
+          ret_rate: number | null
+          ret_iss_separate: boolean | null
+          ret_activity_type: string | null
+          ret_estimated_monthly_revenue: number | null
           sales_scope: string | null
           simples_anexo: string | null
           simples_revenue_12m: number | null
@@ -2626,6 +2633,10 @@ export type Database = {
           num_commercial_employees?: number | null
           num_productive_employees?: number | null
           onboarding_mirrored_to_cashflow?: boolean | null
+          ret_rate?: number | null
+          ret_iss_separate?: boolean | null
+          ret_activity_type?: string | null
+          ret_estimated_monthly_revenue?: number | null
           sales_scope?: string | null
           simples_anexo?: string | null
           simples_revenue_12m?: number | null
@@ -2662,6 +2673,10 @@ export type Database = {
           num_commercial_employees?: number | null
           num_productive_employees?: number | null
           onboarding_mirrored_to_cashflow?: boolean | null
+          ret_rate?: number | null
+          ret_iss_separate?: boolean | null
+          ret_activity_type?: string | null
+          ret_estimated_monthly_revenue?: number | null
           sales_scope?: string | null
           simples_anexo?: string | null
           simples_revenue_12m?: number | null

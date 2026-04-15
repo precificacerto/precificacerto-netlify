@@ -71,6 +71,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       lp_irpj_presumption_percent: settings.lp_irpj_presumption_percent != null ? Number(settings.lp_irpj_presumption_percent) : null,
       lp_csll_presumption_percent: settings.lp_csll_presumption_percent != null ? Number(settings.lp_csll_presumption_percent) : null,
       lp_estimated_annual_revenue: settings.lp_estimated_annual_revenue != null ? Number(settings.lp_estimated_annual_revenue) : null,
+      // LP RET fields (LP-RET-012)
+      ret_rate: settings.ret_rate != null ? Number(settings.ret_rate) : null,
+      ret_activity_type: settings.ret_activity_type || null,
+      ret_iss_separate: settings.ret_iss_separate != null ? Boolean(settings.ret_iss_separate) : null,
+      ret_estimated_monthly_revenue: settings.ret_estimated_monthly_revenue != null ? Number(settings.ret_estimated_monthly_revenue) : null,
+      iss_municipality_rate: settings.iss_municipality_rate != null ? Number(settings.iss_municipality_rate) : null,
       inscricao_estadual: settings.inscricao_estadual || null,
       ie_state_code: settings.ie_state_code || null,
       sales_scope: settings.sales_scope || 'INTRAESTADUAL',
@@ -92,8 +98,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           settingsError.message?.includes('lucro_presumido_activity') ||
           settingsError.message?.includes('lp_irpj_presumption_percent') ||
           settingsError.message?.includes('lp_csll_presumption_percent') ||
-          settingsError.message?.includes('lp_estimated_annual_revenue')) {
-        const { inscricao_estadual, ie_state_code, sales_scope, buyer_type, ibs_reference_pct, cbs_reference_pct, lucro_presumido_activity, lp_irpj_presumption_percent, lp_csll_presumption_percent, lp_estimated_annual_revenue, ...fallbackUpdate } = settingsUpdate
+          settingsError.message?.includes('lp_estimated_annual_revenue') ||
+          settingsError.message?.includes('ret_rate') ||
+          settingsError.message?.includes('ret_activity_type') ||
+          settingsError.message?.includes('ret_iss_separate') ||
+          settingsError.message?.includes('ret_estimated_monthly_revenue')) {
+        const { inscricao_estadual, ie_state_code, sales_scope, buyer_type, ibs_reference_pct, cbs_reference_pct, lucro_presumido_activity, lp_irpj_presumption_percent, lp_csll_presumption_percent, lp_estimated_annual_revenue, ret_rate, ret_activity_type, ret_iss_separate, ret_estimated_monthly_revenue, ...fallbackUpdate } = settingsUpdate
         const { error: fallbackError } = await supabaseAdmin
           .from('tenant_settings')
           .update(fallbackUpdate)

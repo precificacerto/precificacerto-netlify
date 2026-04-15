@@ -311,7 +311,12 @@ export const CASHIER_CATEGORY = {
     IMPOSTO_CSLL: { order: 95, key: 'IMPOSTO_CSLL', value: 'CSLL (Contribuição Social sobre o Lucro Líquido)', group: 'IMPOSTO_LUCRO' as ExpenseGroupKey },
     IMPOSTO_ALIQUOTA_ADICIONAL_IRPJ: { order: 96, key: 'IMPOSTO_ALIQUOTA_ADICIONAL_IRPJ', value: 'Alíquota Adicional da Parcela do IRPJ', group: 'IMPOSTO_LUCRO' as ExpenseGroupKey },
     // Imposto regime Lucro Presumido RET
-    IMPOSTO_RET: { order: 97, key: 'IMPOSTO_RET', value: 'RET (Lucro Presumido RET)', group: 'IMPOSTO' as ExpenseGroupKey },
+    IMPOSTO_RET: { order: 97, key: 'IMPOSTO_RET', value: 'RET (Regime Especial de Tributação — DARF 1068)', group: 'IMPOSTO' as ExpenseGroupKey },
+    IMPOSTO_RET_ISS: { order: 97.1, key: 'IMPOSTO_RET_ISS', value: 'ISS Municipal (LP RET)', group: 'IMPOSTO' as ExpenseGroupKey },
+    IMPOSTO_RET_INSS: { order: 97.2, key: 'IMPOSTO_RET_INSS', value: 'INSS Patronal (LP RET)', group: 'IMPOSTO' as ExpenseGroupKey },
+    // LP RET — retenções na fonte (dedução de receita)
+    INSS_RETIDO_FONTE: { order: 97.3, key: 'INSS_RETIDO_FONTE', value: 'INSS Retido na Fonte (11% — cessão de mão de obra)', group: 'DEDUCAO_RECEITA' as ExpenseGroupKey },
+    ISS_RETIDO_TOMADOR: { order: 97.4, key: 'ISS_RETIDO_TOMADOR', value: 'ISS Retido pelo Tomador', group: 'DEDUCAO_RECEITA' as ExpenseGroupKey },
     // Atividades terceirizadas operacionais de entrega
     FRETES_LOGISTICA_ENTREGA_TERCEIRIZADOS: { order: 98, key: 'FRETES_LOGISTICA_ENTREGA_TERCEIRIZADOS', value: 'Fretes / Logísticas de entrega Terceirizados', group: 'ATIVIDADES_TERCEIRIZADAS' as ExpenseGroupKey },
     SEGURO_TRANSPORTE_ENTREGA: { order: 99, key: 'SEGURO_TRANSPORTE_ENTREGA', value: 'Seguro de transporte entrega', group: 'ATIVIDADES_TERCEIRIZADAS' as ExpenseGroupKey },

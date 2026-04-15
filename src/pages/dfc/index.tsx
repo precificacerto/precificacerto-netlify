@@ -264,6 +264,7 @@ type AggregatedData = {
   imposto: MonthlyValues
   comissoes: MonthlyValues
   custoProduto: MonthlyValues // DESPESA_VARIAVEL entries that are product cost (Fornecedores, Embalagens, etc.)
+  deducaoReceita: MonthlyValues // INSS retido na fonte, ISS retido pelo tomador (LP RET)
 }
 
 function aggregateEntries(entries: CashEntry[]): AggregatedData {
@@ -278,6 +279,7 @@ function aggregateEntries(entries: CashEntry[]): AggregatedData {
     imposto: { ...EMPTY_MONTHS },
     comissoes: { ...EMPTY_MONTHS },
     custoProduto: { ...EMPTY_MONTHS },
+    deducaoReceita: { ...EMPTY_MONTHS },
   }
 
   // Category keys considered as product cost (CMV) — matches CASHIER_CATEGORY.EXPENSE keys
@@ -349,6 +351,10 @@ function aggregateEntries(entries: CashEntry[]): AggregatedData {
         break
       case 'ATIVIDADES_TERCEIRIZADAS':
         data.despesaVariavel[monthKey] += entry.amount
+        break
+      case 'DEDUCAO_RECEITA':
+        // LP RET: INSS retido na fonte e ISS retido pelo tomador são deduções da receita bruta
+        data.deducaoReceita[monthKey] += entry.amount
         break
       default:
         // Fallback: treat unknown as variable expense
@@ -440,44 +446,48 @@ function buildDreLucroRealPresumido(
 }
 
 function buildDrePresumidoRET(agg: AggregatedData): DreRow[] {
+  // LP-RET-009: DRE completa LP RET seguindo NBC TG 26
+  // LP-RET-013: Inclui deduções de receita (INSS retido + ISS retido pelo tomador)
   const rows: DreRow[] = []
 
   const receitaBruta = agg.receitaBruta
-  rows.push(buildRow('receita_bruta', 'Receita Bruta', receitaBruta, receitaBruta, { isHeader: true, sign: '+' }))
+  rows.push(buildRow('receita_bruta', 'Receita Bruta de Serviços/Obras', receitaBruta, receitaBruta, { isHeader: true, sign: '+' }))
 
-  // Deduções Tributárias Sobre Receita = 0 for RET
-  const deducoesZero: MonthlyValues = { ...EMPTY_MONTHS }
-  rows.push(buildRow('deducoes_trib_receita', '(-) Deduções Tributárias Sobre Receita', deducoesZero, receitaBruta, { sign: '-', indent: 1 }))
+  // Deduções da Receita Bruta (INSS retido na fonte + ISS retido pelo tomador)
+  const deducoesReceita = agg.deducaoReceita
+  rows.push(buildRow('deducoes_receita', '(-) Deduções da Receita Bruta', deducoesReceita, receitaBruta, { sign: '-', indent: 1 }))
+  rows.push(buildRow('inss_retido', '(-) INSS Retido na Fonte (11%)', { ...EMPTY_MONTHS }, receitaBruta, { sign: '-', indent: 2 }))
+  rows.push(buildRow('iss_retido', '(-) ISS Retido pelo Tomador', { ...EMPTY_MONTHS }, receitaBruta, { sign: '-', indent: 2 }))
 
-  const receitaLiquida = receitaBruta
-  rows.push(buildRow('receita_liquida', '(=) Receita Líquida', receitaLiquida, receitaBruta, { isSubtotal: true, sign: '=' }))
+  const receitaLiquida = subtractMonths(receitaBruta, deducoesReceita)
+  rows.push(buildRow('receita_liquida', '(=) Receita Líquida de Serviços/Obras', receitaLiquida, receitaBruta, { isSubtotal: true, sign: '=' }))
 
-  // RET (valores reais do HUB) + Custo Produtos + Folha
+  // Custos Diretos (CPV — Custo dos Serviços Prestados)
   const retPago = agg.imposto
   const folha = sumMonths(sumMonths(agg.maoDeObraProdutiva, agg.maoDeObraAdministrativa), agg.maoDeObra)
-  const deducoesFaturamento = sumMonths(sumMonths(retPago, agg.custoProduto), folha)
-  rows.push(buildRow('deducoes_faturamento', '(-) Deduções Tributárias Faturamento', deducoesFaturamento, receitaBruta, { sign: '-' }))
-  rows.push(buildRow('ret_4', 'RET (pago)', retPago, receitaBruta, { indent: 2 }))
-  rows.push(buildRow('custo_produtos_ret', 'Custo Produtos', agg.custoProduto, receitaBruta, { indent: 2 }))
-  rows.push(buildRow('folha_ret', 'Folha', folha, receitaBruta, { indent: 2 }))
+  const custosDiretos = sumMonths(sumMonths(retPago, agg.custoProduto), folha)
+  rows.push(buildRow('custos_diretos', '(-) Custos Diretos (CPV)', custosDiretos, receitaBruta, { sign: '-' }))
+  rows.push(buildRow('ret_pago', 'RET — IRPJ+CSLL+PIS+COFINS (DARF 1068)', retPago, receitaBruta, { indent: 2 }))
+  rows.push(buildRow('materiais_obra', 'Materiais e Insumos de Obra', agg.custoProduto, receitaBruta, { indent: 2 }))
+  rows.push(buildRow('folha_ret', 'Mão de Obra Direta + Folha', folha, receitaBruta, { indent: 2 }))
 
-  const lucroBruto = subtractMonths(receitaLiquida, deducoesFaturamento)
-  rows.push(buildRow('lucro_bruto', '(=) Lucro Bruto', lucroBruto, receitaBruta, { isSubtotal: true, sign: '=' }))
+  const resultadoBruto = subtractMonths(receitaLiquida, custosDiretos)
+  rows.push(buildRow('resultado_bruto', '(=) Resultado Bruto (Margem Bruta)', resultadoBruto, receitaBruta, { isSubtotal: true, sign: '=' }))
 
-  // Despesas Operacionais (MO já está na Folha acima, então NÃO incluir MO novamente aqui)
+  // Despesas Operacionais
   const despesasOp = sumMonths(sumMonths(agg.despesaFixa, agg.despesaVariavel), agg.comissoes)
   rows.push(buildRow('desp_op', '(-) Despesas Operacionais', despesasOp, receitaBruta, { sign: '-' }))
-  rows.push(buildRow('desp_fixa', 'Despesa Fixa', agg.despesaFixa, receitaBruta, { indent: 2 }))
-  rows.push(buildRow('desp_variavel', 'Despesa Variável', agg.despesaVariavel, receitaBruta, { indent: 2 }))
+  rows.push(buildRow('desp_fixa', 'Despesas Administrativas e Fixas', agg.despesaFixa, receitaBruta, { indent: 2 }))
+  rows.push(buildRow('desp_variavel', 'Despesas Variáveis e Subempreitada', agg.despesaVariavel, receitaBruta, { indent: 2 }))
   rows.push(buildRow('desp_comissoes', 'Comissões', agg.comissoes, receitaBruta, { indent: 2 }))
 
-  const lucroOperacional = subtractMonths(lucroBruto, despesasOp)
-  rows.push(buildRow('lucro_operacional', '(=) Lucro Operacional', lucroOperacional, receitaBruta, { isSubtotal: true, sign: '=' }))
+  const resultadoAntesImposto = subtractMonths(resultadoBruto, despesasOp)
+  rows.push(buildRow('resultado_antes_imposto', '(=) Resultado Antes dos Impostos sobre o Lucro', resultadoAntesImposto, receitaBruta, { isSubtotal: true, sign: '=' }))
 
   rows.push(buildRow('desp_financeira', '(-) Despesas Financeiras', agg.despesaFinanceira, receitaBruta, { sign: '-' }))
 
-  const lucroLiquido = subtractMonths(lucroOperacional, agg.despesaFinanceira)
-  rows.push(buildRow('lucro_liquido', '(=) Lucro Líquido', lucroLiquido, receitaBruta, { isTotal: true, sign: '=' }))
+  const lucroLiquido = subtractMonths(resultadoAntesImposto, agg.despesaFinanceira)
+  rows.push(buildRow('lucro_liquido', '(=) Lucro/Prejuízo Líquido do Período', lucroLiquido, receitaBruta, { isTotal: true, sign: '=' }))
 
   return rows
 }

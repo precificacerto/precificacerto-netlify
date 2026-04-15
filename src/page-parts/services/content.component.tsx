@@ -84,7 +84,8 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
     )
     const isLucroRealSvcComp = currentUser?.taxableRegime === 'LUCRO_REAL'
     const isLucroPresumidoSvcComp = currentUser?.taxableRegime === 'LUCRO_PRESUMIDO'
-    const isLRorLPSvcComp = isLucroRealSvcComp || isLucroPresumidoSvcComp
+    const isLpRetSvcComp = currentUser?.taxableRegime === 'LUCRO_PRESUMIDO_RET'
+    const isLRorLPSvcComp = isLucroRealSvcComp || isLucroPresumidoSvcComp || isLpRetSvcComp
 
     // IVA DUAL — fator de redução por serviço
     const [ivaDualReductionFactor, setIvaDualReductionFactor] = useState<number | null>(
