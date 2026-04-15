@@ -51,7 +51,12 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
             setAnexo(tenantSettings.simples_anexo || '')
             setRevenue12m(Number(tenantSettings.simples_revenue_12m) || 0)
             setLpActivity(tenantSettings.lucro_presumido_activity || 'COMERCIO')
-            setLpEstimatedAnnualRevenue(tenantSettings.lp_estimated_annual_revenue != null ? Number(tenantSettings.lp_estimated_annual_revenue) : null)
+            // Para LP: usa o faturamento anual (simples_revenue_12m) como fonte primária.
+            // lp_estimated_annual_revenue é salvo junto e serve como cache para a engine.
+            const lpAnnualRev = tenantSettings.tax_regime === 'LUCRO_PRESUMIDO'
+                ? (Number(tenantSettings.simples_revenue_12m) || Number(tenantSettings.lp_estimated_annual_revenue) || null)
+                : null
+            setLpEstimatedAnnualRevenue(lpAnnualRev)
             setIbsReferencePct(tenantSettings.ibs_reference_pct != null ? Number(tenantSettings.ibs_reference_pct) : null)
             setCbsReferencePct(tenantSettings.cbs_reference_pct != null ? Number(tenantSettings.cbs_reference_pct) : null)
             taxForm.setFieldsValue({
@@ -61,7 +66,6 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                 revenue_input_type: 'TOTAL_12M',
                 revenue_value: Number(tenantSettings.simples_revenue_12m) || undefined,
                 lucro_presumido_activity: tenantSettings.lucro_presumido_activity || 'COMERCIO',
-                lp_estimated_annual_revenue: tenantSettings.lp_estimated_annual_revenue != null ? Number(tenantSettings.lp_estimated_annual_revenue) : undefined,
                 ret_rate: tenantSettings.ret_rate != null ? Number(tenantSettings.ret_rate) * 100 : 4,
                 ibs_reference_pct: tenantSettings.ibs_reference_pct != null ? Number(tenantSettings.ibs_reference_pct) : undefined,
                 cbs_reference_pct: tenantSettings.cbs_reference_pct != null ? Number(tenantSettings.cbs_reference_pct) : undefined,
@@ -207,6 +211,7 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                                     const rev = newType === 'AVERAGE_MONTHLY' ? (Number(taxForm.getFieldValue('revenue_value')) || 0) * 12 : (Number(taxForm.getFieldValue('revenue_value')) || 0)
                                     setRevenue12m(rev)
                                     if (isSN && anexo) calcSimplesRate(anexo, rev)
+                                    if (isLP) setLpEstimatedAnnualRevenue(rev)
                                 }}
                             >
                                 <Radio value="TOTAL_12M" style={{ display: 'block', marginBottom: 6 }}>Faturamento total dos últimos 12 meses</Radio>
@@ -238,6 +243,7 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                                                 const rev = type === 'AVERAGE_MONTHLY' ? (Number(num) || 0) * 12 : (Number(num) || 0)
                                                 setRevenue12m(rev)
                                                 if (isSN && anexo) calcSimplesRate(anexo, rev)
+                                                if (isLP) setLpEstimatedAnnualRevenue(rev)
                                             }}
                                         />
                                     </Form.Item>
@@ -279,21 +285,6 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                                 <Select.Option value="SERVICO_TRANSPORTE_PASSAG">Transporte de passageiros</Select.Option>
                                 <Select.Option value="REVENDA_COMBUSTIVEL">Revenda de combustíveis</Select.Option>
                             </Select>
-                        </Form.Item>
-                        <Form.Item
-                            name="lp_estimated_annual_revenue"
-                            label="Receita Bruta Anual Estimada"
-                            tooltip="Usado para calcular o adicional de IRPJ (10% sobre o lucro presumido que excede R$ 240.000/ano). Deixe em branco se o faturamento anual for inferior a R$ 3.000.000 (empresa provavelmente abaixo do limite de isenção de R$ 240K de lucro presumido). Confirme com seu contador."
-                        >
-                            <InputNumber
-                                min={0}
-                                step={10000}
-                                style={{ width: '100%' }}
-                                formatter={(v) => v != null ? `R$ ${String(v).replace(/\B(?=(\d{3})+(?!\d))/g, '.')}` : ''}
-                                parser={(v) => Number((v || '0').replace(/R\$\s?|\./g, '').replace(',', '.'))}
-                                placeholder="Ex: 5.000.000,00"
-                                onChange={(val) => setLpEstimatedAnnualRevenue(val)}
-                            />
                         </Form.Item>
                     </>
                 )}
@@ -632,9 +623,8 @@ function Settings() {
             }
             if (values.regime === 'LUCRO_PRESUMIDO') {
                 updateData.lucro_presumido_activity = values.lucro_presumido_activity || 'COMERCIO'
-                updateData.lp_estimated_annual_revenue = values.lp_estimated_annual_revenue != null
-                    ? Number(values.lp_estimated_annual_revenue)
-                    : null
+                // Persiste o faturamento anual no campo LP para a engine de precificação usar
+                updateData.lp_estimated_annual_revenue = simplesRevenue12m > 0 ? simplesRevenue12m : null
             }
             if (values.regime === 'LUCRO_PRESUMIDO_RET') {
                 updateData.ret_rate = (Number(values.ret_rate) || 4) / 100
