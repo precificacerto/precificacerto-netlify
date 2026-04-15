@@ -67,6 +67,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       icms_contribuinte: settings.icms_contribuinte ?? false,
       ibs_reference_pct: settings.ibs_reference_pct != null ? Number(settings.ibs_reference_pct) : null,
       cbs_reference_pct: settings.cbs_reference_pct != null ? Number(settings.cbs_reference_pct) : null,
+      lucro_presumido_activity: settings.lucro_presumido_activity || null,
+      lp_irpj_presumption_percent: settings.lp_irpj_presumption_percent != null ? Number(settings.lp_irpj_presumption_percent) : null,
+      lp_csll_presumption_percent: settings.lp_csll_presumption_percent != null ? Number(settings.lp_csll_presumption_percent) : null,
+      lp_estimated_annual_revenue: settings.lp_estimated_annual_revenue != null ? Number(settings.lp_estimated_annual_revenue) : null,
       inscricao_estadual: settings.inscricao_estadual || null,
       ie_state_code: settings.ie_state_code || null,
       sales_scope: settings.sales_scope || 'INTRAESTADUAL',
@@ -84,8 +88,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           settingsError.message?.includes('sales_scope') ||
           settingsError.message?.includes('buyer_type') ||
           settingsError.message?.includes('ibs_reference_pct') ||
-          settingsError.message?.includes('cbs_reference_pct')) {
-        const { inscricao_estadual, ie_state_code, sales_scope, buyer_type, ibs_reference_pct, cbs_reference_pct, ...fallbackUpdate } = settingsUpdate
+          settingsError.message?.includes('cbs_reference_pct') ||
+          settingsError.message?.includes('lucro_presumido_activity') ||
+          settingsError.message?.includes('lp_irpj_presumption_percent') ||
+          settingsError.message?.includes('lp_csll_presumption_percent') ||
+          settingsError.message?.includes('lp_estimated_annual_revenue')) {
+        const { inscricao_estadual, ie_state_code, sales_scope, buyer_type, ibs_reference_pct, cbs_reference_pct, lucro_presumido_activity, lp_irpj_presumption_percent, lp_csll_presumption_percent, lp_estimated_annual_revenue, ...fallbackUpdate } = settingsUpdate
         const { error: fallbackError } = await supabaseAdmin
           .from('tenant_settings')
           .update(fallbackUpdate)

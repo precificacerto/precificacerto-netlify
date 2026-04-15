@@ -71,6 +71,10 @@ export interface TenantSettings {
     lucro_presumido_activity?: string | null
     /** Estimativa de receita bruta anual (R$) para cálculo do adicional IRPJ no Lucro Presumido. */
     lp_estimated_annual_revenue?: number | null
+    /** Percentual de presunção para IRPJ (decimal 0-1). Ex: 0.08 = 8%. Sobrescreve lucro_presumido_rates. */
+    lp_irpj_presumption_percent?: number | null
+    /** Percentual de presunção para CSLL (decimal 0-1). Ex: 0.12 = 12%. Sobrescreve lucro_presumido_rates. */
+    lp_csll_presumption_percent?: number | null
     icms_contribuinte?: boolean | null
     iss_municipality_rate?: number | null
     tax_reduction_factor?: number | null

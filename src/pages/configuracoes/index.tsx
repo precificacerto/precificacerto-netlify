@@ -17,6 +17,18 @@ import { useAuth } from '@/hooks/use-auth.hook'
 import { CALC_TYPE_ENUM } from '@/shared/enums/calc-type'
 import { UNIT_MEASURE_ENUM } from '@/shared/enums/unit-measure-type'
 
+// Alíquotas de presunção padrão por tipo de atividade LP (espelho de lucro_presumido_rates)
+// Usadas como sugestão ao selecionar atividade; o tenant pode sobrescrever manualmente.
+const LP_ACTIVITY_RATES: Record<string, { irpjPres: number; csllPres: number }> = {
+    COMERCIO:                  { irpjPres: 0.08,  csllPres: 0.12 },
+    INDUSTRIA:                 { irpjPres: 0.08,  csllPres: 0.12 },
+    SERVICO_GERAL:             { irpjPres: 0.32,  csllPres: 0.32 },
+    SERVICO_HOSPITALAR:        { irpjPres: 0.08,  csllPres: 0.12 },
+    SERVICO_TRANSPORTE_CARGA:  { irpjPres: 0.08,  csllPres: 0.12 },
+    SERVICO_TRANSPORTE_PASSAG: { irpjPres: 0.16,  csllPres: 0.12 },
+    REVENDA_COMBUSTIVEL:       { irpjPres: 0.016, csllPres: 0.12 },
+}
+
 interface TaxTabProps {
     taxForm: ReturnType<typeof Form.useForm>[0]
     brazilianStates: BrazilianState[]
@@ -31,6 +43,17 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
     const [anexo, setAnexo] = useState<string>(tenantSettings?.simples_anexo || '')
     const [revenue12m, setRevenue12m] = useState<number>(Number(tenantSettings?.simples_revenue_12m) || 0)
     const [lpActivity, setLpActivity] = useState<string>(tenantSettings?.lucro_presumido_activity || 'COMERCIO')
+    const defaultLpRates = LP_ACTIVITY_RATES[tenantSettings?.lucro_presumido_activity || 'COMERCIO'] ?? { irpjPres: 0.08, csllPres: 0.12 }
+    const [lpIrpjPresumptionPct, setLpIrpjPresumptionPct] = useState<number>(
+        tenantSettings?.lp_irpj_presumption_percent != null
+            ? Number(tenantSettings.lp_irpj_presumption_percent) * 100
+            : defaultLpRates.irpjPres * 100
+    )
+    const [lpCsllPresumptionPct, setLpCsllPresumptionPct] = useState<number>(
+        tenantSettings?.lp_csll_presumption_percent != null
+            ? Number(tenantSettings.lp_csll_presumption_percent) * 100
+            : defaultLpRates.csllPres * 100
+    )
     const [lpEstimatedAnnualRevenue, setLpEstimatedAnnualRevenue] = useState<number | null>(
         tenantSettings?.lp_estimated_annual_revenue != null ? Number(tenantSettings.lp_estimated_annual_revenue) : null
     )
@@ -50,7 +73,17 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
             setStateCode(sc)
             setAnexo(tenantSettings.simples_anexo || '')
             setRevenue12m(Number(tenantSettings.simples_revenue_12m) || 0)
-            setLpActivity(tenantSettings.lucro_presumido_activity || 'COMERCIO')
+            const activity = tenantSettings.lucro_presumido_activity || 'COMERCIO'
+            setLpActivity(activity)
+            const actRates = LP_ACTIVITY_RATES[activity] ?? { irpjPres: 0.08, csllPres: 0.12 }
+            const irpjPres = tenantSettings.lp_irpj_presumption_percent != null
+                ? Number(tenantSettings.lp_irpj_presumption_percent) * 100
+                : actRates.irpjPres * 100
+            const csllPres = tenantSettings.lp_csll_presumption_percent != null
+                ? Number(tenantSettings.lp_csll_presumption_percent) * 100
+                : actRates.csllPres * 100
+            setLpIrpjPresumptionPct(irpjPres)
+            setLpCsllPresumptionPct(csllPres)
             // Para LP: usa o faturamento anual (simples_revenue_12m) como fonte primária.
             // lp_estimated_annual_revenue é salvo junto e serve como cache para a engine.
             const lpAnnualRev = tenantSettings.tax_regime === 'LUCRO_PRESUMIDO'
@@ -66,6 +99,8 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                 revenue_input_type: 'TOTAL_12M',
                 revenue_value: Number(tenantSettings.simples_revenue_12m) || undefined,
                 lucro_presumido_activity: tenantSettings.lucro_presumido_activity || 'COMERCIO',
+                lp_irpj_presumption_percent: irpjPres,
+                lp_csll_presumption_percent: csllPres,
                 ret_rate: tenantSettings.ret_rate != null ? Number(tenantSettings.ret_rate) * 100 : 4,
                 ibs_reference_pct: tenantSettings.ibs_reference_pct != null ? Number(tenantSettings.ibs_reference_pct) : undefined,
                 cbs_reference_pct: tenantSettings.cbs_reference_pct != null ? Number(tenantSettings.cbs_reference_pct) : undefined,
@@ -102,22 +137,14 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
     const icmsPercent = stateData?.icms_internal_rate != null ? Number(stateData.icms_internal_rate) * 100 : null
     const issPercent = tenantSettings?.iss_municipality_rate ? Number(tenantSettings.iss_municipality_rate) * 100 : 5
 
-    // Lookup das alíquotas de presunção por tipo de atividade LP (espelho da tabela lucro_presumido_rates)
-    const LP_ACTIVITY_RATES: Record<string, { irpjPres: number; csllPres: number }> = {
-        COMERCIO:                  { irpjPres: 0.08,  csllPres: 0.12 },
-        INDUSTRIA:                 { irpjPres: 0.08,  csllPres: 0.12 },
-        SERVICO_GERAL:             { irpjPres: 0.32,  csllPres: 0.32 },
-        SERVICO_HOSPITALAR:        { irpjPres: 0.08,  csllPres: 0.12 },
-        SERVICO_TRANSPORTE_CARGA:  { irpjPres: 0.08,  csllPres: 0.12 },
-        SERVICO_TRANSPORTE_PASSAG: { irpjPres: 0.16,  csllPres: 0.12 },
-        REVENDA_COMBUSTIVEL:       { irpjPres: 0.016, csllPres: 0.12 },
-    }
-    const lpActivityRates = LP_ACTIVITY_RATES[lpActivity] ?? { irpjPres: 0.08, csllPres: 0.12 }
-    const lpIrpjDisplayPct  = lpActivityRates.irpjPres * 15 * 100  // resultado em % (ex: 1.20)
-    const lpCsllDisplayPct  = lpActivityRates.csllPres * 9  * 100  // resultado em % (ex: 1.08)
+    // Valores de presunção em % (ex: 8, 12) para exibição/cálculo nos cards
+    const lpIrpjPresPct = lpIrpjPresumptionPct  // já em %
+    const lpCsllPresPct = lpCsllPresumptionPct  // já em %
+    const lpIrpjDisplayPct  = lpIrpjPresPct * 0.15   // % de IRPJ sobre receita (ex: 8 * 0.15 = 1.20)
+    const lpCsllDisplayPct  = lpCsllPresPct * 0.09   // % de CSLL sobre receita (ex: 12 * 0.09 = 1.08)
     const lpIrpjAdditionalDisplayPct: number | null = (() => {
         if (!lpEstimatedAnnualRevenue || lpEstimatedAnnualRevenue <= 0) return null
-        const irpjBase = lpEstimatedAnnualRevenue * lpActivityRates.irpjPres
+        const irpjBase = lpEstimatedAnnualRevenue * (lpIrpjPresPct / 100)
         const excedente = Math.max(0, irpjBase - 240000)
         if (excedente <= 0) return 0
         return (excedente * 0.10 / lpEstimatedAnnualRevenue) * 100
@@ -276,7 +303,18 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                 {isLP && (
                     <>
                         <Form.Item name="lucro_presumido_activity" label="Tipo de Atividade (presunção IRPJ/CSLL)">
-                            <Select onChange={(val: string) => setLpActivity(val)}>
+                            <Select onChange={(val: string) => {
+                                setLpActivity(val)
+                                const rates = LP_ACTIVITY_RATES[val] ?? { irpjPres: 0.08, csllPres: 0.12 }
+                                const newIrpj = rates.irpjPres * 100
+                                const newCsll = rates.csllPres * 100
+                                setLpIrpjPresumptionPct(newIrpj)
+                                setLpCsllPresumptionPct(newCsll)
+                                taxForm.setFieldsValue({
+                                    lp_irpj_presumption_percent: newIrpj,
+                                    lp_csll_presumption_percent: newCsll,
+                                })
+                            }}>
                                 <Select.Option value="COMERCIO">Comércio em geral</Select.Option>
                                 <Select.Option value="INDUSTRIA">Indústria</Select.Option>
                                 <Select.Option value="SERVICO_GERAL">Serviço em geral</Select.Option>
@@ -286,6 +324,34 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                                 <Select.Option value="REVENDA_COMBUSTIVEL">Revenda de combustíveis</Select.Option>
                             </Select>
                         </Form.Item>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                            <Form.Item
+                                name="lp_irpj_presumption_percent"
+                                label="Percentual de presunção para IRPJ"
+                                tooltip="Percentual de presunção da base de cálculo do IRPJ, definido conforme a atividade econômica da empresa. Confirme com seu contador. Ex: Comércio/Indústria = 8%."
+                            >
+                                <InputNumber
+                                    min={0} max={100} step={0.5} style={{ width: '100%' }}
+                                    addonAfter="%"
+                                    formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
+                                    parser={(v) => Number((v || '0').replace(',', '.'))}
+                                    onChange={(val) => setLpIrpjPresumptionPct(Number(val) || 0)}
+                                />
+                            </Form.Item>
+                            <Form.Item
+                                name="lp_csll_presumption_percent"
+                                label="Percentual de presunção para CSLL"
+                                tooltip="Percentual de presunção da base de cálculo da CSLL, definido conforme a atividade econômica da empresa. Confirme com seu contador. Ex: Comércio/Indústria = 12%."
+                            >
+                                <InputNumber
+                                    min={0} max={100} step={0.5} style={{ width: '100%' }}
+                                    addonAfter="%"
+                                    formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
+                                    parser={(v) => Number((v || '0').replace(',', '.'))}
+                                    onChange={(val) => setLpCsllPresumptionPct(Number(val) || 0)}
+                                />
+                            </Form.Item>
+                        </div>
                     </>
                 )}
 
@@ -346,13 +412,13 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                                 </Card>
                                 <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
                                     <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>IRPJ (estimativa)</div>
-                                    <div style={{ fontSize: 18, fontWeight: 700 }}>{(lpIrpjDisplayPct / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</div>
-                                    <div style={{ fontSize: 10, color: 'var(--color-neutral-400)' }}>{(lpActivityRates.irpjPres * 100).toLocaleString('pt-BR')}% × 15%</div>
+                                    <div style={{ fontSize: 18, fontWeight: 700 }}>{lpIrpjDisplayPct.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</div>
+                                    <div style={{ fontSize: 10, color: 'var(--color-neutral-400)' }}>{lpIrpjPresPct.toLocaleString('pt-BR')}% × 15%</div>
                                 </Card>
                                 <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
                                     <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>CSLL (estimativa)</div>
-                                    <div style={{ fontSize: 18, fontWeight: 700 }}>{(lpCsllDisplayPct / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</div>
-                                    <div style={{ fontSize: 10, color: 'var(--color-neutral-400)' }}>{(lpActivityRates.csllPres * 100).toLocaleString('pt-BR')}% × 9%</div>
+                                    <div style={{ fontSize: 18, fontWeight: 700 }}>{lpCsllDisplayPct.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</div>
+                                    <div style={{ fontSize: 10, color: 'var(--color-neutral-400)' }}>{lpCsllPresPct.toLocaleString('pt-BR')}% × 9%</div>
                                 </Card>
                                 <Card size="small" style={{ textAlign: 'center', borderRadius: 8, gridColumn: lpIrpjAdditionalDisplayPct != null ? 'auto' : undefined }}>
                                     <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>Adicional IRPJ</div>
@@ -623,6 +689,12 @@ function Settings() {
             }
             if (values.regime === 'LUCRO_PRESUMIDO') {
                 updateData.lucro_presumido_activity = values.lucro_presumido_activity || 'COMERCIO'
+                updateData.lp_irpj_presumption_percent = values.lp_irpj_presumption_percent != null
+                    ? Number(values.lp_irpj_presumption_percent) / 100
+                    : null
+                updateData.lp_csll_presumption_percent = values.lp_csll_presumption_percent != null
+                    ? Number(values.lp_csll_presumption_percent) / 100
+                    : null
                 // Persiste o faturamento anual no campo LP para a engine de precificação usar
                 updateData.lp_estimated_annual_revenue = simplesRevenue12m > 0 ? simplesRevenue12m : null
             }

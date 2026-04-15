@@ -2581,6 +2581,8 @@ export type Database = {
           logo_url: string | null
           lucro_presumido_activity: string | null
           lp_estimated_annual_revenue: number | null
+          lp_irpj_presumption_percent: number | null
+          lp_csll_presumption_percent: number | null
           monthly_workload: number | null
           n8n_webhook_url: string | null
           administrative_monthly_workload: number | null
@@ -2615,6 +2617,8 @@ export type Database = {
           logo_url?: string | null
           lucro_presumido_activity?: string | null
           lp_estimated_annual_revenue?: number | null
+          lp_irpj_presumption_percent?: number | null
+          lp_csll_presumption_percent?: number | null
           monthly_workload?: number | null
           n8n_webhook_url?: string | null
           administrative_monthly_workload?: number | null
@@ -2649,6 +2653,8 @@ export type Database = {
           logo_url?: string | null
           lucro_presumido_activity?: string | null
           lp_estimated_annual_revenue?: number | null
+          lp_irpj_presumption_percent?: number | null
+          lp_csll_presumption_percent?: number | null
           monthly_workload?: number | null
           n8n_webhook_url?: string | null
           administrative_monthly_workload?: number | null

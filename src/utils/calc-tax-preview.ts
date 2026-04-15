@@ -201,14 +201,17 @@ export async function fetchTaxPreview(tenantId: string): Promise<TaxPreviewResul
       .eq('activity_type', activity)
       .maybeSingle()
 
-    let irpjEquiv = 0.08 * 0.15 // fallback: COMERCIO/INDUSTRIA (presunção 8%, alíquota 15%)
-    let csllEquiv = 0.12 * 0.09 // fallback: geral (presunção 12%, alíquota 9%)
-    let irpjPresumptionPct = 0.08 // fallback presunção IRPJ
-    if (lpRate) {
-      irpjPresumptionPct = Number(lpRate.irpj_presumption_percent)
-      irpjEquiv = irpjPresumptionPct * Number(lpRate.irpj_rate)
-      csllEquiv = Number(lpRate.csll_presumption_percent) * Number(lpRate.csll_rate)
-    }
+    // Valores manuais do tenant têm prioridade sobre a tabela lucro_presumido_rates.
+    const irpjRateAliq = lpRate ? Number(lpRate.irpj_rate) : 0.15
+    const csllRateAliq = lpRate ? Number(lpRate.csll_rate) : 0.09
+    const irpjPresumptionPct = ts.lp_irpj_presumption_percent != null
+      ? Number(ts.lp_irpj_presumption_percent)
+      : (lpRate ? Number(lpRate.irpj_presumption_percent) : 0.08)
+    const csllPresumptionPct = ts.lp_csll_presumption_percent != null
+      ? Number(ts.lp_csll_presumption_percent)
+      : (lpRate ? Number(lpRate.csll_presumption_percent) : 0.12)
+    const irpjEquiv = irpjPresumptionPct * irpjRateAliq
+    const csllEquiv = csllPresumptionPct * csllRateAliq
 
     // Adicional IRPJ — calculado sobre a receita bruta anual estimada (lp_estimated_annual_revenue).
     // Fórmula: adicional = max(0, (receita × presunção_irpj%) - 240.000) × 10% / receita

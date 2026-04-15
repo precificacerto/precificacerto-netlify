@@ -241,6 +241,7 @@ export default function Onboarding() {
   const isSimples = taxRegime === 'SIMPLES_NACIONAL'
   const isRet = taxRegime === 'LUCRO_PRESUMIDO_RET'
   const isLucroReal = taxRegime === 'LUCRO_REAL'
+  const isLP = taxRegime === 'LUCRO_PRESUMIDO'
 
   const isSuperAdmin =
     currentUser?.is_super_admin ||
@@ -433,6 +434,12 @@ export default function Onboarding() {
             icms_contribuinte: tax.icms_contribuinte ?? false,
             ibs_reference_pct: (tax.tax_regime === 'LUCRO_REAL' || tax.tax_regime === 'LUCRO_PRESUMIDO') ? (tax.ibs_reference_pct ?? null) : null,
             cbs_reference_pct: (tax.tax_regime === 'LUCRO_REAL' || tax.tax_regime === 'LUCRO_PRESUMIDO') ? (tax.cbs_reference_pct ?? null) : null,
+            lucro_presumido_activity: tax.tax_regime === 'LUCRO_PRESUMIDO' ? (tax.lucro_presumido_activity || null) : null,
+            lp_irpj_presumption_percent: tax.tax_regime === 'LUCRO_PRESUMIDO' && tax.lp_irpj_presumption_percent != null
+              ? Number(tax.lp_irpj_presumption_percent) / 100 : null,
+            lp_csll_presumption_percent: tax.tax_regime === 'LUCRO_PRESUMIDO' && tax.lp_csll_presumption_percent != null
+              ? Number(tax.lp_csll_presumption_percent) / 100 : null,
+            lp_estimated_annual_revenue: tax.tax_regime === 'LUCRO_PRESUMIDO' ? (simplesRevenue12m || null) : null,
             inscricao_estadual: tax.inscricao_estadual || null,
             ie_state_code: tax.ie_state_code || null,
             sales_scope: tax.sales_scope || 'INTRAESTADUAL',
@@ -1038,6 +1045,91 @@ export default function Onboarding() {
                     </div>
                   )}
                 </div>
+                {/* Lucro Presumido — Atividade e Percentuais de Presunção */}
+                {isLP && (
+                  <div style={{
+                    background: 'rgba(255, 255, 255, 0.03)',
+                    border: '1px solid rgba(255, 255, 255, 0.06)',
+                    borderRadius: 12,
+                    padding: '20px',
+                    marginTop: 16,
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                      <CalculatorOutlined style={{ fontSize: 18, color: '#22C55E' }} />
+                      <span style={{ fontSize: 14, fontWeight: 600, color: '#e2e8f0' }}>
+                        Lucro Presumido — Presunção IRPJ e CSLL
+                      </span>
+                    </div>
+                    <p style={{ fontSize: 12, color: '#94a3b8', marginBottom: 16 }}>
+                      Informe os percentuais de presunção definidos pelo seu contador conforme a atividade econômica da empresa.
+                      Esses valores compõem o coeficiente de precificação.
+                    </p>
+                    <Form.Item
+                      name="lucro_presumido_activity"
+                      label="Tipo de Atividade Econômica"
+                      tooltip="Selecione para pré-preencher os percentuais abaixo. Você pode ajustá-los manualmente."
+                    >
+                      <Select
+                        placeholder="Selecione a atividade"
+                        onChange={(val: string) => {
+                          const RATES: Record<string, { irpj: number; csll: number }> = {
+                            COMERCIO:                  { irpj: 8,   csll: 12  },
+                            INDUSTRIA:                 { irpj: 8,   csll: 12  },
+                            SERVICO_GERAL:             { irpj: 32,  csll: 32  },
+                            SERVICO_HOSPITALAR:        { irpj: 8,   csll: 12  },
+                            SERVICO_TRANSPORTE_CARGA:  { irpj: 8,   csll: 12  },
+                            SERVICO_TRANSPORTE_PASSAG: { irpj: 16,  csll: 12  },
+                            REVENDA_COMBUSTIVEL:       { irpj: 1.6, csll: 12  },
+                          }
+                          const r = RATES[val]
+                          if (r) {
+                            taxForm.setFieldsValue({
+                              lp_irpj_presumption_percent: r.irpj,
+                              lp_csll_presumption_percent: r.csll,
+                            })
+                          }
+                        }}
+                      >
+                        <Select.Option value="COMERCIO">Comércio em geral</Select.Option>
+                        <Select.Option value="INDUSTRIA">Indústria</Select.Option>
+                        <Select.Option value="SERVICO_GERAL">Serviço em geral</Select.Option>
+                        <Select.Option value="SERVICO_HOSPITALAR">Serviços hospitalares</Select.Option>
+                        <Select.Option value="SERVICO_TRANSPORTE_CARGA">Transporte de carga</Select.Option>
+                        <Select.Option value="SERVICO_TRANSPORTE_PASSAG">Transporte de passageiros</Select.Option>
+                        <Select.Option value="REVENDA_COMBUSTIVEL">Revenda de combustíveis</Select.Option>
+                      </Select>
+                    </Form.Item>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                      <Form.Item
+                        name="lp_irpj_presumption_percent"
+                        label="Percentual de presunção para IRPJ (%)"
+                        initialValue={8}
+                        tooltip="Percentual de presunção da base de cálculo do IRPJ. Ex: Comércio/Indústria = 8%. Confirme com seu contador."
+                      >
+                        <InputNumber
+                          min={0} max={100} step={0.5} style={{ width: '100%' }}
+                          addonAfter="%"
+                          formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
+                          parser={(v) => Number((v || '0').replace(',', '.'))}
+                        />
+                      </Form.Item>
+                      <Form.Item
+                        name="lp_csll_presumption_percent"
+                        label="Percentual de presunção para CSLL (%)"
+                        initialValue={12}
+                        tooltip="Percentual de presunção da base de cálculo da CSLL. Ex: Comércio/Indústria = 12%. Confirme com seu contador."
+                      >
+                        <InputNumber
+                          min={0} max={100} step={0.5} style={{ width: '100%' }}
+                          addonAfter="%"
+                          formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
+                          parser={(v) => Number((v || '0').replace(',', '.'))}
+                        />
+                      </Form.Item>
+                    </div>
+                  </div>
+                )}
+
                 {/* IVA DUAL — Lucro Real e Lucro Presumido */}
                 {(isLucroReal || taxRegime === 'LUCRO_PRESUMIDO') && (
                   <div style={{
