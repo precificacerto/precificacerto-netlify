@@ -297,16 +297,20 @@ export const ProductPrice: FC<Props> = ({
             {pricingRow('Lucro', profitPct, profitVal, 'productProfitPercent')}
             {showIrpjCsll && pricingRow('IRPJ (15% sobre lucro)', irpjPct, irpjVal, undefined, 'Imposto de Renda Pessoa Jurídica — calculado automaticamente como 15% sobre o valor do lucro. A porcentagem exibida representa quanto esse imposto ocupa no preço de venda.')}
             {showIrpjCsll && pricingRow('CSLL (9% sobre lucro)', csllPct, csllVal, undefined, 'Contribuição Social sobre o Lucro Líquido — calculada automaticamente como 9% sobre o valor do lucro. A porcentagem exibida representa quanto esse imposto ocupa no preço de venda.')}
-            {isLucroReal && pricingRow('Alíq. adicional IRPJ', adicionalIrpjPct, adicionalIrpjVal, 'additionalIrpj', 'Alíquota da parcela adicional do IRPJ. Informe manualmente conforme enquadramento.')}
-            {isLucroReal && !isCalcTypeService && pricingRow('ICMS (%)', icmsPct, icmsValDisplay, 'icms', 'ICMS sobre venda — informe manualmente conforme alíquota do seu produto.')}
-            {isLucroReal && pricingRow(
-              isCalcTypeService ? 'PIS/Cofins (%)' : 'PIS/Cofins (% NCM)',
+            {(isLucroReal || isLucroPresumed) && pricingRow('Alíq. adicional IRPJ', adicionalIrpjPct, adicionalIrpjVal, 'additionalIrpj', 'Alíquota da parcela adicional do IRPJ. Calculada automaticamente com base no faturamento anual estimado.')}
+            {(isLucroReal || isLucroPresumed) && !isCalcTypeService && pricingRow('ICMS (%)', icmsPct, icmsValDisplay, 'icms', 'ICMS sobre venda — informe manualmente conforme alíquota do seu produto.')}
+            {(isLucroReal || isLucroPresumed) && pricingRow(
+              isCalcTypeService
+                ? 'PIS/Cofins (%)'
+                : isLucroPresumed ? 'PIS/Cofins Cum. (%)' : 'PIS/Cofins (% NCM)',
               pisCofinsLRPct,
               pisCofinsValDisplay,
               'pisCofins',
               isCalcTypeService
                 ? 'PIS + COFINS — informe manualmente para serviços.'
-                : 'PIS + COFINS não cumulativo — preenchido automaticamente a partir do NCM cadastrado (editável).',
+                : isLucroPresumed
+                  ? 'PIS + COFINS cumulativo (3,65%) — calculado com base no ICMS (exclusão por dentro, STF RE 574.706). Editável.'
+                  : 'PIS + COFINS não cumulativo — preenchido automaticamente a partir do NCM cadastrado (editável).',
             )}
           </tbody>
         </table>
@@ -318,15 +322,15 @@ export const ProductPrice: FC<Props> = ({
           <span style={{ fontWeight: 600 }}>{mcPct.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%</span>
         </div>
 
-        {isLucroReal && (
+        {(isLucroReal || isLucroPresumed) && (
           <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 12, marginTop: 4 }}>
             <span style={{ color: '#64748b' }}>Valor do produto precificado com ICMS, PIS/COFINS</span>
             <span style={{ fontWeight: 600, color: '#e2e8f0' }}>{fmt(pricePerUnit)}</span>
           </div>
         )}
 
-        {/* Atividades Terceirizadas — apenas LUCRO_REAL */}
-        {isLucroReal && (
+        {/* Atividades Terceirizadas — LUCRO_REAL / LUCRO_PRESUMIDO */}
+        {(isLucroReal || isLucroPresumed) && (
           <div style={{ marginTop: 14, background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '12px 14px', border: '1px solid rgba(255,255,255,0.07)' }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' as const, letterSpacing: 0.6, marginBottom: 10 }}>
               Atividades Terceirizadas
@@ -375,8 +379,8 @@ export const ProductPrice: FC<Props> = ({
           </div>
         )}
 
-        {/* IBS / CBS — apenas LUCRO_REAL */}
-        {isLucroReal && (() => {
+        {/* IBS / CBS — LUCRO_REAL / LUCRO_PRESUMIDO */}
+        {(isLucroReal || isLucroPresumed) && (() => {
           const ibsCbsRows = [
             { label: 'IBS — Imposto sobre Bens e Serv. (%)', value: ibsPct, onChange: onIbsPctChange, taxValue: taxIbsValue },
             { label: 'CBS — Contrib. sobre Bens e Serv. (%)', value: cbsPct, onChange: onCbsPctChange, taxValue: taxCbsValue },
@@ -421,8 +425,8 @@ export const ProductPrice: FC<Props> = ({
           )
         })()}
 
-        {/* IS / IPI — apenas LUCRO_REAL */}
-        {isLucroReal && (() => {
+        {/* IS / IPI — LUCRO_REAL / LUCRO_PRESUMIDO */}
+        {(isLucroReal || isLucroPresumed) && (() => {
           const isIpiRows = [
             { label: 'IS — Imposto Seletivo (%)', value: isPct, onChange: onIsPctChange, taxValue: taxIsValue },
             { label: 'IPI (%)', value: ipiPct, onChange: onIpiPctChange, taxValue: taxIpiValue },
@@ -532,12 +536,12 @@ export const ProductPrice: FC<Props> = ({
               <div style={{ fontSize: 28, fontWeight: 800, color: finalSalePrice > 0 ? '#027A48' : '#B42318' }}>
                 {fmt(hasInlineTaxes ? finalPriceWithTaxes : finalSalePrice)}
               </div>
-              {isLucroReal && hasInlineTaxes && (
+              {(isLucroReal || isLucroPresumed) && hasInlineTaxes && (
                 <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
                   Base: {fmt(finalSalePrice)} + Impostos: {fmt(totalInlineTax)}
                 </div>
               )}
-              {isLucroReal && !hasInlineTaxes && terceirizadasTotal > 0 && (
+              {(isLucroReal || isLucroPresumed) && !hasInlineTaxes && terceirizadasTotal > 0 && (
                 <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
                   Base: {fmt(pricePerUnit)} + Terceirizadas: {fmt(terceirizadasTotal)}
                 </div>

@@ -195,7 +195,8 @@ export const Content: FC<ContentProps> = ({
           if (stateData?.icms_internal_rate != null) {
             const autoIcmsPct = Number(stateData.icms_internal_rate) * 100
             setIcmsPct(autoIcmsPct)
-            setPisCofinsLRPct(parseFloat((9.25 * (1 - autoIcmsPct / 100)).toFixed(4)))
+            const pisCofinsBase = isLucroPresumidoProdOnly ? 3.65 : 9.25
+            setPisCofinsLRPct(parseFloat((pisCofinsBase * (1 - autoIcmsPct / 100)).toFixed(4)))
           }
         }
       }
@@ -224,10 +225,12 @@ export const Content: FC<ContentProps> = ({
   )
 
   // Handler: ICMS muda → auto-recalcula PIS/COFINS via fórmula
+  // LP: cumulativo 3,65% × (1 − ICMS); LR: não-cumulativo 9,25% × (1 − ICMS)
   function handleIcmsPctChange(val: number) {
     setIcmsPct(val)
     if (isLRorLP) {
-      const newPisCofins = parseFloat((9.25 * (1 - val / 100)).toFixed(4))
+      const pisCofinsBase = isLucroPresumidoProdOnly ? 3.65 : 9.25
+      const newPisCofins = parseFloat((pisCofinsBase * (1 - val / 100)).toFixed(4))
       setPisCofinsLRPct(newPisCofins)
     }
   }
@@ -366,6 +369,12 @@ export const Content: FC<ContentProps> = ({
 
   const fetchNcmRatesForLR = useCallback(async (code: string) => {
     if (!isLRorLP || !code) return
+    // LP usa PIS/COFINS cumulativo fixo (3,65%): recalcula com base no ICMS atual
+    if (isLucroPresumidoProdOnly) {
+      setPisCofinsLRPct(parseFloat((3.65 * (1 - icmsPct / 100)).toFixed(4)))
+      return
+    }
+    // LR: busca alíquotas não-cumulativas pela NCM
     try {
       const { data } = await (supabase as any)
         .from('ncm_codes')
@@ -378,7 +387,7 @@ export const Content: FC<ContentProps> = ({
         setPisCofinsLRPct(parseFloat((pis + cofins).toFixed(4)))
       }
     } catch { /* silent */ }
-  }, [isLRorLP])
+  }, [isLRorLP, isLucroPresumidoProdOnly, icmsPct])
 
   const handleSelectNcmSuggestion = useCallback((code: string) => {
     productForm.setFieldsValue({ ncm_code: code })

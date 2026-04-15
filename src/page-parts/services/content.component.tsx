@@ -250,6 +250,9 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
             const irpjPct = profitPercent * 0.15
             const csllPct = profitPercent * 0.09
             taxPct = (taxesPct + irpjPct + csllPct + additionalIrpjPercent) / 100
+        } else if (isLucroPresumidoSvc) {
+            // LP: taxableRegimePercent já encapsula IRPJ+CSLL via presunção; adicional IRPJ separado
+            taxPct = (taxesPct + taxableRegimePercent + additionalIrpjPercent) / 100
         } else {
             taxPct = (taxesPct + taxableRegimePercent) / 100
         }
@@ -300,17 +303,24 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
         const commissionVal = result.commissionValue
         const profitVal = result.profitValue
 
-        // LUCRO_REAL: IRPJ/CSLL/adicional derivados do lucro
+        // LUCRO_REAL: IRPJ/CSLL derivados do lucro
         const irpjPctLR = isLucroRealSvc ? profitPercent * 0.15 : 0
         const csllPctLR = isLucroRealSvc ? profitPercent * 0.09 : 0
         const irpjValLR = isLucroRealSvc ? profitVal * 0.15 : 0
         const csllValLR = isLucroRealSvc ? profitVal * 0.09 : 0
+        // LUCRO_PRESUMIDO: IRPJ/CSLL derivados da presunção (taxableRegimePercent = IRPJ+CSLL combinado, proporção 15:9)
+        const irpjPctLP = isLucroPresumidoSvc ? taxableRegimePercent * 15 / 24 : 0
+        const csllPctLP = isLucroPresumidoSvc ? taxableRegimePercent * 9 / 24 : 0
+        const irpjValLP = isLucroPresumidoSvc ? priceUnit * irpjPctLP / 100 : 0
+        const csllValLP = isLucroPresumidoSvc ? priceUnit * csllPctLP / 100 : 0
         const adicionalIrpjValLR = isLRorLPSvc ? Number((priceUnit * additionalIrpjPercent / 100).toFixed(2)) : 0
 
         // MO administrativa e Despesas fixas incorporadas no custo por minuto
         const totalPct = isLucroRealSvc
             ? variablePct + financialPct + irpjPctLR + csllPctLR + additionalIrpjPercent + commissionPercent + profitPercent
-            : variablePct + financialPct + taxesPct + taxableRegimePercent + commissionPercent + profitPercent
+            : isLucroPresumidoSvc
+              ? variablePct + financialPct + taxesPct + irpjPctLP + csllPctLP + additionalIrpjPercent + commissionPercent + profitPercent
+              : variablePct + financialPct + taxesPct + taxableRegimePercent + commissionPercent + profitPercent
         const isValid = result.isValid
 
         return {
@@ -321,6 +331,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
             taxesVal,
             taxRegimeVal,
             irpjPctLR, csllPctLR, irpjValLR, csllValLR, adicionalIrpjValLR,
+            irpjPctLP, csllPctLP, irpjValLP, csllValLP,
             commissionVal,
             profitVal,
             totalPct, isValid,
@@ -414,7 +425,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                 profit_percent: profitPercent,
                 taxable_regime_percent: taxableRegimePercent,
                 additional_irpj_percent: additionalIrpjPercent || 0,
-                pis_cofins_pct: isLucroRealSvcComp ? (pisCofinsLRPct || 0) : 0,
+                pis_cofins_pct: (isLucroRealSvcComp || isLucroPresumidoSvcComp) ? (pisCofinsLRPct || 0) : 0,
                 commission_table_id: commissionTableId || null,
                 min_quantity: 0,
                 taxes_launched: true,
@@ -874,16 +885,36 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                                 ? pricingRow(taxLabel, displayTaxPct, displayTaxVal, 'tax')
                                 : pricingRow(taxLabel, displayTaxPct, displayTaxVal)
                             }
-                            {!isSN && !taxPreview?.isMei && !isLucroRealDisplay && pricingRow(
+                            {!isSN && !taxPreview?.isMei && !isLucroRealDisplay && !isLucroPresumidoDisplay && pricingRow(
                                 `Impostos${taxPreview?.regimeLabel ? ` (${taxPreview.regimeLabel})` : ''}`,
                                 taxableRegimePercent, pricing.taxRegimeVal, 'tax'
                             )}
                             {pricingRow('Comissão', commissionPercent, pricing.commissionVal, 'commission')}
                             {pricingRow('Lucro', profitPercent, pricing.profitVal, 'profit')}
-                            {isLucroRealDisplay && pricingRow('IRPJ (15% sobre lucro)', pricing.irpjPctLR, pricing.irpjValLR, undefined, 'Imposto de Renda Pessoa Jurídica — calculado automaticamente como 15% sobre o valor do lucro.')}
-                            {isLucroRealDisplay && pricingRow('CSLL (9% sobre lucro)', pricing.csllPctLR, pricing.csllValLR, undefined, 'Contribuição Social sobre o Lucro Líquido — calculada automaticamente como 9% sobre o valor do lucro.')}
-                            {isLRorLPDisplay && pricingRow('Alíq. adicional IRPJ', additionalIrpjPercent, pricing.adicionalIrpjValLR, 'additionalIrpj', 'Alíquota da parcela adicional do IRPJ. Informe manualmente conforme enquadramento.')}
-                            {isLucroRealDisplay && pricingRow('PIS/Cofins (%)', pisCofinsLRPct, pricing.sellingPrice * pisCofinsLRPct / 100, 'pisCofins', 'PIS + COFINS — informe manualmente para serviços (regime não cumulativo).')}
+                            {(isLucroRealDisplay || isLucroPresumidoDisplay) && pricingRow(
+                                'IRPJ (15% sobre lucro)',
+                                isLucroRealDisplay ? pricing.irpjPctLR : pricing.irpjPctLP,
+                                isLucroRealDisplay ? pricing.irpjValLR : pricing.irpjValLP,
+                                undefined,
+                                'Imposto de Renda Pessoa Jurídica — calculado automaticamente sobre o lucro (LR) ou via percentual de presunção (LP).'
+                            )}
+                            {(isLucroRealDisplay || isLucroPresumidoDisplay) && pricingRow(
+                                'CSLL (9% sobre lucro)',
+                                isLucroRealDisplay ? pricing.csllPctLR : pricing.csllPctLP,
+                                isLucroRealDisplay ? pricing.csllValLR : pricing.csllValLP,
+                                undefined,
+                                'Contribuição Social sobre o Lucro Líquido — calculada automaticamente sobre o lucro (LR) ou via percentual de presunção (LP).'
+                            )}
+                            {isLRorLPDisplay && pricingRow('Alíq. adicional IRPJ', additionalIrpjPercent, pricing.adicionalIrpjValLR, 'additionalIrpj', 'Alíquota da parcela adicional do IRPJ. Calculada automaticamente com base no faturamento anual estimado.')}
+                            {(isLucroRealDisplay || isLucroPresumidoDisplay) && pricingRow(
+                                'PIS/Cofins (%)',
+                                pisCofinsLRPct,
+                                pricing.sellingPrice * pisCofinsLRPct / 100,
+                                'pisCofins',
+                                isLucroPresumidoDisplay
+                                    ? 'PIS + COFINS cumulativo (3,65%) — regime Lucro Presumido. Editável.'
+                                    : 'PIS + COFINS — informe manualmente para serviços (regime não cumulativo).'
+                            )}
                         </tbody>
                     </table>
 
