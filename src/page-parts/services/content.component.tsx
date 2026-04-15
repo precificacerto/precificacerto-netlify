@@ -504,6 +504,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
     const isSN = !!taxPreview?.regimeLabel?.includes('Simples Nacional')
     const isLucroRealDisplay = currentUser?.taxableRegime === 'LUCRO_REAL'
     const isLucroPresumidoDisplay = currentUser?.taxableRegime === 'LUCRO_PRESUMIDO'
+    const isLpRetDisplay = currentUser?.taxableRegime === 'LUCRO_PRESUMIDO_RET'
     const isLRorLPDisplay = isLucroRealDisplay || isLucroPresumidoDisplay
 
     const tempItemCols: ColumnsType<TempItem> = [
@@ -884,14 +885,15 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                             {pricingRow('Despesas financeiras', pricing.financialPct, pricing.financialVal)}
                             {isSN
                                 ? pricingRow(taxLabel, displayTaxPct, displayTaxVal, 'tax')
-                                : pricingRow(taxLabel, displayTaxPct, displayTaxVal)
+                                : !isLpRetDisplay && pricingRow(taxLabel, displayTaxPct, displayTaxVal)
                             }
-                            {!isSN && !taxPreview?.isMei && !isLucroRealDisplay && !isLucroPresumidoDisplay && pricingRow(
+                            {!isSN && !taxPreview?.isMei && !isLucroRealDisplay && !isLucroPresumidoDisplay && !isLpRetDisplay && pricingRow(
                                 `Impostos${taxPreview?.regimeLabel ? ` (${taxPreview.regimeLabel})` : ''}`,
                                 taxableRegimePercent, pricing.taxRegimeVal, 'tax'
                             )}
                             {pricingRow('Comissão', commissionPercent, pricing.commissionVal, 'commission')}
                             {pricingRow('Lucro', profitPercent, pricing.profitVal, 'profit')}
+                            {isLpRetDisplay && pricingRow('RET – Tributação unificada', taxableRegimePercent, pricing.taxRegimeVal, 'tax', 'Alíquota RET consolidada (IRPJ 1,71% + CSLL 0,51% + PIS 0,37% + COFINS 1,41%). Puxada das configurações, editável por serviço.')}
                             {(isLucroRealDisplay || isLucroPresumidoDisplay) && pricingRow(
                                 'IRPJ (15% sobre lucro)',
                                 isLucroRealDisplay ? pricing.irpjPctLR : pricing.irpjPctLP,

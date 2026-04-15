@@ -75,7 +75,8 @@ export const ProductPrice: FC<Props> = ({
   const isCalcTypeService = currentUser?.calcType === CALC_TYPE_ENUM.SERVICE
   const isMei = !!calcBase.isMei
   const isLucroReal = currentUser?.taxableRegime === 'LUCRO_REAL'
-  const isLucroPresumed = currentUser?.taxableRegime === 'LUCRO_PRESUMIDO' || currentUser?.taxableRegime === 'LUCRO_PRESUMIDO_RET'
+  const isLucroPresumed = currentUser?.taxableRegime === 'LUCRO_PRESUMIDO'
+  const isLpRet = currentUser?.taxableRegime === 'LUCRO_PRESUMIDO_RET'
   const showIrpjCsll = isLucroReal || isLucroPresumed
 
   const totalPrice = productPriceInfo.totalProductPrice
@@ -286,7 +287,7 @@ export const ProductPrice: FC<Props> = ({
             {!isCalcTypeService && pricingRow('Despesas fixas', fixedPct, fixedVal)}
             {pricingRow('Despesas variáveis', variablePct, variableVal)}
             {pricingRow('Despesas financeiras', financialPct, financialVal)}
-            {!showIrpjCsll && pricingRow(taxLabel, taxPctDisplay, taxValDisplay, 'customTaxPercent', 'Alíquota efetiva herdada do regime tributário. Edite para ajustar apenas neste produto/serviço.')}
+            {!showIrpjCsll && !isLpRet && pricingRow(taxLabel, taxPctDisplay, taxValDisplay, 'customTaxPercent', 'Alíquota efetiva herdada do regime tributário. Edite para ajustar apenas neste produto/serviço.')}
             {pricingRow(
               'Comissão total do vendedor',
               commissionPct,
@@ -295,6 +296,7 @@ export const ProductPrice: FC<Props> = ({
               'Se deixar 0%, a comissão cadastrada no funcionário será aplicada automaticamente.'
             )}
             {pricingRow('Lucro', profitPct, profitVal, 'productProfitPercent')}
+            {isLpRet && pricingRow('RET – Tributação unificada', taxPctDisplay, taxValDisplay, 'customTaxPercent', 'Alíquota RET consolidada (IRPJ 1,71% + CSLL 0,51% + PIS 0,37% + COFINS 1,41%). Puxada das configurações, editável por produto.')}
             {showIrpjCsll && pricingRow('IRPJ (15% sobre lucro)', irpjPct, irpjVal, undefined, 'Imposto de Renda Pessoa Jurídica — calculado automaticamente como 15% sobre o valor do lucro. A porcentagem exibida representa quanto esse imposto ocupa no preço de venda.')}
             {showIrpjCsll && pricingRow('CSLL (9% sobre lucro)', csllPct, csllVal, undefined, 'Contribuição Social sobre o Lucro Líquido — calculada automaticamente como 9% sobre o valor do lucro. A porcentagem exibida representa quanto esse imposto ocupa no preço de venda.')}
             {(isLucroReal || isLucroPresumed) && pricingRow('Alíq. adicional IRPJ', adicionalIrpjPct, adicionalIrpjVal, 'additionalIrpj', 'Alíquota da parcela adicional do IRPJ. Calculada automaticamente com base no faturamento anual estimado.')}
