@@ -39,12 +39,14 @@ const CATEGORY_LABEL_MAP: Record<string, string> = Object.fromEntries(
   Object.values(CASHIER_CATEGORY.EXPENSE).map((c: any) => [c.key, c.value])
 )
 
-// Labels das sub-categorias virtuais de impostos (Lucro Real — Custo dos Produtos)
+// Labels das sub-categorias virtuais de impostos (Lucro Real / Simples Híbrido — Custo dos Produtos)
 const LR_TAX_CATEGORY_LABELS: Record<string, string> = {
   'LR_ICMS_CUSTO':   'ICMS (custo produto)',
   'LR_PIS_CUSTO':    'PIS (custo produto)',
   'LR_COFINS_CUSTO': 'COFINS (custo produto)',
   'LR_IPI_CUSTO':    'IPI (custo produto)',
+  'LR_CBS_CUSTO':    'CBS (custo produto)',
+  'LR_IBS_CUSTO':    'IBS (custo produto)',
 }
 
 // Mapa de categoryKey → order (para ordenação)
@@ -86,7 +88,7 @@ export async function calculateHubData(tenantId: string): Promise<HubData> {
   // Busca todos os lançamentos de meses encerrados, incluindo expense_category e breakdown LR
   const { data: entries, error } = await supabase
     .from('cash_entries')
-    .select('type, amount, due_date, expense_group, expense_category, is_active, paid_date, payment_method, valor_nf, valor_icms, valor_pis, valor_cofins, valor_ipi')
+    .select('type, amount, due_date, expense_group, expense_category, is_active, paid_date, payment_method, valor_nf, valor_icms, valor_pis, valor_cofins, valor_ipi, valor_cbs, valor_ibs')
     .eq('tenant_id', tenantId)
     .eq('is_active', true)
     .lt('due_date', cutoffStr)
@@ -117,8 +119,9 @@ export async function calculateHubData(tenantId: string): Promise<HubData> {
       // Somente despesas confirmadas (paid_date preenchido)
       if (!entry.paid_date) continue
 
-      // Breakdown LR: detectado por qualquer coluna de imposto preenchida
+      // Breakdown LR/Simples Híbrido: detectado por qualquer coluna de imposto preenchida
       const hasLrBreakdown = entry.valor_icms != null || entry.valor_pis != null || entry.valor_cofins != null || entry.valor_ipi != null
+        || entry.valor_cbs != null || entry.valor_ibs != null
 
       // Nível grupo: sempre usa o amount total
       if (!expenseByGroupByMonth[entry.expense_group]) {
@@ -134,18 +137,19 @@ export async function calculateHubData(tenantId: string): Promise<HubData> {
           expenseByCategoryByMonth[catKey] = { group: entry.expense_group, values: {} }
         }
 
-        // Para CUSTO_PRODUTOS com breakdown LR: valor da categoria = amount − impostos recuperáveis
+        // Para CUSTO_PRODUTOS com breakdown LR/Simples Híbrido: valor da categoria = amount − impostos recuperáveis
         // (os impostos aparecem como sub-rows somados separadamente)
         const isCustoProdutos = entry.expense_group === 'CUSTO_PRODUTOS'
         const taxDeduction = (hasLrBreakdown && isCustoProdutos)
           ? (Number(entry.valor_icms) || 0) + (Number(entry.valor_pis) || 0)
             + (Number(entry.valor_cofins) || 0) + (Number(entry.valor_ipi) || 0)
+            + (Number(entry.valor_cbs) || 0) + (Number(entry.valor_ibs) || 0)
           : 0
 
         expenseByCategoryByMonth[catKey].values[monthKey] =
           (expenseByCategoryByMonth[catKey].values[monthKey] || 0) + amount - taxDeduction
 
-        // Sub-rows de impostos (Lucro Real — Custo dos Produtos): somados de todas as categorias
+        // Sub-rows de impostos (Lucro Real / Simples Híbrido — Custo dos Produtos): somados de todas as categorias
         if (hasLrBreakdown && isCustoProdutos) {
           const addTaxCat = (key: string, val: number) => {
             if (!val) return
@@ -159,6 +163,8 @@ export async function calculateHubData(tenantId: string): Promise<HubData> {
           addTaxCat('LR_PIS_CUSTO', Number(entry.valor_pis) || 0)
           addTaxCat('LR_COFINS_CUSTO', Number(entry.valor_cofins) || 0)
           addTaxCat('LR_IPI_CUSTO', Number(entry.valor_ipi) || 0)
+          addTaxCat('LR_CBS_CUSTO', Number(entry.valor_cbs) || 0)
+          addTaxCat('LR_IBS_CUSTO', Number(entry.valor_ibs) || 0)
         }
       }
     }
@@ -241,7 +247,7 @@ export async function calculateHubDataPrevMonth(tenantId: string): Promise<HubDa
   // Busca lançamentos apenas do mês anterior (>= início mês anterior e < início mês atual)
   const { data: entries, error } = await supabase
     .from('cash_entries')
-    .select('type, amount, due_date, expense_group, expense_category, is_active, valor_nf, valor_icms, valor_pis, valor_cofins, valor_ipi')
+    .select('type, amount, due_date, expense_group, expense_category, is_active, valor_nf, valor_icms, valor_pis, valor_cofins, valor_ipi, valor_cbs, valor_ibs')
     .eq('tenant_id', tenantId)
     .eq('is_active', true)
     .gte('due_date', prevMonthStr)
@@ -265,6 +271,7 @@ export async function calculateHubDataPrevMonth(tenantId: string): Promise<HubDa
       incomeByMonth[monthKey] = (incomeByMonth[monthKey] || 0) + amount
     } else if (entry.type === 'EXPENSE' && entry.expense_group) {
       const hasLrBreakdown = entry.valor_icms != null || entry.valor_pis != null || entry.valor_cofins != null || entry.valor_ipi != null
+        || entry.valor_cbs != null || entry.valor_ibs != null
 
       if (!expenseByGroupByMonth[entry.expense_group]) {
         expenseByGroupByMonth[entry.expense_group] = {}
@@ -282,6 +289,7 @@ export async function calculateHubDataPrevMonth(tenantId: string): Promise<HubDa
         const taxDeduction = (hasLrBreakdown && isCustoProdutos)
           ? (Number(entry.valor_icms) || 0) + (Number(entry.valor_pis) || 0)
             + (Number(entry.valor_cofins) || 0) + (Number(entry.valor_ipi) || 0)
+            + (Number(entry.valor_cbs) || 0) + (Number(entry.valor_ibs) || 0)
           : 0
 
         expenseByCategoryByMonth[catKey].values[monthKey] =
@@ -300,6 +308,8 @@ export async function calculateHubDataPrevMonth(tenantId: string): Promise<HubDa
           addTaxCat('LR_PIS_CUSTO', Number(entry.valor_pis) || 0)
           addTaxCat('LR_COFINS_CUSTO', Number(entry.valor_cofins) || 0)
           addTaxCat('LR_IPI_CUSTO', Number(entry.valor_ipi) || 0)
+          addTaxCat('LR_CBS_CUSTO', Number(entry.valor_cbs) || 0)
+          addTaxCat('LR_IBS_CUSTO', Number(entry.valor_ibs) || 0)
         }
       }
     }
