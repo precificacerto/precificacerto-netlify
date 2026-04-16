@@ -151,10 +151,12 @@ const LR_IMPOSTOS_FATURAMENTO_FORA = [
     { category: 'FCP (Fundo de Combate à Pobreza)', group: 'IMPOSTO' },
 ]
 
-// Categorias que ativam o detalhamento de impostos (Lucro Real)
+// Categorias que ativam o detalhamento de impostos (Lucro Real / Simples Híbrido)
 const LR_CUSTO_CATEGORIES_SPECIAL = [
     'Fornecedores - Produtos para Revenda',
     'Matéria Prima - Base dos produtos',
+    'Embalagens Individuais',
+    'Fretes FOB (Valores relacionados a compra de suprimentos)',
 ] as const
 
 const EXPENSE_CATEGORY_OPTIONS = [

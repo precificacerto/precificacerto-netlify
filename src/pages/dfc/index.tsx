@@ -200,6 +200,12 @@ type CashEntry = {
   payment_method: string | null
   paid_date: string | null
   anticipated_amount: number | null
+  valor_icms: number | null
+  valor_pis: number | null
+  valor_cofins: number | null
+  valor_ipi: number | null
+  valor_cbs: number | null
+  valor_ibs: number | null
 }
 
 /** Effective income amount — mirrors getEffectiveIncomeAmount from cash-entry-amount.ts */
@@ -218,7 +224,7 @@ async function fetchYearEntries(tenantId: string, year: number): Promise<CashEnt
   const cutoff = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
   const { data, error } = await (supabase as any)
     .from('cash_entries')
-    .select('amount, type, expense_group, expense_category, description, due_date, is_active, payment_method, paid_date')
+    .select('amount, type, expense_group, expense_category, description, due_date, is_active, payment_method, paid_date, valor_icms, valor_pis, valor_cofins, valor_ipi, valor_cbs, valor_ibs')
     .eq('tenant_id', tenantId)
     .eq('is_active', true)
     .gte('due_date', startDate)
@@ -229,6 +235,12 @@ async function fetchYearEntries(tenantId: string, year: number): Promise<CashEnt
     ...e,
     amount: Number(e.amount) || 0,
     anticipated_amount: null,
+    valor_icms: e.valor_icms != null ? Number(e.valor_icms) : null,
+    valor_pis: e.valor_pis != null ? Number(e.valor_pis) : null,
+    valor_cofins: e.valor_cofins != null ? Number(e.valor_cofins) : null,
+    valor_ipi: e.valor_ipi != null ? Number(e.valor_ipi) : null,
+    valor_cbs: e.valor_cbs != null ? Number(e.valor_cbs) : null,
+    valor_ibs: e.valor_ibs != null ? Number(e.valor_ibs) : null,
   }))
 }
 
@@ -263,7 +275,8 @@ type AggregatedData = {
   despesaFinanceira: MonthlyValues
   imposto: MonthlyValues
   comissoes: MonthlyValues
-  custoProduto: MonthlyValues // DESPESA_VARIAVEL entries that are product cost (Fornecedores, Embalagens, etc.)
+  custoProduto: MonthlyValues // custo líquido (base sem impostos recuperáveis) para CUSTO_PRODUTOS
+  impostosRecuperaveisCusto: MonthlyValues // impostos recuperáveis somados de todos os 4 tipos de custo (LR / Simples Híbrido)
   deducaoReceita: MonthlyValues // INSS retido na fonte, ISS retido pelo tomador (LP RET)
 }
 
@@ -279,6 +292,7 @@ function aggregateEntries(entries: CashEntry[]): AggregatedData {
     imposto: { ...EMPTY_MONTHS },
     comissoes: { ...EMPTY_MONTHS },
     custoProduto: { ...EMPTY_MONTHS },
+    impostosRecuperaveisCusto: { ...EMPTY_MONTHS },
     deducaoReceita: { ...EMPTY_MONTHS },
   }
 
@@ -319,7 +333,15 @@ function aggregateEntries(entries: CashEntry[]): AggregatedData {
 
     // Product cost check (CMV) — match by category key first, then by expense_group
     if (PRODUCT_COST_KEYS.has(cat) || group === 'CUSTO_PRODUTOS') {
-      data.custoProduto[monthKey] += entry.amount
+      // Para Lucro Real / Simples Híbrido: separa impostos recuperáveis do custo líquido
+      const hasLrBreakdown = entry.valor_icms != null || entry.valor_pis != null || entry.valor_cofins != null
+        || entry.valor_ipi != null || entry.valor_cbs != null || entry.valor_ibs != null
+      const taxSum = hasLrBreakdown
+        ? (Number(entry.valor_icms) || 0) + (Number(entry.valor_pis) || 0) + (Number(entry.valor_cofins) || 0)
+          + (Number(entry.valor_ipi) || 0) + (Number(entry.valor_cbs) || 0) + (Number(entry.valor_ibs) || 0)
+        : 0
+      data.custoProduto[monthKey] += entry.amount - taxSum
+      if (taxSum > 0) data.impostosRecuperaveisCusto[monthKey] += taxSum
       continue
     }
 
@@ -407,10 +429,13 @@ function buildDreLucroRealPresumido(
   rows.push(buildRow('receita_liquida', '(=) Receita Líquida de Venda Interna', receitaLiquida, receitaBruta, { isSubtotal: true, sign: '=' }))
 
   // CMV — MO Produtiva sempre aparece como linha separada (independente do calcType)
-  const custoProdutos = agg.custoProduto
+  const custoProdutos = agg.custoProduto // custo líquido (base sem impostos recuperáveis)
   const cmvTotal = sumMonths(custoProdutos, agg.maoDeObraProdutiva)
   rows.push(buildRow('cmv_header', '(-) Custos Líquido dos Produtos (CMV)', cmvTotal, receitaBruta, { sign: '-' }))
   rows.push(buildRow('cmv_custo_prod', 'Custo Líquido dos Produtos', custoProdutos, receitaBruta, { indent: 2 }))
+  if (taxRegime === 'LUCRO_REAL' || taxRegime === 'SIMPLES_HIBRIDO') {
+    rows.push(buildRow('cmv_impostos_rec', 'Custos dos Impostos Recuperáveis sobre Compras', agg.impostosRecuperaveisCusto, receitaBruta, { indent: 2 }))
+  }
   rows.push(buildRow('cmv_mo_direta', 'Custo Mão de Obra Direta (Produtiva)', agg.maoDeObraProdutiva, receitaBruta, { indent: 2 }))
 
   // Lucro Bruto
