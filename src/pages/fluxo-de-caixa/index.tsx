@@ -411,12 +411,14 @@ export default function CashFlow() {
     const [expInstallments, setExpInstallments] = useState<{ date: any; amount: number }[]>([{ date: null, amount: 0 }])
     const [expInstallmentPreset, setExpInstallmentPreset] = useState<'customizado' | '30' | '30_60' | '30_60_90' | '30_60_90_120' | '30_60_90_120_150'>('customizado')
 
-    // Lucro Real — detalhamento de impostos no custo dos produtos
+    // Lucro Real / Simples Híbrido — detalhamento de impostos no custo dos produtos
     const [selectedExpenseCategory, setSelectedExpenseCategory] = useState('')
     const [lrValorIcms, setLrValorIcms] = useState<number>(0)
     const [lrValorPis, setLrValorPis] = useState<number>(0)
     const [lrValorCofins, setLrValorCofins] = useState<number>(0)
     const [lrValorIpi, setLrValorIpi] = useState<number>(0)
+    const [lrValorCbs, setLrValorCbs] = useState<number>(0)
+    const [lrValorIbs, setLrValorIbs] = useState<number>(0)
 
     const [form] = Form.useForm()
 
@@ -1001,6 +1003,8 @@ export default function CashFlow() {
                                 valor_pis: Math.round(lrValorPis * ratio * 100) / 100,
                                 valor_cofins: Math.round(lrValorCofins * ratio * 100) / 100,
                                 valor_ipi: Math.round(lrValorIpi * ratio * 100) / 100,
+                                valor_cbs: Math.round(lrValorCbs * ratio * 100) / 100,
+                                valor_ibs: Math.round(lrValorIbs * ratio * 100) / 100,
                             } : {}),
                         })
                     })
@@ -1024,6 +1028,8 @@ export default function CashFlow() {
                                 valor_pis: Math.round(lrValorPis / parcelas * 100) / 100,
                                 valor_cofins: Math.round(lrValorCofins / parcelas * 100) / 100,
                                 valor_ipi: Math.round(lrValorIpi / parcelas * 100) / 100,
+                                valor_cbs: Math.round(lrValorCbs / parcelas * 100) / 100,
+                                valor_ibs: Math.round(lrValorIbs / parcelas * 100) / 100,
                             } : {}),
                         })
                     }
@@ -1046,6 +1052,8 @@ export default function CashFlow() {
             setLrValorPis(0)
             setLrValorCofins(0)
             setLrValorIpi(0)
+            setLrValorCbs(0)
+            setLrValorIbs(0)
             await fetchData()
         } catch (err: any) {
             if (err && err.name === 'ValidateError') {
@@ -1075,7 +1083,7 @@ export default function CashFlow() {
                             <Button loading={loadingPrevBalance} onClick={handlePrevMonthBalance}>
                                 Saldo do Mês Anterior
                             </Button>
-                            <Button type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setExpenseAmount(''); setExpPaymentMethod(''); setExpInstallments([{ date: null, amount: 0 }]); setExpInstallmentPreset('customizado'); setSelectedExpenseCategory(''); setLrValorIcms(0); setLrValorPis(0); setLrValorCofins(0); setLrValorIpi(0); setDrawerOpen(true) }}>
+                            <Button type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setExpenseAmount(''); setExpPaymentMethod(''); setExpInstallments([{ date: null, amount: 0 }]); setExpInstallmentPreset('customizado'); setSelectedExpenseCategory(''); setLrValorIcms(0); setLrValorPis(0); setLrValorCofins(0); setLrValorIpi(0); setLrValorCbs(0); setLrValorIbs(0); setDrawerOpen(true) }}>
                                 + Novo Lançamento
                             </Button>
                         </>
@@ -1526,7 +1534,7 @@ export default function CashFlow() {
             </div>
 
             {/* Drawer: Novo Lançamento (Despesa) */}
-            <Drawer title="Novo Lançamento de Despesa" width={680} open={drawerOpen} onClose={() => { setDrawerOpen(false); setExpPaymentMethod(''); setExpInstallments([{ date: null, amount: 0 }]); setExpInstallmentPreset('customizado'); setSelectedExpenseCategory(''); setLrValorIcms(0); setLrValorPis(0); setLrValorCofins(0); setLrValorIpi(0) }}
+            <Drawer title="Novo Lançamento de Despesa" width={680} open={drawerOpen} onClose={() => { setDrawerOpen(false); setExpPaymentMethod(''); setExpInstallments([{ date: null, amount: 0 }]); setExpInstallmentPreset('customizado'); setSelectedExpenseCategory(''); setLrValorIcms(0); setLrValorPis(0); setLrValorCofins(0); setLrValorIpi(0); setLrValorCbs(0); setLrValorIbs(0) }}
                 extra={<Button type="primary" onClick={handleSaveEntry}>Salvar</Button>}>
                 <Form form={form} layout="vertical">
                     <Form.Item name="expense_category" label="Categoria da Despesa" rules={[{ required: true, message: 'Selecione a categoria' }]}>
@@ -1542,6 +1550,8 @@ export default function CashFlow() {
                                 setLrValorPis(0)
                                 setLrValorCofins(0)
                                 setLrValorIpi(0)
+                                setLrValorCbs(0)
+                                setLrValorIbs(0)
                             }}
                         />
                     </Form.Item>
@@ -1599,6 +1609,22 @@ export default function CashFlow() {
                                         min={0} step={0.01} precision={2} style={{ width: '100%' }}
                                         addonBefore="R$" value={lrValorIpi || undefined} placeholder="0,00"
                                         decimalSeparator="," onChange={(v) => setLrValorIpi(Number(v) || 0)}
+                                    />
+                                </div>
+                                <div>
+                                    <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Valor CBS</div>
+                                    <InputNumber
+                                        min={0} step={0.01} precision={2} style={{ width: '100%' }}
+                                        addonBefore="R$" value={lrValorCbs || undefined} placeholder="0,00"
+                                        decimalSeparator="," onChange={(v) => setLrValorCbs(Number(v) || 0)}
+                                    />
+                                </div>
+                                <div>
+                                    <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Valor IBS</div>
+                                    <InputNumber
+                                        min={0} step={0.01} precision={2} style={{ width: '100%' }}
+                                        addonBefore="R$" value={lrValorIbs || undefined} placeholder="0,00"
+                                        decimalSeparator="," onChange={(v) => setLrValorIbs(Number(v) || 0)}
                                     />
                                 </div>
                             </div>
