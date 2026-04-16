@@ -493,10 +493,11 @@ export default function CashFlow() {
     const isSimples = taxRegime === 'SIMPLES_NACIONAL' || taxRegime === 'MEI'
     const isLucroReal = taxRegime === 'LUCRO_REAL'
     const isLucroPresumido = taxRegime === 'LUCRO_PRESUMIDO'
-    const isLrCustoProdutos = isLucroReal && (LR_CUSTO_CATEGORIES_SPECIAL as readonly string[]).includes(selectedExpenseCategory)
+    const isSimplesHibrido = taxRegime === 'SIMPLES_HIBRIDO'
+    const isLrCustoProdutos = (isLucroReal || isSimplesHibrido) && (LR_CUSTO_CATEGORIES_SPECIAL as readonly string[]).includes(selectedExpenseCategory)
     const activeCategoryOptions = isSimples
         ? SN_EXPENSE_CATEGORY_OPTIONS
-        : isLucroReal
+        : isLucroReal || isSimplesHibrido
             ? LR_EXPENSE_CATEGORY_OPTIONS
             : isLucroPresumido
                 ? LP_EXPENSE_CATEGORY_OPTIONS
