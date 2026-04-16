@@ -86,7 +86,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
     const isLucroPresumidoSvcComp = currentUser?.taxableRegime === 'LUCRO_PRESUMIDO'
     const isLpRetSvcComp = currentUser?.taxableRegime === 'LUCRO_PRESUMIDO_RET'
     const isSHSvcComp = currentUser?.taxableRegime === 'SIMPLES_HIBRIDO'
-    const isLRorLPSvcComp = isLucroRealSvcComp || isLucroPresumidoSvcComp || isLpRetSvcComp || isSHSvcComp
+    const isLRorLPSvcComp = isLucroRealSvcComp || isLucroPresumidoSvcComp || isLpRetSvcComp
 
     // IVA DUAL — fator de redução por serviço
     const [ivaDualReductionFactor, setIvaDualReductionFactor] = useState<number | null>(
@@ -247,9 +247,9 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
         const isLucroRealSvc = currentUser?.taxableRegime === 'LUCRO_REAL'
         const isLucroPresumidoSvc = currentUser?.taxableRegime === 'LUCRO_PRESUMIDO'
         const isSHSvc = currentUser?.taxableRegime === 'SIMPLES_HIBRIDO'
-        const isLRorLPSvc = isLucroRealSvc || isLucroPresumidoSvc || isSHSvc
+        const isLRorLPSvc = isLucroRealSvc || isLucroPresumidoSvc
         let taxPct: number
-        if (isLucroRealSvc || isSHSvc) {
+        if (isLucroRealSvc) {
             const irpjPct = profitPercent * 0.15
             const csllPct = profitPercent * 0.09
             taxPct = (taxesPct + irpjPct + csllPct + additionalIrpjPercent) / 100
@@ -307,10 +307,10 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
         const profitVal = result.profitValue
 
         // LUCRO_REAL: IRPJ/CSLL derivados do lucro
-        const irpjPctLR = (isLucroRealSvc || isSHSvc) ? profitPercent * 0.15 : 0
-        const csllPctLR = (isLucroRealSvc || isSHSvc) ? profitPercent * 0.09 : 0
-        const irpjValLR = (isLucroRealSvc || isSHSvc) ? profitVal * 0.15 : 0
-        const csllValLR = (isLucroRealSvc || isSHSvc) ? profitVal * 0.09 : 0
+        const irpjPctLR = isLucroRealSvc ? profitPercent * 0.15 : 0
+        const csllPctLR = isLucroRealSvc ? profitPercent * 0.09 : 0
+        const irpjValLR = isLucroRealSvc ? profitVal * 0.15 : 0
+        const csllValLR = isLucroRealSvc ? profitVal * 0.09 : 0
         // LUCRO_PRESUMIDO: IRPJ/CSLL derivados da presunção (taxableRegimePercent = IRPJ+CSLL combinado, proporção 15:9)
         const irpjPctLP = isLucroPresumidoSvc ? taxableRegimePercent * 15 / 24 : 0
         const csllPctLP = isLucroPresumidoSvc ? taxableRegimePercent * 9 / 24 : 0
@@ -319,7 +319,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
         const adicionalIrpjValLR = isLRorLPSvc ? Number((priceUnit * additionalIrpjPercent / 100).toFixed(2)) : 0
 
         // MO administrativa e Despesas fixas incorporadas no custo por minuto
-        const totalPct = (isLucroRealSvc || isSHSvc)
+        const totalPct = isLucroRealSvc
             ? variablePct + financialPct + irpjPctLR + csllPctLR + additionalIrpjPercent + commissionPercent + profitPercent
             : isLucroPresumidoSvc
               ? variablePct + financialPct + taxesPct + irpjPctLP + csllPctLP + additionalIrpjPercent + commissionPercent + profitPercent
@@ -428,7 +428,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                 profit_percent: profitPercent,
                 taxable_regime_percent: taxableRegimePercent,
                 additional_irpj_percent: additionalIrpjPercent || 0,
-                pis_cofins_pct: (isLucroRealSvcComp || isLucroPresumidoSvcComp || isSHSvcComp) ? (pisCofinsLRPct || 0) : 0,
+                pis_cofins_pct: (isLucroRealSvcComp || isLucroPresumidoSvcComp) ? (pisCofinsLRPct || 0) : 0,
                 commission_table_id: commissionTableId || null,
                 min_quantity: 0,
                 taxes_launched: true,
@@ -888,7 +888,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                             {pricingRow('Despesas financeiras', pricing.financialPct, pricing.financialVal)}
                             {isSN
                                 ? pricingRow(taxLabel, displayTaxPct, displayTaxVal, 'tax')
-                                : !isLpRetDisplay && pricingRow(taxLabel, displayTaxPct, displayTaxVal)
+                                : !isLpRetDisplay && !isSHDisplay && pricingRow(taxLabel, displayTaxPct, displayTaxVal)
                             }
                             {!isSN && !taxPreview?.isMei && !isLucroRealDisplay && !isLucroPresumidoDisplay && !isLpRetDisplay && !isSHDisplay && pricingRow(
                                 `Impostos${taxPreview?.regimeLabel ? ` (${taxPreview.regimeLabel})` : ''}`,
@@ -897,22 +897,23 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                             {pricingRow('Comissão', commissionPercent, pricing.commissionVal, 'commission')}
                             {pricingRow('Lucro', profitPercent, pricing.profitVal, 'profit')}
                             {isLpRetDisplay && pricingRow('RET – Tributação unificada', taxableRegimePercent, pricing.taxRegimeVal, 'tax', 'Alíquota RET consolidada (IRPJ 1,71% + CSLL 0,51% + PIS 0,37% + COFINS 1,41%). Puxada das configurações, editável por serviço.')}
-                            {(isLucroRealDisplay || isLucroPresumidoDisplay || isSHDisplay) && pricingRow(
+                            {isSHDisplay && pricingRow('Simples Híbrido (%)', taxableRegimePercent, pricing.taxRegimeVal, 'tax', 'Alíquota total consolidada do Simples Híbrido (ICMS + PIS + COFINS + ISS + IRPJ + CSLL). Puxada das configurações, editável por serviço.')}
+                            {(isLucroRealDisplay || isLucroPresumidoDisplay) && pricingRow(
                                 'IRPJ (15% sobre lucro)',
-                                (isLucroRealDisplay || isSHDisplay) ? pricing.irpjPctLR : pricing.irpjPctLP,
-                                (isLucroRealDisplay || isSHDisplay) ? pricing.irpjValLR : pricing.irpjValLP,
+                                isLucroRealDisplay ? pricing.irpjPctLR : pricing.irpjPctLP,
+                                isLucroRealDisplay ? pricing.irpjValLR : pricing.irpjValLP,
                                 undefined,
                                 'Imposto de Renda Pessoa Jurídica — calculado automaticamente sobre o lucro (LR) ou via percentual de presunção (LP).'
                             )}
-                            {(isLucroRealDisplay || isLucroPresumidoDisplay || isSHDisplay) && pricingRow(
+                            {(isLucroRealDisplay || isLucroPresumidoDisplay) && pricingRow(
                                 'CSLL (9% sobre lucro)',
-                                (isLucroRealDisplay || isSHDisplay) ? pricing.csllPctLR : pricing.csllPctLP,
-                                (isLucroRealDisplay || isSHDisplay) ? pricing.csllValLR : pricing.csllValLP,
+                                isLucroRealDisplay ? pricing.csllPctLR : pricing.csllPctLP,
+                                isLucroRealDisplay ? pricing.csllValLR : pricing.csllValLP,
                                 undefined,
                                 'Contribuição Social sobre o Lucro Líquido — calculada automaticamente sobre o lucro (LR) ou via percentual de presunção (LP).'
                             )}
-                            {isLRorLPDisplay && pricingRow('Alíq. adicional IRPJ', additionalIrpjPercent, pricing.adicionalIrpjValLR, 'additionalIrpj', 'Alíquota da parcela adicional do IRPJ. Calculada automaticamente com base no faturamento anual estimado.')}
-                            {(isLucroRealDisplay || isLucroPresumidoDisplay || isSHDisplay) && pricingRow(
+                            {(isLucroRealDisplay || isLucroPresumidoDisplay) && pricingRow('Alíq. adicional IRPJ', additionalIrpjPercent, pricing.adicionalIrpjValLR, 'additionalIrpj', 'Alíquota da parcela adicional do IRPJ. Calculada automaticamente com base no faturamento anual estimado.')}
+                            {(isLucroRealDisplay || isLucroPresumidoDisplay) && pricingRow(
                                 'PIS/Cofins (%)',
                                 pisCofinsLRPct,
                                 pricing.sellingPrice * pisCofinsLRPct / 100,
@@ -931,7 +932,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                         <span style={{ fontWeight: 600 }}>{(100 - pricing.totalPct).toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%</span>
                     </div>
 
-                    {isLRorLPDisplay && (
+                    {(isLucroRealDisplay || isLucroPresumidoDisplay) && (
                         <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 12, marginTop: 4 }}>
                             <span style={{ color: '#64748b' }}>Valor do produto precificado com ICMS, PIS/COFINS</span>
                             <span style={{ fontWeight: 600, color: '#e2e8f0' }}>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 }).format(pricing.sellingPrice)}</span>
@@ -939,7 +940,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                     )}
 
                     {/* Fator de redução IVA DUAL */}
-                    {isLRorLPDisplay && (
+                    {(isLucroRealDisplay || isLucroPresumidoDisplay) && (
                         <div style={{ marginTop: 14, background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '12px 14px', border: '1px solid rgba(255,255,255,0.07)' }}>
                             <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 10 }}>
                                 Fator de Redução da Alíquota do IVA DUAL
@@ -1027,6 +1028,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                                     </table>
                                 </div>
 
+                                {!isSHDisplay && (
                                 <div style={{ marginTop: 8, background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '12px 14px', border: '1px solid rgba(255,255,255,0.07)' }}>
                                     <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' as const, letterSpacing: 0.6, marginBottom: 10 }}>
                                         Impostos (IS / IPI)
@@ -1035,6 +1037,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                                         <tbody>{isIpiRows.map(renderRow)}</tbody>
                                     </table>
                                 </div>
+                                )}
 
                                 {_total > 0 && (
                                     <div style={{ background: '#1a1a2e', padding: 12, borderRadius: 8, fontSize: 12, marginTop: 10 }}>

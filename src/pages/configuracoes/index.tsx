@@ -104,6 +104,15 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                 ret_rate: tenantSettings.ret_rate != null ? Number(tenantSettings.ret_rate) * 100 : 4,
                 ibs_reference_pct: tenantSettings.ibs_reference_pct != null ? Number(tenantSettings.ibs_reference_pct) : undefined,
                 cbs_reference_pct: tenantSettings.cbs_reference_pct != null ? Number(tenantSettings.cbs_reference_pct) : undefined,
+                // Simples Híbrido: espelhar ISS e receita anual do onboarding para configurações
+                ...(r === 'SIMPLES_HIBRIDO' && {
+                    iss_municipality_rate: tenantSettings.iss_municipality_rate != null
+                        ? Number(tenantSettings.iss_municipality_rate) * 100
+                        : 5,
+                    lp_estimated_annual_revenue: tenantSettings.lp_estimated_annual_revenue != null
+                        ? Number(tenantSettings.lp_estimated_annual_revenue)
+                        : undefined,
+                }),
             })
             if (r === 'SIMPLES_NACIONAL' && tenantSettings.simples_anexo) {
                 calcSimplesRate(tenantSettings.simples_anexo, Number(tenantSettings.simples_revenue_12m) || 0)
@@ -542,34 +551,49 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                                     showIcon
                                     style={{ marginBottom: 16 }}
                                 />
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
-                                    <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
-                                        <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>ICMS Interno ({stateCode})</div>
-                                        <div style={{ fontSize: 18, fontWeight: 700 }}>{icmsPercent != null ? `${icmsPercent.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%` : '—'}</div>
-                                    </Card>
-                                    <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
-                                        <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>PIS (não-cumulativo)</div>
-                                        <div style={{ fontSize: 18, fontWeight: 700 }}>1,65%</div>
-                                    </Card>
-                                    <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
-                                        <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>COFINS (não-cumulativo)</div>
-                                        <div style={{ fontSize: 18, fontWeight: 700 }}>7,60%</div>
-                                    </Card>
-                                    <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
-                                        <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>ISS Municipal</div>
-                                        <div style={{ fontSize: 18, fontWeight: 700 }}>{issPercent.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%</div>
-                                    </Card>
-                                    <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
-                                        <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>IRPJ (estimativa)</div>
-                                        <div style={{ fontSize: 18, fontWeight: 700 }}>1,20%</div>
-                                        <div style={{ fontSize: 10, color: 'var(--color-neutral-400)' }}>8% × 15%</div>
-                                    </Card>
-                                    <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
-                                        <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>CSLL (estimativa)</div>
-                                        <div style={{ fontSize: 18, fontWeight: 700 }}>1,08%</div>
-                                        <div style={{ fontSize: 10, color: 'var(--color-neutral-400)' }}>12% × 9%</div>
-                                    </Card>
-                                </div>
+                                {(() => {
+                                    const shIcms = icmsPercent ?? 0
+                                    const shTotal = shIcms + 1.65 + 7.60 + issPercent + 1.20 + 1.08
+                                    return (
+                                        <>
+                                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+                                                <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
+                                                    <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>ICMS Interno ({stateCode})</div>
+                                                    <div style={{ fontSize: 18, fontWeight: 700 }}>{icmsPercent != null ? `${icmsPercent.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%` : '—'}</div>
+                                                </Card>
+                                                <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
+                                                    <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>PIS (não-cumulativo)</div>
+                                                    <div style={{ fontSize: 18, fontWeight: 700 }}>1,65%</div>
+                                                </Card>
+                                                <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
+                                                    <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>COFINS (não-cumulativo)</div>
+                                                    <div style={{ fontSize: 18, fontWeight: 700 }}>7,60%</div>
+                                                </Card>
+                                                <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
+                                                    <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>ISS Municipal</div>
+                                                    <div style={{ fontSize: 18, fontWeight: 700 }}>{issPercent.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%</div>
+                                                </Card>
+                                                <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
+                                                    <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>IRPJ (estimativa)</div>
+                                                    <div style={{ fontSize: 18, fontWeight: 700 }}>1,20%</div>
+                                                    <div style={{ fontSize: 10, color: 'var(--color-neutral-400)' }}>8% × 15%</div>
+                                                </Card>
+                                                <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
+                                                    <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>CSLL (estimativa)</div>
+                                                    <div style={{ fontSize: 18, fontWeight: 700 }}>1,08%</div>
+                                                    <div style={{ fontSize: 10, color: 'var(--color-neutral-400)' }}>12% × 9%</div>
+                                                </Card>
+                                            </div>
+                                            <Card size="small" style={{ textAlign: 'center', borderRadius: 8, marginTop: 12, background: 'rgba(247,144,9,0.08)', border: '1px solid rgba(247,144,9,0.3)' }}>
+                                                <div style={{ fontSize: 11, color: 'var(--color-neutral-400)' }}>Simples Híbrido (%) — total consolidado</div>
+                                                <div style={{ fontSize: 22, fontWeight: 700, color: '#F79009' }}>
+                                                    {shTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%
+                                                </div>
+                                                <div style={{ fontSize: 10, color: 'var(--color-neutral-400)' }}>ICMS + PIS + COFINS + ISS + IRPJ + CSLL</div>
+                                            </Card>
+                                        </>
+                                    )
+                                })()}
                                 <div style={{ marginTop: 16, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                                     <Form.Item name="iss_municipality_rate" label="ISS Municipal (%)">
                                         <InputNumber min={0} max={10} step={0.1} style={{ width: '100%' }} addonAfter="%" formatter={(v) => v != null ? String(v).replace('.', ',') : ''} parser={(v) => Number((v || '0').replace(',', '.'))} />
