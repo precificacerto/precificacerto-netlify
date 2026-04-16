@@ -166,14 +166,16 @@ export const Content: FC<ContentProps> = ({
 
   const isLucroRealProd = currentUser?.taxableRegime === 'LUCRO_REAL'
   const isLucroPresumidoProdOnly = currentUser?.taxableRegime === 'LUCRO_PRESUMIDO'
+  const isSimplesHibridoProd = currentUser?.taxableRegime === 'SIMPLES_HIBRIDO'
   const isLRorLP = isLucroRealProd || isLucroPresumidoProdOnly
+  const isLRorLPorSH = isLRorLP || isSimplesHibridoProd
 
-  // Alíquotas de referência IBS/CBS do tenant (Lucro Real)
+  // Alíquotas de referência IBS/CBS do tenant (Lucro Real / Simples Híbrido)
   const [ibsReferencePct, setIbsReferencePct] = useState<number>(0)
   const [cbsReferencePct, setCbsReferencePct] = useState<number>(0)
 
   useEffect(() => {
-    if (!isLRorLP) return
+    if (!isLRorLPorSH) return
     async function fetchIvaRefRates() {
       const tenantId = currentUser?.tenant_id
       if (!tenantId) return
@@ -202,7 +204,7 @@ export const Content: FC<ContentProps> = ({
       }
     }
     fetchIvaRefRates()
-  }, [isLRorLP, currentUser?.tenant_id, isEditingMode])
+  }, [isLRorLPorSH, currentUser?.tenant_id, isEditingMode])
 
   // ICMS e PIS/COFINS para Lucro Real (migrados do modal de lançar impostos)
   const initialIcms = (product as any)?.icms_pct != null ? Number((product as any).icms_pct) : 0
@@ -225,10 +227,10 @@ export const Content: FC<ContentProps> = ({
   )
 
   // Handler: ICMS muda → auto-recalcula PIS/COFINS via fórmula
-  // LP: cumulativo 3,65% × (1 − ICMS); LR: não-cumulativo 9,25% × (1 − ICMS)
+  // LP: cumulativo 3,65% × (1 − ICMS); LR/SH: não-cumulativo 9,25% × (1 − ICMS)
   function handleIcmsPctChange(val: number) {
     setIcmsPct(val)
-    if (isLRorLP) {
+    if (isLRorLPorSH) {
       const pisCofinsBase = isLucroPresumidoProdOnly ? 3.65 : 9.25
       const newPisCofins = parseFloat((pisCofinsBase * (1 - val / 100)).toFixed(4))
       setPisCofinsLRPct(newPisCofins)
@@ -779,7 +781,8 @@ export const Content: FC<ContentProps> = ({
       // Sem recalcular — o valor já foi calculado pelo doProductCalc (preview)
       const isLucroRealSave = currentUser?.taxableRegime === 'LUCRO_REAL'
       const isLucroPresumidoSave = currentUser?.taxableRegime === 'LUCRO_PRESUMIDO'
-      const isLRorLPSave = isLucroRealSave || isLucroPresumidoSave
+      const isSHSave = currentUser?.taxableRegime === 'SIMPLES_HIBRIDO'
+      const isLRorLPSave = isLucroRealSave || isLucroPresumidoSave || isSHSave
       const terceirizadasSum = isLRorLPSave
         ? (freightValue || 0) + (insuranceValue || 0) + (accessoryExpensesValue || 0)
         : 0
@@ -852,9 +855,9 @@ export const Content: FC<ContentProps> = ({
       }
 
       // Try to save columns that may not exist yet (pending migration)
-      // Calcular preço final para LUCRO_REAL/LUCRO_PRESUMIDO (com impostos IBS/CBS/IS/IPI)
+      // Calcular preço final para LUCRO_REAL/LUCRO_PRESUMIDO/SIMPLES_HIBRIDO (com impostos IBS/CBS/IS/IPI)
       let finalSalePriceForSave = salePriceToSave
-      if (isLRorLP) {
+      if (isLRorLPorSH) {
         const _totalEmb = (icmsPct || 0) + (pisCofinsLRPct || 0)
         const _grossDen = _totalEmb > 0 ? (100 - _totalEmb) / 100 : 1
         const _grossed = _grossDen > 0 ? salePriceToSave / _grossDen : salePriceToSave
@@ -877,7 +880,7 @@ export const Content: FC<ContentProps> = ({
       extraFields.freight_value = freightValue || 0
       extraFields.insurance_value = insuranceValue || 0
       extraFields.accessory_expenses_value = accessoryExpensesValue || 0
-      if (isLRorLP) {
+      if (isLRorLPorSH) {
         extraFields.icms_pct = icmsPct || 0
         extraFields.pis_cofins_pct = pisCofinsLRPct || 0
         extraFields.iva_dual_reduction_factor = ivaDualReductionFactor ?? null
@@ -1036,8 +1039,8 @@ export const Content: FC<ContentProps> = ({
       })
 
       // Garantir que sale_price = valor do "Preço de Venda por Unidade" (edge function pode sobrescrever)
-      // Para LUCRO_REAL: usa finalSalePriceForSave (inclui impostos IBS/CBS/IS/IPI se preenchidos)
-      const effectiveSalePrice = isLRorLP ? finalSalePriceForSave : salePriceToSave
+      // Para LUCRO_REAL/LUCRO_PRESUMIDO/SIMPLES_HIBRIDO: usa finalSalePriceForSave (inclui impostos IBS/CBS/IS/IPI se preenchidos)
+      const effectiveSalePrice = isLRorLPorSH ? finalSalePriceForSave : salePriceToSave
       if (effectiveSalePrice > 0) {
         await supabase.from('products').update({ sale_price: effectiveSalePrice }).eq('id', productId)
       }
@@ -1693,7 +1696,7 @@ export const Content: FC<ContentProps> = ({
             </div>
           )}
 
-          {isLRorLP && (
+          {isLRorLPorSH && (
             <div>
               <label style={{ display: 'block', marginBottom: 6, fontWeight: 500, fontSize: 13 }}>
                 Fator de redução da alíquota do IVA DUAL&nbsp;

@@ -87,6 +87,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
     const isLpRetSvcComp = currentUser?.taxableRegime === 'LUCRO_PRESUMIDO_RET'
     const isSHSvcComp = currentUser?.taxableRegime === 'SIMPLES_HIBRIDO'
     const isLRorLPSvcComp = isLucroRealSvcComp || isLucroPresumidoSvcComp || isLpRetSvcComp
+    const isLRorLPorSHSvcComp = isLRorLPSvcComp || isSHSvcComp
 
     // IVA DUAL — fator de redução por serviço
     const [ivaDualReductionFactor, setIvaDualReductionFactor] = useState<number | null>(
@@ -98,7 +99,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
     const [cbsReferencePct, setCbsReferencePct] = useState<number>(0)
 
     useEffect(() => {
-        if (!isLRorLPSvcComp) return
+        if (!isLRorLPorSHSvcComp) return
         async function fetchIvaRefRates() {
             const tenantId = currentUser?.tenant_id
             if (!tenantId) return
@@ -113,7 +114,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
             }
         }
         fetchIvaRefRates()
-    }, [isLRorLPSvcComp, currentUser?.tenant_id])
+    }, [isLRorLPorSHSvcComp, currentUser?.tenant_id])
 
     // Handler: fator IVA DUAL muda → auto-recalcula IBS e CBS
     function handleIvaDualFactorChange(factor: number | null) {
@@ -398,10 +399,10 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
             }
             setCommissionTableError(false)
 
-            // Calcular impostos IBS/CBS/IS/IPI para LUCRO_REAL e LUCRO_PRESUMIDO
+            // Calcular impostos IBS/CBS/IS/IPI para LUCRO_REAL, LUCRO_PRESUMIDO e SIMPLES_HIBRIDO
             let svcFinalPrice = pricing.sellingPrice
             let svcIsVal = 0, svcIbsVal = 0, svcCbsVal = 0, svcIpiVal = 0
-            if (isLRorLPSvcComp) {
+            if (isLRorLPorSHSvcComp) {
                 const _pisCof = pisCofinsLRPct || 0
                 const _grossDen = _pisCof > 0 ? (100 - _pisCof) / 100 : 1
                 const _grossed = _grossDen > 0 ? pricing.sellingPrice / _grossDen : pricing.sellingPrice
@@ -428,22 +429,22 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                 profit_percent: profitPercent,
                 taxable_regime_percent: taxableRegimePercent,
                 additional_irpj_percent: additionalIrpjPercent || 0,
-                pis_cofins_pct: (isLucroRealSvcComp || isLucroPresumidoSvcComp) ? (pisCofinsLRPct || 0) : 0,
+                pis_cofins_pct: (isLucroRealSvcComp || isLucroPresumidoSvcComp || isSHSvcComp) ? (pisCofinsLRPct || 0) : 0,
                 commission_table_id: commissionTableId || null,
                 min_quantity: 0,
                 taxes_launched: true,
-                is_pct: isLRorLPSvcComp ? (isPct || 0) : 0,
-                is_value: isLRorLPSvcComp ? svcIsVal : 0,
-                ibs_pct: isLRorLPSvcComp ? (ibsPct || 0) : 0,
-                ibs_value: isLRorLPSvcComp ? svcIbsVal : 0,
-                cbs_pct: isLRorLPSvcComp ? (cbsPct || 0) : 0,
-                cbs_value: isLRorLPSvcComp ? svcCbsVal : 0,
-                ipi_pct: isLRorLPSvcComp ? (ipiPct || 0) : 0,
-                ipi_value: isLRorLPSvcComp ? svcIpiVal : 0,
-                sale_price_base: isLRorLPSvcComp ? pricing.sellingPrice : null,
-                sale_price_after_taxes: isLRorLPSvcComp ? svcFinalPrice : null,
-                valor_precificado_icms_piscofins: isLRorLPSvcComp ? pricing.sellingPrice : null,
-                iva_dual_reduction_factor: isLRorLPSvcComp ? (ivaDualReductionFactor ?? null) : null,
+                is_pct: isLRorLPorSHSvcComp ? (isPct || 0) : 0,
+                is_value: isLRorLPorSHSvcComp ? svcIsVal : 0,
+                ibs_pct: isLRorLPorSHSvcComp ? (ibsPct || 0) : 0,
+                ibs_value: isLRorLPorSHSvcComp ? svcIbsVal : 0,
+                cbs_pct: isLRorLPorSHSvcComp ? (cbsPct || 0) : 0,
+                cbs_value: isLRorLPorSHSvcComp ? svcCbsVal : 0,
+                ipi_pct: isLRorLPorSHSvcComp ? (ipiPct || 0) : 0,
+                ipi_value: isLRorLPorSHSvcComp ? svcIpiVal : 0,
+                sale_price_base: isLRorLPorSHSvcComp ? pricing.sellingPrice : null,
+                sale_price_after_taxes: isLRorLPorSHSvcComp ? svcFinalPrice : null,
+                valor_precificado_icms_piscofins: isLRorLPorSHSvcComp ? pricing.sellingPrice : null,
+                iva_dual_reduction_factor: isLRorLPorSHSvcComp ? (ivaDualReductionFactor ?? null) : null,
                 recurrence_active: recurrenceActive,
                 recurrence_days: recurrenceActive && recurrenceDays ? recurrenceDays : null,
                 recurrence_message: recurrenceActive && recurrenceMessage ? recurrenceMessage : null,
@@ -940,7 +941,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                     )}
 
                     {/* Fator de redução IVA DUAL */}
-                    {(isLucroRealDisplay || isLucroPresumidoDisplay) && (
+                    {(isLucroRealDisplay || isLucroPresumidoDisplay || isSHDisplay) && (
                         <div style={{ marginTop: 14, background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '12px 14px', border: '1px solid rgba(255,255,255,0.07)' }}>
                             <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 10 }}>
                                 Fator de Redução da Alíquota do IVA DUAL

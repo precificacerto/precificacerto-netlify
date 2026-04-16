@@ -16,7 +16,7 @@ import { buildCalcBase } from '@/utils/build-calc-base'
 
 const ProductDetails = () => {
   const [messageApi, contextHolder] = message.useMessage()
-  const { currentUser, tenantId } = useAuth()
+  const { currentUser, tenantId, loading: authLoading } = useAuth()
   const router = useRouter()
   const { id } = router.query
 
@@ -26,6 +26,13 @@ const ProductDetails = () => {
   const [loading, setLoading] = useState(true)
 
   const effectiveTenantId = tenantId ?? currentUser?.tenant_id
+
+  // Se auth terminou mas não há tenantId, encerrar loading para não ficar em Spin infinito
+  useEffect(() => {
+    if (!authLoading && !effectiveTenantId) {
+      setLoading(false)
+    }
+  }, [authLoading, effectiveTenantId])
 
   useEffect(() => {
     if (!effectiveTenantId || !id) return

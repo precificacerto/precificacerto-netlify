@@ -15,7 +15,7 @@ interface RawItem {
 }
 
 export default function EditServicePage() {
-    const { currentUser, tenantId } = useAuth()
+    const { currentUser, tenantId, loading: authLoading } = useAuth()
     const router = useRouter()
     const { id } = router.query
     const effectiveTenantId = tenantId ?? currentUser?.tenant_id
@@ -25,6 +25,13 @@ export default function EditServicePage() {
     const [expenseConfig, setExpenseConfig] = useState<any>(null)
     const [taxPreview, setTaxPreview] = useState<TaxPreviewResult | null>(null)
     const [loading, setLoading] = useState(true)
+
+    // Se auth terminou mas não há tenantId, encerrar loading para não ficar em Spin infinito
+    useEffect(() => {
+        if (!authLoading && !effectiveTenantId) {
+            setLoading(false)
+        }
+    }, [authLoading, effectiveTenantId])
 
     useEffect(() => {
         if (!effectiveTenantId || !id) return

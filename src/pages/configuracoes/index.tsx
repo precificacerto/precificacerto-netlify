@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react'
-import { Button, Card, Form, Input, InputNumber, Radio, Select, Tabs, message, Alert, Spin, Divider } from 'antd'
+import { Button, Card, Form, Input, InputNumber, Radio, Select, Tabs, message, Alert, Spin, Divider, Modal } from 'antd'
 import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
 import { supabase } from '@/supabase/client'
@@ -719,6 +719,8 @@ function Settings() {
     const [tenant, setTenant] = useState<Tenant | null>(null)
     const [tenantSettings, setTenantSettings] = useState<TenantSettings | null>(null)
     const [brazilianStates, setBrazilianStates] = useState<BrazilianState[]>([])
+    const [regimeChangeAlertOpen, setRegimeChangeAlertOpen] = useState(false)
+    const [regimeChangeSummary, setRegimeChangeSummary] = useState<{ from: string; to: string } | null>(null)
 
     const [teamProductive, setTeamProductive] = useState(0)
     const [teamAdministrative, setTeamAdministrative] = useState(0)
@@ -812,10 +814,20 @@ function Settings() {
         }
     }
 
+    const REGIME_LABELS: Record<string, string> = {
+        MEI: 'MEI',
+        SIMPLES_NACIONAL: 'Simples Nacional',
+        LUCRO_PRESUMIDO: 'Lucro Presumido',
+        LUCRO_PRESUMIDO_RET: 'Lucro Presumido RET',
+        LUCRO_REAL: 'Lucro Real',
+        SIMPLES_HIBRIDO: 'Simples Híbrido',
+    }
+
     async function handleSaveTax() {
         try {
             const values = await taxForm.validateFields()
             if (!tenantSettings) return
+            const previousRegime = tenantSettings.tax_regime
             const revenueVal = Number(values.revenue_value) || 0
             const revenueType = values.revenue_input_type || 'TOTAL_12M'
             const simplesRevenue12m = revenueType === 'AVERAGE_MONTHLY' ? revenueVal * 12 : revenueVal
@@ -862,6 +874,11 @@ function Settings() {
             await fetchAll()
             // Refresh auth context to update taxableRegimeValue (calculated from tenant_settings)
             await refreshUser()
+            // Alertar usuário se o regime fiscal mudou
+            if (previousRegime && values.regime && previousRegime !== values.regime) {
+                setRegimeChangeSummary({ from: previousRegime, to: values.regime })
+                setRegimeChangeAlertOpen(true)
+            }
         } catch (error: any) {
             messageApi.error('Erro ao salvar: ' + (error.message || 'Verifique os campos'))
         }
@@ -972,6 +989,35 @@ function Settings() {
     return (
         <Layout title={PAGE_TITLES.SETTINGS} subtitle="Configure sua empresa, impostos, equipe e integrações">
             {contextHolder}
+            <Modal
+                open={regimeChangeAlertOpen}
+                title="⚠️ Regime fiscal alterado"
+                onOk={() => setRegimeChangeAlertOpen(false)}
+                onCancel={() => setRegimeChangeAlertOpen(false)}
+                okText="Entendido"
+                cancelButtonProps={{ style: { display: 'none' } }}
+                width={520}
+            >
+                <Alert
+                    type="warning"
+                    showIcon
+                    message="Revisão necessária"
+                    description={
+                        <div>
+                            <p style={{ marginBottom: 8 }}>
+                                O regime fiscal foi alterado de <strong>{REGIME_LABELS[regimeChangeSummary?.from || ''] || regimeChangeSummary?.from}</strong> para <strong>{REGIME_LABELS[regimeChangeSummary?.to || ''] || regimeChangeSummary?.to}</strong>.
+                            </p>
+                            <p style={{ marginBottom: 8 }}>
+                                Os produtos, serviços e itens cadastrados <strong>foram mantidos</strong>, mas podem conter alíquotas e configurações do regime anterior que precisam ser revisadas.
+                            </p>
+                            <p style={{ marginBottom: 0 }}>
+                                Acesse cada produto e serviço para revisar e atualizar as informações fiscais conforme o novo regime.
+                            </p>
+                        </div>
+                    }
+                    style={{ marginTop: 0 }}
+                />
+            </Modal>
             <div className="pc-card" style={{ minHeight: 500 }}>
                 {loading && !tenant ? (
                     <div style={{ textAlign: 'center', padding: 80 }}><Spin size="large" /></div>

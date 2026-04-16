@@ -15,12 +15,19 @@ import { buildCalcBase } from '@/utils/build-calc-base'
 
 const NewProduct = () => {
   const [messageApi, contextHolder] = message.useMessage()
-  const { currentUser, tenantId } = useAuth()
+  const { currentUser, tenantId, loading: authLoading } = useAuth()
   const [items, setItems] = useState<IItemModel[]>([])
   const [calcBase, setCalcBase] = useState<CalcBaseType | null>(null)
   const [loading, setLoading] = useState(true)
 
   const effectiveTenantId = tenantId ?? currentUser?.tenant_id
+
+  // Se auth terminou mas não há tenantId, encerrar loading para não ficar em Spin infinito
+  useEffect(() => {
+    if (!authLoading && !effectiveTenantId) {
+      setLoading(false)
+    }
+  }, [authLoading, effectiveTenantId])
 
   useEffect(() => {
     if (!effectiveTenantId) return
@@ -90,10 +97,19 @@ const NewProduct = () => {
     loadData()
   }, [effectiveTenantId])
 
-  if (loading || !effectiveTenantId || !calcBase) {
+  // Se auth ainda está carregando, aguardar — não ficamos presos se effectiveTenantId for null
+  if (authLoading || loading || !calcBase) {
     return (
       <Layout tabTitle={PAGE_TITLES.NEW_PRODUCT}>
         <div style={{ textAlign: 'center', padding: 80 }}><Spin size="large" /></div>
+      </Layout>
+    )
+  }
+
+  if (!effectiveTenantId) {
+    return (
+      <Layout tabTitle={PAGE_TITLES.NEW_PRODUCT}>
+        <div style={{ textAlign: 'center', padding: 80, color: 'var(--color-neutral-500)' }}>Não foi possível identificar o tenant. Tente recarregar a página.</div>
       </Layout>
     )
   }
