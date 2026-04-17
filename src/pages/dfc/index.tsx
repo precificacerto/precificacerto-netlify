@@ -278,6 +278,8 @@ type AggregatedData = {
   custoProduto: MonthlyValues // custo líquido (base sem impostos recuperáveis) para CUSTO_PRODUTOS
   impostosRecuperaveisCusto: MonthlyValues // impostos recuperáveis somados de todos os 4 tipos de custo (LR / Simples Híbrido)
   deducaoReceita: MonthlyValues // INSS retido na fonte, ISS retido pelo tomador (LP RET)
+  atividadesTerceirizadas: MonthlyValues // Atividades terceirizadas operacionais de entrega (LR / Simples Híbrido — seção cabeçalho DRE)
+  impostoPorDentro: MonthlyValues // Impostos sobre o faturamento por dentro: ICMS Próprio, PIS, COFINS (LR / Simples Híbrido)
 }
 
 function aggregateEntries(entries: CashEntry[]): AggregatedData {
@@ -294,6 +296,8 @@ function aggregateEntries(entries: CashEntry[]): AggregatedData {
     custoProduto: { ...EMPTY_MONTHS },
     impostosRecuperaveisCusto: { ...EMPTY_MONTHS },
     deducaoReceita: { ...EMPTY_MONTHS },
+    atividadesTerceirizadas: { ...EMPTY_MONTHS },
+    impostoPorDentro: { ...EMPTY_MONTHS },
   }
 
   // Category keys considered as product cost (CMV) — matches CASHIER_CATEGORY.EXPENSE keys
@@ -372,7 +376,10 @@ function aggregateEntries(entries: CashEntry[]): AggregatedData {
         data.comissoes[monthKey] += entry.amount
         break
       case 'ATIVIDADES_TERCEIRIZADAS':
-        data.despesaVariavel[monthKey] += entry.amount
+        data.atividadesTerceirizadas[monthKey] += entry.amount
+        break
+      case 'IMPOSTO_FATURAMENTO_DENTRO':
+        data.impostoPorDentro[monthKey] += entry.amount
         break
       case 'DEDUCAO_RECEITA':
         // LP RET: INSS retido na fonte e ISS retido pelo tomador são deduções da receita bruta
@@ -415,17 +422,35 @@ function buildDreLucroRealPresumido(
 ): DreRow[] {
   const rows: DreRow[] = []
 
-  // Receita Bruta
   const receitaBruta = agg.receitaBruta
+  const isLrOrHibrido = taxRegime === 'LUCRO_REAL' || taxRegime === 'SIMPLES_HIBRIDO'
 
+  if (isLrOrHibrido) {
+    // ── Seção de cabeçalho: Faturamento Total e Deduções Tributárias ──
+    // Faturamento Total = Receita Bruta + Impostos por fora + Atividades Terceirizadas
+    const faturamentoTotal = sumMonths(sumMonths(receitaBruta, agg.imposto), agg.atividadesTerceirizadas)
+    rows.push({ ...buildRow('faturamento_total', 'Faturamento Total', faturamentoTotal, receitaBruta, { isHeader: true, sign: '+' }), pctOfRL: undefined })
+
+    const totalDeducoes = sumMonths(agg.imposto, agg.atividadesTerceirizadas)
+    rows.push({ ...buildRow('deducoes_header', '(-) Deduções Tributárias Sobre Receita', totalDeducoes, receitaBruta, { sign: '-' }), pctOfRL: undefined })
+    rows.push({ ...buildRow('impostos_por_fora', 'Impostos por fora sobre faturamento', agg.imposto, receitaBruta, { indent: 1, sign: '-' }), pctOfRL: undefined })
+    rows.push({ ...buildRow('atividades_entrega', 'Atividades operacionais de entrega', agg.atividadesTerceirizadas, receitaBruta, { indent: 1, sign: '-' }), pctOfRL: undefined })
+  }
+
+  // ── DRE começa aqui (Receita Bruta = 100%) ──
   rows.push(buildRow('receita_bruta', 'Receita Bruta', receitaBruta, receitaBruta, { isHeader: true, sign: '+' }))
 
-  // Deduções Tributárias Sobre Receita — usa valores reais do HUB (cash_entries pagos)
-  const deducoesTribReceita = agg.imposto
-  rows.push(buildRow('deducoes_trib_receita', '(-) Deduções Tributárias Sobre Receita', deducoesTribReceita, receitaBruta, { sign: '-', indent: 1 }))
+  let receitaLiquida: MonthlyValues
+  if (isLrOrHibrido) {
+    // (-) Impostos sobre a receita — Por dentro: ICMS Próprio, PIS, COFINS
+    rows.push(buildRow('impostos_receita', '(-) Impostos sobre a receita', agg.impostoPorDentro, receitaBruta, { sign: '-', indent: 1 }))
+    receitaLiquida = subtractMonths(receitaBruta, agg.impostoPorDentro)
+  } else {
+    // Lucro Presumido: mantém comportamento anterior
+    rows.push(buildRow('deducoes_trib_receita', '(-) Deduções Tributárias Sobre Receita', agg.imposto, receitaBruta, { sign: '-', indent: 1 }))
+    receitaLiquida = subtractMonths(receitaBruta, agg.imposto)
+  }
 
-  // Receita Líquida
-  const receitaLiquida = subtractMonths(receitaBruta, deducoesTribReceita)
   rows.push(buildRow('receita_liquida', '(=) Receita Líquida de Venda Interna', receitaLiquida, receitaBruta, { isSubtotal: true, sign: '=' }))
 
   // CMV — MO Produtiva sempre aparece como linha separada (independente do calcType)
@@ -433,7 +458,7 @@ function buildDreLucroRealPresumido(
   const cmvTotal = sumMonths(custoProdutos, agg.maoDeObraProdutiva)
   rows.push(buildRow('cmv_header', '(-) Custos Líquido dos Produtos (CMV)', cmvTotal, receitaBruta, { sign: '-' }))
   rows.push(buildRow('cmv_custo_prod', 'Custo Líquido dos Produtos', custoProdutos, receitaBruta, { indent: 2 }))
-  if (taxRegime === 'LUCRO_REAL' || taxRegime === 'SIMPLES_HIBRIDO') {
+  if (isLrOrHibrido) {
     rows.push(buildRow('cmv_impostos_rec', 'Custos dos Impostos Recuperáveis sobre Compras', agg.impostosRecuperaveisCusto, receitaBruta, { indent: 2 }))
   }
   rows.push(buildRow('cmv_mo_direta', 'Custo Mão de Obra Direta (Produtiva)', agg.maoDeObraProdutiva, receitaBruta, { indent: 2 }))
@@ -444,10 +469,8 @@ function buildDreLucroRealPresumido(
 
   // Despesas Operacionais — MO Indireta/Administrativa (exclui MO Produtiva que já está no CMV)
   const moIndireta = sumMonths(agg.maoDeObraAdministrativa, agg.maoDeObra)
-
   const despesasOp = sumMonths(sumMonths(sumMonths(moIndireta, agg.despesaFixa), agg.despesaVariavel), agg.comissoes)
   rows.push(buildRow('desp_op_header', '(-) Despesas Operacionais', despesasOp, receitaBruta, { sign: '-' }))
-
   rows.push(buildRow('desp_mo_indireta', 'Despesa MO Indireta', moIndireta, receitaBruta, { indent: 2 }))
   rows.push(buildRow('desp_fixa', 'Despesa Fixa', agg.despesaFixa, receitaBruta, { indent: 2 }))
   rows.push(buildRow('desp_variavel', 'Despesa Variável', agg.despesaVariavel, receitaBruta, { indent: 2 }))
