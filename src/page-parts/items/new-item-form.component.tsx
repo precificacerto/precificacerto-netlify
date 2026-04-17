@@ -543,7 +543,7 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
                 label={
                   <span>
                     PIS (%)&nbsp;
-                    <Tooltip title="Alíquota PIS não-cumulativo puxada do NCM (1,65%). Preenchida automaticamente ao selecionar o NCM.">
+                    <Tooltip title="Alíquota PIS não-cumulativo. Preenchida automaticamente ao selecionar o NCM (1,65%), mas pode ser editada manualmente conforme a nota fiscal.">
                       <InfoCircleOutlined style={{ color: '#64748b' }} />
                     </Tooltip>
                   </span>
@@ -559,9 +559,9 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
                   style={{ width: '100%' }}
                   placeholder="0,00"
                   suffix="%"
-                  disabled
                   formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
                   parser={(v) => Number((v || '0').replace(',', '.'))}
+                  onChange={() => setTimeout(recalcNetCost, 50)}
                 />
               </Form.Item>
 
@@ -570,7 +570,7 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
                 label={
                   <span>
                     COFINS (%)&nbsp;
-                    <Tooltip title="Alíquota COFINS não-cumulativo puxada do NCM (7,6%). Preenchida automaticamente ao selecionar o NCM.">
+                    <Tooltip title="Alíquota COFINS não-cumulativo. Preenchida automaticamente ao selecionar o NCM (7,6%), mas pode ser editada manualmente conforme a nota fiscal.">
                       <InfoCircleOutlined style={{ color: '#64748b' }} />
                     </Tooltip>
                   </span>
@@ -586,9 +586,9 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
                   style={{ width: '100%' }}
                   placeholder="0,00"
                   suffix="%"
-                  disabled
                   formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
                   parser={(v) => Number((v || '0').replace(',', '.'))}
+                  onChange={() => setTimeout(recalcNetCost, 50)}
                 />
               </Form.Item>
             </div>
