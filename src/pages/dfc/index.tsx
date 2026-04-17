@@ -455,7 +455,10 @@ function buildDreLucroRealPresumido(
 
   // CMV — MO Produtiva sempre aparece como linha separada (independente do calcType)
   const custoProdutos = agg.custoProduto // custo líquido (base sem impostos recuperáveis)
-  const cmvTotal = sumMonths(custoProdutos, agg.maoDeObraProdutiva)
+  // Para LR/Simples Híbrido: CMV inclui também os impostos recuperáveis sobre compras
+  const cmvTotal = isLrOrHibrido
+    ? sumMonths(sumMonths(custoProdutos, agg.impostosRecuperaveisCusto), agg.maoDeObraProdutiva)
+    : sumMonths(custoProdutos, agg.maoDeObraProdutiva)
   rows.push(buildRow('cmv_header', '(-) Custos Líquido dos Produtos (CMV)', cmvTotal, receitaBruta, { sign: '-' }))
   rows.push(buildRow('cmv_custo_prod', 'Custo Líquido dos Produtos', custoProdutos, receitaBruta, { indent: 2 }))
   if (isLrOrHibrido) {
