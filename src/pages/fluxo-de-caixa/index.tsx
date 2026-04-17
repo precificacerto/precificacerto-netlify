@@ -142,8 +142,10 @@ const LR_IMPOSTOS_FATURAMENTO_DENTRO = [
     { category: 'COFINS', group: 'IMPOSTO_FATURAMENTO_DENTRO' },
 ]
 
-// Impostos sobre o Faturamento — Por fora (Lucro Real)
+// Impostos sobre o Faturamento — Por fora (Lucro Real / Simples Híbrido)
 const LR_IMPOSTOS_FATURAMENTO_FORA = [
+    { category: 'CBS (Contribuição sobre Bens e Serviços)', group: 'IMPOSTO' },
+    { category: 'IBS (Imposto sobre Bens e Serviços)', group: 'IMPOSTO' },
     { category: 'IPI custo', group: 'IMPOSTO' },
     { category: 'ICMS DIFAL', group: 'IMPOSTO' },
     { category: 'ICMS-ST (Substituição Tributária)', group: 'IMPOSTO' },
