@@ -336,6 +336,8 @@ function Items() {
       icms_rate: rawItem?.icms_rate ? Number(rawItem.icms_rate) : undefined,
       pis_rate: Number(rawItem?.pis_rate) || 0,
       cofins_rate: Number(rawItem?.cofins_rate) || 0,
+      // Lucro Real: campo único PIS/COFINS = soma dos campos persistidos no banco
+      pis_cofins_rate: parseFloat(((Number(rawItem?.pis_rate) || 0) + (Number(rawItem?.cofins_rate) || 0)).toFixed(4)),
       icms_deferido_rate: rawItem?.icms_deferido_rate ? Number(rawItem.icms_deferido_rate) : undefined,
       icms_deferido_enabled: Boolean(rawItem?.icms_deferido_rate && Number(rawItem.icms_deferido_rate) > 0),
       cost_net: Number(rawItem?.cost_net) || 0,
@@ -872,8 +874,20 @@ function Items() {
         cost_net: costNet,
         cost_per_base_unit: costPerBaseUnit,
         icms_rate: isLucroRealOrLP ? (Number(values.icms_rate) || 0) : 0,
-        pis_rate: isLucroReal ? (Number(values.pis_rate) || 0) : 0,
-        cofins_rate: isLucroReal ? (Number(values.cofins_rate) || 0) : 0,
+        // Lucro Real: campo único pis_cofins_rate dividido proporcionalmente (1,65/9,25 e 7,6/9,25).
+        // Outros regimes: zera (comportamento original).
+        ...(isLucroReal
+          ? (() => {
+              const total = Number(values.pis_cofins_rate) || 0
+              const pisShare = 1.65 / 9.25
+              const cofinsShare = 7.60 / 9.25
+              return {
+                pis_rate: parseFloat((total * pisShare).toFixed(4)),
+                cofins_rate: parseFloat((total * cofinsShare).toFixed(4)),
+              }
+            })()
+          : { pis_rate: 0, cofins_rate: 0 }
+        ),
         icms_deferido_rate: isLucroRealOrLP ? (Number(values.icms_deferido_rate) || null) : null,
         has_st: values.has_st || false,
         is_monofasico: values.is_monofasico || false,

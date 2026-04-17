@@ -45,6 +45,14 @@ interface NcmSuggestion {
 const formatBRL3 = (v: number) =>
   v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 3 })
 
+// Lucro Real — base PIS+COFINS não-cumulativo (1,65% + 7,6% = 9,25%)
+const PIS_COFINS_BASE = 9.25
+
+const computeAutoPisCofins = (icmsRecuperavelPercent: number): number => {
+  const total = PIS_COFINS_BASE * (1 - (icmsRecuperavelPercent || 0) / 100)
+  return parseFloat(total.toFixed(4))
+}
+
 const NewItemForm = ({ form, taxableRegime }: Props) => {
   const isLucroReal = taxableRegime === 'LUCRO_REAL'
   const isLucroPresumido = taxableRegime === 'LUCRO_PRESUMIDO'
@@ -61,6 +69,8 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
   const [ncmFieldSearching, setNcmFieldSearching] = useState(false)
   const [netCostDisplay, setNetCostDisplay] = useState<string | null>(null)
   const [impostosRecuperaveisDisplay, setImpostosRecuperaveisDisplay] = useState<number>(0)
+  // Lucro Real — quando o usuário edita PIS/COFINS manualmente, o auto-cálculo é suspenso
+  const [pisCofinsManuallyEdited, setPisCofinsManuallyEdited] = useState(false)
   const nameDebounceRef = useRef<NodeJS.Timeout | null>(null)
   const ncmDebounceRef = useRef<NodeJS.Timeout | null>(null)
 
@@ -75,34 +85,46 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
     const priceNum = parseFloat(priceStr) || 0
     const icms = Number(values.icms_rate) || 0
     const icmsDeferido = isDeferidoEnabled ? (Number(values.icms_deferido_rate) || 0) : 0
-    const pis = (isLucroReal || isSimplesHibrido) ? (Number(values.pis_rate) || 0) : 0
-    const cofins = (isLucroReal || isSimplesHibrido) ? (Number(values.cofins_rate) || 0) : 0
+
+    // Impostos/ICMS recuperáveis: quando deferido ativo = ICMS% × (1 - deferido%); senão = ICMS%
+    const impostosRec = isDeferidoEnabled ? icms * (1 - icmsDeferido / 100) : icms
+    setImpostosRecuperaveisDisplay(parseFloat(impostosRec.toFixed(4)))
+
+    // Lucro Real: campo único pis_cofins_rate. Auto-calcula se o usuário não editou manualmente.
+    // Simples Híbrido: dois campos separados (pis_rate + cofins_rate).
+    let pisCofinsTotal = 0
+    if (isLucroReal) {
+      if (!pisCofinsManuallyEdited) {
+        const auto = computeAutoPisCofins(impostosRec)
+        form.setFieldsValue({ pis_cofins_rate: auto })
+        pisCofinsTotal = auto
+      } else {
+        pisCofinsTotal = Number(values.pis_cofins_rate) || 0
+      }
+    } else if (isSimplesHibrido) {
+      pisCofinsTotal = (Number(values.pis_rate) || 0) + (Number(values.cofins_rate) || 0)
+    }
 
     if (priceNum > 0) {
-      // Impostos recuperáveis: quando deferido ativo = ICMS% × (1 - deferido%); senão = ICMS%
-      const impostosRec = isDeferidoEnabled
-        ? icms * (1 - icmsDeferido / 100)
-        : icms
-      setImpostosRecuperaveisDisplay(parseFloat(impostosRec.toFixed(4)))
-
       // Deduções para chegar no valor custo líquido
       // deducao1: ICMS% sempre usa o valor bruto do campo ICMS (toggle deferido não afeta o cálculo)
       // deducao2: PIS+COFINS sobre (valor unitário − deducao1)
       const deducao1 = priceNum * icms / 100
-      const deducao2 = (priceNum - deducao1) * (pis + cofins) / 100
+      const deducao2 = (priceNum - deducao1) * pisCofinsTotal / 100
       const valorLiquido = priceNum - deducao1 - deducao2
 
       setNetCostDisplay(getMonetaryValue(valorLiquido))
       form.setFieldsValue({ cost_net: valorLiquido })
     } else {
       setNetCostDisplay(null)
-      setImpostosRecuperaveisDisplay(0)
       form.setFieldsValue({ cost_net: 0 })
     }
-  }, [form, isLucroReal, isLucroPresumido, isLucroRealOrLP])
+  }, [form, isLucroReal, isLucroPresumido, isLucroRealOrLP, isSimplesHibrido, pisCofinsManuallyEdited])
 
   const fetchAndFillNcmRates = useCallback(async (code: string) => {
-    if (!code || (!isLucroReal && !isSimplesHibrido)) return
+    // Lucro Real: PIS/COFINS é calculado pela fórmula 9,25 × (1 - ICMS_recuperáveis), não via NCM.
+    // Apenas Simples Híbrido busca alíquotas no NCM.
+    if (!code || !isSimplesHibrido) return
     const digits = code.replace(/\D/g, '')
     if (digits.length < 4) return
     const formatted = digits.length >= 8
@@ -126,7 +148,7 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
         setTimeout(recalcNetCost, 50)
       }
     } catch { /* silent */ }
-  }, [form, isLucroReal, recalcNetCost])
+  }, [form, isSimplesHibrido, recalcNetCost])
 
   const searchNcmByName = useCallback(async (name: string) => {
     if (name.length < 2) { setNcmSuggestions([]); return }
@@ -227,6 +249,21 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
   // Necessário para edição de itens existentes (form já preenchido pelo componente pai)
   useEffect(() => {
     if (!isLucroRealOrLP) return
+    // Lucro Real: se o item editado tem pis_cofins_rate ≠ fórmula automática,
+    // o usuário editou manualmente — preservar e suspender auto-cálculo.
+    if (isLucroReal) {
+      const values = form.getFieldsValue()
+      const icms = Number(values.icms_rate) || 0
+      const isDeferidoEnabled = Boolean(values.icms_deferido_enabled)
+      const icmsDeferido = isDeferidoEnabled ? (Number(values.icms_deferido_rate) || 0) : 0
+      const impostosRec = isDeferidoEnabled ? icms * (1 - icmsDeferido / 100) : icms
+      const auto = computeAutoPisCofins(impostosRec)
+      const saved = Number(values.pis_cofins_rate) || 0
+      // tolerância 0,001% para arredondamentos
+      if (saved > 0 && Math.abs(saved - auto) > 0.001) {
+        setPisCofinsManuallyEdited(true)
+      }
+    }
     setTimeout(recalcNetCost, 150)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLucroRealOrLP])
@@ -275,6 +312,7 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
       <Form.Item name="id" hidden><Input /></Form.Item>
       <Form.Item name="cost_net" hidden><InputNumber /></Form.Item>
       <Form.Item name="icms_deferido_enabled" hidden><Input /></Form.Item>
+      <Form.Item name="pis_cofins_rate" hidden><InputNumber /></Form.Item>
 
       <Divider orientation="left" style={{ fontSize: 12, color: '#94a3b8', marginTop: 0 }}>
         Identificação
@@ -514,7 +552,7 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
             <Form.Item
               label={
                 <span>
-                  {isLucroPresumido ? 'ICMS recuperável (%)' : 'Impostos recuperáveis (%)'}&nbsp;
+                  {isLucroReal ? 'ICMS recuperáveis (%)' : isLucroPresumido ? 'ICMS recuperável (%)' : 'Impostos recuperáveis (%)'}&nbsp;
                   <Tooltip title={isLucroPresumido ? 'ICMS recuperável na entrada: quando Deferido ativo = ICMS% × (1 - Deferido%); caso contrário = ICMS%.' : 'Calculado automaticamente: quando ICMS Deferido ativo = ICMS% × (1 - Deferido%); caso contrário = ICMS%.'}>
                     <InfoCircleOutlined style={{ color: '#64748b' }} />
                   </Tooltip>
@@ -535,8 +573,49 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
             </Form.Item>
           </div>
 
-          {/* Linha de impostos 2 (somente Lucro Real / Simples Híbrido): PIS | COFINS não-cumulativo */}
-          {(isLucroReal || isSimplesHibrido) && (
+          {/* Linha de impostos 2 (Lucro Real): PIS/COFINS unificado, com auto-cálculo 9,25 × (1 - ICMS_recup%) */}
+          {isLucroReal && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, alignItems: 'end' }}>
+              <Form.Item
+                label={
+                  <span>
+                    PIS/COFINS (%)&nbsp;
+                    <Tooltip title="Calculado automaticamente: 9,25 × (1 − ICMS recuperáveis%). Pode ser editado manualmente; após edição, o auto-cálculo fica suspenso até você limpar o campo.">
+                      <InfoCircleOutlined style={{ color: '#64748b' }} />
+                    </Tooltip>
+                  </span>
+                }
+                style={{ marginBottom: 24 }}
+              >
+                <InputNumber
+                  value={Form.useWatch('pis_cofins_rate', form) ?? 0}
+                  min={0}
+                  max={100}
+                  step={0.0001}
+                  precision={4}
+                  style={{ width: '100%' }}
+                  placeholder="0,0000"
+                  suffix="%"
+                  formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
+                  parser={(v) => Number((v || '0').replace(',', '.'))}
+                  onChange={(v) => {
+                    const numeric = Number(v) || 0
+                    if (numeric === 0) {
+                      // valor zerado/limpo → reativa auto-cálculo
+                      setPisCofinsManuallyEdited(false)
+                    } else {
+                      setPisCofinsManuallyEdited(true)
+                    }
+                    form.setFieldsValue({ pis_cofins_rate: numeric })
+                    setTimeout(recalcNetCost, 50)
+                  }}
+                />
+              </Form.Item>
+            </div>
+          )}
+
+          {/* Linha de impostos 2 (Simples Híbrido): PIS | COFINS não-cumulativo (vindos do NCM) */}
+          {isSimplesHibrido && (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, alignItems: 'end' }}>
               <Form.Item
                 name="pis_rate"
