@@ -17,6 +17,7 @@ import {
     DownloadOutlined,
     ClockCircleOutlined,
     CheckCircleOutlined,
+    TeamOutlined,
 } from '@ant-design/icons'
 import { ExportFormatModal } from '@/components/ui/export-format-modal.component'
 import { exportTableToPdf } from '@/utils/export-generic-pdf'
@@ -48,6 +49,22 @@ interface PendingReceivableRow {
     customerId: string
     employeeId: string | null
     sectionName: string
+}
+
+interface CommissionReportRow {
+    saleId: string
+    saleCode: string
+    saleDate: string
+    customerName: string
+    employeeName: string
+    employeeId: string | null
+    productIds: string[]
+    productNames: string[]
+    valorPreciso: number
+    valorVendido: number
+    comissaoPaga: number
+    percentVendedor: number
+    lucroEmpresa: number
 }
 
 interface ABCReportRow {
@@ -100,7 +117,19 @@ function SalesReport() {
     const { canView, canEdit, isAdmin } = usePermissions()
     const canRegisterPayment = isAdmin || canEdit(MODULES.SALES_REPORT)
 
-    const [activeTab, setActiveTab] = useState<'RECEIVABLES' | 'PRODUCTS' | 'SERVICES'>('RECEIVABLES')
+    const [activeTab, setActiveTab] = useState<'RECEIVABLES' | 'COMMISSIONS' | 'PRODUCTS' | 'SERVICES'>('RECEIVABLES')
+
+    // Commissions report state
+    const [commData, setCommData] = useState<CommissionReportRow[]>([])
+    const [commLoading, setCommLoading] = useState(false)
+    const [commDateRange, setCommDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs]>([
+        dayjs().startOf('month'),
+        dayjs().endOf('month'),
+    ])
+    const [commEmployeeFilter, setCommEmployeeFilter] = useState<string | undefined>(undefined)
+    const [commSaleFilter, setCommSaleFilter] = useState<string | undefined>(undefined)
+    const [commProductFilter, setCommProductFilter] = useState<string | undefined>(undefined)
+    const [commExportModalOpen, setCommExportModalOpen] = useState(false)
 
     // Product ABC state
     const [abcData, setAbcData] = useState<ABCReportRow[]>([])
@@ -245,6 +274,119 @@ function SalesReport() {
             setRecLoading(false)
         }
     }, [effectiveTenantId, recDateRange, recEmployeeFilter, recClientFilter, messageApi])
+
+    // ─── Commissions Report fetch ───
+    const fetchCommissionsReport = useCallback(async () => {
+        setCommLoading(true)
+        try {
+            if (!effectiveTenantId) { setCommLoading(false); return }
+            const start = commDateRange[0].format('YYYY-MM-DD')
+            const end = commDateRange[1].format('YYYY-MM-DD')
+
+            let salesQuery: any = (supabase as any)
+                .from('sales')
+                .select('id, sale_code, sale_date, employee_id, customer_id, client_id, final_value, commission_amount, discount_value, description, budget_id')
+                .eq('tenant_id', effectiveTenantId)
+                .eq('is_active', true)
+                .gte('sale_date', start)
+                .lte('sale_date', end)
+                .order('sale_date', { ascending: false })
+
+            if (commEmployeeFilter) salesQuery = salesQuery.eq('employee_id', commEmployeeFilter)
+            if (commSaleFilter) salesQuery = salesQuery.eq('id', commSaleFilter)
+
+            const { data: sales, error: salesErr } = await salesQuery
+            if (salesErr) throw salesErr
+            if (!sales || sales.length === 0) {
+                setCommData([])
+                setCommLoading(false)
+                return
+            }
+
+            const saleIds = sales.map((s: any) => s.id)
+
+            const { data: items } = await (supabase as any)
+                .from('sale_items')
+                .select('sale_id, product_id, quantity, unit_price, discount, total, cost, commission_percent, profit_percent, product:products(id, name, cost_total)')
+                .in('sale_id', saleIds)
+
+            const itemsBySale = new Map<string, any[]>()
+            for (const it of items || []) {
+                const list = itemsBySale.get(it.sale_id) || []
+                list.push(it)
+                itemsBySale.set(it.sale_id, list)
+            }
+
+            const customerIds: string[] = [...new Set(sales.map((s: any) => s.customer_id || s.client_id).filter(Boolean) as string[])]
+            const customerMap = new Map<string, string>()
+            if (customerIds.length > 0) {
+                const { data: cRows } = await (supabase as any).from('customers').select('id, name').in('id', customerIds)
+                for (const c of cRows || []) customerMap.set(c.id, c.name)
+            }
+
+            const employeeIds: string[] = [...new Set(sales.map((s: any) => s.employee_id).filter(Boolean) as string[])]
+            const employeeMap = new Map<string, string>()
+            for (const e of (employees as any[])) employeeMap.set(e.id, e.name)
+            if (employeeIds.length > 0) {
+                const missing = employeeIds.filter((id: string) => !employeeMap.has(id))
+                if (missing.length > 0) {
+                    const { data: eRows } = await (supabase as any).from('employees').select('id, name').in('id', missing)
+                    for (const e of eRows || []) employeeMap.set(e.id, e.name)
+                }
+            }
+
+            const rows: CommissionReportRow[] = []
+            for (const sale of sales) {
+                const saleItems = itemsBySale.get(sale.id) || []
+
+                if (commProductFilter && !saleItems.some((it: any) => it.product_id === commProductFilter)) continue
+
+                let valorPreciso = 0
+                let totalCost = 0
+                const productIds: string[] = []
+                const productNames: string[] = []
+                for (const it of saleItems) {
+                    const qty = Number(it.quantity) || 0
+                    const unitPrice = Number(it.unit_price) || 0
+                    valorPreciso += qty * unitPrice
+                    const itemCost = it.cost != null ? Number(it.cost) : Number(it.product?.cost_total) || 0
+                    totalCost += qty * itemCost
+                    if (it.product_id && !productIds.includes(it.product_id)) {
+                        productIds.push(it.product_id)
+                        productNames.push(it.product?.name || 'Produto')
+                    }
+                }
+
+                const valorVendido = Number(sale.final_value) || 0
+                if (valorPreciso <= 0) valorPreciso = valorVendido + (Number(sale.discount_value) || 0)
+                const comissaoPaga = Number(sale.commission_amount) || 0
+                const percentVendedor = valorVendido > 0 ? (comissaoPaga / valorVendido) * 100 : 0
+                const lucroEmpresa = valorVendido - totalCost - comissaoPaga
+
+                rows.push({
+                    saleId: sale.id,
+                    saleCode: sale.sale_code || sale.description || sale.id.slice(0, 8),
+                    saleDate: sale.sale_date,
+                    customerName: customerMap.get(sale.customer_id || sale.client_id) || 'Sem cliente',
+                    employeeName: sale.employee_id ? (employeeMap.get(sale.employee_id) || 'Sem vendedor') : 'Sem vendedor',
+                    employeeId: sale.employee_id,
+                    productIds,
+                    productNames,
+                    valorPreciso,
+                    valorVendido,
+                    comissaoPaga,
+                    percentVendedor,
+                    lucroEmpresa,
+                })
+            }
+            setCommData(rows)
+        } catch (err: any) {
+            messageApi.error('Erro ao carregar relatório de comissões.')
+            console.error(err)
+        } finally {
+            setCommLoading(false)
+        }
+    }, [effectiveTenantId, commDateRange, commEmployeeFilter, commSaleFilter, commProductFilter, employees, messageApi])
 
     const handleOpenRegisterPayment = (record: PendingReceivableRow) => {
         setPayingRecord(record)
@@ -912,6 +1054,10 @@ function SalesReport() {
         if (activeTab === 'SERVICES') fetchSvcReport()
     }, [activeTab, fetchSvcReport])
 
+    useEffect(() => {
+        if (activeTab === 'COMMISSIONS') fetchCommissionsReport()
+    }, [activeTab, fetchCommissionsReport])
+
     // ─── KPIs ───
     const abcTotalRevenue = useMemo(() => abcData.reduce((sum, r) => sum + r.totalRevenue, 0), [abcData])
     const abcTotalProducts = abcData.length
@@ -1137,6 +1283,167 @@ function SalesReport() {
         return (customers || []).map((c: any) => ({ value: c.id, label: c.name }))
     }, [customers])
 
+    // ─── Commission columns ───
+    const commColumns: ColumnsType<CommissionReportRow> = [
+        {
+            title: 'Data',
+            dataIndex: 'saleDate',
+            key: 'saleDate',
+            width: 110,
+            render: (v: string) => dayjs(v + 'T00:00:00').format('DD/MM/YYYY'),
+            sorter: (a, b) => a.saleDate.localeCompare(b.saleDate),
+        },
+        {
+            title: 'Pedido',
+            dataIndex: 'saleCode',
+            key: 'saleCode',
+            width: 140,
+            ellipsis: true,
+            render: (v: string) => <span style={{ fontFamily: 'monospace', fontWeight: 600, color: '#7A5AF8' }}>{v}</span>,
+        },
+        {
+            title: 'Cliente',
+            dataIndex: 'customerName',
+            key: 'customerName',
+            ellipsis: true,
+            sorter: (a, b) => a.customerName.localeCompare(b.customerName),
+        },
+        {
+            title: 'Vendedor',
+            dataIndex: 'employeeName',
+            key: 'employeeName',
+            width: 160,
+            ellipsis: true,
+            sorter: (a, b) => a.employeeName.localeCompare(b.employeeName),
+        },
+        {
+            title: 'Produtos',
+            dataIndex: 'productNames',
+            key: 'productNames',
+            ellipsis: true,
+            render: (names: string[]) => names.length ? <span style={{ fontSize: 12, color: '#94a3b8' }}>{names.join(', ')}</span> : <span style={{ color: '#D0D5DD' }}>—</span>,
+        },
+        {
+            title: 'Valor Preciso',
+            dataIndex: 'valorPreciso',
+            key: 'valorPreciso',
+            width: 130,
+            align: 'right',
+            sorter: (a, b) => a.valorPreciso - b.valorPreciso,
+            render: (v: number) => <span style={{ fontWeight: 600 }}>{formatCurrency(v)}</span>,
+        },
+        {
+            title: 'Valor Vendido',
+            dataIndex: 'valorVendido',
+            key: 'valorVendido',
+            width: 140,
+            align: 'right',
+            sorter: (a, b) => a.valorVendido - b.valorVendido,
+            render: (v: number) => <span style={{ color: '#4ade80', fontWeight: 600 }}>{formatCurrency(v)}</span>,
+        },
+        {
+            title: 'Comissão Paga',
+            dataIndex: 'comissaoPaga',
+            key: 'comissaoPaga',
+            width: 140,
+            align: 'right',
+            sorter: (a, b) => a.comissaoPaga - b.comissaoPaga,
+            render: (v: number) => <span style={{ color: v > 0 ? '#f59e0b' : 'inherit', fontWeight: 600 }}>{formatCurrency(v)}</span>,
+        },
+        {
+            title: '% Vendedor',
+            dataIndex: 'percentVendedor',
+            key: 'percentVendedor',
+            width: 110,
+            align: 'right',
+            sorter: (a, b) => a.percentVendedor - b.percentVendedor,
+            render: (v: number) => <span style={{ fontWeight: 600 }}>{v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</span>,
+        },
+        {
+            title: 'Lucro Empresa',
+            dataIndex: 'lucroEmpresa',
+            key: 'lucroEmpresa',
+            width: 140,
+            align: 'right',
+            sorter: (a, b) => a.lucroEmpresa - b.lucroEmpresa,
+            render: (v: number) => <span style={{ color: v >= 0 ? '#4ade80' : '#ef4444', fontWeight: 600 }}>{formatCurrency(v)}</span>,
+        },
+    ]
+
+    const commTotalVendido = useMemo(() => commData.reduce((s, r) => s + r.valorVendido, 0), [commData])
+    const commTotalComissao = useMemo(() => commData.reduce((s, r) => s + r.comissaoPaga, 0), [commData])
+    const commTotalLucro = useMemo(() => commData.reduce((s, r) => s + r.lucroEmpresa, 0), [commData])
+
+    const handleExportCommissionsExcel = () => {
+        if (!commData.length) return
+        import('exceljs').then(({ Workbook }) => {
+            const wb = new Workbook()
+            const ws = wb.addWorksheet('Comissões')
+            ws.addRow(['Data', 'Pedido', 'Cliente', 'Vendedor', 'Produtos', 'Valor Preciso', 'Valor Vendido', 'Comissão Paga', '% Vendedor', 'Lucro Empresa'])
+            commData.forEach(r => ws.addRow([
+                dayjs(r.saleDate + 'T00:00:00').format('DD/MM/YYYY'),
+                r.saleCode,
+                r.customerName,
+                r.employeeName,
+                r.productNames.join(', '),
+                r.valorPreciso,
+                r.valorVendido,
+                r.comissaoPaga,
+                `${r.percentVendedor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`,
+                r.lucroEmpresa,
+            ]))
+            ws.getRow(1).font = { bold: true }
+            wb.xlsx.writeBuffer().then(buf => {
+                const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+                const url = URL.createObjectURL(blob)
+                const a = document.createElement('a'); a.href = url; a.download = 'relatorio-comissoes.xlsx'; a.click()
+                URL.revokeObjectURL(url)
+            })
+        })
+    }
+
+    const handleExportCommissionsPdf = () => {
+        if (!commData.length) return
+        exportTableToPdf({
+            title: 'Relatório de Comissões',
+            subtitle: `Período: ${commDateRange[0].format('DD/MM/YYYY')} a ${commDateRange[1].format('DD/MM/YYYY')}`,
+            headers: ['Data', 'Pedido', 'Cliente', 'Vendedor', 'V. Preciso', 'V. Vendido', 'Comissão', '% Vend.', 'Lucro'],
+            rows: commData.map(r => [
+                dayjs(r.saleDate + 'T00:00:00').format('DD/MM/YYYY'),
+                r.saleCode,
+                r.customerName,
+                r.employeeName,
+                formatCurrency(r.valorPreciso),
+                formatCurrency(r.valorVendido),
+                formatCurrency(r.comissaoPaga),
+                `${r.percentVendedor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`,
+                formatCurrency(r.lucroEmpresa),
+            ]),
+            filename: 'relatorio-comissoes.pdf',
+        })
+    }
+
+    const renderCommissionSummary = () => {
+        if (commData.length === 0) return null
+        return (
+            <Table.Summary fixed>
+                <Table.Summary.Row style={{ fontWeight: 700 }}>
+                    <Table.Summary.Cell index={0} colSpan={6}>TOTAL</Table.Summary.Cell>
+                    <Table.Summary.Cell index={6} align="right">
+                        <span style={{ color: '#4ade80' }}>{formatCurrency(commTotalVendido)}</span>
+                    </Table.Summary.Cell>
+                    <Table.Summary.Cell index={7} align="right">
+                        <span style={{ color: '#f59e0b' }}>{formatCurrency(commTotalComissao)}</span>
+                    </Table.Summary.Cell>
+                    <Table.Summary.Cell index={8} align="right">—</Table.Summary.Cell>
+                    <Table.Summary.Cell index={9} align="right">
+                        <span style={{ color: commTotalLucro >= 0 ? '#4ade80' : '#ef4444' }}>{formatCurrency(commTotalLucro)}</span>
+                    </Table.Summary.Cell>
+                </Table.Summary.Row>
+            </Table.Summary>
+        )
+    }
+
     // Summary row renderer for products
     const renderProductSummary = () => {
         if (abcData.length === 0) return null
@@ -1318,12 +1625,18 @@ function SalesReport() {
             <div className="pc-card--table">
                 <Tabs
                     activeKey={activeTab}
-                    onChange={(k) => setActiveTab(k as 'RECEIVABLES' | 'PRODUCTS' | 'SERVICES')}
+                    onChange={(k) => setActiveTab(k as 'RECEIVABLES' | 'COMMISSIONS' | 'PRODUCTS' | 'SERVICES')}
                     items={[
                         {
                             key: 'RECEIVABLES',
                             label: (
                                 <span><ClockCircleOutlined style={{ marginRight: 6 }} />Recebimento / Lançamentos Futuros</span>
+                            ),
+                        },
+                        {
+                            key: 'COMMISSIONS',
+                            label: (
+                                <span><TeamOutlined style={{ marginRight: 6 }} />Relatório de Comissões</span>
                             ),
                         },
                         {
@@ -1413,6 +1726,99 @@ function SalesReport() {
                                     </Table.Summary.Row>
                                 </Table.Summary>
                             ) : undefined}
+                        />
+                    </div>
+                ) : activeTab === 'COMMISSIONS' ? (
+                    <div>
+                        {/* Commissions KPIs */}
+                        <div className="kpi-grid" style={{ marginBottom: 20 }}>
+                            <CardKPI title="Total Vendido" value={formatCurrency(commTotalVendido)} icon={<DollarOutlined />} variant="green" />
+                            <CardKPI title="Total Comissão" value={formatCurrency(commTotalComissao)} icon={<TeamOutlined />} variant="orange" />
+                            <CardKPI title="Lucro Empresa" value={formatCurrency(commTotalLucro)} icon={<BarChartOutlined />} variant="blue" />
+                        </div>
+
+                        {/* Commissions Filters */}
+                        <div className="filter-bar" style={{ marginBottom: 16, display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <FilterOutlined style={{ color: '#94a3b8' }} />
+                                <span style={{ color: '#94a3b8', fontSize: 13 }}>Filtros:</span>
+                            </div>
+                            <RangePicker
+                                value={commDateRange}
+                                onChange={(dates) => {
+                                    if (dates && dates[0] && dates[1]) setCommDateRange([dates[0], dates[1]])
+                                }}
+                                format="DD/MM/YYYY"
+                                allowClear={false}
+                                style={{ minWidth: 260 }}
+                            />
+                            <Select
+                                placeholder="Vendedor"
+                                value={commEmployeeFilter}
+                                onChange={setCommEmployeeFilter}
+                                allowClear
+                                style={{ minWidth: 180 }}
+                                options={(employees as any[]).map((e: any) => ({ value: e.id, label: e.name }))}
+                            />
+                            <Select
+                                placeholder="Pedido"
+                                value={commSaleFilter}
+                                onChange={setCommSaleFilter}
+                                allowClear
+                                showSearch
+                                optionFilterProp="label"
+                                style={{ minWidth: 180 }}
+                                options={commData.map(r => ({ value: r.saleId, label: r.saleCode }))}
+                            />
+                            <Select
+                                placeholder="Produto"
+                                value={commProductFilter}
+                                onChange={setCommProductFilter}
+                                allowClear
+                                showSearch
+                                optionFilterProp="label"
+                                style={{ minWidth: 200 }}
+                                options={allProducts}
+                            />
+                            <Button icon={<ReloadOutlined />} onClick={fetchCommissionsReport} loading={commLoading}>
+                                Atualizar
+                            </Button>
+                            <Button
+                                icon={<DownloadOutlined />}
+                                onClick={() => setCommExportModalOpen(true)}
+                                disabled={!commData.length}
+                                style={{ marginLeft: 'auto' }}
+                            >
+                                Exportar
+                            </Button>
+                        </div>
+
+                        <ExportFormatModal
+                            open={commExportModalOpen}
+                            onClose={() => setCommExportModalOpen(false)}
+                            onExportExcel={handleExportCommissionsExcel}
+                            onExportPdf={handleExportCommissionsPdf}
+                            title="Exportar Relatório de Comissões"
+                            skipDateRange
+                        />
+
+                        <Table<CommissionReportRow>
+                            columns={commColumns}
+                            dataSource={commData}
+                            rowKey="saleId"
+                            pagination={{ pageSize: 20, showTotal: (t) => `${t} pedidos` }}
+                            size="middle"
+                            loading={commLoading}
+                            scroll={{ x: 1300 }}
+                            locale={{
+                                emptyText: (
+                                    <Empty
+                                        image={Empty.PRESENTED_IMAGE_SIMPLE}
+                                        description="Nenhuma venda encontrada no período selecionado."
+                                    />
+                                ),
+                            }}
+                            summary={renderCommissionSummary}
                         />
                     </div>
                 ) : activeTab === 'PRODUCTS' ? (

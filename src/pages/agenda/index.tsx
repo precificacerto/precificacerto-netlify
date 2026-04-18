@@ -22,7 +22,7 @@ import {
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import { useAuth } from '@/hooks/use-auth.hook'
 import { useRouter } from 'next/router'
-import { calculateDiscountedPrice } from '@/utils/calculate-discount'
+import { calculateDiscountedPrice, DiscountMode } from '@/utils/calculate-discount'
 import { getEffectiveCommissionPercent } from '@/utils/get-effective-commission'
 
 dayjs.extend(isoWeek)
@@ -136,6 +136,7 @@ function Schedule() {
     const [hasDiscount, setHasDiscount] = useState(false)
     const [discountTick, setDiscountTick] = useState(0)
     const [globalDiscountPctAgenda, setGlobalDiscountPctAgenda] = useState(0)
+    const [discountModeAgenda, setDiscountModeAgenda] = useState<DiscountMode>('PROPORTIONAL')
     const [isSplitPay, setIsSplitPay] = useState(false)
     const [splitAmountPaid, setSplitAmountPaid] = useState<number>(0)
     const [customInstallments, setCustomInstallments] = useState<{ date: any; amount: number }[]>([{ date: null, amount: 0 }])
@@ -557,6 +558,7 @@ function Schedule() {
         payForm.setFieldsValue({ base_price: basePrice, discount_percent: 0, discount_value: 0, payment_method: 'PIX', payment_notes: '', amount_paid: basePrice, remaining_due_date: null, installments: 1 })
         setHasDiscount(false)
         setGlobalDiscountPctAgenda(0)
+        setDiscountModeAgenda('PROPORTIONAL')
         setIsSplitPay(false)
         setExtraProds([])
         setAttachFile(null)
@@ -585,8 +587,11 @@ function Schedule() {
         const emp = payEvt?.employee_id ? allEmployees.find((e: any) => e.id === payEvt.employee_id) : null
         const svcCommPct = getEffectiveCommissionPercent(emp?.commission_percent, svc?.commission_percent)
         const svcProfitPct = Number(svc?.profit_percent) || 0
-        const svcMarginValue = base * (svcCommPct + svcProfitPct) / 100
-        const extrasMarginValue = extraProds.reduce((s, p) => s + p.total * ((p.commission_percent || 0) + (p.profit_percent || 0)) / 100, 0)
+        const pickPct = (comm: number, prof: number) => discountModeAgenda === 'PROFIT_REDUCTION' ? prof
+            : discountModeAgenda === 'SELLER_REDUCTION' ? comm
+            : comm + prof
+        const svcMarginValue = base * pickPct(svcCommPct, svcProfitPct) / 100
+        const extrasMarginValue = extraProds.reduce((s, p) => s + p.total * pickPct(p.commission_percent || 0, p.profit_percent || 0) / 100, 0)
         return Math.min(100, (svcMarginValue + extrasMarginValue) / total * 100)
     }
 
@@ -772,6 +777,7 @@ function Schedule() {
                 sale_date: dayjs(payEvt.start_time).toISOString(),
                 sale_type: 'MANUAL',
                 status: 'COMPLETED',
+                discount_mode: hasDiscount ? discountModeAgenda : 'PROPORTIONAL',
             }).select('id').single()
             if (agendaSale?.id) {
                 // Gerar código AG-XXXXXX e salvar na venda e no evento da agenda
@@ -2004,24 +2010,49 @@ function Schedule() {
                                 </Checkbox>
                                 {hasDiscount && (() => {
                                     const maxPct = calcMaxDiscountPctAgenda()
+                                    const maxLabel = discountModeAgenda === 'PROFIT_REDUCTION' ? '(lucro)'
+                                        : discountModeAgenda === 'SELLER_REDUCTION' ? '(comissão do vendedor)'
+                                        : '(comissão + lucro)'
+                                    const disabledTip = maxPct <= 0
+                                        ? (discountModeAgenda === 'SELLER_REDUCTION' ? 'Comissão zero — sem margem de vendedor para reduzir'
+                                            : discountModeAgenda === 'PROFIT_REDUCTION' ? 'Lucro zero — sem margem de lucro para reduzir'
+                                            : 'Sem margem disponível para desconto')
+                                        : ''
                                     return (
                                         <div style={{ marginTop: 8, padding: 12, background: '#FFFBEB', borderRadius: 8, border: '1px solid #FEF3C7' }}>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
+                                                <span style={{ color: '#000', fontSize: 13 }}>Modo:</span>
+                                                <Select
+                                                    value={discountModeAgenda}
+                                                    onChange={(v: DiscountMode) => {
+                                                        setDiscountModeAgenda(v)
+                                                        setGlobalDiscountPctAgenda(0)
+                                                        setDiscountTick(t => t + 1)
+                                                    }}
+                                                    style={{ width: 210 }}
+                                                    options={[
+                                                        { value: 'PROPORTIONAL', label: 'Proporcional' },
+                                                        { value: 'PROFIT_REDUCTION', label: 'Redução do Lucro' },
+                                                        { value: 'SELLER_REDUCTION', label: 'Redução do Vendedor' },
+                                                    ]}
+                                                />
                                                 <span style={{ color: '#000', fontSize: 13 }}>Desconto (%):</span>
-                                                <InputNumber style={{ width: 130 }} min={0} max={maxPct > 0 ? maxPct : 100} step={0.5} value={globalDiscountPctAgenda} onChange={(v) => {
-                                                    const newDiscount = Math.min(v ?? 0, maxPct > 0 ? maxPct : 100)
-                                                    setGlobalDiscountPctAgenda(newDiscount)
-                                                    setDiscountTick(t => t + 1)
-                                                    if (installmentPreset !== 'customizado') {
-                                                        const base = Number(payForm.getFieldValue('base_price')) || 0
-                                                        const extrasTotal = extraProds.reduce((s, p) => s + p.total, 0)
-                                                        const discountedTotal = (base + extrasTotal) * (1 - newDiscount / 100)
-                                                        const n = customInstallments.length
-                                                        const amt = n > 0 && discountedTotal > 0 ? Math.round((discountedTotal / n) * 100) / 100 : 0
-                                                        setCustomInstallments(prev => prev.map(inst => ({ ...inst, amount: amt })))
-                                                    }
-                                                }} formatter={(v) => v != null ? String(v).replace('.', ',') : ''} parser={(v) => Number((v || '0').replace(',', '.'))} addonAfter="%" />
-                                                {maxPct > 0 && <span style={{ fontSize: 12, color: '#92400e' }}>Máx: {maxPct.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%</span>}
+                                                <Tooltip title={disabledTip}>
+                                                    <InputNumber style={{ width: 130 }} disabled={maxPct <= 0} min={0} max={maxPct > 0 ? maxPct : 100} step={0.5} value={globalDiscountPctAgenda} onChange={(v) => {
+                                                        const newDiscount = Math.min(v ?? 0, maxPct > 0 ? maxPct : 100)
+                                                        setGlobalDiscountPctAgenda(newDiscount)
+                                                        setDiscountTick(t => t + 1)
+                                                        if (installmentPreset !== 'customizado') {
+                                                            const base = Number(payForm.getFieldValue('base_price')) || 0
+                                                            const extrasTotal = extraProds.reduce((s, p) => s + p.total, 0)
+                                                            const discountedTotal = (base + extrasTotal) * (1 - newDiscount / 100)
+                                                            const n = customInstallments.length
+                                                            const amt = n > 0 && discountedTotal > 0 ? Math.round((discountedTotal / n) * 100) / 100 : 0
+                                                            setCustomInstallments(prev => prev.map(inst => ({ ...inst, amount: amt })))
+                                                        }
+                                                    }} formatter={(v) => v != null ? String(v).replace('.', ',') : ''} parser={(v) => Number((v || '0').replace(',', '.'))} addonAfter="%" />
+                                                </Tooltip>
+                                                {maxPct > 0 && <span style={{ fontSize: 12, color: '#92400e' }}>Máx: {maxPct.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}% {maxLabel}</span>}
                                             </div>
                                         </div>
                                     )

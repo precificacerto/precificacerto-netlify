@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
 import {
-    Button, Drawer, Form, Input, InputNumber, Select, Space, Table, Tag,
+    Button, Drawer, Form, Input, InputNumber, Select, Space, Table, Tag, Tooltip,
     message, Popconfirm, DatePicker, Empty, Divider, Modal, Upload, Checkbox, Radio,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
@@ -21,7 +21,7 @@ import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import { formatCurrencyInput, parseCurrencyInput } from '@/utils/get-monetary-value'
 import { ExportFormatModal } from '@/components/ui/export-format-modal.component'
 import { exportTableToPdf } from '@/utils/export-generic-pdf'
-import { calculateDiscountedPrice } from '@/utils/calculate-discount'
+import { calculateDiscountedPrice, DiscountMode } from '@/utils/calculate-discount'
 
 const PAYMENT_METHODS = [
     { value: 'PIX', label: '⚡ PIX' },
@@ -154,6 +154,7 @@ function Sales() {
     const [empServiceTablesV, setEmpServiceTablesV] = useState<{id: string; name: string; type: string; commission_percent?: number}[]>([])
     const [tableSectionsV, setTableSectionsV] = useState<{key: string; tableId: string | null}[]>([{key: 'ts-0', tableId: null}])
     const [globalDiscountPercentV, setGlobalDiscountPercentV] = useState(0)
+    const [discountModeV, setDiscountModeV] = useState<DiscountMode>('PROPORTIONAL')
     const selectedEmployeeIdV = Form.useWatch('employee_id', form)
     const latestEmployeeIdVRef = useRef<string | undefined>(undefined)
 
@@ -688,10 +689,22 @@ function Sales() {
 
     const saleTotal = saleItems.reduce((s, i) => s + i.total, 0)
 
-    // Percentual máximo de desconto = (soma de comissão+lucro de todos os itens) / total
-    const maxDiscountPercentV = saleTotal > 0
-        ? Math.min(100, saleItems.reduce((s, i) => s + i.total * ((i.commission_percent || 0) + (i.profit_percent || 0)) / 100, 0) / saleTotal * 100)
-        : 0
+    // Teto do desconto varia conforme o modo escolhido:
+    //   PROPORTIONAL     → comissão + lucro (comportamento histórico)
+    //   PROFIT_REDUCTION → apenas lucro
+    //   SELLER_REDUCTION → apenas comissão
+    const maxDiscountPercentV = (() => {
+        if (saleTotal <= 0) return 0
+        const sumWeighted = saleItems.reduce((s, i) => {
+            const comm = i.commission_percent || 0
+            const prof = i.profit_percent || 0
+            const pct = discountModeV === 'PROFIT_REDUCTION' ? prof
+                : discountModeV === 'SELLER_REDUCTION' ? comm
+                : comm + prof
+            return s + i.total * pct / 100
+        }, 0)
+        return Math.min(100, sumWeighted / saleTotal * 100)
+    })()
     const saleTotalWithDiscount = saleTotal * (1 - globalDiscountPercentV / 100)
 
     // ── Salvar venda manual (balcão) ──
@@ -724,15 +737,29 @@ function Sales() {
             const createdBy = await getCurrentUserId()
             if (!createdBy) { messageApi.error('Sessão inválida. Faça login novamente.'); setSaving(false); return }
 
-            // Calculate commission amount per item: effective_pct = commission_pct - (discount_pct × commission_pct / (commission_pct + profit_pct))
+            // Comissão efetiva depende do modo de desconto:
+            //   PROPORTIONAL     → redução proporcional ao tamanho da comissão na margem total
+            //   PROFIT_REDUCTION → comissão permanece integral (desconto sai do lucro)
+            //   SELLER_REDUCTION → comissão reduzida proporcionalmente dentro do teto de vendedor
             const commissionAmount = saleItems.reduce((sum, item) => {
                 const commPct = item.commission_percent || 0
                 const profPct = item.profit_percent || 0
                 if (commPct === 0) return sum
-                const combined = commPct + profPct
-                const effectivePct = combined > 0
-                    ? commPct - (globalDiscountPercentV * commPct / combined)
-                    : commPct
+                let effectivePct = commPct
+                if (globalDiscountPercentV > 0) {
+                    if (discountModeV === 'PROFIT_REDUCTION') {
+                        effectivePct = commPct
+                    } else if (discountModeV === 'SELLER_REDUCTION') {
+                        effectivePct = maxDiscountPercentV > 0
+                            ? commPct * (1 - globalDiscountPercentV / maxDiscountPercentV)
+                            : commPct
+                    } else {
+                        const combined = commPct + profPct
+                        effectivePct = combined > 0
+                            ? commPct - (globalDiscountPercentV * commPct / combined)
+                            : commPct
+                    }
+                }
                 return sum + item.total * Math.max(0, effectivePct) / 100
             }, 0)
 
@@ -751,6 +778,7 @@ function Sales() {
                 sale_type: 'MANUAL',
                 status: 'COMPLETED',
                 commission_amount: commissionAmount,
+                discount_mode: discountModeV,
             }).select().single()
 
             if (saleErr) throw saleErr
@@ -1487,21 +1515,53 @@ function Sales() {
 
                     {/* Desconto Global */}
                     <div style={{ marginTop: 8, padding: '12px 16px', background: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.2)', borderRadius: 8 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                <span style={{ fontSize: 14, color: '#94a3b8', whiteSpace: 'nowrap' }}>Modo</span>
+                                <Select
+                                    value={discountModeV}
+                                    onChange={(v: DiscountMode) => {
+                                        setDiscountModeV(v)
+                                        setGlobalDiscountPercentV(0)
+                                        if (installmentPreset !== 'customizado') {
+                                            const n = customInstallments.length
+                                            const amt = n > 0 && saleTotal > 0 ? Math.round((saleTotal / n) * 100) / 100 : 0
+                                            setCustomInstallments(prev => prev.map(inst => ({ ...inst, amount: amt })))
+                                        }
+                                    }}
+                                    style={{ width: 210 }}
+                                    options={[
+                                        { value: 'PROPORTIONAL', label: 'Proporcional' },
+                                        { value: 'PROFIT_REDUCTION', label: 'Redução do Lucro' },
+                                        { value: 'SELLER_REDUCTION', label: 'Redução do Vendedor' },
+                                    ]}
+                                />
                                 <span style={{ fontSize: 14, color: '#94a3b8', whiteSpace: 'nowrap' }}>Desconto (%)</span>
-                                <InputNumber min={0} max={maxDiscountPercentV > 0 ? maxDiscountPercentV : 100} step={0.5} value={globalDiscountPercentV} onChange={(v) => {
-                                    const newDiscount = Math.min(v ?? 0, maxDiscountPercentV > 0 ? maxDiscountPercentV : 100)
-                                    setGlobalDiscountPercentV(newDiscount)
-                                    if (installmentPreset !== 'customizado') {
-                                        const discountedTotal = saleTotal * (1 - newDiscount / 100)
-                                        const n = customInstallments.length
-                                        const amt = n > 0 && discountedTotal > 0 ? Math.round((discountedTotal / n) * 100) / 100 : 0
-                                        setCustomInstallments(prev => prev.map(inst => ({ ...inst, amount: amt })))
-                                    }
-                                }} formatter={(v) => v != null ? String(v).replace('.', ',') : ''} parser={(v) => Number((v || '0').replace(',', '.'))} addonAfter="%" style={{ width: 130 }} />
+                                <Tooltip title={maxDiscountPercentV <= 0 ? (discountModeV === 'SELLER_REDUCTION' ? 'Comissão zero — sem margem de vendedor para reduzir' : discountModeV === 'PROFIT_REDUCTION' ? 'Lucro zero — sem margem de lucro para reduzir' : 'Sem margem disponível para desconto') : ''}>
+                                    <InputNumber
+                                        disabled={maxDiscountPercentV <= 0}
+                                        min={0}
+                                        max={maxDiscountPercentV > 0 ? maxDiscountPercentV : 100}
+                                        step={0.5}
+                                        value={globalDiscountPercentV}
+                                        onChange={(v) => {
+                                            const newDiscount = Math.min(v ?? 0, maxDiscountPercentV > 0 ? maxDiscountPercentV : 100)
+                                            setGlobalDiscountPercentV(newDiscount)
+                                            if (installmentPreset !== 'customizado') {
+                                                const discountedTotal = saleTotal * (1 - newDiscount / 100)
+                                                const n = customInstallments.length
+                                                const amt = n > 0 && discountedTotal > 0 ? Math.round((discountedTotal / n) * 100) / 100 : 0
+                                                setCustomInstallments(prev => prev.map(inst => ({ ...inst, amount: amt })))
+                                            }
+                                        }}
+                                        formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
+                                        parser={(v) => Number((v || '0').replace(',', '.'))}
+                                        addonAfter="%"
+                                        style={{ width: 130 }}
+                                    />
+                                </Tooltip>
                             </div>
-                            {maxDiscountPercentV > 0 && (<span style={{ fontSize: 12, color: '#64748b' }}>Máx: {maxDiscountPercentV.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}% (comissão + lucro)</span>)}
+                            {maxDiscountPercentV > 0 && (<span style={{ fontSize: 12, color: '#64748b' }}>Máx: {maxDiscountPercentV.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}% {discountModeV === 'PROFIT_REDUCTION' ? '(lucro)' : discountModeV === 'SELLER_REDUCTION' ? '(comissão do vendedor)' : '(comissão + lucro)'}</span>)}
                         </div>
                     </div>
                     {globalDiscountPercentV > 0 && (

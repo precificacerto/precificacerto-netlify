@@ -43,6 +43,8 @@ interface CommissionDetailRow {
   commission_amount: number
   is_installment?: boolean
   pending?: boolean
+  installment_label?: string
+  sale_code?: string
 }
 
 interface CommissionRow {
@@ -156,15 +158,20 @@ export default function CommissionPage() {
         try {
           const { data } = await supabase
             .from('sales')
-            .select('id, final_value, budget_id, employee_id, sale_date, sale_type, commission_amount, installments')
+            .select('id, sale_code, final_value, budget_id, employee_id, sale_date, sale_type, commission_amount, installments')
             .eq('is_active', true)
           salesData = data || []
         } catch {
           const { data } = await supabase
             .from('sales')
-            .select('id, final_value, budget_id, sale_date, installments')
+            .select('id, sale_code, final_value, budget_id, sale_date, installments')
             .eq('is_active', true)
           salesData = (data || []).map((s: any) => ({ ...s, employee_id: null }))
+        }
+
+        const saleCodeMap = new Map<string, string>()
+        for (const s of salesData) {
+          saleCodeMap.set(s.id, s.sale_code || s.id.slice(0, 8))
         }
 
         // Get all sale_items for product commission lookup
@@ -314,7 +321,7 @@ export default function CommissionPage() {
                   emp.commission_value += storedCommission
                   emp.sum_weighted_pct += effPct * finalValue
                   emp.sum_value += finalValue
-                  emp.detail_rows.push({ key: sale.id, type: 'VENDA', description, client_name: clientName, date: saleDate, value: finalValue, commission_percent: effPct, commission_amount: storedCommission })
+                  emp.detail_rows.push({ key: sale.id, type: 'VENDA', description, client_name: clientName, date: saleDate, value: finalValue, commission_percent: effPct, commission_amount: storedCommission, sale_code: saleCodeMap.get(sale.id) })
                 }
               } else {
                 const entries = cashEntriesBySale.get(sale.id)
@@ -324,7 +331,7 @@ export default function CommissionPage() {
                     emp.commission_value += storedCommission
                     emp.sum_weighted_pct += effPct * finalValue
                     emp.sum_value += finalValue
-                    emp.detail_rows.push({ key: sale.id, type: 'VENDA', description, client_name: clientName, date: saleDate, value: finalValue, commission_percent: effPct, commission_amount: storedCommission })
+                    emp.detail_rows.push({ key: sale.id, type: 'VENDA', description, client_name: clientName, date: saleDate, value: finalValue, commission_percent: effPct, commission_amount: storedCommission, sale_code: saleCodeMap.get(sale.id) })
                   }
                 } else {
                   const totalAmt = entries.reduce((s, e) => s + e.amount, 0)
@@ -342,7 +349,7 @@ export default function CommissionPage() {
                     emp.commission_value += creditedComm
                     emp.sum_weighted_pct += effPct * creditedValue
                     emp.sum_value += creditedValue
-                    emp.detail_rows.push({ key: `${sale.id}-bc`, type: 'VENDA', description, client_name: clientName, date: saleDate, value: creditedValue, commission_percent: effPct, commission_amount: creditedComm, is_installment: true, pending: false })
+                    emp.detail_rows.push({ key: `${sale.id}-bc`, type: 'VENDA', description, client_name: clientName, date: saleDate, value: creditedValue, commission_percent: effPct, commission_amount: creditedComm, is_installment: true, pending: false, sale_code: saleCodeMap.get(sale.id), installment_label: `${confirmedMonthly.length}/${entries.length}` })
                   }
                   if (pendingAmt > 0) {
                     const prop = pendingAmt / totalAmt
@@ -350,7 +357,7 @@ export default function CommissionPage() {
                     const pendingComm = storedCommission * prop
                     emp.pending_revenue += pendingValue
                     emp.pending_commission += pendingComm
-                    emp.detail_rows.push({ key: `${sale.id}-bp`, type: 'VENDA', description, client_name: clientName, date: saleDate, value: pendingValue, commission_percent: effPct, commission_amount: pendingComm, is_installment: true, pending: true })
+                    emp.detail_rows.push({ key: `${sale.id}-bp`, type: 'VENDA', description, client_name: clientName, date: saleDate, value: pendingValue, commission_percent: effPct, commission_amount: pendingComm, is_installment: true, pending: true, sale_code: saleCodeMap.get(sale.id), installment_label: `${pendingMonthly.length}/${entries.length}` })
                   }
                 }
               }
@@ -368,7 +375,7 @@ export default function CommissionPage() {
                 emp.commission_value += commAmount
                 emp.sum_weighted_pct += prodComm * finalValue
                 emp.sum_value += finalValue
-                emp.detail_rows.push({ key: sale.id, type: 'VENDA', description, client_name: clientName, date: saleDate, value: finalValue, commission_percent: prodComm, commission_amount: commAmount })
+                emp.detail_rows.push({ key: sale.id, type: 'VENDA', description, client_name: clientName, date: saleDate, value: finalValue, commission_percent: prodComm, commission_amount: commAmount, sale_code: saleCodeMap.get(sale.id) })
               }
             } else {
               const entries = cashEntriesBySale.get(sale.id)
@@ -379,7 +386,7 @@ export default function CommissionPage() {
                   emp.commission_value += commAmount
                   emp.sum_weighted_pct += prodComm * finalValue
                   emp.sum_value += finalValue
-                  emp.detail_rows.push({ key: sale.id, type: 'VENDA', description, client_name: clientName, date: saleDate, value: finalValue, commission_percent: prodComm, commission_amount: commAmount })
+                  emp.detail_rows.push({ key: sale.id, type: 'VENDA', description, client_name: clientName, date: saleDate, value: finalValue, commission_percent: prodComm, commission_amount: commAmount, sale_code: saleCodeMap.get(sale.id) })
                 }
               } else {
                 const totalInstallments = entries.reduce((s, e) => s + e.amount, 0)
@@ -397,7 +404,7 @@ export default function CommissionPage() {
                   emp.commission_value += commAmount
                   emp.sum_weighted_pct += prodComm * creditedValue
                   emp.sum_value += creditedValue
-                  emp.detail_rows.push({ key: `${sale.id}-bc`, type: 'VENDA', description, client_name: clientName, date: saleDate, value: creditedValue, commission_percent: prodComm, commission_amount: commAmount, is_installment: true, pending: false })
+                  emp.detail_rows.push({ key: `${sale.id}-bc`, type: 'VENDA', description, client_name: clientName, date: saleDate, value: creditedValue, commission_percent: prodComm, commission_amount: commAmount, is_installment: true, pending: false, sale_code: saleCodeMap.get(sale.id), installment_label: `${confirmedMonthly.length}/${entries.length}` })
                 }
                 if (pendingAmt > 0) {
                   const proportion = pendingAmt / totalInstallments
@@ -405,7 +412,7 @@ export default function CommissionPage() {
                   const pendingComm = pendingValue * (prodComm / 100)
                   emp.pending_revenue += pendingValue
                   emp.pending_commission += pendingComm
-                  emp.detail_rows.push({ key: `${sale.id}-bp`, type: 'VENDA', description, client_name: clientName, date: saleDate, value: pendingValue, commission_percent: prodComm, commission_amount: pendingComm, is_installment: true, pending: true })
+                  emp.detail_rows.push({ key: `${sale.id}-bp`, type: 'VENDA', description, client_name: clientName, date: saleDate, value: pendingValue, commission_percent: prodComm, commission_amount: pendingComm, is_installment: true, pending: true, sale_code: saleCodeMap.get(sale.id), installment_label: `${pendingMonthly.length}/${entries.length}` })
                 }
               }
             }
@@ -480,7 +487,7 @@ export default function CommissionPage() {
                   emp.commission_value += storedCommission
                   emp.sum_weighted_pct += effPct * finalValue
                   emp.sum_value += finalValue
-                  emp.detail_rows.push({ key: sale.id, type: 'VENDA', description, client_name: clientName, date: saleDate, value: finalValue, commission_percent: effPct, commission_amount: storedCommission })
+                  emp.detail_rows.push({ key: sale.id, type: 'VENDA', description, client_name: clientName, date: saleDate, value: finalValue, commission_percent: effPct, commission_amount: storedCommission, sale_code: saleCodeMap.get(sale.id) })
                 }
               } else {
                 const entries = cashEntriesBySale.get(sale.id)
@@ -490,7 +497,7 @@ export default function CommissionPage() {
                     emp.commission_value += storedCommission
                     emp.sum_weighted_pct += effPct * finalValue
                     emp.sum_value += finalValue
-                    emp.detail_rows.push({ key: sale.id, type: 'VENDA', description, client_name: clientName, date: saleDate, value: finalValue, commission_percent: effPct, commission_amount: storedCommission })
+                    emp.detail_rows.push({ key: sale.id, type: 'VENDA', description, client_name: clientName, date: saleDate, value: finalValue, commission_percent: effPct, commission_amount: storedCommission, sale_code: saleCodeMap.get(sale.id) })
                   }
                 } else {
                   const totalAmt = entries.reduce((s, e) => s + e.amount, 0)
@@ -508,7 +515,7 @@ export default function CommissionPage() {
                     emp.commission_value += creditedComm
                     emp.sum_weighted_pct += effPct * creditedValue
                     emp.sum_value += creditedValue
-                    emp.detail_rows.push({ key: `${sale.id}-dc`, type: 'VENDA', description, client_name: clientName, date: saleDate, value: creditedValue, commission_percent: effPct, commission_amount: creditedComm, is_installment: true, pending: false })
+                    emp.detail_rows.push({ key: `${sale.id}-dc`, type: 'VENDA', description, client_name: clientName, date: saleDate, value: creditedValue, commission_percent: effPct, commission_amount: creditedComm, is_installment: true, pending: false, sale_code: saleCodeMap.get(sale.id), installment_label: `${confirmedMonthly.length}/${entries.length}` })
                   }
                   if (pendingAmt > 0) {
                     const prop = pendingAmt / totalAmt
@@ -516,7 +523,7 @@ export default function CommissionPage() {
                     const pendingComm = storedCommission * prop
                     emp.pending_revenue += pendingValue
                     emp.pending_commission += pendingComm
-                    emp.detail_rows.push({ key: `${sale.id}-dp`, type: 'VENDA', description, client_name: clientName, date: saleDate, value: pendingValue, commission_percent: effPct, commission_amount: pendingComm, is_installment: true, pending: true })
+                    emp.detail_rows.push({ key: `${sale.id}-dp`, type: 'VENDA', description, client_name: clientName, date: saleDate, value: pendingValue, commission_percent: effPct, commission_amount: pendingComm, is_installment: true, pending: true, sale_code: saleCodeMap.get(sale.id), installment_label: `${pendingMonthly.length}/${entries.length}` })
                   }
                 }
               }
@@ -533,7 +540,7 @@ export default function CommissionPage() {
                 emp.commission_value += commAmount
                 emp.sum_weighted_pct += prodComm * finalValue
                 emp.sum_value += finalValue
-                emp.detail_rows.push({ key: sale.id, type: 'VENDA', description, client_name: clientName, date: saleDate, value: finalValue, commission_percent: prodComm, commission_amount: commAmount })
+                emp.detail_rows.push({ key: sale.id, type: 'VENDA', description, client_name: clientName, date: saleDate, value: finalValue, commission_percent: prodComm, commission_amount: commAmount, sale_code: saleCodeMap.get(sale.id) })
               }
             } else {
               const entries = cashEntriesBySale.get(sale.id)
@@ -544,7 +551,7 @@ export default function CommissionPage() {
                   emp.commission_value += commAmount
                   emp.sum_weighted_pct += prodComm * finalValue
                   emp.sum_value += finalValue
-                  emp.detail_rows.push({ key: sale.id, type: 'VENDA', description, client_name: clientName, date: saleDate, value: finalValue, commission_percent: prodComm, commission_amount: commAmount })
+                  emp.detail_rows.push({ key: sale.id, type: 'VENDA', description, client_name: clientName, date: saleDate, value: finalValue, commission_percent: prodComm, commission_amount: commAmount, sale_code: saleCodeMap.get(sale.id) })
                 }
               } else {
                 const totalInstallments = entries.reduce((s, e) => s + e.amount, 0)
@@ -562,7 +569,7 @@ export default function CommissionPage() {
                   emp.commission_value += commAmount
                   emp.sum_weighted_pct += prodComm * creditedValue
                   emp.sum_value += creditedValue
-                  emp.detail_rows.push({ key: `${sale.id}-dc`, type: 'VENDA', description, client_name: clientName, date: saleDate, value: creditedValue, commission_percent: prodComm, commission_amount: commAmount, is_installment: true, pending: false })
+                  emp.detail_rows.push({ key: `${sale.id}-dc`, type: 'VENDA', description, client_name: clientName, date: saleDate, value: creditedValue, commission_percent: prodComm, commission_amount: commAmount, is_installment: true, pending: false, sale_code: saleCodeMap.get(sale.id), installment_label: `${confirmedMonthly.length}/${entries.length}` })
                 }
                 if (pendingAmt > 0) {
                   const proportion = pendingAmt / totalInstallments
@@ -570,7 +577,7 @@ export default function CommissionPage() {
                   const pendingComm = pendingValue * (prodComm / 100)
                   emp.pending_revenue += pendingValue
                   emp.pending_commission += pendingComm
-                  emp.detail_rows.push({ key: `${sale.id}-dp`, type: 'VENDA', description, client_name: clientName, date: saleDate, value: pendingValue, commission_percent: prodComm, commission_amount: pendingComm, is_installment: true, pending: true })
+                  emp.detail_rows.push({ key: `${sale.id}-dp`, type: 'VENDA', description, client_name: clientName, date: saleDate, value: pendingValue, commission_percent: prodComm, commission_amount: pendingComm, is_installment: true, pending: true, sale_code: saleCodeMap.get(sale.id), installment_label: `${pendingMonthly.length}/${entries.length}` })
                 }
               }
             }
@@ -653,6 +660,21 @@ export default function CommissionPage() {
         }
         return null
       },
+    },
+    {
+      title: 'Parcela',
+      dataIndex: 'installment_label',
+      key: 'installment_label',
+      width: 90,
+      align: 'center' as const,
+      render: (v: string | undefined) => v ? <Tag color="blue">{v}</Tag> : <span style={{ color: '#64748b' }}>—</span>,
+    },
+    {
+      title: 'Nº Pedido',
+      dataIndex: 'sale_code',
+      key: 'sale_code',
+      width: 120,
+      render: (v: string | undefined) => v ? <span style={{ fontFamily: 'monospace', fontWeight: 600, color: '#a78bfa' }}>{v}</span> : <span style={{ color: '#64748b' }}>—</span>,
     },
     {
       title: 'Data',
@@ -952,7 +974,7 @@ export default function CommissionPage() {
         }
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
-        width={900}
+        width="min(1200px, 95vw)"
         styles={{ body: { padding: 16 } }}
         extra={
           drawerRow && (
@@ -986,19 +1008,19 @@ export default function CommissionPage() {
             rowKey="key"
             size="small"
             pagination={false}
-            scroll={{ x: 800 }}
+            scroll={{ x: 1100 }}
             summary={() => (
               <Table.Summary fixed>
                 <Table.Summary.Row style={{ background: '#1e1b4b' }}>
-                  <Table.Summary.Cell index={0} colSpan={5}>
+                  <Table.Summary.Cell index={0} colSpan={7}>
                     <strong style={{ color: '#e2e8f0' }}>TOTAL</strong>
                   </Table.Summary.Cell>
-                  <Table.Summary.Cell index={5} align="right">
+                  <Table.Summary.Cell index={7} align="right">
                     <strong style={{ color: '#e2e8f0' }}>
                       {formatCurrency(drawerRow.detail_rows.reduce((s, r) => s + r.value, 0))}
                     </strong>
                   </Table.Summary.Cell>
-                  <Table.Summary.Cell index={6} align="right">
+                  <Table.Summary.Cell index={8} align="right">
                     <strong style={{ color: '#a78bfa' }}>
                       {formatCurrency(drawerRow.detail_rows.reduce((s, r) => s + r.commission_amount, 0))}
                     </strong>
