@@ -345,6 +345,11 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
               : variablePct + financialPct + taxesPct + taxableRegimePercent + commissionPercent + profitPercent
         const isValid = result.isValid
 
+        // Valor precificado final com ICMS/PIS/COFINS embutidos = Custo / MC%
+        // Base para cálculo de ICMS (R$) e PIS/COFINS (R$) em LR/LP
+        const mcPct = 100 - totalPct
+        const valorPrecificado = mcPct > 0 ? totalCost / (mcPct / 100) : 0
+
         return {
             laborCost, totalCost, sellingPrice, costPerMinute, totalEmployees,
             variablePct, financialPct, taxesPct,
@@ -357,6 +362,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
             commissionVal,
             profitVal,
             totalPct, isValid,
+            valorPrecificado,
         }
     }, [materialCost, expenseConfig, currentUser, taxableRegimePercent, commissionPercent, profitPercent, taxPreview, form, additionalIrpjPercent])
 
@@ -973,7 +979,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                             {(isLucroRealDisplay || isLucroPresumidoDisplay) && pricingRow(
                                 'PIS/Cofins (%)',
                                 pisCofinsLRPct,
-                                pricing.sellingPrice * pisCofinsLRPct / 100,
+                                pricing.valorPrecificado * pisCofinsLRPct / 100,
                                 'pisCofins',
                                 isLucroPresumidoDisplay
                                     ? 'PIS + COFINS cumulativo (3,65%) — regime Lucro Presumido. Editável.'
@@ -989,19 +995,12 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                         <span style={{ fontWeight: 600 }}>{(100 - pricing.totalPct).toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%</span>
                     </div>
 
-                    {(isLucroRealDisplay || isLucroPresumidoDisplay) && (() => {
-                        // Valor precificado = Custo / Margem_contribuição_total_aplicada (decimal)
-                        // Ex: R$ 96,80 / 39,279% (= 0,39279) = R$ 246,44
-                        const _mc = 100 - pricing.totalPct
-                        const _cost = Number(pricing.totalCost) || 0
-                        const valorPrecificado = _mc > 0 ? _cost / (_mc / 100) : 0
-                        return (
-                            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 12, marginTop: 4 }}>
-                                <span style={{ color: '#64748b' }}>Valor do produto precificado com ICMS, PIS/COFINS</span>
-                                <span style={{ fontWeight: 600, color: '#e2e8f0' }}>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 }).format(valorPrecificado)}</span>
-                            </div>
-                        )
-                    })()}
+                    {(isLucroRealDisplay || isLucroPresumidoDisplay) && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 12, marginTop: 4 }}>
+                            <span style={{ color: '#64748b' }}>Valor do produto precificado com ICMS, PIS/COFINS</span>
+                            <span style={{ fontWeight: 600, color: '#e2e8f0' }}>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 }).format(pricing.valorPrecificado)}</span>
+                        </div>
+                    )}
 
                     {/* Fator de redução IVA DUAL */}
                     {(isLucroRealDisplay || isLucroPresumidoDisplay || isSHDisplay) && (

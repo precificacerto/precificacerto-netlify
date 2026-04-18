@@ -166,13 +166,6 @@ export const ProductPrice: FC<Props> = ({
     } as any)
   }
 
-  // Valores aproximados de ICMS e PIS/COFINS no preço grosseado (para exibição)
-  const totalIcmsPisCofins = icmsPct + pisCofinsLRPct
-  const grossDenominator = totalIcmsPisCofins > 0 ? (100 - totalIcmsPisCofins) / 100 : 1
-  const grossedPriceDisplay = grossDenominator > 0 ? pricePerUnit / grossDenominator : pricePerUnit
-  const icmsValDisplay = grossedPriceDisplay * icmsPct / 100
-  const pisCofinsValDisplay = grossedPriceDisplay * pisCofinsLRPct / 100
-
   // Margem de contribuição (coeficiente):
   // MC% = 100% − soma de todos os percentuais (exceto custo do produto)
   // Para LUCRO_REAL: totalPct ainda não inclui icmsPct e pisCofinsLRPct (são brutos, não derivados)
@@ -180,6 +173,12 @@ export const ProductPrice: FC<Props> = ({
   const mcPct = (isLucroReal || isLucroPresumed)
     ? 100 - totalPct - (isCalcTypeService ? 0 : icmsPct) - pisCofinsLRPct
     : 100 - totalPct
+
+  // Valor precificado final com ICMS/PIS/COFINS embutidos = Custo / MC%
+  // ICMS (R$) e PIS/COFINS (R$) = valorPrecificado × alíquota
+  const valorPrecificado = mcPct > 0 ? costTotal / (mcPct / 100) : 0
+  const icmsValDisplay = valorPrecificado * icmsPct / 100
+  const pisCofinsValDisplay = valorPrecificado * pisCofinsLRPct / 100
 
   function pricingRow(
     label: string,
@@ -326,17 +325,12 @@ export const ProductPrice: FC<Props> = ({
           <span style={{ fontWeight: 600 }}>{mcPct.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%</span>
         </div>
 
-        {(isLucroReal || isLucroPresumed) && (() => {
-          // Valor precificado = Custo / Margem_contribuição_total_aplicada (decimal)
-          // Ex: R$ 96,80 / 39,279% (= 0,39279) = R$ 246,44
-          const valorPrecificado = mcPct > 0 ? costTotal / (mcPct / 100) : 0
-          return (
-            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 12, marginTop: 4 }}>
-              <span style={{ color: '#64748b' }}>Valor do produto precificado com ICMS, PIS/COFINS</span>
-              <span style={{ fontWeight: 600, color: '#e2e8f0' }}>{fmt(valorPrecificado)}</span>
-            </div>
-          )
-        })()}
+        {(isLucroReal || isLucroPresumed) && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 12, marginTop: 4 }}>
+            <span style={{ color: '#64748b' }}>Valor do produto precificado com ICMS, PIS/COFINS</span>
+            <span style={{ fontWeight: 600, color: '#e2e8f0' }}>{fmt(valorPrecificado)}</span>
+          </div>
+        )}
 
         {/* Atividades Terceirizadas — LUCRO_REAL / LUCRO_PRESUMIDO */}
         {(isLucroReal || isLucroPresumed || isSimplesHibrido) && (
