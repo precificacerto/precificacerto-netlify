@@ -38,8 +38,11 @@ interface TempItem {
     unit: string
     needed_qty: number
     ref_qty: number
-    ref_price: number
+    ref_price: number          // LÍQUIDO (cost_net) p/ regimes com impostos no item; senão BRUTO
+    ref_price_gross?: number   // BRUTO (cost_gross) — preenchido p/ regimes com impostos no item
     proportional_cost: number
+    proportional_cost_gross?: number
+    has_item_taxes?: boolean
 }
 
 export interface ServiceContentProps {
@@ -178,11 +181,19 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
             setRecurrenceDays(serviceData.recurrence_days ?? null)
             setRecurrenceMessage(serviceData.recurrence_message ?? '')
 
+            const regimeLoad = currentUser?.taxableRegime
+            const hasItemTaxesLoad = regimeLoad === 'LUCRO_REAL' || regimeLoad === 'LUCRO_PRESUMIDO' || regimeLoad === 'SIMPLES_HIBRIDO'
             const existingItems: TempItem[] = (serviceData.service_items || []).map((si: any, i: number) => {
                 const item = si.item
                 const measureQty = Number((item as any)?.measure_quantity) || 1
                 const refQty = (Number(item?.quantity) || 1) * measureQty
-                const refPrice = Number(item?.cost_price) || 0
+                const itemCostNet = Number((item as any)?.cost_net) || 0
+                const itemCostGross = Number((item as any)?.cost_gross) || 0
+                const itemCostPrice = Number(item?.cost_price) || 0
+                const refPrice = (hasItemTaxesLoad && itemCostNet > 0) ? itemCostNet : itemCostPrice
+                const refPriceGross = hasItemTaxesLoad
+                    ? (itemCostGross > 0 ? itemCostGross : itemCostPrice)
+                    : itemCostPrice
                 const neededQty = Number(si.quantity) || 0
                 return {
                     key: `ex-${i}`,
@@ -192,7 +203,10 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                     needed_qty: neededQty,
                     ref_qty: refQty,
                     ref_price: refPrice,
+                    ref_price_gross: refPriceGross,
                     proportional_cost: calculateItemPrice(neededQty, refPrice, refQty),
+                    proportional_cost_gross: calculateItemPrice(neededQty, refPriceGross, refQty),
+                    has_item_taxes: hasItemTaxesLoad,
                 }
             })
             setTempItems(existingItems)
@@ -350,12 +364,18 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
 
         const measureQty = Number((it as any).measure_quantity) || 1
         const refQty = (Number(it.quantity) || 1) * measureQty
-        const isLucroReal = currentUser?.taxableRegime === 'LUCRO_REAL'
-        const isLucroPresumidoItem = currentUser?.taxableRegime === 'LUCRO_PRESUMIDO'
+        const regimeAdd = currentUser?.taxableRegime
+        const hasItemTaxesAdd = regimeAdd === 'LUCRO_REAL' || regimeAdd === 'LUCRO_PRESUMIDO' || regimeAdd === 'SIMPLES_HIBRIDO'
         const itemCostNet = Number((it as any).cost_net) || 0
-        // Para Lucro Real e Lucro Presumido com cost_net calculado, usar custo líquido; caso contrário, custo bruto
-        const effectiveCost = ((isLucroReal || isLucroPresumidoItem) && itemCostNet > 0) ? itemCostNet : it.cost_price
+        const itemCostGross = Number((it as any).cost_gross) || 0
+        // Para regimes com impostos no item: usar custo LÍQUIDO; caso contrário, custo bruto
+        const effectiveCost = (hasItemTaxesAdd && itemCostNet > 0) ? itemCostNet : it.cost_price
+        // BRUTO de referência: cost_gross persistido OU it.cost_price como fallback
+        const effectiveGross = hasItemTaxesAdd
+            ? (itemCostGross > 0 ? itemCostGross : it.cost_price)
+            : it.cost_price
         const proportionalCost = calculateItemPrice(addItemQty, effectiveCost, refQty)
+        const proportionalCostGross = calculateItemPrice(addItemQty, effectiveGross, refQty)
         setTempItems(prev => [...prev, {
             key: `n-${Date.now()}`,
             item_id: it.id,
@@ -364,7 +384,10 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
             needed_qty: addItemQty,
             ref_qty: refQty,
             ref_price: effectiveCost,
+            ref_price_gross: effectiveGross,
             proportional_cost: proportionalCost,
+            proportional_cost_gross: proportionalCostGross,
+            has_item_taxes: hasItemTaxesAdd,
         }])
         setAddItemId(null)
         setAddItemQty(1)
@@ -374,7 +397,10 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
         setTempItems(prev => prev.map(t => {
             if (t.key === key) {
                 const newCost = calculateItemPrice(val, t.ref_price, t.ref_qty)
-                return { ...t, needed_qty: val, proportional_cost: newCost }
+                const newGross = t.ref_price_gross != null
+                    ? calculateItemPrice(val, t.ref_price_gross, t.ref_qty)
+                    : undefined
+                return { ...t, needed_qty: val, proportional_cost: newCost, proportional_cost_gross: newGross }
             }
             return t
         }))
@@ -545,9 +571,21 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
             ),
         },
         {
-            title: 'Custo Prop.', key: 'cost', width: 130, align: 'right',
+            title: 'Bruto', key: 'cost_gross', width: 110, align: 'right',
+            render: (_: any, r: TempItem) => {
+                if (!r.has_item_taxes) return <span style={{ color: '#94a3b8' }}>—</span>
+                const gross = r.proportional_cost_gross ?? r.proportional_cost
+                return (
+                    <Tooltip title={`Bruto: (${r.needed_qty} × ${fmt(r.ref_price_gross ?? r.ref_price)}) ÷ ${r.ref_qty} = ${fmt(gross)}`}>
+                        <span style={{ fontWeight: 600, color: '#94a3b8' }}>{fmt(gross)}</span>
+                    </Tooltip>
+                )
+            },
+        },
+        {
+            title: 'Líquido', key: 'cost', width: 130, align: 'right',
             render: (_: any, r: TempItem) => (
-                <Tooltip title={`(${r.needed_qty} × ${fmt(r.ref_price)}) ÷ ${r.ref_qty} = ${fmt(r.proportional_cost)}`}>
+                <Tooltip title={`Líquido: (${r.needed_qty} × ${fmt(r.ref_price)}) ÷ ${r.ref_qty} = ${fmt(r.proportional_cost)}`}>
                     <span style={{ fontWeight: 600, color: '#B42318' }}>{fmt(r.proportional_cost)}</span>
                 </Tooltip>
             ),
@@ -933,12 +971,19 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                         <span style={{ fontWeight: 600 }}>{(100 - pricing.totalPct).toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%</span>
                     </div>
 
-                    {(isLucroRealDisplay || isLucroPresumidoDisplay) && (
-                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 12, marginTop: 4 }}>
-                            <span style={{ color: '#64748b' }}>Valor do produto precificado com ICMS, PIS/COFINS</span>
-                            <span style={{ fontWeight: 600, color: '#e2e8f0' }}>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 }).format(pricing.sellingPrice)}</span>
-                        </div>
-                    )}
+                    {(isLucroRealDisplay || isLucroPresumidoDisplay) && (() => {
+                        // Valor precificado = Custo / Margem_contribuição_total_aplicada (decimal)
+                        // Ex: R$ 96,80 / 39,279% (= 0,39279) = R$ 246,44
+                        const _mc = 100 - pricing.totalPct
+                        const _cost = Number(pricing.totalCost) || 0
+                        const valorPrecificado = _mc > 0 ? _cost / (_mc / 100) : 0
+                        return (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 12, marginTop: 4 }}>
+                                <span style={{ color: '#64748b' }}>Valor do produto precificado com ICMS, PIS/COFINS</span>
+                                <span style={{ fontWeight: 600, color: '#e2e8f0' }}>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 }).format(valorPrecificado)}</span>
+                            </div>
+                        )
+                    })()}
 
                     {/* Fator de redução IVA DUAL */}
                     {(isLucroRealDisplay || isLucroPresumidoDisplay || isSHDisplay) && (

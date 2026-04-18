@@ -262,12 +262,19 @@ export const ContentService: FC<ContentServiceProps> = ({
             <span style={{ fontWeight: 600 }}>{svcTotalPct.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%</span>
           </div>
 
-          {isLucroRealSvc && (
-            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 12, marginTop: 4 }}>
-              <span style={{ color: '#64748b' }}>Valor do produto precificado com ICMS, PIS/COFINS</span>
-              <span style={{ fontWeight: 600, color: '#e2e8f0' }}>{fmt(svcTotal)}</span>
-            </div>
-          )}
+          {isLucroRealSvc && (() => {
+            // Valor precificado = Custo / Margem_contribuição_total_aplicada (decimal)
+            // Ex: R$ 96,80 / 39,279% (= 0,39279) = R$ 246,44
+            const _mc = 100 - svcTotalPct
+            const _cost = Number(svcCost) || 0
+            const valorPrecificado = _mc > 0 ? _cost / (_mc / 100) : 0
+            return (
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 12, marginTop: 4 }}>
+                <span style={{ color: '#64748b' }}>Valor do produto precificado com ICMS, PIS/COFINS</span>
+                <span style={{ fontWeight: 600, color: '#e2e8f0' }}>{fmt(valorPrecificado)}</span>
+              </div>
+            )
+          })()}
 
           <div style={{
             padding: '16px 20px', borderRadius: 8, marginTop: 12,
@@ -364,12 +371,19 @@ export const ContentService: FC<ContentServiceProps> = ({
             <span style={{ fontWeight: 600 }}>{prdTotalPct.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%</span>
           </div>
 
-          {isLucroRealSvc && (
-            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 12, marginTop: 4 }}>
-              <span style={{ color: '#64748b' }}>Valor do produto precificado com ICMS, PIS/COFINS</span>
-              <span style={{ fontWeight: 600, color: '#e2e8f0' }}>{fmt(prdTotal)}</span>
-            </div>
-          )}
+          {isLucroRealSvc && (() => {
+            // Valor precificado = Custo / Margem_contribuição_total_aplicada (decimal)
+            // Ex: R$ 96,80 / 39,279% (= 0,39279) = R$ 246,44
+            const _mc = 100 - prdTotalPct
+            const _cost = Number(prdCost) || 0
+            const valorPrecificado = _mc > 0 ? _cost / (_mc / 100) : 0
+            return (
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 12, marginTop: 4 }}>
+                <span style={{ color: '#64748b' }}>Valor do produto precificado com ICMS, PIS/COFINS</span>
+                <span style={{ fontWeight: 600, color: '#e2e8f0' }}>{fmt(valorPrecificado)}</span>
+              </div>
+            )
+          })()}
 
           <div style={{
             padding: '16px 20px', borderRadius: 8, marginTop: 12,

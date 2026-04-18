@@ -90,12 +90,13 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
     const impostosRec = isDeferidoEnabled ? icms * (1 - icmsDeferido / 100) : icms
     setImpostosRecuperaveisDisplay(parseFloat(impostosRec.toFixed(4)))
 
-    // Lucro Real: campo único pis_cofins_rate. Auto-calcula se o usuário não editou manualmente.
+    // Lucro Real: campo único pis_cofins_rate. Auto-calcula a partir do ICMS% bruto digitado
+    // (não usa o ICMS recuperáveis — a fórmula é sempre 9,25 × (1 - ICMS/100)).
     // Simples Híbrido: dois campos separados (pis_rate + cofins_rate).
     let pisCofinsTotal = 0
     if (isLucroReal) {
       if (!pisCofinsManuallyEdited) {
-        const auto = computeAutoPisCofins(impostosRec)
+        const auto = computeAutoPisCofins(icms)
         form.setFieldsValue({ pis_cofins_rate: auto })
         pisCofinsTotal = auto
       } else {
@@ -254,10 +255,7 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
     if (isLucroReal) {
       const values = form.getFieldsValue()
       const icms = Number(values.icms_rate) || 0
-      const isDeferidoEnabled = Boolean(values.icms_deferido_enabled)
-      const icmsDeferido = isDeferidoEnabled ? (Number(values.icms_deferido_rate) || 0) : 0
-      const impostosRec = isDeferidoEnabled ? icms * (1 - icmsDeferido / 100) : icms
-      const auto = computeAutoPisCofins(impostosRec)
+      const auto = computeAutoPisCofins(icms)
       const saved = Number(values.pis_cofins_rate) || 0
       // tolerância 0,001% para arredondamentos
       if (saved > 0 && Math.abs(saved - auto) > 0.001) {
@@ -580,7 +578,7 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
                 label={
                   <span>
                     PIS/COFINS (%)&nbsp;
-                    <Tooltip title="Calculado automaticamente: 9,25 × (1 − ICMS recuperáveis%). Pode ser editado manualmente; após edição, o auto-cálculo fica suspenso até você limpar o campo.">
+                    <Tooltip title="Calculado automaticamente: 9,25 × (1 − ICMS%). Pode ser editado manualmente; após edição, o auto-cálculo fica suspenso até você limpar o campo.">
                       <InfoCircleOutlined style={{ color: '#64748b' }} />
                     </Tooltip>
                   </span>

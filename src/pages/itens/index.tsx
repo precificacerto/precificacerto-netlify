@@ -35,6 +35,7 @@ type ItemRow = {
   price: number
   cost_per_base_unit: number
   cost_net: number
+  cost_gross: number
   has_st: boolean
   is_monofasico: boolean
   supplier_name: string
@@ -93,6 +94,7 @@ function Items() {
       price: Number(item.cost_price) || 0,
       cost_per_base_unit: Number(item.cost_per_base_unit) || 0,
       cost_net: Number(item.cost_net) || 0,
+      cost_gross: Number(item.cost_gross) || 0,
       has_st: item.has_st || false,
       is_monofasico: item.is_monofasico || false,
       supplier_name: item.supplier_name || '',
@@ -320,10 +322,13 @@ function Items() {
       measure_quantity: record.measure_quantity,
       unitType: record.unitType,
       price: (() => {
-        const isLucroReal = currentUser?.taxableRegime === 'LUCRO_REAL'
+        // Para regimes com impostos no item (LR, LP, SH): usa cost_gross (BRUTO) persistido.
+        // Caso o item antigo não tenha cost_gross, faz fallback ao cálculo legado.
+        const regime = currentUser?.taxableRegime
+        const hasItemTaxes = regime === 'LUCRO_REAL' || regime === 'LUCRO_PRESUMIDO' || regime === 'SIMPLES_HIBRIDO'
         const gross = rawItem?.cost_gross ? Number(rawItem.cost_gross) : null
         const computed = record.cost_per_base_unit * record.measure_quantity
-        const value = isLucroReal && gross != null && gross > 0 ? gross : computed
+        const value = hasItemTaxes && gross != null && gross > 0 ? gross : computed
         return value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
       })(),
       has_st: record.has_st,
@@ -851,11 +856,14 @@ function Items() {
       const stockQty = qty  // Estoque em unidades compradas (não convertido para unidade base)
       const isLucroReal = currentUser?.taxableRegime === 'LUCRO_REAL'
       const isLucroPresumido = currentUser?.taxableRegime === 'LUCRO_PRESUMIDO'
+      const isSimplesHibrido = currentUser?.taxableRegime === 'SIMPLES_HIBRIDO'
+      // Regimes que possuem campos de impostos no item e calculam custo líquido
+      const hasItemTaxes = isLucroReal || isLucroPresumido || isSimplesHibrido
       const isLucroRealOrLP = isLucroReal || isLucroPresumido
-      const costNet = isLucroRealOrLP ? (Number(values.cost_net) || 0) : 0
-      // Para Lucro Real / Lucro Presumido: cost_per_base_unit usa o custo líquido (valor usado na precificação)
+      const costNet = hasItemTaxes ? (Number(values.cost_net) || 0) : 0
+      // Para regimes com impostos no item (LR, LP, SH): cost_per_base_unit = custo LÍQUIDO (usado na precificação)
       // Para outros regimes: usa o preço bruto
-      const costPerBaseUnit = isLucroRealOrLP && costNet > 0
+      const costPerBaseUnit = hasItemTaxes && costNet > 0
         ? (measureQty > 0 ? costNet / measureQty : costNet)
         : (measureQty > 0 ? priceNumber / measureQty : priceNumber)
       const totalCost = priceNumber * qty
@@ -873,8 +881,9 @@ function Items() {
         cost_gross: priceNumber,
         cost_net: costNet,
         cost_per_base_unit: costPerBaseUnit,
-        icms_rate: isLucroRealOrLP ? (Number(values.icms_rate) || 0) : 0,
+        icms_rate: hasItemTaxes ? (Number(values.icms_rate) || 0) : 0,
         // Lucro Real: campo único pis_cofins_rate dividido proporcionalmente (1,65/9,25 e 7,6/9,25).
+        // Simples Híbrido: pis_rate e cofins_rate gravados como vieram do form (campos separados).
         // Outros regimes: zera (comportamento original).
         ...(isLucroReal
           ? (() => {
@@ -886,9 +895,14 @@ function Items() {
                 cofins_rate: parseFloat((total * cofinsShare).toFixed(4)),
               }
             })()
-          : { pis_rate: 0, cofins_rate: 0 }
+          : isSimplesHibrido
+            ? {
+                pis_rate: Number(values.pis_rate) || 0,
+                cofins_rate: Number(values.cofins_rate) || 0,
+              }
+            : { pis_rate: 0, cofins_rate: 0 }
         ),
-        icms_deferido_rate: isLucroRealOrLP ? (Number(values.icms_deferido_rate) || null) : null,
+        icms_deferido_rate: hasItemTaxes ? (Number(values.icms_deferido_rate) || null) : null,
         has_st: values.has_st || false,
         is_monofasico: values.is_monofasico || false,
         supplier_name: values.supplier_name || null,
@@ -1046,8 +1060,8 @@ function Items() {
         }
       }
 
-      // Salvar crédito de ICMS em item_tax_credits para Lucro Real e Lucro Presumido
-      if (isLucroRealOrLP && savedItem && Number(savedItem.icms_rate) > 0) {
+      // Salvar crédito de ICMS em item_tax_credits para regimes com impostos no item
+      if (hasItemTaxes && savedItem && Number(savedItem.icms_rate) > 0) {
         const costNetVal = Number(savedItem.cost_net) || 0
         const icmsRateVal = Number(savedItem.icms_rate) || 0
         const icmsCredit = costNetVal * (icmsRateVal / 100)
@@ -1106,10 +1120,16 @@ function Items() {
       key: 'unit_price',
       width: 130,
       render: (_, record) => {
-        const isLucroReal = currentUser?.taxableRegime === 'LUCRO_REAL'
-        const isLucroPresumido2 = currentUser?.taxableRegime === 'LUCRO_PRESUMIDO'
-        if ((isLucroReal || isLucroPresumido2) && record.cost_net > 0) {
-          return `R$ ${record.cost_net.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 3 })}`
+        // Para regimes com impostos no item (LR, LP, SH): exibe SEMPRE o valor BRUTO (cost_gross).
+        // Para os demais regimes: usa o cálculo legado (cost_per_base_unit × measure_quantity).
+        const regime = currentUser?.taxableRegime
+        const hasItemTaxes = regime === 'LUCRO_REAL' || regime === 'LUCRO_PRESUMIDO' || regime === 'SIMPLES_HIBRIDO'
+        if (hasItemTaxes) {
+          // Fallback para itens antigos sem cost_gross persistido
+          const bruto = record.cost_gross > 0
+            ? record.cost_gross
+            : record.cost_per_base_unit * (record.measure_quantity || 1)
+          return `R$ ${bruto.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 3 })}`
         }
         const valorUnitario = record.cost_per_base_unit * (record.measure_quantity || 1)
         return `R$ ${getMonetaryValue(valorUnitario)}`

@@ -128,6 +128,29 @@ export const Content: FC<ContentProps> = ({
   useEffect(() => {
     setItems(itemsFromApi || [])
   }, [itemsFromApi])
+
+  // Enriquecimento de productItemsData com BRUTO unitário (cost_gross/measure_quantity).
+  // Necessário para itens já vinculados ao produto editado, pois IItemProductModel não traz cost_gross.
+  useEffect(() => {
+    if (!itemsFromApi?.length) return
+    setProductItemsData((prev: IItemProductModel[]) => {
+      const regimeCtx = currentUser?.taxableRegime
+      const hasItemTaxesCtx = regimeCtx === 'LUCRO_REAL' || regimeCtx === 'LUCRO_PRESUMIDO' || regimeCtx === 'SIMPLES_HIBRIDO'
+      let mutated = false
+      const next = prev.map((it) => {
+        const r = it as IItemProductModel & { grossPerUnit?: number; hasItemTaxes?: boolean }
+        if (r.grossPerUnit != null && r.hasItemTaxes != null) return r
+        const apiItem = (itemsFromApi as any[]).find((i: any) => i.id === r.id)
+        const measureQty = Number(apiItem?.measure_quantity) || 1
+        const grossUnit = apiItem?.cost_gross
+          ? Number(apiItem.cost_gross) / measureQty
+          : Number(r.referencePrice) || 0
+        mutated = true
+        return { ...r, grossPerUnit: grossUnit, hasItemTaxes: hasItemTaxesCtx }
+      })
+      return mutated ? next : prev
+    })
+  }, [itemsFromApi, currentUser?.taxableRegime])
   const [productPriceInfo, setProductPriceInfo] = useState<ProductPriceInfoType | null>(
     PRODUCT_PRICE_INFO_BASE
   )
@@ -448,9 +471,11 @@ export const Content: FC<ContentProps> = ({
         const measureQty = Number((baseItem as any).measure_quantity) || 1
         const isLucroReal = currentUser?.taxableRegime === 'LUCRO_REAL'
         const isLucroPresumidoLocal = currentUser?.taxableRegime === 'LUCRO_PRESUMIDO'
-        const isLRorLPLocal = isLucroReal || isLucroPresumidoLocal
+        const isSimplesHibridoLocal = currentUser?.taxableRegime === 'SIMPLES_HIBRIDO'
+        const hasItemTaxesLocal = isLucroReal || isLucroPresumidoLocal || isSimplesHibridoLocal
         const costNet = Number((baseItem as any).cost_net) || 0
-        const costPerUnit = (isLRorLPLocal && costNet > 0)
+        // Regimes com impostos no item: usar LÍQUIDO (cost_net/measure_quantity) na precificação.
+        const costPerUnit = (hasItemTaxesLocal && costNet > 0)
           ? costNet / measureQty
           : baseItem.cost_per_base_unit != null
             ? Number(baseItem.cost_per_base_unit)
@@ -703,16 +728,20 @@ export const Content: FC<ContentProps> = ({
 
     const unitType = (selectedItem.unitType || 'UN').toString().toUpperCase()
     const recipeQty = 1
-    // Usar cost_net/measure_quantity (Lucro Real/Lucro Presumido) ou cost_per_base_unit como referência de preço
-    const isLucroRealCtx = currentUser?.taxableRegime === 'LUCRO_REAL'
-    const isLucroPresumidoCtx = currentUser?.taxableRegime === 'LUCRO_PRESUMIDO'
-    const isLRorLPCtx = isLucroRealCtx || isLucroPresumidoCtx
+    // Usar cost_net/measure_quantity (regimes com impostos no item) ou cost_per_base_unit como referência de preço (LÍQUIDO)
+    const regimeCtx = currentUser?.taxableRegime
+    const hasItemTaxesCtx = regimeCtx === 'LUCRO_REAL' || regimeCtx === 'LUCRO_PRESUMIDO' || regimeCtx === 'SIMPLES_HIBRIDO'
     const itemCostNet = Number((selectedItem as any).cost_net) || 0
+    const itemCostGross = Number((selectedItem as any).cost_gross) || 0
     const itemMeasureQty = Number((selectedItem as any).measure_quantity) || 1
-    const costPerUnitRaw = (isLRorLPCtx && itemCostNet > 0)
+    const costPerUnitRaw = (hasItemTaxesCtx && itemCostNet > 0)
       ? itemCostNet / itemMeasureQty
       : Number((selectedItem as any).cost_per_base_unit) || Number(selectedItem.price) || 0
     const costPerUnit = Math.max(0.01, costPerUnitRaw)
+    // BRUTO unitário (apenas regimes com impostos no item). Fallback: usa o líquido se cost_gross não persistido.
+    const grossPerUnit = hasItemTaxesCtx
+      ? (itemCostGross > 0 ? itemCostGross / itemMeasureQty : costPerUnit)
+      : costPerUnit
     // Custo do item na receita = quantidade × custo por unidade base. referenceQuantity=1 pois referencePrice já é por unidade base.
     const priceForSchema = Math.max(0.01, recipeQty * costPerUnit)
 
@@ -723,10 +752,12 @@ export const Content: FC<ContentProps> = ({
       price: priceForSchema,
       referencePrice: costPerUnit,
       referenceQuantity: 1,
-    }) as IItemProductModel & { stockQuantity?: number | null; stockUnit?: string }
+    }) as IItemProductModel & { stockQuantity?: number | null; stockUnit?: string; grossPerUnit?: number; hasItemTaxes?: boolean }
 
     newItem.stockQuantity = (selectedItem as any).stockQuantity ?? null
     newItem.stockUnit = (selectedItem as any).stockUnit ?? unitType
+    newItem.grossPerUnit = grossPerUnit
+    newItem.hasItemTaxes = hasItemTaxesCtx
 
     setProductItemsData((prev: IItemProductModel[]) => [...prev, newItem])
     setItems((prev: IItemModel[]) => prev.filter((item: IItemModel) => item.id !== value.item))
@@ -1163,10 +1194,21 @@ export const Content: FC<ContentProps> = ({
       },
     },
     {
-      title: 'Valor (Custo)',
+      title: 'Bruto',
+      key: 'grossUnit',
+      width: '12%',
+      render: (_, record) => {
+        const r = record as IItemProductModel & { grossPerUnit?: number; hasItemTaxes?: boolean }
+        if (!r.hasItemTaxes) return <span style={{ color: '#94a3b8' }}>—</span>
+        const totalGross = (r.grossPerUnit || 0) * (record.quantity || 0)
+        return `R$ ${getMonetaryValue(totalGross)}`
+      },
+    },
+    {
+      title: 'Líquido',
       dataIndex: 'price',
       key: 'price',
-      width: '15%',
+      width: '12%',
       render: (value) => `R$ ${getMonetaryValue(value)}`,
     },
     {
