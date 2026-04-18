@@ -101,9 +101,9 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
 
     if (priceNum > 0) {
       // Deduções para chegar no valor custo líquido
-      // deducao1: ICMS% sempre usa o valor bruto do campo ICMS (toggle deferido não afeta o cálculo)
+      // deducao1: usa ICMS recuperáveis (impostosRec) — considera toggle deferido quando ativo
       // deducao2: PIS+COFINS sobre (valor unitário − deducao1)
-      const deducao1 = priceNum * icms / 100
+      const deducao1 = priceNum * impostosRec / 100
       const deducao2 = (priceNum - deducao1) * pisCofinsTotal / 100
       const valorLiquido = priceNum - deducao1 - deducao2
 

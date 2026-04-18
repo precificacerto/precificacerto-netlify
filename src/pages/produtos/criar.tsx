@@ -79,6 +79,7 @@ const NewProduct = () => {
                 stockUnit: stock ? stock.unit : unit,
                 cost_per_base_unit: costPerUnit,
                 cost_net: i.cost_net != null ? Number(i.cost_net) : 0,
+                cost_gross: i.cost_gross != null ? Number(i.cost_gross) : 0,
                 measure_quantity: Number(i.measure_quantity) || 1,
               }
             })

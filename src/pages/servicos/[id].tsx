@@ -11,7 +11,7 @@ import { mergeExpenseConfig } from '@/utils/recalc-expense-config'
 import { ServiceContent } from '@/page-parts/services/content.component'
 
 interface RawItem {
-    id: string; name: string; unit: string; cost_price: number; quantity: number; item_type?: string; measure_quantity?: number; cost_net?: number
+    id: string; name: string; unit: string; cost_price: number; quantity: number; item_type?: string; measure_quantity?: number; cost_net?: number; cost_gross?: number
 }
 
 export default function EditServicePage() {
@@ -49,7 +49,7 @@ export default function EditServicePage() {
                         .select('*, service_items(*, item:items(id, name, unit, cost_price, quantity, measure_quantity))')
                         .eq('id', id as string)
                         .single(),
-                    supabase.from('items').select('id, name, unit, cost_price, quantity, item_type, measure_quantity, cost_net').order('name'),
+                    supabase.from('items').select('id, name, unit, cost_price, quantity, item_type, measure_quantity, cost_net, cost_gross').order('name'),
                     supabase.from('tenant_expense_config').select('*').eq('tenant_id', tid).single(),
                     fetchTaxPreview(tid),
                 ])
@@ -68,6 +68,7 @@ export default function EditServicePage() {
                             item_type: i.item_type,
                             measure_quantity: Number(i.measure_quantity) || 1,
                             cost_net: i.cost_net != null ? Number(i.cost_net) : 0,
+                            cost_gross: i.cost_gross != null ? Number(i.cost_gross) : 0,
                         }))
                 )
                 setExpenseConfig(cfgRes.data || null)
