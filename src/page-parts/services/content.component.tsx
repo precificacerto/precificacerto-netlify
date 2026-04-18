@@ -40,6 +40,8 @@ interface TempItem {
     ref_qty: number
     ref_price: number          // LÍQUIDO (cost_net) p/ regimes com impostos no item; senão BRUTO
     ref_price_gross?: number   // BRUTO (cost_gross) — preenchido p/ regimes com impostos no item
+    unit_gross?: number        // "Valor unitário" cheio (cost_gross) — exibição
+    unit_net?: number          // "Valor custo líquido" cheio (cost_net) — exibição
     proportional_cost: number
     proportional_cost_gross?: number
     has_item_taxes?: boolean
@@ -204,6 +206,8 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                     ref_qty: refQty,
                     ref_price: refPrice,
                     ref_price_gross: refPriceGross,
+                    unit_gross: hasItemTaxesLoad ? (itemCostGross > 0 ? itemCostGross : itemCostPrice) : itemCostPrice,
+                    unit_net: hasItemTaxesLoad && itemCostNet > 0 ? itemCostNet : undefined,
                     proportional_cost: calculateItemPrice(neededQty, refPrice, refQty),
                     proportional_cost_gross: calculateItemPrice(neededQty, refPriceGross, refQty),
                     has_item_taxes: hasItemTaxesLoad,
@@ -385,6 +389,8 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
             ref_qty: refQty,
             ref_price: effectiveCost,
             ref_price_gross: effectiveGross,
+            unit_gross: hasItemTaxesAdd ? (itemCostGross > 0 ? itemCostGross : it.cost_price) : it.cost_price,
+            unit_net: hasItemTaxesAdd && itemCostNet > 0 ? itemCostNet : undefined,
             proportional_cost: proportionalCost,
             proportional_cost_gross: proportionalCostGross,
             has_item_taxes: hasItemTaxesAdd,
@@ -544,8 +550,20 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                 <div>
                     <div style={{ fontWeight: 500, fontSize: 13 }}>{n}</div>
                     <div style={{ fontSize: 11, color: '#64748b' }}>
-                        Embalagem: {r.ref_qty} {UNIT_LABELS[r.unit] || r.unit} — {fmt(r.ref_price)}
+                        Embalagem: {r.ref_qty} {UNIT_LABELS[r.unit] || r.unit}
                     </div>
+                    {r.has_item_taxes && r.unit_gross != null ? (
+                        <div style={{ fontSize: 11, color: '#64748b' }}>
+                            Valor unitário (Bruto): <strong>{fmt(r.unit_gross)}</strong>
+                            {r.unit_net != null && (
+                                <> · Custo líquido: <strong style={{ color: '#B42318' }}>{fmt(r.unit_net)}</strong></>
+                            )}
+                        </div>
+                    ) : (
+                        <div style={{ fontSize: 11, color: '#64748b' }}>
+                            Valor unitário: <strong>{fmt(r.unit_gross ?? r.ref_price)}</strong>
+                        </div>
+                    )}
                 </div>
             ),
         },

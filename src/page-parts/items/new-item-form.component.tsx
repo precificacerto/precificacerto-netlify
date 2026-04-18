@@ -48,11 +48,6 @@ const formatBRL3 = (v: number) =>
 // Lucro Real — base PIS+COFINS não-cumulativo (1,65% + 7,6% = 9,25%)
 const PIS_COFINS_BASE = 9.25
 
-const computeAutoPisCofins = (icmsRecuperavelPercent: number): number => {
-  const total = PIS_COFINS_BASE * (1 - (icmsRecuperavelPercent || 0) / 100)
-  return parseFloat(total.toFixed(4))
-}
-
 const NewItemForm = ({ form, taxableRegime }: Props) => {
   const isLucroReal = taxableRegime === 'LUCRO_REAL'
   const isLucroPresumido = taxableRegime === 'LUCRO_PRESUMIDO'
@@ -90,15 +85,13 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
     const impostosRec = isDeferidoEnabled ? icms * (1 - icmsDeferido / 100) : icms
     setImpostosRecuperaveisDisplay(parseFloat(impostosRec.toFixed(4)))
 
-    // Lucro Real: campo único pis_cofins_rate. Auto-calcula a partir do ICMS% bruto digitado
-    // (não usa o ICMS recuperáveis — a fórmula é sempre 9,25 × (1 - ICMS/100)).
+    // Lucro Real: campo único pis_cofins_rate. Padrão fixo 9,25% (1,65% + 7,6%) — editável.
     // Simples Híbrido: dois campos separados (pis_rate + cofins_rate).
     let pisCofinsTotal = 0
     if (isLucroReal) {
       if (!pisCofinsManuallyEdited) {
-        const auto = computeAutoPisCofins(icms)
-        form.setFieldsValue({ pis_cofins_rate: auto })
-        pisCofinsTotal = auto
+        form.setFieldsValue({ pis_cofins_rate: PIS_COFINS_BASE })
+        pisCofinsTotal = PIS_COFINS_BASE
       } else {
         pisCofinsTotal = Number(values.pis_cofins_rate) || 0
       }
@@ -123,7 +116,7 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
   }, [form, isLucroReal, isLucroPresumido, isLucroRealOrLP, isSimplesHibrido, pisCofinsManuallyEdited])
 
   const fetchAndFillNcmRates = useCallback(async (code: string) => {
-    // Lucro Real: PIS/COFINS é calculado pela fórmula 9,25 × (1 - ICMS_recuperáveis), não via NCM.
+    // Lucro Real: PIS/COFINS é fixo em 9,25% (não usa NCM).
     // Apenas Simples Híbrido busca alíquotas no NCM.
     if (!code || !isSimplesHibrido) return
     const digits = code.replace(/\D/g, '')
@@ -250,15 +243,13 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
   // Necessário para edição de itens existentes (form já preenchido pelo componente pai)
   useEffect(() => {
     if (!isLucroRealOrLP) return
-    // Lucro Real: se o item editado tem pis_cofins_rate ≠ fórmula automática,
-    // o usuário editou manualmente — preservar e suspender auto-cálculo.
+    // Lucro Real: se o item editado tem pis_cofins_rate ≠ 9,25% padrão,
+    // o usuário editou manualmente — preservar e suspender auto-fill.
     if (isLucroReal) {
       const values = form.getFieldsValue()
-      const icms = Number(values.icms_rate) || 0
-      const auto = computeAutoPisCofins(icms)
       const saved = Number(values.pis_cofins_rate) || 0
       // tolerância 0,001% para arredondamentos
-      if (saved > 0 && Math.abs(saved - auto) > 0.001) {
+      if (saved > 0 && Math.abs(saved - PIS_COFINS_BASE) > 0.001) {
         setPisCofinsManuallyEdited(true)
       }
     }
@@ -571,14 +562,14 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
             </Form.Item>
           </div>
 
-          {/* Linha de impostos 2 (Lucro Real): PIS/COFINS unificado, com auto-cálculo 9,25 × (1 - ICMS_recup%) */}
+          {/* Linha de impostos 2 (Lucro Real): PIS/COFINS unificado, padrão 9,25% (1,65% + 7,6%), editável */}
           {isLucroReal && (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, alignItems: 'end' }}>
               <Form.Item
                 label={
                   <span>
                     PIS/COFINS (%)&nbsp;
-                    <Tooltip title="Calculado automaticamente: 9,25 × (1 − ICMS%). Pode ser editado manualmente; após edição, o auto-cálculo fica suspenso até você limpar o campo.">
+                    <Tooltip title="Padrão: 9,25% (PIS 1,65% + COFINS 7,6%, regime não-cumulativo). Pode ser editado manualmente; após edição, o auto-preenchimento fica suspenso até você limpar o campo.">
                       <InfoCircleOutlined style={{ color: '#64748b' }} />
                     </Tooltip>
                   </span>

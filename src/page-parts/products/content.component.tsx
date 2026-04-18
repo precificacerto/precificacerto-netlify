@@ -129,8 +129,9 @@ export const Content: FC<ContentProps> = ({
     setItems(itemsFromApi || [])
   }, [itemsFromApi])
 
-  // Enriquecimento de productItemsData com BRUTO unitário (cost_gross/measure_quantity).
-  // Necessário para itens já vinculados ao produto editado, pois IItemProductModel não traz cost_gross.
+  // Enriquecimento de productItemsData com BRUTO unitário (cost_gross/measure_quantity)
+  // e valores unitários cheios do item (cost_gross / cost_net) — usados para exibição
+  // do "Valor unitário" e "Valor custo líquido" cadastrados.
   useEffect(() => {
     if (!itemsFromApi?.length) return
     setProductItemsData((prev: IItemProductModel[]) => {
@@ -138,15 +139,20 @@ export const Content: FC<ContentProps> = ({
       const hasItemTaxesCtx = regimeCtx === 'LUCRO_REAL' || regimeCtx === 'LUCRO_PRESUMIDO' || regimeCtx === 'SIMPLES_HIBRIDO'
       let mutated = false
       const next = prev.map((it) => {
-        const r = it as IItemProductModel & { grossPerUnit?: number; hasItemTaxes?: boolean }
-        if (r.grossPerUnit != null && r.hasItemTaxes != null) return r
+        const r = it as IItemProductModel & { grossPerUnit?: number; hasItemTaxes?: boolean; unitGross?: number; unitNet?: number }
+        if (r.grossPerUnit != null && r.hasItemTaxes != null && r.unitGross != null) return r
         const apiItem = (itemsFromApi as any[]).find((i: any) => i.id === r.id)
         const measureQty = Number(apiItem?.measure_quantity) || 1
-        const grossUnit = apiItem?.cost_gross
-          ? Number(apiItem.cost_gross) / measureQty
+        const itemCostGross = Number(apiItem?.cost_gross) || 0
+        const itemCostNet = Number(apiItem?.cost_net) || 0
+        const itemCostPrice = Number(apiItem?.cost_price) || 0
+        const grossUnit = itemCostGross > 0
+          ? itemCostGross / measureQty
           : Number(r.referencePrice) || 0
+        const unitGross = itemCostGross > 0 ? itemCostGross : itemCostPrice
+        const unitNet = hasItemTaxesCtx && itemCostNet > 0 ? itemCostNet : undefined
         mutated = true
-        return { ...r, grossPerUnit: grossUnit, hasItemTaxes: hasItemTaxesCtx }
+        return { ...r, grossPerUnit: grossUnit, hasItemTaxes: hasItemTaxesCtx, unitGross, unitNet }
       })
       return mutated ? next : prev
     })
@@ -752,12 +758,15 @@ export const Content: FC<ContentProps> = ({
       price: priceForSchema,
       referencePrice: costPerUnit,
       referenceQuantity: 1,
-    }) as IItemProductModel & { stockQuantity?: number | null; stockUnit?: string; grossPerUnit?: number; hasItemTaxes?: boolean }
+    }) as IItemProductModel & { stockQuantity?: number | null; stockUnit?: string; grossPerUnit?: number; hasItemTaxes?: boolean; unitGross?: number; unitNet?: number }
 
     newItem.stockQuantity = (selectedItem as any).stockQuantity ?? null
     newItem.stockUnit = (selectedItem as any).stockUnit ?? unitType
     newItem.grossPerUnit = grossPerUnit
     newItem.hasItemTaxes = hasItemTaxesCtx
+    // Valores unitários cheios do item (vindos do form do item: "Valor unitário" e "Valor custo líquido").
+    newItem.unitGross = itemCostGross > 0 ? itemCostGross : (Number(selectedItem.price) || 0)
+    newItem.unitNet = hasItemTaxesCtx && itemCostNet > 0 ? itemCostNet : undefined
 
     setProductItemsData((prev: IItemProductModel[]) => [...prev, newItem])
     setItems((prev: IItemModel[]) => prev.filter((item: IItemModel) => item.id !== value.item))
@@ -1158,6 +1167,22 @@ export const Content: FC<ContentProps> = ({
       dataIndex: 'name',
       key: 'name',
       width: '22%',
+      render: (text, record) => {
+        const r = record as IItemProductModel & { unitGross?: number; unitNet?: number; hasItemTaxes?: boolean }
+        return (
+          <div>
+            <div style={{ fontWeight: 500 }}>{text}</div>
+            {r.unitGross != null && (
+              <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+                Valor unitário (Bruto): <strong>R$ {getMonetaryValue(r.unitGross)}</strong>
+                {r.unitNet != null && (
+                  <> · Custo líquido: <strong style={{ color: '#B42318' }}>R$ {getMonetaryValue(r.unitNet)}</strong></>
+                )}
+              </div>
+            )}
+          </div>
+        )
+      },
     },
     {
       title: 'Qtd. por unidade',
