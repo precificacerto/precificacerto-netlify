@@ -167,22 +167,23 @@ function isPeriodClosed(col: PeriodColumn, viewYear: number): boolean {
   return today > lastDayOfPeriod
 }
 
-/** Returns true if at least one month in the period is closed (shows partial data while period is still in progress) */
+/** Returns true if the period has started but not yet fully closed (shows partial data including current month) */
 function isPeriodPartial(col: PeriodColumn, viewYear: number): boolean {
   if (isPeriodClosed(col, viewYear)) return false
   const today = new Date()
-  const firstMonthKey = col.monthKeys[0]
-  const firstMonthIndex = MONTH_KEYS.indexOf(firstMonthKey)
-  const lastDayOfFirstMonth = new Date(viewYear, firstMonthIndex + 1, 0)
-  return today > lastDayOfFirstMonth
+  // Period is partial if ANY month in it has started (first day has arrived)
+  return col.monthKeys.some((k) => {
+    const mi = MONTH_KEYS.indexOf(k)
+    return today >= new Date(viewYear, mi, 1)
+  })
 }
 
-/** How many months of this period are closed */
+/** How many months of this period have started (includes current month when in progress) */
 function closedMonthsCount(col: PeriodColumn, viewYear: number): number {
   const today = new Date()
   return col.monthKeys.filter((k) => {
     const mi = MONTH_KEYS.indexOf(k)
-    return today > new Date(viewYear, mi + 1, 0)
+    return today >= new Date(viewYear, mi, 1)
   }).length
 }
 
@@ -219,22 +220,19 @@ function effectiveIncomeAmount(entry: CashEntry): number {
 async function fetchYearEntries(tenantId: string, year: number): Promise<CashEntry[]> {
   const startDate = `${year}-01-01`
   const endDate = `${year}-12-31`
-  // Espelha o HUB: somente meses encerrados (due_date < início do mês atual)
-  const now = new Date()
-  const cutoff = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
+  // Inclui mês atual como parcial — tudo que é lançado no fluxo de caixa cai aqui
   const { data, error } = await (supabase as any)
     .from('cash_entries')
-    .select('amount, type, expense_group, expense_category, description, due_date, is_active, payment_method, paid_date, valor_icms, valor_pis, valor_cofins, valor_ipi, valor_cbs, valor_ibs')
+    .select('amount, type, expense_group, expense_category, description, due_date, is_active, payment_method, paid_date, anticipated_amount, valor_icms, valor_pis, valor_cofins, valor_ipi, valor_cbs, valor_ibs')
     .eq('tenant_id', tenantId)
     .eq('is_active', true)
     .gte('due_date', startDate)
     .lte('due_date', endDate)
-    .lt('due_date', cutoff)
   if (error) throw new Error(`Erro ao buscar lançamentos: ${error.message}`)
   return (data || []).map((e: any) => ({
     ...e,
     amount: Number(e.amount) || 0,
-    anticipated_amount: null,
+    anticipated_amount: e.anticipated_amount != null ? Number(e.anticipated_amount) : null,
     valor_icms: e.valor_icms != null ? Number(e.valor_icms) : null,
     valor_pis: e.valor_pis != null ? Number(e.valor_pis) : null,
     valor_cofins: e.valor_cofins != null ? Number(e.valor_cofins) : null,
@@ -658,7 +656,7 @@ export default function DfcPage() {
         if (isPeriodClosed(c, year)) return [...c.monthKeys] as (keyof MonthlyValues)[]
         if (isPeriodPartial(c, year)) return c.monthKeys.filter(k => {
           const mi = MONTH_KEYS.indexOf(k)
-          return new Date() > new Date(year, mi + 1, 0)
+          return new Date() >= new Date(year, mi, 1)
         }) as (keyof MonthlyValues)[]
         return [] as (keyof MonthlyValues)[]
       })
@@ -841,7 +839,7 @@ export default function DfcPage() {
                     const closedKeys = partial
                       ? col.monthKeys.filter((k) => {
                           const mi = MONTH_KEYS.indexOf(k)
-                          return new Date() > new Date(year, mi + 1, 0)
+                          return new Date() >= new Date(year, mi, 1)
                         })
                       : col.monthKeys
                     const val = hasData ? aggregatePeriodValue(row.values, closedKeys) : null
@@ -871,7 +869,7 @@ export default function DfcPage() {
                       if (isPeriodPartial(c, year)) {
                         const closedKeys = c.monthKeys.filter((k) => {
                           const mi = MONTH_KEYS.indexOf(k)
-                          return new Date() > new Date(year, mi + 1, 0)
+                          return new Date() >= new Date(year, mi, 1)
                         })
                         return s + aggregatePeriodValue(row.values, closedKeys)
                       }
@@ -910,7 +908,7 @@ export default function DfcPage() {
                         if (isPeriodClosed(c, year)) return [...c.monthKeys] as (keyof MonthlyValues)[]
                         if (isPeriodPartial(c, year)) return c.monthKeys.filter(k => {
                           const mi = MONTH_KEYS.indexOf(k)
-                          return new Date() > new Date(year, mi + 1, 0)
+                          return new Date() >= new Date(year, mi, 1)
                         }) as (keyof MonthlyValues)[]
                         return [] as (keyof MonthlyValues)[]
                       })
@@ -932,7 +930,7 @@ export default function DfcPage() {
                       const closedKeys = partial
                         ? col.monthKeys.filter((k) => {
                             const mi = MONTH_KEYS.indexOf(k)
-                            return new Date() > new Date(year, mi + 1, 0)
+                            return new Date() >= new Date(year, mi, 1)
                           })
                         : col.monthKeys
                       const pctVal = hasData ? computePeriodPct(row, closedKeys as (keyof MonthlyValues)[], receitaBrutaRow, receitaLiquidaRow) : null
@@ -949,7 +947,7 @@ export default function DfcPage() {
                             if (isPeriodClosed(c, year)) return [...c.monthKeys] as (keyof MonthlyValues)[]
                             if (isPeriodPartial(c, year)) return c.monthKeys.filter(k => {
                               const mi = MONTH_KEYS.indexOf(k)
-                              return new Date() > new Date(year, mi + 1, 0)
+                              return new Date() >= new Date(year, mi, 1)
                             }) as (keyof MonthlyValues)[]
                             return [] as (keyof MonthlyValues)[]
                           })

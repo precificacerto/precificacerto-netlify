@@ -9,15 +9,13 @@ import {
   CASHIER_CATEGORY,
   CASHIER_CATEGORY_EXPENSE_OBJECT,
   CASHIER_CATEGORY_INCOME_OBJECT,
+  getExpenseGroupLabel,
+  getExpenseGroupColor,
 } from '@/constants/cashier-category'
 import { PAGE_TITLES } from '@/constants/page-titles'
 import { ROUTES } from '@/constants/routes'
-import { monthObjects } from '@/constants/month'
-import { getCategoryName } from '@/utils/get-category-name.util'
 import { getMonetaryValue } from '@/utils/get-monetary-value'
 import { ResultData, TableDataType } from '@/shared/enums/dre-year-base'
-import { CATEGORIES_SUBCATEGORIES } from '@/shared/constants/categories-subcategories'
-import { CATEGORIES_TRANSLATION } from '@/shared/constants/category-translation'
 import { supabase } from '@/supabase/client'
 import { getTenantId } from '@/utils/get-tenant-id'
 
@@ -37,7 +35,7 @@ const months = [
 ]
 
 type ExtendedTableDataType = TableDataType & {
-  [key: string]: number
+  [key: string]: number | string | undefined
 }
 
 type TotalYearBaseType = {
@@ -50,7 +48,7 @@ const TOTAL_YEAR_BASE: TotalYearBaseType = {
   jul: 0, ago: 0, sep: 0, oct: 0, nov: 0, dec: 0,
 }
 
-const keysToExclude = new Set(['key', 'category', 'totalSum', 'average', 'monthsBiggerThanZero', 'totalAverage', 'overallSum'])
+const keysToExclude = new Set(['key', 'category', 'expenseGroup', 'totalSum', 'average', 'monthsBiggerThanZero', 'totalAverage', 'overallSum'])
 
 function Dre() {
   const router = useRouter()
@@ -82,10 +80,11 @@ function Dre() {
       for (const y of yearList) {
         const startDate = `${y}-01-01`
         const endDate = `${y}-12-31`
-        const { data: entries } = await supabase
+        const { data: entries } = await (supabase as any)
           .from('cash_entries')
-          .select('*')
+          .select('amount, type, expense_group, expense_category, description, due_date, is_active, payment_method, paid_date, anticipated_amount, valor_icms, valor_pis, valor_cofins, valor_ipi, valor_cbs, valor_ibs')
           .eq('tenant_id', tenantId)
+          .eq('is_active', true)
           .gte('due_date', startDate)
           .lte('due_date', endDate)
         if (entries) allEntries.push(...entries.map((e: any) => ({ ...e, _year: y })))
@@ -177,31 +176,63 @@ function Dre() {
   )
 }
 
-function processYearEntries(entries: any[], year: number): ResultData {
-  const now = new Date()
-  const currentYearNum = now.getFullYear()
-  const currentMonthAbbr = now.toLocaleString('pt-BR', { month: 'short' }).replace('.', '').toUpperCase()
-  const currentCombo = `${currentYearNum}-${currentMonthAbbr}`
+function effectiveIncomeAmount(entry: any): number {
+  if (entry.payment_method === 'CARTAO_CREDITO' && entry.anticipated_amount != null && Number(entry.anticipated_amount) > 0) {
+    return Math.max(0, Number(entry.amount) - Number(entry.anticipated_amount))
+  }
+  return Number(entry.amount) || 0
+}
 
-  const incomeItems: { category: string; price: number; month: string }[] = []
-  const expenseItems: { category: string; price: number; month: string }[] = []
+type ProcessItem = { category: string; expenseGroup?: string; price: number; month: string }
+
+function processYearEntries(entries: any[], _year: number): ResultData {
+  const incomeItems: ProcessItem[] = []
+  const expenseItems: ProcessItem[] = []
 
   entries.forEach((entry: any) => {
-    const d = new Date(entry.due_date)
-    const monthIdx = d.getMonth()
-    const monthKey = months[monthIdx]?.key
-    if (!monthKey) return
+    const monthIdx = parseInt((entry.due_date || '').slice(5, 7), 10) - 1
+    const monthDef = months[monthIdx]
+    if (!monthDef) return
+    const monthVal = monthDef.value
 
-    if (`${year}-${monthKey}` === currentCombo) return
-
-    const item = {
-      category: entry.description || (entry.type === 'INCOME' ? 'RECEITA_VENDAS' : 'DESPESA_GERAL'),
-      price: Number(entry.amount) || 0,
-      month: months[monthIdx].value,
+    if (entry.type === 'INCOME') {
+      // Espelha a DFC: BOLETO/CHEQUE pendente (sem paid_date) não entra no HUB
+      if ((entry.payment_method === 'BOLETO' || entry.payment_method === 'CHEQUE_PRE_DATADO') && !entry.paid_date) return
+      incomeItems.push({
+        category: entry.expense_category || entry.description || 'RECEITA_VENDAS',
+        expenseGroup: entry.expense_group || undefined,
+        price: effectiveIncomeAmount(entry),
+        month: monthVal,
+      })
+      return
     }
 
-    if (entry.type === 'INCOME') incomeItems.push(item)
-    else expenseItems.push(item)
+    // EXPENSE — só despesas efetivamente pagas contam no HUB/DRE (igual à DFC)
+    if (!entry.paid_date) return
+
+    const amount = Number(entry.amount) || 0
+    const group = entry.expense_group || undefined
+    const category = entry.expense_category || entry.description || 'DESPESA_GERAL'
+
+    // Lucro Real / Simples Híbrido — separa impostos recuperáveis do CUSTO_PRODUTOS
+    const hasLrBreakdown = entry.valor_icms != null || entry.valor_pis != null || entry.valor_cofins != null
+      || entry.valor_ipi != null || entry.valor_cbs != null || entry.valor_ibs != null
+    if (group === 'CUSTO_PRODUTOS' && hasLrBreakdown) {
+      const taxSum = (Number(entry.valor_icms) || 0) + (Number(entry.valor_pis) || 0) + (Number(entry.valor_cofins) || 0)
+        + (Number(entry.valor_ipi) || 0) + (Number(entry.valor_cbs) || 0) + (Number(entry.valor_ibs) || 0)
+      expenseItems.push({ category, expenseGroup: group, price: amount - taxSum, month: monthVal })
+      if (taxSum > 0) {
+        expenseItems.push({
+          category: 'Impostos Recuperáveis sobre Compras',
+          expenseGroup: 'CUSTO_PRODUTOS',
+          price: taxSum,
+          month: monthVal,
+        })
+      }
+      return
+    }
+
+    expenseItems.push({ category, expenseGroup: group, price: amount, month: monthVal })
   })
 
   return {
@@ -210,20 +241,23 @@ function processYearEntries(entries: any[], year: number): ResultData {
   }
 }
 
-function aggregateByCategory(items: { category: string; price: number; month: string }[]): TableDataType[] {
+function aggregateByCategory(items: ProcessItem[]): TableDataType[] {
   const filteredItems = items.filter((item) => item.category !== CASHIER_CATEGORY.INCOME?.DEFICIT_FINANCEIRO?.key)
 
-  const monthCatAgg: Record<string, Record<string, number>> = {}
+  const monthCatAgg: Record<string, { monthData: Record<string, number>; expenseGroup?: string }> = {}
   filteredItems.forEach((item) => {
-    if (!monthCatAgg[item.category]) monthCatAgg[item.category] = {}
-    monthCatAgg[item.category][item.month] = (monthCatAgg[item.category][item.month] || 0) + item.price
+    if (!monthCatAgg[item.category]) monthCatAgg[item.category] = { monthData: {}, expenseGroup: item.expenseGroup }
+    if (!monthCatAgg[item.category].expenseGroup && item.expenseGroup) monthCatAgg[item.category].expenseGroup = item.expenseGroup
+    const monthData = monthCatAgg[item.category].monthData
+    monthData[item.month] = (monthData[item.month] || 0) + item.price
   })
 
   let keyIdx = 0
-  return Object.entries(monthCatAgg).map(([category, monthData]) => {
+  return Object.entries(monthCatAgg).map(([category, { monthData, expenseGroup }]) => {
     const row: any = {
       key: keyIdx++,
       category,
+      expenseGroup,
       jan: 0, feb: 0, mar: 0, apr: 0, may: 0, jun: 0,
       jul: 0, ago: 0, sep: 0, oct: 0, nov: 0, dec: 0,
       totalSum: 0, average: 0, totalAverage: 0, overallSum: 0,
@@ -335,22 +369,7 @@ function mergeTotalAverages(result: ResultData, totalResult: ResultData): Result
   return { incomeData, expenseData }
 }
 
-function getParentCategoryKey(subcategory: string, categories: Record<string, Record<string, string>>): string | undefined {
-  for (const [parentKey, subcategories] of Object.entries(categories)) {
-    if (subcategory in subcategories) return parentKey
-  }
-  return 'OUTROS'
-}
-
-const getCategoryInfo = (key: keyof typeof CATEGORIES_TRANSLATION) => {
-  const category = CATEGORIES_TRANSLATION[key]
-  return {
-    label: category?.label || 'Categoria Desconhecida',
-    color: category?.color || '#000000',
-  }
-}
-
-function getColumns(type: string, dataSource: TableDataType[]): ColumnsType<TableDataType> {
+function getColumns(type: string, _dataSource: TableDataType[]): ColumnsType<TableDataType> {
   const isDRE = type === 'dre'
 
   const columns: ColumnsType<TableDataType> = [
@@ -360,27 +379,31 @@ function getColumns(type: string, dataSource: TableDataType[]): ColumnsType<Tabl
       key: 'category',
       fixed: true,
       width: 270,
-      render: (value: string) => getCategoryName(value),
+      render: (value: string) => value,
       sortOrder: 'ascend',
       sorter: {
         compare: (a, b) => {
           const catA = ALL_CASHIER_CATEGORIES[a.category as CASHIER_CATEGORY_EXPENSE_OBJECT | CASHIER_CATEGORY_INCOME_OBJECT]
           const catB = ALL_CASHIER_CATEGORIES[b.category as CASHIER_CATEGORY_EXPENSE_OBJECT | CASHIER_CATEGORY_INCOME_OBJECT]
-          return (catA?.order || 0) - (catB?.order || 0)
+          const orderA = catA?.order ?? 0
+          const orderB = catB?.order ?? 0
+          if (orderA !== orderB) return orderA - orderB
+          return (a.category || '').localeCompare(b.category || '')
         },
       },
     },
     {
       title: 'Tipo',
-      dataIndex: 'context',
-      key: 'context',
-      width: 200,
+      dataIndex: 'expenseGroup',
+      key: 'expenseGroup',
+      width: 220,
       render: (_value, record) => {
-        const subcategory = record.category
-        const category = getParentCategoryKey(subcategory, CATEGORIES_SUBCATEGORIES) || 'OUTROS'
-        const { label, color } = getCategoryInfo(category as keyof typeof CATEGORIES_TRANSLATION)
+        const group = record.expenseGroup
+        if (!group) return <span style={{ color: 'var(--color-neutral-500, #6B7280)' }}>—</span>
+        const label = getExpenseGroupLabel(group)
+        const color = getExpenseGroupColor(group)
         return (
-          <span style={{ backgroundColor: color, padding: '4px 8px', borderRadius: '8px', color: '#fff', display: 'inline-block' }}>
+          <span style={{ backgroundColor: `${color}33`, border: `1px solid ${color}66`, color, padding: '4px 8px', borderRadius: '8px', display: 'inline-block', fontSize: 12 }}>
             {label}
           </span>
         )
@@ -431,8 +454,11 @@ function calculateDreContent(data: ResultData, year: number, totalResult: Result
     const existingCategories = new Set(current.map(item => item.category))
     const missingCategories = Array.from(activeCategories).filter(cat => !existingCategories.has(cat))
 
+    const groupMap = new Map<string, string | undefined>()
+    for (const item of totalResult.expenseData) groupMap.set(item.category, item.expenseGroup)
     const filledMissing = missingCategories.map(category => ({
       key: category, category,
+      expenseGroup: groupMap.get(category),
       jan: 0, feb: 0, mar: 0, apr: 0, may: 0, jun: 0,
       jul: 0, ago: 0, sep: 0, oct: 0, nov: 0, dec: 0,
       average: 0, totalSum: 0, overallSum: 0, totalAverage: 0,
@@ -506,6 +532,7 @@ function CashierSummaryContent({ data, totalResult, year }: { data: ResultData; 
       .filter(item => !existingCategories.has(String(item.category).trim().toLowerCase()))
       .map(item => ({
         key: item.category, category: item.category ?? '',
+        expenseGroup: item.expenseGroup,
         jan: 0, feb: 0, mar: 0, apr: 0, may: 0, jun: 0,
         jul: 0, ago: 0, sep: 0, oct: 0, nov: 0, dec: 0,
         totalSum: 0, average: 0, overallSum: item.overallSum ?? 0, totalAverage: item.totalAverage ?? 0,
@@ -560,8 +587,9 @@ function averageWithoutCurrentMonth(entries: TableDataType[], year: number) {
 
     for (const key in obj) {
       if (!keysToExclude.has(key)) {
-        if (!isCurrentMonthAndYear(key, year) && obj[key] > 0) {
-          sum += obj[key]
+        const v = Number(obj[key]) || 0
+        if (!isCurrentMonthAndYear(key, year) && v > 0) {
+          sum += v
           monthsCount = isYearly ? 12 : monthsCount + 1
         }
       }

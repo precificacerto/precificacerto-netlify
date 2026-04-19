@@ -6,6 +6,7 @@ export type ResultData = {
 export type TableDataType = {
   key: number | string
   category: string
+  expenseGroup?: string
   totalSum: number
   jan: number
   feb: number
