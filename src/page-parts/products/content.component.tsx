@@ -1581,7 +1581,7 @@ export const Content: FC<ContentProps> = ({
           >
             <Select
               placeholder="Selecione a tabela de comissão"
-              options={commissionTables.map(t => ({ value: t.id, label: `${t.name} — ${t.commission_percent}%` }))}
+              options={commissionTables.map(t => ({ value: t.id, label: t.name }))}
               showSearch
               filterOption={(input, option) => (option?.label as string || '').toLowerCase().includes(input.toLowerCase())}
               onChange={(tableId: string) => {

@@ -739,7 +739,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                             style={{ width: '100%' }}
                             value={commissionTableId}
                             status={commissionTableError ? 'error' : undefined}
-                            options={commissionTables.map(t => ({ value: t.id, label: `${t.name} — ${t.commission_percent}%` }))}
+                            options={commissionTables.map(t => ({ value: t.id, label: t.name }))}
                             showSearch
                             filterOption={(input, option) => (option?.label as string || '').toLowerCase().includes(input.toLowerCase())}
                             onChange={(tableId: string) => {

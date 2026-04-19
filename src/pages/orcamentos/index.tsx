@@ -846,7 +846,7 @@ function Budgets() {
                 payment_method: budget.payment_method || null,
                 installments: budget.installments || 1,
                 notes: budget.notes || null,
-                created_by: currentUser?.id || null,
+                created_by: currentUser?.uid || null,
             }).select('id').single()
 
             if (orderErr) throw orderErr
