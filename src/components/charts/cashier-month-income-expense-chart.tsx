@@ -11,6 +11,7 @@ import {
   Filler,
 } from 'chart.js'
 import { Line } from 'react-chartjs-2'
+import { formatBRL } from '@/utils/formatters'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler)
 
@@ -20,14 +21,7 @@ type Props = {
   month?: number
 }
 
-function formatCurrency(value: number): string {
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency',
-    currency: 'BRL',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value)
-}
+const formatCurrency = formatBRL
 
 function CashierMonthIncomeExpenseChart({ year, cashierMonthIncomeExpenseList, month }: Props) {
   if (!cashierMonthIncomeExpenseList) return null

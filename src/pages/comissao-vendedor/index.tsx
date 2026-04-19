@@ -20,10 +20,9 @@ import {
   EyeOutlined,
 } from '@ant-design/icons'
 import { ExportFormatModal } from '@/components/ui/export-format-modal.component'
+import { formatBRL } from '@/utils/formatters'
 
-function formatCurrency(v: number) {
-  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 }).format(v)
-}
+const formatCurrency = formatBRL
 
 // Métodos que exigem confirmação manual de recebimento antes de entrar na comissão confirmada
 const PENDING_PAYMENT_METHODS = ['BOLETO', 'CHEQUE_PRE_DATADO']

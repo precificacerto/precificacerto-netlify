@@ -30,6 +30,16 @@ type ContentProps = {
   itemsFromApi: IItemModel[]
   calcBase: CalcBaseType
   currentUser: LoggedUser
+  prefill?: {
+    productType?: 'PRODUZIDO' | 'REVENDA'
+    baseItemId?: string | null
+    name?: string
+    description?: string
+    unitType?: string
+    quantity?: number
+    ncm_code?: string
+    commission_table_id?: string | null
+  } | null
 }
 
 export type ProductPriceInfoType = {
@@ -118,6 +128,7 @@ export const Content: FC<ContentProps> = ({
   itemsFromApi,
   calcBase,
   currentUser,
+  prefill,
 }: ContentProps) => {
   const [productItemsData, setProductItemsData] = useState<IItemProductModel[]>(
     product?.items.map((item) => ({ ...item, key: item.id })) || []
@@ -567,6 +578,22 @@ export const Content: FC<ContentProps> = ({
       setUpdatedProductPriceInfoWithApi((prev) => prev + 1)
     }
   }, [isEditingMode, currentUser, calcBase])
+
+  useEffect(() => {
+    if (!isEditingMode && prefill) {
+      if (prefill.productType) setProductType(prefill.productType)
+      if (prefill.baseItemId) setBaseItemId(prefill.baseItemId)
+      productForm.setFieldsValue({
+        name: prefill.name || '',
+        description: prefill.description || '',
+        unitType: prefill.unitType || 'UN',
+        quantity: prefill.quantity || 1,
+        ncm_code: prefill.ncm_code || '',
+        commission_table_id: prefill.commission_table_id || null,
+      })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefill, isEditingMode])
 
 
   // --- Pricing Engine (V2) ---------------------------------------------------

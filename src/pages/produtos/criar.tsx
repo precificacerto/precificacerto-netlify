@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { message, Spin } from 'antd'
+import { useRouter } from 'next/router'
 import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
 import { Content } from '@/page-parts/products/content.component'
@@ -16,9 +17,12 @@ import { buildCalcBase } from '@/utils/build-calc-base'
 const NewProduct = () => {
   const [messageApi, contextHolder] = message.useMessage()
   const { currentUser, tenantId, loading: authLoading } = useAuth()
+  const router = useRouter()
+  const pendingItemId = typeof router.query.pending_item === 'string' ? router.query.pending_item : null
   const [items, setItems] = useState<IItemModel[]>([])
   const [calcBase, setCalcBase] = useState<CalcBaseType | null>(null)
   const [loading, setLoading] = useState(true)
+  const [prefill, setPrefill] = useState<any | null>(null)
 
   const effectiveTenantId = tenantId ?? currentUser?.tenant_id
 
@@ -88,6 +92,27 @@ const NewProduct = () => {
 
         const base = buildCalcBase(expenseRes.data, taxPreview)
         setCalcBase(base)
+
+        if (pendingItemId) {
+          const { data: itemRow } = await supabase
+            .from('items')
+            .select('id, name, unit, cost_price, ncm_code, product_table_id, observation')
+            .eq('id', pendingItemId)
+            .eq('tenant_id', tenantId)
+            .maybeSingle()
+          if (itemRow) {
+            setPrefill({
+              productType: 'REVENDA',
+              baseItemId: (itemRow as any).id,
+              name: (itemRow as any).name || '',
+              description: (itemRow as any).observation || '',
+              unitType: ((itemRow as any).unit || 'UN').toString().toUpperCase(),
+              quantity: 1,
+              ncm_code: (itemRow as any).ncm_code || '',
+              commission_table_id: (itemRow as any).product_table_id || null,
+            })
+          }
+        }
       } catch (err) {
         console.error('Erro ao carregar dados:', err)
       } finally {
@@ -96,7 +121,7 @@ const NewProduct = () => {
     }
 
     loadData()
-  }, [effectiveTenantId])
+  }, [effectiveTenantId, pendingItemId])
 
   // Se auth ainda está carregando, aguardar — não ficamos presos se effectiveTenantId for null
   if (authLoading || loading || !calcBase) {
@@ -124,6 +149,7 @@ const NewProduct = () => {
         itemsFromApi={items}
         calcBase={calcBase}
         currentUser={currentUser}
+        prefill={prefill}
       />
     </Layout>
   )

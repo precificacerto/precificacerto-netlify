@@ -16,10 +16,9 @@ import {
     ShoppingOutlined, ToolOutlined, InfoCircleOutlined, SaveOutlined,
     WhatsAppOutlined,
 } from '@ant-design/icons'
+import { formatBRL } from '@/utils/formatters'
 
-function formatCurrency(v: number): string {
-    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 }).format(v)
-}
+const formatCurrency = formatBRL
 
 interface RecurrenceRow {
     id: string

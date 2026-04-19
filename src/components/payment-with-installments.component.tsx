@@ -1,5 +1,6 @@
 import { Button, DatePicker, InputNumber, Radio } from 'antd'
 import dayjs, { type Dayjs } from 'dayjs'
+import { formatBRL as _formatBRLCentral } from '@/utils/formatters'
 
 export type InstallmentPresetValue =
     | 'customizado'
@@ -58,9 +59,7 @@ export function distributeInstallmentAmounts(rows: InstallmentRow[], total: numb
     return rows.map((r) => ({ ...r, amount: amt }))
 }
 
-function formatBRL(v: number): string {
-    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 }).format(v)
-}
+const formatBRL = _formatBRLCentral
 
 interface PaymentWithInstallmentsProps {
     preset: InstallmentPresetValue

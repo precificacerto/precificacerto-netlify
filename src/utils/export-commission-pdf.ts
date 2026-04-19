@@ -1,5 +1,6 @@
 import jsPDF from 'jspdf'
 import 'jspdf-autotable'
+import { formatBRL } from '@/utils/formatters'
 
 interface CommissionPdfRow {
   name: string
@@ -8,9 +9,7 @@ interface CommissionPdfRow {
   commission_value: number
 }
 
-function formatCurrency(v: number) {
-  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v)
-}
+const formatCurrency = formatBRL
 
 const MONTH_NAMES_PT = [
   'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',

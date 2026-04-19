@@ -66,6 +66,7 @@ function ServicesPage() {
     const [editTableModalOpen, setEditTableModalOpen] = useState(false)
     const [editingTableId, setEditingTableId] = useState<string | null>(null)
     const [editTableName, setEditTableName] = useState('')
+    const [editTableNotes, setEditTableNotes] = useState('')
     const [savingEditTable, setSavingEditTable] = useState(false)
 
     const loadCommissionTables = async () => {
@@ -106,9 +107,15 @@ function ServicesPage() {
         }
     }
 
-    const handleOpenEditTable = (id: string, currentName: string) => {
+    const handleOpenEditTable = async (id: string, currentName: string) => {
         setEditingTableId(id)
         setEditTableName(currentName)
+        const { data } = await (supabase as any)
+            .from('commission_tables')
+            .select('notes')
+            .eq('id', id)
+            .maybeSingle()
+        setEditTableNotes(data?.notes || '')
         setEditTableModalOpen(true)
     }
 
@@ -119,12 +126,12 @@ function ServicesPage() {
         try {
             const { error } = await (supabase as any)
                 .from('commission_tables')
-                .update({ name })
+                .update({ name, notes: editTableNotes.trim() || null })
                 .eq('id', editingTableId)
             if (error) { msgApi.error('Erro ao atualizar tabela: ' + error.message); return }
             setCommissionTables(prev => prev.map(t => t.id === editingTableId ? { ...t, name } : t))
             setEditTableModalOpen(false)
-            msgApi.success('Nome da tabela atualizado!')
+            msgApi.success('Tabela atualizada!')
         } finally {
             setSavingEditTable(false)
         }
@@ -626,25 +633,38 @@ function ServicesPage() {
                 </div>
             </Modal>
 
-            {/* Edit Commission Table Name Modal */}
+            {/* Edit Commission Table Modal */}
             <Modal
-                title="Editar Nome da Tabela de Comissão"
+                title="Editar Tabela de Comissão"
                 open={editTableModalOpen}
                 onCancel={() => setEditTableModalOpen(false)}
                 onOk={handleSaveEditTable}
                 okText="Salvar"
                 okButtonProps={{ loading: savingEditTable }}
-                width={400}
+                width={460}
             >
                 <div style={{ padding: '8px 0' }}>
-                    <label style={{ fontSize: 13, fontWeight: 500, display: 'block', marginBottom: 4 }}>Nome da Tabela <span style={{ color: '#f04438' }}>*</span></label>
-                    <Input
-                        placeholder="Nome da tabela"
-                        value={editTableName}
-                        onChange={e => setEditTableName(e.target.value)}
-                        onPressEnter={handleSaveEditTable}
-                        maxLength={100}
-                    />
+                    <div style={{ marginBottom: 12 }}>
+                        <label style={{ fontSize: 13, fontWeight: 500, display: 'block', marginBottom: 4 }}>Nome da Tabela <span style={{ color: '#f04438' }}>*</span></label>
+                        <Input
+                            placeholder="Nome da tabela"
+                            value={editTableName}
+                            onChange={e => setEditTableName(e.target.value)}
+                            onPressEnter={handleSaveEditTable}
+                            maxLength={100}
+                        />
+                    </div>
+                    <div>
+                        <label style={{ fontSize: 13, fontWeight: 500, display: 'block', marginBottom: 4 }}>Observações</label>
+                        <Input.TextArea
+                            rows={3}
+                            placeholder="Observações sobre esta tabela (opcional)"
+                            value={editTableNotes}
+                            onChange={e => setEditTableNotes(e.target.value)}
+                            maxLength={500}
+                            showCount
+                        />
+                    </div>
                 </div>
             </Modal>
 

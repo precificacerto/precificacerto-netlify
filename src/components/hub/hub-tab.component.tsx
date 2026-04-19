@@ -5,6 +5,7 @@ import { calculateHubData } from '@/utils/hub-engine'
 import type { HubData } from '@/utils/hub-engine'
 import { mergeExpenseConfig } from '@/utils/recalc-expense-config'
 import { getExpenseGroupColor } from '@/constants/cashier-category'
+import { formatBRL } from '@/utils/formatters'
 
 const MONTH_LABELS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
 
@@ -13,11 +14,7 @@ function formatMonthKey(key: string): string {
     return `${MONTH_LABELS[Number(m) - 1]}/${String(y).slice(2)}`
 }
 
-function formatCurrency(v: number): string {
-    return new Intl.NumberFormat('pt-BR', {
-        style: 'currency', currency: 'BRL', minimumFractionDigits: 2,
-    }).format(v)
-}
+const formatCurrency = formatBRL
 
 export interface HubTabProps {
     tenantId: string

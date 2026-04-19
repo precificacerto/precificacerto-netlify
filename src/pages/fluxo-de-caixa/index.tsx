@@ -23,10 +23,9 @@ import {
 import { ExportFormatModal } from '@/components/ui/export-format-modal.component'
 import { exportTableToPdf } from '@/utils/export-generic-pdf'
 import { getExpenseGroupLabel, getExpenseGroupColor } from '@/constants/cashier-category'
+import { formatBRL } from '@/utils/formatters'
 
-function formatCurrency(v: number) {
-    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 }).format(v)
-}
+const formatCurrency = formatBRL
 
 const EXPENSE_PAYMENT_METHODS = [
     { value: 'DINHEIRO', label: '💵 Dinheiro' },
@@ -401,6 +400,7 @@ export default function CashFlow() {
     const { canView, canEdit } = usePermissions()
     const [employees, setEmployees] = useState<any[]>([])
     const [customerMap, setCustomerMap] = useState<Record<string, string>>({})
+    const [saleCodeMap, setSaleCodeMap] = useState<Record<string, string>>({})
     const [taxRegime, setTaxRegime] = useState<string | null>(null)
     const [loading, setLoading] = useState(false)
     const [month, setMonth] = useState(dayjs())
@@ -486,6 +486,19 @@ export default function CashFlow() {
             const cMap: Record<string, string> = {}
             ;(custs || []).forEach((c: any) => { cMap[c.id] = c.name })
             setCustomerMap(cMap)
+
+            const saleIds = Array.from(new Set((entries || [])
+                .filter((e: any) => e.origin_type === 'SALE' && e.origin_id)
+                .map((e: any) => e.origin_id as string)))
+            if (tenantId && saleIds.length > 0) {
+                const { data: salesRows } = await sbf.from('sales').select('id, sale_code').in('id', saleIds)
+                const sMap: Record<string, string> = {}
+                ;(salesRows || []).forEach((s: any) => { if (s.sale_code) sMap[s.id] = s.sale_code })
+                setSaleCodeMap(sMap)
+            } else {
+                setSaleCodeMap({})
+            }
+
             if (tenantSettings?.tax_regime) setTaxRegime(tenantSettings.tax_regime)
         } catch {
             messageApi.error('Erro ao carregar dados.')
@@ -1443,7 +1456,18 @@ export default function CashFlow() {
                                 title: 'Descrição',
                                 dataIndex: 'description',
                                 key: 'description',
-                                render: (t: string) => <span style={{ fontSize: 13 }}>{t?.split(' — ')[0] || t || '—'}</span>,
+                                render: (t: string, r: any) => {
+                                    const head = t?.split(' — ')[0] || t || '—'
+                                    const saleCode = r?.origin_type === 'SALE' && r?.origin_id ? saleCodeMap[r.origin_id] : null
+                                    return (
+                                        <span style={{ fontSize: 13 }}>
+                                            {head}
+                                            {saleCode && (
+                                                <Tag color="blue" style={{ marginLeft: 8, fontSize: 10 }}>{saleCode}</Tag>
+                                            )}
+                                        </span>
+                                    )
+                                },
                             },
                             {
                                 title: 'Tipo',

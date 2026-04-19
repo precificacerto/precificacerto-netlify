@@ -24,6 +24,7 @@ import { exportTableToPdf } from '@/utils/export-generic-pdf'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import { getTenantId, getCurrentUserId } from '@/utils/get-tenant-id'
 import dayjs from 'dayjs'
+import { formatBRL } from '@/utils/formatters'
 
 const REGISTER_PAYMENT_METHODS = [
     { value: 'PIX', label: '⚡ PIX' },
@@ -102,9 +103,7 @@ interface ABCServiceRow {
 
 const { RangePicker } = DatePicker
 
-function formatCurrency(value: number): string {
-    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value)
-}
+const formatCurrency = formatBRL
 
 function SalesReport() {
     const { tenantId, currentUser } = useAuth()

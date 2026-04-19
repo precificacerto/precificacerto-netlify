@@ -33,12 +33,11 @@ import {
     Title, Tooltip as ChartTooltip, Legend, ArcElement
 } from 'chart.js'
 import { Bar, Doughnut } from 'react-chartjs-2'
+import { formatBRL } from '@/utils/formatters'
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, ArcElement, Title, ChartTooltip, Legend)
 
-function formatCurrency(v: number) {
-    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 }).format(v)
-}
+const formatCurrency = formatBRL
 
 const CATEGORY_GROUP_MAP: { category: string; group: string }[] = [
     { category: 'Salários Produção', group: 'MAO_DE_OBRA_PRODUTIVA' },

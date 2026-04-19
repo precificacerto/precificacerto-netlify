@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import {
     Button, Card, Drawer, Form, Input, InputNumber, Select, Space, Tag, TimePicker,
     DatePicker, message, Popconfirm, Tooltip, Avatar, Empty, Modal, Divider,
-    Checkbox, Alert, Radio, Upload, Switch,
+    Checkbox, Alert, Radio, Upload, Switch, Segmented,
 } from 'antd'
 import dayjs from 'dayjs'
 import isoWeek from 'dayjs/plugin/isoWeek'
@@ -125,6 +125,7 @@ function Schedule() {
     const [discountTick, setDiscountTick] = useState(0)
     const [globalDiscountPctAgenda, setGlobalDiscountPctAgenda] = useState(0)
     const [discountModeAgenda, setDiscountModeAgenda] = useState<DiscountMode>('PROPORTIONAL')
+    const [discountInputModeAgenda, setDiscountInputModeAgenda] = useState<'PERCENT' | 'AMOUNT'>('PERCENT')
     const [isSplitPay, setIsSplitPay] = useState(false)
     const [splitAmountPaid, setSplitAmountPaid] = useState<number>(0)
     const [customInstallments, setCustomInstallments] = useState<InstallmentRow[]>([{ date: null, amount: 0 }])
@@ -1979,22 +1980,68 @@ function Schedule() {
                                                         { value: 'SELLER_REDUCTION', label: 'Redução do Vendedor' },
                                                     ]}
                                                 />
-                                                <span style={{ color: '#000', fontSize: 13 }}>Desconto (%):</span>
-                                                <Tooltip title={disabledTip}>
-                                                    <InputNumber style={{ width: 130 }} disabled={maxPct <= 0} min={0} max={maxPct > 0 ? maxPct : 100} step={0.5} value={globalDiscountPctAgenda} onChange={(v) => {
-                                                        const newDiscount = Math.min(v ?? 0, maxPct > 0 ? maxPct : 100)
+                                                <span style={{ color: '#000', fontSize: 13 }}>Desconto:</span>
+                                                <Segmented
+                                                    size="small"
+                                                    value={discountInputModeAgenda}
+                                                    onChange={(v) => setDiscountInputModeAgenda(v as 'PERCENT' | 'AMOUNT')}
+                                                    options={[
+                                                        { label: '%', value: 'PERCENT' },
+                                                        { label: 'R$', value: 'AMOUNT' },
+                                                    ]}
+                                                />
+                                                {(() => {
+                                                    const base = Number(payForm.getFieldValue('base_price')) || 0
+                                                    const extrasTotal = extraProds.reduce((s, p) => s + p.total, 0)
+                                                    const rawTotal = base + extrasTotal
+                                                    const applyDiscount = (newDiscount: number) => {
                                                         setGlobalDiscountPctAgenda(newDiscount)
                                                         setDiscountTick(t => t + 1)
                                                         if (installmentPreset !== 'customizado') {
-                                                            const base = Number(payForm.getFieldValue('base_price')) || 0
-                                                            const extrasTotal = extraProds.reduce((s, p) => s + p.total, 0)
-                                                            const discountedTotal = (base + extrasTotal) * (1 - newDiscount / 100)
+                                                            const discountedTotal = rawTotal * (1 - newDiscount / 100)
                                                             const n = customInstallments.length
                                                             const amt = n > 0 && discountedTotal > 0 ? Math.round((discountedTotal / n) * 100) / 100 : 0
                                                             setCustomInstallments(prev => prev.map(inst => ({ ...inst, amount: amt })))
                                                         }
-                                                    }} formatter={(v) => v != null ? String(v).replace('.', ',') : ''} parser={(v) => Number((v || '0').replace(',', '.'))} addonAfter="%" />
-                                                </Tooltip>
+                                                    }
+                                                    return (
+                                                        <Tooltip title={disabledTip}>
+                                                            {discountInputModeAgenda === 'PERCENT' ? (
+                                                                <InputNumber
+                                                                    style={{ width: 130 }}
+                                                                    disabled={maxPct <= 0}
+                                                                    min={0}
+                                                                    max={maxPct > 0 ? maxPct : 100}
+                                                                    step={0.5}
+                                                                    value={globalDiscountPctAgenda}
+                                                                    onChange={(v) => applyDiscount(Math.min(v ?? 0, maxPct > 0 ? maxPct : 100))}
+                                                                    formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
+                                                                    parser={(v) => Number((v || '0').replace(',', '.'))}
+                                                                    addonAfter="%"
+                                                                />
+                                                            ) : (
+                                                                <InputNumber
+                                                                    style={{ width: 170 }}
+                                                                    disabled={maxPct <= 0 || rawTotal <= 0}
+                                                                    min={0}
+                                                                    max={rawTotal > 0 ? rawTotal * ((maxPct > 0 ? maxPct : 100) / 100) : 0}
+                                                                    step={1}
+                                                                    value={Number((rawTotal * (globalDiscountPctAgenda / 100)).toFixed(2))}
+                                                                    onChange={(v) => {
+                                                                        const amount = Number(v) || 0
+                                                                        if (rawTotal <= 0) { applyDiscount(0); return }
+                                                                        const pct = (amount / rawTotal) * 100
+                                                                        const capped = Math.min(pct, maxPct > 0 ? maxPct : 100)
+                                                                        applyDiscount(Number(capped.toFixed(4)))
+                                                                    }}
+                                                                    formatter={(v) => v != null ? Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}
+                                                                    parser={(v) => Number((v || '0').replace(/\./g, '').replace(',', '.'))}
+                                                                    addonBefore="R$"
+                                                                />
+                                                            )}
+                                                        </Tooltip>
+                                                    )
+                                                })()}
                                                 {maxPct > 0 && <span style={{ fontSize: 12, color: '#92400e' }}>Máx: {maxPct.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}% {maxLabel}</span>}
                                             </div>
                                         </div>

@@ -38,6 +38,8 @@ import { getEffectiveIncomeAmount } from '@/utils/cash-entry-amount'
 import { useAuth } from '@/hooks/use-auth.hook'
 import { getDashboardCache, setDashboardCache } from '@/utils/dashboard-cache'
 import { RestitutionSummaryCard } from '@/components/restitution-summary.component'
+import { calculateBreakeven, buildBreakevenInputFromConfig } from '@/utils/breakeven-calculator'
+import { formatBRL } from '@/utils/formatters'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler)
 
@@ -51,14 +53,7 @@ const MONTH_NAMES = [
   'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro',
 ]
 
-function formatCurrency(value: number): string {
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency',
-    currency: 'BRL',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value)
-}
+const formatCurrency = formatBRL
 
 const MONTH_OPTIONS = [
   { value: 0, label: 'Janeiro' }, { value: 1, label: 'Fevereiro' }, { value: 2, label: 'Março' },
@@ -78,6 +73,7 @@ function Home() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [cashierMonthsData, setCashierMonthsData] = useState<any[]>([])
   const [calcBase, setCalcBase] = useState<CalcBaseType>(buildCalcBase(null))
+  const [expenseConfig, setExpenseConfig] = useState<any | null>(null)
   const [showPricingBanner, setShowPricingBanner] = useState(false)
   const [tenantSettingsId, setTenantSettingsId] = useState<string | null>(null)
   const [restitutionSummary, setRestitutionSummary] = useState<{
@@ -142,6 +138,7 @@ function Home() {
       const expense = expenseConfigRes.data
       const base = expense ? buildCalcBase(expense) : buildCalcBase(null)
       setCalcBase(base)
+      setExpenseConfig(expense || null)
 
       const ts = tenantSettingsRes.data
       if (ts) {
@@ -261,8 +258,18 @@ function Home() {
   const totalSaidas = selectedMonthChartData.expenses.reduce((sum, item) => sum + (item.price || 0), 0)
   const saldoAtual = totalEntradas - totalSaidas
 
-  // Ponto de Equilíbrio Operacional: faturamento necessário para igualar as saídas do mês (lucro zero).
-  const pontoEquilibrio = totalSaidas
+  // Ponto de Equilíbrio Operacional (fórmula T22):
+  // PE = (MO produtiva + MO administrativa + Despesa Fixa) / (1 - % somados por dentro).
+  const breakevenResult = useMemo(() => {
+    const input = buildBreakevenInputFromConfig(
+      expenseConfig,
+      currentUser?.taxableRegimeValue ?? calcBase.taxableRegimeAutoPercent ?? 0,
+      Number((currentUser as any)?.profitValue) || 0,
+      Number((currentUser as any)?.commissionValue) || 0,
+    )
+    return calculateBreakeven(input)
+  }, [expenseConfig, currentUser, calcBase])
+  const pontoEquilibrio = breakevenResult.isValid ? breakevenResult.breakeven : 0
   const peAtingidoPct = pontoEquilibrio > 0
     ? Number(((totalEntradas / pontoEquilibrio) * 100).toFixed(0))
     : 0

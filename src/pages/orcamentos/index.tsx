@@ -31,10 +31,9 @@ import {
     type InstallmentRow,
 } from '@/components/payment-with-installments.component'
 import dayjs from 'dayjs'
+import { formatBRL } from '@/utils/formatters'
 
-function formatCurrency(v: number): string {
-    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v)
-}
+const formatCurrency = formatBRL
 
 /** Célula de cabeçalho que mantém título + ícone de ordenação + ícone de filtro agrupados à esquerda */
 function TableHeaderCell(props: React.HTMLAttributes<HTMLTableCellElement> & { children?: React.ReactNode }) {
@@ -1826,7 +1825,7 @@ function Budgets() {
                         <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
                     </Form.Item>
 
-                    <Form.Item name="notes" label="Observações">
+                    <Form.Item name="notes" label="Observação">
                         <Input.TextArea rows={3} placeholder="Condições, prazos de entrega..." />
                     </Form.Item>
                 </Form>

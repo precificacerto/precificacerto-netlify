@@ -1132,8 +1132,8 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                         background: pricing.isValid && pricing.sellingPrice > 0 ? '#ECFDF5' : '#FEF2F2',
                         border: `1px solid ${pricing.isValid && pricing.sellingPrice > 0 ? '#6CE9A6' : '#FDA29B'}`,
                     }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <div>
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center' }}>
+                            <div style={{ textAlign: 'right' }}>
                                 <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 2, textTransform: 'uppercase' as const, letterSpacing: 0.5 }}>
                                     Preço de Venda Sugerido
                                 </div>
@@ -1141,17 +1141,25 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                                     {fmt(pricing.sellingPrice)}
                                 </div>
                             </div>
-                            <div style={{ textAlign: 'right' }}>
-                                <div style={{ fontSize: 11, color: '#94a3b8' }}>Lucro líquido</div>
-                                <div style={{ fontSize: 20, fontWeight: 700, color: pricing.profitVal >= 0 ? '#027A48' : '#B42318' }}>
-                                    {fmt(pricing.profitVal)}
-                                </div>
-                                {pricing.sellingPrice > 0 && (
-                                    <div style={{ fontSize: 11, color: '#94a3b8' }}>
-                                        Margem: {profitPercent.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%
-                                    </div>
-                                )}
-                            </div>
+                        </div>
+                        <div style={{
+                            marginTop: 12,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 10,
+                            padding: '8px 14px',
+                            borderRadius: 6,
+                            background: pricing.profitVal >= 0 ? '#12B76A' : '#B42318',
+                            color: '#fff',
+                            fontWeight: 700,
+                        }}>
+                            <span style={{ fontSize: 11, textTransform: 'uppercase' as const, letterSpacing: 0.5, opacity: 0.9 }}>Lucro Líquido</span>
+                            <span style={{ fontSize: 16 }}>{fmt(pricing.profitVal)}</span>
+                            {pricing.sellingPrice > 0 && (
+                                <span style={{ fontSize: 11, opacity: 0.9 }}>
+                                    ({profitPercent.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%)
+                                </span>
+                            )}
                         </div>
                     </div>
 

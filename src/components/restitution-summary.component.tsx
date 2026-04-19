@@ -1,5 +1,6 @@
 import React from 'react'
 import { Card, Tooltip } from 'antd'
+import { formatBRL } from '@/utils/formatters'
 
 interface RestitutionSummaryProps {
   monthLabel: string
@@ -9,14 +10,7 @@ interface RestitutionSummaryProps {
   totalRestitution: number
 }
 
-function formatCurrency(v: number): string {
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency',
-    currency: 'BRL',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(v || 0)
-}
+const formatCurrency = formatBRL
 
 export const RestitutionSummaryCard: React.FC<RestitutionSummaryProps> = ({
   monthLabel,

@@ -3,12 +3,11 @@ import { getCallerContext } from '@/lib/get-caller-tenant'
 import { supabaseAdmin } from '@/supabase/admin'
 import { createBudgetPdf } from '@/lib/create-budget-pdf'
 import { sendWuzapiDocument, sendWuzapiText } from '@/lib/wuzapi-send'
+import { formatBRL } from '@/utils/formatters'
 
 const THROTTLE_SECONDS = 60
 
-function formatCurrency(v: number): string {
-  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v)
-}
+const formatCurrency = formatBRL
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {

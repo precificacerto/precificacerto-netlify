@@ -21,6 +21,7 @@ import {
     DeleteOutlined,
 } from '@ant-design/icons'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
+import { formatBRL } from '@/utils/formatters'
 
 interface StockRow {
     id: string
@@ -53,9 +54,7 @@ interface ServiceRow {
 }
 
 
-function formatCurrency(value: number): string {
-    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value)
-}
+const formatCurrency = formatBRL
 
 function deriveStatus(qty: number, minLimit: number): string {
     if (qty <= 0) return 'Crítico'
@@ -166,37 +165,42 @@ function Stock() {
         })()
     }, [effectiveTenantId, rawStock, rawProducts, reloadStock])
 
+    const reloadServices = React.useCallback(async () => {
+        setLoadingServices(true)
+        try {
+            const svcRes: any = await (supabase as any)
+                .from('services')
+                .select('id, name, description, estimated_duration_minutes, cost_total, base_price, status, min_quantity, profit_percent, service_items(*, item:items(id, quantity))')
+                .order('name')
+            if (svcRes.error) return
+            setServicesList((svcRes.data || []).map((s: any) => {
+                const possible = calcServicesPossibleFromItems(s)
+                const qty = possible != null ? possible : 0
+                const minQty = Number(s.min_quantity) || 0
+                const stockStatus = deriveStatus(qty, minQty)
+                return {
+                    id: s.id,
+                    name: s.name,
+                    description: s.description,
+                    duration: Number(s.estimated_duration_minutes) || 0,
+                    cost: Number(s.cost_total) || 0,
+                    price: Number(s.base_price) || 0,
+                    status: s.status === 'ACTIVE' ? 'Ativo' : 'Inativo',
+                    quantity: qty,
+                    minQuantity: minQty,
+                    stockStatus,
+                    profitPercent: Number(s.profit_percent) || 0,
+                }
+            }))
+        } finally {
+            setLoadingServices(false)
+        }
+    }, [])
+
     useEffect(() => {
         if (activeTab !== 'SERVICE') return
-        setLoadingServices(true)
-        ;(supabase as any)
-            .from('services')
-            .select('id, name, description, estimated_duration_minutes, cost_total, base_price, status, min_quantity, profit_percent, service_items(*, item:items(id, quantity))')
-            .order('name')
-            .then((svcRes: any) => {
-                if (svcRes.error) return
-                setServicesList((svcRes.data || []).map((s: any) => {
-                    const possible = calcServicesPossibleFromItems(s)
-                    const qty = possible != null ? possible : 0
-                    const minQty = Number(s.min_quantity) || 0
-                    const stockStatus = deriveStatus(qty, minQty)
-                    return {
-                        id: s.id,
-                        name: s.name,
-                        description: s.description,
-                        duration: Number(s.estimated_duration_minutes) || 0,
-                        cost: Number(s.cost_total) || 0,
-                        price: Number(s.base_price) || 0,
-                        status: s.status === 'ACTIVE' ? 'Ativo' : 'Inativo',
-                        quantity: qty,
-                        minQuantity: minQty,
-                        stockStatus,
-                        profitPercent: Number(s.profit_percent) || 0,
-                    }
-                }))
-            })
-            .finally(() => setLoadingServices(false))
-    }, [activeTab])
+        reloadServices()
+    }, [activeTab, reloadServices])
 
 
     const stockRows = useMemo<StockRow[]>(() => {
@@ -497,21 +501,37 @@ function Stock() {
                 messageApi.error('Registro inválido para exclusão.')
                 return
             }
+            const nowIso = new Date().toISOString()
             const { error: deactivateError } = await (supabase as any)
                 .from(targetTable)
-                .update({ is_active: false, updated_at: new Date().toISOString() })
+                .update({ is_active: false, deleted_at: nowIso, updated_at: nowIso })
                 .eq('id', targetId)
             if (deactivateError) throw deactivateError
 
             await supabase
                 .from('stock')
-                .update({ is_active: false, updated_at: new Date().toISOString() })
+                .update({ is_active: false, updated_at: nowIso })
                 .eq(record.type === 'PRODUCT' ? 'product_id' : 'item_id', targetId)
 
             messageApi.success(`${record.type === 'PRODUCT' ? 'Produto' : 'Item'} excluído.`)
             await reloadStock()
         } catch (err: any) {
             messageApi.error('Erro ao excluir: ' + (err.message || err))
+        }
+    }
+
+    async function handleSoftDeleteService(record: ServiceRow) {
+        try {
+            const nowIso = new Date().toISOString()
+            const { error } = await (supabase as any)
+                .from('services')
+                .update({ is_active: false, deleted_at: nowIso, updated_at: nowIso })
+                .eq('id', record.id)
+            if (error) throw error
+            messageApi.success('Serviço excluído.')
+            await reloadServices()
+        } catch (err: any) {
+            messageApi.error('Erro ao excluir serviço: ' + (err.message || err))
         }
     }
 
@@ -802,6 +822,25 @@ function Stock() {
                                 width: 100,
                                 render: (s: string) => <Tag color={s === 'Ativo' ? 'success' : 'default'}>{s}</Tag>,
                             },
+                            ...(canEdit(MODULES.STOCK)
+                                ? [{
+                                    title: 'Ações',
+                                    key: 'action',
+                                    width: 130,
+                                    render: (_: unknown, record: ServiceRow) => (
+                                        <Popconfirm
+                                            title="Excluir serviço"
+                                            description={`Deseja excluir "${record.name}"? Esta ação oculta do sistema.`}
+                                            okText="Sim"
+                                            cancelText="Não"
+                                            okButtonProps={{ danger: true }}
+                                            onConfirm={() => handleSoftDeleteService(record)}
+                                        >
+                                            <Button type="link" size="small" danger icon={<DeleteOutlined />}>Excluir</Button>
+                                        </Popconfirm>
+                                    ),
+                                }]
+                                : []),
                         ]}
                         dataSource={filteredServiceData}
                         rowKey="id"

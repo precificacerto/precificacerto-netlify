@@ -22,6 +22,7 @@ import { formatCurrencyInput, parseCurrencyInput } from '@/utils/get-monetary-va
 import { ExportFormatModal } from '@/components/ui/export-format-modal.component'
 import { exportTableToPdf } from '@/utils/export-generic-pdf'
 import { calculateDiscountedPrice, DiscountMode } from '@/utils/calculate-discount'
+import { formatBRL } from '@/utils/formatters'
 import {
     PaymentWithInstallments,
     buildInstallmentsByPreset,
@@ -88,9 +89,7 @@ interface SaleItemRow {
     is_service?: boolean
 }
 
-function formatCurrency(v: number): string {
-    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v)
-}
+const formatCurrency = formatBRL
 
 interface PendingBudget {
     id: string
