@@ -23,6 +23,12 @@ import {
 import { ExportFormatModal } from '@/components/ui/export-format-modal.component'
 import { exportTableToPdf } from '@/utils/export-generic-pdf'
 import { getExpenseGroupLabel, getExpenseGroupColor } from '@/constants/cashier-category'
+import {
+    CATEGORY_GROUP_MAP,
+    LR_CUSTO_CATEGORIES_SPECIAL,
+    getExpenseCategoryOptionsForRegime,
+    getGroupForCategoryByRegime,
+} from '@/constants/expense-categories-by-regime'
 import { formatBRL } from '@/utils/formatters'
 
 const formatCurrency = formatBRL
@@ -42,175 +48,6 @@ const PAYMENT_CONDITIONS = [
     { value: '30', label: '30 dias' },
     { value: '30_60', label: '30/60 dias' },
     { value: '30_60_90', label: '30/60/90 dias' },
-]
-
-const CATEGORY_GROUP_MAP: { category: string; group: string }[] = [
-    // Mão de Obra Produtiva
-    { category: 'Salários Produção', group: 'MAO_DE_OBRA_PRODUTIVA' },
-    { category: 'Décimo Terceiro (Setor Produtivo)', group: 'MAO_DE_OBRA_PRODUTIVA' },
-    { category: 'Férias Colaboradores (Setor Produtivo)', group: 'MAO_DE_OBRA_PRODUTIVA' },
-    { category: 'FGTS (Setor Produtivo)', group: 'MAO_DE_OBRA_PRODUTIVA' },
-    { category: 'INSS (Setor Produtivo)', group: 'MAO_DE_OBRA_PRODUTIVA' },
-    { category: 'Plano de Saúde (Setor Produtivo)', group: 'MAO_DE_OBRA_PRODUTIVA' },
-    { category: 'Vale Alimentação (Setor Produtivo)', group: 'MAO_DE_OBRA_PRODUTIVA' },
-    { category: 'Vale Transporte (Setor Produtivo)', group: 'MAO_DE_OBRA_PRODUTIVA' },
-    // Mão de Obra Administrativa
-    { category: 'Pró Labore', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
-    { category: 'Salários Administrativos', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
-    { category: 'Salários Comerciais', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
-    { category: 'Décimo Terceiro (Pró-Labo/ Admin/ Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
-    { category: 'Férias Colaboradores (Pró-Labo/ Admin/ Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
-    { category: 'FGTS (Pró-Labo/ Admin/ Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
-    { category: 'INSS (Pró-Labo/ Admin/ Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
-    { category: 'Plano de Saúde (Pró-Labo/ Admin/ Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
-    { category: 'Vale Alimentação (Pró-Labo/ Admin/ Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
-    { category: 'Vale Transporte (Pró-Labo/ Admin/ Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
-    // Despesas Fixas
-    { category: 'Água', group: 'DESPESA_FIXA' },
-    { category: 'Aluguel', group: 'DESPESA_FIXA' },
-    { category: 'Aplicações / Consórcios', group: 'DESPESA_FIXA' },
-    { category: 'Consultoria', group: 'DESPESA_FIXA' },
-    { category: 'Contabilidade', group: 'DESPESA_FIXA' },
-    { category: 'Depreciação', group: 'DESPESA_FIXA' },
-    { category: 'Empréstimos', group: 'DESPESA_FIXA' },
-    { category: 'Energia Elétrica', group: 'DESPESA_FIXA' },
-    { category: 'Impostos IPTU / IPVA', group: 'DESPESA_FIXA' },
-    { category: 'Internet', group: 'DESPESA_FIXA' },
-    { category: 'Segurança / Monitoramento', group: 'DESPESA_FIXA' },
-    { category: 'Seguros', group: 'DESPESA_FIXA' },
-    { category: 'Sistema de Gestão / Softwares', group: 'DESPESA_FIXA' },
-    { category: 'Telefone', group: 'DESPESA_FIXA' },
-    { category: 'Recisões / Indenizações', group: 'DESPESA_FIXA' },
-    { category: 'Saúde Trabalhista / Ocupacional', group: 'DESPESA_FIXA' },
-    { category: 'MEI (Microempreendedor Individual)', group: 'DESPESA_FIXA' },
-    // Despesas Variáveis
-    { category: 'Comissões de Venda', group: 'COMISSOES' },
-    { category: 'Combustíveis', group: 'DESPESA_VARIAVEL' },
-    { category: 'Correios', group: 'DESPESA_VARIAVEL' },
-    { category: 'Departamento Jurídico', group: 'DESPESA_VARIAVEL' },
-    { category: 'Embalagens Diversas', group: 'DESPESA_VARIAVEL' },
-    { category: 'Fretes (Valores relacionados a entrega dos produtos)', group: 'DESPESA_VARIAVEL' },
-    { category: 'Horas Extras - Salários', group: 'DESPESA_VARIAVEL' },
-    { category: 'Manutenções', group: 'DESPESA_VARIAVEL' },
-    { category: 'Marketing (publicidades e relacionados)', group: 'DESPESA_VARIAVEL' },
-    { category: 'Pedágios', group: 'DESPESA_VARIAVEL' },
-    { category: 'Terceirizações', group: 'DESPESA_VARIAVEL' },
-    { category: 'Uso e Consumo', group: 'DESPESA_VARIAVEL' },
-    { category: 'Vale Alimentação', group: 'DESPESA_VARIAVEL' },
-    { category: 'Viagens (hotéis / passagens / alimentação / ETC)', group: 'DESPESA_VARIAVEL' },
-    // Despesas Financeiras
-    { category: 'Juros', group: 'DESPESA_FINANCEIRA' },
-    { category: 'Taxas Cartão', group: 'DESPESA_FINANCEIRA' },
-    { category: 'Taxas Bancárias', group: 'DESPESA_FINANCEIRA' },
-    { category: 'Troca Cheque', group: 'DESPESA_FINANCEIRA' },
-]
-
-// Grupos exclusivos Lucro Real — Custo dos Produtos
-const LR_CUSTO_PRODUTOS = [
-    { category: 'Fornecedores - Produtos para Revenda', group: 'CUSTO_PRODUTOS' },
-    { category: 'Matéria Prima - Base dos produtos', group: 'CUSTO_PRODUTOS' },
-    { category: 'Embalagens Individuais', group: 'CUSTO_PRODUTOS' },
-    { category: 'Fretes FOB (Valores relacionados a compra de suprimentos)', group: 'CUSTO_PRODUTOS' },
-]
-
-// Atividades Terceirizadas Operacionais de Entrega (Lucro Real)
-const LR_ATIVIDADES_TERCEIRIZADAS = [
-    { category: 'Fretes/Logísticas de Entrega Terceirizados', group: 'ATIVIDADES_TERCEIRIZADAS' },
-    { category: 'Seguro de Transporte Entrega', group: 'ATIVIDADES_TERCEIRIZADAS' },
-    { category: 'Despesas Acessórias', group: 'ATIVIDADES_TERCEIRIZADAS' },
-    { category: 'Gastos com Logísticas Externas', group: 'ATIVIDADES_TERCEIRIZADAS' },
-]
-
-// Lucro (Lucro Real)
-const LR_LUCRO = [
-    { category: 'INVESTIMENTOS (Máquinas, Equipamentos, Expansão e Melhorias)', group: 'LUCRO' },
-    { category: 'DISTRIBUIÇÃO DE LUCROS', group: 'LUCRO' },
-]
-
-// Impostos sobre o Lucro (Lucro Real)
-const LR_IMPOSTOS_SOBRE_LUCRO = [
-    { category: 'IRPJ (Imposto de Renda de Pessoa Jurídica)', group: 'IMPOSTO_LUCRO' },
-    { category: 'CSLL (Contribuição Social sobre o Lucro Líquido)', group: 'IMPOSTO_LUCRO' },
-    { category: 'Alíquota Adicional da Parcela do IRPJ', group: 'IMPOSTO_LUCRO' },
-]
-
-// Impostos sobre o Faturamento — Por dentro (Lucro Real)
-const LR_IMPOSTOS_FATURAMENTO_DENTRO = [
-    { category: 'ICMS Próprio', group: 'IMPOSTO_FATURAMENTO_DENTRO' },
-    { category: 'PIS', group: 'IMPOSTO_FATURAMENTO_DENTRO' },
-    { category: 'COFINS', group: 'IMPOSTO_FATURAMENTO_DENTRO' },
-]
-
-// Impostos sobre o Faturamento — Por fora (Lucro Real / Simples Híbrido)
-const LR_IMPOSTOS_FATURAMENTO_FORA = [
-    { category: 'CBS (Contribuição sobre Bens e Serviços)', group: 'IMPOSTO' },
-    { category: 'IBS (Imposto sobre Bens e Serviços)', group: 'IMPOSTO' },
-    { category: 'IPI custo', group: 'IMPOSTO' },
-    { category: 'ICMS DIFAL', group: 'IMPOSTO' },
-    { category: 'ICMS-ST (Substituição Tributária)', group: 'IMPOSTO' },
-    { category: 'IS (Imposto Seletivo)', group: 'IMPOSTO' },
-    { category: 'FCP (Fundo de Combate à Pobreza)', group: 'IMPOSTO' },
-]
-
-// Categorias que ativam o detalhamento de impostos (Lucro Real / Simples Híbrido)
-const LR_CUSTO_CATEGORIES_SPECIAL = [
-    'Fornecedores - Produtos para Revenda',
-    'Matéria Prima - Base dos produtos',
-    'Embalagens Individuais',
-    'Fretes FOB (Valores relacionados a compra de suprimentos)',
-] as const
-
-const EXPENSE_CATEGORY_OPTIONS = [
-    { label: '── Mão de Obra Produtiva ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'MAO_DE_OBRA_PRODUTIVA').map(c => ({ label: c.category, value: c.category })) },
-    { label: '── Mão de Obra Administrativa ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'MAO_DE_OBRA_ADMINISTRATIVA').map(c => ({ label: c.category, value: c.category })) },
-    { label: '── Despesas Fixas ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_FIXA').map(c => ({ label: c.category, value: c.category })) },
-    { label: '── Despesas Variáveis ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_VARIAVEL').map(c => ({ label: c.category, value: c.category })) },
-    { label: '── Despesas Financeiras ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_FINANCEIRA').map(c => ({ label: c.category, value: c.category })) },
-    { label: '── Comissões ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'COMISSOES').map(c => ({ label: c.category, value: c.category })) },
-]
-
-const LR_EXPENSE_CATEGORY_OPTIONS = [
-    { label: '── Custo dos Produtos ──', options: LR_CUSTO_PRODUTOS.map(c => ({ label: c.category, value: c.category })) },
-    { label: '── Mão de Obra Produtiva ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'MAO_DE_OBRA_PRODUTIVA').map(c => ({ label: c.category, value: c.category })) },
-    { label: '── Mão de Obra Administrativa ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'MAO_DE_OBRA_ADMINISTRATIVA').map(c => ({ label: c.category, value: c.category })) },
-    { label: '── Despesas Fixas ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_FIXA').map(c => ({ label: c.category, value: c.category })) },
-    { label: '── Despesas Variáveis ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_VARIAVEL').map(c => ({ label: c.category, value: c.category })) },
-    { label: '── Atividades Terceirizadas Operacionais de Entrega ──', options: LR_ATIVIDADES_TERCEIRIZADAS.map(c => ({ label: c.category, value: c.category })) },
-    { label: '── Despesas Financeiras ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_FINANCEIRA').map(c => ({ label: c.category, value: c.category })) },
-    { label: '── Comissões ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'COMISSOES').map(c => ({ label: c.category, value: c.category })) },
-    { label: '── Lucro ──', options: LR_LUCRO.map(c => ({ label: c.category, value: c.category })) },
-    { label: '── Impostos sobre o Lucro ──', options: LR_IMPOSTOS_SOBRE_LUCRO.map(c => ({ label: c.category, value: c.category })) },
-    { label: '── Impostos sobre o Faturamento (Por dentro) ──', options: LR_IMPOSTOS_FATURAMENTO_DENTRO.map(c => ({ label: c.category, value: c.category })) },
-    { label: '── Impostos sobre o Faturamento (Por fora) ──', options: LR_IMPOSTOS_FATURAMENTO_FORA.map(c => ({ label: c.category, value: c.category })) },
-]
-
-// Impostos sobre o Lucro (Lucro Presumido)
-const LP_IMPOSTOS_SOBRE_LUCRO = [
-    { category: 'IRPJ (Imposto de Renda de Pessoa Jurídica)', group: 'IMPOSTO_LUCRO' },
-    { category: 'CSLL (Contribuição Social sobre o Lucro Líquido)', group: 'IMPOSTO_LUCRO' },
-    { category: 'Alíquota Adicional da parcela do IRPJ', group: 'IMPOSTO_LUCRO' },
-]
-
-// Impostos sobre o Faturamento — Por dentro (Lucro Presumido)
-const LP_IMPOSTOS_FATURAMENTO_DENTRO = [
-    { category: 'ICMS Próprio', group: 'IMPOSTO_FATURAMENTO_DENTRO' },
-    { category: 'PIS (Cumulativo)', group: 'IMPOSTO_FATURAMENTO_DENTRO' },
-    { category: 'COFINS (Cumulativo)', group: 'IMPOSTO_FATURAMENTO_DENTRO' },
-]
-
-const LP_EXPENSE_CATEGORY_OPTIONS = [
-    { label: '── Custo dos Produtos ──', options: LR_CUSTO_PRODUTOS.map(c => ({ label: c.category, value: c.category })) },
-    { label: '── Mão de Obra Produtiva ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'MAO_DE_OBRA_PRODUTIVA').map(c => ({ label: c.category, value: c.category })) },
-    { label: '── Mão de Obra Administrativa ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'MAO_DE_OBRA_ADMINISTRATIVA').map(c => ({ label: c.category, value: c.category })) },
-    { label: '── Despesas Fixas ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_FIXA').map(c => ({ label: c.category, value: c.category })) },
-    { label: '── Despesas Variáveis ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_VARIAVEL').map(c => ({ label: c.category, value: c.category })) },
-    { label: '── Atividades Terceirizadas Operacionais de Entrega ──', options: LR_ATIVIDADES_TERCEIRIZADAS.map(c => ({ label: c.category, value: c.category })) },
-    { label: '── Despesas Financeiras ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_FINANCEIRA').map(c => ({ label: c.category, value: c.category })) },
-    { label: '── Comissões ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'COMISSOES').map(c => ({ label: c.category, value: c.category })) },
-    { label: '── Lucro ──', options: LR_LUCRO.map(c => ({ label: c.category, value: c.category })) },
-    { label: '── Impostos sobre o Lucro ──', options: LP_IMPOSTOS_SOBRE_LUCRO.map(c => ({ label: c.category, value: c.category })) },
-    { label: '── Impostos sobre o Faturamento (Por dentro) ──', options: LP_IMPOSTOS_FATURAMENTO_DENTRO.map(c => ({ label: c.category, value: c.category })) },
-    { label: '── Impostos sobre o Faturamento (Por fora) ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'IMPOSTO').map(c => ({ label: c.category, value: c.category })) },
 ]
 
 function getGroupForCategory(cat: string): string | undefined {
@@ -273,108 +110,6 @@ const PAYMENT_METHODS = [
     { value: 'CHEQUE', label: '🧾 Cheque' },
     { value: 'CHEQUE_PRE_DATADO', label: '🗓️ Cheque Pré-datado' },
 ]
-
-// ── Categorias Simples Nacional ──
-const SN_CATEGORY_GROUP_MAP: { category: string; group: string }[] = [
-    // Custo Produtos
-    { category: 'Fornecedores — Produtos para Revenda', group: 'CUSTO_PRODUTOS' },
-    { category: 'Matéria-prima — Base dos produtos', group: 'CUSTO_PRODUTOS' },
-    { category: 'Embalagens individuais', group: 'CUSTO_PRODUTOS' },
-    // Mão de Obra Produção
-    { category: 'Salários produção', group: 'MAO_DE_OBRA_PRODUTIVA' },
-    { category: 'Décimo terceiro (Setor Produtivo)', group: 'MAO_DE_OBRA_PRODUTIVA' },
-    { category: 'Férias colaboradores (Setor Produtivo)', group: 'MAO_DE_OBRA_PRODUTIVA' },
-    { category: 'FGTS (Setor Produtivo)', group: 'MAO_DE_OBRA_PRODUTIVA' },
-    { category: 'Horas extras — Salários', group: 'MAO_DE_OBRA_PRODUTIVA' },
-    { category: 'INSS (Setor Produtivo)', group: 'MAO_DE_OBRA_PRODUTIVA' },
-    { category: 'INSS patronal (Setor Produtivo)', group: 'MAO_DE_OBRA_PRODUTIVA' },
-    { category: 'Plano de saúde (Setor Produtivo)', group: 'MAO_DE_OBRA_PRODUTIVA' },
-    { category: 'RAT / FAP', group: 'MAO_DE_OBRA_PRODUTIVA' },
-    { category: 'Vale alimentação (Setor Produtivo)', group: 'MAO_DE_OBRA_PRODUTIVA' },
-    { category: 'Vale transporte (Setor Produtivo)', group: 'MAO_DE_OBRA_PRODUTIVA' },
-    { category: 'Mão de obra produtiva terceirizada — passível de crédito', group: 'MAO_DE_OBRA_PRODUTIVA' },
-    // Mão de Obra Administrativa
-    { category: 'Pró-labore', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
-    { category: 'Salários administrativos', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
-    { category: 'Salários comerciais', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
-    { category: 'Décimo terceiro (Pró-Labo / Admin / Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
-    { category: 'Férias colaboradores (Pró-Labo / Admin / Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
-    { category: 'FGTS (Pró-Labo / Admin / Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
-    { category: 'Horas extras — Salários', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
-    { category: 'INSS (Pró-Labo / Admin / Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
-    { category: 'INSS patronal (Pró-Labo / Admin / Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
-    { category: 'Plano de saúde (Pró-Labo / Admin / Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
-    { category: 'RAT / FAP', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
-    { category: 'Vale alimentação (Pró-Labo / Admin / Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
-    { category: 'Vale transporte (Pró-Labo / Admin / Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
-    // Despesa Fixa
-    { category: 'Água', group: 'DESPESA_FIXA' },
-    { category: 'Aluguel', group: 'DESPESA_FIXA' },
-    { category: 'Aplicações / Consórcios', group: 'DESPESA_FIXA' },
-    { category: 'Consultoria', group: 'DESPESA_FIXA' },
-    { category: 'Contabilidade', group: 'DESPESA_FIXA' },
-    { category: 'Depreciação', group: 'DESPESA_FIXA' },
-    { category: 'Empréstimos / Financiamentos', group: 'DESPESA_FIXA' },
-    { category: 'Energia elétrica', group: 'DESPESA_FIXA' },
-    { category: 'Impostos IPTU / IPVA', group: 'DESPESA_FIXA' },
-    { category: 'Internet', group: 'DESPESA_FIXA' },
-    { category: 'Segurança / Monitoramento', group: 'DESPESA_FIXA' },
-    { category: 'Seguros imóveis e veículos', group: 'DESPESA_FIXA' },
-    { category: 'Sistema de gestão / Softwares', group: 'DESPESA_FIXA' },
-    { category: 'Taxas de licenciamento', group: 'DESPESA_FIXA' },
-    { category: 'Telefone', group: 'DESPESA_FIXA' },
-    { category: 'Saúde trabalhista / Ocupacional', group: 'DESPESA_FIXA' },
-    { category: 'MEI (Microempreendedor Individual)', group: 'DESPESA_FIXA' },
-    // Despesa Variável
-    { category: 'Combustíveis', group: 'DESPESA_VARIAVEL' },
-    { category: 'Correios', group: 'DESPESA_VARIAVEL' },
-    { category: 'Departamento jurídico', group: 'DESPESA_VARIAVEL' },
-    { category: 'Embalagens diversas', group: 'DESPESA_VARIAVEL' },
-    { category: 'Manutenções', group: 'DESPESA_VARIAVEL' },
-    { category: 'Marketing (publicidades e relacionados)', group: 'DESPESA_VARIAVEL' },
-    { category: 'Pedágios', group: 'DESPESA_VARIAVEL' },
-    { category: 'Rescisões / Indenizações', group: 'DESPESA_VARIAVEL' },
-    { category: 'Terceirizações (prestadores de serviços)', group: 'DESPESA_VARIAVEL' },
-    { category: 'Uso e consumo', group: 'DESPESA_VARIAVEL' },
-    { category: 'Vale alimentação', group: 'DESPESA_VARIAVEL' },
-    { category: 'Viagens (hotéis / passagens / alimentação / etc)', group: 'DESPESA_VARIAVEL' },
-    // Despesa Financeira
-    { category: 'Juros', group: 'DESPESA_FINANCEIRA' },
-    { category: 'Taxas cartão', group: 'DESPESA_FINANCEIRA' },
-    { category: 'Taxas bancárias', group: 'DESPESA_FINANCEIRA' },
-    { category: 'Troca cheque', group: 'DESPESA_FINANCEIRA' },
-    { category: 'IOF', group: 'DESPESA_FINANCEIRA' },
-    // Atividades Terceirizadas
-    { category: 'Fretes / Logísticas de entrega terceirizados', group: 'ATIVIDADES_TERCEIRIZADAS' },
-    { category: 'Seguro de transporte entrega', group: 'ATIVIDADES_TERCEIRIZADAS' },
-    { category: 'Despesas acessórias', group: 'ATIVIDADES_TERCEIRIZADAS' },
-    { category: 'Gastos com logísticas externas', group: 'ATIVIDADES_TERCEIRIZADAS' },
-    // Regime Tributário
-    { category: 'DAS (Documento de Arrecadação do Simples Nacional)', group: 'REGIME_TRIBUTARIO' },
-    { category: 'Simples Nacional', group: 'REGIME_TRIBUTARIO' },
-    // Comissões
-    { category: 'Comissões de venda', group: 'COMISSOES' },
-    // Lucro
-    { category: 'Investimentos (máquinas, equipamentos, expansão e melhorias)', group: 'LUCRO' },
-    { category: 'Distribuição de lucros', group: 'LUCRO' },
-]
-
-const SN_EXPENSE_CATEGORY_OPTIONS = [
-    { label: '── Custo dos Produtos ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'CUSTO_PRODUTOS').map(c => ({ label: c.category, value: c.category })) },
-    { label: '── Mão de Obra Produção ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'MAO_DE_OBRA_PRODUTIVA').map(c => ({ label: c.category, value: c.category })) },
-    { label: '── Mão de Obra Administrativa ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'MAO_DE_OBRA_ADMINISTRATIVA').map(c => ({ label: c.category, value: c.category })) },
-    { label: '── Despesas Fixas ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_FIXA').map(c => ({ label: c.category, value: c.category })) },
-    { label: '── Despesas Variáveis ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_VARIAVEL').map(c => ({ label: c.category, value: c.category })) },
-    { label: '── Despesas Financeiras ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_FINANCEIRA').map(c => ({ label: c.category, value: c.category })) },
-    { label: '── Atividades Terceirizadas Operacionais de Entrega ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'ATIVIDADES_TERCEIRIZADAS').map(c => ({ label: c.category, value: c.category })) },
-    { label: '── Regime Tributário ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'REGIME_TRIBUTARIO').map(c => ({ label: c.category, value: c.category })) },
-    { label: '── Comissões ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'COMISSOES').map(c => ({ label: c.category, value: c.category })) },
-    { label: '── Lucro ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'LUCRO').map(c => ({ label: c.category, value: c.category })) },
-]
-
-function getSNGroupForCategory(cat: string): string | undefined {
-    return SN_CATEGORY_GROUP_MAP.find(c => c.category === cat)?.group
-}
 
 const INSTALLMENT_PRESETS = [
     { value: 'customizado', label: 'Cheque pré-datado' },
@@ -511,31 +246,10 @@ export default function CashFlow() {
 
     const isSimples = taxRegime === 'SIMPLES_NACIONAL' || taxRegime === 'MEI'
     const isLucroReal = taxRegime === 'LUCRO_REAL'
-    const isLucroPresumido = taxRegime === 'LUCRO_PRESUMIDO'
     const isSimplesHibrido = taxRegime === 'SIMPLES_HIBRIDO'
     const isLrCustoProdutos = (isLucroReal || isSimplesHibrido) && (LR_CUSTO_CATEGORIES_SPECIAL as readonly string[]).includes(selectedExpenseCategory)
-    const activeCategoryOptions = isSimples
-        ? SN_EXPENSE_CATEGORY_OPTIONS
-        : isLucroReal || isSimplesHibrido
-            ? LR_EXPENSE_CATEGORY_OPTIONS
-            : isLucroPresumido
-                ? LP_EXPENSE_CATEGORY_OPTIONS
-                : EXPENSE_CATEGORY_OPTIONS
-    const activeGroupForCategory = (cat: string) => {
-        if (isSimples) return getSNGroupForCategory(cat)
-        const lrEntry = [
-            ...LR_CUSTO_PRODUTOS,
-            ...LR_ATIVIDADES_TERCEIRIZADAS,
-            ...LR_LUCRO,
-            ...LR_IMPOSTOS_SOBRE_LUCRO,
-            ...LR_IMPOSTOS_FATURAMENTO_DENTRO,
-            ...LR_IMPOSTOS_FATURAMENTO_FORA,
-            ...LP_IMPOSTOS_SOBRE_LUCRO,
-            ...LP_IMPOSTOS_FATURAMENTO_DENTRO,
-        ].find(c => c.category === cat)
-        if (lrEntry) return lrEntry.group
-        return getGroupForCategory(cat)
-    }
+    const activeCategoryOptions = getExpenseCategoryOptionsForRegime(taxRegime)
+    const activeGroupForCategory = (cat: string) => getGroupForCategoryByRegime(taxRegime, cat)
 
     const handleOpenPaymentModal = (entry: any) => {
         setPaymentEntry(entry)
