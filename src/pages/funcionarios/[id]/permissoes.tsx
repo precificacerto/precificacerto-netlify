@@ -16,6 +16,7 @@ const MODULE_LABELS: Record<string, string> = {
   items: 'Itens',
   products: 'Produtos',
   budgets: 'Orçamentos',
+  orders: 'Pedidos',
   sales: 'Vendas',
   sales_report: 'Relatório de Vendas',
   stock: 'Estoque',

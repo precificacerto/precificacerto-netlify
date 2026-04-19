@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
 import {
     Button, Drawer, Form, Input, InputNumber, Select, Space, Table, Tag,
-    message, DatePicker, Steps, Popconfirm, Divider, Empty, Modal, Upload, Radio,
+    message, DatePicker, Steps, Popconfirm, Divider, Empty, Modal, Upload, Radio, Segmented,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { Layout } from '@/components/layout/layout.component'
@@ -22,30 +22,19 @@ import {
 import { exportTableToPdf } from '@/utils/export-generic-pdf'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import { formatCurrencyInput, parseCurrencyInput } from '@/utils/get-monetary-value'
+import type { DiscountMode } from '@/utils/calculate-discount'
+import {
+    PaymentWithInstallments,
+    buildInstallmentsByPreset,
+    INSTALLMENT_PRESETS,
+    type InstallmentPresetValue,
+    type InstallmentRow,
+} from '@/components/payment-with-installments.component'
 import dayjs from 'dayjs'
 
 function formatCurrency(v: number): string {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v)
 }
-
-function buildInstallmentsByPreset(preset: string): { date: any; amount: number }[] {
-    const today = dayjs()
-    if (preset === '30') return [{ date: today.add(30, 'day'), amount: 0 }]
-    if (preset === '30_60') return [{ date: today.add(30, 'day'), amount: 0 }, { date: today.add(60, 'day'), amount: 0 }]
-    if (preset === '30_60_90') return [{ date: today.add(30, 'day'), amount: 0 }, { date: today.add(60, 'day'), amount: 0 }, { date: today.add(90, 'day'), amount: 0 }]
-    if (preset === '30_60_90_120') return [{ date: today.add(30, 'day'), amount: 0 }, { date: today.add(60, 'day'), amount: 0 }, { date: today.add(90, 'day'), amount: 0 }, { date: today.add(120, 'day'), amount: 0 }]
-    if (preset === '30_60_90_120_150') return [{ date: today.add(30, 'day'), amount: 0 }, { date: today.add(60, 'day'), amount: 0 }, { date: today.add(90, 'day'), amount: 0 }, { date: today.add(120, 'day'), amount: 0 }, { date: today.add(150, 'day'), amount: 0 }]
-    return [{ date: null, amount: 0 }]
-}
-
-const INSTALLMENT_PRESETS = [
-    { value: 'customizado', label: 'Cheque pré-datado' },
-    { value: '30', label: '30' },
-    { value: '30_60', label: '30/60' },
-    { value: '30_60_90', label: '30/60/90' },
-    { value: '30_60_90_120', label: '30/60/90/120' },
-    { value: '30_60_90_120_150', label: '30/60/90/120/150' },
-]
 
 /** Célula de cabeçalho que mantém título + ícone de ordenação + ícone de filtro agrupados à esquerda */
 function TableHeaderCell(props: React.HTMLAttributes<HTMLTableCellElement> & { children?: React.ReactNode }) {
@@ -119,11 +108,11 @@ function Budgets() {
     const [budgetMessageTemplate, setBudgetMessageTemplate] = useState<string | null>(null)
     const [form] = Form.useForm()
     const [paymentForm] = Form.useForm()
-    const [customInstallments, setCustomInstallments] = useState<{ date: any; amount: number }[]>([{ date: null, amount: 0 }])
-    const [installmentPreset, setInstallmentPreset] = useState<'customizado' | '30' | '30_60' | '30_60_90' | '30_60_90_120' | '30_60_90_120_150'>('customizado')
+    const [customInstallments, setCustomInstallments] = useState<InstallmentRow[]>([{ date: null, amount: 0 }])
+    const [installmentPreset, setInstallmentPreset] = useState<InstallmentPresetValue>('customizado')
     // Informative installments in the budget create/edit form (not saved to DB)
-    const [budgetFormInstallmentPreset, setBudgetFormInstallmentPreset] = useState<string>('customizado')
-    const [budgetFormCustomInstallments, setBudgetFormCustomInstallments] = useState<{ date: any; amount: number }[]>([{ date: null, amount: 0 }])
+    const [budgetFormInstallmentPreset, setBudgetFormInstallmentPreset] = useState<InstallmentPresetValue>('customizado')
+    const [budgetFormCustomInstallments, setBudgetFormCustomInstallments] = useState<InstallmentRow[]>([{ date: null, amount: 0 }])
     const [attachFile, setAttachFile] = useState<File | null>(null)
     const [attachDesc, setAttachDesc] = useState('')
     const [customerMode, setCustomerMode] = useState<'existing' | 'manual'>('existing')
@@ -132,6 +121,8 @@ function Budgets() {
     const [empServiceTables, setEmpServiceTables] = useState<{id: string; name: string; type: string; commission_percent?: number}[]>([])
     const [tableSections, setTableSections] = useState<{key: string; tableId: string | null}[]>([{key: 'ts-0', tableId: null}])
     const [globalDiscountPercent, setGlobalDiscountPercent] = useState(0)
+    const [discountInputMode, setDiscountInputMode] = useState<'PERCENT' | 'AMOUNT'>('PERCENT')
+    const [discountMode, setDiscountMode] = useState<DiscountMode>('PROPORTIONAL')
     const skipTableAutoSelectRef = useRef(false)
 
     // ── Products-in-budgets drawer state ──
@@ -182,8 +173,10 @@ function Budgets() {
     }, [waThrottleSecondsLeft])
 
     const filteredData = useMemo(() => {
-        if (!searchText) return budgets
-        return budgets.filter(b =>
+        // T12: ocultar pagos — lista mostra apenas Rascunho e Aguardando pagamento (+ SENT/APPROVED em transição)
+        const visible = budgets.filter(b => b.status !== 'PAID')
+        if (!searchText) return visible
+        return visible.filter(b =>
             (b.customer?.name || '').toLowerCase().includes(searchText.toLowerCase()) ||
             b.id.toLowerCase().includes(searchText.toLowerCase())
         )
@@ -441,17 +434,30 @@ function Budgets() {
     const employeeHasNoTables = !!selectedEmployeeId && empProductTables.length === 0 && empServiceTables.length === 0
     const getItemTotalWithCommission = (item: BudgetItemRow) => item.unit_price * item.quantity
     const budgetTotal = budgetItems.reduce((s, i) => s + getItemTotalWithCommission(i), 0)
-    const maxDiscountPercent = budgetTotal > 0
-        ? Math.min(100, budgetItems.reduce((s, i) => s + i.unit_price * i.quantity * ((i.commission_percent || 0) + (i.profit_percent || 0)) / 100, 0) / budgetTotal * 100)
-        : 100
+
+    // Teto do desconto varia conforme o modo selecionado:
+    //   PROPORTIONAL     → (comissão + lucro) % total
+    //   PROFIT_REDUCTION → apenas lucro %
+    //   SELLER_REDUCTION → apenas comissão %
+    const maxDiscountPercent = (() => {
+        if (budgetTotal <= 0) return 100
+        const pool = budgetItems.reduce((s, i) => {
+            const comm = i.commission_percent || 0
+            const prof = i.profit_percent || 0
+            const pct = discountMode === 'PROFIT_REDUCTION' ? prof
+                : discountMode === 'SELLER_REDUCTION' ? comm
+                : (comm + prof)
+            return s + i.unit_price * i.quantity * pct / 100
+        }, 0)
+        return Math.min(100, (pool / budgetTotal) * 100)
+    })()
+
     const budgetTotalWithDiscount = budgetTotal * (1 - globalDiscountPercent / 100)
 
-    // ── Comissão e Lucro calculados após desconto (fórmula proporcional por item) ──
-    // Para cada item: o desconto reduz somente o pool (comissão+lucro),
-    // mantendo as proporções originais entre as duas categorias.
-    // newCombinedPct = combinedPct - discountPct
-    // profitValue  = priceComDesconto × newCombinedPct% × (profit  / combined)
-    // commValue    = priceComDesconto × newCombinedPct% × (commission / combined)
+    // ── Comissão e Lucro calculados após desconto ──
+    // PROPORTIONAL: desconto distribuído entre lucro e comissão preservando proporção original.
+    // PROFIT_REDUCTION: desconto reduz apenas o lucro; comissão permanece integral.
+    // SELLER_REDUCTION: desconto reduz apenas a comissão; lucro permanece integral.
     const totalCommissionPct = budgetTotal > 0
         ? budgetItems.reduce((s, i) => s + i.unit_price * i.quantity * (i.commission_percent || 0) / 100, 0) / budgetTotal * 100
         : 0
@@ -459,19 +465,39 @@ function Budgets() {
         ? budgetItems.reduce((s, i) => s + i.unit_price * i.quantity * (i.profit_percent || 0) / 100, 0) / budgetTotal * 100
         : 0
     const profitAmount = budgetItems.reduce((s, i) => {
-        const combinedPct = (i.commission_percent || 0) + (i.profit_percent || 0)
+        const commPct = i.commission_percent || 0
+        const profPct = i.profit_percent || 0
+        const combinedPct = commPct + profPct
         if (combinedPct <= 0) return s
+        const itemBase = i.unit_price * i.quantity
+        if (discountMode === 'SELLER_REDUCTION') {
+            return s + itemBase * profPct / 100
+        }
+        if (discountMode === 'PROFIT_REDUCTION') {
+            const reducedProfPct = Math.max(0, profPct - globalDiscountPercent)
+            return s + itemBase * reducedProfPct / 100
+        }
         const newCombinedPct = Math.max(0, combinedPct - globalDiscountPercent)
-        const profitProportion = (i.profit_percent || 0) / combinedPct
-        const priceWithDiscount = i.unit_price * i.quantity * (1 - globalDiscountPercent / 100)
+        const profitProportion = profPct / combinedPct
+        const priceWithDiscount = itemBase * (1 - globalDiscountPercent / 100)
         return s + priceWithDiscount * newCombinedPct / 100 * profitProportion
     }, 0)
     const commissionAmount = budgetItems.reduce((s, i) => {
-        const combinedPct = (i.commission_percent || 0) + (i.profit_percent || 0)
+        const commPct = i.commission_percent || 0
+        const profPct = i.profit_percent || 0
+        const combinedPct = commPct + profPct
         if (combinedPct <= 0) return s
+        const itemBase = i.unit_price * i.quantity
+        if (discountMode === 'PROFIT_REDUCTION') {
+            return s + itemBase * commPct / 100
+        }
+        if (discountMode === 'SELLER_REDUCTION') {
+            const reducedCommPct = Math.max(0, commPct - globalDiscountPercent)
+            return s + itemBase * reducedCommPct / 100
+        }
         const newCombinedPct = Math.max(0, combinedPct - globalDiscountPercent)
-        const commissionProportion = (i.commission_percent || 0) / combinedPct
-        const priceWithDiscount = i.unit_price * i.quantity * (1 - globalDiscountPercent / 100)
+        const commissionProportion = commPct / combinedPct
+        const priceWithDiscount = itemBase * (1 - globalDiscountPercent / 100)
         return s + priceWithDiscount * newCombinedPct / 100 * commissionProportion
     }, 0)
 
@@ -521,6 +547,7 @@ function Budgets() {
                 status: 'DRAFT',
                 total_value: budgetTotalWithDiscount,
                 global_discount_percent: globalDiscountPercent,
+                discount_mode: discountMode,
                 commission_amount: commissionAmount,
                 profit_amount: profitAmount,
                 expiration_date: values.expiration_date?.format('YYYY-MM-DD') || null,
@@ -595,11 +622,12 @@ function Budgets() {
                 }
             }
 
-            const { error } = await supabase.from('budgets').update({
+            const { error } = await (supabase as any).from('budgets').update({
                 customer_id: customerId,
                 employee_id: values.employee_id || null,
                 total_value: budgetTotalWithDiscount,
                 global_discount_percent: globalDiscountPercent,
+                discount_mode: discountMode,
                 commission_amount: commissionAmount,
                 profit_amount: profitAmount,
                 expiration_date: values.expiration_date?.format('YYYY-MM-DD') || null,
@@ -678,6 +706,7 @@ function Budgets() {
 
         skipTableAutoSelectRef.current = true
         setGlobalDiscountPercent(Number(record.global_discount_percent || 0))
+        setDiscountMode(((record as any).discount_mode as DiscountMode) || 'PROPORTIONAL')
 
         const allLoadedTables = [...(tablesResult.data || []).map((r: any) => r.commission_tables).filter(Boolean)]
         const rows: BudgetItemRow[] = (itemsResult.data || []).map((it: any, idx: number) => {
@@ -797,6 +826,68 @@ function Budgets() {
         messageApi.success('Orçamento enviado para vendas. Status: Aguardando pagamento.')
         await reloadBudgets()
         setDetailDrawerOpen(false)
+    }
+
+    // ── Enviar para Pedido (cria order com todo histórico) ──
+    const handleSendToOrder = async (budget: any) => {
+        if (!tenantId) return
+        try {
+            // criar pedido (order_code gerado após insert)
+            const { data: order, error: orderErr } = await (supabase as any).from('orders').insert({
+                tenant_id: tenantId,
+                order_code: `PED-TEMP-${Date.now()}`, // será atualizado logo abaixo
+                customer_id: budget.customer_id,
+                employee_id: budget.employee_id || null,
+                budget_id: budget.id,
+                status: 'DRAFT',
+                total_value: budget.total_value || 0,
+                discount_mode: budget.discount_mode || null,
+                discount_value: budget.discount_value || null,
+                discount_percent: budget.discount_percent || null,
+                payment_method: budget.payment_method || null,
+                installments: budget.installments || 1,
+                notes: budget.notes || null,
+                created_by: currentUser?.id || null,
+            }).select('id').single()
+
+            if (orderErr) throw orderErr
+
+            if (order?.id) {
+                const orderCode = `PED-${order.id.slice(0, 6).toUpperCase()}`
+                await (supabase as any).from('orders').update({ order_code: orderCode }).eq('id', order.id)
+
+                // copiar budget_items → order_items
+                const { data: budgetItems } = await (supabase as any)
+                    .from('budget_items')
+                    .select('product_id, service_id, quantity, unit_price, manual_description')
+                    .eq('budget_id', budget.id)
+
+                if (budgetItems && budgetItems.length > 0) {
+                    const toInsert = budgetItems.map((bi: any) => ({
+                        order_id: order.id,
+                        product_id: bi.product_id || null,
+                        service_id: bi.service_id || null,
+                        quantity: bi.quantity || 0,
+                        unit_price: bi.unit_price || 0,
+                        total_price: (bi.quantity || 0) * (bi.unit_price || 0),
+                        manual_description: bi.manual_description || null,
+                    }))
+                    await (supabase as any).from('order_items').insert(toInsert)
+                }
+
+                // atualiza budget para SENT_TO_ORDER (mantém referência)
+                await supabase.from('budgets')
+                    .update({ status: 'AWAITING_PAYMENT', updated_at: new Date().toISOString() })
+                    .eq('id', budget.id)
+            }
+
+            messageApi.success('Orçamento enviado para Pedido com sucesso!')
+            await reloadBudgets()
+            setDetailDrawerOpen(false)
+        } catch (err: any) {
+            console.error(err)
+            messageApi.error('Erro ao enviar para pedido: ' + (err?.message || 'desconhecido'))
+        }
     }
 
     // ── Abrir modal de pagamento (só se orçamento ainda não foi pago por outra pessoa) ──
@@ -1231,16 +1322,42 @@ function Budgets() {
                         {waThrottleSecondsLeft > 0 ? `Enviar via WhatsApp (${waThrottleSecondsLeft}s)` : 'Enviar via WhatsApp'}
                     </Button>
                     {record.status === 'DRAFT' && (
-                        <Button
-                            type="link"
-                            size="small"
-                            icon={<ShoppingCartOutlined />}
-                            onClick={() => handleSendToSales(record)}
-                            style={{ color: '#12B76A' }}
-                            title="Enviar para vendas (aguardando pagamento), sem enviar ao cliente"
+                        <Popconfirm
+                            title="Enviar para vendas?"
+                            description="O orçamento irá para o status 'Aguardando pagamento' sem notificar o cliente."
+                            okText="Enviar"
+                            cancelText="Cancelar"
+                            onConfirm={() => handleSendToSales(record)}
                         >
-                            Enviar para vendas
-                        </Button>
+                            <Button
+                                type="link"
+                                size="small"
+                                icon={<ShoppingCartOutlined />}
+                                style={{ color: '#12B76A' }}
+                                title="Enviar para vendas (aguardando pagamento), sem enviar ao cliente"
+                            >
+                                Enviar para vendas
+                            </Button>
+                        </Popconfirm>
+                    )}
+                    {record.status === 'DRAFT' && (
+                        <Popconfirm
+                            title="Enviar para pedido?"
+                            description="Um pedido será criado a partir deste orçamento, com todos os itens e dados."
+                            okText="Sim, enviar"
+                            cancelText="Não"
+                            onConfirm={() => handleSendToOrder(record)}
+                        >
+                            <Button
+                                type="link"
+                                size="small"
+                                icon={<ShoppingCartOutlined />}
+                                style={{ color: '#2563eb' }}
+                                title="Enviar para pedido"
+                            >
+                                Enviar para Pedido
+                            </Button>
+                        </Popconfirm>
                     )}
                     {(record.status === 'APPROVED' || record.status === 'AWAITING_PAYMENT') && (
                         <Button type="link" size="small" style={{ color: '#12B76A' }} onClick={() => handleOpenPayment(record)}>
@@ -1392,7 +1509,7 @@ function Budgets() {
                         Ver produtos em orçamentos
                     </Button>
                     {canEdit(MODULES.BUDGETS) && (
-                        <Button type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setBudgetItems([]); setGlobalDiscountPercent(0); setEditingBudgetId(null); setBudgetFormInstallmentPreset('customizado'); setBudgetFormCustomInstallments([{ date: null, amount: 0 }]); setDrawerOpen(true) }}>
+                        <Button type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setBudgetItems([]); setGlobalDiscountPercent(0); setDiscountMode('PROPORTIONAL'); setEditingBudgetId(null); setBudgetFormInstallmentPreset('customizado'); setBudgetFormCustomInstallments([{ date: null, amount: 0 }]); setDrawerOpen(true) }}>
                             Novo Orçamento
                         </Button>
                     )}
@@ -1413,10 +1530,10 @@ function Budgets() {
                 title={editingBudgetId ? 'Editar Orçamento' : 'Novo Orçamento'}
                 width={680}
                 open={drawerOpen}
-                onClose={() => { setDrawerOpen(false); setEditingBudgetId(null); form.resetFields(); setBudgetItems([]); setGlobalDiscountPercent(0); setTableSections([{key: 'ts-0', tableId: null}]); setEmpProductTables([]); setEmpServiceTables([]); setBudgetFormInstallmentPreset('customizado'); setBudgetFormCustomInstallments([{ date: null, amount: 0 }]) }}
+                onClose={() => { setDrawerOpen(false); setEditingBudgetId(null); form.resetFields(); setBudgetItems([]); setGlobalDiscountPercent(0); setDiscountMode('PROPORTIONAL'); setTableSections([{key: 'ts-0', tableId: null}]); setEmpProductTables([]); setEmpServiceTables([]); setBudgetFormInstallmentPreset('customizado'); setBudgetFormCustomInstallments([{ date: null, amount: 0 }]) }}
                 extra={
                     <Space>
-                        <Button onClick={() => { setDrawerOpen(false); setEditingBudgetId(null); form.resetFields(); setBudgetItems([]); setGlobalDiscountPercent(0); setTableSections([{key: 'ts-0', tableId: null}]); setEmpProductTables([]); setEmpServiceTables([]); setBudgetFormInstallmentPreset('customizado'); setBudgetFormCustomInstallments([{ date: null, amount: 0 }]) }}>Cancelar</Button>
+                        <Button onClick={() => { setDrawerOpen(false); setEditingBudgetId(null); form.resetFields(); setBudgetItems([]); setGlobalDiscountPercent(0); setDiscountMode('PROPORTIONAL'); setTableSections([{key: 'ts-0', tableId: null}]); setEmpProductTables([]); setEmpServiceTables([]); setBudgetFormInstallmentPreset('customizado'); setBudgetFormCustomInstallments([{ date: null, amount: 0 }]) }}>Cancelar</Button>
                         <Button onClick={editingBudgetId ? handleUpdate : handleSave} type="primary" loading={saving}>
                             {editingBudgetId ? 'Salvar alterações' : 'Criar Orçamento'}
                         </Button>
@@ -1488,10 +1605,6 @@ function Budgets() {
                             </Form.Item>
                         </>
                     )}
-
-                    <Form.Item name="expiration_date" label="Orçamento válido até">
-                        <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
-                    </Form.Item>
 
                     <Divider orientation="left" style={{ fontSize: 12, color: '#94a3b8' }}>Produtos e Serviços</Divider>
 
@@ -1587,24 +1700,68 @@ function Budgets() {
 
                     {/* Desconto Global */}
                     <div style={{ marginTop: 8, padding: '12px 16px', background: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.2)', borderRadius: 8 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                <span style={{ fontSize: 14, color: '#94a3b8', whiteSpace: 'nowrap' }}>Desconto (%)</span>
-                                <InputNumber
-                                    min={0}
-                                    max={maxDiscountPercent > 0 ? maxDiscountPercent : 100}
-                                    step={0.5}
-                                    value={globalDiscountPercent}
-                                    onChange={(v) => setGlobalDiscountPercent(Math.min(v ?? 0, maxDiscountPercent > 0 ? maxDiscountPercent : 100))}
-                                    formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
-                                    parser={(v) => Number((v || '0').replace(',', '.'))}
-                                    addonAfter="%"
-                                    style={{ width: 130 }}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                <span style={{ fontSize: 14, color: '#94a3b8', whiteSpace: 'nowrap' }}>Modo</span>
+                                <Select
+                                    value={discountMode}
+                                    onChange={(v: DiscountMode) => {
+                                        setDiscountMode(v)
+                                        setGlobalDiscountPercent(0)
+                                    }}
+                                    style={{ width: 210 }}
+                                    options={[
+                                        { value: 'PROPORTIONAL', label: 'Proporcional' },
+                                        { value: 'PROFIT_REDUCTION', label: 'Redução do Lucro' },
+                                        { value: 'SELLER_REDUCTION', label: 'Redução do Vendedor' },
+                                    ]}
                                 />
+                                <span style={{ fontSize: 14, color: '#94a3b8', whiteSpace: 'nowrap' }}>Desconto</span>
+                                <Segmented
+                                    size="small"
+                                    value={discountInputMode}
+                                    onChange={(v) => setDiscountInputMode(v as 'PERCENT' | 'AMOUNT')}
+                                    options={[
+                                        { label: '%', value: 'PERCENT' },
+                                        { label: 'R$', value: 'AMOUNT' },
+                                    ]}
+                                />
+                                {discountInputMode === 'PERCENT' ? (
+                                    <InputNumber
+                                        min={0}
+                                        max={maxDiscountPercent > 0 ? maxDiscountPercent : 100}
+                                        step={0.5}
+                                        value={globalDiscountPercent}
+                                        onChange={(v) => setGlobalDiscountPercent(Math.min(v ?? 0, maxDiscountPercent > 0 ? maxDiscountPercent : 100))}
+                                        formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
+                                        parser={(v) => Number((v || '0').replace(',', '.'))}
+                                        addonAfter="%"
+                                        style={{ width: 140 }}
+                                    />
+                                ) : (
+                                    <InputNumber
+                                        min={0}
+                                        max={budgetTotal > 0 ? budgetTotal * ((maxDiscountPercent > 0 ? maxDiscountPercent : 100) / 100) : 0}
+                                        step={1}
+                                        value={Number((budgetTotal * (globalDiscountPercent / 100)).toFixed(2))}
+                                        onChange={(v) => {
+                                            const amount = Number(v) || 0
+                                            if (budgetTotal <= 0) { setGlobalDiscountPercent(0); return }
+                                            const pct = (amount / budgetTotal) * 100
+                                            const capped = Math.min(pct, maxDiscountPercent > 0 ? maxDiscountPercent : 100)
+                                            setGlobalDiscountPercent(Number(capped.toFixed(4)))
+                                        }}
+                                        formatter={(v) => v != null ? Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}
+                                        parser={(v) => Number((v || '0').replace(/\./g, '').replace(',', '.'))}
+                                        addonBefore="R$"
+                                        style={{ width: 180 }}
+                                    />
+                                )}
                             </div>
                             {maxDiscountPercent > 0 && (
                                 <span style={{ fontSize: 12, color: '#64748b' }}>
-                                    Máx: {maxDiscountPercent.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}% (comissão + lucro)
+                                    Máx: {maxDiscountPercent.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}% {discountMode === 'PROFIT_REDUCTION' ? '(lucro)' : discountMode === 'SELLER_REDUCTION' ? '(comissão do vendedor)' : '(comissão + lucro)'}
+                                    {budgetTotal > 0 && ` — ${formatCurrency(budgetTotal * maxDiscountPercent / 100)}`}
                                 </span>
                             )}
                         </div>
@@ -1652,58 +1809,21 @@ function Budgets() {
                         {({ getFieldValue }) => {
                             const pm = getFieldValue('payment_method')
                             if (pm !== 'CHEQUE_PRE_DATADO' && pm !== 'BOLETO') return null
-                            const totalValue = budgetTotalWithDiscount
                             return (
-                                <div style={{ marginBottom: 16, padding: 12, background: 'rgba(96, 165, 250, 0.06)', border: '1px solid rgba(96,165,250,0.2)', borderRadius: 8 }}>
-                                    <div style={{ fontSize: 13, fontWeight: 600, color: '#93c5fd', marginBottom: 6 }}>
-                                        📅 Previsão de parcelas (informativo)
-                                    </div>
-                                    <div style={{ fontSize: 11, color: '#64748b', marginBottom: 8 }}>
-                                        Estas datas são apenas informativas e não são salvas no orçamento.
-                                    </div>
-                                    <Radio.Group
-                                        value={budgetFormInstallmentPreset}
-                                        onChange={(e) => {
-                                            const p = e.target.value
-                                            setBudgetFormInstallmentPreset(p)
-                                            const insts = buildInstallmentsByPreset(p)
-                                            const n = insts.length
-                                            const amt = n > 0 && totalValue > 0 ? Math.round((totalValue / n) * 100) / 100 : 0
-                                            setBudgetFormCustomInstallments(insts.map(inst => ({ ...inst, amount: amt })))
-                                        }}
-                                        size="small"
-                                        style={{ marginBottom: 10 }}
-                                    >
-                                        {INSTALLMENT_PRESETS.map(p => <Radio.Button key={p.value} value={p.value}>{p.label}</Radio.Button>)}
-                                    </Radio.Group>
-                                    {budgetFormCustomInstallments.map((item, idx) => (
-                                        <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8, marginBottom: 8, alignItems: 'center' }}>
-                                            <DatePicker
-                                                placeholder="Data prevista"
-                                                format="DD/MM/YYYY"
-                                                value={item.date}
-                                                onChange={(d) => setBudgetFormCustomInstallments(prev => prev.map((r, i) => i === idx ? { ...r, date: d } : r))}
-                                                style={{ width: '100%' }}
-                                            />
-                                            <InputNumber
-                                                min={0} step={0.01} precision={2} style={{ width: '100%' }}
-                                                placeholder="Valor (R$)" value={item.amount || undefined} addonBefore="R$"
-                                                onChange={(v) => setBudgetFormCustomInstallments(prev => prev.map((r, i) => i === idx ? { ...r, amount: Number(v) || 0 } : r))}
-                                            />
-                                            <Button danger size="small" type="text"
-                                                disabled={budgetFormInstallmentPreset !== 'customizado' || budgetFormCustomInstallments.length === 1}
-                                                onClick={() => setBudgetFormCustomInstallments(prev => prev.filter((_, i) => i !== idx))}>✕</Button>
-                                        </div>
-                                    ))}
-                                    {budgetFormInstallmentPreset === 'customizado' && (
-                                        <Button type="dashed" size="small" style={{ width: '100%' }}
-                                            onClick={() => setBudgetFormCustomInstallments(prev => [...prev, { date: null, amount: 0 }])}>
-                                            + Adicionar parcela
-                                        </Button>
-                                    )}
-                                </div>
+                                <PaymentWithInstallments
+                                    preset={budgetFormInstallmentPreset}
+                                    onPresetChange={setBudgetFormInstallmentPreset}
+                                    rows={budgetFormCustomInstallments}
+                                    onRowsChange={setBudgetFormCustomInstallments}
+                                    total={budgetTotalWithDiscount}
+                                    title="📅 Previsão de parcelas (informativo)"
+                                />
                             )
                         }}
+                    </Form.Item>
+
+                    <Form.Item name="expiration_date" label="Orçamento válido até">
+                        <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
                     </Form.Item>
 
                     <Form.Item name="notes" label="Observações">
@@ -1791,9 +1911,17 @@ function Budgets() {
 
                         <Space wrap>
                             {selectedBudget.status === 'DRAFT' && (
-                                <Button type="default" icon={<ShoppingCartOutlined />} onClick={() => handleSendToSales(selectedBudget)}>
-                                    Enviar para vendas
-                                </Button>
+                                <Popconfirm
+                                    title="Enviar para vendas?"
+                                    description="O orçamento irá para 'Aguardando pagamento' sem notificar o cliente."
+                                    okText="Enviar"
+                                    cancelText="Cancelar"
+                                    onConfirm={() => handleSendToSales(selectedBudget)}
+                                >
+                                    <Button type="default" icon={<ShoppingCartOutlined />}>
+                                        Enviar para vendas
+                                    </Button>
+                                </Popconfirm>
                             )}
                             {(selectedBudget.status === 'DRAFT' || selectedBudget.status === 'SENT') && (
                                 <Button type="primary" onClick={() => handleAdvanceStatus(selectedBudget)}>Avançar Etapa</Button>
@@ -1861,58 +1989,13 @@ function Budgets() {
                             const pm = getFieldValue('payment_method')
                             if (pm !== 'CHEQUE_PRE_DATADO' && pm !== 'BOLETO') return null
                             return (
-                                <div style={{ marginBottom: 16, padding: 12, background: 'rgba(96, 165, 250, 0.08)', border: '1px solid rgba(96,165,250,0.25)', borderRadius: 8 }}>
-                                    <div style={{ fontSize: 13, fontWeight: 600, color: '#93c5fd', marginBottom: 8 }}>
-                                        Datas e valores de recebimento
-                                    </div>
-                                    <div style={{ marginBottom: 10 }}>
-                                        <Radio.Group
-                                            value={installmentPreset}
-                                            onChange={(e) => {
-                                                const p = e.target.value
-                                                setInstallmentPreset(p)
-                                                const insts = buildInstallmentsByPreset(p)
-                                                const total = Number(selectedBudget?.total_value) || 0
-                                                const n = insts.length
-                                                const amt = n > 0 && total > 0 ? Math.round((total / n) * 100) / 100 : 0
-                                                setCustomInstallments(insts.map(inst => ({ ...inst, amount: amt })))
-                                            }}
-                                            size="small"
-                                        >
-                                            {INSTALLMENT_PRESETS.map(p => <Radio.Button key={p.value} value={p.value}>{p.label}</Radio.Button>)}
-                                        </Radio.Group>
-                                    </div>
-                                    {customInstallments.map((item, idx) => (
-                                        <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8, marginBottom: 8, alignItems: 'center' }}>
-                                            <DatePicker
-                                                placeholder="Data de recebimento"
-                                                format="DD/MM/YYYY"
-                                                value={item.date}
-                                                onChange={(d) => setCustomInstallments(prev => prev.map((r, i) => i === idx ? { ...r, date: d } : r))}
-                                                style={{ width: '100%' }}
-                                            />
-                                            <InputNumber
-                                                min={0} step={0.01} precision={2} style={{ width: '100%' }}
-                                                placeholder="Valor (R$)" value={item.amount || undefined} addonBefore="R$"
-                                                onChange={(v) => setCustomInstallments(prev => prev.map((r, i) => i === idx ? { ...r, amount: Number(v) || 0 } : r))}
-                                            />
-                                            <Button danger size="small" type="text"
-                                                disabled={installmentPreset !== 'customizado' || customInstallments.length === 1}
-                                                onClick={() => setCustomInstallments(prev => prev.filter((_, i) => i !== idx))}>✕</Button>
-                                        </div>
-                                    ))}
-                                    {installmentPreset === 'customizado' && (
-                                        <Button type="dashed" size="small" style={{ width: '100%' }}
-                                            onClick={() => setCustomInstallments(prev => [...prev, { date: null, amount: 0 }])}>
-                                            + Adicionar data/valor
-                                        </Button>
-                                    )}
-                                    {customInstallments.length > 1 && (
-                                        <div style={{ marginTop: 6, fontSize: 12, color: '#94a3b8' }}>
-                                            Total parcelas: <strong style={{ color: '#e2e8f0' }}>{formatCurrency(customInstallments.reduce((s, r) => s + (r.amount || 0), 0))}</strong>
-                                        </div>
-                                    )}
-                                </div>
+                                <PaymentWithInstallments
+                                    preset={installmentPreset}
+                                    onPresetChange={setInstallmentPreset}
+                                    rows={customInstallments}
+                                    onRowsChange={setCustomInstallments}
+                                    total={Number(selectedBudget?.total_value) || 0}
+                                />
                             )
                         }}
                     </Form.Item>
@@ -1922,7 +2005,14 @@ function Budgets() {
                             <PaperClipOutlined style={{ marginRight: 4 }} /> Anexar comprovante (opcional)
                         </div>
                         <Upload
-                            beforeUpload={(file: File) => { setAttachFile(file); return false }}
+                            beforeUpload={(file: File) => {
+                                if (file.size > 10 * 1024 * 1024) {
+                                    message.error('Arquivo excede 10 MB')
+                                    return Upload.LIST_IGNORE
+                                }
+                                setAttachFile(file)
+                                return false
+                            }}
                             onRemove={() => { setAttachFile(null); setAttachDesc('') }}
                             accept=".pdf,.jpg,.jpeg,.png"
                             maxCount={1}

@@ -112,6 +112,7 @@ const Nav = () => {
     { key: 'employees', label: 'Funcionários', icon: 'idcard', href: ROUTES.EMPLOYEES, section: 'cadastros', adminOnly: true, module: MODULES.EMPLOYEES },
 
     { key: 'budgets', label: 'Orçamentos', icon: 'file-text', href: ROUTES.BUDGETS, section: 'comercial', module: MODULES.BUDGETS },
+    { key: 'orders', label: 'Pedidos', icon: 'shopping', href: ROUTES.ORDERS, section: 'comercial', module: MODULES.ORDERS },
     { key: 'sales', label: 'Vendas', icon: 'shopping', href: ROUTES.SALES, section: 'comercial', module: MODULES.SALES },
     { key: 'sales-report', label: 'Relatório de Vendas', icon: 'bar-chart', href: ROUTES.SALES_REPORT, section: 'comercial', module: MODULES.SALES_REPORT },
     { key: 'recurrence', label: 'Recorrência', icon: 'calendar', href: ROUTES.RECURRENCE, section: 'comercial', module: MODULES.RECURRENCE },

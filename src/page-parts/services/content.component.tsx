@@ -61,6 +61,8 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
     const [form] = Form.useForm()
     const [msgApi, ctx] = message.useMessage()
     const [saving, setSaving] = useState(false)
+    // T9 — reatividade dos minutos de duração (Form.useWatch recalcula o useMemo ao digitar)
+    const watchedDurationMinutes = Form.useWatch('estimated_duration_minutes', form)
 
     const [tempItems, setTempItems] = useState<TempItem[]>([])
     const [addItemId, setAddItemId] = useState<string | null>(null)
@@ -280,7 +282,8 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
         }
 
         // Minutos de duração do serviço (productWorkloadMinutes para o motor)
-        const productWorkloadMinutes = Number(form.getFieldValue('estimated_duration_minutes')) || 0
+        // T9 — usa valor observado (reativo) ao invés de form.getFieldValue
+        const productWorkloadMinutes = Number(watchedDurationMinutes ?? form.getFieldValue('estimated_duration_minutes')) || 0
 
         // Para serviços: o custo mensal de MO inclui produtiva + administrativa + despesas fixas
         // Isso faz com que o custo por minuto (laborCostMonthly / monthlyWorkloadMinutes)
@@ -364,7 +367,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
             totalPct, isValid,
             valorPrecificado,
         }
-    }, [materialCost, expenseConfig, currentUser, taxableRegimePercent, commissionPercent, profitPercent, taxPreview, form, additionalIrpjPercent])
+    }, [materialCost, expenseConfig, currentUser, taxableRegimePercent, commissionPercent, profitPercent, taxPreview, form, additionalIrpjPercent, watchedDurationMinutes])
 
     function handleAddItem() {
         if (!addItemId) return
@@ -579,14 +582,15 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'center' }}>
                     <InputNumber
                         size="small"
-                        min={0.01}
-                        step={0.1}
+                        min={1}
+                        step={1}
+                        precision={0}
                         value={r.needed_qty}
-                        onChange={(val) => handleQtyChange(r.key, val ?? 0.01)}
+                        onChange={(val) => handleQtyChange(r.key, Math.max(1, Math.floor(Number(val ?? 1))))}
                         parser={(v) => {
                             const raw = String(v ?? '').replace(',', '.').trim()
-                            const n = parseFloat(raw)
-                            return isNaN(n) || n < 0.01 ? 0.01 : n
+                            const n = parseInt(raw, 10)
+                            return isNaN(n) || n < 1 ? 1 : n
                         }}
                         style={{ width: 80 }}
                     />
@@ -626,7 +630,10 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
     function pricingRow(label: string, pct: number, val: number, editable?: 'commission' | 'profit' | 'tax' | 'additionalIrpj' | 'pisCofins', tooltipText?: string) {
         return (
             <tr key={label}>
-                <td style={{ width: 140, padding: '6px 0' }}>
+                <td style={{ padding: '6px 12px 6px 0', fontSize: 13 }}>
+                    {tooltipText ? <Tooltip title={tooltipText}><span style={{ cursor: 'help' }}>{label}</span></Tooltip> : label}
+                </td>
+                <td style={{ width: 140, padding: '6px 0', textAlign: 'right' }}>
                     {editable ? (
                         <InputNumber
                             size="small" min={0} max={100} step={0.001} precision={3}
@@ -655,10 +662,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                         </span>
                     )}
                 </td>
-                <td style={{ padding: '6px 12px', fontSize: 13 }}>
-                    {tooltipText ? <Tooltip title={tooltipText}><span style={{ cursor: 'help' }}>{label}</span></Tooltip> : label}
-                </td>
-                <td style={{ padding: '6px 0', textAlign: 'right', fontSize: 13, fontWeight: 500 }}>
+                <td style={{ padding: '6px 0 6px 12px', textAlign: 'right', fontSize: 13, fontWeight: 500 }}>
                     R$ {getMonetaryValue(val)}
                 </td>
             </tr>
@@ -820,19 +824,20 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                         showSearch optionFilterProp="children" style={{ flex: 1 }} allowClear>
                         {items.map(it => (
                             <Select.Option key={it.id} value={it.id}>
-                                {it.name} ({it.quantity} {UNIT_LABELS[it.unit] || it.unit}) — {fmt(it.cost_price)}
+                                {it.name}
                             </Select.Option>
                         ))}
                     </Select>
                     <InputNumber
-                        min={0.01}
-                        step={0.1}
+                        min={1}
+                        step={1}
+                        precision={0}
                         value={addItemQty}
-                        onChange={(v) => setAddItemQty(v ?? 0.01)}
+                        onChange={(v) => setAddItemQty(Math.max(1, Math.floor(Number(v ?? 1))))}
                         parser={(v) => {
                             const raw = String(v ?? '').replace(',', '.').trim()
-                            const n = parseFloat(raw)
-                            return isNaN(n) || n < 0.01 ? 0.01 : n
+                            const n = parseInt(raw, 10)
+                            return isNaN(n) || n < 1 ? 1 : n
                         }}
                         style={{ width: 80 }}
                         placeholder="Qtd"
@@ -904,7 +909,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                     </div>
                     <div style={{ width: '29%', padding: '4px 8px', fontSize: 11, color: '#94a3b8' }}>
                         {pricing.costPerMinute > 0
-                            ? `${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 4, maximumFractionDigits: 4 }).format(pricing.costPerMinute)}/min × ${form.getFieldValue('estimated_duration_minutes') || 60} min (${pricing.totalEmployees} func.)`
+                            ? `${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 4, maximumFractionDigits: 4 }).format(pricing.costPerMinute)}/min × ${watchedDurationMinutes ?? form.getFieldValue('estimated_duration_minutes') ?? 60} min (${pricing.totalEmployees} func.)`
                             : 'MO direta + administrativa + desp. fixas'}
                     </div>
                 </div>
@@ -941,9 +946,9 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                     <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0 2px' }}>
                         <thead>
                             <tr style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase' as const }}>
-                                <th style={{ textAlign: 'left', padding: '0 0 8px', width: 140 }}>%</th>
-                                <th style={{ textAlign: 'left', padding: '0 12px 8px' }}>Despesa</th>
-                                <th style={{ textAlign: 'right', padding: '0 0 8px' }}>Valor (R$)</th>
+                                <th style={{ textAlign: 'left', padding: '0 12px 8px 0' }}>Despesa</th>
+                                <th style={{ textAlign: 'right', padding: '0 0 8px', width: 140 }}>%</th>
+                                <th style={{ textAlign: 'right', padding: '0 0 8px 12px' }}>Valor (R$)</th>
                             </tr>
                         </thead>
                         <tbody>

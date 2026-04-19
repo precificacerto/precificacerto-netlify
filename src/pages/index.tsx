@@ -30,6 +30,7 @@ import {
   DownloadOutlined,
   FilePdfOutlined,
   FileExcelOutlined,
+  AimOutlined,
 } from '@ant-design/icons'
 import { supabase } from '@/supabase/client'
 import { getTenantId } from '@/utils/get-tenant-id'
@@ -259,6 +260,13 @@ function Home() {
   const totalEntradas = selectedMonthChartData.incomes.reduce((sum, item) => sum + (item.price || 0), 0)
   const totalSaidas = selectedMonthChartData.expenses.reduce((sum, item) => sum + (item.price || 0), 0)
   const saldoAtual = totalEntradas - totalSaidas
+
+  // Ponto de Equilíbrio Operacional: faturamento necessário para igualar as saídas do mês (lucro zero).
+  const pontoEquilibrio = totalSaidas
+  const peAtingidoPct = pontoEquilibrio > 0
+    ? Number(((totalEntradas / pontoEquilibrio) * 100).toFixed(0))
+    : 0
+  const peAtingido = totalEntradas >= pontoEquilibrio && pontoEquilibrio > 0
 
   const monthInfo = useMemo<IMonthInfo>(() => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -593,6 +601,13 @@ function Home() {
           value={formatCurrency(metaMensal)}
           icon={<CalendarOutlined />}
           variant="orange"
+        />
+        <CardKPI
+          title="Ponto de Equilíbrio"
+          value={formatCurrency(pontoEquilibrio)}
+          icon={<AimOutlined />}
+          variant={peAtingido ? 'green' : 'red'}
+          trend={pontoEquilibrio > 0 ? { value: peAtingidoPct, label: 'atingido' } : undefined}
         />
       </div>
 

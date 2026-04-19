@@ -873,6 +873,7 @@ function Items() {
         name: values.name,
         code: values.code || null,
         item_type: values.item_type || 'INSUMO',
+        product_table_id: values.item_type === 'REVENDA' ? (values.product_table_id || null) : null,
         ncm_code: values.ncm_code ? values.ncm_code.replace(/\D/g, '') : null,
         quantity: qty,
         measure_quantity: Number(values.measure_quantity) || 1,

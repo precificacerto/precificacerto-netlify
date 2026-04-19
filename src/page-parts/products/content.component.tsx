@@ -866,7 +866,6 @@ export const Content: FC<ContentProps> = ({
         base_item_id: productType === 'REVENDA' ? baseItemId : null,
         ncm_code: values.ncm_code || null,
         nbs_code: values.nbs_code || null,
-        max_discount_percent: values.max_discount_percent != null && values.max_discount_percent !== '' ? Number(values.max_discount_percent) : null,
         updated_at: new Date().toISOString(),
       }
 
@@ -1511,16 +1510,8 @@ export const Content: FC<ContentProps> = ({
             </Form.Item>
           </div>
 
-          {/* Linha 3: Desconto máximo permitido | Ativar Recorrência */}
+          {/* Linha 3: Ativar Recorrência */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }}>
-            <Form.Item
-              name="max_discount_percent"
-              label="Desconto máximo permitido"
-              tooltip="Limite máximo de desconto permitido para este produto em orçamentos/vendas. Deixe vazio para sem limite."
-            >
-              <InputNumber min={0} max={100} step={1} style={{ width: '100%' }} placeholder="Ex: 10" formatter={(v) => v != null ? String(v).replace('.', ',') : ''} parser={(v) => Number((v || '0').replace(',', '.'))} addonAfter="%" />
-            </Form.Item>
-
             <Form.Item
               label={
                 <span>

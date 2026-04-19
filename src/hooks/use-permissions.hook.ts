@@ -7,6 +7,7 @@ export const MODULES = {
   ITEMS:            'items',
   PRODUCTS:         'products',
   BUDGETS:          'budgets',
+  ORDERS:           'orders',
   SALES:            'sales',
   STOCK:            'stock',
   CASHIER:          'cashier',

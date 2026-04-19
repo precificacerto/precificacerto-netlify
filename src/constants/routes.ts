@@ -33,6 +33,7 @@ export enum ROUTES {
 
   // ── Phase 3: Pipeline Comercial ──
   BUDGETS = '/orcamentos',
+  ORDERS = '/pedidos',
   SALES = '/vendas',
   SALES_REPORT = '/relatorio-vendas',
   RECURRENCE = '/recorrencia',

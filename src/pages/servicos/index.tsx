@@ -60,7 +60,7 @@ function ServicesPage() {
     const [tableFilter, setTableFilter] = useState<string | null>(null)
     const [tableModalOpen, setTableModalOpen] = useState(false)
     const [newTableName, setNewTableName] = useState('')
-    const [newTableCommission, setNewTableCommission] = useState<number>(0)
+    const [newTableNotes, setNewTableNotes] = useState<string>('')
     const [savingTable, setSavingTable] = useState(false)
     // Edit table name state
     const [editTableModalOpen, setEditTableModalOpen] = useState(false)
@@ -92,13 +92,13 @@ function ServicesPage() {
         try {
             const { data, error } = await (supabase as any)
                 .from('commission_tables')
-                .insert({ tenant_id: tenantId, type: 'SERVICE', name, commission_percent: newTableCommission })
+                .insert({ tenant_id: tenantId, type: 'SERVICE', name, commission_percent: 0, notes: newTableNotes.trim() || null })
                 .select()
                 .single()
             if (error) { msgApi.error('Erro ao criar tabela: ' + error.message); return }
             setCommissionTables(prev => [...prev, { id: data.id, name: data.name, commission_percent: Number(data.commission_percent) }].sort((a, b) => a.name.localeCompare(b.name)))
             setNewTableName('')
-            setNewTableCommission(0)
+            setNewTableNotes('')
             setTableModalOpen(false)
             msgApi.success('Tabela criada!')
         } finally {
@@ -592,7 +592,7 @@ function ServicesPage() {
             <Modal
                 title="Criar Tabela de Comissão"
                 open={tableModalOpen}
-                onCancel={() => { setTableModalOpen(false); setNewTableName(''); setNewTableCommission(0) }}
+                onCancel={() => { setTableModalOpen(false); setNewTableName(''); setNewTableNotes('') }}
                 onOk={handleCreateTable}
                 okText="Criar"
                 okButtonProps={{ loading: savingTable }}
@@ -613,19 +613,14 @@ function ServicesPage() {
                         />
                     </div>
                     <div>
-                        <label style={{ fontSize: 13, fontWeight: 500, display: 'block', marginBottom: 4 }}>Comissão do Vendedor (%)</label>
-                        <InputNumber
-                            min={0}
-                            max={100}
-                            step={0.5}
-                            precision={3}
-                            style={{ width: '100%' }}
-                            placeholder="Ex: 10"
-                            addonAfter="%"
-                            formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
-                            parser={(v) => Number((v || '0').replace(',', '.'))}
-                            value={newTableCommission}
-                            onChange={v => setNewTableCommission(v ?? 0)}
+                        <label style={{ fontSize: 13, fontWeight: 500, display: 'block', marginBottom: 4 }}>Observações</label>
+                        <Input.TextArea
+                            rows={3}
+                            placeholder="Observações sobre esta tabela (opcional)"
+                            value={newTableNotes}
+                            onChange={e => setNewTableNotes(e.target.value)}
+                            maxLength={500}
+                            showCount
                         />
                     </div>
                 </div>

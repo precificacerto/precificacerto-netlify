@@ -238,52 +238,52 @@ export default function CommissionPage() {
         // ── Optional: fetch client names via separate queries (safe — errors ignored) ──
         // These use separate queries so failures do NOT break the main calculation
         const clientNameMap = new Map<string, string>()
-        const budgetClientRefMap = new Map<string, string>() // budget_id → client_id
-        const saleClientRefMap = new Map<string, string>()   // sale_id → client_id
-        const svcClientRefMap = new Map<string, string>()    // completed_service id → client_id
+        const budgetClientRefMap = new Map<string, string>() // budget_id → customer_id
+        const saleClientRefMap = new Map<string, string>()   // sale_id → customer_id
+        const svcClientRefMap = new Map<string, string>()    // completed_service id → customer_id
 
         try {
           const allClientIds = new Set<string>()
 
-          // Budget client_ids
+          // Budget customer_ids
           if (budgetSales.length > 0) {
             const bIds = [...new Set(budgetSales.map((s: any) => s.budget_id).filter(Boolean))]
-            const { data: bData, error: bErr } = await supabase.from('budgets').select('id, client_id').in('id', bIds)
+            const { data: bData, error: bErr } = await supabase.from('budgets').select('id, customer_id').in('id', bIds)
             if (!bErr && bData) {
               for (const b of bData) {
-                if (b.client_id) { budgetClientRefMap.set(b.id, b.client_id); allClientIds.add(b.client_id) }
+                if (b.customer_id) { budgetClientRefMap.set(b.id, b.customer_id); allClientIds.add(b.customer_id) }
               }
             }
           }
 
-          // Direct sale client_ids
+          // Direct sale customer_ids
           if (directSales.length > 0) {
             const sIds = directSales.map((s: any) => s.id).filter(Boolean)
-            const { data: sData, error: sErr } = await supabase.from('sales').select('id, client_id').in('id', sIds)
+            const { data: sData, error: sErr } = await supabase.from('sales').select('id, customer_id').in('id', sIds)
             if (!sErr && sData) {
               for (const s of sData) {
-                if (s.client_id) { saleClientRefMap.set(s.id, s.client_id); allClientIds.add(s.client_id) }
+                if (s.customer_id) { saleClientRefMap.set(s.id, s.customer_id); allClientIds.add(s.customer_id) }
               }
             }
           }
 
-          // Completed service client_ids
+          // Completed service customer_ids
           const svcRowIds = (services || []).map((s: any) => s.id).filter(Boolean)
           if (svcRowIds.length > 0) {
-            const { data: csData, error: csErr } = await supabase.from('completed_services').select('id, client_id').in('id', svcRowIds)
+            const { data: csData, error: csErr } = await supabase.from('completed_services').select('id, customer_id').in('id', svcRowIds)
             if (!csErr && csData) {
               for (const cs of csData) {
-                if (cs.client_id) { svcClientRefMap.set(cs.id, cs.client_id); allClientIds.add(cs.client_id) }
+                if (cs.customer_id) { svcClientRefMap.set(cs.id, cs.customer_id); allClientIds.add(cs.customer_id) }
               }
             }
           }
 
-          // Resolve client names
+          // Resolve customer names
           if (allClientIds.size > 0) {
-            const { data: clients } = await supabase.from('clients').select('id, name').in('id', [...allClientIds])
-            for (const c of clients || []) { if (c.id) clientNameMap.set(c.id, c.name || '-') }
+            const { data: customers } = await supabase.from('customers').select('id, name').in('id', [...allClientIds])
+            for (const c of customers || []) { if (c.id) clientNameMap.set(c.id, c.name || '-') }
           }
-        } catch { /* client names are optional — commission calculation continues */ }
+        } catch { /* customer names are optional — commission calculation continues */ }
 
         // ── Budgets (original select — safe) ──
         let budgetEmp = new Map<string, string>()

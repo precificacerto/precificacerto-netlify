@@ -255,9 +255,22 @@ function Clients() {
             const summary = items.slice(0, 3).map((i: any) => i.products?.name || i.manual_description || 'Item').join(', ')
             const suffix = items.length > 3 ? ` +${items.length - 3}` : ''
 
-            // All remaining budgets (not yet converted to sales) are awaiting payment
-            const statusLabel = 'Aguardando Pagamento'
-            const badgeColor = 'orange'
+            // Default: awaiting payment. Partial payment (BOLETO/CHEQUE) → "Pago Parcial (X/Y)".
+            let statusLabel = 'Aguardando Pagamento'
+            let badgeColor = 'orange'
+            const isBoletoOrCheque = (b as any).payment_method === 'BOLETO' || (b as any).payment_method === 'CHEQUE_PRE_DATADO'
+            if (isBoletoOrCheque) {
+                const ces = cashEntriesByOrigin[b.id] || []
+                const totalCount = ces.length
+                const paidCount = ces.filter((ce: any) => ce.paid_date).length
+                if (totalCount > 0 && paidCount > 0 && paidCount < totalCount) {
+                    statusLabel = `Pago Parcial (${paidCount}/${totalCount})`
+                    badgeColor = 'blue'
+                } else if (totalCount > 0 && paidCount === totalCount) {
+                    statusLabel = 'Pago'
+                    badgeColor = 'green'
+                }
+            }
 
             const budgetAtts = attachMap[`BUDGET:${b.id}`]
             entries.push({
@@ -285,8 +298,15 @@ function Clients() {
             let saleBadgeColor = 'green'
             if (isBoletoOrCheque) {
                 const ces = cashEntriesByOrigin[s.id] || []
-                const allPaid = ces.length > 0 && ces.every((ce: any) => ce.paid_date)
-                if (!allPaid) { saleStatus = 'Aguardando Pagamento'; saleBadgeColor = 'orange' }
+                const totalCount = ces.length
+                const paidCount = ces.filter((ce: any) => ce.paid_date).length
+                if (totalCount === 0 || paidCount === 0) {
+                    saleStatus = 'Aguardando Pagamento'
+                    saleBadgeColor = 'orange'
+                } else if (paidCount < totalCount) {
+                    saleStatus = `Pago Parcial (${paidCount}/${totalCount})`
+                    saleBadgeColor = 'blue'
+                }
             }
             // Merge attachments from SALE origin and BUDGET origin (for FROM_BUDGET sales)
             const saleAttsArr = [

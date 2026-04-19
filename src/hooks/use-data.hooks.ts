@@ -34,6 +34,7 @@ export function useProducts() {
       const { data, error } = await supabase
         .from('products')
         .select('*, pricing_calculations(sale_price_total, sale_price_per_unit, pct_profit_margin), product_items(item_id, items(item_type))')
+        .or('is_active.is.null,is_active.eq.true')
         .order('name')
       if (error) throw error
       return data
@@ -50,6 +51,7 @@ export function useItems() {
       const { data, error } = await supabase
         .from('items')
         .select('*')
+        .or('is_active.is.null,is_active.eq.true')
         .order('name')
       if (error) throw error
       return data

@@ -44,6 +44,7 @@ type ProductRow = {
   needs_cost_update: boolean
   product_type: string
   taxes_launched: boolean | null
+  pending_item_id?: string | null
 }
 
 type RenewProductOption = {
@@ -95,11 +96,12 @@ function Products() {
   // Commission tables state
   const [commissionTablesLoaded, setCommissionTablesLoaded] = useState(false)
   const [commissionTables, setCommissionTables] = useState<{ id: string; name: string; commission_percent: number }[]>([])
+  const [pendingRevendaItems, setPendingRevendaItems] = useState<{ id: string; name: string; product_table_id: string; unit: string; cost_price: number | null }[]>([])
   const [tableFilter, setTableFilter] = useState<string | null>(null)
   const [calcType, setCalcType] = useState<string | null>(null)
   const [tableModalOpen, setTableModalOpen] = useState(false)
   const [newTableName, setNewTableName] = useState('')
-  const [newTableCommission, setNewTableCommission] = useState<number>(0)
+  const [newTableNotes, setNewTableNotes] = useState<string>('')
   const [savingTable, setSavingTable] = useState(false)
   // Edit table name state
   const [editTableModalOpen, setEditTableModalOpen] = useState(false)
@@ -208,13 +210,13 @@ function Products() {
     try {
       const { data, error } = await (supabase as any)
         .from('commission_tables')
-        .insert({ tenant_id: tenantId, type: 'PRODUCT', name, commission_percent: newTableCommission })
+        .insert({ tenant_id: tenantId, type: 'PRODUCT', name, commission_percent: 0, notes: newTableNotes.trim() || null })
         .select()
         .single()
       if (error) { message.error('Erro ao criar tabela: ' + error.message); return }
       setCommissionTables(prev => [...prev, { id: data.id, name: data.name, commission_percent: Number(data.commission_percent) }].sort((a, b) => a.name.localeCompare(b.name)))
       setNewTableName('')
-      setNewTableCommission(0)
+      setNewTableNotes('')
       setTableModalOpen(false)
       message.success('Tabela criada!')
     } finally {
@@ -271,6 +273,31 @@ function Products() {
     return map
   }, [rawStock])
 
+  // Carrega itens de revenda vinculados a uma tabela de produto que ainda não viraram produto.
+  useEffect(() => {
+    if (!effectiveTenantId) { setPendingRevendaItems([]); return }
+    let cancelled = false
+    ;(async () => {
+      const { data } = await (supabase as any)
+        .from('items')
+        .select('id, name, product_table_id, unit, cost_price, item_type')
+        .eq('tenant_id', effectiveTenantId)
+        .eq('item_type', 'REVENDA')
+        .not('product_table_id', 'is', null)
+        .or('is_active.is.null,is_active.eq.true')
+      if (cancelled || !data) return
+      const linkedIds = new Set<string>()
+      for (const p of (rawProducts || []) as any[]) {
+        for (const pi of (p.product_items || []) as any[]) {
+          if (pi.item_id) linkedIds.add(pi.item_id)
+        }
+      }
+      const pending = (data as any[]).filter((i: any) => !linkedIds.has(i.id))
+      setPendingRevendaItems(pending)
+    })()
+    return () => { cancelled = true }
+  }, [effectiveTenantId, rawProducts])
+
   const data = useMemo<ProductRow[]>(() => {
     return (rawProducts || []).map((p: any) => {
       const pricing = p.pricing_calculations?.[0]
@@ -311,10 +338,37 @@ function Products() {
         return productItems.some((pi: any) => pi.items?.item_type === 'REVENDA')
       })
     }
+
+    // Itens de revenda vinculados a esta tabela mas ainda não precificados → rows virtuais pendentes.
+    const pendingRows: ProductRow[] = pendingRevendaItems
+      .filter((it) => it.product_table_id === tableFilter)
+      .map((it) => ({
+        key: `pending-item-${it.id}`,
+        id: it.id,
+        code: '',
+        section_id: null,
+        commission_table_id: tableFilter,
+        name: it.name,
+        description: '',
+        sale_price: 0,
+        cost_total: Number(it.cost_price) || 0,
+        unit: it.unit || 'UN',
+        yield_quantity: 1,
+        status: 'PENDING',
+        stock_quantity: null,
+        stock_unit: it.unit || 'UN',
+        profit_percent: null,
+        needs_cost_update: false,
+        product_type: 'REVENDA',
+        taxes_launched: null,
+        pending_item_id: it.id,
+      }))
+    result = [...pendingRows, ...result]
+
     if (!searchText) return result
     const s = searchText.toLowerCase()
     return result.filter(p => p.name.toLowerCase().includes(s) || p.code.toLowerCase().includes(s))
-  }, [data, rawProducts, searchText, tableFilter, calcType])
+  }, [data, rawProducts, searchText, tableFilter, calcType, pendingRevendaItems])
 
   useEffect(() => {
     if (!renewDrawerOpen || !effectiveTenantId) return
@@ -1056,7 +1110,7 @@ function Products() {
       <Modal
         title="Criar Tabela de Comissão"
         open={tableModalOpen}
-        onCancel={() => { setTableModalOpen(false); setNewTableName(''); setNewTableCommission(0) }}
+        onCancel={() => { setTableModalOpen(false); setNewTableName(''); setNewTableNotes('') }}
         onOk={handleCreateTable}
         okText="Criar"
         okButtonProps={{ loading: savingTable }}
@@ -1077,19 +1131,14 @@ function Products() {
             />
           </div>
           <div>
-            <label style={{ fontSize: 13, fontWeight: 500, display: 'block', marginBottom: 4 }}>Comissão do Vendedor (%)</label>
-            <InputNumber
-              min={0}
-              max={100}
-              step={0.5}
-              precision={3}
-              style={{ width: '100%' }}
-              placeholder="Ex: 10"
-              addonAfter="%"
-              formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
-              parser={(v) => Number((v || '0').replace(',', '.'))}
-              value={newTableCommission}
-              onChange={v => setNewTableCommission(v ?? 0)}
+            <label style={{ fontSize: 13, fontWeight: 500, display: 'block', marginBottom: 4 }}>Observações</label>
+            <Input.TextArea
+              rows={3}
+              placeholder="Observações sobre esta tabela (opcional)"
+              value={newTableNotes}
+              onChange={e => setNewTableNotes(e.target.value)}
+              maxLength={500}
+              showCount
             />
           </div>
         </div>

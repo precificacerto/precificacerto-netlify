@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react'
-import { Button, Drawer, Form, Input, Select, Space, Table, Tag, Tabs, message, InputNumber, Empty, Checkbox, Radio, Tooltip } from 'antd'
+import { Button, Drawer, Form, Input, Select, Space, Table, Tag, Tabs, message, InputNumber, Empty, Checkbox, Radio, Tooltip, Popconfirm } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
@@ -18,6 +18,7 @@ import {
     InboxOutlined,
     ShoppingOutlined,
     CustomerServiceOutlined,
+    DeleteOutlined,
 } from '@ant-design/icons'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 
@@ -361,10 +362,20 @@ function Stock() {
             ? [{
                 title: 'Ações',
                 key: 'action',
-                width: 200,
+                width: 260,
                 render: (_: unknown, record: StockRow) => (
                     <Space>
-                        <Button type="link" size="small" danger onClick={() => handleOpenDeleteQty(record)}>Excluir quantidade</Button>
+                        <Button type="link" size="small" danger onClick={() => handleOpenDeleteQty(record)}>Excluir qtd</Button>
+                        <Popconfirm
+                            title="Excluir item"
+                            description={`Tem certeza que deseja excluir "${record.name}" do estoque?`}
+                            okText="Excluir"
+                            cancelText="Cancelar"
+                            okButtonProps={{ danger: true }}
+                            onConfirm={() => handleSoftDeleteStockRow(record)}
+                        >
+                            <Button type="link" size="small" danger icon={<DeleteOutlined />}>Excluir</Button>
+                        </Popconfirm>
                     </Space>
                 ),
             }]
@@ -434,10 +445,20 @@ function Stock() {
             ? [{
                 title: 'Ações',
                 key: 'action',
-                width: 140,
+                width: 240,
                 render: (_: unknown, record: StockRow) => (
                     <Space>
-                        <Button type="link" size="small" danger onClick={() => handleOpenDeleteQty(record)}>Excluir quantidade</Button>
+                        <Button type="link" size="small" danger onClick={() => handleOpenDeleteQty(record)}>Excluir qtd</Button>
+                        <Popconfirm
+                            title="Excluir produto"
+                            description={`Tem certeza que deseja excluir "${record.name}" do estoque?`}
+                            okText="Excluir"
+                            cancelText="Cancelar"
+                            okButtonProps={{ danger: true }}
+                            onConfirm={() => handleSoftDeleteStockRow(record)}
+                        >
+                            <Button type="link" size="small" danger icon={<DeleteOutlined />}>Excluir</Button>
+                        </Popconfirm>
                     </Space>
                 ),
             }]
@@ -464,6 +485,34 @@ function Stock() {
         editForm.setFieldsValue({ minQty: record.minQty })
         movementForm.resetFields()
         setEditUnifiedDrawerOpen(true)
+    }
+
+    async function handleSoftDeleteStockRow(record: StockRow) {
+        try {
+            const rawItemId = record.raw.item_id
+            const rawProductId = record.raw.product_id
+            const targetTable = record.type === 'PRODUCT' ? 'products' : 'items'
+            const targetId = record.type === 'PRODUCT' ? rawProductId : rawItemId
+            if (!targetId) {
+                messageApi.error('Registro inválido para exclusão.')
+                return
+            }
+            const { error: deactivateError } = await (supabase as any)
+                .from(targetTable)
+                .update({ is_active: false, updated_at: new Date().toISOString() })
+                .eq('id', targetId)
+            if (deactivateError) throw deactivateError
+
+            await supabase
+                .from('stock')
+                .update({ is_active: false, updated_at: new Date().toISOString() })
+                .eq(record.type === 'PRODUCT' ? 'product_id' : 'item_id', targetId)
+
+            messageApi.success(`${record.type === 'PRODUCT' ? 'Produto' : 'Item'} excluído.`)
+            await reloadStock()
+        } catch (err: any) {
+            messageApi.error('Erro ao excluir: ' + (err.message || err))
+        }
     }
 
     function handleOpenDeleteQty(record: StockRow) {

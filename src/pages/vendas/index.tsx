@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
 import {
     Button, Drawer, Form, Input, InputNumber, Select, Space, Table, Tag, Tooltip,
-    message, Popconfirm, DatePicker, Empty, Divider, Modal, Upload, Checkbox, Radio,
+    message, Popconfirm, DatePicker, Empty, Divider, Modal, Upload, Checkbox, Radio, Segmented,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import type { UploadFile } from 'antd/es/upload/interface'
@@ -22,6 +22,13 @@ import { formatCurrencyInput, parseCurrencyInput } from '@/utils/get-monetary-va
 import { ExportFormatModal } from '@/components/ui/export-format-modal.component'
 import { exportTableToPdf } from '@/utils/export-generic-pdf'
 import { calculateDiscountedPrice, DiscountMode } from '@/utils/calculate-discount'
+import {
+    PaymentWithInstallments,
+    buildInstallmentsByPreset,
+    INSTALLMENT_PRESETS,
+    type InstallmentPresetValue,
+    type InstallmentRow,
+} from '@/components/payment-with-installments.component'
 
 const PAYMENT_METHODS = [
     { value: 'PIX', label: '⚡ PIX' },
@@ -85,25 +92,6 @@ function formatCurrency(v: number): string {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v)
 }
 
-function buildInstallmentsByPreset(preset: string): { date: any; amount: number }[] {
-    const today = dayjs()
-    if (preset === '30') return [{ date: today.add(30, 'day'), amount: 0 }]
-    if (preset === '30_60') return [{ date: today.add(30, 'day'), amount: 0 }, { date: today.add(60, 'day'), amount: 0 }]
-    if (preset === '30_60_90') return [{ date: today.add(30, 'day'), amount: 0 }, { date: today.add(60, 'day'), amount: 0 }, { date: today.add(90, 'day'), amount: 0 }]
-    if (preset === '30_60_90_120') return [{ date: today.add(30, 'day'), amount: 0 }, { date: today.add(60, 'day'), amount: 0 }, { date: today.add(90, 'day'), amount: 0 }, { date: today.add(120, 'day'), amount: 0 }]
-    if (preset === '30_60_90_120_150') return [{ date: today.add(30, 'day'), amount: 0 }, { date: today.add(60, 'day'), amount: 0 }, { date: today.add(90, 'day'), amount: 0 }, { date: today.add(120, 'day'), amount: 0 }, { date: today.add(150, 'day'), amount: 0 }]
-    return [{ date: null, amount: 0 }]
-}
-
-const INSTALLMENT_PRESETS = [
-    { value: 'customizado', label: 'Cheque pré-datado' },
-    { value: '30', label: '30' },
-    { value: '30_60', label: '30/60' },
-    { value: '30_60_90', label: '30/60/90' },
-    { value: '30_60_90_120', label: '30/60/90/120' },
-    { value: '30_60_90_120_150', label: '30/60/90/120/150' },
-]
-
 interface PendingBudget {
     id: string
     customer_name: string
@@ -147,14 +135,15 @@ function Sales() {
     const [registerAttachDesc, setRegisterAttachDesc] = useState('')
 
     // Parcelas customizadas para Cheque pré-datado / Boleto (Venda no Balcão)
-    const [customInstallments, setCustomInstallments] = useState<{ date: any; amount: number }[]>([{ date: null, amount: 0 }])
-    const [installmentPreset, setInstallmentPreset] = useState<'customizado' | '30' | '30_60' | '30_60_90' | '30_60_90_120' | '30_60_90_120_150'>('customizado')
-    const [registerInstallmentPreset, setRegisterInstallmentPreset] = useState<'customizado' | '30' | '30_60' | '30_60_90' | '30_60_90_120' | '30_60_90_120_150'>('customizado')
+    const [customInstallments, setCustomInstallments] = useState<InstallmentRow[]>([{ date: null, amount: 0 }])
+    const [installmentPreset, setInstallmentPreset] = useState<InstallmentPresetValue>('customizado')
+    const [registerInstallmentPreset, setRegisterInstallmentPreset] = useState<InstallmentPresetValue>('customizado')
     const [empProductTablesV, setEmpProductTablesV] = useState<{id: string; name: string; type: string; commission_percent?: number}[]>([])
     const [empServiceTablesV, setEmpServiceTablesV] = useState<{id: string; name: string; type: string; commission_percent?: number}[]>([])
     const [tableSectionsV, setTableSectionsV] = useState<{key: string; tableId: string | null}[]>([{key: 'ts-0', tableId: null}])
     const [globalDiscountPercentV, setGlobalDiscountPercentV] = useState(0)
     const [discountModeV, setDiscountModeV] = useState<DiscountMode>('PROPORTIONAL')
+    const [discountInputModeV, setDiscountInputModeV] = useState<'PERCENT' | 'AMOUNT'>('PERCENT')
     const selectedEmployeeIdV = Form.useWatch('employee_id', form)
     const latestEmployeeIdVRef = useRef<string | undefined>(undefined)
 
@@ -190,7 +179,7 @@ function Sales() {
     const employeeHasNoTablesV = !!selectedEmployeeIdV && empProductTablesV.length === 0 && empServiceTablesV.length === 0
 
     // Parcelas customizadas para Cheque pré-datado / Boleto (Registrar venda de orçamento)
-    const [registerCustomInstallments, setRegisterCustomInstallments] = useState<{ date: null; amount: number }[]>([{ date: null, amount: 0 }])
+    const [registerCustomInstallments, setRegisterCustomInstallments] = useState<InstallmentRow[]>([{ date: null, amount: 0 }])
 
     const { canView, canEdit } = usePermissions()
     if (!canView(MODULES.SALES)) {
@@ -427,6 +416,15 @@ function Sales() {
                 await fetchPendingBudgets()
                 setRegisterSaving(false)
                 return
+            }
+
+            // Se houver pedido vinculado a este orçamento, marcar como PAID (some de /pedidos)
+            if (selectedBudget.id) {
+                await (supabase as any)
+                    .from('orders')
+                    .update({ status: 'PAID', sale_id: sale.id, updated_at: new Date().toISOString() })
+                    .eq('budget_id', selectedBudget.id)
+                    .neq('status', 'PAID')
             }
 
             // Copiar budget_items → sale_items e descontar estoque
@@ -1536,29 +1534,66 @@ function Sales() {
                                         { value: 'SELLER_REDUCTION', label: 'Redução do Vendedor' },
                                     ]}
                                 />
-                                <span style={{ fontSize: 14, color: '#94a3b8', whiteSpace: 'nowrap' }}>Desconto (%)</span>
+                                <span style={{ fontSize: 14, color: '#94a3b8', whiteSpace: 'nowrap' }}>Desconto</span>
+                                <Segmented
+                                    size="small"
+                                    value={discountInputModeV}
+                                    onChange={(v) => setDiscountInputModeV(v as 'PERCENT' | 'AMOUNT')}
+                                    options={[
+                                        { label: '%', value: 'PERCENT' },
+                                        { label: 'R$', value: 'AMOUNT' },
+                                    ]}
+                                />
                                 <Tooltip title={maxDiscountPercentV <= 0 ? (discountModeV === 'SELLER_REDUCTION' ? 'Comissão zero — sem margem de vendedor para reduzir' : discountModeV === 'PROFIT_REDUCTION' ? 'Lucro zero — sem margem de lucro para reduzir' : 'Sem margem disponível para desconto') : ''}>
-                                    <InputNumber
-                                        disabled={maxDiscountPercentV <= 0}
-                                        min={0}
-                                        max={maxDiscountPercentV > 0 ? maxDiscountPercentV : 100}
-                                        step={0.5}
-                                        value={globalDiscountPercentV}
-                                        onChange={(v) => {
-                                            const newDiscount = Math.min(v ?? 0, maxDiscountPercentV > 0 ? maxDiscountPercentV : 100)
-                                            setGlobalDiscountPercentV(newDiscount)
-                                            if (installmentPreset !== 'customizado') {
-                                                const discountedTotal = saleTotal * (1 - newDiscount / 100)
-                                                const n = customInstallments.length
-                                                const amt = n > 0 && discountedTotal > 0 ? Math.round((discountedTotal / n) * 100) / 100 : 0
-                                                setCustomInstallments(prev => prev.map(inst => ({ ...inst, amount: amt })))
-                                            }
-                                        }}
-                                        formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
-                                        parser={(v) => Number((v || '0').replace(',', '.'))}
-                                        addonAfter="%"
-                                        style={{ width: 130 }}
-                                    />
+                                    {discountInputModeV === 'PERCENT' ? (
+                                        <InputNumber
+                                            disabled={maxDiscountPercentV <= 0}
+                                            min={0}
+                                            max={maxDiscountPercentV > 0 ? maxDiscountPercentV : 100}
+                                            step={0.5}
+                                            value={globalDiscountPercentV}
+                                            onChange={(v) => {
+                                                const newDiscount = Math.min(v ?? 0, maxDiscountPercentV > 0 ? maxDiscountPercentV : 100)
+                                                setGlobalDiscountPercentV(newDiscount)
+                                                if (installmentPreset !== 'customizado') {
+                                                    const discountedTotal = saleTotal * (1 - newDiscount / 100)
+                                                    const n = customInstallments.length
+                                                    const amt = n > 0 && discountedTotal > 0 ? Math.round((discountedTotal / n) * 100) / 100 : 0
+                                                    setCustomInstallments(prev => prev.map(inst => ({ ...inst, amount: amt })))
+                                                }
+                                            }}
+                                            formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
+                                            parser={(v) => Number((v || '0').replace(',', '.'))}
+                                            addonAfter="%"
+                                            style={{ width: 140 }}
+                                        />
+                                    ) : (
+                                        <InputNumber
+                                            disabled={maxDiscountPercentV <= 0 || saleTotal <= 0}
+                                            min={0}
+                                            max={saleTotal > 0 ? saleTotal * ((maxDiscountPercentV > 0 ? maxDiscountPercentV : 100) / 100) : 0}
+                                            step={1}
+                                            value={Number((saleTotal * (globalDiscountPercentV / 100)).toFixed(2))}
+                                            onChange={(v) => {
+                                                const amount = Number(v) || 0
+                                                if (saleTotal <= 0) { setGlobalDiscountPercentV(0); return }
+                                                const pct = (amount / saleTotal) * 100
+                                                const capped = Math.min(pct, maxDiscountPercentV > 0 ? maxDiscountPercentV : 100)
+                                                const finalPct = Number(capped.toFixed(4))
+                                                setGlobalDiscountPercentV(finalPct)
+                                                if (installmentPreset !== 'customizado') {
+                                                    const discountedTotal = saleTotal * (1 - finalPct / 100)
+                                                    const n = customInstallments.length
+                                                    const amt = n > 0 && discountedTotal > 0 ? Math.round((discountedTotal / n) * 100) / 100 : 0
+                                                    setCustomInstallments(prev => prev.map(inst => ({ ...inst, amount: amt })))
+                                                }
+                                            }}
+                                            formatter={(v) => v != null ? Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}
+                                            parser={(v) => Number((v || '0').replace(/\./g, '').replace(',', '.'))}
+                                            addonBefore="R$"
+                                            style={{ width: 180 }}
+                                        />
+                                    )}
                                 </Tooltip>
                             </div>
                             {maxDiscountPercentV > 0 && (<span style={{ fontSize: 12, color: '#64748b' }}>Máx: {maxDiscountPercentV.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}% {discountModeV === 'PROFIT_REDUCTION' ? '(lucro)' : discountModeV === 'SELLER_REDUCTION' ? '(comissão do vendedor)' : '(comissão + lucro)'}</span>)}
@@ -1598,69 +1633,13 @@ function Sales() {
                             const pm = getFieldValue('payment_method')
                             if (pm !== 'CHEQUE_PRE_DATADO' && pm !== 'BOLETO') return null
                             return (
-                                <div style={{ marginBottom: 16, padding: 12, background: 'rgba(96, 165, 250, 0.08)', border: '1px solid rgba(96,165,250,0.25)', borderRadius: 8 }}>
-                                    <div style={{ fontSize: 13, fontWeight: 600, color: '#93c5fd', marginBottom: 8 }}>
-                                        Datas e valores de recebimento
-                                    </div>
-                                    <div style={{ marginBottom: 10 }}>
-                                        <Radio.Group
-                                            value={installmentPreset}
-                                            onChange={(e) => {
-                                                const p = e.target.value
-                                                setInstallmentPreset(p)
-                                                const insts = buildInstallmentsByPreset(p)
-                                                const total = saleTotalWithDiscount
-                                                const n = insts.length
-                                                const amt = n > 0 && total > 0 ? Math.round((total / n) * 100) / 100 : 0
-                                                setCustomInstallments(insts.map(inst => ({ ...inst, amount: amt })))
-                                            }}
-                                            size="small"
-                                        >
-                                            {INSTALLMENT_PRESETS.map(p => <Radio.Button key={p.value} value={p.value}>{p.label}</Radio.Button>)}
-                                        </Radio.Group>
-                                    </div>
-                                    {customInstallments.map((item, idx) => (
-                                        <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8, marginBottom: 8, alignItems: 'center' }}>
-                                            <DatePicker
-                                                placeholder="Data de recebimento"
-                                                format="DD/MM/YYYY"
-                                                value={item.date}
-                                                onChange={(d) => {
-                                                    setCustomInstallments(prev => prev.map((r, i) => i === idx ? { ...r, date: d } : r))
-                                                }}
-                                                style={{ width: '100%' }}
-                                            />
-                                            <InputNumber
-                                                min={0}
-                                                step={0.01}
-                                                precision={2}
-                                                style={{ width: '100%' }}
-                                                placeholder="Valor (R$)"
-                                                value={item.amount || undefined}
-                                                addonBefore="R$"
-                                                onChange={(v) => {
-                                                    setCustomInstallments(prev => prev.map((r, i) => i === idx ? { ...r, amount: Number(v) || 0 } : r))
-                                                }}
-                                            />
-                                            <Button
-                                                danger size="small" type="text"
-                                                disabled={installmentPreset !== 'customizado' || customInstallments.length === 1}
-                                                onClick={() => setCustomInstallments(prev => prev.filter((_, i) => i !== idx))}
-                                            >✕</Button>
-                                        </div>
-                                    ))}
-                                    {installmentPreset === 'customizado' && (
-                                        <Button
-                                            type="dashed" size="small" style={{ width: '100%' }}
-                                            onClick={() => setCustomInstallments(prev => [...prev, { date: null, amount: 0 }])}
-                                        >+ Adicionar data/valor</Button>
-                                    )}
-                                    {customInstallments.length > 1 && (
-                                        <div style={{ marginTop: 6, fontSize: 12, color: '#94a3b8' }}>
-                                            Total parcelas: <strong style={{ color: '#e2e8f0' }}>{formatCurrency(customInstallments.reduce((s, r) => s + (r.amount || 0), 0))}</strong>
-                                        </div>
-                                    )}
-                                </div>
+                                <PaymentWithInstallments
+                                    preset={installmentPreset}
+                                    onPresetChange={setInstallmentPreset}
+                                    rows={customInstallments}
+                                    onRowsChange={setCustomInstallments}
+                                    total={saleTotalWithDiscount}
+                                />
                             )
                         }}
                     </Form.Item>
@@ -1710,6 +1689,10 @@ function Sales() {
                         <Upload
                             fileList={receiptFile}
                             beforeUpload={(file) => {
+                                if (file.size > 10 * 1024 * 1024) {
+                                    message.error('Arquivo excede 10 MB')
+                                    return Upload.LIST_IGNORE
+                                }
                                 setReceiptFile([file as any])
                                 return false
                             }}
@@ -1907,53 +1890,13 @@ function Sales() {
                             const pm = getFieldValue('payment_method')
                             if (pm !== 'CHEQUE_PRE_DATADO' && pm !== 'BOLETO') return null
                             return (
-                                <div style={{ marginBottom: 16, padding: 12, background: 'rgba(96, 165, 250, 0.08)', border: '1px solid rgba(96,165,250,0.25)', borderRadius: 8 }}>
-                                    <div style={{ fontSize: 13, fontWeight: 600, color: '#93c5fd', marginBottom: 8 }}>
-                                        Datas e valores de recebimento
-                                    </div>
-                                    <div style={{ marginBottom: 10 }}>
-                                        <Radio.Group
-                                            value={registerInstallmentPreset}
-                                            onChange={(e) => {
-                                                const p = e.target.value
-                                                setRegisterInstallmentPreset(p)
-                                                const insts = buildInstallmentsByPreset(p)
-                                                const total = Number(selectedBudget?.total_value) || 0
-                                                const n = insts.length
-                                                const amt = n > 0 && total > 0 ? Math.round((total / n) * 100) / 100 : 0
-                                                setRegisterCustomInstallments(insts.map(inst => ({ ...inst, amount: amt })))
-                                            }}
-                                            size="small"
-                                        >
-                                            {INSTALLMENT_PRESETS.map(p => <Radio.Button key={p.value} value={p.value}>{p.label}</Radio.Button>)}
-                                        </Radio.Group>
-                                    </div>
-                                    {registerCustomInstallments.map((item, idx) => (
-                                        <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8, marginBottom: 8, alignItems: 'center' }}>
-                                            <DatePicker
-                                                placeholder="Data de recebimento"
-                                                format="DD/MM/YYYY"
-                                                value={item.date}
-                                                onChange={(d) => setRegisterCustomInstallments(prev => prev.map((r, i) => i === idx ? { ...r, date: d } : r))}
-                                                style={{ width: '100%' }}
-                                            />
-                                            <InputNumber
-                                                min={0} step={0.01} precision={2} style={{ width: '100%' }}
-                                                placeholder="Valor (R$)" value={item.amount || undefined} addonBefore="R$"
-                                                onChange={(v) => setRegisterCustomInstallments(prev => prev.map((r, i) => i === idx ? { ...r, amount: Number(v) || 0 } : r))}
-                                            />
-                                            <Button danger size="small" type="text"
-                                                disabled={registerInstallmentPreset !== 'customizado' || registerCustomInstallments.length === 1}
-                                                onClick={() => setRegisterCustomInstallments(prev => prev.filter((_, i) => i !== idx))}>✕</Button>
-                                        </div>
-                                    ))}
-                                    {registerInstallmentPreset === 'customizado' && (
-                                        <Button type="dashed" size="small" style={{ width: '100%' }}
-                                            onClick={() => setRegisterCustomInstallments(prev => [...prev, { date: null, amount: 0 }])}>
-                                            + Adicionar data/valor
-                                        </Button>
-                                    )}
-                                </div>
+                                <PaymentWithInstallments
+                                    preset={registerInstallmentPreset}
+                                    onPresetChange={setRegisterInstallmentPreset}
+                                    rows={registerCustomInstallments}
+                                    onRowsChange={setRegisterCustomInstallments}
+                                    total={Number(selectedBudget?.total_value) || 0}
+                                />
                             )
                         }}
                     </Form.Item>
@@ -1967,6 +1910,10 @@ function Sales() {
                         <Upload
                             fileList={registerReceiptFile}
                             beforeUpload={(file) => {
+                                if (file.size > 10 * 1024 * 1024) {
+                                    message.error('Arquivo excede 10 MB')
+                                    return Upload.LIST_IGNORE
+                                }
                                 setRegisterReceiptFile([file as any])
                                 return false
                             }}

@@ -30,6 +30,7 @@ export enum PAGE_TITLES {
 
   // ── Phase 3: Pipeline Comercial ──
   BUDGETS = 'Orçamentos & Vendas',
+  ORDERS = 'Pedidos',
   SALES = 'Vendas',
   SALES_REPORT = 'Relatório de Vendas',
 

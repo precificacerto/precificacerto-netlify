@@ -62,6 +62,8 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
   const [ncmSearching, setNcmSearching] = useState(false)
   const [ncmOptions, setNcmOptions] = useState<{ value: string; label: React.ReactNode }[]>([])
   const [ncmFieldSearching, setNcmFieldSearching] = useState(false)
+  const [productTables, setProductTables] = useState<{ id: string; name: string }[]>([])
+  const itemTypeWatch = Form.useWatch('item_type', form)
   const [netCostDisplay, setNetCostDisplay] = useState<string | null>(null)
   const [impostosRecuperaveisDisplay, setImpostosRecuperaveisDisplay] = useState<number>(0)
   // Lucro Real — quando o usuário edita PIS/COFINS manualmente, o auto-cálculo é suspenso
@@ -239,6 +241,22 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const tenantId = currentUser?.tenant_id
+      if (!tenantId) return
+      const { data } = await supabase
+        .from('commission_tables')
+        .select('id, name')
+        .eq('tenant_id', tenantId)
+        .eq('type', 'PRODUCT')
+        .order('name')
+      if (!cancelled) setProductTables((data as any[]) || [])
+    })()
+    return () => { cancelled = true }
+  }, [currentUser?.tenant_id])
+
   // Recalcula impostos recuperáveis e custo líquido na montagem do form
   // Necessário para edição de itens existentes (form já preenchido pelo componente pai)
   useEffect(() => {
@@ -318,6 +336,67 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
         />
       </Form.Item>
 
+      <Form.Item
+        name="item_type"
+        label={
+          <span>
+            Tipo do item&nbsp;
+            <Tooltip title="Insumos para beneficiamento: materiais utilizados na produção. Revenda: produto acabado comprado para revender.">
+              <InfoCircleOutlined style={{ color: '#64748b' }} />
+            </Tooltip>
+          </span>
+        }
+        rules={[{ required: true, message: REQUIRED }]}
+        initialValue={isRevenda ? 'REVENDA' : 'INSUMO'}
+      >
+        <Select>
+          {!isRevenda && <Select.Option value="INSUMO">🧪 Insumos para beneficiamento</Select.Option>}
+          <Select.Option value="REVENDA">📦 Mercadoria para revenda</Select.Option>
+        </Select>
+      </Form.Item>
+
+      {itemTypeWatch === 'REVENDA' && (
+        <Form.Item
+          name="product_table_id"
+          label={
+            <span>
+              Escolher Tabela&nbsp;
+              <Tooltip title="Item de revenda entrará nesta tabela de produto como 'aguardando precificação'. Ao precificar, os dados (NCM, descrição, custo) já virão preenchidos.">
+                <InfoCircleOutlined style={{ color: '#64748b' }} />
+              </Tooltip>
+            </span>
+          }
+        >
+          <Select
+            allowClear
+            placeholder={productTables.length === 0 ? 'Nenhuma tabela de produto cadastrada' : 'Selecione a tabela de produto'}
+            disabled={productTables.length === 0}
+            options={productTables.map((t) => ({ value: t.id, label: t.name }))}
+          />
+        </Form.Item>
+      )}
+
+      <Form.Item
+        name="ncm_code"
+        label={
+          <span>
+            NCM&nbsp;
+            <Tooltip title="Nomenclatura Comum do Mercosul — digite o código ou pesquise por nome do produto">
+              <InfoCircleOutlined style={{ color: '#64748b' }} />
+            </Tooltip>
+          </span>
+        }
+      >
+        <AutoComplete
+          options={ncmOptions}
+          onSearch={handleNcmSearch}
+          onSelect={handleNcmFieldSelect}
+          placeholder="Digite o NCM ou pesquise (ex: farinha, 1901...)"
+          notFoundContent={ncmFieldSearching ? <Spin size="small" /> : null}
+          allowClear
+        />
+      </Form.Item>
+
       {(ncmSearching || ncmSuggestions.length > 0) && (
         <div style={{
           marginTop: -12, marginBottom: 12, padding: '8px 12px',
@@ -362,46 +441,6 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
           )}
         </div>
       )}
-
-      <Form.Item
-        name="item_type"
-        label={
-          <span>
-            Tipo do item&nbsp;
-            <Tooltip title="Insumos para beneficiamento: materiais utilizados na produção. Revenda: produto acabado comprado para revender.">
-              <InfoCircleOutlined style={{ color: '#64748b' }} />
-            </Tooltip>
-          </span>
-        }
-        rules={[{ required: true, message: REQUIRED }]}
-        initialValue={isRevenda ? 'REVENDA' : 'INSUMO'}
-      >
-        <Select>
-          {!isRevenda && <Select.Option value="INSUMO">🧪 Insumos para beneficiamento</Select.Option>}
-          <Select.Option value="REVENDA">📦 Mercadoria para revenda</Select.Option>
-        </Select>
-      </Form.Item>
-
-      <Form.Item
-        name="ncm_code"
-        label={
-          <span>
-            NCM&nbsp;
-            <Tooltip title="Nomenclatura Comum do Mercosul — digite o código ou pesquise por nome do produto">
-              <InfoCircleOutlined style={{ color: '#64748b' }} />
-            </Tooltip>
-          </span>
-        }
-      >
-        <AutoComplete
-          options={ncmOptions}
-          onSearch={handleNcmSearch}
-          onSelect={handleNcmFieldSelect}
-          placeholder="Digite o NCM ou pesquise (ex: farinha, 1901...)"
-          notFoundContent={ncmFieldSearching ? <Spin size="small" /> : null}
-          allowClear
-        />
-      </Form.Item>
 
       <Divider orientation="left" style={{ fontSize: 12, color: '#94a3b8' }}>
         Dados da Compra

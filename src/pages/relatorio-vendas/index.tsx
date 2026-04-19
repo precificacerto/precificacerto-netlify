@@ -285,7 +285,7 @@ function SalesReport() {
 
             let salesQuery: any = (supabase as any)
                 .from('sales')
-                .select('id, sale_code, sale_date, employee_id, customer_id, client_id, final_value, commission_amount, discount_value, description, budget_id')
+                .select('id, sale_code, sale_date, employee_id, customer_id, final_value, commission_amount, discount_value, description, budget_id')
                 .eq('tenant_id', effectiveTenantId)
                 .eq('is_active', true)
                 .gte('sale_date', start)
@@ -317,7 +317,7 @@ function SalesReport() {
                 itemsBySale.set(it.sale_id, list)
             }
 
-            const customerIds: string[] = [...new Set(sales.map((s: any) => s.customer_id || s.client_id).filter(Boolean) as string[])]
+            const customerIds: string[] = [...new Set(sales.map((s: any) => s.customer_id).filter(Boolean) as string[])]
             const customerMap = new Map<string, string>()
             if (customerIds.length > 0) {
                 const { data: cRows } = await (supabase as any).from('customers').select('id, name').in('id', customerIds)
@@ -367,7 +367,7 @@ function SalesReport() {
                     saleId: sale.id,
                     saleCode: sale.sale_code || sale.description || sale.id.slice(0, 8),
                     saleDate: sale.sale_date,
-                    customerName: customerMap.get(sale.customer_id || sale.client_id) || 'Sem cliente',
+                    customerName: customerMap.get(sale.customer_id) || 'Sem cliente',
                     employeeName: sale.employee_id ? (employeeMap.get(sale.employee_id) || 'Sem vendedor') : 'Sem vendedor',
                     employeeId: sale.employee_id,
                     productIds,

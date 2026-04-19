@@ -24,6 +24,12 @@ import { useAuth } from '@/hooks/use-auth.hook'
 import { useRouter } from 'next/router'
 import { calculateDiscountedPrice, DiscountMode } from '@/utils/calculate-discount'
 import { getEffectiveCommissionPercent } from '@/utils/get-effective-commission'
+import {
+    PaymentWithInstallments,
+    buildInstallmentsByPreset,
+    type InstallmentPresetValue,
+    type InstallmentRow,
+} from '@/components/payment-with-installments.component'
 
 dayjs.extend(isoWeek)
 dayjs.locale('pt-br')
@@ -47,24 +53,6 @@ const PAYMENT_METHODS = [
     { value: 'LANCAMENTOS_A_RECEBER', label: 'Lançamentos a Receber' },
 ]
 
-const INSTALLMENT_PRESETS = [
-    { value: 'customizado', label: 'Cheque pré-datado' },
-    { value: '30', label: '30' },
-    { value: '30_60', label: '30/60' },
-    { value: '30_60_90', label: '30/60/90' },
-    { value: '30_60_90_120', label: '30/60/90/120' },
-    { value: '30_60_90_120_150', label: '30/60/90/120/150' },
-]
-
-function buildInstallmentsByPreset(preset: string): { date: any; amount: number }[] {
-    const today = dayjs()
-    if (preset === '30') return [{ date: today.add(30, 'day'), amount: 0 }]
-    if (preset === '30_60') return [{ date: today.add(30, 'day'), amount: 0 }, { date: today.add(60, 'day'), amount: 0 }]
-    if (preset === '30_60_90') return [{ date: today.add(30, 'day'), amount: 0 }, { date: today.add(60, 'day'), amount: 0 }, { date: today.add(90, 'day'), amount: 0 }]
-    if (preset === '30_60_90_120') return [{ date: today.add(30, 'day'), amount: 0 }, { date: today.add(60, 'day'), amount: 0 }, { date: today.add(90, 'day'), amount: 0 }, { date: today.add(120, 'day'), amount: 0 }]
-    if (preset === '30_60_90_120_150') return [{ date: today.add(30, 'day'), amount: 0 }, { date: today.add(60, 'day'), amount: 0 }, { date: today.add(90, 'day'), amount: 0 }, { date: today.add(120, 'day'), amount: 0 }, { date: today.add(150, 'day'), amount: 0 }]
-    return [{ date: null, amount: 0 }]
-}
 
 // Horários de 00:00 até 24:00 (intervalos de 30 min)
 const TIME_SLOTS: string[] = []
@@ -139,8 +127,8 @@ function Schedule() {
     const [discountModeAgenda, setDiscountModeAgenda] = useState<DiscountMode>('PROPORTIONAL')
     const [isSplitPay, setIsSplitPay] = useState(false)
     const [splitAmountPaid, setSplitAmountPaid] = useState<number>(0)
-    const [customInstallments, setCustomInstallments] = useState<{ date: any; amount: number }[]>([{ date: null, amount: 0 }])
-    const [installmentPreset, setInstallmentPreset] = useState<'customizado' | '30' | '30_60' | '30_60_90' | '30_60_90_120' | '30_60_90_120_150'>('customizado')
+    const [customInstallments, setCustomInstallments] = useState<InstallmentRow[]>([{ date: null, amount: 0 }])
+    const [installmentPreset, setInstallmentPreset] = useState<InstallmentPresetValue>('customizado')
     const [extraProds, setExtraProds] = useState<ExtraProd[]>([])
     const [attachFile, setAttachFile] = useState<File | null>(null)
     const [attachDesc, setAttachDesc] = useState('')
@@ -1951,58 +1939,13 @@ function Schedule() {
                                 </Form.Item>
                             )}
                             {(payMethod === 'CHEQUE_PRE_DATADO' || payMethod === 'BOLETO') && (
-                                <div style={{ marginBottom: 16, padding: 12, background: 'rgba(96, 165, 250, 0.08)', border: '1px solid rgba(96,165,250,0.25)', borderRadius: 8 }}>
-                                    <div style={{ fontSize: 13, fontWeight: 600, color: '#93c5fd', marginBottom: 8 }}>
-                                        Datas e valores de recebimento
-                                    </div>
-                                    <div style={{ marginBottom: 10 }}>
-                                        <Radio.Group
-                                            value={installmentPreset}
-                                            onChange={(e) => {
-                                                const p = e.target.value
-                                                setInstallmentPreset(p)
-                                                const insts = buildInstallmentsByPreset(p)
-                                                const total = calcFinalPrice()
-                                                const n = insts.length
-                                                const amt = n > 0 && total > 0 ? Math.round((total / n) * 100) / 100 : 0
-                                                setCustomInstallments(insts.map(inst => ({ ...inst, amount: amt })))
-                                            }}
-                                            size="small"
-                                        >
-                                            {INSTALLMENT_PRESETS.map(p => <Radio.Button key={p.value} value={p.value}>{p.label}</Radio.Button>)}
-                                        </Radio.Group>
-                                    </div>
-                                    {customInstallments.map((item, idx) => (
-                                        <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8, marginBottom: 8, alignItems: 'center' }}>
-                                            <DatePicker
-                                                placeholder="Data de recebimento"
-                                                format="DD/MM/YYYY"
-                                                value={item.date}
-                                                onChange={(d) => setCustomInstallments(prev => prev.map((r, i) => i === idx ? { ...r, date: d } : r))}
-                                                style={{ width: '100%' }}
-                                            />
-                                            <InputNumber
-                                                min={0} step={0.01} precision={2} style={{ width: '100%' }}
-                                                placeholder="Valor (R$)" value={item.amount || undefined} addonBefore="R$"
-                                                onChange={(v) => setCustomInstallments(prev => prev.map((r, i) => i === idx ? { ...r, amount: Number(v) || 0 } : r))}
-                                            />
-                                            <Button danger size="small" type="text"
-                                                disabled={installmentPreset !== 'customizado' || customInstallments.length === 1}
-                                                onClick={() => setCustomInstallments(prev => prev.filter((_, i) => i !== idx))}>✕</Button>
-                                        </div>
-                                    ))}
-                                    {installmentPreset === 'customizado' && (
-                                        <Button type="dashed" size="small" style={{ width: '100%' }}
-                                            onClick={() => setCustomInstallments(prev => [...prev, { date: null, amount: 0 }])}>
-                                            + Adicionar data/valor
-                                        </Button>
-                                    )}
-                                    {customInstallments.length > 1 && (
-                                        <div style={{ marginTop: 6, fontSize: 12, color: '#94a3b8' }}>
-                                            Total parcelas: <strong>{customInstallments.reduce((s, r) => s + (r.amount || 0), 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong>
-                                        </div>
-                                    )}
-                                </div>
+                                <PaymentWithInstallments
+                                    preset={installmentPreset}
+                                    onPresetChange={setInstallmentPreset}
+                                    rows={customInstallments}
+                                    onRowsChange={setCustomInstallments}
+                                    total={calcFinalPrice()}
+                                />
                             )}
                             <div style={{ marginBottom: 16 }}>
                                 <Checkbox checked={hasDiscount} onChange={(e) => { setHasDiscount(e.target.checked); if (!e.target.checked) setGlobalDiscountPctAgenda(0) }}>
@@ -2083,7 +2026,14 @@ function Schedule() {
                                     <PaperClipOutlined style={{ marginRight: 4 }} /> Anexar comprovante (opcional)
                                 </div>
                                 <Upload
-                                    beforeUpload={(file: File) => { setAttachFile(file); return false }}
+                                    beforeUpload={(file: File) => {
+                                        if (file.size > 10 * 1024 * 1024) {
+                                            message.error('Arquivo excede 10 MB')
+                                            return Upload.LIST_IGNORE
+                                        }
+                                        setAttachFile(file)
+                                        return false
+                                    }}
                                     onRemove={() => { setAttachFile(null); setAttachDesc('') }}
                                     accept=".pdf,.jpg,.jpeg,.png"
                                     maxCount={1}
