@@ -139,6 +139,7 @@ export default function ControleFinanceiro() {
     const [deleteRecurringOpen, setDeleteRecurringOpen] = useState(false)
     const [deleteRecurringEntry, setDeleteRecurringEntry] = useState<any>(null)
     const [deleteRecurringMonth, setDeleteRecurringMonth] = useState<dayjs.Dayjs | null>(null)
+    const [deleteRecurringScope, setDeleteRecurringScope] = useState<'MONTH' | 'ALL'>('MONTH')
 
     const [form] = Form.useForm()
     const [editForm] = Form.useForm()
@@ -366,7 +367,8 @@ export default function ControleFinanceiro() {
     }
 
     const handleDeleteRecurring = async () => {
-        if (!deleteRecurringEntry || !deleteRecurringMonth) {
+        if (!deleteRecurringEntry) return
+        if (deleteRecurringScope === 'MONTH' && !deleteRecurringMonth) {
             messageApi.warning('Selecione o mês para excluir.')
             return
         }
@@ -374,16 +376,21 @@ export default function ControleFinanceiro() {
             const tenant_id = await getTenantId()
             if (!tenant_id) return
             const sbf = supabase as any
-            const monthStart = deleteRecurringMonth.startOf('month').format('YYYY-MM-DD')
-            const monthEnd = deleteRecurringMonth.endOf('month').format('YYYY-MM-DD')
-            const { data: toDelete } = await sbf.from('cash_entries')
+
+            let query = sbf.from('cash_entries')
                 .select('id')
                 .eq('description', deleteRecurringEntry.description)
                 .eq('origin_type', deleteRecurringEntry.origin_type)
                 .eq('tenant_id', tenant_id)
                 .eq('is_active', true)
-                .gte('due_date', monthStart)
-                .lte('due_date', monthEnd)
+
+            if (deleteRecurringScope === 'MONTH' && deleteRecurringMonth) {
+                const monthStart = deleteRecurringMonth.startOf('month').format('YYYY-MM-DD')
+                const monthEnd = deleteRecurringMonth.endOf('month').format('YYYY-MM-DD')
+                query = query.gte('due_date', monthStart).lte('due_date', monthEnd)
+            }
+
+            const { data: toDelete } = await query
             for (const entry of (toDelete || [])) {
                 await fetch('/api/delete/cash-entries', {
                     method: 'POST',
@@ -391,8 +398,27 @@ export default function ControleFinanceiro() {
                     body: JSON.stringify({ id: entry.id }),
                 })
             }
-            messageApi.success('Lançamento excluído do mês selecionado!')
+
+            if (deleteRecurringScope === 'ALL' && deleteRecurringEntry.origin_type === 'RECURRING_EXPENSE') {
+                const category = deleteRecurringEntry.expense_category
+                    || (deleteRecurringEntry.description || '').split(' — ')[0]
+                if (category) {
+                    await sbf.from('recurring_expense_rules')
+                        .update({ is_active: false })
+                        .eq('tenant_id', tenant_id)
+                        .eq('category', category)
+                        .eq('amount', deleteRecurringEntry.amount)
+                }
+            }
+
+            messageApi.success(
+                deleteRecurringScope === 'ALL'
+                    ? 'Todos os lançamentos recorrentes desta despesa foram excluídos!'
+                    : 'Lançamento excluído do mês selecionado!'
+            )
             setDeleteRecurringOpen(false)
+            setDeleteRecurringMonth(null)
+            setDeleteRecurringScope('MONTH')
             await fetchData()
         } catch {
             messageApi.error('Erro ao excluir lançamento.')
@@ -995,7 +1021,7 @@ export default function ControleFinanceiro() {
                                                                         danger
                                                                         type="text"
                                                                         title="Excluir lançamento de um mês"
-                                                                        onClick={() => { setDeleteRecurringEntry(r); setDeleteRecurringMonth(null); setDeleteRecurringOpen(true) }}
+                                                                        onClick={() => { setDeleteRecurringEntry(r); setDeleteRecurringMonth(month); setDeleteRecurringScope('MONTH'); setDeleteRecurringOpen(true) }}
                                                                     />
                                                                 </Space>
                                                             )
@@ -1322,9 +1348,9 @@ export default function ControleFinanceiro() {
             <Modal
                 title="Excluir Lançamento de Despesa Recorrente"
                 open={deleteRecurringOpen}
-                onCancel={() => { setDeleteRecurringOpen(false); setDeleteRecurringMonth(null) }}
+                onCancel={() => { setDeleteRecurringOpen(false); setDeleteRecurringMonth(null); setDeleteRecurringScope('MONTH') }}
                 footer={null}
-                width={440}
+                width={460}
             >
                 {deleteRecurringEntry && (
                     <div>
@@ -1332,32 +1358,58 @@ export default function ControleFinanceiro() {
                             <div style={{ fontWeight: 600 }}>{deleteRecurringEntry.description?.split(' — ')[0] || deleteRecurringEntry.description}</div>
                             <div style={{ color: '#F04438', fontWeight: 700, marginTop: 2 }}>{formatCurrency(Number(deleteRecurringEntry.amount))}</div>
                         </div>
-                        <div style={{ marginBottom: 20 }}>
-                            <div style={{ fontWeight: 500, marginBottom: 6 }}>Selecione o mês para excluir</div>
-                            <DatePicker
-                                picker="month"
-                                value={deleteRecurringMonth}
-                                onChange={setDeleteRecurringMonth}
-                                format="MMMM/YYYY"
-                                style={{ width: '100%' }}
-                                placeholder="Selecione o mês"
-                            />
-                            <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 6 }}>
-                                Apenas o lançamento do mês selecionado será excluído. Os demais meses não serão afetados.
-                            </div>
+                        <div style={{ marginBottom: 16 }}>
+                            <div style={{ fontWeight: 500, marginBottom: 8 }}>O que deseja excluir?</div>
+                            <Radio.Group
+                                value={deleteRecurringScope}
+                                onChange={(e) => setDeleteRecurringScope(e.target.value)}
+                                style={{ display: 'flex', flexDirection: 'column', gap: 6 }}
+                            >
+                                <Radio value="MONTH">Apenas o lançamento de um mês específico</Radio>
+                                <Radio value="ALL">Todos os lançamentos recorrentes desta despesa</Radio>
+                            </Radio.Group>
                         </div>
+                        {deleteRecurringScope === 'MONTH' ? (
+                            <div style={{ marginBottom: 20 }}>
+                                <div style={{ fontWeight: 500, marginBottom: 6 }}>Mês a excluir</div>
+                                <DatePicker
+                                    picker="month"
+                                    value={deleteRecurringMonth}
+                                    onChange={setDeleteRecurringMonth}
+                                    format="MMMM/YYYY"
+                                    style={{ width: '100%' }}
+                                    placeholder="Selecione o mês"
+                                />
+                                <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 6 }}>
+                                    Apenas o lançamento do mês selecionado será excluído. Os demais meses não serão afetados.
+                                </div>
+                            </div>
+                        ) : (
+                            <div style={{ marginBottom: 20, padding: 10, background: 'rgba(240,68,56,0.06)', border: '1px solid rgba(240,68,56,0.15)', borderRadius: 8 }}>
+                                <div style={{ fontSize: 12, color: '#F04438', fontWeight: 600, marginBottom: 4 }}>
+                                    ⚠️ Ação irreversível
+                                </div>
+                                <div style={{ fontSize: 12, color: '#94a3b8' }}>
+                                    Todos os lançamentos recorrentes desta despesa (meses passados e futuros) serão excluídos e a regra recorrente será desativada.
+                                </div>
+                            </div>
+                        )}
                         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                            <Button onClick={() => { setDeleteRecurringOpen(false); setDeleteRecurringMonth(null) }}>Cancelar</Button>
+                            <Button onClick={() => { setDeleteRecurringOpen(false); setDeleteRecurringMonth(null); setDeleteRecurringScope('MONTH') }}>Cancelar</Button>
                             <Popconfirm
-                                title={`Excluir lançamento de ${deleteRecurringMonth ? deleteRecurringMonth.format('MMMM/YYYY') : 'mês selecionado'}?`}
+                                title={deleteRecurringScope === 'ALL'
+                                    ? 'Excluir TODOS os lançamentos recorrentes desta despesa?'
+                                    : `Excluir lançamento de ${deleteRecurringMonth ? deleteRecurringMonth.format('MMMM/YYYY') : 'mês selecionado'}?`}
                                 description="Esta ação não pode ser desfeita."
                                 onConfirm={handleDeleteRecurring}
                                 okText="Excluir"
                                 cancelText="Cancelar"
                                 okButtonProps={{ danger: true }}
-                                disabled={!deleteRecurringMonth}
+                                disabled={deleteRecurringScope === 'MONTH' && !deleteRecurringMonth}
                             >
-                                <Button danger disabled={!deleteRecurringMonth}>Excluir do Mês</Button>
+                                <Button danger disabled={deleteRecurringScope === 'MONTH' && !deleteRecurringMonth}>
+                                    {deleteRecurringScope === 'ALL' ? 'Excluir Todos' : 'Excluir do Mês'}
+                                </Button>
                             </Popconfirm>
                         </div>
                     </div>
