@@ -1,0 +1,128 @@
+1- Para o sistema inteiro tudo que tem informações de valores em R$ colocar  no parâmetro BRL exemplo (R$ 21.000,52 ou R$542,00 sempre 2 casas após a virgula) para tudo que tem porcentagem sempre usar 3 casas após a virgula exemplo 14,524% ou 7,452% isso para todas os regimes 
+
+2- para todos os regimes, quando é feito o cadastro de um produto, e é escrito o nome do produto puxa a lista de NCM compatível com aquele produto essa lista aqui Sugestões de NCM para o nome digitado, quando é colocado um nome a lista de NCM Sugestões de NCM para o nome digitado deve aparecer em baixo do campo NCM 
+
+3- e dentro do campo produtos e no campo serviços, dentro da precificação quando cria um produto ou um serviço ou edita qualquer deles tem o campo Desconto máximo permitido, pode excluir esse campo 
+
+4- Dentro das abas produtos e serviços tem o botão de criar tabela, eu quero mudar o campo de Comissão do Vendedor (%) para um cambo de observações aonde o usuário pode escrever alguma observação para aquela tabela. 
+
+5- essa alteração que vamos fazer é para todos os regimes e segmentações que estão sendo permitidos ter itens de revenda não se aplica para itens que são de insumos para beneficiamento, quando é criado um item e revenda, vamos seguir essa logica, quando cria um item de revenda precisamos ter um campo novo dentro o item em baixo do campo tipo do item quando o item selecionado como revenda, precisa escolher também a qual tabela esse item se aplica e as tabela é referente as tabelas criadas dentro de produtos apenas, ou seja se tem 10 tabelas criadas dentro de produtos, precisa aparecer essas tabelas dentro de campo escolher tabela, e assim já vincular a tabela a essa item criado, quando é salvo o item o usuário precisa ir na aba produtos, selecionar a tabela ao qual foi vinculado aquele item e fazer a precificação para aquele item, que é de revenda, e fica um alerta na linha daquele item o alerta já existe eu só não lembro o nome mas é algo como termine de precificar em amarelo, assim já puxa a descrição do item o ncm e tudo mais, e ele só precifica e precisa deixar o campo para escolher mais itens nessa precificação, mais quando clicar para fazer a precificação daquele item revenda q foi criado precisa puxar todas as informações daquele item e já ele ali dentro e só precificar, mas caso queira adicionar mais itens pode também 
+
+6- Dentro da aba serviços, isso para todos os regimes, quando eu crio um serviço e vou em matéria prima / insumos, para selecionar algum item para esse serviço ele só pode puxar o nome do item e não puxar o nome do item mais valores, só quero o nome do item apenas 
+
+7- dentro da aba serviços quando eu seleciono alguma matéria prima / insumos a quantidade deve ser numero inteiro não pode ter fração do produto, por exemplo se foi comprado um shampoo e foi salvo nele 3 unidades e o total de 3000 ml que são 1000 ml por shampoo o ususario quer usar 300 ml para um serviço ele cadastra como 300 aquele serviço, e isso serve para tudo dentro dos serviços levando em consideração as informações cadastradas no itens 
+
+8- dentro da aba serviços, quando eu precifico ou edito um serviço eu quero inverter os valores ali dentro então na parte direita aparece essa informação por exemplo Preço de Venda Sugerido
+R$ 45,26
+e na parte esquerda aparece essa informação Lucro líquido
+R$ 0,00
+Margem: 0,000% la em baixo na tarja verde da precificação 
+
+9- o botão Mão de obra produtiva dentro da aba serviços não esta funcionando, precisa colcoar os minutos ali e fazer o calculo pro minuto e usar dentro da precificação por minuto para fazer o serviço, igual esta dentro dos produtos, precisa funcionar com a mesma logica 
+
+10- Dentro da aba estoque, temos excluir quantidade, e esse esse botão exclui as quantidades, mas quero colocar um botão de excluir o produto ou o serviço ou o item precisa ter o botão de excluir e esse botão apaga da tenant e apaga do front o produto ou serviço ou item selecionado, e quando o usuário clicar nele, precisa aparecer um pop up perguntando se deseja excluir mesmo e se clicar em sim exclui se clicar em não fecha o pop up e não exclui
+
+11- Preciso que revise a logica do histórico do clientes, e faça funcionar da seguinte maneira, quando é feito algum lançamento de valor para algum cliente vinculado seja venda no balcão ou quando concluiu algum agendamento, tem a possibilidade de inserir algum anexo para aquele lançamento, e esse anexo deve ficar no histórico do clientes, e o ususario deve conseguir baixar esse anexo, entrando no cadastro do cliente, e apertando em histórico, e deve ter a opção de baixar esse anexo, isso não acontece hoje, precisa salavr o anexo que é feito na hora do lançamento dentro do supabase, talvez hospedar, e ficar disponível no histórico para baixar quando o ususario quiser. 
+
+12- Dentro da aba orçamentos, quando um orçamento é enviado para vendas, ele fica com o status aguardando pagamento, quando esse orçamento é lançado dentro da aba vendas esse orçamento não precisa estar dentro da aba orçamentos, ou seja só aparece na aba orçamentos os orçamentos aguardando pagamento ou o status rascunho apenas, quando ele fica como pago, não precisa aparecer o orçamento na aba orçamentos e vamos sitar um status a baixo que seria enviado para pedido eu vou explicar a baixo isso mais esse status pode ficar também 
+
+13- dentro da aba orçamentos, quando eu criar um orçamento o campo Orçamento válido até pode jogar esse campo em cima de observação 
+
+14- Vamos criar uma aba nova, dentro de comercial e essa aba vai se chamar Pedidos, e essa aba ficará em baixo de Orçamentos, dentro de orçamento vamos criar um botão para cada orçamento que se chamara enviar para Pedido, e quando clicado envia para a aba Pedido, essa aba nova pedidos, precisamos colocar ela também quando cadastro um funcionário precisa colocar no campo de permissões também e escolher o não ver visualizar ou editar também porque é uma aba nova, essa aba de pedidos, depois que o usuário envia um orçamento para a aba pedidos, precisa criar um numero de pedidos, e precisa vim com todos o histórico do orçamento método de pagamento produtos e tudo amis, e esse pedido pode ser editado e pode ser acrescentado mais produtos nesse pedido, mais só produtos que estão vinculados ao vendedor que esta no orçamento, quando é enviado do orçamento para a aba venda precisa colocar um status no orçamento  enviado para pedido, e o usuário pode editar o pedido adicionar tudo mais, e salvar, quando o clientes que esta naqueel pedido quiser finalizar e fazer o pagamento daquele pedido, o ususario que esta usando o sistema precisa clicar em Enviar para vendas e assim la finaliza o pedido, com todo o histórico que esta no pedidos, produtos métodos de pagamento cliente, funcionário tudo mais, quando o pedido é pago dentro da aba vendas o pedido não pode aparecer mais na aba pedidos, só aparece o que esta em rascunho ou aguardando pagamento, dentor da aba pedidos, precisa ter os filtros de filtrar por vendedor, por item, por orçamento mais o principal é por item que seria por produto, e tudo precisa ter um filtro produto, cliente, vendedor orçamento precisa ser possível ter um campo para filtrar, e eu quero um botão dentro da aba pedidos, chamado ver quantidade de produtos, o usuário clicar e abre um menu lateral direito com todos os produtos os produtos de todos os pedidos que ainda não estão como pagos, porque os pagos não aparecem mais, e aparece a lista de todos os produtos compilados com as quantidades por exemplo eu tenho 10 pedidos e juntando todos os pedidos eu tenho 30 produtos juntando todos os pedidos, precisa juntar todos os produtos somar as qunatidades dos produtos e aparecer uma lista com todos os produtos e as quantidades porque eu posso ter vários pedidos com o mesmo produto então eu quero q some por exemplo pedido 123 e pedido 321 tem o mesmo produto nos 2, nessa lista mostra o produto e a soma das quantidades desses 2 pedidos, e nessa lista precisa mostrar quais pedidos são, e eu quero um campo nessa lista chamado comprado esse campo serve para o ususario clicar la e dar um check dizendo que já comprou esse produtos, e precisa ficar salvo isso toda vez q ele abre essa lista mostra os produtos o compilado deles, e mostra quais já estão comprados porque ele deu um check, e quando o pedido tem o seu pagamento feito, a quantidade de produtos daquele pedido não pode aparecer nessa lista mais. 
+
+15- na aba orçamentos vamos ter os botões de Enviar para vendas ou Enviar para pedido, quando o ususario clicar em qualquer um desses 2 se ele clicar em enviar para vendas, precisa abrir um pop up com uma descrição falando que vai enviar para vendas e se é isso emsmo, e o ususario escolhe se sim ou não, se escolher sim envia para vendas se escolher não fecha o popup, e a mesma coisa para Enviar para pedidos, se clicar em enviar para pedidos abre o popup falando q vai enviar para pedidos e o ususario clica sim ou não 
+
+16- dentro da aba orçamentos e da aba vendas, e da aba pedidos agora, tem o método de pagamento correto, eu preciso adicionar a mesma logica que tem na agenda que seria a logica de dar uma entrada no valor e parcelar o restante, não tem essa opção nesses campos igual é na agenda, e precisa seguria  mesma logica da agenda que seria quando da a entrada o restante que falta cai la ana aba relatório de venda, no campo recebimento / lançamentos futuros 
+
+17- dentro da aba orçamentos, pedidos ou vendas no campo de desconto, puxamos o desconto proporcional em % que vem do lucro ou da comissão do vendedor, mas eu também quero colocar a opção de trazer por dinheiro e o usuário escolhe se quer colocar % ou em valor em real BRl, mais precisa puxar do modo, se escolher proporcional ou redução do lucro ou redução do vendedor, quando escolher ai mostra o máximo de valor que pode sair de desconto dependendo do modo q foi escolhido, e o máximo de desconto também que pode ser dado dependendo do modo escolhido, mas só pode escolher um dos 2 ou em % ou em desconto em reais, para adicionar o valor, e não pode ultrapassar o teto permitido 
+
+18- Dentro de orçamentos não esta ativado a opção modo aonde escolher entre proporcional ou redução do lucro ou redução do vendedor precisa ter isso lá também, e precisa ter em pedidos, e precisa ter também la na agenda, quando clicar em concluir algum agendamento aparecer isso quando for feito o lançamento de algum agendamento feito 
+
+19- Preciso que revise o campo relatório de vendas na parte de Relatório de Comissões posi esta com esse erro aqui Erro ao carregar relatório de comissões., e quando eu faço um lançamento não parece nada nesse campo igual eu havia pedido erro: (https://jvthwpkwzpangnwhuyvj.supabase.co/rest/v1/sales?select=id%2Csale_cod…rue&sale_date=gte.2026-04-01&sale_date=lte.2026-04-30&order=sale_date.desc 400 (Bad Request)
+(anonymous)	@	_app-210680c896489830.js:37
+(anonymous)	@	_app-210680c896489830.js:37
+await in (anonymous)		
+then	@	_app-210680c896489830.js:1
+
+relatorio-vendas-7e1ae29aaf21c6d6.js:1 
+{code: '42703', details: null, hint: null, message: 'column sales.client_id does not exist'}
+(anonymous)	@	relatorio-vendas-7e1ae29aaf21c6d6.js:1
+await in (anonymous)		
+(anonymous)	@	relatorio-vendas-7e1ae29aaf21c6d6.js:1
+o2	@	framework-a32a2a465584c0bc.js:1
+iz	@	framework-a32a2a465584c0bc.js:1
+i_	@	framework-a32a2a465584c0bc.js:1
+iz	@	framework-a32a2a465584c0bc.js:1
+i_	@	framework-a32a2a465584c0bc.js:1
+iz	@	framework-a32a2a465584c0bc.js:1
+i_	@	framework-a32a2a465584c0bc.js:1
+iz	@	framework-a32a2a465584c0bc.js:1
+i_	@	framework-a32a2a465584c0bc.js:1
+iz	@	framework-a32a2a465584c0bc.js:1
+i_	@	framework-a32a2a465584c0bc.js:1
+iz	@	framework-a32a2a465584c0bc.js:1
+i_	@	framework-a32a2a465584c0bc.js:1
+iz	@	framework-a32a2a465584c0bc.js:1
+i_	@	framework-a32a2a465584c0bc.js:1
+iz	@	framework-a32a2a465584c0bc.js:1
+i_	@	framework-a32a2a465584c0bc.js:1
+iz	@	framework-a32a2a465584c0bc.js:1
+i_	@	framework-a32a2a465584c0bc.js:1
+iz	@	framework-a32a2a465584c0bc.js:1
+i_	@	framework-a32a2a465584c0bc.js:1
+iz	@	framework-a32a2a465584c0bc.js:1
+i_	@	framework-a32a2a465584c0bc.js:1
+iz	@	framework-a32a2a465584c0bc.js:1
+i_	@	framework-a32a2a465584c0bc.js:1
+iz	@	framework-a32a2a465584c0bc.js:1
+i_	@	framework-a32a2a465584c0bc.js:1
+iz	@	framework-a32a2a465584c0bc.js:1
+i_	@	framework-a32a2a465584c0bc.js:1
+iz	@	framework-a32a2a465584c0bc.js:1
+i_	@	framework-a32a2a465584c0bc.js:1
+iz	@	framework-a32a2a465584c0bc.js:1
+i_	@	framework-a32a2a465584c0bc.js:1
+iz	@	framework-a32a2a465584c0bc.js:1
+i_	@	framework-a32a2a465584c0bc.js:1
+iz	@	framework-a32a2a465584c0bc.js:1
+i_	@	framework-a32a2a465584c0bc.js:1
+iz	@	framework-a32a2a465584c0bc.js:1
+i_	@	framework-a32a2a465584c0bc.js:1
+iz	@	framework-a32a2a465584c0bc.js:1
+i_	@	framework-a32a2a465584c0bc.js:1
+iz	@	framework-a32a2a465584c0bc.js:1
+i_	@	framework-a32a2a465584c0bc.js:1
+iz	@	framework-a32a2a465584c0bc.js:1
+i_	@	framework-a32a2a465584c0bc.js:1
+iz	@	framework-a32a2a465584c0bc.js:1
+i_	@	framework-a32a2a465584c0bc.js:1
+iz	@	framework-a32a2a465584c0bc.js:1
+i_	@	framework-a32a2a465584c0bc.js:1
+iz	@	framework-a32a2a465584c0bc.js:1
+i_	@	framework-a32a2a465584c0bc.js:1
+iz	@	framework-a32a2a465584c0bc.js:1
+i_	@	framework-a32a2a465584c0bc.js:1
+iz	@	framework-a32a2a465584c0bc.js:1
+i_	@	framework-a32a2a465584c0bc.js:1
+iz	@	framework-a32a2a465584c0bc.js:1
+i_	@	framework-a32a2a465584c0bc.js:1
+iz	@	framework-a32a2a465584c0bc.js:1
+i_	@	framework-a32a2a465584c0bc.js:1
+iz	@	framework-a32a2a465584c0bc.js:1
+uD	@	framework-a32a2a465584c0bc.js:1
+uO	@	framework-a32a2a465584c0bc.js:1
+uT	@	framework-a32a2a465584c0bc.js:1
+uz	@	framework-a32a2a465584c0bc.js:1
+uf	@	framework-a32a2a465584c0bc.js:1
+uc	@	framework-a32a2a465584c0bc.js:1
+uJ	@	framework-a32a2a465584c0bc.js:1
+uK	@	framework-a32a2a465584c0bc.js:1
+uG	@	framework-a32a2a465584c0bc.js:1
+(anonymous)	@	framework-a32a2a465584c0bc.js:1)
+
+20- Dentro da aba Relatório de vendas no campo Recebimento / Lançamentos Futuros, quando o usuário der entrada em um valor parcial, la no histórico do cliente vinculado, esta caindo como pago, mais ainda falta valor a receber desse cliente, precisa ainda estar la no histórico que foi pago parcialmente, e precisa ter o histórica la do valor parcial que ele pagou, e quanto falta, precisa organizar essa logica. 
+
+21- Dentro da aba fluxo de caixa, quando tiver alguma entrada de dinheiro que precisa lançar e eu clicar no valor para lançar aquela entrada de valor, precisa ter o código da venda referente a aquela entrada também 
+
+22- Dentro da aba Home ao lado de Meta mensal vamos acrescentar um card chamado Ponto de equilíbrio e esse carda precisa conter a seguinte conta para chegar no valor e precisa aparecer ali (Salários produtivos MO administrativa e produtiva a categoria inteira tudo q  esta lançado aqui + a categoria inteira despesa fixa / (1- a categoria inteira custos dos produtos + a categoria inteira despesa variável + a categoria inteira despesa Financeira + a categoria inteira despesa de acessórios + a categoria inteira das comissões + a categoria inteira do lucro + mais a categoria inteira dos impostos) 
+Conta: R$ 15.000 / (1- 70% que seria a porcentagem de todas as categorias) a conta seria R$ 15.000 / 0,30 = R$ 50.000,00 esse valor precisa estra nesse card E considera as informações que Estão dentro do HUB e a categoria impostos seria os impostos por dentro. 
