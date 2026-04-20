@@ -42,6 +42,11 @@
   --color-error: #F04438;
   --color-info: #2E90FA;
 
+  /* Semantic text tokens */
+  --color-text-primary: #f1f5f9;
+  --color-text-secondary: #94a3b8;
+  --color-text-tertiary: #64748b;
+
   /* Background — Dark */
   --bg-page: #0a1628;
   --bg-card: #111c2e;
@@ -86,6 +91,22 @@
 
   /* Font */
   --font-primary: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+
+  /* Fluid Typography (scales smoothly mobile → desktop)
+     Use: font-size: var(--font-h1);  — never hardcode px in new code. */
+  --font-h1: clamp(1.5rem, 1.2vw + 1.25rem, 2rem);          /* 24 → 32px */
+  --font-h2: clamp(1.25rem, 0.8vw + 1.1rem, 1.625rem);      /* 20 → 26px */
+  --font-h3: clamp(1.125rem, 0.5vw + 1rem, 1.375rem);       /* 18 → 22px */
+  --font-body: clamp(0.9375rem, 0.15vw + 0.9rem, 1rem);     /* 15 → 16px */
+  --font-small: clamp(0.8125rem, 0.1vw + 0.8rem, 0.875rem); /* 13 → 14px */
+  --font-micro: clamp(0.75rem, 0.05vw + 0.73rem, 0.8125rem);/* 12 → 13px */
+
+  /* Safe-area (iOS notch / Dynamic Island / home indicator).
+     Fallback to 0 when device has no insets. */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
 }
 
 /* ---- Base Styles ---- */
@@ -155,6 +176,10 @@ body {
   transition: width var(--transition-normal);
   overflow-y: auto;
   overflow-x: hidden;
+  /* iOS notch / Dynamic Island + home indicator */
+  padding-top: var(--safe-top);
+  padding-bottom: var(--safe-bottom);
+  padding-left: var(--safe-left);
 }
 
 .app-sidebar-logo {
@@ -333,7 +358,7 @@ body {
 }
 
 .page-header h1 {
-  font-size: 22px;
+  font-size: var(--font-h1);
   font-weight: 700;
   color: #f1f5f9;
   margin: 0 0 4px 0;
@@ -341,7 +366,7 @@ body {
 }
 
 .page-header-subtitle {
-  font-size: 14px;
+  font-size: var(--font-small);
   color: #94a3b8;
   margin: 0;
 }
@@ -721,14 +746,19 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 40px;
-    height: 40px;
+    /* WCAG minimum touch target — was 40x40, now 44x44. */
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 8px;
     background: rgba(255, 255, 255, 0.04);
     color: #e2e8f0;
     cursor: pointer;
     margin-bottom: 12px;
+    /* Shift below notch when present */
+    margin-top: var(--safe-top);
 
     &:active {
       background: rgba(255, 255, 255, 0.1);
@@ -782,6 +812,112 @@ body {
 
   .doughnut-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+/* ============================================================
+   TABLET BREAKPOINT (640–1023px) — finos refinamentos
+   Cobre o gap semântico entre mobile (<640) e desktop (>=1024).
+   Ex.: iPad portrait (768px) e tablets Android.
+   ============================================================ */
+@media (min-width: 640px) and (max-width: 1023px) {
+  .kpi-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .charts-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ============================================================
+   FIXED/STICKY ELEMENTS — respect iOS safe areas
+   Loader, banners, overlays que cobrem tela toda devem respeitar notch.
+   ============================================================ */
+.sidebar-overlay.active {
+  padding-top: var(--safe-top);
+  padding-bottom: var(--safe-bottom);
+}
+
+/* Generic full-screen loader respects safe area */
+.pc-safe-fixed {
+  padding-top: var(--safe-top);
+  padding-right: var(--safe-right);
+  padding-bottom: var(--safe-bottom);
+  padding-left: var(--safe-left);
+}
+
+/* ============================================================
+   RESPONSIVE IFRAME (16:9) — use .pc-video wrapper around iframes
+   ============================================================ */
+.pc-video {
+  position: relative;
+  width: 100%;
+  max-width: 560px;
+  aspect-ratio: 16 / 9;
+  margin: 0 auto;
+  background: var(--bg-elevated);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.pc-video iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+/* ============================================================
+   TABLE — Summary + Drill-down pattern for dense tables on mobile
+   Apply .pc-table-summary to AntD Table wrapper.
+   On mobile (<640px): only columns with class `.pc-col-primary`
+   remain visible; secondary columns hide. Use tap-to-expand for
+   detail (expandable row) to preserve scanability.
+   ============================================================ */
+@media (max-width: 640px) {
+  .pc-table-summary .ant-table-column-hidden-mobile,
+  .pc-table-summary th.ant-table-column-hidden-mobile {
+    display: none !important;
+  }
+  .pc-table-summary .ant-table-tbody > tr > td,
+  .pc-table-summary .ant-table-thead > tr > th {
+    padding: 8px 6px !important;
+  }
+}
+
+/* ============================================================
+   ITEMS GRID (Vendas / Orçamentos details) — responsive
+   Desktop: 4 cols (item | qty | price | total)
+   Mobile (<640px): 2-row stack (item / qty+price+total)
+   ============================================================ */
+.pc-items-grid {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  gap: 4px 12px;
+  align-items: center;
+}
+@media (max-width: 640px) {
+  .pc-items-grid {
+    grid-template-columns: 1fr auto;
+    gap: 4px 8px;
+  }
+  .pc-items-grid > .pc-item-qty,
+  .pc-items-grid > .pc-item-unit {
+    display: none;
+  }
+  .pc-items-grid > .pc-item-name {
+    grid-column: 1 / -1;
+  }
+  .pc-items-grid > .pc-item-total {
+    grid-column: 1 / -1;
+    text-align: right;
+    padding-bottom: 6px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+  .pc-items-grid-header > .pc-item-qty,
+  .pc-items-grid-header > .pc-item-unit,
+  .pc-items-grid-header > .pc-item-total {
+    display: none !important;
   }
 }
 
@@ -1573,7 +1709,7 @@ body {
 }
 
 .auth-card-title {
-  font-size: 22px;
+  font-size: var(--font-h2);
   font-weight: 700;
   color: #f1f5f9;
   margin: 0 0 4px;
@@ -1581,7 +1717,7 @@ body {
 }
 
 .auth-card-subtitle {
-  font-size: 13px;
+  font-size: var(--font-small);
   color: #94a3b8;
   margin: 0 0 20px;
   text-align: center;
@@ -1590,7 +1726,7 @@ body {
 
 .auth-footer-text {
   margin-top: 20px;
-  font-size: 12px;
+  font-size: var(--font-micro);
   color: #64748b;
   text-align: center;
   position: relative;
@@ -2636,13 +2772,22 @@ body {
 
   /* --- Page header title: padronizar tamanho para evitar vazamento --- */
   .page-header h1 {
-    font-size: 20px !important;
+    font-size: var(--font-h2) !important;
     line-height: 1.3 !important;
     word-break: break-word !important;
   }
   .page-header-subtitle {
-    font-size: 12px !important;
+    font-size: var(--font-micro) !important;
     line-height: 1.4 !important;
+  }
+
+  /* --- Guardrail: impedir fontes abaixo de 12px em mobile (legibilidade) ---
+     Targets inline style="font-size: 11px" e similares <= 11 */
+  [style*="font-size: 10px"],
+  [style*="font-size: 11px"],
+  [style*="font-size:10px"],
+  [style*="font-size:11px"] {
+    font-size: 12px !important;
   }
 
   /* --- TrialBanner: compact --- */

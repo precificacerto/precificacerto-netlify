@@ -1630,7 +1630,7 @@ export default function CashFlow() {
                 open={pendingSelectOpen}
                 onCancel={() => setPendingSelectOpen(false)}
                 footer={<Button onClick={() => setPendingSelectOpen(false)}>Fechar</Button>}
-                width={600}
+                width="min(600px, calc(100vw - 32px))"
             >
                 <div style={{ marginBottom: 12, color: '#94a3b8', fontSize: 13 }}>
                     Há {pendingSelectEntries.length} lançamentos pendentes neste dia. Selecione qual deseja confirmar:
@@ -1668,7 +1668,7 @@ export default function CashFlow() {
                 open={expenseSelectOpen}
                 onCancel={() => setExpenseSelectOpen(false)}
                 footer={<Button onClick={() => setExpenseSelectOpen(false)}>Fechar</Button>}
-                width={600}
+                width="min(600px, calc(100vw - 32px))"
             >
                 <div style={{ marginBottom: 12, color: '#94a3b8', fontSize: 13 }}>
                     Há {expenseSelectEntries.length} lançamentos neste dia. Selecione qual deseja confirmar:

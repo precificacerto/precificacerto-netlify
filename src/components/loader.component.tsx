@@ -6,9 +6,9 @@ const antIcon = <LoadingOutlined style={{ fontSize: 40, color: 'var(--color-prim
 const Loader = () => {
   return (
     <div
-      className="fixed top-0 right-0 min-w-full min-h-full z-50 flex justify-center items-center"
+      className="pc-safe-fixed fixed top-0 right-0 min-w-full min-h-full z-50 flex justify-center items-center"
       style={{
-        background: 'rgba(255, 255, 255, 0.8)',
+        background: 'rgba(10, 22, 40, 0.85)',
         backdropFilter: 'blur(4px)',
       }}
     >
@@ -20,9 +20,9 @@ const Loader = () => {
       }}>
         <Spin indicator={antIcon} size="large" />
         <span style={{
-          fontSize: '14px',
+          fontSize: 'var(--font-small)',
           fontWeight: 500,
-          color: 'var(--color-neutral-500, #667085)',
+          color: 'var(--color-text-secondary, #94a3b8)',
         }}>
           Carregando...
         </span>

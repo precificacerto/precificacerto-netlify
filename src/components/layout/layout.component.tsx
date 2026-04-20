@@ -86,7 +86,7 @@ const Layout = ({ children, showAside = true, title, tabTitle, subtitle }: Props
                 onClick={() => setSidebarOpen(true)}
                 aria-label="Abrir menu"
               >
-                <MenuOutlined style={{ fontSize: 20 }} />
+                <MenuOutlined style={{ fontSize: 22 }} />
               </button>
             )}
 

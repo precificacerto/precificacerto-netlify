@@ -377,8 +377,8 @@ function getColumns(type: string, _dataSource: TableDataType[]): ColumnsType<Tab
       title: 'Categoria',
       dataIndex: 'category',
       key: 'category',
-      fixed: true,
-      width: 270,
+      fixed: 'left',
+      width: 220,
       render: (value: string) => value,
       sortOrder: 'ascend',
       sorter: {

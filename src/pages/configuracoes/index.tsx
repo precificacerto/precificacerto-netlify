@@ -299,7 +299,7 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                             tooltip="Tipo de atividade conforme Lei 10.931/2004."
                             initialValue={tenantSettings?.ret_activity_type || 'INCORPORACAO_IMOBILIARIA'}
                         >
-                            <Select style={{ width: 320 }}>
+                            <Select style={{ width: '100%', maxWidth: 360 }}>
                                 <Select.Option value="INCORPORACAO_IMOBILIARIA">Incorporação Imobiliária (CNAE 68xx)</Select.Option>
                                 <Select.Option value="CONSTRUCAO_CIVIL">Construção Civil (CNAE 41xx, 42xx, 43xx)</Select.Option>
                                 <Select.Option value="PARCELAMENTO_SOLO">Parcelamento de Solo</Select.Option>
@@ -313,7 +313,7 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                             tooltip="Alíquota consolidada: IRPJ 1,71% + CSLL 0,51% + PIS 0,37% + COFINS 1,41% = 4,00%."
                             initialValue={(tenantSettings?.ret_rate ?? 0.04) * 100}
                         >
-                            <InputNumber min={0} max={100} step={0.01} style={{ width: 200 }} formatter={(v) => v != null ? String(v).replace('.', ',') : ''} parser={(v) => Number((v || '0').replace(',', '.'))} addonAfter="%" />
+                            <InputNumber min={0} max={100} step={0.01} style={{ width: '100%', maxWidth: 220 }} formatter={(v) => v != null ? String(v).replace('.', ',') : ''} parser={(v) => Number((v || '0').replace(',', '.'))} addonAfter="%" />
                         </Form.Item>
 
                         <Form.Item
@@ -322,7 +322,7 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                             tooltip="ISS cobrado separadamente pelo município (2% a 5%). Confirme com seu contador."
                             initialValue={(tenantSettings?.iss_municipality_rate ?? 0.05) * 100}
                         >
-                            <InputNumber min={0} max={10} step={0.01} style={{ width: 200 }} formatter={(v) => v != null ? String(v).replace('.', ',') : ''} parser={(v) => Number((v || '0').replace(',', '.'))} addonAfter="%" />
+                            <InputNumber min={0} max={10} step={0.01} style={{ width: '100%', maxWidth: 220 }} formatter={(v) => v != null ? String(v).replace('.', ',') : ''} parser={(v) => Number((v || '0').replace(',', '.'))} addonAfter="%" />
                         </Form.Item>
 
                         <Form.Item
@@ -331,7 +331,7 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                             tooltip="Estimativa de faturamento mensal para planejamento e dashboard."
                             initialValue={tenantSettings?.ret_estimated_monthly_revenue ?? 0}
                         >
-                            <InputNumber min={0} step={1000} style={{ width: 280 }} formatter={(v) => v != null ? `R$ ${String(v).replace(/\B(?=(\d{3})+(?!\d))/g, '.')}` : 'R$ 0'} parser={(v) => Number((v || '0').replace(/[R$\s.]/g, '').replace(',', '.'))} />
+                            <InputNumber min={0} step={1000} style={{ width: '100%', maxWidth: 320 }} formatter={(v) => v != null ? `R$ ${String(v).replace(/\B(?=(\d{3})+(?!\d))/g, '.')}` : 'R$ 0'} parser={(v) => Number((v || '0').replace(/[R$\s.]/g, '').replace(',', '.'))} />
                         </Form.Item>
 
                         {/* Cards de carga tributária LP RET */}

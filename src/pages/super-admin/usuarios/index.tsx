@@ -106,7 +106,7 @@ function SuperAdminUsuarios() {
       if (json.action_link) {
         Modal.info({
           title: 'Link de redefinição de senha',
-          width: 600,
+          width: 'min(600px, calc(100vw - 32px))',
           content: (
             <div>
               <p style={{ marginBottom: 8 }}>{json.message}</p>

@@ -1801,11 +1801,11 @@ function Sales() {
                         {detailItems.length > 0 && (
                             <div style={{ padding: 16, background: 'var(--color-neutral-50)', borderRadius: 8 }}>
                                 <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>Produtos e Serviços</div>
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto', gap: '4px 12px', fontSize: 12, color: 'var(--color-neutral-400)', marginBottom: 8, fontWeight: 600 }}>
-                                    <span>Item</span>
-                                    <span style={{ textAlign: 'right' }}>Qtd</span>
-                                    <span style={{ textAlign: 'right' }}>Preço unit.</span>
-                                    <span style={{ textAlign: 'right' }}>Total</span>
+                                <div className="pc-items-grid pc-items-grid-header" style={{ fontSize: 12, color: 'var(--color-neutral-400)', marginBottom: 8, fontWeight: 600 }}>
+                                    <span className="pc-item-name">Item</span>
+                                    <span className="pc-item-qty" style={{ textAlign: 'right' }}>Qtd</span>
+                                    <span className="pc-item-unit" style={{ textAlign: 'right' }}>Preço unit.</span>
+                                    <span className="pc-item-total" style={{ textAlign: 'right' }}>Total</span>
                                 </div>
                                 {detailItems.map((item: any, idx: number) => {
                                     const itemName = item.products?.name || item.services?.name || item.description || 'Item'
@@ -1819,8 +1819,8 @@ function Sales() {
                                     const discountAmt = discount > 1 && discount <= 100 && discount === Math.round(discount) ? totalBeforeDiscount * discount / 100 : discount
                                     const total = Math.max(0, totalBeforeDiscount - discountAmt)
                                     return (
-                                        <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto', gap: '4px 12px', padding: '6px 0', borderBottom: '1px solid rgba(255,255,255,0.06)', fontSize: 13, alignItems: 'center' }}>
-                                            <span style={{ fontWeight: 500 }}>
+                                        <div key={idx} className="pc-items-grid" style={{ padding: '6px 0', borderBottom: '1px solid rgba(255,255,255,0.06)', fontSize: 13 }}>
+                                            <span className="pc-item-name" style={{ fontWeight: 500 }}>
                                                 {itemName}
                                                 {productCode && <span style={{ fontSize: 11, color: '#94a3b8' }}>{productCode}</span>}
                                                 {discount > 0 && (
@@ -1829,9 +1829,9 @@ function Sales() {
                                                     </span>
                                                 )}
                                             </span>
-                                            <span style={{ textAlign: 'right', color: '#94a3b8' }}>{qty}x</span>
-                                            <span style={{ textAlign: 'right', color: '#94a3b8' }}>{formatCurrency(unitPrice)}</span>
-                                            <strong style={{ textAlign: 'right', color: '#12B76A' }}>{formatCurrency(total)}</strong>
+                                            <span className="pc-item-qty" style={{ textAlign: 'right', color: '#94a3b8' }}>{qty}x</span>
+                                            <span className="pc-item-unit" style={{ textAlign: 'right', color: '#94a3b8' }}>{formatCurrency(unitPrice)}</span>
+                                            <strong className="pc-item-total" style={{ textAlign: 'right', color: '#12B76A' }}>{formatCurrency(total)}</strong>
                                         </div>
                                     )
                                 })}

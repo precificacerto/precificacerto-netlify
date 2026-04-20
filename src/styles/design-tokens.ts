@@ -168,6 +168,21 @@ export const typography = {
 } as const
 
 // ============================================================
+// ✏️ FLUID TYPOGRAPHY (clamp — mobile → desktop)
+// ============================================================
+// Conservative body scale (15→16px) to preserve data density on desktop.
+// Headings scale more aggressively (+33%) to maintain visual hierarchy.
+// Usage (SCSS/CSS): font-size: var(--font-h1);
+export const fluidTypography = {
+    h1: 'clamp(1.5rem, 1.2vw + 1.25rem, 2rem)',        // 24 → 32px
+    h2: 'clamp(1.25rem, 0.8vw + 1.1rem, 1.625rem)',     // 20 → 26px
+    h3: 'clamp(1.125rem, 0.5vw + 1rem, 1.375rem)',      // 18 → 22px
+    body: 'clamp(0.9375rem, 0.15vw + 0.9rem, 1rem)',    // 15 → 16px
+    small: 'clamp(0.8125rem, 0.1vw + 0.8rem, 0.875rem)',// 13 → 14px
+    micro: 'clamp(0.75rem, 0.05vw + 0.73rem, 0.8125rem)',// 12 → 13px
+} as const
+
+// ============================================================
 // 📏 LAYOUT TOKENS
 // ============================================================
 

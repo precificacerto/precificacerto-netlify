@@ -184,10 +184,12 @@ const ChooseCalcModal = ({ open, handleShowModal }: ChooseCalcModalProps) => {
       maskClosable={false}
       keyboard={false}
       centered={true}
-      className="m-5 min-w-[600px]"
+      width="min(640px, calc(100vw - 32px))"
     >
       {contextHolder}
-      <iframe width="560" height="315" src="https://www.youtube.com/embed/b_yuP4aojEY?si=AkugMJ5HBdaB6G1-" title="YouTube video player" frameBorder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerPolicy="strict-origin-when-cross-origin" allowFullScreen></iframe>
+      <div className="pc-video">
+        <iframe src="https://www.youtube.com/embed/b_yuP4aojEY?si=AkugMJ5HBdaB6G1-" title="YouTube video player" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerPolicy="strict-origin-when-cross-origin" allowFullScreen></iframe>
+      </div>
       <p className="text-justify pl-3 pr-3">
         Utilizaremos o cálculo a seguir para estabelecer os preços de todos os seus produtos,
         aplicando fórmulas específicas para cada modelo de negócio.
@@ -195,7 +197,7 @@ const ChooseCalcModal = ({ open, handleShowModal }: ChooseCalcModalProps) => {
 
       <Form layout="vertical" form={form}>
         <Form.Item
-          className="w-[200px]"
+          style={{ maxWidth: 240 }}
           name="calcType"
           label="Segmentação"
           rules={[{ required: true }]}

@@ -1,4 +1,4 @@
-import { Modal, Button, Space, DatePicker } from 'antd'
+import { Modal, Button, DatePicker } from 'antd'
 import { FileExcelOutlined, FilePdfOutlined } from '@ant-design/icons'
 import { FC, useState } from 'react'
 import dayjs from 'dayjs'
@@ -56,20 +56,21 @@ export const ExportFormatModal: FC<Props> = ({ open, onClose, onExportExcel, onE
       title={title}
       footer={null}
       centered
-      width={440}
+      width="min(440px, calc(100vw - 32px))"
     >
       {step === 'format' ? (
         <div style={{ textAlign: 'center', padding: '16px 0' }}>
           <p style={{ fontSize: 14, color: '#94a3b8', marginBottom: 24 }}>
             Escolha o formato de exportação:
           </p>
-          <Space size={16}>
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', justifyContent: 'center' }}>
             <Button
               size="large"
               icon={<FileExcelOutlined />}
               onClick={() => handleSelectFormat('excel')}
               style={{
-                height: 80, width: 140, display: 'flex', flexDirection: 'column',
+                height: 80, flex: '1 1 140px', minWidth: 120, maxWidth: 180,
+                display: 'flex', flexDirection: 'column',
                 alignItems: 'center', justifyContent: 'center', gap: 8,
                 background: '#f0fdf4', borderColor: '#22c55e', color: '#15803d'
               }}
@@ -81,14 +82,15 @@ export const ExportFormatModal: FC<Props> = ({ open, onClose, onExportExcel, onE
               icon={<FilePdfOutlined />}
               onClick={() => handleSelectFormat('pdf')}
               style={{
-                height: 80, width: 140, display: 'flex', flexDirection: 'column',
+                height: 80, flex: '1 1 140px', minWidth: 120, maxWidth: 180,
+                display: 'flex', flexDirection: 'column',
                 alignItems: 'center', justifyContent: 'center', gap: 8,
                 background: '#fef2f2', borderColor: '#ef4444', color: '#dc2626'
               }}
             >
               <span style={{ fontSize: 13 }}>PDF</span>
             </Button>
-          </Space>
+          </div>
         </div>
       ) : (
         <div style={{ padding: '16px 0' }}>

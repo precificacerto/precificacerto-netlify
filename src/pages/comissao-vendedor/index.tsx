@@ -848,7 +848,7 @@ export default function CommissionPage() {
             onChange={(v) => v && setMonth(v)}
             format="MM/YYYY"
             allowClear={false}
-            style={{ width: 160 }}
+            style={{ width: '100%', maxWidth: 180, minWidth: 140 }}
           />
         </div>
         <div>
@@ -858,7 +858,7 @@ export default function CommissionPage() {
             allowClear
             value={selectedEmployee}
             onChange={(v) => setSelectedEmployee(v)}
-            style={{ width: 240 }}
+            style={{ width: '100%', maxWidth: 260, minWidth: 180 }}
             options={[
               ...employees.map(e => ({ label: e.name, value: e.id })),
             ]}
