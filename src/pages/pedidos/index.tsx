@@ -707,16 +707,18 @@ function OrdersPage() {
                 </Button>
             </Space>
 
-            <Table
-                rowKey="id"
-                columns={columns}
-                dataSource={filteredOrders}
-                loading={loading}
-                size="middle"
-                scroll={{ x: 1300 }}
-                pagination={{ pageSize: 20, showSizeChanger: true }}
-                locale={{ emptyText: <Empty description="Nenhum pedido em aberto" /> }}
-            />
+            <div className="orders-table-wrap">
+                <Table
+                    rowKey="id"
+                    columns={columns}
+                    dataSource={filteredOrders}
+                    loading={loading}
+                    size="small"
+                    scroll={{ x: 1300 }}
+                    pagination={{ pageSize: 20, showSizeChanger: true }}
+                    locale={{ emptyText: <Empty description="Nenhum pedido em aberto" /> }}
+                />
+            </div>
 
             {/* Edit drawer */}
             <Drawer

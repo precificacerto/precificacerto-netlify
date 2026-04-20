@@ -678,18 +678,22 @@ function Schedule() {
 
     async function handleCompletePay() {
         if (!payEvt) return
+        const hideLoading = msgApi.loading('Concluindo serviço e lançando no caixa...', 0)
         try {
             const v = await payForm.validateFields()
-            const tid = await getTenantId(); if (!tid) return
-            const createdBy = await getCurrentUserId(); if (!createdBy) { msgApi.error('Sessão inválida. Faça login novamente.'); return }
+            const tid = await getTenantId(); if (!tid) { hideLoading(); msgApi.error('Tenant não identificado. Recarregue a página.'); return }
+            const createdBy = await getCurrentUserId(); if (!createdBy) { hideLoading(); msgApi.error('Sessão inválida. Faça login novamente.'); return }
 
             if (v.payment_method === 'LANCAMENTOS_A_RECEBER' && !payEvt.customer_id) {
+                hideLoading()
                 msgApi.error('O método "Lançamentos a Receber" exige um cliente vinculado ao agendamento.')
                 return
             }
 
-            const { data: evCheck } = await supabase.from('calendar_events').select('id, status').eq('id', payEvt.id).single()
+            const { data: evCheck, error: evCheckErr } = await supabase.from('calendar_events').select('id, status').eq('id', payEvt.id).single()
+            if (evCheckErr) { hideLoading(); msgApi.error(`Erro ao verificar agendamento: ${evCheckErr.message}`); return }
             if (evCheck?.status === 'COMPLETED') {
+                hideLoading()
                 msgApi.warning('Este agendamento já foi concluído por outra pessoa. Atualize a lista.')
                 setPayOpen(false)
                 setPayEvt(null)
@@ -708,7 +712,7 @@ function Schedule() {
             const remaining = Math.max(0, totalRevenue - amountPaid)
             const remainingDate = isSplitPay && remaining > 0 ? v.remaining_due_date?.format('YYYY-MM-DD') || null : null
 
-            const { data: updatedEvt } = await supabase.from('calendar_events').update({
+            const { data: updatedEvt, error: updateErr } = await supabase.from('calendar_events').update({
                 status: 'COMPLETED', amount_charged: totalRevenue, payment_method: v.payment_method,
                 discount_percent: discPct, discount_value: discountAmt,
                 payment_notes: v.payment_notes || null, amount_paid: amountPaid,
@@ -716,7 +720,13 @@ function Schedule() {
                 completed_at: new Date().toISOString(),
                 installments: v.payment_method === 'CARTAO_CREDITO' ? (v.installments ?? 1) : null,
             }).eq('id', payEvt.id).neq('status', 'COMPLETED').select('id').single()
+            if (updateErr) {
+                hideLoading()
+                msgApi.error(`Erro ao atualizar agendamento: ${updateErr.message}`)
+                return
+            }
             if (!updatedEvt) {
+                hideLoading()
                 msgApi.warning('Este agendamento já foi concluído por outra pessoa. Atualize a lista.')
                 setPayOpen(false)
                 setPayEvt(null)
@@ -853,6 +863,7 @@ function Schedule() {
                     // Cheque pré-datado / Boleto: gera cash_entries com datas e valores informados pelo usuário
                     const validInstallments = customInstallments.filter(r => r.date && r.amount > 0)
                     if (validInstallments.length === 0) {
+                        hideLoading()
                         msgApi.error('Informe ao menos uma data e valor de recebimento.')
                         return
                     }
@@ -1066,14 +1077,23 @@ function Schedule() {
                 })
             }
 
-            msgApi.success('Serviço concluído e lançado no caixa!')
+            hideLoading()
+            msgApi.success({ content: 'Serviço concluído e lançado no caixa com sucesso!', duration: 4 })
             const wasLastRecurrence = isLastRecurrence
             setPayOpen(false); setPayEvt(null); setExtraProds([]); setAttachFile(null); setAttachDesc(''); setCustomInstallments([{ date: null, amount: 0 }]); setInstallmentPreset('customizado'); setPayTableSections([{key: 'pts-0', tableId: null}]); setIsLastRecurrence(false)
             await fetchAll()
             if (wasLastRecurrence) {
                 setRenewalAlertOpen(true)
             }
-        } catch (e: any) { msgApi.error(e.message || '') }
+        } catch (e: any) {
+            hideLoading()
+            const errMsg = e?.message
+                || e?.errorFields?.[0]?.errors?.[0]
+                || (typeof e === 'string' ? e : null)
+                || 'Erro ao concluir serviço. Verifique os campos obrigatórios e tente novamente.'
+            msgApi.error(errMsg)
+            console.error('[handleCompletePay] error:', e)
+        }
     }
 
     const payMethod = Form.useWatch('payment_method', payForm)
