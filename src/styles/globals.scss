@@ -1496,6 +1496,176 @@ body {
 }
 
 /* ============================================================
+   AUTH PAGES SHARED LAYOUT — Utility classes
+   Use em páginas auth (login, cadastro, criar-senha, etc.)
+   para padronizar tela full-height centralizada com card.
+   ============================================================ */
+.auth-page {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: var(--bg-page);
+  padding: 20px 16px;
+  position: relative;
+  overflow-x: hidden;
+}
+
+.auth-page-glow {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 0;
+  display: none;
+}
+
+.auth-page-glow--tl {
+  top: -15%;
+  left: -10%;
+  width: 500px;
+  height: 500px;
+  background: radial-gradient(circle, rgba(34, 197, 94, 0.08) 0%, transparent 70%);
+}
+
+.auth-page-glow--br {
+  bottom: -10%;
+  right: -5%;
+  width: 400px;
+  height: 400px;
+  background: radial-gradient(circle, rgba(34, 197, 94, 0.06) 0%, transparent 70%);
+}
+
+.auth-page-logo {
+  margin-bottom: 20px;
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  max-width: 200px;
+  width: 60vw;
+}
+
+.auth-page-logo img {
+  width: 100% !important;
+  height: auto !important;
+  max-width: 200px;
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 440px;
+  background: var(--bg-card);
+  border-radius: 16px;
+  padding: 24px 20px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  position: relative;
+  z-index: 1;
+}
+
+.auth-card--wide {
+  max-width: 720px;
+}
+
+.auth-card--medium {
+  max-width: 560px;
+}
+
+.auth-card-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: #f1f5f9;
+  margin: 0 0 4px;
+  text-align: center;
+}
+
+.auth-card-subtitle {
+  font-size: 13px;
+  color: #94a3b8;
+  margin: 0 0 20px;
+  text-align: center;
+  line-height: 1.5;
+}
+
+.auth-footer-text {
+  margin-top: 20px;
+  font-size: 12px;
+  color: #64748b;
+  text-align: center;
+  position: relative;
+  z-index: 1;
+  padding: 0 16px;
+}
+
+@media (min-width: 640px) {
+  .auth-page {
+    padding: 32px 24px;
+  }
+  .auth-page-logo {
+    margin-bottom: 28px;
+    width: auto;
+  }
+  .auth-card {
+    padding: 32px 28px;
+  }
+  .auth-card-title {
+    font-size: 24px;
+  }
+  .auth-card-subtitle {
+    font-size: 14px;
+    margin-bottom: 24px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .auth-page-glow {
+    display: block;
+  }
+  .auth-card {
+    padding: 40px 32px;
+  }
+}
+
+/* Touch-friendly inputs/buttons dentro de cards auth (qualquer viewport) */
+.auth-card .ant-input,
+.auth-card .ant-input-affix-wrapper,
+.auth-card .ant-input-password {
+  min-height: 44px;
+  font-size: 15px;
+}
+.auth-card .ant-input-affix-wrapper > .ant-input {
+  min-height: auto;
+  font-size: 15px;
+}
+.auth-card .ant-btn {
+  min-height: 44px;
+  font-weight: 600;
+}
+
+/* Anti-zoom iOS em mobile (<640px): fonte >= 16px nos campos */
+@media (max-width: 639px) {
+  .auth-card .ant-input,
+  .auth-card .ant-input-affix-wrapper > .ant-input,
+  .auth-card .ant-input-password {
+    font-size: 16px;
+  }
+  .auth-card .ant-input,
+  .auth-card .ant-input-affix-wrapper,
+  .auth-card .ant-input-password {
+    min-height: 48px;
+  }
+  .auth-card .ant-btn {
+    min-height: 48px;
+    font-size: 15px;
+  }
+  .auth-card .ant-radio-button-wrapper {
+    min-height: 48px;
+    line-height: 46px !important;
+  }
+}
+
+/* ============================================================
    MOBILE OVERRIDES — Aplicado em larguras <= 640px (celular real)
    Mantém breakpoints existentes de 768px (tablet) e 480px (KPI single col)
    Objetivo: impedir que grids inline, drawers/modais e tabelas ocupem
@@ -1685,6 +1855,111 @@ body {
   body {
     overflow-x: hidden;
   }
+
+  /* =======================================================================
+     SISTEMIC MOBILE OVERRIDES — ataca padrões recorrentes na base de código
+     (inline styles, tabelas AntD sem scroll, flex rows rígidos, etc.)
+     ======================================================================= */
+
+  /* --- Widths fixos em inline styles: soltar em mobile ---
+     Seletor captura style="width:400px" e semelhantes. Exclui imagens e svg
+     (que geralmente devem manter proporção via width/height) */
+  *:not(img):not(svg):not(canvas)[style*="width:"] {
+    max-width: 100%;
+  }
+
+  /* --- minWidth inline: neutralizar em mobile para evitar overflow --- */
+  [style*="min-width"],
+  [style*="minWidth"] {
+    min-width: 0 !important;
+  }
+
+  /* --- Flex row: permitir quebra e reset de min-width nos filhos ---
+     Flex items em mobile muitas vezes estouram porque o default de
+     flex-item é min-width: auto. Forçar min-width 0 previne overflow. */
+  [style*="display: flex"][style*="flex-direction: row"],
+  [style*="display:flex"][style*="flex-direction:row"] {
+    flex-wrap: wrap !important;
+  }
+
+  /* --- Tabelas AntD: scroll horizontal automático mesmo sem scroll prop --- */
+  .ant-table-content,
+  .ant-table-body {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Reduz chance de overflow por conteúdos longos em cells */
+  .ant-table-cell {
+    word-break: break-word;
+  }
+
+  /* --- AntD Card: pouco padding em mobile --- */
+  .ant-card-body {
+    padding: 16px !important;
+  }
+
+  /* --- AntD Space horizontal: vira coluna quando for "large" ou contém botões grandes --- */
+  .ant-space-horizontal.ant-space-align-center,
+  .ant-space-horizontal.ant-space-align-start {
+    row-gap: 8px !important;
+  }
+
+  /* --- Botões com size="large" em AntD: full-width sugerido em mobile --- */
+  .ant-btn-lg {
+    padding: 0 14px !important;
+  }
+
+  /* --- Typography.Title em mobile: reduzir escalas AntD --- */
+  .ant-typography h1,
+  h1.ant-typography {
+    font-size: 22px !important;
+  }
+  .ant-typography h2,
+  h2.ant-typography {
+    font-size: 18px !important;
+  }
+  .ant-typography h3,
+  h3.ant-typography {
+    font-size: 16px !important;
+  }
+
+  /* --- Inputs AntD: fonte >= 16px no mobile (anti-zoom iOS) --- */
+  .ant-input,
+  .ant-input-number-input,
+  .ant-input-affix-wrapper > input.ant-input,
+  .ant-select-selection-search-input,
+  .ant-picker-input > input {
+    font-size: 16px !important;
+  }
+
+  /* --- Logo de página auth/landing: dimensiona-se ao container --- */
+  .auth-page [alt="Precifica Certo"],
+  .auth-page img {
+    max-width: 100%;
+    height: auto;
+  }
+
+  /* --- Containers absolutamente posicionados com width grande: esconder em mobile ---
+     Captura círculos decorativos (width >= 300px) posicionados absolutamente */
+  [style*="position: fixed"][style*="width: 500"],
+  [style*="position: fixed"][style*="width: 400"],
+  [style*="position: absolute"][style*="width: 500"],
+  [style*="position: absolute"][style*="width: 400"] {
+    display: none !important;
+  }
+
+  /* --- Descriptions AntD em mobile: empilhar colunas --- */
+  .ant-descriptions-item-label,
+  .ant-descriptions-item-content {
+    display: block !important;
+    width: 100% !important;
+  }
+
+  /* --- Tabs: permitir scroll horizontal sem cortar --- */
+  .ant-tabs > .ant-tabs-nav .ant-tabs-nav-wrap {
+    overflow-x: auto !important;
+  }
 }
 
 /* Ajustes finos extra para telas muito pequenas (< 400px) */
@@ -1702,4 +1977,67 @@ body {
   h1, .h1 { font-size: 18px !important; }
   h2, .h2 { font-size: 16px !important; }
   h3, .h3 { font-size: 14px !important; }
+}
+
+/* ============================================================
+   Linhas de parcela (DFC / controle-financeiro)
+   Data + Valor + Remover: stack mobile, grid 3-col desktop
+   ============================================================ */
+.cf-installment-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  margin-bottom: 8px;
+  align-items: center;
+}
+.cf-installment-row > :first-child {
+  grid-column: 1 / -1;
+}
+@media (min-width: 640px) {
+  .cf-installment-row {
+    grid-template-columns: 1fr 1fr auto;
+  }
+  .cf-installment-row > :first-child {
+    grid-column: auto;
+  }
+}
+
+/* ============================================================
+   Linhas de produto/serviço com widths percentuais fixos
+   Mobile: wrap em coluna; Desktop: mantém row
+   ============================================================ */
+@media (max-width: 640px) {
+  .ps-row-flex {
+    flex-wrap: wrap !important;
+  }
+  .ps-row-flex > * {
+    flex: 1 1 100% !important;
+    width: 100% !important;
+  }
+  .ps-table-row {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 4px !important;
+    padding: 10px 0 !important;
+  }
+  .ps-table-row > * {
+    width: 100% !important;
+    text-align: left !important;
+  }
+}
+
+/* ============================================================
+   Agenda — colunas de funcionário/dia
+   Remove minWidth fixo em mobile para caber na tela
+   ============================================================ */
+@media (max-width: 640px) {
+  .agenda-employee-col,
+  .agenda-day-col,
+  .agenda-time-col {
+    min-width: 0 !important;
+  }
+  .agenda-scroll-wrap {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
 }

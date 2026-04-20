@@ -16,7 +16,6 @@ export default function SuperAdminLogin() {
   const [loadingSubmit, setLoadingSubmit] = useState(false)
   const [notSuperAdmin, setNotSuperAdmin] = useState(false)
 
-  // Após login: se for super_admin, redireciona para o painel
   useEffect(() => {
     if (!currentUser || loading) return
     const isSuperAdmin =
@@ -54,89 +53,29 @@ export default function SuperAdminLogin() {
       <Head>
         <title>{PAGE_TITLES.SUPER_ADMIN_LOGIN} | Precifica Certo</title>
         <meta name="description" content="Acesso restrito ao painel Super Admin" />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
         <link rel="icon" href="/favicon.ico" />
       </Head>
-      <main
-        style={{
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          flexDirection: 'column',
-          minHeight: '100vh',
-          background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%)',
-          padding: '16px',
-        }}
-      >
-        <div
-          style={{
-            position: 'fixed',
-            top: '-20%',
-            right: '-10%',
-            width: '500px',
-            height: '500px',
-            borderRadius: '50%',
-            background: 'radial-gradient(circle, rgba(99, 102, 241, 0.12) 0%, transparent 70%)',
-            pointerEvents: 'none',
-          }}
-        />
-        <div
-          style={{
-            position: 'fixed',
-            bottom: '-15%',
-            left: '-5%',
-            width: '400px',
-            height: '400px',
-            borderRadius: '50%',
-            background: 'radial-gradient(circle, rgba(99, 102, 241, 0.08) 0%, transparent 70%)',
-            pointerEvents: 'none',
-          }}
-        />
 
-        <div style={{ marginBottom: '32px', position: 'relative', zIndex: 1 }}>
+      <main className="auth-page super-admin-auth">
+        <div className="auth-page-glow auth-page-glow--tl super-admin-glow" />
+        <div className="auth-page-glow auth-page-glow--br super-admin-glow" />
+
+        <div className="auth-page-logo">
           <Image
             src="/logo-dark.svg"
             alt="Precifica Certo"
             width={200}
             height={130}
             priority
+            sizes="(max-width: 640px) 150px, 200px"
+            style={{ width: '100%', height: 'auto', maxWidth: 200 }}
           />
         </div>
 
-        <section
-          style={{
-            width: '100%',
-            maxWidth: '420px',
-            background: 'rgba(255, 255, 255, 0.98)',
-            borderRadius: '16px',
-            padding: '40px 32px',
-            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
-            border: '1px solid rgba(99, 102, 241, 0.2)',
-            position: 'relative',
-            zIndex: 1,
-          }}
-        >
-          <h1
-            style={{
-              fontSize: '24px',
-              fontWeight: 700,
-              color: '#f1f5f9',
-              marginBottom: '4px',
-              textAlign: 'center',
-            }}
-          >
-            Painel Super Admin
-          </h1>
-          <p
-            style={{
-              fontSize: '14px',
-              color: '#64748b',
-              marginBottom: '32px',
-              textAlign: 'center',
-            }}
-          >
-            Acesso restrito a super administradores
-          </p>
+        <section className="auth-card">
+          <h1 className="auth-card-title">Painel Super Admin</h1>
+          <p className="auth-card-subtitle">Acesso restrito a super administradores</p>
 
           {notSuperAdmin && (
             <Alert
@@ -158,9 +97,7 @@ export default function SuperAdminLogin() {
             initialValues={{ remember: true }}
             onFinish={onFinish}
             autoComplete="off"
-            onChange={() => {
-              setErrorMessage('')
-            }}
+            onChange={() => setErrorMessage('')}
             layout="vertical"
           >
             <Form.Item
@@ -197,41 +134,61 @@ export default function SuperAdminLogin() {
               loading={loadingSubmit}
               block
               size="large"
-              style={{ marginBottom: 16, background: '#4f46e5' }}
+              className="super-admin-submit"
+              style={{ marginBottom: 16 }}
             >
               Entrar no painel
             </Button>
           </Form>
 
-          <div
-            style={{
-              textAlign: 'center',
-              marginTop: 20,
-              paddingTop: 20,
-              borderTop: '1px solid #e2e8f0',
-            }}
-          >
-            <span style={{ fontSize: '14px', color: '#64748b' }}>
-              Não é super admin?{' '}
-            </span>
-            <Link href={ROUTES.LOGIN} style={{ fontSize: '14px', fontWeight: 600 }}>
-              Fazer login normal
-            </Link>
+          <div className="auth-card-divider">
+            <span>Não é super admin?{' '}</span>
+            <Link href={ROUTES.LOGIN}>Fazer login normal</Link>
           </div>
         </section>
 
-        <p
-          style={{
-            marginTop: '24px',
-            fontSize: '12px',
-            color: 'rgba(255,255,255,0.6)',
-            position: 'relative',
-            zIndex: 1,
-          }}
-        >
+        <p className="auth-footer-text">
           © {new Date().getFullYear()} Precifica Certo. Acesso restrito.
         </p>
       </main>
+
+      <style jsx>{`
+        .auth-card-divider {
+          text-align: center;
+          margin-top: 20px;
+          padding-top: 20px;
+          border-top: 1px solid rgba(255, 255, 255, 0.06);
+          font-size: 14px;
+          color: #94a3b8;
+        }
+        .auth-card-divider :global(a) {
+          font-weight: 600;
+          color: #4f46e5;
+        }
+      `}</style>
+
+      <style jsx global>{`
+        /* Tint indigo apenas neste super-admin */
+        .super-admin-auth {
+          background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+        }
+        .super-admin-glow--tl,
+        .super-admin-auth .auth-page-glow--tl {
+          background: radial-gradient(circle, rgba(99, 102, 241, 0.12) 0%, transparent 70%);
+        }
+        .super-admin-glow--br,
+        .super-admin-auth .auth-page-glow--br {
+          background: radial-gradient(circle, rgba(99, 102, 241, 0.08) 0%, transparent 70%);
+        }
+        .super-admin-auth .ant-btn-primary.super-admin-submit {
+          background: #4f46e5 !important;
+          border-color: #4f46e5 !important;
+        }
+        .super-admin-auth .ant-btn-primary.super-admin-submit:hover {
+          background: #4338ca !important;
+          border-color: #4338ca !important;
+        }
+      `}</style>
     </>
   )
 }

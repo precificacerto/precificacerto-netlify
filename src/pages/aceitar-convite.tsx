@@ -113,19 +113,22 @@ export default function AceitarConvite() {
             <>
                 <Head>
                     <title>Aceitar Convite | Precifica Certo</title>
-                    <meta name="viewport" content="width=device-width, initial-scale=1" />
+                    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
                     <link rel="icon" href="/favicon.ico" />
                 </Head>
-                <main style={{
-                    display: 'flex',
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                    flexDirection: 'column',
-                    minHeight: '100vh',
-                    background: '#0a1628',
-                }}>
-                    <Image src="/logo-dark.svg" alt="Precifica Certo" width={180} height={117} priority />
-                    <p style={{ marginTop: 24, color: '#94a3b8' }}>Carregando...</p>
+                <main className="auth-page">
+                    <div className="auth-page-logo">
+                        <Image
+                            src="/logo-dark.svg"
+                            alt="Precifica Certo"
+                            width={180}
+                            height={117}
+                            priority
+                            sizes="(max-width: 640px) 140px, 180px"
+                            style={{ width: '100%', height: 'auto', maxWidth: 180 }}
+                        />
+                    </div>
+                    <p style={{ marginTop: 8, color: '#94a3b8' }}>Carregando...</p>
                 </main>
             </>
         )
@@ -142,70 +145,30 @@ export default function AceitarConvite() {
         <>
             <Head>
                 <title>Complete seu cadastro | Precifica Certo</title>
-                <meta name="viewport" content="width=device-width, initial-scale=1" />
+                <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
                 <link rel="icon" href="/favicon.ico" />
             </Head>
             {contextHolder}
-            <main style={{
-                display: 'flex',
-                justifyContent: 'center',
-                alignItems: 'center',
-                flexDirection: 'column',
-                minHeight: '100vh',
-                background: '#0a1628',
-                padding: 16,
-            }}>
-                <div style={{
-                    position: 'fixed',
-                    top: '-20%',
-                    right: '-10%',
-                    width: 500,
-                    height: 500,
-                    borderRadius: '50%',
-                    background: 'radial-gradient(circle, rgba(34, 197, 94, 0.06) 0%, transparent 70%)',
-                    pointerEvents: 'none',
-                }} />
-                <div style={{
-                    position: 'fixed',
-                    bottom: '-15%',
-                    left: '-5%',
-                    width: 400,
-                    height: 400,
-                    borderRadius: '50%',
-                    background: 'radial-gradient(circle, rgba(34, 197, 94, 0.05) 0%, transparent 70%)',
-                    pointerEvents: 'none',
-                }} />
 
-                <div style={{ marginBottom: 24, position: 'relative', zIndex: 1 }}>
-                    <Image src="/logo-dark.svg" alt="Precifica Certo" width={200} height={130} priority />
+            <main className="auth-page">
+                <div className="auth-page-glow auth-page-glow--tl" />
+                <div className="auth-page-glow auth-page-glow--br" />
+
+                <div className="auth-page-logo">
+                    <Image
+                        src="/logo-dark.svg"
+                        alt="Precifica Certo"
+                        width={200}
+                        height={130}
+                        priority
+                        sizes="(max-width: 640px) 150px, 200px"
+                        style={{ width: '100%', height: 'auto', maxWidth: 200 }}
+                    />
                 </div>
 
-                <section style={{
-                    width: '100%',
-                    maxWidth: 420,
-                    background: '#111c2e',
-                    borderRadius: 16,
-                    padding: '40px 32px',
-                    boxShadow: '0px 4px 24px rgba(0,0,0,0.3)',
-                    border: '1px solid rgba(255,255,255,0.06)',
-                    position: 'relative',
-                    zIndex: 1,
-                }}>
-                    <h1 style={{
-                        fontSize: 24,
-                        fontWeight: 700,
-                        color: '#f1f5f9',
-                        marginBottom: 4,
-                        textAlign: 'center',
-                    }}>
-                        Complete seu cadastro
-                    </h1>
-                    <p style={{
-                        fontSize: 14,
-                        color: '#94a3b8',
-                        marginBottom: 32,
-                        textAlign: 'center',
-                    }}>
+                <section className="auth-card">
+                    <h1 className="auth-card-title">Complete seu cadastro</h1>
+                    <p className="auth-card-subtitle">
                         Você foi convidado para a plataforma. Defina sua senha e preencha seus dados.
                     </p>
 
@@ -269,13 +232,7 @@ export default function AceitarConvite() {
                     </Form>
                 </section>
 
-                <p style={{
-                    marginTop: 24,
-                    fontSize: 12,
-                    color: '#98A2B3',
-                    position: 'relative',
-                    zIndex: 1,
-                }}>
+                <p className="auth-footer-text">
                     © {new Date().getFullYear()} Precifica Certo
                 </p>
             </main>

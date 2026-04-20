@@ -118,7 +118,7 @@ export const ContentResale: FC<ContentResaleProps> = ({
             </Button>
           </Form>
         </div>
-        <Table pagination={false} columns={columns} dataSource={productItemsData} />
+        <Table pagination={false} columns={columns} dataSource={productItemsData} scroll={{ x: 'max-content' }} />
       </Card>
 
       <ProductPrice

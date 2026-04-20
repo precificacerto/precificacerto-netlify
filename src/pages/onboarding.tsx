@@ -639,7 +639,19 @@ export default function Onboarding() {
                 Localização da empresa — importante para cálculos de impostos regionais
               </p>
               <Form form={addressForm} layout="vertical">
-                <div style={{ display: 'grid', gridTemplateColumns: '200px 1fr 120px', gap: 16 }}>
+                <div className="onboarding-grid-cep">
+                  <style jsx>{`
+                    .onboarding-grid-cep {
+                      display: grid;
+                      grid-template-columns: 1fr;
+                      gap: 16px;
+                    }
+                    @media (min-width: 640px) {
+                      .onboarding-grid-cep {
+                        grid-template-columns: 200px 1fr 120px;
+                      }
+                    }
+                  `}</style>
                   <Form.Item
                     name="cep"
                     label="CEP"
@@ -687,7 +699,19 @@ export default function Onboarding() {
                   <Input placeholder="Rua / Avenida" />
                 </Form.Item>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr 1fr', gap: 16 }}>
+                <div className="onboarding-grid-num">
+                  <style jsx>{`
+                    .onboarding-grid-num {
+                      display: grid;
+                      grid-template-columns: 1fr;
+                      gap: 16px;
+                    }
+                    @media (min-width: 640px) {
+                      .onboarding-grid-num {
+                        grid-template-columns: 120px 1fr 1fr;
+                      }
+                    }
+                  `}</style>
                   <Form.Item name="number" label="Número">
                     <Input placeholder="Nº" />
                   </Form.Item>
@@ -1092,7 +1116,19 @@ export default function Onboarding() {
                       borderRadius: 8,
                       padding: '16px',
                     }}>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 140px', gap: 16 }}>
+                      <div className="onboarding-grid-ie">
+                        <style jsx>{`
+                          .onboarding-grid-ie {
+                            display: grid;
+                            grid-template-columns: 1fr;
+                            gap: 16px;
+                          }
+                          @media (min-width: 640px) {
+                            .onboarding-grid-ie {
+                              grid-template-columns: 1fr 140px;
+                            }
+                          }
+                        `}</style>
                         <Form.Item
                           name="inscricao_estadual"
                           label="Inscrição Estadual (IE)"

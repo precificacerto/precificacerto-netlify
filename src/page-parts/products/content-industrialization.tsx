@@ -119,8 +119,8 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
             </Button>
           </Form>
         </div>
-        <Table pagination={false} columns={columns} dataSource={productItemsData} />
-        <section className="flex items-center p-1 mt-3">
+        <Table pagination={false} columns={columns} dataSource={productItemsData} scroll={{ x: 'max-content' }} />
+        <section className="flex items-center p-1 mt-3 ps-row-flex">
           <div className="w-[36%] p-4">Mão de obra produtiva</div>
           <div className="w-[20%] p-1">
             <Input
@@ -128,7 +128,7 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
               placeholder="Inserir manualmente"
               autoComplete="off"
               suffix="Minuto(s)"
-              className="w-[89%]"
+              style={{ width: '100%' }}
               type="number"
               min={1}
               minLength={1}

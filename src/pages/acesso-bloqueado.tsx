@@ -32,32 +32,22 @@ export default function AcessoBloqueado() {
     <>
       <Head>
         <title>Acesso bloqueado | Precifica Certo</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
         <meta name="robots" content="noindex" />
       </Head>
-      <main
-        style={{
-          minHeight: '100vh',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          background: '#0a1628',
-          padding: 16,
-        }}
-      >
-        <section
-          style={{
-            width: '100%',
-            maxWidth: 560,
-            background: '#111c2e',
-            borderRadius: 16,
-            padding: '32px 28px',
-            border: '1px solid rgba(255, 255, 255, 0.06)',
-            boxShadow: '0 12px 30px rgba(0, 0, 0, 0.5)',
-            textAlign: 'center',
-          }}
-        >
+
+      <main className="auth-page">
+        <section className="auth-card auth-card--medium" style={{ textAlign: 'center' }}>
           <div style={{ marginBottom: 16 }}>
-            <Image src="/logo-dark.svg" alt="Precifica Certo" width={200} height={120} priority />
+            <Image
+              src="/logo-dark.svg"
+              alt="Precifica Certo"
+              width={200}
+              height={120}
+              priority
+              sizes="(max-width: 640px) 150px, 200px"
+              style={{ width: '100%', height: 'auto', maxWidth: 200 }}
+            />
           </div>
 
           {isPaymentOverdue && (
@@ -84,22 +74,42 @@ export default function AcessoBloqueado() {
             Você não poderá acessar as telas internas enquanto a situação da sua conta não for regularizada.
           </p>
 
-          <div style={{ display: 'flex', justifyContent: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <div className="acesso-bloqueado-actions">
             {isPaymentOverdue && (
-              <Button type="primary" size="large" onClick={handleGoToPlans}>
+              <Button type="primary" size="large" block onClick={handleGoToPlans}>
                 Regularizar pagamento na Stripe
               </Button>
             )}
-            <Button size="large" onClick={handleSupport}>
+            <Button size="large" block onClick={handleSupport}>
               Falar com suporte
             </Button>
-            <Button size="large" onClick={() => router.replace('/login')}>
+            <Button size="large" block onClick={() => router.replace('/login')}>
               Voltar para o login
             </Button>
           </div>
         </section>
       </main>
+
+      <style jsx>{`
+        .acesso-bloqueado-actions {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+
+        @media (min-width: 640px) {
+          .acesso-bloqueado-actions {
+            flex-direction: row;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 12px;
+          }
+          .acesso-bloqueado-actions :global(.ant-btn) {
+            flex: 1 1 auto;
+            min-width: 140px;
+          }
+        }
+      `}</style>
     </>
   )
 }
-

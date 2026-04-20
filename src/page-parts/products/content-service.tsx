@@ -190,7 +190,7 @@ export const ContentService: FC<ContentServiceProps> = ({
         <div className="flex items-center justify-between">
           <h1 className="text-2xl">Prestação de serviço</h1>
         </div>
-        <section className="flex items-center p-1">
+        <section className="flex items-center p-1 ps-row-flex">
           <div className="w-[36%] p-4">Mão de obra produtiva</div>
           <div className="w-[20%] p-1">
             <Input
@@ -198,7 +198,7 @@ export const ContentService: FC<ContentServiceProps> = ({
               placeholder="Inserir manualmente"
               autoComplete="off"
               suffix={getUnitMeasure()}
-              className="w-[89%]"
+              style={{ width: '100%' }}
               type="number"
               min={1}
               minLength={1}
@@ -326,7 +326,7 @@ export const ContentService: FC<ContentServiceProps> = ({
             <Button htmlType="submit" type="primary" className="ml-2">Incluir</Button>
           </Form>
         </div>
-        <Table pagination={false} columns={columns} dataSource={productItemsData} />
+        <Table pagination={false} columns={columns} dataSource={productItemsData} scroll={{ x: 'max-content' }} />
       </Card>
 
       {/* Product pricing */}

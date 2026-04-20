@@ -847,7 +847,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
 
                 {tempItems.length > 0 ? (
                     <>
-                        <Table columns={tempItemCols} dataSource={tempItems} rowKey="key" pagination={false} size="small" />
+                        <Table columns={tempItemCols} dataSource={tempItems} rowKey="key" pagination={false} size="small" scroll={{ x: 'max-content' }} />
                         <div style={{
                             display: 'flex', justifyContent: 'flex-end', alignItems: 'center',
                             padding: '10px 14px', borderRadius: 6, marginTop: 8,
@@ -888,7 +888,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                         </Tooltip>
                     </div>
                 )}
-                <div style={{ display: 'flex', alignItems: 'center' }}>
+                <div className="ps-row-flex" style={{ display: 'flex', alignItems: 'center' }}>
                     <div style={{ width: '36%', padding: '8px 16px', fontSize: 14 }}>Mão de obra produtiva</div>
                     <div style={{ width: '20%', padding: '4px 8px' }}>
                         <Form form={form}>

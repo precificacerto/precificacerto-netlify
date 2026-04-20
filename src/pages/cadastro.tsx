@@ -18,11 +18,6 @@ import { CheckOutlined, ArrowLeftOutlined, GiftOutlined } from '@ant-design/icon
 
 const TRIAL_DAYS = Number(process.env.NEXT_PUBLIC_STRIPE_TRIAL_DAYS) || 7
 
-/**
- * Cadastro por assinatura: faturamento → planos → nome/email → Stripe.
- * Não chama signup() do Supabase — nenhum usuário é criado como super_admin por esta página.
- * Após o pagamento, o webhook Stripe cria a tenant e o usuário como admin dessa tenant.
- */
 export default function Cadastro() {
   const [step, setStep] = useState<1 | 2 | 3>(1)
   const [revenueTier, setRevenueTier] = useState<RevenueTier | null>(null)
@@ -97,66 +92,36 @@ export default function Cadastro() {
     }
   }
 
-  const maxWidth = step === 2 ? 720 : 420
+  const cardSizeClass = step === 2 ? 'auth-card--wide' : ''
 
   return (
     <>
       <Head>
         <title>Assinar | Precifica Certo</title>
         <meta name="description" content="Assine o Precifica Certo e comece a precificar com precisão" />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
         <link rel="icon" href="/favicon.ico" />
       </Head>
-      <main
-        style={{
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          flexDirection: 'column',
-          minHeight: '100vh',
-          background: '#0a1628',
-          padding: '16px',
-        }}
-      >
-        <div style={{ marginBottom: '32px', position: 'relative', zIndex: 1 }}>
-          <Image src="/logo-dark.svg" alt="Precifica Certo" width={200} height={130} priority />
+
+      <main className="auth-page">
+        <div className="auth-page-logo">
+          <Image
+            src="/logo-dark.svg"
+            alt="Precifica Certo"
+            width={200}
+            height={130}
+            priority
+            sizes="(max-width: 640px) 150px, 200px"
+            style={{ width: '100%', height: 'auto', maxWidth: 200 }}
+          />
         </div>
 
-        <section
-          style={{
-            width: '100%',
-            maxWidth: maxWidth,
-            background: '#111c2e',
-            borderRadius: '16px',
-            padding: '40px 32px',
-            boxShadow: '0px 4px 24px rgba(0, 0, 0, 0.3)',
-            border: '1px solid rgba(255, 255, 255, 0.06)',
-            position: 'relative',
-            zIndex: 1,
-          }}
-        >
+        <section className={`auth-card ${cardSizeClass}`}>
           {/* Passo 1: Faturamento mensal */}
           {step === 1 && (
             <>
-              <h1
-                style={{
-                  fontSize: '24px',
-                  fontWeight: 700,
-                  color: '#f1f5f9',
-                  marginBottom: '8px',
-                  textAlign: 'center',
-                }}
-              >
-                Qual seu faturamento mensal?
-              </h1>
-              <p
-                style={{
-                  fontSize: '14px',
-                  color: '#94a3b8',
-                  marginBottom: '24px',
-                  textAlign: 'center',
-                }}
-              >
+              <h1 className="auth-card-title">Qual seu faturamento mensal?</h1>
+              <p className="auth-card-subtitle">
                 Com base nisso, exibimos os planos e valores disponíveis para você.
               </p>
               <Radio.Group
@@ -192,55 +157,25 @@ export default function Cadastro() {
               >
                 Voltar
               </Button>
-              <h1
-                style={{
-                  fontSize: '24px',
-                  fontWeight: 700,
-                  color: '#f1f5f9',
-                  marginBottom: '8px',
-                  textAlign: 'center',
-                }}
-              >
-                Escolha seu plano
-              </h1>
-              <p
-                style={{
-                  fontSize: '14px',
-                  color: '#94a3b8',
-                  marginBottom: '12px',
-                  textAlign: 'center',
-                }}
-              >
+              <h1 className="auth-card-title">Escolha seu plano</h1>
+              <p className="auth-card-subtitle" style={{ marginBottom: 12 }}>
                 {revenueTier === 'ate_200k'
                   ? 'Planos para faturamento até R$ 200.000,00/mês'
                   : 'Planos para faturamento acima de R$ 200.000,00/mês'}
               </p>
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 8,
-                  background: 'rgba(34, 197, 94, 0.1)',
-                  border: '1px solid rgba(34, 197, 94, 0.3)',
-                  borderRadius: 8,
-                  padding: '10px 16px',
-                  marginBottom: '24px',
-                }}
-              >
+              <div className="cadastro-trial-banner">
                 <GiftOutlined style={{ color: '#22C55E', fontSize: 18 }} />
-                <span style={{ fontSize: 14, color: '#4ade80', fontWeight: 600 }}>
-                  Teste grátis por {TRIAL_DAYS} dias — sem cobrança agora!
-                </span>
+                <span>Teste grátis por {TRIAL_DAYS} dias — sem cobrança agora!</span>
               </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, justifyContent: 'center' }}>
+
+              <div className="cadastro-plans-grid">
                 {plans.map((plan) => (
                   <Card
                     key={plan.slug}
                     hoverable
                     onClick={() => handlePlanSelect(plan)}
+                    className="cadastro-plan-card"
                     style={{
-                      width: 200,
                       border:
                         selectedPlan?.slug === plan.slug
                           ? '2px solid #22C55E'
@@ -259,12 +194,7 @@ export default function Cadastro() {
                       <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>
                         Pagamento recorrente mensal — cancele quando quiser
                       </div>
-                      <div
-                        style={{
-                          marginTop: 10,
-                          textAlign: 'left',
-                        }}
-                      >
+                      <div style={{ marginTop: 10, textAlign: 'left' }}>
                         {plan.features.slice(0, 5).map((feature) => (
                           <div
                             key={feature}
@@ -294,12 +224,15 @@ export default function Cadastro() {
                   </Card>
                 ))}
               </div>
+
               <div style={{ marginTop: 24, textAlign: 'center' }}>
                 <Button
                   type="primary"
                   size="large"
                   disabled={!selectedPlan}
                   onClick={() => selectedPlan && setStep(3)}
+                  block
+                  className="cadastro-cta"
                 >
                   Começar teste grátis{selectedPlan ? ` — ${selectedPlan.name}` : ''}
                 </Button>
@@ -318,43 +251,19 @@ export default function Cadastro() {
               >
                 Voltar
               </Button>
-              <h1
-                style={{
-                  fontSize: '24px',
-                  fontWeight: 700,
-                  color: '#f1f5f9',
-                  marginBottom: '4px',
-                  textAlign: 'center',
-                }}
-              >
-                Comece seu teste grátis
-              </h1>
-              <p
-                style={{
-                  fontSize: '14px',
-                  color: '#94a3b8',
-                  marginBottom: '12px',
-                  textAlign: 'center',
-                }}
-              >
+              <h1 className="auth-card-title">Comece seu teste grátis</h1>
+              <p className="auth-card-subtitle" style={{ marginBottom: 12 }}>
                 Plano <strong>{selectedPlan.name}</strong> — {formatPrice(selectedPlan.price)}/mês após o período de teste.
               </p>
-              <div
-                style={{
-                  background: 'rgba(34, 197, 94, 0.1)',
-                  border: '1px solid rgba(34, 197, 94, 0.3)',
-                  borderRadius: 8,
-                  padding: '12px 16px',
-                  marginBottom: '24px',
-                  textAlign: 'center',
-                }}
-              >
-                <p style={{ fontSize: 14, color: '#4ade80', margin: 0, fontWeight: 600 }}>
-                  {TRIAL_DAYS} dias grátis para testar a plataforma
-                </p>
-                <p style={{ fontSize: 12, color: '#86efac', margin: '4px 0 0' }}>
-                  Cadastre seu cartão para começar. Você só será cobrado após {TRIAL_DAYS} dias.
-                </p>
+              <div className="cadastro-trial-banner" style={{ marginBottom: 24 }}>
+                <div style={{ textAlign: 'center', width: '100%' }}>
+                  <p style={{ fontSize: 14, color: '#4ade80', margin: 0, fontWeight: 600 }}>
+                    {TRIAL_DAYS} dias grátis para testar a plataforma
+                  </p>
+                  <p style={{ fontSize: 12, color: '#86efac', margin: '4px 0 0' }}>
+                    Cadastre seu cartão para começar. Você só será cobrado após {TRIAL_DAYS} dias.
+                  </p>
+                </div>
               </div>
               <Form
                 form={form}
@@ -413,18 +322,59 @@ export default function Cadastro() {
           )}
         </section>
 
-        <p
-          style={{
-            marginTop: '24px',
-            fontSize: '12px',
-            color: '#64748b',
-            position: 'relative',
-            zIndex: 1,
-          }}
-        >
+        <p className="auth-footer-text">
           © {new Date().getFullYear()} Precifica Certo. Todos os direitos reservados.
         </p>
       </main>
+
+      <style jsx>{`
+        .cadastro-trial-banner {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          background: rgba(34, 197, 94, 0.1);
+          border: 1px solid rgba(34, 197, 94, 0.3);
+          border-radius: 8px;
+          padding: 10px 14px;
+          margin-bottom: 20px;
+          flex-wrap: wrap;
+          text-align: center;
+        }
+        .cadastro-trial-banner span {
+          font-size: 13px;
+          color: #4ade80;
+          font-weight: 600;
+        }
+
+        .cadastro-plans-grid {
+          display: grid;
+          grid-template-columns: 1fr;
+          gap: 12px;
+        }
+
+        @media (min-width: 520px) {
+          .cadastro-plans-grid {
+            grid-template-columns: repeat(2, 1fr);
+            gap: 16px;
+          }
+        }
+
+        @media (min-width: 900px) {
+          .cadastro-plans-grid {
+            grid-template-columns: repeat(3, 1fr);
+          }
+        }
+      `}</style>
+
+      <style jsx global>{`
+        .cadastro-plan-card {
+          width: 100% !important;
+        }
+        .cadastro-plan-card .ant-card-body {
+          padding: 16px !important;
+        }
+      `}</style>
     </>
   )
 }

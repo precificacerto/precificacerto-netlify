@@ -1514,7 +1514,7 @@ export default function ControleFinanceiro() {
                                     </Radio.Group>
                                 </div>
                                 {expInstallments.map((item, idx) => (
-                                    <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8, marginBottom: 8, alignItems: 'center' }}>
+                                    <div key={idx} className="cf-installment-row">
                                         <DatePicker
                                             placeholder="Data de vencimento"
                                             format="DD/MM/YYYY"
