@@ -2077,3 +2077,110 @@ body {
     line-height: 26px !important;
   }
 }
+
+/* ============================================================
+   Mobile Card View para tabelas AntD — sistêmico
+   Em ≤ 640px, cada linha vira um card vertical com o rótulo da
+   coluna acima do valor. Remove a necessidade de scroll horizontal.
+   Labels são injetados em runtime por src/lib/mobile-table-labels.ts.
+   Opt-out: adicionar classe .no-mobile-stack no .ant-table-wrapper.
+   ============================================================ */
+@media (max-width: 640px) {
+  .ant-table-wrapper:not(.no-mobile-stack) {
+    .ant-table,
+    .ant-table-container,
+    .ant-table-content,
+    .ant-table-body {
+      overflow: visible !important;
+    }
+
+    .ant-table-thead {
+      display: none !important;
+    }
+
+    .ant-table-tbody > tr.ant-table-row,
+    .ant-table-tbody > tr.ant-table-row-selected,
+    .ant-table-tbody > tr.ant-table-row-level-0 {
+      display: block !important;
+      width: 100% !important;
+      background: rgba(17, 28, 46, 0.65) !important;
+      border: 1px solid rgba(255, 255, 255, 0.08) !important;
+      border-radius: 10px !important;
+      padding: 10px 12px !important;
+      margin-bottom: 10px !important;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+    }
+
+    .ant-table-tbody > tr > td {
+      display: block !important;
+      width: 100% !important;
+      border: 0 !important;
+      border-bottom: 1px dashed rgba(255, 255, 255, 0.08) !important;
+      padding: 8px 0 !important;
+      text-align: left !important;
+      white-space: normal !important;
+      word-break: break-word;
+    }
+
+    .ant-table-tbody > tr > td:last-child {
+      border-bottom: 0 !important;
+      padding-bottom: 0 !important;
+    }
+
+    .ant-table-tbody > tr > td:first-child {
+      padding-top: 0 !important;
+    }
+
+    .ant-table-tbody > tr > td[data-label]::before {
+      content: attr(data-label);
+      display: block;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: #94a3b8;
+      margin-bottom: 4px;
+    }
+
+    /* Oculta células realmente vazias (colunas sem conteúdo) */
+    .ant-table-tbody > tr > td:empty {
+      display: none !important;
+    }
+
+    /* Preserva alinhamento nativo dos Space/Button internos */
+    .ant-table-tbody > tr > td .ant-space {
+      flex-wrap: wrap !important;
+    }
+
+    /* Remove fixed/sticky cells no mobile — atrapalha o card */
+    .ant-table-cell-fix-left,
+    .ant-table-cell-fix-right {
+      position: static !important;
+    }
+    .ant-table-cell-fix-left-last::after,
+    .ant-table-cell-fix-right-first::after {
+      display: none !important;
+    }
+
+    /* Footer/summary seguem visíveis como bloco */
+    .ant-table-summary {
+      display: block !important;
+    }
+    .ant-table-summary > tr {
+      display: block !important;
+      padding: 10px 12px !important;
+    }
+    .ant-table-summary > tr > td {
+      display: block !important;
+      border: 0 !important;
+      padding: 4px 0 !important;
+    }
+
+    /* Seletor de colspan em linhas "não-row" (expansão/empty) */
+    .ant-table-placeholder > td,
+    .ant-table-expanded-row > td {
+      display: block !important;
+      width: 100% !important;
+    }
+  }
+}

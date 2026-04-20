@@ -12,6 +12,7 @@ import { inter } from '@/styles/fonts'
 import { antThemeToken } from '@/styles/design-tokens'
 import { ROUTES } from '@/constants/routes'
 import { sessionStorageCacheProvider } from '@/lib/swr-cache-provider'
+import { initMobileTableLabels } from '@/lib/mobile-table-labels'
 
 const PUBLIC_ROUTES = [ROUTES.LOGIN, ROUTES.RESET_PASSWORD, ROUTES.SUPER_ADMIN_LOGIN, '/cadastro', '/criar-senha']
 const ONBOARDING_ROUTE = '/onboarding'
@@ -136,6 +137,11 @@ export default function App({ Component, pageProps }: AppProps) {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
   const timerRef = useRef<NodeJS.Timeout | null>(null)
+
+  useEffect(() => {
+    const teardown = initMobileTableLabels()
+    return teardown
+  }, [])
 
   useEffect(() => {
     const handleStart = () => {
