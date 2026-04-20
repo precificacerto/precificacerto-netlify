@@ -561,7 +561,7 @@ function Employees() {
                         <Input placeholder="Nome do funcionário" onChange={(e) => form.setFieldsValue({ name: capitalizeFirst(e.target.value) })} />
                     </Form.Item>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16 }}>
                         <Form.Item name="position" label="Cargo">
                             <Input placeholder="Ex: Cabeleireiro, Atendente..." onChange={(e) => form.setFieldsValue({ position: capitalizeFirst(e.target.value) })} />
                         </Form.Item>
@@ -574,7 +574,7 @@ function Employees() {
                         </Form.Item>
                     </div>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16 }}>
                         <Form.Item name="email" label="Email" rules={[{ required: true, message: 'Informe o email' }, { type: 'email', message: 'Email inválido' }]}>
                             <Input placeholder="email@exemplo.com" />
                         </Form.Item>
@@ -610,7 +610,7 @@ function Employees() {
                         />
                     </Form.Item>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16 }}>
                         <div>
                             <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 6 }}>Tabelas de Produto</div>
                             <Select
@@ -678,7 +678,7 @@ function Employees() {
 
                     <div style={{ background: 'rgba(255,255,255,0.04)', padding: 12, borderRadius: 8, marginBottom: 16 }}>
                         <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Carga Horária</div>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16 }}>
                             <Form.Item name="work_hours_per_day" label="Horas/Dia" style={{ marginBottom: 0 }}>
                                 <InputNumber min={1} max={24} style={{ width: '100%' }} />
                             </Form.Item>

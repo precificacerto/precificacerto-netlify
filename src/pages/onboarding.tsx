@@ -550,7 +550,7 @@ export default function Onboarding() {
                   <Input placeholder="Ex: Padaria São José" />
                 </Form.Item>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16 }}>
                   <Form.Item
                     name="cnpj_cpf"
                     label="CNPJ / CPF"
@@ -614,7 +614,7 @@ export default function Onboarding() {
                   </div>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16 }}>
                   <Form.Item name="email" label="Email da Empresa">
                     <Input placeholder="contato@empresa.com" />
                   </Form.Item>
@@ -710,7 +710,7 @@ export default function Onboarding() {
                 Essas informações são essenciais para calcular impostos e precificar corretamente
               </p>
               <Form form={taxForm} layout="vertical" initialValues={{ icms_contribuinte: false, sales_scope: 'INTRAESTADUAL' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16 }}>
                   <Form.Item
                     name="tax_regime"
                     label="Regime Tributário"
@@ -1170,7 +1170,7 @@ export default function Onboarding() {
                         <Select.Option value="REVENDA_COMBUSTIVEL">Revenda de combustíveis</Select.Option>
                       </Select>
                     </Form.Item>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16 }}>
                       <Form.Item
                         name="lp_irpj_presumption_percent"
                         label="Percentual de presunção para IRPJ (%)"
@@ -1232,7 +1232,7 @@ export default function Onboarding() {
                       ⚠️ <strong>Atenção:</strong> O Simples Híbrido é um regime de precificação comparativa do Precifica Certo e
                       não substitui seu regime tributário legal. Consulte seu contador antes de usar estas alíquotas para fins fiscais.
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16 }}>
                       <Form.Item
                         name="iss_municipality_rate"
                         label="Alíquota ISS municipal (%)"
@@ -1279,7 +1279,7 @@ export default function Onboarding() {
                       Informe as alíquotas-base do IVA DUAL. Elas serão usadas como referência para calcular as alíquotas efetivas
                       de IBS e CBS nos produtos e serviços, com base no fator de redução cadastrado em cada item.
                     </p>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16 }}>
                       <Form.Item
                         name="ibs_reference_pct"
                         label="IBS — Imposto sobre Bens e Serviços (%)"
@@ -1342,7 +1342,7 @@ export default function Onboarding() {
                   <p style={{ fontSize: 13, color: '#94a3b8', marginBottom: 16 }}>
                     Funcionários que atuam diretamente na produção, fabricação ou prestação de serviço
                   </p>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16 }}>
                     <Form.Item
                       name="num_productive_employees"
                       label="Quantidade de pessoas"
@@ -1392,7 +1392,7 @@ export default function Onboarding() {
                   <p style={{ fontSize: 13, color: '#94a3b8', marginBottom: 16 }}>
                     Funcionários de apoio: financeiro, RH, recepção, gestão, etc.
                   </p>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16 }}>
                     <Form.Item
                       name="num_administrative_employees"
                       label="Quantidade de pessoas"

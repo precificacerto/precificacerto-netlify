@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react'
-import { Button, Drawer, Form, Input, Select, Space, Table, Tag, message, Popconfirm, Spin, Tooltip } from 'antd'
+import { Button, Drawer, Form, Input, InputNumber, Modal, Select, Space, Switch, Table, Tag, message, Popconfirm, Spin, Tooltip } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
@@ -21,11 +21,13 @@ import {
     DownloadOutlined,
     ClockCircleOutlined,
     BookOutlined,
+    ReloadOutlined,
 } from '@ant-design/icons'
 import { cpf, cnpj } from 'cpf-cnpj-validator'
 import VMasker from 'vanilla-masker'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import { useAuth } from '@/hooks/use-auth.hook'
+import { recalcCustomerRecurrenceOnEdit } from '@/lib/customer-recurrence'
 
 const segments = ['Alimentício', 'Varejo', 'Tecnologia', 'Serviços', 'Indústria', 'Beleza', 'Saúde', 'Outros']
 
@@ -85,6 +87,11 @@ function Clients() {
     const [historyCustomerId, setHistoryCustomerId] = useState<string | null>(null)
     const [historyCustomerName, setHistoryCustomerName] = useState('')
     const [expandedEntryId, setExpandedEntryId] = useState<string | null>(null)
+    const [recurrenceModalOpen, setRecurrenceModalOpen] = useState(false)
+    const [recurrenceActive, setRecurrenceActive] = useState(false)
+    const [recurrenceDays, setRecurrenceDays] = useState<number | null>(null)
+    const [recurrenceMessage, setRecurrenceMessage] = useState('')
+    const [recurrenceSaving, setRecurrenceSaving] = useState(false)
 
     const { canView, canEdit } = usePermissions()
     const { currentUser, tenantId } = useAuth()
@@ -522,6 +529,10 @@ function Clients() {
     function handleEdit(record: Customer) {
         setEditingId(record.id)
         form.setFieldsValue(record)
+        const r = record as any
+        setRecurrenceActive(Boolean(r.recurrence_active))
+        setRecurrenceDays(r.recurrence_days ?? null)
+        setRecurrenceMessage(r.recurrence_message || '')
         setDrawerOpen(true)
     }
 
@@ -547,7 +558,66 @@ function Clients() {
         setEditingId(null)
         form.resetFields()
         form.setFieldsValue({ customer_type: 'PF', status: 'ACTIVE' })
+        setRecurrenceActive(false)
+        setRecurrenceDays(null)
+        setRecurrenceMessage('')
         setDrawerOpen(true)
+    }
+
+    async function handleSaveRecurrence() {
+        if (!editingId) {
+            messageApi.warning('Salve o cliente antes de configurar a recorrência.')
+            return
+        }
+        if (recurrenceActive) {
+            if (!recurrenceDays || recurrenceDays <= 0) {
+                messageApi.error('Informe o prazo em dias (maior que zero).')
+                return
+            }
+            if (!recurrenceMessage.trim()) {
+                messageApi.error('Escreva a mensagem que será enviada ao cliente.')
+                return
+            }
+        }
+
+        try {
+            setRecurrenceSaving(true)
+            const tenant_id = tenantId ?? currentUser?.tenant_id
+            if (!tenant_id) {
+                messageApi.error('Sessão expirada. Faça logout e login novamente.')
+                return
+            }
+
+            const { error } = await (supabase as any)
+                .from('customers')
+                .update({
+                    recurrence_active: recurrenceActive,
+                    recurrence_days: recurrenceActive ? recurrenceDays : null,
+                    recurrence_message: recurrenceActive ? recurrenceMessage : null,
+                    updated_at: new Date().toISOString(),
+                })
+                .eq('id', editingId)
+            if (error) throw error
+
+            const userId = currentUser?.uid
+            if (userId) {
+                await recalcCustomerRecurrenceOnEdit({
+                    supabase,
+                    tenantId: tenant_id,
+                    customerId: editingId,
+                    userId,
+                })
+            }
+
+            await reloadCustomers()
+            messageApi.success(recurrenceActive ? 'Recorrência configurada!' : 'Recorrência desativada.')
+            setRecurrenceModalOpen(false)
+        } catch (err: any) {
+            console.error('Erro ao salvar recorrência:', err)
+            messageApi.error('Erro ao salvar recorrência: ' + (err.message || 'tente novamente'))
+        } finally {
+            setRecurrenceSaving(false)
+        }
     }
 
     async function handleSave() {
@@ -813,7 +883,7 @@ function Clients() {
                         <Input placeholder="Nome completo ou razão social" onChange={(e) => form.setFieldsValue({ name: capitalizeFirst(e.target.value) })} />
                     </Form.Item>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16 }}>
                         <Form.Item name="customer_type" label="Tipo" rules={[{ required: true }]}>
                             <Select onChange={() => form.setFieldsValue({ document: '' })}>
                                 <Select.Option value="PF">Pessoa Física</Select.Option>
@@ -883,7 +953,7 @@ function Clients() {
                         <Input placeholder="Rua, número, complemento" />
                     </Form.Item>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16 }}>
                         <Form.Item name="city" label="Cidade">
                             <Input placeholder="Cidade" />
                         </Form.Item>
@@ -892,7 +962,7 @@ function Clients() {
                         </Form.Item>
                     </div>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16 }}>
                         <Form.Item name="segment" label="Segmento">
                             <Select placeholder="Selecione" allowClear>
                                 {segments.map(s => <Select.Option key={s} value={s}>{s}</Select.Option>)}
@@ -919,6 +989,24 @@ function Clients() {
                     </Form.Item>
 
                     {editingId && (
+                        <div style={{ background: 'linear-gradient(135deg, rgba(122,90,248,0.08), rgba(122,90,248,0.02))', border: '1px solid rgba(122,90,248,0.18)', padding: 12, borderRadius: 8, marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                            <div>
+                                <div style={{ fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
+                                    <ReloadOutlined style={{ color: '#7A5AF8' }} /> Recorrência de Contato
+                                </div>
+                                <div style={{ fontSize: 11, color: 'var(--color-neutral-400)', marginTop: 2 }}>
+                                    {recurrenceActive && recurrenceDays
+                                        ? `Ativa — disparo ${recurrenceDays} dias após o último pedido`
+                                        : 'Configure uma mensagem e um prazo em dias para disparo automático via WhatsApp.'}
+                                </div>
+                            </div>
+                            <Button icon={<ReloadOutlined />} onClick={() => setRecurrenceModalOpen(true)}>
+                                {recurrenceActive ? 'Editar' : 'Configurar'}
+                            </Button>
+                        </div>
+                    )}
+
+                    {editingId && (
                         <>
                             <div style={{ marginTop: 24, paddingTop: 16, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
                                 <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -934,6 +1022,54 @@ function Clients() {
                     )}
                 </Form>
             </Drawer>
+
+            {/* Recurrence Modal */}
+            <Modal
+                title={<span><ReloadOutlined style={{ marginRight: 8, color: '#7A5AF8' }} />Recorrência de Contato</span>}
+                open={recurrenceModalOpen}
+                onCancel={() => setRecurrenceModalOpen(false)}
+                onOk={handleSaveRecurrence}
+                okText="Salvar"
+                cancelText="Cancelar"
+                confirmLoading={recurrenceSaving}
+                destroyOnClose
+            >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+                    <Switch checked={recurrenceActive} onChange={setRecurrenceActive} />
+                    <span style={{ fontSize: 13 }}>
+                        {recurrenceActive ? 'Recorrência ativa' : 'Recorrência desativada'}
+                    </span>
+                </div>
+
+                <div style={{ marginBottom: 16 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Prazo para disparo (dias)</div>
+                    <InputNumber
+                        min={1}
+                        placeholder="Ex.: 30"
+                        value={recurrenceDays ?? undefined}
+                        onChange={(v) => setRecurrenceDays(typeof v === 'number' ? v : null)}
+                        style={{ width: '100%' }}
+                        disabled={!recurrenceActive}
+                    />
+                    <div style={{ fontSize: 11, color: 'var(--color-neutral-400)', marginTop: 4 }}>
+                        Contado a partir do último pedido do cliente. Uma nova venda zera o timer.
+                    </div>
+                </div>
+
+                <div>
+                    <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Mensagem</div>
+                    <Input.TextArea
+                        rows={5}
+                        placeholder="Ex.: Olá {{nome_cliente}}, sentimos sua falta! Passando para manter contato."
+                        value={recurrenceMessage}
+                        onChange={(e) => setRecurrenceMessage(e.target.value)}
+                        disabled={!recurrenceActive}
+                    />
+                    <div style={{ fontSize: 11, color: 'var(--color-neutral-400)', marginTop: 4 }}>
+                        Placeholder disponível: <code>{'{{nome_cliente}}'}</code>. A mensagem será enviada via WhatsApp (WuzAPI).
+                    </div>
+                </div>
+            </Modal>
 
             {/* History Drawer */}
             <Drawer

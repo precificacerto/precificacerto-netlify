@@ -842,7 +842,7 @@ export default function ControleFinanceiro() {
                         key: 'graficos',
                         children: (
                             <div style={{ display: 'grid', gap: 24 }}>
-                                <div style={{ display: 'grid', gridTemplateColumns: '3fr 2fr', gap: 24 }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 24 }}>
                                     <div className="pc-card" style={{ padding: 24 }}>
                                         <h4 style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 700 }}>Receitas x Despesas</h4>
                                         <p style={{ fontSize: 12, color: '#94a3b8', margin: '0 0 16px' }}>{month.format('MMMM YYYY')}</p>
@@ -1209,7 +1209,7 @@ export default function ControleFinanceiro() {
                     >
                         <Input placeholder="Ex: Conta de luz da loja" />
                     </Form.Item>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
                         <Form.Item
                             name="amount"
                             label="Valor (R$)"
@@ -1303,7 +1303,7 @@ export default function ControleFinanceiro() {
                             )}
                         </div>
 
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20 }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12, marginBottom: 20 }}>
                             <div>
                                 <div style={{ fontWeight: 500, marginBottom: 6 }}>Novo Valor (opcional)</div>
                                 <Input
@@ -1540,7 +1540,7 @@ export default function ControleFinanceiro() {
                                 )}
                             </div>
                         ) : (
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
                             <Form.Item name="parcelas" label="Número de parcelas" initialValue={1}>
                                 <InputNumber min={1} max={120} style={{ width: '100%' }} />
                             </Form.Item>

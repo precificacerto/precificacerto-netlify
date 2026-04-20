@@ -1320,7 +1320,7 @@ export default function CashFlow() {
                     {isLrCustoProdutos && (
                         <div style={{ marginBottom: 16, padding: '12px 14px', background: 'rgba(99,102,241,0.06)', borderRadius: 6, border: '1px solid rgba(99,102,241,0.2)' }}>
                             <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 10 }}>Impostos recuperáveis (informativo — registrados no Hub)</div>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
                                 <div>
                                     <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Valor ICMS</div>
                                     <InputNumber
@@ -1431,7 +1431,7 @@ export default function CashFlow() {
                     ) : (
                         <>
                             <div style={{ marginBottom: 8, color: '#94a3b8', fontSize: 13, fontWeight: 500 }}>Condição de Pagamento</div>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
                                 <Form.Item name="parcelas" label="Número de parcelas" initialValue={1}>
                                     <InputNumber min={1} max={120} style={{ width: '100%' }} placeholder="1 = à vista" />
                                 </Form.Item>

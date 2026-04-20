@@ -30,6 +30,7 @@ import {
     type InstallmentPresetValue,
     type InstallmentRow,
 } from '@/components/payment-with-installments.component'
+import { syncCustomerRecurrenceOnSale } from '@/lib/customer-recurrence'
 
 dayjs.extend(isoWeek)
 dayjs.locale('pt-br')
@@ -1053,6 +1054,18 @@ function Schedule() {
                 }
             }
 
+            // Customer-level recurrence — any sale resets/creates a dispatch based on customer.recurrence_days
+            if (payEvt.customer_id && agendaSale?.id) {
+                await syncCustomerRecurrenceOnSale({
+                    supabase,
+                    tenantId: tid,
+                    customerId: payEvt.customer_id,
+                    saleId: agendaSale.id,
+                    saleDate: dayjs().format('YYYY-MM-DD'),
+                    userId: createdBy,
+                })
+            }
+
             msgApi.success('Serviço concluído e lançado no caixa!')
             const wasLastRecurrence = isLastRecurrence
             setPayOpen(false); setPayEvt(null); setExtraProds([]); setAttachFile(null); setAttachDesc(''); setCustomInstallments([{ date: null, amount: 0 }]); setInstallmentPreset('customizado'); setPayTableSections([{key: 'pts-0', tableId: null}]); setIsLastRecurrence(false)
@@ -1797,7 +1810,7 @@ function Schedule() {
                     )}
 
                     <Form.Item name="title" label="Serviço / Título" rules={[{ required: true, message: 'Informe o serviço' }]}><Input placeholder="Ex: Corte, Tintura, Escova..." /></Form.Item>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
                         <Form.Item name="date" label="Data" rules={[{ required: true }]}><DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" /></Form.Item>
                         <Form.Item name="time" label="Horário" rules={[{ required: true }]}><TimePicker style={{ width: '100%' }} format="HH:mm" minuteStep={5} /></Form.Item>
                     </div>
@@ -1910,7 +1923,7 @@ function Schedule() {
                         </div>
 
                         <Form form={payForm} layout="vertical" onValuesChange={(changed) => { if ('amount_paid' in changed) setSplitAmountPaid(Number(changed.amount_paid) || 0) }}>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
                                 <Form.Item name="base_price" label="Valor do Serviço (R$)" rules={[{ required: true }]}>
                                     <InputNumber style={{ width: '100%' }} min={0 as number} step={0.5} precision={2} size="large"
                                         formatter={(v) => `${v}`.replace('.', ',')} parser={(v) => Number((v || '0').replace(',', '.'))}
@@ -2053,7 +2066,7 @@ function Schedule() {
                                     <span style={{ fontWeight: 600 }}><DollarOutlined style={{ marginRight: 4 }} />Pagamento Parcelado / Dividido</span>
                                 </Checkbox>
                                 {isSplitPay && (
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 8, padding: 12, background: '#EFF6FF', borderRadius: 8, border: '1px solid #BFDBFE' }}>
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginTop: 8, padding: 12, background: '#EFF6FF', borderRadius: 8, border: '1px solid #BFDBFE' }}>
                                         <Form.Item name="amount_paid" label={<span style={{ color: '#000' }}>Valor pago agora (R$)</span>} style={{ margin: 0 }}>
                                             <InputNumber style={{ width: '100%' }} min={0 as number} step={0.5} precision={2}
                                                 formatter={(v) => `${v}`.replace('.', ',')} parser={(v) => Number((v || '0').replace(',', '.'))} />

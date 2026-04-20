@@ -1494,3 +1494,212 @@ body {
   0%, 100% { box-shadow: 0 0 0 0 rgba(22, 163, 74, 0.7); }
   50% { box-shadow: 0 0 0 8px rgba(22, 163, 74, 0); }
 }
+
+/* ============================================================
+   MOBILE OVERRIDES — Aplicado em larguras <= 640px (celular real)
+   Mantém breakpoints existentes de 768px (tablet) e 480px (KPI single col)
+   Objetivo: impedir que grids inline, drawers/modais e tabelas ocupem
+   mais que a viewport e reduzir tamanhos (padding/fontes) para caber.
+   ============================================================ */
+@media (max-width: 640px) {
+  /* --- Grids inline (style={{ gridTemplateColumns: ... }}) empilham em 1 coluna --- */
+  [style*="grid-template-columns"],
+  [style*="gridTemplateColumns"] {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* --- KPI cards: 1 coluna em celular real --- */
+  .kpi-grid {
+    grid-template-columns: 1fr !important;
+    gap: 10px !important;
+  }
+
+  /* --- Cartões / containers --- */
+  .pc-card {
+    padding: 16px !important;
+    border-radius: 12px !important;
+  }
+  .pc-card--table {
+    padding: 0 !important;
+  }
+
+  /* --- Conteúdo da página --- */
+  .app-content {
+    padding: 12px !important;
+  }
+
+  /* --- Filter bar: vertical, sem maxWidth fixo --- */
+  .filter-bar {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 8px !important;
+    padding: 12px !important;
+  }
+  .filter-bar > * {
+    max-width: 100% !important;
+    width: 100% !important;
+  }
+
+  /* --- Drawer Ant Design: largura total --- */
+  .ant-drawer .ant-drawer-content-wrapper {
+    max-width: 100vw !important;
+    width: 100vw !important;
+  }
+  .ant-drawer .ant-drawer-body {
+    padding: 16px !important;
+  }
+  .ant-drawer .ant-drawer-header {
+    padding: 12px 16px !important;
+  }
+  .ant-drawer .ant-drawer-title {
+    font-size: 15px !important;
+  }
+
+  /* --- Modal: respeitar a viewport --- */
+  .ant-modal {
+    max-width: calc(100vw - 16px) !important;
+    margin: 8px auto !important;
+    top: 8px !important;
+    padding-bottom: 0 !important;
+  }
+  .ant-modal .ant-modal-content {
+    padding: 16px !important;
+    border-radius: 12px !important;
+  }
+  .ant-modal .ant-modal-body {
+    max-height: calc(100vh - 180px) !important;
+    overflow-y: auto !important;
+  }
+  .ant-modal .ant-modal-header {
+    padding: 12px 16px !important;
+  }
+  .ant-modal .ant-modal-title {
+    font-size: 15px !important;
+  }
+  .ant-modal .ant-modal-footer {
+    padding: 10px 16px !important;
+  }
+
+  /* --- Popover / Dropdown --- */
+  .ant-popover,
+  .ant-dropdown {
+    max-width: calc(100vw - 16px) !important;
+  }
+
+  /* --- Tabelas: scroll horizontal sem quebrar layout --- */
+  .ant-table-wrapper {
+    max-width: 100% !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+  .ant-table {
+    font-size: 12px !important;
+  }
+  .ant-table-thead > tr > th,
+  .ant-table-tbody > tr > td {
+    padding: 8px 6px !important;
+    white-space: nowrap;
+  }
+  .ant-table-pagination {
+    flex-wrap: wrap !important;
+    gap: 6px !important;
+    justify-content: center !important;
+  }
+
+  /* --- Forms: espaçamento reduzido --- */
+  .ant-form-item {
+    margin-bottom: 12px !important;
+  }
+  .ant-form-item-label > label {
+    font-size: 12px !important;
+  }
+
+  /* --- Inputs / Selects: largura plena --- */
+  .ant-input,
+  .ant-input-affix-wrapper,
+  .ant-input-number,
+  .ant-select,
+  .ant-picker {
+    width: 100% !important;
+  }
+  .ant-input-number {
+    min-width: 0 !important;
+  }
+
+  /* --- Botões: evitar overflow e empilhar em Space horizontal --- */
+  .ant-space-horizontal {
+    flex-wrap: wrap !important;
+    row-gap: 6px !important;
+  }
+  .ant-btn {
+    font-size: 13px !important;
+  }
+
+  /* --- Layout page header: empilha --- */
+  .page-header-row {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 10px !important;
+  }
+
+  /* --- KPI card valores: encolhe --- */
+  .kpi-card-value,
+  [class*="value"][class*="card-kpi"] {
+    font-size: 22px !important;
+  }
+
+  /* --- Tabs: scroll horizontal --- */
+  .ant-tabs-nav {
+    overflow-x: auto !important;
+  }
+  .ant-tabs-tab {
+    padding: 8px 10px !important;
+    font-size: 13px !important;
+  }
+
+  /* --- Statistic do AntD (cards com números grandes) --- */
+  .ant-statistic-content {
+    font-size: 20px !important;
+  }
+  .ant-statistic-title {
+    font-size: 11px !important;
+  }
+
+  /* --- Descriptions (detalhes): 1 coluna --- */
+  .ant-descriptions-view {
+    overflow-x: auto !important;
+  }
+
+  /* --- Steps: horizontal vira vertical (evita corte) --- */
+  .ant-steps-horizontal:not(.ant-steps-label-vertical) {
+    flex-direction: column !important;
+  }
+
+  /* --- Segmented: permitir quebra/scroll --- */
+  .ant-segmented {
+    overflow-x: auto !important;
+    max-width: 100% !important;
+  }
+
+  /* --- Evita overflow horizontal no body inteiro --- */
+  body {
+    overflow-x: hidden;
+  }
+}
+
+/* Ajustes finos extra para telas muito pequenas (< 400px) */
+@media (max-width: 400px) {
+  .app-content {
+    padding: 8px !important;
+  }
+  .pc-card {
+    padding: 12px !important;
+  }
+  .ant-btn {
+    font-size: 12px !important;
+    padding: 4px 10px !important;
+  }
+  h1, .h1 { font-size: 18px !important; }
+  h2, .h2 { font-size: 16px !important; }
+  h3, .h3 { font-size: 14px !important; }
+}

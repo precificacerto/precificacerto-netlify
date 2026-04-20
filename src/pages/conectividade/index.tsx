@@ -492,7 +492,7 @@ function Conectividade() {
                             style={{ borderRadius: 8, marginBottom: 20 }}
                         />
 
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 20, marginBottom: 20 }}>
                             <Card
                                 size="small"
                                 style={{ borderRadius: 12, border: '1px solid rgba(37,211,102,0.2)', background: 'rgba(37,211,102,0.02)' }}

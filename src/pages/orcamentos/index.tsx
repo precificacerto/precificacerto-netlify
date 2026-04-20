@@ -32,6 +32,7 @@ import {
 } from '@/components/payment-with-installments.component'
 import dayjs from 'dayjs'
 import { formatBRL } from '@/utils/formatters'
+import { syncCustomerRecurrenceOnSale } from '@/lib/customer-recurrence'
 
 const formatCurrency = formatBRL
 
@@ -1132,6 +1133,18 @@ function Budgets() {
                 })
             }
 
+            // Customer-level recurrence — any sale resets/creates a dispatch based on customer.recurrence_days
+            if (selectedBudget.customer_id) {
+                await syncCustomerRecurrenceOnSale({
+                    supabase,
+                    tenantId: tenant_id,
+                    customerId: selectedBudget.customer_id,
+                    saleId: sale.id,
+                    saleDate: dayjs().format('YYYY-MM-DD'),
+                    userId: createdBy,
+                })
+            }
+
             messageApi.success('🎉 Orçamento finalizado! Venda registrada, estoque atualizado e lançamento no caixa criado.')
             setPaymentModalOpen(false)
             setDetailDrawerOpen(false)
@@ -1777,7 +1790,7 @@ function Budgets() {
                     {maxDiscountPercent > 0 && budgetTotal > 0 && (
                         <div style={{ marginTop: 8, padding: '12px 16px', background: 'rgba(99, 102, 241, 0.08)', border: '1px solid rgba(99, 102, 241, 0.25)', borderRadius: 8 }}>
                             <div style={{ fontSize: 12, fontWeight: 600, color: '#a5b4fc', marginBottom: 8 }}>Distribuição do resultado</div>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 8 }}>
                                 <div style={{ padding: '8px 12px', background: 'rgba(99,102,241,0.12)', borderRadius: 6 }}>
                                     <div style={{ fontSize: 11, color: '#94a3b8' }}>Comissão do Vendedor</div>
                                     <div style={{ fontSize: 16, fontWeight: 700, color: '#818cf8' }}>{formatCurrency(commissionAmount)}</div>

@@ -1431,7 +1431,7 @@ export const Content: FC<ContentProps> = ({
           </Form.Item>
 
           {/* Linha 1: Nome | Seção | NCM (+ Código se editando) */}
-          <div style={{ display: 'grid', gridTemplateColumns: isEditingMode ? 'repeat(4, 1fr)' : 'repeat(3, 1fr)', gap: 16 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isEditingMode ? 'repeat(auto-fit, minmax(180px, 1fr))' : 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16 }}>
             {isEditingMode && (
               <Form.Item
                 name="code"
@@ -1496,7 +1496,7 @@ export const Content: FC<ContentProps> = ({
           </div>
 
           {/* Linha 2: Unidade de Medida | Quantidade | Estoque mínimo */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16 }}>
             <Form.Item
               name="unitType"
               label="Unidade de Medida"
@@ -1538,7 +1538,7 @@ export const Content: FC<ContentProps> = ({
           </div>
 
           {/* Linha 3: Ativar Recorrência */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
             <Form.Item
               label={
                 <span>
@@ -1726,7 +1726,7 @@ export const Content: FC<ContentProps> = ({
           Contexto da Venda (para cálculo de impostos)
         </Divider>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16 }}>
           <div>
             <label style={{ display: 'block', marginBottom: 6, fontWeight: 500, fontSize: 13 }}>
               Onde vende?&nbsp;

@@ -167,7 +167,7 @@ const NewPaymentRevenueForm = ({ form, year, month, type, onClickDelete, regime 
                 ]}
               />
             </Form.Item>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
               <Form.Item name="start_month" label="Mês início">
                 <DatePicker picker="month" placeholder="Mês atual" format="MM/YYYY" style={{ width: '100%' }} />
               </Form.Item>

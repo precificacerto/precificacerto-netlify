@@ -447,7 +447,7 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
       </Divider>
 
       {/* Linha 1: Unidade de medida | QTD. Medida | Valor unitário */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, alignItems: 'end' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, alignItems: 'end' }}>
         <Form.Item
           name="unitType"
           label="Unidade de medida"
@@ -516,7 +516,7 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
       {/* Linha de impostos 1 (Lucro Real / Lucro Presumido): ICMS | ICMS Deferido | Impostos Recuperáveis */}
       {isLucroRealOrLP && (
         <>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, alignItems: 'end' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, alignItems: 'end' }}>
             <Form.Item
               name="icms_rate"
               label={
@@ -603,7 +603,7 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
 
           {/* Linha de impostos 2 (Lucro Real): PIS/COFINS unificado, padrão 9,25% (1,65% + 7,6%), editável */}
           {isLucroReal && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, alignItems: 'end' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, alignItems: 'end' }}>
               <Form.Item
                 label={
                   <span>
@@ -644,7 +644,7 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
 
           {/* Linha de impostos 2 (Simples Híbrido): PIS | COFINS não-cumulativo (vindos do NCM) */}
           {isSimplesHibrido && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, alignItems: 'end' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, alignItems: 'end' }}>
               <Form.Item
                 name="pis_rate"
                 label={
@@ -702,7 +702,7 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
           )}
 
           {/* Linha de impostos 3 (Lucro Real / Lucro Presumido): Valor custo líquido | QTD. Comprado | Estoque mínimo */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, alignItems: 'end' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, alignItems: 'end' }}>
             <Form.Item
               label={
                 <span>
@@ -731,7 +731,7 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
 
       {/* Linha QTD + Estoque para não-Lucro Real e não-Lucro Presumido */}
       {!isLucroRealOrLP && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16, alignItems: 'start' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16, alignItems: 'start' }}>
           {quantidadeField}
           {estoqueField}
         </div>
@@ -795,7 +795,7 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
         <Form.Item name="supplier_name" label="Fornecedor">
           <Input placeholder="Nome do fornecedor" onChange={(e) => form.setFieldsValue({ supplier_name: capitalizeFirst(e.target.value) })} />
         </Form.Item>

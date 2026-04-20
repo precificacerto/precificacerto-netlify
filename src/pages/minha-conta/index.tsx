@@ -125,7 +125,7 @@ function MyAccount() {
                                     }
                                 />
                             </Form.Item>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16 }}>
                                 <Form.Item name="phone" label="Telefone (pessoal)">
                                     <Input placeholder="(00) 00000-0000" />
                                 </Form.Item>

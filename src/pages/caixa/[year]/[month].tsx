@@ -623,7 +623,7 @@ function Cashier() {
       {warningMessage && <Alert style={{ marginBottom: 8 }} message={warningMessage} type="warning" />}
       {alertMessage && <Alert style={{ marginBottom: 16 }} message={alertMessage} type="error" />}
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16, marginBottom: 24 }}>
         {renderTable(PAYMENT_REVENUE_TITLE_TYPE.INCOME)}
         {renderTable(PAYMENT_REVENUE_TITLE_TYPE.EXPENSE)}
       </div>
@@ -651,7 +651,7 @@ function Cashier() {
         <div style={{ marginBottom: 16 }}>
           <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Resumo</h3>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 24 }}>
           <div>{renderSummaryData('Receitas', incomeData)}</div>
           <div>{renderSummaryData('Despesas', expenseData, true)}</div>
         </div>

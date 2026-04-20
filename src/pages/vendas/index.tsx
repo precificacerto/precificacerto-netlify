@@ -30,6 +30,7 @@ import {
     type InstallmentPresetValue,
     type InstallmentRow,
 } from '@/components/payment-with-installments.component'
+import { syncCustomerRecurrenceOnSale } from '@/lib/customer-recurrence'
 
 const PAYMENT_METHODS = [
     { value: 'PIX', label: '⚡ PIX' },
@@ -561,6 +562,18 @@ function Sales() {
                 }
             }
 
+            // Customer-level recurrence — any sale resets/creates a dispatch based on customer.recurrence_days
+            if (selectedBudget.customer_id) {
+                await syncCustomerRecurrenceOnSale({
+                    supabase,
+                    tenantId,
+                    customerId: selectedBudget.customer_id,
+                    saleId: sale.id,
+                    saleDate: values.sale_date ? dayjs(values.sale_date).format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'),
+                    userId: createdBy,
+                })
+            }
+
             messageApi.success('Venda registrada com sucesso!')
             setRegisterModalOpen(false)
             setRegisterReceiptFile([])
@@ -1037,6 +1050,18 @@ function Sales() {
                         })
                     }
                 }
+            }
+
+            // 7) Customer-level recurrence — any sale resets/creates a dispatch based on customer.recurrence_days
+            if (values.customer_id) {
+                await syncCustomerRecurrenceOnSale({
+                    supabase,
+                    tenantId,
+                    customerId: values.customer_id,
+                    saleId: sale.id,
+                    saleDate: values.sale_date ? values.sale_date.format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'),
+                    userId: createdBy,
+                })
             }
 
             messageApi.success('Venda registrada! Estoque atualizado e receita lançada no caixa.')
@@ -1653,7 +1678,7 @@ function Sales() {
                                         <span style={{ fontWeight: 600 }}>Pagamento Parcelado</span>
                                     </Checkbox>
                                     {isSplitPay && (
-                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 8, padding: 12, background: '#EFF6FF', borderRadius: 8, border: '1px solid #BFDBFE' }}>
+                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginTop: 8, padding: 12, background: '#EFF6FF', borderRadius: 8, border: '1px solid #BFDBFE' }}>
                                             <Form.Item name="amount_paid" label={<span style={{ color: '#000' }}>Valor pago agora (R$)</span>} style={{ margin: 0 }}>
                                                 <InputNumber style={{ width: '100%' }} min={0 as number} step={0.5} precision={2}
                                                     formatter={(v) => `${v}`.replace('.', ',')} parser={(v) => Number((v || '0').replace(',', '.'))} />

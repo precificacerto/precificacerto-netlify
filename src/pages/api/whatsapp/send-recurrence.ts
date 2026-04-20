@@ -65,7 +65,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 user_id,
                 tenant_id,
                 recurrence_records(
-                    id, customer_id, product_id, service_id, type, amount,
+                    id, customer_id, product_id, service_id, type, amount, custom_message,
                     customers(name, whatsapp_phone, phone),
                     products(name),
                     services(name)
@@ -105,24 +105,31 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             return res.status(200).json({ message: 'No WhatsApp token for user', dispatched: 0 })
         }
 
-        // Get message template
-        const { data: msgTemplate } = await supabaseAdmin
-            .from('recurrence_messages')
-            .select('message_products, message_services')
-            .eq('tenant_id', dispatch.tenant_id)
-            .eq('user_id', dispatch.user_id)
-            .maybeSingle()
-
-        const template = record.type === 'PRODUCT'
-            ? (msgTemplate?.message_products || 'Olá {{nome_cliente}}, gostaríamos de lembrá-lo sobre {{nome_produto}}.')
-            : (msgTemplate?.message_services || 'Olá {{nome_cliente}}, gostaríamos de lembrá-lo sobre {{nome_servico}}.')
-
         const customerName = record.customers?.name || 'Cliente'
-        const itemName = record.type === 'PRODUCT'
-            ? (record.products?.name || 'produto')
-            : (record.services?.name || 'serviço')
 
-        const messageText = replacePlaceholders(template, customerName, itemName)
+        let messageText: string
+        if (record.type === 'CUSTOMER') {
+            const template = record.custom_message || 'Olá {{nome_cliente}}, sentimos sua falta! Passando para manter o contato.'
+            messageText = template.replace(/\{\{nome_cliente\}\}/g, customerName)
+        } else {
+            // Get message template for product/service dispatches
+            const { data: msgTemplate } = await supabaseAdmin
+                .from('recurrence_messages')
+                .select('message_products, message_services')
+                .eq('tenant_id', dispatch.tenant_id)
+                .eq('user_id', dispatch.user_id)
+                .maybeSingle()
+
+            const template = record.type === 'PRODUCT'
+                ? (msgTemplate?.message_products || 'Olá {{nome_cliente}}, gostaríamos de lembrá-lo sobre {{nome_produto}}.')
+                : (msgTemplate?.message_services || 'Olá {{nome_cliente}}, gostaríamos de lembrá-lo sobre {{nome_servico}}.')
+
+            const itemName = record.type === 'PRODUCT'
+                ? (record.products?.name || 'produto')
+                : (record.services?.name || 'serviço')
+
+            messageText = replacePlaceholders(template, customerName, itemName)
+        }
 
         const phone = record.customers?.whatsapp_phone || record.customers?.phone
         if (!phone) {

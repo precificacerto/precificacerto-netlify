@@ -300,7 +300,7 @@ export default function ProductForm() {
         </div>
 
         <Form layout="vertical" form={form} onFinish={onFinish}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16 }}>
             <Form.Item
               label="Produto"
               name="product"
@@ -331,7 +331,7 @@ export default function ProductForm() {
             </Form.Item>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16 }}>
             <Form.Item
               label="Comissão"
               name="commission"

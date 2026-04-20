@@ -120,7 +120,7 @@ const RenewQuantityForm = ({ form, items, mode, onModeChange }: Props) => {
             Dados da recompra
           </Divider>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
             <Form.Item
               name="quantity"
               label="Quantidade comprada"
@@ -154,7 +154,7 @@ const RenewQuantityForm = ({ form, items, mode, onModeChange }: Props) => {
             </Form.Item>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
             <Form.Item name="supplier_name" label="Fornecedor">
               <Input
                 placeholder="Nome do fornecedor"

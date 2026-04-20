@@ -473,7 +473,7 @@ function Reports() {
             ) : (
                 <>
                     {/* Charts row */}
-                    <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: 20, marginBottom: 24 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 20, marginBottom: 24 }}>
                         <div className="chart-card">
                             <div className="chart-card-header">
                                 <h3 className="chart-card-title">Serviços por Dia</h3>
@@ -498,7 +498,7 @@ function Reports() {
                     </div>
 
                     {/* Employee performance + bar chart */}
-                    <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: 20, marginBottom: 24 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 20, marginBottom: 24 }}>
                         <div className="chart-card">
                             <div className="chart-card-header">
                                 <h3 className="chart-card-title">Desempenho por Funcionário</h3>

@@ -335,7 +335,7 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                         </Form.Item>
 
                         {/* Cards de carga tributária LP RET */}
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginTop: 8, marginBottom: 16 }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16, marginTop: 8, marginBottom: 16 }}>
                             <Card size="small" style={{ textAlign: 'center', borderRadius: 8, background: 'linear-gradient(135deg, rgba(245,158,11,0.08), rgba(245,158,11,0.02))' }}>
                                 <div style={{ fontSize: 12, color: 'var(--color-neutral-500)' }}>Carga Total LP RET</div>
                                 <div style={{ fontSize: 24, fontWeight: 700, color: '#F59E0B' }}>
@@ -389,7 +389,7 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                                 <Select.Option value="REVENDA_COMBUSTIVEL">Revenda de combustíveis</Select.Option>
                             </Select>
                         </Form.Item>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16 }}>
                             <Form.Item
                                 name="lp_irpj_presumption_percent"
                                 label="Percentual de presunção para IRPJ"
@@ -434,7 +434,7 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                         </p>
 
                         {isSN && (
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16 }}>
                                 <Card size="small" style={{ textAlign: 'center', borderRadius: 8, background: 'linear-gradient(135deg, rgba(18,183,106,0.06), rgba(18,183,106,0.02))' }}>
                                     <div style={{ fontSize: 12, color: 'var(--color-neutral-500)' }}>Alíquota Efetiva</div>
                                     <div style={{ fontSize: 24, fontWeight: 700, color: '#12B76A' }}>
@@ -457,7 +457,7 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                         )}
 
                         {isLP && (
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
                                 <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
                                     <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>ICMS Interno ({stateCode})</div>
                                     <div style={{ fontSize: 18, fontWeight: 700 }}>{icmsPercent != null ? `${icmsPercent.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%` : '—'}</div>
@@ -509,7 +509,7 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                                         Editáveis · usadas para calcular IBS e CBS por produto/serviço
                                     </span>
                                 </div>
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
                                     <Form.Item
                                         name="ibs_reference_pct"
                                         label="IBS — Imposto sobre Bens e Serviços"
@@ -556,7 +556,7 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                                     const shTotal = shIcms + 1.65 + 7.60 + issPercent + 1.20 + 1.08
                                     return (
                                         <>
-                                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+                                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
                                                 <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
                                                     <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>ICMS Interno ({stateCode})</div>
                                                     <div style={{ fontSize: 18, fontWeight: 700 }}>{icmsPercent != null ? `${icmsPercent.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%` : '—'}</div>
@@ -594,7 +594,7 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                                         </>
                                     )
                                 })()}
-                                <div style={{ marginTop: 16, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                                <div style={{ marginTop: 16, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
                                     <Form.Item name="iss_municipality_rate" label="ISS Municipal (%)">
                                         <InputNumber min={0} max={10} step={0.1} style={{ width: '100%' }} addonAfter="%" formatter={(v) => v != null ? String(v).replace('.', ',') : ''} parser={(v) => Number((v || '0').replace(',', '.'))} />
                                     </Form.Item>
@@ -606,7 +606,7 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                                     <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-neutral-300)', marginBottom: 8 }}>
                                         IVA DUAL — Alíquotas de Referência
                                     </div>
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
                                         <Form.Item name="ibs_reference_pct" label="IBS — Imposto sobre Bens e Serviços" style={{ marginBottom: 0 }}>
                                             <InputNumber min={0} max={100} step={0.01} style={{ width: '100%' }} addonAfter="%" onChange={(v) => setIbsReferencePct(v ?? null)} formatter={(v) => v != null ? String(v).replace('.', ',') : ''} parser={(v) => Number((v || '0').replace(',', '.'))} />
                                         </Form.Item>
@@ -620,7 +620,7 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
 
                         {isLR && (
                             <>
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
                                     <Card size="small" style={{ textAlign: 'center', borderRadius: 8 }}>
                                         <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>ICMS Interno ({stateCode})</div>
                                         <div style={{ fontSize: 18, fontWeight: 700 }}>{icmsPercent != null ? `${icmsPercent.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%` : '—'}</div>
@@ -656,7 +656,7 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                                             Editáveis · usadas para calcular IBS e CBS por produto/serviço
                                         </span>
                                     </div>
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
                                         <Form.Item
                                             name="ibs_reference_pct"
                                             label="IBS — Imposto sobre Bens e Serviços"
@@ -1030,25 +1030,25 @@ function Settings() {
                                 <div style={{ maxWidth: 680 }}>
                                     <p style={{ color: 'var(--color-neutral-500)', fontSize: 13, marginBottom: 20 }}>Informações principais da sua empresa.</p>
                                     <Form form={businessForm} layout="vertical">
-                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16 }}>
                                             <Form.Item name="companyName" label="Razão Social" rules={[{ required: true }]}><Input /></Form.Item>
                                             <Form.Item name="cnpj" label="CNPJ"><Input placeholder="00.000.000/0000-00" /></Form.Item>
                                         </div>
                                         <Form.Item name="segment" label="Segmento"><Input placeholder="Ex: Beleza e Estética" /></Form.Item>
-                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16 }}>
                                             <Form.Item name="email" label="Email"><Input /></Form.Item>
                                             <Form.Item name="phone" label="Telefone"><Input placeholder="(00) 00000-0000" /></Form.Item>
                                         </div>
-                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16 }}>
                                             <Form.Item name="cep" label="CEP"><Input /></Form.Item>
                                             <Form.Item name="neighborhood" label="Bairro"><Input /></Form.Item>
                                         </div>
-                                        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 16 }}>
+                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16 }}>
                                             <Form.Item name="address" label="Rua"><Input /></Form.Item>
                                             <Form.Item name="number" label="Número"><Input /></Form.Item>
                                             <Form.Item name="complement" label="Complemento"><Input /></Form.Item>
                                         </div>
-                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16 }}>
                                             <Form.Item name="city" label="Cidade"><Input /></Form.Item>
                                             <Form.Item name="state" label="Estado">
                                                 <Select showSearch optionFilterProp="children">
@@ -1080,7 +1080,7 @@ function Settings() {
                                             <TeamOutlined style={{ fontSize: 18, color: '#22C55E' }} />
                                             <h4 style={{ fontWeight: 600, margin: 0, color: '#e2e8f0' }}>Equipe Produtiva</h4>
                                         </div>
-                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16, marginBottom: 12 }}>
+                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginBottom: 12 }}>
                                             <div>
                                                 <div style={{ fontSize: 12, color: 'var(--color-neutral-500)', marginBottom: 4 }}>Quantidade de pessoas</div>
                                                 <InputNumber min={0} value={teamProductive} onChange={v => setTeamProductive(v ?? 0)} style={{ width: '100%' }} />
@@ -1106,7 +1106,7 @@ function Settings() {
                                             <TeamOutlined style={{ fontSize: 18, color: '#F79009' }} />
                                             <h4 style={{ fontWeight: 600, margin: 0, color: '#e2e8f0' }}>Equipe Administrativa</h4>
                                         </div>
-                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16, marginBottom: 12 }}>
+                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginBottom: 12 }}>
                                             <div>
                                                 <div style={{ fontSize: 12, color: 'var(--color-neutral-500)', marginBottom: 4 }}>Quantidade de pessoas</div>
                                                 <InputNumber min={0} value={teamAdministrative} onChange={v => setTeamAdministrative(v ?? 0)} style={{ width: '100%' }} />
@@ -1169,7 +1169,7 @@ function Settings() {
                                             </>
                                         )}
                                         <Divider orientation="left" style={{ fontSize: 14 }}>Colaboradores</Divider>
-                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16 }}>
                                             <Form.Item name="numProductiveSectorEmployee" label="Setor Produtivo" rules={[{ required: true }]}>
                                                 <InputNumber min={0} style={{ width: '100%' }} />
                                             </Form.Item>
