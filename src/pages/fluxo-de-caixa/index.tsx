@@ -801,18 +801,22 @@ export default function CashFlow() {
         <Layout title={PAGE_TITLES.CASH_FLOW} subtitle="Relatório de Fluxo de Caixa">
             {contextHolder}
 
-            <div className="pc-card" style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Space>
+            <div className="pc-card cashflow-toolbar" style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+                <Space wrap>
                     <CalendarOutlined style={{ fontSize: 18, color: '#94a3b8' }} />
                     <DatePicker picker="month" value={month} onChange={(d) => d && setMonth(d)} allowClear={false} format="MMMM YYYY" />
                     <Button icon={<SyncOutlined />} onClick={() => fetchData()}>Atualizar</Button>
                 </Space>
-                <Space>
+                <Space wrap>
                     {canEdit(MODULES.CASH_FLOW) && (
                         <>
-                            <Button icon={<SyncOutlined />} onClick={handleGenerateRecurring}>Gerar Contas do Mês (Fixas/Salários)</Button>
+                            <Button icon={<SyncOutlined />} onClick={handleGenerateRecurring}>
+                                <span className="cashflow-btn-label-full">Gerar Contas do Mês (Fixas/Salários)</span>
+                                <span className="cashflow-btn-label-short">Gerar Contas do Mês</span>
+                            </Button>
                             <Button loading={loadingPrevBalance} onClick={handlePrevMonthBalance}>
-                                Saldo do Mês Anterior
+                                <span className="cashflow-btn-label-full">Saldo do Mês Anterior</span>
+                                <span className="cashflow-btn-label-short">Saldo Mês Ant.</span>
                             </Button>
                             <Button type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setExpenseAmount(''); setExpPaymentMethod(''); setExpInstallments([{ date: null, amount: 0 }]); setExpInstallmentPreset('customizado'); setSelectedExpenseCategory(''); setLrValorIcms(0); setLrValorPis(0); setLrValorCofins(0); setLrValorIpi(0); setLrValorCbs(0); setLrValorIbs(0); setDrawerOpen(true) }}>
                                 + Novo Lançamento
@@ -848,9 +852,9 @@ export default function CashFlow() {
             )}
 
             {/* ── Pivot Table: Excel-like Grid ── */}
-            <div style={{ background: '#0d1b2a', borderRadius: 8, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.06)', marginTop: 0 }}>
+            <div className="cashflow-pivot-card" style={{ background: '#0d1b2a', borderRadius: 8, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.06)', marginTop: 0 }}>
                 {/* Header */}
-                <div style={{ padding: '16px 20px', borderBottom: '1px solid rgba(255,255,255,0.06)', background: '#1a2744', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div className="cashflow-section-header" style={{ padding: '16px 20px', borderBottom: '1px solid rgba(255,255,255,0.06)', background: '#1a2744', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
                     <span style={{ fontSize: 16, fontWeight: 700, color: '#e2e8f0' }}>
                         Fluxo de Caixa — {month.format('MMMM [de] YYYY')}
                     </span>
@@ -858,7 +862,7 @@ export default function CashFlow() {
                 </div>
 
                 {/* Pivot Table */}
-                <div style={{ overflowX: 'auto', width: '100%' }}>
+                <div className="cashflow-pivot-scroll" style={{ overflowX: 'auto', width: '100%', WebkitOverflowScrolling: 'touch' }}>
                     <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 12 }}>
                         <thead>
                             <tr style={{ background: '#1a2744' }}>
@@ -1142,7 +1146,7 @@ export default function CashFlow() {
 
             {/* ── Tabela Diária ── */}
             <div style={{ marginTop: 24, background: '#0d1b2a', borderRadius: 8, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.06)' }}>
-                <div style={{ padding: '14px 20px', borderBottom: '1px solid rgba(255,255,255,0.06)', background: '#1a2744', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div className="cashflow-section-header" style={{ padding: '14px 20px', borderBottom: '1px solid rgba(255,255,255,0.06)', background: '#1a2744', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
                     <span style={{ fontSize: 15, fontWeight: 700, color: '#e2e8f0' }}>
                         Lançamentos por Dia — {month.format('MMMM/YYYY')}
                     </span>
@@ -1152,8 +1156,9 @@ export default function CashFlow() {
                         </span>
                     )}
                 </div>
-                <div style={{ padding: '0 0 8px' }}>
+                <div className="no-mobile-stack cashflow-entries-table" style={{ padding: '0 0 8px' }}>
                     <Table
+                        scroll={{ x: 'max-content' }}
                         dataSource={[...dfcData].sort((a: any, b: any) => (a.due_date || '').localeCompare(b.due_date || ''))}
                         rowKey="id"
                         size="small"

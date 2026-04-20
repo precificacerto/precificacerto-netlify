@@ -1678,6 +1678,72 @@ body {
     grid-template-columns: 1fr !important;
   }
 
+  /* --- Flex containers com space-between: sempre wrapam no mobile --- */
+  [style*="justify-content: space-between"],
+  [style*="justifyContent: space-between"],
+  [style*="justifyContent:space-between"] {
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+  }
+
+  /* --- Ant Space: força wrap em todos os Space que usem display inline-flex --- */
+  .ant-space-horizontal {
+    flex-wrap: wrap !important;
+    row-gap: 8px !important;
+  }
+  .ant-space-horizontal .ant-space-item {
+    margin-inline-end: 6px !important;
+  }
+
+  /* --- Botões AntD menores e compactos no mobile --- */
+  .ant-btn {
+    font-size: 13px;
+    padding: 4px 12px;
+    height: auto;
+    min-height: 36px;
+  }
+  .ant-btn-sm {
+    font-size: 12px;
+    padding: 2px 8px;
+    min-height: 28px;
+  }
+
+  /* --- Ant Picker (DatePicker, etc) ocupa largura integral quando solto --- */
+  .ant-picker {
+    min-width: 140px;
+  }
+
+  /* --- Alert com padding menor --- */
+  .ant-alert {
+    padding: 10px 12px !important;
+  }
+  .ant-alert-message {
+    font-size: 13px !important;
+  }
+  .ant-alert-description {
+    font-size: 12px !important;
+  }
+
+  /* --- Drawer: ocupa 100% da tela em mobile, remove padding lateral excessivo --- */
+  .ant-drawer-body {
+    padding: 16px !important;
+  }
+
+  /* --- Modal compact --- */
+  .ant-modal {
+    max-width: calc(100vw - 16px) !important;
+    margin: 8px !important;
+  }
+  .ant-modal-body {
+    padding: 16px !important;
+  }
+  .ant-modal-header {
+    padding: 12px 16px !important;
+  }
+  .ant-modal-title {
+    font-size: 15px !important;
+  }
+
   /* --- KPI cards: 1 coluna em celular real --- */
   .kpi-grid {
     grid-template-columns: 1fr !important;
@@ -2079,6 +2145,73 @@ body {
 }
 
 /* ============================================================
+   Fluxo de Caixa — responsividade mobile
+   Mantém scroll horizontal na pivot table, wrap nos headers,
+   labels curtos nos botões longos.
+   ============================================================ */
+.cashflow-btn-label-short { display: none; }
+.cashflow-btn-label-full { display: inline; }
+
+@media (max-width: 640px) {
+  .cashflow-btn-label-full { display: none; }
+  .cashflow-btn-label-short { display: inline; }
+
+  .cashflow-toolbar {
+    padding: 10px 12px !important;
+  }
+  .cashflow-toolbar .ant-space-item {
+    margin-inline-end: 4px !important;
+  }
+  .cashflow-toolbar .ant-btn {
+    font-size: 12px !important;
+    padding: 4px 10px !important;
+    height: auto !important;
+  }
+  .cashflow-toolbar .ant-picker {
+    min-width: 150px;
+  }
+
+  .cashflow-section-header {
+    padding: 10px 12px !important;
+  }
+  .cashflow-section-header > span:first-child {
+    font-size: 14px !important;
+  }
+
+  .cashflow-pivot-scroll {
+    /* Dica visual de que há scroll horizontal */
+    position: relative;
+    -webkit-overflow-scrolling: touch;
+  }
+  .cashflow-pivot-scroll::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 24px;
+    background: linear-gradient(to right, rgba(13,27,42,0), rgba(13,27,42,0.7));
+    pointer-events: none;
+  }
+  .cashflow-pivot-scroll table {
+    font-size: 11px !important;
+  }
+  .cashflow-pivot-scroll th,
+  .cashflow-pivot-scroll td {
+    padding: 4px 6px !important;
+  }
+
+  /* Table de lançamentos — AntD com scroll horizontal (opt-out do card view) */
+  .cashflow-entries-table .ant-table {
+    font-size: 12px !important;
+  }
+  .cashflow-entries-table .ant-table-thead > tr > th,
+  .cashflow-entries-table .ant-table-tbody > tr > td {
+    padding: 6px 8px !important;
+  }
+}
+
+/* ============================================================
    Mobile Card View para tabelas AntD — sistêmico
    Em ≤ 640px, cada linha vira um card vertical com o rótulo da
    coluna acima do valor. Remove a necessidade de scroll horizontal.
@@ -2182,5 +2315,384 @@ body {
       display: block !important;
       width: 100% !important;
     }
+  }
+}
+
+/* ============================================================
+   PASS 2 — Overrides sistêmicos mobile adicionais (2026-04-20)
+   Ataca padrões ainda reclamados: Radio.Group, Checkbox.Group,
+   Input.Group, section headers, Card titles, Drawer footers,
+   Ant Descriptions com colunas, Form labels longos, etc.
+   ============================================================ */
+@media (max-width: 640px) {
+
+  /* --- Radio.Group (buttons) - presets de parcelamento e afins ---
+     Os Radio.Button em horizontal estouram. Tornar wrap + full width. */
+  .ant-radio-group {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    width: 100% !important;
+    gap: 6px !important;
+  }
+  .ant-radio-group .ant-radio-button-wrapper {
+    flex: 1 1 auto !important;
+    min-width: 64px !important;
+    text-align: center !important;
+    border-radius: 6px !important;
+    font-size: 12px !important;
+    padding: 0 10px !important;
+    height: 32px !important;
+    line-height: 30px !important;
+  }
+  .ant-radio-group .ant-radio-button-wrapper:not(:first-child)::before {
+    display: none !important;
+  }
+  /* Radio.Group solto (sem Radio.Button) */
+  .ant-radio-group:not(.ant-radio-group-solid):not(.ant-radio-group-outline) .ant-radio-wrapper {
+    margin-right: 8px !important;
+    margin-bottom: 4px !important;
+  }
+
+  /* --- Checkbox.Group --- */
+  .ant-checkbox-group {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+  }
+  .ant-checkbox-group-item,
+  .ant-checkbox-wrapper {
+    margin-right: 0 !important;
+  }
+
+  /* --- Input.Group / addonBefore / addonAfter: evita comprimir input ---
+     Mantém grupo unido sem quebrar internos (R$, %, etc) */
+  .ant-input-group,
+  .ant-input-group-wrapper {
+    width: 100% !important;
+  }
+  .ant-input-number-group,
+  .ant-input-number-group-wrapper {
+    width: 100% !important;
+  }
+  .ant-input-number-group-addon {
+    padding: 0 8px !important;
+    font-size: 12px !important;
+  }
+
+  /* --- Section headers (h1/h2/h3 + botão à direita) ---
+     Captura div que contém um h1/h2/h3 E um botão ou Space no mesmo nível */
+  .section-header-row,
+  .page-header-actions {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 10px !important;
+  }
+  .section-header-row > * {
+    width: 100% !important;
+  }
+
+  /* --- Card title overflow (títulos longos truncados) --- */
+  .ant-card-head-title {
+    white-space: normal !important;
+    word-break: break-word !important;
+    padding: 8px 0 !important;
+    font-size: 14px !important;
+  }
+  .ant-card-head {
+    min-height: 44px !important;
+    padding: 0 14px !important;
+  }
+  .ant-card-extra {
+    padding: 8px 0 !important;
+    margin-inline-start: 0 !important;
+  }
+
+  /* --- Form.Item label longos: quebrar linha --- */
+  .ant-form-item-label {
+    white-space: normal !important;
+    overflow: visible !important;
+  }
+  .ant-form-item-label > label {
+    white-space: normal !important;
+    height: auto !important;
+    line-height: 1.4 !important;
+  }
+
+  /* --- Drawer footer: empilha botões em mobile --- */
+  .ant-drawer-footer {
+    padding: 12px 16px !important;
+  }
+  .ant-drawer-footer .ant-space,
+  .ant-drawer-footer .ant-space-horizontal {
+    width: 100% !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 8px !important;
+  }
+  .ant-drawer-footer .ant-space .ant-space-item,
+  .ant-drawer-footer .ant-btn {
+    width: 100% !important;
+  }
+  /* Drawer header extra (botões) stack abaixo do título */
+  .ant-drawer-header .ant-drawer-extra {
+    margin-inline-start: 0 !important;
+  }
+  .ant-drawer-header .ant-drawer-extra .ant-space {
+    flex-wrap: wrap !important;
+  }
+  .ant-drawer-header .ant-drawer-extra .ant-btn {
+    font-size: 12px !important;
+    padding: 4px 10px !important;
+    min-height: 32px !important;
+  }
+
+  /* --- Modal footer: também empilha botões longos --- */
+  .ant-modal-footer {
+    display: flex !important;
+    flex-direction: column-reverse !important;
+    gap: 8px !important;
+  }
+  .ant-modal-footer .ant-btn {
+    width: 100% !important;
+    margin-inline-start: 0 !important;
+  }
+
+  /* --- InputNumber dentro de Form: não deixa formatter/parser vazar --- */
+  .ant-input-number {
+    width: 100% !important;
+  }
+  .ant-input-number-input {
+    padding-inline-start: 8px !important;
+  }
+
+  /* --- Select dropdown: que não vaze da viewport --- */
+  .ant-select-dropdown {
+    max-width: calc(100vw - 16px) !important;
+  }
+
+  /* --- DatePicker / RangePicker: full width, dropdown compact --- */
+  .ant-picker-dropdown {
+    max-width: calc(100vw - 16px) !important;
+  }
+  .ant-picker-panels {
+    flex-wrap: wrap !important;
+  }
+  .ant-picker-range {
+    width: 100% !important;
+  }
+
+  /* --- Ant Descriptions: vira 1 coluna sempre --- */
+  .ant-descriptions-row {
+    display: block !important;
+  }
+  .ant-descriptions-item {
+    display: block !important;
+    padding: 4px 0 !important;
+  }
+  .ant-descriptions-item-label {
+    font-size: 12px !important;
+    color: var(--color-neutral-500) !important;
+    padding-bottom: 2px !important;
+  }
+  .ant-descriptions-item-content {
+    font-size: 13px !important;
+  }
+
+  /* --- Typography.Paragraph muito longos: break-word --- */
+  .ant-typography,
+  p.ant-typography,
+  .ant-typography p {
+    word-break: break-word !important;
+  }
+
+  /* --- Collapse (accordion) compact --- */
+  .ant-collapse-header {
+    padding: 10px 12px !important;
+    font-size: 13px !important;
+  }
+  .ant-collapse-content-box {
+    padding: 10px 12px !important;
+  }
+
+  /* --- Tag compact --- */
+  .ant-tag {
+    font-size: 11px !important;
+    padding: 0 6px !important;
+    line-height: 20px !important;
+    margin-inline-end: 4px !important;
+  }
+
+  /* --- Upload.Dragger / picture-card: ajustar tamanho --- */
+  .ant-upload.ant-upload-drag {
+    padding: 12px !important;
+  }
+  .ant-upload-list-picture-card-container,
+  .ant-upload.ant-upload-select-picture-card {
+    width: 88px !important;
+    height: 88px !important;
+  }
+
+  /* --- Tabs: tabs com barra lateral em mobile --- */
+  .ant-tabs-tab + .ant-tabs-tab {
+    margin-left: 8px !important;
+  }
+  .ant-tabs-content-holder {
+    overflow-x: hidden !important;
+  }
+
+  /* --- Dropdown menu overflow --- */
+  .ant-dropdown-menu {
+    max-width: calc(100vw - 24px) !important;
+  }
+
+  /* --- Popconfirm: caber na tela --- */
+  .ant-popconfirm .ant-popover-inner {
+    max-width: calc(100vw - 24px) !important;
+  }
+
+  /* --- Skeleton: usar largura total --- */
+  .ant-skeleton-content .ant-skeleton-title,
+  .ant-skeleton-content .ant-skeleton-paragraph > li {
+    max-width: 100% !important;
+  }
+
+  /* --- Tooltip muito largo --- */
+  .ant-tooltip-inner {
+    max-width: calc(100vw - 32px) !important;
+    font-size: 12px !important;
+  }
+
+  /* --- Container .pc-card--table com children de width fixa --- */
+  .pc-card--table [style*="width:"]:not(.no-mobile-full) {
+    max-width: 100% !important;
+  }
+
+  /* --- Timeline AntD --- */
+  .ant-timeline-item-head {
+    left: 4px !important;
+  }
+  .ant-timeline-item-tail {
+    left: 4px !important;
+  }
+  .ant-timeline-item-content {
+    margin-inline-start: 24px !important;
+    font-size: 13px !important;
+  }
+
+  /* --- Tree (árvore) --- */
+  .ant-tree-node-content-wrapper {
+    font-size: 13px !important;
+  }
+
+  /* --- Badge count compact --- */
+  .ant-badge-count {
+    font-size: 10px !important;
+    min-width: 16px !important;
+    height: 16px !important;
+    line-height: 16px !important;
+  }
+
+  /* --- Title com botão inline (padrão: h1 + Space à direita) ---
+     Quando um flex row contém h1/h2 e depois Space/Button, stack */
+  div:has(> h1):has(> .ant-space),
+  div:has(> h2):has(> .ant-btn),
+  div:has(> h3):has(> .ant-space) {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 10px !important;
+  }
+
+  /* --- Caixa mensal / cashier monthly grids largos --- */
+  [style*="repeat(auto-fit"],
+  [style*="repeat(auto-fill"] {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* --- Flex gap grandes (>= 20px) reduzidos em mobile --- */
+  [style*="gap: 24"],
+  [style*="gap: 32"],
+  [style*="gap:24"],
+  [style*="gap:32"] {
+    gap: 12px !important;
+  }
+
+  /* --- Padding grande (>= 24px) em cards/containers ---
+     captura padding: 32px e similares para reduzir em mobile */
+  [style*="padding: 32"],
+  [style*="padding: 40"],
+  [style*="padding: 48"],
+  [style*="padding:32"],
+  [style*="padding:40"] {
+    padding: 16px !important;
+  }
+
+  /* --- Hide utility: esconder elementos com classe .hide-mobile --- */
+  .hide-mobile {
+    display: none !important;
+  }
+  .show-mobile {
+    display: block !important;
+  }
+
+  /* --- Page header title: padronizar tamanho para evitar vazamento --- */
+  .page-header h1 {
+    font-size: 20px !important;
+    line-height: 1.3 !important;
+    word-break: break-word !important;
+  }
+  .page-header-subtitle {
+    font-size: 12px !important;
+    line-height: 1.4 !important;
+  }
+
+  /* --- TrialBanner: compact --- */
+  .trial-banner {
+    padding: 8px 12px !important;
+    font-size: 12px !important;
+  }
+
+  /* --- Ant Table: action buttons dentro de cells (edit/delete) ---
+     Em row card view, botões de ação ocupam linha inteira horizontalmente */
+  .ant-table-tbody > tr > td .ant-space-horizontal {
+    width: 100% !important;
+    justify-content: flex-end !important;
+  }
+
+  /* --- Força .filter-bar com childs que tenham Select/Input serem full-width --- */
+  .filter-bar .ant-select,
+  .filter-bar .ant-input-affix-wrapper,
+  .filter-bar .ant-picker {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+}
+
+/* ============================================================
+   Utilitário: .grid-responsive — grids customizados que devem
+   sempre stackar em 1 coluna em mobile
+   ============================================================ */
+.grid-responsive {
+  display: grid;
+  gap: 16px;
+}
+@media (max-width: 640px) {
+  .grid-responsive {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* ============================================================
+   Utilitário: .mobile-stack — força flex column em mobile
+   para rows que DEVEM sempre empilhar
+   ============================================================ */
+@media (max-width: 640px) {
+  .mobile-stack {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 10px !important;
+  }
+  .mobile-stack > * {
+    width: 100% !important;
   }
 }
