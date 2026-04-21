@@ -1020,7 +1020,7 @@ export default function ControleFinanceiro() {
                                                                         size="small"
                                                                         danger
                                                                         type="text"
-                                                                        title="Excluir lançamento de um mês"
+                                                                        title="Excluir: escolha entre o mês atual ou todos os lançamentos"
                                                                         onClick={() => { setDeleteRecurringEntry(r); setDeleteRecurringMonth(month); setDeleteRecurringScope('MONTH'); setDeleteRecurringOpen(true) }}
                                                                     />
                                                                 </Space>
@@ -1050,7 +1050,7 @@ export default function ControleFinanceiro() {
                                         <div style={{ textAlign: 'center', padding: 40, color: '#98A2B3' }}>
                                             <BankOutlined style={{ fontSize: 36, marginBottom: 8 }} />
                                             <p>Nenhuma despesa recorrente encontrada para {month.format('MMMM/YYYY')}.</p>
-                                            <p style={{ fontSize: 12, color: '#64748b' }}>Use "Gerar Contas do Mês" para lançar despesas fixas e salários, ou clique em "+ Nova Despesa Recorrente" para criar uma nova.</p>
+                                            <p style={{ fontSize: 12, color: '#64748b' }}>Clique em "+ Nova Despesa Recorrente" para criar uma nova.</p>
                                         </div>
                                     )}
                                 </div>

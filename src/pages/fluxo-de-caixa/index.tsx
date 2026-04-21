@@ -331,55 +331,6 @@ export default function CashFlow() {
         }
     }
 
-    const handleGenerateRecurring = async () => {
-        try {
-            const tenant_id = await getTenantId()
-            if (!tenant_id) {
-                messageApi.warning('Sessão inválida.')
-                return
-            }
-            const y = month.year()
-            const m = month.month()
-            const lastDay = month.endOf('month').date()
-            const existingKeys = new Set(
-                data.map((e: any) => `${e.description ?? ''}|${e.origin_type ?? ''}|${Number(e.amount)}`)
-            )
-            const toInsert: any[] = []
-
-            const { data: fixedList } = await supabase
-                .from('fixed_expenses')
-                .select('id, description, amount, due_day, expense_category, expense_group')
-                .eq('tenant_id', tenant_id)
-                .eq('is_active', true)
-            if (fixedList?.length) {
-                for (const fe of fixedList) {
-                    const day = Math.min(Math.max(1, fe.due_day), lastDay)
-                    const due_date = `${y}-${String(m + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-                    const key = `${fe.description}|FIXED_EXPENSE|${Number(fe.amount)}`
-                    if (existingKeys.has(key)) continue
-                    existingKeys.add(key)
-                    toInsert.push({ tenant_id, type: 'EXPENSE', origin_type: 'FIXED_EXPENSE', recurrence_type: 'MONTHLY', description: fe.description, amount: Number(fe.amount), due_date, expense_group: fe.expense_group || 'DESPESA_FIXA', expense_category: fe.expense_category || null })
-                }
-            }
-            for (const emp of employees) {
-                const salary = Number(emp.salary || 0)
-                if (salary <= 0) continue
-                const desc = `Salários — ${emp.name || 'Funcionário'}`
-                const key = `${desc}|SALARY|${salary}`
-                if (existingKeys.has(key)) continue
-                existingKeys.add(key)
-                toInsert.push({ tenant_id, type: 'EXPENSE', origin_type: 'SALARY', recurrence_type: 'MONTHLY', description: desc, amount: salary, due_date: `${y}-${String(m + 1).padStart(2, '0')}-01`, expense_group: 'MAO_DE_OBRA_PRODUTIVA' })
-            }
-            if (toInsert.length === 0) { messageApi.info('Nenhum lançamento novo a gerar para este mês.'); return }
-            const { error } = await supabase.from('cash_entries').insert(toInsert)
-            if (error) throw error
-            messageApi.success(`${toInsert.length} lançamento(s) gerado(s) para o mês.`)
-            await fetchData()
-        } catch {
-            messageApi.error('Erro ao gerar contas do mês.')
-        }
-    }
-
     const handleExportMultiMonth = async () => {
         setExporting(true)
         try {
@@ -813,10 +764,6 @@ export default function CashFlow() {
                 <Space wrap>
                     {canEdit(MODULES.CASH_FLOW) && (
                         <>
-                            <Button icon={<SyncOutlined />} onClick={handleGenerateRecurring}>
-                                <span className="cashflow-btn-label-full">Gerar Contas do Mês (Fixas/Salários)</span>
-                                <span className="cashflow-btn-label-short">Gerar Contas do Mês</span>
-                            </Button>
                             <Button loading={loadingPrevBalance} onClick={handlePrevMonthBalance}>
                                 <span className="cashflow-btn-label-full">Saldo do Mês Anterior</span>
                                 <span className="cashflow-btn-label-short">Saldo Mês Ant.</span>

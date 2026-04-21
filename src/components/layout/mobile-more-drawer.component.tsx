@@ -23,7 +23,10 @@ import {
   BankOutlined,
   MailOutlined,
   ClockCircleOutlined,
+  WalletOutlined,
+  DollarOutlined,
 } from '@ant-design/icons'
+import dayjs from 'dayjs'
 import { ROUTES } from '@/constants/routes'
 import { useAuth } from '@/hooks/use-auth.hook'
 import { usePermissions, MODULES, type ModuleKey } from '@/hooks/use-permissions.hook'
@@ -79,6 +82,8 @@ const MobileMoreDrawer = ({ open, onClose }: Props) => {
     { key: 'recurrence', label: 'Recorrência', href: ROUTES.RECURRENCE, icon: <CalendarOutlined />, section: 'Comercial', module: MODULES.RECURRENCE },
 
     // Financeiro
+    { key: 'cashier', label: 'Caixa', href: `/caixa/${dayjs().format('YYYY')}/${dayjs().format('MM')}`, icon: <WalletOutlined />, section: 'Financeiro', module: MODULES.CASH_FLOW },
+    { key: 'cashflow-overview', label: 'Fluxo de Caixa', href: ROUTES.CASH_FLOW, icon: <DollarOutlined />, section: 'Financeiro', hideForRepresentative: true, module: MODULES.CASH_FLOW },
     { key: 'financial', label: 'Controle Financeiro', href: ROUTES.FINANCIAL_CONTROL, icon: <ShoppingOutlined />, section: 'Financeiro', module: MODULES.CASH_FLOW },
     { key: 'dfc', label: 'Análise Financeira', href: ROUTES.DFC, icon: <FundOutlined />, section: 'Financeiro', module: MODULES.DFC },
     { key: 'commission', label: 'Comissão de Vendedor', href: ROUTES.COMMISSION, icon: <IdcardOutlined />, section: 'Financeiro', module: MODULES.COMMISSION },
