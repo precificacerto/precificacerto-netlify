@@ -73,25 +73,26 @@ const HUB_GROUPS: { group: string; label: string }[] = [
 ]
 
 /**
- * Calcula os dados do Hub baseando-se exclusivamente em meses encerrados.
- * "Mês encerrado" = due_date < início do mês atual.
+ * Calcula os dados do Hub incluindo o mês atual (até o fim do mês corrente).
+ * Exigência: EXPENSE deve ter paid_date (confirmada) para ser contabilizada.
+ * INCOME com BOLETO/CHEQUE_PRE_DATADO também exige paid_date.
  *
  * Fórmula do percentual:
- *   averagePct = (soma_grupo_meses_encerrados / soma_INCOME_meses_encerrados) × 100
+ *   averagePct = (soma_grupo / soma_INCOME) × 100
  */
 export async function calculateHubData(tenantId: string): Promise<HubData> {
   const now = new Date()
-  // Cutoff: primeiro dia do mês atual no horário LOCAL (evita problema de timezone).
-  // toISOString() usa UTC e pode retornar o dia errado em fusos negativos (Brasil UTC-3).
-  const cutoffStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
+  // Limite: último dia do mês atual no horário LOCAL (inclui o mês atual parcial).
+  const lastDayDate = new Date(now.getFullYear(), now.getMonth() + 1, 0)
+  const endCutoffStr = `${lastDayDate.getFullYear()}-${String(lastDayDate.getMonth() + 1).padStart(2, '0')}-${String(lastDayDate.getDate()).padStart(2, '0')}`
 
-  // Busca todos os lançamentos de meses encerrados, incluindo expense_category e breakdown LR
+  // Busca todos os lançamentos até o fim do mês atual, incluindo expense_category e breakdown LR
   const { data: entries, error } = await supabase
     .from('cash_entries')
     .select('type, amount, due_date, expense_group, expense_category, is_active, paid_date, payment_method, valor_nf, valor_icms, valor_pis, valor_cofins, valor_ipi, valor_cbs, valor_ibs')
     .eq('tenant_id', tenantId)
     .eq('is_active', true)
-    .lt('due_date', cutoffStr)
+    .lte('due_date', endCutoffStr)
     .order('due_date', { ascending: true })
 
   if (error || !entries || entries.length === 0) {

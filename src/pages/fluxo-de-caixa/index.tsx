@@ -101,6 +101,19 @@ const currencyMaskFn = (value: string) => {
 const parseCurrencyFn = (val: string) =>
     parseFloat(val.replace(/\./g, '').replace(',', '.')) || 0
 
+// AntD InputNumber formatters (mostram "12.548,98" com ponto para milhares e vírgula decimal)
+const brlFormatter = (value: number | string | undefined): string => {
+    if (value == null || value === '') return ''
+    const num = typeof value === 'string' ? parseFloat(value) : value
+    if (isNaN(num as number)) return ''
+    return (num as number).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+const brlParser = (value: string | undefined): string => {
+    if (!value) return ''
+    const cleaned = value.replace(/[^\d,.-]/g, '').replace(/\./g, '').replace(',', '.')
+    return cleaned
+}
+
 const PAYMENT_METHODS = [
     { value: 'PIX', label: '⚡ PIX' },
     { value: 'DINHEIRO', label: '💵 Dinheiro' },
@@ -695,8 +708,12 @@ export default function CashFlow() {
                     })
                 } else {
                     const parcelValue = parcelas === 1 ? amountNum : Math.round((amountNum / parcelas) * 100) / 100
+                    const today = dayjs().startOf('day')
                     for (let i = 0; i < parcelas; i++) {
                         const due = startDate.add(i, 'month')
+                        const autoPaidDate = (paymentMethod && paymentMethod !== 'BOLETO' && paymentMethod !== 'CHEQUE_PRE_DATADO' && !due.isAfter(today, 'day'))
+                            ? due.format('YYYY-MM-DD')
+                            : null
                         entries.push({
                             tenant_id,
                             type: 'EXPENSE' as const,
@@ -708,6 +725,7 @@ export default function CashFlow() {
                             expense_group: expenseGroup,
                             expense_category: values.expense_category,
                             ...(paymentMethod ? { payment_method: paymentMethod } : {}),
+                            ...(autoPaidDate ? { paid_date: autoPaidDate } : {}),
                             ...(isLrCustoProdutos ? {
                                 valor_icms: Math.round(lrValorIcms / parcelas * 100) / 100,
                                 valor_pis: Math.round(lrValorPis / parcelas * 100) / 100,
@@ -1352,7 +1370,8 @@ export default function CashFlow() {
                                     <InputNumber
                                         min={0} step={0.01} precision={2} style={{ width: '100%' }}
                                         addonBefore="R$" value={lrValorIcms || undefined} placeholder="0,00"
-                                        decimalSeparator="," onChange={(v) => setLrValorIcms(Number(v) || 0)}
+                                        decimalSeparator="," formatter={brlFormatter as any} parser={brlParser as any}
+                                        onChange={(v) => setLrValorIcms(Number(v) || 0)}
                                     />
                                 </div>
                                 <div>
@@ -1360,7 +1379,8 @@ export default function CashFlow() {
                                     <InputNumber
                                         min={0} step={0.01} precision={2} style={{ width: '100%' }}
                                         addonBefore="R$" value={lrValorPis || undefined} placeholder="0,00"
-                                        decimalSeparator="," onChange={(v) => setLrValorPis(Number(v) || 0)}
+                                        decimalSeparator="," formatter={brlFormatter as any} parser={brlParser as any}
+                                        onChange={(v) => setLrValorPis(Number(v) || 0)}
                                     />
                                 </div>
                                 <div>
@@ -1368,7 +1388,8 @@ export default function CashFlow() {
                                     <InputNumber
                                         min={0} step={0.01} precision={2} style={{ width: '100%' }}
                                         addonBefore="R$" value={lrValorCofins || undefined} placeholder="0,00"
-                                        decimalSeparator="," onChange={(v) => setLrValorCofins(Number(v) || 0)}
+                                        decimalSeparator="," formatter={brlFormatter as any} parser={brlParser as any}
+                                        onChange={(v) => setLrValorCofins(Number(v) || 0)}
                                     />
                                 </div>
                                 <div>
@@ -1376,7 +1397,8 @@ export default function CashFlow() {
                                     <InputNumber
                                         min={0} step={0.01} precision={2} style={{ width: '100%' }}
                                         addonBefore="R$" value={lrValorIpi || undefined} placeholder="0,00"
-                                        decimalSeparator="," onChange={(v) => setLrValorIpi(Number(v) || 0)}
+                                        decimalSeparator="," formatter={brlFormatter as any} parser={brlParser as any}
+                                        onChange={(v) => setLrValorIpi(Number(v) || 0)}
                                     />
                                 </div>
                                 <div>
@@ -1384,7 +1406,8 @@ export default function CashFlow() {
                                     <InputNumber
                                         min={0} step={0.01} precision={2} style={{ width: '100%' }}
                                         addonBefore="R$" value={lrValorCbs || undefined} placeholder="0,00"
-                                        decimalSeparator="," onChange={(v) => setLrValorCbs(Number(v) || 0)}
+                                        decimalSeparator="," formatter={brlFormatter as any} parser={brlParser as any}
+                                        onChange={(v) => setLrValorCbs(Number(v) || 0)}
                                     />
                                 </div>
                                 <div>
@@ -1392,7 +1415,8 @@ export default function CashFlow() {
                                     <InputNumber
                                         min={0} step={0.01} precision={2} style={{ width: '100%' }}
                                         addonBefore="R$" value={lrValorIbs || undefined} placeholder="0,00"
-                                        decimalSeparator="," onChange={(v) => setLrValorIbs(Number(v) || 0)}
+                                        decimalSeparator="," formatter={brlFormatter as any} parser={brlParser as any}
+                                        onChange={(v) => setLrValorIbs(Number(v) || 0)}
                                     />
                                 </div>
                             </div>
@@ -1440,6 +1464,7 @@ export default function CashFlow() {
                                     <InputNumber
                                         min={0} step={0.01} precision={2} style={{ width: '100%' }}
                                         placeholder="Valor (R$)" value={item.amount || undefined} addonBefore="R$"
+                                        decimalSeparator="," formatter={brlFormatter as any} parser={brlParser as any}
                                         onChange={(v) => setExpInstallments(prev => prev.map((r, i) => i === idx ? { ...r, amount: Number(v) || 0 } : r))}
                                     />
                                     <Button danger size="small" type="text"
@@ -1544,6 +1569,8 @@ export default function CashFlow() {
                                     min={0}
                                     precision={2}
                                     decimalSeparator=","
+                                    formatter={brlFormatter as any}
+                                    parser={brlParser as any}
                                     prefix={paymentEntry.type === 'INCOME' ? '+R$' : '-R$'}
                                     style={{ width: '100%', fontWeight: 700, fontSize: 16 }}
                                 />
