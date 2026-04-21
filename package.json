@@ -40,6 +40,7 @@
     "stripe": "^17.4.0",
     "swr": "^2.4.0",
     "typescript": "^5.7.2",
+    "ua-parser-js": "^2.0.9",
     "vanilla-masker": "^1.2.0",
     "yup": "^1.4.0"
   },

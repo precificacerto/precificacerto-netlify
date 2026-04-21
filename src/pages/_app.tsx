@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, ReactNode } from 'react'
 import { useRouter } from 'next/router'
-import { AppProps } from 'next/app'
+import App, { AppContext, AppProps } from 'next/app'
 import { SWRConfig } from 'swr'
 import { AuthProvider } from '@/contexts/auth.context'
+import { DeviceProvider, DeviceType } from '@/contexts/device.context'
 import { useAuth } from '@/hooks/use-auth.hook'
 import '../styles/globals.scss'
 import { ConfigProvider, Spin } from 'antd'
@@ -133,7 +134,9 @@ function AuthGuard({ children }: { children: ReactNode }) {
   return <>{children}</>
 }
 
-export default function App({ Component, pageProps }: AppProps) {
+type PcAppProps = AppProps & { initialDevice: DeviceType }
+
+function PcApp({ Component, pageProps, initialDevice }: PcAppProps) {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
   const timerRef = useRef<NodeJS.Timeout | null>(null)
@@ -170,6 +173,7 @@ export default function App({ Component, pageProps }: AppProps) {
 
   return (
     <SWRConfig value={{ provider: sessionStorageCacheProvider }}>
+    <DeviceProvider initialDevice={initialDevice}>
     <AuthProvider>
       <ConfigProvider
         theme={{
@@ -200,7 +204,7 @@ export default function App({ Component, pageProps }: AppProps) {
         }}
         locale={ptBR}
       >
-        <div className={inter.variable} style={{ fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" }}>
+        <div className={inter.variable} data-device={initialDevice} style={{ fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" }}>
           {loading && <Loader />}
           <AuthGuard>
             <Component {...pageProps} />
@@ -208,6 +212,23 @@ export default function App({ Component, pageProps }: AppProps) {
         </div>
       </ConfigProvider>
     </AuthProvider>
+    </DeviceProvider>
     </SWRConfig>
   )
 }
+
+PcApp.getInitialProps = async (appContext: AppContext) => {
+  const appProps = await App.getInitialProps(appContext)
+  const req = appContext.ctx.req
+  const header = (req?.headers['x-pc-device'] as string) || ''
+  let initialDevice: DeviceType = 'desktop'
+  if (header === 'mobile' || header === 'tablet') {
+    initialDevice = header
+  } else {
+    const cookie = (req?.headers.cookie || '').match(/pc-device=(mobile|tablet|desktop)/)
+    if (cookie) initialDevice = cookie[1] as DeviceType
+  }
+  return { ...appProps, initialDevice }
+}
+
+export default PcApp

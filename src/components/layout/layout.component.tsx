@@ -6,6 +6,9 @@ import { useAuth } from '@/hooks/use-auth.hook'
 import { PERMISSIONS } from '@/shared/enums/permissions'
 import { TrialBanner } from '../trial-banner.component'
 import { MenuOutlined } from '@ant-design/icons'
+import { useDevice } from '@/contexts/device.context'
+import { MobileShell } from './mobile-shell.component'
+import type { MenuProps } from 'antd'
 
 const ChooseCalcModal = lazy(() =>
   import('../choose-calc-modal.component').then(m => ({ default: m.ChooseCalcModal }))
@@ -17,12 +20,28 @@ type Props = {
   title?: string
   tabTitle?: string
   subtitle?: string
+  mobileShowBack?: boolean
+  mobilePrimaryAction?: ReactNode
+  mobileMenuItems?: MenuProps['items']
+  mobileFab?: ReactNode
 }
 
-const Layout = ({ children, showAside = true, title, tabTitle, subtitle }: Props) => {
+const Layout = ({
+  children,
+  showAside = true,
+  title,
+  tabTitle,
+  subtitle,
+  mobileShowBack,
+  mobilePrimaryAction,
+  mobileMenuItems,
+  mobileFab,
+}: Props) => {
   const [showCalcModal, setShowCalcModal] = useState<boolean>(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const { currentUser } = useAuth()
+  const { isMobile, isTablet } = useDevice()
+  const useMobileShell = isMobile || isTablet
 
   const closeSidebar = useCallback(() => setSidebarOpen(false), [])
 
@@ -50,14 +69,44 @@ const Layout = ({ children, showAside = true, title, tabTitle, subtitle }: Props
 
   const metaDescription = subtitle || 'Precifica Certo - Plataforma de gestão e precificação inteligente para seu negócio'
 
+  const head = (
+    <Head>
+      <title>{`${title || tabTitle} | ${APP_TITLE}`}</title>
+      <meta name="description" content={metaDescription} />
+      <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+      <link rel="icon" href="/favicon.ico" />
+    </Head>
+  )
+
+  const calcModal = showCalcModal && (
+    <Suspense fallback={null}>
+      <ChooseCalcModal open={showCalcModal} handleShowModal={(value) => setShowCalcModal(value)} />
+    </Suspense>
+  )
+
+  if (useMobileShell && showAside) {
+    return (
+      <>
+        {head}
+        <TrialBanner />
+        <MobileShell
+          title={title}
+          subtitle={subtitle}
+          showBack={mobileShowBack}
+          primaryAction={mobilePrimaryAction}
+          menuItems={mobileMenuItems}
+          fab={mobileFab}
+        >
+          {children}
+        </MobileShell>
+        {calcModal}
+      </>
+    )
+  }
+
   return (
     <>
-      <Head>
-        <title>{`${title || tabTitle} | ${APP_TITLE}`}</title>
-        <meta name="description" content={metaDescription} />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <link rel="icon" href="/favicon.ico" />
-      </Head>
+      {head}
 
       <div className="app-layout">
         {/* Sidebar overlay (mobile) */}
@@ -108,11 +157,7 @@ const Layout = ({ children, showAside = true, title, tabTitle, subtitle }: Props
         </div>
       </div>
 
-      {showCalcModal && (
-        <Suspense fallback={null}>
-          <ChooseCalcModal open={showCalcModal} handleShowModal={(value) => setShowCalcModal(value)} />
-        </Suspense>
-      )}
+      {calcModal}
     </>
   )
 }

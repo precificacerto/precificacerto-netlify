@@ -15,6 +15,7 @@ import {
     CalendarOutlined, FileExcelOutlined,
 } from '@ant-design/icons'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
+import { useDevice } from '@/contexts/device.context'
 
 import {
     exportCashFlowToExcel, exportCashFlowMultiMonth,
@@ -133,6 +134,8 @@ function buildInstallmentsByPreset(preset: string): { date: any; amount: number 
 export default function CashFlow() {
     const [data, setData] = useState<any[]>([])
     const { canView, canEdit } = usePermissions()
+    const { isMobile, isTablet } = useDevice()
+    const isCompact = isMobile || isTablet
     const [employees, setEmployees] = useState<any[]>([])
     const [customerMap, setCustomerMap] = useState<Record<string, string>>({})
     const [saleCodeMap, setSaleCodeMap] = useState<Record<string, string>>({})
@@ -1156,6 +1159,76 @@ export default function CashFlow() {
                         </span>
                     )}
                 </div>
+                {isCompact ? (
+                    <div className="cashflow-entries-mobile" style={{ padding: '0 0 8px' }}>
+                        {[...dfcData].sort((a: any, b: any) => (a.due_date || '').localeCompare(b.due_date || '')).map((r: any) => {
+                            const val = r.type === 'INCOME' ? getEffectiveIncomeAmount(r) : Number(r.amount || 0)
+                            const dateLabel = r.due_date ? `${r.due_date.substring(8, 10)}/${r.due_date.substring(5, 7)}` : '—'
+                            const description = (r.description?.split(' — ')[0] || r.description || '—') as string
+                            const saleCode = r.origin_type === 'SALE' && r.origin_id ? saleCodeMap[r.origin_id] : null
+                            const isIncome = r.type === 'INCOME'
+                            const needsConfirmation = r.payment_method === 'BOLETO' || r.payment_method === 'CHEQUE_PRE_DATADO'
+                            const paidIncome = isIncome && needsConfirmation && r.paid_date
+                            const pendingIncome = isIncome && needsConfirmation && !r.paid_date
+                            const paidExpense = !isIncome && r.paid_date
+                            const pendingExpense = !isIncome && !r.paid_date
+                            let amountClass = isIncome ? 'positive' : 'negative'
+                            let amountColor: string | undefined
+                            if (paidExpense) amountColor = 'rgba(255,255,255,0.35)'
+                            else if (paidIncome) amountColor = 'rgba(74,222,128,0.45)'
+                            else if (pendingIncome) amountColor = '#fbbf24'
+                            const sign = isIncome ? '+' : '-'
+                            const tappable = isIncome ? needsConfirmation : true
+                            const groupLabel = !isIncome && r.expense_group ? getExpenseGroupLabel(r.expense_group) : null
+                            const groupColor = !isIncome && r.expense_group ? getExpenseGroupColor(r.expense_group) : null
+                            return (
+                                <div
+                                    key={r.id}
+                                    className="pc-mobile-card"
+                                    onClick={tappable ? () => handleOpenPaymentModal(r) : undefined}
+                                    style={{ cursor: tappable ? 'pointer' : 'default' }}
+                                >
+                                    <div className="pc-mobile-card-header">
+                                        <div style={{ minWidth: 0, flex: 1 }}>
+                                            <h3 className="pc-mobile-card-title">{description}</h3>
+                                            <p className="pc-mobile-card-subtitle">
+                                                {dateLabel}
+                                                {saleCode && <Tag color="blue" style={{ marginLeft: 6, fontSize: 10 }}>{saleCode}</Tag>}
+                                            </p>
+                                        </div>
+                                        <strong
+                                            className={`pc-mobile-card-amount ${amountClass}`}
+                                            style={amountColor ? { color: amountColor } : undefined}
+                                        >
+                                            {sign} {formatCurrency(val)}
+                                        </strong>
+                                    </div>
+                                    <div className="pc-mobile-card-body">
+                                        <span>
+                                            <Tag color={isIncome ? 'green' : 'red'} style={{ fontSize: 10, marginRight: 0 }}>
+                                                {isIncome ? 'Receita' : 'Despesa'}
+                                            </Tag>
+                                        </span>
+                                        {groupLabel && groupColor && (
+                                            <span>
+                                                <Tag style={{ fontSize: 10, background: groupColor + '22', color: groupColor, border: `1px solid ${groupColor}55`, marginRight: 0 }}>
+                                                    {groupLabel}
+                                                </Tag>
+                                            </span>
+                                        )}
+                                        {pendingExpense && <span style={{ color: '#f87171' }}>Pendente</span>}
+                                        {pendingIncome && <span style={{ color: '#fbbf24' }}>Aguardando</span>}
+                                    </div>
+                                </div>
+                            )
+                        })}
+                        {dfcData.length === 0 && (
+                            <div style={{ padding: 32, textAlign: 'center', color: '#94a3b8' }}>
+                                Nenhum lançamento neste período.
+                            </div>
+                        )}
+                    </div>
+                ) : (
                 <div className="no-mobile-stack cashflow-entries-table" style={{ padding: '0 0 8px' }}>
                     <Table
                         scroll={{ x: 'max-content' }}
@@ -1278,6 +1351,7 @@ export default function CashFlow() {
                         style={{ background: 'transparent' }}
                     />
                 </div>
+                )}
             </div>
 
             {/* Drawer: Novo Lançamento (Despesa) */}

@@ -18,6 +18,7 @@ import {
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
+import { useDevice } from '@/contexts/device.context'
 import { formatCurrencyInput, parseCurrencyInput } from '@/utils/get-monetary-value'
 import { ExportFormatModal } from '@/components/ui/export-format-modal.component'
 import { exportTableToPdf } from '@/utils/export-generic-pdf'
@@ -182,6 +183,8 @@ function Sales() {
     const [registerCustomInstallments, setRegisterCustomInstallments] = useState<InstallmentRow[]>([{ date: null, amount: 0 }])
 
     const { canView, canEdit } = usePermissions()
+    const { isMobile, isTablet } = useDevice()
+    const isCompact = isMobile || isTablet
     if (!canView(MODULES.SALES)) {
         return <Layout title={PAGE_TITLES.SALES}><div style={{ padding: 40, textAlign: 'center' }}>Você não tem acesso a este módulo.</div></Layout>
     }
@@ -1415,11 +1418,60 @@ function Sales() {
                     </Button>
                 </div>
 
+                {isCompact ? (
+                    <div className="vendas-mobile-list">
+                        {loading && (
+                            <div style={{ padding: 24, textAlign: 'center', color: '#94a3b8' }}>Carregando vendas…</div>
+                        )}
+                        {!loading && filteredSales.length === 0 && (
+                            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Nenhuma venda registrada." style={{ padding: '24px 0' }} />
+                        )}
+                        {!loading && filteredSales.map((r: SaleRow) => {
+                            const pm = PAYMENT_METHODS.find(p => p.value === r.paymentMethod)
+                            const dateLabel = r.saleDate ? new Date(r.saleDate).toLocaleDateString('pt-BR') : '—'
+                            return (
+                                <div key={r.id} className="pc-mobile-card">
+                                    <div className="pc-mobile-card-header">
+                                        <div style={{ minWidth: 0, flex: 1 }}>
+                                            <h3 className="pc-mobile-card-title">{r.customerName || 'Sem cliente'}</h3>
+                                            <p className="pc-mobile-card-subtitle">
+                                                <span style={{ fontFamily: 'monospace', color: '#7A5AF8', fontWeight: 600 }}>
+                                                    {r.sale_code || '—'}
+                                                </span>
+                                                {' · '}
+                                                {dateLabel}
+                                            </p>
+                                        </div>
+                                        <strong className="pc-mobile-card-amount positive">
+                                            {formatCurrency(r.finalValue)}
+                                        </strong>
+                                    </div>
+                                    <div className="pc-mobile-card-body">
+                                        <span>
+                                            <Tag style={{ fontSize: 10, marginRight: 0 }}>{pm?.label || r.paymentMethod}</Tag>
+                                            {r.installments > 1 && <Tag color="blue" style={{ fontSize: 10, marginLeft: 4, marginRight: 0 }}>{r.installments}x</Tag>}
+                                        </span>
+                                        {r.sellerName && r.sellerName !== '-' && (
+                                            <span>👤 {r.sellerName}</span>
+                                        )}
+                                    </div>
+                                    <div className="pc-mobile-card-footer">
+                                        <Button size="small" onClick={() => handleViewDetail(r)}>Ver</Button>
+                                        <Popconfirm title="Desativar venda?" onConfirm={() => handleDelete(r.id)}>
+                                            <Button size="small" danger>Desativar</Button>
+                                        </Popconfirm>
+                                    </div>
+                                </div>
+                            )
+                        })}
+                    </div>
+                ) : (
                 <Table columns={columns} dataSource={filteredSales} rowKey="id"
                     pagination={{ pageSize: 10, showTotal: (t) => `${t} vendas` }}
                     size="middle" loading={loading}
                     locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Nenhuma venda registrada. Vendas de orçamentos finalizados e vendas no balcão aparecem aqui." /> }}
                 />
+                )}
             </div>
 
             {/* ── Drawer: Venda no Balcão ── */}
