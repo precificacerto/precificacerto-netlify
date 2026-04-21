@@ -18,6 +18,8 @@ const formatCurrency = formatBRL
 
 export interface HubTabProps {
     tenantId: string
+    /** Incrementar este valor força um refetch (ex.: ao ativar a aba Hub novamente). */
+    refreshToken?: number
 }
 
 type RowKind = 'income' | 'group-header' | 'category' | 'total'
@@ -32,7 +34,7 @@ type TableRow = {
     averageRS?: number
 }
 
-export function HubTab({ tenantId }: HubTabProps) {
+export function HubTab({ tenantId, refreshToken }: HubTabProps) {
     const [hubData, setHubData] = useState<HubData | null>(null)
     const [loadingData, setLoadingData] = useState(true)
     const [syncing, setSyncing] = useState(false)
@@ -45,7 +47,7 @@ export function HubTab({ tenantId }: HubTabProps) {
             .then((data) => setHubData(data))
             .catch(() => messageApi.error('Erro ao carregar dados do Hub'))
             .finally(() => setLoadingData(false))
-    }, [tenantId])
+    }, [tenantId, refreshToken])
 
     const handleSync = async () => {
         setSyncing(true)
@@ -72,7 +74,7 @@ export function HubTab({ tenantId }: HubTabProps) {
     if (!hubData || hubData.months.length === 0) {
         return (
             <div style={{ padding: '32px 0' }}>
-                <Empty description="Nenhum mês encerrado encontrado. Os dados aparecerão após o fechamento do primeiro mês." />
+                <Empty description="Nenhum lançamento confirmado encontrado. Os dados aparecerão aqui conforme você confirmar despesas no Fluxo de Caixa." />
             </div>
         )
     }
@@ -267,7 +269,7 @@ export function HubTab({ tenantId }: HubTabProps) {
                 <div>
                     <div style={{ fontSize: 15, fontWeight: 600, color: '#e2e8f0' }}>Hub de Despesas</div>
                     <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
-                        {hubData.months.length} {hubData.months.length === 1 ? 'mês encerrado' : 'meses encerrados'} ·
+                        {hubData.months.length} {hubData.months.length === 1 ? 'mês com lançamentos' : 'meses com lançamentos'} ·
                         Faturamento total: {formatCurrency(hubData.totalIncome)}
                     </div>
                 </div>

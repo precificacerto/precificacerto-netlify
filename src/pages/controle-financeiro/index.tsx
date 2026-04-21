@@ -103,6 +103,8 @@ export default function ControleFinanceiro() {
     const [fixedExpenses, setFixedExpenses] = useState<any[]>([])
     const [taxRegime, setTaxRegime] = useState<string | null>(null)
     const [tenantId, setTenantId] = useState<string | null>(null)
+    const [hubRefreshToken, setHubRefreshToken] = useState<number>(0)
+    const [activeTabKey, setActiveTabKey] = useState<string>('extrato')
     const [loading, setLoading] = useState(false)
     const [month, setMonth] = useState(dayjs())
     const [typeFilter, setTypeFilter] = useState<'ALL' | 'INCOME' | 'EXPENSE'>('ALL')
@@ -820,6 +822,11 @@ export default function ControleFinanceiro() {
 
             <Tabs
                 type="card"
+                activeKey={activeTabKey}
+                onChange={(key) => {
+                    setActiveTabKey(key)
+                    if (key === 'hub') setHubRefreshToken((n) => n + 1)
+                }}
                 items={[
                     {
                         label: <span>Extrato</span>,
@@ -1154,7 +1161,7 @@ export default function ControleFinanceiro() {
                         children: (
                             <div style={{ padding: '16px 0' }}>
                                 {tenantId ? (
-                                    <HubTab tenantId={tenantId} />
+                                    <HubTab tenantId={tenantId} refreshToken={hubRefreshToken} />
                                 ) : (
                                     <div style={{ textAlign: 'center', padding: 40, color: '#64748b' }}>
                                         Carregando...
