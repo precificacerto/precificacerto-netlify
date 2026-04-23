@@ -41,7 +41,7 @@ export const BLOCK_MAO_DE_OBRA_ADMINISTRATIVA: ExpenseSetupItem[] = [
 
 /** Bloco 3: Despesas fixas */
 export const BLOCK_DESPESAS_FIXAS: ExpenseSetupItem[] = [
-  { key: 'AGUA', label: 'Água', expense_group: 'DESPESA_FIXA' },
+  { key: 'AGUA', label: 'Água / Esgoto', expense_group: 'DESPESA_FIXA' },
   { key: 'ALUGUEL', label: 'Aluguel', expense_group: 'DESPESA_FIXA' },
   { key: 'APLICACOES_CONSORCIOS', label: 'Aplicações / Consórcios', expense_group: 'DESPESA_FIXA' },
   { key: 'CONSULTORIA', label: 'Consultoria', expense_group: 'DESPESA_FIXA' },
@@ -55,7 +55,7 @@ export const BLOCK_DESPESAS_FIXAS: ExpenseSetupItem[] = [
   { key: 'SEGURANCA_MONITORAMENTO', label: 'Segurança / Monitoramento', expense_group: 'DESPESA_FIXA' },
   { key: 'SEGUROS_IMOVEIS_VEICULOS', label: 'Seguros Imóveis e Veículos', expense_group: 'DESPESA_FIXA' },
   { key: 'SISTEMA_DE_GESTAO_SOFTWARES', label: 'Sistema de Gestão / Softwares', expense_group: 'DESPESA_FIXA' },
-  { key: 'TAXAS_LICENCIAMENTO', label: 'Taxas de Licenciamento', expense_group: 'DESPESA_FIXA' },
+  { key: 'TAXAS_LICENCIAMENTO', label: 'Taxas de Licenças', expense_group: 'DESPESA_FIXA' },
   { key: 'TELEFONE', label: 'Telefone', expense_group: 'DESPESA_FIXA' },
 ]
 
@@ -253,7 +253,7 @@ export const BLOCK_CUSTO_PRODUTOS_SN: ExpenseSetupItem[] = [
 
 /** Bloco SN: Despesas Fixas */
 export const BLOCK_DESPESAS_FIXAS_SN: ExpenseSetupItem[] = [
-  { key: 'AGUA', label: 'Água', expense_group: 'DESPESA_FIXA' },
+  { key: 'AGUA', label: 'Água / Esgoto', expense_group: 'DESPESA_FIXA' },
   { key: 'ALUGUEL', label: 'Aluguel', expense_group: 'DESPESA_FIXA' },
   { key: 'APLICACOES_CONSORCIOS', label: 'Aplicações / Consórcios', expense_group: 'DESPESA_FIXA' },
   { key: 'CONSULTORIA', label: 'Consultoria', expense_group: 'DESPESA_FIXA' },
@@ -268,7 +268,7 @@ export const BLOCK_DESPESAS_FIXAS_SN: ExpenseSetupItem[] = [
   { key: 'SEGURANCA_MONITORAMENTO', label: 'Segurança / Monitoramento', expense_group: 'DESPESA_FIXA' },
   { key: 'SEGUROS_IMOVEIS_VEICULOS', label: 'Seguros Imóveis e Veículos', expense_group: 'DESPESA_FIXA' },
   { key: 'SISTEMA_DE_GESTAO_SOFTWARES', label: 'Sistema de Gestão / Softwares', expense_group: 'DESPESA_FIXA' },
-  { key: 'TAXAS_LICENCIAMENTO', label: 'Taxas de Licenciamento', expense_group: 'DESPESA_FIXA' },
+  { key: 'TAXAS_LICENCIAMENTO', label: 'Taxas de Licenças', expense_group: 'DESPESA_FIXA' },
   { key: 'TELEFONE', label: 'Telefone', expense_group: 'DESPESA_FIXA' },
 ]
 

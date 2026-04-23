@@ -40,6 +40,15 @@ interface Props {
   onIsPctChange?: (value: number) => void
   ipiPct?: number
   onIpiPctChange?: (value: number) => void
+  // Impostos não recuperáveis
+  icmsStValue?: number
+  onIcmsStChange?: (value: number) => void
+  ipiNrValue?: number
+  onIpiNrChange?: (value: number) => void
+  difalOrigemPct?: number
+  onDifalOrigemChange?: (value: number) => void
+  difalDestinoPct?: number
+  onDifalDestinoChange?: (value: number) => void
 }
 
 export const ProductPrice: FC<Props> = ({
@@ -70,6 +79,14 @@ export const ProductPrice: FC<Props> = ({
   onIsPctChange,
   ipiPct = 0,
   onIpiPctChange,
+  icmsStValue = 0,
+  onIcmsStChange,
+  ipiNrValue = 0,
+  onIpiNrChange,
+  difalOrigemPct = 0,
+  onDifalOrigemChange,
+  difalDestinoPct = 0,
+  onDifalDestinoChange,
 }: Props) => {
   const isCalcTypeResale = currentUser?.calcType === CALC_TYPE_ENUM.RESALE
   const isCalcTypeService = currentUser?.calcType === CALC_TYPE_ENUM.SERVICE
@@ -180,6 +197,22 @@ export const ProductPrice: FC<Props> = ({
   const icmsValDisplay = valorPrecificado * icmsPct / 100
   const pisCofinsValDisplay = valorPrecificado * pisCofinsLRPct / 100
 
+  // Cálculo DIFAL: base = costTotal; origem abate ICMS; destino aplica no "grossed"
+  const difalValue = (() => {
+    if (!difalOrigemPct && !difalDestinoPct) return 0
+    const base = costTotal
+    const icmsOrigem = base * (difalOrigemPct / 100)
+    const baseAposOrigem = base - icmsOrigem
+    const destPct = difalDestinoPct / 100
+    if (destPct >= 1) return 0
+    const grossed = baseAposOrigem / (1 - destPct)
+    const impostoDestino = grossed * destPct
+    return Math.max(0, impostoDestino - icmsOrigem)
+  })()
+
+  const totalNaoRecuperaveis = icmsStValue + ipiNrValue + difalValue
+  const custoLiquidoTotal = costTotal + totalNaoRecuperaveis
+
   function pricingRow(
     label: string,
     pct: number,
@@ -272,6 +305,90 @@ export const ProductPrice: FC<Props> = ({
           <strong>MEI:</strong> Impostos não são calculados por produto. O DAS mensal é fixo e independente do faturamento por item.
         </div>
       )}
+
+      {/* Impostos não recuperáveis */}
+      <div style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.18)', borderRadius: 8, padding: '12px 14px', marginBottom: 14 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: '#fca5a5', textTransform: 'uppercase' as const, letterSpacing: 0.6, marginBottom: 10 }}>
+          Impostos não recuperáveis
+        </div>
+        <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0 6px' }}>
+          <tbody>
+            {/* ICMS-ST */}
+            <tr>
+              <td style={{ fontSize: 13, color: '#cbd5e1', paddingRight: 8 }}>ICMS-ST <span style={{ fontSize: 11, color: '#64748b' }}>(Declarado em nota)</span></td>
+              <td style={{ textAlign: 'right' }}>
+                <InputNumber
+                  size="small" min={0} step={0.01} precision={2}
+                  value={icmsStValue}
+                  onChange={(v) => onIcmsStChange?.(v ?? 0)}
+                  style={{ width: 130 }}
+                  formatter={(v) => {
+                    const n = typeof v === 'string' ? parseFloat(v.replace(',', '.')) : Number(v ?? 0)
+                    return 'R$ ' + (isNaN(n) ? '0,00' : n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }))
+                  }}
+                  parser={(v) => { const r = (v || '0').replace('R$', '').replace(/\s/g, '').replace(/\./g, '').replace(',', '.').trim(); const n = Number(r); return isNaN(n) ? 0 : n }}
+                />
+              </td>
+            </tr>
+            {/* IPI */}
+            <tr>
+              <td style={{ fontSize: 13, color: '#cbd5e1', paddingRight: 8 }}>IPI <span style={{ fontSize: 11, color: '#64748b' }}>(Declarado em nota)</span></td>
+              <td style={{ textAlign: 'right' }}>
+                <InputNumber
+                  size="small" min={0} step={0.01} precision={2}
+                  value={ipiNrValue}
+                  onChange={(v) => onIpiNrChange?.(v ?? 0)}
+                  style={{ width: 130 }}
+                  formatter={(v) => {
+                    const n = typeof v === 'string' ? parseFloat(v.replace(',', '.')) : Number(v ?? 0)
+                    return 'R$ ' + (isNaN(n) ? '0,00' : n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }))
+                  }}
+                  parser={(v) => { const r = (v || '0').replace('R$', '').replace(/\s/g, '').replace(/\./g, '').replace(',', '.').trim(); const n = Number(r); return isNaN(n) ? 0 : n }}
+                />
+              </td>
+            </tr>
+            {/* DIFAL */}
+            <tr>
+              <td style={{ fontSize: 13, color: '#cbd5e1', paddingRight: 8, verticalAlign: 'middle' }}>
+                <div>DIFAL</div>
+                <div style={{ display: 'flex', gap: 6, marginTop: 4, alignItems: 'center', flexWrap: 'wrap' as const }}>
+                  <span style={{ fontSize: 11, color: '#64748b' }}>Alíq. origem</span>
+                  <InputNumber
+                    size="small" min={0} max={100} step={0.01} precision={2}
+                    value={difalOrigemPct}
+                    onChange={(v) => onDifalOrigemChange?.(v ?? 0)}
+                    style={{ width: 80 }}
+                    formatter={(v) => { const n = typeof v === 'string' ? parseFloat(v.replace(',', '.')) : Number(v ?? 0); return (isNaN(n) ? '0,00' : n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })) + '%' }}
+                    parser={(v) => { const r = (v || '0').toString().replace('%', '').replace(/\./g, '').replace(',', '.').trim(); const n = Number(r); return isNaN(n) ? 0 : n }}
+                  />
+                  <span style={{ fontSize: 11, color: '#64748b' }}>Alíq. destino</span>
+                  <InputNumber
+                    size="small" min={0} max={100} step={0.01} precision={2}
+                    value={difalDestinoPct}
+                    onChange={(v) => onDifalDestinoChange?.(v ?? 0)}
+                    style={{ width: 80 }}
+                    formatter={(v) => { const n = typeof v === 'string' ? parseFloat(v.replace(',', '.')) : Number(v ?? 0); return (isNaN(n) ? '0,00' : n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })) + '%' }}
+                    parser={(v) => { const r = (v || '0').toString().replace('%', '').replace(/\./g, '').replace(',', '.').trim(); const n = Number(r); return isNaN(n) ? 0 : n }}
+                  />
+                </div>
+              </td>
+              <td style={{ textAlign: 'right', verticalAlign: 'middle' }}>
+                <span style={{ fontSize: 13, color: difalValue > 0 ? '#fca5a5' : '#64748b', fontWeight: 500 }}>{fmt(difalValue)}</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        {totalNaoRecuperaveis > 0 && (
+          <div style={{ borderTop: '1px solid rgba(239,68,68,0.2)', marginTop: 6, paddingTop: 8, display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+            <span style={{ color: '#94a3b8' }}>Total impostos não recuperáveis</span>
+            <span style={{ fontWeight: 700, color: '#fca5a5' }}>{fmt(totalNaoRecuperaveis)}</span>
+          </div>
+        )}
+        <div style={{ borderTop: '1px solid rgba(239,68,68,0.3)', marginTop: 6, paddingTop: 8, display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+          <span style={{ color: '#e2e8f0', fontWeight: 600 }}>Total custo líquido</span>
+          <span style={{ fontWeight: 700, color: '#f87171' }}>{fmt(custoLiquidoTotal)}</span>
+        </div>
+      </div>
 
       <div style={{ background: '#0a1628', borderRadius: 8, padding: 16, border: '1px solid rgba(255,255,255,0.06)' }}>
         <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0 2px' }}>

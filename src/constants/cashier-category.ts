@@ -141,7 +141,7 @@ export const CASHIER_CATEGORY = {
       value: 'Vale Transporte (Pró-Labo/ Admin/ Comer)',
       group: 'MAO_DE_OBRA_ADMINISTRATIVA' as ExpenseGroupKey,
     },
-    AGUA: { order: 30, key: 'AGUA', value: 'Água', group: 'DESPESA_FIXA' as ExpenseGroupKey },
+    AGUA: { order: 30, key: 'AGUA', value: 'Água / Esgoto', group: 'DESPESA_FIXA' as ExpenseGroupKey },
     ALUGUEL: { order: 31, key: 'ALUGUEL', value: 'Aluguel', group: 'DESPESA_FIXA' as ExpenseGroupKey },
     APLICACOES_CONSORCIOS: {
       order: 32,
@@ -290,7 +290,7 @@ export const CASHIER_CATEGORY = {
     TAXAS_LICENCIAMENTO: {
       order: 81,
       key: 'TAXAS_LICENCIAMENTO',
-      value: 'Taxas de Licenciamento',
+      value: 'Taxas de Licenças',
       group: 'DESPESA_FIXA' as ExpenseGroupKey,
     },
     // Impostos regime Lucro Real / Lucro Presumido / Simples Híbrido / Presumido RET
@@ -436,7 +436,7 @@ const SN_CATEGORY_GROUP_MAP: { category: string; group: string }[] = [
   { category: 'RAT / FAP', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
   { category: 'Vale alimentação (Pró-Labo / Admin / Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
   { category: 'Vale transporte (Pró-Labo / Admin / Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
-  { category: 'Água', group: 'DESPESA_FIXA' },
+  { category: 'Água / Esgoto', group: 'DESPESA_FIXA' },
   { category: 'Aluguel', group: 'DESPESA_FIXA' },
   { category: 'Aplicações / Consórcios', group: 'DESPESA_FIXA' },
   { category: 'Consultoria', group: 'DESPESA_FIXA' },
@@ -448,7 +448,7 @@ const SN_CATEGORY_GROUP_MAP: { category: string; group: string }[] = [
   { category: 'Segurança / Monitoramento', group: 'DESPESA_FIXA' },
   { category: 'Seguros imóveis e veículos', group: 'DESPESA_FIXA' },
   { category: 'Sistema de gestão / Softwares', group: 'DESPESA_FIXA' },
-  { category: 'Taxas de licenciamento', group: 'DESPESA_FIXA' },
+  { category: 'Taxas de Licenças', group: 'DESPESA_FIXA' },
   { category: 'Telefone', group: 'DESPESA_FIXA' },
   { category: 'Saúde trabalhista / Ocupacional', group: 'DESPESA_FIXA' },
   { category: 'Investimentos (máquinas, equipamentos, expansão e melhorias)', group: 'LUCRO' },

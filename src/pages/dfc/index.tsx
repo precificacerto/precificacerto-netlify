@@ -383,9 +383,15 @@ function aggregateEntries(entries: CashEntry[]): AggregatedData {
         // LP RET: INSS retido na fonte e ISS retido pelo tomador são deduções da receita bruta
         data.deducaoReceita[monthKey] += entry.amount
         break
+      case 'IMPOSTO_LUCRO':
+        // IRPJ, CSLL — classificados em impostos, não em despesa variável
+        data.imposto[monthKey] += entry.amount
+        break
+      case 'LUCRO':
+        // Distribuição de lucros / Investimentos — não compõem o DRE de estrutura
+        break
       default:
-        // Fallback: treat unknown as variable expense
-        data.despesaVariavel[monthKey] += entry.amount
+        // Grupos desconhecidos são silenciosamente ignorados para evitar inflação de despesa variável
         break
     }
   }

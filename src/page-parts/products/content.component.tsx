@@ -294,6 +294,12 @@ export const Content: FC<ContentProps> = ({
     (product as any)?.ipi_pct != null ? Number((product as any).ipi_pct) : 0
   )
 
+  // Impostos não recuperáveis
+  const [icmsStValue, setIcmsStValue] = useState<number>(0)
+  const [ipiNrValue, setIpiNrValue] = useState<number>(0)
+  const [difalOrigemPct, setDifalOrigemPct] = useState<number>(0)
+  const [difalDestinoPct, setDifalDestinoPct] = useState<number>(0)
+
   const [recurrenceActive, setRecurrenceActive] = useState<boolean>((product as any)?.recurrence_active ?? false)
   const [recurrenceModalOpen, setRecurrenceModalOpen] = useState(false)
   const [recurrenceDays, setRecurrenceDays] = useState<number | null>((product as any)?.recurrence_days ?? null)
@@ -1858,6 +1864,14 @@ export const Content: FC<ContentProps> = ({
           onIsPctChange={setIsPct}
           ipiPct={ipiPct}
           onIpiPctChange={setIpiPct}
+          icmsStValue={icmsStValue}
+          onIcmsStChange={setIcmsStValue}
+          ipiNrValue={ipiNrValue}
+          onIpiNrChange={setIpiNrValue}
+          difalOrigemPct={difalOrigemPct}
+          onDifalOrigemChange={setDifalOrigemPct}
+          difalDestinoPct={difalDestinoPct}
+          onDifalDestinoChange={setDifalDestinoPct}
         />
       )}
       {productType === 'REVENDA' && isCalcTypeService && (
@@ -1897,6 +1911,14 @@ export const Content: FC<ContentProps> = ({
           onIsPctChange={setIsPct}
           ipiPct={ipiPct}
           onIpiPctChange={setIpiPct}
+          icmsStValue={icmsStValue}
+          onIcmsStChange={setIcmsStValue}
+          ipiNrValue={ipiNrValue}
+          onIpiNrChange={setIpiNrValue}
+          difalOrigemPct={difalOrigemPct}
+          onDifalOrigemChange={setDifalOrigemPct}
+          difalDestinoPct={difalDestinoPct}
+          onDifalDestinoChange={setDifalDestinoPct}
         />
       )}
       {productType === 'REVENDA' && !isCalcTypeService && (
@@ -1935,6 +1957,14 @@ export const Content: FC<ContentProps> = ({
           onIsPctChange={setIsPct}
           ipiPct={ipiPct}
           onIpiPctChange={setIpiPct}
+          icmsStValue={icmsStValue}
+          onIcmsStChange={setIcmsStValue}
+          ipiNrValue={ipiNrValue}
+          onIpiNrChange={setIpiNrValue}
+          difalOrigemPct={difalOrigemPct}
+          onDifalOrigemChange={setDifalOrigemPct}
+          difalDestinoPct={difalDestinoPct}
+          onDifalDestinoChange={setDifalDestinoPct}
         />
       )}
       <footer className="flex flex-row-reverse mt-5 mr-4">
