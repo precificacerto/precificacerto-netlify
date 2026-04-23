@@ -44,14 +44,6 @@ interface ContentIndustrializationProps {
   onIsPctChange?: (value: number) => void
   ipiPct?: number
   onIpiPctChange?: (value: number) => void
-  icmsStValue?: number
-  onIcmsStChange?: (value: number) => void
-  ipiNrValue?: number
-  onIpiNrChange?: (value: number) => void
-  difalOrigemPct?: number
-  onDifalOrigemChange?: (value: number) => void
-  difalDestinoPct?: number
-  onDifalDestinoChange?: (value: number) => void
 }
 export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
   itemsForm,
@@ -88,14 +80,6 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
   onIsPctChange,
   ipiPct,
   onIpiPctChange,
-  icmsStValue,
-  onIcmsStChange,
-  ipiNrValue,
-  onIpiNrChange,
-  difalOrigemPct,
-  onDifalOrigemChange,
-  difalDestinoPct,
-  onDifalDestinoChange,
 }: ContentIndustrializationProps) => {
   return (
     <>
@@ -187,14 +171,6 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
         onIsPctChange={onIsPctChange}
         ipiPct={ipiPct}
         onIpiPctChange={onIpiPctChange}
-        icmsStValue={icmsStValue}
-        onIcmsStChange={onIcmsStChange}
-        ipiNrValue={ipiNrValue}
-        onIpiNrChange={onIpiNrChange}
-        difalOrigemPct={difalOrigemPct}
-        onDifalOrigemChange={onDifalOrigemChange}
-        difalDestinoPct={difalDestinoPct}
-        onDifalDestinoChange={onDifalDestinoChange}
       />
     </>
   )

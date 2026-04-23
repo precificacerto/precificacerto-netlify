@@ -43,14 +43,6 @@ interface ContentResaleProps {
   onIsPctChange?: (value: number) => void
   ipiPct?: number
   onIpiPctChange?: (value: number) => void
-  icmsStValue?: number
-  onIcmsStChange?: (value: number) => void
-  ipiNrValue?: number
-  onIpiNrChange?: (value: number) => void
-  difalOrigemPct?: number
-  onDifalOrigemChange?: (value: number) => void
-  difalDestinoPct?: number
-  onDifalDestinoChange?: (value: number) => void
 }
 export const ContentResale: FC<ContentResaleProps> = ({
   itemsForm,
@@ -87,14 +79,6 @@ export const ContentResale: FC<ContentResaleProps> = ({
   onIsPctChange,
   ipiPct,
   onIpiPctChange,
-  icmsStValue,
-  onIcmsStChange,
-  ipiNrValue,
-  onIpiNrChange,
-  difalOrigemPct,
-  onDifalOrigemChange,
-  difalDestinoPct,
-  onDifalDestinoChange,
 }: ContentResaleProps) => {
   return (
     <>
@@ -165,14 +149,6 @@ export const ContentResale: FC<ContentResaleProps> = ({
         onIsPctChange={onIsPctChange}
         ipiPct={ipiPct}
         onIpiPctChange={onIpiPctChange}
-        icmsStValue={icmsStValue}
-        onIcmsStChange={onIcmsStChange}
-        ipiNrValue={ipiNrValue}
-        onIpiNrChange={onIpiNrChange}
-        difalOrigemPct={difalOrigemPct}
-        onDifalOrigemChange={onDifalOrigemChange}
-        difalDestinoPct={difalDestinoPct}
-        onDifalDestinoChange={onDifalDestinoChange}
       />
     </>
   )

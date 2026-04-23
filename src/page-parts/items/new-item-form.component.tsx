@@ -73,6 +73,11 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
 
   // Lê diretamente do form para evitar dependência de estado
   const icmsDeferidoEnabled = Form.useWatch('icms_deferido_enabled', form) ?? false
+  const difalOrigemWatch = Form.useWatch('difal_origem_pct', form) ?? 0
+  const difalDestinoWatch = Form.useWatch('difal_destino_pct', form) ?? 0
+  const icmsStWatch = Form.useWatch('icms_st_value', form) ?? 0
+  const ipiNrWatch = Form.useWatch('ipi_nr_value', form) ?? 0
+  const priceWatch = Form.useWatch('price', form) ?? '0'
 
   const recalcNetCost = useCallback(() => {
     if (!isLucroRealOrLP) return
@@ -313,6 +318,21 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
       <InputNumber min={0} step={1} style={{ width: '100%' }} placeholder="0" />
     </Form.Item>
   )
+
+  const priceForDifal = parseFloat(String(priceWatch || '0').replace(/\./g, '').replace(',', '.')) || 0
+  const difalCalc = (() => {
+    if (!difalOrigemWatch && !difalDestinoWatch) return 0
+    const base = priceForDifal
+    const icmsOrigem = base * ((difalOrigemWatch as number) / 100)
+    const baseAposOrigem = base - icmsOrigem
+    const destPct = (difalDestinoWatch as number) / 100
+    if (destPct >= 1) return 0
+    const grossed = baseAposOrigem / (1 - destPct)
+    const impostoDestino = grossed * destPct
+    return Math.max(0, impostoDestino - icmsOrigem)
+  })()
+  const totalNaoRec = ((icmsStWatch as number) || 0) + ((ipiNrWatch as number) || 0) + difalCalc
+  const fmtBRL = (v: number) => 'R$ ' + v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
   return (
     <Form layout="vertical" form={form}>
@@ -794,6 +814,59 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
           </span>
         </div>
       )}
+
+      {/* Impostos não recuperáveis */}
+      <div style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.18)', borderRadius: 8, padding: '12px 14px', marginBottom: 16 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: '#fca5a5', textTransform: 'uppercase' as const, letterSpacing: 0.6, marginBottom: 10 }}>
+          Impostos não recuperáveis
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
+          <Form.Item name="icms_st_value" label="ICMS-ST (R$)" initialValue={0} style={{ marginBottom: 0 }}>
+            <InputNumber
+              min={0} step={0.01} precision={2} style={{ width: '100%' }}
+              placeholder="0,00"
+              formatter={(v: any) => { const n = Number(v ?? 0); return 'R$ ' + (isNaN(n) ? '0,00' : n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })) }}
+              parser={(v: any) => { const r = String(v || '0').replace('R$', '').replace(/\s/g, '').replace(/\./g, '').replace(',', '.').trim(); return isNaN(Number(r)) ? 0 : Number(r) }}
+            />
+          </Form.Item>
+          <Form.Item name="ipi_nr_value" label="IPI (R$)" initialValue={0} style={{ marginBottom: 0 }}>
+            <InputNumber
+              min={0} step={0.01} precision={2} style={{ width: '100%' }}
+              placeholder="0,00"
+              formatter={(v: any) => { const n = Number(v ?? 0); return 'R$ ' + (isNaN(n) ? '0,00' : n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })) }}
+              parser={(v: any) => { const r = String(v || '0').replace('R$', '').replace(/\s/g, '').replace(/\./g, '').replace(',', '.').trim(); return isNaN(Number(r)) ? 0 : Number(r) }}
+            />
+          </Form.Item>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 12, marginTop: 12, alignItems: 'end' }}>
+          <Form.Item name="difal_origem_pct" label={<span>DIFAL — Alíq. origem (%)<Tooltip title="Alíquota de ICMS interestadual do estado de origem do fornecedor."><InfoCircleOutlined style={{ color: '#64748b', marginLeft: 4 }} /></Tooltip></span>} initialValue={0} style={{ marginBottom: 0 }}>
+            <InputNumber
+              min={0} max={100} step={0.01} precision={2} style={{ width: '100%' }}
+              placeholder="0,00"
+              formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
+              parser={(v: any) => Number(String(v || '0').replace(',', '.'))}
+            />
+          </Form.Item>
+          <Form.Item name="difal_destino_pct" label={<span>DIFAL — Alíq. destino (%)<Tooltip title="Alíquota de ICMS do estado de destino da venda."><InfoCircleOutlined style={{ color: '#64748b', marginLeft: 4 }} /></Tooltip></span>} initialValue={0} style={{ marginBottom: 0 }}>
+            <InputNumber
+              min={0} max={100} step={0.01} precision={2} style={{ width: '100%' }}
+              placeholder="0,00"
+              formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
+              parser={(v: any) => Number(String(v || '0').replace(',', '.'))}
+            />
+          </Form.Item>
+          <div style={{ paddingBottom: 1 }}>
+            <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 4 }}>DIFAL calculado</div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: difalCalc > 0 ? '#fca5a5' : '#64748b' }}>{fmtBRL(difalCalc)}</div>
+          </div>
+        </div>
+        {totalNaoRec > 0 && (
+          <div style={{ borderTop: '1px solid rgba(239,68,68,0.2)', marginTop: 12, paddingTop: 10, display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+            <span style={{ color: '#94a3b8' }}>Total impostos não recuperáveis</span>
+            <span style={{ fontWeight: 700, color: '#fca5a5' }}>{fmtBRL(totalNaoRec)}</span>
+          </div>
+        )}
+      </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
         <Form.Item name="supplier_name" label="Fornecedor">
