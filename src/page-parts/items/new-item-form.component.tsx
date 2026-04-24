@@ -76,7 +76,7 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
   const difalOrigemWatch = Form.useWatch('difal_origem_pct', form) ?? 0
   const difalDestinoWatch = Form.useWatch('difal_destino_pct', form) ?? 0
   const icmsStWatch = Form.useWatch('icms_st_value', form) ?? 0
-  const ipiNrWatch = Form.useWatch('ipi_nr_value', form) ?? 0
+  const ipiNrPctWatch = Form.useWatch('ipi_nr_pct', form) ?? 0
   const priceWatch = Form.useWatch('price', form) ?? '0'
 
   const recalcNetCost = useCallback(() => {
@@ -331,7 +331,8 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
     const impostoDestino = grossed * destPct
     return Math.max(0, impostoDestino - icmsOrigem)
   })()
-  const totalNaoRec = ((icmsStWatch as number) || 0) + ((ipiNrWatch as number) || 0) + difalCalc
+  const ipiCalc = priceForDifal * ((ipiNrPctWatch as number) / 100)
+  const totalNaoRec = ((icmsStWatch as number) || 0) + ipiCalc + difalCalc
   const fmtBRL = (v: number) => 'R$ ' + v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
   return (
@@ -726,16 +727,9 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
             <div style={{ fontSize: 12, fontWeight: 700, color: '#fca5a5', textTransform: 'uppercase' as const, letterSpacing: 0.6, marginBottom: 10 }}>
               Impostos não recuperáveis
             </div>
+            {/* ICMS-ST: valor manual em R$ */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
-              <Form.Item name="icms_st_value" label="ICMS-ST (R$)" initialValue={0} style={{ marginBottom: 0 }}>
-                <InputNumber
-                  min={0} step={0.01} precision={2} style={{ width: '100%' }}
-                  placeholder="0,00"
-                  formatter={(v: any) => { const n = Number(v ?? 0); return 'R$ ' + (isNaN(n) ? '0,00' : n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })) }}
-                  parser={(v: any) => { const r = String(v || '0').replace('R$', '').replace(/\s/g, '').replace(/\./g, '').replace(',', '.').trim(); return isNaN(Number(r)) ? 0 : Number(r) }}
-                />
-              </Form.Item>
-              <Form.Item name="ipi_nr_value" label="IPI (R$)" initialValue={0} style={{ marginBottom: 0 }}>
+              <Form.Item name="icms_st_value" label="ICMS-ST (valor inserido manualmente)" initialValue={0} style={{ marginBottom: 0 }}>
                 <InputNumber
                   min={0} step={0.01} precision={2} style={{ width: '100%' }}
                   placeholder="0,00"
@@ -744,6 +738,24 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
                 />
               </Form.Item>
             </div>
+
+            {/* IPI: alíquota % → R$ calculado */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12, alignItems: 'end' }}>
+              <Form.Item name="ipi_nr_pct" label="IPI — Alíquota (%)" initialValue={0} style={{ marginBottom: 0 }}>
+                <InputNumber
+                  min={0} max={100} step={0.01} precision={2} style={{ width: '100%' }}
+                  placeholder="0,00"
+                  formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
+                  parser={(v: any) => Number(String(v || '0').replace(',', '.'))}
+                />
+              </Form.Item>
+              <div style={{ paddingBottom: 1 }}>
+                <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 4 }}>IPI calculado</div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: ipiCalc > 0 ? '#fca5a5' : '#64748b' }}>{fmtBRL(ipiCalc)}</div>
+              </div>
+            </div>
+
+            {/* DIFAL: alíquota origem + destino → R$ calculado */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 12, marginTop: 12, alignItems: 'end' }}>
               <Form.Item name="difal_origem_pct" label={<span>DIFAL — Alíq. origem (%)<Tooltip title="Alíquota de ICMS interestadual do estado de origem do fornecedor."><InfoCircleOutlined style={{ color: '#64748b', marginLeft: 4 }} /></Tooltip></span>} initialValue={0} style={{ marginBottom: 0 }}>
                 <InputNumber

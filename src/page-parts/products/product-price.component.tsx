@@ -108,17 +108,46 @@ export const ProductPrice: FC<Props> = ({
   const pricePerUnit = totalPrice
   const priceRecipeTotal = totalPrice * yieldQty
 
-  // Atividades Terceirizadas (apenas LUCRO_REAL / LUCRO_PRESUMIDO): somadas ao preço de venda
+  // LUCRO_REAL / LUCRO_PRESUMIDO: IRPJ = 15% do lucro, CSLL = 9% do lucro
+  const irpjVal = showIrpjCsll ? profitVal * 0.15 : 0
+  const csllVal = showIrpjCsll ? profitVal * 0.09 : 0
+  const irpjPct = showIrpjCsll && pricePerUnit > 0 ? (irpjVal / pricePerUnit) * 100 : 0
+  const csllPct = showIrpjCsll && pricePerUnit > 0 ? (csllVal / pricePerUnit) * 100 : 0
+  const adicionalIrpjPct = (isLucroReal || isLucroPresumed) ? (additionalIrpjPercent || 0) : 0
+  const adicionalIrpjVal = (isLucroReal || isLucroPresumed) ? (pricePerUnit * adicionalIrpjPct / 100) : 0
+
+  const taxContribution = showIrpjCsll
+    ? irpjPct + csllPct + adicionalIrpjPct
+    : taxPctDisplay
+
+  const totalPct = isCalcTypeService
+    ? variablePct + financialPct + taxContribution + commissionPct + profitPct
+    : laborPct + fixedPct + variablePct + financialPct + taxContribution + commissionPct + profitPct
+  const costTotal = productPriceInfo.productCost
+  const expensesTotal = isCalcTypeService
+    ? variableVal + financialVal
+    : laborVal + fixedVal + variableVal + financialVal
+  const taxesTotal = taxValDisplay
+
+  // Margem de contribuição e valor precificado com ICMS/PIS/COFINS embutidos
+  const mcPct = (isLucroReal || isLucroPresumed)
+    ? 100 - totalPct - (isCalcTypeService ? 0 : icmsPct) - pisCofinsLRPct
+    : 100 - totalPct
+
+  const valorPrecificado = mcPct > 0 ? costTotal / (mcPct / 100) : 0
+  const icmsValDisplay = valorPrecificado * icmsPct / 100
+  const pisCofinsValDisplay = valorPrecificado * pisCofinsLRPct / 100
+
+  // Atividades Terceirizadas (apenas LUCRO_REAL / LUCRO_PRESUMIDO / SIMPLES_HIBRIDO)
   const terceirizadasTotal = (isLucroReal || isLucroPresumed || isSimplesHibrido)
     ? (freightValue || 0) + (insuranceValue || 0) + (accessoryExpensesValue || 0)
     : 0
-  const finalSalePrice = pricePerUnit + terceirizadasTotal
 
-  // Impostos "por fora" (IBS/CBS/IS/IPI) — apenas LUCRO_REAL
-  // IS e IBS/CBS: base LIMPA (sem ICMS+PIS/COFINS embutidos) + despesas acessórias
-  //   IS  base = preço limpo + terceirizadas
-  //   IBS/CBS base = preço limpo + terceirizadas + valor IS
-  // IPI: base CHEIA (com ICMS+PIS/COFINS embutidos) + despesas acessórias
+  // Preço base = valorPrecificado (com ICMS/PIS/COFINS embutidos para LR/LP) + terceirizadas
+  const baseForSalePrice = (isLucroReal || isLucroPresumed) ? valorPrecificado : pricePerUnit
+  const finalSalePrice = baseForSalePrice + terceirizadasTotal
+
+  // Impostos "por fora" (IBS/CBS/IS/IPI)
   const _lrTotalEmb = (isLucroReal || isLucroPresumed) ? (icmsPct + pisCofinsLRPct) : 0
   const _lrGrossDen = _lrTotalEmb > 0 ? (100 - _lrTotalEmb) / 100 : 1
   const _lrGrossed = _lrGrossDen > 0 ? finalSalePrice / _lrGrossDen : finalSalePrice
@@ -131,33 +160,9 @@ export const ProductPrice: FC<Props> = ({
   const taxCbsValue = ibsCbsWithIs * (cbsPct || 0) / 100
   const taxIpiValue = finalSalePrice * (ipiPct || 0) / 100
   const totalInlineTax = taxIsValue + taxIbsValue + taxCbsValue + taxIpiValue
-  const finalPriceWithTaxes = totalInlineTax > 0 ? finalSalePrice + totalInlineTax : finalSalePrice
+  // Preço de Venda por Unidade = valorPrecificado + terceirizadas + IBS/CBS + IS/IPI
+  const finalPriceWithTaxes = finalSalePrice + totalInlineTax
   const hasInlineTaxes = (isLucroReal || isLucroPresumed || isSimplesHibrido) && totalInlineTax > 0
-
-  // LUCRO_REAL / LUCRO_PRESUMIDO: IRPJ = 15% do lucro, CSLL = 9% do lucro
-  const irpjVal = showIrpjCsll ? profitVal * 0.15 : 0
-  const csllVal = showIrpjCsll ? profitVal * 0.09 : 0
-  // % displayed = valor / preço de venda (quanto representa no preço final)
-  const irpjPct = showIrpjCsll && pricePerUnit > 0 ? (irpjVal / pricePerUnit) * 100 : 0
-  const csllPct = showIrpjCsll && pricePerUnit > 0 ? (csllVal / pricePerUnit) * 100 : 0
-  // Adicional IRPJ apenas para LUCRO_REAL (preenchido manualmente)
-  const adicionalIrpjPct = (isLucroReal || isLucroPresumed) ? (additionalIrpjPercent || 0) : 0
-  const adicionalIrpjVal = (isLucroReal || isLucroPresumed) ? (pricePerUnit * adicionalIrpjPct / 100) : 0
-
-  // Para LUCRO_REAL/PRESUMIDO: IRPJ+CSLL são calculados sobre o lucro, não no taxPctDisplay
-  const taxContribution = showIrpjCsll
-    ? irpjPct + csllPct + adicionalIrpjPct
-    : taxPctDisplay
-
-  // When SERVICE, exclude laborPct and fixedPct from totalPct
-  const totalPct = isCalcTypeService
-    ? variablePct + financialPct + taxContribution + commissionPct + profitPct
-    : laborPct + fixedPct + variablePct + financialPct + taxContribution + commissionPct + profitPct
-  const costTotal = productPriceInfo.productCost
-  const expensesTotal = isCalcTypeService
-    ? variableVal + financialVal
-    : laborVal + fixedVal + variableVal + financialVal
-  const taxesTotal = taxValDisplay
 
   const fireChange = (name: string, value: number) => {
     handleChangePrecificationInputs({
@@ -165,20 +170,6 @@ export const ProductPrice: FC<Props> = ({
       target: { name, value: String(value) },
     } as any)
   }
-
-  // Margem de contribuição (coeficiente):
-  // MC% = 100% − soma de todos os percentuais (exceto custo do produto)
-  // Para LUCRO_REAL: totalPct ainda não inclui icmsPct e pisCofinsLRPct (são brutos, não derivados)
-  // → mc = 100 - totalPct - icmsPct (produto) - pisCofinsLRPct
-  const mcPct = (isLucroReal || isLucroPresumed)
-    ? 100 - totalPct - (isCalcTypeService ? 0 : icmsPct) - pisCofinsLRPct
-    : 100 - totalPct
-
-  // Valor precificado final com ICMS/PIS/COFINS embutidos = Custo / MC%
-  // ICMS (R$) e PIS/COFINS (R$) = valorPrecificado × alíquota
-  const valorPrecificado = mcPct > 0 ? costTotal / (mcPct / 100) : 0
-  const icmsValDisplay = valorPrecificado * icmsPct / 100
-  const pisCofinsValDisplay = valorPrecificado * pisCofinsLRPct / 100
 
   function pricingRow(
     label: string,
@@ -515,8 +506,8 @@ export const ProductPrice: FC<Props> = ({
         {/* Result box */}
         <div style={{
           padding: '16px 20px', borderRadius: 8, marginTop: 12,
-          background: finalSalePrice > 0 ? '#ECFDF5' : '#FEF2F2',
-          border: `1px solid ${finalSalePrice > 0 ? '#6CE9A6' : '#FDA29B'}`,
+          background: finalPriceWithTaxes > 0 ? '#ECFDF5' : '#FEF2F2',
+          border: `1px solid ${finalPriceWithTaxes > 0 ? '#6CE9A6' : '#FDA29B'}`,
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
@@ -531,27 +522,22 @@ export const ProductPrice: FC<Props> = ({
               )}
             </div>
             <div style={{ textAlign: 'right' }}>
-              <Tooltip title={hasInlineTaxes ? 'Preço de venda por unidade incluindo impostos (IBS, CBS, IS, IPI) aplicados sobre o preço base.' : 'Este é o preço de venda por unidade, incluindo atividades terceirizadas (Frete, Seguros, Despesas Acessórias) quando aplicável.'}>
+              <Tooltip title="Valor do produto precificado (com ICMS/PIS/COFINS) + Atividades Terceirizadas + Impostos IBS/CBS + Impostos IS/IPI.">
                 <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 2, textTransform: 'uppercase' as const, letterSpacing: 0.5, cursor: 'help' }}>
-                  Preço de Venda por Unidade{hasInlineTaxes ? ' (com impostos)' : ''}
+                  Preço de Venda por Unidade
                 </div>
               </Tooltip>
-              <div style={{ fontSize: 28, fontWeight: 800, color: finalSalePrice > 0 ? '#027A48' : '#B42318' }}>
-                {fmt(hasInlineTaxes ? finalPriceWithTaxes : finalSalePrice)}
+              <div style={{ fontSize: 28, fontWeight: 800, color: finalPriceWithTaxes > 0 ? '#027A48' : '#B42318' }}>
+                {fmt(finalPriceWithTaxes)}
               </div>
-              {(isLucroReal || isLucroPresumed || isSimplesHibrido) && hasInlineTaxes && (
+              {(isLucroReal || isLucroPresumed || isSimplesHibrido) && (terceirizadasTotal > 0 || totalInlineTax > 0) && (
                 <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
-                  Base: {fmt(finalSalePrice)} + Impostos: {fmt(totalInlineTax)}
-                </div>
-              )}
-              {(isLucroReal || isLucroPresumed || isSimplesHibrido) && !hasInlineTaxes && terceirizadasTotal > 0 && (
-                <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
-                  Base: {fmt(pricePerUnit)} + Terceirizadas: {fmt(terceirizadasTotal)}
+                  Base: {fmt(baseForSalePrice)}{terceirizadasTotal > 0 ? ` + Terc.: ${fmt(terceirizadasTotal)}` : ''}{totalInlineTax > 0 ? ` + Imp.: ${fmt(totalInlineTax)}` : ''}
                 </div>
               )}
               {yieldQty > 1 && (
                 <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>
-                  Total receita ({yieldQty} {unit || 'UN'}): {fmt(finalSalePrice * yieldQty)}
+                  Total receita ({yieldQty} {unit || 'UN'}): {fmt(finalPriceWithTaxes * yieldQty)}
                 </div>
               )}
             </div>
