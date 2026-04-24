@@ -116,7 +116,6 @@ export const ProductPrice: FC<Props> = ({
   const irpjPct = showIrpjCsll && pricePerUnit > 0 ? (irpjVal / pricePerUnit) * 100 : 0
   const csllPct = showIrpjCsll && pricePerUnit > 0 ? (csllVal / pricePerUnit) * 100 : 0
   const adicionalIrpjPct = (isLucroReal || isLucroPresumed) ? (additionalIrpjPercent || 0) : 0
-  const adicionalIrpjVal = (isLucroReal || isLucroPresumed) ? (pricePerUnit * adicionalIrpjPct / 100) : 0
 
   const taxContribution = showIrpjCsll
     ? irpjPct + csllPct + adicionalIrpjPct
@@ -139,6 +138,17 @@ export const ProductPrice: FC<Props> = ({
   const valorPrecificado = mcPct > 0 ? costTotal / (mcPct / 100) : 0
   const icmsValDisplay = valorPrecificado * icmsPct / 100
   const pisCofinsValDisplay = valorPrecificado * pisCofinsLRPct / 100
+
+  // Para LR/LP o preço base real é valorPrecificado (com ICMS/PIS-COFINS embutidos).
+  // commissionVal/profitVal do motor usam priceUnit (sem ICMS/PIS-COFINS) — somente para
+  // alimentar irpjPct/csllPct → taxContribution → mcPct. Os valores exibidos devem usar
+  // valorPrecificado como base.
+  const displayBase = (isLucroReal || isLucroPresumed) ? valorPrecificado : pricePerUnit
+  const commissionValDisplay = displayBase * commissionPct / 100
+  const profitValDisplay = displayBase * profitPct / 100
+  const irpjValDisplay = showIrpjCsll ? profitValDisplay * 0.15 : 0
+  const csllValDisplay = showIrpjCsll ? profitValDisplay * 0.09 : 0
+  const adicionalIrpjValDisplay = (isLucroReal || isLucroPresumed) ? (displayBase * adicionalIrpjPct / 100) : 0
 
   // Atividades Terceirizadas (apenas LUCRO_REAL / LUCRO_PRESUMIDO / SIMPLES_HIBRIDO)
   const terceirizadasTotal = (isLucroReal || isLucroPresumed || isSimplesHibrido)
@@ -288,16 +298,16 @@ export const ProductPrice: FC<Props> = ({
             {pricingRow(
               'Comissão total do vendedor',
               commissionPct,
-              commissionVal,
+              commissionValDisplay,
               'salesCommissionPercent',
               'Se deixar 0%, a comissão cadastrada no funcionário será aplicada automaticamente.'
             )}
-            {pricingRow('Lucro', profitPct, profitVal, 'productProfitPercent')}
+            {pricingRow('Lucro', profitPct, profitValDisplay, 'productProfitPercent')}
             {isLpRet && pricingRow('RET – Tributação unificada', taxPctDisplay, taxValDisplay, 'customTaxPercent', 'Alíquota RET consolidada (IRPJ 1,71% + CSLL 0,51% + PIS 0,37% + COFINS 1,41%). Puxada das configurações, editável por produto.')}
             {isSimplesHibrido && pricingRow('Simples Híbrido (%)', taxPctDisplay, taxValDisplay, 'customTaxPercent', 'Alíquota total consolidada do Simples Híbrido (ICMS + PIS + COFINS + ISS + IRPJ + CSLL). Puxada das configurações, editável por produto.')}
-            {showIrpjCsll && pricingRow('IRPJ (15% sobre lucro)', irpjPct, irpjVal, undefined, 'Imposto de Renda Pessoa Jurídica — calculado automaticamente como 15% sobre o valor do lucro. A porcentagem exibida representa quanto esse imposto ocupa no preço de venda.')}
-            {showIrpjCsll && pricingRow('CSLL (9% sobre lucro)', csllPct, csllVal, undefined, 'Contribuição Social sobre o Lucro Líquido — calculada automaticamente como 9% sobre o valor do lucro. A porcentagem exibida representa quanto esse imposto ocupa no preço de venda.')}
-            {(isLucroReal || isLucroPresumed) && pricingRow('Alíq. adicional IRPJ', adicionalIrpjPct, adicionalIrpjVal, 'additionalIrpj', 'Alíquota da parcela adicional do IRPJ. Calculada automaticamente com base no faturamento anual estimado.')}
+            {showIrpjCsll && pricingRow('IRPJ (15% sobre lucro)', irpjPct, irpjValDisplay, undefined, 'Imposto de Renda Pessoa Jurídica — calculado automaticamente como 15% sobre o valor do lucro. A porcentagem exibida representa quanto esse imposto ocupa no preço de venda.')}
+            {showIrpjCsll && pricingRow('CSLL (9% sobre lucro)', csllPct, csllValDisplay, undefined, 'Contribuição Social sobre o Lucro Líquido — calculada automaticamente como 9% sobre o valor do lucro. A porcentagem exibida representa quanto esse imposto ocupa no preço de venda.')}
+            {(isLucroReal || isLucroPresumed) && pricingRow('Alíq. adicional IRPJ', adicionalIrpjPct, adicionalIrpjValDisplay, 'additionalIrpj', 'Alíquota da parcela adicional do IRPJ. Calculada automaticamente com base no faturamento anual estimado.')}
             {(isLucroReal || isLucroPresumed) && !isCalcTypeService && pricingRow('ICMS (%)', icmsPct, icmsValDisplay, 'icms', 'ICMS sobre venda — informe manualmente conforme alíquota do seu produto.')}
             {(isLucroReal || isLucroPresumed) && pricingRow(
               isCalcTypeService
@@ -518,8 +528,8 @@ export const ProductPrice: FC<Props> = ({
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
               <div style={{ fontSize: 11, color: '#94a3b8' }}>Lucro líquido</div>
-              <div style={{ fontSize: 20, fontWeight: 700, color: profitVal >= 0 ? '#027A48' : '#B42318' }}>
-                {fmt(profitVal)}
+              <div style={{ fontSize: 20, fontWeight: 700, color: profitValDisplay >= 0 ? '#027A48' : '#B42318' }}>
+                {fmt(profitValDisplay)}
               </div>
               {finalSalePrice > 0 && (
                 <div style={{ fontSize: 11, color: '#94a3b8' }}>
@@ -561,14 +571,14 @@ export const ProductPrice: FC<Props> = ({
               <Tooltip title={`Despesas: ${fmt(expensesTotal)}`}>
                 <div style={{ width: `${(expensesTotal / totalPrice) * 100}%`, background: '#F79009' }} />
               </Tooltip>
-              <Tooltip title={`Impostos: ${fmt(showIrpjCsll ? irpjVal + csllVal + adicionalIrpjVal : taxesTotal)}`}>
-                <div style={{ width: `${((showIrpjCsll ? irpjVal + csllVal + adicionalIrpjVal : taxesTotal) / totalPrice) * 100}%`, background: '#667085' }} />
+              <Tooltip title={`Impostos: ${fmt(showIrpjCsll ? irpjValDisplay + csllValDisplay + adicionalIrpjValDisplay : taxesTotal)}`}>
+                <div style={{ width: `${((showIrpjCsll ? irpjValDisplay + csllValDisplay + adicionalIrpjValDisplay : taxesTotal) / totalPrice) * 100}%`, background: '#667085' }} />
               </Tooltip>
-              <Tooltip title={`Comissão: ${fmt(commissionVal)}`}>
-                <div style={{ width: `${(commissionVal / totalPrice) * 100}%`, background: '#7A5AF8' }} />
+              <Tooltip title={`Comissão: ${fmt(commissionValDisplay)}`}>
+                <div style={{ width: `${(commissionValDisplay / totalPrice) * 100}%`, background: '#7A5AF8' }} />
               </Tooltip>
-              <Tooltip title={`Lucro: ${fmt(profitVal)}`}>
-                <div style={{ width: `${(profitVal / totalPrice) * 100}%`, background: '#12B76A' }} />
+              <Tooltip title={`Lucro: ${fmt(profitValDisplay)}`}>
+                <div style={{ width: `${(profitValDisplay / totalPrice) * 100}%`, background: '#12B76A' }} />
               </Tooltip>
             </div>
             <div style={{ display: 'flex', gap: 12, marginTop: 6, fontSize: 10, color: '#94a3b8', flexWrap: 'wrap' }}>
