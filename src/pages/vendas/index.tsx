@@ -773,7 +773,8 @@ function Sales() {
                             : commPct
                     }
                 }
-                return sum + item.total * Math.max(0, effectivePct) / 100
+                const discountedItemTotal = item.total * (1 - globalDiscountPercentV / 100)
+                return sum + discountedItemTotal * Math.max(0, effectivePct) / 100
             }, 0)
 
             // 1) Criar venda (employee_id saved separately to handle missing column)

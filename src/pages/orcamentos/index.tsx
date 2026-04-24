@@ -470,16 +470,16 @@ function Budgets() {
         const combinedPct = commPct + profPct
         if (combinedPct <= 0) return s
         const itemBase = i.unit_price * i.quantity
+        const priceWithDiscount = itemBase * (1 - globalDiscountPercent / 100)
         if (discountMode === 'SELLER_REDUCTION') {
-            return s + itemBase * profPct / 100
+            return s + priceWithDiscount * profPct / 100
         }
         if (discountMode === 'PROFIT_REDUCTION') {
             const reducedProfPct = Math.max(0, profPct - globalDiscountPercent)
-            return s + itemBase * reducedProfPct / 100
+            return s + priceWithDiscount * reducedProfPct / 100
         }
         const newCombinedPct = Math.max(0, combinedPct - globalDiscountPercent)
         const profitProportion = profPct / combinedPct
-        const priceWithDiscount = itemBase * (1 - globalDiscountPercent / 100)
         return s + priceWithDiscount * newCombinedPct / 100 * profitProportion
     }, 0)
     const commissionAmount = budgetItems.reduce((s, i) => {
@@ -488,16 +488,16 @@ function Budgets() {
         const combinedPct = commPct + profPct
         if (combinedPct <= 0) return s
         const itemBase = i.unit_price * i.quantity
+        const priceWithDiscount = itemBase * (1 - globalDiscountPercent / 100)
         if (discountMode === 'PROFIT_REDUCTION') {
-            return s + itemBase * commPct / 100
+            return s + priceWithDiscount * commPct / 100
         }
         if (discountMode === 'SELLER_REDUCTION') {
             const reducedCommPct = Math.max(0, commPct - globalDiscountPercent)
-            return s + itemBase * reducedCommPct / 100
+            return s + priceWithDiscount * reducedCommPct / 100
         }
         const newCombinedPct = Math.max(0, combinedPct - globalDiscountPercent)
         const commissionProportion = commPct / combinedPct
-        const priceWithDiscount = itemBase * (1 - globalDiscountPercent / 100)
         return s + priceWithDiscount * newCombinedPct / 100 * commissionProportion
     }, 0)
 
