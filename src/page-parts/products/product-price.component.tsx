@@ -84,14 +84,9 @@ export const ProductPrice: FC<Props> = ({
 
   const totalPrice = productPriceInfo.totalProductPrice
   const laborPct = Number(calcBase.indirectLaborPct) || 0
-  const laborVal = totalPrice > 0 ? (totalPrice * (laborPct / 100)) : 0
-
   const fixedPct = calcBase.fixedExpensePct
-  const fixedVal = productPriceInfo.fixedExpensePrice
   const variablePct = calcBase.variableExpensePct
-  const variableVal = productPriceInfo.variableExpensePrice
   const financialPct = calcBase.financialExpensePct
-  const financialVal = productPriceInfo.financialExpensePrice
 
   const taxPctBase = calcBase.taxPct
   const taxPctDisplay = customTaxPercent != null ? customTaxPercent : taxPctBase
@@ -125,9 +120,6 @@ export const ProductPrice: FC<Props> = ({
     ? variablePct + financialPct + taxContribution + commissionPct + profitPct
     : laborPct + fixedPct + variablePct + financialPct + taxContribution + commissionPct + profitPct
   const costTotal = productPriceInfo.productCost
-  const expensesTotal = isCalcTypeService
-    ? variableVal + financialVal
-    : laborVal + fixedVal + variableVal + financialVal
   const taxesTotal = taxValDisplay
 
   // Margem de contribuição e valor precificado com ICMS/PIS/COFINS embutidos
@@ -144,11 +136,18 @@ export const ProductPrice: FC<Props> = ({
   // alimentar irpjPct/csllPct → taxContribution → mcPct. Os valores exibidos devem usar
   // valorPrecificado como base.
   const displayBase = (isLucroReal || isLucroPresumed) ? valorPrecificado : pricePerUnit
+  const laborValDisplay = laborPct > 0 ? displayBase * laborPct / 100 : 0
+  const fixedValDisplay = displayBase * fixedPct / 100
+  const variableValDisplay = displayBase * variablePct / 100
+  const financialValDisplay = displayBase * financialPct / 100
   const commissionValDisplay = displayBase * commissionPct / 100
   const profitValDisplay = displayBase * profitPct / 100
   const irpjValDisplay = showIrpjCsll ? profitValDisplay * 0.15 : 0
   const csllValDisplay = showIrpjCsll ? profitValDisplay * 0.09 : 0
   const adicionalIrpjValDisplay = (isLucroReal || isLucroPresumed) ? (displayBase * adicionalIrpjPct / 100) : 0
+  const expensesTotalDisplay = isCalcTypeService
+    ? variableValDisplay + financialValDisplay
+    : laborValDisplay + fixedValDisplay + variableValDisplay + financialValDisplay
 
   // Atividades Terceirizadas (apenas LUCRO_REAL / LUCRO_PRESUMIDO / SIMPLES_HIBRIDO)
   const terceirizadasTotal = (isLucroReal || isLucroPresumed || isSimplesHibrido)
@@ -290,10 +289,10 @@ export const ProductPrice: FC<Props> = ({
             </tr>
           </thead>
           <tbody>
-            {!isCalcTypeService && pricingRow('Mão de obra administrativa', laborPct, laborVal, undefined, 'Despesas de mão de obra administrativa (pró-labore, salários comerciais e administrativos) calculadas a partir do fluxo de caixa. Configure em Configurações > Equipe e Custos.')}
-            {!isCalcTypeService && pricingRow('Despesas fixas', fixedPct, fixedVal)}
-            {pricingRow('Despesas variáveis', variablePct, variableVal)}
-            {pricingRow('Despesas financeiras', financialPct, financialVal)}
+            {!isCalcTypeService && pricingRow('Mão de obra administrativa', laborPct, laborValDisplay, undefined, 'Despesas de mão de obra administrativa (pró-labore, salários comerciais e administrativos) calculadas a partir do fluxo de caixa. Configure em Configurações > Equipe e Custos.')}
+            {!isCalcTypeService && pricingRow('Despesas fixas', fixedPct, fixedValDisplay)}
+            {pricingRow('Despesas variáveis', variablePct, variableValDisplay)}
+            {pricingRow('Despesas financeiras', financialPct, financialValDisplay)}
             {!showIrpjCsll && !isLpRet && !isSimplesHibrido && pricingRow(taxLabel, taxPctDisplay, taxValDisplay, 'customTaxPercent', 'Alíquota efetiva herdada do regime tributário. Edite para ajustar apenas neste produto/serviço.')}
             {pricingRow(
               'Comissão total do vendedor',
@@ -568,8 +567,8 @@ export const ProductPrice: FC<Props> = ({
               <Tooltip title={`Custo: ${fmt(costTotal)}`}>
                 <div style={{ width: `${(costTotal / totalPrice) * 100}%`, background: '#F04438' }} />
               </Tooltip>
-              <Tooltip title={`Despesas: ${fmt(expensesTotal)}`}>
-                <div style={{ width: `${(expensesTotal / totalPrice) * 100}%`, background: '#F79009' }} />
+              <Tooltip title={`Despesas: ${fmt(expensesTotalDisplay)}`}>
+                <div style={{ width: `${(expensesTotalDisplay / displayBase) * 100}%`, background: '#F79009' }} />
               </Tooltip>
               <Tooltip title={`Impostos: ${fmt(showIrpjCsll ? irpjValDisplay + csllValDisplay + adicionalIrpjValDisplay : taxesTotal)}`}>
                 <div style={{ width: `${((showIrpjCsll ? irpjValDisplay + csllValDisplay + adicionalIrpjValDisplay : taxesTotal) / totalPrice) * 100}%`, background: '#667085' }} />
