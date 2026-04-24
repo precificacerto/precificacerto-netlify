@@ -858,6 +858,25 @@ export const Content: FC<ContentProps> = ({
       const salePriceToSave = (Number(productPriceInfo.totalProductPrice) || 0) + terceirizadasSum
       const costTotalToSave = Number(productPriceInfo.productCost) || 0
 
+      // Calcular preço final com impostos IBS/CBS/IS/IPI antes do insert
+      // Garante que sale_price = "Preço de Venda por Unidade" desde o primeiro save
+      let finalSalePriceForSave = salePriceToSave
+      if (isLRorLPorSH) {
+        const _totalEmb = (icmsPct || 0) + (pisCofinsLRPct || 0)
+        const _grossDen = _totalEmb > 0 ? (100 - _totalEmb) / 100 : 1
+        const _grossed = _grossDen > 0 ? salePriceToSave / _grossDen : salePriceToSave
+        const _icmsForBase = _grossed * (icmsPct || 0) / 100
+        const _pisCofForBase = _grossed * (pisCofinsLRPct || 0) / 100
+        const _ibsCbsBase = Math.max(0, salePriceToSave - _icmsForBase - _pisCofForBase)
+        const _isVal = _ibsCbsBase * (isPct || 0) / 100
+        const _ibsCbsWithIs = _ibsCbsBase + _isVal
+        const _ibsVal = _ibsCbsWithIs * (ibsPct || 0) / 100
+        const _cbsVal = _ibsCbsWithIs * (cbsPct || 0) / 100
+        const _ipiVal = salePriceToSave * (ipiPct || 0) / 100
+        const _totalTax = _isVal + _ibsVal + _cbsVal + _ipiVal
+        if (_totalTax > 0) finalSalePriceForSave = salePriceToSave + _totalTax
+      }
+
       let autoCode = values.code
       if (!autoCode) {
         const { data: lastProduct } = await supabase
@@ -887,7 +906,7 @@ export const Content: FC<ContentProps> = ({
         yield_quantity: yieldQty,
         yield_unit: values.unitType || 'UN',
         unit: values.unitType || 'UN',
-        sale_price: salePriceToSave,
+        sale_price: finalSalePriceForSave,
         cost_total: costTotalToSave,
         profit_percent: Number(productPriceInfo.productProfitPercent) || 0,
         commission_percent: Number(productPriceInfo.salesCommissionPercent) || 0,
@@ -922,24 +941,7 @@ export const Content: FC<ContentProps> = ({
         productId = created.id
       }
 
-      // Try to save columns that may not exist yet (pending migration)
-      // Calcular preço final para LUCRO_REAL/LUCRO_PRESUMIDO/SIMPLES_HIBRIDO (com impostos IBS/CBS/IS/IPI)
-      let finalSalePriceForSave = salePriceToSave
-      if (isLRorLPorSH) {
-        const _totalEmb = (icmsPct || 0) + (pisCofinsLRPct || 0)
-        const _grossDen = _totalEmb > 0 ? (100 - _totalEmb) / 100 : 1
-        const _grossed = _grossDen > 0 ? salePriceToSave / _grossDen : salePriceToSave
-        const _icmsForBase = _grossed * (icmsPct || 0) / 100
-        const _pisCofForBase = _grossed * (pisCofinsLRPct || 0) / 100
-        const _ibsCbsBase = Math.max(0, salePriceToSave - _icmsForBase - _pisCofForBase)
-        const _isVal = _ibsCbsBase * (isPct || 0) / 100
-        const _ibsCbsWithIs = _ibsCbsBase + _isVal
-        const _ibsVal = _ibsCbsWithIs * (ibsPct || 0) / 100
-        const _cbsVal = _ibsCbsWithIs * (cbsPct || 0) / 100
-        const _ipiVal = salePriceToSave * (ipiPct || 0) / 100
-        const _totalTax = _isVal + _ibsVal + _cbsVal + _ipiVal
-        if (_totalTax > 0) finalSalePriceForSave = salePriceToSave + _totalTax
-      }
+      // finalSalePriceForSave já calculado antes do insert (inclui IBS/CBS/IS/IPI para LR/LP/SH)
 
       const extraFields: Record<string, any> = {}
       if (customTaxPercent != null) extraFields.custom_tax_percent = customTaxPercent
@@ -1106,11 +1108,9 @@ export const Content: FC<ContentProps> = ({
         },
       })
 
-      // Garantir que sale_price = valor do "Preço de Venda por Unidade" (edge function pode sobrescrever)
-      // Para LUCRO_REAL/LUCRO_PRESUMIDO/SIMPLES_HIBRIDO: usa finalSalePriceForSave (inclui impostos IBS/CBS/IS/IPI se preenchidos)
-      const effectiveSalePrice = isLRorLPorSH ? finalSalePriceForSave : salePriceToSave
-      if (effectiveSalePrice > 0) {
-        await supabase.from('products').update({ sale_price: effectiveSalePrice }).eq('id', productId)
+      // Garantir que sale_price = "Preço de Venda por Unidade" após edge function (que pode sobrescrever)
+      if (finalSalePriceForSave > 0) {
+        await supabase.from('products').update({ sale_price: finalSalePriceForSave }).eq('id', productId)
       }
 
       const calcFailed = !!calcError || !calcResult?.success

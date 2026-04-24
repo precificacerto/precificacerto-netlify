@@ -107,12 +107,22 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
     }
 
     if (priceNum > 0) {
-      // Deduções para chegar no valor custo líquido
-      // deducao1: usa ICMS recuperáveis (impostosRec) — considera toggle deferido quando ativo
-      // deducao2: PIS+COFINS sobre (valor unitário − deducao1)
       const deducao1 = priceNum * impostosRec / 100
       const deducao2 = (priceNum - deducao1) * pisCofinsTotal / 100
-      const valorLiquido = priceNum - deducao1 - deducao2
+      // Impostos não recuperáveis: ICMS-ST (manual) + IPI (alíquota%) + DIFAL
+      const icmsSt = Number(values.icms_st_value) || 0
+      const ipiNrPct = Number(values.ipi_nr_pct) || 0
+      const ipiNrVal = priceNum * ipiNrPct / 100
+      const difalOrigem = Number(values.difal_origem_pct) || 0
+      const difalDestino = Number(values.difal_destino_pct) || 0
+      const _icmsOrigemDifal = priceNum * difalOrigem / 100
+      const _baseAposOrigem = priceNum - _icmsOrigemDifal
+      const _destPct = difalDestino / 100
+      const difalVal = (_destPct > 0 && _destPct < 1)
+        ? Math.max(0, (_baseAposOrigem / (1 - _destPct)) * _destPct - _icmsOrigemDifal)
+        : 0
+      const totalNaoRec = icmsSt + ipiNrVal + difalVal
+      const valorLiquido = priceNum - deducao1 - deducao2 + totalNaoRec
 
       setNetCostDisplay(getMonetaryValue(valorLiquido))
       form.setFieldsValue({ cost_net: valorLiquido })
@@ -279,6 +289,12 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
     setTimeout(recalcNetCost, 150)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLucroRealOrLP])
+
+  // Recalcula custo líquido quando impostos não recuperáveis mudam
+  useEffect(() => {
+    if (!isLucroRealOrLP) return
+    setTimeout(recalcNetCost, 50)
+  }, [icmsStWatch, ipiNrPctWatch, difalOrigemWatch, difalDestinoWatch, recalcNetCost, isLucroRealOrLP])
 
   const handleDeferidoToggle = (checked: boolean) => {
     form.setFieldsValue({
@@ -792,7 +808,7 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
               label={
                 <span>
                   Valor custo líquido&nbsp;
-                  <Tooltip title={isLucroPresumido ? 'Calculado: Valor unit. − (Valor unit. × ICMS%).' : 'Calculado: Valor unit. − (Valor unit. × ICMS%) − ((Valor unit. − ICMS) × PIS+COFINS%).'}>
+                  <Tooltip title={isLucroPresumido ? 'Calculado: Valor unit. − ICMS rec. + Impostos não recuperáveis (ICMS-ST + IPI + DIFAL).' : 'Calculado: Valor unit. − ICMS rec. − PIS/COFINS + Impostos não recuperáveis (ICMS-ST + IPI + DIFAL).'}>
                     <InfoCircleOutlined style={{ color: '#64748b' }} />
                   </Tooltip>
                 </span>
