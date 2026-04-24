@@ -43,6 +43,7 @@ interface ContentResaleProps {
   onIsPctChange?: (value: number) => void
   ipiPct?: number
   onIpiPctChange?: (value: number) => void
+  onFinalPriceWithTaxesChange?: (data: { finalPrice: number; basePrice: number }) => void
 }
 export const ContentResale: FC<ContentResaleProps> = ({
   itemsForm,
@@ -79,6 +80,7 @@ export const ContentResale: FC<ContentResaleProps> = ({
   onIsPctChange,
   ipiPct,
   onIpiPctChange,
+  onFinalPriceWithTaxesChange,
 }: ContentResaleProps) => {
   return (
     <>
@@ -149,6 +151,7 @@ export const ContentResale: FC<ContentResaleProps> = ({
         onIsPctChange={onIsPctChange}
         ipiPct={ipiPct}
         onIpiPctChange={onIpiPctChange}
+        onFinalPriceWithTaxesChange={onFinalPriceWithTaxesChange}
       />
     </>
   )

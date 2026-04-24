@@ -44,6 +44,7 @@ interface ContentIndustrializationProps {
   onIsPctChange?: (value: number) => void
   ipiPct?: number
   onIpiPctChange?: (value: number) => void
+  onFinalPriceWithTaxesChange?: (data: { finalPrice: number; basePrice: number }) => void
 }
 export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
   itemsForm,
@@ -80,6 +81,7 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
   onIsPctChange,
   ipiPct,
   onIpiPctChange,
+  onFinalPriceWithTaxesChange,
 }: ContentIndustrializationProps) => {
   return (
     <>
@@ -171,6 +173,7 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
         onIsPctChange={onIsPctChange}
         ipiPct={ipiPct}
         onIpiPctChange={onIpiPctChange}
+        onFinalPriceWithTaxesChange={onFinalPriceWithTaxesChange}
       />
     </>
   )

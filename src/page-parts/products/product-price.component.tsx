@@ -1,4 +1,4 @@
-import { ChangeEvent, FC } from 'react'
+import { ChangeEvent, FC, useEffect } from 'react'
 import { Card, Divider, InputNumber, Tooltip } from 'antd'
 import { CalculatorOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { getMonetaryValue } from '@/utils/get-monetary-value'
@@ -40,6 +40,7 @@ interface Props {
   onIsPctChange?: (value: number) => void
   ipiPct?: number
   onIpiPctChange?: (value: number) => void
+  onFinalPriceWithTaxesChange?: (data: { finalPrice: number; basePrice: number }) => void
 }
 
 export const ProductPrice: FC<Props> = ({
@@ -70,6 +71,7 @@ export const ProductPrice: FC<Props> = ({
   onIsPctChange,
   ipiPct = 0,
   onIpiPctChange,
+  onFinalPriceWithTaxesChange,
 }: Props) => {
   const isCalcTypeResale = currentUser?.calcType === CALC_TYPE_ENUM.RESALE
   const isCalcTypeService = currentUser?.calcType === CALC_TYPE_ENUM.SERVICE
@@ -163,6 +165,10 @@ export const ProductPrice: FC<Props> = ({
   // Preço de Venda por Unidade = valorPrecificado + terceirizadas + IBS/CBS + IS/IPI
   const finalPriceWithTaxes = finalSalePrice + totalInlineTax
   const hasInlineTaxes = (isLucroReal || isLucroPresumed || isSimplesHibrido) && totalInlineTax > 0
+
+  useEffect(() => {
+    if (finalPriceWithTaxes > 0) onFinalPriceWithTaxesChange?.({ finalPrice: finalPriceWithTaxes, basePrice: finalSalePrice })
+  }, [finalPriceWithTaxes, finalSalePrice, onFinalPriceWithTaxesChange])
 
   const fireChange = (name: string, value: number) => {
     handleChangePrecificationInputs({

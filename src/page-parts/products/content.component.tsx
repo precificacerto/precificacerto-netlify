@@ -388,6 +388,8 @@ export const Content: FC<ContentProps> = ({
   const [ncmFieldSearching, setNcmFieldSearching] = useState(false)
   const ncmDebounceRef = useRef<NodeJS.Timeout | null>(null)
   const nameDebounceRef = useRef<NodeJS.Timeout | null>(null)
+  const finalPriceWithTaxesRef = useRef<number>(0)
+  const salePriceBaseRef = useRef<number>(0)
 
   const searchNcmByName = useCallback(async (name: string) => {
     if (name.length < 2) { setNcmSuggestions([]); return }
@@ -858,24 +860,11 @@ export const Content: FC<ContentProps> = ({
       const salePriceToSave = (Number(productPriceInfo.totalProductPrice) || 0) + terceirizadasSum
       const costTotalToSave = Number(productPriceInfo.productCost) || 0
 
-      // Calcular preço final com impostos IBS/CBS/IS/IPI antes do insert
-      // Garante que sale_price = "Preço de Venda por Unidade" desde o primeiro save
-      let finalSalePriceForSave = salePriceToSave
-      if (isLRorLPorSH) {
-        const _totalEmb = (icmsPct || 0) + (pisCofinsLRPct || 0)
-        const _grossDen = _totalEmb > 0 ? (100 - _totalEmb) / 100 : 1
-        const _grossed = _grossDen > 0 ? salePriceToSave / _grossDen : salePriceToSave
-        const _icmsForBase = _grossed * (icmsPct || 0) / 100
-        const _pisCofForBase = _grossed * (pisCofinsLRPct || 0) / 100
-        const _ibsCbsBase = Math.max(0, salePriceToSave - _icmsForBase - _pisCofForBase)
-        const _isVal = _ibsCbsBase * (isPct || 0) / 100
-        const _ibsCbsWithIs = _ibsCbsBase + _isVal
-        const _ibsVal = _ibsCbsWithIs * (ibsPct || 0) / 100
-        const _cbsVal = _ibsCbsWithIs * (cbsPct || 0) / 100
-        const _ipiVal = salePriceToSave * (ipiPct || 0) / 100
-        const _totalTax = _isVal + _ibsVal + _cbsVal + _ipiVal
-        if (_totalTax > 0) finalSalePriceForSave = salePriceToSave + _totalTax
-      }
+      // Usa o valor calculado em tempo real pelo ProductPrice (via ref) — inclui valorPrecificado
+      // grossado com ICMS/PIS-COFINS + terceirizadas + IBS/CBS/IS/IPI, igual ao exibido na tela
+      const finalSalePriceForSave = finalPriceWithTaxesRef.current > 0
+        ? finalPriceWithTaxesRef.current
+        : salePriceToSave
 
       let autoCode = values.code
       if (!autoCode) {
@@ -954,18 +943,19 @@ export const Content: FC<ContentProps> = ({
         extraFields.icms_pct = icmsPct || 0
         extraFields.pis_cofins_pct = pisCofinsLRPct || 0
         extraFields.iva_dual_reduction_factor = ivaDualReductionFactor ?? null
-        // Impostos IBS/CBS/IS/IPI — calculados acima
+        // Impostos IBS/CBS/IS/IPI — usar basePrice capturado do ProductPrice via ref
+        const _saleBase = salePriceBaseRef.current > 0 ? salePriceBaseRef.current : salePriceToSave
         const _totalEmb2 = (icmsPct || 0) + (pisCofinsLRPct || 0)
         const _grossDen2 = _totalEmb2 > 0 ? (100 - _totalEmb2) / 100 : 1
-        const _grossed2 = _grossDen2 > 0 ? salePriceToSave / _grossDen2 : salePriceToSave
+        const _grossed2 = _grossDen2 > 0 ? _saleBase / _grossDen2 : _saleBase
         const _icmsForBase2 = _grossed2 * (icmsPct || 0) / 100
         const _pisCofForBase2 = _grossed2 * (pisCofinsLRPct || 0) / 100
-        const _ibsCbsBase2 = Math.max(0, salePriceToSave - _icmsForBase2 - _pisCofForBase2)
+        const _ibsCbsBase2 = Math.max(0, _saleBase - _icmsForBase2 - _pisCofForBase2)
         const _isVal2 = _ibsCbsBase2 * (isPct || 0) / 100
         const _ibsCbsWithIs2 = _ibsCbsBase2 + _isVal2
         const _ibsVal2 = _ibsCbsWithIs2 * (ibsPct || 0) / 100
         const _cbsVal2 = _ibsCbsWithIs2 * (cbsPct || 0) / 100
-        const _ipiVal2 = salePriceToSave * (ipiPct || 0) / 100
+        const _ipiVal2 = _saleBase * (ipiPct || 0) / 100
         extraFields.taxes_launched = true
         extraFields.is_pct = isPct || 0
         extraFields.is_value = _isVal2
@@ -975,7 +965,7 @@ export const Content: FC<ContentProps> = ({
         extraFields.cbs_value = _cbsVal2
         extraFields.ipi_pct = ipiPct || 0
         extraFields.ipi_value = _ipiVal2
-        extraFields.sale_price_base = salePriceToSave
+        extraFields.sale_price_base = _saleBase
         extraFields.sale_price_after_taxes = finalSalePriceForSave
         extraFields.valor_precificado_icms_piscofins = Number(productPriceInfo.totalProductPrice) || 0
       }
@@ -1860,6 +1850,7 @@ export const Content: FC<ContentProps> = ({
           onIsPctChange={setIsPct}
           ipiPct={ipiPct}
           onIpiPctChange={setIpiPct}
+          onFinalPriceWithTaxesChange={(d) => { finalPriceWithTaxesRef.current = d.finalPrice; salePriceBaseRef.current = d.basePrice }}
         />
       )}
       {productType === 'REVENDA' && isCalcTypeService && (
@@ -1899,6 +1890,7 @@ export const Content: FC<ContentProps> = ({
           onIsPctChange={setIsPct}
           ipiPct={ipiPct}
           onIpiPctChange={setIpiPct}
+          onFinalPriceWithTaxesChange={(d) => { finalPriceWithTaxesRef.current = d.finalPrice; salePriceBaseRef.current = d.basePrice }}
         />
       )}
       {productType === 'REVENDA' && !isCalcTypeService && (
@@ -1937,6 +1929,7 @@ export const Content: FC<ContentProps> = ({
           onIsPctChange={setIsPct}
           ipiPct={ipiPct}
           onIpiPctChange={setIpiPct}
+          onFinalPriceWithTaxesChange={(d) => { finalPriceWithTaxesRef.current = d.finalPrice; salePriceBaseRef.current = d.basePrice }}
         />
       )}
       <footer className="flex flex-row-reverse mt-5 mr-4">
