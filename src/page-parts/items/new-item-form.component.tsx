@@ -47,6 +47,7 @@ const formatBRL3 = (v: number) =>
 
 // Lucro Real — base PIS+COFINS não-cumulativo (1,65% + 7,6% = 9,25%)
 const PIS_COFINS_BASE = 9.25
+const PIS_COFINS_LP = 3.65
 
 const NewItemForm = ({ form, taxableRegime }: Props) => {
   const isLucroReal = taxableRegime === 'LUCRO_REAL'
@@ -99,6 +100,14 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
       if (!pisCofinsManuallyEdited) {
         form.setFieldsValue({ pis_cofins_rate: PIS_COFINS_BASE })
         pisCofinsTotal = PIS_COFINS_BASE
+      } else {
+        pisCofinsTotal = Number(values.pis_cofins_rate) || 0
+      }
+    } else if (isLucroPresumido) {
+      // LP usa regime cumulativo: PIS 0,65% + COFINS 3% = 3,65% padrão (editável via pis_cofins_rate)
+      if (!pisCofinsManuallyEdited) {
+        form.setFieldsValue({ pis_cofins_rate: PIS_COFINS_LP })
+        pisCofinsTotal = PIS_COFINS_LP
       } else {
         pisCofinsTotal = Number(values.pis_cofins_rate) || 0
       }
@@ -278,11 +287,11 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
     if (!isLucroRealOrLP) return
     // Lucro Real: se o item editado tem pis_cofins_rate ≠ 9,25% padrão,
     // o usuário editou manualmente — preservar e suspender auto-fill.
-    if (isLucroReal) {
+    if (isLucroReal || isLucroPresumido) {
       const values = form.getFieldsValue()
       const saved = Number(values.pis_cofins_rate) || 0
-      // tolerância 0,001% para arredondamentos
-      if (saved > 0 && Math.abs(saved - PIS_COFINS_BASE) > 0.001) {
+      const defaultRate = isLucroReal ? PIS_COFINS_BASE : PIS_COFINS_LP
+      if (saved > 0 && Math.abs(saved - defaultRate) > 0.001) {
         setPisCofinsManuallyEdited(true)
       }
     }

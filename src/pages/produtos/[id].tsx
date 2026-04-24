@@ -223,6 +223,10 @@ const ProductDetails = () => {
             accessory_expenses_value: p.accessory_expenses_value != null ? Number(p.accessory_expenses_value) : null,
             profit_percent: p.profit_percent != null ? Number(p.profit_percent) : null,
             commission_percent: p.commission_percent != null ? Number(p.commission_percent) : null,
+            ibs_pct: p.ibs_pct != null ? Number(p.ibs_pct) : 0,
+            cbs_pct: p.cbs_pct != null ? Number(p.cbs_pct) : 0,
+            is_pct: p.is_pct != null ? Number(p.is_pct) : 0,
+            ipi_pct: p.ipi_pct != null ? Number(p.ipi_pct) : 0,
           } as any)
         }
 
