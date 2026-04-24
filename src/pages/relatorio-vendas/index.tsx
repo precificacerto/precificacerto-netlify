@@ -297,6 +297,7 @@ function SalesReport() {
             let salesData: any[] | null = null
             const { data: salesFull, error: salesErr } = await salesQuery
             if (salesErr) {
+                console.warn('[relatorio-vendas] query principal falhou, tentando fallback:', salesErr.message)
                 // Fallback: remove potentially missing columns
                 const { data: salesSimple, error: salesErr2 } = await (supabase as any)
                     .from('sales')

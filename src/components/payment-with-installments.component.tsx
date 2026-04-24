@@ -70,6 +70,7 @@ interface PaymentWithInstallmentsProps {
     title?: string
     withEntry?: boolean
     onWithEntryChange?: (v: boolean) => void
+    baseDate?: Dayjs
 }
 
 export function PaymentWithInstallments({
@@ -81,10 +82,11 @@ export function PaymentWithInstallments({
     title = 'Datas e valores de recebimento',
     withEntry = false,
     onWithEntryChange,
+    baseDate,
 }: PaymentWithInstallmentsProps) {
     const handlePresetChange = (p: InstallmentPresetValue) => {
         onPresetChange(p)
-        const insts = buildInstallmentsByPreset(p)
+        const insts = buildInstallmentsByPreset(p, baseDate)
         onRowsChange(distributeInstallmentAmounts(insts, total))
     }
 

@@ -86,7 +86,7 @@ export async function calculateHubData(tenantId: string): Promise<HubData> {
   const lastDayDate = new Date(now.getFullYear(), now.getMonth(), 0)
   const endCutoffStr = `${lastDayDate.getFullYear()}-${String(lastDayDate.getMonth() + 1).padStart(2, '0')}-${String(lastDayDate.getDate()).padStart(2, '0')}`
 
-  // Busca todos os lançamentos até o fim do mês atual, incluindo expense_category e breakdown LR
+  // Busca todos os lançamentos até o último dia do mês anterior (exclui mês corrente)
   const { data: entries, error } = await supabase
     .from('cash_entries')
     .select('type, amount, due_date, expense_group, expense_category, is_active, paid_date, payment_method, valor_nf, valor_icms, valor_pis, valor_cofins, valor_ipi, valor_cbs, valor_ibs')

@@ -400,13 +400,6 @@ function OrdersPage() {
     }
 
     // ── Compilação de produtos em pedidos abertos ──
-    const compiledProducts = useMemo(() => {
-        const map = new Map<string, { product_id: string; product_name: string; total_qty: number; orders: string[] }>()
-        orders.forEach((o) => {
-            // items are not eagerly loaded here; for compilation we fetch separately
-        })
-        return Array.from(map.values())
-    }, [orders])
 
     const [compiledData, setCompiledData] = useState<Array<{ product_id: string; product_name: string; total_qty: number; orders: string[] }>>([])
     const [compiledLoading, setCompiledLoading] = useState(false)
