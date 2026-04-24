@@ -113,6 +113,7 @@ function Budgets() {
     // Informative installments in the budget create/edit form (not saved to DB)
     const [budgetFormInstallmentPreset, setBudgetFormInstallmentPreset] = useState<InstallmentPresetValue>('customizado')
     const [budgetFormCustomInstallments, setBudgetFormCustomInstallments] = useState<InstallmentRow[]>([{ date: null, amount: 0 }])
+    const [budgetFormWithEntry, setBudgetFormWithEntry] = useState(false)
     const [attachFile, setAttachFile] = useState<File | null>(null)
     const [attachDesc, setAttachDesc] = useState('')
     const [customerMode, setCustomerMode] = useState<'existing' | 'manual'>('existing')
@@ -765,6 +766,7 @@ function Budgets() {
         })
         setBudgetFormInstallmentPreset('customizado')
         setBudgetFormCustomInstallments([{ date: null, amount: 0 }])
+        setBudgetFormWithEntry(false)
         setDrawerOpen(true)
     }
 
@@ -1521,7 +1523,7 @@ function Budgets() {
                         Ver produtos em orçamentos
                     </Button>
                     {canEdit(MODULES.BUDGETS) && (
-                        <Button type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setBudgetItems([]); setGlobalDiscountPercent(0); setDiscountMode('PROPORTIONAL'); setEditingBudgetId(null); setBudgetFormInstallmentPreset('customizado'); setBudgetFormCustomInstallments([{ date: null, amount: 0 }]); setDrawerOpen(true) }}>
+                        <Button type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setBudgetItems([]); setGlobalDiscountPercent(0); setDiscountMode('PROPORTIONAL'); setEditingBudgetId(null); setBudgetFormInstallmentPreset('customizado'); setBudgetFormCustomInstallments([{ date: null, amount: 0 }]); setBudgetFormWithEntry(false); setDrawerOpen(true) }}>
                             Novo Orçamento
                         </Button>
                     )}
@@ -1542,10 +1544,10 @@ function Budgets() {
                 title={editingBudgetId ? 'Editar Orçamento' : 'Novo Orçamento'}
                 width={680}
                 open={drawerOpen}
-                onClose={() => { setDrawerOpen(false); setEditingBudgetId(null); form.resetFields(); setBudgetItems([]); setGlobalDiscountPercent(0); setDiscountMode('PROPORTIONAL'); setTableSections([{key: 'ts-0', tableId: null}]); setEmpProductTables([]); setEmpServiceTables([]); setBudgetFormInstallmentPreset('customizado'); setBudgetFormCustomInstallments([{ date: null, amount: 0 }]) }}
+                onClose={() => { setDrawerOpen(false); setEditingBudgetId(null); form.resetFields(); setBudgetItems([]); setGlobalDiscountPercent(0); setDiscountMode('PROPORTIONAL'); setTableSections([{key: 'ts-0', tableId: null}]); setEmpProductTables([]); setEmpServiceTables([]); setBudgetFormInstallmentPreset('customizado'); setBudgetFormCustomInstallments([{ date: null, amount: 0 }]); setBudgetFormWithEntry(false) }}
                 extra={
                     <Space>
-                        <Button onClick={() => { setDrawerOpen(false); setEditingBudgetId(null); form.resetFields(); setBudgetItems([]); setGlobalDiscountPercent(0); setDiscountMode('PROPORTIONAL'); setTableSections([{key: 'ts-0', tableId: null}]); setEmpProductTables([]); setEmpServiceTables([]); setBudgetFormInstallmentPreset('customizado'); setBudgetFormCustomInstallments([{ date: null, amount: 0 }]) }}>Cancelar</Button>
+                        <Button onClick={() => { setDrawerOpen(false); setEditingBudgetId(null); form.resetFields(); setBudgetItems([]); setGlobalDiscountPercent(0); setDiscountMode('PROPORTIONAL'); setTableSections([{key: 'ts-0', tableId: null}]); setEmpProductTables([]); setEmpServiceTables([]); setBudgetFormInstallmentPreset('customizado'); setBudgetFormCustomInstallments([{ date: null, amount: 0 }]); setBudgetFormWithEntry(false) }}>Cancelar</Button>
                         <Button onClick={editingBudgetId ? handleUpdate : handleSave} type="primary" loading={saving}>
                             {editingBudgetId ? 'Salvar alterações' : 'Criar Orçamento'}
                         </Button>
@@ -1813,6 +1815,7 @@ function Budgets() {
                             onChange={() => {
                                 setBudgetFormInstallmentPreset('customizado')
                                 setBudgetFormCustomInstallments([{ date: null, amount: 0 }])
+                                setBudgetFormWithEntry(false)
                             }}
                         />
                     </Form.Item>
@@ -1829,6 +1832,8 @@ function Budgets() {
                                     onRowsChange={setBudgetFormCustomInstallments}
                                     total={budgetTotalWithDiscount}
                                     title="📅 Previsão de parcelas (informativo)"
+                                    withEntry={budgetFormWithEntry}
+                                    onWithEntryChange={setBudgetFormWithEntry}
                                 />
                             )
                         }}

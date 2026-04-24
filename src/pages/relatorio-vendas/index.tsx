@@ -294,8 +294,24 @@ function SalesReport() {
             if (commEmployeeFilter) salesQuery = salesQuery.eq('employee_id', commEmployeeFilter)
             if (commSaleFilter) salesQuery = salesQuery.eq('id', commSaleFilter)
 
-            const { data: sales, error: salesErr } = await salesQuery
-            if (salesErr) throw salesErr
+            let salesData: any[] | null = null
+            const { data: salesFull, error: salesErr } = await salesQuery
+            if (salesErr) {
+                // Fallback: remove potentially missing columns
+                const { data: salesSimple, error: salesErr2 } = await (supabase as any)
+                    .from('sales')
+                    .select('id, sale_code, sale_date, employee_id, customer_id, final_value, commission_amount, description, budget_id')
+                    .eq('tenant_id', effectiveTenantId)
+                    .eq('is_active', true)
+                    .gte('sale_date', start)
+                    .lte('sale_date', end)
+                    .order('sale_date', { ascending: false })
+                if (salesErr2) throw salesErr2
+                salesData = salesSimple
+            } else {
+                salesData = salesFull
+            }
+            const sales = salesData
             if (!sales || sales.length === 0) {
                 setCommData([])
                 setCommLoading(false)

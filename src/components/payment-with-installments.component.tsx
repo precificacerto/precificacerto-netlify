@@ -24,8 +24,8 @@ export const INSTALLMENT_PRESETS: { value: InstallmentPresetValue; label: string
     { value: '30_60_90_120_150', label: '30/60/90/120/150' },
 ]
 
-export function buildInstallmentsByPreset(preset: string): InstallmentRow[] {
-    const today = dayjs()
+export function buildInstallmentsByPreset(preset: string, baseDate?: Dayjs): InstallmentRow[] {
+    const today = baseDate || dayjs()
     if (preset === '30') return [{ date: today.add(30, 'day'), amount: 0 }]
     if (preset === '30_60') return [
         { date: today.add(30, 'day'), amount: 0 },
@@ -68,6 +68,8 @@ interface PaymentWithInstallmentsProps {
     onRowsChange: (rows: InstallmentRow[]) => void
     total: number
     title?: string
+    withEntry?: boolean
+    onWithEntryChange?: (v: boolean) => void
 }
 
 export function PaymentWithInstallments({
@@ -77,6 +79,8 @@ export function PaymentWithInstallments({
     onRowsChange,
     total,
     title = 'Datas e valores de recebimento',
+    withEntry = false,
+    onWithEntryChange,
 }: PaymentWithInstallmentsProps) {
     const handlePresetChange = (p: InstallmentPresetValue) => {
         onPresetChange(p)
@@ -113,6 +117,18 @@ export function PaymentWithInstallments({
             }}
         >
             <div style={{ fontSize: 13, fontWeight: 600, color: '#93c5fd', marginBottom: 8 }}>{title}</div>
+            {onWithEntryChange && (
+                <div style={{ marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Radio.Group
+                        value={withEntry ? 'entrada' : 'parcelas'}
+                        onChange={(e) => onWithEntryChange(e.target.value === 'entrada')}
+                        size="small"
+                    >
+                        <Radio.Button value="parcelas">Parcelamento</Radio.Button>
+                        <Radio.Button value="entrada">Com Entrada</Radio.Button>
+                    </Radio.Group>
+                </div>
+            )}
             <div style={{ marginBottom: 10 }}>
                 <Radio.Group
                     value={preset}
@@ -126,17 +142,26 @@ export function PaymentWithInstallments({
                     ))}
                 </Radio.Group>
             </div>
-            {rows.map((item, idx) => (
+            {rows.map((item, idx) => {
+                const rowLabel = withEntry
+                    ? (idx === 0 ? 'Entrada' : `Parcela ${idx}`)
+                    : `Parcela ${idx + 1}`
+                return (
                 <div
                     key={idx}
                     style={{
                         display: 'grid',
-                        gridTemplateColumns: '1fr 1fr auto',
+                        gridTemplateColumns: withEntry ? '80px 1fr 1fr auto' : '1fr 1fr auto',
                         gap: 8,
                         marginBottom: 8,
                         alignItems: 'center',
                     }}
                 >
+                    {withEntry && (
+                        <span style={{ fontSize: 12, fontWeight: 600, color: idx === 0 ? '#34d399' : '#93c5fd', whiteSpace: 'nowrap' }}>
+                            {rowLabel}
+                        </span>
+                    )}
                     <DatePicker
                         placeholder="Data de recebimento"
                         format="DD/MM/YYYY"
@@ -164,7 +189,8 @@ export function PaymentWithInstallments({
                         ✕
                     </Button>
                 </div>
-            ))}
+                )
+            })}
             {preset === 'customizado' && (
                 <Button type="dashed" size="small" style={{ width: '100%' }} onClick={handleRowAdd}>
                     + Adicionar data/valor

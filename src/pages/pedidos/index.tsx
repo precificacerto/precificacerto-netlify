@@ -7,7 +7,7 @@ import type { ColumnsType } from 'antd/es/table'
 import {
     ShoppingCartOutlined, EditOutlined, DeleteOutlined, PlusOutlined,
     SendOutlined, UnorderedListOutlined, SearchOutlined, DollarOutlined,
-    FileTextOutlined, ClockCircleOutlined, CheckCircleOutlined,
+    FileTextOutlined, ClockCircleOutlined, CheckCircleOutlined, FilePdfOutlined,
 } from '@ant-design/icons'
 import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
@@ -17,6 +17,7 @@ import { useAuth } from '@/hooks/use-auth.hook'
 import { useCustomers, useProducts, useEmployees } from '@/hooks/use-data.hooks'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import { formatBRL } from '@/utils/formatters'
+import { exportTableToPdf } from '@/utils/export-generic-pdf'
 import dayjs from 'dayjs'
 
 const { Text } = Typography
@@ -542,13 +543,6 @@ function OrdersPage() {
             width: 160,
         },
         {
-            title: 'Orçamento',
-            dataIndex: 'budget_code',
-            key: 'budget_code',
-            width: 130,
-            render: (v) => v ? <Tag>{v}</Tag> : <Text type="secondary">—</Text>,
-        },
-        {
             title: 'Itens',
             dataIndex: 'items_count',
             key: 'items_count',
@@ -562,23 +556,6 @@ function OrdersPage() {
             width: 140,
             align: 'right',
             render: (v: number) => <strong>{formatCurrency(v)}</strong>,
-        },
-        {
-            title: 'Status',
-            dataIndex: 'status',
-            key: 'status',
-            width: 180,
-            render: (s: string) => {
-                const conf = STATUS_CONFIG[s] || { color: 'default', label: s }
-                return <Tag color={conf.color}>{conf.label}</Tag>
-            },
-        },
-        {
-            title: 'Criado em',
-            dataIndex: 'created_at',
-            key: 'created_at',
-            width: 140,
-            render: (d: string) => dayjs(d).format('DD/MM/YYYY HH:mm'),
         },
         {
             title: 'Ações',
@@ -903,6 +880,24 @@ function OrdersPage() {
                 onClose={() => setCompiledDrawerOpen(false)}
                 width={560}
                 placement="right"
+                extra={
+                    <Button
+                        icon={<FilePdfOutlined />}
+                        size="small"
+                        onClick={() => {
+                            if (!compiledData.length) return
+                            exportTableToPdf({
+                                title: 'Produtos em Pedidos Abertos',
+                                headers: ['Produto', 'Qtd Total', 'Pedidos'],
+                                rows: compiledData.map(r => [r.product_name, String(r.total_qty), r.orders.join(', ')]),
+                                filename: 'produtos-pedidos-abertos.pdf',
+                            })
+                        }}
+                        disabled={!compiledData.length}
+                    >
+                        Exportar PDF
+                    </Button>
+                }
             >
                 <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 12 }}>
                     Lista compilada de produtos somando as quantidades em todos os pedidos abertos.

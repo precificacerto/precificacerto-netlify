@@ -22,6 +22,7 @@ import {
     ClockCircleOutlined,
     BookOutlined,
     ReloadOutlined,
+    ShoppingCartOutlined,
 } from '@ant-design/icons'
 import { cpf, cnpj } from 'cpf-cnpj-validator'
 import VMasker from 'vanilla-masker'
@@ -124,7 +125,7 @@ function Clients() {
 
     const fetchTimeline = async (customerId: string, signal?: { cancelled: boolean }) => {
         setTimelineLoading(true)
-        const [histRes, attachRes, budgetRes, salesRes] = await Promise.all([
+        const [histRes, attachRes, budgetRes, salesRes, ordersRes] = await Promise.all([
             supabase
                 .from('customer_service_history')
                 .select('id, service_observation, created_at, calendar_event_id, history_type, employee_id')
@@ -139,13 +140,18 @@ function Clients() {
                 .from('budgets')
                 .select('id, total_value, status, payment_method, paid_date, sale_id, created_at, budget_items(product_id, quantity, unit_price, products(name), manual_description)')
                 .eq('customer_id', customerId)
-                .in('status', ['SENT', 'APPROVED', 'PAID'])
+                .in('status', ['DRAFT', 'SENT', 'APPROVED', 'PAID', 'AWAITING_PAYMENT', 'REJECTED', 'EXPIRED'])
                 .order('created_at', { ascending: false }),
             (supabase as any)
                 .from('sales')
                 .select('id, final_value, payment_method, installments, sale_date, created_at, employee_id, description, status, sale_type, budget_id')
                 .eq('customer_id', customerId)
                 .eq('is_active', true)
+                .order('created_at', { ascending: false }),
+            (supabase as any)
+                .from('orders')
+                .select('id, order_code, total_value, status, created_at, order_items(id)')
+                .eq('customer_id', customerId)
                 .order('created_at', { ascending: false }),
         ])
         if (signal?.cancelled) return
@@ -262,11 +268,19 @@ function Clients() {
             const summary = items.slice(0, 3).map((i: any) => i.products?.name || i.manual_description || 'Item').join(', ')
             const suffix = items.length > 3 ? ` +${items.length - 3}` : ''
 
-            // Default: awaiting payment. Partial payment (BOLETO/CHEQUE) → "Pago Parcial (X/Y)".
-            let statusLabel = 'Aguardando Pagamento'
-            let badgeColor = 'orange'
+            // Map budget status to label/color
+            let statusLabel = 'Em Aberto'
+            let badgeColor = 'default'
+            const bStatus = (b as any).status
+            if (bStatus === 'DRAFT') { statusLabel = 'Rascunho'; badgeColor = 'default' }
+            else if (bStatus === 'SENT') { statusLabel = 'Enviado'; badgeColor = 'blue' }
+            else if (bStatus === 'APPROVED') { statusLabel = 'Aprovado'; badgeColor = 'success' }
+            else if (bStatus === 'AWAITING_PAYMENT') { statusLabel = 'Aguardando Pagamento'; badgeColor = 'orange' }
+            else if (bStatus === 'PAID') { statusLabel = 'Pago'; badgeColor = 'green' }
+            else if (bStatus === 'REJECTED') { statusLabel = 'Cancelado'; badgeColor = 'red' }
+            else if (bStatus === 'EXPIRED') { statusLabel = 'Expirado'; badgeColor = 'warning' }
             const isBoletoOrCheque = (b as any).payment_method === 'BOLETO' || (b as any).payment_method === 'CHEQUE_PRE_DATADO'
-            if (isBoletoOrCheque) {
+            if (isBoletoOrCheque && bStatus !== 'PAID') {
                 const ces = cashEntriesByOrigin[b.id] || []
                 const totalCount = ces.length
                 const paidCount = ces.filter((ce: any) => ce.paid_date).length
@@ -334,6 +348,29 @@ function Clients() {
                 amount: Number(s.final_value || 0),
                 employeeName: empName,
                 attachments: saleAtts,
+            })
+        }
+
+        // Pedidos
+        const ORDER_STATUS_MAP: Record<string, { label: string; color: string }> = {
+            DRAFT: { label: 'Rascunho', color: 'default' },
+            AWAITING_PAYMENT: { label: 'Aguardando Pagamento', color: 'orange' },
+            SENT_TO_SALE: { label: 'Efetivado', color: 'success' },
+            PAID: { label: 'Pago', color: 'green' },
+            CANCELLED: { label: 'Cancelado', color: 'red' },
+        }
+        for (const o of ordersRes?.data || []) {
+            const conf = ORDER_STATUS_MAP[o.status] || { label: o.status, color: 'default' }
+            const itemCount = Array.isArray(o.order_items) ? o.order_items.length : 0
+            entries.push({
+                id: `order-${o.id}`,
+                date: o.created_at,
+                type: 'ORDER',
+                title: `Pedido ${o.order_code || o.id.slice(0, 8).toUpperCase()}`,
+                description: `${itemCount} ${itemCount === 1 ? 'item' : 'itens'}`,
+                badgeLabel: conf.label,
+                badgeColor: conf.color,
+                amount: Number(o.total_value || 0),
             })
         }
 
@@ -677,6 +714,7 @@ function Clients() {
         const typeGroups: { key: string; label: string; icon: React.ReactNode }[] = [
             { key: 'SERVICE', label: 'Serviços Realizados', icon: <ClockCircleOutlined style={{ color: '#12B76A' }} /> },
             { key: 'SALE', label: 'Vendas', icon: <ShopOutlined style={{ color: '#F79009' }} /> },
+            { key: 'ORDER', label: 'Pedidos', icon: <ShoppingCartOutlined style={{ color: '#06b6d4' }} /> },
             { key: 'BUDGET', label: 'Orçamentos', icon: <FileTextOutlined style={{ color: '#2E90FA' }} /> },
             { key: 'ATTACHMENT', label: 'Anexos e Documentos', icon: <PaperClipOutlined style={{ color: '#7A5AF8' }} /> },
         ]

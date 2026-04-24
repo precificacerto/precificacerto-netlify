@@ -622,13 +622,31 @@ export default function CommissionPage() {
     return commissionData.filter(r => r.employee_id === selectedEmployee)
   }, [commissionData, selectedEmployee])
 
-  // Totals
+  // Flat detail rows for main view (all employees, all detail rows)
+  const allDetailRows = useMemo(() =>
+    filteredData.flatMap(r =>
+      r.detail_rows.map(d => ({ ...d, employee_name: r.name, employee_id: r.employee_id }))
+    ),
+    [filteredData]
+  )
+
+  // Totals (from flat detail rows)
   const totalBase = useMemo(() => filteredData.reduce((s, r) => s + r.base_revenue, 0), [filteredData])
   const totalCommission = useMemo(() => filteredData.reduce((s, r) => s + r.commission_value, 0), [filteredData])
   const totalPendingRevenue = useMemo(() => filteredData.reduce((s, r) => s + r.pending_revenue, 0), [filteredData])
   const totalPendingCommission = useMemo(() => filteredData.reduce((s, r) => s + r.pending_commission, 0), [filteredData])
+  const detailTotalValue = useMemo(() => allDetailRows.reduce((s, r) => s + r.value, 0), [allDetailRows])
+  const detailTotalCommission = useMemo(() => allDetailRows.reduce((s, r) => s + r.commission_amount, 0), [allDetailRows])
 
-  const detailColumns: ColumnsType<CommissionDetailRow> = [
+  const detailColumns: ColumnsType<CommissionDetailRow & { employee_name?: string }> = [
+    {
+      title: 'Vendedor',
+      dataIndex: 'employee_name',
+      key: 'employee_name',
+      width: 140,
+      ellipsis: true,
+      render: (v: string) => <span style={{ fontWeight: 600, color: '#a78bfa' }}>{v || '—'}</span>,
+    },
     {
       title: 'Tipo',
       dataIndex: 'type',
@@ -923,32 +941,27 @@ export default function CommissionPage() {
         )}
       </div>
 
-      {/* Table */}
-      {filteredData.length > 0 ? (
+      {/* Main detail table — todas as vendas/serviços com comissão */}
+      {allDetailRows.length > 0 ? (
         <Table
-          columns={columns}
-          dataSource={filteredData}
-          rowKey="employee_id"
+          columns={detailColumns}
+          dataSource={allDetailRows}
+          rowKey="key"
           loading={loading}
-          pagination={false}
-          size="middle"
+          pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (t) => `${t} lançamentos` }}
+          size="small"
+          scroll={{ x: 1200 }}
           summary={() => (
             <Table.Summary fixed>
               <Table.Summary.Row style={{ background: '#1e1b4b' }}>
-                <Table.Summary.Cell index={0}><strong style={{ color: '#e2e8f0' }}>TOTAL</strong></Table.Summary.Cell>
-                <Table.Summary.Cell index={1} />
-                <Table.Summary.Cell index={2} />
-                <Table.Summary.Cell index={3} align="right">
-                  {totalPendingRevenue > 0 ? <strong style={{ color: '#fbbf24' }}>{formatCurrency(totalPendingRevenue)}</strong> : <span style={{ color: '#6B7280' }}>—</span>}
+                <Table.Summary.Cell index={0} colSpan={8}>
+                  <strong style={{ color: '#e2e8f0' }}>TOTAL</strong>
                 </Table.Summary.Cell>
-                <Table.Summary.Cell index={4} align="right">
-                  {totalPendingCommission > 0 ? <strong style={{ color: '#fbbf24' }}>{formatCurrency(totalPendingCommission)}</strong> : <span style={{ color: '#6B7280' }}>—</span>}
+                <Table.Summary.Cell index={8} align="right">
+                  <strong style={{ color: '#e2e8f0' }}>{formatCurrency(detailTotalValue)}</strong>
                 </Table.Summary.Cell>
-                <Table.Summary.Cell index={5} align="right">
-                  <strong style={{ color: '#e2e8f0' }}>{formatCurrency(totalBase)}</strong>
-                </Table.Summary.Cell>
-                <Table.Summary.Cell index={6} align="right">
-                  <strong style={{ color: '#a78bfa' }}>{formatCurrency(totalCommission)}</strong>
+                <Table.Summary.Cell index={9} align="right">
+                  <strong style={{ color: '#a78bfa' }}>{formatCurrency(detailTotalCommission)}</strong>
                 </Table.Summary.Cell>
               </Table.Summary.Row>
             </Table.Summary>
@@ -956,7 +969,7 @@ export default function CommissionPage() {
         />
       ) : (
         <Empty
-          description={loading ? 'Carregando...' : 'Nenhum vendedor com comissão configurada para este período.'}
+          description={loading ? 'Carregando...' : 'Nenhuma comissão encontrada para este período.'}
           style={{ padding: 60 }}
         />
       )}

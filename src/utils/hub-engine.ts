@@ -82,8 +82,8 @@ const HUB_GROUPS: { group: string; label: string }[] = [
  */
 export async function calculateHubData(tenantId: string): Promise<HubData> {
   const now = new Date()
-  // Limite: último dia do mês atual no horário LOCAL (inclui o mês atual parcial).
-  const lastDayDate = new Date(now.getFullYear(), now.getMonth() + 1, 0)
+  // Limite: último dia do mês ANTERIOR (exclui mês corrente para não distorcer médias de precificação).
+  const lastDayDate = new Date(now.getFullYear(), now.getMonth(), 0)
   const endCutoffStr = `${lastDayDate.getFullYear()}-${String(lastDayDate.getMonth() + 1).padStart(2, '0')}-${String(lastDayDate.getDate()).padStart(2, '0')}`
 
   // Busca todos os lançamentos até o fim do mês atual, incluindo expense_category e breakdown LR

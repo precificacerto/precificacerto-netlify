@@ -333,11 +333,12 @@ function Sales() {
         const prefill: any = { sale_date: dayjs() }
         if (freshBudget.payment_method) prefill.payment_method = freshBudget.payment_method
         registerForm.setFieldsValue(prefill)
-        // Pre-populate installment preset from budget
+        // Pre-populate installment preset from budget using budget's creation date as base
         const preset = (freshBudget.installment_preset || 'customizado') as any
         setRegisterInstallmentPreset(preset)
         if (preset !== 'customizado') {
-            const insts = buildInstallmentsByPreset(preset)
+            const baseDate = freshBudget.created_at ? dayjs(freshBudget.created_at) : dayjs()
+            const insts = buildInstallmentsByPreset(preset, baseDate)
             const total = Number(freshBudget.total_value) || 0
             const n = insts.length
             const amt = n > 0 && total > 0 ? Math.round((total / n) * 100) / 100 : 0
@@ -602,6 +603,7 @@ function Sales() {
     const fromBudget = monthSales.filter(s => s.saleType === 'FROM_BUDGET').length
 
     const filteredSales = sales.filter(s => {
+        if (s.status === 'AWAITING_PAYMENT') return false
         const matchesText =
             s.productName.toLowerCase().includes(searchText.toLowerCase()) ||
             s.customerName.toLowerCase().includes(searchText.toLowerCase()) ||
@@ -1126,11 +1128,11 @@ function Sales() {
                 body: JSON.stringify({ id }),
             })
             const result = await res.json()
-            if (!res.ok) throw new Error(result.error || 'Erro ao desativar')
-            messageApi.success('Venda desativada!')
+            if (!res.ok) throw new Error(result.error || 'Erro ao cancelar')
+            messageApi.success('Venda cancelada!')
             await fetchData()
         } catch (error: any) {
-            messageApi.error(error.message || 'Erro ao desativar venda')
+            messageApi.error(error.message || 'Erro ao cancelar venda')
         }
     }
 
@@ -1261,8 +1263,8 @@ function Sales() {
             render: (_, record) => (
                 <Space>
                     <Button type="link" size="small" onClick={() => handleViewDetail(record)}>Ver</Button>
-                    <Popconfirm title="Desativar venda?" onConfirm={() => handleDelete(record.id)}>
-                        <Button type="link" size="small" danger>Desativar</Button>
+                    <Popconfirm title="Cancelar venda?" onConfirm={() => handleDelete(record.id)}>
+                        <Button type="link" size="small" danger>Cancelar</Button>
                     </Popconfirm>
                 </Space>
             ),
@@ -1458,8 +1460,8 @@ function Sales() {
                                     </div>
                                     <div className="pc-mobile-card-footer">
                                         <Button size="small" onClick={() => handleViewDetail(r)}>Ver</Button>
-                                        <Popconfirm title="Desativar venda?" onConfirm={() => handleDelete(r.id)}>
-                                            <Button size="small" danger>Desativar</Button>
+                                        <Popconfirm title="Cancelar venda?" onConfirm={() => handleDelete(r.id)}>
+                                            <Button size="small" danger>Cancelar</Button>
                                         </Popconfirm>
                                     </div>
                                 </div>
