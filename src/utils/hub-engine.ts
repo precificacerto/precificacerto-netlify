@@ -397,17 +397,27 @@ export async function calculateHubDataPrevMonth(tenantId: string): Promise<HubDa
 /**
  * Extrai os percentuais de estrutura do Hub para alimentar tenant_expense_config.
  * Retorna os percentuais em DECIMAL 0-1 (ex: 0.1049 = 10,49%).
+ *
+ * @param customBase - Denominador alternativo (ex: receitaBrutaBase para LR/Híbrido).
+ *   Se não informado, usa totalIncome (comportamento padrão).
  */
-export function extractStructurePercents(hubData: HubData): {
+export function extractStructurePercents(hubData: HubData, customBase?: number): {
   indirect_labor_percent: number
   fixed_expense_percent: number
   variable_expense_percent: number
   financial_expense_percent: number
   production_labor_cost_percent: number
 } {
+  const base = customBase != null && customBase > 0 ? customBase : null
+
   const findPct = (group: string) => {
     const row = hubData.rows.find((r) => r.group === group)
-    return row ? row.averagePct / 100 : 0 // converte % para decimal
+    if (!row) return 0
+    if (base != null) {
+      // Usa base customizada como denominador (ex: Receita Bruta para LR/Híbrido)
+      return row.totalSum / base
+    }
+    return row.averagePct / 100 // converte % para decimal (usa totalIncome como base)
   }
 
   // MO Administrativa/Indireta (grupos que vão para o coeficiente)

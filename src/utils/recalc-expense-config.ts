@@ -21,19 +21,36 @@ const round2 = (v: number) => Math.round(v * 100) / 100
  * Recalcula percentuais de despesa baseando-se APENAS no mês anterior ao mês atual,
  * usando os dados do Hub (cash_entries).
  *
- * Fórmula: % = (soma_grupo_mês_anterior / soma_INCOME_mês_anterior) × 100
+ * Fórmula padrão:       % = (soma_grupo / soma_INCOME) × 100
+ * Fórmula LR/Híbrido:   % = (soma_grupo / receitaBrutaBase) × 100
+ *   onde receitaBrutaBase = totalIncome - IMPOSTO (por fora) - ATIVIDADES_TERCEIRIZADAS
  *
- * Apenas o mês anterior (due_date >= início mês anterior e < início mês atual) é considerado.
- * O mês em andamento é excluído para evitar distorção.
+ * Apenas o mês anterior é considerado para evitar distorção do mês em andamento.
  */
 export async function recalcExpenseConfigFromCashflow(
   tenantId: string,
 ): Promise<ExpenseConfigResult | null> {
-  const hubData = await calculateHubDataPrevMonth(tenantId)
+  const [hubData, tsResult] = await Promise.all([
+    calculateHubDataPrevMonth(tenantId),
+    supabase.from('tenant_settings').select('tax_regime').eq('tenant_id', tenantId).maybeSingle(),
+  ])
 
   if (hubData.months.length === 0 || hubData.totalIncome === 0) return null
 
-  const percents = extractStructurePercents(hubData)
+  const taxRegime = (tsResult.data as any)?.tax_regime ?? null
+  const isLrOrHibrido = taxRegime === 'LUCRO_REAL' || taxRegime === 'SIMPLES_HIBRIDO'
+
+  // Para LR/Híbrido usa receitaBrutaBase como denominador (= FT - impostos por fora - terceirizados)
+  // Isso alinha os % de estrutura com a base 100% do DRE, onde impostos por fora reduzem a receita.
+  let customBase: number | undefined
+  if (isLrOrHibrido) {
+    const impostoSum = hubData.rows.find((r) => r.group === 'IMPOSTO')?.totalSum ?? 0
+    const terceirizadosSum = hubData.rows.find((r) => r.group === 'ATIVIDADES_TERCEIRIZADAS')?.totalSum ?? 0
+    const base = hubData.totalIncome - impostoSum - terceirizadosSum
+    customBase = base > 0 ? base : hubData.totalIncome // fallback: se base <= 0, usa totalIncome
+  }
+
+  const percents = extractStructurePercents(hubData, customBase)
 
   // MO Produtiva: buscamos o custo absoluto médio mensal (R$/mês) da tabela,
   // pois é usado pelo motor como custo monetário (não percentual)
