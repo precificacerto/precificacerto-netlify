@@ -56,6 +56,7 @@ const statusConfig: Record<string, { color: string; label: string; stage: number
     PAID: { color: 'green', label: '✅ Pago', stage: 2 },
     EXPIRED: { color: 'warning', label: 'Expirado', stage: -1 },
     REJECTED: { color: 'error', label: 'Recusado', stage: -1 },
+    SENT_TO_ORDER: { color: 'cyan', label: '📦 Enviado para Pedido', stage: 2 },
 }
 
 const PAYMENT_METHODS = [
@@ -194,7 +195,7 @@ function Budgets() {
                 (supabase as any)
                     .from('budgets')
                     .select('id, customer:customers(id, name), employee:employees(id, name), budget_items(product_id, quantity, unit_price, products(id, name, commission_table_id))')
-                    .in('status', ['DRAFT', 'SENT', 'APPROVED', 'AWAITING_PAYMENT'])
+                    .in('status', ['DRAFT', 'SENT', 'APPROVED', 'AWAITING_PAYMENT', 'SENT_TO_ORDER'])
                     .eq('is_active', true)
                     .order('created_at', { ascending: false }),
             ])
@@ -276,7 +277,7 @@ function Budgets() {
     // KPIs
     const totalBudgets = budgets.length
     const pendingBudgets = budgets.filter(b => ['SENT', 'APPROVED', 'AWAITING_PAYMENT'].includes(b.status)).length
-    const paidBudgets = budgets.filter(b => b.status === 'PAID').length
+    const paidBudgets = budgets.filter(b => ['PAID', 'SENT_TO_ORDER'].includes(b.status)).length
     const awaitingPaymentCount = budgets.filter(b => b.status === 'AWAITING_PAYMENT').length
     const totalValue = budgets.filter(b => !['REJECTED', 'EXPIRED'].includes(b.status)).reduce((s, b) => s + Number(b.total_value || 0), 0)
 
@@ -581,6 +582,21 @@ function Budgets() {
                 if (itemsErr) throw itemsErr
             }
 
+            // Salvar parcelas (BOLETO/CHEQUE_PRE_DATADO)
+            if (values.payment_method === 'BOLETO' || values.payment_method === 'CHEQUE_PRE_DATADO') {
+                const validInstRows = budgetFormCustomInstallments.filter(r => r.date && r.amount > 0)
+                if (validInstRows.length > 0) {
+                    await (supabase as any).from('budget_installment_rows').insert(
+                        validInstRows.map((r, i) => ({
+                            budget_id: budget.id,
+                            due_date: dayjs(r.date).format('YYYY-MM-DD'),
+                            amount: r.amount,
+                            sort_order: i,
+                        }))
+                    )
+                }
+            }
+
             messageApi.success('Orçamento criado!')
             await reloadBudgets()
             setDrawerOpen(false)
@@ -656,6 +672,23 @@ function Budgets() {
                 const { error: itemsErr } = await supabase.from('budget_items').insert(items)
                 if (itemsErr) throw itemsErr
             }
+
+            // Atualizar parcelas (BOLETO/CHEQUE_PRE_DATADO)
+            await (supabase as any).from('budget_installment_rows').delete().eq('budget_id', editingBudgetId)
+            if (values.payment_method === 'BOLETO' || values.payment_method === 'CHEQUE_PRE_DATADO') {
+                const validInstRows = budgetFormCustomInstallments.filter(r => r.date && r.amount > 0)
+                if (validInstRows.length > 0) {
+                    await (supabase as any).from('budget_installment_rows').insert(
+                        validInstRows.map((r, i) => ({
+                            budget_id: editingBudgetId,
+                            due_date: dayjs(r.date).format('YYYY-MM-DD'),
+                            amount: r.amount,
+                            sort_order: i,
+                        }))
+                    )
+                }
+            }
+
             messageApi.success('Orçamento atualizado!')
             await reloadBudgets()
             setDrawerOpen(false)
@@ -765,10 +798,22 @@ function Budgets() {
             notes: record.notes || undefined,
             payment_method: (record as any).payment_method || undefined,
         })
-        setBudgetFormInstallmentPreset('customizado')
-        setBudgetFormCustomInstallments([{ date: null, amount: 0 }])
+        setBudgetFormInstallmentPreset((record as any).installment_preset || 'customizado')
         setBudgetFormWithEntry(false)
         setBudgetFormBaseDate(record.created_at ? dayjs(record.created_at) : undefined)
+
+        // Carregar parcelas salvas
+        const { data: savedInstRows } = await (supabase as any)
+            .from('budget_installment_rows')
+            .select('due_date, amount, sort_order')
+            .eq('budget_id', record.id)
+            .order('sort_order')
+        if (savedInstRows && savedInstRows.length > 0) {
+            setBudgetFormCustomInstallments(savedInstRows.map((r: any) => ({ date: dayjs(r.due_date), amount: r.amount })))
+        } else {
+            setBudgetFormCustomInstallments([{ date: null, amount: 0 }])
+        }
+
         setDrawerOpen(true)
     }
 
@@ -879,9 +924,25 @@ function Budgets() {
                     await (supabase as any).from('order_items').insert(toInsert)
                 }
 
-                // atualiza budget para SENT_TO_ORDER (mantém referência)
+                // Copiar parcelas do orçamento para o pedido
+                const { data: budgetInstRows } = await (supabase as any)
+                    .from('budget_installment_rows')
+                    .select('due_date, amount, sort_order')
+                    .eq('budget_id', budget.id)
+                    .order('sort_order')
+                if (budgetInstRows && budgetInstRows.length > 0) {
+                    await (supabase as any).from('order_installment_rows').insert(
+                        budgetInstRows.map((r: any) => ({
+                            order_id: order.id,
+                            due_date: r.due_date,
+                            amount: r.amount,
+                            sort_order: r.sort_order,
+                        }))
+                    )
+                }
+
                 await supabase.from('budgets')
-                    .update({ status: 'AWAITING_PAYMENT', updated_at: new Date().toISOString() })
+                    .update({ status: 'SENT_TO_ORDER', updated_at: new Date().toISOString() })
                     .eq('id', budget.id)
             }
 
@@ -911,6 +972,21 @@ function Budgets() {
         })
         setAttachFile(null)
         setAttachDesc('')
+
+        // Pré-popular parcelas salvas no orçamento
+        const { data: instRows } = await (supabase as any)
+            .from('budget_installment_rows')
+            .select('due_date, amount, sort_order')
+            .eq('budget_id', budgetData.id)
+            .order('sort_order')
+        if (instRows && instRows.length > 0) {
+            setCustomInstallments(instRows.map((r: any) => ({ date: dayjs(r.due_date), amount: r.amount })))
+            setInstallmentPreset((budgetData as any).installment_preset || 'customizado')
+        } else {
+            setCustomInstallments([{ date: null, amount: 0 }])
+            setInstallmentPreset('customizado')
+        }
+
         setPaymentModalOpen(true)
     }
 
@@ -1837,6 +1913,7 @@ function Budgets() {
                                     withEntry={budgetFormWithEntry}
                                     onWithEntryChange={setBudgetFormWithEntry}
                                     baseDate={budgetFormBaseDate}
+                                    paymentMethod={pm}
                                 />
                             )
                         }}
@@ -2015,6 +2092,7 @@ function Budgets() {
                                     rows={customInstallments}
                                     onRowsChange={setCustomInstallments}
                                     total={Number(selectedBudget?.total_value) || 0}
+                                    paymentMethod={pm}
                                 />
                             )
                         }}

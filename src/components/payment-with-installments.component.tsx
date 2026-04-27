@@ -1,6 +1,7 @@
 import { Button, DatePicker, InputNumber, Radio } from 'antd'
 import dayjs, { type Dayjs } from 'dayjs'
 import { formatBRL as _formatBRLCentral } from '@/utils/formatters'
+import { formatCurrencyInput, parseCurrencyInput } from '@/utils/get-monetary-value'
 
 export type InstallmentPresetValue =
     | 'customizado'
@@ -16,13 +17,22 @@ export interface InstallmentRow {
 }
 
 export const INSTALLMENT_PRESETS: { value: InstallmentPresetValue; label: string }[] = [
-    { value: 'customizado', label: 'Cheque pré-datado' },
+    { value: 'customizado', label: 'Personalizado' },
     { value: '30', label: '30' },
     { value: '30_60', label: '30/60' },
     { value: '30_60_90', label: '30/60/90' },
     { value: '30_60_90_120', label: '30/60/90/120' },
     { value: '30_60_90_120_150', label: '30/60/90/120/150' },
 ]
+
+function getPresetLabel(value: InstallmentPresetValue, paymentMethod?: string): string {
+    if (value === 'customizado') {
+        if (paymentMethod === 'BOLETO') return 'Boleto'
+        if (paymentMethod === 'CHEQUE_PRE_DATADO') return 'Cheque Pré-datado'
+        return 'Personalizado'
+    }
+    return INSTALLMENT_PRESETS.find(p => p.value === value)?.label ?? value
+}
 
 export function buildInstallmentsByPreset(preset: string, baseDate?: Dayjs): InstallmentRow[] {
     const today = baseDate || dayjs()
@@ -71,6 +81,7 @@ interface PaymentWithInstallmentsProps {
     withEntry?: boolean
     onWithEntryChange?: (v: boolean) => void
     baseDate?: Dayjs
+    paymentMethod?: string
 }
 
 export function PaymentWithInstallments({
@@ -83,6 +94,7 @@ export function PaymentWithInstallments({
     withEntry = false,
     onWithEntryChange,
     baseDate,
+    paymentMethod,
 }: PaymentWithInstallmentsProps) {
     const handlePresetChange = (p: InstallmentPresetValue) => {
         onPresetChange(p)
@@ -139,7 +151,7 @@ export function PaymentWithInstallments({
                 >
                     {INSTALLMENT_PRESETS.map((p) => (
                         <Radio.Button key={p.value} value={p.value}>
-                            {p.label}
+                            {getPresetLabel(p.value, paymentMethod)}
                         </Radio.Button>
                     ))}
                 </Radio.Group>
@@ -173,19 +185,19 @@ export function PaymentWithInstallments({
                     />
                     <InputNumber
                         min={0}
-                        step={0.01}
-                        precision={2}
                         style={{ width: '100%' }}
                         placeholder="Valor (R$)"
                         value={item.amount || undefined}
                         addonBefore="R$"
+                        formatter={(v) => formatCurrencyInput(v as number | string | undefined)}
+                        parser={(v) => parseCurrencyInput(v) as unknown as 0}
                         onChange={(v) => handleRowAmountChange(idx, v)}
                     />
                     <Button
                         danger
                         size="small"
                         type="text"
-                        disabled={preset !== 'customizado' || rows.length === 1}
+                        disabled={rows.length === 1}
                         onClick={() => handleRowRemove(idx)}
                     >
                         ✕
@@ -193,11 +205,9 @@ export function PaymentWithInstallments({
                 </div>
                 )
             })}
-            {preset === 'customizado' && (
-                <Button type="dashed" size="small" style={{ width: '100%' }} onClick={handleRowAdd}>
-                    + Adicionar data/valor
-                </Button>
-            )}
+            <Button type="dashed" size="small" style={{ width: '100%' }} onClick={handleRowAdd}>
+                + Adicionar data/valor
+            </Button>
             {rows.length > 1 && (
                 <div style={{ marginTop: 6, fontSize: 12, color: '#94a3b8' }}>
                     Total parcelas:{' '}

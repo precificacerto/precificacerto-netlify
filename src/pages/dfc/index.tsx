@@ -430,10 +430,9 @@ function buildDreLucroRealPresumido(
   const isLrOrHibrido = taxRegime === 'LUCRO_REAL' || taxRegime === 'SIMPLES_HIBRIDO'
 
   if (isLrOrHibrido) {
-    // ── Seção de cabeçalho: Faturamento Total e Deduções Tributárias ──
-    // Faturamento Total = Receita Bruta + Impostos por fora + Atividades Terceirizadas
-    const faturamentoTotal = sumMonths(sumMonths(receitaBruta, agg.imposto), agg.atividadesTerceirizadas)
-    rows.push({ ...buildRow('faturamento_total', 'Faturamento Total', faturamentoTotal, receitaBruta, { isHeader: true, sign: '+' }), pctOfRL: undefined })
+    // ── Seção de cabeçalho: Faturamento Total = total do Hub (valor dos lançamentos de receita) ──
+    // Faturamento Total agora é o próprio receitaBruta (valor total do Hub, sem somar impostos por fora)
+    rows.push({ ...buildRow('faturamento_total', 'Faturamento Total', receitaBruta, receitaBruta, { isHeader: true, sign: '+' }), pctOfRL: undefined })
 
     const totalDeducoes = sumMonths(agg.imposto, agg.atividadesTerceirizadas)
     rows.push({ ...buildRow('deducoes_header', '(-) Deduções Tributárias Sobre Receita', totalDeducoes, receitaBruta, { sign: '-' }), pctOfRL: undefined })
@@ -441,61 +440,63 @@ function buildDreLucroRealPresumido(
     rows.push({ ...buildRow('atividades_entrega', 'Atividades operacionais de entrega', agg.atividadesTerceirizadas, receitaBruta, { indent: 1, sign: '-' }), pctOfRL: undefined })
   }
 
-  // ── DRE começa aqui (Receita Bruta = 100%) ──
-  rows.push(buildRow('receita_bruta', 'Receita Bruta', receitaBruta, receitaBruta, { isHeader: true, sign: '+' }))
+  // ── Receita Bruta (base 100%): para LR/Híbrido = Faturamento Total - Deduções; outros regimes = Hub total ──
+  const receitaBrutaBase = isLrOrHibrido
+    ? subtractMonths(receitaBruta, sumMonths(agg.imposto, agg.atividadesTerceirizadas))
+    : receitaBruta
+  rows.push(buildRow('receita_bruta', 'Receita Bruta', receitaBrutaBase, receitaBrutaBase, { isHeader: true, sign: '+' }))
 
   let receitaLiquida: MonthlyValues
   if (isLrOrHibrido) {
     // (-) Impostos sobre a receita — Por dentro: ICMS Próprio, PIS, COFINS
-    rows.push(buildRow('impostos_receita', '(-) Impostos sobre a receita', agg.impostoPorDentro, receitaBruta, { sign: '-', indent: 1 }))
-    receitaLiquida = subtractMonths(receitaBruta, agg.impostoPorDentro)
+    rows.push(buildRow('impostos_receita', '(-) Impostos sobre a receita', agg.impostoPorDentro, receitaBrutaBase, { sign: '-', indent: 1 }))
+    receitaLiquida = subtractMonths(receitaBrutaBase, agg.impostoPorDentro)
   } else {
     // Lucro Presumido: mantém comportamento anterior
-    rows.push(buildRow('deducoes_trib_receita', '(-) Deduções Tributárias Sobre Receita', agg.imposto, receitaBruta, { sign: '-', indent: 1 }))
-    receitaLiquida = subtractMonths(receitaBruta, agg.imposto)
+    rows.push(buildRow('deducoes_trib_receita', '(-) Deduções Tributárias Sobre Receita', agg.imposto, receitaBrutaBase, { sign: '-', indent: 1 }))
+    receitaLiquida = subtractMonths(receitaBrutaBase, agg.imposto)
   }
 
-  rows.push(buildRow('receita_liquida', '(=) Receita Líquida de Venda Interna', receitaLiquida, receitaBruta, { isSubtotal: true, sign: '=' }))
+  rows.push(buildRow('receita_liquida', '(=) Receita Líquida de Venda Interna', receitaLiquida, receitaBrutaBase, { isSubtotal: true, sign: '=' }))
 
   // CMV — MO Produtiva sempre aparece como linha separada (independente do calcType)
-  const custoProdutos = agg.custoProduto // custo líquido (base sem impostos recuperáveis)
-  // Para LR/Simples Híbrido: CMV inclui também os impostos recuperáveis sobre compras
+  const custoProdutos = agg.custoProduto
   const cmvTotal = isLrOrHibrido
     ? sumMonths(sumMonths(custoProdutos, agg.impostosRecuperaveisCusto), agg.maoDeObraProdutiva)
     : sumMonths(custoProdutos, agg.maoDeObraProdutiva)
-  rows.push(buildRow('cmv_header', '(-) Custos Líquido dos Produtos (CMV)', cmvTotal, receitaBruta, { sign: '-' }))
-  rows.push(buildRow('cmv_custo_prod', 'Custo Líquido dos Produtos', custoProdutos, receitaBruta, { indent: 2 }))
+  rows.push(buildRow('cmv_header', '(-) Custos Líquido dos Produtos (CMV)', cmvTotal, receitaBrutaBase, { sign: '-' }))
+  rows.push(buildRow('cmv_custo_prod', 'Custo Líquido dos Produtos', custoProdutos, receitaBrutaBase, { indent: 2 }))
   if (isLrOrHibrido) {
-    rows.push(buildRow('cmv_impostos_rec', 'Custos dos Impostos Recuperáveis sobre Compras', agg.impostosRecuperaveisCusto, receitaBruta, { indent: 2 }))
+    rows.push(buildRow('cmv_impostos_rec', 'Custos dos Impostos Recuperáveis sobre Compras', agg.impostosRecuperaveisCusto, receitaBrutaBase, { indent: 2 }))
   }
-  rows.push(buildRow('cmv_mo_direta', 'Custo Mão de Obra Direta (Produtiva)', agg.maoDeObraProdutiva, receitaBruta, { indent: 2 }))
+  rows.push(buildRow('cmv_mo_direta', 'Custo Mão de Obra Direta (Produtiva)', agg.maoDeObraProdutiva, receitaBrutaBase, { indent: 2 }))
 
   // Lucro Bruto
   const lucroBruto = subtractMonths(receitaLiquida, cmvTotal)
-  rows.push(buildRow('lucro_bruto', '(=) Lucro Bruto', lucroBruto, receitaBruta, { isSubtotal: true, sign: '=' }))
+  rows.push(buildRow('lucro_bruto', '(=) Lucro Bruto', lucroBruto, receitaBrutaBase, { isSubtotal: true, sign: '=' }))
 
   // Despesas Operacionais — MO Indireta/Administrativa (exclui MO Produtiva que já está no CMV)
   const moIndireta = sumMonths(agg.maoDeObraAdministrativa, agg.maoDeObra)
   const despesasOp = sumMonths(sumMonths(sumMonths(moIndireta, agg.despesaFixa), agg.despesaVariavel), agg.comissoes)
-  rows.push(buildRow('desp_op_header', '(-) Despesas Operacionais', despesasOp, receitaBruta, { sign: '-' }))
-  rows.push(buildRow('desp_mo_indireta', 'Despesa MO Indireta', moIndireta, receitaBruta, { indent: 2 }))
-  rows.push(buildRow('desp_fixa', 'Despesa Fixa', agg.despesaFixa, receitaBruta, { indent: 2 }))
-  rows.push(buildRow('desp_variavel', 'Despesa Variável', agg.despesaVariavel, receitaBruta, { indent: 2 }))
-  rows.push(buildRow('desp_comissoes', 'Comissões', agg.comissoes, receitaBruta, { indent: 2 }))
+  rows.push(buildRow('desp_op_header', '(-) Despesas Operacionais', despesasOp, receitaBrutaBase, { sign: '-' }))
+  rows.push(buildRow('desp_mo_indireta', 'Despesa MO Indireta', moIndireta, receitaBrutaBase, { indent: 2 }))
+  rows.push(buildRow('desp_fixa', 'Despesa Fixa', agg.despesaFixa, receitaBrutaBase, { indent: 2 }))
+  rows.push(buildRow('desp_variavel', 'Despesa Variável', agg.despesaVariavel, receitaBrutaBase, { indent: 2 }))
+  rows.push(buildRow('desp_comissoes', 'Comissões', agg.comissoes, receitaBrutaBase, { indent: 2 }))
 
   // Lucro Operacional (EBITDA/EBIT)
   const lucroOperacional = subtractMonths(lucroBruto, despesasOp)
-  rows.push(buildRow('lucro_operacional', '(=) Lucro Operacional (EBITDA/EBIT)', lucroOperacional, receitaBruta, { isSubtotal: true, sign: '=' }))
+  rows.push(buildRow('lucro_operacional', '(=) Lucro Operacional (EBITDA/EBIT)', lucroOperacional, receitaBrutaBase, { isSubtotal: true, sign: '=' }))
 
   // Despesas Financeiras
-  rows.push(buildRow('desp_financeira', '(-) Despesas Financeiras', agg.despesaFinanceira, receitaBruta, { sign: '-' }))
+  rows.push(buildRow('desp_financeira', '(-) Despesas Financeiras', agg.despesaFinanceira, receitaBrutaBase, { sign: '-' }))
 
   // Resultado Financeiro
   const resultadoFinanceiro = subtractMonths(lucroOperacional, agg.despesaFinanceira)
-  rows.push(buildRow('resultado_financeiro', '(=) Resultado Financeiro', resultadoFinanceiro, receitaBruta, { isSubtotal: true, sign: '=' }))
+  rows.push(buildRow('resultado_financeiro', '(=) Resultado Financeiro', resultadoFinanceiro, receitaBrutaBase, { isSubtotal: true, sign: '=' }))
 
   // Lucro Líquido (sem estimativa de IRPJ/CSLL — usa apenas valores reais do HUB)
-  rows.push(buildRow('lucro_liquido', '(=) Lucro Líquido', resultadoFinanceiro, receitaBruta, { isTotal: true, sign: '=' }))
+  rows.push(buildRow('lucro_liquido', '(=) Lucro Líquido', resultadoFinanceiro, receitaBrutaBase, { isTotal: true, sign: '=' }))
 
   return rows
 }
@@ -792,24 +793,14 @@ export default function DfcPage() {
               <th style={{ ...thStyle, width: 320, textAlign: 'left' }}>Descrição</th>
               {periodColumns.map((col, i) => {
                 const closed = isPeriodClosed(col, year)
-                const partial = isPeriodPartial(col, year)
-                const n = closedMonthsCount(col, year)
                 return (
                   <th key={i} style={{ ...thStyle, textAlign: 'right', minWidth: 140 }}>
                     {col.label}
-                    {partial && (
+                    {!closed && (
                       <div style={{ fontSize: 10, fontWeight: 400, color: 'var(--color-neutral-400, #9CA3AF)', fontStyle: 'italic' }}>
-                        {n}/{col.monthKeys.length} meses
+                        Período não encerrado
                       </div>
                     )}
-                    {!closed && !partial && col.monthKeys.length > 0 && (() => {
-                      const firstMi = MONTH_KEYS.indexOf(col.monthKeys[0])
-                      return new Date() <= new Date(year, firstMi + 1, 0) ? (
-                        <div style={{ fontSize: 10, fontWeight: 400, color: 'var(--color-neutral-400, #9CA3AF)', fontStyle: 'italic' }}>
-                          Em andamento
-                        </div>
-                      ) : null
-                    })()}
                   </th>
                 )
               })}
@@ -839,65 +830,32 @@ export default function DfcPage() {
                   </td>
                   {periodColumns.map((col, ci) => {
                     const closed = isPeriodClosed(col, year)
-                    const partial = isPeriodPartial(col, year)
-                    const hasData = closed || partial
-                    // For partial: only sum the closed months within the period
-                    const closedKeys = partial
-                      ? col.monthKeys.filter((k) => {
-                          const mi = MONTH_KEYS.indexOf(k)
-                          return new Date() >= new Date(year, mi, 1)
-                        })
-                      : col.monthKeys
-                    const val = hasData ? aggregatePeriodValue(row.values, closedKeys) : null
+                    const val = closed ? aggregatePeriodValue(row.values, col.monthKeys) : null
                     return (
                       <td key={ci} style={{
                         ...tdStyle,
                         textAlign: 'right',
                         fontWeight: row.isTotal || row.isSubtotal ? 600 : 400,
-                        color: hasData ? getValueColor(val!, row) : 'var(--color-neutral-500, #6B7280)',
-                        opacity: partial ? 0.75 : 1,
+                        color: closed ? getValueColor(val!, row) : 'var(--color-neutral-500, #6B7280)',
                       }}>
-                        {hasData ? (
-                          <>
-                            {formatBRL(val!)}
-                            {partial && <span style={{ fontSize: 10, fontStyle: 'italic', marginLeft: 4, color: 'var(--color-neutral-400, #9CA3AF)' }}>parcial</span>}
-                          </>
-                        ) : (
-                          <span style={{ fontSize: 11, fontStyle: 'italic' }}>Em andamento</span>
-                        )}
+                        {closed ? formatBRL(val!) : <span style={{ fontSize: 11, fontStyle: 'italic' }}>—</span>}
                       </td>
                     )
                   })}
                   {showTotal && (() => {
                     // For total: sum closed + partial periods
-                    const closedTotal = periodColumns.reduce((s, c) => {
-                      if (isPeriodClosed(c, year)) return s + aggregatePeriodValue(row.values, c.monthKeys)
-                      if (isPeriodPartial(c, year)) {
-                        const closedKeys = c.monthKeys.filter((k) => {
-                          const mi = MONTH_KEYS.indexOf(k)
-                          return new Date() >= new Date(year, mi, 1)
-                        })
-                        return s + aggregatePeriodValue(row.values, closedKeys)
-                      }
-                      return s
-                    }, 0)
-                    const allClosed = periodColumns.every(c => isPeriodClosed(c, year))
-                    const anyData = periodColumns.some(c => isPeriodClosed(c, year) || isPeriodPartial(c, year))
+                    const closedTotal = periodColumns.reduce((s, c) =>
+                      isPeriodClosed(c, year) ? s + aggregatePeriodValue(row.values, c.monthKeys) : s
+                    , 0)
+                    const anyClosedPeriod = periodColumns.some(c => isPeriodClosed(c, year))
                     return (
                       <td style={{
                         ...tdStyle,
                         textAlign: 'right',
                         fontWeight: 700,
-                        color: anyData ? getValueColor(closedTotal, row) : 'var(--color-neutral-500, #6B7280)',
+                        color: anyClosedPeriod ? getValueColor(closedTotal, row) : 'var(--color-neutral-500, #6B7280)',
                       }}>
-                        {anyData ? (
-                          <>
-                            {formatBRL(closedTotal)}
-                            {!allClosed && <span style={{ fontSize: 10, fontStyle: 'italic', marginLeft: 4, color: 'var(--color-neutral-400, #9CA3AF)' }}>parcial</span>}
-                          </>
-                        ) : (
-                          <span style={{ fontSize: 11, fontStyle: 'italic' }}>Em andamento</span>
-                        )}
+                        {anyClosedPeriod ? formatBRL(closedTotal) : <span style={{ fontSize: 11, fontStyle: 'italic' }}>—</span>}
                       </td>
                     )
                   })()}
@@ -910,14 +868,9 @@ export default function DfcPage() {
                   }}>
                     {(() => {
                       if (!row.pctOfRL) return '—'
-                      const allClosedKeys: (keyof MonthlyValues)[] = periodColumns.flatMap(c => {
-                        if (isPeriodClosed(c, year)) return [...c.monthKeys] as (keyof MonthlyValues)[]
-                        if (isPeriodPartial(c, year)) return c.monthKeys.filter(k => {
-                          const mi = MONTH_KEYS.indexOf(k)
-                          return new Date() >= new Date(year, mi, 1)
-                        }) as (keyof MonthlyValues)[]
-                        return [] as (keyof MonthlyValues)[]
-                      })
+                      const allClosedKeys: (keyof MonthlyValues)[] = periodColumns.flatMap(c =>
+                        isPeriodClosed(c, year) ? [...c.monthKeys] as (keyof MonthlyValues)[] : [] as (keyof MonthlyValues)[]
+                      )
                       const pct = computePeriodPct(row, allClosedKeys, receitaBrutaRow, receitaLiquidaRow)
                       return pct !== null ? formatPct(pct) : '—'
                     })()}

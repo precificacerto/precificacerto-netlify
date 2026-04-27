@@ -2547,6 +2547,23 @@ body {
 }
 
 /* ============================================================
+   Pedidos — scroll horizontal e colunas sem sobreposição
+   Garante que Ações não fique sobreposta em qualquer zoom
+   ============================================================ */
+.orders-table-wrap {
+  overflow-x: auto;
+  width: 100%;
+
+  .ant-table-wrapper {
+    min-width: 0;
+  }
+
+  .ant-table-fixed-right {
+    z-index: 2;
+  }
+}
+
+/* ============================================================
    Pedidos — tabela compacta em mobile
    Reduz fonte, padding e espessura para caber melhor no celular
    ============================================================ */

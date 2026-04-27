@@ -41,12 +41,32 @@ const CATEGORY_LABEL_MAP: Record<string, string> = Object.fromEntries(
 
 // Labels das sub-categorias virtuais de impostos (Lucro Real / Simples Híbrido — Custo dos Produtos)
 const LR_TAX_CATEGORY_LABELS: Record<string, string> = {
-  'LR_ICMS_CUSTO':   'ICMS (custo produto)',
-  'LR_PIS_CUSTO':    'PIS (custo produto)',
-  'LR_COFINS_CUSTO': 'COFINS (custo produto)',
-  'LR_IPI_CUSTO':    'IPI (custo produto)',
-  'LR_CBS_CUSTO':    'CBS (custo produto)',
-  'LR_IBS_CUSTO':    'IBS (custo produto)',
+  'LR_ICMS_CUSTO':       'ICMS (custo produto)',
+  'LR_PIS_COFINS_CUSTO': 'PIS/COFINS (custo produto)',
+  'LR_IPI_CUSTO':        'IPI (custo produto)',
+  'LR_CBS_CUSTO':        'CBS (custo produto)',
+  'LR_IBS_CUSTO':        'IBS (custo produto)',
+}
+
+/** Mescla PIS e COFINS em uma linha única "PIS/COFINS" no mapa de categorias. */
+function mergePisCofins(expenseByCategoryByMonth: Record<string, { group: string; values: Record<string, number> }>) {
+  const pisData = expenseByCategoryByMonth['LR_PIS_CUSTO']
+  const cofinsData = expenseByCategoryByMonth['LR_COFINS_CUSTO']
+  if (!pisData && !cofinsData) return
+  const group = pisData?.group || cofinsData?.group || 'CUSTO_PRODUTOS'
+  const allMonths = new Set([
+    ...Object.keys(pisData?.values ?? {}),
+    ...Object.keys(cofinsData?.values ?? {}),
+  ])
+  const merged: Record<string, number> = {}
+  for (const m of allMonths) {
+    merged[m] = (pisData?.values[m] ?? 0) + (cofinsData?.values[m] ?? 0)
+  }
+  if (Object.values(merged).some(v => v > 0)) {
+    expenseByCategoryByMonth['LR_PIS_COFINS_CUSTO'] = { group, values: merged }
+  }
+  delete expenseByCategoryByMonth['LR_PIS_CUSTO']
+  delete expenseByCategoryByMonth['LR_COFINS_CUSTO']
 }
 
 // Mapa de categoryKey → order (para ordenação)
@@ -170,6 +190,9 @@ export async function calculateHubData(tenantId: string): Promise<HubData> {
       }
     }
   }
+
+  // Merge PIS + COFINS em linha única PIS/COFINS
+  mergePisCofins(expenseByCategoryByMonth)
 
   // Lista de meses ordenados que tiveram algum lançamento
   const allMonthsSet = new Set<string>([
@@ -315,6 +338,8 @@ export async function calculateHubDataPrevMonth(tenantId: string): Promise<HubDa
       }
     }
   }
+
+  mergePisCofins(expenseByCategoryByMonth)
 
   const allMonthsSet = new Set<string>([
     ...Object.keys(incomeByMonth),

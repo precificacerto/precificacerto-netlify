@@ -69,6 +69,9 @@ export default function CommissionPage() {
   const [commissionData, setCommissionData] = useState<CommissionRow[]>([])
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [drawerRow, setDrawerRow] = useState<CommissionRow | null>(null)
+  const [saleDrawerOpen, setSaleDrawerOpen] = useState(false)
+  const [saleDrawerData, setSaleDrawerData] = useState<any>(null)
+  const [saleDrawerLoading, setSaleDrawerLoading] = useState(false)
 
   // Fetch employees list for the filter dropdown (all active)
   useEffect(() => {
@@ -616,6 +619,29 @@ export default function CommissionPage() {
     return () => { cancelled = true }
   }, [month])
 
+  const handleOpenSaleDrawer = async (saleCode: string | undefined, saleKey: string) => {
+    if (!saleCode) return
+    setSaleDrawerOpen(true)
+    setSaleDrawerLoading(true)
+    try {
+      const tenantId = await getTenantId()
+      const { data: sale } = await (supabase as any)
+        .from('sales')
+        .select('*, customer:customers(name, phone), employee:employees(name)')
+        .eq('sale_code', saleCode)
+        .single()
+      const { data: saleItems } = await (supabase as any)
+        .from('sale_items')
+        .select('quantity, unit_price, total_price, product:products(name), service:services(name)')
+        .eq('sale_id', sale?.id || saleKey)
+      setSaleDrawerData({ ...sale, items: saleItems || [] })
+    } catch {
+      setSaleDrawerData(null)
+    } finally {
+      setSaleDrawerLoading(false)
+    }
+  }
+
   // Filter by selected employee
   const filteredData = useMemo(() => {
     if (!selectedEmployee) return commissionData
@@ -638,45 +664,30 @@ export default function CommissionPage() {
   const detailTotalValue = useMemo(() => allDetailRows.reduce((s, r) => s + r.value, 0), [allDetailRows])
   const detailTotalCommission = useMemo(() => allDetailRows.reduce((s, r) => s + r.commission_amount, 0), [allDetailRows])
 
-  const detailColumns: ColumnsType<CommissionDetailRow & { employee_name?: string }> = [
+  const detailColumns: ColumnsType<CommissionDetailRow & { employee_name?: string; employee_id?: string }> = [
     {
       title: 'Vendedor',
       dataIndex: 'employee_name',
       key: 'employee_name',
-      width: 140,
-      ellipsis: true,
-      render: (v: string) => <span style={{ fontWeight: 600, color: '#a78bfa' }}>{v || '—'}</span>,
-    },
-    {
-      title: 'Tipo',
-      dataIndex: 'type',
-      key: 'type',
-      width: 90,
-      render: (v: string) => <Tag color={v === 'SERVIÇO' ? 'blue' : 'purple'}>{v}</Tag>,
-    },
-    {
-      title: 'Status',
-      dataIndex: 'pending',
-      key: 'pending',
       width: 150,
-      align: 'center' as const,
-      render: (_: unknown, row: CommissionDetailRow) => {
-        if (row.pending) {
-          return (
-            <Tooltip title="Boleto/Cheque: aguardando confirmação de recebimento no fluxo de caixa">
-              <Tag color="gold">⏳ Aguardando</Tag>
-            </Tooltip>
-          )
-        }
-        if (row.is_installment) {
-          return (
-            <Tooltip title="Parcela confirmada — valor já recebido no fluxo de caixa">
-              <Tag color="green" icon={<SplitCellsOutlined />}>Confirmado</Tag>
-            </Tooltip>
-          )
-        }
-        return null
-      },
+      ellipsis: true,
+      render: (v: string, row: any) => (
+        <span
+          style={{ fontWeight: 600, color: '#a78bfa', cursor: 'pointer', textDecoration: 'underline dotted' }}
+          onClick={() => {
+            const vendorRow = filteredData.find(r => r.employee_id === row.employee_id)
+            if (vendorRow) { setDrawerRow(vendorRow); setDrawerOpen(true) }
+          }}
+        >
+          {v || '—'}
+        </span>
+      ),
+    },
+    {
+      title: 'Cliente',
+      dataIndex: 'client_name',
+      key: 'client_name',
+      ellipsis: true,
     },
     {
       title: 'Parcela',
@@ -687,38 +698,18 @@ export default function CommissionPage() {
       render: (v: string | undefined) => v ? <Tag color="blue">{v}</Tag> : <span style={{ color: '#64748b' }}>—</span>,
     },
     {
-      title: 'Nº Pedido',
+      title: 'Nº da Venda',
       dataIndex: 'sale_code',
       key: 'sale_code',
-      width: 120,
-      render: (v: string | undefined) => v ? <span style={{ fontFamily: 'monospace', fontWeight: 600, color: '#a78bfa' }}>{v}</span> : <span style={{ color: '#64748b' }}>—</span>,
-    },
-    {
-      title: 'Data',
-      dataIndex: 'date',
-      key: 'date',
-      width: 110,
-      render: (v: string) => v ? dayjs(v).format('DD/MM/YYYY') : '-',
-    },
-    {
-      title: 'Produto / Serviço',
-      dataIndex: 'description',
-      key: 'description',
-      ellipsis: true,
-    },
-    {
-      title: 'Cliente',
-      dataIndex: 'client_name',
-      key: 'client_name',
-      ellipsis: true,
-    },
-    {
-      title: '% Comissão',
-      dataIndex: 'commission_percent',
-      key: 'commission_percent',
-      width: 110,
-      align: 'center',
-      render: (v: number) => <Tag color="purple">{v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</Tag>,
+      width: 130,
+      render: (v: string | undefined, row: CommissionDetailRow) => v ? (
+        <span
+          style={{ fontFamily: 'monospace', fontWeight: 600, color: '#60a5fa', cursor: 'pointer', textDecoration: 'underline' }}
+          onClick={() => handleOpenSaleDrawer(v, row.key)}
+        >
+          {v}
+        </span>
+      ) : <span style={{ color: '#64748b' }}>—</span>,
     },
     {
       title: 'Valor Base',
@@ -729,7 +720,15 @@ export default function CommissionPage() {
       render: (v: number) => formatCurrency(v),
     },
     {
-      title: 'Comissão',
+      title: 'Comissão %',
+      dataIndex: 'commission_percent',
+      key: 'commission_percent',
+      width: 110,
+      align: 'center',
+      render: (v: number) => <Tag color="purple">{v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</Tag>,
+    },
+    {
+      title: 'Comissão Valor',
       dataIndex: 'commission_amount',
       key: 'commission_amount',
       align: 'right',
@@ -900,22 +899,12 @@ export default function CommissionPage() {
           />
         </Card>
         <Card size="small" style={{ background: '#1e1b4b', border: '1px solid #312e81' }}>
-          <Statistic
-            title={<span style={{ color: '#a5b4fc' }}><DollarOutlined /> Receita Base</span>}
-            value={totalBase}
-            precision={2}
-            prefix="R$"
-            valueStyle={{ color: '#e0e7ff', fontSize: 24 }}
-          />
+          <div style={{ fontSize: 14, color: '#a5b4fc', marginBottom: 4 }}><DollarOutlined /> Receita Base</div>
+          <div style={{ color: '#e0e7ff', fontSize: 24, fontWeight: 600 }}>{formatCurrency(totalBase)}</div>
         </Card>
         <Card size="small" style={{ background: '#1e1b4b', border: '1px solid #312e81' }}>
-          <Statistic
-            title={<span style={{ color: '#c4b5fd' }}><PercentageOutlined /> Total Comissões</span>}
-            value={totalCommission}
-            precision={2}
-            prefix="R$"
-            valueStyle={{ color: '#a78bfa', fontSize: 24, fontWeight: 700 }}
-          />
+          <div style={{ fontSize: 14, color: '#c4b5fd', marginBottom: 4 }}><PercentageOutlined /> Total Comissões</div>
+          <div style={{ color: '#a78bfa', fontSize: 24, fontWeight: 700 }}>{formatCurrency(totalCommission)}</div>
         </Card>
         {totalPendingRevenue > 0 && (
           <Card size="small" style={{ background: '#451a03', border: '1px solid #92400e' }}>
@@ -1052,6 +1041,71 @@ export default function CommissionPage() {
         onExportPdf={handleExportPdf}
         title="Exportar Comissão de Vendedor"
       />
+
+      {/* Drawer de detalhes da venda */}
+      <Drawer
+        title={
+          <div>
+            <div style={{ color: '#60a5fa', fontWeight: 700, fontSize: 16 }}>
+              Venda {saleDrawerData?.sale_code || '—'}
+            </div>
+            <div style={{ color: '#9ca3af', fontSize: 12, marginTop: 2 }}>
+              Detalhes da venda
+            </div>
+          </div>
+        }
+        open={saleDrawerOpen}
+        onClose={() => { setSaleDrawerOpen(false); setSaleDrawerData(null) }}
+        width={520}
+        styles={{ body: { padding: 24 } }}
+        loading={saleDrawerLoading}
+      >
+        {saleDrawerData && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {[
+              { label: 'Nº da Venda', value: saleDrawerData.sale_code },
+              { label: 'Cliente', value: saleDrawerData.customer?.name || saleDrawerData.client_name },
+              { label: 'Telefone Cliente', value: saleDrawerData.customer?.phone },
+              { label: 'Vendedor', value: saleDrawerData.employee?.name },
+              { label: 'Data da Venda', value: saleDrawerData.sale_date ? saleDrawerData.sale_date.substring(0, 10) : undefined },
+              { label: 'Valor Final', value: saleDrawerData.final_value != null ? formatCurrency(Number(saleDrawerData.final_value)) : undefined },
+              { label: 'Desconto', value: saleDrawerData.discount_percent ? `${saleDrawerData.discount_percent}%` : undefined },
+              { label: 'Forma de Pagamento', value: saleDrawerData.payment_method },
+              { label: 'Parcelas', value: saleDrawerData.installments ? `${saleDrawerData.installments}x` : undefined },
+              { label: 'Status', value: saleDrawerData.status },
+              { label: 'Observações', value: saleDrawerData.notes },
+            ]
+              .filter(f => f.value != null && f.value !== '' && f.value !== undefined)
+              .map(f => (
+                <div key={f.label} style={{ display: 'flex', borderBottom: '1px solid #1e293b', paddingBottom: 8 }}>
+                  <span style={{ minWidth: 160, color: '#94a3b8', fontSize: 13 }}>{f.label}</span>
+                  <span style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 500, flex: 1 }}>{f.value}</span>
+                </div>
+              ))
+            }
+
+            {saleDrawerData.items && saleDrawerData.items.length > 0 && (
+              <div style={{ marginTop: 8 }}>
+                <div style={{ color: '#a5b4fc', fontWeight: 600, marginBottom: 8 }}>Itens da Venda</div>
+                {saleDrawerData.items.map((item: any, i: number) => (
+                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #1e293b', paddingBottom: 6, marginBottom: 6 }}>
+                    <span style={{ color: '#e2e8f0', fontSize: 13 }}>
+                      {item.product?.name || item.service?.name || 'Item'}
+                      {item.quantity && item.quantity > 1 ? ` × ${item.quantity}` : ''}
+                    </span>
+                    <span style={{ color: '#a78bfa', fontSize: 13, fontWeight: 600 }}>
+                      {item.total_price != null ? formatCurrency(Number(item.total_price)) : item.unit_price != null ? formatCurrency(Number(item.unit_price)) : '—'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+        {!saleDrawerData && !saleDrawerLoading && (
+          <Empty description="Dados da venda não encontrados" />
+        )}
+      </Drawer>
     </Layout>
   )
 }
