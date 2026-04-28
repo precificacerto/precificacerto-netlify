@@ -552,7 +552,7 @@ function OrdersPage() {
             title: 'Pagamento',
             dataIndex: 'payment_method',
             key: 'payment_method',
-            width: 160,
+            width: 120,
             ellipsis: true,
             render: (v: string | null) => {
                 if (!v) return <span style={{ color: '#D0D5DD' }}>—</span>
@@ -564,7 +564,7 @@ function OrdersPage() {
             title: 'Itens',
             dataIndex: 'items_count',
             key: 'items_count',
-            width: 80,
+            width: 60,
             align: 'center',
         },
         {

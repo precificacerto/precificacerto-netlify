@@ -881,6 +881,17 @@ function Budgets() {
     const handleSendToOrder = async (budget: any) => {
         if (!tenantId) return
         try {
+            // Pré-buscar parcelas para obter contagem correta de installments
+            const { data: budgetInstRows } = await (supabase as any)
+                .from('budget_installment_rows')
+                .select('due_date, amount, sort_order')
+                .eq('budget_id', budget.id)
+                .order('sort_order')
+
+            const installmentsCount = (budgetInstRows && budgetInstRows.length > 0)
+                ? budgetInstRows.length
+                : (budget.installments || 1)
+
             // criar pedido (order_code gerado após insert)
             const { data: order, error: orderErr } = await (supabase as any).from('orders').insert({
                 tenant_id: tenantId,
@@ -894,7 +905,7 @@ function Budgets() {
                 discount_value: budget.discount_value || null,
                 discount_percent: budget.discount_percent || null,
                 payment_method: budget.payment_method || null,
-                installments: budget.installments || 1,
+                installments: installmentsCount,
                 notes: budget.notes || null,
                 created_by: currentUser?.uid || null,
             }).select('id').single()
@@ -924,12 +935,7 @@ function Budgets() {
                     await (supabase as any).from('order_items').insert(toInsert)
                 }
 
-                // Copiar parcelas do orçamento para o pedido
-                const { data: budgetInstRows } = await (supabase as any)
-                    .from('budget_installment_rows')
-                    .select('due_date, amount, sort_order')
-                    .eq('budget_id', budget.id)
-                    .order('sort_order')
+                // Copiar parcelas do orçamento para o pedido (reutiliza busca acima)
                 if (budgetInstRows && budgetInstRows.length > 0) {
                     await (supabase as any).from('order_installment_rows').insert(
                         budgetInstRows.map((r: any) => ({

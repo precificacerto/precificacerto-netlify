@@ -93,7 +93,7 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
         <div className="flex flex-col column mb-5">
           <Form form={itemsForm} layout="inline" onFinish={handleClickAddItem}>
             <Form.Item
-              className="w-[300px]"
+              className="w-[200px]"
               label="Buscar item"
               name="item"
               rules={[{ required: true }]}

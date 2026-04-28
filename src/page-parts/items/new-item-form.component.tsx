@@ -1,6 +1,6 @@
 import { Input, Form, InputNumber, Select, FormInstance, Divider, Tooltip, Tag, AutoComplete, Spin, Switch } from 'antd'
 import { InfoCircleOutlined, SearchOutlined } from '@ant-design/icons'
-import { currencyMask } from '@/utils/currency-mask'
+import { currencyMask, currencyDotMask } from '@/utils/currency-mask'
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { getMonetaryValue } from '@/utils/get-monetary-value'
 import { supabase } from '@/supabase/client'
@@ -236,7 +236,7 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
   }, [form, fetchAndFillNcmRates])
 
   const handleChangePrice = (value: string) => {
-    form.setFieldsValue({ price: currencyMask(value) })
+    form.setFieldsValue({ price: currencyDotMask(currencyMask(value)) })
     recalcCostPerUnit()
     setTimeout(recalcNetCost, 50)
   }
@@ -573,7 +573,7 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
                   </Tooltip>
                 </span>
               }
-              rules={[{ required: true, message: REQUIRED }]}
+              rules={[{ validator: (_, v) => (v !== undefined && v !== null) ? Promise.resolve() : Promise.reject(new Error(REQUIRED)) }]}
               initialValue={undefined}
               style={{ marginBottom: 24 }}
             >
@@ -583,7 +583,7 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
                 step={0.01}
                 precision={2}
                 style={{ width: '100%' }}
-                placeholder="Ex: 17"
+                placeholder="Ex: 0"
                 suffix="%"
                 formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
                 parser={(v) => Number((v || '0').replace(',', '.'))}
@@ -673,9 +673,49 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
                   formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
                   parser={(v) => Number((v || '0').replace(',', '.'))}
                   onChange={(v) => {
-                    const numeric = Number(v) || 0
-                    if (numeric === 0) {
-                      // valor zerado/limpo → reativa auto-cálculo
+                    const numeric = v !== null && v !== undefined ? Number(v) : 0
+                    if (v === null || v === undefined) {
+                      // campo limpo → reativa auto-cálculo
+                      setPisCofinsManuallyEdited(false)
+                    } else {
+                      setPisCofinsManuallyEdited(true)
+                    }
+                    form.setFieldsValue({ pis_cofins_rate: numeric })
+                    setTimeout(recalcNetCost, 50)
+                  }}
+                />
+              </Form.Item>
+            </div>
+          )}
+
+          {/* Linha de impostos 2 (Lucro Presumido): PIS/COFINS unificado, padrão 3,65% (0,65% + 3%), editável */}
+          {isLucroPresumido && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, alignItems: 'end' }}>
+              <Form.Item
+                label={
+                  <span>
+                    PIS/COFINS (%)&nbsp;
+                    <Tooltip title="Padrão: 3,65% (PIS 0,65% + COFINS 3%, regime cumulativo). Pode ser editado manualmente; após edição, o auto-preenchimento fica suspenso até você limpar o campo.">
+                      <InfoCircleOutlined style={{ color: '#64748b' }} />
+                    </Tooltip>
+                  </span>
+                }
+                style={{ marginBottom: 24 }}
+              >
+                <InputNumber
+                  value={Form.useWatch('pis_cofins_rate', form) ?? 0}
+                  min={0}
+                  max={100}
+                  step={0.0001}
+                  precision={4}
+                  style={{ width: '100%' }}
+                  placeholder="0,0000"
+                  suffix="%"
+                  formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
+                  parser={(v) => Number((v || '0').replace(',', '.'))}
+                  onChange={(v) => {
+                    const numeric = v !== null && v !== undefined ? Number(v) : 0
+                    if (v === null || v === undefined) {
                       setPisCofinsManuallyEdited(false)
                     } else {
                       setPisCofinsManuallyEdited(true)
