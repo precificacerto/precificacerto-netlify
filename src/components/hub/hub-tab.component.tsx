@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react'
-import { Table, Button, Spin, Empty, message } from 'antd'
+import React, { useEffect, useState, useMemo } from 'react'
+import { Table, Button, Spin, Empty, message, Select } from 'antd'
 import { SyncOutlined } from '@ant-design/icons'
 import { calculateHubData } from '@/utils/hub-engine'
 import type { HubData } from '@/utils/hub-engine'
@@ -34,10 +34,41 @@ type TableRow = {
     averageRS?: number
 }
 
+type PeriodType = 'MONTHLY' | 'QUARTERLY' | 'SEMI_ANNUAL' | 'ANNUAL'
+
+function getClosedMonths(months: string[], periodType: PeriodType): string[] {
+    const today = new Date()
+    const curYear = today.getFullYear()
+    const curMonth = today.getMonth() + 1
+    const curQuarter = Math.ceil(curMonth / 3)
+    const curSem = curMonth <= 6 ? 1 : 2
+
+    return months.filter(key => {
+        const [y, m] = key.split('-').map(Number)
+        switch (periodType) {
+            case 'MONTHLY':
+                return y < curYear || (y === curYear && m < curMonth)
+            case 'QUARTERLY': {
+                const q = Math.ceil(m / 3)
+                return y < curYear || (y === curYear && q < curQuarter)
+            }
+            case 'SEMI_ANNUAL': {
+                const s = m <= 6 ? 1 : 2
+                return y < curYear || (y === curYear && s < curSem)
+            }
+            case 'ANNUAL':
+                return y < curYear
+            default:
+                return true
+        }
+    })
+}
+
 export function HubTab({ tenantId, refreshToken }: HubTabProps) {
     const [hubData, setHubData] = useState<HubData | null>(null)
     const [loadingData, setLoadingData] = useState(true)
     const [syncing, setSyncing] = useState(false)
+    const [periodType, setPeriodType] = useState<PeriodType>('MONTHLY')
     const [messageApi, contextHolder] = message.useMessage()
 
     useEffect(() => {
@@ -62,6 +93,11 @@ export function HubTab({ tenantId, refreshToken }: HubTabProps) {
             setSyncing(false)
         }
     }
+
+    const filteredMonths = useMemo(
+        () => hubData ? getClosedMonths(hubData.months, periodType) : [],
+        [hubData, periodType],
+    )
 
     if (loadingData) {
         return (
@@ -122,7 +158,7 @@ export function HubTab({ tenantId, refreshToken }: HubTabProps) {
 
     // Total despesas
     const totalValues: Record<string, number> = {}
-    for (const month of hubData.months) {
+    for (const month of filteredMonths) {
         totalValues[month] = hubData.rows.reduce((s, r) => s + (r.values[month] || 0), 0)
     }
     rows.push({
@@ -182,8 +218,8 @@ export function HubTab({ tenantId, refreshToken }: HubTabProps) {
             },
         },
 
-        // Uma coluna por mês encerrado
-        ...hubData.months.map((monthKey) => ({
+        // Uma coluna por período encerrado
+        ...filteredMonths.map((monthKey) => ({
             title: formatMonthKey(monthKey),
             key: monthKey,
             align: 'right' as const,
@@ -265,25 +301,46 @@ export function HubTab({ tenantId, refreshToken }: HubTabProps) {
         <div>
             {contextHolder}
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
                 <div>
                     <div style={{ fontSize: 15, fontWeight: 600, color: '#e2e8f0' }}>Hub de Despesas</div>
                     <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
-                        {hubData.months.length} {hubData.months.length === 1 ? 'mês com lançamentos' : 'meses com lançamentos'} ·
+                        {filteredMonths.length} {filteredMonths.length === 1 ? 'mês exibido' : 'meses exibidos'} ·
                         Faturamento total: {formatCurrency(hubData.totalIncome)}
                     </div>
                 </div>
-                <Button
-                    type="primary"
-                    icon={<SyncOutlined spin={syncing} />}
-                    loading={syncing}
-                    onClick={handleSync}
-                    style={{ background: '#6366F1', borderColor: '#6366F1' }}
-                >
-                    Atualizar Precificação
-                </Button>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <Select
+                        value={periodType}
+                        onChange={(v) => setPeriodType(v)}
+                        style={{ width: 160 }}
+                        options={[
+                            { value: 'MONTHLY', label: 'Mensal' },
+                            { value: 'QUARTERLY', label: 'Trimestral' },
+                            { value: 'SEMI_ANNUAL', label: 'Semestral' },
+                            { value: 'ANNUAL', label: 'Anual' },
+                        ]}
+                    />
+                    <Button
+                        type="primary"
+                        icon={<SyncOutlined spin={syncing} />}
+                        loading={syncing}
+                        onClick={handleSync}
+                        style={{ background: '#6366F1', borderColor: '#6366F1' }}
+                    >
+                        Atualizar Precificação
+                    </Button>
+                </div>
             </div>
 
+            {filteredMonths.length === 0 && (
+                <Empty
+                    style={{ margin: '32px 0' }}
+                    description="Nenhum período encerrado disponível para a visualização selecionada."
+                />
+            )}
+
+            {filteredMonths.length > 0 && (
             <Table
                 dataSource={rows}
                 columns={columns}
@@ -299,6 +356,7 @@ export function HubTab({ tenantId, refreshToken }: HubTabProps) {
                     return 'hub-row--cat'
                 }}
             />
+            )}
 
             <style>{`
                 .hub-row--income td { background: rgba(18,183,106,0.06) !important; border-bottom: 2px solid rgba(18,183,106,0.2) !important; }

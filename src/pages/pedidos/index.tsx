@@ -528,12 +528,37 @@ function OrdersPage() {
             title: 'Cliente',
             dataIndex: 'customer_name',
             key: 'customer_name',
+            width: 200,
+            ellipsis: true,
         },
         {
             title: 'Vendedor',
             dataIndex: 'employee_name',
             key: 'employee_name',
             width: 160,
+            ellipsis: true,
+        },
+        {
+            title: 'Status',
+            dataIndex: 'status',
+            key: 'status',
+            width: 170,
+            render: (s: string) => {
+                const cfg = STATUS_CONFIG[s] || { color: 'default', label: s }
+                return <Tag color={cfg.color}>{cfg.label}</Tag>
+            },
+        },
+        {
+            title: 'Pagamento',
+            dataIndex: 'payment_method',
+            key: 'payment_method',
+            width: 160,
+            ellipsis: true,
+            render: (v: string | null) => {
+                if (!v) return <span style={{ color: '#D0D5DD' }}>—</span>
+                const pm = PAYMENT_METHODS.find(p => p.value === v)
+                return pm ? pm.label : v
+            },
         },
         {
             title: 'Itens',
@@ -684,7 +709,7 @@ function OrdersPage() {
                     dataSource={filteredOrders}
                     loading={loading}
                     size="small"
-                    scroll={{ x: 1300 }}
+                    scroll={{ x: 1600 }}
                     pagination={{ pageSize: 20, showSizeChanger: true }}
                     locale={{ emptyText: <Empty description="Nenhum pedido em aberto" /> }}
                 />

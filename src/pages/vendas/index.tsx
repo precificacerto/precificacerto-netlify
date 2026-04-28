@@ -127,6 +127,10 @@ function Sales() {
     const [selectedBudget, setSelectedBudget] = useState<PendingBudget | null>(null)
     const [registerForm] = Form.useForm()
     const [registerSaving, setRegisterSaving] = useState(false)
+    const [orderPaymentModalOpen, setOrderPaymentModalOpen] = useState(false)
+    const [selectedOrderSale, setSelectedOrderSale] = useState<SaleRow | null>(null)
+    const [orderPaymentForm] = Form.useForm()
+    const [orderPaymentSaving, setOrderPaymentSaving] = useState(false)
     const [exportModalOpen, setExportModalOpen] = useState(false)
     const [isSplitPay, setIsSplitPay] = useState(false)
 
@@ -590,6 +594,63 @@ function Sales() {
         }
     }
 
+    const handleOpenOrderPaymentModal = (record: SaleRow) => {
+        setSelectedOrderSale(record)
+        orderPaymentForm.resetFields()
+        orderPaymentForm.setFieldsValue({
+            sale_date: dayjs(),
+            payment_method: record.paymentMethod !== '-' ? record.paymentMethod : undefined,
+        })
+        setOrderPaymentModalOpen(true)
+    }
+
+    const handleConfirmOrderSalePayment = async () => {
+        if (!selectedOrderSale) return
+        try {
+            await orderPaymentForm.validateFields()
+            setOrderPaymentSaving(true)
+            const values = orderPaymentForm.getFieldsValue()
+            const tenantId = await getTenantId()
+            if (!tenantId) { messageApi.error('Sessão expirada.'); return }
+            const createdBy = await getCurrentUserId()
+            if (!createdBy) { messageApi.error('Sessão inválida. Faça login novamente.'); setOrderPaymentSaving(false); return }
+
+            const { error: updateErr } = await supabase
+                .from('sales')
+                .update({ status: 'COMPLETED', updated_at: new Date().toISOString() } as any)
+                .eq('id', selectedOrderSale.id)
+            if (updateErr) throw updateErr
+
+            const due = values.sale_date ? values.sale_date.format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD')
+            const payLabel = PAYMENT_METHODS.find(p => p.value === values.payment_method)?.label || values.payment_method
+            await supabase.from('cash_entries').insert({
+                tenant_id: tenantId,
+                type: 'INCOME',
+                origin_type: 'SALE',
+                origin_id: selectedOrderSale.id,
+                amount: selectedOrderSale.finalValue,
+                due_date: due,
+                paid_date: due,
+                payment_method: values.payment_method,
+                description: `Venda pedido: ${selectedOrderSale.customerName} — ${payLabel}`,
+                created_by: createdBy,
+            } as any)
+
+            await (supabase as any)
+                .from('orders')
+                .update({ status: 'PAID', updated_at: new Date().toISOString() })
+                .eq('sale_id', selectedOrderSale.id)
+
+            messageApi.success('Pagamento registrado com sucesso!')
+            setOrderPaymentModalOpen(false)
+            await fetchData()
+        } catch (error: any) {
+            messageApi.error('Erro: ' + (error.message || 'Preencha os campos.'))
+        } finally {
+            setOrderPaymentSaving(false)
+        }
+    }
+
     useEffect(() => { fetchData(); fetchPendingBudgets() }, [])
 
     // KPIs
@@ -603,7 +664,7 @@ function Sales() {
     const fromBudget = monthSales.filter(s => s.saleType === 'FROM_BUDGET').length
 
     const filteredSales = sales.filter(s => {
-        if (s.status === 'AWAITING_PAYMENT') return false
+        if (s.status === 'AWAITING_PAYMENT' && s.saleType !== 'FROM_ORDER') return false
         const matchesText =
             s.productName.toLowerCase().includes(searchText.toLowerCase()) ||
             s.customerName.toLowerCase().includes(searchText.toLowerCase()) ||
@@ -1248,6 +1309,17 @@ function Sales() {
             },
         },
         {
+            title: 'Status',
+            key: 'status',
+            width: 160,
+            render: (_, r) => {
+                if (r.status === 'AWAITING_PAYMENT' && r.saleType === 'FROM_ORDER') {
+                    return <Tag color="orange">⏳ Aguardando pagamento</Tag>
+                }
+                return <Tag color="green">✅ Concluído</Tag>
+            },
+        },
+        {
             title: 'Data',
             dataIndex: 'saleDate',
             key: 'saleDate',
@@ -1259,10 +1331,20 @@ function Sales() {
         {
             title: 'Ações',
             key: 'action',
-            width: 130,
+            width: 160,
             render: (_, record) => (
                 <Space>
                     <Button type="link" size="small" onClick={() => handleViewDetail(record)}>Ver</Button>
+                    {record.status === 'AWAITING_PAYMENT' && record.saleType === 'FROM_ORDER' && (
+                        <Button
+                            type="link"
+                            size="small"
+                            style={{ color: '#12B76A' }}
+                            onClick={() => handleOpenOrderPaymentModal(record)}
+                        >
+                            Lançar pagamento
+                        </Button>
+                    )}
                     <Popconfirm title="Cancelar venda?" onConfirm={() => handleDelete(record.id)}>
                         <Button type="link" size="small" danger>Cancelar</Button>
                     </Popconfirm>
@@ -2015,6 +2097,35 @@ function Sales() {
                             </div>
                         </Form.Item>
                     )}
+                </Form>
+            </Modal>
+
+            {/* ── Modal: Registrar pagamento de pedido ── */}
+            <Modal
+                title="Registrar Pagamento do Pedido"
+                open={orderPaymentModalOpen}
+                onCancel={() => setOrderPaymentModalOpen(false)}
+                onOk={handleConfirmOrderSalePayment}
+                confirmLoading={orderPaymentSaving}
+                okText="Confirmar Pagamento"
+            >
+                {selectedOrderSale && (
+                    <div style={{ padding: 12, background: 'rgba(34, 197, 94, 0.1)', border: '1px solid #86efac', borderRadius: 8, marginBottom: 16 }}>
+                        <div style={{ fontSize: 13 }}>
+                            <div>Cliente: <strong>{selectedOrderSale.customerName}</strong></div>
+                            <div>Valor: <strong style={{ fontSize: 16, color: '#12B76A' }}>{formatCurrency(selectedOrderSale.finalValue)}</strong></div>
+                        </div>
+                    </div>
+                )}
+                <Form form={orderPaymentForm} layout="vertical">
+                    <Form.Item name="payment_method" label="Forma de recebimento" rules={[{ required: true, message: 'Selecione' }]}>
+                        <Select placeholder="Como foi pago?">
+                            {PAYMENT_METHODS.map(p => (<Select.Option key={p.value} value={p.value}>{p.label}</Select.Option>))}
+                        </Select>
+                    </Form.Item>
+                    <Form.Item name="sale_date" label="Data do recebimento" initialValue={dayjs()}>
+                        <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
+                    </Form.Item>
                 </Form>
             </Modal>
 

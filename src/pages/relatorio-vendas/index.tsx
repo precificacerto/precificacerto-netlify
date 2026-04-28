@@ -1310,7 +1310,7 @@ function SalesReport() {
             sorter: (a, b) => a.saleDate.localeCompare(b.saleDate),
         },
         {
-            title: 'Pedido',
+            title: 'Cód Venda',
             dataIndex: 'saleCode',
             key: 'saleCode',
             width: 140,
@@ -1333,22 +1333,6 @@ function SalesReport() {
             sorter: (a, b) => a.employeeName.localeCompare(b.employeeName),
         },
         {
-            title: 'Produtos',
-            dataIndex: 'productNames',
-            key: 'productNames',
-            ellipsis: true,
-            render: (names: string[]) => names.length ? <span style={{ fontSize: 12, color: '#94a3b8' }}>{names.join(', ')}</span> : <span style={{ color: '#D0D5DD' }}>—</span>,
-        },
-        {
-            title: 'Valor Preciso',
-            dataIndex: 'valorPreciso',
-            key: 'valorPreciso',
-            width: 130,
-            align: 'right',
-            sorter: (a, b) => a.valorPreciso - b.valorPreciso,
-            render: (v: number) => <span style={{ fontWeight: 600 }}>{formatCurrency(v)}</span>,
-        },
-        {
             title: 'Valor Vendido',
             dataIndex: 'valorVendido',
             key: 'valorVendido',
@@ -1358,31 +1342,22 @@ function SalesReport() {
             render: (v: number) => <span style={{ color: '#4ade80', fontWeight: 600 }}>{formatCurrency(v)}</span>,
         },
         {
-            title: 'Comissão Paga',
+            title: 'Comissão %',
+            dataIndex: 'percentVendedor',
+            key: 'percentVendedor',
+            width: 120,
+            align: 'right',
+            sorter: (a, b) => a.percentVendedor - b.percentVendedor,
+            render: (v: number) => <span style={{ fontWeight: 600 }}>{v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</span>,
+        },
+        {
+            title: 'Comissão R$',
             dataIndex: 'comissaoPaga',
             key: 'comissaoPaga',
             width: 140,
             align: 'right',
             sorter: (a, b) => a.comissaoPaga - b.comissaoPaga,
             render: (v: number) => <span style={{ color: v > 0 ? '#f59e0b' : 'inherit', fontWeight: 600 }}>{formatCurrency(v)}</span>,
-        },
-        {
-            title: '% Vendedor',
-            dataIndex: 'percentVendedor',
-            key: 'percentVendedor',
-            width: 110,
-            align: 'right',
-            sorter: (a, b) => a.percentVendedor - b.percentVendedor,
-            render: (v: number) => <span style={{ fontWeight: 600 }}>{v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</span>,
-        },
-        {
-            title: 'Lucro Empresa',
-            dataIndex: 'lucroEmpresa',
-            key: 'lucroEmpresa',
-            width: 140,
-            align: 'right',
-            sorter: (a, b) => a.lucroEmpresa - b.lucroEmpresa,
-            render: (v: number) => <span style={{ color: v >= 0 ? '#4ade80' : '#ef4444', fontWeight: 600 }}>{formatCurrency(v)}</span>,
         },
     ]
 
@@ -1395,18 +1370,15 @@ function SalesReport() {
         import('exceljs').then(({ Workbook }) => {
             const wb = new Workbook()
             const ws = wb.addWorksheet('Comissões')
-            ws.addRow(['Data', 'Pedido', 'Cliente', 'Vendedor', 'Produtos', 'Valor Preciso', 'Valor Vendido', 'Comissão Paga', '% Vendedor', 'Lucro Empresa'])
+            ws.addRow(['Data', 'Cód Venda', 'Cliente', 'Vendedor', 'Valor Vendido', 'Comissão %', 'Comissão R$'])
             commData.forEach(r => ws.addRow([
                 dayjs(r.saleDate + 'T00:00:00').format('DD/MM/YYYY'),
                 r.saleCode,
                 r.customerName,
                 r.employeeName,
-                r.productNames.join(', '),
-                r.valorPreciso,
                 r.valorVendido,
-                r.comissaoPaga,
                 `${r.percentVendedor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`,
-                r.lucroEmpresa,
+                r.comissaoPaga,
             ]))
             ws.getRow(1).font = { bold: true }
             wb.xlsx.writeBuffer().then(buf => {
@@ -1423,17 +1395,15 @@ function SalesReport() {
         exportTableToPdf({
             title: 'Relatório de Comissões',
             subtitle: `Período: ${commDateRange[0].format('DD/MM/YYYY')} a ${commDateRange[1].format('DD/MM/YYYY')}`,
-            headers: ['Data', 'Pedido', 'Cliente', 'Vendedor', 'V. Preciso', 'V. Vendido', 'Comissão', '% Vend.', 'Lucro'],
+            headers: ['Data', 'Cód Venda', 'Cliente', 'Vendedor', 'Valor Vendido', 'Comissão %', 'Comissão R$'],
             rows: commData.map(r => [
                 dayjs(r.saleDate + 'T00:00:00').format('DD/MM/YYYY'),
                 r.saleCode,
                 r.customerName,
                 r.employeeName,
-                formatCurrency(r.valorPreciso),
                 formatCurrency(r.valorVendido),
-                formatCurrency(r.comissaoPaga),
                 `${r.percentVendedor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`,
-                formatCurrency(r.lucroEmpresa),
+                formatCurrency(r.comissaoPaga),
             ]),
             filename: 'relatorio-comissoes.pdf',
         })
@@ -1444,16 +1414,13 @@ function SalesReport() {
         return (
             <Table.Summary fixed>
                 <Table.Summary.Row style={{ fontWeight: 700 }}>
-                    <Table.Summary.Cell index={0} colSpan={6}>TOTAL</Table.Summary.Cell>
-                    <Table.Summary.Cell index={6} align="right">
+                    <Table.Summary.Cell index={0} colSpan={4}>TOTAL</Table.Summary.Cell>
+                    <Table.Summary.Cell index={4} align="right">
                         <span style={{ color: '#4ade80' }}>{formatCurrency(commTotalVendido)}</span>
                     </Table.Summary.Cell>
-                    <Table.Summary.Cell index={7} align="right">
+                    <Table.Summary.Cell index={5} align="right">—</Table.Summary.Cell>
+                    <Table.Summary.Cell index={6} align="right">
                         <span style={{ color: '#f59e0b' }}>{formatCurrency(commTotalComissao)}</span>
-                    </Table.Summary.Cell>
-                    <Table.Summary.Cell index={8} align="right">—</Table.Summary.Cell>
-                    <Table.Summary.Cell index={9} align="right">
-                        <span style={{ color: commTotalLucro >= 0 ? '#4ade80' : '#ef4444' }}>{formatCurrency(commTotalLucro)}</span>
                     </Table.Summary.Cell>
                 </Table.Summary.Row>
             </Table.Summary>

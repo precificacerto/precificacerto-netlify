@@ -1835,13 +1835,13 @@ function Budgets() {
                                         min={0}
                                         max={budgetTotal > 0 ? budgetTotal * ((maxDiscountPercent > 0 ? maxDiscountPercent : 100) / 100) : 0}
                                         step={1}
-                                        value={Number((budgetTotal * (globalDiscountPercent / 100)).toFixed(2))}
+                                        value={budgetTotal * (globalDiscountPercent / 100)}
                                         onChange={(v) => {
                                             const amount = Number(v) || 0
                                             if (budgetTotal <= 0) { setGlobalDiscountPercent(0); return }
                                             const pct = (amount / budgetTotal) * 100
                                             const capped = Math.min(pct, maxDiscountPercent > 0 ? maxDiscountPercent : 100)
-                                            setGlobalDiscountPercent(Number(capped.toFixed(4)))
+                                            setGlobalDiscountPercent(capped)
                                         }}
                                         formatter={(v) => v != null ? Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}
                                         parser={(v) => Number((v || '0').replace(/\./g, '').replace(',', '.'))}
