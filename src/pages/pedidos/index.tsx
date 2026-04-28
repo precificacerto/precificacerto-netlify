@@ -40,6 +40,7 @@ const PAYMENT_METHODS = [
     { value: 'BOLETO', label: '📄 Boleto' },
     { value: 'TRANSFERENCIA', label: '🏦 Transferência' },
     { value: 'CHEQUE', label: '🧾 Cheque' },
+    { value: 'CHEQUE_PRE_DATADO', label: '🗓️ Cheque Pré-datado' },
     { value: 'LANCAMENTOS_A_RECEBER', label: '📋 Lançamentos a Receber' },
 ]
 
@@ -547,25 +548,6 @@ function OrdersPage() {
                 const cfg = STATUS_CONFIG[s] || { color: 'default', label: s }
                 return <Tag color={cfg.color}>{cfg.label}</Tag>
             },
-        },
-        {
-            title: 'Pagamento',
-            dataIndex: 'payment_method',
-            key: 'payment_method',
-            width: 120,
-            ellipsis: true,
-            render: (v: string | null) => {
-                if (!v) return <span style={{ color: '#D0D5DD' }}>—</span>
-                const pm = PAYMENT_METHODS.find(p => p.value === v)
-                return pm ? pm.label : v
-            },
-        },
-        {
-            title: 'Itens',
-            dataIndex: 'items_count',
-            key: 'items_count',
-            width: 60,
-            align: 'center',
         },
         {
             title: 'Valor total',
