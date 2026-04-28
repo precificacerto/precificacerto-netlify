@@ -312,8 +312,8 @@ export const ContentService: FC<ContentServiceProps> = ({
           <h1 className="text-2xl">Itens do produto</h1>
         </div>
         <div className="flex flex-col column mb-5">
-          <Form form={itemsForm} layout="inline" onFinish={handleClickAddItem}>
-            <Form.Item className="w-[300px]" label="Buscar item" name="item" rules={[{ required: true }]}>
+          <Form form={itemsForm} layout="inline" style={{ display: 'flex', gap: 8, alignItems: 'center', width: '100%' }} onFinish={handleClickAddItem}>
+            <Form.Item style={{ flex: 1, marginBottom: 0 }} label="Buscar item" name="item" rules={[{ required: true }]}>
               <Select showSearch filterOption={filterOption}
                 notFoundContent={
                   <div className="p-3 text-center text-neutral-500">Não há itens, cadastre-os antes de criar um produto</div>

@@ -90,9 +90,9 @@ export const ContentResale: FC<ContentResaleProps> = ({
         </div>
 
         <div className="flex flex-col column mb-5">
-          <Form form={itemsForm} layout="inline" onFinish={handleClickAddItem}>
+          <Form form={itemsForm} layout="inline" style={{ display: 'flex', gap: 8, alignItems: 'center', width: '100%' }} onFinish={handleClickAddItem}>
             <Form.Item
-              className="w-[200px]"
+              style={{ flex: 1, marginBottom: 0 }}
               label="Buscar item"
               name="item"
               rules={[{ required: true }]}
