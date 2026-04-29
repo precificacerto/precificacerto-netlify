@@ -96,6 +96,7 @@ function OrdersPage() {
     const [editDrawerOpen, setEditDrawerOpen] = useState(false)
     const [editingOrder, setEditingOrder] = useState<Order | null>(null)
     const [orderItems, setOrderItems] = useState<OrderItemRow[]>([])
+    const [orderInstallmentRows, setOrderInstallmentRows] = useState<{ due_date: string; amount: number; sort_order: number }[]>([])
     const [savingEdit, setSavingEdit] = useState(false)
     const [editForm] = Form.useForm()
 
@@ -201,8 +202,16 @@ function OrdersPage() {
             installments: order.installments || 1,
             notes: order.notes || '',
         })
-        const items = await fetchOrderItems(order.id)
+        const [items, instRowsResult] = await Promise.all([
+            fetchOrderItems(order.id),
+            (supabase as any)
+                .from('order_installment_rows')
+                .select('due_date, amount, sort_order')
+                .eq('order_id', order.id)
+                .order('sort_order'),
+        ])
         setOrderItems(items)
+        setOrderInstallmentRows(instRowsResult.data || [])
         setEditDrawerOpen(true)
     }
 
@@ -558,12 +567,22 @@ function OrdersPage() {
             render: (v: number) => <strong>{formatCurrency(v)}</strong>,
         },
         {
+            title: 'Pagamento',
+            dataIndex: 'payment_method',
+            key: 'payment_method',
+            width: 160,
+            render: (v: string) => {
+                const pm = PAYMENT_METHODS.find((p) => p.value === v)
+                return pm ? <Tag>{pm.label}</Tag> : '—'
+            },
+        },
+        {
             title: 'Ações',
             key: 'actions',
-            width: 280,
+            width: 160,
             fixed: 'right',
             render: (_, record) => (
-                <Space wrap>
+                <Space direction="vertical" size={2}>
                     <Button
                         type="link"
                         size="small"
@@ -705,6 +724,7 @@ function OrdersPage() {
                     setEditDrawerOpen(false)
                     setEditingOrder(null)
                     setOrderItems([])
+                    setOrderInstallmentRows([])
                     editForm.resetFields()
                 }}
                 width={720}
@@ -740,6 +760,35 @@ function OrdersPage() {
                     <Form.Item name="installments" label="Parcelas" initialValue={1}>
                         <InputNumber min={1} max={36} style={{ width: '100%' }} />
                     </Form.Item>
+                    {orderInstallmentRows.length > 0 && (
+                        <Form.Item label="Datas e valores das parcelas (importado do orçamento)">
+                            <Table
+                                size="small"
+                                pagination={false}
+                                dataSource={orderInstallmentRows}
+                                rowKey="sort_order"
+                                columns={[
+                                    {
+                                        title: 'Nº',
+                                        dataIndex: 'sort_order',
+                                        width: 50,
+                                        render: (v: number) => v + 1,
+                                    },
+                                    {
+                                        title: 'Vencimento',
+                                        dataIndex: 'due_date',
+                                        render: (v: string) => v ? new Date(v + 'T00:00:00').toLocaleDateString('pt-BR') : '—',
+                                    },
+                                    {
+                                        title: 'Valor',
+                                        dataIndex: 'amount',
+                                        align: 'right',
+                                        render: (v: number) => formatCurrency(v),
+                                    },
+                                ]}
+                            />
+                        </Form.Item>
+                    )}
                     <Form.Item name="notes" label="Observações">
                         <Input.TextArea rows={2} maxLength={500} />
                     </Form.Item>

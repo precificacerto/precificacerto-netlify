@@ -881,32 +881,41 @@ function Budgets() {
     const handleSendToOrder = async (budget: any) => {
         if (!tenantId) return
         try {
+            // Busca fresca do orçamento para garantir dados atualizados (evita cache SWR desatualizado)
+            const { data: freshBudget, error: freshErr } = await (supabase as any)
+                .from('budgets')
+                .select('*')
+                .eq('id', budget.id)
+                .single()
+            if (freshErr) throw freshErr
+            const b = freshBudget || budget
+
             // Pré-buscar parcelas para obter contagem correta de installments
             const { data: budgetInstRows } = await (supabase as any)
                 .from('budget_installment_rows')
                 .select('due_date, amount, sort_order')
-                .eq('budget_id', budget.id)
+                .eq('budget_id', b.id)
                 .order('sort_order')
 
             const installmentsCount = (budgetInstRows && budgetInstRows.length > 0)
                 ? budgetInstRows.length
-                : (budget.installments || 1)
+                : (b.installments || 1)
 
             // criar pedido (order_code gerado após insert)
             const { data: order, error: orderErr } = await (supabase as any).from('orders').insert({
                 tenant_id: tenantId,
                 order_code: `PED-TEMP-${Date.now()}`, // será atualizado logo abaixo
-                customer_id: budget.customer_id,
-                employee_id: budget.employee_id || null,
-                budget_id: budget.id,
+                customer_id: b.customer_id,
+                employee_id: b.employee_id || null,
+                budget_id: b.id,
                 status: 'DRAFT',
-                total_value: budget.total_value || 0,
-                discount_mode: budget.discount_mode || null,
-                discount_value: budget.discount_value || null,
-                discount_percent: budget.discount_percent || null,
-                payment_method: budget.payment_method || null,
+                total_value: b.total_value || 0,
+                discount_mode: b.discount_mode || null,
+                discount_value: b.discount_value || null,
+                discount_percent: b.discount_percent || b.global_discount_percent || null,
+                payment_method: b.payment_method || null,
                 installments: installmentsCount,
-                notes: budget.notes || null,
+                notes: b.notes || null,
                 created_by: currentUser?.uid || null,
             }).select('id').single()
 
@@ -920,7 +929,7 @@ function Budgets() {
                 const { data: budgetItems } = await (supabase as any)
                     .from('budget_items')
                     .select('product_id, service_id, quantity, unit_price, manual_description')
-                    .eq('budget_id', budget.id)
+                    .eq('budget_id', b.id)
 
                 if (budgetItems && budgetItems.length > 0) {
                     const toInsert = budgetItems.map((bi: any) => ({
@@ -949,7 +958,7 @@ function Budgets() {
 
                 await supabase.from('budgets')
                     .update({ status: 'SENT_TO_ORDER', updated_at: new Date().toISOString() })
-                    .eq('id', budget.id)
+                    .eq('id', b.id)
             }
 
             messageApi.success('Orçamento enviado para Pedido com sucesso!')
