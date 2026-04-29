@@ -1333,7 +1333,7 @@ function Sales() {
             key: 'action',
             width: 160,
             render: (_, record) => (
-                <Space>
+                <Space direction="vertical" size={2}>
                     <Button type="link" size="small" onClick={() => handleViewDetail(record)}>Ver</Button>
                     {record.status === 'AWAITING_PAYMENT' && record.saleType === 'FROM_ORDER' && (
                         <Button
