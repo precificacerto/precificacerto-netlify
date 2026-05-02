@@ -31,6 +31,7 @@ import {
     type InstallmentRow,
 } from '@/components/payment-with-installments.component'
 import { syncCustomerRecurrenceOnSale } from '@/lib/customer-recurrence'
+import { mergeExpenseConfig } from '@/utils/recalc-expense-config'
 
 dayjs.extend(isoWeek)
 dayjs.locale('pt-br')
@@ -584,8 +585,27 @@ function Schedule() {
                 body: JSON.stringify({ id: entryId, amount: editLancAmounts[entryId], description: editLancDescs[entryId] }),
             })
             if (!res.ok) throw new Error((await res.json()).error)
+
+            const updatedEntries = editLancEntries.map(e =>
+                e.id === entryId ? { ...e, amount: editLancAmounts[entryId], description: editLancDescs[entryId] } : e
+            )
+            setEditLancEntries(updatedEntries)
+
+            // Sincroniza amount_charged no evento da agenda com o novo total dos lançamentos
+            if (editLancEvt) {
+                const newTotal = updatedEntries
+                    .filter(e => e.type === 'INCOME')
+                    .reduce((sum, e) => sum + Number(e.amount), 0)
+                await (supabase as any).from('calendar_events')
+                    .update({ amount_charged: newTotal })
+                    .eq('id', editLancEvt.id)
+            }
+
+            // Recalcula hub para atualizar MO produtiva por minuto na precificação
+            const tid = await getTenantId()
+            if (tid) mergeExpenseConfig(tid).catch(() => {})
+
             msgApi.success('Lançamento editado! HUB e DRE atualizados.')
-            setEditLancEntries(prev => prev.map(e => e.id === entryId ? { ...e, amount: editLancAmounts[entryId], description: editLancDescs[entryId] } : e))
             await fetchAll()
         } catch (e: any) { msgApi.error(e.message) }
         finally { setSavingLanc(false) }

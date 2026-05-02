@@ -9,6 +9,7 @@ import { PAGE_TITLES } from '@/constants/page-titles'
 import { CardKPI } from '@/components/ui/card-kpi.component'
 import { supabase } from '@/supabase/client'
 import { getTenantId } from '@/utils/get-tenant-id'
+import { mergeExpenseConfig } from '@/utils/recalc-expense-config'
 import { ExportFormatModal } from '@/components/ui/export-format-modal.component'
 import { exportTableToPdf } from '@/utils/export-generic-pdf'
 import {
@@ -427,8 +428,27 @@ function Reports() {
                 body: JSON.stringify({ id: entryId, amount: editLancAmounts[entryId], description: editLancDescs[entryId] }),
             })
             if (!res.ok) throw new Error((await res.json()).error)
+
+            const updatedEntries = editLancEntries.map(e =>
+                e.id === entryId ? { ...e, amount: editLancAmounts[entryId], description: editLancDescs[entryId] } : e
+            )
+            setEditLancEntries(updatedEntries)
+
+            // Sincroniza amount_charged no evento da agenda com o novo total dos lançamentos
+            if (editLancEvt) {
+                const newTotal = updatedEntries
+                    .filter(e => e.type === 'INCOME')
+                    .reduce((sum, e) => sum + Number(e.amount), 0)
+                await (supabase as any).from('calendar_events')
+                    .update({ amount_charged: newTotal })
+                    .eq('id', editLancEvt.id)
+            }
+
+            // Recalcula hub para atualizar MO produtiva por minuto na precificação
+            const tid = await getTenantId()
+            if (tid) mergeExpenseConfig(tid).catch(() => {})
+
             messageApi.success('Lançamento editado! HUB e DRE atualizados.')
-            setEditLancEntries(prev => prev.map(e => e.id === entryId ? { ...e, amount: editLancAmounts[entryId], description: editLancDescs[entryId] } : e))
         } catch (e: any) { messageApi.error(e.message) }
         finally { setSavingLanc(false) }
     }
