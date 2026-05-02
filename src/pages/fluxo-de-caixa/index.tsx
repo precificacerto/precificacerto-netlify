@@ -533,6 +533,11 @@ export default function CashFlow() {
                     }
                 }
                 result[label][day] = (result[label][day] || 0) + getEffectiveIncomeAmount(entry)
+                if (entry.paid_date) {
+                    paidEntriesMap[label][day] = [...(paidEntriesMap[label][day] || []), entry]
+                } else {
+                    entriesMap[label][day] = [...(entriesMap[label][day] || []), entry]
+                }
             } else {
                 const amt = Number(entry.amount) || 0
                 const group = (entry as any).expense_group || getGroupForCategory(entry.description) || 'OUTROS'
@@ -897,9 +902,28 @@ export default function CashFlow() {
                                         </td>
                                         {Array.from({ length: pivotByDay.daysInMonth }, (_, i) => i + 1).map(day => {
                                             const val = (pivotByDay.data[label] || {})[day] || 0
+                                            const cellPaid = (pivotByDay.paidEntriesMap[label] || {})[day] || []
+                                            const cellUnpaid = (pivotByDay.entriesMap[label] || {})[day] || []
+                                            const cellEntries = [...cellPaid, ...cellUnpaid]
                                             return (
                                                 <td key={day} style={{ padding: '5px 4px', textAlign: 'right', color: val > 0 ? '#4ade80' : '#334155', fontVariantNumeric: 'tabular-nums', borderRight: '1px solid rgba(255,255,255,0.04)', fontSize: 11 }}>
-                                                    {val > 0 ? formatCurrency(val) : ''}
+                                                    {val > 0 && cellEntries.length > 0 ? (
+                                                        <span
+                                                            onClick={() => {
+                                                                if (cellEntries.length === 1) {
+                                                                    handleOpenPaymentModal(cellEntries[0])
+                                                                } else {
+                                                                    setPendingSelectEntries(cellEntries)
+                                                                    setPendingSelectOpen(true)
+                                                                }
+                                                            }}
+                                                            style={{ cursor: 'pointer', color: '#4ade80', borderBottom: '1px dashed rgba(74,222,128,0.6)' }}
+                                                            title={cellEntries.length > 1 ? `${cellEntries.length} lançamentos — clique para selecionar` : 'Clique para editar lançamento'}
+                                                        >
+                                                            {formatCurrency(val)}
+                                                            {cellEntries.length > 1 && <span style={{ fontSize: 10, marginLeft: 3, background: '#4ade80', color: '#000', borderRadius: 8, padding: '0 4px' }}>{cellEntries.length}</span>}
+                                                        </span>
+                                                    ) : val > 0 ? formatCurrency(val) : ''}
                                                 </td>
                                             )
                                         })}
@@ -1305,7 +1329,11 @@ export default function CashFlow() {
                                         )
                                     }
                                     return (
-                                        <strong style={{ color: '#4ade80', fontVariantNumeric: 'tabular-nums' }}>
+                                        <strong
+                                            onClick={() => handleOpenPaymentModal(r)}
+                                            style={{ color: '#4ade80', fontVariantNumeric: 'tabular-nums', cursor: 'pointer', borderBottom: '1px dashed rgba(74,222,128,0.6)' }}
+                                            title="Clique para editar ou excluir lançamento"
+                                        >
                                             + {formatCurrency(val)}
                                         </strong>
                                     )
