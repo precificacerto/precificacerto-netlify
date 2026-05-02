@@ -149,6 +149,15 @@ function Schedule() {
     const [isLastRecurrence, setIsLastRecurrence] = useState(false)
     const [renewalAlertOpen, setRenewalAlertOpen] = useState(false)
 
+    // Edit/Delete lançamento (cash entry) of completed appointments
+    const [editLancOpen, setEditLancOpen] = useState(false)
+    const [editLancEvt, setEditLancEvt] = useState<CalendarEvent | null>(null)
+    const [editLancEntries, setEditLancEntries] = useState<any[]>([])
+    const [editLancLoading, setEditLancLoading] = useState(false)
+    const [editLancAmounts, setEditLancAmounts] = useState<Record<string, number>>({})
+    const [editLancDescs, setEditLancDescs] = useState<Record<string, string>>({})
+    const [savingLanc, setSavingLanc] = useState(false)
+
     // Commission table states
     const [bookingEmpServiceTables, setBookingEmpServiceTables] = useState<{id: string; name: string}[]>([])
     const [bookingSelectedServiceTableId, setBookingSelectedServiceTableId] = useState<string | null>(null)
@@ -544,6 +553,58 @@ function Schedule() {
             msgApi.success('Desativado!')
             await fetchAll()
         } catch (e: any) { msgApi.error(e.message || 'Erro ao desativar evento') }
+    }
+
+    async function openEditLanc(ev: CalendarEvent) {
+        setEditLancEvt(ev)
+        setEditLancEntries([])
+        setEditLancLoading(true)
+        setEditLancOpen(true)
+        const { data } = await (supabase as any).from('cash_entries')
+            .select('id, amount, description, due_date, paid_date, payment_method, type')
+            .eq('origin_id', ev.id)
+            .eq('is_active', true)
+            .order('due_date')
+        const entries = data || []
+        setEditLancEntries(entries)
+        const amounts: Record<string, number> = {}
+        const descs: Record<string, string> = {}
+        for (const e of entries) { amounts[e.id] = Number(e.amount); descs[e.id] = e.description || '' }
+        setEditLancAmounts(amounts)
+        setEditLancDescs(descs)
+        setEditLancLoading(false)
+    }
+
+    async function saveEditLanc(entryId: string) {
+        setSavingLanc(true)
+        try {
+            const res = await fetch('/api/cash-entries/update', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: entryId, amount: editLancAmounts[entryId], description: editLancDescs[entryId] }),
+            })
+            if (!res.ok) throw new Error((await res.json()).error)
+            msgApi.success('Lançamento editado! HUB e DRE atualizados.')
+            setEditLancEntries(prev => prev.map(e => e.id === entryId ? { ...e, amount: editLancAmounts[entryId], description: editLancDescs[entryId] } : e))
+            await fetchAll()
+        } catch (e: any) { msgApi.error(e.message) }
+        finally { setSavingLanc(false) }
+    }
+
+    async function deleteEditLanc(entryId: string) {
+        setSavingLanc(true)
+        try {
+            const res = await fetch('/api/delete/cash-entries', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: entryId }),
+            })
+            if (!res.ok) throw new Error((await res.json()).error)
+            msgApi.success('Lançamento excluído! HUB e DRE atualizados.')
+            setEditLancEntries(prev => prev.filter(e => e.id !== entryId))
+            await fetchAll()
+        } catch (e: any) { msgApi.error(e.message) }
+        finally { setSavingLanc(false) }
     }
 
     // ─── Payment Modal (só abre se o agendamento ainda não foi concluído por outra pessoa) ───
@@ -1574,7 +1635,17 @@ function Schedule() {
                                                             </Button>
                                                         )}
                                                         {isCompleted && (
-                                                            <Tag color="success" style={{ fontSize: 8, margin: '3px 0 0', padding: '0 4px', lineHeight: '16px', alignSelf: 'flex-start' }}>Concluído</Tag>
+                                                            <>
+                                                                <Tag color="success" style={{ fontSize: 8, margin: '3px 0 0', padding: '0 4px', lineHeight: '16px', alignSelf: 'flex-start' }}>Concluído</Tag>
+                                                                <Button
+                                                                    size="small"
+                                                                    block
+                                                                    style={{ marginTop: 2, fontSize: 8, height: 18, borderRadius: 3, padding: '0 4px' }}
+                                                                    onClick={(e) => { e.stopPropagation(); openEditLanc(ev) }}
+                                                                >
+                                                                    Editar $
+                                                                </Button>
+                                                            </>
                                                         )}
                                                     </div>
                                                 )
@@ -1766,6 +1837,17 @@ function Schedule() {
                                                                 Concluir
                                                             </Button>
                                                         )}
+                                                        {ev.status === 'COMPLETED' && (
+                                                            <Button
+                                                                size="small"
+                                                                block
+                                                                style={{ marginTop: 3, fontSize: 9, height: 22, borderRadius: 4 }}
+                                                                icon={<DollarOutlined style={{ fontSize: 9 }} />}
+                                                                onClick={(e) => { e.stopPropagation(); openEditLanc(ev) }}
+                                                            >
+                                                                Editar Lançamento
+                                                            </Button>
+                                                        )}
                                                     </div>
                                                 </div>
                                             )
@@ -1777,6 +1859,75 @@ function Schedule() {
                     </div>
                 </div>
             )}
+
+            {/* Modal: Editar / Excluir Lançamento de Agendamento Concluído */}
+            <Modal
+                title={<span><DollarOutlined style={{ marginRight: 8 }} />Editar Lançamento{editLancEvt ? ` — ${editLancEvt.title}` : ''}</span>}
+                open={editLancOpen}
+                onCancel={() => setEditLancOpen(false)}
+                footer={<Button onClick={() => setEditLancOpen(false)}>Fechar</Button>}
+                width="min(560px, calc(100vw - 32px))"
+            >
+                {editLancLoading ? (
+                    <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>Buscando lançamentos...</div>
+                ) : editLancEntries.length === 0 ? (
+                    <div style={{ padding: 24, textAlign: 'center', color: '#94a3b8' }}>Nenhum lançamento encontrado para este agendamento.</div>
+                ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                        <div style={{ fontSize: 12, color: '#94a3b8', background: 'rgba(99,102,241,0.08)', borderRadius: 6, padding: '8px 12px', border: '1px solid rgba(99,102,241,0.2)' }}>
+                            As alterações refletem automaticamente no HUB e no DRE.
+                        </div>
+                        {editLancEntries.map((entry) => (
+                            <div key={entry.id} style={{ border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '12px 14px', background: 'rgba(255,255,255,0.03)' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                                    <span style={{ fontSize: 12, color: '#94a3b8' }}>
+                                        Vencimento: {entry.due_date ? dayjs(entry.due_date).format('DD/MM/YYYY') : '—'}
+                                    </span>
+                                    <Tag color={entry.paid_date ? 'success' : 'warning'} style={{ margin: 0 }}>
+                                        {entry.paid_date ? `Recebido ${dayjs(entry.paid_date).format('DD/MM/YYYY')}` : 'Pendente'}
+                                    </Tag>
+                                </div>
+                                <div style={{ marginBottom: 8 }}>
+                                    <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Valor</div>
+                                    <InputNumber
+                                        style={{ width: '100%' }}
+                                        value={editLancAmounts[entry.id]}
+                                        onChange={(v) => setEditLancAmounts(prev => ({ ...prev, [entry.id]: Number(v) || 0 }))}
+                                        min={0}
+                                        precision={2}
+                                        addonBefore="R$"
+                                        formatter={(v) => v != null ? Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}
+                                        parser={(v) => Number((v || '0').replace(/\./g, '').replace(',', '.'))}
+                                    />
+                                </div>
+                                <div style={{ marginBottom: 10 }}>
+                                    <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Descrição</div>
+                                    <Input.TextArea
+                                        rows={2}
+                                        value={editLancDescs[entry.id]}
+                                        onChange={(e) => setEditLancDescs(prev => ({ ...prev, [entry.id]: e.target.value }))}
+                                    />
+                                </div>
+                                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                                    <Popconfirm
+                                        title="Excluir este lançamento?"
+                                        description="O valor será removido do fluxo de caixa, HUB e DRE."
+                                        onConfirm={() => deleteEditLanc(entry.id)}
+                                        okText="Excluir"
+                                        cancelText="Cancelar"
+                                        okButtonProps={{ danger: true }}
+                                    >
+                                        <Button danger size="small" loading={savingLanc} icon={<DeleteOutlined />}>Excluir</Button>
+                                    </Popconfirm>
+                                    <Button type="primary" size="small" loading={savingLanc} onClick={() => saveEditLanc(entry.id)}>
+                                        Salvar
+                                    </Button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </Modal>
 
             {/* Add Employee Modal */}
             <Modal title="Adicionar Funcionário" open={addEmpOpen} onCancel={() => { setAddEmpOpen(false); setSelAddEmp(null) }} onOk={handleAddEmp} okText="Adicionar" cancelText="Cancelar" okButtonProps={{ disabled: !selAddEmp }}>

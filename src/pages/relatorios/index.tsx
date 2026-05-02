@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react'
-import { Button, Select, Table, Tag, Space, DatePicker, message, Empty, Tooltip } from 'antd'
+import { Button, Select, Table, Tag, Space, DatePicker, message, Empty, Tooltip, Modal, InputNumber, Input, Popconfirm } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import dayjs from 'dayjs'
 import isoWeek from 'dayjs/plugin/isoWeek'
@@ -32,6 +32,9 @@ import {
     ClockCircleOutlined,
     DownloadOutlined,
     TrophyOutlined,
+    DollarOutlined,
+    DeleteOutlined,
+    EditOutlined,
 } from '@ant-design/icons'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 
@@ -80,6 +83,15 @@ function Reports() {
     const [loading, setLoading] = useState(false)
     const [messageApi, contextHolder] = message.useMessage()
     const [periodType, setPeriodType] = useState<'week' | 'month' | 'custom'>('week')
+
+    // Edit/Delete lançamento states
+    const [editLancOpen, setEditLancOpen] = useState(false)
+    const [editLancEvt, setEditLancEvt] = useState<any>(null)
+    const [editLancEntries, setEditLancEntries] = useState<any[]>([])
+    const [editLancLoading, setEditLancLoading] = useState(false)
+    const [editLancAmounts, setEditLancAmounts] = useState<Record<string, number>>({})
+    const [editLancDescs, setEditLancDescs] = useState<Record<string, string>>({})
+    const [savingLanc, setSavingLanc] = useState(false)
     const [startDate, setStartDate] = useState(dayjs().startOf('isoWeek'))
     const [endDate, setEndDate] = useState(dayjs().endOf('isoWeek'))
     const [events, setEvents] = useState<any[]>([])
@@ -285,6 +297,28 @@ function Reports() {
             key: 'status',
             render: (s: string) => <Tag color={STATUS_MAP[s]?.color || 'default'}>{STATUS_MAP[s]?.label || s}</Tag>,
         },
+        {
+            title: 'Valor',
+            key: 'amount_charged',
+            align: 'right' as const,
+            render: (_: any, r: any) => r.amount_charged != null && r.amount_charged > 0
+                ? <span style={{ fontWeight: 600, color: '#12B76A' }}>{fmt(Number(r.amount_charged))}</span>
+                : <span style={{ color: '#94a3b8' }}>—</span>,
+        },
+        {
+            title: 'Ações',
+            key: 'actions',
+            width: 110,
+            render: (_: any, r: any) => r.status === 'COMPLETED' ? (
+                <Button
+                    size="small"
+                    icon={<EditOutlined />}
+                    onClick={() => openEditLanc(r)}
+                >
+                    Editar $
+                </Button>
+            ) : null,
+        },
     ]
 
     const chartColors = ['#12B76A', '#F04438', '#2E90FA', '#F79009', '#7A5AF8', '#667085']
@@ -362,6 +396,58 @@ function Reports() {
         },
     }
 
+    const fmt = (v: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 }).format(v)
+
+    async function openEditLanc(ev: any) {
+        setEditLancEvt(ev)
+        setEditLancEntries([])
+        setEditLancLoading(true)
+        setEditLancOpen(true)
+        const { data } = await (supabase as any).from('cash_entries')
+            .select('id, amount, description, due_date, paid_date, payment_method, type')
+            .eq('origin_id', ev.id)
+            .eq('is_active', true)
+            .order('due_date')
+        const entries = data || []
+        setEditLancEntries(entries)
+        const amounts: Record<string, number> = {}
+        const descs: Record<string, string> = {}
+        for (const e of entries) { amounts[e.id] = Number(e.amount); descs[e.id] = e.description || '' }
+        setEditLancAmounts(amounts)
+        setEditLancDescs(descs)
+        setEditLancLoading(false)
+    }
+
+    async function saveEditLanc(entryId: string) {
+        setSavingLanc(true)
+        try {
+            const res = await fetch('/api/cash-entries/update', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: entryId, amount: editLancAmounts[entryId], description: editLancDescs[entryId] }),
+            })
+            if (!res.ok) throw new Error((await res.json()).error)
+            messageApi.success('Lançamento editado! HUB e DRE atualizados.')
+            setEditLancEntries(prev => prev.map(e => e.id === entryId ? { ...e, amount: editLancAmounts[entryId], description: editLancDescs[entryId] } : e))
+        } catch (e: any) { messageApi.error(e.message) }
+        finally { setSavingLanc(false) }
+    }
+
+    async function deleteEditLanc(entryId: string) {
+        setSavingLanc(true)
+        try {
+            const res = await fetch('/api/delete/cash-entries', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: entryId }),
+            })
+            if (!res.ok) throw new Error((await res.json()).error)
+            messageApi.success('Lançamento excluído! HUB e DRE atualizados.')
+            setEditLancEntries(prev => prev.filter(e => e.id !== entryId))
+        } catch (e: any) { messageApi.error(e.message) }
+        finally { setSavingLanc(false) }
+    }
+
     function exportCSV() {
         if (events.length === 0) { messageApi.warning('Nenhum dado para exportar.'); return }
         const header = 'Data,Horário,Serviço,Funcionário,Cliente,Status,Duração (min)\n'
@@ -429,6 +515,12 @@ function Reports() {
                     value={`${completionRate}%`}
                     icon={<TrophyOutlined />}
                     variant={completionRate >= 70 ? 'green' : 'orange'}
+                />
+                <CardKPI
+                    title="Receita Período"
+                    value={fmt(events.filter((e: any) => e.status === 'COMPLETED' && e.amount_charged > 0).reduce((s: number, e: any) => s + Number(e.amount_charged), 0))}
+                    icon={<DollarOutlined />}
+                    variant="green"
                 />
                 <CardKPI
                     title="Horas Trabalhadas"
@@ -540,6 +632,75 @@ function Reports() {
                     </div>
                 </>
             )}
+
+            {/* Modal: Editar / Excluir Lançamento */}
+            <Modal
+                title={<span><DollarOutlined style={{ marginRight: 8 }} />Editar Lançamento{editLancEvt ? ` — ${editLancEvt.title}` : ''}</span>}
+                open={editLancOpen}
+                onCancel={() => setEditLancOpen(false)}
+                footer={<Button onClick={() => setEditLancOpen(false)}>Fechar</Button>}
+                width="min(560px, calc(100vw - 32px))"
+            >
+                {editLancLoading ? (
+                    <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>Buscando lançamentos...</div>
+                ) : editLancEntries.length === 0 ? (
+                    <div style={{ padding: 24, textAlign: 'center', color: '#94a3b8' }}>Nenhum lançamento encontrado para este agendamento.</div>
+                ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                        <div style={{ fontSize: 12, color: '#2563eb', background: 'rgba(37,99,235,0.06)', borderRadius: 6, padding: '8px 12px', border: '1px solid rgba(37,99,235,0.2)' }}>
+                            As alterações refletem automaticamente no HUB e no DRE.
+                        </div>
+                        {editLancEntries.map((entry) => (
+                            <div key={entry.id} style={{ border: '1px solid #e2e8f0', borderRadius: 8, padding: '12px 14px', background: '#f8fafc' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                                    <span style={{ fontSize: 12, color: '#64748b' }}>
+                                        Vencimento: {entry.due_date ? dayjs(entry.due_date).format('DD/MM/YYYY') : '—'}
+                                    </span>
+                                    <Tag color={entry.paid_date ? 'success' : 'warning'} style={{ margin: 0 }}>
+                                        {entry.paid_date ? `Recebido ${dayjs(entry.paid_date).format('DD/MM/YYYY')}` : 'Pendente'}
+                                    </Tag>
+                                </div>
+                                <div style={{ marginBottom: 8 }}>
+                                    <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4 }}>Valor</div>
+                                    <InputNumber
+                                        style={{ width: '100%' }}
+                                        value={editLancAmounts[entry.id]}
+                                        onChange={(v) => setEditLancAmounts(prev => ({ ...prev, [entry.id]: Number(v) || 0 }))}
+                                        min={0}
+                                        precision={2}
+                                        addonBefore="R$"
+                                        formatter={(v) => v != null ? Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}
+                                        parser={(v) => Number((v || '0').replace(/\./g, '').replace(',', '.'))}
+                                    />
+                                </div>
+                                <div style={{ marginBottom: 10 }}>
+                                    <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4 }}>Descrição</div>
+                                    <Input.TextArea
+                                        rows={2}
+                                        value={editLancDescs[entry.id]}
+                                        onChange={(e) => setEditLancDescs(prev => ({ ...prev, [entry.id]: e.target.value }))}
+                                    />
+                                </div>
+                                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                                    <Popconfirm
+                                        title="Excluir este lançamento?"
+                                        description="O valor será removido do fluxo de caixa, HUB e DRE."
+                                        onConfirm={() => deleteEditLanc(entry.id)}
+                                        okText="Excluir"
+                                        cancelText="Cancelar"
+                                        okButtonProps={{ danger: true }}
+                                    >
+                                        <Button danger size="small" loading={savingLanc} icon={<DeleteOutlined />}>Excluir</Button>
+                                    </Popconfirm>
+                                    <Button type="primary" size="small" loading={savingLanc} onClick={() => saveEditLanc(entry.id)}>
+                                        Salvar
+                                    </Button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </Modal>
 
             {/* Export format modal — Relatórios */}
             <ExportFormatModal
