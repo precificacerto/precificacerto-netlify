@@ -117,6 +117,7 @@ function Schedule() {
     const [addEmpOpen, setAddEmpOpen] = useState(false)
     const [selAddEmp, setSelAddEmp] = useState<string | null>(null)
     const [serviceInputMode, setServiceInputMode] = useState<'select' | 'custom'>('select')
+    const [customerMode, setCustomerMode] = useState<'existing' | 'manual'>('existing')
 
     // Payment modal
     const [payOpen, setPayOpen] = useState(false)
@@ -300,6 +301,7 @@ function Schedule() {
         form.resetFields()
         setEditingEvt(null)
         setServiceInputMode('select')
+        setCustomerMode('existing')
         setRecurActive(false)
         setRecurType('weekly')
         setRecurWeekdays([])
@@ -323,6 +325,7 @@ function Schedule() {
     const openEdit = useCallback((ev: CalendarEvent) => {
         setEditingEvt(ev)
         setServiceInputMode(ev.service_id ? 'select' : 'custom')
+        setCustomerMode('existing')
         const dur = Math.round((new Date(ev.end_time).getTime() - new Date(ev.start_time).getTime()) / 60000)
         form.setFieldsValue({ title: ev.title, date: dayjs(ev.start_time), time: dayjs(ev.start_time), duration_minutes: String(dur), customer_id: ev.customer_id || undefined, employee_id: ev.employee_id || undefined, service_id: ev.service_id || undefined, status: ev.status, notes: ev.description || '' })
         setBookingEmpServiceTables([])
@@ -345,6 +348,30 @@ function Schedule() {
         try {
             const v = await form.validateFields()
             const tid = await getTenantId(); if (!tid) return
+
+            // Validação extra: modo select sem serviço selecionado
+            if (serviceInputMode === 'select' && !v.service_id && !v.title) {
+                msgApi.error('Selecione um serviço cadastrado.')
+                return
+            }
+
+            // Cadastrar cliente manual se necessário
+            let resolvedCustomerId: string | null = v.customer_id || null
+            if (customerMode === 'manual') {
+                const manualName = (v.manual_customer_name || '').trim()
+                const manualPhone = (v.manual_customer_phone || '').trim()
+                if (!manualName || !manualPhone) {
+                    msgApi.error('Informe o nome e telefone do cliente para cadastrá-lo.')
+                    return
+                }
+                const { data: newCustomer, error: custErr } = await (supabase as any).from('customers').insert({
+                    tenant_id: tid, name: manualName, phone: manualPhone, customer_type: 'PF', status: 'ACTIVE',
+                }).select('id').single()
+                if (custErr) throw custErr
+                resolvedCustomerId = newCustomer.id
+                setCustomers(prev => [...prev, { id: newCustomer.id, name: manualName } as Customer])
+            }
+
             const ed = v.date?.format('YYYY-MM-DD') || dayjs().format('YYYY-MM-DD')
             const st = v.time?.format('HH:mm') || '09:00'
             const dur = parseInt(v.duration_minutes) || 60
@@ -353,7 +380,7 @@ function Schedule() {
             const e = startLocal.add(dur, 'minute').toISOString()
 
             // Calcular horário do lembrete WhatsApp: >24h = disparo 24h antes; <24h = disparo 10 min após salvar
-            const hasCustomer = !!v.customer_id
+            const hasCustomer = !!resolvedCustomerId
             let reminderSendAt: string | null = null
             if (hasCustomer) {
                 const hoursUntilEvent = startLocal.diff(dayjs(), 'hour', true)
@@ -365,7 +392,8 @@ function Schedule() {
             }
 
             if (editingEvt) {
-                const updateData: any = { title: v.title, start_time: s, end_time: e, status: v.status || 'SCHEDULED', customer_id: v.customer_id || null, employee_id: v.employee_id || null, service_id: serviceInputMode === 'select' ? (v.service_id || null) : null, description: v.notes || null }
+                const resolvedTitle = serviceInputMode === 'select' ? (form.getFieldValue('title') || v.title) : v.title
+                const updateData: any = { title: resolvedTitle, start_time: s, end_time: e, status: v.status || 'SCHEDULED', customer_id: resolvedCustomerId, employee_id: v.employee_id || null, service_id: serviceInputMode === 'select' ? (v.service_id || null) : null, description: v.notes || null }
                 if (reminderSendAt && !(editingEvt as any).whatsapp_reminder_sent) {
                     updateData.reminder_send_at = reminderSendAt
                 }
@@ -374,8 +402,8 @@ function Schedule() {
 
                 // Lógica de disparo WhatsApp no reagendamento
                 const dateChanged = editingEvt.start_time !== s
-                if (dateChanged && v.customer_id) {
-                    const cust = (customers as any[]).find((c: any) => c.id === v.customer_id)
+                if (dateChanged && resolvedCustomerId) {
+                    const cust = (customers as any[]).find((c: any) => c.id === resolvedCustomerId)
                     const phone = cust?.phone || null
                     if (phone) {
                         const formattedDate = dayjs(s).format('DD/MM/YYYY')
@@ -394,7 +422,7 @@ function Schedule() {
                             // Já foi enviado → criar novo PENDING para notificar do novo horário
                             await sb2.from('whatsapp_dispatches').insert({
                                 tenant_id: tid, calendar_event_id: editingEvt.id,
-                                customer_id: v.customer_id, status: 'PENDING',
+                                customer_id: resolvedCustomerId, status: 'PENDING',
                                 type: 'REMINDER', phone, message_body: msgBody,
                                 sent_by: uid || 'system',
                             })
@@ -408,7 +436,7 @@ function Schedule() {
                             } else {
                                 await sb2.from('whatsapp_dispatches').insert({
                                     tenant_id: tid, calendar_event_id: editingEvt.id,
-                                    customer_id: v.customer_id, status: 'PENDING',
+                                    customer_id: resolvedCustomerId, status: 'PENDING',
                                     type: 'REMINDER', phone, message_body: msgBody,
                                     sent_by: uid || 'system',
                                 })
@@ -420,7 +448,8 @@ function Schedule() {
                 msgApi.success('Atualizado!')
             } else {
                 const uid = currentUser?.uid ?? (await getCurrentUserId())
-                const baseData: any = { tenant_id: tid, user_id: uid || null, event_type: 'SERVICE', title: v.title, status: 'SCHEDULED', customer_id: v.customer_id || null, employee_id: v.employee_id || null, service_id: serviceInputMode === 'select' ? (v.service_id || null) : null, description: v.notes || null }
+                const resolvedTitle = serviceInputMode === 'select' ? (form.getFieldValue('title') || v.title) : v.title
+                const baseData: any = { tenant_id: tid, user_id: uid || null, event_type: 'SERVICE', title: resolvedTitle, status: 'SCHEDULED', customer_id: resolvedCustomerId, employee_id: v.employee_id || null, service_id: serviceInputMode === 'select' ? (v.service_id || null) : null, description: v.notes || null }
                 const insertData: any = { ...baseData, start_time: s, end_time: e }
                 if (reminderSendAt) insertData.reminder_send_at = reminderSendAt
                 const { error } = await supabase.from('calendar_events').insert([insertData])
@@ -1779,7 +1808,42 @@ function Schedule() {
                             ))}
                         </Select>
                     </Form.Item>
-                    <Form.Item name="customer_id" label="Cliente" rules={[{ required: true, message: 'O cliente é obrigatório' }]}><Select placeholder="Selecione o cliente" showSearch optionFilterProp="children">{customers.map(c => <Select.Option key={c.id} value={c.id}>{c.name}</Select.Option>)}</Select></Form.Item>
+                    <div style={{ marginBottom: 8 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Cliente</div>
+                        <Select
+                            value={customerMode}
+                            onChange={(v: 'existing' | 'manual') => {
+                                setCustomerMode(v)
+                                if (v === 'existing') {
+                                    form.setFieldsValue({ manual_customer_name: undefined, manual_customer_phone: undefined })
+                                } else {
+                                    form.setFieldsValue({ customer_id: undefined })
+                                }
+                            }}
+                            style={{ width: '100%', marginBottom: 8 }}
+                            options={[
+                                { value: 'existing', label: 'Cliente cadastrado' },
+                                { value: 'manual', label: 'Cadastrar cliente manualmente' },
+                            ]}
+                        />
+                    </div>
+                    {customerMode === 'existing' && (
+                        <Form.Item name="customer_id" label="Selecionar cliente" rules={[{ required: true, message: 'O cliente é obrigatório' }]}>
+                            <Select placeholder="Selecione o cliente" showSearch optionFilterProp="children">
+                                {customers.map(c => <Select.Option key={c.id} value={c.id}>{c.name}</Select.Option>)}
+                            </Select>
+                        </Form.Item>
+                    )}
+                    {customerMode === 'manual' && (
+                        <>
+                            <Form.Item name="manual_customer_name" label="Nome do cliente" rules={[{ required: true, message: 'Informe o nome do cliente' }]}>
+                                <Input placeholder="Nome completo do cliente" />
+                            </Form.Item>
+                            <Form.Item name="manual_customer_phone" label="Telefone do cliente" rules={[{ required: true, message: 'Informe o telefone do cliente' }]}>
+                                <Input placeholder="(00) 00000-0000" />
+                            </Form.Item>
+                        </>
+                    )}
 
                     {bookingEmployeeId && (
                         <div style={{ marginBottom: 16 }}>
@@ -1829,7 +1893,11 @@ function Schedule() {
                         </Form.Item>
                     )}
 
-                    <Form.Item name="title" label="Serviço / Título" rules={[{ required: true, message: 'Informe o serviço' }]}><Input placeholder="Ex: Corte, Tintura, Escova..." /></Form.Item>
+                    {serviceInputMode === 'custom' && (
+                        <Form.Item name="title" label="Serviço / Título" rules={[{ required: true, message: 'Informe o serviço' }]}>
+                            <Input placeholder="Ex: Corte, Tintura, Escova..." />
+                        </Form.Item>
+                    )}
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
                         <Form.Item name="date" label="Data" rules={[{ required: true }]}><DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" /></Form.Item>
                         <Form.Item name="time" label="Horário" rules={[{ required: true }]}><TimePicker style={{ width: '100%' }} format="HH:mm" minuteStep={5} /></Form.Item>
@@ -1942,12 +2010,18 @@ function Schedule() {
                             </div>
                         </div>
 
-                        <Form form={payForm} layout="vertical" onValuesChange={(changed) => { if ('amount_paid' in changed) setSplitAmountPaid(Number(changed.amount_paid) || 0) }}>
+                        <Form form={payForm} layout="vertical" onValuesChange={(changed) => {
+                            if ('amount_paid' in changed) setSplitAmountPaid(Number(changed.amount_paid) || 0)
+                            if ('base_price' in changed) setDiscountTick(t => t + 1)
+                        }}>
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
-                                <Form.Item name="base_price" label="Valor do Serviço (R$)" rules={[{ required: true }]}>
+                                <Form.Item name="base_price" label="Valor do Serviço" rules={[{ required: true }]}>
                                     <InputNumber style={{ width: '100%' }} min={0 as number} step={0.5} precision={2} size="large"
-                                        formatter={(v) => `${v}`.replace('.', ',')} parser={(v) => Number((v || '0').replace(',', '.'))}
+                                        addonBefore="R$"
+                                        formatter={(v) => v != null ? Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}
+                                        parser={(v) => Number((v || '0').replace(/\./g, '').replace(',', '.'))}
                                         onChange={(v) => {
+                                            setDiscountTick(t => t + 1)
                                             if (installmentPreset !== 'customizado') {
                                                 const base = Number(v) || 0
                                                 const extrasTotal = extraProds.reduce((s, p) => s + p.total, 0)
