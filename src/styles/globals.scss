@@ -2607,6 +2607,11 @@ body {
 .cashflow-btn-label-short { display: none; }
 .cashflow-btn-label-full { display: inline; }
 
+/* Garante que valores nas células nunca quebrem linha */
+.cashflow-pivot-scroll td {
+  white-space: nowrap;
+}
+
 @media (max-width: 640px) {
   .cashflow-btn-label-full { display: none; }
   .cashflow-btn-label-short { display: inline; }
@@ -2653,7 +2658,8 @@ body {
   }
   .cashflow-pivot-scroll th,
   .cashflow-pivot-scroll td {
-    padding: 4px 6px !important;
+    padding: 4px 8px !important;
+    white-space: nowrap;
   }
 
   /* Table de lançamentos — AntD com scroll horizontal (opt-out do card view) */

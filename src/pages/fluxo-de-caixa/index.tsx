@@ -836,14 +836,14 @@ export default function CashFlow() {
 
                 {/* Pivot Table */}
                 <div className="cashflow-pivot-scroll" style={{ overflowX: 'auto', width: '100%', WebkitOverflowScrolling: 'touch' }}>
-                    <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 12 }}>
+                    <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 13 }}>
                         <thead>
                             <tr style={{ background: '#1a2744' }}>
                                 <th style={{ padding: '8px 12px', textAlign: 'left', color: '#94a3b8', fontWeight: 600, minWidth: 180, position: 'sticky', left: 0, background: '#1a2744', zIndex: 2, borderRight: '1px solid rgba(255,255,255,0.1)' }}>
                                     Categoria
                                 </th>
                                 {Array.from({ length: pivotByDay.daysInMonth }, (_, i) => i + 1).map(day => (
-                                    <th key={day} style={{ padding: '6px 4px', textAlign: 'center', color: '#94a3b8', fontWeight: 600, minWidth: 72, borderRight: '1px solid rgba(255,255,255,0.04)' }}>
+                                    <th key={day} style={{ padding: '6px 8px', textAlign: 'center', color: '#94a3b8', fontWeight: 600, minWidth: 92, borderRight: '1px solid rgba(255,255,255,0.04)' }}>
                                         {String(day).padStart(2, '0')}
                                     </th>
                                 ))}
