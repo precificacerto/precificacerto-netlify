@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react'
-import { Alert, Button, Select, Spin, Tooltip } from 'antd'
+import { Alert, Button, Select, Spin, Tooltip, DatePicker } from 'antd'
+import dayjs, { Dayjs } from 'dayjs'
 import { FileExcelOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { exportDfcToExcel } from '@/utils/export-dfc-excel'
 import { ExportFormatModal } from '@/components/ui/export-format-modal.component'
@@ -53,14 +54,18 @@ const RECEITA_BRUTA_DENOMINATOR_KEYS = new Set([
 
 // ── Period aggregation ──
 
-type PeriodType = 'mensal' | 'trimestral' | 'semestral' | 'anual'
+type PeriodType = 'mensal' | 'trimestral' | 'semestral' | 'anual' | 'personalizado'
 
 type PeriodColumn = {
   label: string
   monthKeys: (keyof MonthlyValues)[]
 }
 
-function getPeriodColumns(period: PeriodType, selectedMonth?: number): PeriodColumn[] {
+function getPeriodColumns(
+  period: PeriodType,
+  selectedMonth?: number,
+  customRange?: [number, number] | null,
+): PeriodColumn[] {
   switch (period) {
     case 'mensal':
       // selectedMonth is 0-indexed
@@ -80,6 +85,18 @@ function getPeriodColumns(period: PeriodType, selectedMonth?: number): PeriodCol
       ]
     case 'anual':
       return [{ label: 'Ano', monthKeys: [...MONTH_KEYS] }]
+    case 'personalizado': {
+      // customRange = [startMonthIdx, endMonthIdx] (0-based, inclusive)
+      if (!customRange) return []
+      const [start, end] = customRange
+      const lo = Math.max(0, Math.min(start, end))
+      const hi = Math.min(11, Math.max(start, end))
+      const cols: PeriodColumn[] = []
+      for (let i = lo; i <= hi; i++) {
+        cols.push({ label: MONTH_LABELS[i], monthKeys: [MONTH_KEYS[i]] })
+      }
+      return cols
+    }
   }
 }
 
@@ -638,8 +655,17 @@ export default function DfcPage() {
   const [dfcExportModalOpen, setDfcExportModalOpen] = useState(false)
   const [periodType, setPeriodType] = useState<PeriodType>('trimestral')
   const [selectedMonth, setSelectedMonth] = useState(0)
+  const [customRange, setCustomRange] = useState<[Dayjs, Dayjs] | null>(null)
 
-  const periodColumns = useMemo(() => getPeriodColumns(periodType, selectedMonth), [periodType, selectedMonth])
+  const customMonthRange = useMemo<[number, number] | null>(() => {
+    if (!customRange) return null
+    return [customRange[0].month(), customRange[1].month()]
+  }, [customRange])
+
+  const periodColumns = useMemo(
+    () => getPeriodColumns(periodType, selectedMonth, customMonthRange),
+    [periodType, selectedMonth, customMonthRange],
+  )
   const showTotal = periodType !== 'mensal' && periodType !== 'anual'
 
   // Find reference rows for period-specific % calculation
@@ -648,7 +674,7 @@ export default function DfcPage() {
 
   const handleExportDfcPdf = () => {
     if (dreRows.length === 0) return
-    const pCols = getPeriodColumns(periodType, selectedMonth)
+    const pCols = getPeriodColumns(periodType, selectedMonth, customMonthRange)
     const periodHeaders = pCols.map(c => c.label)
     const headers = ['Descrição', ...periodHeaders, ...(showTotal ? ['Total'] : []), '% RL']
     const rows = dreRows.map((row) => {
@@ -756,11 +782,12 @@ export default function DfcPage() {
             </span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <Select value={periodType} onChange={(v: PeriodType) => setPeriodType(v)} style={{ width: 140 }}>
+            <Select value={periodType} onChange={(v: PeriodType) => setPeriodType(v)} style={{ width: 160 }}>
               <Select.Option value="mensal">Mensal</Select.Option>
               <Select.Option value="trimestral">Trimestral</Select.Option>
               <Select.Option value="semestral">Semestral</Select.Option>
               <Select.Option value="anual">Anual</Select.Option>
+              <Select.Option value="personalizado">Personalizado</Select.Option>
             </Select>
             {periodType === 'mensal' && (
               <Select value={selectedMonth} onChange={(v: number) => setSelectedMonth(v)} style={{ width: 120 }}>
@@ -768,6 +795,17 @@ export default function DfcPage() {
                   <Select.Option key={i} value={i}>{m}</Select.Option>
                 ))}
               </Select>
+            )}
+            {periodType === 'personalizado' && (
+              <DatePicker.RangePicker
+                picker="month"
+                value={customRange}
+                onChange={(v) => setCustomRange(v as [Dayjs, Dayjs] | null)}
+                format="MMM/YYYY"
+                placeholder={['Mês inicial', 'Mês final']}
+                style={{ minWidth: 240 }}
+                disabledDate={(date) => date.year() !== year}
+              />
             )}
             <Select value={year} onChange={setYear} style={{ width: 120 }}>
               {yearOptions.map(y => (
@@ -931,7 +969,7 @@ export default function DfcPage() {
         onClose={() => setDfcExportModalOpen(false)}
         title="Exportar DRE"
         skipDateRange
-        onExportExcel={() => exportDfcToExcel(dreRows, year, taxRegime, calcType, periodType, selectedMonth)}
+        onExportExcel={() => exportDfcToExcel(dreRows, year, taxRegime, calcType, periodType, selectedMonth, customMonthRange)}
         onExportPdf={handleExportDfcPdf}
       />
     </Layout>

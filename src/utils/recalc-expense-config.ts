@@ -13,6 +13,12 @@ export interface ExpenseConfigResult {
   fixed_expense_percent: number
   financial_expense_percent: number
   variable_expense_percent: number
+  /** % de MO Produtiva sobre o faturamento — Sprint 4 (PE). */
+  production_labor_percent: number
+  /** % de Custo dos Produtos sobre o faturamento — Sprint 4 (PE). */
+  product_cost_percent: number
+  /** Faturamento médio mensal apurado pelo HUB (R$/mês) — Sprint 4 (PE). */
+  hub_average_revenue: number
 }
 
 const round2 = (v: number) => Math.round(v * 100) / 100
@@ -74,6 +80,19 @@ export async function recalcExpenseConfigFromCashflow(
   const despesaFixaRow = hubData.rows.find((r) => r.group === 'DESPESA_FIXA')
   const fixedExpenseMonthly = despesaFixaRow ? round2(despesaFixaRow.averageRS) : 0
 
+  // ── Sprint 4: % de Custo dos Produtos sobre faturamento ──
+  const custoProdutosRow = hubData.rows.find((r) => r.group === 'CUSTO_PRODUTOS')
+  const productCostPctDecimal = custoProdutosRow
+    ? (customBase != null && customBase > 0
+        ? custoProdutosRow.totalSum / customBase
+        : custoProdutosRow.averagePct / 100)
+    : 0
+
+  // ── Sprint 4: Faturamento médio do HUB (média mensal dos meses fechados) ──
+  const hubAverageRevenue = hubData.totalIncomeMonthsCount > 0
+    ? round2(hubData.totalIncome / hubData.totalIncomeMonthsCount)
+    : 0
+
   return {
     production_labor_cost: Number(expConfig?.production_labor_cost) || 0,
     production_labor_cost_hub: productionLaborCostHub,
@@ -83,6 +102,9 @@ export async function recalcExpenseConfigFromCashflow(
     fixed_expense_percent: round2(percents.fixed_expense_percent * 100),
     financial_expense_percent: round2(percents.financial_expense_percent * 100),
     variable_expense_percent: round2(percents.variable_expense_percent * 100),
+    production_labor_percent: round2(percents.production_labor_cost_percent * 100),
+    product_cost_percent: round2(productCostPctDecimal * 100),
+    hub_average_revenue: hubAverageRevenue,
   }
 }
 
@@ -111,6 +133,9 @@ export async function mergeExpenseConfig(tenantId: string): Promise<ExpenseConfi
     variable_expense_percent: result.variable_expense_percent,
     production_labor_cost_hub: result.production_labor_cost_hub,
     fixed_expense_monthly: result.fixed_expense_monthly,
+    production_labor_percent: result.production_labor_percent,
+    product_cost_percent: result.product_cost_percent,
+    hub_average_revenue: result.hub_average_revenue,
     updated_at: new Date().toISOString(),
   }
 

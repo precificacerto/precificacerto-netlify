@@ -74,7 +74,7 @@ const CATEGORY_ORDER_MAP: Record<string, number> = Object.fromEntries(
   Object.values(CASHIER_CATEGORY.EXPENSE).map((c: any) => [c.key, c.order ?? 999])
 )
 
-// Ordem e labels dos grupos exibidos no Hub
+// Ordem e labels dos grupos exibidos no Hub — alinhada com GROUP_ORDER do fluxo de caixa
 const HUB_GROUPS: { group: string; label: string }[] = [
   { group: 'CUSTO_PRODUTOS',              label: 'Custo dos Produtos' },
   { group: 'MAO_DE_OBRA_PRODUTIVA',       label: 'MO Produtiva' },
@@ -90,6 +90,7 @@ const HUB_GROUPS: { group: string; label: string }[] = [
   { group: 'IMPOSTO_FATURAMENTO_DENTRO', label: 'Impostos sobre o Faturamento (Por dentro)' },
   { group: 'IMPOSTO',                     label: 'Impostos sobre o Faturamento (Por fora)' },
   { group: 'REGIME_TRIBUTARIO',           label: 'Tributos do Regime' },
+  { group: 'OUTROS',                      label: 'Outros' },
 ]
 
 /**

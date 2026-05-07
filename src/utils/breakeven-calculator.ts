@@ -1,77 +1,93 @@
-// Epic MELHORIAS-22-ABR2026 T22
-// Calcula Ponto de Equilíbrio operacional da empresa a partir do HUB (tenant_expense_config) + regime tributário.
+// Ponto de Equilíbrio — fórmula baseada no faturamento médio do HUB.
 //
 // Fórmula:
-//   PE = (Salários produtivos + MO administrativa + Despesa Fixa)
-//        / (1 - (% custo produtos + % despesa variável + % despesa financeira + % comissões + % lucro + % impostos por dentro))
+//   Total Variável % = custo produtos % + despesa variável % + comissões % + impostos sobre faturamento % + despesa financeira %
+//   Margem de Contribuição (MC) = 1 - (Total Variável % / 100)
+//   Custo Fixo R$ = ((MO Produtiva % + MO Administrativa % + Despesa Fixa %) / 100) × Faturamento Médio
+//   Ponto de Equilíbrio = Custo Fixo R$ / MC
 //
-// Ignora "despesa de acessórios" (categoria não existente).
+// Guard: se MC ≤ 0 (despesas variáveis ≥ 100%) ou faturamento médio ≤ 0,
+// retorna { isValid: false, breakeven: null } e a UI deve mostrar "—".
 
 export interface BreakevenInput {
-  productionLaborMonthly: number
-  adminLaborMonthly: number
-  fixedExpenseMonthly: number
-  variableExpensePct: number
-  financialExpensePct: number
+  // Percentuais variáveis (% sobre faturamento)
   productCostPct: number
+  variableExpensePct: number
   commissionPct: number
-  profitPct: number
   taxesInsidePct: number
+  financialExpensePct: number
+  // Percentuais fixos (% sobre faturamento)
+  productionLaborPct: number
+  adminLaborPct: number
+  fixedExpensePct: number
+  // Faturamento médio mensal (R$) — média dos meses fechados do HUB
+  averageRevenue: number
 }
 
 export interface BreakevenResult {
-  breakeven: number
+  breakeven: number | null
   isValid: boolean
   reason?: string
-  numerator: number
-  denominator: number
-  denominatorPctTotal: number
+  totalVariablePct: number
+  marginOfContribution: number
+  fixedCostMonthly: number
 }
 
 export function calculateBreakeven(input: BreakevenInput): BreakevenResult {
-  const numerator =
-    (Number(input.productionLaborMonthly) || 0) +
-    (Number(input.adminLaborMonthly) || 0) +
-    (Number(input.fixedExpenseMonthly) || 0)
-
-  const pctTotal =
-    (Number(input.variableExpensePct) || 0) +
-    (Number(input.financialExpensePct) || 0) +
+  const totalVariablePct =
     (Number(input.productCostPct) || 0) +
+    (Number(input.variableExpensePct) || 0) +
     (Number(input.commissionPct) || 0) +
-    (Number(input.profitPct) || 0) +
-    (Number(input.taxesInsidePct) || 0)
+    (Number(input.taxesInsidePct) || 0) +
+    (Number(input.financialExpensePct) || 0)
 
-  const denominator = 1 - pctTotal / 100
+  const marginOfContribution = 1 - totalVariablePct / 100
+  const totalFixedPct =
+    (Number(input.productionLaborPct) || 0) +
+    (Number(input.adminLaborPct) || 0) +
+    (Number(input.fixedExpensePct) || 0)
+  const averageRevenue = Number(input.averageRevenue) || 0
+  const fixedCostMonthly = (totalFixedPct / 100) * averageRevenue
 
-  if (denominator <= 0) {
+  if (averageRevenue <= 0) {
     return {
-      breakeven: 0,
+      breakeven: null,
       isValid: false,
-      reason: 'Percentual total é maior ou igual a 100% — ajuste as despesas.',
-      numerator,
-      denominator,
-      denominatorPctTotal: pctTotal,
+      reason: 'Faturamento médio do HUB indisponível — registre receitas para calcular.',
+      totalVariablePct,
+      marginOfContribution,
+      fixedCostMonthly,
     }
   }
 
-  if (numerator <= 0) {
+  if (marginOfContribution <= 0) {
     return {
-      breakeven: 0,
+      breakeven: null,
       isValid: false,
-      reason: 'Custos mensais (MO produtiva + administrativa + despesa fixa) estão zerados.',
-      numerator,
-      denominator,
-      denominatorPctTotal: pctTotal,
+      reason: 'Despesas variáveis somam 100% ou mais do faturamento.',
+      totalVariablePct,
+      marginOfContribution,
+      fixedCostMonthly,
+    }
+  }
+
+  if (totalFixedPct <= 0) {
+    return {
+      breakeven: null,
+      isValid: false,
+      reason: 'Custos fixos zerados — não há ponto de equilíbrio operacional.',
+      totalVariablePct,
+      marginOfContribution,
+      fixedCostMonthly,
     }
   }
 
   return {
-    breakeven: Math.round((numerator / denominator) * 100) / 100,
+    breakeven: Math.round((fixedCostMonthly / marginOfContribution) * 100) / 100,
     isValid: true,
-    numerator,
-    denominator,
-    denominatorPctTotal: pctTotal,
+    totalVariablePct,
+    marginOfContribution,
+    fixedCostMonthly,
   }
 }
 
@@ -81,20 +97,19 @@ export function buildBreakevenInputFromConfig(
   profitPct: number | null | undefined,
   commissionPct: number | null | undefined,
 ): BreakevenInput {
+  // profitPct é mantido na assinatura para retrocompatibilidade — a nova fórmula
+  // de PE não inclui lucro (PE operacional puro).
+  void profitPct
   const c = cfg || {}
   return {
-    productionLaborMonthly:
-      Number(c.production_labor_cost_hub) || Number(c.production_labor_cost) || 0,
-    adminLaborMonthly:
-      (Number(c.admin_salary_total) || 0) +
-      (Number(c.admin_fgts_total) || 0) +
-      (Number(c.admin_other_costs) || 0),
-    fixedExpenseMonthly: Number(c.fixed_expense_monthly) || 0,
+    productCostPct: Number(c.product_cost_percent) || 0,
     variableExpensePct: Number(c.variable_expense_percent) || 0,
-    financialExpensePct: Number(c.financial_expense_percent) || 0,
-    productCostPct: 0,
     commissionPct: Number(commissionPct) || 0,
-    profitPct: Number(profitPct) || 0,
     taxesInsidePct: Number(taxableRegimePercent) || 0,
+    financialExpensePct: Number(c.financial_expense_percent) || 0,
+    productionLaborPct: Number(c.production_labor_percent) || 0,
+    adminLaborPct: Number(c.indirect_labor_percent) || 0,
+    fixedExpensePct: Number(c.fixed_expense_percent) || 0,
+    averageRevenue: Number(c.hub_average_revenue) || 0,
   }
 }

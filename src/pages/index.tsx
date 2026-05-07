@@ -258,8 +258,10 @@ function Home() {
   const totalSaidas = selectedMonthChartData.expenses.reduce((sum, item) => sum + (item.price || 0), 0)
   const saldoAtual = totalEntradas - totalSaidas
 
-  // Ponto de Equilíbrio Operacional (fórmula T22):
-  // PE = (MO produtiva + MO administrativa + Despesa Fixa) / (1 - % somados por dentro).
+  // Ponto de Equilíbrio (Sprint 4 — Maio 2026):
+  // PE = Custo Fixo R$ / Margem de Contribuição
+  // Custo Fixo R$ = (% MO Produtiva + % MO Administrativa + % Despesa Fixa) × Faturamento Médio do HUB
+  // MC = 1 - (% Custo Produtos + % Despesa Variável + % Comissões + % Impostos por dentro + % Despesa Financeira) / 100
   const breakevenResult = useMemo(() => {
     const input = buildBreakevenInputFromConfig(
       expenseConfig,
@@ -269,7 +271,9 @@ function Home() {
     )
     return calculateBreakeven(input)
   }, [expenseConfig, currentUser, calcBase])
-  const pontoEquilibrio = breakevenResult.isValid ? breakevenResult.breakeven : 0
+  const pontoEquilibrio = breakevenResult.isValid && breakevenResult.breakeven != null
+    ? breakevenResult.breakeven
+    : 0
   const peAtingidoPct = pontoEquilibrio > 0
     ? Number(((totalEntradas / pontoEquilibrio) * 100).toFixed(0))
     : 0
@@ -611,7 +615,9 @@ function Home() {
         />
         <CardKPI
           title="Ponto de Equilíbrio"
-          value={formatCurrency(pontoEquilibrio)}
+          value={breakevenResult.isValid && breakevenResult.breakeven != null
+            ? formatCurrency(breakevenResult.breakeven)
+            : '—'}
           icon={<AimOutlined />}
           variant={peAtingido ? 'green' : 'red'}
           trend={pontoEquilibrio > 0 ? { value: peAtingidoPct, label: 'atingido' } : undefined}

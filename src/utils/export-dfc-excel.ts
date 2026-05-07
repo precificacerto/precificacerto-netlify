@@ -20,7 +20,7 @@ type DreRow = {
   pctOfRL?: MonthlyValues & { total: number }
 }
 
-type PeriodType = 'mensal' | 'trimestral' | 'semestral' | 'anual'
+type PeriodType = 'mensal' | 'trimestral' | 'semestral' | 'anual' | 'personalizado'
 
 type PeriodColumn = {
   label: string
@@ -30,7 +30,11 @@ type PeriodColumn = {
 const MONTH_KEYS: (keyof MonthlyValues)[] = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
 const MONTH_LABELS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
 
-function getPeriodColumns(period: PeriodType, selectedMonth: number = 0): PeriodColumn[] {
+function getPeriodColumns(
+  period: PeriodType,
+  selectedMonth: number = 0,
+  customRange?: [number, number] | null,
+): PeriodColumn[] {
   switch (period) {
     case 'mensal':
       return [{ label: MONTH_LABELS[selectedMonth], monthKeys: [MONTH_KEYS[selectedMonth]] }]
@@ -48,6 +52,15 @@ function getPeriodColumns(period: PeriodType, selectedMonth: number = 0): Period
       ]
     case 'anual':
       return [{ label: 'Ano', monthKeys: [...MONTH_KEYS] }]
+    case 'personalizado': {
+      if (!customRange) return [{ label: MONTH_LABELS[selectedMonth], monthKeys: [MONTH_KEYS[selectedMonth]] }]
+      const [start, end] = customRange
+      const lo = Math.max(0, Math.min(start, end))
+      const hi = Math.min(11, Math.max(start, end))
+      const cols: PeriodColumn[] = []
+      for (let i = lo; i <= hi; i++) cols.push({ label: MONTH_LABELS[i], monthKeys: [MONTH_KEYS[i]] })
+      return cols
+    }
   }
 }
 
@@ -111,12 +124,19 @@ function getCalcTypeLabel(calcType: string): string {
   }
 }
 
-function getPeriodLabel(period: PeriodType, selectedMonth: number = 0): string {
+function getPeriodLabel(period: PeriodType, selectedMonth: number = 0, customRange?: [number, number] | null): string {
   switch (period) {
     case 'mensal': return `Mensal (${MONTH_LABELS[selectedMonth]})`
     case 'trimestral': return 'Trimestral'
     case 'semestral': return 'Semestral'
     case 'anual': return 'Anual'
+    case 'personalizado': {
+      if (!customRange) return `Mensal (${MONTH_LABELS[selectedMonth]})`
+      const [start, end] = customRange
+      const lo = Math.max(0, Math.min(start, end))
+      const hi = Math.min(11, Math.max(start, end))
+      return `Personalizado (${MONTH_LABELS[lo]}-${MONTH_LABELS[hi]})`
+    }
   }
 }
 
@@ -178,14 +198,15 @@ export async function exportDfcToExcel(
   calcType: string,
   periodType: PeriodType = 'trimestral',
   selectedMonth: number = 0,
+  customRange?: [number, number] | null,
 ): Promise<void> {
   const workbook = new ExcelJS.Workbook()
   workbook.creator = 'Precifica Certo'
   workbook.created = new Date()
 
-  const periodCols = getPeriodColumns(periodType, selectedMonth)
+  const periodCols = getPeriodColumns(periodType, selectedMonth, customRange)
   const showTotal = periodType !== 'mensal' && periodType !== 'anual'
-  const periodLabel = getPeriodLabel(periodType, selectedMonth)
+  const periodLabel = getPeriodLabel(periodType, selectedMonth, customRange)
 
   // Total number of columns: label + period columns + (total if shown) + % RL
   const totalCols = 1 + periodCols.length + (showTotal ? 1 : 0) + 1

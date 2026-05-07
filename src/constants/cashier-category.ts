@@ -212,7 +212,8 @@ export const CASHIER_CATEGORY = {
       value: 'Marketing (publicidades e relacionados)',
       group: 'DESPESA_VARIAVEL' as ExpenseGroupKey,
     },
-    PEDAGIOS: { order: 56, key: 'PEDAGIOS', value: 'Pedágios', group: 'DESPESA_VARIAVEL' as ExpenseGroupKey },
+    PEDAGIOS: { order: 56, key: 'PEDAGIOS', value: 'Pedágios e Estacionamentos', group: 'DESPESA_VARIAVEL' as ExpenseGroupKey },
+    MULTAS_TRANSITO: { order: 56.5, key: 'MULTAS_TRANSITO', value: 'Multas de Trânsito', group: 'DESPESA_VARIAVEL' as ExpenseGroupKey },
     TERCERIZACOES: { order: 57, key: 'TERCERIZACOES', value: 'Terceirizações', group: 'DESPESA_VARIAVEL' as ExpenseGroupKey },
     USO_E_CONSUMO: { order: 58, key: 'USO_E_CONSUMO', value: 'Uso e Consumo', group: 'DESPESA_VARIAVEL' as ExpenseGroupKey },
     VALE_ALIMENTACAO_TERCERIZADOS: {
@@ -330,6 +331,7 @@ export const CASHIER_CATEGORY = {
     ICMS_PROPRIO: { order: 103, key: 'ICMS_PROPRIO', value: 'ICMS Próprio', group: 'IMPOSTO_FATURAMENTO_DENTRO' as ExpenseGroupKey },
     PIS_POR_DENTRO: { order: 104, key: 'PIS_POR_DENTRO', value: 'PIS', group: 'IMPOSTO_FATURAMENTO_DENTRO' as ExpenseGroupKey },
     COFINS_POR_DENTRO: { order: 105, key: 'COFINS_POR_DENTRO', value: 'COFINS', group: 'IMPOSTO_FATURAMENTO_DENTRO' as ExpenseGroupKey },
+    DAS_FATURAMENTO_DENTRO: { order: 105.5, key: 'DAS_FATURAMENTO_DENTRO', value: 'DAS (imposto sobre vendas)', group: 'IMPOSTO_FATURAMENTO_DENTRO' as ExpenseGroupKey },
   },
 }
 
@@ -460,7 +462,8 @@ const SN_CATEGORY_GROUP_MAP: { category: string; group: string }[] = [
   { category: 'Embalagens diversas', group: 'DESPESA_VARIAVEL' },
   { category: 'Manutenções', group: 'DESPESA_VARIAVEL' },
   { category: 'Marketing (publicidades e relacionados)', group: 'DESPESA_VARIAVEL' },
-  { category: 'Pedágios', group: 'DESPESA_VARIAVEL' },
+  { category: 'Pedágios e Estacionamentos', group: 'DESPESA_VARIAVEL' },
+  { category: 'Multas de Trânsito', group: 'DESPESA_VARIAVEL' },
   { category: 'Rescisões / Indenizações', group: 'DESPESA_VARIAVEL' },
   { category: 'Terceirizações (prestadores de serviços)', group: 'DESPESA_VARIAVEL' },
   { category: 'Uso e consumo', group: 'DESPESA_VARIAVEL' },
@@ -479,6 +482,7 @@ const SN_CATEGORY_GROUP_MAP: { category: string; group: string }[] = [
   { category: 'MEI (Microempreendedor Individual)', group: 'DESPESA_FIXA' },
   { category: 'DAS (Documento de Arrecadação do Simples Nacional)', group: 'REGIME_TRIBUTARIO' },
   { category: 'Simples Nacional', group: 'REGIME_TRIBUTARIO' },
+  { category: 'DAS (imposto sobre vendas)', group: 'IMPOSTO_FATURAMENTO_DENTRO' },
 ]
 
 // Maps SN-specific group names to ExpenseGroupKey values (stored in DB)
@@ -490,6 +494,7 @@ const SN_GROUP_TO_STANDARD: Record<string, ExpenseGroupKey> = {
   DESPESA_VARIAVEL: 'DESPESA_VARIAVEL',
   DESPESA_FINANCEIRA: 'DESPESA_FINANCEIRA',
   IMPOSTO: 'IMPOSTO',
+  IMPOSTO_FATURAMENTO_DENTRO: 'IMPOSTO_FATURAMENTO_DENTRO',
   ATIVIDADES_TERCEIRIZADAS: 'ATIVIDADES_TERCEIRIZADAS',
   REGIME_TRIBUTARIO: 'REGIME_TRIBUTARIO',
   COMISSOES: 'COMISSOES',
@@ -505,6 +510,7 @@ const SN_EXPENSE_CATEGORY_OPTIONS = [
   { label: '── Despesas Financeiras ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_FINANCEIRA').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Atividades Terceirizadas Operacionais ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'ATIVIDADES_TERCEIRIZADAS').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Regime Tributário ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'REGIME_TRIBUTARIO').map(c => ({ label: c.category, value: c.category })) },
+  { label: '── Impostos sobre o Faturamento (Por dentro) ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'IMPOSTO_FATURAMENTO_DENTRO').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Comissões ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'COMISSOES').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Lucro ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'LUCRO').map(c => ({ label: c.category, value: c.category })) },
 ]

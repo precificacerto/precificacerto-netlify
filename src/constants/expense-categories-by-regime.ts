@@ -58,7 +58,8 @@ export const CATEGORY_GROUP_MAP: CategoryGroup[] = [
   { category: 'Horas Extras - Salários', group: 'DESPESA_VARIAVEL' },
   { category: 'Manutenções', group: 'DESPESA_VARIAVEL' },
   { category: 'Marketing (publicidades e relacionados)', group: 'DESPESA_VARIAVEL' },
-  { category: 'Pedágios', group: 'DESPESA_VARIAVEL' },
+  { category: 'Pedágios e Estacionamentos', group: 'DESPESA_VARIAVEL' },
+  { category: 'Multas de Trânsito', group: 'DESPESA_VARIAVEL' },
   { category: 'Terceirizações', group: 'DESPESA_VARIAVEL' },
   { category: 'Uso e Consumo', group: 'DESPESA_VARIAVEL' },
   { category: 'Vale Alimentação', group: 'DESPESA_VARIAVEL' },
@@ -100,6 +101,7 @@ export const LR_IMPOSTOS_FATURAMENTO_DENTRO: CategoryGroup[] = [
   { category: 'ICMS Próprio', group: 'IMPOSTO_FATURAMENTO_DENTRO' },
   { category: 'PIS', group: 'IMPOSTO_FATURAMENTO_DENTRO' },
   { category: 'COFINS', group: 'IMPOSTO_FATURAMENTO_DENTRO' },
+  { category: 'DAS (imposto sobre vendas)', group: 'IMPOSTO_FATURAMENTO_DENTRO' },
 ]
 
 export const LR_IMPOSTOS_FATURAMENTO_FORA: CategoryGroup[] = [
@@ -132,6 +134,7 @@ export const LP_IMPOSTOS_FATURAMENTO_DENTRO: CategoryGroup[] = [
   { category: 'ICMS Próprio', group: 'IMPOSTO_FATURAMENTO_DENTRO' },
   { category: 'PIS (Cumulativo)', group: 'IMPOSTO_FATURAMENTO_DENTRO' },
   { category: 'COFINS (Cumulativo)', group: 'IMPOSTO_FATURAMENTO_DENTRO' },
+  { category: 'DAS (imposto sobre vendas)', group: 'IMPOSTO_FATURAMENTO_DENTRO' },
 ]
 
 // ── Simples Nacional / MEI ─────────────────────────────────────────────────
@@ -192,7 +195,8 @@ export const SN_CATEGORY_GROUP_MAP: CategoryGroup[] = [
   { category: 'Embalagens diversas', group: 'DESPESA_VARIAVEL' },
   { category: 'Manutenções', group: 'DESPESA_VARIAVEL' },
   { category: 'Marketing (publicidades e relacionados)', group: 'DESPESA_VARIAVEL' },
-  { category: 'Pedágios', group: 'DESPESA_VARIAVEL' },
+  { category: 'Pedágios e Estacionamentos', group: 'DESPESA_VARIAVEL' },
+  { category: 'Multas de Trânsito', group: 'DESPESA_VARIAVEL' },
   { category: 'Rescisões / Indenizações', group: 'DESPESA_VARIAVEL' },
   { category: 'Terceirizações (prestadores de serviços)', group: 'DESPESA_VARIAVEL' },
   { category: 'Uso e consumo', group: 'DESPESA_VARIAVEL' },
@@ -212,6 +216,8 @@ export const SN_CATEGORY_GROUP_MAP: CategoryGroup[] = [
   // Regime Tributário
   { category: 'DAS (Documento de Arrecadação do Simples Nacional)', group: 'REGIME_TRIBUTARIO' },
   { category: 'Simples Nacional', group: 'REGIME_TRIBUTARIO' },
+  // Impostos sobre o Faturamento (Por dentro)
+  { category: 'DAS (imposto sobre vendas)', group: 'IMPOSTO_FATURAMENTO_DENTRO' },
   // Comissões
   { category: 'Comissões de venda', group: 'COMISSOES' },
   // Lucro
@@ -268,6 +274,7 @@ export const SN_EXPENSE_CATEGORY_OPTIONS: CategoryOptionGroup[] = [
   { label: '── Despesas Financeiras ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_FINANCEIRA').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Atividades Terceirizadas Operacionais de Entrega ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'ATIVIDADES_TERCEIRIZADAS').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Regime Tributário ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'REGIME_TRIBUTARIO').map(c => ({ label: c.category, value: c.category })) },
+  { label: '── Impostos sobre o Faturamento (Por dentro) ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'IMPOSTO_FATURAMENTO_DENTRO').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Comissões ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'COMISSOES').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Lucro ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'LUCRO').map(c => ({ label: c.category, value: c.category })) },
 ]

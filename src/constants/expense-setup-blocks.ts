@@ -67,7 +67,8 @@ export const BLOCK_DESPESAS_VARIAVEIS: ExpenseSetupItem[] = [
   { key: 'EMBALAGENS_DIVERSAS', label: 'Embalagens Diversas', expense_group: 'DESPESA_VARIAVEL' },
   { key: 'MANUTENCOES', label: 'Manutenções', expense_group: 'DESPESA_VARIAVEL' },
   { key: 'MARKETING_PUBLICIDADES_E_RELACIONADOS', label: 'Marketing (publicidades e relacionados)', expense_group: 'DESPESA_VARIAVEL' },
-  { key: 'PEDAGIOS', label: 'Pedágios', expense_group: 'DESPESA_VARIAVEL' },
+  { key: 'PEDAGIOS', label: 'Pedágios e Estacionamentos', expense_group: 'DESPESA_VARIAVEL' },
+  { key: 'MULTAS_TRANSITO', label: 'Multas de Trânsito', expense_group: 'DESPESA_VARIAVEL' },
   { key: 'RESCISOES_INDENIZACOES', label: 'Recisões / Indenizações', expense_group: 'DESPESA_VARIAVEL' },
   { key: 'TERCERIZACOES', label: 'Terceirizações (prestadores de serviços)', expense_group: 'DESPESA_VARIAVEL' },
   { key: 'USO_E_CONSUMO', label: 'Uso e Consumo', expense_group: 'DESPESA_VARIAVEL' },
@@ -144,6 +145,7 @@ export const BLOCK_IMPOSTOS_FATURAMENTO_DENTRO_LR: ExpenseSetupItem[] = [
   { key: 'ICMS_PROPRIO', label: 'ICMS Próprio', expense_group: 'IMPOSTO_FATURAMENTO_DENTRO' },
   { key: 'PIS_POR_DENTRO', label: 'PIS', expense_group: 'IMPOSTO_FATURAMENTO_DENTRO' },
   { key: 'COFINS_POR_DENTRO', label: 'COFINS', expense_group: 'IMPOSTO_FATURAMENTO_DENTRO' },
+  { key: 'DAS_FATURAMENTO_DENTRO', label: 'DAS (imposto sobre vendas)', expense_group: 'IMPOSTO_FATURAMENTO_DENTRO' },
 ]
 
 /** Bloco Impostos sobre faturamento — Lucro Presumido RET */
@@ -214,6 +216,7 @@ export const BLOCK_IMPOSTOS_FATURAMENTO_DENTRO_LP: ExpenseSetupItem[] = [
   { key: 'ICMS_PROPRIO', label: 'ICMS Próprio', expense_group: 'IMPOSTO_FATURAMENTO_DENTRO' },
   { key: 'PIS_POR_DENTRO', label: 'PIS (Cumulativo)', expense_group: 'IMPOSTO_FATURAMENTO_DENTRO' },
   { key: 'COFINS_POR_DENTRO', label: 'COFINS (Cumulativo)', expense_group: 'IMPOSTO_FATURAMENTO_DENTRO' },
+  { key: 'DAS_FATURAMENTO_DENTRO', label: 'DAS (imposto sobre vendas)', expense_group: 'IMPOSTO_FATURAMENTO_DENTRO' },
 ]
 
 /** Bloco Impostos sobre compras — Lucro Real */
@@ -280,7 +283,8 @@ export const BLOCK_DESPESAS_VARIAVEIS_SN: ExpenseSetupItem[] = [
   { key: 'EMBALAGENS_DIVERSAS', label: 'Embalagens diversas', expense_group: 'DESPESA_VARIAVEL' },
   { key: 'MANUTENCOES', label: 'Manutenções', expense_group: 'DESPESA_VARIAVEL' },
   { key: 'MARKETING_PUBLICIDADES_E_RELACIONADOS', label: 'Marketing (publicidades e relacionados)', expense_group: 'DESPESA_VARIAVEL' },
-  { key: 'PEDAGIOS', label: 'Pedágios', expense_group: 'DESPESA_VARIAVEL' },
+  { key: 'PEDAGIOS', label: 'Pedágios e Estacionamentos', expense_group: 'DESPESA_VARIAVEL' },
+  { key: 'MULTAS_TRANSITO', label: 'Multas de Trânsito', expense_group: 'DESPESA_VARIAVEL' },
   { key: 'RESCISOES_INDENIZACOES', label: 'Rescisões / Indenizações', expense_group: 'DESPESA_VARIAVEL' },
   { key: 'TERCERIZACOES', label: 'Terceirizações (prestadores de serviços)', expense_group: 'DESPESA_VARIAVEL' },
   { key: 'USO_E_CONSUMO', label: 'Uso e consumo', expense_group: 'DESPESA_VARIAVEL' },

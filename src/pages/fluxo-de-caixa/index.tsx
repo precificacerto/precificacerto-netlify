@@ -168,12 +168,12 @@ export default function CashFlow() {
 
     // Lucro Real / Simples Híbrido — detalhamento de impostos no custo dos produtos
     const [selectedExpenseCategory, setSelectedExpenseCategory] = useState('')
-    const [lrValorIcms, setLrValorIcms] = useState<number>(0)
-    const [lrValorPis, setLrValorPis] = useState<number>(0)
-    const [lrValorCofins, setLrValorCofins] = useState<number>(0)
-    const [lrValorIpi, setLrValorIpi] = useState<number>(0)
-    const [lrValorCbs, setLrValorCbs] = useState<number>(0)
-    const [lrValorIbs, setLrValorIbs] = useState<number>(0)
+    const [lrValorIcms, setLrValorIcms] = useState<string>('')
+    const [lrValorPis, setLrValorPis] = useState<string>('')
+    const [lrValorCofins, setLrValorCofins] = useState<string>('')
+    const [lrValorIpi, setLrValorIpi] = useState<string>('')
+    const [lrValorCbs, setLrValorCbs] = useState<string>('')
+    const [lrValorIbs, setLrValorIbs] = useState<string>('')
 
     const [form] = Form.useForm()
 
@@ -702,12 +702,12 @@ export default function CashFlow() {
                             expense_category: values.expense_category,
                             payment_method: paymentMethod,
                             ...(isLrCustoProdutos ? {
-                                valor_icms: Math.round(lrValorIcms * ratio * 100) / 100,
-                                valor_pis: Math.round(lrValorPis * ratio * 100) / 100,
-                                valor_cofins: Math.round(lrValorCofins * ratio * 100) / 100,
-                                valor_ipi: Math.round(lrValorIpi * ratio * 100) / 100,
-                                valor_cbs: Math.round(lrValorCbs * ratio * 100) / 100,
-                                valor_ibs: Math.round(lrValorIbs * ratio * 100) / 100,
+                                valor_icms: Math.round(parseCurrencyFn(lrValorIcms) * ratio * 100) / 100,
+                                valor_pis: Math.round(parseCurrencyFn(lrValorPis) * ratio * 100) / 100,
+                                valor_cofins: Math.round(parseCurrencyFn(lrValorCofins) * ratio * 100) / 100,
+                                valor_ipi: Math.round(parseCurrencyFn(lrValorIpi) * ratio * 100) / 100,
+                                valor_cbs: Math.round(parseCurrencyFn(lrValorCbs) * ratio * 100) / 100,
+                                valor_ibs: Math.round(parseCurrencyFn(lrValorIbs) * ratio * 100) / 100,
                             } : {}),
                         })
                     })
@@ -732,12 +732,12 @@ export default function CashFlow() {
                             ...(paymentMethod ? { payment_method: paymentMethod } : {}),
                             ...(autoPaidDate ? { paid_date: autoPaidDate } : {}),
                             ...(isLrCustoProdutos ? {
-                                valor_icms: Math.round(lrValorIcms / parcelas * 100) / 100,
-                                valor_pis: Math.round(lrValorPis / parcelas * 100) / 100,
-                                valor_cofins: Math.round(lrValorCofins / parcelas * 100) / 100,
-                                valor_ipi: Math.round(lrValorIpi / parcelas * 100) / 100,
-                                valor_cbs: Math.round(lrValorCbs / parcelas * 100) / 100,
-                                valor_ibs: Math.round(lrValorIbs / parcelas * 100) / 100,
+                                valor_icms: Math.round(parseCurrencyFn(lrValorIcms) / parcelas * 100) / 100,
+                                valor_pis: Math.round(parseCurrencyFn(lrValorPis) / parcelas * 100) / 100,
+                                valor_cofins: Math.round(parseCurrencyFn(lrValorCofins) / parcelas * 100) / 100,
+                                valor_ipi: Math.round(parseCurrencyFn(lrValorIpi) / parcelas * 100) / 100,
+                                valor_cbs: Math.round(parseCurrencyFn(lrValorCbs) / parcelas * 100) / 100,
+                                valor_ibs: Math.round(parseCurrencyFn(lrValorIbs) / parcelas * 100) / 100,
                             } : {}),
                         })
                     }
@@ -756,12 +756,12 @@ export default function CashFlow() {
             setExpenseAmount('')
             setExpPaymentMethod('')
             setSelectedExpenseCategory('')
-            setLrValorIcms(0)
-            setLrValorPis(0)
-            setLrValorCofins(0)
-            setLrValorIpi(0)
-            setLrValorCbs(0)
-            setLrValorIbs(0)
+            setLrValorIcms('')
+            setLrValorPis('')
+            setLrValorCofins('')
+            setLrValorIpi('')
+            setLrValorCbs('')
+            setLrValorIbs('')
             await fetchData()
         } catch (err: any) {
             if (err && err.name === 'ValidateError') {
@@ -791,7 +791,7 @@ export default function CashFlow() {
                                 <span className="cashflow-btn-label-full">Saldo do Mês Anterior</span>
                                 <span className="cashflow-btn-label-short">Saldo Mês Ant.</span>
                             </Button>
-                            <Button type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setExpenseAmount(''); setExpPaymentMethod(''); setExpInstallments([{ date: null, amount: 0 }]); setExpInstallmentPreset('customizado'); setSelectedExpenseCategory(''); setLrValorIcms(0); setLrValorPis(0); setLrValorCofins(0); setLrValorIpi(0); setLrValorCbs(0); setLrValorIbs(0); setDrawerOpen(true) }}>
+                            <Button type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setExpenseAmount(''); setExpPaymentMethod(''); setExpInstallments([{ date: null, amount: 0 }]); setExpInstallmentPreset('customizado'); setSelectedExpenseCategory(''); setLrValorIcms(''); setLrValorPis(''); setLrValorCofins(''); setLrValorIpi(''); setLrValorCbs(''); setLrValorIbs(''); setDrawerOpen(true) }}>
                                 + Novo Lançamento
                             </Button>
                         </>
@@ -1348,7 +1348,7 @@ export default function CashFlow() {
             </div>
 
             {/* Drawer: Novo Lançamento (Despesa) */}
-            <Drawer title="Novo Lançamento de Despesa" width={680} open={drawerOpen} onClose={() => { setDrawerOpen(false); setExpPaymentMethod(''); setExpInstallments([{ date: null, amount: 0 }]); setExpInstallmentPreset('customizado'); setSelectedExpenseCategory(''); setLrValorIcms(0); setLrValorPis(0); setLrValorCofins(0); setLrValorIpi(0); setLrValorCbs(0); setLrValorIbs(0) }}
+            <Drawer title="Novo Lançamento de Despesa" width={680} open={drawerOpen} onClose={() => { setDrawerOpen(false); setExpPaymentMethod(''); setExpInstallments([{ date: null, amount: 0 }]); setExpInstallmentPreset('customizado'); setSelectedExpenseCategory(''); setLrValorIcms(''); setLrValorPis(''); setLrValorCofins(''); setLrValorIpi(''); setLrValorCbs(''); setLrValorIbs('') }}
                 extra={<Button type="primary" onClick={handleSaveEntry}>Salvar</Button>}>
                 <Form form={form} layout="vertical">
                     <Form.Item name="expense_category" label="Categoria da Despesa" rules={[{ required: true, message: 'Selecione a categoria' }]}>
@@ -1360,12 +1360,12 @@ export default function CashFlow() {
                             filterOption={(input, option) => (option?.label as string || '').toLowerCase().includes(input.toLowerCase())}
                             onChange={(v: string) => {
                                 setSelectedExpenseCategory(v || '')
-                                setLrValorIcms(0)
-                                setLrValorPis(0)
-                                setLrValorCofins(0)
-                                setLrValorIpi(0)
-                                setLrValorCbs(0)
-                                setLrValorIbs(0)
+                                setLrValorIcms('')
+                                setLrValorPis('')
+                                setLrValorCofins('')
+                                setLrValorIpi('')
+                                setLrValorCbs('')
+                                setLrValorIbs('')
                             }}
                         />
                     </Form.Item>
@@ -1395,56 +1395,56 @@ export default function CashFlow() {
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
                                 <div>
                                     <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Valor ICMS</div>
-                                    <InputNumber
-                                        min={0} step={0.01} precision={2} style={{ width: '100%' }}
-                                        addonBefore="R$" value={lrValorIcms || undefined} placeholder="0,00"
-                                        decimalSeparator="," formatter={brlFormatter as any} parser={brlParser as any}
-                                        onChange={(v) => setLrValorIcms(Number(v) || 0)}
+                                    <Input
+                                        prefix="R$"
+                                        placeholder="0,00"
+                                        value={lrValorIcms}
+                                        onChange={(e) => setLrValorIcms(currencyMaskFn(e.target.value))}
                                     />
                                 </div>
                                 <div>
                                     <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Valor PIS</div>
-                                    <InputNumber
-                                        min={0} step={0.01} precision={2} style={{ width: '100%' }}
-                                        addonBefore="R$" value={lrValorPis || undefined} placeholder="0,00"
-                                        decimalSeparator="," formatter={brlFormatter as any} parser={brlParser as any}
-                                        onChange={(v) => setLrValorPis(Number(v) || 0)}
+                                    <Input
+                                        prefix="R$"
+                                        placeholder="0,00"
+                                        value={lrValorPis}
+                                        onChange={(e) => setLrValorPis(currencyMaskFn(e.target.value))}
                                     />
                                 </div>
                                 <div>
                                     <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Valor COFINS</div>
-                                    <InputNumber
-                                        min={0} step={0.01} precision={2} style={{ width: '100%' }}
-                                        addonBefore="R$" value={lrValorCofins || undefined} placeholder="0,00"
-                                        decimalSeparator="," formatter={brlFormatter as any} parser={brlParser as any}
-                                        onChange={(v) => setLrValorCofins(Number(v) || 0)}
+                                    <Input
+                                        prefix="R$"
+                                        placeholder="0,00"
+                                        value={lrValorCofins}
+                                        onChange={(e) => setLrValorCofins(currencyMaskFn(e.target.value))}
                                     />
                                 </div>
                                 <div>
                                     <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Valor IPI</div>
-                                    <InputNumber
-                                        min={0} step={0.01} precision={2} style={{ width: '100%' }}
-                                        addonBefore="R$" value={lrValorIpi || undefined} placeholder="0,00"
-                                        decimalSeparator="," formatter={brlFormatter as any} parser={brlParser as any}
-                                        onChange={(v) => setLrValorIpi(Number(v) || 0)}
+                                    <Input
+                                        prefix="R$"
+                                        placeholder="0,00"
+                                        value={lrValorIpi}
+                                        onChange={(e) => setLrValorIpi(currencyMaskFn(e.target.value))}
                                     />
                                 </div>
                                 <div>
                                     <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Valor CBS</div>
-                                    <InputNumber
-                                        min={0} step={0.01} precision={2} style={{ width: '100%' }}
-                                        addonBefore="R$" value={lrValorCbs || undefined} placeholder="0,00"
-                                        decimalSeparator="," formatter={brlFormatter as any} parser={brlParser as any}
-                                        onChange={(v) => setLrValorCbs(Number(v) || 0)}
+                                    <Input
+                                        prefix="R$"
+                                        placeholder="0,00"
+                                        value={lrValorCbs}
+                                        onChange={(e) => setLrValorCbs(currencyMaskFn(e.target.value))}
                                     />
                                 </div>
                                 <div>
                                     <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Valor IBS</div>
-                                    <InputNumber
-                                        min={0} step={0.01} precision={2} style={{ width: '100%' }}
-                                        addonBefore="R$" value={lrValorIbs || undefined} placeholder="0,00"
-                                        decimalSeparator="," formatter={brlFormatter as any} parser={brlParser as any}
-                                        onChange={(v) => setLrValorIbs(Number(v) || 0)}
+                                    <Input
+                                        prefix="R$"
+                                        placeholder="0,00"
+                                        value={lrValorIbs}
+                                        onChange={(e) => setLrValorIbs(currencyMaskFn(e.target.value))}
                                     />
                                 </div>
                             </div>
