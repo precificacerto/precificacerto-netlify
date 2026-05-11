@@ -1,5 +1,5 @@
 import { supabase } from '@/supabase/client'
-import { calculateHubDataPrevMonth, extractStructurePercents } from '@/utils/hub-engine'
+import { calculateHubData, calculateHubDataPrevMonth, extractStructurePercents } from '@/utils/hub-engine'
 
 export interface ExpenseConfigResult {
   production_labor_cost: number
@@ -36,8 +36,9 @@ const round2 = (v: number) => Math.round(v * 100) / 100
 export async function recalcExpenseConfigFromCashflow(
   tenantId: string,
 ): Promise<ExpenseConfigResult | null> {
-  const [hubData, tsResult] = await Promise.all([
+  const [hubData, hubDataAll, tsResult] = await Promise.all([
     calculateHubDataPrevMonth(tenantId),
+    calculateHubData(tenantId),
     supabase.from('tenant_settings').select('tax_regime').eq('tenant_id', tenantId).maybeSingle(),
   ])
 
@@ -88,9 +89,11 @@ export async function recalcExpenseConfigFromCashflow(
         : custoProdutosRow.averagePct / 100)
     : 0
 
-  // ── Sprint 4: Faturamento médio do HUB (média mensal dos meses fechados) ──
-  const hubAverageRevenue = hubData.totalIncomeMonthsCount > 0
-    ? round2(hubData.totalIncome / hubData.totalIncomeMonthsCount)
+  // ── Sprint 4: Faturamento médio do HUB (média mensal de TODOS os meses fechados) ──
+  // Usa calculateHubData (todo o histórico fechado) para alinhar com a média exibida no HUB/DFC.
+  // Antes usava hubData (apenas mês anterior), o que zerava o PE quando o mês anterior não tinha INCOME.
+  const hubAverageRevenue = hubDataAll.totalIncomeMonthsCount > 0
+    ? round2(hubDataAll.totalIncome / hubDataAll.totalIncomeMonthsCount)
     : 0
 
   return {
