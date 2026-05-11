@@ -19,7 +19,7 @@ import {
 import dayjs from 'dayjs'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import { useDevice } from '@/contexts/device.context'
-import { formatCurrencyInput, parseCurrencyInput } from '@/utils/get-monetary-value'
+import { CurrencyInput } from '@/components/currency-input.component'
 import { ExportFormatModal } from '@/components/ui/export-format-modal.component'
 import { exportTableToPdf } from '@/utils/export-generic-pdf'
 import { calculateDiscountedPrice, DiscountMode } from '@/utils/calculate-discount'
@@ -1395,15 +1395,11 @@ function Sales() {
         {
             title: 'Preço', key: 'price', width: 110,
             render: (_, r) => (
-                <InputNumber
+                <CurrencyInput
                     min={0}
-                    step={0.01}
-                    precision={2}
                     value={r.unit_price}
-                    onChange={(v) => handleItemChange(r.key, 'unit_price', v ?? 0)}
+                    onChange={(v) => handleItemChange(r.key, 'unit_price', v)}
                     style={{ width: '100%' }}
-                    formatter={(v) => (v != null ? `R$ ${formatCurrencyInput(Number(v))}` : '')}
-                    parser={(s) => parseCurrencyInput(s)}
                 />
             ),
         },
@@ -1730,15 +1726,13 @@ function Sales() {
                                             style={{ width: 140 }}
                                         />
                                     ) : (
-                                        <InputNumber
+                                        <CurrencyInput
                                             disabled={maxDiscountPercentV <= 0 || saleTotal <= 0}
                                             min={0}
                                             max={saleTotal > 0 ? saleTotal * ((maxDiscountPercentV > 0 ? maxDiscountPercentV : 100) / 100) : 0}
-                                            step={1}
-                                            precision={2}
                                             value={Number((saleTotal * (globalDiscountPercentV / 100)).toFixed(2))}
                                             onChange={(v) => {
-                                                const amount = Number(v) || 0
+                                                const amount = v || 0
                                                 if (saleTotal <= 0) { setGlobalDiscountPercentV(0); return }
                                                 const pct = (amount / saleTotal) * 100
                                                 const capped = Math.min(pct, maxDiscountPercentV > 0 ? maxDiscountPercentV : 100)
@@ -1751,9 +1745,6 @@ function Sales() {
                                                     setCustomInstallments(prev => prev.map(inst => ({ ...inst, amount: amt })))
                                                 }
                                             }}
-                                            formatter={(v) => v != null ? Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}
-                                            parser={(v) => Number((v || '0').replace(/\./g, '').replace(',', '.'))}
-                                            addonBefore="R$"
                                             style={{ width: 180 }}
                                         />
                                     )}

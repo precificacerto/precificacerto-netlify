@@ -12,6 +12,7 @@ import { supabase } from '@/supabase/client'
 import { getTenantId } from '@/utils/get-tenant-id'
 import { getEffectiveIncomeAmount } from '@/utils/cash-entry-amount'
 import { mergeExpenseConfig } from '@/utils/recalc-expense-config'
+import { CurrencyInput } from '@/components/currency-input.component'
 import {
     DollarOutlined, ArrowUpOutlined, ArrowDownOutlined,
     PlusOutlined, DeleteOutlined, SyncOutlined, EditOutlined,
@@ -1448,7 +1449,7 @@ export default function ControleFinanceiro() {
                             <Input />
                         </Form.Item>
                         <Form.Item name="amount" label="Valor" rules={[{ required: true }]}>
-                            <InputNumber style={{ width: '100%' }} prefix="R$" step={0.01} precision={2} />
+                            <CurrencyInput style={{ width: '100%' }} />
                         </Form.Item>
                         <Form.Item name="due_date" label="Data Vencimento" rules={[{ required: true }]}>
                             <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />

@@ -16,6 +16,7 @@ import {
 import { useAuth } from '@/hooks/use-auth.hook'
 import { CALC_TYPE_ENUM } from '@/shared/enums/calc-type'
 import { UNIT_MEASURE_ENUM } from '@/shared/enums/unit-measure-type'
+import { CurrencyInput } from '@/components/currency-input.component'
 
 // Alíquotas de presunção padrão por tipo de atividade LP (espelho de lucro_presumido_rates)
 // Usadas como sugestão ao selecionar atividade; o tenant pode sobrescrever manualmente.
@@ -331,7 +332,7 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                             tooltip="Estimativa de faturamento mensal para planejamento e dashboard."
                             initialValue={tenantSettings?.ret_estimated_monthly_revenue ?? 0}
                         >
-                            <InputNumber min={0} step={1000} precision={2} style={{ width: '100%', maxWidth: 320 }} formatter={(v) => v != null ? `R$ ${String(v).replace(/\B(?=(\d{3})+(?!\d))/g, '.')}` : 'R$ 0'} parser={(v) => Number((v || '0').replace(/[R$\s.]/g, '').replace(',', '.'))} />
+                            <CurrencyInput min={0} style={{ width: '100%', maxWidth: 320 }} />
                         </Form.Item>
 
                         {/* Cards de carga tributária LP RET */}
@@ -599,7 +600,7 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                                         <InputNumber min={0} max={10} step={0.1} style={{ width: '100%' }} addonAfter="%" formatter={(v) => v != null ? String(v).replace('.', ',') : ''} parser={(v) => Number((v || '0').replace(',', '.'))} />
                                     </Form.Item>
                                     <Form.Item name="lp_estimated_annual_revenue" label="Receita bruta anual estimada (R$)">
-                                        <InputNumber min={0} step={10000} precision={2} style={{ width: '100%' }} formatter={(v) => v != null ? `R$ ${Number(v).toLocaleString('pt-BR')}` : 'R$ 0'} parser={(v) => Number((v || '0').replace('R$', '').replace(/\./g, '').replace(',', '.').trim())} />
+                                        <CurrencyInput min={0} style={{ width: '100%' }} />
                                     </Form.Item>
                                 </div>
                                 <div style={{ marginTop: 8 }}>

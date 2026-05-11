@@ -21,7 +21,7 @@ import {
 } from '@ant-design/icons'
 import { exportTableToPdf } from '@/utils/export-generic-pdf'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
-import { formatCurrencyInput, parseCurrencyInput } from '@/utils/get-monetary-value'
+import { CurrencyInput } from '@/components/currency-input.component'
 import type { DiscountMode } from '@/utils/calculate-discount'
 import {
     PaymentWithInstallments,
@@ -1542,15 +1542,11 @@ function Budgets() {
             key: 'price',
             width: 110,
             render: (_, record) => (
-                <InputNumber
+                <CurrencyInput
                     min={0}
-                    step={0.01}
-                    precision={2}
                     value={record.unit_price}
-                    onChange={(v) => handleItemChange(record.key, 'unit_price', v ?? 0)}
+                    onChange={(v) => handleItemChange(record.key, 'unit_price', v)}
                     style={{ width: '100%' }}
-                    formatter={(v) => (v != null && v !== '' ? `R$ ${formatCurrencyInput(Number(v))}` : '')}
-                    parser={(s) => parseCurrencyInput(s)}
                 />
             ),
         },
@@ -1847,22 +1843,17 @@ function Budgets() {
                                         style={{ width: 140 }}
                                     />
                                 ) : (
-                                    <InputNumber
+                                    <CurrencyInput
                                         min={0}
                                         max={budgetTotal > 0 ? budgetTotal * ((maxDiscountPercent > 0 ? maxDiscountPercent : 100) / 100) : 0}
-                                        step={1}
-                                        precision={2}
                                         value={budgetTotal * (globalDiscountPercent / 100)}
                                         onChange={(v) => {
-                                            const amount = Number(v) || 0
+                                            const amount = v || 0
                                             if (budgetTotal <= 0) { setGlobalDiscountPercent(0); return }
                                             const pct = (amount / budgetTotal) * 100
                                             const capped = Math.min(pct, maxDiscountPercent > 0 ? maxDiscountPercent : 100)
                                             setGlobalDiscountPercent(capped)
                                         }}
-                                        formatter={(v) => v != null ? Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}
-                                        parser={(v) => Number((v || '0').replace(/\./g, '').replace(',', '.'))}
-                                        addonBefore="R$"
                                         style={{ width: 180 }}
                                     />
                                 )}

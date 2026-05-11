@@ -1,7 +1,7 @@
 import { Button, DatePicker, InputNumber, Radio } from 'antd'
 import dayjs, { type Dayjs } from 'dayjs'
 import { formatBRL as _formatBRLCentral } from '@/utils/formatters'
-import { formatCurrencyInput, parseCurrencyInput } from '@/utils/get-monetary-value'
+import { CurrencyInput } from './currency-input.component'
 
 export type InstallmentPresetValue =
     | 'customizado'
@@ -183,15 +183,11 @@ export function PaymentWithInstallments({
                         onChange={(d) => handleRowDateChange(idx, d)}
                         style={{ width: '100%' }}
                     />
-                    <InputNumber
+                    <CurrencyInput
                         min={0}
-                        precision={2}
                         style={{ width: '100%' }}
-                        placeholder="Valor (R$)"
-                        value={item.amount || undefined}
-                        addonBefore="R$"
-                        formatter={(v) => formatCurrencyInput(v as number | string | undefined)}
-                        parser={(v) => parseCurrencyInput(v) as unknown as 0}
+                        placeholder="0,00"
+                        value={item.amount || 0}
                         onChange={(v) => handleRowAmountChange(idx, v)}
                     />
                     <Button
