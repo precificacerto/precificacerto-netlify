@@ -32,6 +32,7 @@ import {
 } from '@/components/payment-with-installments.component'
 import { syncCustomerRecurrenceOnSale } from '@/lib/customer-recurrence'
 import { mergeExpenseConfig } from '@/utils/recalc-expense-config'
+import { CurrencyInput } from '@/components/currency-input.component'
 
 dayjs.extend(isoWeek)
 dayjs.locale('pt-br')
@@ -2291,6 +2292,7 @@ function Schedule() {
                                                                     min={0}
                                                                     max={maxPct > 0 ? maxPct : 100}
                                                                     step={0.5}
+                                                                    precision={4}
                                                                     value={globalDiscountPctAgenda}
                                                                     onChange={(v) => applyDiscount(Math.min(v ?? 0, maxPct > 0 ? maxPct : 100))}
                                                                     formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
@@ -2298,23 +2300,19 @@ function Schedule() {
                                                                     addonAfter="%"
                                                                 />
                                                             ) : (
-                                                                <InputNumber
+                                                                <CurrencyInput
                                                                     style={{ width: 170 }}
                                                                     disabled={maxPct <= 0 || rawTotal <= 0}
                                                                     min={0}
                                                                     max={rawTotal > 0 ? rawTotal * ((maxPct > 0 ? maxPct : 100) / 100) : 0}
-                                                                    step={1}
                                                                     value={Number((rawTotal * (globalDiscountPctAgenda / 100)).toFixed(2))}
                                                                     onChange={(v) => {
-                                                                        const amount = Number(v) || 0
+                                                                        const amount = v || 0
                                                                         if (rawTotal <= 0) { applyDiscount(0); return }
                                                                         const pct = (amount / rawTotal) * 100
                                                                         const capped = Math.min(pct, maxPct > 0 ? maxPct : 100)
                                                                         applyDiscount(Number(capped.toFixed(4)))
                                                                     }}
-                                                                    formatter={(v) => v != null ? Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}
-                                                                    parser={(v) => Number((v || '0').replace(/\./g, '').replace(',', '.'))}
-                                                                    addonBefore="R$"
                                                                 />
                                                             )}
                                                         </Tooltip>
@@ -2467,11 +2465,11 @@ function Schedule() {
                                                                             </div>
                                                                             <div style={{ flex: 1 }}>
                                                                                 <div style={{ fontSize: 10, color: '#94a3b8', marginBottom: 2 }}>Preço Un.</div>
-                                                                                <InputNumber min={0} step={0.5} precision={2} value={ep.unit_price} onChange={(val) => handleExtraItemChange(ep.key, 'unit_price', val || 0)} size="small" style={{ width: '100%' }} formatter={(v) => `${v}`.replace('.', ',')} parser={(v) => Number((v || '0').replace(',', '.'))} />
+                                                                                <CurrencyInput min={0} value={ep.unit_price} onChange={(val) => handleExtraItemChange(ep.key, 'unit_price', val || 0)} size="small" style={{ width: '100%' }} showR$={false} />
                                                                             </div>
                                                                             <div style={{ flex: 0 }}>
                                                                                 <div style={{ fontSize: 10, color: '#94a3b8', marginBottom: 2 }}>Desc.%</div>
-                                                                                <InputNumber min={0} max={100} value={ep.discount} onChange={(val) => handleExtraItemChange(ep.key, 'discount', val || 0)} size="small" style={{ width: 65 }} />
+                                                                                <InputNumber min={0} max={100} precision={4} value={ep.discount} onChange={(val) => handleExtraItemChange(ep.key, 'discount', val || 0)} size="small" style={{ width: 65 }} />
                                                                             </div>
                                                                             <div style={{ flex: 0, textAlign: 'right', minWidth: 80 }}>
                                                                                 <div style={{ fontSize: 10, color: '#94a3b8', marginBottom: 2 }}>Total</div>
@@ -2521,7 +2519,7 @@ function Schedule() {
                                         </div>
                                         <div style={{ flex: 1 }}>
                                             <div style={{ fontSize: 10, color: '#94a3b8', marginBottom: 2 }}>Preço Un.</div>
-                                            <InputNumber min={0} step={0.5} precision={2} value={ep.unit_price} onChange={(val) => handleExtraItemChange(ep.key, 'unit_price', val || 0)} size="small" style={{ width: '100%' }} formatter={(v) => `${v}`.replace('.', ',')} parser={(v) => Number((v || '0').replace(',', '.'))} />
+                                            <CurrencyInput min={0} value={ep.unit_price} onChange={(val) => handleExtraItemChange(ep.key, 'unit_price', val || 0)} size="small" style={{ width: '100%' }} showR$={false} />
                                         </div>
                                         <div style={{ flex: 0, textAlign: 'right', minWidth: 80 }}>
                                             <div style={{ fontSize: 10, color: '#94a3b8', marginBottom: 2 }}>Total</div>

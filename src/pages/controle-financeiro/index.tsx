@@ -1223,15 +1223,10 @@ export default function ControleFinanceiro() {
                             label="Valor (R$)"
                             rules={[{ required: true, message: 'Informe o valor' }, { type: 'number', min: 0.01, message: 'Valor deve ser maior que zero' }]}
                         >
-                            <InputNumber
+                            <CurrencyInput
                                 style={{ width: '100%' }}
-                                prefix="R$"
-                                step={0.01}
                                 min={0.01}
-                                precision={2}
                                 placeholder="0,00"
-                                decimalSeparator=","
-                                thousandSeparator="."
                             />
                         </Form.Item>
                         <Form.Item

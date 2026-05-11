@@ -636,7 +636,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                 <td style={{ width: 140, padding: '6px 0', textAlign: 'right' }}>
                     {editable ? (
                         <InputNumber
-                            size="small" min={0} max={100} step={0.001} precision={3}
+                            size="small" min={0} max={100} step={0.0001} precision={4}
                             value={pct}
                             onChange={(v) => {
                                 if (editable === 'commission') setCommissionPercent(v ?? 0)
@@ -1063,7 +1063,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                                 <td style={{ fontSize: 13, color: '#cbd5e1', paddingRight: 12, paddingTop: 4, paddingBottom: 4 }}>{label}</td>
                                 <td style={{ textAlign: 'right', whiteSpace: 'nowrap' as const }}>
                                     <InputNumber
-                                        size="small" min={0} max={100} step={0.01} precision={2}
+                                        size="small" min={0} max={100} step={0.0001} precision={4}
                                         value={value}
                                         onChange={(v) => setter(v ?? 0)}
                                         style={{ width: 110 }}
@@ -1071,7 +1071,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                                             if (v == null || v === '') return '%'
                                             const n = typeof v === 'string' ? parseFloat(v.replace(',', '.')) : Number(v)
                                             if (isNaN(n)) return '%'
-                                            return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '%'
+                                            return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 }) + '%'
                                         }}
                                         parser={(v) => {
                                             const raw = (v || '0').toString().replace('%', '').replace(/\./g, '').replace(',', '.').trim()

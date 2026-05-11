@@ -1540,7 +1540,7 @@ function Budgets() {
         {
             title: 'Preço un.',
             key: 'price',
-            width: 110,
+            width: 170,
             render: (_, record) => (
                 <CurrencyInput
                     min={0}
@@ -1553,7 +1553,7 @@ function Budgets() {
         {
             title: 'Total',
             key: 'total',
-            width: 100,
+            width: 140,
             render: (_, record) => <strong>{formatCurrency(getItemTotalWithCommission(record))}</strong>,
         },
         {
@@ -1835,6 +1835,7 @@ function Budgets() {
                                         min={0}
                                         max={maxDiscountPercent > 0 ? maxDiscountPercent : 100}
                                         step={0.5}
+                                        precision={4}
                                         value={globalDiscountPercent}
                                         onChange={(v) => setGlobalDiscountPercent(Math.min(v ?? 0, maxDiscountPercent > 0 ? maxDiscountPercent : 100))}
                                         formatter={(v) => v != null ? String(v).replace('.', ',') : ''}

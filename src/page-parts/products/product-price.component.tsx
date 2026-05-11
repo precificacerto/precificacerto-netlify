@@ -212,7 +212,7 @@ export const ProductPrice: FC<Props> = ({
         <td style={{ width: 140, padding: '6px 0' }}>
           {editable ? (
             <InputNumber
-              size="small" min={0} max={100} step={0.001} precision={3}
+              size="small" min={0} max={100} step={0.0001} precision={4}
               value={pct}
               onChange={handleEditableChange}
               style={{ width: 110 }}
@@ -220,7 +220,7 @@ export const ProductPrice: FC<Props> = ({
                 if (v == null || v === '') return '%'
                 const n = typeof v === 'string' ? parseFloat(v.replace(',', '.')) : Number(v)
                 if (isNaN(n)) return '%'
-                return n.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 }) + '%'
+                return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 }) + '%'
               }}
               parser={(v) => {
                 const raw = (v || '0').toString().replace('%', '').replace(/\./g, '').replace(',', '.').trim()
@@ -406,7 +406,7 @@ export const ProductPrice: FC<Props> = ({
                       <td style={{ fontSize: 13, color: '#cbd5e1', paddingRight: 12, paddingTop: 4, paddingBottom: 4 }}>{label}</td>
                       <td style={{ textAlign: 'right', whiteSpace: 'nowrap' as const }}>
                         <InputNumber
-                          size="small" min={0} max={100} step={0.01} precision={2}
+                          size="small" min={0} max={100} step={0.0001} precision={4}
                           value={value}
                           onChange={(v) => onChange?.(v ?? 0)}
                           style={{ width: 110 }}
@@ -414,7 +414,7 @@ export const ProductPrice: FC<Props> = ({
                             if (v == null || v === '') return '%'
                             const n = typeof v === 'string' ? parseFloat(v.replace(',', '.')) : Number(v)
                             if (isNaN(n)) return '%'
-                            return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '%'
+                            return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 }) + '%'
                           }}
                           parser={(v) => {
                             const raw = (v || '0').toString().replace('%', '').replace(/\./g, '').replace(',', '.').trim()
@@ -452,7 +452,7 @@ export const ProductPrice: FC<Props> = ({
                       <td style={{ fontSize: 13, color: '#cbd5e1', paddingRight: 12, paddingTop: 4, paddingBottom: 4 }}>{label}</td>
                       <td style={{ textAlign: 'right', whiteSpace: 'nowrap' as const }}>
                         <InputNumber
-                          size="small" min={0} max={100} step={0.01} precision={2}
+                          size="small" min={0} max={100} step={0.0001} precision={4}
                           value={value}
                           onChange={(v) => onChange?.(v ?? 0)}
                           style={{ width: 110 }}
@@ -460,7 +460,7 @@ export const ProductPrice: FC<Props> = ({
                             if (v == null || v === '') return '%'
                             const n = typeof v === 'string' ? parseFloat(v.replace(',', '.')) : Number(v)
                             if (isNaN(n)) return '%'
-                            return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '%'
+                            return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 }) + '%'
                           }}
                           parser={(v) => {
                             const raw = (v || '0').toString().replace('%', '').replace(/\./g, '').replace(',', '.').trim()

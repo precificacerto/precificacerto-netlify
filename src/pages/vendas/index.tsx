@@ -1393,7 +1393,7 @@ function Sales() {
             render: (_, r) => <InputNumber min={1} value={r.quantity} onChange={(v) => handleItemChange(r.key, 'quantity', v || 1)} style={{ width: '100%' }} />,
         },
         {
-            title: 'Preço', key: 'price', width: 110,
+            title: 'Preço', key: 'price', width: 170,
             render: (_, r) => (
                 <CurrencyInput
                     min={0}
@@ -1404,7 +1404,7 @@ function Sales() {
             ),
         },
         {
-            title: 'Total', key: 'total', width: 100,
+            title: 'Total', key: 'total', width: 140,
             render: (_, r) => <strong>{formatCurrency(r.total)}</strong>,
         },
         {
@@ -1709,6 +1709,7 @@ function Sales() {
                                             min={0}
                                             max={maxDiscountPercentV > 0 ? maxDiscountPercentV : 100}
                                             step={0.5}
+                                            precision={4}
                                             value={globalDiscountPercentV}
                                             onChange={(v) => {
                                                 const newDiscount = Math.min(v ?? 0, maxDiscountPercentV > 0 ? maxDiscountPercentV : 100)

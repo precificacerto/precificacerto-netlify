@@ -117,7 +117,7 @@ export const ContentService: FC<ContentServiceProps> = ({
         <td style={{ width: 140, padding: '6px 0' }}>
           {editable ? (
             <InputNumber
-              size="small" min={0} max={100} step={0.001} precision={3}
+              size="small" min={0} max={100} step={0.0001} precision={4}
               value={pct}
               onChange={(v) => fireChange(editable, v ?? 0)}
               style={{ width: 110 }}
@@ -125,7 +125,7 @@ export const ContentService: FC<ContentServiceProps> = ({
                 if (v == null || v === '') return '%'
                 const n = typeof v === 'string' ? parseFloat(v.replace(',', '.')) : Number(v)
                 if (isNaN(n)) return '%'
-                return n.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 }) + '%'
+                return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 }) + '%'
               }}
               parser={(v) => {
                 const raw = (v || '0').toString().replace('%', '').replace(/\./g, '').replace(',', '.').trim()

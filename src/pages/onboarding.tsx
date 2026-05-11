@@ -827,7 +827,7 @@ export default function Onboarding() {
                       initialValue={4}
                       tooltip="Alíquota consolidada que engloba IRPJ 1,71% + CSLL 0,51% + PIS 0,37% + COFINS 1,41% = 4,00%. Confirme com seu contador."
                     >
-                      <InputNumber min={0} max={100} step={0.01} style={{ width: '100%' }} formatter={(v) => v != null ? String(v).replace('.', ',') : ''} parser={(v) => Number((v || '0').replace(',', '.'))} addonAfter="%" />
+                      <InputNumber min={0} max={100} step={0.01} precision={4} style={{ width: '100%' }} formatter={(v) => v != null ? String(v).replace('.', ',') : ''} parser={(v) => Number((v || '0').replace(',', '.'))} addonAfter="%" />
                     </Form.Item>
 
                     <div style={{ background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 12, color: '#94a3b8' }}>
@@ -840,7 +840,7 @@ export default function Onboarding() {
                       initialValue={5}
                       tooltip="ISS cobrado separadamente pelo município. Varia entre 2% e 5% conforme lei municipal. Confirme com seu contador."
                     >
-                      <InputNumber min={0} max={10} step={0.01} style={{ width: '100%' }} formatter={(v) => v != null ? String(v).replace('.', ',') : ''} parser={(v) => Number((v || '0').replace(',', '.'))} addonAfter="%" />
+                      <InputNumber min={0} max={10} step={0.01} precision={4} style={{ width: '100%' }} formatter={(v) => v != null ? String(v).replace('.', ',') : ''} parser={(v) => Number((v || '0').replace(',', '.'))} addonAfter="%" />
                     </Form.Item>
 
                     <Form.Item
@@ -1214,7 +1214,7 @@ export default function Onboarding() {
                         tooltip="Percentual de presunção da base de cálculo do IRPJ. Ex: Comércio/Indústria = 8%. Confirme com seu contador."
                       >
                         <InputNumber
-                          min={0} max={100} step={0.5} style={{ width: '100%' }}
+                          min={0} max={100} step={0.5} precision={4} style={{ width: '100%' }}
                           addonAfter="%"
                           formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
                           parser={(v) => Number((v || '0').replace(',', '.'))}
@@ -1227,7 +1227,7 @@ export default function Onboarding() {
                         tooltip="Percentual de presunção da base de cálculo da CSLL. Ex: Comércio/Indústria = 12%. Confirme com seu contador."
                       >
                         <InputNumber
-                          min={0} max={100} step={0.5} style={{ width: '100%' }}
+                          min={0} max={100} step={0.5} precision={4} style={{ width: '100%' }}
                           addonAfter="%"
                           formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
                           parser={(v) => Number((v || '0').replace(',', '.'))}
@@ -1275,7 +1275,7 @@ export default function Onboarding() {
                         tooltip="ISS cobrado pelo município para serviços. Geralmente entre 2% e 5%. Deixe 0 para produtos."
                       >
                         <InputNumber
-                          min={0} max={10} step={0.1} style={{ width: '100%' }}
+                          min={0} max={10} step={0.1} precision={4} style={{ width: '100%' }}
                           addonAfter="%"
                           formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
                           parser={(v) => Number((v || '0').replace(',', '.'))}
@@ -1322,7 +1322,7 @@ export default function Onboarding() {
                         tooltip="Alíquota-base de referência para o IBS. Exemplo: 17,00%"
                       >
                         <InputNumber
-                          min={0} max={100} step={0.01} style={{ width: '100%' }}
+                          min={0} max={100} step={0.01} precision={4} style={{ width: '100%' }}
                           addonAfter="%"
                           formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
                           parser={(v) => Number((v || '0').replace(',', '.'))}
@@ -1334,7 +1334,7 @@ export default function Onboarding() {
                         tooltip="Alíquota-base de referência para o CBS. Exemplo: 9,50%"
                       >
                         <InputNumber
-                          min={0} max={100} step={0.01} style={{ width: '100%' }}
+                          min={0} max={100} step={0.01} precision={4} style={{ width: '100%' }}
                           addonAfter="%"
                           formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
                           parser={(v) => Number((v || '0').replace(',', '.'))}

@@ -847,7 +847,7 @@ function OrdersPage() {
                         {
                             title: 'Valor unit.',
                             key: 'unit_price',
-                            width: 120,
+                            width: 170,
                             render: (_, row) => (
                                 <InputNumber
                                     min={0}
@@ -863,7 +863,7 @@ function OrdersPage() {
                         {
                             title: 'Total',
                             key: 'total',
-                            width: 110,
+                            width: 140,
                             align: 'right',
                             render: (_, row) => <strong>{formatCurrency(row.total_price)}</strong>,
                         },

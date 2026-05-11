@@ -168,12 +168,12 @@ export const LancamentoImpostosModal: FC<LancamentoImpostosModalProps> = ({
           <Row gutter={16}>
             <Col span={12}>
               <Form.Item label="IS — Imposto Seletivo (%)" name="is_pct">
-                <InputNumber min={0} max={100} step={0.01} precision={2} style={{ width: '100%' }} placeholder="0,00" />
+                <InputNumber min={0} max={100} step={0.01} precision={4} style={{ width: '100%' }} placeholder="0,00" />
               </Form.Item>
             </Col>
             <Col span={12}>
               <Form.Item label="IBS — Imposto sobre Bens e Serv. (%)" name="ibs_pct">
-                <InputNumber min={0} max={100} step={0.01} precision={2} style={{ width: '100%' }} placeholder="0,00" />
+                <InputNumber min={0} max={100} step={0.01} precision={4} style={{ width: '100%' }} placeholder="0,00" />
               </Form.Item>
             </Col>
           </Row>
@@ -181,12 +181,12 @@ export const LancamentoImpostosModal: FC<LancamentoImpostosModalProps> = ({
           <Row gutter={16}>
             <Col span={12}>
               <Form.Item label="CBS — Contrib. sobre Bens e Serv. (%)" name="cbs_pct">
-                <InputNumber min={0} max={100} step={0.01} precision={2} style={{ width: '100%' }} placeholder="0,00" />
+                <InputNumber min={0} max={100} step={0.01} precision={4} style={{ width: '100%' }} placeholder="0,00" />
               </Form.Item>
             </Col>
             <Col span={12}>
               <Form.Item label="IPI (%)" name="ipi_pct">
-                <InputNumber min={0} max={100} step={0.01} precision={2} style={{ width: '100%' }} placeholder="0,00" />
+                <InputNumber min={0} max={100} step={0.01} precision={4} style={{ width: '100%' }} placeholder="0,00" />
               </Form.Item>
             </Col>
           </Row>
