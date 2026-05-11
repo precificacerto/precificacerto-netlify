@@ -1398,6 +1398,7 @@ function Sales() {
                 <InputNumber
                     min={0}
                     step={0.01}
+                    precision={2}
                     value={r.unit_price}
                     onChange={(v) => handleItemChange(r.key, 'unit_price', v ?? 0)}
                     style={{ width: '100%' }}

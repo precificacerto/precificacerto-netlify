@@ -1545,6 +1545,7 @@ function Budgets() {
                 <InputNumber
                     min={0}
                     step={0.01}
+                    precision={2}
                     value={record.unit_price}
                     onChange={(v) => handleItemChange(record.key, 'unit_price', v ?? 0)}
                     style={{ width: '100%' }}
