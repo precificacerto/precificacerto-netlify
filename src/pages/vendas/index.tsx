@@ -1735,6 +1735,7 @@ function Sales() {
                                             min={0}
                                             max={saleTotal > 0 ? saleTotal * ((maxDiscountPercentV > 0 ? maxDiscountPercentV : 100) / 100) : 0}
                                             step={1}
+                                            precision={2}
                                             value={Number((saleTotal * (globalDiscountPercentV / 100)).toFixed(2))}
                                             onChange={(v) => {
                                                 const amount = Number(v) || 0

@@ -185,6 +185,7 @@ export function PaymentWithInstallments({
                     />
                     <InputNumber
                         min={0}
+                        precision={2}
                         style={{ width: '100%' }}
                         placeholder="Valor (R$)"
                         value={item.amount || undefined}

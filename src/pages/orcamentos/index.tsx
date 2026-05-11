@@ -1851,6 +1851,7 @@ function Budgets() {
                                         min={0}
                                         max={budgetTotal > 0 ? budgetTotal * ((maxDiscountPercent > 0 ? maxDiscountPercent : 100) / 100) : 0}
                                         step={1}
+                                        precision={2}
                                         value={budgetTotal * (globalDiscountPercent / 100)}
                                         onChange={(v) => {
                                             const amount = Number(v) || 0

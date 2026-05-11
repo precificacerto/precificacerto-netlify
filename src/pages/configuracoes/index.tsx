@@ -331,7 +331,7 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                             tooltip="Estimativa de faturamento mensal para planejamento e dashboard."
                             initialValue={tenantSettings?.ret_estimated_monthly_revenue ?? 0}
                         >
-                            <InputNumber min={0} step={1000} style={{ width: '100%', maxWidth: 320 }} formatter={(v) => v != null ? `R$ ${String(v).replace(/\B(?=(\d{3})+(?!\d))/g, '.')}` : 'R$ 0'} parser={(v) => Number((v || '0').replace(/[R$\s.]/g, '').replace(',', '.'))} />
+                            <InputNumber min={0} step={1000} precision={2} style={{ width: '100%', maxWidth: 320 }} formatter={(v) => v != null ? `R$ ${String(v).replace(/\B(?=(\d{3})+(?!\d))/g, '.')}` : 'R$ 0'} parser={(v) => Number((v || '0').replace(/[R$\s.]/g, '').replace(',', '.'))} />
                         </Form.Item>
 
                         {/* Cards de carga tributária LP RET */}
@@ -599,7 +599,7 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                                         <InputNumber min={0} max={10} step={0.1} style={{ width: '100%' }} addonAfter="%" formatter={(v) => v != null ? String(v).replace('.', ',') : ''} parser={(v) => Number((v || '0').replace(',', '.'))} />
                                     </Form.Item>
                                     <Form.Item name="lp_estimated_annual_revenue" label="Receita bruta anual estimada (R$)">
-                                        <InputNumber min={0} step={10000} style={{ width: '100%' }} formatter={(v) => v != null ? `R$ ${Number(v).toLocaleString('pt-BR')}` : 'R$ 0'} parser={(v) => Number((v || '0').replace('R$', '').replace(/\./g, '').replace(',', '.').trim())} />
+                                        <InputNumber min={0} step={10000} precision={2} style={{ width: '100%' }} formatter={(v) => v != null ? `R$ ${Number(v).toLocaleString('pt-BR')}` : 'R$ 0'} parser={(v) => Number((v || '0').replace('R$', '').replace(/\./g, '').replace(',', '.').trim())} />
                                     </Form.Item>
                                 </div>
                                 <div style={{ marginTop: 8 }}>

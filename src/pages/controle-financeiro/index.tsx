@@ -1448,7 +1448,7 @@ export default function ControleFinanceiro() {
                             <Input />
                         </Form.Item>
                         <Form.Item name="amount" label="Valor" rules={[{ required: true }]}>
-                            <InputNumber style={{ width: '100%' }} prefix="R$" step={0.01} />
+                            <InputNumber style={{ width: '100%' }} prefix="R$" step={0.01} precision={2} />
                         </Form.Item>
                         <Form.Item name="due_date" label="Data Vencimento" rules={[{ required: true }]}>
                             <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
