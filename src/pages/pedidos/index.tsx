@@ -19,7 +19,6 @@ import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import { formatBRL } from '@/utils/formatters'
 import { exportTableToPdf } from '@/utils/export-generic-pdf'
 import { getCurrentUserId } from '@/utils/get-tenant-id'
-import { syncCustomerRecurrenceOnSale } from '@/lib/customer-recurrence'
 import { distributeDiscountToItems } from '@/utils/distribute-discount'
 import dayjs from 'dayjs'
 
@@ -30,7 +29,7 @@ const formatCurrency = formatBRL
 const STATUS_CONFIG: Record<string, { color: string; label: string }> = {
     DRAFT: { color: 'default', label: 'Rascunho' },
     AWAITING_PAYMENT: { color: 'processing', label: 'Aguardando pagamento' },
-    SENT_TO_SALE: { color: 'warning', label: 'Enviado para venda' },
+    SENT_TO_SALE: { color: 'warning', label: 'Aguardando aprovação' },
     PAID: { color: 'green', label: '✅ Pago' },
     CANCELLED: { color: 'red', label: 'Cancelado' },
 }
@@ -337,6 +336,9 @@ function OrdersPage() {
         setSendToSaleOpen(true)
     }
 
+    // Envia pedido para a fila de aprovação em /orcamentos (cria um orçamento espelho).
+    // A venda definitiva só é gerada quando o usuário aprovar/finalizar pagamento naquela tela —
+    // a partir daí o fluxo é idêntico ao orçamento (cash_entries, estoque, recorrência etc).
     const handleConfirmSendToSale = async () => {
         if (!sendingOrder || !tenantId) return
         setSendingToSale(true)
@@ -347,22 +349,16 @@ function OrdersPage() {
                 return
             }
 
-            const paymentMethod = sendingOrder.payment_method || null
-            const numInstallments = sendingOrder.installments || 1
             const totalValue = Number(sendingOrder.total_value || 0)
 
-            if (paymentMethod === 'LANCAMENTOS_A_RECEBER' && !sendingOrder.customer_id) {
-                messageApi.error('O método "Lançamentos a Receber" exige um cliente vinculado ao pedido.')
-                return
-            }
-
+            // Guard de concorrência
             const { data: orderCheck } = await (supabase as any)
                 .from('orders')
                 .select('id, status')
                 .eq('id', sendingOrder.id)
                 .single()
             if (orderCheck?.status === 'SENT_TO_SALE' || orderCheck?.status === 'PAID') {
-                messageApi.warning('Este pedido já foi enviado para vendas por outra pessoa. Atualize a lista.')
+                messageApi.warning('Este pedido já foi enviado para aprovação por outra pessoa.')
                 setSendToSaleOpen(false)
                 await fetchOrders()
                 return
@@ -370,176 +366,72 @@ function OrdersPage() {
 
             const items = await fetchOrderItems(sendingOrder.id)
 
-            // 1) Criar venda (status COMPLETED — espelha o fluxo de orçamento)
-            const { data: sale, error: saleErr } = await (supabase as any)
-                .from('sales')
+            // 1) Criar orçamento ESPELHO (status APPROVED — pronto para finalizar pagamento)
+            const globalDiscountPct = Number(sendingOrder.discount_percent) || 0
+            const orderNotes = sendingOrder.notes ? ` — ${sendingOrder.notes}` : ''
+            const { data: newBudget, error: budgetErr } = await (supabase as any)
+                .from('budgets')
                 .insert({
                     tenant_id: tenantId,
                     created_by: createdBy,
-                    product_id: null,
                     customer_id: sendingOrder.customer_id,
                     employee_id: sendingOrder.employee_id || null,
-                    budget_id: sendingOrder.budget_id || null,
-                    order_id: sendingOrder.id,
-                    quantity: 1,
-                    unit_price: totalValue,
-                    final_value: totalValue,
-                    payment_method: paymentMethod,
-                    installments: numInstallments,
-                    description: `Venda via pedido ${sendingOrder.order_code}`,
-                    sale_date: new Date().toISOString(),
-                    sale_type: 'FROM_ORDER',
-                    status: 'COMPLETED',
+                    status: 'APPROVED',
+                    total_value: totalValue,
+                    payment_method: sendingOrder.payment_method || null,
+                    installments: sendingOrder.installments || 1,
+                    discount_mode: sendingOrder.discount_mode || null,
+                    global_discount_percent: globalDiscountPct,
+                    installment_preset: (sendingOrder.payment_method === 'BOLETO' || sendingOrder.payment_method === 'CHEQUE_PRE_DATADO') ? 'customizado' : null,
+                    notes: `Originado do pedido ${sendingOrder.order_code}${orderNotes}`,
                 })
                 .select('id')
                 .single()
 
-            if (saleErr) throw saleErr
+            if (budgetErr) throw budgetErr
 
-            const saleCode = `VD-${sale.id.slice(0, 6).toUpperCase()}`
-            await (supabase as any).from('sales').update({ sale_code: saleCode }).eq('id', sale.id)
-
-            // 2) Copiar itens do pedido para sale_items
+            // 2) Copiar items do pedido para budget_items — distribuindo o desconto proporcionalmente
             if (items.length > 0) {
-                const rawSaleItems = items.map((it) => ({
-                    sale_id: sale.id,
+                const rawBudgetItems = items.map((it) => ({
+                    budget_id: newBudget.id,
                     product_id: it.product_id || null,
                     service_id: it.service_id || null,
-                    quantity: it.quantity,
-                    unit_price: it.unit_price,
-                    discount: 0,
                     manual_description: it.manual_description || null,
+                    quantity: it.quantity || 0,
+                    unit_price: it.unit_price || 0,
+                    discount_percent: 0,
+                    discount: 0,
                 }))
-                // Distribui o desconto do pedido proporcionalmente — usa total_value como fonte da verdade
-                const saleItems = distributeDiscountToItems(rawSaleItems, totalValue)
-                await (supabase as any).from('sale_items').insert(saleItems)
-
-                // 3) Descontar estoque dos produtos vendidos
-                for (const it of items) {
-                    if (!it.product_id) continue
-                    const { data: ps } = await (supabase as any)
-                        .from('stock')
-                        .select('id, quantity_current')
-                        .eq('product_id', it.product_id)
-                        .eq('stock_type', 'PRODUCT')
-                        .single()
-
-                    if (ps) {
-                        const newQty = Math.max(0, (ps.quantity_current || 0) - it.quantity)
-                        await (supabase as any).from('stock')
-                            .update({ quantity_current: newQty, updated_at: new Date().toISOString() })
-                            .eq('id', ps.id)
-                        await (supabase as any).from('stock_movements').insert({
-                            stock_id: ps.id,
-                            delta_quantity: -it.quantity,
-                            reason: `Venda via pedido ${sendingOrder.order_code}`,
-                            created_by: createdBy,
-                        })
-                    }
-                }
+                const budgetItems = distributeDiscountToItems(rawBudgetItems, totalValue)
+                await (supabase as any).from('budget_items').insert(budgetItems)
             }
 
-            // 4) Lançar no fluxo de caixa de acordo com o método de pagamento
-            const now = new Date()
-            const curYear = now.getFullYear()
-            const curMonth = now.getMonth()
+            // 3) Copiar parcelas customizadas (cheque/boleto) — order_installment_rows → budget_installment_rows
+            const { data: orderInstRows } = await (supabase as any)
+                .from('order_installment_rows')
+                .select('due_date, amount, sort_order')
+                .eq('order_id', sendingOrder.id)
+                .order('sort_order')
 
-            if (paymentMethod === 'LANCAMENTOS_A_RECEBER') {
-                await (supabase as any).from('pending_receivables').insert({
-                    tenant_id: tenantId,
-                    customer_id: sendingOrder.customer_id,
-                    employee_id: sendingOrder.employee_id || null,
-                    sale_id: sale.id,
-                    budget_id: sendingOrder.budget_id || null,
-                    amount: totalValue,
-                    description: `Venda via pedido ${sendingOrder.order_code}`,
-                    launch_date: dayjs().format('YYYY-MM-DD'),
-                    origin_type: 'SALE',
-                    status: 'PENDING',
-                    created_by: createdBy,
-                })
-            } else if (paymentMethod === 'CHEQUE_PRE_DATADO' || paymentMethod === 'BOLETO') {
-                // Usa as parcelas customizadas do pedido (order_installment_rows)
-                const { data: instRows } = await (supabase as any)
-                    .from('order_installment_rows')
-                    .select('due_date, amount, sort_order')
-                    .eq('order_id', sendingOrder.id)
-                    .order('sort_order')
-
-                const validInstallments = (instRows || []).filter((r: any) => r.due_date && Number(r.amount) > 0)
-
-                const payLabel = PAYMENT_METHODS.find(p => p.value === paymentMethod)?.label || paymentMethod
-                let entries: any[]
-
-                if (validInstallments.length > 0) {
-                    entries = validInstallments.map((inst: any, idx: number) => ({
-                        tenant_id: tenantId,
-                        type: 'INCOME',
-                        amount: Number(inst.amount),
-                        due_date: inst.due_date,
-                        description: validInstallments.length > 1
-                            ? `Venda: ${sendingOrder.order_code} — ${payLabel} (${idx + 1}/${validInstallments.length})`
-                            : `Venda: ${sendingOrder.order_code} — ${payLabel}`,
-                        payment_method: paymentMethod,
-                        origin_type: 'SALE',
-                        origin_id: sale.id,
-                        created_by: createdBy,
+            if (orderInstRows && orderInstRows.length > 0) {
+                await (supabase as any).from('budget_installment_rows').insert(
+                    orderInstRows.map((r: any) => ({
+                        budget_id: newBudget.id,
+                        due_date: r.due_date,
+                        amount: r.amount,
+                        sort_order: r.sort_order,
                     }))
-                } else {
-                    // Sem parcelas custom — lança em parcela única para hoje
-                    entries = [{
-                        tenant_id: tenantId,
-                        type: 'INCOME',
-                        amount: totalValue,
-                        due_date: dayjs().format('YYYY-MM-DD'),
-                        description: `Venda: ${sendingOrder.order_code} — ${payLabel}`,
-                        payment_method: paymentMethod,
-                        origin_type: 'SALE',
-                        origin_id: sale.id,
-                        created_by: createdBy,
-                    }]
-                }
-                await (supabase as any).from('cash_entries').insert(entries)
-            } else if (paymentMethod === 'CARTAO_CREDITO') {
-                const amountPerInstallment = totalValue / numInstallments
-                const installmentEntries = []
-                for (let i = 1; i <= numInstallments; i++) {
-                    const dueDate = new Date(curYear, curMonth + i, 1)
-                    installmentEntries.push({
-                        tenant_id: tenantId,
-                        type: 'INCOME',
-                        amount: amountPerInstallment,
-                        due_date: dayjs(dueDate).format('YYYY-MM-DD'),
-                        description: numInstallments > 1
-                            ? `Venda: ${sendingOrder.order_code} — ${paymentMethod} (${i}/${numInstallments})`
-                            : `Venda: ${sendingOrder.order_code} — ${paymentMethod}`,
-                        payment_method: paymentMethod,
-                        origin_type: 'SALE',
-                        origin_id: sale.id,
-                        ...(numInstallments > 1 ? { installment_number: i, installment_total: numInstallments } : {}),
-                        created_by: createdBy,
-                    })
-                }
-                await (supabase as any).from('cash_entries').insert(installmentEntries)
-            } else if (paymentMethod) {
-                await (supabase as any).from('cash_entries').insert({
-                    tenant_id: tenantId,
-                    type: 'INCOME',
-                    amount: totalValue,
-                    due_date: dayjs().format('YYYY-MM-DD'),
-                    paid_date: dayjs().format('YYYY-MM-DD'),
-                    description: `Venda: ${sendingOrder.order_code} — ${paymentMethod}${numInstallments > 1 ? ` (${numInstallments}x)` : ''}`,
-                    payment_method: paymentMethod,
-                    origin_type: 'SALE',
-                    origin_id: sale.id,
-                    created_by: createdBy,
-                })
+                )
             }
 
-            // 5) Atualizar pedido como SENT_TO_SALE (com guard de concorrência + rollback)
+            // 4) Atualizar pedido (vincula ao novo orçamento via budget_id, status SENT_TO_SALE)
             const { data: updatedOrder } = await (supabase as any)
                 .from('orders')
-                .update({ status: 'SENT_TO_SALE', sale_id: sale.id, updated_at: new Date().toISOString() })
+                .update({
+                    status: 'SENT_TO_SALE',
+                    budget_id: newBudget.id,
+                    updated_at: new Date().toISOString(),
+                })
                 .eq('id', sendingOrder.id)
                 .neq('status', 'SENT_TO_SALE')
                 .select('id')
@@ -547,56 +439,22 @@ function OrdersPage() {
 
             if (!updatedOrder) {
                 // Rollback: outra pessoa enviou o mesmo pedido antes
-                await (supabase as any).from('cash_entries').update({ is_active: false }).eq('origin_type', 'SALE').eq('origin_id', sale.id)
-                await (supabase as any).from('pending_receivables').update({ status: 'CANCELLED' }).eq('sale_id', sale.id)
-                if (items.length) {
-                    for (const it of items) {
-                        if (!it.product_id) continue
-                        const { data: ps } = await (supabase as any).from('stock').select('id, quantity_current').eq('product_id', it.product_id).eq('stock_type', 'PRODUCT').single()
-                        if (ps) {
-                            await (supabase as any).from('stock').update({ quantity_current: (ps.quantity_current || 0) + it.quantity, updated_at: new Date().toISOString() }).eq('id', ps.id)
-                            await (supabase as any).from('stock_movements').insert({ stock_id: ps.id, delta_quantity: it.quantity, reason: 'Rollback: pedido já enviado por outra pessoa', created_by: createdBy })
-                        }
-                    }
-                }
-                await (supabase as any).from('sale_items').delete().eq('sale_id', sale.id)
-                await (supabase as any).from('sales').update({ is_active: false }).eq('id', sale.id)
-                messageApi.warning('Este pedido já foi enviado para vendas por outra pessoa. Nenhuma alteração foi mantida.')
+                await (supabase as any).from('budget_items').delete().eq('budget_id', newBudget.id)
+                await (supabase as any).from('budget_installment_rows').delete().eq('budget_id', newBudget.id)
+                await (supabase as any).from('budgets').delete().eq('id', newBudget.id)
+                messageApi.warning('Este pedido já foi enviado por outra pessoa. Nenhuma alteração foi mantida.')
                 setSendToSaleOpen(false)
                 await fetchOrders()
                 return
             }
 
-            // 6) Histórico do cliente
-            if (sendingOrder.customer_id) {
-                await (supabase as any).from('customer_service_history').insert({
-                    tenant_id: tenantId,
-                    customer_id: sendingOrder.customer_id,
-                    history_type: 'BUDGET_SENT',
-                    service_observation: `Pedido ${sendingOrder.order_code} convertido em venda — ${formatCurrency(totalValue)}`,
-                    created_by: createdBy,
-                })
-            }
-
-            // 7) Sincronizar recorrência do cliente
-            if (sendingOrder.customer_id) {
-                await syncCustomerRecurrenceOnSale({
-                    supabase,
-                    tenantId,
-                    customerId: sendingOrder.customer_id,
-                    saleId: sale.id,
-                    saleDate: dayjs().format('YYYY-MM-DD'),
-                    userId: createdBy,
-                })
-            }
-
-            messageApi.success('🎉 Pedido enviado para Vendas! Venda registrada, estoque atualizado e lançamento no caixa criado.')
+            messageApi.success('Pedido enviado para aprovação! Acesse a aba Orçamentos para finalizar o pagamento.')
             setSendToSaleOpen(false)
             setSendingOrder(null)
             await fetchOrders()
         } catch (err: any) {
             console.error(err)
-            messageApi.error('Erro ao enviar para vendas: ' + (err?.message || 'desconhecido'))
+            messageApi.error('Erro ao enviar para aprovação: ' + (err?.message || 'desconhecido'))
         } finally {
             setSendingToSale(false)
         }
@@ -811,7 +669,7 @@ function OrdersPage() {
                             onClick={() => handleOpenSendToSale(record)}
                             disabled={!canEditOrders}
                         >
-                            Enviar para Vendas
+                            Enviar para Aprovação
                         </Button>
                     )}
                     {record.status === 'DRAFT' && (
@@ -1105,7 +963,7 @@ function OrdersPage() {
 
             {/* Send to Sale Modal */}
             <Modal
-                title="Enviar pedido para Vendas?"
+                title="Enviar pedido para Aprovação?"
                 open={sendToSaleOpen}
                 onCancel={() => {
                     setSendToSaleOpen(false)
@@ -1119,7 +977,7 @@ function OrdersPage() {
                 {sendingOrder && (
                     <div>
                         <p>
-                            Você quer enviar este pedido para vendas?
+                            Você quer enviar este pedido para aprovação?
                         </p>
                         <ul style={{ lineHeight: 1.8 }}>
                             <li><strong>Código:</strong> {sendingOrder.order_code}</li>
@@ -1127,7 +985,7 @@ function OrdersPage() {
                             <li><strong>Valor total:</strong> {formatCurrency(sendingOrder.total_value)}</li>
                         </ul>
                         <Text type="secondary">
-                            Uma venda será criada em status "Aguardando pagamento" com todo o histórico do pedido.
+                            Um orçamento será criado em <strong>Orçamentos</strong> com todas as condições do pedido (método de pagamento, parcelas, desconto). A venda só é finalizada quando você clicar em "Finalizar Pagamento" lá — aí o valor cai no fluxo de caixa.
                         </Text>
                     </div>
                 )}
