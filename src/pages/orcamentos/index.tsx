@@ -933,7 +933,11 @@ function Budgets() {
                     .eq('budget_id', b.id)
 
                 if (budgetItems && budgetItems.length > 0) {
-                    const rawItems = budgetItems.map((bi: any) => ({
+                    // Items mantêm unit_price ORIGINAL — o desconto é preservado em
+                    // orders.discount_percent e aplicado no cálculo de total_value.
+                    // Isto permite que o usuário veja/edite o desconto no pedido sem
+                    // perder a granularidade dos preços originais dos itens.
+                    const toInsert = budgetItems.map((bi: any) => ({
                         order_id: order.id,
                         product_id: bi.product_id || null,
                         service_id: bi.service_id || null,
@@ -942,8 +946,6 @@ function Budgets() {
                         total_price: (bi.quantity || 0) * (bi.unit_price || 0),
                         manual_description: bi.manual_description || null,
                     }))
-                    // Distribui o desconto global do orçamento proporcionalmente entre os itens
-                    const toInsert = distributeDiscountToItems(rawItems, b.total_value)
                     await (supabase as any).from('order_items').insert(toInsert)
                 }
 

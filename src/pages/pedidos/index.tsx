@@ -19,7 +19,6 @@ import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import { formatBRL } from '@/utils/formatters'
 import { exportTableToPdf } from '@/utils/export-generic-pdf'
 import { getCurrentUserId } from '@/utils/get-tenant-id'
-import { distributeDiscountToItems } from '@/utils/distribute-discount'
 import dayjs from 'dayjs'
 
 const { Text } = Typography
@@ -202,6 +201,7 @@ function OrdersPage() {
             employee_id: order.employee_id,
             payment_method: order.payment_method,
             installments: order.installments || 1,
+            discount_percent: Number(order.discount_percent) || 0,
             notes: order.notes || '',
         })
         const [items, instRowsResult] = await Promise.all([
@@ -279,7 +279,11 @@ function OrdersPage() {
             const values = await editForm.validateFields()
             setSavingEdit(true)
 
-            const totalValue = orderItems.reduce((s, it) => s + (it.total_price || 0), 0)
+            // grossSum é a soma bruta dos items (unit_price original × quantity).
+            // O desconto % é aplicado em cima para chegar no total_value persistido.
+            const grossSum = orderItems.reduce((s, it) => s + (it.total_price || 0), 0)
+            const discountPct = Math.max(0, Math.min(100, Number(values.discount_percent) || 0))
+            const totalValue = grossSum * (1 - discountPct / 100)
 
             const { error: upErr } = await (supabase as any)
                 .from('orders')
@@ -289,6 +293,8 @@ function OrdersPage() {
                     payment_method: values.payment_method || null,
                     installments: values.installments || 1,
                     notes: values.notes || null,
+                    discount_percent: discountPct,
+                    discount_value: grossSum - totalValue,
                     total_value: totalValue,
                     updated_at: new Date().toISOString(),
                 })
@@ -390,9 +396,11 @@ function OrdersPage() {
 
             if (budgetErr) throw budgetErr
 
-            // 2) Copiar items do pedido para budget_items — distribuindo o desconto proporcionalmente
+            // 2) Copiar items do pedido para budget_items — mantém unit_price original.
+            // O desconto fica em budgets.global_discount_percent (lido acima) e o
+            // total_value já reflete o valor com desconto aplicado.
             if (items.length > 0) {
-                const rawBudgetItems = items.map((it) => ({
+                const budgetItems = items.map((it) => ({
                     budget_id: newBudget.id,
                     product_id: it.product_id || null,
                     service_id: it.service_id || null,
@@ -402,7 +410,6 @@ function OrdersPage() {
                     discount_percent: 0,
                     discount: 0,
                 }))
-                const budgetItems = distributeDiscountToItems(rawBudgetItems, totalValue)
                 await (supabase as any).from('budget_items').insert(budgetItems)
             }
 
@@ -828,6 +835,22 @@ function OrdersPage() {
                     </Form.Item>
                     <Form.Item name="installments" label="Parcelas" initialValue={1}>
                         <InputNumber min={1} max={36} style={{ width: '100%' }} />
+                    </Form.Item>
+                    <Form.Item
+                        name="discount_percent"
+                        label="Desconto (%)"
+                        initialValue={0}
+                        tooltip="Desconto herdado do orçamento. Edite aqui se quiser ajustar — o valor total será recalculado e propagado para a venda."
+                    >
+                        <InputNumber
+                            min={0}
+                            max={100}
+                            precision={2}
+                            step={0.5}
+                            style={{ width: '100%' }}
+                            formatter={(v) => `${v ?? 0}%`}
+                            parser={(v) => Number(String(v).replace('%', '')) as 0}
+                        />
                     </Form.Item>
                     {orderInstallmentRows.length > 0 && (
                         <Form.Item label="Datas e valores das parcelas (importado do orçamento)">
