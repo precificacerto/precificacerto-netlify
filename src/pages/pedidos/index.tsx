@@ -20,6 +20,7 @@ import { formatBRL } from '@/utils/formatters'
 import { exportTableToPdf } from '@/utils/export-generic-pdf'
 import { getCurrentUserId } from '@/utils/get-tenant-id'
 import { syncCustomerRecurrenceOnSale } from '@/lib/customer-recurrence'
+import { distributeDiscountToItems } from '@/utils/distribute-discount'
 import dayjs from 'dayjs'
 
 const { Text } = Typography
@@ -400,7 +401,7 @@ function OrdersPage() {
 
             // 2) Copiar itens do pedido para sale_items
             if (items.length > 0) {
-                const saleItems = items.map((it) => ({
+                const rawSaleItems = items.map((it) => ({
                     sale_id: sale.id,
                     product_id: it.product_id || null,
                     service_id: it.service_id || null,
@@ -409,6 +410,8 @@ function OrdersPage() {
                     discount: 0,
                     manual_description: it.manual_description || null,
                 }))
+                // Distribui o desconto do pedido proporcionalmente — usa total_value como fonte da verdade
+                const saleItems = distributeDiscountToItems(rawSaleItems, totalValue)
                 await (supabase as any).from('sale_items').insert(saleItems)
 
                 // 3) Descontar estoque dos produtos vendidos

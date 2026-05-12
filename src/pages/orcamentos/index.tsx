@@ -33,6 +33,7 @@ import {
 import dayjs, { type Dayjs } from 'dayjs'
 import { formatBRL } from '@/utils/formatters'
 import { syncCustomerRecurrenceOnSale } from '@/lib/customer-recurrence'
+import { distributeDiscountToItems } from '@/utils/distribute-discount'
 
 const formatCurrency = formatBRL
 
@@ -932,7 +933,7 @@ function Budgets() {
                     .eq('budget_id', b.id)
 
                 if (budgetItems && budgetItems.length > 0) {
-                    const toInsert = budgetItems.map((bi: any) => ({
+                    const rawItems = budgetItems.map((bi: any) => ({
                         order_id: order.id,
                         product_id: bi.product_id || null,
                         service_id: bi.service_id || null,
@@ -941,6 +942,8 @@ function Budgets() {
                         total_price: (bi.quantity || 0) * (bi.unit_price || 0),
                         manual_description: bi.manual_description || null,
                     }))
+                    // Distribui o desconto global do orçamento proporcionalmente entre os itens
+                    const toInsert = distributeDiscountToItems(rawItems, b.total_value)
                     await (supabase as any).from('order_items').insert(toInsert)
                 }
 
@@ -1060,13 +1063,15 @@ function Budgets() {
                 .eq('budget_id', selectedBudget.id)
 
             if (bItems && bItems.length > 0) {
-                const saleItems = bItems.map((bi: any) => ({
+                const rawSaleItems = bItems.map((bi: any) => ({
                     sale_id: sale.id,
                     product_id: bi.product_id,
                     quantity: bi.quantity,
                     unit_price: bi.unit_price,
                     discount: bi.discount || 0,
                 }))
+                // Distribui o desconto global do orçamento proporcionalmente entre os itens
+                const saleItems = distributeDiscountToItems(rawSaleItems, Number(selectedBudget.total_value))
                 await supabase.from('sale_items').insert(saleItems)
 
                 // 3) Descontar estoque dos produtos vendidos
