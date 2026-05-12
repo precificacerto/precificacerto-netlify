@@ -18,6 +18,8 @@ import { useCustomers, useProducts, useEmployees } from '@/hooks/use-data.hooks'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import { formatBRL } from '@/utils/formatters'
 import { exportTableToPdf } from '@/utils/export-generic-pdf'
+import { getCurrentUserId } from '@/utils/get-tenant-id'
+import { syncCustomerRecurrenceOnSale } from '@/lib/customer-recurrence'
 import dayjs from 'dayjs'
 
 const { Text } = Typography
@@ -338,58 +340,257 @@ function OrdersPage() {
         if (!sendingOrder || !tenantId) return
         setSendingToSale(true)
         try {
+            const createdBy = currentUser?.uid ?? await getCurrentUserId()
+            if (!createdBy) {
+                messageApi.error('Sessão inválida. Faça login novamente.')
+                return
+            }
+
+            const paymentMethod = sendingOrder.payment_method || null
+            const numInstallments = sendingOrder.installments || 1
+            const totalValue = Number(sendingOrder.total_value || 0)
+
+            if (paymentMethod === 'LANCAMENTOS_A_RECEBER' && !sendingOrder.customer_id) {
+                messageApi.error('O método "Lançamentos a Receber" exige um cliente vinculado ao pedido.')
+                return
+            }
+
+            const { data: orderCheck } = await (supabase as any)
+                .from('orders')
+                .select('id, status')
+                .eq('id', sendingOrder.id)
+                .single()
+            if (orderCheck?.status === 'SENT_TO_SALE' || orderCheck?.status === 'PAID') {
+                messageApi.warning('Este pedido já foi enviado para vendas por outra pessoa. Atualize a lista.')
+                setSendToSaleOpen(false)
+                await fetchOrders()
+                return
+            }
+
             const items = await fetchOrderItems(sendingOrder.id)
 
+            // 1) Criar venda (status COMPLETED — espelha o fluxo de orçamento)
             const { data: sale, error: saleErr } = await (supabase as any)
                 .from('sales')
                 .insert({
                     tenant_id: tenantId,
-                    created_by: currentUser?.uid || null,
+                    created_by: createdBy,
+                    product_id: null,
                     customer_id: sendingOrder.customer_id,
                     employee_id: sendingOrder.employee_id || null,
                     budget_id: sendingOrder.budget_id || null,
+                    order_id: sendingOrder.id,
                     quantity: 1,
-                    unit_price: sendingOrder.total_value,
-                    final_value: sendingOrder.total_value,
-                    payment_method: sendingOrder.payment_method || null,
-                    installments: sendingOrder.installments || 1,
+                    unit_price: totalValue,
+                    final_value: totalValue,
+                    payment_method: paymentMethod,
+                    installments: numInstallments,
                     description: `Venda via pedido ${sendingOrder.order_code}`,
                     sale_date: new Date().toISOString(),
                     sale_type: 'FROM_ORDER',
-                    status: 'AWAITING_PAYMENT',
+                    status: 'COMPLETED',
                 })
                 .select('id')
                 .single()
 
             if (saleErr) throw saleErr
 
-            if (sale?.id) {
-                const saleCode = `VD-${sale.id.slice(0, 6).toUpperCase()}`
-                await (supabase as any).from('sales').update({ sale_code: saleCode }).eq('id', sale.id)
+            const saleCode = `VD-${sale.id.slice(0, 6).toUpperCase()}`
+            await (supabase as any).from('sales').update({ sale_code: saleCode }).eq('id', sale.id)
 
-                if (items.length > 0) {
-                    const saleItems = items.map((it) => ({
-                        sale_id: sale.id,
-                        product_id: it.product_id || null,
-                        service_id: it.service_id || null,
-                        quantity: it.quantity,
-                        unit_price: it.unit_price,
-                        discount: 0,
-                        manual_description: it.manual_description || null,
-                    }))
-                    await (supabase as any).from('sale_items').insert(saleItems)
+            // 2) Copiar itens do pedido para sale_items
+            if (items.length > 0) {
+                const saleItems = items.map((it) => ({
+                    sale_id: sale.id,
+                    product_id: it.product_id || null,
+                    service_id: it.service_id || null,
+                    quantity: it.quantity,
+                    unit_price: it.unit_price,
+                    discount: 0,
+                    manual_description: it.manual_description || null,
+                }))
+                await (supabase as any).from('sale_items').insert(saleItems)
+
+                // 3) Descontar estoque dos produtos vendidos
+                for (const it of items) {
+                    if (!it.product_id) continue
+                    const { data: ps } = await (supabase as any)
+                        .from('stock')
+                        .select('id, quantity_current')
+                        .eq('product_id', it.product_id)
+                        .eq('stock_type', 'PRODUCT')
+                        .single()
+
+                    if (ps) {
+                        const newQty = Math.max(0, (ps.quantity_current || 0) - it.quantity)
+                        await (supabase as any).from('stock')
+                            .update({ quantity_current: newQty, updated_at: new Date().toISOString() })
+                            .eq('id', ps.id)
+                        await (supabase as any).from('stock_movements').insert({
+                            stock_id: ps.id,
+                            delta_quantity: -it.quantity,
+                            reason: `Venda via pedido ${sendingOrder.order_code}`,
+                            created_by: createdBy,
+                        })
+                    }
                 }
-
-                await (supabase as any)
-                    .from('orders')
-                    .update({ status: 'SENT_TO_SALE', sale_id: sale.id, updated_at: new Date().toISOString() })
-                    .eq('id', sendingOrder.id)
             }
 
-            messageApi.success('Pedido enviado para Vendas com sucesso!')
+            // 4) Lançar no fluxo de caixa de acordo com o método de pagamento
+            const now = new Date()
+            const curYear = now.getFullYear()
+            const curMonth = now.getMonth()
+
+            if (paymentMethod === 'LANCAMENTOS_A_RECEBER') {
+                await (supabase as any).from('pending_receivables').insert({
+                    tenant_id: tenantId,
+                    customer_id: sendingOrder.customer_id,
+                    employee_id: sendingOrder.employee_id || null,
+                    sale_id: sale.id,
+                    budget_id: sendingOrder.budget_id || null,
+                    amount: totalValue,
+                    description: `Venda via pedido ${sendingOrder.order_code}`,
+                    launch_date: dayjs().format('YYYY-MM-DD'),
+                    origin_type: 'SALE',
+                    status: 'PENDING',
+                    created_by: createdBy,
+                })
+            } else if (paymentMethod === 'CHEQUE_PRE_DATADO' || paymentMethod === 'BOLETO') {
+                // Usa as parcelas customizadas do pedido (order_installment_rows)
+                const { data: instRows } = await (supabase as any)
+                    .from('order_installment_rows')
+                    .select('due_date, amount, sort_order')
+                    .eq('order_id', sendingOrder.id)
+                    .order('sort_order')
+
+                const validInstallments = (instRows || []).filter((r: any) => r.due_date && Number(r.amount) > 0)
+
+                const payLabel = PAYMENT_METHODS.find(p => p.value === paymentMethod)?.label || paymentMethod
+                let entries: any[]
+
+                if (validInstallments.length > 0) {
+                    entries = validInstallments.map((inst: any, idx: number) => ({
+                        tenant_id: tenantId,
+                        type: 'INCOME',
+                        amount: Number(inst.amount),
+                        due_date: inst.due_date,
+                        description: validInstallments.length > 1
+                            ? `Venda: ${sendingOrder.order_code} — ${payLabel} (${idx + 1}/${validInstallments.length})`
+                            : `Venda: ${sendingOrder.order_code} — ${payLabel}`,
+                        payment_method: paymentMethod,
+                        origin_type: 'SALE',
+                        origin_id: sale.id,
+                        created_by: createdBy,
+                    }))
+                } else {
+                    // Sem parcelas custom — lança em parcela única para hoje
+                    entries = [{
+                        tenant_id: tenantId,
+                        type: 'INCOME',
+                        amount: totalValue,
+                        due_date: dayjs().format('YYYY-MM-DD'),
+                        description: `Venda: ${sendingOrder.order_code} — ${payLabel}`,
+                        payment_method: paymentMethod,
+                        origin_type: 'SALE',
+                        origin_id: sale.id,
+                        created_by: createdBy,
+                    }]
+                }
+                await (supabase as any).from('cash_entries').insert(entries)
+            } else if (paymentMethod === 'CARTAO_CREDITO') {
+                const amountPerInstallment = totalValue / numInstallments
+                const installmentEntries = []
+                for (let i = 1; i <= numInstallments; i++) {
+                    const dueDate = new Date(curYear, curMonth + i, 1)
+                    installmentEntries.push({
+                        tenant_id: tenantId,
+                        type: 'INCOME',
+                        amount: amountPerInstallment,
+                        due_date: dayjs(dueDate).format('YYYY-MM-DD'),
+                        description: numInstallments > 1
+                            ? `Venda: ${sendingOrder.order_code} — ${paymentMethod} (${i}/${numInstallments})`
+                            : `Venda: ${sendingOrder.order_code} — ${paymentMethod}`,
+                        payment_method: paymentMethod,
+                        origin_type: 'SALE',
+                        origin_id: sale.id,
+                        ...(numInstallments > 1 ? { installment_number: i, installment_total: numInstallments } : {}),
+                        created_by: createdBy,
+                    })
+                }
+                await (supabase as any).from('cash_entries').insert(installmentEntries)
+            } else if (paymentMethod) {
+                await (supabase as any).from('cash_entries').insert({
+                    tenant_id: tenantId,
+                    type: 'INCOME',
+                    amount: totalValue,
+                    due_date: dayjs().format('YYYY-MM-DD'),
+                    paid_date: dayjs().format('YYYY-MM-DD'),
+                    description: `Venda: ${sendingOrder.order_code} — ${paymentMethod}${numInstallments > 1 ? ` (${numInstallments}x)` : ''}`,
+                    payment_method: paymentMethod,
+                    origin_type: 'SALE',
+                    origin_id: sale.id,
+                    created_by: createdBy,
+                })
+            }
+
+            // 5) Atualizar pedido como SENT_TO_SALE (com guard de concorrência + rollback)
+            const { data: updatedOrder } = await (supabase as any)
+                .from('orders')
+                .update({ status: 'SENT_TO_SALE', sale_id: sale.id, updated_at: new Date().toISOString() })
+                .eq('id', sendingOrder.id)
+                .neq('status', 'SENT_TO_SALE')
+                .select('id')
+                .single()
+
+            if (!updatedOrder) {
+                // Rollback: outra pessoa enviou o mesmo pedido antes
+                await (supabase as any).from('cash_entries').update({ is_active: false }).eq('origin_type', 'SALE').eq('origin_id', sale.id)
+                await (supabase as any).from('pending_receivables').update({ status: 'CANCELLED' }).eq('sale_id', sale.id)
+                if (items.length) {
+                    for (const it of items) {
+                        if (!it.product_id) continue
+                        const { data: ps } = await (supabase as any).from('stock').select('id, quantity_current').eq('product_id', it.product_id).eq('stock_type', 'PRODUCT').single()
+                        if (ps) {
+                            await (supabase as any).from('stock').update({ quantity_current: (ps.quantity_current || 0) + it.quantity, updated_at: new Date().toISOString() }).eq('id', ps.id)
+                            await (supabase as any).from('stock_movements').insert({ stock_id: ps.id, delta_quantity: it.quantity, reason: 'Rollback: pedido já enviado por outra pessoa', created_by: createdBy })
+                        }
+                    }
+                }
+                await (supabase as any).from('sale_items').delete().eq('sale_id', sale.id)
+                await (supabase as any).from('sales').update({ is_active: false }).eq('id', sale.id)
+                messageApi.warning('Este pedido já foi enviado para vendas por outra pessoa. Nenhuma alteração foi mantida.')
+                setSendToSaleOpen(false)
+                await fetchOrders()
+                return
+            }
+
+            // 6) Histórico do cliente
+            if (sendingOrder.customer_id) {
+                await (supabase as any).from('customer_service_history').insert({
+                    tenant_id: tenantId,
+                    customer_id: sendingOrder.customer_id,
+                    history_type: 'BUDGET_SENT',
+                    service_observation: `Pedido ${sendingOrder.order_code} convertido em venda — ${formatCurrency(totalValue)}`,
+                    created_by: createdBy,
+                })
+            }
+
+            // 7) Sincronizar recorrência do cliente
+            if (sendingOrder.customer_id) {
+                await syncCustomerRecurrenceOnSale({
+                    supabase,
+                    tenantId,
+                    customerId: sendingOrder.customer_id,
+                    saleId: sale.id,
+                    saleDate: dayjs().format('YYYY-MM-DD'),
+                    userId: createdBy,
+                })
+            }
+
+            messageApi.success('🎉 Pedido enviado para Vendas! Venda registrada, estoque atualizado e lançamento no caixa criado.')
             setSendToSaleOpen(false)
             setSendingOrder(null)
-            fetchOrders()
+            await fetchOrders()
         } catch (err: any) {
             console.error(err)
             messageApi.error('Erro ao enviar para vendas: ' + (err?.message || 'desconhecido'))
@@ -531,28 +732,31 @@ function OrdersPage() {
             title: 'Código',
             dataIndex: 'order_code',
             key: 'order_code',
-            width: 130,
+            width: 120,
+            ellipsis: true,
             render: (v: string) => <Tag color="blue">{v}</Tag>,
         },
         {
             title: 'Cliente',
             dataIndex: 'customer_name',
             key: 'customer_name',
-            width: 200,
             ellipsis: true,
+            sorter: (a, b) => (a.customer_name || '').localeCompare(b.customer_name || ''),
         },
         {
             title: 'Vendedor',
             dataIndex: 'employee_name',
             key: 'employee_name',
-            width: 160,
             ellipsis: true,
+            responsive: ['md'],
+            sorter: (a, b) => (a.employee_name || '').localeCompare(b.employee_name || ''),
         },
         {
             title: 'Status',
             dataIndex: 'status',
             key: 'status',
-            width: 170,
+            width: 160,
+            ellipsis: true,
             render: (s: string) => {
                 const cfg = STATUS_CONFIG[s] || { color: 'default', label: s }
                 return <Tag color={cfg.color}>{cfg.label}</Tag>
@@ -562,15 +766,18 @@ function OrdersPage() {
             title: 'Valor total',
             dataIndex: 'total_value',
             key: 'total_value',
-            width: 140,
+            width: 130,
             align: 'right',
             render: (v: number) => <strong>{formatCurrency(v)}</strong>,
+            sorter: (a, b) => (a.total_value || 0) - (b.total_value || 0),
         },
         {
             title: 'Pagamento',
             dataIndex: 'payment_method',
             key: 'payment_method',
-            width: 160,
+            width: 150,
+            ellipsis: true,
+            responsive: ['lg'],
             render: (v: string) => {
                 const pm = PAYMENT_METHODS.find((p) => p.value === v)
                 return pm ? <Tag>{pm.label}</Tag> : '—'
@@ -579,8 +786,8 @@ function OrdersPage() {
         {
             title: 'Ações',
             key: 'actions',
-            width: 160,
-            fixed: 'right',
+            width: 170,
+            align: 'center',
             render: (_, record) => (
                 <Space direction="vertical" size={2}>
                     <Button
@@ -710,7 +917,8 @@ function OrdersPage() {
                     dataSource={filteredOrders}
                     loading={loading}
                     size="small"
-                    scroll={{ x: 1600 }}
+                    tableLayout="fixed"
+                    scroll={{ x: 'max-content' }}
                     pagination={{ pageSize: 20, showSizeChanger: true }}
                     locale={{ emptyText: <Empty description="Nenhum pedido em aberto" /> }}
                 />

@@ -262,6 +262,28 @@ function Home() {
   // PE = Custo Fixo R$ / Margem de Contribuição
   // Custo Fixo R$ = (% MO Produtiva + % MO Administrativa + % Despesa Fixa) × Faturamento Médio do HUB
   // MC = 1 - (% Custo Produtos + % Despesa Variável + % Comissões + % Impostos por dentro + % Despesa Financeira) / 100
+  //
+  // Fallback: se `hub_average_revenue` estiver zerado no banco (mergeExpenseConfig nunca rodou
+  // ou retornou null silenciosamente), calculamos uma média mensal "ao vivo" a partir dos
+  // cash_entries do ano carregados aqui — usando apenas meses já fechados (até o mês anterior)
+  // com receita > 0, para não diluir com meses sem lançamento.
+  const liveAverageRevenue = useMemo(() => {
+    const now = new Date()
+    const cutoffMonth = now.getFullYear() === currentYear ? now.getMonth() : 12
+    const monthly: number[] = Array(12).fill(0)
+    allYearEntries.forEach((e: any) => {
+      if (e.type !== 'INCOME') return
+      const d = new Date(e.due_date + 'T00:00:00')
+      if (d.getFullYear() !== currentYear) return
+      const mIdx = d.getMonth()
+      if (mIdx >= cutoffMonth) return // ignora mês atual e futuros (mês ainda aberto)
+      monthly[mIdx] += getEffectiveIncomeAmount(e)
+    })
+    const monthsWithIncome = monthly.slice(0, cutoffMonth).filter((v) => v > 0)
+    if (monthsWithIncome.length === 0) return 0
+    return monthsWithIncome.reduce((s, v) => s + v, 0) / monthsWithIncome.length
+  }, [allYearEntries, currentYear])
+
   const breakevenResult = useMemo(() => {
     const input = buildBreakevenInputFromConfig(
       expenseConfig,
@@ -269,8 +291,11 @@ function Home() {
       Number((currentUser as any)?.profitValue) || 0,
       Number((currentUser as any)?.commissionValue) || 0,
     )
+    if ((!input.averageRevenue || input.averageRevenue <= 0) && liveAverageRevenue > 0) {
+      input.averageRevenue = liveAverageRevenue
+    }
     return calculateBreakeven(input)
-  }, [expenseConfig, currentUser, calcBase])
+  }, [expenseConfig, currentUser, calcBase, liveAverageRevenue])
   const pontoEquilibrio = breakevenResult.isValid && breakevenResult.breakeven != null
     ? breakevenResult.breakeven
     : 0
