@@ -74,6 +74,7 @@ function Home() {
   const [cashierMonthsData, setCashierMonthsData] = useState<any[]>([])
   const [calcBase, setCalcBase] = useState<CalcBaseType>(buildCalcBase(null))
   const [expenseConfig, setExpenseConfig] = useState<any | null>(null)
+  const [previousMonthRevenue, setPreviousMonthRevenue] = useState<number>(0)
   const [showPricingBanner, setShowPricingBanner] = useState(false)
   const [tenantSettingsId, setTenantSettingsId] = useState<string | null>(null)
   const [restitutionSummary, setRestitutionSummary] = useState<{
@@ -97,6 +98,19 @@ function Home() {
     fetchDashboardData()
   }, [currentUser, currentYear])
 
+  // Faixa de datas do mês anterior — usado como faturamento de referência do PE.
+  // Em janeiro, o "mês anterior" é dezembro do ano passado.
+  function getPreviousMonthRange() {
+    const now = new Date()
+    const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+    const year = prev.getFullYear()
+    const month = prev.getMonth()
+    const start = new Date(year, month, 1)
+    const end = new Date(year, month + 1, 0)
+    const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    return { start: fmt(start), end: fmt(end) }
+  }
+
   async function fetchDashboardData() {
     const tenantId = await getTenantId()
     if (!tenantId) return
@@ -116,8 +130,9 @@ function Home() {
     try {
       const startOfYear = `${currentYear}-01-01`
       const endOfYear = `${currentYear}-12-31`
+      const prevMonth = getPreviousMonthRange()
 
-      const [yearEntriesRes, cashierMonthsRes, expenseConfigRes, tenantSettingsRes, restitutionRes] = await Promise.all([
+      const [yearEntriesRes, cashierMonthsRes, expenseConfigRes, tenantSettingsRes, restitutionRes, prevMonthIncomeRes] = await Promise.all([
         supabase.from('cash_entries').select('*').eq('tenant_id', tenantId).eq('is_active', true).gte('due_date', startOfYear).lte('due_date', endOfYear),
         supabase.from('cashier_months').select('*').eq('tenant_id', tenantId).gte('month_year', startOfYear).lte('month_year', endOfYear),
         supabase.from('tenant_expense_config').select('*').eq('tenant_id', tenantId).single(),
@@ -128,7 +143,21 @@ function Home() {
           .eq('tenant_id', tenantId)
           .order('reference_month', { ascending: false })
           .limit(1),
+        supabase
+          .from('cash_entries')
+          .select('amount, type')
+          .eq('tenant_id', tenantId)
+          .eq('is_active', true)
+          .eq('type', 'INCOME')
+          .gte('due_date', prevMonth.start)
+          .lte('due_date', prevMonth.end),
       ])
+
+      const prevMonthTotal = (prevMonthIncomeRes.data || []).reduce(
+        (s: number, e: any) => s + (Number(e.amount) || 0),
+        0,
+      )
+      setPreviousMonthRevenue(prevMonthTotal)
 
       const entries = yearEntriesRes.data || []
       const months = cashierMonthsRes.data || []
@@ -178,18 +207,32 @@ function Home() {
     try {
       const startOfYear = `${currentYear}-01-01`
       const endOfYear = `${currentYear}-12-31`
-      const [yearEntriesRes, cashierMonthsRes, expenseConfigRes] = await Promise.all([
+      const prevMonth = getPreviousMonthRange()
+      const [yearEntriesRes, cashierMonthsRes, expenseConfigRes, prevMonthIncomeRes] = await Promise.all([
         supabase.from('cash_entries').select('*').eq('tenant_id', tenantId).eq('is_active', true).gte('due_date', startOfYear).lte('due_date', endOfYear),
         supabase.from('cashier_months').select('*').eq('tenant_id', tenantId).gte('month_year', startOfYear).lte('month_year', endOfYear),
         supabase.from('tenant_expense_config').select('*').eq('tenant_id', tenantId).single(),
+        supabase
+          .from('cash_entries')
+          .select('amount, type')
+          .eq('tenant_id', tenantId)
+          .eq('is_active', true)
+          .eq('type', 'INCOME')
+          .gte('due_date', prevMonth.start)
+          .lte('due_date', prevMonth.end),
       ])
       const entries = yearEntriesRes.data || []
       const months = cashierMonthsRes.data || []
       const expense = expenseConfigRes.data
       const base = expense ? buildCalcBase(expense) : buildCalcBase(null)
+      const prevMonthTotal = (prevMonthIncomeRes.data || []).reduce(
+        (s: number, e: any) => s + (Number(e.amount) || 0),
+        0,
+      )
       setAllYearEntries(entries)
       setCashierMonthsData(months)
       setCalcBase(base)
+      setPreviousMonthRevenue(prevMonthTotal)
       setDashboardCache(tenantId, currentYear, {
         allYearEntries: entries,
         cashierMonthsData: months,
@@ -260,30 +303,13 @@ function Home() {
 
   // Ponto de Equilíbrio (Sprint 4 — Maio 2026):
   // PE = Custo Fixo R$ / Margem de Contribuição
-  // Custo Fixo R$ = (% MO Produtiva + % MO Administrativa + % Despesa Fixa) × Faturamento Médio do HUB
+  // Custo Fixo R$ = (% MO Produtiva + % MO Administrativa + % Despesa Fixa) × Faturamento do Mês Anterior
   // MC = 1 - (% Custo Produtos + % Despesa Variável + % Comissões + % Impostos por dentro + % Despesa Financeira) / 100
   //
-  // Fallback: se `hub_average_revenue` estiver zerado no banco (mergeExpenseConfig nunca rodou
-  // ou retornou null silenciosamente), calculamos uma média mensal "ao vivo" a partir dos
-  // cash_entries do ano carregados aqui — usando apenas meses já fechados (até o mês anterior)
-  // com receita > 0, para não diluir com meses sem lançamento.
-  const liveAverageRevenue = useMemo(() => {
-    const now = new Date()
-    const cutoffMonth = now.getFullYear() === currentYear ? now.getMonth() : 12
-    const monthly: number[] = Array(12).fill(0)
-    allYearEntries.forEach((e: any) => {
-      if (e.type !== 'INCOME') return
-      const d = new Date(e.due_date + 'T00:00:00')
-      if (d.getFullYear() !== currentYear) return
-      const mIdx = d.getMonth()
-      if (mIdx >= cutoffMonth) return // ignora mês atual e futuros (mês ainda aberto)
-      monthly[mIdx] += getEffectiveIncomeAmount(e)
-    })
-    const monthsWithIncome = monthly.slice(0, cutoffMonth).filter((v) => v > 0)
-    if (monthsWithIncome.length === 0) return 0
-    return monthsWithIncome.reduce((s, v) => s + v, 0) / monthsWithIncome.length
-  }, [allYearEntries, currentYear])
-
+  // Faturamento de referência = soma das receitas (INCOME) do MÊS ANTERIOR — sempre.
+  // O `previousMonthRevenue` é carregado via query dedicada em fetchDashboardData / revalidateDashboard
+  // (independente do ano, então em janeiro pega dezembro do ano passado).
+  // Usado como fallback se `tenant_expense_config.hub_average_revenue` estiver zerado.
   const breakevenResult = useMemo(() => {
     const input = buildBreakevenInputFromConfig(
       expenseConfig,
@@ -291,11 +317,11 @@ function Home() {
       Number((currentUser as any)?.profitValue) || 0,
       Number((currentUser as any)?.commissionValue) || 0,
     )
-    if ((!input.averageRevenue || input.averageRevenue <= 0) && liveAverageRevenue > 0) {
-      input.averageRevenue = liveAverageRevenue
+    if ((!input.averageRevenue || input.averageRevenue <= 0) && previousMonthRevenue > 0) {
+      input.averageRevenue = previousMonthRevenue
     }
     return calculateBreakeven(input)
-  }, [expenseConfig, currentUser, calcBase, liveAverageRevenue])
+  }, [expenseConfig, currentUser, calcBase, previousMonthRevenue])
   const pontoEquilibrio = breakevenResult.isValid && breakevenResult.breakeven != null
     ? breakevenResult.breakeven
     : 0
