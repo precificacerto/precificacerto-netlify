@@ -1,5 +1,5 @@
-import { useEffect, useState, useMemo, useCallback } from 'react'
-import { Spin, Select, Button, Alert } from 'antd'
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react'
+import { Spin, Select, Button, Alert, Tooltip as AntTooltip } from 'antd'
 import { useRouter } from 'next/router'
 import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
@@ -98,16 +98,22 @@ function Home() {
     fetchDashboardData()
   }, [currentUser, currentYear])
 
-  // Garante que o tenant_expense_config tem hub_average_revenue (e demais % do HUB) populados.
-  // Se estiver zerado e existirem entradas no fluxo, dispara mergeExpenseConfig em background,
-  // depois recarrega o expense_config e atualiza o estado da home. Isso faz o card PE aparecer
-  // automaticamente assim que o HUB tem dados, sem o usuário precisar clicar em "Sincronizar".
-  async function ensureHubSynced(tenantId: string, currentExpense: any, entries: any[]) {
-    const hubMissing = !currentExpense?.hub_average_revenue || Number(currentExpense.hub_average_revenue) <= 0
+  // Guard de one-shot por sessão para não rodar sync em loop
+  const hubSyncDoneRef = useRef(false)
+
+  // Sincroniza HUB → tenant_expense_config para garantir percentuais e faturamento médio atualizados.
+  // Sempre roda 1x por sessão se houver receitas no fluxo, mesmo que `hub_average_revenue` já tenha
+  // um valor antigo — porque os percentuais (production_labor_percent etc) também podem estar
+  // desatualizados em relação ao HUB atual.
+  async function ensureHubSynced(tenantId: string, entries: any[]) {
+    if (hubSyncDoneRef.current) return
     const hasIncome = entries.some((e: any) => e?.type === 'INCOME')
-    if (!hubMissing || !hasIncome) return
+    if (!hasIncome) return
+    hubSyncDoneRef.current = true
     try {
-      await mergeExpenseConfig(tenantId)
+      const result = await mergeExpenseConfig(tenantId)
+      // eslint-disable-next-line no-console
+      console.info('[PE] HUB sync result:', result)
       const { data: refreshed } = await supabase
         .from('tenant_expense_config')
         .select('*')
@@ -117,8 +123,9 @@ function Home() {
         setExpenseConfig(refreshed)
         setCalcBase(buildCalcBase(refreshed))
       }
-    } catch {
-      // falha silenciosa — usuário pode sincronizar manualmente na aba HUB
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn('[PE] HUB sync falhou:', err)
     }
   }
 
@@ -166,7 +173,7 @@ function Home() {
       setExpenseConfig(expense || null)
 
       // Se hub_average_revenue está zerado mas já temos receitas: sincroniza HUB em background
-      void ensureHubSynced(tenantId, expense, entries)
+      void ensureHubSynced(tenantId, entries)
 
       const ts = tenantSettingsRes.data
       if (ts) {
@@ -225,7 +232,7 @@ function Home() {
         calcBase: base,
       })
       // Garante sincronização do HUB também na revalidação
-      void ensureHubSynced(tenantId, expense, entries)
+      void ensureHubSynced(tenantId, entries)
     } catch {
       // falha silenciosa na revalidação em background
     }
@@ -306,7 +313,28 @@ function Home() {
       Number((currentUser as any)?.profitValue) || 0,
       Number((currentUser as any)?.commissionValue) || 0,
     )
-    return calculateBreakeven(input)
+    const result = calculateBreakeven(input)
+    // Diagnóstico — se PE não calcula, o console mostra o motivo + os valores que entraram
+    if (!result.isValid && expenseConfig) {
+      // eslint-disable-next-line no-console
+      console.warn('[PE] Não foi possível calcular o Ponto de Equilíbrio:', {
+        motivo: result.reason,
+        inputs: input,
+        totalVariablePct: result.totalVariablePct,
+        marginOfContribution: result.marginOfContribution,
+        fixedCostMonthly: result.fixedCostMonthly,
+        expenseConfig_raw: {
+          hub_average_revenue: expenseConfig?.hub_average_revenue,
+          production_labor_percent: expenseConfig?.production_labor_percent,
+          indirect_labor_percent: expenseConfig?.indirect_labor_percent,
+          fixed_expense_percent: expenseConfig?.fixed_expense_percent,
+          product_cost_percent: expenseConfig?.product_cost_percent,
+          variable_expense_percent: expenseConfig?.variable_expense_percent,
+          financial_expense_percent: expenseConfig?.financial_expense_percent,
+        },
+      })
+    }
+    return result
   }, [expenseConfig, currentUser, calcBase])
   const pontoEquilibrio = breakevenResult.isValid && breakevenResult.breakeven != null
     ? breakevenResult.breakeven
@@ -650,15 +678,24 @@ function Home() {
           icon={<CalendarOutlined />}
           variant="orange"
         />
-        <CardKPI
-          title="Ponto de Equilíbrio"
-          value={breakevenResult.isValid && breakevenResult.breakeven != null
-            ? formatCurrency(breakevenResult.breakeven)
-            : '—'}
-          icon={<AimOutlined />}
-          variant={peAtingido ? 'green' : 'red'}
-          trend={pontoEquilibrio > 0 ? { value: peAtingidoPct, label: 'atingido' } : undefined}
-        />
+        <AntTooltip
+          title={!breakevenResult.isValid && breakevenResult.reason
+            ? `${breakevenResult.reason} (abra o console F12 para ver os valores)`
+            : ''}
+          placement="top"
+        >
+          <div>
+            <CardKPI
+              title="Ponto de Equilíbrio"
+              value={breakevenResult.isValid && breakevenResult.breakeven != null
+                ? formatCurrency(breakevenResult.breakeven)
+                : '—'}
+              icon={<AimOutlined />}
+              variant={peAtingido ? 'green' : 'red'}
+              trend={pontoEquilibrio > 0 ? { value: peAtingidoPct, label: 'atingido' } : undefined}
+            />
+          </div>
+        </AntTooltip>
       </div>
 
       {restitutionSummary && (currentUser?.taxableRegime === 'LUCRO_REAL' || currentUser?.taxableRegime === 'LUCRO_PRESUMIDO') && (
