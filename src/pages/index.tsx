@@ -39,6 +39,7 @@ import { useAuth } from '@/hooks/use-auth.hook'
 import { getDashboardCache, setDashboardCache } from '@/utils/dashboard-cache'
 import { RestitutionSummaryCard } from '@/components/restitution-summary.component'
 import { calculateBreakeven, buildBreakevenInputFromConfig } from '@/utils/breakeven-calculator'
+import { mergeExpenseConfig } from '@/utils/recalc-expense-config'
 import { formatBRL } from '@/utils/formatters'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler)
@@ -74,7 +75,6 @@ function Home() {
   const [cashierMonthsData, setCashierMonthsData] = useState<any[]>([])
   const [calcBase, setCalcBase] = useState<CalcBaseType>(buildCalcBase(null))
   const [expenseConfig, setExpenseConfig] = useState<any | null>(null)
-  const [previousMonthRevenue, setPreviousMonthRevenue] = useState<number>(0)
   const [showPricingBanner, setShowPricingBanner] = useState(false)
   const [tenantSettingsId, setTenantSettingsId] = useState<string | null>(null)
   const [restitutionSummary, setRestitutionSummary] = useState<{
@@ -98,17 +98,28 @@ function Home() {
     fetchDashboardData()
   }, [currentUser, currentYear])
 
-  // Faixa de datas do mês anterior — usado como faturamento de referência do PE.
-  // Em janeiro, o "mês anterior" é dezembro do ano passado.
-  function getPreviousMonthRange() {
-    const now = new Date()
-    const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1)
-    const year = prev.getFullYear()
-    const month = prev.getMonth()
-    const start = new Date(year, month, 1)
-    const end = new Date(year, month + 1, 0)
-    const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-    return { start: fmt(start), end: fmt(end) }
+  // Garante que o tenant_expense_config tem hub_average_revenue (e demais % do HUB) populados.
+  // Se estiver zerado e existirem entradas no fluxo, dispara mergeExpenseConfig em background,
+  // depois recarrega o expense_config e atualiza o estado da home. Isso faz o card PE aparecer
+  // automaticamente assim que o HUB tem dados, sem o usuário precisar clicar em "Sincronizar".
+  async function ensureHubSynced(tenantId: string, currentExpense: any, entries: any[]) {
+    const hubMissing = !currentExpense?.hub_average_revenue || Number(currentExpense.hub_average_revenue) <= 0
+    const hasIncome = entries.some((e: any) => e?.type === 'INCOME')
+    if (!hubMissing || !hasIncome) return
+    try {
+      await mergeExpenseConfig(tenantId)
+      const { data: refreshed } = await supabase
+        .from('tenant_expense_config')
+        .select('*')
+        .eq('tenant_id', tenantId)
+        .single()
+      if (refreshed) {
+        setExpenseConfig(refreshed)
+        setCalcBase(buildCalcBase(refreshed))
+      }
+    } catch {
+      // falha silenciosa — usuário pode sincronizar manualmente na aba HUB
+    }
   }
 
   async function fetchDashboardData() {
@@ -130,9 +141,8 @@ function Home() {
     try {
       const startOfYear = `${currentYear}-01-01`
       const endOfYear = `${currentYear}-12-31`
-      const prevMonth = getPreviousMonthRange()
 
-      const [yearEntriesRes, cashierMonthsRes, expenseConfigRes, tenantSettingsRes, restitutionRes, prevMonthIncomeRes] = await Promise.all([
+      const [yearEntriesRes, cashierMonthsRes, expenseConfigRes, tenantSettingsRes, restitutionRes] = await Promise.all([
         supabase.from('cash_entries').select('*').eq('tenant_id', tenantId).eq('is_active', true).gte('due_date', startOfYear).lte('due_date', endOfYear),
         supabase.from('cashier_months').select('*').eq('tenant_id', tenantId).gte('month_year', startOfYear).lte('month_year', endOfYear),
         supabase.from('tenant_expense_config').select('*').eq('tenant_id', tenantId).single(),
@@ -143,21 +153,7 @@ function Home() {
           .eq('tenant_id', tenantId)
           .order('reference_month', { ascending: false })
           .limit(1),
-        supabase
-          .from('cash_entries')
-          .select('amount, type')
-          .eq('tenant_id', tenantId)
-          .eq('is_active', true)
-          .eq('type', 'INCOME')
-          .gte('due_date', prevMonth.start)
-          .lte('due_date', prevMonth.end),
       ])
-
-      const prevMonthTotal = (prevMonthIncomeRes.data || []).reduce(
-        (s: number, e: any) => s + (Number(e.amount) || 0),
-        0,
-      )
-      setPreviousMonthRevenue(prevMonthTotal)
 
       const entries = yearEntriesRes.data || []
       const months = cashierMonthsRes.data || []
@@ -168,6 +164,9 @@ function Home() {
       const base = expense ? buildCalcBase(expense) : buildCalcBase(null)
       setCalcBase(base)
       setExpenseConfig(expense || null)
+
+      // Se hub_average_revenue está zerado mas já temos receitas: sincroniza HUB em background
+      void ensureHubSynced(tenantId, expense, entries)
 
       const ts = tenantSettingsRes.data
       if (ts) {
@@ -207,37 +206,26 @@ function Home() {
     try {
       const startOfYear = `${currentYear}-01-01`
       const endOfYear = `${currentYear}-12-31`
-      const prevMonth = getPreviousMonthRange()
-      const [yearEntriesRes, cashierMonthsRes, expenseConfigRes, prevMonthIncomeRes] = await Promise.all([
+      const [yearEntriesRes, cashierMonthsRes, expenseConfigRes] = await Promise.all([
         supabase.from('cash_entries').select('*').eq('tenant_id', tenantId).eq('is_active', true).gte('due_date', startOfYear).lte('due_date', endOfYear),
         supabase.from('cashier_months').select('*').eq('tenant_id', tenantId).gte('month_year', startOfYear).lte('month_year', endOfYear),
         supabase.from('tenant_expense_config').select('*').eq('tenant_id', tenantId).single(),
-        supabase
-          .from('cash_entries')
-          .select('amount, type')
-          .eq('tenant_id', tenantId)
-          .eq('is_active', true)
-          .eq('type', 'INCOME')
-          .gte('due_date', prevMonth.start)
-          .lte('due_date', prevMonth.end),
       ])
       const entries = yearEntriesRes.data || []
       const months = cashierMonthsRes.data || []
       const expense = expenseConfigRes.data
       const base = expense ? buildCalcBase(expense) : buildCalcBase(null)
-      const prevMonthTotal = (prevMonthIncomeRes.data || []).reduce(
-        (s: number, e: any) => s + (Number(e.amount) || 0),
-        0,
-      )
       setAllYearEntries(entries)
       setCashierMonthsData(months)
       setCalcBase(base)
-      setPreviousMonthRevenue(prevMonthTotal)
+      setExpenseConfig(expense || null)
       setDashboardCache(tenantId, currentYear, {
         allYearEntries: entries,
         cashierMonthsData: months,
         calcBase: base,
       })
+      // Garante sincronização do HUB também na revalidação
+      void ensureHubSynced(tenantId, expense, entries)
     } catch {
       // falha silenciosa na revalidação em background
     }
@@ -301,15 +289,16 @@ function Home() {
   const totalSaidas = selectedMonthChartData.expenses.reduce((sum, item) => sum + (item.price || 0), 0)
   const saldoAtual = totalEntradas - totalSaidas
 
-  // Ponto de Equilíbrio (Sprint 4 — Maio 2026):
+  // Ponto de Equilíbrio:
   // PE = Custo Fixo R$ / Margem de Contribuição
-  // Custo Fixo R$ = (% MO Produtiva + % MO Administrativa + % Despesa Fixa) × Faturamento do Mês Anterior
-  // MC = 1 - (% Custo Produtos + % Despesa Variável + % Comissões + % Impostos por dentro + % Despesa Financeira) / 100
+  //   Variáveis (% sobre faturamento): Custo Produtos + Despesas Variáveis + Comissões + Impostos + Desp. Financeiras
+  //   MC = 1 − (Total Variável / 100)
+  //   Custo Fixo R$ = (% MO Produtiva + % MO Administrativa + % Despesa Fixa) × Faturamento Médio
+  //   Faturamento Médio = `tenant_expense_config.hub_average_revenue` (média geral do HUB)
   //
-  // Faturamento de referência = soma das receitas (INCOME) do MÊS ANTERIOR — sempre.
-  // O `previousMonthRevenue` é carregado via query dedicada em fetchDashboardData / revalidateDashboard
-  // (independente do ano, então em janeiro pega dezembro do ano passado).
-  // Usado como fallback se `tenant_expense_config.hub_average_revenue` estiver zerado.
+  // Sincronização: se `hub_average_revenue` está zerado mas existem receitas no fluxo, o
+  // `ensureHubSynced` dispara `mergeExpenseConfig` em background — o card atualiza sozinho
+  // quando o HUB termina de calcular.
   const breakevenResult = useMemo(() => {
     const input = buildBreakevenInputFromConfig(
       expenseConfig,
@@ -317,11 +306,8 @@ function Home() {
       Number((currentUser as any)?.profitValue) || 0,
       Number((currentUser as any)?.commissionValue) || 0,
     )
-    if ((!input.averageRevenue || input.averageRevenue <= 0) && previousMonthRevenue > 0) {
-      input.averageRevenue = previousMonthRevenue
-    }
     return calculateBreakeven(input)
-  }, [expenseConfig, currentUser, calcBase, previousMonthRevenue])
+  }, [expenseConfig, currentUser, calcBase])
   const pontoEquilibrio = breakevenResult.isValid && breakevenResult.breakeven != null
     ? breakevenResult.breakeven
     : 0
