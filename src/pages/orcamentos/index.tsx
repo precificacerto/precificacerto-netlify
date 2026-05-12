@@ -977,7 +977,11 @@ function Budgets() {
 
     // ── Abrir modal de pagamento (só se orçamento ainda não foi pago por outra pessoa) ──
     const handleOpenPayment = async (budget: any) => {
-        const { data: fresh } = await supabase.from('budgets').select('id, status, total_value, customer_id, employee_id, commission_amount, profit_amount, customer:customers(name)').eq('id', budget.id).single()
+        const { data: fresh } = await supabase
+            .from('budgets')
+            .select('id, status, total_value, customer_id, employee_id, commission_amount, profit_amount, payment_method, installments, installment_preset, global_discount_percent, customer:customers(name)')
+            .eq('id', budget.id)
+            .single()
         if (fresh?.status === 'PAID') {
             messageApi.info('Este orçamento já foi finalizado e o pagamento lançado.')
             await reloadBudgets()
@@ -987,8 +991,8 @@ function Budgets() {
         setSelectedBudget(budgetData)
         paymentForm.resetFields()
         paymentForm.setFieldsValue({
-            installments: 1,
-            payment_method: budgetData.payment_method || undefined,
+            installments: (budgetData as any).installments || 1,
+            payment_method: (budgetData as any).payment_method || undefined,
         })
         setAttachFile(null)
         setAttachDesc('')
@@ -1158,6 +1162,7 @@ function Budgets() {
                             : `Venda: ORC-${selectedBudget.id.substring(0, 4).toUpperCase()} — ${values.payment_method}`,
                         payment_method: values.payment_method,
                         origin_type: 'SALE',
+                        origin_id: sale.id,
                         ...(numInstallments > 1 ? { installment_number: i, installment_total: numInstallments } : {}),
                         created_by: createdBy,
                     })

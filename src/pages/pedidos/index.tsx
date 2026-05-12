@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import {
-    Button, Drawer, Form, Input, InputNumber, Select, Space, Table, Tag,
+    Button, DatePicker, Drawer, Form, Input, InputNumber, Select, Space, Table, Tag,
     message, Modal, Popconfirm, Empty, Checkbox, Divider, Typography,
 } from 'antd'
+import { CurrencyInput } from '@/components/currency-input.component'
 import type { ColumnsType } from 'antd/es/table'
 import {
     ShoppingCartOutlined, EditOutlined, DeleteOutlined, PlusOutlined,
@@ -79,7 +80,90 @@ interface Order {
     customer_name?: string
     employee_name?: string
     budget_code?: string
+    budget_status?: string | null
     items_count?: number
+}
+
+// Editor de parcelas customizadas (datas + valores) — usado quando o método de pagamento
+// é BOLETO ou CHEQUE_PRE_DATADO. Permite adicionar, editar e remover parcelas.
+function OrderInstallmentsEditor({
+    form,
+    rows,
+    onChange,
+}: {
+    form: any
+    rows: { due_date: string; amount: number; sort_order: number }[]
+    onChange: (rows: { due_date: string; amount: number; sort_order: number }[]) => void
+}) {
+    const paymentMethod = Form.useWatch('payment_method', form)
+    const showEditor = paymentMethod === 'BOLETO' || paymentMethod === 'CHEQUE_PRE_DATADO'
+    if (!showEditor && rows.length === 0) return null
+
+    const updateRow = (idx: number, patch: Partial<{ due_date: string; amount: number }>) => {
+        const next = rows.map((r, i) => (i === idx ? { ...r, ...patch } : r))
+        onChange(next)
+    }
+    const removeRow = (idx: number) => {
+        onChange(rows.filter((_, i) => i !== idx).map((r, i) => ({ ...r, sort_order: i })))
+    }
+    const addRow = () => {
+        onChange([...rows, { due_date: '', amount: 0, sort_order: rows.length }])
+    }
+
+    return (
+        <Form.Item label="Parcelas (vencimento e valor)" tooltip="Datas herdadas do orçamento. Edite se necessário — usado para BOLETO/CHEQUE PRÉ-DATADO.">
+            <Space direction="vertical" style={{ width: '100%' }} size={6}>
+                {rows.map((r, idx) => (
+                    <Space key={idx} style={{ display: 'flex', width: '100%' }} size={6}>
+                        <Tag style={{ minWidth: 28, textAlign: 'center' }}>{idx + 1}</Tag>
+                        <DatePicker
+                            value={r.due_date ? dayjs(r.due_date) : null}
+                            format="DD/MM/YYYY"
+                            onChange={(d) => updateRow(idx, { due_date: d ? d.format('YYYY-MM-DD') : '' })}
+                            style={{ width: 150 }}
+                        />
+                        <CurrencyInput
+                            value={r.amount}
+                            onChange={(v) => updateRow(idx, { amount: Number(v) || 0 })}
+                            style={{ width: 150 }}
+                        />
+                        <Button type="text" danger icon={<DeleteOutlined />} onClick={() => removeRow(idx)} />
+                    </Space>
+                ))}
+                <Button type="dashed" icon={<PlusOutlined />} onClick={addRow} block>
+                    Adicionar parcela
+                </Button>
+            </Space>
+        </Form.Item>
+    )
+}
+
+// Resumo de totais do drawer de edição — observa o `discount_percent` no form em tempo real
+// e mostra Subtotal (bruto), Desconto e Total final (= subtotal × (1 - desc/100)).
+function OrderTotalsSummary({ form, items }: { form: any; items: OrderItemRow[] }) {
+    const discountPct = Form.useWatch('discount_percent', form) ?? 0
+    const subtotal = items.reduce((s, it) => s + (it.total_price || 0), 0)
+    const pct = Math.max(0, Math.min(100, Number(discountPct) || 0))
+    const discountAmount = subtotal * (pct / 100)
+    const finalTotal = subtotal - discountAmount
+    return (
+        <div style={{ marginTop: 16, padding: 12, background: '#FAFAFA', borderRadius: 6, fontSize: 14 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                <span style={{ color: '#667085' }}>Subtotal</span>
+                <span>{formatCurrency(subtotal)}</span>
+            </div>
+            {pct > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, color: '#EF4444' }}>
+                    <span>Desconto ({pct.toLocaleString('pt-BR')}%)</span>
+                    <span>− {formatCurrency(discountAmount)}</span>
+                </div>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 8, borderTop: '1px solid #E4E7EC', fontWeight: 700, fontSize: 16 }}>
+                <span>Total</span>
+                <span style={{ color: '#12B76A' }}>{formatCurrency(finalTotal)}</span>
+            </div>
+        </div>
+    )
 }
 
 function OrdersPage() {
@@ -132,7 +216,7 @@ function OrdersPage() {
                     payment_method, installments, entry_value, notes,
                     created_at, updated_at,
                     customers ( name ),
-                    budgets ( id ),
+                    budgets ( id, status ),
                     order_items ( id )
                 `)
                 .eq('tenant_id', tenantId)
@@ -149,6 +233,7 @@ function OrdersPage() {
                 customer_name: o.customers?.name || '-',
                 employee_name: o.employee_id ? (empMap.get(o.employee_id) || '-') : '-',
                 budget_code: o.budget_id ? `ORC-${String(o.budget_id).slice(0, 6).toUpperCase()}` : '',
+                budget_status: o.budgets?.status || null,
                 items_count: Array.isArray(o.order_items) ? o.order_items.length : 0,
             }))
             setOrders(hydrated)
@@ -196,14 +281,9 @@ function OrdersPage() {
 
     const handleEdit = async (order: Order) => {
         setEditingOrder(order)
-        editForm.setFieldsValue({
-            customer_id: order.customer_id,
-            employee_id: order.employee_id,
-            payment_method: order.payment_method,
-            installments: order.installments || 1,
-            discount_percent: Number(order.discount_percent) || 0,
-            notes: order.notes || '',
-        })
+        // Abre o drawer ANTES de setar os valores no form — assim os Form.Items já estão
+        // montados quando setFieldsValue roda (sem isso, valores se perdem).
+        setEditDrawerOpen(true)
         const [items, instRowsResult] = await Promise.all([
             fetchOrderItems(order.id),
             (supabase as any)
@@ -214,7 +294,17 @@ function OrdersPage() {
         ])
         setOrderItems(items)
         setOrderInstallmentRows(instRowsResult.data || [])
-        setEditDrawerOpen(true)
+        // Defer 1 tick para garantir que o form está renderizado
+        setTimeout(() => {
+            editForm.setFieldsValue({
+                customer_id: order.customer_id,
+                employee_id: order.employee_id,
+                payment_method: order.payment_method,
+                installments: order.installments || 1,
+                discount_percent: Number(order.discount_percent) || 0,
+                notes: order.notes || '',
+            })
+        }, 0)
     }
 
     const handleAddProductToOrder = () => {
@@ -277,6 +367,13 @@ function OrdersPage() {
         if (!editingOrder) return
         try {
             const values = await editForm.validateFields()
+
+            const validItems = orderItems.filter((it) => it.product_id || it.service_id || it.manual_description)
+            if (validItems.length === 0) {
+                messageApi.warning('Adicione pelo menos um produto, serviço ou item ao pedido.')
+                return
+            }
+
             setSavingEdit(true)
 
             // grossSum é a soma bruta dos items (unit_price original × quantity).
@@ -323,10 +420,28 @@ function OrdersPage() {
                 }
             }
 
+            // Persistir parcelas customizadas (cheque/boleto) — delete + reinsert
+            await (supabase as any).from('order_installment_rows').delete().eq('order_id', editingOrder.id)
+            const pm = values.payment_method
+            if ((pm === 'BOLETO' || pm === 'CHEQUE_PRE_DATADO') && orderInstallmentRows.length > 0) {
+                const validRows = orderInstallmentRows
+                    .filter((r) => r.due_date && Number(r.amount) > 0)
+                    .map((r, i) => ({
+                        order_id: editingOrder.id,
+                        due_date: r.due_date,
+                        amount: Number(r.amount),
+                        sort_order: i,
+                    }))
+                if (validRows.length > 0) {
+                    await (supabase as any).from('order_installment_rows').insert(validRows)
+                }
+            }
+
             messageApi.success('Pedido atualizado com sucesso.')
             setEditDrawerOpen(false)
             setEditingOrder(null)
             setOrderItems([])
+            setOrderInstallmentRows([])
             editForm.resetFields()
             fetchOrders()
         } catch (err: any) {
@@ -357,13 +472,22 @@ function OrdersPage() {
 
             const totalValue = Number(sendingOrder.total_value || 0)
 
+            // Reenvio: se o pedido já foi enviado mas o orçamento espelho foi rejeitado/expirado/cancelado,
+            // permitimos criar um novo orçamento espelho.
+            const budgetBlockedStatuses = ['REJECTED', 'EXPIRED', 'CANCELLED']
+            const isResend = sendingOrder.status === 'SENT_TO_SALE' && sendingOrder.budget_status
+                ? budgetBlockedStatuses.includes(sendingOrder.budget_status)
+                : false
+
             // Guard de concorrência
             const { data: orderCheck } = await (supabase as any)
                 .from('orders')
-                .select('id, status')
+                .select('id, status, budget_id, budgets ( status )')
                 .eq('id', sendingOrder.id)
                 .single()
-            if (orderCheck?.status === 'SENT_TO_SALE' || orderCheck?.status === 'PAID') {
+            const currentBudgetStatus = orderCheck?.budgets?.status || null
+            const stillBlocked = currentBudgetStatus && budgetBlockedStatuses.includes(currentBudgetStatus)
+            if ((orderCheck?.status === 'SENT_TO_SALE' && !stillBlocked) || orderCheck?.status === 'PAID') {
                 messageApi.warning('Este pedido já foi enviado para aprovação por outra pessoa.')
                 setSendToSaleOpen(false)
                 await fetchOrders()
@@ -431,8 +555,10 @@ function OrdersPage() {
                 )
             }
 
-            // 4) Atualizar pedido (vincula ao novo orçamento via budget_id, status SENT_TO_SALE)
-            const { data: updatedOrder } = await (supabase as any)
+            // 4) Atualizar pedido (vincula ao novo orçamento via budget_id, status SENT_TO_SALE).
+            // Em reenvio, o pedido já está em SENT_TO_SALE — então o guard .neq não se aplica;
+            // a validação de concorrência já foi feita acima via stillBlocked.
+            const updateQuery = (supabase as any)
                 .from('orders')
                 .update({
                     status: 'SENT_TO_SALE',
@@ -440,9 +566,10 @@ function OrdersPage() {
                     updated_at: new Date().toISOString(),
                 })
                 .eq('id', sendingOrder.id)
-                .neq('status', 'SENT_TO_SALE')
-                .select('id')
-                .single()
+            if (!isResend) {
+                updateQuery.neq('status', 'SENT_TO_SALE')
+            }
+            const { data: updatedOrder } = await updateQuery.select('id').single()
 
             if (!updatedOrder) {
                 // Rollback: outra pessoa enviou o mesmo pedido antes
@@ -656,18 +783,23 @@ function OrdersPage() {
             key: 'actions',
             width: 170,
             align: 'center',
-            render: (_, record) => (
+            render: (_, record) => {
+                // Pedido é "editável/reenviável" quando ainda não foi para venda OU
+                // quando o orçamento espelho foi rejeitado/expirado/cancelado.
+                const budgetBlocked = record.budget_status && ['REJECTED', 'EXPIRED', 'CANCELLED'].includes(record.budget_status)
+                const canModify = record.status !== 'SENT_TO_SALE' || budgetBlocked
+                return (
                 <Space direction="vertical" size={2}>
                     <Button
                         type="link"
                         size="small"
                         icon={<EditOutlined />}
                         onClick={() => handleEdit(record)}
-                        disabled={!canEditOrders || record.status === 'SENT_TO_SALE'}
+                        disabled={!canEditOrders || !canModify}
                     >
                         Editar
                     </Button>
-                    {(record.status === 'DRAFT' || record.status === 'AWAITING_PAYMENT') && (
+                    {(record.status === 'DRAFT' || record.status === 'AWAITING_PAYMENT' || (record.status === 'SENT_TO_SALE' && budgetBlocked)) && (
                         <Button
                             type="link"
                             size="small"
@@ -693,7 +825,8 @@ function OrdersPage() {
                         </Popconfirm>
                     )}
                 </Space>
-            ),
+                )
+            },
         },
     ]
 
@@ -796,6 +929,8 @@ function OrdersPage() {
             <Drawer
                 title={editingOrder ? `Editar pedido ${editingOrder.order_code}` : 'Editar pedido'}
                 open={editDrawerOpen}
+                forceRender
+                destroyOnClose={false}
                 onClose={() => {
                     setEditDrawerOpen(false)
                     setEditingOrder(null)
@@ -852,35 +987,11 @@ function OrdersPage() {
                             parser={(v) => Number(String(v).replace('%', '')) as 0}
                         />
                     </Form.Item>
-                    {orderInstallmentRows.length > 0 && (
-                        <Form.Item label="Datas e valores das parcelas (importado do orçamento)">
-                            <Table
-                                size="small"
-                                pagination={false}
-                                dataSource={orderInstallmentRows}
-                                rowKey="sort_order"
-                                columns={[
-                                    {
-                                        title: 'Nº',
-                                        dataIndex: 'sort_order',
-                                        width: 50,
-                                        render: (v: number) => v + 1,
-                                    },
-                                    {
-                                        title: 'Vencimento',
-                                        dataIndex: 'due_date',
-                                        render: (v: string) => v ? new Date(v + 'T00:00:00').toLocaleDateString('pt-BR') : '—',
-                                    },
-                                    {
-                                        title: 'Valor',
-                                        dataIndex: 'amount',
-                                        align: 'right',
-                                        render: (v: number) => formatCurrency(v),
-                                    },
-                                ]}
-                            />
-                        </Form.Item>
-                    )}
+                    <OrderInstallmentsEditor
+                        form={editForm}
+                        rows={orderInstallmentRows}
+                        onChange={setOrderInstallmentRows}
+                    />
                     <Form.Item name="notes" label="Observações">
                         <Input.TextArea rows={2} maxLength={500} />
                     </Form.Item>
@@ -979,9 +1090,7 @@ function OrdersPage() {
                     Adicionar produto
                 </Button>
 
-                <div style={{ marginTop: 16, textAlign: 'right', fontSize: 14 }}>
-                    Total: <strong>{formatCurrency(orderItems.reduce((s, it) => s + (it.total_price || 0), 0))}</strong>
-                </div>
+                <OrderTotalsSummary form={editForm} items={orderItems} />
             </Drawer>
 
             {/* Send to Sale Modal */}

@@ -30,7 +30,8 @@ export function distributeDiscountToItems<T extends ItemWithPrice>(
   if (grossSum <= 0 || target <= 0) return items
   const factor = target / grossSum
   if (Math.abs(factor - 1) < 0.0001) return items // sem desconto efetivo
-  return items.map((it) => {
+
+  const adjusted = items.map((it) => {
     const qty = Number(it.quantity) || 0
     const adjustedUnit = Number(((Number(it.unit_price) || 0) * factor).toFixed(4))
     const adjustedTotal = Number((qty * adjustedUnit).toFixed(2))
@@ -38,6 +39,31 @@ export function distributeDiscountToItems<T extends ItemWithPrice>(
       ...it,
       unit_price: adjustedUnit,
       ...(it.total_price !== undefined ? { total_price: adjustedTotal } : {}),
-    }
+    } as T
   })
+
+  // Corrige resíduo de arredondamento: a soma dos items deve bater exatamente com target.
+  // Distribui o delta no ÚLTIMO item (ajusta total_price; recalcula unit_price se quantity > 0).
+  const currentSum = adjusted.reduce(
+    (s, it) => s + (Number((it as ItemWithPrice).total_price) || (Number((it as ItemWithPrice).quantity) || 0) * (Number((it as ItemWithPrice).unit_price) || 0)),
+    0,
+  )
+  const targetRounded = Math.round(target * 100) / 100
+  const currentRounded = Math.round(currentSum * 100) / 100
+  const delta = Math.round((targetRounded - currentRounded) * 100) / 100
+  if (delta !== 0 && adjusted.length > 0) {
+    const lastIdx = adjusted.length - 1
+    const last = adjusted[lastIdx] as ItemWithPrice
+    const qty = Number(last.quantity) || 0
+    const currentTotal = Number(last.total_price) || qty * (Number(last.unit_price) || 0)
+    const newTotal = Number((currentTotal + delta).toFixed(2))
+    const newUnit = qty > 0 ? Number((newTotal / qty).toFixed(4)) : Number(last.unit_price) || 0
+    adjusted[lastIdx] = {
+      ...(last as object),
+      unit_price: newUnit,
+      ...(last.total_price !== undefined ? { total_price: newTotal } : {}),
+    } as unknown as T
+  }
+
+  return adjusted
 }
