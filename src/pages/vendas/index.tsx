@@ -32,6 +32,7 @@ import {
     type InstallmentRow,
 } from '@/components/payment-with-installments.component'
 import { syncCustomerRecurrenceOnSale } from '@/lib/customer-recurrence'
+import { distributeDiscountToItems } from '@/utils/distribute-discount'
 
 const PAYMENT_METHODS = [
     { value: 'PIX', label: '⚡ PIX' },
@@ -97,12 +98,17 @@ interface PendingBudget {
     id: string
     customer_name: string
     customer_id?: string
+    employee_id?: string | null
     total_value: number
     created_at: string
     status: string
     payment_method?: string
+    installments?: number
     commission_amount?: number
+    profit_amount?: number
     installment_preset?: string | null
+    discount_mode?: string | null
+    global_discount_percent?: number
 }
 
 function Sales() {
@@ -297,7 +303,7 @@ function Sales() {
     const fetchPendingBudgets = async () => {
         const { data } = await supabase
             .from('budgets')
-            .select('id, total_value, created_at, status, sale_id, payment_method, commission_amount, installment_preset, customer_id, customer:customers(name)')
+            .select('id, total_value, created_at, status, sale_id, payment_method, installments, commission_amount, profit_amount, installment_preset, discount_mode, global_discount_percent, customer_id, employee_id, customer:customers(name)')
             .in('status', ['APPROVED', 'SENT', 'AWAITING_PAYMENT'])
             .is('sale_id', null)
             .order('created_at', { ascending: false })
@@ -305,50 +311,80 @@ function Sales() {
             id: b.id,
             customer_name: b.customer?.name || 'Sem cliente',
             customer_id: b.customer_id || undefined,
+            employee_id: b.employee_id || null,
             total_value: Number(b.total_value) || 0,
             created_at: b.created_at,
             status: b.status,
             payment_method: b.payment_method || undefined,
+            installments: Number(b.installments) || 1,
             commission_amount: Number(b.commission_amount) || 0,
-            installment_preset: (b as any).installment_preset || null,
+            profit_amount: Number(b.profit_amount) || 0,
+            installment_preset: b.installment_preset || null,
+            discount_mode: b.discount_mode || null,
+            global_discount_percent: Number(b.global_discount_percent) || 0,
         })))
     }
 
     const handleOpenRegisterSale = async (budget: PendingBudget) => {
-        const { data: fresh } = await (supabase as any).from('budgets').select('id, status, total_value, created_at, payment_method, commission_amount, installment_preset, customer_id, customer:customers(name)').eq('id', budget.id).single()
+        const { data: fresh } = await (supabase as any)
+            .from('budgets')
+            .select('id, status, total_value, created_at, payment_method, installments, commission_amount, profit_amount, installment_preset, discount_mode, global_discount_percent, customer_id, employee_id, customer:customers(name)')
+            .eq('id', budget.id)
+            .single()
         if (fresh?.status === 'PAID') {
             messageApi.info('Este orçamento já foi finalizado e o pagamento lançado.')
             await fetchPendingBudgets()
             return
         }
-        const freshBudget = fresh ? {
+        const freshBudget: PendingBudget = fresh ? {
             id: fresh.id,
             customer_name: (fresh as any).customer?.name || 'Sem cliente',
             customer_id: (fresh as any).customer_id || undefined,
+            employee_id: (fresh as any).employee_id || null,
             total_value: Number(fresh.total_value) || 0,
             created_at: fresh.created_at,
             status: fresh.status,
             payment_method: (fresh as any).payment_method || undefined,
+            installments: Number((fresh as any).installments) || 1,
             commission_amount: Number((fresh as any).commission_amount) || 0,
+            profit_amount: Number((fresh as any).profit_amount) || 0,
             installment_preset: (fresh as any).installment_preset || null,
+            discount_mode: (fresh as any).discount_mode || null,
+            global_discount_percent: Number((fresh as any).global_discount_percent) || 0,
         } : budget
         setSelectedBudget(freshBudget)
         registerForm.resetFields()
         const prefill: any = { sale_date: dayjs() }
         if (freshBudget.payment_method) prefill.payment_method = freshBudget.payment_method
+        if (freshBudget.installments && freshBudget.installments > 1) prefill.installments = freshBudget.installments
         registerForm.setFieldsValue(prefill)
-        // Pre-populate installment preset from budget using budget's creation date as base
-        const preset = (freshBudget.installment_preset || 'customizado') as any
-        setRegisterInstallmentPreset(preset)
-        if (preset !== 'customizado') {
-            const baseDate = freshBudget.created_at ? dayjs(freshBudget.created_at) : dayjs()
-            const insts = buildInstallmentsByPreset(preset, baseDate)
-            const total = Number(freshBudget.total_value) || 0
-            const n = insts.length
-            const amt = n > 0 && total > 0 ? Math.round((total / n) * 100) / 100 : 0
-            setRegisterCustomInstallments(insts.map(inst => ({ ...inst, amount: amt })))
+
+        // Carrega parcelas customizadas REAIS salvas no orçamento (BOLETO/CHEQUE_PRE_DATADO).
+        // Se não houver linhas salvas, cai no preset; caso contrário, ignora preset e usa as datas/valores reais.
+        const { data: instRows } = await (supabase as any)
+            .from('budget_installment_rows')
+            .select('due_date, amount, sort_order')
+            .eq('budget_id', freshBudget.id)
+            .order('sort_order')
+
+        if (instRows && instRows.length > 0) {
+            setRegisterInstallmentPreset('customizado')
+            setRegisterCustomInstallments(
+                instRows.map((r: any) => ({ date: dayjs(r.due_date), amount: Number(r.amount) || 0 }))
+            )
         } else {
-            setRegisterCustomInstallments([{ date: null, amount: 0 }])
+            const preset = (freshBudget.installment_preset || 'customizado') as any
+            setRegisterInstallmentPreset(preset)
+            if (preset !== 'customizado') {
+                const baseDate = freshBudget.created_at ? dayjs(freshBudget.created_at) : dayjs()
+                const insts = buildInstallmentsByPreset(preset, baseDate)
+                const total = Number(freshBudget.total_value) || 0
+                const n = insts.length
+                const amt = n > 0 && total > 0 ? Math.round((total / n) * 100) / 100 : 0
+                setRegisterCustomInstallments(insts.map(inst => ({ ...inst, amount: amt })))
+            } else {
+                setRegisterCustomInstallments([{ date: null, amount: 0 }])
+            }
         }
         setRegisterModalOpen(true)
     }
@@ -401,6 +437,7 @@ function Sales() {
                 sale_type: 'FROM_BUDGET',
                 status: 'COMPLETED',
                 commission_amount: selectedBudget.commission_amount || 0,
+                profit_amount: selectedBudget.profit_amount || 0,
             }).select().single()
             if (saleErr) throw saleErr
 
@@ -442,8 +479,9 @@ function Sales() {
                 .eq('budget_id', selectedBudget.id)
 
             if (budgetItems && budgetItems.length > 0) {
-                // Criar sale_items a partir dos budget_items
-                const saleItemsToInsert = budgetItems.map((bi: any) => ({
+                // Criar sale_items a partir dos budget_items, distribuindo o desconto
+                // global proporcionalmente para que a soma dos itens bata com total_value.
+                const rawSaleItems = budgetItems.map((bi: any) => ({
                     sale_id: sale.id,
                     product_id: bi.product_id || null,
                     service_id: bi.service_id || null,
@@ -452,6 +490,7 @@ function Sales() {
                     discount: bi.discount || 0,
                     description: bi.manual_description || null,
                 }))
+                const saleItemsToInsert = distributeDiscountToItems(rawSaleItems, Number(selectedBudget.total_value))
                 await (supabase as any).from('sale_items').insert(saleItemsToInsert)
 
                 for (const bi of budgetItems) {
@@ -506,8 +545,27 @@ function Sales() {
             const now = new Date()
             const curYear = now.getFullYear()
             const curMonth = now.getMonth()
-            // Cartão de crédito: receita nunca no mês atual — parcelas a partir do próximo mês (ou 1x no próximo mês)
-            if (values.payment_method === 'CARTAO_CREDITO') {
+            // Lançamentos a Receber: não vai para o caixa — registra em pending_receivables
+            if (values.payment_method === 'LANCAMENTOS_A_RECEBER') {
+                if (!selectedBudget.customer_id) {
+                    messageApi.error('O método "Lançamentos a Receber" exige um cliente vinculado ao orçamento.')
+                    setRegisterSaving(false)
+                    return
+                }
+                await (supabase as any).from('pending_receivables').insert({
+                    tenant_id: tenantId,
+                    customer_id: selectedBudget.customer_id,
+                    employee_id: selectedBudget.employee_id || null,
+                    sale_id: sale.id,
+                    budget_id: selectedBudget.id,
+                    amount: Number(selectedBudget.total_value),
+                    description: `Venda orçamento: ${selectedBudget.customer_name} — ${payLabel}`,
+                    launch_date: dayjs().format('YYYY-MM-DD'),
+                    origin_type: 'BUDGET',
+                    status: 'PENDING',
+                    created_by: createdBy,
+                })
+            } else if (values.payment_method === 'CARTAO_CREDITO') {
                 const totalValue = Number(selectedBudget.total_value)
                 const amountPerInstallment = totalValue / numInstallments
                 const installmentEntries = []
@@ -2008,8 +2066,11 @@ function Sales() {
                 confirmLoading={registerSaving}
                 okText="Confirmar Venda"
                 afterOpenChange={(open) => {
-                    if (open && selectedBudget?.payment_method) {
-                        registerForm.setFieldsValue({ payment_method: selectedBudget.payment_method })
+                    if (open && selectedBudget) {
+                        const reapply: any = {}
+                        if (selectedBudget.payment_method) reapply.payment_method = selectedBudget.payment_method
+                        if (selectedBudget.installments && selectedBudget.installments > 1) reapply.installments = selectedBudget.installments
+                        if (Object.keys(reapply).length > 0) registerForm.setFieldsValue(reapply)
                     }
                 }}
             >
