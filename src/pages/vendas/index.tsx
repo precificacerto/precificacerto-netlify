@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
 import {
+    App as AntdApp,
     Button, Drawer, Form, Input, InputNumber, Select, Space, Table, Tag, Tooltip,
     message, Popconfirm, DatePicker, Empty, Divider, Modal, Upload, Checkbox, Radio, Segmented,
 } from 'antd'
@@ -112,6 +113,7 @@ interface PendingBudget {
 }
 
 function Sales() {
+    const { modal: modalApi } = AntdApp.useApp()
     const [sales, setSales] = useState<SaleRow[]>([])
     const [products, setProducts] = useState<any[]>([])
     const [customers, setCustomers] = useState<any[]>([])
@@ -1248,7 +1250,7 @@ function Sales() {
             })
             const result = await res.json()
             if (res.status === 409) {
-                Modal.warning({
+                modalApi.warning({
                     title: 'Não é possível cancelar',
                     content: result.error || 'Esta venda já recebeu pagamento.',
                 })
@@ -1270,6 +1272,7 @@ function Sales() {
 
     // Pré-busca impactos e abre modal contextual antes de cancelar
     const confirmCancelSale = async (record: SaleRow) => {
+        console.log('[Cancelar venda] click', record?.id)
         try {
             const [prRes, ceRes] = await Promise.all([
                 (supabase as any)
@@ -1288,7 +1291,7 @@ function Sales() {
             const ceList = (ceRes.data || []) as any[]
             const hasPaid = prList.some((p) => p.status === 'PAID')
             if (hasPaid) {
-                Modal.warning({
+                modalApi.warning({
                     title: 'Não é possível cancelar',
                     content: 'Esta venda possui parcelas já recebidas. Cancele os recebimentos manualmente em Lançamentos a Receber antes de cancelar a venda.',
                 })
@@ -1300,7 +1303,7 @@ function Sales() {
             cascadeMsg.push('Estoque dos produtos da venda será reposto.')
             if (record.saleType === 'FROM_ORDER') cascadeMsg.push('Pedido vinculado será reaberto para edição.')
             else if (record.saleType === 'FROM_BUDGET') cascadeMsg.push('Orçamento vinculado voltará a estar disponível para finalização.')
-            Modal.confirm({
+            modalApi.confirm({
                 title: 'Cancelar venda?',
                 content: (
                     <div>

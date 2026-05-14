@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import {
+    App as AntdApp,
     Button, DatePicker, Drawer, Form, Input, InputNumber, Select, Space, Table, Tag,
     message, Modal, Popconfirm, Empty, Checkbox, Divider, Typography,
 } from 'antd'
@@ -167,6 +168,7 @@ function OrderTotalsSummary({ form, items }: { form: any; items: OrderItemRow[] 
 }
 
 function OrdersPage() {
+    const { modal: modalApi } = AntdApp.useApp()
     const { currentUser, tenantId } = useAuth()
     const { canView, canEdit } = usePermissions()
     const { data: customers = [] } = useCustomers()
@@ -603,7 +605,7 @@ function OrdersPage() {
             })
             const result = await res.json()
             if (res.status === 409) {
-                Modal.warning({
+                modalApi.warning({
                     title: 'Não é possível excluir',
                     content: result.error || 'A venda vinculada já recebeu pagamento.',
                 })
@@ -623,6 +625,7 @@ function OrdersPage() {
 
     // Pré-busca venda vinculada e abre modal contextual antes de excluir
     const confirmDeleteOrder = async (record: any) => {
+        console.log('[Excluir pedido] click', record?.id)
         try {
             let saleInfo: any = null
             if (record.sale_id) {
@@ -640,7 +643,7 @@ function OrdersPage() {
                 cascadeMsg.push('Orçamento espelho (aguardando aprovação) será removido.')
             }
             cascadeMsg.push('Orçamento original voltará para edição (rascunho).')
-            Modal.confirm({
+            modalApi.confirm({
                 title: saleInfo ? 'Excluir pedido (cancela venda)' : 'Excluir pedido?',
                 content: (
                     <div>

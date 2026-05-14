@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
 import {
+    App as AntdApp,
     Button, Drawer, Form, Input, InputNumber, Select, Space, Table, Tag,
     message, DatePicker, Steps, Popconfirm, Divider, Empty, Modal, Upload, Radio, Segmented,
 } from 'antd'
@@ -88,6 +89,7 @@ interface BudgetItemRow {
 }
 
 function Budgets() {
+    const { modal: modalApi } = AntdApp.useApp()
     const { data: budgets = [], isLoading, mutate: reloadBudgets } = useBudgets()
     const { data: customers = [] } = useCustomers()
     const { data: products = [] } = useProducts()
@@ -1333,7 +1335,7 @@ function Budgets() {
             })
             const result = await res.json()
             if (res.status === 409) {
-                Modal.warning({
+                modalApi.warning({
                     title: 'Não é possível excluir',
                     content: result.error || 'Esta venda já recebeu pagamento.',
                 })
@@ -1355,6 +1357,7 @@ function Budgets() {
 
     // Pré-busca vínculos e abre modal contextual antes de excluir
     const confirmDeleteBudget = async (record: any) => {
+        console.log('[Excluir orçamento] click', record?.id)
         try {
             const [ordersRes, directSaleRes] = await Promise.all([
                 (supabase as any)
@@ -1385,7 +1388,7 @@ function Budgets() {
                 cascadeMsg.push(`${directSalesNotInOrders.length} venda(s) direta(s) será(ão) cancelada(s).`)
             }
             const isCascade = cascadeMsg.length > 0
-            Modal.confirm({
+            modalApi.confirm({
                 title: isCascade ? 'Excluir orçamento (cascata)' : 'Excluir orçamento?',
                 content: isCascade ? (
                     <div>
