@@ -6,7 +6,7 @@ import { AuthProvider } from '@/contexts/auth.context'
 import { DeviceProvider, DeviceType } from '@/contexts/device.context'
 import { useAuth } from '@/hooks/use-auth.hook'
 import '../styles/globals.scss'
-import { ConfigProvider, Spin } from 'antd'
+import { App as AntdApp, ConfigProvider, Spin } from 'antd'
 import ptBR from 'antd/locale/pt_BR'
 import { Loader } from '@/components/loader.component'
 import { inter } from '@/styles/fonts'
@@ -204,12 +204,14 @@ function PcApp({ Component, pageProps, initialDevice }: PcAppProps) {
         }}
         locale={ptBR}
       >
-        <div className={inter.variable} data-device={initialDevice} style={{ fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" }}>
-          {loading && <Loader />}
-          <AuthGuard>
-            <Component {...pageProps} />
-          </AuthGuard>
-        </div>
+        <AntdApp>
+          <div className={inter.variable} data-device={initialDevice} style={{ fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" }}>
+            {loading && <Loader />}
+            <AuthGuard>
+              <Component {...pageProps} />
+            </AuthGuard>
+          </div>
+        </AntdApp>
       </ConfigProvider>
     </AuthProvider>
     </DeviceProvider>
