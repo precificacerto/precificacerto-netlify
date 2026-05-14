@@ -909,6 +909,7 @@ function Budgets() {
                 customer_id: b.customer_id,
                 employee_id: b.employee_id || null,
                 budget_id: b.id,
+                original_budget_id: b.id,
                 status: 'DRAFT',
                 total_value: b.total_value || 0,
                 discount_mode: b.discount_mode || null,
@@ -1061,6 +1062,15 @@ function Budgets() {
             }).select().single()
 
             if (saleErr) throw saleErr
+
+            // Vincular pedido (se houver) à venda recém-criada — necessário para a RPC
+            // cancel_sale_cascade conseguir reabrir o pedido em caso de cancelamento.
+            await (supabase as any)
+                .from('orders')
+                .update({ status: 'PAID', sale_id: sale.id, updated_at: new Date().toISOString() })
+                .eq('budget_id', selectedBudget.id)
+                .eq('tenant_id', tenant_id)
+                .neq('status', 'PAID')
 
             // 2) Copiar itens do orçamento para sale_items
             const { data: bItems } = await supabase
@@ -1322,11 +1332,80 @@ function Budgets() {
                 body: JSON.stringify({ id }),
             })
             const result = await res.json()
+            if (res.status === 409) {
+                Modal.warning({
+                    title: 'Não é possível excluir',
+                    content: result.error || 'Esta venda já recebeu pagamento.',
+                })
+                return
+            }
             if (!res.ok) throw new Error(result.error || 'Erro ao excluir')
-            messageApi.success('Orçamento excluído!')
+            const aff = result.affected || {}
+            const orders = aff.orders_cascaded || 0
+            const directSale = aff.direct_sale_cancelled
+            const parts = ['Orçamento excluído.']
+            if (orders > 0) parts.push(`${orders} pedido(s) cancelado(s).`)
+            if (directSale) parts.push('Venda vinculada cancelada.')
+            messageApi.success(parts.join(' '))
             await reloadBudgets()
         } catch (error: any) {
             messageApi.error(error.message || 'Erro ao excluir orçamento')
+        }
+    }
+
+    // Pré-busca vínculos e abre modal contextual antes de excluir
+    const confirmDeleteBudget = async (record: any) => {
+        try {
+            const [ordersRes, directSaleRes] = await Promise.all([
+                (supabase as any)
+                    .from('orders')
+                    .select('id, order_code, status, sale_id')
+                    .eq('original_budget_id', record.id)
+                    .eq('is_active', true),
+                (supabase as any)
+                    .from('sales')
+                    .select('id, sale_code, final_value, status')
+                    .eq('budget_id', record.id)
+                    .eq('is_active', true),
+            ])
+            const linkedOrders = (ordersRes.data || []) as Array<any>
+            const linkedSales = (directSaleRes.data || []) as Array<any>
+            const orderHasSale = linkedOrders.some((o) => !!o.sale_id)
+            const cascadeMsg: string[] = []
+            if (linkedOrders.length > 0) {
+                cascadeMsg.push(`${linkedOrders.length} pedido(s) vinculado(s) será(ão) cancelado(s).`)
+            }
+            if (orderHasSale) {
+                cascadeMsg.push('A venda do pedido também será cancelada (estoque/caixa serão estornados).')
+            }
+            const directSalesNotInOrders = linkedSales.filter(
+                (s: any) => !linkedOrders.some((o) => o.sale_id === s.id),
+            )
+            if (directSalesNotInOrders.length > 0) {
+                cascadeMsg.push(`${directSalesNotInOrders.length} venda(s) direta(s) será(ão) cancelada(s).`)
+            }
+            const isCascade = cascadeMsg.length > 0
+            Modal.confirm({
+                title: isCascade ? 'Excluir orçamento (cascata)' : 'Excluir orçamento?',
+                content: isCascade ? (
+                    <div>
+                        <p style={{ marginBottom: 8 }}>Esta ação afeta outros registros:</p>
+                        <ul style={{ paddingLeft: 20 }}>
+                            {cascadeMsg.map((m, i) => <li key={i}>{m}</li>)}
+                        </ul>
+                        <p style={{ marginTop: 12, color: '#dc2626', fontWeight: 500 }}>
+                            Esta ação não pode ser desfeita.
+                        </p>
+                    </div>
+                ) : 'Esta ação não pode ser desfeita.',
+                okText: 'Sim, excluir',
+                cancelText: 'Cancelar',
+                okButtonProps: { danger: true },
+                width: isCascade ? 480 : undefined,
+                onOk: () => handleDelete(record.id),
+            })
+        } catch (e: any) {
+            messageApi.error('Erro ao verificar vínculos: ' + (e?.message || ''))
         }
     }
 
@@ -1422,7 +1501,7 @@ function Budgets() {
             onFilter: (value, record) => {
                 if (value === 'edit') return true
                 if (value === 'send') return !!(record.customer?.whatsapp_phone || record.customer?.phone)
-                if (value === 'delete') return record.status === 'DRAFT'
+                if (value === 'delete') return record.status !== 'CANCELLED'
                 return false
             },
             render: (_, record) => (
@@ -1483,10 +1562,15 @@ function Budgets() {
                             Finalizar
                         </Button>
                     )}
-                    {record.status === 'DRAFT' && (
-                        <Popconfirm title="Excluir orçamento?" onConfirm={() => handleDelete(record.id)}>
-                            <Button type="link" size="small" danger>Excluir</Button>
-                        </Popconfirm>
+                    {record.status !== 'CANCELLED' && (
+                        <Button
+                            type="link"
+                            size="small"
+                            danger
+                            onClick={() => confirmDeleteBudget(record)}
+                        >
+                            Excluir
+                        </Button>
                     )}
                 </Space>
             ),

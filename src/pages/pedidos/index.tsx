@@ -596,12 +596,70 @@ function OrdersPage() {
 
     const handleDelete = async (orderId: string) => {
         try {
-            const { error } = await (supabase as any).from('orders').delete().eq('id', orderId)
-            if (error) throw error
-            messageApi.success('Pedido excluído.')
+            const res = await fetch('/api/delete/orders', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: orderId }),
+            })
+            const result = await res.json()
+            if (res.status === 409) {
+                Modal.warning({
+                    title: 'Não é possível excluir',
+                    content: result.error || 'A venda vinculada já recebeu pagamento.',
+                })
+                return
+            }
+            if (!res.ok) throw new Error(result.error || 'Erro ao excluir')
+            const aff = result.affected || {}
+            const parts = ['Pedido excluído.']
+            if (aff.sale_cancelled) parts.push('Venda cancelada (estoque/caixa estornados).')
+            if (aff.original_budget_reopened) parts.push('Orçamento original reaberto para edição.')
+            messageApi.success(parts.join(' '))
             fetchOrders()
         } catch (err: any) {
             messageApi.error('Erro ao excluir: ' + (err?.message || 'desconhecido'))
+        }
+    }
+
+    // Pré-busca venda vinculada e abre modal contextual antes de excluir
+    const confirmDeleteOrder = async (record: any) => {
+        try {
+            let saleInfo: any = null
+            if (record.sale_id) {
+                const { data: sale } = await (supabase as any)
+                    .from('sales')
+                    .select('id, sale_code, final_value, is_active')
+                    .eq('id', record.sale_id)
+                    .maybeSingle()
+                if (sale && sale.is_active) saleInfo = sale
+            }
+            const cascadeMsg: string[] = []
+            if (saleInfo) {
+                cascadeMsg.push(`Venda ${saleInfo.sale_code || ''} será cancelada e estoque/caixa serão estornados.`)
+            } else if (record.status === 'SENT_TO_SALE') {
+                cascadeMsg.push('Orçamento espelho (aguardando aprovação) será removido.')
+            }
+            cascadeMsg.push('Orçamento original voltará para edição (rascunho).')
+            Modal.confirm({
+                title: saleInfo ? 'Excluir pedido (cancela venda)' : 'Excluir pedido?',
+                content: (
+                    <div>
+                        <ul style={{ paddingLeft: 20, marginTop: 8 }}>
+                            {cascadeMsg.map((m, i) => <li key={i}>{m}</li>)}
+                        </ul>
+                        <p style={{ marginTop: 12, color: '#dc2626', fontWeight: 500 }}>
+                            Esta ação não pode ser desfeita.
+                        </p>
+                    </div>
+                ),
+                okText: 'Sim, excluir',
+                cancelText: 'Cancelar',
+                okButtonProps: { danger: true },
+                width: 480,
+                onOk: () => handleDelete(record.id),
+            })
+        } catch (e: any) {
+            messageApi.error('Erro ao verificar vínculos: ' + (e?.message || ''))
         }
     }
 
@@ -811,18 +869,17 @@ function OrdersPage() {
                             Enviar para Aprovação
                         </Button>
                     )}
-                    {record.status === 'DRAFT' && (
-                        <Popconfirm
-                            title="Excluir pedido?"
-                            description="Esta ação não pode ser desfeita."
-                            onConfirm={() => handleDelete(record.id)}
-                            okText="Sim"
-                            cancelText="Não"
+                    {record.status !== 'CANCELLED' && (
+                        <Button
+                            type="link"
+                            size="small"
+                            danger
+                            icon={<DeleteOutlined />}
+                            disabled={!canEditOrders}
+                            onClick={() => confirmDeleteOrder(record)}
                         >
-                            <Button type="link" size="small" danger icon={<DeleteOutlined />} disabled={!canEditOrders}>
-                                Excluir
-                            </Button>
-                        </Popconfirm>
+                            Excluir
+                        </Button>
                     )}
                 </Space>
                 )

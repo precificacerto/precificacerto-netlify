@@ -31,28 +31,29 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         .eq('module', 'sales')
         .single()
       if (!perms?.can_edit) {
-        return res.status(403).json({ error: 'Sem permissão para excluir vendas' })
+        return res.status(403).json({ error: 'Sem permissão para cancelar vendas' })
       }
     }
 
-    const { error } = await supabaseAdmin
-      .from('sales')
-      .update({ is_active: false })
-      .eq('id', id)
-      .eq('tenant_id', caller.tenant_id)
+    const { data, error } = await supabaseAdmin.rpc('cancel_sale_cascade', {
+      p_sale_id: id,
+      p_tenant_id: caller.tenant_id,
+    })
+
     if (error) throw error
 
-    // Remove os lançamentos de caixa vinculados a esta venda
-    await supabaseAdmin
-      .from('cash_entries')
-      .update({ is_active: false })
-      .eq('origin_type', 'SALE')
-      .eq('origin_id', id)
-      .eq('tenant_id', caller.tenant_id)
+    const result = data as any
+    if (result?.blocked) {
+      return res.status(409).json({
+        error: result.message || 'Operação bloqueada',
+        blocked_reason: result.blocked_reason,
+        details: result,
+      })
+    }
 
-    return res.status(200).json({ success: true })
+    return res.status(200).json({ success: true, ...result })
   } catch (error: any) {
-    console.error('Deactivate sale error:', error?.message || 'Unknown error')
-    return res.status(500).json({ error: error.message || 'Erro ao desativar venda' })
+    console.error('Cancel sale cascade error:', error?.message || 'Unknown error')
+    return res.status(500).json({ error: error.message || 'Erro ao cancelar venda' })
   }
 }

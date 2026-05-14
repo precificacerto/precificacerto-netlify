@@ -1247,11 +1247,79 @@ function Sales() {
                 body: JSON.stringify({ id }),
             })
             const result = await res.json()
+            if (res.status === 409) {
+                Modal.warning({
+                    title: 'Não é possível cancelar',
+                    content: result.error || 'Esta venda já recebeu pagamento.',
+                })
+                return
+            }
             if (!res.ok) throw new Error(result.error || 'Erro ao cancelar')
-            messageApi.success('Venda cancelada!')
+            const aff = result.affected || {}
+            const parts = ['Venda cancelada.']
+            if (aff.cash_entries > 0) parts.push(`${aff.cash_entries} lançamento(s) de caixa estornado(s).`)
+            if (aff.stock_reversed > 0) parts.push(`Estoque reposto em ${aff.stock_reversed} produto(s).`)
+            if (aff.pending_receivables > 0) parts.push(`${aff.pending_receivables} parcela(s) pendente(s) cancelada(s).`)
+            if (aff.order_reopened) parts.push('Pedido vinculado reaberto.')
+            messageApi.success(parts.join(' '))
             await fetchData()
         } catch (error: any) {
             messageApi.error(error.message || 'Erro ao cancelar venda')
+        }
+    }
+
+    // Pré-busca impactos e abre modal contextual antes de cancelar
+    const confirmCancelSale = async (record: SaleRow) => {
+        try {
+            const [prRes, ceRes] = await Promise.all([
+                (supabase as any)
+                    .from('pending_receivables')
+                    .select('id, status, amount')
+                    .eq('sale_id', record.id)
+                    .eq('is_active', true),
+                (supabase as any)
+                    .from('cash_entries')
+                    .select('id, amount')
+                    .eq('origin_type', 'SALE')
+                    .eq('origin_id', record.id)
+                    .eq('is_active', true),
+            ])
+            const prList = (prRes.data || []) as any[]
+            const ceList = (ceRes.data || []) as any[]
+            const hasPaid = prList.some((p) => p.status === 'PAID')
+            if (hasPaid) {
+                Modal.warning({
+                    title: 'Não é possível cancelar',
+                    content: 'Esta venda possui parcelas já recebidas. Cancele os recebimentos manualmente em Lançamentos a Receber antes de cancelar a venda.',
+                })
+                return
+            }
+            const cascadeMsg: string[] = []
+            if (ceList.length > 0) cascadeMsg.push(`${ceList.length} lançamento(s) de caixa será(ão) estornado(s).`)
+            if (prList.length > 0) cascadeMsg.push(`${prList.length} parcela(s) pendente(s) será(ão) cancelada(s).`)
+            cascadeMsg.push('Estoque dos produtos da venda será reposto.')
+            if (record.saleType === 'FROM_ORDER') cascadeMsg.push('Pedido vinculado será reaberto para edição.')
+            else if (record.saleType === 'FROM_BUDGET') cascadeMsg.push('Orçamento vinculado voltará a estar disponível para finalização.')
+            Modal.confirm({
+                title: 'Cancelar venda?',
+                content: (
+                    <div>
+                        <ul style={{ paddingLeft: 20, marginTop: 8 }}>
+                            {cascadeMsg.map((m, i) => <li key={i}>{m}</li>)}
+                        </ul>
+                        <p style={{ marginTop: 12, color: '#dc2626', fontWeight: 500 }}>
+                            Esta ação não pode ser desfeita.
+                        </p>
+                    </div>
+                ),
+                okText: 'Sim, cancelar venda',
+                cancelText: 'Voltar',
+                okButtonProps: { danger: true },
+                width: 480,
+                onOk: () => handleDelete(record.id),
+            })
+        } catch (e: any) {
+            messageApi.error('Erro ao verificar impactos: ' + (e?.message || ''))
         }
     }
 
@@ -1403,9 +1471,9 @@ function Sales() {
                             Lançar pagamento
                         </Button>
                     )}
-                    <Popconfirm title="Cancelar venda?" onConfirm={() => handleDelete(record.id)}>
-                        <Button type="link" size="small" danger>Cancelar</Button>
-                    </Popconfirm>
+                    <Button type="link" size="small" danger onClick={() => confirmCancelSale(record)}>
+                        Cancelar
+                    </Button>
                 </Space>
             ),
         },

@@ -12,31 +12,37 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!id) return res.status(400).json({ error: 'id é obrigatório' })
 
   try {
-    const { data: budget } = await supabaseAdmin
-      .from('budgets')
-      .select('id, tenant_id, created_by')
+    const { data: order } = await supabaseAdmin
+      .from('orders')
+      .select('id, tenant_id, sale_id')
       .eq('id', id)
       .eq('tenant_id', caller.tenant_id)
       .single()
 
-    if (!budget) return res.status(404).json({ error: 'Orçamento não encontrado' })
+    if (!order) return res.status(404).json({ error: 'Pedido não encontrado' })
 
     const isAdmin = caller.is_super_admin || caller.role === 'admin'
     if (!isAdmin) {
+      const requiredModules = order.sale_id ? ['orders', 'sales'] : ['orders']
       const { data: perms } = await supabaseAdmin
         .from('user_module_permissions')
-        .select('can_edit')
+        .select('module, can_edit')
         .eq('user_id', caller.user_id)
         .eq('tenant_id', caller.tenant_id)
-        .eq('module', 'budgets')
-        .single()
-      if (!perms?.can_edit) {
-        return res.status(403).json({ error: 'Sem permissão para excluir orçamentos' })
+        .in('module', requiredModules)
+
+      const missing = requiredModules.filter(
+        (m) => !perms?.find((p: any) => p.module === m)?.can_edit,
+      )
+      if (missing.length > 0) {
+        return res.status(403).json({
+          error: `Sem permissão para excluir pedidos (módulos requeridos: ${missing.join(', ')})`,
+        })
       }
     }
 
-    const { data, error } = await supabaseAdmin.rpc('delete_budget_cascade', {
-      p_budget_id: id,
+    const { data, error } = await supabaseAdmin.rpc('delete_order_cascade', {
+      p_order_id: id,
       p_tenant_id: caller.tenant_id,
     })
 
@@ -53,7 +59,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     return res.status(200).json({ success: true, ...result })
   } catch (error: any) {
-    console.error('Delete budget cascade error:', error?.message || 'Unknown error')
-    return res.status(500).json({ error: error.message || 'Erro ao excluir orçamento' })
+    console.error('Delete order cascade error:', error?.message || 'Unknown error')
+    return res.status(500).json({ error: error.message || 'Erro ao excluir pedido' })
   }
 }
