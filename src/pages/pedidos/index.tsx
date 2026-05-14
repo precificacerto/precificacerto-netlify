@@ -216,7 +216,7 @@ function OrdersPage() {
                     payment_method, installments, entry_value, notes,
                     created_at, updated_at,
                     customers ( name ),
-                    budgets ( id, status ),
+                    budgets!budget_id ( id, status ),
                     order_items ( id )
                 `)
                 .eq('tenant_id', tenantId)
@@ -482,7 +482,7 @@ function OrdersPage() {
             // Guard de concorrência
             const { data: orderCheck } = await (supabase as any)
                 .from('orders')
-                .select('id, status, budget_id, budgets ( status )')
+                .select('id, status, budget_id, budgets!budget_id ( status )')
                 .eq('id', sendingOrder.id)
                 .single()
             const currentBudgetStatus = orderCheck?.budgets?.status || null
