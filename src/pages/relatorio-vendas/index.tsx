@@ -168,12 +168,120 @@ function SalesReport() {
 
     const handleExportProductsExcel = () => {
         if (!abcData.length) return
+        const totalQty = abcData.reduce((s, r) => s + r.qtdSold, 0)
+        const totalRev = abcData.reduce((s, r) => s + r.totalRevenue, 0)
+        const totalComm = abcData.reduce((s, r) => s + r.commissionValue, 0)
+        const avgMargin = abcData.length > 0 ? abcData.reduce((s, r) => s + r.marginPercent, 0) / abcData.length : 0
+
         import('exceljs').then(({ Workbook }) => {
             const wb = new Workbook()
-            const ws = wb.addWorksheet('Curva ABC Produtos')
-            ws.addRow(['#', 'Código', 'Produto', 'Qtd. Vendida', 'Receita', 'Comissão %', 'Valor da Comissão', 'Curva', 'Vendedor'])
-            abcData.forEach(r => ws.addRow([r.position, r.productCode || '—', r.productName, r.qtdSold, r.totalRevenue, `${r.commissionPercent.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%`, r.commissionValue, r.curve, r.employeeName]))
-            ws.getRow(1).font = { bold: true }
+            const ws = wb.addWorksheet('Curva ABC Produtos', { views: [{ state: 'frozen', xSplit: 0, ySplit: 7 }] })
+            const colCount = 9
+            ws.columns = [{ width: 6 }, { width: 14 }, { width: 32 }, { width: 12 }, { width: 16 }, { width: 14 }, { width: 18 }, { width: 8 }, { width: 22 }]
+
+            // Title
+            const titleRow = ws.addRow(['Curva ABC - Produtos'])
+            titleRow.height = 30
+            ws.mergeCells(1, 1, 1, colCount)
+            const tc = titleRow.getCell(1)
+            tc.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FFFFFFFF' } }
+            tc.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF7C3AED' } }
+            tc.alignment = { horizontal: 'center', vertical: 'middle' }
+
+            // Subtitle
+            const subRow = ws.addRow([`Período: ${abcDateRange[0].format('DD/MM/YYYY')} a ${abcDateRange[1].format('DD/MM/YYYY')}`])
+            subRow.height = 22
+            ws.mergeCells(2, 1, 2, colCount)
+            const sc = subRow.getCell(1)
+            sc.font = { name: 'Calibri', size: 11, italic: true }
+            sc.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8E8E8' } }
+            sc.alignment = { horizontal: 'center', vertical: 'middle' }
+
+            // KPIs
+            const kpis = [
+                { label: '💰 Receita Total', value: totalRev, isCurrency: true },
+                { label: '📦 Total Produtos', value: abcData.length, isCurrency: false },
+                { label: '📊 Margem Média', value: `${avgMargin.toFixed(2)}%`, isCurrency: false },
+                { label: '% Comissão Total', value: totalComm, isCurrency: true },
+            ]
+            const kpiLabelRow = ws.addRow([])
+            const kpiValueRow = ws.addRow([])
+            kpiLabelRow.height = 18
+            kpiValueRow.height = 24
+            const cardSpan = Math.floor(colCount / kpis.length)
+            const remainder = colCount - cardSpan * kpis.length
+            let colStart = 1
+            kpis.forEach((kpi, idx) => {
+                const span = cardSpan + (idx < remainder ? 1 : 0)
+                const colEnd = colStart + span - 1
+                ws.mergeCells(3, colStart, 3, colEnd)
+                ws.mergeCells(4, colStart, 4, colEnd)
+                const lc = kpiLabelRow.getCell(colStart)
+                lc.value = kpi.label
+                lc.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FFA5B4FC' } }
+                lc.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E1B4B' } }
+                lc.alignment = { horizontal: 'left', vertical: 'middle', indent: 1 }
+                const vc = kpiValueRow.getCell(colStart)
+                vc.value = kpi.value
+                if (kpi.isCurrency) vc.numFmt = '"R$" #,##0.00'
+                vc.font = { name: 'Calibri', size: 13, bold: true, color: { argb: 'FFE0E7FF' } }
+                vc.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E1B4B' } }
+                vc.alignment = { horizontal: 'left', vertical: 'middle', indent: 1 }
+                for (let c = colStart; c <= colEnd; c++) {
+                    kpiLabelRow.getCell(c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E1B4B' } }
+                    kpiValueRow.getCell(c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E1B4B' } }
+                }
+                colStart = colEnd + 1
+            })
+
+            ws.addRow([])
+
+            // Header
+            const headerRow = ws.addRow(['#', 'Código', 'Produto', 'Qtd. Vendida', 'Receita', 'Comissão %', 'Valor da Comissão', 'Curva', 'Vendedor'])
+            headerRow.height = 24
+            for (let c = 1; c <= colCount; c++) {
+                const cell = headerRow.getCell(c)
+                cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } }
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF7C3AED' } }
+                cell.alignment = { horizontal: 'center', vertical: 'middle' }
+            }
+
+            abcData.forEach((r, idx) => {
+                const row = ws.addRow([r.position, r.productCode || '—', r.productName, r.qtdSold, r.totalRevenue, `${r.commissionPercent.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%`, r.commissionValue, r.curve, r.employeeName])
+                row.height = 20
+                const isEven = idx % 2 === 0
+                for (let c = 1; c <= colCount; c++) {
+                    const cell = row.getCell(c)
+                    cell.font = { name: 'Calibri', size: 11 }
+                    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: isEven ? 'FFF3F0FF' : 'FFFFFFFF' } }
+                    if (c === 5 || c === 7) {
+                        cell.numFmt = '#,##0.00'
+                        cell.alignment = { horizontal: 'right', vertical: 'middle' }
+                    } else if (c === 4 || c === 8 || c === 1 || c === 6) {
+                        cell.alignment = { horizontal: 'center', vertical: 'middle' }
+                    } else {
+                        cell.alignment = { horizontal: 'left', vertical: 'middle' }
+                    }
+                }
+            })
+
+            // Total
+            const totalRow = ws.addRow(['', '', 'TOTAL', totalQty, totalRev, '', totalComm, '', ''])
+            totalRow.height = 24
+            for (let c = 1; c <= colCount; c++) {
+                const cell = totalRow.getCell(c)
+                cell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FFFFFFFF' } }
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF5B21B6' } }
+                if (c === 5 || c === 7) {
+                    cell.numFmt = '#,##0.00'
+                    cell.alignment = { horizontal: 'right', vertical: 'middle' }
+                } else if (c === 4) {
+                    cell.alignment = { horizontal: 'center', vertical: 'middle' }
+                } else if (c === 3) {
+                    cell.alignment = { horizontal: 'left', vertical: 'middle' }
+                }
+            }
+
             wb.xlsx.writeBuffer().then(buf => {
                 const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
                 const url = URL.createObjectURL(blob)
@@ -185,34 +293,167 @@ function SalesReport() {
 
     const handleExportProductsPdf = () => {
         if (!abcData.length) return
+        const totalQty = abcData.reduce((s, r) => s + r.qtdSold, 0)
+        const totalRev = abcData.reduce((s, r) => s + r.totalRevenue, 0)
+        const totalComm = abcData.reduce((s, r) => s + r.commissionValue, 0)
+        const avgMargin = abcData.length > 0 ? abcData.reduce((s, r) => s + r.marginPercent, 0) / abcData.length : 0
+
+        const rows = abcData.map(r => [r.position, r.productCode || '—', r.productName, r.qtdSold, formatCurrency(r.totalRevenue), `${r.commissionPercent.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%`, formatCurrency(r.commissionValue), r.curve, r.employeeName])
+        rows.push(['', '', 'TOTAL', totalQty, formatCurrency(totalRev), '', formatCurrency(totalComm), '', ''])
+
         exportTableToPdf({
             title: 'Curva ABC - Produtos',
             subtitle: `Período: ${abcDateRange[0].format('DD/MM/YYYY')} a ${abcDateRange[1].format('DD/MM/YYYY')}`,
             headers: ['#', 'Código', 'Produto', 'Qtd.', 'Receita', 'Comissão %', 'Valor Comissão', 'Curva', 'Vendedor'],
-            rows: abcData.map(r => [r.position, r.productCode || '—', r.productName, r.qtdSold, formatCurrency(r.totalRevenue), `${r.commissionPercent.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%`, formatCurrency(r.commissionValue), r.curve, r.employeeName]),
+            rows,
             filename: 'curva-abc-produtos.pdf',
+            kpis: [
+                { label: 'Receita Total', value: formatCurrency(totalRev) },
+                { label: 'Total Produtos', value: String(abcData.length) },
+                { label: 'Margem Média', value: `${avgMargin.toFixed(2)}%` },
+                { label: 'Comissão Total', value: formatCurrency(totalComm) },
+            ],
+            highlightLastRow: true,
         })
     }
 
     const handleExportServicesPdf = () => {
         if (!svcData.length) return
+        const totalQty = svcData.reduce((s, r) => s + r.qtdSold, 0)
+        const totalRev = svcData.reduce((s, r) => s + r.totalRevenue, 0)
+        const totalComm = svcData.reduce((s, r) => s + r.commissionValue, 0)
+        const avgMargin = svcData.length > 0 ? svcData.reduce((s, r) => s + r.marginPercent, 0) / svcData.length : 0
+
+        const rows = svcData.map(r => [r.position, r.serviceCode || '—', r.serviceName, r.qtdSold, formatCurrency(r.totalRevenue), `${r.commissionPercent.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%`, formatCurrency(r.commissionValue), r.curve, r.employeeName])
+        rows.push(['', '', 'TOTAL', totalQty, formatCurrency(totalRev), '', formatCurrency(totalComm), '', ''])
+
         exportTableToPdf({
             title: 'Curva ABC - Serviços',
             subtitle: `Período: ${svcDateRange[0].format('DD/MM/YYYY')} a ${svcDateRange[1].format('DD/MM/YYYY')}`,
             headers: ['#', 'Código', 'Serviço', 'Qtd.', 'Receita', 'Comissão %', 'Valor Comissão', 'Curva', 'Profissional'],
-            rows: svcData.map(r => [r.position, r.serviceCode || '—', r.serviceName, r.qtdSold, formatCurrency(r.totalRevenue), `${r.commissionPercent.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%`, formatCurrency(r.commissionValue), r.curve, r.employeeName]),
+            rows,
             filename: 'curva-abc-servicos.pdf',
+            kpis: [
+                { label: 'Receita Total', value: formatCurrency(totalRev) },
+                { label: 'Total Serviços', value: String(svcData.length) },
+                { label: 'Margem Média', value: `${avgMargin.toFixed(2)}%` },
+                { label: 'Comissão Total', value: formatCurrency(totalComm) },
+            ],
+            highlightLastRow: true,
         })
     }
 
     const handleExportServicesExcel = () => {
         if (!svcData.length) return
+        const totalQty = svcData.reduce((s, r) => s + r.qtdSold, 0)
+        const totalRev = svcData.reduce((s, r) => s + r.totalRevenue, 0)
+        const totalComm = svcData.reduce((s, r) => s + r.commissionValue, 0)
+        const avgMargin = svcData.length > 0 ? svcData.reduce((s, r) => s + r.marginPercent, 0) / svcData.length : 0
+
         import('exceljs').then(({ Workbook }) => {
             const wb = new Workbook()
-            const ws = wb.addWorksheet('Curva ABC Serviços')
-            ws.addRow(['#', 'Código', 'Serviço', 'Qtd. Vendida', 'Receita', 'Comissão %', 'Valor da Comissão', 'Curva', 'Profissional'])
-            svcData.forEach(r => ws.addRow([r.position, r.serviceCode || '—', r.serviceName, r.qtdSold, r.totalRevenue, `${r.commissionPercent.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%`, r.commissionValue, r.curve, r.employeeName]))
-            ws.getRow(1).font = { bold: true }
+            const ws = wb.addWorksheet('Curva ABC Serviços', { views: [{ state: 'frozen', xSplit: 0, ySplit: 7 }] })
+            const colCount = 9
+            ws.columns = [{ width: 6 }, { width: 14 }, { width: 32 }, { width: 12 }, { width: 16 }, { width: 14 }, { width: 18 }, { width: 8 }, { width: 22 }]
+
+            const titleRow = ws.addRow(['Curva ABC - Serviços'])
+            titleRow.height = 30
+            ws.mergeCells(1, 1, 1, colCount)
+            const tc = titleRow.getCell(1)
+            tc.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FFFFFFFF' } }
+            tc.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF7C3AED' } }
+            tc.alignment = { horizontal: 'center', vertical: 'middle' }
+
+            const subRow = ws.addRow([`Período: ${svcDateRange[0].format('DD/MM/YYYY')} a ${svcDateRange[1].format('DD/MM/YYYY')}`])
+            subRow.height = 22
+            ws.mergeCells(2, 1, 2, colCount)
+            const sc = subRow.getCell(1)
+            sc.font = { name: 'Calibri', size: 11, italic: true }
+            sc.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8E8E8' } }
+            sc.alignment = { horizontal: 'center', vertical: 'middle' }
+
+            const kpis = [
+                { label: '💰 Receita Total', value: totalRev, isCurrency: true },
+                { label: '🔧 Total Serviços', value: svcData.length, isCurrency: false },
+                { label: '📊 Margem Média', value: `${avgMargin.toFixed(2)}%`, isCurrency: false },
+                { label: '% Comissão Total', value: totalComm, isCurrency: true },
+            ]
+            const kpiLabelRow = ws.addRow([])
+            const kpiValueRow = ws.addRow([])
+            kpiLabelRow.height = 18
+            kpiValueRow.height = 24
+            const cardSpan = Math.floor(colCount / kpis.length)
+            const remainder = colCount - cardSpan * kpis.length
+            let colStart = 1
+            kpis.forEach((kpi, idx) => {
+                const span = cardSpan + (idx < remainder ? 1 : 0)
+                const colEnd = colStart + span - 1
+                ws.mergeCells(3, colStart, 3, colEnd)
+                ws.mergeCells(4, colStart, 4, colEnd)
+                const lc = kpiLabelRow.getCell(colStart)
+                lc.value = kpi.label
+                lc.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FFA5B4FC' } }
+                lc.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E1B4B' } }
+                lc.alignment = { horizontal: 'left', vertical: 'middle', indent: 1 }
+                const vc = kpiValueRow.getCell(colStart)
+                vc.value = kpi.value
+                if (kpi.isCurrency) vc.numFmt = '"R$" #,##0.00'
+                vc.font = { name: 'Calibri', size: 13, bold: true, color: { argb: 'FFE0E7FF' } }
+                vc.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E1B4B' } }
+                vc.alignment = { horizontal: 'left', vertical: 'middle', indent: 1 }
+                for (let c = colStart; c <= colEnd; c++) {
+                    kpiLabelRow.getCell(c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E1B4B' } }
+                    kpiValueRow.getCell(c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E1B4B' } }
+                }
+                colStart = colEnd + 1
+            })
+
+            ws.addRow([])
+
+            const headerRow = ws.addRow(['#', 'Código', 'Serviço', 'Qtd. Vendida', 'Receita', 'Comissão %', 'Valor da Comissão', 'Curva', 'Profissional'])
+            headerRow.height = 24
+            for (let c = 1; c <= colCount; c++) {
+                const cell = headerRow.getCell(c)
+                cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } }
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF7C3AED' } }
+                cell.alignment = { horizontal: 'center', vertical: 'middle' }
+            }
+
+            svcData.forEach((r, idx) => {
+                const row = ws.addRow([r.position, r.serviceCode || '—', r.serviceName, r.qtdSold, r.totalRevenue, `${r.commissionPercent.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%`, r.commissionValue, r.curve, r.employeeName])
+                row.height = 20
+                const isEven = idx % 2 === 0
+                for (let c = 1; c <= colCount; c++) {
+                    const cell = row.getCell(c)
+                    cell.font = { name: 'Calibri', size: 11 }
+                    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: isEven ? 'FFF3F0FF' : 'FFFFFFFF' } }
+                    if (c === 5 || c === 7) {
+                        cell.numFmt = '#,##0.00'
+                        cell.alignment = { horizontal: 'right', vertical: 'middle' }
+                    } else if (c === 4 || c === 8 || c === 1 || c === 6) {
+                        cell.alignment = { horizontal: 'center', vertical: 'middle' }
+                    } else {
+                        cell.alignment = { horizontal: 'left', vertical: 'middle' }
+                    }
+                }
+            })
+
+            const totalRow = ws.addRow(['', '', 'TOTAL', totalQty, totalRev, '', totalComm, '', ''])
+            totalRow.height = 24
+            for (let c = 1; c <= colCount; c++) {
+                const cell = totalRow.getCell(c)
+                cell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FFFFFFFF' } }
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF5B21B6' } }
+                if (c === 5 || c === 7) {
+                    cell.numFmt = '#,##0.00'
+                    cell.alignment = { horizontal: 'right', vertical: 'middle' }
+                } else if (c === 4) {
+                    cell.alignment = { horizontal: 'center', vertical: 'middle' }
+                } else if (c === 3) {
+                    cell.alignment = { horizontal: 'left', vertical: 'middle' }
+                }
+            }
+
             wb.xlsx.writeBuffer().then(buf => {
                 const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
                 const url = URL.createObjectURL(blob)
@@ -1369,18 +1610,113 @@ function SalesReport() {
         if (!commData.length) return
         import('exceljs').then(({ Workbook }) => {
             const wb = new Workbook()
-            const ws = wb.addWorksheet('Comissões')
-            ws.addRow(['Data', 'Cód Venda', 'Cliente', 'Vendedor', 'Valor Vendido', 'Comissão %', 'Comissão R$'])
-            commData.forEach(r => ws.addRow([
-                dayjs(r.saleDate + 'T00:00:00').format('DD/MM/YYYY'),
-                r.saleCode,
-                r.customerName,
-                r.employeeName,
-                r.valorVendido,
-                `${r.percentVendedor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`,
-                r.comissaoPaga,
-            ]))
-            ws.getRow(1).font = { bold: true }
+            const ws = wb.addWorksheet('Comissões', { views: [{ state: 'frozen', xSplit: 0, ySplit: 7 }] })
+            const colCount = 7
+            ws.columns = [{ width: 14 }, { width: 18 }, { width: 28 }, { width: 24 }, { width: 18 }, { width: 14 }, { width: 18 }]
+
+            const titleRow = ws.addRow(['Relatório de Comissões'])
+            titleRow.height = 30
+            ws.mergeCells(1, 1, 1, colCount)
+            const tc = titleRow.getCell(1)
+            tc.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FFFFFFFF' } }
+            tc.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF7C3AED' } }
+            tc.alignment = { horizontal: 'center', vertical: 'middle' }
+
+            const subRow = ws.addRow([`Período: ${commDateRange[0].format('DD/MM/YYYY')} a ${commDateRange[1].format('DD/MM/YYYY')}`])
+            subRow.height = 22
+            ws.mergeCells(2, 1, 2, colCount)
+            const sc = subRow.getCell(1)
+            sc.font = { name: 'Calibri', size: 11, italic: true }
+            sc.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8E8E8' } }
+            sc.alignment = { horizontal: 'center', vertical: 'middle' }
+
+            const kpis = [
+                { label: '💰 Total Vendido', value: commTotalVendido, isCurrency: true },
+                { label: '% Total Comissão', value: commTotalComissao, isCurrency: true },
+                { label: '📊 Lucro Empresa', value: commTotalLucro, isCurrency: true },
+            ]
+            const kpiLabelRow = ws.addRow([])
+            const kpiValueRow = ws.addRow([])
+            kpiLabelRow.height = 18
+            kpiValueRow.height = 24
+            const cardSpan = Math.floor(colCount / kpis.length)
+            const remainder = colCount - cardSpan * kpis.length
+            let colStart = 1
+            kpis.forEach((kpi, idx) => {
+                const span = cardSpan + (idx < remainder ? 1 : 0)
+                const colEnd = colStart + span - 1
+                ws.mergeCells(3, colStart, 3, colEnd)
+                ws.mergeCells(4, colStart, 4, colEnd)
+                const lc = kpiLabelRow.getCell(colStart)
+                lc.value = kpi.label
+                lc.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FFA5B4FC' } }
+                lc.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E1B4B' } }
+                lc.alignment = { horizontal: 'left', vertical: 'middle', indent: 1 }
+                const vc = kpiValueRow.getCell(colStart)
+                vc.value = kpi.value
+                if (kpi.isCurrency) vc.numFmt = '"R$" #,##0.00'
+                vc.font = { name: 'Calibri', size: 13, bold: true, color: { argb: 'FFE0E7FF' } }
+                vc.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E1B4B' } }
+                vc.alignment = { horizontal: 'left', vertical: 'middle', indent: 1 }
+                for (let c = colStart; c <= colEnd; c++) {
+                    kpiLabelRow.getCell(c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E1B4B' } }
+                    kpiValueRow.getCell(c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E1B4B' } }
+                }
+                colStart = colEnd + 1
+            })
+
+            ws.addRow([])
+
+            const headerRow = ws.addRow(['Data', 'Cód Venda', 'Cliente', 'Vendedor', 'Valor Vendido', 'Comissão %', 'Comissão R$'])
+            headerRow.height = 24
+            for (let c = 1; c <= colCount; c++) {
+                const cell = headerRow.getCell(c)
+                cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } }
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF7C3AED' } }
+                cell.alignment = { horizontal: 'center', vertical: 'middle' }
+            }
+
+            commData.forEach((r, idx) => {
+                const row = ws.addRow([
+                    dayjs(r.saleDate + 'T00:00:00').format('DD/MM/YYYY'),
+                    r.saleCode,
+                    r.customerName,
+                    r.employeeName,
+                    r.valorVendido,
+                    `${r.percentVendedor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`,
+                    r.comissaoPaga,
+                ])
+                row.height = 20
+                const isEven = idx % 2 === 0
+                for (let c = 1; c <= colCount; c++) {
+                    const cell = row.getCell(c)
+                    cell.font = { name: 'Calibri', size: 11 }
+                    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: isEven ? 'FFF3F0FF' : 'FFFFFFFF' } }
+                    if (c === 5 || c === 7) {
+                        cell.numFmt = '#,##0.00'
+                        cell.alignment = { horizontal: 'right', vertical: 'middle' }
+                    } else if (c === 1 || c === 2 || c === 6) {
+                        cell.alignment = { horizontal: 'center', vertical: 'middle' }
+                    } else {
+                        cell.alignment = { horizontal: 'left', vertical: 'middle' }
+                    }
+                }
+            })
+
+            const totalRow = ws.addRow(['', '', '', 'TOTAL', commTotalVendido, '', commTotalComissao])
+            totalRow.height = 24
+            for (let c = 1; c <= colCount; c++) {
+                const cell = totalRow.getCell(c)
+                cell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FFFFFFFF' } }
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF5B21B6' } }
+                if (c === 5 || c === 7) {
+                    cell.numFmt = '#,##0.00'
+                    cell.alignment = { horizontal: 'right', vertical: 'middle' }
+                } else if (c === 4) {
+                    cell.alignment = { horizontal: 'right', vertical: 'middle' }
+                }
+            }
+
             wb.xlsx.writeBuffer().then(buf => {
                 const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
                 const url = URL.createObjectURL(blob)
@@ -1392,20 +1728,29 @@ function SalesReport() {
 
     const handleExportCommissionsPdf = () => {
         if (!commData.length) return
+        const rows = commData.map(r => [
+            dayjs(r.saleDate + 'T00:00:00').format('DD/MM/YYYY'),
+            r.saleCode,
+            r.customerName,
+            r.employeeName,
+            formatCurrency(r.valorVendido),
+            `${r.percentVendedor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`,
+            formatCurrency(r.comissaoPaga),
+        ])
+        rows.push(['', '', '', 'TOTAL', formatCurrency(commTotalVendido), '', formatCurrency(commTotalComissao)])
+
         exportTableToPdf({
             title: 'Relatório de Comissões',
             subtitle: `Período: ${commDateRange[0].format('DD/MM/YYYY')} a ${commDateRange[1].format('DD/MM/YYYY')}`,
             headers: ['Data', 'Cód Venda', 'Cliente', 'Vendedor', 'Valor Vendido', 'Comissão %', 'Comissão R$'],
-            rows: commData.map(r => [
-                dayjs(r.saleDate + 'T00:00:00').format('DD/MM/YYYY'),
-                r.saleCode,
-                r.customerName,
-                r.employeeName,
-                formatCurrency(r.valorVendido),
-                `${r.percentVendedor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`,
-                formatCurrency(r.comissaoPaga),
-            ]),
+            rows,
             filename: 'relatorio-comissoes.pdf',
+            kpis: [
+                { label: 'Total Vendido', value: formatCurrency(commTotalVendido) },
+                { label: 'Total Comissão', value: formatCurrency(commTotalComissao) },
+                { label: 'Lucro Empresa', value: formatCurrency(commTotalLucro) },
+            ],
+            highlightLastRow: true,
         })
     }
 

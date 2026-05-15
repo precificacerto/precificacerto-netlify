@@ -388,7 +388,18 @@ export default function CashFlow() {
         if (data.length === 0) { messageApi.warning('Nenhum dado para exportar.'); return }
         const monthLabel = month.format('MMMM/YYYY')
         const headers = ['Data', 'Descrição', 'Tipo', 'Valor']
-        const rows = data.map((r: any) => {
+
+        // Compute totals (mirror panel summary)
+        let totalIncome = 0
+        let totalExpense = 0
+        data.forEach((r: any) => {
+            const amt = r.type === 'INCOME' ? getEffectiveIncomeAmount(r) : Number(r.amount || 0)
+            if (r.type === 'INCOME') totalIncome += amt
+            else totalExpense += amt
+        })
+        const balance = totalIncome - totalExpense
+
+        const rows: (string | number)[][] = data.map((r: any) => {
             const displayAmount = r.type === 'INCOME' ? getEffectiveIncomeAmount(r) : Number(r.amount || 0)
             return [
                 r.due_date ? r.due_date.substring(8, 10) + '/' + r.due_date.substring(5, 7) + '/' + r.due_date.substring(0, 4) : '',
@@ -397,6 +408,8 @@ export default function CashFlow() {
                 `${r.type === 'INCOME' ? '+' : '-'} ${formatCurrency(displayAmount)}`,
             ]
         })
+        rows.push(['', 'TOTAL', '', `${balance >= 0 ? '+' : ''} ${formatCurrency(balance)}`])
+
         exportTableToPdf({
             title: `Fluxo de Caixa — ${monthLabel}`,
             subtitle: `${data.length} lançamentos`,
@@ -405,6 +418,13 @@ export default function CashFlow() {
             filename: `Fluxo_de_Caixa_${month.format('YYYY-MM')}.pdf`,
             orientation: 'landscape',
             columnStyles: { 3: { halign: 'right' } },
+            kpis: [
+                { label: 'Lançamentos', value: String(data.length) },
+                { label: 'Total Receitas', value: `+ ${formatCurrency(totalIncome)}` },
+                { label: 'Total Despesas', value: `- ${formatCurrency(totalExpense)}` },
+                { label: 'Saldo', value: `${balance >= 0 ? '+' : ''} ${formatCurrency(balance)}` },
+            ],
+            highlightLastRow: true,
         })
         messageApi.success('PDF exportado com sucesso!')
     }

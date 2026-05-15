@@ -1335,25 +1335,144 @@ function Sales() {
             })
             : sales
         if (!filtered.length) { messageApi.warning('Nenhuma venda no período selecionado.'); return }
+
+        // Compute KPIs (mirror panel cards)
+        const totalValue = filtered.reduce((s, r) => s + r.finalValue, 0)
+        const avgTicketValue = filtered.length > 0 ? totalValue / filtered.length : 0
+        const fromBudgetCount = filtered.filter(s => s.saleType === 'FROM_BUDGET').length
+
         const { Workbook } = await import('exceljs')
         const wb = new Workbook()
-        const ws = wb.addWorksheet('Vendas')
-        ws.addRow(['Produto(s)', 'Cliente', 'Vendedor', 'Valor', 'Pagamento', 'Parcelas', 'Data', 'Tipo'])
-        filtered.forEach(r => {
+        const ws = wb.addWorksheet('Vendas', { views: [{ state: 'frozen', xSplit: 0, ySplit: 7 }] })
+        const colCount = 7
+
+        ws.columns = [
+            { width: 16 }, { width: 30 }, { width: 24 }, { width: 18 },
+            { width: 22 }, { width: 22 }, { width: 14 },
+        ]
+
+        // Title row
+        const titleRow = ws.addRow(['Relatório de Vendas'])
+        titleRow.height = 30
+        ws.mergeCells(1, 1, 1, colCount)
+        const titleCell = titleRow.getCell(1)
+        titleCell.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FFFFFFFF' } }
+        titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF7C3AED' } }
+        titleCell.alignment = { horizontal: 'center', vertical: 'middle' }
+
+        // Subtitle
+        const subtitleText = startDate && endDate
+            ? `Período: ${new Date(startDate).toLocaleDateString('pt-BR')} a ${new Date(endDate).toLocaleDateString('pt-BR')}`
+            : 'Todas as vendas'
+        const subtitleRow = ws.addRow([subtitleText])
+        subtitleRow.height = 22
+        ws.mergeCells(2, 1, 2, colCount)
+        const subCell = subtitleRow.getCell(1)
+        subCell.font = { name: 'Calibri', size: 11, italic: true }
+        subCell.alignment = { horizontal: 'center', vertical: 'middle' }
+        subCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8E8E8' } }
+
+        // KPI block (rows 3-4)
+        const kpis: Array<{ label: string; value: number | string; isCurrency: boolean }> = [
+            { label: '🛒 Vendas no Período', value: filtered.length, isCurrency: false },
+            { label: '💰 Receita Total', value: totalValue, isCurrency: true },
+            { label: '📈 Ticket Médio', value: avgTicketValue, isCurrency: true },
+            { label: '📄 Via Orçamento', value: fromBudgetCount, isCurrency: false },
+        ]
+        const kpiLabelRow = ws.addRow([])
+        const kpiValueRow = ws.addRow([])
+        kpiLabelRow.height = 18
+        kpiValueRow.height = 24
+        const cardSpan = Math.floor(colCount / kpis.length)
+        const remainder = colCount - cardSpan * kpis.length
+        let colStart = 1
+        kpis.forEach((kpi, idx) => {
+            const span = cardSpan + (idx < remainder ? 1 : 0)
+            const colEnd = colStart + span - 1
+            ws.mergeCells(3, colStart, 3, colEnd)
+            ws.mergeCells(4, colStart, 4, colEnd)
+            const lc = kpiLabelRow.getCell(colStart)
+            lc.value = kpi.label
+            lc.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FFA5B4FC' } }
+            lc.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E1B4B' } }
+            lc.alignment = { horizontal: 'left', vertical: 'middle', indent: 1 }
+            const vc = kpiValueRow.getCell(colStart)
+            vc.value = kpi.value
+            if (kpi.isCurrency) vc.numFmt = '"R$" #,##0.00'
+            vc.font = { name: 'Calibri', size: 13, bold: true, color: { argb: 'FFE0E7FF' } }
+            vc.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E1B4B' } }
+            vc.alignment = { horizontal: 'left', vertical: 'middle', indent: 1 }
+            for (let c = colStart; c <= colEnd; c++) {
+                kpiLabelRow.getCell(c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E1B4B' } }
+                kpiValueRow.getCell(c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E1B4B' } }
+            }
+            colStart = colEnd + 1
+        })
+
+        // Blank
+        ws.addRow([])
+
+        // Header
+        const headerRow = ws.addRow(['Código', 'Cliente', 'Vendedor', 'Valor', 'Pagamento', 'Status', 'Data'])
+        headerRow.height = 24
+        for (let c = 1; c <= colCount; c++) {
+            const cell = headerRow.getCell(c)
+            cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } }
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF7C3AED' } }
+            cell.alignment = {
+                horizontal: c === 4 ? 'right' : c === 1 ? 'center' : 'left',
+                vertical: 'middle',
+            }
+        }
+
+        // Data rows
+        filtered.forEach((r, idx) => {
             const pm = PAYMENT_METHODS.find(p => p.value === r.paymentMethod)
-            ws.addRow([
-                r.productName,
+            const statusLabel = r.status === 'AWAITING_PAYMENT' && r.saleType === 'FROM_ORDER'
+                ? '⏳ Aguardando pagamento'
+                : '✅ Concluído'
+            const paymentLabel = `${pm?.label || r.paymentMethod}${r.installments > 1 ? ` (${r.installments}x)` : ''}`
+            const row = ws.addRow([
+                r.sale_code || '—',
                 r.customerName,
                 r.sellerName,
                 r.finalValue,
-                pm?.label || r.paymentMethod,
-                r.installments > 1 ? `${r.installments}x` : '1x',
+                paymentLabel,
+                statusLabel,
                 r.saleDate ? new Date(r.saleDate).toLocaleDateString('pt-BR') : '-',
-                r.saleType === 'FROM_BUDGET' ? 'Via orçamento' : 'Balcão',
             ])
+            row.height = 20
+            const isEven = idx % 2 === 0
+            for (let c = 1; c <= colCount; c++) {
+                const cell = row.getCell(c)
+                cell.font = { name: 'Calibri', size: 11 }
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: isEven ? 'FFF3F0FF' : 'FFFFFFFF' } }
+                if (c === 4) {
+                    cell.numFmt = '#,##0.00'
+                    cell.alignment = { horizontal: 'right', vertical: 'middle' }
+                } else if (c === 1) {
+                    cell.alignment = { horizontal: 'center', vertical: 'middle' }
+                } else {
+                    cell.alignment = { horizontal: 'left', vertical: 'middle' }
+                }
+            }
         })
-        ws.getRow(1).font = { bold: true }
-        ws.getColumn(4).numFmt = '#,##0.00'
+
+        // Total row
+        const totalRow = ws.addRow(['TOTAL', '', '', totalValue, '', '', ''])
+        totalRow.height = 24
+        for (let c = 1; c <= colCount; c++) {
+            const cell = totalRow.getCell(c)
+            cell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FFFFFFFF' } }
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF5B21B6' } }
+            if (c === 4) {
+                cell.numFmt = '#,##0.00'
+                cell.alignment = { horizontal: 'right', vertical: 'middle' }
+            } else if (c === 1) {
+                cell.alignment = { horizontal: 'left', vertical: 'middle' }
+            }
+        }
+
         const buf = await wb.xlsx.writeBuffer()
         const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
         const url = URL.createObjectURL(blob)
@@ -1370,27 +1489,45 @@ function Sales() {
             })
             : sales
         if (!filtered.length) { messageApi.warning('Nenhuma venda no período selecionado.'); return }
+
+        // KPIs
+        const totalValue = filtered.reduce((s, r) => s + r.finalValue, 0)
+        const avgTicketValue = filtered.length > 0 ? totalValue / filtered.length : 0
+        const fromBudgetCount = filtered.filter(s => s.saleType === 'FROM_BUDGET').length
+
         const rows = filtered.map(r => {
             const pm = PAYMENT_METHODS.find(p => p.value === r.paymentMethod)
+            const statusLabel = r.status === 'AWAITING_PAYMENT' && r.saleType === 'FROM_ORDER'
+                ? 'Aguardando pagamento'
+                : 'Concluído'
             return [
-                r.productName,
+                r.sale_code || '—',
                 r.customerName,
                 r.sellerName,
                 formatCurrency(r.finalValue),
-                pm?.label || r.paymentMethod,
-                r.installments > 1 ? `${r.installments}x` : '1x',
+                `${pm?.label || r.paymentMethod}${r.installments > 1 ? ` (${r.installments}x)` : ''}`,
+                statusLabel,
                 r.saleDate ? new Date(r.saleDate).toLocaleDateString('pt-BR') : '-',
-                r.saleType === 'FROM_BUDGET' ? 'Via orçamento' : 'Balcão',
             ]
         })
+        // Append TOTAL row
+        rows.push(['TOTAL', '', '', formatCurrency(totalValue), '', '', ''])
+
         exportTableToPdf({
             title: 'Relatório de Vendas',
             subtitle: startDate && endDate
                 ? `Período: ${new Date(startDate).toLocaleDateString('pt-BR')} a ${new Date(endDate).toLocaleDateString('pt-BR')}`
                 : 'Todas as vendas',
-            headers: ['Produto(s)', 'Cliente', 'Vendedor', 'Valor', 'Pagamento', 'Parcelas', 'Data', 'Tipo'],
+            headers: ['Código', 'Cliente', 'Vendedor', 'Valor', 'Pagamento', 'Status', 'Data'],
             rows,
             filename: 'vendas.pdf',
+            kpis: [
+                { label: 'Vendas no Período', value: String(filtered.length) },
+                { label: 'Receita Total', value: formatCurrency(totalValue) },
+                { label: 'Ticket Médio', value: formatCurrency(avgTicketValue) },
+                { label: 'Via Orçamento', value: String(fromBudgetCount) },
+            ],
+            highlightLastRow: true,
         })
     }
 

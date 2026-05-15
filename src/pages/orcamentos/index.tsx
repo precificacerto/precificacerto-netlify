@@ -2262,13 +2262,15 @@ function Budgets() {
                         icon={<FilePdfOutlined />}
                         onClick={() => {
                             const headers = ['Orçamento', 'Cliente', 'Funcionário', 'Produtos', 'Qtd. Total']
-                            const rows = pbFilteredRows.map(r => [
+                            const totalQty = pbFilteredRows.reduce((s, r) => s + r.matchItems.reduce((q, i) => q + i.quantity, 0), 0)
+                            const rows: (string | number)[][] = pbFilteredRows.map(r => [
                                 r.budgetNum,
                                 r.customerName,
                                 r.employeeName,
                                 r.matchItems.map(i => `${i.productName} (${i.quantity}x)`).join('; '),
                                 r.matchItems.reduce((s, i) => s + i.quantity, 0),
                             ])
+                            rows.push(['', '', '', 'TOTAL', totalQty])
                             exportTableToPdf({
                                 title: 'Produtos em Orçamentos',
                                 subtitle: `Total de itens: ${pbTotalQty}`,
@@ -2276,6 +2278,11 @@ function Budgets() {
                                 rows,
                                 filename: 'produtos-em-orcamentos.pdf',
                                 orientation: 'landscape',
+                                kpis: [
+                                    { label: 'Orçamentos', value: String(pbFilteredRows.length) },
+                                    { label: 'Quantidade Total', value: String(totalQty) },
+                                ],
+                                highlightLastRow: true,
                             })
                         }}
                     >

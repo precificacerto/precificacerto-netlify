@@ -831,7 +831,10 @@ export default function CommissionPage() {
       messageApi.warning('Nenhum dado para exportar.')
       return
     }
-    exportCommissionToExcel(filteredData, month)
+    const selectedEmpName = selectedEmployee
+      ? employees.find(e => e.id === selectedEmployee)?.name
+      : undefined
+    exportCommissionToExcel(filteredData, month, selectedEmpName)
     messageApi.success('Excel exportado com sucesso!')
   }
 
