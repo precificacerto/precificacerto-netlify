@@ -1196,23 +1196,28 @@ function OrdersPage() {
                         size="small"
                         onClick={() => {
                             if (!compiledData.length) return
-                            const totalQty = compiledData.reduce((s, r) => s + r.total_qty, 0)
-                            const totalProducts = compiledData.length
-                            const totalOrders = new Set(compiledData.flatMap(r => r.orders)).size
-                            const rows: (string | number)[][] = compiledData.map(r => [r.product_name, String(r.total_qty), r.orders.join(', ')])
-                            rows.push(['TOTAL', String(totalQty), ''])
-                            exportTableToPdf({
-                                title: 'Produtos em Pedidos Abertos',
-                                headers: ['Produto', 'Qtd Total', 'Pedidos'],
-                                rows,
-                                filename: 'produtos-pedidos-abertos.pdf',
-                                kpis: [
-                                    { label: 'Produtos Únicos', value: String(totalProducts) },
-                                    { label: 'Quantidade Total', value: String(totalQty) },
-                                    { label: 'Pedidos Envolvidos', value: String(totalOrders) },
-                                ],
-                                highlightLastRow: true,
-                            })
+                            try {
+                                const totalQty = compiledData.reduce((s, r) => s + r.total_qty, 0)
+                                const totalProducts = compiledData.length
+                                const totalOrders = new Set(compiledData.flatMap(r => r.orders)).size
+                                const rows: (string | number)[][] = compiledData.map(r => [r.product_name, String(r.total_qty), r.orders.join(', ')])
+                                rows.push(['TOTAL', String(totalQty), ''])
+                                exportTableToPdf({
+                                    title: 'Produtos em Pedidos Abertos',
+                                    headers: ['Produto', 'Qtd Total', 'Pedidos'],
+                                    rows,
+                                    filename: 'produtos-pedidos-abertos.pdf',
+                                    kpis: [
+                                        { label: 'Produtos Únicos', value: String(totalProducts) },
+                                        { label: 'Quantidade Total', value: String(totalQty) },
+                                        { label: 'Pedidos Envolvidos', value: String(totalOrders) },
+                                    ],
+                                    highlightLastRow: true,
+                                })
+                            } catch (err: any) {
+                                console.error('Erro ao exportar PDF Pedidos', err)
+                                messageApi.error('Erro ao exportar PDF: ' + (err?.message || 'Erro desconhecido'))
+                            }
                         }}
                         disabled={!compiledData.length}
                     >

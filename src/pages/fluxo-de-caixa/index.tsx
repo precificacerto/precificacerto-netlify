@@ -386,6 +386,7 @@ export default function CashFlow() {
 
     const handleExportCashFlowPdf = () => {
         if (data.length === 0) { messageApi.warning('Nenhum dado para exportar.'); return }
+        try {
         const monthLabel = month.format('MMMM/YYYY')
         const headers = ['Data', 'Descrição', 'Tipo', 'Valor']
 
@@ -427,6 +428,10 @@ export default function CashFlow() {
             highlightLastRow: true,
         })
         messageApi.success('PDF exportado com sucesso!')
+        } catch (err: any) {
+            console.error('Erro ao exportar PDF Fluxo de Caixa', err)
+            messageApi.error('Erro ao exportar PDF: ' + (err?.message || 'Erro desconhecido'))
+        }
     }
 
     if (!canView(MODULES.CASH_FLOW)) {

@@ -1328,6 +1328,7 @@ function Sales() {
 
     // ── Export functions ──
     const handleExportExcel = async (startDate?: string, endDate?: string) => {
+        try {
         const filtered = startDate && endDate
             ? sales.filter(s => {
                 const d = new Date(s.saleDate)
@@ -1432,14 +1433,16 @@ function Sales() {
                 ? '⏳ Aguardando pagamento'
                 : '✅ Concluído'
             const paymentLabel = `${pm?.label || r.paymentMethod}${r.installments > 1 ? ` (${r.installments}x)` : ''}`
+            const sellerLabel = (r.sellerName && r.sellerName !== '-') ? r.sellerName : 'Sem vendedor'
+            const customerLabel = (r.customerName && r.customerName !== '-') ? r.customerName : 'Sem cliente'
             const row = ws.addRow([
                 r.sale_code || '—',
-                r.customerName,
-                r.sellerName,
+                customerLabel,
+                sellerLabel,
                 r.finalValue,
                 paymentLabel,
                 statusLabel,
-                r.saleDate ? new Date(r.saleDate).toLocaleDateString('pt-BR') : '-',
+                r.saleDate ? new Date(r.saleDate).toLocaleDateString('pt-BR') : '—',
             ])
             row.height = 20
             const isEven = idx % 2 === 0
@@ -1479,9 +1482,14 @@ function Sales() {
         const a = document.createElement('a')
         a.href = url; a.download = 'vendas.xlsx'; a.click()
         URL.revokeObjectURL(url)
+        } catch (err: any) {
+            console.error('Erro ao exportar Excel Vendas', err)
+            messageApi.error('Erro ao exportar Excel: ' + (err?.message || 'Erro desconhecido'))
+        }
     }
 
     const handleExportPdf = (startDate?: string, endDate?: string) => {
+        try {
         const filtered = startDate && endDate
             ? sales.filter(s => {
                 const d = new Date(s.saleDate)
@@ -1500,14 +1508,16 @@ function Sales() {
             const statusLabel = r.status === 'AWAITING_PAYMENT' && r.saleType === 'FROM_ORDER'
                 ? 'Aguardando pagamento'
                 : 'Concluído'
+            const sellerLabel = (r.sellerName && r.sellerName !== '-') ? r.sellerName : 'Sem vendedor'
+            const customerLabel = (r.customerName && r.customerName !== '-') ? r.customerName : 'Sem cliente'
             return [
                 r.sale_code || '—',
-                r.customerName,
-                r.sellerName,
+                customerLabel,
+                sellerLabel,
                 formatCurrency(r.finalValue),
                 `${pm?.label || r.paymentMethod}${r.installments > 1 ? ` (${r.installments}x)` : ''}`,
                 statusLabel,
-                r.saleDate ? new Date(r.saleDate).toLocaleDateString('pt-BR') : '-',
+                r.saleDate ? new Date(r.saleDate).toLocaleDateString('pt-BR') : '—',
             ]
         })
         // Append TOTAL row
@@ -1529,6 +1539,10 @@ function Sales() {
             ],
             highlightLastRow: true,
         })
+        } catch (err: any) {
+            console.error('Erro ao exportar PDF Vendas', err)
+            messageApi.error('Erro ao exportar PDF: ' + (err?.message || 'Erro desconhecido'))
+        }
     }
 
     const columns: ColumnsType<SaleRow> = [

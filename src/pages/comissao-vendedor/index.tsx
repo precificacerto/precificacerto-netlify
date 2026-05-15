@@ -826,16 +826,21 @@ export default function CommissionPage() {
 
   const [exportModalOpen, setExportModalOpen] = useState(false)
 
-  const handleExportExcel = () => {
+  const handleExportExcel = async () => {
     if (!filteredData.length) {
       messageApi.warning('Nenhum dado para exportar.')
       return
     }
-    const selectedEmpName = selectedEmployee
-      ? employees.find(e => e.id === selectedEmployee)?.name
-      : undefined
-    exportCommissionToExcel(filteredData, month, selectedEmpName)
-    messageApi.success('Excel exportado com sucesso!')
+    try {
+      const selectedEmpName = selectedEmployee
+        ? employees.find(e => e.id === selectedEmployee)?.name
+        : undefined
+      await exportCommissionToExcel(filteredData, month, selectedEmpName)
+      messageApi.success('Excel exportado com sucesso!')
+    } catch (err: any) {
+      console.error('Erro ao exportar Excel Comissão', err)
+      messageApi.error('Erro ao exportar Excel: ' + (err?.message || 'Erro desconhecido'))
+    }
   }
 
   const handleExportPdf = () => {
@@ -843,11 +848,16 @@ export default function CommissionPage() {
       messageApi.warning('Nenhum dado para exportar.')
       return
     }
-    const selectedEmpName = selectedEmployee
-      ? employees.find(e => e.id === selectedEmployee)?.name
-      : undefined
-    exportCommissionToPdf(filteredData, month.month(), month.year(), selectedEmpName)
-    messageApi.success('PDF exportado com sucesso!')
+    try {
+      const selectedEmpName = selectedEmployee
+        ? employees.find(e => e.id === selectedEmployee)?.name
+        : undefined
+      exportCommissionToPdf(filteredData, month.month(), month.year(), selectedEmpName)
+      messageApi.success('PDF exportado com sucesso!')
+    } catch (err: any) {
+      console.error('Erro ao exportar PDF Comissão', err)
+      messageApi.error('Erro ao exportar PDF: ' + (err?.message || 'Erro desconhecido'))
+    }
   }
 
   if (!canView(MODULES.COMMISSION)) {

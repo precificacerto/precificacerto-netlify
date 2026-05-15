@@ -21,6 +21,8 @@ import {
 } from '@ant-design/icons'
 import { ExportFormatModal } from '@/components/ui/export-format-modal.component'
 import { exportTableToPdf } from '@/utils/export-generic-pdf'
+import { computeSaleCommission } from '@/utils/commission-calc'
+import { safeExport } from '@/utils/safe-export'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import { getTenantId, getCurrentUserId } from '@/utils/get-tenant-id'
 import dayjs from 'dayjs'
@@ -66,6 +68,7 @@ interface CommissionReportRow {
     comissaoPaga: number
     percentVendedor: number
     lucroEmpresa: number
+    hasCommissionData: boolean
 }
 
 interface ABCReportRow {
@@ -247,7 +250,7 @@ function SalesReport() {
             }
 
             abcData.forEach((r, idx) => {
-                const row = ws.addRow([r.position, r.productCode || '—', r.productName, r.qtdSold, r.totalRevenue, `${r.commissionPercent.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%`, r.commissionValue, r.curve, r.employeeName])
+                const row = ws.addRow([r.position, r.productCode || '—', r.productName, r.qtdSold, r.totalRevenue, r.commissionPercent, r.commissionValue, r.curve, r.employeeName])
                 row.height = 20
                 const isEven = idx % 2 === 0
                 for (let c = 1; c <= colCount; c++) {
@@ -257,7 +260,10 @@ function SalesReport() {
                     if (c === 5 || c === 7) {
                         cell.numFmt = '#,##0.00'
                         cell.alignment = { horizontal: 'right', vertical: 'middle' }
-                    } else if (c === 4 || c === 8 || c === 1 || c === 6) {
+                    } else if (c === 6) {
+                        cell.numFmt = '0.000"%"'
+                        cell.alignment = { horizontal: 'right', vertical: 'middle' }
+                    } else if (c === 4 || c === 8 || c === 1) {
                         cell.alignment = { horizontal: 'center', vertical: 'middle' }
                     } else {
                         cell.alignment = { horizontal: 'left', vertical: 'middle' }
@@ -288,10 +294,13 @@ function SalesReport() {
                 const a = document.createElement('a'); a.href = url; a.download = 'curva-abc-produtos.xlsx'; a.click()
                 URL.revokeObjectURL(url)
             })
+        }).catch((err: any) => {
+            console.error('Erro ao exportar Excel ABC Produtos', err)
+            messageApi.error('Erro ao exportar Excel: ' + (err?.message || 'Erro desconhecido'))
         })
     }
 
-    const handleExportProductsPdf = () => {
+    const handleExportProductsPdf = () => safeExport(() => {
         if (!abcData.length) return
         const totalQty = abcData.reduce((s, r) => s + r.qtdSold, 0)
         const totalRev = abcData.reduce((s, r) => s + r.totalRevenue, 0)
@@ -315,9 +324,9 @@ function SalesReport() {
             ],
             highlightLastRow: true,
         })
-    }
+    }, messageApi.error, 'Erro ao exportar PDF Curva ABC Produtos')
 
-    const handleExportServicesPdf = () => {
+    const handleExportServicesPdf = () => safeExport(() => {
         if (!svcData.length) return
         const totalQty = svcData.reduce((s, r) => s + r.qtdSold, 0)
         const totalRev = svcData.reduce((s, r) => s + r.totalRevenue, 0)
@@ -341,7 +350,7 @@ function SalesReport() {
             ],
             highlightLastRow: true,
         })
-    }
+    }, messageApi.error, 'Erro ao exportar PDF Curva ABC Serviços')
 
     const handleExportServicesExcel = () => {
         if (!svcData.length) return
@@ -420,7 +429,7 @@ function SalesReport() {
             }
 
             svcData.forEach((r, idx) => {
-                const row = ws.addRow([r.position, r.serviceCode || '—', r.serviceName, r.qtdSold, r.totalRevenue, `${r.commissionPercent.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%`, r.commissionValue, r.curve, r.employeeName])
+                const row = ws.addRow([r.position, r.serviceCode || '—', r.serviceName, r.qtdSold, r.totalRevenue, r.commissionPercent, r.commissionValue, r.curve, r.employeeName])
                 row.height = 20
                 const isEven = idx % 2 === 0
                 for (let c = 1; c <= colCount; c++) {
@@ -430,7 +439,10 @@ function SalesReport() {
                     if (c === 5 || c === 7) {
                         cell.numFmt = '#,##0.00'
                         cell.alignment = { horizontal: 'right', vertical: 'middle' }
-                    } else if (c === 4 || c === 8 || c === 1 || c === 6) {
+                    } else if (c === 6) {
+                        cell.numFmt = '0.000"%"'
+                        cell.alignment = { horizontal: 'right', vertical: 'middle' }
+                    } else if (c === 4 || c === 8 || c === 1) {
                         cell.alignment = { horizontal: 'center', vertical: 'middle' }
                     } else {
                         cell.alignment = { horizontal: 'left', vertical: 'middle' }
@@ -460,6 +472,9 @@ function SalesReport() {
                 const a = document.createElement('a'); a.href = url; a.download = 'curva-abc-servicos.xlsx'; a.click()
                 URL.revokeObjectURL(url)
             })
+        }).catch((err: any) => {
+            console.error('Erro ao exportar Excel ABC Serviços', err)
+            messageApi.error('Erro ao exportar Excel: ' + (err?.message || 'Erro desconhecido'))
         })
     }
 
@@ -616,14 +631,14 @@ function SalesReport() {
 
                 const valorVendido = Number(sale.final_value) || 0
                 if (valorPreciso <= 0) valorPreciso = valorVendido + (Number(sale.discount_value) || 0)
-                const comissaoPaga = Number(sale.commission_amount) || 0
-                const percentVendedor = valorVendido > 0 ? (comissaoPaga / valorVendido) * 100 : 0
+
+                const { comissaoPaga, percentVendedor, hasData } = computeSaleCommission(sale, saleItems)
                 const lucroEmpresa = valorVendido - totalCost - comissaoPaga
 
                 rows.push({
                     saleId: sale.id,
                     saleCode: sale.sale_code || sale.description || sale.id.slice(0, 8),
-                    saleDate: sale.sale_date,
+                    saleDate: sale.sale_date || '',
                     customerName: customerMap.get(sale.customer_id) || 'Sem cliente',
                     employeeName: sale.employee_id ? (employeeMap.get(sale.employee_id) || 'Sem vendedor') : 'Sem vendedor',
                     employeeId: sale.employee_id,
@@ -634,6 +649,7 @@ function SalesReport() {
                     comissaoPaga,
                     percentVendedor,
                     lucroEmpresa,
+                    hasCommissionData: hasData,
                 })
             }
             setCommData(rows)
@@ -1547,8 +1563,8 @@ function SalesReport() {
             dataIndex: 'saleDate',
             key: 'saleDate',
             width: 110,
-            render: (v: string) => dayjs(v + 'T00:00:00').format('DD/MM/YYYY'),
-            sorter: (a, b) => a.saleDate.localeCompare(b.saleDate),
+            render: (v: string) => v ? dayjs(v + 'T00:00:00').format('DD/MM/YYYY') : '—',
+            sorter: (a, b) => (a.saleDate || '').localeCompare(b.saleDate || ''),
         },
         {
             title: 'Cód Venda',
@@ -1589,7 +1605,9 @@ function SalesReport() {
             width: 120,
             align: 'right',
             sorter: (a, b) => a.percentVendedor - b.percentVendedor,
-            render: (v: number) => <span style={{ fontWeight: 600 }}>{v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</span>,
+            render: (v: number, row: CommissionReportRow) => row.hasCommissionData
+                ? <span style={{ fontWeight: 600 }}>{v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</span>
+                : <span style={{ color: '#94a3b8' }}>—</span>,
         },
         {
             title: 'Comissão R$',
@@ -1598,7 +1616,9 @@ function SalesReport() {
             width: 140,
             align: 'right',
             sorter: (a, b) => a.comissaoPaga - b.comissaoPaga,
-            render: (v: number) => <span style={{ color: v > 0 ? '#f59e0b' : 'inherit', fontWeight: 600 }}>{formatCurrency(v)}</span>,
+            render: (v: number, row: CommissionReportRow) => row.hasCommissionData
+                ? <span style={{ color: v > 0 ? '#f59e0b' : 'inherit', fontWeight: 600 }}>{formatCurrency(v)}</span>
+                : <span style={{ color: '#94a3b8' }}>—</span>,
         },
     ]
 
@@ -1678,13 +1698,13 @@ function SalesReport() {
 
             commData.forEach((r, idx) => {
                 const row = ws.addRow([
-                    dayjs(r.saleDate + 'T00:00:00').format('DD/MM/YYYY'),
+                    r.saleDate ? dayjs(r.saleDate + 'T00:00:00').format('DD/MM/YYYY') : '—',
                     r.saleCode,
                     r.customerName,
                     r.employeeName,
                     r.valorVendido,
-                    `${r.percentVendedor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`,
-                    r.comissaoPaga,
+                    r.hasCommissionData ? r.percentVendedor : null,
+                    r.hasCommissionData ? r.comissaoPaga : null,
                 ])
                 row.height = 20
                 const isEven = idx % 2 === 0
@@ -1695,7 +1715,14 @@ function SalesReport() {
                     if (c === 5 || c === 7) {
                         cell.numFmt = '#,##0.00'
                         cell.alignment = { horizontal: 'right', vertical: 'middle' }
-                    } else if (c === 1 || c === 2 || c === 6) {
+                    } else if (c === 6) {
+                        cell.numFmt = '0.00"%"'
+                        cell.alignment = { horizontal: 'right', vertical: 'middle' }
+                        if (!r.hasCommissionData) cell.value = '—'
+                    } else if (c === 7 && !r.hasCommissionData) {
+                        cell.value = '—'
+                        cell.alignment = { horizontal: 'right', vertical: 'middle' }
+                    } else if (c === 1 || c === 2) {
                         cell.alignment = { horizontal: 'center', vertical: 'middle' }
                     } else {
                         cell.alignment = { horizontal: 'left', vertical: 'middle' }
@@ -1723,19 +1750,22 @@ function SalesReport() {
                 const a = document.createElement('a'); a.href = url; a.download = 'relatorio-comissoes.xlsx'; a.click()
                 URL.revokeObjectURL(url)
             })
+        }).catch((err: any) => {
+            console.error('Erro ao exportar Excel Comissões', err)
+            messageApi.error('Erro ao exportar Excel: ' + (err?.message || 'Erro desconhecido'))
         })
     }
 
-    const handleExportCommissionsPdf = () => {
+    const handleExportCommissionsPdf = () => safeExport(() => {
         if (!commData.length) return
         const rows = commData.map(r => [
-            dayjs(r.saleDate + 'T00:00:00').format('DD/MM/YYYY'),
+            r.saleDate ? dayjs(r.saleDate + 'T00:00:00').format('DD/MM/YYYY') : '—',
             r.saleCode,
             r.customerName,
             r.employeeName,
             formatCurrency(r.valorVendido),
-            `${r.percentVendedor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`,
-            formatCurrency(r.comissaoPaga),
+            r.hasCommissionData ? `${r.percentVendedor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%` : '—',
+            r.hasCommissionData ? formatCurrency(r.comissaoPaga) : '—',
         ])
         rows.push(['', '', '', 'TOTAL', formatCurrency(commTotalVendido), '', formatCurrency(commTotalComissao)])
 
@@ -1752,7 +1782,7 @@ function SalesReport() {
             ],
             highlightLastRow: true,
         })
-    }
+    }, messageApi.error, 'Erro ao exportar PDF Comissões')
 
     const renderCommissionSummary = () => {
         if (commData.length === 0) return null
@@ -2066,8 +2096,8 @@ function SalesReport() {
                         </div>
 
                         {/* Commissions Filters */}
-                        <div className="filter-bar" style={{ marginBottom: 16, display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <div className="filter-bar" style={{ marginBottom: 16, display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
                                 <FilterOutlined style={{ color: '#94a3b8' }} />
                                 <span style={{ color: '#94a3b8', fontSize: 13 }}>Filtros:</span>
                             </div>
@@ -2078,14 +2108,14 @@ function SalesReport() {
                                 }}
                                 format="DD/MM/YYYY"
                                 allowClear={false}
-                                style={{ minWidth: 260 }}
+                                style={{ width: 220 }}
                             />
                             <Select
                                 placeholder="Vendedor"
                                 value={commEmployeeFilter}
                                 onChange={setCommEmployeeFilter}
                                 allowClear
-                                style={{ minWidth: 180 }}
+                                style={{ width: 150 }}
                                 options={(employees as any[]).map((e: any) => ({ value: e.id, label: e.name }))}
                             />
                             <Select
@@ -2095,7 +2125,7 @@ function SalesReport() {
                                 allowClear
                                 showSearch
                                 optionFilterProp="label"
-                                style={{ minWidth: 180 }}
+                                style={{ width: 150 }}
                                 options={commData.map(r => ({ value: r.saleId, label: r.saleCode }))}
                             />
                             <Select
@@ -2105,20 +2135,22 @@ function SalesReport() {
                                 allowClear
                                 showSearch
                                 optionFilterProp="label"
-                                style={{ minWidth: 200 }}
+                                style={{ width: 170 }}
                                 options={allProducts}
                             />
-                            <Button icon={<ReloadOutlined />} onClick={fetchCommissionsReport} loading={commLoading}>
-                                Atualizar
-                            </Button>
-                            <Button
-                                icon={<DownloadOutlined />}
-                                onClick={() => setCommExportModalOpen(true)}
-                                disabled={!commData.length}
-                                style={{ marginLeft: 'auto' }}
-                            >
-                                Exportar
-                            </Button>
+                            <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexShrink: 0 }}>
+                                <Button icon={<ReloadOutlined />} onClick={fetchCommissionsReport} loading={commLoading}>
+                                    Atualizar
+                                </Button>
+                                <Button
+                                    icon={<DownloadOutlined />}
+                                    onClick={() => setCommExportModalOpen(true)}
+                                    disabled={!commData.length}
+                                    type="primary"
+                                >
+                                    Exportar
+                                </Button>
+                            </div>
                         </div>
 
                         <ExportFormatModal
@@ -2159,8 +2191,8 @@ function SalesReport() {
                         </div>
 
                         {/* Product Filters */}
-                        <div className="filter-bar" style={{ marginBottom: 16, display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <div className="filter-bar" style={{ marginBottom: 16, display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
                                 <FilterOutlined style={{ color: '#94a3b8' }} />
                                 <span style={{ color: '#94a3b8', fontSize: 13 }}>Filtros:</span>
                             </div>
@@ -2173,14 +2205,14 @@ function SalesReport() {
                                 }}
                                 format="DD/MM/YYYY"
                                 allowClear={false}
-                                style={{ minWidth: 260 }}
+                                style={{ width: 220 }}
                             />
                             <Select
                                 placeholder="Vendedor"
                                 value={abcEmployeeFilter}
                                 onChange={setAbcEmployeeFilter}
                                 allowClear
-                                style={{ minWidth: 200 }}
+                                style={{ width: 160 }}
                                 options={[
                                     ...(employees as any[]).map((e: any) => ({ value: e.id, label: e.name })),
                                 ]}
@@ -2192,7 +2224,7 @@ function SalesReport() {
                                 allowClear
                                 showSearch
                                 optionFilterProp="label"
-                                style={{ minWidth: 200 }}
+                                style={{ width: 170 }}
                                 options={allProducts}
                             />
                             <Select
@@ -2202,24 +2234,22 @@ function SalesReport() {
                                 allowClear
                                 showSearch
                                 optionFilterProp="label"
-                                style={{ minWidth: 200 }}
+                                style={{ width: 170 }}
                                 options={allCustomers}
                             />
-                            <Button
-                                icon={<ReloadOutlined />}
-                                onClick={fetchAbcReport}
-                                loading={abcLoading}
-                            >
-                                Atualizar
-                            </Button>
-                            <Button
-                                icon={<DownloadOutlined />}
-                                onClick={() => setProductExportModalOpen(true)}
-                                disabled={!abcData.length}
-                                style={{ marginLeft: 'auto' }}
-                            >
-                                Exportar
-                            </Button>
+                            <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexShrink: 0 }}>
+                                <Button icon={<ReloadOutlined />} onClick={fetchAbcReport} loading={abcLoading}>
+                                    Atualizar
+                                </Button>
+                                <Button
+                                    icon={<DownloadOutlined />}
+                                    onClick={() => setProductExportModalOpen(true)}
+                                    disabled={!abcData.length}
+                                    type="primary"
+                                >
+                                    Exportar
+                                </Button>
+                            </div>
                         </div>
 
                         <ExportFormatModal
@@ -2261,8 +2291,8 @@ function SalesReport() {
                         </div>
 
                         {/* Service Filters */}
-                        <div className="filter-bar" style={{ marginBottom: 16, display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <div className="filter-bar" style={{ marginBottom: 16, display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
                                 <FilterOutlined style={{ color: '#94a3b8' }} />
                                 <span style={{ color: '#94a3b8', fontSize: 13 }}>Filtros:</span>
                             </div>
@@ -2275,14 +2305,14 @@ function SalesReport() {
                                 }}
                                 format="DD/MM/YYYY"
                                 allowClear={false}
-                                style={{ minWidth: 260 }}
+                                style={{ width: 220 }}
                             />
                             <Select
                                 placeholder="Vendedor"
                                 value={svcEmployeeFilter}
                                 onChange={setSvcEmployeeFilter}
                                 allowClear
-                                style={{ minWidth: 200 }}
+                                style={{ width: 170 }}
                                 options={[
                                     ...(employees as any[]).map((e: any) => ({ value: e.id, label: e.name })),
                                 ]}
@@ -2294,24 +2324,22 @@ function SalesReport() {
                                 allowClear
                                 showSearch
                                 optionFilterProp="label"
-                                style={{ minWidth: 200 }}
+                                style={{ width: 170 }}
                                 options={allCustomers}
                             />
-                            <Button
-                                icon={<ReloadOutlined />}
-                                onClick={fetchSvcReport}
-                                loading={svcLoading}
-                            >
-                                Atualizar
-                            </Button>
-                            <Button
-                                icon={<DownloadOutlined />}
-                                onClick={() => setServiceExportModalOpen(true)}
-                                disabled={!svcData.length}
-                                style={{ marginLeft: 'auto' }}
-                            >
-                                Exportar
-                            </Button>
+                            <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexShrink: 0 }}>
+                                <Button icon={<ReloadOutlined />} onClick={fetchSvcReport} loading={svcLoading}>
+                                    Atualizar
+                                </Button>
+                                <Button
+                                    icon={<DownloadOutlined />}
+                                    onClick={() => setServiceExportModalOpen(true)}
+                                    disabled={!svcData.length}
+                                    type="primary"
+                                >
+                                    Exportar
+                                </Button>
+                            </div>
                         </div>
 
                         <ExportFormatModal

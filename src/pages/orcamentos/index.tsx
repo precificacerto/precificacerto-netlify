@@ -2261,29 +2261,34 @@ function Budgets() {
                     <Button
                         icon={<FilePdfOutlined />}
                         onClick={() => {
-                            const headers = ['Orçamento', 'Cliente', 'Funcionário', 'Produtos', 'Qtd. Total']
-                            const totalQty = pbFilteredRows.reduce((s, r) => s + r.matchItems.reduce((q, i) => q + i.quantity, 0), 0)
-                            const rows: (string | number)[][] = pbFilteredRows.map(r => [
-                                r.budgetNum,
-                                r.customerName,
-                                r.employeeName,
-                                r.matchItems.map(i => `${i.productName} (${i.quantity}x)`).join('; '),
-                                r.matchItems.reduce((s, i) => s + i.quantity, 0),
-                            ])
-                            rows.push(['', '', '', 'TOTAL', totalQty])
-                            exportTableToPdf({
-                                title: 'Produtos em Orçamentos',
-                                subtitle: `Total de itens: ${pbTotalQty}`,
-                                headers,
-                                rows,
-                                filename: 'produtos-em-orcamentos.pdf',
-                                orientation: 'landscape',
-                                kpis: [
-                                    { label: 'Orçamentos', value: String(pbFilteredRows.length) },
-                                    { label: 'Quantidade Total', value: String(totalQty) },
-                                ],
-                                highlightLastRow: true,
-                            })
+                            try {
+                                const headers = ['Orçamento', 'Cliente', 'Funcionário', 'Produtos', 'Qtd. Total']
+                                const totalQty = pbFilteredRows.reduce((s, r) => s + r.matchItems.reduce((q, i) => q + i.quantity, 0), 0)
+                                const rows: (string | number)[][] = pbFilteredRows.map(r => [
+                                    r.budgetNum,
+                                    r.customerName,
+                                    r.employeeName,
+                                    r.matchItems.map(i => `${i.productName} (${i.quantity}x)`).join('; '),
+                                    r.matchItems.reduce((s, i) => s + i.quantity, 0),
+                                ])
+                                rows.push(['', '', '', 'TOTAL', totalQty])
+                                exportTableToPdf({
+                                    title: 'Produtos em Orçamentos',
+                                    subtitle: `Total de itens: ${pbTotalQty}`,
+                                    headers,
+                                    rows,
+                                    filename: 'produtos-em-orcamentos.pdf',
+                                    orientation: 'landscape',
+                                    kpis: [
+                                        { label: 'Orçamentos', value: String(pbFilteredRows.length) },
+                                        { label: 'Quantidade Total', value: String(totalQty) },
+                                    ],
+                                    highlightLastRow: true,
+                                })
+                            } catch (err: any) {
+                                console.error('Erro ao exportar PDF Orçamentos', err)
+                                messageApi.error('Erro ao exportar PDF: ' + (err?.message || 'Erro desconhecido'))
+                            }
                         }}
                     >
                         Exportar PDF
