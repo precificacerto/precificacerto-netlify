@@ -96,9 +96,6 @@ function Budgets() {
     const { data: employees = [] } = useEmployees()
     const { data: services = [] } = useServices()
     const { currentUser, tenantId } = useAuth()
-    // Sprint Mai/2026 — Lucro Real força modo de desconto PROPORTIONAL (% sobre preço),
-    // recálculo de ICMS/PIS/COFINS é automático via preço unitário precificado.
-    const isLucroReal = currentUser?.taxableRegime === 'LUCRO_REAL'
     const [drawerOpen, setDrawerOpen] = useState(false)
     const [editingBudgetId, setEditingBudgetId] = useState<string | null>(null)
     const [detailDrawerOpen, setDetailDrawerOpen] = useState(false)
@@ -132,12 +129,6 @@ function Budgets() {
     const [globalDiscountPercent, setGlobalDiscountPercent] = useState(0)
     const [discountInputMode, setDiscountInputMode] = useState<'PERCENT' | 'AMOUNT'>('PERCENT')
     const [discountMode, setDiscountMode] = useState<DiscountMode>('PROPORTIONAL')
-    // Sprint Mai/2026 — em LR o modo é sempre PROPORTIONAL.
-    useEffect(() => {
-        if (isLucroReal && discountMode !== 'PROPORTIONAL') {
-            setDiscountMode('PROPORTIONAL')
-        }
-    }, [isLucroReal, discountMode])
     const skipTableAutoSelectRef = useRef(false)
 
     // ── Products-in-budgets drawer state ──
@@ -1916,16 +1907,14 @@ function Budgets() {
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                                 <span style={{ fontSize: 14, color: '#94a3b8', whiteSpace: 'nowrap' }}>Modo</span>
                                 <Select
-                                    value={isLucroReal ? 'PROPORTIONAL' : discountMode}
+                                    value={discountMode}
                                     onChange={(v: DiscountMode) => {
                                         setDiscountMode(v)
                                         setGlobalDiscountPercent(0)
                                     }}
                                     style={{ width: 210 }}
-                                    disabled={isLucroReal}
-                                    title={isLucroReal ? 'No Lucro Real o desconto é aplicado proporcionalmente sobre o preço (ICMS e PIS/COFINS são recalculados automaticamente).' : undefined}
                                     options={[
-                                        { value: 'PROPORTIONAL', label: isLucroReal ? 'Proporcional (Lucro Real)' : 'Proporcional' },
+                                        { value: 'PROPORTIONAL', label: 'Proporcional' },
                                         { value: 'PROFIT_REDUCTION', label: 'Redução do Lucro' },
                                         { value: 'SELLER_REDUCTION', label: 'Redução do Vendedor' },
                                     ]}
@@ -1969,17 +1958,6 @@ function Budgets() {
                                     />
                                 )}
                             </div>
-                            {maxDiscountPercent > 0 && (
-                                <span style={{ fontSize: 12, color: '#64748b' }}>
-                                    Máx: {maxDiscountPercent.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}% {discountMode === 'PROFIT_REDUCTION' ? '(lucro)' : discountMode === 'SELLER_REDUCTION' ? '(comissão do vendedor)' : '(comissão + lucro)'}
-                                    {budgetTotal > 0 && ` — ${formatCurrency(budgetTotal * maxDiscountPercent / 100)}`}
-                                </span>
-                            )}
-                            {isLucroReal && (
-                                <span style={{ fontSize: 11, color: '#94a3b8', fontStyle: 'italic', display: 'block', marginTop: 4 }}>
-                                    Lucro Real: % aplicado sobre o preço. ICMS e PIS/COFINS são recalculados automaticamente sobre o novo preço.
-                                </span>
-                            )}
                         </div>
                     </div>
 
