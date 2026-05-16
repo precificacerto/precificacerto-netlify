@@ -111,9 +111,7 @@ function Home() {
     if (!hasIncome) return
     hubSyncDoneRef.current = true
     try {
-      const result = await mergeExpenseConfig(tenantId)
-      // eslint-disable-next-line no-console
-      console.info('[PE] HUB sync result:', result)
+      await mergeExpenseConfig(tenantId)
       const { data: refreshed } = await supabase
         .from('tenant_expense_config')
         .select('*')
@@ -124,8 +122,8 @@ function Home() {
         setCalcBase(buildCalcBase(refreshed))
       }
     } catch (err) {
-      // eslint-disable-next-line no-console
-      console.warn('[PE] HUB sync falhou:', err)
+      // Silencioso — sync de HUB é best-effort; falha não bloqueia o dashboard.
+      void err
     }
   }
 
@@ -303,39 +301,12 @@ function Home() {
   //   Custo Fixo R$ = (% MO Produtiva + % MO Administrativa + % Despesa Fixa) × Faturamento Médio
   //   Faturamento Médio = `tenant_expense_config.hub_average_revenue` (média geral do HUB)
   //
-  // Sincronização: se `hub_average_revenue` está zerado mas existem receitas no fluxo, o
-  // `ensureHubSynced` dispara `mergeExpenseConfig` em background — o card atualiza sozinho
-  // quando o HUB termina de calcular.
+  // Sprint Mai/2026: comissão (`commission_percent_hub`) e impostos sobre faturamento
+  // (`tax_on_revenue_percent`) também vêm do HUB — não mais do cadastro do usuário.
   const breakevenResult = useMemo(() => {
-    const input = buildBreakevenInputFromConfig(
-      expenseConfig,
-      currentUser?.taxableRegimeValue ?? calcBase.taxableRegimeAutoPercent ?? 0,
-      Number((currentUser as any)?.profitValue) || 0,
-      Number((currentUser as any)?.commissionValue) || 0,
-    )
-    const result = calculateBreakeven(input)
-    // Diagnóstico — se PE não calcula, o console mostra o motivo + os valores que entraram
-    if (!result.isValid && expenseConfig) {
-      // eslint-disable-next-line no-console
-      console.warn('[PE] Não foi possível calcular o Ponto de Equilíbrio:', {
-        motivo: result.reason,
-        inputs: input,
-        totalVariablePct: result.totalVariablePct,
-        marginOfContribution: result.marginOfContribution,
-        fixedCostMonthly: result.fixedCostMonthly,
-        expenseConfig_raw: {
-          hub_average_revenue: expenseConfig?.hub_average_revenue,
-          production_labor_percent: expenseConfig?.production_labor_percent,
-          indirect_labor_percent: expenseConfig?.indirect_labor_percent,
-          fixed_expense_percent: expenseConfig?.fixed_expense_percent,
-          product_cost_percent: expenseConfig?.product_cost_percent,
-          variable_expense_percent: expenseConfig?.variable_expense_percent,
-          financial_expense_percent: expenseConfig?.financial_expense_percent,
-        },
-      })
-    }
-    return result
-  }, [expenseConfig, currentUser, calcBase])
+    const input = buildBreakevenInputFromConfig(expenseConfig)
+    return calculateBreakeven(input)
+  }, [expenseConfig])
   const pontoEquilibrio = breakevenResult.isValid && breakevenResult.breakeven != null
     ? breakevenResult.breakeven
     : 0
@@ -680,7 +651,7 @@ function Home() {
         />
         <AntTooltip
           title={!breakevenResult.isValid && breakevenResult.reason
-            ? `${breakevenResult.reason} (abra o console F12 para ver os valores)`
+            ? breakevenResult.reason
             : ''}
           placement="top"
         >

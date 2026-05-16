@@ -100,6 +100,8 @@ function Schedule() {
     const { canView, canEdit } = usePermissions()
     const { currentUser } = useAuth()
     const isAdminOrSuper = currentUser?.is_super_admin === true || (currentUser?.role && String(currentUser.role).toLowerCase() === 'admin')
+    // Sprint Mai/2026 — Lucro Real força modo de desconto PROPORTIONAL (% sobre preço).
+    const isLucroReal = currentUser?.taxableRegime === 'LUCRO_REAL'
     const myEmployeeId = currentUser?.employee_id ?? null
     const defaultViewMode: 'day' | 'week' = isAdminOrSuper ? 'day' : 'week'
 
@@ -129,6 +131,12 @@ function Schedule() {
     const [discountTick, setDiscountTick] = useState(0)
     const [globalDiscountPctAgenda, setGlobalDiscountPctAgenda] = useState(0)
     const [discountModeAgenda, setDiscountModeAgenda] = useState<DiscountMode>('PROPORTIONAL')
+    // Sprint Mai/2026 — em LR o modo é sempre PROPORTIONAL.
+    useEffect(() => {
+        if (isLucroReal && discountModeAgenda !== 'PROPORTIONAL') {
+            setDiscountModeAgenda('PROPORTIONAL')
+        }
+    }, [isLucroReal, discountModeAgenda])
     const [discountInputModeAgenda, setDiscountInputModeAgenda] = useState<'PERCENT' | 'AMOUNT'>('PERCENT')
     const [isSplitPay, setIsSplitPay] = useState(false)
     const [splitAmountPaid, setSplitAmountPaid] = useState<number>(0)
@@ -2246,15 +2254,17 @@ function Schedule() {
                                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
                                                 <span style={{ color: '#000', fontSize: 13 }}>Modo:</span>
                                                 <Select
-                                                    value={discountModeAgenda}
+                                                    value={isLucroReal ? 'PROPORTIONAL' : discountModeAgenda}
                                                     onChange={(v: DiscountMode) => {
                                                         setDiscountModeAgenda(v)
                                                         setGlobalDiscountPctAgenda(0)
                                                         setDiscountTick(t => t + 1)
                                                     }}
                                                     style={{ width: 210 }}
+                                                    disabled={isLucroReal}
+                                                    title={isLucroReal ? 'No Lucro Real o desconto é aplicado proporcionalmente sobre o preço (ICMS e PIS/COFINS são recalculados automaticamente).' : undefined}
                                                     options={[
-                                                        { value: 'PROPORTIONAL', label: 'Proporcional' },
+                                                        { value: 'PROPORTIONAL', label: isLucroReal ? 'Proporcional (Lucro Real)' : 'Proporcional' },
                                                         { value: 'PROFIT_REDUCTION', label: 'Redução do Lucro' },
                                                         { value: 'SELLER_REDUCTION', label: 'Redução do Vendedor' },
                                                     ]}

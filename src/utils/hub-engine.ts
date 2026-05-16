@@ -408,6 +408,10 @@ export function extractStructurePercents(hubData: HubData, customBase?: number):
   variable_expense_percent: number
   financial_expense_percent: number
   production_labor_cost_percent: number
+  /** Soma dos grupos IMPOSTO_FATURAMENTO_DENTRO + IMPOSTO + REGIME_TRIBUTARIO — usado pelo PE. */
+  tax_on_revenue_percent: number
+  /** Grupo COMISSOES do HUB — usado pelo PE no lugar de currentUser.commissionValue. */
+  commission_percent_hub: number
 } {
   const base = customBase != null && customBase > 0 ? customBase : null
 
@@ -424,11 +428,22 @@ export function extractStructurePercents(hubData: HubData, customBase?: number):
   // MO Administrativa/Indireta (grupos que vão para o coeficiente)
   const moAdmin = findPct('MAO_DE_OBRA_ADMINISTRATIVA') + findPct('MAO_DE_OBRA')
 
+  // Impostos sobre faturamento (variável no PE): soma dos 3 canais usados em modelos diferentes.
+  // IMPOSTO_LUCRO é EXCLUÍDO porque incide sobre o lucro, não sobre o faturamento.
+  const taxesOnRevenue =
+    findPct('IMPOSTO_FATURAMENTO_DENTRO') +
+    findPct('IMPOSTO') +
+    findPct('REGIME_TRIBUTARIO')
+
+  const commissionsHub = findPct('COMISSOES')
+
   return {
     indirect_labor_percent: Math.round(moAdmin * 10000) / 10000,
     fixed_expense_percent:  Math.round(findPct('DESPESA_FIXA') * 10000) / 10000,
     variable_expense_percent: Math.round(findPct('DESPESA_VARIAVEL') * 10000) / 10000,
     financial_expense_percent: Math.round(findPct('DESPESA_FINANCEIRA') * 10000) / 10000,
     production_labor_cost_percent: Math.round(findPct('MAO_DE_OBRA_PRODUTIVA') * 10000) / 10000,
+    tax_on_revenue_percent: Math.round(taxesOnRevenue * 10000) / 10000,
+    commission_percent_hub: Math.round(commissionsHub * 10000) / 10000,
   }
 }

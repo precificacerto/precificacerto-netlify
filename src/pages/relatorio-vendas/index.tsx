@@ -27,6 +27,7 @@ import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import { getTenantId, getCurrentUserId } from '@/utils/get-tenant-id'
 import dayjs from 'dayjs'
 import { formatBRL } from '@/utils/formatters'
+import { useDeviceInfo } from '@/hooks/use-device-info.hook'
 
 const REGISTER_PAYMENT_METHODS = [
     { value: 'PIX', label: '⚡ PIX' },
@@ -108,6 +109,19 @@ const { RangePicker } = DatePicker
 
 const formatCurrency = formatBRL
 
+/**
+ * Sprint Mai/2026 — formata data tolerante a null/undefined/formatos inesperados.
+ * Aceita 'YYYY-MM-DD', timestamps ISO completos, Date objects e strings vazias.
+ * Retorna '—' quando o valor não pode ser convertido em data válida.
+ */
+const formatDateSafe = (v: unknown): string => {
+    if (v == null || v === '') return '—'
+    const s = String(v)
+    // Para strings date-only (YYYY-MM-DD), recorta primeiro 10 chars para evitar timezone shift.
+    const candidate = /^\d{4}-\d{2}-\d{2}/.test(s) ? dayjs(s.substring(0, 10)) : dayjs(s)
+    return candidate.isValid() ? candidate.format('DD/MM/YYYY') : '—'
+}
+
 function SalesReport() {
     const { tenantId, currentUser } = useAuth()
     const effectiveTenantId = tenantId ?? currentUser?.tenant_id
@@ -117,6 +131,7 @@ function SalesReport() {
     const { data: customers = [] } = useCustomers()
     const [messageApi, contextHolder] = message.useMessage()
     const { canView, canEdit, isAdmin } = usePermissions()
+    const { isMobile } = useDeviceInfo()
     const canRegisterPayment = isAdmin || canEdit(MODULES.SALES_REPORT)
 
     const [activeTab, setActiveTab] = useState<'RECEIVABLES' | 'COMMISSIONS' | 'PRODUCTS' | 'SERVICES'>('RECEIVABLES')
@@ -598,12 +613,24 @@ function SalesReport() {
 
             const employeeIds: string[] = [...new Set(sales.map((s: any) => s.employee_id).filter(Boolean) as string[])]
             const employeeMap = new Map<string, string>()
-            for (const e of (employees as any[])) employeeMap.set(e.id, e.name)
+            // Sprint Mai/2026 — cache de commission_percent para fallback em vendas legacy.
+            const employeeCommissionMap = new Map<string, number>()
+            for (const e of (employees as any[])) {
+                employeeMap.set(e.id, e.name)
+                if (e.commission_percent != null) {
+                    employeeCommissionMap.set(e.id, Number(e.commission_percent) || 0)
+                }
+            }
             if (employeeIds.length > 0) {
-                const missing = employeeIds.filter((id: string) => !employeeMap.has(id))
+                const missing = employeeIds.filter((id: string) => !employeeMap.has(id) || !employeeCommissionMap.has(id))
                 if (missing.length > 0) {
-                    const { data: eRows } = await (supabase as any).from('employees').select('id, name').in('id', missing)
-                    for (const e of eRows || []) employeeMap.set(e.id, e.name)
+                    const { data: eRows } = await (supabase as any).from('employees').select('id, name, commission_percent').in('id', missing)
+                    for (const e of eRows || []) {
+                        employeeMap.set(e.id, e.name)
+                        if (e.commission_percent != null) {
+                            employeeCommissionMap.set(e.id, Number(e.commission_percent) || 0)
+                        }
+                    }
                 }
             }
 
@@ -632,7 +659,8 @@ function SalesReport() {
                 const valorVendido = Number(sale.final_value) || 0
                 if (valorPreciso <= 0) valorPreciso = valorVendido + (Number(sale.discount_value) || 0)
 
-                const { comissaoPaga, percentVendedor, hasData } = computeSaleCommission(sale, saleItems)
+                const employeeCommissionPct = sale.employee_id ? employeeCommissionMap.get(sale.employee_id) : undefined
+                const { comissaoPaga, percentVendedor, hasData } = computeSaleCommission(sale, saleItems, employeeCommissionPct)
                 const lucroEmpresa = valorVendido - totalCost - comissaoPaga
 
                 rows.push({
@@ -1562,23 +1590,24 @@ function SalesReport() {
             title: 'Data',
             dataIndex: 'saleDate',
             key: 'saleDate',
-            width: 110,
-            render: (v: string) => v ? dayjs(v + 'T00:00:00').format('DD/MM/YYYY') : '—',
+            width: isMobile ? 90 : 110,
+            render: (v: string) => formatDateSafe(v),
             sorter: (a, b) => (a.saleDate || '').localeCompare(b.saleDate || ''),
         },
-        {
+        ...(isMobile ? [] : [{
             title: 'Cód Venda',
             dataIndex: 'saleCode',
             key: 'saleCode',
             width: 140,
             ellipsis: true,
             render: (v: string) => <span style={{ fontFamily: 'monospace', fontWeight: 600, color: '#7A5AF8' }}>{v}</span>,
-        },
+        } as ColumnsType<CommissionReportRow>[number]]),
         {
             title: 'Cliente',
             dataIndex: 'customerName',
             key: 'customerName',
             ellipsis: true,
+            width: isMobile ? 140 : undefined,
             sorter: (a, b) => a.customerName.localeCompare(b.customerName),
         },
         {
@@ -1698,7 +1727,7 @@ function SalesReport() {
 
             commData.forEach((r, idx) => {
                 const row = ws.addRow([
-                    r.saleDate ? dayjs(r.saleDate + 'T00:00:00').format('DD/MM/YYYY') : '—',
+                    formatDateSafe(r.saleDate),
                     r.saleCode,
                     r.customerName,
                     r.employeeName,
@@ -2167,9 +2196,9 @@ function SalesReport() {
                             dataSource={commData}
                             rowKey="saleId"
                             pagination={{ pageSize: 20, showTotal: (t) => `${t} pedidos` }}
-                            size="middle"
+                            size={isMobile ? 'small' : 'middle'}
                             loading={commLoading}
-                            scroll={{ x: 1300 }}
+                            scroll={{ x: isMobile ? 720 : 1100 }}
                             locale={{
                                 emptyText: (
                                     <Empty

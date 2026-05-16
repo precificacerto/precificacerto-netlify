@@ -20,37 +20,63 @@ export interface CommissionBreakdown {
   comissaoPaga: number
   percentVendedor: number
   hasData: boolean
+  /** Sprint Mai/2026 — true quando o valor foi derivado do cadastro do funcionário (vendas legacy). */
+  isFromEmployeeFallback?: boolean
 }
 
 /**
  * Calcula comissão e % efetivo do vendedor para uma venda.
  *
+ * Cadeia de fallback (primeiro hit ganha):
+ *   1. sales.commission_amount > 0                       (vendas novas)
+ *   2. Σ sale_items.qty × unit_price × commission_percent (vendas com itens preservados)
+ *   3. employees.commission_percent × final_value        (vendas legacy, opt-in via param)
+ *
  * @param sale linha de `sales`
  * @param saleItems linhas de `sale_items` correspondentes
- * @returns objeto com `comissaoPaga`, `percentVendedor` e `hasData` (false quando
- *          venda não tem nenhum dado para calcular comissão — útil para UI mostrar "—")
+ * @param employeeCommissionPercent (opcional) % do cadastro do funcionário associado à venda;
+ *                                  usado como último fallback quando os outros dois falham.
  */
 export function computeSaleCommission(
   sale: SaleForCommission,
   saleItems: SaleItemForCommission[] = [],
+  employeeCommissionPercent?: number | string | null,
 ): CommissionBreakdown {
   const valorVendido = Number(sale.final_value) || 0
   const commAmountFromSale = Number(sale.commission_amount) || 0
 
-  // Soma comissão calculada item-a-item (fallback)
+  // Nível 1: sales.commission_amount
+  if (commAmountFromSale > 0) {
+    const pct = valorVendido > 0 ? (commAmountFromSale / valorVendido) * 100 : 0
+    return { comissaoPaga: commAmountFromSale, percentVendedor: pct, hasData: true }
+  }
+
+  // Nível 2: soma item-a-item
   let comissaoCalculadaItens = 0
+  let algumItemTemComissao = false
   for (const it of saleItems) {
     const qty = Number(it.quantity) || 0
     const unitPrice = Number(it.unit_price) || 0
     const pct = Number(it.commission_percent) || 0
+    if (pct > 0) algumItemTemComissao = true
     comissaoCalculadaItens += qty * unitPrice * pct / 100
   }
+  if (algumItemTemComissao) {
+    const pct = valorVendido > 0 ? (comissaoCalculadaItens / valorVendido) * 100 : 0
+    return { comissaoPaga: comissaoCalculadaItens, percentVendedor: pct, hasData: true }
+  }
 
-  const comissaoPaga = commAmountFromSale > 0 ? commAmountFromSale : comissaoCalculadaItens
-  const percentVendedor = valorVendido > 0 ? (comissaoPaga / valorVendido) * 100 : 0
+  // Nível 3: cadastro do funcionário (vendas legacy)
+  const empPct = Number(employeeCommissionPercent) || 0
+  if (empPct > 0 && valorVendido > 0) {
+    const comissaoFallback = (empPct / 100) * valorVendido
+    return {
+      comissaoPaga: comissaoFallback,
+      percentVendedor: empPct,
+      hasData: true,
+      isFromEmployeeFallback: true,
+    }
+  }
 
-  // hasData: false somente quando NÃO há commission_amount E NÃO há items com comissão
-  const hasData = commAmountFromSale > 0 || saleItems.some(it => Number(it.commission_percent) > 0)
-
-  return { comissaoPaga, percentVendedor, hasData }
+  return { comissaoPaga: 0, percentVendedor: 0, hasData: false }
 }

@@ -13,6 +13,7 @@ import { getTenantId } from '@/utils/get-tenant-id'
 import { fetchTaxPreview } from '@/utils/calc-tax-preview'
 import { mergeExpenseConfig } from '@/utils/recalc-expense-config'
 import { buildCalcBase } from '@/utils/build-calc-base'
+import { useRevalidateOnFocus } from '@/hooks/use-revalidate-on-focus'
 
 const ProductDetails = () => {
   const [messageApi, contextHolder] = message.useMessage()
@@ -24,6 +25,7 @@ const ProductDetails = () => {
   const [product, setProduct] = useState<IProductModel | null>(null)
   const [calcBase, setCalcBase] = useState<CalcBaseType | null>(null)
   const [loading, setLoading] = useState(true)
+  const revalidationKey = useRevalidateOnFocus()
 
   const effectiveTenantId = tenantId ?? currentUser?.tenant_id
 
@@ -241,6 +243,32 @@ const ProductDetails = () => {
 
     loadData()
   }, [effectiveTenantId, id])
+
+  // Sprint Mai/2026 — MO Administrativa reativa: revalida calcBase silenciosamente
+  // quando a aba volta ao foco (ex: usuário editou o HUB em outra aba).
+  useEffect(() => {
+    if (!effectiveTenantId || revalidationKey === 0) return
+    let cancelled = false
+    async function silentRefresh() {
+      try {
+        const tid = await getTenantId()
+        if (!tid) return
+        await mergeExpenseConfig(tid)
+        const [expenseRes, taxPreview] = await Promise.all([
+          supabase.from('tenant_expense_config').select('*').eq('tenant_id', tid).single(),
+          fetchTaxPreview(tid),
+        ])
+        if (!cancelled) {
+          const base = buildCalcBase(expenseRes.data, taxPreview)
+          setCalcBase(base)
+        }
+      } catch (err) {
+        console.error('Erro ao revalidar config:', err)
+      }
+    }
+    silentRefresh()
+    return () => { cancelled = true }
+  }, [effectiveTenantId, revalidationKey])
 
   if (loading || !currentUser || !calcBase || !product) {
     return (

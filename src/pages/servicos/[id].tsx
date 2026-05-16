@@ -9,6 +9,7 @@ import { getTenantId } from '@/utils/get-tenant-id'
 import { fetchTaxPreview, TaxPreviewResult } from '@/utils/calc-tax-preview'
 import { mergeExpenseConfig } from '@/utils/recalc-expense-config'
 import { ServiceContent } from '@/page-parts/services/content.component'
+import { useRevalidateOnFocus } from '@/hooks/use-revalidate-on-focus'
 
 interface RawItem {
     id: string; name: string; unit: string; cost_price: number; quantity: number; item_type?: string; measure_quantity?: number; cost_net?: number; cost_gross?: number
@@ -25,6 +26,7 @@ export default function EditServicePage() {
     const [expenseConfig, setExpenseConfig] = useState<any>(null)
     const [taxPreview, setTaxPreview] = useState<TaxPreviewResult | null>(null)
     const [loading, setLoading] = useState(true)
+    const revalidationKey = useRevalidateOnFocus()
 
     // Se auth terminou mas não há tenantId, encerrar loading para não ficar em Spin infinito
     useEffect(() => {
@@ -82,6 +84,32 @@ export default function EditServicePage() {
 
         load()
     }, [effectiveTenantId, id])
+
+    // Sprint Mai/2026 — MO Administrativa reativa: revalida expenseConfig silenciosamente
+    // quando a aba volta ao foco (ex: usuário editou o HUB em outra aba).
+    useEffect(() => {
+        if (!effectiveTenantId || revalidationKey === 0) return
+        let cancelled = false
+        async function silentRefresh() {
+            try {
+                const tid = await getTenantId()
+                if (!tid) return
+                await mergeExpenseConfig(tid)
+                const [cfgRes, tp] = await Promise.all([
+                    supabase.from('tenant_expense_config').select('*').eq('tenant_id', tid).single(),
+                    fetchTaxPreview(tid),
+                ])
+                if (!cancelled) {
+                    setExpenseConfig(cfgRes.data || null)
+                    if (tp) setTaxPreview(tp)
+                }
+            } catch (err) {
+                console.error('Erro ao revalidar config:', err)
+            }
+        }
+        silentRefresh()
+        return () => { cancelled = true }
+    }, [effectiveTenantId, revalidationKey])
 
     if (loading || !effectiveTenantId || !serviceData) {
         return (

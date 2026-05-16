@@ -19,6 +19,11 @@ export interface ExpenseConfigResult {
   product_cost_percent: number
   /** Faturamento médio mensal apurado pelo HUB (R$/mês) — Sprint 4 (PE). */
   hub_average_revenue: number
+  /** % de Impostos sobre Faturamento apurado pelo HUB — Sprint Mai/2026 (PE).
+   *  Soma IMPOSTO_FATURAMENTO_DENTRO + IMPOSTO + REGIME_TRIBUTARIO. */
+  tax_on_revenue_percent: number
+  /** % de Comissões efetivas apurado pelo HUB — Sprint Mai/2026 (PE). */
+  commission_percent_hub: number
 }
 
 const round2 = (v: number) => Math.round(v * 100) / 100
@@ -108,6 +113,8 @@ export async function recalcExpenseConfigFromCashflow(
     production_labor_percent: round2(percents.production_labor_cost_percent * 100),
     product_cost_percent: round2(productCostPctDecimal * 100),
     hub_average_revenue: hubAverageRevenue,
+    tax_on_revenue_percent: round2(percents.tax_on_revenue_percent * 100),
+    commission_percent_hub: round2(percents.commission_percent_hub * 100),
   }
 }
 
@@ -139,6 +146,8 @@ export async function mergeExpenseConfig(tenantId: string): Promise<ExpenseConfi
     production_labor_percent: result.production_labor_percent,
     product_cost_percent: result.product_cost_percent,
     hub_average_revenue: result.hub_average_revenue,
+    tax_on_revenue_percent: result.tax_on_revenue_percent,
+    commission_percent_hub: result.commission_percent_hub,
     updated_at: new Date().toISOString(),
   }
 

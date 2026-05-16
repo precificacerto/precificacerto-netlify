@@ -91,21 +91,16 @@ export function calculateBreakeven(input: BreakevenInput): BreakevenResult {
   }
 }
 
-export function buildBreakevenInputFromConfig(
-  cfg: any,
-  taxableRegimePercent: number | null | undefined,
-  profitPct: number | null | undefined,
-  commissionPct: number | null | undefined,
-): BreakevenInput {
-  // profitPct é mantido na assinatura para retrocompatibilidade — a nova fórmula
-  // de PE não inclui lucro (PE operacional puro).
-  void profitPct
+export function buildBreakevenInputFromConfig(cfg: any): BreakevenInput {
+  // Todos os percentuais saem do HUB (persistidos em tenant_expense_config).
+  // Sprint Mai/2026: comissão e impostos sobre faturamento passam a vir do HUB
+  // (commission_percent_hub e tax_on_revenue_percent), não do cadastro do usuário.
   const c = cfg || {}
   return {
     productCostPct: Number(c.product_cost_percent) || 0,
     variableExpensePct: Number(c.variable_expense_percent) || 0,
-    commissionPct: Number(commissionPct) || 0,
-    taxesInsidePct: Number(taxableRegimePercent) || 0,
+    commissionPct: Number(c.commission_percent_hub) || 0,
+    taxesInsidePct: Number(c.tax_on_revenue_percent) || 0,
     financialExpensePct: Number(c.financial_expense_percent) || 0,
     productionLaborPct: Number(c.production_labor_percent) || 0,
     adminLaborPct: Number(c.indirect_labor_percent) || 0,
