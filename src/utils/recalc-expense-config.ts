@@ -19,33 +19,45 @@ export interface ExpenseConfigResult {
   product_cost_percent: number
   /** Faturamento médio mensal apurado pelo HUB (R$/mês) — Sprint 4 (PE). */
   hub_average_revenue: number
-  /** % de Impostos sobre Faturamento apurado pelo HUB — Sprint Mai/2026 (PE).
-   *  Soma IMPOSTO_FATURAMENTO_DENTRO + IMPOSTO + REGIME_TRIBUTARIO. */
+  /** IPD — Impostos POR DENTRO (IMPOSTO_FATURAMENTO_DENTRO + REGIME_TRIBUTARIO). Entra na MC. */
   tax_on_revenue_percent: number
-  /** % de Comissões efetivas apurado pelo HUB — Sprint Mai/2026 (PE). */
+  /** Grupo COMISSOES do HUB. Entra na MC. */
   commission_percent_hub: number
+  /** IPF — Impostos POR FORA (grupo IMPOSTO). Deduz da RB para formar ROB. */
+  external_taxes_percent: number
+  /** AT — Atividades Operacionais de Entrega (ATIVIDADES_TERCEIRIZADAS). Entra na MC. */
+  outsourced_activities_percent: number
+  /** DEDUCAO_RECEITA — devoluções, estornos, abatimentos. Deduz da RB para formar ROB. */
+  deducao_receita_percent: number
 }
 
 const round2 = (v: number) => Math.round(v * 100) / 100
 
 /**
- * Recalcula percentuais de despesa baseando-se APENAS no mês anterior ao mês atual,
- * usando os dados do Hub (cash_entries).
+ * Recalcula percentuais de despesa baseando-se na MÉDIA HISTÓRICA de todos os meses
+ * fechados do Hub (cash_entries) — não apenas no mês anterior.
  *
- * Fórmula padrão:       % = (soma_grupo / soma_INCOME) × 100
+ * Fórmula padrão:       % = (soma_grupo / soma_INCOME) × 100   (sobre todo o histórico)
  * Fórmula LR/Híbrido:   % = (soma_grupo / receitaBrutaBase) × 100
- *   onde receitaBrutaBase = totalIncome - IMPOSTO (por fora) - ATIVIDADES_TERCEIRIZADAS
+ *   onde receitaBrutaBase = totalIncome_histórico - IMPOSTO (por fora) - ATIVIDADES_TERCEIRIZADAS
  *
- * Apenas o mês anterior é considerado para evitar distorção do mês em andamento.
+ * Sprint Mai/2026: alterado de hubDataPrevMonth para hubDataAll (média histórica).
+ * Antes os % oscilavam mês a mês conforme lançamentos pontuais; agora refletem
+ * a média estável da operação.
  */
 export async function recalcExpenseConfigFromCashflow(
   tenantId: string,
 ): Promise<ExpenseConfigResult | null> {
-  const [hubData, hubDataAll, tsResult] = await Promise.all([
+  const [hubDataPrev, hubDataAll, tsResult] = await Promise.all([
     calculateHubDataPrevMonth(tenantId),
     calculateHubData(tenantId),
     supabase.from('tenant_settings').select('tax_regime').eq('tenant_id', tenantId).maybeSingle(),
   ])
+
+  // Usa o histórico completo como fonte primária dos percentuais.
+  // Mantém hubDataPrev disponível para fallback se o histórico estiver vazio
+  // mas o mês anterior já tem dados (cenário de tenant novo no 2º mês).
+  const hubData = hubDataAll.months.length > 0 ? hubDataAll : hubDataPrev
 
   if (hubData.months.length === 0 || hubData.totalIncome === 0) return null
 
@@ -72,21 +84,21 @@ export async function recalcExpenseConfigFromCashflow(
     .eq('tenant_id', tenantId)
     .maybeSingle()
 
-  // Calcula MO Administrativa média em R$/mês para exibição
+  // Calcula MO Administrativa média em R$/mês para exibição (média histórica)
   const moAdminRow = hubData.rows.find(
     (r) => r.group === 'MAO_DE_OBRA_ADMINISTRATIVA' || r.group === 'MAO_DE_OBRA',
   )
   const adminLaborMonthly = moAdminRow ? round2(moAdminRow.averageRS) : 0
 
-  // Calcula MO Produtiva média em R$/mês a partir do Hub
+  // Calcula MO Produtiva média em R$/mês a partir do Hub (média histórica)
   const moProdRow = hubData.rows.find((r) => r.group === 'MAO_DE_OBRA_PRODUTIVA')
   const productionLaborCostHub = moProdRow ? round2(moProdRow.averageRS) : 0
 
-  // Calcula Despesas Fixas média em R$/mês a partir do Hub
+  // Calcula Despesas Fixas média em R$/mês a partir do Hub (média histórica)
   const despesaFixaRow = hubData.rows.find((r) => r.group === 'DESPESA_FIXA')
   const fixedExpenseMonthly = despesaFixaRow ? round2(despesaFixaRow.averageRS) : 0
 
-  // ── Sprint 4: % de Custo dos Produtos sobre faturamento ──
+  // % de Custo dos Produtos sobre faturamento (média histórica)
   const custoProdutosRow = hubData.rows.find((r) => r.group === 'CUSTO_PRODUTOS')
   const productCostPctDecimal = custoProdutosRow
     ? (customBase != null && customBase > 0
@@ -94,9 +106,7 @@ export async function recalcExpenseConfigFromCashflow(
         : custoProdutosRow.averagePct / 100)
     : 0
 
-  // ── Sprint 4: Faturamento médio do HUB (média mensal de TODOS os meses fechados) ──
-  // Usa calculateHubData (todo o histórico fechado) para alinhar com a média exibida no HUB/DFC.
-  // Antes usava hubData (apenas mês anterior), o que zerava o PE quando o mês anterior não tinha INCOME.
+  // Faturamento médio do HUB (média mensal de todos os meses fechados).
   const hubAverageRevenue = hubDataAll.totalIncomeMonthsCount > 0
     ? round2(hubDataAll.totalIncome / hubDataAll.totalIncomeMonthsCount)
     : 0
@@ -115,6 +125,9 @@ export async function recalcExpenseConfigFromCashflow(
     hub_average_revenue: hubAverageRevenue,
     tax_on_revenue_percent: round2(percents.tax_on_revenue_percent * 100),
     commission_percent_hub: round2(percents.commission_percent_hub * 100),
+    external_taxes_percent: round2(percents.external_taxes_percent * 100),
+    outsourced_activities_percent: round2(percents.outsourced_activities_percent * 100),
+    deducao_receita_percent: round2(percents.deducao_receita_percent * 100),
   }
 }
 
@@ -148,6 +161,9 @@ export async function mergeExpenseConfig(tenantId: string): Promise<ExpenseConfi
     hub_average_revenue: result.hub_average_revenue,
     tax_on_revenue_percent: result.tax_on_revenue_percent,
     commission_percent_hub: result.commission_percent_hub,
+    external_taxes_percent: result.external_taxes_percent,
+    outsourced_activities_percent: result.outsourced_activities_percent,
+    deducao_receita_percent: result.deducao_receita_percent,
     updated_at: new Date().toISOString(),
   }
 

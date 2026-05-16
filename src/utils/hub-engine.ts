@@ -90,6 +90,7 @@ const HUB_GROUPS: { group: string; label: string }[] = [
   { group: 'IMPOSTO_FATURAMENTO_DENTRO', label: 'Impostos sobre o Faturamento (Por dentro)' },
   { group: 'IMPOSTO',                     label: 'Impostos sobre o Faturamento (Por fora)' },
   { group: 'REGIME_TRIBUTARIO',           label: 'Tributos do Regime' },
+  { group: 'DEDUCAO_RECEITA',             label: 'Deduções da Receita' },
   { group: 'OUTROS',                      label: 'Outros' },
 ]
 
@@ -408,9 +409,15 @@ export function extractStructurePercents(hubData: HubData, customBase?: number):
   variable_expense_percent: number
   financial_expense_percent: number
   production_labor_cost_percent: number
-  /** Soma dos grupos IMPOSTO_FATURAMENTO_DENTRO + IMPOSTO + REGIME_TRIBUTARIO — usado pelo PE. */
+  /** IPD — Impostos POR DENTRO (IMPOSTO_FATURAMENTO_DENTRO + REGIME_TRIBUTARIO). Entra na MC. */
   tax_on_revenue_percent: number
-  /** Grupo COMISSOES do HUB — usado pelo PE no lugar de currentUser.commissionValue. */
+  /** IPF — Impostos POR FORA (grupo IMPOSTO). Deduzem da RB para formar ROB. NÃO entra na MC. */
+  external_taxes_percent: number
+  /** AT — Atividades Operacionais de Entrega (grupo ATIVIDADES_TERCEIRIZADAS). Entra na MC. */
+  outsourced_activities_percent: number
+  /** DEDUCAO_RECEITA — devoluções, estornos, abatimentos. Deduzem da RB para formar ROB. */
+  deducao_receita_percent: number
+  /** Grupo COMISSOES do HUB. Entra na MC. */
   commission_percent_hub: number
 } {
   const base = customBase != null && customBase > 0 ? customBase : null
@@ -428,12 +435,20 @@ export function extractStructurePercents(hubData: HubData, customBase?: number):
   // MO Administrativa/Indireta (grupos que vão para o coeficiente)
   const moAdmin = findPct('MAO_DE_OBRA_ADMINISTRATIVA') + findPct('MAO_DE_OBRA')
 
-  // Impostos sobre faturamento (variável no PE): soma dos 3 canais usados em modelos diferentes.
-  // IMPOSTO_LUCRO é EXCLUÍDO porque incide sobre o lucro, não sobre o faturamento.
-  const taxesOnRevenue =
-    findPct('IMPOSTO_FATURAMENTO_DENTRO') +
-    findPct('IMPOSTO') +
-    findPct('REGIME_TRIBUTARIO')
+  // IPD — Impostos POR DENTRO (entram na MC).
+  // IMPOSTO_FATURAMENTO_DENTRO = ICMS próprio, PIS, COFINS, ISS operacional, FCP_ICMS_PROPRIO.
+  // REGIME_TRIBUTARIO = DAS do Simples Nacional (alíquota efetiva consolidada).
+  const taxesInside = findPct('IMPOSTO_FATURAMENTO_DENTRO') + findPct('REGIME_TRIBUTARIO')
+
+  // IPF — Impostos POR FORA (deduzem da RB, NÃO entram na MC).
+  // Grupo IMPOSTO inclui CBS, IBS, ICMS-ST, DIFAL, IPI destacado, ISS retido, FCP-ST, PIS/COFINS Monofásico.
+  const taxesOutside = findPct('IMPOSTO')
+
+  // AT — Atividades Operacionais de Entrega (entra na MC como variável).
+  const outsourcedActivities = findPct('ATIVIDADES_TERCEIRIZADAS')
+
+  // DEDUCAO_RECEITA (deduz da RB para formar ROB; NÃO entra na MC).
+  const deducaoReceita = findPct('DEDUCAO_RECEITA')
 
   const commissionsHub = findPct('COMISSOES')
 
@@ -443,7 +458,10 @@ export function extractStructurePercents(hubData: HubData, customBase?: number):
     variable_expense_percent: Math.round(findPct('DESPESA_VARIAVEL') * 10000) / 10000,
     financial_expense_percent: Math.round(findPct('DESPESA_FINANCEIRA') * 10000) / 10000,
     production_labor_cost_percent: Math.round(findPct('MAO_DE_OBRA_PRODUTIVA') * 10000) / 10000,
-    tax_on_revenue_percent: Math.round(taxesOnRevenue * 10000) / 10000,
+    tax_on_revenue_percent: Math.round(taxesInside * 10000) / 10000,
+    external_taxes_percent: Math.round(taxesOutside * 10000) / 10000,
+    outsourced_activities_percent: Math.round(outsourcedActivities * 10000) / 10000,
+    deducao_receita_percent: Math.round(deducaoReceita * 10000) / 10000,
     commission_percent_hub: Math.round(commissionsHub * 10000) / 10000,
   }
 }

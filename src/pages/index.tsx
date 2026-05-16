@@ -295,18 +295,19 @@ function Home() {
   const saldoAtual = totalEntradas - totalSaidas
 
   // Ponto de Equilíbrio:
-  // PE = Custo Fixo R$ / Margem de Contribuição
-  //   Variáveis (% sobre faturamento): Custo Produtos + Despesas Variáveis + Comissões + Impostos + Desp. Financeiras
-  //   MC = 1 − (Total Variável / 100)
-  //   Custo Fixo R$ = (% MO Produtiva + % MO Administrativa + % Despesa Fixa) × Faturamento Médio
-  //   Faturamento Médio = `tenant_expense_config.hub_average_revenue` (média geral do HUB)
+  // PE v2 — Sprint Mai/2026: fórmula oficial baseada em ROB.
+  //   ROB = RB − IPF − DEDUCAO_RECEITA
+  //   MC$ = ROB − (CP + DV + AT + COM + DFIN + IPD)  em R$/mês
+  //   IMC = MC$ / ROB
+  //   CF$ = (CMP + MOI + DF) × RB
+  //   PE  = CF$ / IMC
   //
-  // Sprint Mai/2026: comissão (`commission_percent_hub`) e impostos sobre faturamento
-  // (`tax_on_revenue_percent`) também vêm do HUB — não mais do cadastro do usuário.
+  // Todos os percentuais saem do HUB (média histórica em `tenant_expense_config`).
+  // Para Simples Nacional, IPF = 0 (DAS é unificado e entra inteiro em IPD).
   const breakevenResult = useMemo(() => {
-    const input = buildBreakevenInputFromConfig(expenseConfig)
+    const input = buildBreakevenInputFromConfig(expenseConfig, currentUser?.taxableRegime)
     return calculateBreakeven(input)
-  }, [expenseConfig])
+  }, [expenseConfig, currentUser?.taxableRegime])
   const pontoEquilibrio = breakevenResult.isValid && breakevenResult.breakeven != null
     ? breakevenResult.breakeven
     : 0
