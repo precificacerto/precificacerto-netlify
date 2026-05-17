@@ -1969,7 +1969,16 @@ function Budgets() {
                     )}
 
                     {/* Resumo de Comissão e Lucro */}
-                    {maxDiscountPercent > 0 && budgetTotal > 0 && (
+                    {maxDiscountPercent > 0 && budgetTotal > 0 && (() => {
+                        const regime = currentUser?.taxableRegime
+                        const isLr = regime === 'LUCRO_REAL'
+                        const isLp = regime === 'LUCRO_PRESUMIDO' || regime === 'LUCRO_PRESUMIDO_RET'
+                        const isSh = regime === 'SIMPLES_HIBRIDO'
+                        const showProfitTaxes = isLr || isLp || isSh
+                        // IRPJ/CSLL incidem sobre o lucro residual após o desconto.
+                        const irpjValue = showProfitTaxes ? profitAmount * 0.15 : 0
+                        const csllValue = showProfitTaxes ? profitAmount * 0.09 : 0
+                        return (
                         <div style={{ marginTop: 8, padding: '12px 16px', background: 'rgba(99, 102, 241, 0.08)', border: '1px solid rgba(99, 102, 241, 0.25)', borderRadius: 8 }}>
                             <div style={{ fontSize: 12, fontWeight: 600, color: '#a5b4fc', marginBottom: 8 }}>Distribuição do resultado</div>
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 8 }}>
@@ -1983,9 +1992,29 @@ function Budgets() {
                                     <div style={{ fontSize: 16, fontWeight: 700, color: '#34d399' }}>{formatCurrency(profitAmount)}</div>
                                     <div style={{ fontSize: 11, color: '#64748b' }}>{totalProfitPct.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}% → {budgetTotalWithDiscount > 0 ? (profitAmount / budgetTotalWithDiscount * 100).toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 }) : '0,000'}% após desconto</div>
                                 </div>
+                                {showProfitTaxes && (
+                                    <>
+                                        <div style={{ padding: '8px 12px', background: 'rgba(251,146,60,0.12)', borderRadius: 6 }}>
+                                            <div style={{ fontSize: 11, color: '#94a3b8' }}>IRPJ (15% do lucro)</div>
+                                            <div style={{ fontSize: 16, fontWeight: 700, color: '#fb923c' }}>{formatCurrency(irpjValue)}</div>
+                                            <div style={{ fontSize: 11, color: '#64748b' }}>Recalculado sobre lucro residual</div>
+                                        </div>
+                                        <div style={{ padding: '8px 12px', background: 'rgba(251,146,60,0.12)', borderRadius: 6 }}>
+                                            <div style={{ fontSize: 11, color: '#94a3b8' }}>CSLL (9% do lucro)</div>
+                                            <div style={{ fontSize: 16, fontWeight: 700, color: '#fb923c' }}>{formatCurrency(csllValue)}</div>
+                                            <div style={{ fontSize: 11, color: '#64748b' }}>Recalculado sobre lucro residual</div>
+                                        </div>
+                                    </>
+                                )}
                             </div>
+                            {showProfitTaxes && (
+                                <div style={{ fontSize: 11, color: '#64748b', marginTop: 8, fontStyle: 'italic' }}>
+                                    O desconto absorve proporcionalmente comissão e lucro; IRPJ e CSLL são recalculados sobre o lucro residual. Custos, despesas e impostos por dentro são preservados.
+                                </div>
+                            )}
                         </div>
-                    )}
+                        )
+                    })()}
 
                     <Form.Item name="payment_method" label="Método de Pagamento" style={{ marginTop: 16 }}>
                         <Select
