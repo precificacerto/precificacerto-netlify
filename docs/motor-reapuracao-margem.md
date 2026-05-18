@@ -218,3 +218,9 @@ npm test -- mrm-orchestrator
 - IBS/CBS efetivos (2027+) — modelo `tax_rates_periods` já suporta, só plugar seed
 - ISS retido (variante por tomador)
 - DRE gerencial integrado ao `tax_breakdown` (relatórios reapurados)
+
+---
+
+## Histórico
+
+- **2026-05-18** — v2.0.0 implementada (Sprints 1-6). Migração do app de Netlify → Vercel (domínio `app.precificacerto.com`).
