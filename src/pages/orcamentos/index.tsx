@@ -35,6 +35,8 @@ import dayjs, { type Dayjs } from 'dayjs'
 import { formatBRL } from '@/utils/formatters'
 import { syncCustomerRecurrenceOnSale } from '@/lib/customer-recurrence'
 import { distributeDiscountToItems } from '@/utils/distribute-discount'
+import { useMrmConfig } from '@/hooks/use-mrm-config'
+import { MRM_ERROR_RRO_NON_POSITIVE } from '@/types/mrm'
 
 const formatCurrency = formatBRL
 
@@ -96,6 +98,7 @@ function Budgets() {
     const { data: employees = [] } = useEmployees()
     const { data: services = [] } = useServices()
     const { currentUser, tenantId } = useAuth()
+    const mrmConfig = useMrmConfig()
     const [drawerOpen, setDrawerOpen] = useState(false)
     const [editingBudgetId, setEditingBudgetId] = useState<string | null>(null)
     const [detailDrawerOpen, setDetailDrawerOpen] = useState(false)
@@ -553,9 +556,10 @@ function Budgets() {
                 status: 'DRAFT',
                 total_value: budgetTotalWithDiscount,
                 global_discount_percent: globalDiscountPercent,
-                discount_mode: discountMode,
+                discount_mode: mrmConfig.enabled ? 'MRM' : discountMode,
                 commission_amount: commissionAmount,
                 profit_amount: profitAmount,
+                engine_version: mrmConfig.enabled ? '2.0.0' : 'legacy',
                 expiration_date: values.expiration_date?.format('YYYY-MM-DD') || null,
                 notes: values.notes || null,
                 payment_method: values.payment_method || null,
@@ -648,9 +652,10 @@ function Budgets() {
                 employee_id: values.employee_id || null,
                 total_value: budgetTotalWithDiscount,
                 global_discount_percent: globalDiscountPercent,
-                discount_mode: discountMode,
+                discount_mode: mrmConfig.enabled ? 'MRM' : discountMode,
                 commission_amount: commissionAmount,
                 profit_amount: profitAmount,
+                engine_version: mrmConfig.enabled ? '2.0.0' : 'legacy',
                 expiration_date: values.expiration_date?.format('YYYY-MM-DD') || null,
                 notes: values.notes || null,
                 payment_method: values.payment_method || null,
@@ -744,7 +749,10 @@ function Budgets() {
 
         skipTableAutoSelectRef.current = true
         setGlobalDiscountPercent(Number(record.global_discount_percent || 0))
-        setDiscountMode(((record as any).discount_mode as DiscountMode) || 'PROPORTIONAL')
+        // MRM D1: ao abrir registro legado com motor ativo, força PROPORTIONAL
+        // (auto-recálculo na próxima edição). PROFIT_REDUCTION/SELLER_REDUCTION descontinuados (R2).
+        const legacyMode = ((record as any).discount_mode as DiscountMode) || 'PROPORTIONAL'
+        setDiscountMode(mrmConfig.enabled ? 'PROPORTIONAL' : legacyMode)
 
         const allLoadedTables = [...(tablesResult.data || []).map((r: any) => r.commission_tables).filter(Boolean)]
         const rows: BudgetItemRow[] = (itemsResult.data || []).map((it: any, idx: number) => {
@@ -1907,17 +1915,21 @@ function Budgets() {
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                                 <span style={{ fontSize: 14, color: '#94a3b8', whiteSpace: 'nowrap' }}>Modo</span>
                                 <Select
-                                    value={discountMode}
+                                    value={mrmConfig.enabled ? 'PROPORTIONAL' : discountMode}
+                                    disabled={mrmConfig.enabled}
                                     onChange={(v: DiscountMode) => {
                                         setDiscountMode(v)
                                         setGlobalDiscountPercent(0)
                                     }}
                                     style={{ width: 210 }}
-                                    options={[
-                                        { value: 'PROPORTIONAL', label: 'Proporcional' },
-                                        { value: 'PROFIT_REDUCTION', label: 'Redução do Lucro' },
-                                        { value: 'SELLER_REDUCTION', label: 'Redução do Vendedor' },
-                                    ]}
+                                    options={mrmConfig.enabled
+                                        ? [{ value: 'PROPORTIONAL', label: 'Motor de Reapuração' }]
+                                        : [
+                                            { value: 'PROPORTIONAL', label: 'Proporcional' },
+                                            { value: 'PROFIT_REDUCTION', label: 'Redução do Lucro' },
+                                            { value: 'SELLER_REDUCTION', label: 'Redução do Vendedor' },
+                                        ]
+                                    }
                                 />
                                 <span style={{ fontSize: 14, color: '#94a3b8', whiteSpace: 'nowrap' }}>Desconto</span>
                                 <Segmented
@@ -1965,6 +1977,14 @@ function Budgets() {
                         <div style={{ marginTop: 8, padding: '12px 16px', background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <strong style={{ color: '#f1f5f9', fontSize: 14 }}>Total Orçamento c/ Desconto:</strong>
                             <strong style={{ color: '#f87171', fontSize: 20 }}>{formatCurrency(budgetTotalWithDiscount)}</strong>
+                        </div>
+                    )}
+
+                    {/* MRM R5: aviso orientativo quando margem residual zera/negativa */}
+                    {mrmConfig.enabled && globalDiscountPercent > 0 && (commissionAmount + profitAmount) <= 0 && (
+                        <div style={{ marginTop: 8, padding: '12px 16px', background: 'rgba(234, 179, 8, 0.10)', border: '1px solid rgba(234, 179, 8, 0.35)', borderRadius: 8 }}>
+                            <div style={{ color: '#facc15', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>⚠ Margem residual não-positiva</div>
+                            <div style={{ color: '#fde68a', fontSize: 12 }}>{MRM_ERROR_RRO_NON_POSITIVE}</div>
                         </div>
                     )}
 

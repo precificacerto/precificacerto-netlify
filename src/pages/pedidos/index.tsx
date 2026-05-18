@@ -22,6 +22,7 @@ import { formatBRL } from '@/utils/formatters'
 import { exportTableToPdf } from '@/utils/export-generic-pdf'
 import { getCurrentUserId } from '@/utils/get-tenant-id'
 import dayjs from 'dayjs'
+import { useMrmConfig } from '@/hooks/use-mrm-config'
 
 const { Text } = Typography
 
@@ -170,6 +171,7 @@ function OrderTotalsSummary({ form, items }: { form: any; items: OrderItemRow[] 
 function OrdersPage() {
     const { modal: modalApi } = AntdApp.useApp()
     const { currentUser, tenantId } = useAuth()
+    const mrmConfig = useMrmConfig()
     const { canView, canEdit } = usePermissions()
     const { data: customers = [] } = useCustomers()
     const { data: products = [] } = useProducts()
@@ -512,8 +514,9 @@ function OrdersPage() {
                     total_value: totalValue,
                     payment_method: sendingOrder.payment_method || null,
                     installments: sendingOrder.installments || 1,
-                    discount_mode: sendingOrder.discount_mode || null,
+                    discount_mode: mrmConfig.enabled ? 'MRM' : (sendingOrder.discount_mode || null),
                     global_discount_percent: globalDiscountPct,
+                    engine_version: mrmConfig.enabled ? '2.0.0' : 'legacy',
                     installment_preset: (sendingOrder.payment_method === 'BOLETO' || sendingOrder.payment_method === 'CHEQUE_PRE_DATADO') ? 'customizado' : null,
                     notes: `Originado do pedido ${sendingOrder.order_code}${orderNotes}`,
                 })

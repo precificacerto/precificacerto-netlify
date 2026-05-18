@@ -34,6 +34,8 @@ import {
 } from '@/components/payment-with-installments.component'
 import { syncCustomerRecurrenceOnSale } from '@/lib/customer-recurrence'
 import { distributeDiscountToItems } from '@/utils/distribute-discount'
+import { useMrmConfig } from '@/hooks/use-mrm-config'
+import { MRM_ERROR_RRO_NON_POSITIVE } from '@/types/mrm'
 
 const PAYMENT_METHODS = [
     { value: 'PIX', label: '⚡ PIX' },
@@ -156,6 +158,7 @@ function Sales() {
     const [tableSectionsV, setTableSectionsV] = useState<{key: string; tableId: string | null}[]>([{key: 'ts-0', tableId: null}])
     const [globalDiscountPercentV, setGlobalDiscountPercentV] = useState(0)
     const [discountModeV, setDiscountModeV] = useState<DiscountMode>('PROPORTIONAL')
+    const mrmConfig = useMrmConfig()
     const [discountInputModeV, setDiscountInputModeV] = useState<'PERCENT' | 'AMOUNT'>('PERCENT')
     const selectedEmployeeIdV = Form.useWatch('employee_id', form)
     const latestEmployeeIdVRef = useRef<string | undefined>(undefined)
@@ -915,7 +918,8 @@ function Sales() {
                 sale_type: 'MANUAL',
                 status: 'COMPLETED',
                 commission_amount: commissionAmount,
-                discount_mode: discountModeV,
+                discount_mode: mrmConfig.enabled ? 'MRM' : discountModeV,
+                engine_version: mrmConfig.enabled ? '2.0.0' : 'legacy',
             }).select().single()
 
             if (saleErr) throw saleErr
@@ -1955,7 +1959,8 @@ function Sales() {
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                                 <span style={{ fontSize: 14, color: '#94a3b8', whiteSpace: 'nowrap' }}>Modo</span>
                                 <Select
-                                    value={discountModeV}
+                                    value={mrmConfig.enabled ? 'PROPORTIONAL' : discountModeV}
+                                    disabled={mrmConfig.enabled}
                                     onChange={(v: DiscountMode) => {
                                         setDiscountModeV(v)
                                         setGlobalDiscountPercentV(0)
@@ -1966,11 +1971,14 @@ function Sales() {
                                         }
                                     }}
                                     style={{ width: 210 }}
-                                    options={[
-                                        { value: 'PROPORTIONAL', label: 'Proporcional' },
-                                        { value: 'PROFIT_REDUCTION', label: 'Redução do Lucro' },
-                                        { value: 'SELLER_REDUCTION', label: 'Redução do Vendedor' },
-                                    ]}
+                                    options={mrmConfig.enabled
+                                        ? [{ value: 'PROPORTIONAL', label: 'Motor de Reapuração' }]
+                                        : [
+                                            { value: 'PROPORTIONAL', label: 'Proporcional' },
+                                            { value: 'PROFIT_REDUCTION', label: 'Redução do Lucro' },
+                                            { value: 'SELLER_REDUCTION', label: 'Redução do Vendedor' },
+                                        ]
+                                    }
                                 />
                                 <span style={{ fontSize: 14, color: '#94a3b8', whiteSpace: 'nowrap' }}>Desconto</span>
                                 <Segmented
@@ -2033,6 +2041,13 @@ function Sales() {
                             </div>
                             {maxDiscountPercentV > 0 && (<span style={{ fontSize: 12, color: '#64748b' }}>Máx: {maxDiscountPercentV.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}% {discountModeV === 'PROFIT_REDUCTION' ? '(lucro)' : discountModeV === 'SELLER_REDUCTION' ? '(comissão do vendedor)' : '(comissão + lucro)'}</span>)}
                         </div>
+                        {/* MRM R5: orientação quando desconto excede margem (RRO ≤ 0) */}
+                        {mrmConfig.enabled && globalDiscountPercentV > 0 && globalDiscountPercentV >= maxDiscountPercentV && maxDiscountPercentV > 0 && (
+                            <div style={{ marginTop: 8, padding: '10px 12px', background: 'rgba(234, 179, 8, 0.10)', border: '1px solid rgba(234, 179, 8, 0.35)', borderRadius: 6 }}>
+                                <div style={{ color: '#facc15', fontSize: 12, fontWeight: 600, marginBottom: 2 }}>⚠ Margem residual no limite</div>
+                                <div style={{ color: '#fde68a', fontSize: 11 }}>{MRM_ERROR_RRO_NON_POSITIVE}</div>
+                            </div>
+                        )}
                     </div>
                     {globalDiscountPercentV > 0 && (
                         <div style={{ marginTop: 8, padding: '12px 16px', background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
