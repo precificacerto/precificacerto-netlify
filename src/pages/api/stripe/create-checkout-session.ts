@@ -5,23 +5,21 @@ import type { NextApiRequest, NextApiResponse } from 'next'
  * Price IDs lidos em tempo de requisição (env) com fallback dos IDs criados no Stripe.
  */
 type RevenueTier = 'ate_200k' | 'acima_200k'
-type PlanSlug = 'individual' | 'intermediario' | 'ilimitado' | 'pro' | 'advanced'
+type PlanSlug = 'individual' | 'intermediario' | 'pro' | 'advanced'
 
 /** Fallback: IDs dos preços criados no Stripe. Use env para produção. */
 const PRICE_IDS_FALLBACK: Record<RevenueTier, Record<PlanSlug, string>> = {
   ate_200k: {
-    individual: 'price_1TADYpC91Syy1O804ICzZ7Sl',    // R$ 69,90
-    intermediario: 'price_1TADYpC91Syy1O80fy6vq2KV', // R$ 99,90
-    ilimitado: 'price_1TADYpC91Syy1O80ybS5Ga2B',     // R$ 149,90
-    pro: '',
-    advanced: '',
+    individual: 'price_1TYZYcC91Syy1O80XCdZdF3h',    // R$ 99,90
+    intermediario: 'price_1TYZYcC91Syy1O80JFpqEcsg', // R$ 239,90
+    pro: 'price_1TYZYdC91Syy1O80yaiVO8PQ',           // R$ 299,90
+    advanced: 'price_1TYZYdC91Syy1O80pWnr70WP',      // R$ 349,90
   },
   acima_200k: {
-    individual: '',
-    intermediario: '',
-    ilimitado: 'price_1TADYqC91Syy1O80019m7TJ0',     // R$ 499,90
-    pro: 'price_1TADYpC91Syy1O80SQXIwsHm',           // R$ 299,90
-    advanced: 'price_1TADYpC91Syy1O80IqY1oKOK',      // R$ 399,90
+    individual: 'price_1TYZYdC91Syy1O80KC8tv9ZJ',    // R$ 299,90
+    intermediario: 'price_1TYZYeC91Syy1O80kVRDudtx', // R$ 399,90
+    pro: 'price_1TYZYeC91Syy1O80I6pMn3rj',           // R$ 499,90
+    advanced: 'price_1TYZYeC91Syy1O807wLJnMOp',      // R$ 549,90
   },
 }
 
@@ -30,14 +28,12 @@ function getPriceIds(): Record<RevenueTier, Record<PlanSlug, string>> {
     ate_200k: {
       individual: process.env.STRIPE_PRICE_ATE_200K_INDIVIDUAL ?? PRICE_IDS_FALLBACK.ate_200k.individual,
       intermediario: process.env.STRIPE_PRICE_ATE_200K_INTERMEDIARIO ?? PRICE_IDS_FALLBACK.ate_200k.intermediario,
-      ilimitado: process.env.STRIPE_PRICE_ATE_200K_ILIMITADO ?? PRICE_IDS_FALLBACK.ate_200k.ilimitado,
-      pro: '',
-      advanced: '',
+      pro: process.env.STRIPE_PRICE_ATE_200K_PRO ?? PRICE_IDS_FALLBACK.ate_200k.pro,
+      advanced: process.env.STRIPE_PRICE_ATE_200K_ADVANCED ?? PRICE_IDS_FALLBACK.ate_200k.advanced,
     },
     acima_200k: {
-      individual: '',
-      intermediario: '',
-      ilimitado: process.env.STRIPE_PRICE_ACIMA_200K_ILIMITADO ?? PRICE_IDS_FALLBACK.acima_200k.ilimitado,
+      individual: process.env.STRIPE_PRICE_ACIMA_200K_INDIVIDUAL ?? PRICE_IDS_FALLBACK.acima_200k.individual,
+      intermediario: process.env.STRIPE_PRICE_ACIMA_200K_INTERMEDIARIO ?? PRICE_IDS_FALLBACK.acima_200k.intermediario,
       pro: process.env.STRIPE_PRICE_ACIMA_200K_PRO ?? PRICE_IDS_FALLBACK.acima_200k.pro,
       advanced: process.env.STRIPE_PRICE_ACIMA_200K_ADVANCED ?? PRICE_IDS_FALLBACK.acima_200k.advanced,
     },

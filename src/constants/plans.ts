@@ -5,12 +5,7 @@
 
 export type RevenueTier = 'ate_200k' | 'acima_200k'
 
-export type PlanSlug =
-  | 'individual'
-  | 'intermediario'
-  | 'ilimitado'
-  | 'pro'
-  | 'advanced'
+export type PlanSlug = 'individual' | 'intermediario' | 'pro' | 'advanced'
 
 export interface PlanOption {
   slug: PlanSlug
@@ -25,7 +20,7 @@ export const PLANS_ATE_200K: PlanOption[] = [
   {
     slug: 'individual',
     name: 'Individual',
-    price: 69.9,
+    price: 99.9,
     description: '1 usuário • Ideal para quem está começando',
     maxUsers: 1,
     features: [
@@ -39,11 +34,11 @@ export const PLANS_ATE_200K: PlanOption[] = [
   {
     slug: 'intermediario',
     name: 'Intermediário',
-    price: 99.9,
-    description: 'Até 5 usuários • Para pequenos times',
-    maxUsers: 5,
+    price: 239.9,
+    description: 'Até 3 usuários • Para pequenos times',
+    maxUsers: 3,
     features: [
-      'Até 5 usuários',
+      'Até 3 usuários',
       'Tudo do plano Individual',
       'Multiusuário com permissões por função (caixa, gestor, etc.)',
       'Agenda e lembretes para orçamentos e serviços',
@@ -52,13 +47,13 @@ export const PLANS_ATE_200K: PlanOption[] = [
     ],
   },
   {
-    slug: 'ilimitado',
-    name: 'Ilimitado',
-    price: 149.9,
-    description: 'Usuários ilimitados • Para equipes em crescimento',
-    maxUsers: null,
+    slug: 'pro',
+    name: 'Pro',
+    price: 299.9,
+    description: 'Até 5 usuários • Para times maiores',
+    maxUsers: 5,
     features: [
-      'Usuários ilimitados',
+      'Até 5 usuários',
       'Tudo do plano Intermediário',
       'Controle detalhado de permissões por usuário',
       'Centros de custo e categorias de despesas mais detalhadas',
@@ -66,18 +61,32 @@ export const PLANS_ATE_200K: PlanOption[] = [
       'Exportação de dados para contabilidade e planilhas',
     ],
   },
+  {
+    slug: 'advanced',
+    name: 'Advanced',
+    price: 349.9,
+    description: 'Usuários ilimitados • Para equipes em crescimento',
+    maxUsers: null,
+    features: [
+      'Usuários ilimitados',
+      'Tudo do plano Pro',
+      'Acompanhamento detalhado por centro de lucro',
+      'Suporte dedicado para implantação e treinamento',
+      'Prioridade no roadmap e novas funcionalidades',
+    ],
+  },
 ]
 
 export const PLANS_ACIMA_200K: PlanOption[] = [
   {
-    slug: 'pro',
-    name: 'Pro',
+    slug: 'individual',
+    name: 'Individual',
     price: 299.9,
-    description: 'Até 5 usuários • Para operações em crescimento',
-    maxUsers: 5,
+    description: '1 usuário • Para operações maiores',
+    maxUsers: 1,
     features: [
-      'Até 5 usuários',
-      'Tudo do plano Ilimitado (até 200k)',
+      '1 usuário',
+      'Tudo do plano Advanced (até 200k)',
       'Gestão avançada de estoque com movimentações detalhadas',
       'Simulações tributárias (Simples, Lucro Presumido, Lucro Real)',
       'Metas de faturamento e margem por período',
@@ -85,29 +94,42 @@ export const PLANS_ACIMA_200K: PlanOption[] = [
     ],
   },
   {
-    slug: 'advanced',
-    name: 'Advanced',
+    slug: 'intermediario',
+    name: 'Intermediário',
     price: 399.9,
-    description: 'Até 10 usuários • Para equipes comerciais maiores',
-    maxUsers: 10,
+    description: 'Até 3 usuários • Para times comerciais',
+    maxUsers: 3,
     features: [
-      'Até 10 usuários',
-      'Tudo do plano Pro',
-      'Dashboards avançados para acompanhamento diário de resultados',
+      'Até 3 usuários',
+      'Tudo do plano Individual (acima 200k)',
+      'Dashboards avançados para acompanhamento diário',
       'Múltiplos caixas e pontos de venda',
       'Controle de equipes e comissionamento por vendedor',
-      'Relatórios consolidados por loja/unidade',
     ],
   },
   {
-    slug: 'ilimitado',
-    name: 'Ilimitado',
+    slug: 'pro',
+    name: 'Pro',
     price: 499.9,
+    description: 'Até 5 usuários • Para equipes comerciais maiores',
+    maxUsers: 5,
+    features: [
+      'Até 5 usuários',
+      'Tudo do plano Intermediário (acima 200k)',
+      'Relatórios consolidados por loja/unidade',
+      'Controle de equipes e comissionamento avançado',
+      'Múltiplos centros de custo',
+    ],
+  },
+  {
+    slug: 'advanced',
+    name: 'Advanced',
+    price: 549.9,
     description: 'Usuários ilimitados • Para grandes operações',
     maxUsers: null,
     features: [
       'Usuários ilimitados e times ilimitados',
-      'Tudo do plano Advanced',
+      'Tudo do plano Pro (acima 200k)',
       'Acompanhamento detalhado de centros de lucro e unidades de negócio',
       'Suporte dedicado para implantação e treinamento da equipe',
       'Prioridade no roadmap e novas funcionalidades',

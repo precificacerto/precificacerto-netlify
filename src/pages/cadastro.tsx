@@ -360,9 +360,9 @@ export default function Cadastro() {
           }
         }
 
-        @media (min-width: 900px) {
+        @media (min-width: 1100px) {
           .cadastro-plans-grid {
-            grid-template-columns: repeat(3, 1fr);
+            grid-template-columns: repeat(4, 1fr);
           }
         }
       `}</style>
