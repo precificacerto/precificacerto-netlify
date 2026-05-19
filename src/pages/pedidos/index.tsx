@@ -181,6 +181,8 @@ function OrdersPage() {
     const { modal: modalApi } = AntdApp.useApp()
     const { currentUser, tenantId } = useAuth()
     const mrmConfig = useTenantTaxContext()
+    // P0 — Loading guard (Aria §7 + Quinn §4): rates ausentes geram snapshot fiscal vazio.
+    const motorReady = !mrmConfig.enabled || (!mrmConfig.loading && mrmConfig.rates.length > 0)
     const { canView, canEdit } = usePermissions()
     const { data: customers = [] } = useCustomers()
     const { data: products = [] } = useProducts()
@@ -404,6 +406,11 @@ function OrdersPage() {
                 messageApi.warning('Adicione pelo menos um produto, serviço ou item ao pedido.')
                 return
             }
+            // P0 — Loading guard.
+            if (mrmConfig.enabled && !motorReady) {
+                messageApi.error('Carregando contexto fiscal. Aguarde alguns segundos e tente novamente.')
+                return
+            }
 
             setSavingEdit(true)
 
@@ -550,6 +557,11 @@ function OrdersPage() {
     // a partir daí o fluxo é idêntico ao orçamento (cash_entries, estoque, recorrência etc).
     const handleConfirmSendToSale = async () => {
         if (!sendingOrder || !tenantId) return
+        // P0 — Loading guard: criar orçamento espelho sem rates infla snapshot.
+        if (mrmConfig.enabled && !motorReady) {
+            messageApi.error('Carregando contexto fiscal. Aguarde alguns segundos e tente novamente.')
+            return
+        }
         setSendingToSale(true)
         try {
             const createdBy = currentUser?.uid ?? await getCurrentUserId()
@@ -1133,7 +1145,7 @@ function OrdersPage() {
                 extra={
                     <Space>
                         <Button onClick={() => setEditDrawerOpen(false)}>Cancelar</Button>
-                        <Button type="primary" loading={savingEdit} onClick={handleSaveEdit}>Salvar</Button>
+                        <Button type="primary" loading={savingEdit || (mrmConfig.enabled && !motorReady)} disabled={mrmConfig.enabled && !motorReady} title={mrmConfig.enabled && !motorReady ? 'Carregando contexto fiscal...' : ''} onClick={handleSaveEdit}>Salvar</Button>
                     </Space>
                 }
             >
@@ -1295,7 +1307,8 @@ function OrdersPage() {
                 onOk={handleConfirmSendToSale}
                 okText="Sim, enviar"
                 cancelText="Não"
-                confirmLoading={sendingToSale}
+                confirmLoading={sendingToSale || (mrmConfig.enabled && !motorReady)}
+                okButtonProps={{ disabled: mrmConfig.enabled && !motorReady, title: mrmConfig.enabled && !motorReady ? 'Carregando contexto fiscal...' : '' }}
             >
                 {sendingOrder && (
                     <div>

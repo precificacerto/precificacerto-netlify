@@ -38,7 +38,8 @@ import { distributeDiscountToItems } from '@/utils/distribute-discount'
 import { useTenantTaxContext } from '@/hooks/use-tenant-tax-context'
 import { MRM_ERROR_RRO_NON_POSITIVE, MRM_ENGINE_VERSION } from '@/types/mrm'
 import { hydrateItemSnapshot, type TenantSnapshotContext } from '@/lib/items-snapshot'
-import { isFeatureEnabled, coerceLegacyDiscountMode } from '@/config/feature-flags'
+import { calculateMarginReapuration } from '@/utils/margin-reapuration'
+import { coerceLegacyDiscountMode } from '@/config/feature-flags'
 import { decideMrmAction } from '@/utils/mrm-policies'
 import { aggregateMotorResults } from '@/utils/mrm-aggregate'
 import { RROWarningModal } from '@/components/mrm/RROWarningModal'
@@ -468,71 +469,60 @@ function Budgets() {
     const getItemTotalWithCommission = (item: BudgetItemRow) => item.unit_price * item.quantity
     const budgetTotal = budgetItems.reduce((s, i) => s + getItemTotalWithCommission(i), 0)
 
-    // Teto do desconto varia conforme o modo selecionado:
-    //   PROPORTIONAL     → (comissão + lucro) % total
-    //   PROFIT_REDUCTION → apenas lucro %  // mrm-legacy-allowlist
-    //   SELLER_REDUCTION → apenas comissão %  // mrm-legacy-allowlist
+    // Teto do desconto: soma ponderada (comissão + lucro). PROFIT_REDUCTION e
+    // SELLER_REDUCTION foram descontinuados (R2 da spec MRM).
     const maxDiscountPercent = (() => {
         if (budgetTotal <= 0) return 100
         const pool = budgetItems.reduce((s, i) => {
             const comm = i.commission_percent || 0
             const prof = i.profit_percent || 0
-            const pct = discountMode === 'PROFIT_REDUCTION' ? prof  // mrm-legacy-allowlist
-                : discountMode === 'SELLER_REDUCTION' ? comm  // mrm-legacy-allowlist
-                : (comm + prof)
-            return s + i.unit_price * i.quantity * pct / 100
+            return s + i.unit_price * i.quantity * (comm + prof) / 100
         }, 0)
         return Math.min(100, (pool / budgetTotal) * 100)
     })()
 
     const budgetTotalWithDiscount = budgetTotal * (1 - globalDiscountPercent / 100)
 
-    // ── Comissão e Lucro calculados após desconto ──
-    // PROPORTIONAL: desconto distribuído entre lucro e comissão preservando proporção original.
-    // PROFIT_REDUCTION: desconto reduz apenas o lucro; comissão permanece integral.  // mrm-legacy-allowlist
-    // SELLER_REDUCTION: desconto reduz apenas a comissão; lucro permanece integral.  // mrm-legacy-allowlist
+    // ── Comissão e Lucro via Motor de Reapuração (RR) v2.1.0 ──
+    // Desconto reduz a receita operacional (RB→RV); NUNCA reduz alíquotas.
+    // RRO = RV - IMP - CP - MOD - DOP; rateio proporcional de comissão + lucro
+    // + CSLL + IRPJ sobre RRO. Opção A: CP/MOD/DOP zero por enquanto — elimina
+    // o efeito cascata de alíquotas mas não exige persistência de custo por item.
     const totalCommissionPct = budgetTotal > 0
         ? budgetItems.reduce((s, i) => s + i.unit_price * i.quantity * (i.commission_percent || 0) / 100, 0) / budgetTotal * 100
         : 0
     const totalProfitPct = budgetTotal > 0
         ? budgetItems.reduce((s, i) => s + i.unit_price * i.quantity * (i.profit_percent || 0) / 100, 0) / budgetTotal * 100
         : 0
-    const profitAmount = budgetItems.reduce((s, i) => {
-        const commPct = i.commission_percent || 0
-        const profPct = i.profit_percent || 0
-        const combinedPct = commPct + profPct
-        if (combinedPct <= 0) return s
+    // P0 — Loading guard (Aria §7 + Quinn §4): bloqueia operações quando o
+    // contexto fiscal ainda não carregou. Com rates=[] o motor calcula IMP=0
+    // e infla a comissão a ~100% da receita — risco de persistir valor absurdo.
+    const motorReady = !mrmConfig.enabled || (!mrmConfig.loading && mrmConfig.rates.length > 0)
+    const reapurationEffectiveDate = new Date().toISOString().slice(0, 10)
+    const motorResultsByItem = budgetItems.map(i => {
+        const commPctDecimal = (i.commission_percent ?? 0) / 100
+        const profPctDecimal = (i.profit_percent ?? 0) / 100
+        if (commPctDecimal === 0 && profPctDecimal === 0) return null
         const itemBase = i.unit_price * i.quantity
-        const priceWithDiscount = itemBase * (1 - globalDiscountPercent / 100)
-        if (discountMode === 'SELLER_REDUCTION') {  // mrm-legacy-allowlist
-            return s + priceWithDiscount * profPct / 100
-        }
-        if (discountMode === 'PROFIT_REDUCTION') {  // mrm-legacy-allowlist
-            const reducedProfPct = Math.max(0, profPct - globalDiscountPercent)
-            return s + priceWithDiscount * reducedProfPct / 100
-        }
-        const newCombinedPct = Math.max(0, combinedPct - globalDiscountPercent)
-        const profitProportion = profPct / combinedPct
-        return s + priceWithDiscount * newCombinedPct / 100 * profitProportion
-    }, 0)
-    const commissionAmount = budgetItems.reduce((s, i) => {
-        const commPct = i.commission_percent || 0
-        const profPct = i.profit_percent || 0
-        const combinedPct = commPct + profPct
-        if (combinedPct <= 0) return s
-        const itemBase = i.unit_price * i.quantity
-        const priceWithDiscount = itemBase * (1 - globalDiscountPercent / 100)
-        if (discountMode === 'PROFIT_REDUCTION') {  // mrm-legacy-allowlist
-            return s + priceWithDiscount * commPct / 100
-        }
-        if (discountMode === 'SELLER_REDUCTION') {  // mrm-legacy-allowlist
-            const reducedCommPct = Math.max(0, commPct - globalDiscountPercent)
-            return s + priceWithDiscount * reducedCommPct / 100
-        }
-        const newCombinedPct = Math.max(0, combinedPct - globalDiscountPercent)
-        const commissionProportion = commPct / combinedPct
-        return s + priceWithDiscount * newCombinedPct / 100 * commissionProportion
-    }, 0)
+        if (itemBase <= 0) return null
+        return calculateMarginReapuration({
+            rb: itemBase,
+            desc_value: itemBase * (globalDiscountPercent / 100),
+            regime: mrmConfig.regime,
+            rates: mrmConfig.rates,
+            cp: 0,
+            mod: 0,
+            dop: 0,
+            commission_pct: commPctDecimal,
+            profit_pct: profPctDecimal,
+            csll_pct: mrmConfig.csll_pct,
+            irpj_pct: mrmConfig.irpj_pct,
+            effective_date: reapurationEffectiveDate,
+            use_snapshot_rates: mrmConfig.useSnapshotRates,
+        })
+    })
+    const profitAmount = motorResultsByItem.reduce((s, r) => s + (r?.new_profit ?? 0), 0)
+    const commissionAmount = motorResultsByItem.reduce((s, r) => s + (r?.new_commission ?? 0), 0)
 
     // ── Salvar orçamento ──
     const handleSave = async () => {
@@ -541,6 +531,11 @@ function Budgets() {
             const validItems = budgetItems.filter(i => i.product_id || i.service_id || (i.isManual && i.product_name?.trim()))
             if (validItems.length === 0) {
                 messageApi.warning('Adicione pelo menos um produto, serviço ou item manual com descrição.')
+                return
+            }
+            // P0 — Loading guard: rates ainda carregando ou ausentes inflam comissão.
+            if (mrmConfig.enabled && !motorReady) {
+                messageApi.error('Carregando contexto fiscal. Aguarde alguns segundos e tente novamente.')
                 return
             }
             setSaving(true)
@@ -592,12 +587,18 @@ function Budgets() {
                 .filter(i => i.product_id || i.service_id || (i.isManual && i.product_name?.trim()))
             // Story MRM-V2-S3.1: shadow context tagueia divergências por tenant/documento.
             const shadowCtxInsert = { tenant_id, document_type: 'budget' as const }
+            // P0 — captura imutável do desconto no momento do save (elimina
+            // race entre UI render e submit). hydrateItemSnapshot recebe
+            // discount_value real para que o tax_breakdown persistido reflita
+            // o desconto aplicado (alinha snapshot com UI).
+            const discountPctSnapshot = globalDiscountPercent
             const hydratedItems = validItemsForInsert.map(i => ({
                 src: i,
                 snap: hydrateItemSnapshot(
                     {
                         unit_price: i.unit_price,
                         quantity: i.quantity,
+                        discount_value: i.unit_price * i.quantity * (discountPctSnapshot / 100),
                         commission_pct: (i.commission_percent ?? 0) / 100,
                         profit_pct: (i.profit_percent ?? 0) / 100,
                     },
@@ -714,6 +715,11 @@ function Budgets() {
                 messageApi.warning('Adicione pelo menos um produto, serviço ou item manual com descrição.')
                 return
             }
+            // P0 — Loading guard: idem ao handleSave.
+            if (mrmConfig.enabled && !motorReady) {
+                messageApi.error('Carregando contexto fiscal. Aguarde alguns segundos e tente novamente.')
+                return
+            }
             setSaving(true)
             const values = form.getFieldsValue()
             let customerId: string | null = values.customer_id || null
@@ -748,12 +754,15 @@ function Budgets() {
             }
             // Story MRM-V2-S3.1: shadow context na edição inclui document_id.
             const shadowCtxEdit = { tenant_id: tenantId, document_id: editingBudgetId, document_type: 'budget' as const }
+            // P0 — captura imutável do desconto (mesmo padrão do insert).
+            const discountPctSnapshotEdit = globalDiscountPercent
             const hydratedItemsEdit = validItems.map(i => ({
                 src: i,
                 snap: hydrateItemSnapshot(
                     {
                         unit_price: i.unit_price,
                         quantity: i.quantity,
+                        discount_value: i.unit_price * i.quantity * (discountPctSnapshotEdit / 100),
                         commission_pct: (i.commission_percent ?? 0) / 100,
                         profit_pct: (i.profit_percent ?? 0) / 100,
                     },
@@ -1904,7 +1913,13 @@ function Budgets() {
                 extra={
                     <Space>
                         <Button onClick={() => { setDrawerOpen(false); setEditingBudgetId(null); form.resetFields(); setBudgetItems([]); setGlobalDiscountPercent(0); setDiscountMode('PROPORTIONAL'); setTableSections([{key: 'ts-0', tableId: null}]); setEmpProductTables([]); setEmpServiceTables([]); setBudgetFormInstallmentPreset('customizado'); setBudgetFormCustomInstallments([{ date: null, amount: 0 }]); setBudgetFormWithEntry(false); setBudgetFormBaseDate(undefined) }}>Cancelar</Button>
-                        <Button onClick={editingBudgetId ? handleUpdate : handleSave} type="primary" loading={saving}>
+                        <Button
+                            onClick={editingBudgetId ? handleUpdate : handleSave}
+                            type="primary"
+                            loading={saving || (mrmConfig.enabled && !motorReady)}
+                            disabled={mrmConfig.enabled && !motorReady}
+                            title={mrmConfig.enabled && !motorReady ? 'Carregando contexto fiscal...' : ''}
+                        >
                             {editingBudgetId ? 'Salvar alterações' : 'Criar Orçamento'}
                         </Button>
                     </Space>
@@ -2074,29 +2089,12 @@ function Budgets() {
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                                 <span style={{ fontSize: 14, color: '#94a3b8', whiteSpace: 'nowrap' }}>Modo</span>
                                 <Select
-                                    value={mrmConfig.enabled ? 'PROPORTIONAL' : discountMode}
-                                    disabled={mrmConfig.enabled}
-                                    onChange={(v: DiscountMode) => {
-                                        setDiscountMode(v)
-                                        setGlobalDiscountPercent(0)
-                                    }}
+                                    value="PROPORTIONAL"
+                                    disabled
                                     style={{ width: 210 }}
-                                    options={mrmConfig.enabled
-                                        ? [{ value: 'PROPORTIONAL', label: 'Motor de Reapuração' }]
-                                        // MRM-V2-S2.1 (R2): modos legacy ocultos por padrão;
-                                        // a flag `mrm.legacy_modes_visible` mantém rollback de emergência
-                                        // por 1 sprint. Saves sempre forçam PROPORTIONAL via
-                                        // `coerceLegacyDiscountMode` quando a flag está desligada.
-                                        : isFeatureEnabled('mrm.legacy_modes_visible')
-                                            ? [
-                                                { value: 'PROPORTIONAL', label: 'Proporcional' },
-                                                { value: 'PROFIT_REDUCTION', label: 'Redução do Lucro' },  // mrm-legacy-allowlist
-                                                { value: 'SELLER_REDUCTION', label: 'Redução do Vendedor' },  // mrm-legacy-allowlist
-                                            ]
-                                            : [
-                                                { value: 'PROPORTIONAL', label: 'Proporcional' },
-                                            ]
-                                    }
+                                    options={[
+                                        { value: 'PROPORTIONAL', label: mrmConfig.enabled ? 'Motor de Reapuração' : 'Proporcional' },
+                                    ]}
                                 />
                                 <span style={{ fontSize: 14, color: '#94a3b8', whiteSpace: 'nowrap' }}>Desconto</span>
                                 <Segmented

@@ -37,7 +37,8 @@ import { distributeDiscountToItems } from '@/utils/distribute-discount'
 import { useTenantTaxContext } from '@/hooks/use-tenant-tax-context'
 import { MRM_ERROR_RRO_NON_POSITIVE, MRM_ENGINE_VERSION } from '@/types/mrm'
 import { hydrateItemSnapshot, type TenantSnapshotContext } from '@/lib/items-snapshot'
-import { isFeatureEnabled, coerceLegacyDiscountMode } from '@/config/feature-flags'
+import { calculateMarginReapuration } from '@/utils/margin-reapuration'
+import { coerceLegacyDiscountMode } from '@/config/feature-flags'
 import { decideMrmAction } from '@/utils/mrm-policies'
 import { aggregateMotorResults } from '@/utils/mrm-aggregate'
 import { RequiresReviewBadge } from '@/components/mrm/RequiresReviewBadge'
@@ -167,6 +168,8 @@ function Sales() {
     const [globalDiscountPercentV, setGlobalDiscountPercentV] = useState(0)
     const [discountModeV, setDiscountModeV] = useState<DiscountMode>('PROPORTIONAL')
     const mrmConfig = useTenantTaxContext()
+    // P0 — Loading guard (Aria §7 + Quinn §4): rates ausentes inflam comissão.
+    const motorReady = !mrmConfig.enabled || (!mrmConfig.loading && mrmConfig.rates.length > 0)
     const [discountInputModeV, setDiscountInputModeV] = useState<'PERCENT' | 'AMOUNT'>('PERCENT')
     const selectedEmployeeIdV = Form.useWatch('employee_id', form)
     const latestEmployeeIdVRef = useRef<string | undefined>(undefined)
@@ -410,6 +413,11 @@ function Sales() {
             await registerForm.validateFields()
             if (registerReceiptFile.length > 0 && !registerAttachDesc.trim()) {
                 messageApi.error('Informe a descrição do anexo')
+                return
+            }
+            // P0 — Loading guard: bloqueia herdar snapshot quando rates não carregaram.
+            if (mrmConfig.enabled && !motorReady) {
+                messageApi.error('Carregando contexto fiscal. Aguarde alguns segundos e tente novamente.')
                 return
             }
             setRegisterSaving(true)
@@ -867,19 +875,14 @@ function Sales() {
 
     const saleTotal = saleItems.reduce((s, i) => s + i.total, 0)
 
-    // Teto do desconto varia conforme o modo escolhido:
-    //   PROPORTIONAL     → comissão + lucro (comportamento histórico)
-    //   PROFIT_REDUCTION → apenas lucro  // mrm-legacy-allowlist
-    //   SELLER_REDUCTION → apenas comissão  // mrm-legacy-allowlist
+    // Teto do desconto: soma ponderada (comissão + lucro). PROFIT_REDUCTION e
+    // SELLER_REDUCTION foram descontinuados (R2 da spec MRM).
     const maxDiscountPercentV = (() => {
         if (saleTotal <= 0) return 0
         const sumWeighted = saleItems.reduce((s, i) => {
             const comm = i.commission_percent || 0
             const prof = i.profit_percent || 0
-            const pct = discountModeV === 'PROFIT_REDUCTION' ? prof  // mrm-legacy-allowlist
-                : discountModeV === 'SELLER_REDUCTION' ? comm  // mrm-legacy-allowlist
-                : comm + prof
-            return s + i.total * pct / 100
+            return s + i.total * (comm + prof) / 100
         }, 0)
         return Math.min(100, sumWeighted / saleTotal * 100)
     })()
@@ -907,6 +910,11 @@ function Sales() {
                 messageApi.error('Informe a descrição do anexo')
                 return
             }
+            // P0 — Loading guard: rates ausentes inflam comissão calculada no save.
+            if (mrmConfig.enabled && !motorReady) {
+                messageApi.error('Carregando contexto fiscal. Aguarde alguns segundos e tente novamente.')
+                return
+            }
             setSaving(true)
 
             const values = form.getFieldsValue()
@@ -915,31 +923,32 @@ function Sales() {
             const createdBy = await getCurrentUserId()
             if (!createdBy) { messageApi.error('Sessão inválida. Faça login novamente.'); setSaving(false); return }
 
-            // Comissão efetiva depende do modo de desconto:
-            //   PROPORTIONAL     → redução proporcional ao tamanho da comissão na margem total
-            //   PROFIT_REDUCTION → comissão permanece integral (desconto sai do lucro)  // mrm-legacy-allowlist
-            //   SELLER_REDUCTION → comissão reduzida proporcionalmente dentro do teto de vendedor  // mrm-legacy-allowlist
+            // Comissão via Motor de Reapuração (RR) v2.1.0 — desconto reduz a
+            // receita operacional, NUNCA reduz alíquotas. Rateio proporcional de
+            // comissão + lucro + CSLL + IRPJ sobre RRO = RV - IMP - CP - MOD - DOP.
+            // Opção A: CP/MOD/DOP = 0 (corrige efeito cascata sem exigir custo por item).
+            const reapurationEffectiveDateSale = new Date().toISOString().slice(0, 10)
             const commissionAmount = saleItems.reduce((sum, item) => {
-                const commPct = item.commission_percent || 0
-                const profPct = item.profit_percent || 0
-                if (commPct === 0) return sum
-                let effectivePct = commPct
-                if (globalDiscountPercentV > 0) {
-                    if (discountModeV === 'PROFIT_REDUCTION') {  // mrm-legacy-allowlist
-                        effectivePct = commPct
-                    } else if (discountModeV === 'SELLER_REDUCTION') {  // mrm-legacy-allowlist
-                        effectivePct = maxDiscountPercentV > 0
-                            ? commPct * (1 - globalDiscountPercentV / maxDiscountPercentV)
-                            : commPct
-                    } else {
-                        const combined = commPct + profPct
-                        effectivePct = combined > 0
-                            ? commPct - (globalDiscountPercentV * commPct / combined)
-                            : commPct
-                    }
-                }
-                const discountedItemTotal = item.total * (1 - globalDiscountPercentV / 100)
-                return sum + discountedItemTotal * Math.max(0, effectivePct) / 100
+                const commPctDecimal = (item.commission_percent ?? 0) / 100
+                const profPctDecimal = (item.profit_percent ?? 0) / 100
+                if (commPctDecimal === 0 && profPctDecimal === 0) return sum
+                if (item.total <= 0) return sum
+                const result = calculateMarginReapuration({
+                    rb: item.total,
+                    desc_value: item.total * (globalDiscountPercentV / 100),
+                    regime: mrmConfig.regime,
+                    rates: mrmConfig.rates,
+                    cp: 0,
+                    mod: 0,
+                    dop: 0,
+                    commission_pct: commPctDecimal,
+                    profit_pct: profPctDecimal,
+                    csll_pct: mrmConfig.csll_pct,
+                    irpj_pct: mrmConfig.irpj_pct,
+                    effective_date: reapurationEffectiveDateSale,
+                    use_snapshot_rates: mrmConfig.useSnapshotRates,
+                })
+                return sum + result.new_commission
             }, 0)
 
             // MRM S2.3 — Policy gate (ADR-004): venda BLOQUEIA quando RRO ≤ 0.
@@ -954,10 +963,13 @@ function Sales() {
             }
             // Story MRM-V2-S3.1: shadow context — venda direta (sem sale.id pré-criado).
             const directSaleShadowCtx = { tenant_id: tenantId, document_type: 'sale' as const }
+            // P0 — captura imutável do desconto no save (alinha snapshot com UI).
+            const discountPctSnapshotSale = globalDiscountPercentV
             const hydrateRow = (i: typeof saleItems[number]) => hydrateItemSnapshot(
                 {
                     unit_price: i.unit_price,
                     quantity: i.quantity,
+                    discount_value: i.total * (discountPctSnapshotSale / 100),
                     commission_pct: (i.commission_percent ?? 0) / 100,
                     profit_pct: (i.profit_percent ?? 0) / 100,
                 },
@@ -1963,7 +1975,7 @@ function Sales() {
                 width={680}
                 open={drawerOpen}
                 onClose={() => { setDrawerOpen(false); form.resetFields(); setSaleItems([]); setEmpProductTablesV([]); setEmpServiceTablesV([]); setTableSectionsV([{key: 'ts-0', tableId: null}]); setReceiptFile([]); setAttachDesc(''); setIsSplitPay(false); setCustomInstallments([{ date: null, amount: 0 }]); setInstallmentPreset('customizado') }}
-                extra={<Space><Button onClick={() => { setDrawerOpen(false); form.resetFields(); setSaleItems([]); setEmpProductTablesV([]); setEmpServiceTablesV([]); setTableSectionsV([{key: 'ts-0', tableId: null}]); setReceiptFile([]); setAttachDesc(''); setIsSplitPay(false); setCustomInstallments([{ date: null, amount: 0 }]); setInstallmentPreset('customizado') }}>Cancelar</Button><Button onClick={handleSaveSale} type="primary" loading={saving}>Registrar Venda</Button></Space>}
+                extra={<Space><Button onClick={() => { setDrawerOpen(false); form.resetFields(); setSaleItems([]); setEmpProductTablesV([]); setEmpServiceTablesV([]); setTableSectionsV([{key: 'ts-0', tableId: null}]); setReceiptFile([]); setAttachDesc(''); setIsSplitPay(false); setCustomInstallments([{ date: null, amount: 0 }]); setInstallmentPreset('customizado') }}>Cancelar</Button><Button onClick={handleSaveSale} type="primary" loading={saving || (mrmConfig.enabled && !motorReady)} disabled={mrmConfig.enabled && !motorReady} title={mrmConfig.enabled && !motorReady ? 'Carregando contexto fiscal...' : ''}>Registrar Venda</Button></Space>}
             >
                 <Form form={form} layout="vertical">
                     <Divider orientation="left" style={{ fontSize: 12, color: '#94a3b8', marginTop: 0 }}>Vendedor</Divider>
@@ -2076,34 +2088,12 @@ function Sales() {
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                                 <span style={{ fontSize: 14, color: '#94a3b8', whiteSpace: 'nowrap' }}>Modo</span>
                                 <Select
-                                    value={mrmConfig.enabled ? 'PROPORTIONAL' : discountModeV}
-                                    disabled={mrmConfig.enabled}
-                                    onChange={(v: DiscountMode) => {
-                                        setDiscountModeV(v)
-                                        setGlobalDiscountPercentV(0)
-                                        if (installmentPreset !== 'customizado') {
-                                            const n = customInstallments.length
-                                            const amt = n > 0 && saleTotal > 0 ? Math.round((saleTotal / n) * 100) / 100 : 0
-                                            setCustomInstallments(prev => prev.map(inst => ({ ...inst, amount: amt })))
-                                        }
-                                    }}
+                                    value="PROPORTIONAL"
+                                    disabled
                                     style={{ width: 210 }}
-                                    options={mrmConfig.enabled
-                                        ? [{ value: 'PROPORTIONAL', label: 'Motor de Reapuração' }]
-                                        // MRM-V2-S2.1 (R2): modos legacy ocultos por padrão;
-                                        // a flag `mrm.legacy_modes_visible` mantém rollback de emergência
-                                        // por 1 sprint. Saves sempre forçam PROPORTIONAL via
-                                        // `coerceLegacyDiscountMode` quando a flag está desligada.
-                                        : isFeatureEnabled('mrm.legacy_modes_visible')
-                                            ? [
-                                                { value: 'PROPORTIONAL', label: 'Proporcional' },
-                                                { value: 'PROFIT_REDUCTION', label: 'Redução do Lucro' },  // mrm-legacy-allowlist
-                                                { value: 'SELLER_REDUCTION', label: 'Redução do Vendedor' },  // mrm-legacy-allowlist
-                                            ]
-                                            : [
-                                                { value: 'PROPORTIONAL', label: 'Proporcional' },
-                                            ]
-                                    }
+                                    options={[
+                                        { value: 'PROPORTIONAL', label: mrmConfig.enabled ? 'Motor de Reapuração' : 'Proporcional' },
+                                    ]}
                                 />
                                 <span style={{ fontSize: 14, color: '#94a3b8', whiteSpace: 'nowrap' }}>Desconto</span>
                                 <Segmented
@@ -2115,13 +2105,7 @@ function Sales() {
                                         { label: 'R$', value: 'AMOUNT' },
                                     ]}
                                 />
-                                <Tooltip title={maxDiscountPercentV <= 0
-                                    ? (discountModeV === 'SELLER_REDUCTION'  // mrm-legacy-allowlist
-                                        ? 'Comissão zero — sem margem de vendedor para reduzir'
-                                        : discountModeV === 'PROFIT_REDUCTION'  // mrm-legacy-allowlist
-                                            ? 'Lucro zero — sem margem de lucro para reduzir'
-                                            : 'Sem margem disponível para desconto')
-                                    : ''}>
+                                <Tooltip title={maxDiscountPercentV <= 0 ? 'Sem margem disponível para desconto' : ''}>
                                     {discountInputModeV === 'PERCENT' ? (
                                         <InputNumber
                                             // MRM S2.3: âncora pro scroll automático quando policy bloqueia save
@@ -2172,11 +2156,7 @@ function Sales() {
                                     )}
                                 </Tooltip>
                             </div>
-                            {maxDiscountPercentV > 0 && (<span style={{ fontSize: 12, color: '#64748b' }}>Máx: {maxDiscountPercentV.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}% {
-                                discountModeV === 'PROFIT_REDUCTION' ? '(lucro)'  // mrm-legacy-allowlist
-                                    : discountModeV === 'SELLER_REDUCTION' ? '(comissão do vendedor)'  // mrm-legacy-allowlist
-                                        : '(comissão + lucro)'
-                            }</span>)}
+                            {maxDiscountPercentV > 0 && (<span style={{ fontSize: 12, color: '#64748b' }}>Máx: {maxDiscountPercentV.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}% (comissão + lucro)</span>)}
                         </div>
                         {/* MRM R5: orientação quando desconto excede margem (RRO ≤ 0) */}
                         {mrmConfig.enabled && globalDiscountPercentV > 0 && globalDiscountPercentV >= maxDiscountPercentV && maxDiscountPercentV > 0 && (
@@ -2437,7 +2417,8 @@ function Sales() {
                 open={registerModalOpen}
                 onCancel={() => { setRegisterModalOpen(false); setRegisterReceiptFile([]); setRegisterAttachDesc(''); setRegisterCustomInstallments([{ date: null, amount: 0 }]); setRegisterInstallmentPreset('customizado') }}
                 onOk={handleRegisterSaleFromBudget}
-                confirmLoading={registerSaving}
+                confirmLoading={registerSaving || (mrmConfig.enabled && !motorReady)}
+                okButtonProps={{ disabled: mrmConfig.enabled && !motorReady, title: mrmConfig.enabled && !motorReady ? 'Carregando contexto fiscal...' : '' }}
                 okText="Confirmar Venda"
                 afterOpenChange={(open) => {
                     if (open && selectedBudget) {
