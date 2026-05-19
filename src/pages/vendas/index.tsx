@@ -34,8 +34,8 @@ import {
 } from '@/components/payment-with-installments.component'
 import { syncCustomerRecurrenceOnSale } from '@/lib/customer-recurrence'
 import { distributeDiscountToItems } from '@/utils/distribute-discount'
-import { useMrmConfig } from '@/hooks/use-mrm-config'
-import { MRM_ERROR_RRO_NON_POSITIVE } from '@/types/mrm'
+import { useTenantTaxContext } from '@/hooks/use-tenant-tax-context'
+import { MRM_ERROR_RRO_NON_POSITIVE, MRM_ENGINE_VERSION } from '@/types/mrm'
 import { hydrateItemSnapshot, type TenantSnapshotContext } from '@/lib/items-snapshot'
 import { isFeatureEnabled, coerceLegacyDiscountMode } from '@/config/feature-flags'
 import { decideMrmAction } from '@/utils/mrm-policies'
@@ -166,7 +166,7 @@ function Sales() {
     const [tableSectionsV, setTableSectionsV] = useState<{key: string; tableId: string | null}[]>([{key: 'ts-0', tableId: null}])
     const [globalDiscountPercentV, setGlobalDiscountPercentV] = useState(0)
     const [discountModeV, setDiscountModeV] = useState<DiscountMode>('PROPORTIONAL')
-    const mrmConfig = useMrmConfig()
+    const mrmConfig = useTenantTaxContext()
     const [discountInputModeV, setDiscountInputModeV] = useState<'PERCENT' | 'AMOUNT'>('PERCENT')
     const selectedEmployeeIdV = Form.useWatch('employee_id', form)
     const latestEmployeeIdVRef = useRef<string | undefined>(undefined)
@@ -499,8 +499,10 @@ function Sales() {
                 // Criar sale_items a partir dos budget_items, distribuindo o desconto
                 // global proporcionalmente para que a soma dos itens bata com total_value.
                 const saleSnapshotCtx: TenantSnapshotContext = {
-                    regime: 'SIMPLES_NACIONAL', // TODO S2.x: ler de tenants.tax_regime
-                    rates: [], // TODO S2.x: loadTaxRates({ date: effective_date })
+                    regime: mrmConfig.regime,
+                    rates: mrmConfig.rates,
+                    csll_pct: mrmConfig.csll_pct,
+                    irpj_pct: mrmConfig.irpj_pct,
                     use_snapshot_rates: mrmConfig.useSnapshotRates,
                 }
                 // Story MRM-V2-S3.1: shadow context (sale).
@@ -944,8 +946,10 @@ function Sales() {
             // Pré-computa snapshots para alimentar a agregação. Os mesmos snapshots
             // são reutilizados no insert dos sale_items abaixo (evita recálculo).
             const directSaleSnapshotCtx: TenantSnapshotContext = {
-                regime: 'SIMPLES_NACIONAL', // TODO S2.x: ler de tenants.tax_regime
-                rates: [], // TODO S2.x: loadTaxRates({ date: effective_date })
+                regime: mrmConfig.regime,
+                rates: mrmConfig.rates,
+                csll_pct: mrmConfig.csll_pct,
+                irpj_pct: mrmConfig.irpj_pct,
                 use_snapshot_rates: mrmConfig.useSnapshotRates,
             }
             // Story MRM-V2-S3.1: shadow context — venda direta (sem sale.id pré-criado).
@@ -963,7 +967,11 @@ function Sales() {
             const allSnaps = saleItems.map(hydrateRow)
             if (mrmConfig.enabled) {
                 const aggregate = aggregateMotorResults(allSnaps.map(s => s.tax_breakdown))
-                const decision = decideMrmAction({ motorResult: aggregate, documentType: 'sale' })
+                const decision = decideMrmAction({
+                    motorResult: aggregate,
+                    documentType: 'sale',
+                    tenantSettings: mrmConfig.rro_policy ? { rro_policy: mrmConfig.rro_policy } : undefined,
+                })
                 if (decision.action === 'block_save') {
                     messageApi.error(decision.message)
                     setSaving(false)
@@ -1000,7 +1008,7 @@ function Sales() {
                 discount_mode: mrmConfig.enabled
                     ? 'MRM'
                     : coerceLegacyDiscountMode(discountModeV, { tenant_id: tenantId, surface: 'sale' }),
-                engine_version: mrmConfig.enabled ? '2.0.0' : 'legacy',
+                engine_version: mrmConfig.enabled ? MRM_ENGINE_VERSION : 'legacy',
             }).select().single()
 
             if (saleErr) throw saleErr

@@ -35,8 +35,8 @@ import dayjs, { type Dayjs } from 'dayjs'
 import { formatBRL } from '@/utils/formatters'
 import { syncCustomerRecurrenceOnSale } from '@/lib/customer-recurrence'
 import { distributeDiscountToItems } from '@/utils/distribute-discount'
-import { useMrmConfig } from '@/hooks/use-mrm-config'
-import { MRM_ERROR_RRO_NON_POSITIVE } from '@/types/mrm'
+import { useTenantTaxContext } from '@/hooks/use-tenant-tax-context'
+import { MRM_ERROR_RRO_NON_POSITIVE, MRM_ENGINE_VERSION } from '@/types/mrm'
 import { hydrateItemSnapshot, type TenantSnapshotContext } from '@/lib/items-snapshot'
 import { isFeatureEnabled, coerceLegacyDiscountMode } from '@/config/feature-flags'
 import { decideMrmAction } from '@/utils/mrm-policies'
@@ -104,7 +104,7 @@ function Budgets() {
     const { data: employees = [] } = useEmployees()
     const { data: services = [] } = useServices()
     const { currentUser, tenantId } = useAuth()
-    const mrmConfig = useMrmConfig()
+    const mrmConfig = useTenantTaxContext()
     const [drawerOpen, setDrawerOpen] = useState(false)
     const [editingBudgetId, setEditingBudgetId] = useState<string | null>(null)
     const [detailDrawerOpen, setDetailDrawerOpen] = useState(false)
@@ -577,15 +577,15 @@ function Budgets() {
                 ? 'MRM'
                 : coerceLegacyDiscountMode(discountMode, { tenant_id, surface: 'budget' })
 
-            // S1.2 MRM: hidrata `tax_breakdown`/`commission_pct`/`profit_pct` via
-            // helper puro `hydrateItemSnapshot`. As alíquotas (rates) ainda não
-            // são carregadas neste fluxo de insert — TODO S2.x integrar com
-            // `loadTaxRates`. Por enquanto passamos rates=[] e o motor degrada
-            // graciosamente (impostos zerados). `commission_pct`/`profit_pct`
-            // sempre são persistidos pois são pesos de redistribuição.
+            // MRM-V3 S1+S2+S3: snapshot context completo via useTenantTaxContext.
+            // - regime: tenants.tax_regime real
+            // - rates: tax_rates_periods vigentes (effective_date = hoje)
+            // - csll_pct/irpj_pct: sincronizados com Formação de Preço via tax-sync.ts (Seção 7 PDF)
             const snapshotCtx: TenantSnapshotContext = {
-                regime: 'SIMPLES_NACIONAL', // TODO S2.x: ler de tenants.tax_regime
-                rates: [], // TODO S2.x: loadTaxRates({ date: effective_date })
+                regime: mrmConfig.regime,
+                rates: mrmConfig.rates,
+                csll_pct: mrmConfig.csll_pct,
+                irpj_pct: mrmConfig.irpj_pct,
                 use_snapshot_rates: mrmConfig.useSnapshotRates,
             }
             const validItemsForInsert = budgetItems
@@ -606,14 +606,17 @@ function Budgets() {
                 ),
             }))
 
-            // MRM S2.3 — Camada de policy aplica regras de bloqueio/aviso (ADR-004).
+            // MRM S2.3 / V3-S5 — Camada de policy aplica regras de bloqueio/aviso (ADR-004).
             // Só consulta quando o motor V2 está ativo (mrmConfig.enabled) — fora disso,
             // mantém comportamento legado (não temos sinal MRM confiável).
             let requiresReview = false
             if (mrmConfig.enabled) {
                 const aggregate = aggregateMotorResults(hydratedItems.map(h => h.snap.tax_breakdown))
-                // TODO S2.x: ler tenantSettings.rro_policy de tenant_expense_config
-                const decision = decideMrmAction({ motorResult: aggregate, documentType: 'budget' })
+                const decision = decideMrmAction({
+                    motorResult: aggregate,
+                    documentType: 'budget',
+                    tenantSettings: mrmConfig.rro_policy ? { rro_policy: mrmConfig.rro_policy } : undefined,
+                })
                 if (decision.action === 'block_save') {
                     messageApi.error(decision.message)
                     setSaving(false)
@@ -640,7 +643,7 @@ function Budgets() {
                 discount_mode: persistedDiscountModeInsert,
                 commission_amount: commissionAmount,
                 profit_amount: profitAmount,
-                engine_version: mrmConfig.enabled ? '2.0.0' : 'legacy',
+                engine_version: mrmConfig.enabled ? MRM_ENGINE_VERSION : 'legacy',
                 expiration_date: values.expiration_date?.format('YYYY-MM-DD') || null,
                 notes: values.notes || null,
                 payment_method: values.payment_method || null,
@@ -735,10 +738,12 @@ function Budgets() {
                 ? 'MRM'
                 : coerceLegacyDiscountMode(discountMode, { tenant_id: tenantId, document_id: editingBudgetId, surface: 'budget' })
 
-            // S1.2 MRM: hidrata snapshot fiscal a cada re-insert (edição apaga+recria items).
+            // MRM-V3 S1+S2+S3: snapshot context na edição com regime/rates/csll/irpj reais.
             const snapshotCtxEdit: TenantSnapshotContext = {
-                regime: 'SIMPLES_NACIONAL', // TODO S2.x: ler de tenants.tax_regime
-                rates: [], // TODO S2.x: loadTaxRates({ date: effective_date })
+                regime: mrmConfig.regime,
+                rates: mrmConfig.rates,
+                csll_pct: mrmConfig.csll_pct,
+                irpj_pct: mrmConfig.irpj_pct,
                 use_snapshot_rates: mrmConfig.useSnapshotRates,
             }
             // Story MRM-V2-S3.1: shadow context na edição inclui document_id.
@@ -761,7 +766,11 @@ function Budgets() {
             let requiresReviewUpd = false
             if (mrmConfig.enabled) {
                 const aggregateUpd = aggregateMotorResults(hydratedItemsEdit.map(h => h.snap.tax_breakdown))
-                const decisionUpd = decideMrmAction({ motorResult: aggregateUpd, documentType: 'budget' })
+                const decisionUpd = decideMrmAction({
+                    motorResult: aggregateUpd,
+                    documentType: 'budget',
+                    tenantSettings: mrmConfig.rro_policy ? { rro_policy: mrmConfig.rro_policy } : undefined,
+                })
                 if (decisionUpd.action === 'block_save') {
                     messageApi.error(decisionUpd.message)
                     setSaving(false)
@@ -785,7 +794,7 @@ function Budgets() {
                 discount_mode: persistedDiscountModeUpdate,
                 commission_amount: commissionAmount,
                 profit_amount: profitAmount,
-                engine_version: mrmConfig.enabled ? '2.0.0' : 'legacy',
+                engine_version: mrmConfig.enabled ? MRM_ENGINE_VERSION : 'legacy',
                 expiration_date: values.expiration_date?.format('YYYY-MM-DD') || null,
                 notes: values.notes || null,
                 payment_method: values.payment_method || null,

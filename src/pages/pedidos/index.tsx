@@ -22,8 +22,9 @@ import { formatBRL } from '@/utils/formatters'
 import { exportTableToPdf } from '@/utils/export-generic-pdf'
 import { getCurrentUserId } from '@/utils/get-tenant-id'
 import dayjs from 'dayjs'
-import { useMrmConfig } from '@/hooks/use-mrm-config'
+import { useTenantTaxContext } from '@/hooks/use-tenant-tax-context'
 import { hydrateItemSnapshot, type TenantSnapshotContext } from '@/lib/items-snapshot'
+import { MRM_ENGINE_VERSION } from '@/types/mrm'
 import { coerceLegacyDiscountMode } from '@/config/feature-flags'
 import { decideMrmAction } from '@/utils/mrm-policies'
 import { aggregateMotorResults } from '@/utils/mrm-aggregate'
@@ -179,7 +180,7 @@ function OrderTotalsSummary({ form, items }: { form: any; items: OrderItemRow[] 
 function OrdersPage() {
     const { modal: modalApi } = AntdApp.useApp()
     const { currentUser, tenantId } = useAuth()
-    const mrmConfig = useMrmConfig()
+    const mrmConfig = useTenantTaxContext()
     const { canView, canEdit } = usePermissions()
     const { data: customers = [] } = useCustomers()
     const { data: products = [] } = useProducts()
@@ -418,8 +419,10 @@ function OrdersPage() {
             // degrada graciosamente (status RRO_ZERO). TODO S2.x: herdar
             // snapshot do orçamento pai quando edição preservar IDs.
             const orderSnapshotCtx: TenantSnapshotContext = {
-                regime: 'SIMPLES_NACIONAL', // TODO S2.x: ler de tenants.tax_regime
-                rates: [], // TODO S2.x: loadTaxRates({ date: effective_date })
+                regime: mrmConfig.regime,
+                rates: mrmConfig.rates,
+                csll_pct: mrmConfig.csll_pct,
+                irpj_pct: mrmConfig.irpj_pct,
                 use_snapshot_rates: mrmConfig.useSnapshotRates,
             }
             const validOrderItems = orderItems
@@ -444,7 +447,11 @@ function OrdersPage() {
             let requiresReview = false
             if (mrmConfig.enabled) {
                 const aggregate = aggregateMotorResults(hydratedOrderItems.map(h => h.snap.tax_breakdown))
-                const decision = decideMrmAction({ motorResult: aggregate, documentType: 'order' })
+                const decision = decideMrmAction({
+                    motorResult: aggregate,
+                    documentType: 'order',
+                    tenantSettings: mrmConfig.rro_policy ? { rro_policy: mrmConfig.rro_policy } : undefined,
+                })
                 if (decision.action === 'block_save') {
                     messageApi.error(decision.message)
                     setSavingEdit(false)
@@ -596,7 +603,7 @@ function OrdersPage() {
                         ? 'MRM'
                         : coerceLegacyDiscountMode(sendingOrder.discount_mode || null, { tenant_id: tenantId, document_id: sendingOrder.id, surface: 'budget' }),
                     global_discount_percent: globalDiscountPct,
-                    engine_version: mrmConfig.enabled ? '2.0.0' : 'legacy',
+                    engine_version: mrmConfig.enabled ? MRM_ENGINE_VERSION : 'legacy',
                     installment_preset: (sendingOrder.payment_method === 'BOLETO' || sendingOrder.payment_method === 'CHEQUE_PRE_DATADO') ? 'customizado' : null,
                     notes: `Originado do pedido ${sendingOrder.order_code}${orderNotes}`,
                 })
@@ -613,8 +620,10 @@ function OrdersPage() {
             // verdadeira (hoje fetchOrderItems não traz a coluna).
             if (items.length > 0) {
                 const mirrorSnapshotCtx: TenantSnapshotContext = {
-                    regime: 'SIMPLES_NACIONAL', // TODO S2.x: ler de tenants.tax_regime
-                    rates: [], // TODO S2.x: loadTaxRates({ date: effective_date })
+                    regime: mrmConfig.regime,
+                    rates: mrmConfig.rates,
+                    csll_pct: mrmConfig.csll_pct,
+                    irpj_pct: mrmConfig.irpj_pct,
                     use_snapshot_rates: mrmConfig.useSnapshotRates,
                 }
                 // Story MRM-V2-S3.1: shadow context — espelho budget criado a partir do pedido.
