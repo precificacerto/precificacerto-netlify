@@ -688,8 +688,8 @@ function Schedule() {
         const emp = payEvt?.employee_id ? allEmployees.find((e: any) => e.id === payEvt.employee_id) : null
         const svcCommPct = getEffectiveCommissionPercent(emp?.commission_percent, svc?.commission_percent)
         const svcProfitPct = Number(svc?.profit_percent) || 0
-        const pickPct = (comm: number, prof: number) => discountModeAgenda === 'PROFIT_REDUCTION' ? prof
-            : discountModeAgenda === 'SELLER_REDUCTION' ? comm
+        const pickPct = (comm: number, prof: number) => discountModeAgenda === 'PROFIT_REDUCTION' ? prof  // mrm-legacy-allowlist
+            : discountModeAgenda === 'SELLER_REDUCTION' ? comm  // mrm-legacy-allowlist
             : comm + prof
         const svcMarginValue = base * pickPct(svcCommPct, svcProfitPct) / 100
         const extrasMarginValue = extraProds.reduce((s, p) => s + p.total * pickPct(p.commission_percent || 0, p.profit_percent || 0) / 100, 0)
@@ -2233,12 +2233,12 @@ function Schedule() {
                                 </Checkbox>
                                 {hasDiscount && (() => {
                                     const maxPct = calcMaxDiscountPctAgenda()
-                                    const maxLabel = discountModeAgenda === 'PROFIT_REDUCTION' ? '(lucro)'
-                                        : discountModeAgenda === 'SELLER_REDUCTION' ? '(comissão do vendedor)'
+                                    const maxLabel = discountModeAgenda === 'PROFIT_REDUCTION' ? '(lucro)'  // mrm-legacy-allowlist
+                                        : discountModeAgenda === 'SELLER_REDUCTION' ? '(comissão do vendedor)'  // mrm-legacy-allowlist
                                         : '(comissão + lucro)'
                                     const disabledTip = maxPct <= 0
-                                        ? (discountModeAgenda === 'SELLER_REDUCTION' ? 'Comissão zero — sem margem de vendedor para reduzir'
-                                            : discountModeAgenda === 'PROFIT_REDUCTION' ? 'Lucro zero — sem margem de lucro para reduzir'
+                                        ? (discountModeAgenda === 'SELLER_REDUCTION' ? 'Comissão zero — sem margem de vendedor para reduzir'  // mrm-legacy-allowlist
+                                            : discountModeAgenda === 'PROFIT_REDUCTION' ? 'Lucro zero — sem margem de lucro para reduzir'  // mrm-legacy-allowlist
                                             : 'Sem margem disponível para desconto')
                                         : ''
                                     return (
@@ -2255,8 +2255,8 @@ function Schedule() {
                                                     style={{ width: 210 }}
                                                     options={[
                                                         { value: 'PROPORTIONAL', label: 'Proporcional' },
-                                                        { value: 'PROFIT_REDUCTION', label: 'Redução do Lucro' },
-                                                        { value: 'SELLER_REDUCTION', label: 'Redução do Vendedor' },
+                                                        { value: 'PROFIT_REDUCTION', label: 'Redução do Lucro' },  // mrm-legacy-allowlist
+                                                        { value: 'SELLER_REDUCTION', label: 'Redução do Vendedor' },  // mrm-legacy-allowlist
                                                     ]}
                                                 />
                                                 <span style={{ color: '#000', fontSize: 13 }}>Desconto:</span>

@@ -99,9 +99,30 @@ export function calculateMarginReapuration(input: ReapurationInput): TaxBreakdow
     dop,
     commission_pct,
     profit_pct,
+    csll_pct,
+    irpj_pct,
     effective_date,
     use_snapshot_rates,
   } = input
+
+  // Q5 (Story S1.1): Guard defensivo — Simples Nacional/MEI não rateiam CSLL/IRPJ.
+  // Mesmo se caller passar valor > 0, forçamos a zero e emitimos warn estruturado.
+  const csll_pct_input = csll_pct ?? 0
+  const irpj_pct_input = irpj_pct ?? 0
+  const regime_blocks_csll_irpj = regime === 'MEI' || regime === 'SIMPLES_NACIONAL'
+  const csll_pct_effective = regime_blocks_csll_irpj ? 0 : csll_pct_input
+  const irpj_pct_effective = regime_blocks_csll_irpj ? 0 : irpj_pct_input
+
+  if (regime_blocks_csll_irpj && (csll_pct_input > 0 || irpj_pct_input > 0)) {
+    // ADR-004: motor é puro, mas console.warn não é I/O — apenas diagnóstico opcional.
+    // Permitido por AC8 da Story S1.1 ("apenas console.warn do guard Q5 é permitido").
+    // eslint-disable-next-line no-console
+    console.warn('[MRM] CSLL/IRPJ forced to 0 for regime', {
+      regime,
+      attempted_csll: csll_pct_input,
+      attempted_irpj: irpj_pct_input,
+    })
+  }
 
   // Etapa 2: RV
   const rv = rb - desc_value
@@ -119,18 +140,29 @@ export function calculateMarginReapuration(input: ReapurationInput): TaxBreakdow
   const v5 = desc_value <= 0 ? true : rv < rb
   const v6 = true // Por construção: computeTaxesInside usa RV, nunca RB.
 
-  // Etapa 8: Redistribuição proporcional (R2: motor sempre PROPORTIONAL)
-  const combined_pct = commission_pct + profit_pct
+  // Etapa 8: Redistribuição proporcional 4 componentes (R2 + Story S1.1)
+  // combined_pct = profit + commission + csll + irpj
+  const combined_pct = commission_pct + profit_pct + csll_pct_effective + irpj_pct_effective
   const peso_comm = combined_pct > 0 ? commission_pct / combined_pct : 0
   const peso_lucro = combined_pct > 0 ? profit_pct / combined_pct : 0
-  const v3 = combined_pct === 0 ? true : approxEqual(peso_comm + peso_lucro, 1, 1e-9)
+  const peso_csll = combined_pct > 0 ? csll_pct_effective / combined_pct : 0
+  const peso_irpj = combined_pct > 0 ? irpj_pct_effective / combined_pct : 0
+  const v3 = combined_pct === 0
+    ? true
+    : approxEqual(peso_comm + peso_lucro + peso_csll + peso_irpj, 1, 1e-9)
 
   // Se RRO < 0, ainda calculamos os valores (R5: motor não força, UI orienta)
-  const new_commission = Math.max(0, rro) * peso_comm
-  const new_profit = Math.max(0, rro) * peso_lucro
+  const rro_distrib = Math.max(0, rro)
+  const new_commission = rro_distrib * peso_comm
+  const new_profit = rro_distrib * peso_lucro
+  const new_csll = rro_distrib * peso_csll
+  const new_irpj = rro_distrib * peso_irpj
+
+  // V4 com 4 componentes + epsilon dinâmico (AC5: epsilon = max(0.01, rro * 1e-6))
+  const v4_epsilon = Math.max(EPSILON, rro_distrib * 1e-6)
   const v4 = combined_pct === 0
-    ? new_commission + new_profit === 0
-    : approxEqual(new_commission + new_profit, Math.max(0, rro))
+    ? new_commission + new_profit + new_csll + new_irpj === 0
+    : approxEqual(new_commission + new_profit + new_csll + new_irpj, rro_distrib, v4_epsilon)
 
   // Etapa 9: Tributos por fora sobre nova base operacional (RV - impostos por dentro)
   const baseOperacional = rv - imp_total
@@ -180,6 +212,8 @@ export function calculateMarginReapuration(input: ReapurationInput): TaxBreakdow
     rro,
     new_commission,
     new_profit,
+    new_csll,
+    new_irpj,
     validations,
     valid: allValid,
     status,

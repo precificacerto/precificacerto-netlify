@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react'
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import {
     App as AntdApp,
     Button, DatePicker, Drawer, Form, Input, InputNumber, Select, Space, Table, Tag,
@@ -23,6 +23,12 @@ import { exportTableToPdf } from '@/utils/export-generic-pdf'
 import { getCurrentUserId } from '@/utils/get-tenant-id'
 import dayjs from 'dayjs'
 import { useMrmConfig } from '@/hooks/use-mrm-config'
+import { hydrateItemSnapshot, type TenantSnapshotContext } from '@/lib/items-snapshot'
+import { coerceLegacyDiscountMode } from '@/config/feature-flags'
+import { decideMrmAction } from '@/utils/mrm-policies'
+import { aggregateMotorResults } from '@/utils/mrm-aggregate'
+import { RROWarningModal } from '@/components/mrm/RROWarningModal'
+import { RequiresReviewBadge } from '@/components/mrm/RequiresReviewBadge'
 
 const { Text } = Typography
 
@@ -84,6 +90,8 @@ interface Order {
     budget_code?: string
     budget_status?: string | null
     items_count?: number
+    // MRM S2.3: flag setada pela camada mrm-policies quando RRO ≤ 0 em orders.
+    requires_review?: boolean
 }
 
 // Editor de parcelas customizadas (datas + valores) — usado quando o método de pagamento
@@ -194,6 +202,22 @@ function OrdersPage() {
     const [sendingOrder, setSendingOrder] = useState<Order | null>(null)
     const [sendingToSale, setSendingToSale] = useState(false)
 
+    // MRM S2.3: estado do modal de aviso RRO ≤ 0 (warn flow para orders).
+    const [mrmWarnOpen, setMrmWarnOpen] = useState(false)
+    const [mrmWarnMessage, setMrmWarnMessage] = useState('')
+    const pendingMrmConfirmRef = useRef<((confirmed: boolean) => void) | null>(null)
+    const askMrmConfirmation = (message: string): Promise<boolean> => {
+        return new Promise<boolean>((resolve) => {
+            setMrmWarnMessage(message)
+            setMrmWarnOpen(true)
+            pendingMrmConfirmRef.current = (confirmed: boolean) => {
+                setMrmWarnOpen(false)
+                pendingMrmConfirmRef.current = null
+                resolve(confirmed)
+            }
+        })
+    }
+
     // Products compilation drawer
     const [compiledDrawerOpen, setCompiledDrawerOpen] = useState(false)
     const [purchaseTracking, setPurchaseTracking] = useState<Record<string, boolean>>({})
@@ -218,7 +242,7 @@ function OrdersPage() {
                     id, tenant_id, order_code, customer_id, employee_id, budget_id, sale_id, status,
                     total_value, discount_mode, discount_value, discount_percent,
                     payment_method, installments, entry_value, notes,
-                    created_at, updated_at,
+                    created_at, updated_at, requires_review,
                     customers ( name ),
                     budgets!budget_id ( id, status ),
                     order_items ( id )
@@ -239,6 +263,8 @@ function OrdersPage() {
                 budget_code: o.budget_id ? `ORC-${String(o.budget_id).slice(0, 6).toUpperCase()}` : '',
                 budget_status: o.budgets?.status || null,
                 items_count: Array.isArray(o.order_items) ? o.order_items.length : 0,
+                // MRM S2.3: defensive default (coluna pode não existir até migration rodar)
+                requires_review: o.requires_review === true,
             }))
             setOrders(hydrated)
         } catch (err: any) {
@@ -386,6 +412,54 @@ function OrdersPage() {
             const discountPct = Math.max(0, Math.min(100, Number(values.discount_percent) || 0))
             const totalValue = grossSum * (1 - discountPct / 100)
 
+            // S1.2 MRM: hidrata snapshot fiscal nos order_items.
+            // O form de edição de pedido NÃO carrega commission/profit/cost
+            // (esses ficam no orçamento espelho). Passamos pesos=0 e o motor
+            // degrada graciosamente (status RRO_ZERO). TODO S2.x: herdar
+            // snapshot do orçamento pai quando edição preservar IDs.
+            const orderSnapshotCtx: TenantSnapshotContext = {
+                regime: 'SIMPLES_NACIONAL', // TODO S2.x: ler de tenants.tax_regime
+                rates: [], // TODO S2.x: loadTaxRates({ date: effective_date })
+                use_snapshot_rates: mrmConfig.useSnapshotRates,
+            }
+            const validOrderItems = orderItems
+                .filter((it) => it.product_id || it.service_id || it.manual_description)
+            // Story MRM-V2-S3.1: shadow context para rastrear divergências.
+            const orderShadowCtx = { tenant_id: tenantId, document_id: editingOrder.id, document_type: 'order' as const }
+            const hydratedOrderItems = validOrderItems.map((it) => ({
+                src: it,
+                snap: hydrateItemSnapshot(
+                    {
+                        unit_price: it.unit_price || 0,
+                        quantity: it.quantity || 0,
+                        commission_pct: 0,
+                        profit_pct: 0,
+                    },
+                    orderSnapshotCtx,
+                    orderShadowCtx,
+                ),
+            }))
+
+            // MRM S2.3 — policy gate (ADR-004). Order é WARN-only por default.
+            let requiresReview = false
+            if (mrmConfig.enabled) {
+                const aggregate = aggregateMotorResults(hydratedOrderItems.map(h => h.snap.tax_breakdown))
+                const decision = decideMrmAction({ motorResult: aggregate, documentType: 'order' })
+                if (decision.action === 'block_save') {
+                    messageApi.error(decision.message)
+                    setSavingEdit(false)
+                    return
+                }
+                if (decision.action === 'warn') {
+                    const confirmed = await askMrmConfirmation(decision.message)
+                    if (!confirmed) {
+                        setSavingEdit(false)
+                        return
+                    }
+                    requiresReview = true
+                }
+            }
+
             const { error: upErr } = await (supabase as any)
                 .from('orders')
                 .update({
@@ -398,6 +472,8 @@ function OrdersPage() {
                     discount_value: grossSum - totalValue,
                     total_value: totalValue,
                     updated_at: new Date().toISOString(),
+                    // MRM S2.3: persistir flag para listing badge
+                    requires_review: requiresReview,
                 })
                 .eq('id', editingOrder.id)
 
@@ -406,18 +482,19 @@ function OrdersPage() {
             // diff items: delete existentes, inserir atuais
             await (supabase as any).from('order_items').delete().eq('order_id', editingOrder.id)
 
-            if (orderItems.length > 0) {
-                const toInsert = orderItems
-                    .filter((it) => it.product_id || it.service_id || it.manual_description)
-                    .map((it) => ({
-                        order_id: editingOrder.id,
-                        product_id: it.product_id || null,
-                        service_id: it.service_id || null,
-                        quantity: it.quantity || 0,
-                        unit_price: it.unit_price || 0,
-                        total_price: it.total_price || 0,
-                        manual_description: it.manual_description || null,
-                    }))
+            if (hydratedOrderItems.length > 0) {
+                const toInsert = hydratedOrderItems.map(({ src: it, snap }) => ({
+                    order_id: editingOrder.id,
+                    product_id: it.product_id || null,
+                    service_id: it.service_id || null,
+                    quantity: it.quantity || 0,
+                    unit_price: it.unit_price || 0,
+                    total_price: it.total_price || 0,
+                    manual_description: it.manual_description || null,
+                    commission_pct: snap.commission_pct,
+                    profit_pct: snap.profit_pct,
+                    tax_breakdown: snap.tax_breakdown,
+                }))
                 if (toInsert.length > 0) {
                     const { error: insErr } = await (supabase as any).from('order_items').insert(toInsert)
                     if (insErr) throw insErr
@@ -514,7 +591,10 @@ function OrdersPage() {
                     total_value: totalValue,
                     payment_method: sendingOrder.payment_method || null,
                     installments: sendingOrder.installments || 1,
-                    discount_mode: mrmConfig.enabled ? 'MRM' : (sendingOrder.discount_mode || null),
+                    // MRM-V2-S2.1: coage modos legacy do pedido pai → PROPORTIONAL ao espelhar no orçamento.
+                    discount_mode: mrmConfig.enabled
+                        ? 'MRM'
+                        : coerceLegacyDiscountMode(sendingOrder.discount_mode || null, { tenant_id: tenantId, document_id: sendingOrder.id, surface: 'budget' }),
                     global_discount_percent: globalDiscountPct,
                     engine_version: mrmConfig.enabled ? '2.0.0' : 'legacy',
                     installment_preset: (sendingOrder.payment_method === 'BOLETO' || sendingOrder.payment_method === 'CHEQUE_PRE_DATADO') ? 'customizado' : null,
@@ -528,17 +608,42 @@ function OrdersPage() {
             // 2) Copiar items do pedido para budget_items — mantém unit_price original.
             // O desconto fica em budgets.global_discount_percent (lido acima) e o
             // total_value já reflete o valor com desconto aplicado.
+            // S1.2 MRM: hidrata snapshot fiscal no espelho (AC6 — herança pedido→orçamento).
+            // TODO S2.x: ler `tax_breakdown` do order_items pai para preservar imutabilidade
+            // verdadeira (hoje fetchOrderItems não traz a coluna).
             if (items.length > 0) {
-                const budgetItems = items.map((it) => ({
-                    budget_id: newBudget.id,
-                    product_id: it.product_id || null,
-                    service_id: it.service_id || null,
-                    manual_description: it.manual_description || null,
-                    quantity: it.quantity || 0,
-                    unit_price: it.unit_price || 0,
-                    discount_percent: 0,
-                    discount: 0,
-                }))
+                const mirrorSnapshotCtx: TenantSnapshotContext = {
+                    regime: 'SIMPLES_NACIONAL', // TODO S2.x: ler de tenants.tax_regime
+                    rates: [], // TODO S2.x: loadTaxRates({ date: effective_date })
+                    use_snapshot_rates: mrmConfig.useSnapshotRates,
+                }
+                // Story MRM-V2-S3.1: shadow context — espelho budget criado a partir do pedido.
+                const mirrorShadowCtx = { tenant_id: tenantId, document_id: newBudget.id, document_type: 'budget' as const }
+                const budgetItems = items.map((it) => {
+                    const snap = hydrateItemSnapshot(
+                        {
+                            unit_price: it.unit_price || 0,
+                            quantity: it.quantity || 0,
+                            commission_pct: 0,
+                            profit_pct: 0,
+                        },
+                        mirrorSnapshotCtx,
+                        mirrorShadowCtx,
+                    )
+                    return {
+                        budget_id: newBudget.id,
+                        product_id: it.product_id || null,
+                        service_id: it.service_id || null,
+                        manual_description: it.manual_description || null,
+                        quantity: it.quantity || 0,
+                        unit_price: it.unit_price || 0,
+                        discount_percent: 0,
+                        discount: 0,
+                        commission_pct: snap.commission_pct,
+                        profit_pct: snap.profit_pct,
+                        tax_breakdown: snap.tax_breakdown,
+                    }
+                })
                 await (supabase as any).from('budget_items').insert(budgetItems)
             }
 
@@ -814,11 +919,17 @@ function OrdersPage() {
             title: 'Status',
             dataIndex: 'status',
             key: 'status',
-            width: 160,
+            width: 200,
             ellipsis: true,
-            render: (s: string) => {
+            render: (s: string, record: Order) => {
                 const cfg = STATUS_CONFIG[s] || { color: 'default', label: s }
-                return <Tag color={cfg.color}>{cfg.label}</Tag>
+                return (
+                    <span>
+                        <Tag color={cfg.color}>{cfg.label}</Tag>
+                        {/* MRM S2.3 — badge "Requer revisão" quando policy marcou RRO ≤ 0 */}
+                        {record.requires_review === true && <RequiresReviewBadge />}
+                    </span>
+                )
             },
         },
         {
@@ -904,6 +1015,14 @@ function OrdersPage() {
     return (
         <Layout title={PAGE_TITLES.ORDERS || 'Pedidos'}>
             {contextHolder}
+            {/* MRM S2.3 — modal de aviso RRO ≤ 0 (warn flow para orders). */}
+            <RROWarningModal
+                open={mrmWarnOpen}
+                message={mrmWarnMessage}
+                loading={savingEdit}
+                onContinue={() => pendingMrmConfirmRef.current?.(true)}
+                onCancel={() => pendingMrmConfirmRef.current?.(false)}
+            />
 
             {/* KPIs */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16, marginBottom: 16 }}>

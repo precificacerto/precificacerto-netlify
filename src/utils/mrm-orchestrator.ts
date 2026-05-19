@@ -22,6 +22,7 @@
 
 import { calculateMarginReapuration } from './margin-reapuration'
 import { loadTaxRates } from './mrm-rates-loader'
+import { runShadowComparison, type ShadowContext } from './mrm-shadow'
 import type { ReapurationInput, TaxBreakdown, TaxRatePeriod, TaxType } from '@/types/mrm'
 
 export interface OrchestrateOptions {
@@ -31,6 +32,12 @@ export interface OrchestrateOptions {
   prev_breakdown?: TaxBreakdown | null
   /** Data efetiva para buscar alíquotas (default: hoje). */
   effective_date?: string
+  /**
+   * Story MRM-V2-S3.1: contexto opcional para shadow-mode (tenant_id,
+   * document_id, document_type). Quando ausente, shadow ainda roda mas
+   * sem rastreabilidade — útil para chamadas internas/testes.
+   */
+  shadow_context?: ShadowContext
 }
 
 export type OrchestrateInput = Omit<ReapurationInput, 'rates' | 'effective_date' | 'use_snapshot_rates'> & {
@@ -68,12 +75,18 @@ export async function orchestrateReapuration(input: OrchestrateInput): Promise<T
     rates = await loadTaxRates({ date: effective_date })
   }
 
-  return calculateMarginReapuration({
+  const motorInput: ReapurationInput = {
     ...rest,
     rates,
     effective_date,
     use_snapshot_rates: options.use_snapshot_rates,
-  })
+  }
+  const result = calculateMarginReapuration(motorInput)
+
+  // Story MRM-V2-S3.1: fire-and-forget shadow comparison (ADR-001).
+  void runShadowComparison(motorInput, result, options.shadow_context)
+
+  return result
 }
 
 /**
@@ -91,10 +104,16 @@ export function orchestrateReapurationSync(
       ? snapshotToRates(options.prev_breakdown)
       : rates
 
-  return calculateMarginReapuration({
+  const motorInput: ReapurationInput = {
     ...rest,
     rates: finalRates,
     effective_date,
     use_snapshot_rates: options.use_snapshot_rates,
-  })
+  }
+  const result = calculateMarginReapuration(motorInput)
+
+  // Story MRM-V2-S3.1: fire-and-forget shadow comparison (ADR-001).
+  void runShadowComparison(motorInput, result, options.shadow_context)
+
+  return result
 }

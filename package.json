@@ -12,7 +12,9 @@
     "sync-pricing-engine": "node scripts/sync-pricing-engine.js",
     "check-pricing-engine": "node scripts/sync-pricing-engine.js --check",
     "seed:ncm": "node scripts/seed-ncm-from-csv.js",
-    "set-super-admin-password": "node scripts/set-super-admin-password.js"
+    "set-super-admin-password": "node scripts/set-super-admin-password.js",
+    "test:legacy-guard": "node scripts/check-no-legacy-discount-modes.js",
+    "mrm:legacy-dryrun": "node scripts/mrm-legacy-migration-dryrun.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.46.1",

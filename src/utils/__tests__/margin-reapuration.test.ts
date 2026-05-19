@@ -270,7 +270,8 @@ describe('calculateMarginReapuration — Regimes tributários (R3)', () => {
 describe('calculateMarginReapuration — Output schema (TaxBreakdown)', () => {
   it('Inclui engine_version, effective_date, regime e use_snapshot_rates', () => {
     const result = calculateMarginReapuration(makeInput({ effective_date: '2026-05-18' }))
-    expect(result.engine_version).toBe('2.0.0')
+    // V2.1.0 (Story MRM-V2-S1.1): rateio 4 componentes (commission + profit + CSLL + IRPJ)
+    expect(result.engine_version).toBe('2.1.0')
     expect(result.effective_date).toBe('2026-05-18')
     expect(result.regime).toBe('LUCRO_PRESUMIDO')
     expect(result.use_snapshot_rates).toBe(true)

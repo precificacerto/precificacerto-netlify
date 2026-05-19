@@ -224,3 +224,15 @@ npm test -- mrm-orchestrator
 ## Histórico
 
 - **2026-05-18** — v2.0.0 implementada (Sprints 1-6). Migração do app de Netlify → Vercel (domínio `app.precificacerto.com`).
+
+---
+
+## ADRs (S0)
+
+Os princípios fundacionais do Motor de Reapuração de Margem V2 estão formalizados nos seguintes Architecture Decision Records (S0 — fundação arquitetural):
+
+- [ADR-001 — Single source of truth do motor](./architecture/adr-001-single-source-of-truth-motor.md): `src/utils/margin-reapuration.ts` é a única fonte canônica; edge `calc-tax-engine` será deprecada.
+- [ADR-002 — Versionamento engine_version](./architecture/adr-002-versionamento-engine-version.md): semver com herança ascendente (orçamento → pedido → venda) e imutabilidade em status Approved/Done.
+- [ADR-003 — Snapshot fiscal invariante](./architecture/adr-003-snapshot-fiscal-invariante.md): `tax_breakdown` NOT NULL e imutável em Approved/Done; snapshot vence sobre alíquotas atuais.
+- [ADR-004 — Separação motor (pure) vs policies (aplicação)](./architecture/adr-004-separacao-motor-pure-vs-policies.md): motor não bloqueia (R5); camada nova `mrm-policies.ts` decide bloqueio por document_type.
+- [ADR-005 — Deprecação edge function](./architecture/adr-005-deprecacao-edge-function.md): plano de 3 fases (Shadow 30d → Warning 60d HTTP 299 → Gone HTTP 410) com kill-switch.

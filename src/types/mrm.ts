@@ -11,7 +11,18 @@
  *   R6: MOD imune SEM EXCEÇÕES
  */
 
-export const MRM_ENGINE_VERSION = '2.0.0'
+/**
+ * Engine version (MAJOR.MINOR.PATCH — semver).
+ *
+ * Bump MINOR quando adiciona campos opcionais retrocompatíveis no schema.
+ * Bump MAJOR somente quando remove ou altera campos existentes de forma quebradora.
+ *
+ * - 2.0.0: rateio 2 componentes (commission + profit) — V1 spec
+ * - 2.1.0: rateio 4 componentes (commission + profit + CSLL + IRPJ) — V2 spec item 13
+ *           Adiciona new_csll/new_irpj em TaxBreakdown (campos novos, callers
+ *           legados continuam funcionando). Story MRM-V2-S1.1, ADR-002.
+ */
+export const MRM_ENGINE_VERSION = '2.1.0'
 
 export type TaxType =
   | 'ICMS'
@@ -95,6 +106,16 @@ export interface TaxBreakdown {
 
   new_commission: number
   new_profit: number
+  /**
+   * Valor de CSLL após redistribuição proporcional sobre RRO.
+   * Sempre 0 para regimes MEI e SIMPLES_NACIONAL (guard Q5 — Story S1.1).
+   */
+  new_csll: number
+  /**
+   * Valor de IRPJ após redistribuição proporcional sobre RRO.
+   * Sempre 0 para regimes MEI e SIMPLES_NACIONAL (guard Q5 — Story S1.1).
+   */
+  new_irpj: number
 
   validations: ValidationMap
   valid: boolean
@@ -116,6 +137,20 @@ export interface ReapurationInput {
   dop: number
   commission_pct: number
   profit_pct: number
+  /**
+   * Alíquota de CSLL (decimal: 0.0207 = 2,07%).
+   * Origem: `tenant.profile.tax_rates` ou snapshot persistido em `*_items.tax_breakdown`.
+   * Hidratação é responsabilidade da camada chamadora (Story S1.2), não do motor.
+   * Default 0 quando ausente. Forçado a 0 para regimes MEI/SIMPLES_NACIONAL (guard Q5).
+   */
+  csll_pct?: number
+  /**
+   * Alíquota de IRPJ (decimal: 0.0345 = 3,45%).
+   * Origem: `tenant.profile.tax_rates` ou snapshot persistido em `*_items.tax_breakdown`.
+   * Hidratação é responsabilidade da camada chamadora (Story S1.2), não do motor.
+   * Default 0 quando ausente. Forçado a 0 para regimes MEI/SIMPLES_NACIONAL (guard Q5).
+   */
+  irpj_pct?: number
   effective_date: string
   use_snapshot_rates: boolean
 }

@@ -36,6 +36,11 @@ import { syncCustomerRecurrenceOnSale } from '@/lib/customer-recurrence'
 import { distributeDiscountToItems } from '@/utils/distribute-discount'
 import { useMrmConfig } from '@/hooks/use-mrm-config'
 import { MRM_ERROR_RRO_NON_POSITIVE } from '@/types/mrm'
+import { hydrateItemSnapshot, type TenantSnapshotContext } from '@/lib/items-snapshot'
+import { isFeatureEnabled, coerceLegacyDiscountMode } from '@/config/feature-flags'
+import { decideMrmAction } from '@/utils/mrm-policies'
+import { aggregateMotorResults } from '@/utils/mrm-aggregate'
+import { RequiresReviewBadge } from '@/components/mrm/RequiresReviewBadge'
 
 const PAYMENT_METHODS = [
     { value: 'PIX', label: '⚡ PIX' },
@@ -75,6 +80,9 @@ interface SaleRow {
     installments: number
     saleType: string
     receiptUrl: string | null
+    // MRM S2.3: TRUE quando a venda foi salva com RRO ≤ 0 (caso edge —
+    // venda legada migrada ou tenant override permissive).
+    requiresReview: boolean
 }
 
 interface SaleItemRow {
@@ -292,6 +300,8 @@ function Sales() {
                 installments: s.installments || 1,
                 saleType: s.sale_type || 'MANUAL',
                 receiptUrl: s.receipt_url || null,
+                // MRM S2.3: defensive default (coluna pode não existir até migration rodar)
+                requiresReview: s.requires_review === true,
             }))
             setSales(rows)
             setProducts(prods || [])
@@ -478,23 +488,50 @@ function Sales() {
             }
 
             // Copiar budget_items → sale_items e descontar estoque
+            // S1.2 MRM: AC7 — herdar snapshot do orçamento pai (commission_pct,
+            // profit_pct, tax_breakdown) garantindo imutabilidade do snapshot.
             const { data: budgetItems } = await (supabase as any)
                 .from('budget_items')
-                .select('product_id, service_id, quantity, unit_price, discount, manual_description')
+                .select('product_id, service_id, quantity, unit_price, discount, manual_description, commission_pct, profit_pct, tax_breakdown')
                 .eq('budget_id', selectedBudget.id)
 
             if (budgetItems && budgetItems.length > 0) {
                 // Criar sale_items a partir dos budget_items, distribuindo o desconto
                 // global proporcionalmente para que a soma dos itens bata com total_value.
-                const rawSaleItems = budgetItems.map((bi: any) => ({
-                    sale_id: sale.id,
-                    product_id: bi.product_id || null,
-                    service_id: bi.service_id || null,
-                    quantity: bi.quantity,
-                    unit_price: bi.unit_price,
-                    discount: bi.discount || 0,
-                    description: bi.manual_description || null,
-                }))
+                const saleSnapshotCtx: TenantSnapshotContext = {
+                    regime: 'SIMPLES_NACIONAL', // TODO S2.x: ler de tenants.tax_regime
+                    rates: [], // TODO S2.x: loadTaxRates({ date: effective_date })
+                    use_snapshot_rates: mrmConfig.useSnapshotRates,
+                }
+                // Story MRM-V2-S3.1: shadow context (sale).
+                const saleShadowCtx = { tenant_id: tenantId, document_id: sale.id, document_type: 'sale' as const }
+                const rawSaleItems = budgetItems.map((bi: any) => {
+                    // hydrateItemSnapshot é idempotente: se bi.tax_breakdown já existe e
+                    // use_snapshot_rates=true, ele é PRESERVADO (AC3 — imutabilidade).
+                    const snap = hydrateItemSnapshot(
+                        {
+                            unit_price: bi.unit_price,
+                            quantity: bi.quantity,
+                            commission_pct: Number(bi.commission_pct ?? 0),
+                            profit_pct: Number(bi.profit_pct ?? 0),
+                            prev_breakdown: bi.tax_breakdown ?? null,
+                        },
+                        saleSnapshotCtx,
+                        saleShadowCtx,
+                    )
+                    return {
+                        sale_id: sale.id,
+                        product_id: bi.product_id || null,
+                        service_id: bi.service_id || null,
+                        quantity: bi.quantity,
+                        unit_price: bi.unit_price,
+                        discount: bi.discount || 0,
+                        description: bi.manual_description || null,
+                        commission_pct: snap.commission_pct,
+                        profit_pct: snap.profit_pct,
+                        tax_breakdown: snap.tax_breakdown,
+                    }
+                })
                 const saleItemsToInsert = distributeDiscountToItems(rawSaleItems, Number(selectedBudget.total_value))
                 await (supabase as any).from('sale_items').insert(saleItemsToInsert)
 
@@ -830,15 +867,15 @@ function Sales() {
 
     // Teto do desconto varia conforme o modo escolhido:
     //   PROPORTIONAL     → comissão + lucro (comportamento histórico)
-    //   PROFIT_REDUCTION → apenas lucro
-    //   SELLER_REDUCTION → apenas comissão
+    //   PROFIT_REDUCTION → apenas lucro  // mrm-legacy-allowlist
+    //   SELLER_REDUCTION → apenas comissão  // mrm-legacy-allowlist
     const maxDiscountPercentV = (() => {
         if (saleTotal <= 0) return 0
         const sumWeighted = saleItems.reduce((s, i) => {
             const comm = i.commission_percent || 0
             const prof = i.profit_percent || 0
-            const pct = discountModeV === 'PROFIT_REDUCTION' ? prof
-                : discountModeV === 'SELLER_REDUCTION' ? comm
+            const pct = discountModeV === 'PROFIT_REDUCTION' ? prof  // mrm-legacy-allowlist
+                : discountModeV === 'SELLER_REDUCTION' ? comm  // mrm-legacy-allowlist
                 : comm + prof
             return s + i.total * pct / 100
         }, 0)
@@ -878,17 +915,17 @@ function Sales() {
 
             // Comissão efetiva depende do modo de desconto:
             //   PROPORTIONAL     → redução proporcional ao tamanho da comissão na margem total
-            //   PROFIT_REDUCTION → comissão permanece integral (desconto sai do lucro)
-            //   SELLER_REDUCTION → comissão reduzida proporcionalmente dentro do teto de vendedor
+            //   PROFIT_REDUCTION → comissão permanece integral (desconto sai do lucro)  // mrm-legacy-allowlist
+            //   SELLER_REDUCTION → comissão reduzida proporcionalmente dentro do teto de vendedor  // mrm-legacy-allowlist
             const commissionAmount = saleItems.reduce((sum, item) => {
                 const commPct = item.commission_percent || 0
                 const profPct = item.profit_percent || 0
                 if (commPct === 0) return sum
                 let effectivePct = commPct
                 if (globalDiscountPercentV > 0) {
-                    if (discountModeV === 'PROFIT_REDUCTION') {
+                    if (discountModeV === 'PROFIT_REDUCTION') {  // mrm-legacy-allowlist
                         effectivePct = commPct
-                    } else if (discountModeV === 'SELLER_REDUCTION') {
+                    } else if (discountModeV === 'SELLER_REDUCTION') {  // mrm-legacy-allowlist
                         effectivePct = maxDiscountPercentV > 0
                             ? commPct * (1 - globalDiscountPercentV / maxDiscountPercentV)
                             : commPct
@@ -902,6 +939,47 @@ function Sales() {
                 const discountedItemTotal = item.total * (1 - globalDiscountPercentV / 100)
                 return sum + discountedItemTotal * Math.max(0, effectivePct) / 100
             }, 0)
+
+            // MRM S2.3 — Policy gate (ADR-004): venda BLOQUEIA quando RRO ≤ 0.
+            // Pré-computa snapshots para alimentar a agregação. Os mesmos snapshots
+            // são reutilizados no insert dos sale_items abaixo (evita recálculo).
+            const directSaleSnapshotCtx: TenantSnapshotContext = {
+                regime: 'SIMPLES_NACIONAL', // TODO S2.x: ler de tenants.tax_regime
+                rates: [], // TODO S2.x: loadTaxRates({ date: effective_date })
+                use_snapshot_rates: mrmConfig.useSnapshotRates,
+            }
+            // Story MRM-V2-S3.1: shadow context — venda direta (sem sale.id pré-criado).
+            const directSaleShadowCtx = { tenant_id: tenantId, document_type: 'sale' as const }
+            const hydrateRow = (i: typeof saleItems[number]) => hydrateItemSnapshot(
+                {
+                    unit_price: i.unit_price,
+                    quantity: i.quantity,
+                    commission_pct: (i.commission_percent ?? 0) / 100,
+                    profit_pct: (i.profit_percent ?? 0) / 100,
+                },
+                directSaleSnapshotCtx,
+                directSaleShadowCtx,
+            )
+            const allSnaps = saleItems.map(hydrateRow)
+            if (mrmConfig.enabled) {
+                const aggregate = aggregateMotorResults(allSnaps.map(s => s.tax_breakdown))
+                const decision = decideMrmAction({ motorResult: aggregate, documentType: 'sale' })
+                if (decision.action === 'block_save') {
+                    messageApi.error(decision.message)
+                    setSaving(false)
+                    // tenta foco no campo de desconto para auxiliar revisão.
+                    try {
+                        const el = document.querySelector('[data-mrm-discount-field]') as HTMLElement | null
+                        el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                        el?.focus()
+                    } catch { /* DOM pode não estar pronto */ }
+                    return
+                }
+                // sale + warn (tenant permissive) → permite com aviso amigável.
+                if (decision.action === 'warn') {
+                    messageApi.warning(decision.message)
+                }
+            }
 
             // 1) Criar venda (employee_id saved separately to handle missing column)
             const { data: sale, error: saleErr } = await supabase.from('sales').insert({
@@ -918,7 +996,10 @@ function Sales() {
                 sale_type: 'MANUAL',
                 status: 'COMPLETED',
                 commission_amount: commissionAmount,
-                discount_mode: mrmConfig.enabled ? 'MRM' : discountModeV,
+                // MRM-V2-S2.1: coage modos legacy → PROPORTIONAL quando flag desligada (default).
+                discount_mode: mrmConfig.enabled
+                    ? 'MRM'
+                    : coerceLegacyDiscountMode(discountModeV, { tenant_id: tenantId, surface: 'sale' }),
                 engine_version: mrmConfig.enabled ? '2.0.0' : 'legacy',
             }).select().single()
 
@@ -937,32 +1018,54 @@ function Sales() {
             }
 
             // 2) Salvar itens da venda (catálogo + manuais + serviços)
-            const catalogItems = saleItems.filter(i => i.product_id && !i.is_service).map(i => ({
-                sale_id: sale.id,
-                product_id: i.product_id,
-                quantity: i.quantity,
-                unit_price: i.unit_price,
-                discount: i.discount ?? 0,
-            }))
+            // S1.2 MRM: hidrata snapshot fiscal por item (venda direta no balcão).
+            // Pesos vêm de SaleItemRow.commission_percent/profit_percent (já em %).
+            // NOTA S2.3: `directSaleSnapshotCtx` e `hydrateRow` foram movidos para o início
+            // do handler (antes do gate de policy) e são reaproveitados aqui.
+            const catalogItems = saleItems.filter(i => i.product_id && !i.is_service).map(i => {
+                const snap = hydrateRow(i)
+                return {
+                    sale_id: sale.id,
+                    product_id: i.product_id,
+                    quantity: i.quantity,
+                    unit_price: i.unit_price,
+                    discount: i.discount ?? 0,
+                    commission_pct: snap.commission_pct,
+                    profit_pct: snap.profit_pct,
+                    tax_breakdown: snap.tax_breakdown,
+                }
+            })
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const serviceItems: any[] = saleItems.filter(i => i.is_service && i.service_id).map((i): any => ({
-                sale_id: sale.id,
-                product_id: null as string | null,
-                service_id: i.service_id,
-                quantity: i.quantity,
-                unit_price: i.unit_price,
-                discount: i.discount ?? 0,
-                description: (i.product_name || '').trim(),
-            }))
+            const serviceItems: any[] = saleItems.filter(i => i.is_service && i.service_id).map((i): any => {
+                const snap = hydrateRow(i)
+                return {
+                    sale_id: sale.id,
+                    product_id: null as string | null,
+                    service_id: i.service_id,
+                    quantity: i.quantity,
+                    unit_price: i.unit_price,
+                    discount: i.discount ?? 0,
+                    description: (i.product_name || '').trim(),
+                    commission_pct: snap.commission_pct,
+                    profit_pct: snap.profit_pct,
+                    tax_breakdown: snap.tax_breakdown,
+                }
+            })
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const manualItems: any[] = saleItems.filter(i => i.is_manual && (i.product_name || '').trim()).map((i): any => ({
-                sale_id: sale.id,
-                product_id: null as string | null,
-                quantity: i.quantity,
-                unit_price: i.unit_price,
-                discount: i.discount ?? 0,
-                description: (i.product_name || '').trim(),
-            }))
+            const manualItems: any[] = saleItems.filter(i => i.is_manual && (i.product_name || '').trim()).map((i): any => {
+                const snap = hydrateRow(i)
+                return {
+                    sale_id: sale.id,
+                    product_id: null as string | null,
+                    quantity: i.quantity,
+                    unit_price: i.unit_price,
+                    discount: i.discount ?? 0,
+                    description: (i.product_name || '').trim(),
+                    commission_pct: snap.commission_pct,
+                    profit_pct: snap.profit_pct,
+                    tax_breakdown: snap.tax_breakdown,
+                }
+            })
             const allItems = [...catalogItems, ...serviceItems, ...manualItems]
             if (allItems.length > 0) {
                 await supabase.from('sale_items').insert(allItems)
@@ -1595,12 +1698,18 @@ function Sales() {
         {
             title: 'Status',
             key: 'status',
-            width: 160,
+            width: 200,
             render: (_, r) => {
-                if (r.status === 'AWAITING_PAYMENT' && r.saleType === 'FROM_ORDER') {
-                    return <Tag color="orange">⏳ Aguardando pagamento</Tag>
-                }
-                return <Tag color="green">✅ Concluído</Tag>
+                const statusTag = (r.status === 'AWAITING_PAYMENT' && r.saleType === 'FROM_ORDER')
+                    ? <Tag color="orange">⏳ Aguardando pagamento</Tag>
+                    : <Tag color="green">✅ Concluído</Tag>
+                return (
+                    <span>
+                        {statusTag}
+                        {/* MRM S2.3 — badge "Requer revisão" (caso edge: tenant permissive ou venda legada) */}
+                        {r.requiresReview && <RequiresReviewBadge />}
+                    </span>
+                )
             },
         },
         {
@@ -1973,11 +2082,19 @@ function Sales() {
                                     style={{ width: 210 }}
                                     options={mrmConfig.enabled
                                         ? [{ value: 'PROPORTIONAL', label: 'Motor de Reapuração' }]
-                                        : [
-                                            { value: 'PROPORTIONAL', label: 'Proporcional' },
-                                            { value: 'PROFIT_REDUCTION', label: 'Redução do Lucro' },
-                                            { value: 'SELLER_REDUCTION', label: 'Redução do Vendedor' },
-                                        ]
+                                        // MRM-V2-S2.1 (R2): modos legacy ocultos por padrão;
+                                        // a flag `mrm.legacy_modes_visible` mantém rollback de emergência
+                                        // por 1 sprint. Saves sempre forçam PROPORTIONAL via
+                                        // `coerceLegacyDiscountMode` quando a flag está desligada.
+                                        : isFeatureEnabled('mrm.legacy_modes_visible')
+                                            ? [
+                                                { value: 'PROPORTIONAL', label: 'Proporcional' },
+                                                { value: 'PROFIT_REDUCTION', label: 'Redução do Lucro' },  // mrm-legacy-allowlist
+                                                { value: 'SELLER_REDUCTION', label: 'Redução do Vendedor' },  // mrm-legacy-allowlist
+                                            ]
+                                            : [
+                                                { value: 'PROPORTIONAL', label: 'Proporcional' },
+                                            ]
                                     }
                                 />
                                 <span style={{ fontSize: 14, color: '#94a3b8', whiteSpace: 'nowrap' }}>Desconto</span>
@@ -1990,9 +2107,17 @@ function Sales() {
                                         { label: 'R$', value: 'AMOUNT' },
                                     ]}
                                 />
-                                <Tooltip title={maxDiscountPercentV <= 0 ? (discountModeV === 'SELLER_REDUCTION' ? 'Comissão zero — sem margem de vendedor para reduzir' : discountModeV === 'PROFIT_REDUCTION' ? 'Lucro zero — sem margem de lucro para reduzir' : 'Sem margem disponível para desconto') : ''}>
+                                <Tooltip title={maxDiscountPercentV <= 0
+                                    ? (discountModeV === 'SELLER_REDUCTION'  // mrm-legacy-allowlist
+                                        ? 'Comissão zero — sem margem de vendedor para reduzir'
+                                        : discountModeV === 'PROFIT_REDUCTION'  // mrm-legacy-allowlist
+                                            ? 'Lucro zero — sem margem de lucro para reduzir'
+                                            : 'Sem margem disponível para desconto')
+                                    : ''}>
                                     {discountInputModeV === 'PERCENT' ? (
                                         <InputNumber
+                                            // MRM S2.3: âncora pro scroll automático quando policy bloqueia save
+                                            data-mrm-discount-field="true"
                                             disabled={maxDiscountPercentV <= 0}
                                             min={0}
                                             max={maxDiscountPercentV > 0 ? maxDiscountPercentV : 100}
@@ -2039,7 +2164,11 @@ function Sales() {
                                     )}
                                 </Tooltip>
                             </div>
-                            {maxDiscountPercentV > 0 && (<span style={{ fontSize: 12, color: '#64748b' }}>Máx: {maxDiscountPercentV.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}% {discountModeV === 'PROFIT_REDUCTION' ? '(lucro)' : discountModeV === 'SELLER_REDUCTION' ? '(comissão do vendedor)' : '(comissão + lucro)'}</span>)}
+                            {maxDiscountPercentV > 0 && (<span style={{ fontSize: 12, color: '#64748b' }}>Máx: {maxDiscountPercentV.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}% {
+                                discountModeV === 'PROFIT_REDUCTION' ? '(lucro)'  // mrm-legacy-allowlist
+                                    : discountModeV === 'SELLER_REDUCTION' ? '(comissão do vendedor)'  // mrm-legacy-allowlist
+                                        : '(comissão + lucro)'
+                            }</span>)}
                         </div>
                         {/* MRM R5: orientação quando desconto excede margem (RRO ≤ 0) */}
                         {mrmConfig.enabled && globalDiscountPercentV > 0 && globalDiscountPercentV >= maxDiscountPercentV && maxDiscountPercentV > 0 && (

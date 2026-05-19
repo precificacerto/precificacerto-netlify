@@ -37,6 +37,12 @@ import { syncCustomerRecurrenceOnSale } from '@/lib/customer-recurrence'
 import { distributeDiscountToItems } from '@/utils/distribute-discount'
 import { useMrmConfig } from '@/hooks/use-mrm-config'
 import { MRM_ERROR_RRO_NON_POSITIVE } from '@/types/mrm'
+import { hydrateItemSnapshot, type TenantSnapshotContext } from '@/lib/items-snapshot'
+import { isFeatureEnabled, coerceLegacyDiscountMode } from '@/config/feature-flags'
+import { decideMrmAction } from '@/utils/mrm-policies'
+import { aggregateMotorResults } from '@/utils/mrm-aggregate'
+import { RROWarningModal } from '@/components/mrm/RROWarningModal'
+import { RequiresReviewBadge } from '@/components/mrm/RequiresReviewBadge'
 
 const formatCurrency = formatBRL
 
@@ -153,6 +159,24 @@ function Budgets() {
     const [pbFilterCustomer, setPbFilterCustomer] = useState<string | undefined>()
     const [pbFilterEmployee, setPbFilterEmployee] = useState<string | undefined>()
     const [pbTableProducts, setPbTableProducts] = useState<{id: string; name: string}[]>([])
+
+    // MRM S2.3: estado do modal de aviso RRO ≤ 0 para budgets.
+    // `pendingMrmSave` armazena a continuação (resolve/reject) do save bloqueado
+    // aguardando confirmação do usuário no modal.
+    const [mrmWarnOpen, setMrmWarnOpen] = useState(false)
+    const [mrmWarnMessage, setMrmWarnMessage] = useState('')
+    const pendingMrmConfirmRef = useRef<((confirmed: boolean) => void) | null>(null)
+    const askMrmConfirmation = (message: string): Promise<boolean> => {
+        return new Promise<boolean>((resolve) => {
+            setMrmWarnMessage(message)
+            setMrmWarnOpen(true)
+            pendingMrmConfirmRef.current = (confirmed: boolean) => {
+                setMrmWarnOpen(false)
+                pendingMrmConfirmRef.current = null
+                resolve(confirmed)
+            }
+        })
+    }
 
     useEffect(() => {
         async function fetchSettings() {
@@ -446,15 +470,15 @@ function Budgets() {
 
     // Teto do desconto varia conforme o modo selecionado:
     //   PROPORTIONAL     → (comissão + lucro) % total
-    //   PROFIT_REDUCTION → apenas lucro %
-    //   SELLER_REDUCTION → apenas comissão %
+    //   PROFIT_REDUCTION → apenas lucro %  // mrm-legacy-allowlist
+    //   SELLER_REDUCTION → apenas comissão %  // mrm-legacy-allowlist
     const maxDiscountPercent = (() => {
         if (budgetTotal <= 0) return 100
         const pool = budgetItems.reduce((s, i) => {
             const comm = i.commission_percent || 0
             const prof = i.profit_percent || 0
-            const pct = discountMode === 'PROFIT_REDUCTION' ? prof
-                : discountMode === 'SELLER_REDUCTION' ? comm
+            const pct = discountMode === 'PROFIT_REDUCTION' ? prof  // mrm-legacy-allowlist
+                : discountMode === 'SELLER_REDUCTION' ? comm  // mrm-legacy-allowlist
                 : (comm + prof)
             return s + i.unit_price * i.quantity * pct / 100
         }, 0)
@@ -465,8 +489,8 @@ function Budgets() {
 
     // ── Comissão e Lucro calculados após desconto ──
     // PROPORTIONAL: desconto distribuído entre lucro e comissão preservando proporção original.
-    // PROFIT_REDUCTION: desconto reduz apenas o lucro; comissão permanece integral.
-    // SELLER_REDUCTION: desconto reduz apenas a comissão; lucro permanece integral.
+    // PROFIT_REDUCTION: desconto reduz apenas o lucro; comissão permanece integral.  // mrm-legacy-allowlist
+    // SELLER_REDUCTION: desconto reduz apenas a comissão; lucro permanece integral.  // mrm-legacy-allowlist
     const totalCommissionPct = budgetTotal > 0
         ? budgetItems.reduce((s, i) => s + i.unit_price * i.quantity * (i.commission_percent || 0) / 100, 0) / budgetTotal * 100
         : 0
@@ -480,10 +504,10 @@ function Budgets() {
         if (combinedPct <= 0) return s
         const itemBase = i.unit_price * i.quantity
         const priceWithDiscount = itemBase * (1 - globalDiscountPercent / 100)
-        if (discountMode === 'SELLER_REDUCTION') {
+        if (discountMode === 'SELLER_REDUCTION') {  // mrm-legacy-allowlist
             return s + priceWithDiscount * profPct / 100
         }
-        if (discountMode === 'PROFIT_REDUCTION') {
+        if (discountMode === 'PROFIT_REDUCTION') {  // mrm-legacy-allowlist
             const reducedProfPct = Math.max(0, profPct - globalDiscountPercent)
             return s + priceWithDiscount * reducedProfPct / 100
         }
@@ -498,10 +522,10 @@ function Budgets() {
         if (combinedPct <= 0) return s
         const itemBase = i.unit_price * i.quantity
         const priceWithDiscount = itemBase * (1 - globalDiscountPercent / 100)
-        if (discountMode === 'PROFIT_REDUCTION') {
+        if (discountMode === 'PROFIT_REDUCTION') {  // mrm-legacy-allowlist
             return s + priceWithDiscount * commPct / 100
         }
-        if (discountMode === 'SELLER_REDUCTION') {
+        if (discountMode === 'SELLER_REDUCTION') {  // mrm-legacy-allowlist
             const reducedCommPct = Math.max(0, commPct - globalDiscountPercent)
             return s + priceWithDiscount * reducedCommPct / 100
         }
@@ -548,6 +572,63 @@ function Budgets() {
                 customerId = newCustomer.id
             }
 
+            // MRM-V2-S2.1: coage modos legacy → PROPORTIONAL quando flag desligada (default).
+            const persistedDiscountModeInsert = mrmConfig.enabled
+                ? 'MRM'
+                : coerceLegacyDiscountMode(discountMode, { tenant_id, surface: 'budget' })
+
+            // S1.2 MRM: hidrata `tax_breakdown`/`commission_pct`/`profit_pct` via
+            // helper puro `hydrateItemSnapshot`. As alíquotas (rates) ainda não
+            // são carregadas neste fluxo de insert — TODO S2.x integrar com
+            // `loadTaxRates`. Por enquanto passamos rates=[] e o motor degrada
+            // graciosamente (impostos zerados). `commission_pct`/`profit_pct`
+            // sempre são persistidos pois são pesos de redistribuição.
+            const snapshotCtx: TenantSnapshotContext = {
+                regime: 'SIMPLES_NACIONAL', // TODO S2.x: ler de tenants.tax_regime
+                rates: [], // TODO S2.x: loadTaxRates({ date: effective_date })
+                use_snapshot_rates: mrmConfig.useSnapshotRates,
+            }
+            const validItemsForInsert = budgetItems
+                .filter(i => i.product_id || i.service_id || (i.isManual && i.product_name?.trim()))
+            // Story MRM-V2-S3.1: shadow context tagueia divergências por tenant/documento.
+            const shadowCtxInsert = { tenant_id, document_type: 'budget' as const }
+            const hydratedItems = validItemsForInsert.map(i => ({
+                src: i,
+                snap: hydrateItemSnapshot(
+                    {
+                        unit_price: i.unit_price,
+                        quantity: i.quantity,
+                        commission_pct: (i.commission_percent ?? 0) / 100,
+                        profit_pct: (i.profit_percent ?? 0) / 100,
+                    },
+                    snapshotCtx,
+                    shadowCtxInsert,
+                ),
+            }))
+
+            // MRM S2.3 — Camada de policy aplica regras de bloqueio/aviso (ADR-004).
+            // Só consulta quando o motor V2 está ativo (mrmConfig.enabled) — fora disso,
+            // mantém comportamento legado (não temos sinal MRM confiável).
+            let requiresReview = false
+            if (mrmConfig.enabled) {
+                const aggregate = aggregateMotorResults(hydratedItems.map(h => h.snap.tax_breakdown))
+                // TODO S2.x: ler tenantSettings.rro_policy de tenant_expense_config
+                const decision = decideMrmAction({ motorResult: aggregate, documentType: 'budget' })
+                if (decision.action === 'block_save') {
+                    messageApi.error(decision.message)
+                    setSaving(false)
+                    return
+                }
+                if (decision.action === 'warn') {
+                    const confirmed = await askMrmConfirmation(decision.message)
+                    if (!confirmed) {
+                        setSaving(false)
+                        return
+                    }
+                    requiresReview = true
+                }
+            }
+
             const { data: budget, error } = await (supabase as any).from('budgets').insert({
                 tenant_id,
                 created_by: createdBy,
@@ -556,7 +637,7 @@ function Budgets() {
                 status: 'DRAFT',
                 total_value: budgetTotalWithDiscount,
                 global_discount_percent: globalDiscountPercent,
-                discount_mode: mrmConfig.enabled ? 'MRM' : discountMode,
+                discount_mode: persistedDiscountModeInsert,
                 commission_amount: commissionAmount,
                 profit_amount: profitAmount,
                 engine_version: mrmConfig.enabled ? '2.0.0' : 'legacy',
@@ -566,23 +647,25 @@ function Budgets() {
                 installment_preset: (values.payment_method === 'BOLETO' || values.payment_method === 'CHEQUE_PRE_DATADO')
                     ? budgetFormInstallmentPreset
                     : null,
+                // MRM S2.3: flag persiste para listing badge "Requer revisão"
+                requires_review: requiresReview,
             }).select().single()
 
             if (error) throw error
 
-            // Salvar itens (produto da base, serviço ou item manual)
-            const items = budgetItems
-                .filter(i => i.product_id || i.service_id || (i.isManual && i.product_name?.trim()))
-                .map(i => ({
-                    budget_id: budget.id,
-                    product_id: i.product_id || null,
-                    service_id: i.service_id || null,
-                    manual_description: (i.isManual || i.isService) ? (i.product_name?.trim() || null) : null,
-                    quantity: i.quantity,
-                    unit_price: i.unit_price,
-                    discount_percent: 0,
-                    discount: 0,
-                }))
+            const items = hydratedItems.map(({ src: i, snap }) => ({
+                budget_id: budget.id,
+                product_id: i.product_id || null,
+                service_id: i.service_id || null,
+                manual_description: (i.isManual || i.isService) ? (i.product_name?.trim() || null) : null,
+                quantity: i.quantity,
+                unit_price: i.unit_price,
+                discount_percent: 0,
+                discount: 0,
+                commission_pct: snap.commission_pct,
+                profit_pct: snap.profit_pct,
+                tax_breakdown: snap.tax_breakdown,
+            }))
 
             if (items.length > 0) {
                 const { error: itemsErr } = await supabase.from('budget_items').insert(items)
@@ -647,12 +730,59 @@ function Budgets() {
                 }
             }
 
+            // MRM-V2-S2.1: coage modos legacy → PROPORTIONAL quando flag desligada (default).
+            const persistedDiscountModeUpdate = mrmConfig.enabled
+                ? 'MRM'
+                : coerceLegacyDiscountMode(discountMode, { tenant_id: tenantId, document_id: editingBudgetId, surface: 'budget' })
+
+            // S1.2 MRM: hidrata snapshot fiscal a cada re-insert (edição apaga+recria items).
+            const snapshotCtxEdit: TenantSnapshotContext = {
+                regime: 'SIMPLES_NACIONAL', // TODO S2.x: ler de tenants.tax_regime
+                rates: [], // TODO S2.x: loadTaxRates({ date: effective_date })
+                use_snapshot_rates: mrmConfig.useSnapshotRates,
+            }
+            // Story MRM-V2-S3.1: shadow context na edição inclui document_id.
+            const shadowCtxEdit = { tenant_id: tenantId, document_id: editingBudgetId, document_type: 'budget' as const }
+            const hydratedItemsEdit = validItems.map(i => ({
+                src: i,
+                snap: hydrateItemSnapshot(
+                    {
+                        unit_price: i.unit_price,
+                        quantity: i.quantity,
+                        commission_pct: (i.commission_percent ?? 0) / 100,
+                        profit_pct: (i.profit_percent ?? 0) / 100,
+                    },
+                    snapshotCtxEdit,
+                    shadowCtxEdit,
+                ),
+            }))
+
+            // MRM S2.3 — policy gate (ADR-004).
+            let requiresReviewUpd = false
+            if (mrmConfig.enabled) {
+                const aggregateUpd = aggregateMotorResults(hydratedItemsEdit.map(h => h.snap.tax_breakdown))
+                const decisionUpd = decideMrmAction({ motorResult: aggregateUpd, documentType: 'budget' })
+                if (decisionUpd.action === 'block_save') {
+                    messageApi.error(decisionUpd.message)
+                    setSaving(false)
+                    return
+                }
+                if (decisionUpd.action === 'warn') {
+                    const confirmed = await askMrmConfirmation(decisionUpd.message)
+                    if (!confirmed) {
+                        setSaving(false)
+                        return
+                    }
+                    requiresReviewUpd = true
+                }
+            }
+
             const { error } = await (supabase as any).from('budgets').update({
                 customer_id: customerId,
                 employee_id: values.employee_id || null,
                 total_value: budgetTotalWithDiscount,
                 global_discount_percent: globalDiscountPercent,
-                discount_mode: mrmConfig.enabled ? 'MRM' : discountMode,
+                discount_mode: persistedDiscountModeUpdate,
                 commission_amount: commissionAmount,
                 profit_amount: profitAmount,
                 engine_version: mrmConfig.enabled ? '2.0.0' : 'legacy',
@@ -663,10 +793,12 @@ function Budgets() {
                     ? budgetFormInstallmentPreset
                     : null,
                 updated_at: new Date().toISOString(),
+                // MRM S2.3: atualiza flag a cada edição (pode ter saído ou entrado em RRO<=0).
+                requires_review: requiresReviewUpd,
             }).eq('id', editingBudgetId)
             if (error) throw error
             await supabase.from('budget_items').delete().eq('budget_id', editingBudgetId)
-            const items = validItems.map(i => ({
+            const items = hydratedItemsEdit.map(({ src: i, snap }) => ({
                 budget_id: editingBudgetId,
                 product_id: i.product_id || null,
                 service_id: i.service_id || null,
@@ -675,6 +807,9 @@ function Budgets() {
                 unit_price: i.unit_price,
                 discount_percent: 0,
                 discount: 0,
+                commission_pct: snap.commission_pct,
+                profit_pct: snap.profit_pct,
+                tax_breakdown: snap.tax_breakdown,
             }))
             if (items.length > 0) {
                 const { error: itemsErr } = await supabase.from('budget_items').insert(items)
@@ -750,7 +885,7 @@ function Budgets() {
         skipTableAutoSelectRef.current = true
         setGlobalDiscountPercent(Number(record.global_discount_percent || 0))
         // MRM D1: ao abrir registro legado com motor ativo, força PROPORTIONAL
-        // (auto-recálculo na próxima edição). PROFIT_REDUCTION/SELLER_REDUCTION descontinuados (R2).
+        // (auto-recálculo na próxima edição). Modos legacy descontinuados (R2). // mrm-legacy-allowlist
         const legacyMode = ((record as any).discount_mode as DiscountMode) || 'PROPORTIONAL'
         setDiscountMode(mrmConfig.enabled ? 'PROPORTIONAL' : legacyMode)
 
@@ -922,7 +1057,8 @@ function Budgets() {
                 original_budget_id: b.id,
                 status: 'DRAFT',
                 total_value: b.total_value || 0,
-                discount_mode: b.discount_mode || null,
+                // MRM-V2-S2.1: coage modos legacy do budget pai → PROPORTIONAL ao copiar para o pedido.
+                discount_mode: coerceLegacyDiscountMode(b.discount_mode || null, { tenant_id: tenantId, document_id: b.id, surface: 'order' }),
                 discount_value: b.discount_value || null,
                 discount_percent: b.discount_percent || b.global_discount_percent || null,
                 payment_method: b.payment_method || null,
@@ -1495,9 +1631,15 @@ function Budgets() {
             key: 'status',
             filters: Object.entries(statusConfig).map(([k, v]) => ({ text: v.label, value: k })),
             onFilter: (value, record) => record.status === value,
-            render: (status: string) => {
+            render: (status: string, record: any) => {
                 const cfg = statusConfig[status] || { color: 'default', label: status }
-                return <Tag color={cfg.color}>{cfg.label}</Tag>
+                return (
+                    <span>
+                        <Tag color={cfg.color}>{cfg.label}</Tag>
+                        {/* MRM S2.3 — badge "Requer revisão" quando policy marcou RRO ≤ 0 */}
+                        {record?.requires_review === true && <RequiresReviewBadge />}
+                    </span>
+                )
             },
         },
         {
@@ -1676,6 +1818,14 @@ function Budgets() {
     return (
         <Layout title={PAGE_TITLES.BUDGETS} subtitle="Pipeline comercial — do orçamento à venda">
             {contextHolder}
+            {/* MRM S2.3 — modal de aviso RRO ≤ 0 (warn flow). */}
+            <RROWarningModal
+                open={mrmWarnOpen}
+                message={mrmWarnMessage}
+                loading={saving}
+                onContinue={() => pendingMrmConfirmRef.current?.(true)}
+                onCancel={() => pendingMrmConfirmRef.current?.(false)}
+            />
 
             <div className="kpi-grid">
                 <CardKPI title="Total Orçamentos" value={totalBudgets} icon={<FileTextOutlined />} variant="blue" />
@@ -1924,11 +2074,19 @@ function Budgets() {
                                     style={{ width: 210 }}
                                     options={mrmConfig.enabled
                                         ? [{ value: 'PROPORTIONAL', label: 'Motor de Reapuração' }]
-                                        : [
-                                            { value: 'PROPORTIONAL', label: 'Proporcional' },
-                                            { value: 'PROFIT_REDUCTION', label: 'Redução do Lucro' },
-                                            { value: 'SELLER_REDUCTION', label: 'Redução do Vendedor' },
-                                        ]
+                                        // MRM-V2-S2.1 (R2): modos legacy ocultos por padrão;
+                                        // a flag `mrm.legacy_modes_visible` mantém rollback de emergência
+                                        // por 1 sprint. Saves sempre forçam PROPORTIONAL via
+                                        // `coerceLegacyDiscountMode` quando a flag está desligada.
+                                        : isFeatureEnabled('mrm.legacy_modes_visible')
+                                            ? [
+                                                { value: 'PROPORTIONAL', label: 'Proporcional' },
+                                                { value: 'PROFIT_REDUCTION', label: 'Redução do Lucro' },  // mrm-legacy-allowlist
+                                                { value: 'SELLER_REDUCTION', label: 'Redução do Vendedor' },  // mrm-legacy-allowlist
+                                            ]
+                                            : [
+                                                { value: 'PROPORTIONAL', label: 'Proporcional' },
+                                            ]
                                     }
                                 />
                                 <span style={{ fontSize: 14, color: '#94a3b8', whiteSpace: 'nowrap' }}>Desconto</span>
