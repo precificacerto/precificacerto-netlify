@@ -692,6 +692,21 @@ function Budgets() {
                 messageApi.error('Carregando contexto fiscal. Aguarde alguns segundos e tente novamente.')
                 return
             }
+
+            // S19 (EPIC-RR-V4): bloquear save quando algum item tem RRO ≤ 0
+            // (motor RR não consegue redistribuir comissão/lucro com residual negativo).
+            if (mrmConfig.enabled) {
+                const itemsWithBadRRO = motorResultsByItem
+                    .map((motor, idx) => motor && motor.rro <= 0 ? { idx, motor } : null)
+                    .filter((x): x is { idx: number; motor: NonNullable<typeof motorResultsByItem[number]> } => x != null)
+                if (itemsWithBadRRO.length > 0) {
+                    const first = itemsWithBadRRO[0]
+                    const itemName = budgetItems[first.idx]?.product_name || `Item ${first.idx + 1}`
+                    messageApi.error(`Não é possível salvar: o item "${itemName}" está com Resultado Residual Operacional ≤ R$ 0. Reduza o desconto ou revise os custos.`)
+                    return
+                }
+            }
+
             setSaving(true)
 
             const values = form.getFieldsValue()
@@ -873,6 +888,18 @@ function Budgets() {
             if (mrmConfig.enabled && !motorReady) {
                 messageApi.error('Carregando contexto fiscal. Aguarde alguns segundos e tente novamente.')
                 return
+            }
+            // S19 (EPIC-RR-V4): bloquear update quando algum item tem RRO ≤ 0
+            if (mrmConfig.enabled) {
+                const itemsWithBadRRO = motorResultsByItem
+                    .map((motor, idx) => motor && motor.rro <= 0 ? { idx, motor } : null)
+                    .filter((x): x is { idx: number; motor: NonNullable<typeof motorResultsByItem[number]> } => x != null)
+                if (itemsWithBadRRO.length > 0) {
+                    const first = itemsWithBadRRO[0]
+                    const itemName = budgetItems[first.idx]?.product_name || `Item ${first.idx + 1}`
+                    messageApi.error(`Não é possível salvar: o item "${itemName}" está com Resultado Residual Operacional ≤ R$ 0. Reduza o desconto ou revise os custos.`)
+                    return
+                }
             }
             setSaving(true)
             const values = form.getFieldsValue()

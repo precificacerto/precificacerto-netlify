@@ -73,8 +73,8 @@ describe('calculateMarginReapuration — Etapas 1-2: Receita após desconto', ()
   })
 })
 
-describe('calculateMarginReapuration — Etapa 4: Impostos por dentro sobre RV', () => {
-  it('Cada tributo do Bloco A incide sobre RV (Seção 5.2 + Limite 4.5 do Relatório Consolidado RR)', () => {
+describe('calculateMarginReapuration — Etapa 4: Impostos por dentro (V4)', () => {
+  it('ICMS/ISS sobre RV; PIS/COFINS sobre base reduzida (RV − ICMS − ISS) — motor_rro_v4', () => {
     const result = calculateMarginReapuration(
       makeInput({
         rb: 1000,
@@ -89,18 +89,18 @@ describe('calculateMarginReapuration — Etapa 4: Impostos por dentro sobre RV',
     const pis = result.taxes_inside.find((t) => t.type === 'PIS')!
     const cofins = result.taxes_inside.find((t) => t.type === 'COFINS')!
 
-    // RV = 1000. Cada tributo é calculado diretamente sobre RV — sem subtração sequencial.
+    // V4: RV=1000, ICMS sobre RV; PIS/COFINS sobre (RV − ICMS − ISS) = 900
     expect(icms.base).toBe(1000)
     expect(icms.amount).toBeCloseTo(100, 4)
 
-    expect(pis.base).toBe(1000)
-    expect(pis.amount).toBeCloseTo(16.5, 4)
+    expect(pis.base).toBe(900)         // base reduzida = 1000 − 100 − 0
+    expect(pis.amount).toBeCloseTo(14.85, 4)   // 900 × 1,65%
 
-    expect(cofins.base).toBe(1000)
-    expect(cofins.amount).toBeCloseTo(76, 4)
+    expect(cofins.base).toBe(900)      // mesma base reduzida
+    expect(cofins.amount).toBeCloseTo(68.4, 4) // 900 × 7,6%
 
-    // IMP total = soma linear
-    expect(result.imp_total).toBeCloseTo(192.5, 4)
+    // IMP total = ICMS + PIS + COFINS = 100 + 14.85 + 68.4 = 183.25
+    expect(result.imp_total).toBeCloseTo(183.25, 4)
   })
 
   it('Ignora tributos com alíquota 0', () => {
@@ -257,7 +257,7 @@ describe('calculateMarginReapuration — Regimes tributários (R3)', () => {
     expect(result.regime).toBe('SIMPLES_NACIONAL')
   })
 
-  it('Lucro Real: ICMS + PIS + COFINS + ISS sequenciais', () => {
+  it('Lucro Real: motor V4 produz ICMS/ISS sobre RV + PIS/COFINS sobre base reduzida', () => {
     const result = calculateMarginReapuration(
       makeInput({
         regime: 'LUCRO_REAL',
@@ -265,7 +265,8 @@ describe('calculateMarginReapuration — Regimes tributários (R3)', () => {
       })
     )
     expect(result.taxes_inside).toHaveLength(4)
-    expect(result.taxes_inside.map((t) => t.type)).toEqual(['ICMS', 'PIS', 'COFINS', 'ISS'])
+    // V4 ordem: ICMS, ISS, PIS, COFINS (PIS/COFINS dependem de ICMS/ISS)
+    expect(result.taxes_inside.map((t) => t.type)).toEqual(['ICMS', 'ISS', 'PIS', 'COFINS'])
   })
 })
 

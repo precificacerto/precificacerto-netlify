@@ -1024,6 +1024,45 @@ function Sales() {
                 messageApi.error('Carregando contexto fiscal. Aguarde alguns segundos e tente novamente.')
                 return
             }
+
+            // S19 (EPIC-RR-V4): bloquear save quando algum item tem RRO ≤ 0
+            // Pré-calcula motor por item APENAS para validação (não persiste — o save
+            // abaixo refaz o cálculo). Mais barato que persistir e depois reverter.
+            if (mrmConfig.enabled) {
+                const reapDate = new Date().toISOString().slice(0, 10)
+                for (const item of saleItems) {
+                    const commPct = (item.commission_percent ?? 0) / 100
+                    const profPct = (item.profit_percent ?? 0) / 100
+                    if (commPct === 0 && profPct === 0) continue
+                    if (item.total <= 0) continue
+                    const cpItem = (Number(item.cost_total) || 0) * (Number(item.quantity) || 0)
+                    const modItem = item.total * (Number(mrmConfig.mod_pct) || 0)
+                    const dopItem = item.total * (Number(mrmConfig.dop_pct) || 0)
+                    const itemRates = mergeItemAndTenantRates(item.item_tax_rates ?? null, mrmConfig.rates)
+                    const itemCsll = resolveItemCsllPct(item.item_tax_rates ?? null, mrmConfig.csll_pct)
+                    const itemIrpj = resolveItemIrpjPct(item.item_tax_rates ?? null, mrmConfig.irpj_pct)
+                    const preview = calculateMarginReapuration({
+                        rb: item.total,
+                        desc_value: item.total * (globalDiscountPercentV / 100),
+                        regime: mrmConfig.regime,
+                        rates: itemRates,
+                        cp: cpItem,
+                        mod: modItem,
+                        dop: dopItem,
+                        commission_pct: commPct,
+                        profit_pct: profPct,
+                        csll_pct: itemCsll,
+                        irpj_pct: itemIrpj,
+                        effective_date: reapDate,
+                        use_snapshot_rates: mrmConfig.useSnapshotRates,
+                    })
+                    if (preview.rro <= 0) {
+                        messageApi.error(`Não é possível salvar: o item "${item.product_name || 'sem nome'}" está com Resultado Residual Operacional ≤ R$ 0. Reduza o desconto ou revise os custos.`)
+                        return
+                    }
+                }
+            }
+
             setSaving(true)
 
             const values = form.getFieldsValue()

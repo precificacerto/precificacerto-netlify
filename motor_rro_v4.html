@@ -1,0 +1,261 @@
+
+<h2 class="sr-only">Motor RRO v4 — comissão removida dos custos e integrada à distribuição proporcional do RRO</h2>
+<style>
+*{box-sizing:border-box}
+.w{padding:1.5rem 0;font-size:13px}
+.card{background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:1rem 1.25rem;margin-bottom:1rem}
+.card-title{font-size:12px;font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:var(--color-text-tertiary);margin:0 0 10px}
+.ig{display:flex;flex-direction:column;gap:3px}
+.ig label{font-size:11px;color:var(--color-text-secondary)}
+.ig input{font-size:13px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-bottom:8px}
+.sep{border:none;border-top:0.5px solid var(--color-border-tertiary);margin:.75rem 0}
+.sec{font-size:11px;font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:var(--color-text-tertiary);margin:.75rem 0 4px 4px}
+.row{display:flex;justify-content:space-between;align-items:baseline;padding:4px 4px;border-bottom:0.5px solid var(--color-border-tertiary)}
+.row:last-child{border-bottom:none}
+.rl{color:var(--color-text-secondary)}
+.rl.ind{padding-left:1.2rem;color:var(--color-text-tertiary);font-size:12px}
+.rl.main{color:var(--color-text-primary);font-weight:500}
+.rv{font-variant-numeric:tabular-nums}
+.rv.pos{color:var(--color-text-success)}
+.rv.neg{color:var(--color-text-danger)}
+.rv.neu{color:var(--color-text-primary);font-weight:500}
+.rv.mut{color:var(--color-text-secondary)}
+.sub{background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:5px 8px;display:flex;justify-content:space-between;margin:3px 0}
+.rro-box{border-radius:var(--border-radius-lg);padding:1rem 1.25rem;display:flex;justify-content:space-between;align-items:center;margin:4px 0}
+.rro-ok{background:var(--color-background-success);border:0.5px solid var(--color-border-success)}
+.rro-err{background:var(--color-background-danger);border:0.5px solid var(--color-border-danger)}
+.fech{border-radius:var(--border-radius-md);padding:7px 10px;display:flex;justify-content:space-between;align-items:center;font-size:11px;margin-top:5px}
+.fok{background:var(--color-background-success);color:var(--color-text-success)}
+.ferr{background:var(--color-background-danger);color:var(--color-text-danger)}
+.err-box{background:var(--color-background-danger);border:0.5px solid var(--color-border-danger);border-radius:var(--border-radius-md);padding:9px 12px;font-size:12px;color:var(--color-text-danger);display:flex;gap:8px;align-items:flex-start;margin:4px 0}
+.warn-box{background:var(--color-background-warning);border:0.5px solid var(--color-border-warning);border-radius:var(--border-radius-md);padding:9px 12px;font-size:12px;color:var(--color-text-warning);display:flex;gap:8px;align-items:flex-start;margin:4px 0}
+.badge{font-size:10px;padding:2px 8px;border-radius:99px;font-weight:500}
+.b-info{background:var(--color-background-info);color:var(--color-text-info)}
+.drow{display:flex;justify-content:space-between;align-items:baseline;padding:4px 4px;border-bottom:0.5px solid var(--color-border-tertiary)}
+.drow:last-child{border-bottom:none}
+.dl{color:var(--color-text-secondary);padding-left:1.2rem;font-size:12px}
+.dv{display:flex;gap:16px;align-items:baseline}
+.dp{font-size:11px;color:var(--color-text-tertiary);font-variant-numeric:tabular-nums}
+.dval{font-variant-numeric:tabular-nums;color:var(--color-text-secondary)}
+</style>
+
+<div class="w">
+
+<div class="card">
+  <div class="card-title">Parâmetros</div>
+  <p class="sec" style="margin-top:0">Preço e desconto</p>
+  <div class="grid">
+    <div class="ig"><label>Preço bruto (R$)</label><input type="number" id="pBruto" value="104113.02" step="0.01"></div>
+    <div class="ig"><label>Desconto (%)</label><input type="number" id="pDesc" value="5" step="0.01" min="0" max="100"></div>
+    <div class="ig"><label>Base por dentro original (R$)</label><input type="number" id="pBaseDentro" value="104113.02" step="0.01"></div>
+  </div>
+  <div class="sep"></div>
+  <p class="sec">Tributos por dentro (%)</p>
+  <div class="grid">
+    <div class="ig"><label>ICMS (%)</label><input type="number" id="pICMS" value="17.00" step="0.01"></div>
+    <div class="ig"><label>ISS (%)</label><input type="number" id="pISS" value="0" step="0.01"></div>
+    <div class="ig"><label>PIS/Cofins (%)</label><input type="number" id="pPIS" value="7.6775" step="0.0001"></div>
+  </div>
+  <div class="sep"></div>
+  <p class="sec">Custos e despesas — valor integral (R$)</p>
+  <div class="grid">
+    <div class="ig"><label>Custo do produto (R$)</label><input type="number" id="vCusto" value="31465.56" step="0.01"></div>
+    <div class="ig"><label>Mão de obra adm. (R$)</label><input type="number" id="vMOA" value="10942.28" step="0.01"></div>
+    <div class="ig"><label>Despesas fixas (R$)</label><input type="number" id="vFix" value="11077.63" step="0.01"></div>
+    <div class="ig"><label>Despesas variáveis (R$)</label><input type="number" id="vVar" value="6371.72" step="0.01"></div>
+    <div class="ig"><label>Despesas financeiras (R$)</label><input type="number" id="vFin" value="447.69" step="0.01"></div>
+  </div>
+  <div class="sep"></div>
+  <p class="sec">Distribuição do RRO — pesos originais (%)</p>
+  <div class="grid">
+    <div class="ig"><label>Comissão (%)</label><input type="number" id="pComOrig" value="5.00" step="0.01"></div>
+    <div class="ig"><label>Lucro (%)</label><input type="number" id="pLucOrig" value="10.00" step="0.01"></div>
+    <div class="ig"><label>IRPJ (%)</label><input type="number" id="pIRPJ" value="1.500" step="0.001"></div>
+    <div class="ig"><label>CSLL (%)</label><input type="number" id="pCSLL" value="0.900" step="0.001"></div>
+  </div>
+  <div class="sep"></div>
+  <p class="sec">Tributos por fora (%)</p>
+  <div class="grid">
+    <div class="ig"><label>IBS (%)</label><input type="number" id="pIBS" value="0" step="0.01"></div>
+    <div class="ig"><label>CBS (%)</label><input type="number" id="pCBS" value="0" step="0.01"></div>
+    <div class="ig"><label>IPI (%)</label><input type="number" id="pIPI" value="0" step="0.01"></div>
+    <div class="ig"><label>DIFAL (%)</label><input type="number" id="pDIFAL" value="0" step="0.01"></div>
+  </div>
+</div>
+
+<div class="card">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+    <span class="card-title" style="margin:0">Apuração do resultado</span>
+    <span class="badge b-info" id="badge-desc">desconto 5,0%</span>
+  </div>
+  <div id="corpo"></div>
+</div>
+
+</div>
+
+<script>
+function R(v){return Math.round(v*100)/100}
+function fmt(v){return 'R$\u00A0'+v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})}
+function pp(v,d){d=d===undefined?3:d;return v.toLocaleString('pt-BR',{minimumFractionDigits:d,maximumFractionDigits:d})+'%'}
+function g(id){return parseFloat(document.getElementById(id).value)||0}
+function row(lbl,val,cls,ind,note){
+  return '<div class="row"><span class="rl'+(ind?' ind':'')+'">'+lbl+(note?'<span style="font-size:11px;color:var(--color-text-tertiary);margin-left:4px">'+note+'</span>':'')+'</span><span class="rv '+cls+'">'+val+'</span></div>'
+}
+function drow(lbl,vR,pRV,note){
+  return '<div class="drow"><span class="dl">'+lbl+(note?'<span style="font-size:11px;color:var(--color-text-tertiary);margin-left:4px">'+note+'</span>':'')+'</span><span class="dv"><span class="dp">'+pp(pRV,3)+' s/ RV</span><span class="dval">'+fmt(vR)+'</span></span></div>'
+}
+function sub(lbl,val,cls){return '<div class="sub"><span class="rl main">'+lbl+'</span><span class="rv '+cls+'">'+val+'</span></div>'}
+function sec(t){return '<div class="sep"></div><p class="sec">'+t+'</p>'}
+function fech(ok,lbl,a,b){return '<div class="fech '+(ok?'fok':'ferr')+'"><span>'+(ok?'✓ ':'✗ ')+lbl+'</span><span>'+fmt(a)+(ok?' = ':' ≠ ')+fmt(b)+'</span></div>'}
+
+function compute(){
+  var bruto      = g('pBruto');
+  var desc       = g('pDesc');
+  var baseDentro = g('pBaseDentro');
+  var pICMS      = g('pICMS');
+  var pISS       = g('pISS');
+  var pPIS       = g('pPIS');
+  var vCusto     = g('vCusto');
+  var vMOA       = g('vMOA');
+  var vFix       = g('vFix');
+  var vVar       = g('vVar');
+  var vFin       = g('vFin');
+  var pComOrig   = g('pComOrig');
+  var pLucOrig   = g('pLucOrig');
+  var pIRPJ      = g('pIRPJ');
+  var pCSLL      = g('pCSLL');
+  var pIBS       = g('pIBS');
+  var pCBS       = g('pCBS');
+  var pIPI       = g('pIPI');
+  var pDIFAL     = g('pDIFAL');
+
+  var fator = 1 - desc/100;
+  document.getElementById('badge-desc').textContent = 'desconto '+desc.toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1})+'%';
+
+  // ① Desconto
+  var RV = R(bruto * fator);
+  var descValor = R(bruto - RV);
+
+  // ② Tributos por dentro sobre RV
+  var novaBaseOp     = R(baseDentro * fator);
+  var tPorForaRecalc = R(RV - novaBaseOp);
+  var vICMS   = R(RV * pICMS/100);
+  var vISS    = R(RV * pISS/100);
+  var basePIS = R(RV - vICMS - vISS);
+  var vPIS    = R(basePIS * pPIS/100);
+  var totalImpDentro = R(vICMS + vISS + vPIS);
+  var fechAB  = Math.abs((novaBaseOp + tPorForaRecalc) - RV) < 0.02;
+
+  // ③ Custos e despesas — SEM comissão
+  var totalDesp = R(vMOA + vFix + vVar + vFin);
+  var totalCP   = R(vCusto + totalDesp);
+
+  // ④ RRO
+  var RRO  = R(RV - totalImpDentro - totalCP);
+  var pRRO = RV > 0 ? (RRO/RV)*100 : 0;
+  var rroNeg = RRO <= 0;
+
+  // ⑤ Redistribuição — 4 elementos pelo peso proporcional dos % originais
+  var pesoTotal = pComOrig + pLucOrig + pIRPJ + pCSLL;
+  var wCom  = pesoTotal > 0 ? pComOrig / pesoTotal : 0;
+  var wLuc  = pesoTotal > 0 ? pLucOrig / pesoTotal : 0;
+  var wIRPJ = pesoTotal > 0 ? pIRPJ    / pesoTotal : 0;
+  var wCSLL = pesoTotal > 0 ? pCSLL    / pesoTotal : 0;
+
+  var dCom  = R(RRO * wCom);
+  var dLuc  = R(RRO * wLuc);
+  var dIRPJ = R(RRO * wIRPJ);
+  var dCSLL = R(RRO * wCSLL);
+  // ajuste de arredondamento no maior elemento (lucro)
+  var diff = R(RRO - R(dCom + dLuc + dIRPJ + dCSLL));
+  dLuc = R(dLuc + diff);
+  var somaD = R(dCom + dLuc + dIRPJ + dCSLL);
+
+  var pComRV  = RV > 0 ? (dCom/RV)*100  : 0;
+  var pLucRV  = RV > 0 ? (dLuc/RV)*100  : 0;
+  var pIRPJRV = RV > 0 ? (dIRPJ/RV)*100 : 0;
+  var pCSLLRV = RV > 0 ? (dCSLL/RV)*100 : 0;
+  var distribFecha = Math.abs(somaD - RRO) < 0.02;
+
+  // ⑥ Por fora
+  var vIBS   = R(novaBaseOp * pIBS/100);
+  var vCBS   = R(novaBaseOp * pCBS/100);
+  var vIPI   = R(novaBaseOp * pIPI/100);
+  var vDIFAL = R(novaBaseOp * pDIFAL/100);
+  var totalPorFora = R(vIBS+vCBS+vIPI+vDIFAL);
+
+  var h = '';
+
+  // ①
+  h += '<p class="sec" style="margin-top:0">① Redução do desconto</p>';
+  h += row('Preço bruto do orçamento', fmt(bruto), 'neu', false);
+  h += row('(-) Desconto comercial', fmt(descValor), 'neg', true, pp(desc,1));
+  h += sub('= Receita de venda (RV)', fmt(RV), 'neu');
+
+  // ②
+  h += sec('② Reapuração tributos por dentro (sobre RV)');
+  h += row('(-) ICMS', fmt(vICMS), 'neg', true, pp(pICMS,2)+' × RV');
+  if(pISS>0) h += row('(-) ISS', fmt(vISS), 'neg', true, pp(pISS,2)+' × RV');
+  h += row('Base PIS/Cofins = RV − ICMS'+(pISS>0?' − ISS':''), fmt(basePIS), 'mut', true);
+  h += row('(-) PIS/Cofins', fmt(vPIS), 'neg', true, pp(pPIS,4)+' × base');
+  h += sub('Subtotal impostos por dentro', fmt(totalImpDentro), 'neg');
+  h += '<div style="font-size:11px;color:var(--color-text-tertiary);margin:4px 4px 2px">Nova base op. '+fmt(novaBaseOp)+' + Trib. p/ fora recalc. '+fmt(tPorForaRecalc)+'</div>';
+  h += fech(fechAB, 'Fechamento A/B', RV, novaBaseOp+tPorForaRecalc);
+
+  // ③
+  h += sec('③ Remoção de custos e despesas — valor integral (R$)');
+  if(vCusto===0){
+    h += '<div class="warn-box"><i class="ti ti-alert-triangle" aria-hidden="true" style="font-size:14px;flex-shrink:0"></i>Custo não informado — RRO será parcial</div>';
+  } else {
+    h += row('(-) Custo do produto/serviço', fmt(vCusto), 'neg', false);
+  }
+  h += row('(-) Mão de obra adm./direta', fmt(vMOA), 'neg', true);
+  h += row('(-) Despesas fixas', fmt(vFix), 'neg', true);
+  h += row('(-) Despesas variáveis', fmt(vVar), 'neg', true);
+  h += row('(-) Despesas financeiras', fmt(vFin), 'neg', true);
+  h += sub('Subtotal custos + despesas', fmt(totalCP), 'neg');
+
+  // ④
+  h += sec('④ Resultado Residual Operacional (RRO)');
+  h += '<div class="rro-box '+(rroNeg?'rro-err':'rro-ok')+'">';
+  h += '<div><span style="font-size:12px;font-weight:500;color:var(--color-text-'+(rroNeg?'danger':'success')+')">RRO = RV − Imp. por dentro − Custos − Despesas</span><br>';
+  h += '<span style="font-size:11px;color:var(--color-text-'+(rroNeg?'danger':'success')+')">'+pp(pRRO,3)+' s/ RV'+(rroNeg?' — OPERAÇÃO BLOQUEADA':'')+'</span></div>';
+  h += '<span style="font-size:20px;font-weight:500;color:var(--color-text-'+(rroNeg?'danger':'success')+')">'+fmt(RRO)+'</span></div>';
+
+  if(rroNeg){
+    h += '<div class="err-box"><i class="ti ti-ban" aria-hidden="true" style="font-size:14px;flex-shrink:0"></i><strong>Erro crítico:</strong> RRO ≤ 0. Operação bloqueada. Impossível redistribuir.</div>';
+  } else {
+    // ⑤
+    h += sec('⑤ Redistribuição proporcional do RRO');
+    h += '<div style="font-size:11px;color:var(--color-text-tertiary);padding:0 4px 6px">RRO dividido integralmente entre os 4 elementos pelo peso % original de cada um.</div>';
+    h += drow('Comissão', dCom, pComRV, 'peso '+pp(wCom*100,1));
+    h += drow('Lucro',    dLuc, pLucRV, 'peso '+pp(wLuc*100,1));
+    h += drow('IRPJ',    dIRPJ, pIRPJRV,'peso '+pp(wIRPJ*100,1));
+    h += drow('CSLL',    dCSLL, pCSLLRV,'peso '+pp(wCSLL*100,1));
+    h += sub('Total RRO distribuído', fmt(somaD), distribFecha?'pos':'neg');
+    h += fech(distribFecha, 'Comissão + Lucro + IRPJ + CSLL = RRO', somaD, RRO);
+
+    if(pIBS+pCBS+pIPI+pDIFAL > 0){
+      h += sec('⑥ Reapuração tributos por fora (sobre nova base operacional)');
+      if(pIBS>0)   h += row('(-) IBS',   fmt(vIBS),   'neg', true, pp(pIBS,2));
+      if(pCBS>0)   h += row('(-) CBS',   fmt(vCBS),   'neg', true, pp(pCBS,2));
+      if(pIPI>0)   h += row('(-) IPI',   fmt(vIPI),   'neg', true, pp(pIPI,2));
+      if(pDIFAL>0) h += row('(-) DIFAL', fmt(vDIFAL), 'neg', true, pp(pDIFAL,2));
+      h += sub('Total por fora recalculado', fmt(totalPorFora), 'neg');
+    }
+
+    h += sec('⑦ Fechamento final');
+    h += row('Nova base operacional (Bloco A)', fmt(novaBaseOp), 'mut', false);
+    h += row('Tributos por fora recalculados (Bloco B)', fmt(tPorForaRecalc), 'mut', false);
+    h += fech(fechAB, 'RV = base operacional + tributos por fora', RV, novaBaseOp+tPorForaRecalc);
+  }
+
+  document.getElementById('corpo').innerHTML = h;
+}
+
+['pBruto','pDesc','pBaseDentro','pICMS','pISS','pPIS','vCusto','vMOA','vFix','vVar','vFin','pComOrig','pLucOrig','pIRPJ','pCSLL','pIBS','pCBS','pIPI','pDIFAL'].forEach(function(id){
+  document.getElementById(id).addEventListener('input', compute);
+});
+compute();
+</script>

@@ -56,34 +56,58 @@ function findRate(rates: TaxRatePeriod[], type: TaxType): number {
 }
 
 /**
- * Etapa 4 da spec: reapurar impostos por dentro sobre RV.
+ * Etapa 4 da spec: reapurar impostos por dentro (motor RR V4).
  *
- * Cada tributo do Bloco A (ICMS, PIS, COFINS, ISS) incide DIRETAMENTE sobre RV,
- * sem subtração sequencial de base. Esta é a interpretação validada por:
+ * Convenção V4 (motor_rro_v4.html, 22/05/2026) — confirmada pelo usuário Q1=A:
+ *   - ICMS = RV × aliq_ICMS
+ *   - ISS  = RV × aliq_ISS
+ *   - PIS/COFINS = (RV − ValorICMS − ValorISS) × aliq_PISCOFINS
  *
- *   1. Exemplo numérico oficial (Seção 5.2 do Relatório Consolidado):
- *      RV R$ 134.573,85, ICMS 10% = R$ 13.457,39, PIS/COFINS 4,325% = R$ 5.820,32.
- *      5.820,32 / 134.573,85 = 0,04325 → PIS/COFINS computado sobre RV bruto.
+ * Esta interpretação está alinhada com a jurisprudência (STF RE 574.706,
+ * mar/2017, efetiva 2021): ICMS e ISS NÃO compõem a base do PIS/COFINS.
  *
- *   2. Fórmula do Limite Mínimo Operacional (Seção 4.5):
- *      LimiteMinimo = (CP + MOD + DOP) / (1 − ICMS% − PIS/COFINS% − ISS%)
- *      A fórmula só é algebricamente válida se cada tributo for linear sobre RV.
+ * Substitui a interpretação anterior (todos sobre RV) que era baseada no
+ * exemplo numérico do PDF Claude/GPT — o V4 corrige a fórmula para refletir
+ * a realidade tributária e a especificação executável (HTML).
  *
- *   3. Validação V6: "IMP calculado sobre RV (não RB)". Cada componente de IMP
- *      tem base = RV.
+ * Ordem da iteração TAXES_INSIDE: ['ICMS', 'PIS', 'COFINS', 'ISS']
+ *   - ICMS é calculado primeiro (sobre RV)
+ *   - ISS é calculado sobre RV (não depende de outros)
+ *   - PIS e COFINS são calculados sobre (RV − ValorICMS − ValorISS)
  *
- * A redação textual de Seção 4.2 ("PIS/COFINS = (RV − ValorICMS − ValorISS) × ...")
- * conflita com o exemplo concreto e com 4.5 — é tratada como typo da spec.
- * O exemplo numérico é autoritativo.
+ * Quando PIS e COFINS estão separados (alíquotas distintas), ambos usam
+ * a MESMA base reduzida — cada um com sua alíquota própria.
  */
 function computeTaxesInside(rv: number, rates: TaxRatePeriod[]): { lines: TaxLine[]; total: number } {
   const lines: TaxLine[] = []
-  for (const type of TAXES_INSIDE) {
-    const rate = findRate(rates, type)
-    if (rate <= 0) continue
-    const amount = rv * rate
-    lines.push({ type, rate_pct: rate, base: rv, amount })
+
+  // 1) ICMS e ISS sobre RV (sempre)
+  const icmsRate = findRate(rates, 'ICMS')
+  const issRate = findRate(rates, 'ISS')
+  const icmsAmount = icmsRate > 0 ? rv * icmsRate : 0
+  const issAmount = issRate > 0 ? rv * issRate : 0
+
+  if (icmsRate > 0) {
+    lines.push({ type: 'ICMS', rate_pct: icmsRate, base: rv, amount: icmsAmount })
   }
+  if (issRate > 0) {
+    lines.push({ type: 'ISS', rate_pct: issRate, base: rv, amount: issAmount })
+  }
+
+  // 2) PIS e COFINS sobre base reduzida = RV − ICMS − ISS (V4 / STF)
+  const baseReduzida = rv - icmsAmount - issAmount
+  const pisRate = findRate(rates, 'PIS')
+  const cofinsRate = findRate(rates, 'COFINS')
+
+  if (pisRate > 0) {
+    const pisAmount = baseReduzida * pisRate
+    lines.push({ type: 'PIS', rate_pct: pisRate, base: baseReduzida, amount: pisAmount })
+  }
+  if (cofinsRate > 0) {
+    const cofinsAmount = baseReduzida * cofinsRate
+    lines.push({ type: 'COFINS', rate_pct: cofinsRate, base: baseReduzida, amount: cofinsAmount })
+  }
+
   const total = lines.reduce((sum, l) => sum + l.amount, 0)
   return { lines, total }
 }
@@ -194,10 +218,38 @@ export function calculateMarginReapuration(input: ReapurationInput): TaxBreakdow
 
   // Se RRO < 0, ainda calculamos os valores (R5: motor não força, UI orienta)
   const rro_distrib = Math.max(0, rro)
-  const new_commission = rro_distrib * peso_comm
-  const new_profit = rro_distrib * peso_lucro
-  const new_csll = rro_distrib * peso_csll
-  const new_irpj = rro_distrib * peso_irpj
+  let new_commission = rro_distrib * peso_comm
+  let new_profit = rro_distrib * peso_lucro
+  let new_csll = rro_distrib * peso_csll
+  let new_irpj = rro_distrib * peso_irpj
+
+  // V4 / S18 — ajuste de arredondamento absorvido pelo MAIOR componente (Q2=Sim).
+  // Garante soma exata `commission + profit + csll + irpj === RRO` sem
+  // depender de tolerância epsilon. Preferência é lucro (segue V4 HTML), mas
+  // se profit_pct=0 (lucro ausente) o ajuste vai para o maior componente
+  // disponível — preserva semântica de "componente zerado fica zerado".
+  //
+  // Guard: combined_pct=0 significa nenhum componente para receber rateio —
+  // não aplicar ajuste (todos new_* permanecem 0 e RRO "fica órfão", mas a
+  // validação V4 considera esse caso especial via `combined_pct === 0`).
+  if (rro_distrib > 0 && combined_pct > 0) {
+    const sumWithoutAdjust = new_commission + new_profit + new_csll + new_irpj
+    const diff = rro_distrib - sumWithoutAdjust
+    if (Math.abs(diff) > 0) {
+      // Escolhe maior componente NÃO-ZERO; default = lucro (V4)
+      const candidates: Array<['profit' | 'commission' | 'csll' | 'irpj', number]> = [
+        ['profit', new_profit],
+        ['commission', new_commission],
+        ['csll', new_csll],
+        ['irpj', new_irpj],
+      ]
+      const [largest] = candidates.reduce((acc, cur) => cur[1] > acc[1] ? cur : acc, candidates[0])
+      if (largest === 'profit') new_profit += diff
+      else if (largest === 'commission') new_commission += diff
+      else if (largest === 'csll') new_csll += diff
+      else new_irpj += diff
+    }
+  }
 
   // V4 com 4 componentes + epsilon dinâmico (AC5: epsilon = max(0.01, rro * 1e-6))
   const v4_epsilon = Math.max(EPSILON, rro_distrib * 1e-6)
