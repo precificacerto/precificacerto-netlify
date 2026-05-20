@@ -36,6 +36,18 @@ export interface TenantTaxContext {
   csll_pct: number
   /** % IRPJ efetivo (decimal). Sincronizado com Formação de Preço (Seção 7). */
   irpj_pct: number
+  /**
+   * % DOP (Despesas Operacionais) em decimal — Sprint S8 do EPIC-RR-DISPLAY.
+   * Soma: fixed_expense_percent + variable_expense_percent + financial_expense_percent +
+   *       indirect_labor_percent (ou admin_labor_percent).
+   * Usado pelo motor RR como dop_item = item_subtotal × dop_pct.
+   */
+  dop_pct: number
+  /**
+   * % MOD (Mão de Obra Direta) em decimal — Sprint S8 do EPIC-RR-DISPLAY.
+   * Vem de production_labor_percent. Usado como mod_item = item_subtotal × mod_pct.
+   */
+  mod_pct: number
   /** Override de policy (strict/permissive). NULL = defaults ADR-004. */
   rro_policy: RroPolicy | null
   /** Componentes tributários completos (para diagnóstico/UI). */
@@ -52,6 +64,8 @@ const DEFAULT_CONTEXT: TenantTaxContext = {
   regime: 'SIMPLES_NACIONAL',
   csll_pct: 0,
   irpj_pct: 0,
+  dop_pct: 0,
+  mod_pct: 0,
   rro_policy: null,
   components: null,
   rates: [],
@@ -99,10 +113,12 @@ export function useTenantTaxContext(options: HookOptions = {}): TenantTaxContext
   const { data, isLoading } = useSWR(
     swrKey,
     async (): Promise<TenantTaxContext> => {
-      // 1. Carrega config MRM + rro_policy
+      // 1. Carrega config MRM + rro_policy + percentuais de despesa (S8)
+      // tenant_expense_config armazena percentuais em DECIMAL (0.05 = 5%) por
+      // convenção do projeto (mesma de commission_pct/profit_pct).
       const { data: cfgRow } = await supabase
         .from('tenant_expense_config')
-        .select('margin_reapuration_enabled, use_snapshot_rates, rro_policy')
+        .select('margin_reapuration_enabled, use_snapshot_rates, rro_policy, fixed_expense_percent, variable_expense_percent, financial_expense_percent, admin_labor_percent, indirect_labor_percent, production_labor_percent')
         .eq('tenant_id', tenantId as string)
         .maybeSingle()
 
@@ -111,6 +127,12 @@ export function useTenantTaxContext(options: HookOptions = {}): TenantTaxContext
             margin_reapuration_enabled?: boolean | null
             use_snapshot_rates?: boolean | null
             rro_policy?: string | null
+            fixed_expense_percent?: number | null
+            variable_expense_percent?: number | null
+            financial_expense_percent?: number | null
+            admin_labor_percent?: number | null
+            indirect_labor_percent?: number | null
+            production_labor_percent?: number | null
           }
         | null
         | undefined
@@ -121,6 +143,16 @@ export function useTenantTaxContext(options: HookOptions = {}): TenantTaxContext
       const rroPolicyRaw = cfg?.rro_policy ?? null
       const rro_policy: RroPolicy | null =
         rroPolicyRaw === 'strict' || rroPolicyRaw === 'permissive' ? rroPolicyRaw : null
+
+      // S8 — DOP = soma das despesas operacionais (estrutura + MOI). Convenção
+      // do build-calc-base: structurePct = fixed + variable + financial; MOI
+      // (admin/indirect_labor) é tratada à parte mas conceitualmente é DOP.
+      const fixedPct = Number(cfg?.fixed_expense_percent) || 0
+      const variablePct = Number(cfg?.variable_expense_percent) || 0
+      const financialPct = Number(cfg?.financial_expense_percent) || 0
+      const moiPct = Number(cfg?.admin_labor_percent) || Number(cfg?.indirect_labor_percent) || 0
+      const dop_pct = fixedPct + variablePct + financialPct + moiPct
+      const mod_pct = Number(cfg?.production_labor_percent) || 0
 
       // 2. Carrega componentes tributários (tax-sync) e rates em paralelo
       const [components, rates] = await Promise.all([
@@ -138,6 +170,8 @@ export function useTenantTaxContext(options: HookOptions = {}): TenantTaxContext
         regime,
         csll_pct: components?.csll ?? 0,
         irpj_pct: components?.irpj ?? 0,
+        dop_pct,
+        mod_pct,
         rro_policy,
         components,
         rates,

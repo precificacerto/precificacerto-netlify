@@ -28,6 +28,7 @@ import { MRM_ENGINE_VERSION, type TaxBreakdown } from '@/types/mrm'
 import { useResidualDistribution } from '@/hooks/use-residual-distribution'
 import type { ResidualItemInput } from '@/utils/residual-distribution'
 import { ResidualDistributionBlock } from '@/page-parts/shared/residual-distribution-block.component'
+// S9: configWarning não aplicado em pedidos — snapshot é imutável (decisão Q3=A)
 import { coerceLegacyDiscountMode } from '@/config/feature-flags'
 import { decideMrmAction } from '@/utils/mrm-policies'
 import { aggregateMotorResults } from '@/utils/mrm-aggregate'

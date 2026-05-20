@@ -50,6 +50,16 @@ export interface ResidualDistributionBlockProps {
   hideFooterNote?: boolean
   /** Espaçamento superior (default: 8). */
   marginTop?: number
+  /**
+   * Sprint S9 — Aviso de configuração incompleta. Quando preenchido, renderiza
+   * banner amarelo no topo do bloco alertando que a apuração do residual pode
+   * estar degradada (ex: produto sem custo, tenant sem despesas operacionais).
+   *
+   * Exemplos:
+   *   "Configure custos dos produtos para apuração precisa do residual."
+   *   "Configure despesas operacionais em Configurações → Estrutura."
+   */
+  configWarning?: string | null
 }
 
 /**
@@ -61,6 +71,7 @@ export function ResidualDistributionBlock({
   distribution,
   hideFooterNote = false,
   marginTop = 8,
+  configWarning = null,
 }: ResidualDistributionBlockProps) {
   const { commission, profit, irpj, csll, hasDiscount, hidesProfitTaxes, requiresReview } = distribution
 
@@ -94,6 +105,23 @@ export function ResidualDistributionBlock({
           </span>
         )}
       </div>
+      {configWarning && (
+        <div style={{
+          fontSize: 11,
+          color: '#fde68a',
+          background: 'rgba(234,179,8,0.10)',
+          border: '1px solid rgba(234,179,8,0.35)',
+          padding: '8px 12px',
+          borderRadius: 6,
+          marginBottom: 8,
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: 8,
+        }}>
+          <span style={{ fontSize: 13 }}>⚠</span>
+          <span>{configWarning}</span>
+        </div>
+      )}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 8 }}>
         {cards.map((card) => (
           <DistributionCard key={card.label} {...card} hasDiscount={hasDiscount} />

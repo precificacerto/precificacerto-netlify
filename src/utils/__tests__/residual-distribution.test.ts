@@ -12,6 +12,7 @@
 
 import {
   computeResidualDistribution,
+  detectConfigWarning,
   formatResidualLine,
   type ResidualItemInput,
 } from '../residual-distribution'
@@ -288,6 +289,80 @@ describe('computeResidualDistribution — Edges', () => {
     //            lucro    = (800*10 + 200*5) / 1000 = 9%
     expect(dist.commission.originalPct).toBeCloseTo(6, 3)
     expect(dist.profit.originalPct).toBeCloseTo(9, 3)
+  })
+})
+
+describe('detectConfigWarning (S9 — aviso de configuração incompleta)', () => {
+  it('Configuração completa (CP > 0 e DOP+MOD > 0) → null', () => {
+    const result = detectConfigWarning({
+      totalCostBase: 57477.20,
+      dopPct: 0.10,
+      modPct: 0.02,
+      totalGross: 141656.68,
+    })
+    expect(result).toBeNull()
+  })
+
+  it('Sem custo E sem despesas → mensagem combinada', () => {
+    const result = detectConfigWarning({
+      totalCostBase: 0,
+      dopPct: 0,
+      modPct: 0,
+      totalGross: 1000,
+    })
+    expect(result).toMatch(/cadastre o custo dos produtos/i)
+    expect(result).toMatch(/despesas operacionais/i)
+  })
+
+  it('Apenas sem custo → mensagem específica de custo', () => {
+    const result = detectConfigWarning({
+      totalCostBase: 0,
+      dopPct: 0.20,
+      modPct: 0,
+      totalGross: 1000,
+    })
+    expect(result).toMatch(/custo dos produtos/i)
+    expect(result).not.toMatch(/despesas operacionais.*configurações/i)
+  })
+
+  it('Apenas sem despesas → mensagem específica de despesas', () => {
+    const result = detectConfigWarning({
+      totalCostBase: 500,
+      dopPct: 0,
+      modPct: 0,
+      totalGross: 1000,
+    })
+    expect(result).toMatch(/despesas operacionais/i)
+  })
+
+  it('CP marginal (< 0,1% do total) → tratado como sem custo', () => {
+    const result = detectConfigWarning({
+      totalCostBase: 0.5,  // 0,05% de 1000
+      dopPct: 0.20,
+      modPct: 0,
+      totalGross: 1000,
+    })
+    expect(result).toMatch(/custo dos produtos/i)
+  })
+
+  it('MOD > 0 sozinho satisfaz "tem opex"', () => {
+    const result = detectConfigWarning({
+      totalCostBase: 500,
+      dopPct: 0,
+      modPct: 0.15,
+      totalGross: 1000,
+    })
+    expect(result).toBeNull()
+  })
+
+  it('totalGross = 0 → tratado como sem custo (evita divisão por zero)', () => {
+    const result = detectConfigWarning({
+      totalCostBase: 100,
+      dopPct: 0.20,
+      modPct: 0,
+      totalGross: 0,
+    })
+    expect(result).toMatch(/custo dos produtos/i)
   })
 })
 

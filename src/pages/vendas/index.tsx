@@ -101,6 +101,8 @@ interface SaleItemRow {
     commission_table_id?: string | null
     commission_percent?: number
     profit_percent?: number
+    /** Custo unitário do produto/serviço — alimenta CP do motor RR (Sprint S8). */
+    cost_total?: number
     /** true = item manual (nome/valor digitados), false = produto do catálogo */
     is_manual?: boolean
     /** true = item de servico do catalogo */
@@ -874,11 +876,12 @@ function Sales() {
         setSaleItems(prev => prev.map(item => {
             if (item.key !== key) return item
             const price = Number(svc?.base_price || 0)
+            const costTotal = Number(svc?.cost_total || 0)
             const allTables = [...empProductTablesV, ...empServiceTablesV]
             const commTable = allTables.find(t => t.id === item.commission_table_id)
             const commPct = Number(commTable?.commission_percent || svc?.commission_percent || 0)
             const profitPct = Number(svc?.profit_percent || 0)
-            return { ...item, service_id: serviceId, product_name: svc?.name || '', unit_price: price, discount: 0, commission_percent: commPct, profit_percent: profitPct, total: price * item.quantity }
+            return { ...item, service_id: serviceId, product_name: svc?.name || '', unit_price: price, discount: 0, commission_percent: commPct, profit_percent: profitPct, cost_total: costTotal, total: price * item.quantity }
         }))
     }
 
@@ -893,11 +896,12 @@ function Sales() {
         setSaleItems(prev => prev.map(item => {
             if (item.key !== key) return item
             const price = Number(prod?.sale_price || 0)
+            const costTotal = Number(prod?.cost_total || 0)
             const allTables = [...empProductTablesV, ...empServiceTablesV]
             const commTable = allTables.find(t => t.id === item.commission_table_id)
             const commPct = Number(commTable?.commission_percent || 0)
             const profitPct = Number(prod?.profit_percent || 0)
-            return { ...item, product_id: productId, product_name: prod?.name || '', unit_price: price, discount: 0, commission_percent: commPct, profit_percent: profitPct, total: price * item.quantity }
+            return { ...item, product_id: productId, product_name: prod?.name || '', unit_price: price, discount: 0, commission_percent: commPct, profit_percent: profitPct, cost_total: costTotal, total: price * item.quantity }
         }))
     }
 
@@ -963,21 +967,29 @@ function Sales() {
             // Comissão via Motor de Reapuração (RR) v2.1.0 — desconto reduz a
             // receita operacional, NUNCA reduz alíquotas. Rateio proporcional de
             // comissão + lucro + CSLL + IRPJ sobre RRO = RV - IMP - CP - MOD - DOP.
-            // Opção A: CP/MOD/DOP = 0 (corrige efeito cascata sem exigir custo por item).
+            //
+            // Sprint S8 (EPIC-RR-DISPLAY, 20/05/2026): CP/MOD/DOP populados de verdade.
+            //   CP_item  = item.cost_total × quantity
+            //   MOD_item = itemBase × mod_pct  (production_labor_percent)
+            //   DOP_item = itemBase × dop_pct  (fixed + variable + financial + indirect_labor)
+            // A "Opção A" (CP=MOD=DOP=0) violava Etapa 7 — RRO ≈ RV.
             const reapurationEffectiveDateSale = new Date().toISOString().slice(0, 10)
             const commissionAmount = saleItems.reduce((sum, item) => {
                 const commPctDecimal = (item.commission_percent ?? 0) / 100
                 const profPctDecimal = (item.profit_percent ?? 0) / 100
                 if (commPctDecimal === 0 && profPctDecimal === 0) return sum
                 if (item.total <= 0) return sum
+                const cpItem = (Number(item.cost_total) || 0) * (Number(item.quantity) || 0)
+                const modItem = item.total * (Number(mrmConfig.mod_pct) || 0)
+                const dopItem = item.total * (Number(mrmConfig.dop_pct) || 0)
                 const result = calculateMarginReapuration({
                     rb: item.total,
                     desc_value: item.total * (globalDiscountPercentV / 100),
                     regime: mrmConfig.regime,
                     rates: mrmConfig.rates,
-                    cp: 0,
-                    mod: 0,
-                    dop: 0,
+                    cp: cpItem,
+                    mod: modItem,
+                    dop: dopItem,
                     commission_pct: commPctDecimal,
                     profit_pct: profPctDecimal,
                     csll_pct: mrmConfig.csll_pct,

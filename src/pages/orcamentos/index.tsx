@@ -40,7 +40,7 @@ import { MRM_ERROR_RRO_NON_POSITIVE, MRM_ENGINE_VERSION } from '@/types/mrm'
 import { hydrateItemSnapshot, type TenantSnapshotContext } from '@/lib/items-snapshot'
 import { calculateMarginReapuration } from '@/utils/margin-reapuration'
 import { useResidualDistribution } from '@/hooks/use-residual-distribution'
-import type { ResidualItemInput } from '@/utils/residual-distribution'
+import { detectConfigWarning, type ResidualItemInput } from '@/utils/residual-distribution'
 import { ResidualDistributionBlock } from '@/page-parts/shared/residual-distribution-block.component'
 import { coerceLegacyDiscountMode } from '@/config/feature-flags'
 import { decideMrmAction } from '@/utils/mrm-policies'
@@ -96,6 +96,8 @@ interface BudgetItemRow {
     commission_table_id?: string | null
     commission_percent?: number
     profit_percent?: number
+    /** Custo unitário do produto/serviço — alimenta CP do motor RR (Sprint S8). */
+    cost_total?: number
     isManual?: boolean
     isService?: boolean
 }
@@ -376,6 +378,7 @@ function Budgets() {
                 unit_price: basePrice,
                 commission_percent: commissionPercent,
                 profit_percent: profitPercent,
+                cost_total: costTotal,
                 total: basePrice * item.quantity,
                 isService: true,
             }
@@ -403,6 +406,7 @@ function Budgets() {
                 unit_price: salePrice,
                 commission_percent: commissionPercent,
                 profit_percent: profitPercent,
+                cost_total: costTotal,
                 total: salePrice * item.quantity,
                 isManual: false,
             }
@@ -489,8 +493,13 @@ function Budgets() {
     // ── Comissão e Lucro via Motor de Reapuração (RR) v2.1.0 ──
     // Desconto reduz a receita operacional (RB→RV); NUNCA reduz alíquotas.
     // RRO = RV - IMP - CP - MOD - DOP; rateio proporcional de comissão + lucro
-    // + CSLL + IRPJ sobre RRO. Opção A: CP/MOD/DOP zero por enquanto — elimina
-    // o efeito cascata de alíquotas mas não exige persistência de custo por item.
+    // + CSLL + IRPJ sobre RRO.
+    //
+    // Sprint S8 (EPIC-RR-DISPLAY, 20/05/2026): CP/MOD/DOP populados de verdade.
+    //   CP_item  = item.cost_total × quantity  (custo do produto/serviço)
+    //   MOD_item = itemBase × mod_pct          (production_labor_percent)
+    //   DOP_item = itemBase × dop_pct          (fixed + variable + financial + indirect_labor)
+    // A "Opção A" anterior (CP=MOD=DOP=0) tornava RRO ≈ RV, violando Etapa 7.
     const totalCommissionPct = budgetTotal > 0
         ? budgetItems.reduce((s, i) => s + i.unit_price * i.quantity * (i.commission_percent || 0) / 100, 0) / budgetTotal * 100
         : 0
@@ -508,14 +517,18 @@ function Budgets() {
         if (commPctDecimal === 0 && profPctDecimal === 0) return null
         const itemBase = i.unit_price * i.quantity
         if (itemBase <= 0) return null
+        // S8: estrutura operacional real do item (Etapa 5/6 da spec do motor)
+        const cpItem = (Number(i.cost_total) || 0) * (Number(i.quantity) || 0)
+        const modItem = itemBase * (Number(mrmConfig.mod_pct) || 0)
+        const dopItem = itemBase * (Number(mrmConfig.dop_pct) || 0)
         return calculateMarginReapuration({
             rb: itemBase,
             desc_value: itemBase * (globalDiscountPercent / 100),
             regime: mrmConfig.regime,
             rates: mrmConfig.rates,
-            cp: 0,
-            mod: 0,
-            dop: 0,
+            cp: cpItem,
+            mod: modItem,
+            dop: dopItem,
             commission_pct: commPctDecimal,
             profit_pct: profPctDecimal,
             csll_pct: mrmConfig.csll_pct,
@@ -538,7 +551,7 @@ function Budgets() {
                 quantity: item.quantity,
                 commission_percent: item.commission_percent,
                 profit_percent: item.profit_percent,
-                tax_breakdown: null,  // edição em memória — só motor runtime
+                tax_breakdown: null as null,  // edição em memória — só motor runtime
                 motor_new_commission: motor?.new_commission,
                 motor_new_profit: motor?.new_profit,
                 motor_new_csll: motor?.new_csll,
@@ -558,6 +571,20 @@ function Budgets() {
         mrmConfig.regime ?? null,
         tenantTaxRates,
     )
+    // S9 — Aviso de configuração incompleta (RRO degradado)
+    const budgetTotalCostBase = useMemo(
+        () => budgetItems.reduce(
+            (s, i) => s + (Number(i.cost_total) || 0) * (Number(i.quantity) || 0),
+            0,
+        ),
+        [budgetItems],
+    )
+    const residualConfigWarning = detectConfigWarning({
+        totalCostBase: budgetTotalCostBase,
+        dopPct: mrmConfig.dop_pct,
+        modPct: mrmConfig.mod_pct,
+        totalGross: budgetTotal,
+    })
 
     // ── Salvar orçamento ──
     const handleSave = async () => {
@@ -974,6 +1001,10 @@ function Budgets() {
                     profitPercent = salePrice > 0 && costTotal > 0 ? Math.max(0, ((salePrice - costTotal) / salePrice) * 100) : 0
                 }
             }
+            // S8: cost_total alimenta CP do motor RR (RRO = RV − IMP − CP − MOD − DOP)
+            const itemCostTotal = isService
+                ? Number(it.services?.cost_total || 0)
+                : Number(it.products?.cost_total || 0)
             return {
                 key: `edit-${record.id}-${idx}`,
                 product_id: it.product_id ?? null,
@@ -987,6 +1018,7 @@ function Budgets() {
                 commission_table_id: commissionTableId,
                 commission_percent: commissionPercent,
                 profit_percent: profitPercent,
+                cost_total: itemCostTotal,
             }
         })
         setBudgetItems(rows)
@@ -2190,9 +2222,13 @@ function Budgets() {
 
                     {/* Distribuição do resultado — semântica oficial RR (PDF GPT + DOCX Claude, 20/05/2026)
                         Bloco aparece também SEM desconto (Q7): exibe apenas % original.
-                        Em MEI/SN, hidesProfitTaxes oculta IRPJ/CSLL automaticamente. */}
+                        Em MEI/SN, hidesProfitTaxes oculta IRPJ/CSLL automaticamente.
+                        S9: configWarning alerta quando CP+DOP+MOD = 0 (RRO degradado). */}
                     {budgetTotal > 0 && (
-                        <ResidualDistributionBlock distribution={residualDistribution} />
+                        <ResidualDistributionBlock
+                            distribution={residualDistribution}
+                            configWarning={residualConfigWarning}
+                        />
                     )}
 
                     <Form.Item name="payment_method" label="Método de Pagamento" style={{ marginTop: 16 }}>

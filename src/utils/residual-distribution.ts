@@ -280,3 +280,47 @@ export function formatResidualLine(line: ResidualLine, hasDiscount: boolean): st
   if (!hasDiscount) return `${fmt(line.originalPct)}%`
   return `${fmt(line.originalPct)}% original → ${fmt(line.effectivePct)}% sobre o total c/ desconto`
 }
+
+/**
+ * Sprint S9 — Inputs de configuração operacional para diagnóstico de degradação.
+ */
+export interface OperationalConfigStatus {
+  /** Soma de cost_total × quantity de TODOS os items (R$). 0 indica produtos sem custo cadastrado. */
+  totalCostBase: number
+  /** % despesas operacionais do tenant em decimal (0.20 = 20%). */
+  dopPct: number
+  /** % MOD do tenant em decimal. */
+  modPct: number
+  /** Total bruto V₀ (para detectar fracções absurdamente pequenas de CP). */
+  totalGross: number
+}
+
+/**
+ * Sprint S9 — Detecta configuração tributária/operacional incompleta que pode
+ * fazer o motor RR operar de forma degradada (RRO ≈ RV). Retorna mensagem
+ * orientativa ou `null` quando tudo está OK.
+ *
+ * Critérios de degradação:
+ *   - CP = 0 (nenhum produto tem custo cadastrado)
+ *   - DOP = 0 E MOD = 0 (tenant sem despesas operacionais configuradas)
+ *
+ * O motor ainda funciona, mas o RRO fica artificialmente alto. UI deve avisar
+ * para o usuário completar o cadastro (Configurações → Estrutura).
+ */
+export function detectConfigWarning(status: OperationalConfigStatus): string | null {
+  const { totalCostBase, dopPct, modPct, totalGross } = status
+
+  const hasCost = totalCostBase > 0 && totalGross > 0 && (totalCostBase / totalGross) > 0.001
+  const hasOpex = dopPct > 0 || modPct > 0
+
+  if (!hasCost && !hasOpex) {
+    return 'Para apuração correta do residual, cadastre o custo dos produtos e as despesas operacionais (Configurações → Estrutura Operacional). Sem esses dados, o RRO fica inflado.'
+  }
+  if (!hasCost) {
+    return 'Cadastre o custo dos produtos para apuração precisa do residual (Produtos → Custo total).'
+  }
+  if (!hasOpex) {
+    return 'Configure as despesas operacionais do tenant (Configurações → Estrutura Operacional) para apurar o residual com precisão.'
+  }
+  return null
+}
