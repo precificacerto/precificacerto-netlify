@@ -56,21 +56,59 @@ function findRate(rates: TaxRatePeriod[], type: TaxType): number {
 }
 
 /**
- * Etapa 4 da spec: reapurar impostos por dentro sequencialmente.
- * Cada tributo é calculado sobre a base remanescente (após dedução do tributo anterior).
+ * Etapa 4 da spec: reapurar impostos por dentro sobre RV.
+ *
+ * Cada tributo do Bloco A (ICMS, PIS, COFINS, ISS) incide DIRETAMENTE sobre RV,
+ * sem subtração sequencial de base. Esta é a interpretação validada por:
+ *
+ *   1. Exemplo numérico oficial (Seção 5.2 do Relatório Consolidado):
+ *      RV R$ 134.573,85, ICMS 10% = R$ 13.457,39, PIS/COFINS 4,325% = R$ 5.820,32.
+ *      5.820,32 / 134.573,85 = 0,04325 → PIS/COFINS computado sobre RV bruto.
+ *
+ *   2. Fórmula do Limite Mínimo Operacional (Seção 4.5):
+ *      LimiteMinimo = (CP + MOD + DOP) / (1 − ICMS% − PIS/COFINS% − ISS%)
+ *      A fórmula só é algebricamente válida se cada tributo for linear sobre RV.
+ *
+ *   3. Validação V6: "IMP calculado sobre RV (não RB)". Cada componente de IMP
+ *      tem base = RV.
+ *
+ * A redação textual de Seção 4.2 ("PIS/COFINS = (RV − ValorICMS − ValorISS) × ...")
+ * conflita com o exemplo concreto e com 4.5 — é tratada como typo da spec.
+ * O exemplo numérico é autoritativo.
  */
 function computeTaxesInside(rv: number, rates: TaxRatePeriod[]): { lines: TaxLine[]; total: number } {
   const lines: TaxLine[] = []
-  let base = rv
   for (const type of TAXES_INSIDE) {
     const rate = findRate(rates, type)
     if (rate <= 0) continue
-    const amount = base * rate
-    lines.push({ type, rate_pct: rate, base, amount })
-    base = base - amount
+    const amount = rv * rate
+    lines.push({ type, rate_pct: rate, base: rv, amount })
   }
   const total = lines.reduce((sum, l) => sum + l.amount, 0)
   return { lines, total }
+}
+
+/**
+ * Limite Mínimo Operacional (Seção 4.5 do Relatório Consolidado).
+ *
+ * Receita mínima abaixo da qual a operação fica sem margem residual positiva.
+ * Permite à UI sugerir o desconto máximo permitido (R5 — orientação ao usuário).
+ *
+ *   LimiteMinimo = (CP + MOD + DOP) / (1 − Σ alíquotas internas)
+ *
+ * Retorna `null` quando a soma das alíquotas internas for ≥ 1 (denominador
+ * não-positivo, situação degenerada que indica configuração tributária inválida).
+ */
+function computeLimiteMinimo(
+  cp: number,
+  mod: number,
+  dop: number,
+  rates: TaxRatePeriod[],
+): number | null {
+  const sumInside = TAXES_INSIDE.reduce((acc, type) => acc + findRate(rates, type), 0)
+  const denom = 1 - sumInside
+  if (denom <= 0) return null
+  return (cp + mod + dop) / denom
 }
 
 /**
@@ -127,9 +165,12 @@ export function calculateMarginReapuration(input: ReapurationInput): TaxBreakdow
   // Etapa 2: RV
   const rv = rb - desc_value
 
-  // Etapa 4: Impostos por dentro sequenciais
+  // Etapa 4: Impostos por dentro (cada um sobre RV — sem subtração sequencial)
   const inside = computeTaxesInside(rv, rates)
   const imp_total = inside.total
+
+  // Limite mínimo operacional (Seção 4.5) — para orientar UI quando RRO ≤ 0
+  const limite_minimo = computeLimiteMinimo(cp, mod, dop, rates)
 
   // Etapa 7: RRO (R6: MOD imune — subtraído junto com CP/DOP, nunca alterado)
   const rro = rv - imp_total - cp - mod - dop
@@ -210,6 +251,7 @@ export function calculateMarginReapuration(input: ReapurationInput): TaxBreakdow
     dop,
     imp_total,
     rro,
+    limite_minimo,
     new_commission,
     new_profit,
     new_csll,

@@ -103,6 +103,15 @@ export interface TaxBreakdown {
   dop: number
   imp_total: number
   rro: number
+  /**
+   * Receita mínima abaixo da qual a operação fica sem margem residual positiva.
+   * Fórmula (Seção 4.5 do Relatório Consolidado RR):
+   *   limite_minimo = (CP + MOD + DOP) / (1 − ICMS% − PIS% − COFINS% − ISS%)
+   *
+   * Usado pela UI para orientar o usuário (R5) sobre o desconto máximo permitido.
+   * `null` quando a soma das alíquotas internas ≥ 1 (configuração tributária inválida).
+   */
+  limite_minimo: number | null
 
   new_commission: number
   new_profit: number

@@ -73,8 +73,8 @@ describe('calculateMarginReapuration — Etapas 1-2: Receita após desconto', ()
   })
 })
 
-describe('calculateMarginReapuration — Etapa 4: Impostos por dentro sequenciais', () => {
-  it('ICMS antes de PIS/COFINS (sequência obrigatória — Tabela 13)', () => {
+describe('calculateMarginReapuration — Etapa 4: Impostos por dentro sobre RV', () => {
+  it('Cada tributo do Bloco A incide sobre RV (Seção 5.2 + Limite 4.5 do Relatório Consolidado RR)', () => {
     const result = calculateMarginReapuration(
       makeInput({
         rb: 1000,
@@ -89,16 +89,18 @@ describe('calculateMarginReapuration — Etapa 4: Impostos por dentro sequenciai
     const pis = result.taxes_inside.find((t) => t.type === 'PIS')!
     const cofins = result.taxes_inside.find((t) => t.type === 'COFINS')!
 
+    // RV = 1000. Cada tributo é calculado diretamente sobre RV — sem subtração sequencial.
     expect(icms.base).toBe(1000)
     expect(icms.amount).toBeCloseTo(100, 4)
 
-    // PIS sobre base remanescente (1000 - 100 = 900)
-    expect(pis.base).toBeCloseTo(900, 4)
-    expect(pis.amount).toBeCloseTo(14.85, 4)
+    expect(pis.base).toBe(1000)
+    expect(pis.amount).toBeCloseTo(16.5, 4)
 
-    // COFINS sobre base remanescente (900 - 14.85 = 885.15)
-    expect(cofins.base).toBeCloseTo(885.15, 4)
-    expect(cofins.amount).toBeCloseTo(67.27, 2)
+    expect(cofins.base).toBe(1000)
+    expect(cofins.amount).toBeCloseTo(76, 4)
+
+    // IMP total = soma linear
+    expect(result.imp_total).toBeCloseTo(192.5, 4)
   })
 
   it('Ignora tributos com alíquota 0', () => {

@@ -208,8 +208,8 @@ describe('Contract: motor V2 ≡ buildItemSnapshot (paridade dentro de R$0,01)',
   it('Cenário 5 — RRO no limiar (próximo de zero, caso de borda)', () => {
     // Calibrado para forçar RRO ≈ 0 ou negativo, exercitando status RRO_ZERO/NEGATIVE.
     // RV = 10000 - 1000 = 9000
-    // IMP (ICMS 18% + PIS 1.65% sequencial + COFINS 7.6% sequencial) ~ R$2.301
-    // Sobrou: 9000 - 2301 - 4500 - 0 - 2200 = ~ -1 (perto do limiar)
+    // IMP (ICMS 18% + PIS 1,65% + COFINS 7,6% — cada um sobre RV) = 9000 × 0,2725 = 2452,5
+    // Sobrou: 9000 - 2452,5 - 4500 - 0 - 2200 = ~ -152,5 (RRO_NEGATIVE)
     const input: ReapurationInput = {
       rb: 10000,
       desc_value: 1000,
