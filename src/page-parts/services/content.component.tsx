@@ -89,6 +89,29 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
     const [ipiPct, setIpiPct] = useState<number>(
         serviceData?.ipi_pct != null ? Number(serviceData.ipi_pct) : 0
     )
+
+    // ───── S15 (EPIC-RR-V2): 7 alíquotas tributárias adicionais (base 100 na UI, decimal no DB) ─────
+    const [issPctSvc, setIssPctSvc] = useState<number>(
+        (serviceData as any)?.iss_pct != null ? Number((serviceData as any).iss_pct) * 100 : 0
+    )
+    const [issRetidoPctSvc, setIssRetidoPctSvc] = useState<number>(
+        (serviceData as any)?.iss_retido_pct != null ? Number((serviceData as any).iss_retido_pct) * 100 : 0
+    )
+    const [icmsStPctSvc, setIcmsStPctSvc] = useState<number>(
+        (serviceData as any)?.icms_st_pct != null ? Number((serviceData as any).icms_st_pct) * 100 : 0
+    )
+    const [difalPctSvc, setDifalPctSvc] = useState<number>(
+        (serviceData as any)?.difal_pct != null ? Number((serviceData as any).difal_pct) * 100 : 0
+    )
+    const [fcpPctSvc, setFcpPctSvc] = useState<number>(
+        (serviceData as any)?.fcp_pct != null ? Number((serviceData as any).fcp_pct) * 100 : 0
+    )
+    const [irpjItemPctSvc, setIrpjItemPctSvc] = useState<number>(
+        (serviceData as any)?.irpj_pct != null ? Number((serviceData as any).irpj_pct) * 100 : 0
+    )
+    const [csllItemPctSvc, setCsllItemPctSvc] = useState<number>(
+        (serviceData as any)?.csll_pct != null ? Number((serviceData as any).csll_pct) * 100 : 0
+    )
     const isLucroRealSvcComp = currentUser?.taxableRegime === 'LUCRO_REAL'
     const isLucroPresumidoSvcComp = currentUser?.taxableRegime === 'LUCRO_PRESUMIDO'
     const isLpRetSvcComp = currentUser?.taxableRegime === 'LUCRO_PRESUMIDO_RET'
@@ -489,6 +512,15 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                 recurrence_active: recurrenceActive,
                 recurrence_days: recurrenceActive && recurrenceDays ? recurrenceDays : null,
                 recurrence_message: recurrenceActive && recurrenceMessage ? recurrenceMessage : null,
+                // S15 EPIC-RR-V2 — alíquotas tributárias adicionais (base 100 → decimal).
+                // NULL quando 0 (não cadastrado → fallback tenant no motor RR).
+                iss_pct: issPctSvc > 0 ? issPctSvc / 100 : null,
+                iss_retido_pct: issRetidoPctSvc > 0 ? issRetidoPctSvc / 100 : null,
+                icms_st_pct: icmsStPctSvc > 0 ? icmsStPctSvc / 100 : null,
+                difal_pct: difalPctSvc > 0 ? difalPctSvc / 100 : null,
+                fcp_pct: fcpPctSvc > 0 ? fcpPctSvc / 100 : null,
+                irpj_pct: irpjItemPctSvc > 0 ? irpjItemPctSvc / 100 : null,
+                csll_pct: csllItemPctSvc > 0 ? csllItemPctSvc / 100 : null,
                 updated_at: new Date().toISOString(),
             }
 
@@ -1194,6 +1226,50 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                     )}
                 </div>
             </div>
+
+            {/* ───── S15 EPIC-RR-V2: Alíquotas tributárias adicionais ───── */}
+            <details style={{ marginTop: 24, padding: 16, background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0' }}>
+                <summary style={{ cursor: 'pointer', fontWeight: 600, color: '#475569' }}>
+                    🧾 Alíquotas tributárias adicionais (avançado)
+                </summary>
+                <div style={{ fontSize: 12, color: '#64748b', marginTop: 8, marginBottom: 12 }}>
+                    Use se este serviço tem alíquota diferente do padrão do tenant. Deixe em 0 para usar o padrão.
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+                    <div>
+                        <label style={{ fontSize: 12, color: '#475569' }}>ISS (%)</label>
+                        <InputNumber value={issPctSvc} onChange={(v) => setIssPctSvc(Number(v) || 0)} min={0} max={100} step={0.01} style={{ width: '100%' }} />
+                    </div>
+                    <div>
+                        <label style={{ fontSize: 12, color: '#475569' }}>ISS Retido (%)</label>
+                        <InputNumber value={issRetidoPctSvc} onChange={(v) => setIssRetidoPctSvc(Number(v) || 0)} min={0} max={100} step={0.01} style={{ width: '100%' }} />
+                    </div>
+                    <div>
+                        <label style={{ fontSize: 12, color: '#475569' }}>ICMS-ST (%)</label>
+                        <InputNumber value={icmsStPctSvc} onChange={(v) => setIcmsStPctSvc(Number(v) || 0)} min={0} max={100} step={0.01} style={{ width: '100%' }} />
+                    </div>
+                    <div>
+                        <label style={{ fontSize: 12, color: '#475569' }}>DIFAL (%)</label>
+                        <InputNumber value={difalPctSvc} onChange={(v) => setDifalPctSvc(Number(v) || 0)} min={0} max={100} step={0.01} style={{ width: '100%' }} />
+                    </div>
+                    <div>
+                        <label style={{ fontSize: 12, color: '#475569' }}>FCP (%)</label>
+                        <InputNumber value={fcpPctSvc} onChange={(v) => setFcpPctSvc(Number(v) || 0)} min={0} max={100} step={0.01} style={{ width: '100%' }} />
+                    </div>
+                    <div>
+                        <label style={{ fontSize: 12, color: '#475569' }} title="Use apenas se a atividade deste serviço exigir IRPJ presumido diferente do regime padrão (ex: serviços 32% vs revenda 8%).">
+                            IRPJ (%) ℹ
+                        </label>
+                        <InputNumber value={irpjItemPctSvc} onChange={(v) => setIrpjItemPctSvc(Number(v) || 0)} min={0} max={100} step={0.01} style={{ width: '100%' }} />
+                    </div>
+                    <div>
+                        <label style={{ fontSize: 12, color: '#475569' }} title="Use apenas se a atividade deste serviço exigir CSLL presumido diferente do regime padrão.">
+                            CSLL (%) ℹ
+                        </label>
+                        <InputNumber value={csllItemPctSvc} onChange={(v) => setCsllItemPctSvc(Number(v) || 0)} min={0} max={100} step={0.01} style={{ width: '100%' }} />
+                    </div>
+                </div>
+            </details>
 
             <footer className="flex flex-row-reverse mt-5 mr-4" style={{ gap: 8 }}>
                 <Button type="primary" icon={<SaveOutlined />} onClick={handleSave} loading={saving}>

@@ -39,6 +39,14 @@ import { MRM_ERROR_RRO_NON_POSITIVE, MRM_ENGINE_VERSION, type TaxBreakdown } fro
 import { useResidualDistribution } from '@/hooks/use-residual-distribution'
 import type { ResidualItemInput } from '@/utils/residual-distribution'
 import { ResidualDistributionBlock } from '@/page-parts/shared/residual-distribution-block.component'
+import {
+  mergeItemAndTenantRates,
+  resolveItemCsllPct,
+  resolveItemIrpjPct,
+  type ItemTaxRates,
+} from '@/utils/item-tax-rates'
+import { computeConsolidatedDRE, type DREItemInput } from '@/utils/consolidated-dre'
+import { ConsolidatedDREBlock } from '@/page-parts/shared/consolidated-dre-block.component'
 import { hydrateItemSnapshot, type TenantSnapshotContext } from '@/lib/items-snapshot'
 import { calculateMarginReapuration } from '@/utils/margin-reapuration'
 import { coerceLegacyDiscountMode } from '@/config/feature-flags'
@@ -103,6 +111,8 @@ interface SaleItemRow {
     profit_percent?: number
     /** Custo unitário do produto/serviço — alimenta CP do motor RR (Sprint S8). */
     cost_total?: number
+    /** Alíquotas tributárias específicas do item (Sprint S11). NULL = fallback tenant. */
+    item_tax_rates?: ItemTaxRates | null
     /** true = item manual (nome/valor digitados), false = produto do catálogo */
     is_manual?: boolean
     /** true = item de servico do catalogo */
@@ -209,6 +219,31 @@ function Sales() {
         mrmConfig.regime ?? null,
         saleTenantTaxRates,
     )
+    // S14 — DRE Consolidada para vendas (lê snapshot persistido em sale_items.tax_breakdown)
+    const saleConsolidatedDRE = useMemo(() => {
+        const dreItems: DREItemInput[] = (detailItems || []).map((it: any) => ({
+            unit_price: Number(it.unit_price) || 0,
+            quantity: Number(it.quantity) || 0,
+            cost_total: it.cost_total != null ? Number(it.cost_total) : null,
+            commission_percent: it.commission_pct != null ? Number(it.commission_pct) * 100 : null,
+            profit_percent: it.profit_pct != null ? Number(it.profit_pct) * 100 : null,
+            tax_breakdown: it.tax_breakdown ?? null,
+        }))
+        return computeConsolidatedDRE({
+            items: dreItems,
+            totalGross: saleSubtotal,
+            totalNet: saleFinalValue,
+            regime: mrmConfig.regime ?? null,
+            expenseStructure: {
+                fixed_pct: Number(mrmConfig.expense_breakdown.fixed_pct) || 0,
+                variable_pct: Number(mrmConfig.expense_breakdown.variable_pct) || 0,
+                financial_pct: Number(mrmConfig.expense_breakdown.financial_pct) || 0,
+                administrative_pct: Number(mrmConfig.expense_breakdown.administrative_pct) || 0,
+                mod_pct: Number(mrmConfig.mod_pct) || 0,
+            },
+            tenantTaxRates: saleTenantTaxRates,
+        })
+    }, [detailItems, saleSubtotal, saleFinalValue, mrmConfig.regime, mrmConfig.mod_pct, mrmConfig.expense_breakdown, saleTenantTaxRates])
     const [discountInputModeV, setDiscountInputModeV] = useState<'PERCENT' | 'AMOUNT'>('PERCENT')
     const selectedEmployeeIdV = Form.useWatch('employee_id', form)
     const latestEmployeeIdVRef = useRef<string | undefined>(undefined)
@@ -881,7 +916,23 @@ function Sales() {
             const commTable = allTables.find(t => t.id === item.commission_table_id)
             const commPct = Number(commTable?.commission_percent || svc?.commission_percent || 0)
             const profitPct = Number(svc?.profit_percent || 0)
-            return { ...item, service_id: serviceId, product_name: svc?.name || '', unit_price: price, discount: 0, commission_percent: commPct, profit_percent: profitPct, cost_total: costTotal, total: price * item.quantity }
+            // S11: captura alíquotas específicas do serviço
+            const svcTaxRates: ItemTaxRates = {
+                icms_pct: svc?.icms_pct ?? null,
+                pis_pct: svc?.pis_pct ?? null,
+                cofins_pct: svc?.cofins_pct ?? null,
+                iss_pct: svc?.iss_pct ?? null,
+                ipi_pct: svc?.ipi_pct ?? null,
+                icms_st_pct: svc?.icms_st_pct ?? null,
+                difal_pct: svc?.difal_pct ?? null,
+                fcp_pct: svc?.fcp_pct ?? null,
+                ibs_pct: svc?.ibs_pct ?? null,
+                cbs_pct: svc?.cbs_pct ?? null,
+                iss_retido_pct: svc?.iss_retido_pct ?? null,
+                irpj_pct: svc?.irpj_pct ?? null,
+                csll_pct: svc?.csll_pct ?? null,
+            }
+            return { ...item, service_id: serviceId, product_name: svc?.name || '', unit_price: price, discount: 0, commission_percent: commPct, profit_percent: profitPct, cost_total: costTotal, item_tax_rates: svcTaxRates, total: price * item.quantity }
         }))
     }
 
@@ -901,7 +952,24 @@ function Sales() {
             const commTable = allTables.find(t => t.id === item.commission_table_id)
             const commPct = Number(commTable?.commission_percent || 0)
             const profitPct = Number(prod?.profit_percent || 0)
-            return { ...item, product_id: productId, product_name: prod?.name || '', unit_price: price, discount: 0, commission_percent: commPct, profit_percent: profitPct, cost_total: costTotal, total: price * item.quantity }
+            // S11: captura alíquotas específicas do produto
+            const prodAny = prod as any
+            const prodTaxRates: ItemTaxRates = {
+                icms_pct: prodAny?.icms_pct ?? null,
+                pis_pct: prodAny?.pis_pct ?? null,
+                cofins_pct: prodAny?.cofins_pct ?? null,
+                iss_pct: prodAny?.iss_pct ?? null,
+                ipi_pct: prodAny?.ipi_pct ?? null,
+                icms_st_pct: prodAny?.icms_st_pct ?? null,
+                difal_pct: prodAny?.difal_pct ?? null,
+                fcp_pct: prodAny?.fcp_pct ?? null,
+                ibs_pct: prodAny?.ibs_pct ?? null,
+                cbs_pct: prodAny?.cbs_pct ?? null,
+                iss_retido_pct: prodAny?.iss_retido_pct ?? null,
+                irpj_pct: prodAny?.irpj_pct ?? null,
+                csll_pct: prodAny?.csll_pct ?? null,
+            }
+            return { ...item, product_id: productId, product_name: prod?.name || '', unit_price: price, discount: 0, commission_percent: commPct, profit_percent: profitPct, cost_total: costTotal, item_tax_rates: prodTaxRates, total: price * item.quantity }
         }))
     }
 
@@ -982,18 +1050,22 @@ function Sales() {
                 const cpItem = (Number(item.cost_total) || 0) * (Number(item.quantity) || 0)
                 const modItem = item.total * (Number(mrmConfig.mod_pct) || 0)
                 const dopItem = item.total * (Number(mrmConfig.dop_pct) || 0)
+                // S11: alíquotas específicas do item (com fallback tenant)
+                const itemRates = mergeItemAndTenantRates(item.item_tax_rates ?? null, mrmConfig.rates)
+                const itemCsll = resolveItemCsllPct(item.item_tax_rates ?? null, mrmConfig.csll_pct)
+                const itemIrpj = resolveItemIrpjPct(item.item_tax_rates ?? null, mrmConfig.irpj_pct)
                 const result = calculateMarginReapuration({
                     rb: item.total,
                     desc_value: item.total * (globalDiscountPercentV / 100),
                     regime: mrmConfig.regime,
-                    rates: mrmConfig.rates,
+                    rates: itemRates,
                     cp: cpItem,
                     mod: modItem,
                     dop: dopItem,
                     commission_pct: commPctDecimal,
                     profit_pct: profPctDecimal,
-                    csll_pct: mrmConfig.csll_pct,
-                    irpj_pct: mrmConfig.irpj_pct,
+                    csll_pct: itemCsll,
+                    irpj_pct: itemIrpj,
                     effective_date: reapurationEffectiveDateSale,
                     use_snapshot_rates: mrmConfig.useSnapshotRates,
                 })
@@ -2393,6 +2465,11 @@ function Sales() {
                             Em MEI/SN, IRPJ/CSLL ocultam automaticamente. */}
                         {saleSubtotal > 0 && (
                             <ResidualDistributionBlock distribution={saleResidualDistribution} />
+                        )}
+
+                        {/* S14 — DRE Consolidada (R3=B + R7=B). Snapshot histórico imutável. */}
+                        {saleSubtotal > 0 && (
+                            <ConsolidatedDREBlock dre={saleConsolidatedDRE} />
                         )}
 
                         {detailItems.length > 0 && (

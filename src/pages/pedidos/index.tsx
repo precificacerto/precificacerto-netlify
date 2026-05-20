@@ -28,6 +28,8 @@ import { MRM_ENGINE_VERSION, type TaxBreakdown } from '@/types/mrm'
 import { useResidualDistribution } from '@/hooks/use-residual-distribution'
 import type { ResidualItemInput } from '@/utils/residual-distribution'
 import { ResidualDistributionBlock } from '@/page-parts/shared/residual-distribution-block.component'
+import { computeConsolidatedDRE, type DREItemInput } from '@/utils/consolidated-dre'
+import { ConsolidatedDREBlock } from '@/page-parts/shared/consolidated-dre-block.component'
 // S9: configWarning não aplicado em pedidos — snapshot é imutável (decisão Q3=A)
 import { coerceLegacyDiscountMode } from '@/config/feature-flags'
 import { decideMrmAction } from '@/utils/mrm-policies'
@@ -240,6 +242,30 @@ function OrdersPage() {
         mrmConfig.regime ?? null,
         orderTenantTaxRates,
     )
+    // S14 — DRE Consolidada para pedidos (lê snapshot persistido em tax_breakdown)
+    const orderConsolidatedDRE = useMemo(() => {
+        const dreItems: DREItemInput[] = orderItems.map((item) => ({
+            unit_price: item.unit_price,
+            quantity: item.quantity,
+            commission_percent: item.commission_percent,
+            profit_percent: item.profit_percent,
+            tax_breakdown: item.tax_breakdown ?? null,
+        }))
+        return computeConsolidatedDRE({
+            items: dreItems,
+            totalGross: orderSubtotal,
+            totalNet: orderFinalTotal,
+            regime: mrmConfig.regime ?? null,
+            expenseStructure: {
+                fixed_pct: Number(mrmConfig.expense_breakdown.fixed_pct) || 0,
+                variable_pct: Number(mrmConfig.expense_breakdown.variable_pct) || 0,
+                financial_pct: Number(mrmConfig.expense_breakdown.financial_pct) || 0,
+                administrative_pct: Number(mrmConfig.expense_breakdown.administrative_pct) || 0,
+                mod_pct: Number(mrmConfig.mod_pct) || 0,
+            },
+            tenantTaxRates: orderTenantTaxRates,
+        })
+    }, [orderItems, orderSubtotal, orderFinalTotal, mrmConfig.regime, mrmConfig.mod_pct, mrmConfig.expense_breakdown, orderTenantTaxRates])
 
     // Send to sale modal
     const [sendToSaleOpen, setSendToSaleOpen] = useState(false)
@@ -1350,6 +1376,11 @@ function OrdersPage() {
                     recálculo runtime do motor. Em MEI/SN, IRPJ/CSLL ocultos automaticamente. */}
                 {orderSubtotal > 0 && (
                     <ResidualDistributionBlock distribution={orderResidualDistribution} />
+                )}
+
+                {/* S14 — DRE Consolidada (R3=B + R7=B). Snapshot histórico imutável. */}
+                {orderSubtotal > 0 && (
+                    <ConsolidatedDREBlock dre={orderConsolidatedDRE} />
                 )}
             </Drawer>
 

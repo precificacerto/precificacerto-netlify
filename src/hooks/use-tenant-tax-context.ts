@@ -48,6 +48,18 @@ export interface TenantTaxContext {
    * Vem de production_labor_percent. Usado como mod_item = item_subtotal × mod_pct.
    */
   mod_pct: number
+  /**
+   * Breakdown dos 4 buckets de DOP — Sprint S14 do EPIC-RR-V2.
+   * Usado pela DRE consolidada para exibir despesas operacionais separadas
+   * (fixas / variáveis / financeiras / administrativas).
+   * Todos em decimal. Soma = dop_pct.
+   */
+  expense_breakdown: {
+    fixed_pct: number
+    variable_pct: number
+    financial_pct: number
+    administrative_pct: number
+  }
   /** Override de policy (strict/permissive). NULL = defaults ADR-004. */
   rro_policy: RroPolicy | null
   /** Componentes tributários completos (para diagnóstico/UI). */
@@ -66,6 +78,7 @@ const DEFAULT_CONTEXT: TenantTaxContext = {
   irpj_pct: 0,
   dop_pct: 0,
   mod_pct: 0,
+  expense_breakdown: { fixed_pct: 0, variable_pct: 0, financial_pct: 0, administrative_pct: 0 },
   rro_policy: null,
   components: null,
   rates: [],
@@ -172,6 +185,12 @@ export function useTenantTaxContext(options: HookOptions = {}): TenantTaxContext
         irpj_pct: components?.irpj ?? 0,
         dop_pct,
         mod_pct,
+        expense_breakdown: {
+          fixed_pct: fixedPct,
+          variable_pct: variablePct,
+          financial_pct: financialPct,
+          administrative_pct: moiPct,
+        },
         rro_policy,
         components,
         rates,

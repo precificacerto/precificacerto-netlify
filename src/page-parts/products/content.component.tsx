@@ -294,6 +294,31 @@ export const Content: FC<ContentProps> = ({
     (product as any)?.ipi_pct != null ? Number((product as any).ipi_pct) : 0
   )
 
+  // ───────── S15 (EPIC-RR-V2) — Alíquotas tributárias adicionais por produto ─────────
+  // 7 campos que complementam o cadastro existente. Convenção: BASE 100 na UI
+  // (5 = 5%), DECIMAL no DB (0.05). Conversão simétrica no save (/100) e load (×100).
+  const [issPct, setIssPct] = useState<number>(
+    (product as any)?.iss_pct != null ? Number((product as any).iss_pct) * 100 : 0
+  )
+  const [issRetidoPct, setIssRetidoPct] = useState<number>(
+    (product as any)?.iss_retido_pct != null ? Number((product as any).iss_retido_pct) * 100 : 0
+  )
+  const [icmsStPct, setIcmsStPct] = useState<number>(
+    (product as any)?.icms_st_pct != null ? Number((product as any).icms_st_pct) * 100 : 0
+  )
+  const [difalPct, setDifalPct] = useState<number>(
+    (product as any)?.difal_pct != null ? Number((product as any).difal_pct) * 100 : 0
+  )
+  const [fcpPct, setFcpPct] = useState<number>(
+    (product as any)?.fcp_pct != null ? Number((product as any).fcp_pct) * 100 : 0
+  )
+  const [irpjItemPct, setIrpjItemPct] = useState<number>(
+    (product as any)?.irpj_pct != null ? Number((product as any).irpj_pct) * 100 : 0
+  )
+  const [csllItemPct, setCsllItemPct] = useState<number>(
+    (product as any)?.csll_pct != null ? Number((product as any).csll_pct) * 100 : 0
+  )
+
 
 
   const [recurrenceActive, setRecurrenceActive] = useState<boolean>((product as any)?.recurrence_active ?? false)
@@ -969,6 +994,17 @@ export const Content: FC<ContentProps> = ({
         extraFields.sale_price_after_taxes = finalSalePriceForSave
         extraFields.valor_precificado_icms_piscofins = Number(productPriceInfo.totalProductPrice) || 0
       }
+
+      // S15 — persistência das 7 alíquotas adicionais (base 100 → decimal).
+      // Apenas grava quando > 0 (NULL = "não cadastrado" → fallback tenant).
+      extraFields.iss_pct = issPct > 0 ? issPct / 100 : null
+      extraFields.iss_retido_pct = issRetidoPct > 0 ? issRetidoPct / 100 : null
+      extraFields.icms_st_pct = icmsStPct > 0 ? icmsStPct / 100 : null
+      extraFields.difal_pct = difalPct > 0 ? difalPct / 100 : null
+      extraFields.fcp_pct = fcpPct > 0 ? fcpPct / 100 : null
+      extraFields.irpj_pct = irpjItemPct > 0 ? irpjItemPct / 100 : null
+      extraFields.csll_pct = csllItemPct > 0 ? csllItemPct / 100 : null
+
       extraFields.recurrence_active = recurrenceActive
       extraFields.recurrence_days = recurrenceActive && recurrenceDays ? recurrenceDays : null
       extraFields.recurrence_message = recurrenceActive && recurrenceMessage ? recurrenceMessage : null
@@ -1932,6 +1968,52 @@ export const Content: FC<ContentProps> = ({
           onFinalPriceWithTaxesChange={(d) => { finalPriceWithTaxesRef.current = d.finalPrice; salePriceBaseRef.current = d.basePrice }}
         />
       )}
+      {/* ───── S15 EPIC-RR-V2: Alíquotas tributárias adicionais ───── */}
+      {/* Bloco opcional. Deixe em 0 para usar alíquota padrão do tenant.
+          Não conflita com os campos legados (ICMS/PIS-COFINS/IBS/CBS/IS/IPI). */}
+      <details style={{ marginTop: 24, padding: 16, background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0' }}>
+        <summary style={{ cursor: 'pointer', fontWeight: 600, color: '#475569' }}>
+          🧾 Alíquotas tributárias adicionais (avançado)
+        </summary>
+        <div style={{ fontSize: 12, color: '#64748b', marginTop: 8, marginBottom: 12 }}>
+          Use se este produto tem alíquota diferente do padrão do tenant. Deixe em 0 para usar o padrão.
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+          <div>
+            <label style={{ fontSize: 12, color: '#475569' }}>ISS (%)</label>
+            <InputNumber value={issPct} onChange={(v) => setIssPct(Number(v) || 0)} min={0} max={100} step={0.01} style={{ width: '100%' }} />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, color: '#475569' }}>ISS Retido (%)</label>
+            <InputNumber value={issRetidoPct} onChange={(v) => setIssRetidoPct(Number(v) || 0)} min={0} max={100} step={0.01} style={{ width: '100%' }} />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, color: '#475569' }}>ICMS-ST (%)</label>
+            <InputNumber value={icmsStPct} onChange={(v) => setIcmsStPct(Number(v) || 0)} min={0} max={100} step={0.01} style={{ width: '100%' }} />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, color: '#475569' }}>DIFAL (%)</label>
+            <InputNumber value={difalPct} onChange={(v) => setDifalPct(Number(v) || 0)} min={0} max={100} step={0.01} style={{ width: '100%' }} />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, color: '#475569' }}>FCP (%)</label>
+            <InputNumber value={fcpPct} onChange={(v) => setFcpPct(Number(v) || 0)} min={0} max={100} step={0.01} style={{ width: '100%' }} />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, color: '#475569' }} title="Use apenas se a atividade do produto exigir IRPJ presumido diferente do regime padrão (ex: revenda 8% vs serviço 32%).">
+              IRPJ (%) ℹ
+            </label>
+            <InputNumber value={irpjItemPct} onChange={(v) => setIrpjItemPct(Number(v) || 0)} min={0} max={100} step={0.01} style={{ width: '100%' }} />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, color: '#475569' }} title="Use apenas se a atividade do produto exigir CSLL presumido diferente do regime padrão.">
+              CSLL (%) ℹ
+            </label>
+            <InputNumber value={csllItemPct} onChange={(v) => setCsllItemPct(Number(v) || 0)} min={0} max={100} step={0.01} style={{ width: '100%' }} />
+          </div>
+        </div>
+      </details>
+
       <footer className="flex flex-row-reverse mt-5 mr-4">
         <Button onClick={handleSaveProduct} type="primary" className="ml-2">
           Salvar

@@ -42,6 +42,14 @@ import { calculateMarginReapuration } from '@/utils/margin-reapuration'
 import { useResidualDistribution } from '@/hooks/use-residual-distribution'
 import { detectConfigWarning, type ResidualItemInput } from '@/utils/residual-distribution'
 import { ResidualDistributionBlock } from '@/page-parts/shared/residual-distribution-block.component'
+import {
+  mergeItemAndTenantRates,
+  resolveItemCsllPct,
+  resolveItemIrpjPct,
+  type ItemTaxRates,
+} from '@/utils/item-tax-rates'
+import { computeConsolidatedDRE, type DREItemInput } from '@/utils/consolidated-dre'
+import { ConsolidatedDREBlock } from '@/page-parts/shared/consolidated-dre-block.component'
 import { coerceLegacyDiscountMode } from '@/config/feature-flags'
 import { decideMrmAction } from '@/utils/mrm-policies'
 import { aggregateMotorResults } from '@/utils/mrm-aggregate'
@@ -98,6 +106,8 @@ interface BudgetItemRow {
     profit_percent?: number
     /** Custo unitário do produto/serviço — alimenta CP do motor RR (Sprint S8). */
     cost_total?: number
+    /** Alíquotas tributárias específicas do item (Sprint S11). NULL = fallback tenant. */
+    item_tax_rates?: ItemTaxRates | null
     isManual?: boolean
     isService?: boolean
 }
@@ -371,6 +381,22 @@ function Budgets() {
             const profitPercent = (svc?.profit_percent != null && Number(svc.profit_percent) > 0)
                 ? Number(svc.profit_percent)
                 : (basePrice > 0 && costTotal > 0 ? Math.max(0, ((basePrice - costTotal) / basePrice) * 100) : 0)
+            // S11: captura alíquotas específicas do serviço (NULL → fallback tenant)
+            const svcTaxRates: ItemTaxRates = {
+                icms_pct: svc?.icms_pct ?? null,
+                pis_pct: svc?.pis_pct ?? null,
+                cofins_pct: svc?.cofins_pct ?? null,
+                iss_pct: svc?.iss_pct ?? null,
+                ipi_pct: svc?.ipi_pct ?? null,
+                icms_st_pct: svc?.icms_st_pct ?? null,
+                difal_pct: svc?.difal_pct ?? null,
+                fcp_pct: svc?.fcp_pct ?? null,
+                ibs_pct: svc?.ibs_pct ?? null,
+                cbs_pct: svc?.cbs_pct ?? null,
+                iss_retido_pct: svc?.iss_retido_pct ?? null,
+                irpj_pct: svc?.irpj_pct ?? null,
+                csll_pct: svc?.csll_pct ?? null,
+            }
             return {
                 ...item,
                 service_id: serviceId,
@@ -379,6 +405,7 @@ function Budgets() {
                 commission_percent: commissionPercent,
                 profit_percent: profitPercent,
                 cost_total: costTotal,
+                item_tax_rates: svcTaxRates,
                 total: basePrice * item.quantity,
                 isService: true,
             }
@@ -399,6 +426,22 @@ function Budgets() {
             const profitPercent = (prod?.profit_percent != null && Number(prod.profit_percent) > 0)
                 ? Number(prod.profit_percent)
                 : (salePrice > 0 && costTotal > 0 ? Math.max(0, ((salePrice - costTotal) / salePrice) * 100) : 0)
+            // S11: captura alíquotas específicas do produto (NULL → fallback tenant)
+            const prodTaxRates: ItemTaxRates = {
+                icms_pct: prod?.icms_pct ?? null,
+                pis_pct: prod?.pis_pct ?? null,
+                cofins_pct: prod?.cofins_pct ?? null,
+                iss_pct: prod?.iss_pct ?? null,
+                ipi_pct: prod?.ipi_pct ?? null,
+                icms_st_pct: prod?.icms_st_pct ?? null,
+                difal_pct: prod?.difal_pct ?? null,
+                fcp_pct: prod?.fcp_pct ?? null,
+                ibs_pct: prod?.ibs_pct ?? null,
+                cbs_pct: prod?.cbs_pct ?? null,
+                iss_retido_pct: prod?.iss_retido_pct ?? null,
+                irpj_pct: prod?.irpj_pct ?? null,
+                csll_pct: prod?.csll_pct ?? null,
+            }
             return {
                 ...item,
                 product_id: productId,
@@ -407,6 +450,7 @@ function Budgets() {
                 commission_percent: commissionPercent,
                 profit_percent: profitPercent,
                 cost_total: costTotal,
+                item_tax_rates: prodTaxRates,
                 total: salePrice * item.quantity,
                 isManual: false,
             }
@@ -521,18 +565,22 @@ function Budgets() {
         const cpItem = (Number(i.cost_total) || 0) * (Number(i.quantity) || 0)
         const modItem = itemBase * (Number(mrmConfig.mod_pct) || 0)
         const dopItem = itemBase * (Number(mrmConfig.dop_pct) || 0)
+        // S11: alíquotas específicas do item (com fallback tenant para campos NULL)
+        const itemRates = mergeItemAndTenantRates(i.item_tax_rates ?? null, mrmConfig.rates)
+        const itemCsll = resolveItemCsllPct(i.item_tax_rates ?? null, mrmConfig.csll_pct)
+        const itemIrpj = resolveItemIrpjPct(i.item_tax_rates ?? null, mrmConfig.irpj_pct)
         return calculateMarginReapuration({
             rb: itemBase,
             desc_value: itemBase * (globalDiscountPercent / 100),
             regime: mrmConfig.regime,
-            rates: mrmConfig.rates,
+            rates: itemRates,
             cp: cpItem,
             mod: modItem,
             dop: dopItem,
             commission_pct: commPctDecimal,
             profit_pct: profPctDecimal,
-            csll_pct: mrmConfig.csll_pct,
-            irpj_pct: mrmConfig.irpj_pct,
+            csll_pct: itemCsll,
+            irpj_pct: itemIrpj,
             effective_date: reapurationEffectiveDate,
             use_snapshot_rates: mrmConfig.useSnapshotRates,
         })
@@ -585,6 +633,50 @@ function Budgets() {
         modPct: mrmConfig.mod_pct,
         totalGross: budgetTotal,
     })
+
+    // S14 — DRE Consolidada (princípio: consolida RRs individuais, não recalcula)
+    const consolidatedDRE = useMemo(() => {
+        const dreItems: DREItemInput[] = budgetItems.map((item, idx) => {
+            const motor = motorResultsByItem[idx]
+            return {
+                unit_price: item.unit_price,
+                quantity: item.quantity,
+                cost_total: item.cost_total,
+                commission_percent: item.commission_percent,
+                profit_percent: item.profit_percent,
+                tax_breakdown: null as null,
+                motor_new_commission: motor?.new_commission,
+                motor_new_profit: motor?.new_profit,
+                motor_new_csll: motor?.new_csll,
+                motor_new_irpj: motor?.new_irpj,
+            }
+        })
+        // Para DRE: os snapshots de taxes_inside/outside precisam vir do motor
+        // calculado em runtime — anexamos como tax_breakdown sintético com apenas
+        // os campos relevantes (taxes_inside + taxes_outside). Aria S14 review:
+        // motor já é compatível com TaxBreakdown (mesma shape), spread direto OK.
+        dreItems.forEach((di, idx) => {
+            const motor = motorResultsByItem[idx]
+            if (motor) {
+                di.tax_breakdown = motor
+            }
+        })
+        return computeConsolidatedDRE({
+            items: dreItems,
+            totalGross: budgetTotal,
+            totalNet: budgetTotalWithDiscount,
+            regime: mrmConfig.regime ?? null,
+            expenseStructure: {
+                fixed_pct: Number(mrmConfig.expense_breakdown.fixed_pct) || 0,
+                variable_pct: Number(mrmConfig.expense_breakdown.variable_pct) || 0,
+                financial_pct: Number(mrmConfig.expense_breakdown.financial_pct) || 0,
+                administrative_pct: Number(mrmConfig.expense_breakdown.administrative_pct) || 0,
+                mod_pct: Number(mrmConfig.mod_pct) || 0,
+            },
+            tenantTaxRates,
+        })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [budgetItems, motorResultsByItem, budgetTotal, budgetTotalWithDiscount, mrmConfig.regime, mrmConfig.mod_pct, mrmConfig.expense_breakdown, tenantTaxRates])
 
     // ── Salvar orçamento ──
     const handleSave = async () => {
@@ -932,7 +1024,7 @@ function Budgets() {
         setCustomerMode(record.customer_id ? 'existing' : 'manual')
 
         const [itemsResult, tablesResult] = await Promise.all([
-            supabase.from('budget_items').select('*, products(id, name, code, max_discount_percent, commission_table_id, commission_percent, profit_percent, sale_price, cost_total), services(id, name, commission_table_id, commission_percent, profit_percent, base_price, cost_total), manual_description').eq('budget_id', record.id),
+            supabase.from('budget_items').select('*, products(id, name, code, max_discount_percent, commission_table_id, commission_percent, profit_percent, sale_price, cost_total, icms_pct, pis_pct, cofins_pct, iss_pct, ipi_pct, icms_st_pct, difal_pct, fcp_pct, ibs_pct, cbs_pct, iss_retido_pct, irpj_pct, csll_pct), services(id, name, commission_table_id, commission_percent, profit_percent, base_price, cost_total, icms_pct, pis_pct, cofins_pct, iss_pct, ipi_pct, icms_st_pct, difal_pct, fcp_pct, ibs_pct, cbs_pct, iss_retido_pct, irpj_pct, csll_pct), manual_description').eq('budget_id', record.id),
             record.employee_id
                 ? (supabase as any).from('employee_commission_tables').select('commission_tables(id, name, type, commission_percent)').eq('employee_id', record.employee_id)
                 : Promise.resolve({ data: [] }),
@@ -1005,6 +1097,23 @@ function Budgets() {
             const itemCostTotal = isService
                 ? Number(it.services?.cost_total || 0)
                 : Number(it.products?.cost_total || 0)
+            // S11: alíquotas tributárias específicas do item (NULL → fallback tenant)
+            const source = isService ? it.services : it.products
+            const itemTaxRates: ItemTaxRates | null = source ? {
+                icms_pct: source.icms_pct ?? null,
+                pis_pct: source.pis_pct ?? null,
+                cofins_pct: source.cofins_pct ?? null,
+                iss_pct: source.iss_pct ?? null,
+                ipi_pct: source.ipi_pct ?? null,
+                icms_st_pct: source.icms_st_pct ?? null,
+                difal_pct: source.difal_pct ?? null,
+                fcp_pct: source.fcp_pct ?? null,
+                ibs_pct: source.ibs_pct ?? null,
+                cbs_pct: source.cbs_pct ?? null,
+                iss_retido_pct: source.iss_retido_pct ?? null,
+                irpj_pct: source.irpj_pct ?? null,
+                csll_pct: source.csll_pct ?? null,
+            } : null
             return {
                 key: `edit-${record.id}-${idx}`,
                 product_id: it.product_id ?? null,
@@ -1019,6 +1128,7 @@ function Budgets() {
                 commission_percent: commissionPercent,
                 profit_percent: profitPercent,
                 cost_total: itemCostTotal,
+                item_tax_rates: itemTaxRates,
             }
         })
         setBudgetItems(rows)
@@ -2229,6 +2339,11 @@ function Budgets() {
                             distribution={residualDistribution}
                             configWarning={residualConfigWarning}
                         />
+                    )}
+
+                    {/* S14 — DRE Consolidada (R3=B: adicional, R7=B: universal) */}
+                    {budgetTotal > 0 && (
+                        <ConsolidatedDREBlock dre={consolidatedDRE} />
                     )}
 
                     <Form.Item name="payment_method" label="Método de Pagamento" style={{ marginTop: 16 }}>
