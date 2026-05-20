@@ -39,6 +39,9 @@ import { useTenantTaxContext } from '@/hooks/use-tenant-tax-context'
 import { MRM_ERROR_RRO_NON_POSITIVE, MRM_ENGINE_VERSION } from '@/types/mrm'
 import { hydrateItemSnapshot, type TenantSnapshotContext } from '@/lib/items-snapshot'
 import { calculateMarginReapuration } from '@/utils/margin-reapuration'
+import { useResidualDistribution } from '@/hooks/use-residual-distribution'
+import type { ResidualItemInput } from '@/utils/residual-distribution'
+import { ResidualDistributionBlock } from '@/page-parts/shared/residual-distribution-block.component'
 import { coerceLegacyDiscountMode } from '@/config/feature-flags'
 import { decideMrmAction } from '@/utils/mrm-policies'
 import { aggregateMotorResults } from '@/utils/mrm-aggregate'
@@ -523,6 +526,38 @@ function Budgets() {
     })
     const profitAmount = motorResultsByItem.reduce((s, r) => s + (r?.new_profit ?? 0), 0)
     const commissionAmount = motorResultsByItem.reduce((s, r) => s + (r?.new_commission ?? 0), 0)
+
+    // ── EPIC-RR-DISPLAY: distribuição semântica (PDF GPT + DOCX Claude, 20/05/2026) ──
+    // Aria S2 review: memoizar array de items antes de passar ao hook (evita
+    // recálculo a cada render). budgetItems é stable enquanto não há edição.
+    const residualItems: ResidualItemInput[] = useMemo(
+        () => budgetItems.map((item, idx) => {
+            const motor = motorResultsByItem[idx]
+            return {
+                unit_price: item.unit_price,
+                quantity: item.quantity,
+                commission_percent: item.commission_percent,
+                profit_percent: item.profit_percent,
+                tax_breakdown: null,  // edição em memória — só motor runtime
+                motor_new_commission: motor?.new_commission,
+                motor_new_profit: motor?.new_profit,
+                motor_new_csll: motor?.new_csll,
+                motor_new_irpj: motor?.new_irpj,
+            }
+        }),
+        [budgetItems, motorResultsByItem],
+    )
+    const tenantTaxRates = useMemo(
+        () => ({ irpj: mrmConfig.irpj_pct || 0, csll: mrmConfig.csll_pct || 0 }),
+        [mrmConfig.irpj_pct, mrmConfig.csll_pct],
+    )
+    const residualDistribution = useResidualDistribution(
+        residualItems,
+        budgetTotal,
+        budgetTotalWithDiscount,
+        mrmConfig.regime ?? null,
+        tenantTaxRates,
+    )
 
     // ── Salvar orçamento ──
     const handleSave = async () => {
@@ -2153,53 +2188,12 @@ function Budgets() {
                         </div>
                     )}
 
-                    {/* Resumo de Comissão e Lucro */}
-                    {maxDiscountPercent > 0 && budgetTotal > 0 && (() => {
-                        const regime = currentUser?.taxableRegime
-                        const isLr = regime === 'LUCRO_REAL'
-                        const isLp = regime === 'LUCRO_PRESUMIDO' || regime === 'LUCRO_PRESUMIDO_RET'
-                        const isSh = regime === 'SIMPLES_HIBRIDO'
-                        const showProfitTaxes = isLr || isLp || isSh
-                        // IRPJ/CSLL incidem sobre o lucro residual após o desconto.
-                        const irpjValue = showProfitTaxes ? profitAmount * 0.15 : 0
-                        const csllValue = showProfitTaxes ? profitAmount * 0.09 : 0
-                        return (
-                        <div style={{ marginTop: 8, padding: '12px 16px', background: 'rgba(99, 102, 241, 0.08)', border: '1px solid rgba(99, 102, 241, 0.25)', borderRadius: 8 }}>
-                            <div style={{ fontSize: 12, fontWeight: 600, color: '#a5b4fc', marginBottom: 8 }}>Distribuição do resultado</div>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 8 }}>
-                                <div style={{ padding: '8px 12px', background: 'rgba(99,102,241,0.12)', borderRadius: 6 }}>
-                                    <div style={{ fontSize: 11, color: '#94a3b8' }}>Comissão do Vendedor</div>
-                                    <div style={{ fontSize: 16, fontWeight: 700, color: '#818cf8' }}>{formatCurrency(commissionAmount)}</div>
-                                    <div style={{ fontSize: 11, color: '#64748b' }}>{totalCommissionPct.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}% → {budgetTotalWithDiscount > 0 ? (commissionAmount / budgetTotalWithDiscount * 100).toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 }) : '0,000'}% após desconto</div>
-                                </div>
-                                <div style={{ padding: '8px 12px', background: 'rgba(16,185,129,0.12)', borderRadius: 6 }}>
-                                    <div style={{ fontSize: 11, color: '#94a3b8' }}>Lucro da Empresa</div>
-                                    <div style={{ fontSize: 16, fontWeight: 700, color: '#34d399' }}>{formatCurrency(profitAmount)}</div>
-                                    <div style={{ fontSize: 11, color: '#64748b' }}>{totalProfitPct.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}% → {budgetTotalWithDiscount > 0 ? (profitAmount / budgetTotalWithDiscount * 100).toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 }) : '0,000'}% após desconto</div>
-                                </div>
-                                {showProfitTaxes && (
-                                    <>
-                                        <div style={{ padding: '8px 12px', background: 'rgba(251,146,60,0.12)', borderRadius: 6 }}>
-                                            <div style={{ fontSize: 11, color: '#94a3b8' }}>IRPJ (15% do lucro)</div>
-                                            <div style={{ fontSize: 16, fontWeight: 700, color: '#fb923c' }}>{formatCurrency(irpjValue)}</div>
-                                            <div style={{ fontSize: 11, color: '#64748b' }}>Recalculado sobre lucro residual</div>
-                                        </div>
-                                        <div style={{ padding: '8px 12px', background: 'rgba(251,146,60,0.12)', borderRadius: 6 }}>
-                                            <div style={{ fontSize: 11, color: '#94a3b8' }}>CSLL (9% do lucro)</div>
-                                            <div style={{ fontSize: 16, fontWeight: 700, color: '#fb923c' }}>{formatCurrency(csllValue)}</div>
-                                            <div style={{ fontSize: 11, color: '#64748b' }}>Recalculado sobre lucro residual</div>
-                                        </div>
-                                    </>
-                                )}
-                            </div>
-                            {showProfitTaxes && (
-                                <div style={{ fontSize: 11, color: '#64748b', marginTop: 8, fontStyle: 'italic' }}>
-                                    O desconto absorve proporcionalmente comissão e lucro; IRPJ e CSLL são recalculados sobre o lucro residual. Custos, despesas e impostos por dentro são preservados.
-                                </div>
-                            )}
-                        </div>
-                        )
-                    })()}
+                    {/* Distribuição do resultado — semântica oficial RR (PDF GPT + DOCX Claude, 20/05/2026)
+                        Bloco aparece também SEM desconto (Q7): exibe apenas % original.
+                        Em MEI/SN, hidesProfitTaxes oculta IRPJ/CSLL automaticamente. */}
+                    {budgetTotal > 0 && (
+                        <ResidualDistributionBlock distribution={residualDistribution} />
+                    )}
 
                     <Form.Item name="payment_method" label="Método de Pagamento" style={{ marginTop: 16 }}>
                         <Select

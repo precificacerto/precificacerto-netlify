@@ -1,6 +1,10 @@
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { getMonetaryValue } from '@/utils/get-monetary-value'
+import {
+  formatResidualLine,
+  type ResidualDistribution,
+} from '@/utils/residual-distribution'
 
 export interface BudgetPdfItem {
   quantity: number
@@ -19,6 +23,13 @@ export interface BudgetPdfData {
   company_name?: string | null
   company_cnpj?: string | null
   items?: BudgetPdfItem[]
+  /**
+   * EPIC-RR-DISPLAY S6: Distribuição semântica do RR (opcional).
+   * Quando presente, renderiza seção "Distribuição do Resultado" antes do total
+   * com a mesma semântica das telas (PDF GPT + DOCX Claude 20/05/2026).
+   * Em MEI/SIMPLES_NACIONAL, IRPJ/CSLL ocultam automaticamente via `hidesProfitTaxes`.
+   */
+  residual_distribution?: ResidualDistribution
 }
 
 /**
@@ -122,6 +133,66 @@ export function createBudgetPdf(data: BudgetPdfData): Uint8Array {
   doc.setFontSize(12)
   doc.text(`Total: R$ ${getMonetaryValue(data.total_value)}`, margin, cursorY)
   cursorY += 10
+
+  // ── EPIC-RR-DISPLAY S6: Seção "Distribuição do Resultado" ──
+  // Renderiza apenas quando residual_distribution é fornecido (mantém compat
+  // com preview-pdf que usa mock simples). Em MEI/SN, hidesProfitTaxes oculta
+  // IRPJ/CSLL automaticamente (Q6).
+  if (data.residual_distribution) {
+    const rd = data.residual_distribution
+    cursorY += 4
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(11)
+    doc.text('Distribuição do Resultado', margin, cursorY)
+    cursorY += 6
+
+    const rdRows: string[][] = [
+      ['Comissão do Vendedor', `R$ ${getMonetaryValue(rd.commission.amount)}`, formatResidualLine(rd.commission, rd.hasDiscount)],
+      ['Lucro da Empresa', `R$ ${getMonetaryValue(rd.profit.amount)}`, formatResidualLine(rd.profit, rd.hasDiscount)],
+    ]
+    if (!rd.hidesProfitTaxes) {
+      rdRows.push(
+        ['IRPJ', `R$ ${getMonetaryValue(rd.irpj.amount)}`, formatResidualLine(rd.irpj, rd.hasDiscount)],
+        ['CSLL', `R$ ${getMonetaryValue(rd.csll.amount)}`, formatResidualLine(rd.csll, rd.hasDiscount)],
+      )
+    }
+    rdRows.push([
+      'Total RRO',
+      `R$ ${getMonetaryValue(rd.total.amount)}`,
+      formatResidualLine(rd.total, rd.hasDiscount),
+    ])
+
+    autoTable(doc, {
+      head: [['Rubrica', 'Valor', '% sobre o total c/ desconto']],
+      body: rdRows,
+      startY: cursorY,
+      theme: 'grid',
+      styles: { font: 'helvetica', fontSize: 9 },
+      headStyles: { fillColor: '#6366f1', textColor: '#ffffff' },
+      alternateRowStyles: { fillColor: '#f3f4f6' },
+      columnStyles: {
+        0: { cellWidth: 50 },
+        1: { cellWidth: 32, halign: 'right' },
+        2: { cellWidth: 'auto' },
+      },
+      didDrawPage: (d) => {
+        cursorY = d.cursor?.y ?? cursorY
+      },
+    })
+    cursorY = (doc as any).lastAutoTable?.finalY ?? cursorY
+    cursorY += 8
+
+    if (rd.hasDiscount && !rd.hidesProfitTaxes) {
+      doc.setFont('helvetica', 'italic')
+      doc.setFontSize(8)
+      const note = 'Percentuais calculados sobre o total da venda pós-desconto. Comissão, lucro, IRPJ e CSLL são proporcionalmente redistribuídos sobre o Resultado Residual Operacional.'
+      const noteLines = doc.splitTextToSize(note, pageWidth - 2 * margin)
+      doc.text(noteLines, margin, cursorY)
+      cursorY += noteLines.length * 4 + 4
+    }
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(11)
+  }
 
   if (data.notes?.trim()) {
     doc.setFont('helvetica', 'normal')

@@ -1,0 +1,451 @@
+RELATÓRIO TÉCNICO COMPLEMENTAR
+
+        Semântica Correta de Distribuição Proporcional de Resultado
+
+              Objetivo
+
+              Definir e formalizar o modelo matemático correto para exibição de percentuais de distribuição de resultado em orçamentos com desconto, eliminando ambiguidades semânticas e proibindo representações enganosas — independentemente do regime ou modo de cálculo adotado.
+
+              Versão
+
+              1.0 — Emissão inicial
+
+              Data
+
+              Maio / 2025
+
+              Aplicação
+
+              Sistema de Orçamento — Módulo de Distribuição de Resultado
+
+              Abrangência
+
+              Todos os modos: Proporcional, Simples e qualquer regime futuro
+
+              Status
+
+              NORMATIVO — cumprimento obrigatório
+
+        1. Contextualização e Motivação
+
+        O sistema de orçamentos distribui o Resultado Residual do Orçamento (RRO) entre quatro rubricas: Comissão do Vendedor, Lucro da Empresa, IRPJ e CSLL. Quando um desconto é concedido, a base de cálculo das rubricas é reduzida proporcionalmente, alterando os percentuais efetivos de cada rubrica em relação ao faturamento real.
+
+        O problema identificado é semântico: o sistema exibia, na interface do usuário, percentuais internos do RRO calculados sobre o próprio RRO — e não sobre o valor total de venda pós-desconto. Esse comportamento produz números matematicamente circulares e gerencialmente inúteis.
+
+              ⚠  Problema central identificado
+
+              Exibir &quot;5,000% → 27,964% após desconto&quot; para a Comissão é matematicamente incorreto porque o segundo valor não representa a participação da comissão no faturamento — representa o peso interno da comissão dentro do próprio bloco RRO, que é uma grandeza circular e não comunicável ao usuário final.
+
+        A correção exige que todos os percentuais exibidos ao usuário sejam calculados sobre a mesma base: o valor total do orçamento pós-desconto (base de faturamento real).
+
+        2. Definições Fundamentais
+
+        2.1  Grandezas do Sistema
+
+              Sigla
+
+              Nome Completo
+
+              Descrição
+
+              V₀
+
+              Valor Total Bruto
+
+              Valor do orçamento antes de qualquer desconto
+
+              d
+
+              Desconto aplicado
+
+              Percentual ou valor absoluto de desconto concedido
+
+              Vₗ
+
+              Valor líquido (pós-desconto)
+
+              Base de faturamento real: Vₗ = V₀ × (1 − d)
+
+              RRO
+
+              Resultado Residual do Orçamento
+
+              Soma de todas as rubricas (Comissão + Lucro + IRPJ + CSLL)
+
+              Rᵢ
+
+              Valor de cada rubrica
+
+              Comissão, Lucro, IRPJ ou CSLL em R$
+
+              p₀ᵢ
+
+              Percentual original da rubrica i
+
+              Percentual configurado antes do desconto (sobre V₀)
+
+              pₑᵢ
+
+              Percentual efetivo da rubrica i
+
+              Rᵢ / Vₗ — percentual real sobre o faturamento líquido
+
+        2.2  Definição Normativa de Percentual Efetivo
+
+              DEFINIÇÃO FORMAL
+
+              O percentual efetivo de uma rubrica i (pₑᵢ) é definido como:
+
+              pₑᵢ = Rᵢ / Vₗ  ×  100
+
+              Onde Rᵢ é o valor monetário da rubrica e Vₗ é o valor total pós-desconto.
+
+              Nenhuma outra fórmula é admitida para fins de exibição ao usuário.
+
+        3. Exemplo Numérico de Referência
+
+        Os valores abaixo são os de referência canônica para validação de qualquer implementação. Todos os percentuais devem ser reproduzíveis a partir das fórmulas desta seção.
+
+        3.1  Dados de Entrada
+
+              Parâmetro
+
+              Valor
+
+              Valor total bruto (V₀)
+
+              R$ 141.656,68
+
+              Desconto aplicado (d)
+
+              5,00%
+
+              Valor líquido pós-desconto (Vₗ)
+
+              R$ 134.573,85
+
+              RRO total calculado
+
+              R$ 18.580,04
+
+        3.2  Percentuais Originais Configurados
+
+              Rubrica
+
+              Percentual original (p₀ᵢ) sobre V₀
+
+              Comissão do Vendedor
+
+              5,000%
+
+              Lucro da Empresa
+
+              10,000%
+
+              IRPJ
+
+              1,500%
+
+              CSLL
+
+              0,900%
+
+              Total RRO
+
+              17,400%
+
+        3.3  Valores Monetários das Rubricas (calculados sobre Vₗ)
+
+              Rubrica
+
+              Fórmula
+
+              Valor (R$)
+
+              Comissão
+
+              18.580,04 × 0,28736
+
+              5.339,09
+
+              Lucro
+
+              18.580,04 × 0,57471
+
+              10.678,18
+
+              IRPJ
+
+              18.580,04 × 0,08621
+
+              1.601,58
+
+              CSLL
+
+              18.580,04 × 0,05172
+
+              961,19
+
+              Total RRO
+
+              —
+
+              18.580,04
+
+        3.4  Percentuais Efetivos sobre Vₗ — VALORES CANÔNICOS
+
+              ⚑  Estes são os únicos percentuais que o sistema deve exibir ao usuário
+
+              Rubrica
+
+              Valor (R$)
+
+              Cálculo
+
+              % efetivo sobre Vₗ
+
+              Comissão
+
+              5.339,09
+
+              5.339,09 / 134.573,85
+
+              3,967%
+
+              Lucro
+
+              10.678,18
+
+              10.678,18 / 134.573,85
+
+              7,934%
+
+              IRPJ
+
+              1.601,58
+
+              1.601,58 / 134.573,85
+
+              1,190%
+
+              CSLL
+
+              961,19
+
+              961,19 / 134.573,85
+
+              0,714%
+
+              Total
+
+              18.580,04
+
+              18.580,04 / 134.573,85
+
+              13,805%
+
+        4. Modelo Correto de Exibição na Interface
+
+        4.1  Linha padrão por rubrica
+
+        Cada rubrica deve exibir exatamente três informações na interface:
+
+              Campo
+
+              Conteúdo
+
+              Exemplo (Comissão)
+
+              Valor em R$
+
+              Rᵢ formatado com 2 decimais
+
+              R$ 5.339,09
+
+              % original
+
+              p₀ᵢ — percentual configurado
+
+              5,000% original
+
+              % efetivo
+
+              pₑᵢ = Rᵢ / Vₗ — sobre o faturamento real
+
+              → 3,967% sobre o total c/ desconto
+
+        4.2  Formato de linha recomendado
+
+              Formato correto para cada rubrica:
+
+              Comissão:   5,000% original  →  3,967% sobre o total c/ desconto
+
+              Lucro:     10,000% original  →  7,934% sobre o total c/ desconto
+
+              IRPJ:       1,500% original  →  1,190% sobre o total c/ desconto
+
+              CSLL:       0,900% original  →  0,714% sobre o total c/ desconto
+
+        A seta (→) comunica visualmente a erosão causada pelo desconto, deixando claro ao gestor a perda de margem em cada rubrica.
+
+        4.3  Quando não há desconto
+
+        Se d = 0, então Vₗ = V₀ e os percentuais efetivos coincidem com os originais. Nesse caso, o sistema pode exibir apenas o percentual único, sem a notação de erosão. Nunca deve exibir a seta com valores idênticos de forma redundante.
+
+        5. Proibições Normativas
+
+        As práticas abaixo são proibidas em qualquer versão, modo ou regime do sistema. Violações devem ser tratadas como defeito crítico (severity 1) e corrigidas antes de qualquer publicação em produção.
+
+              #
+
+              Prática Proibida
+
+              Motivo
+
+              P1
+
+              Exibir percentual de rubrica calculado sobre o próprio RRO (peso interno)
+
+              Circular e sem significado para o usuário; não representa participação no faturamento
+
+              P2
+
+              Usar V₀ (valor bruto) como denominador do percentual exibido quando há desconto
+
+              O denominador correto é sempre Vₗ (valor líquido); usar V₀ subestima o impacto do desconto
+
+              P3
+
+              Exibir 'X% após desconto' sem especificar que a base é o valor total pós-desconto
+
+              Ambiguidade que impede interpretação correta pelo usuário e por auditorias
+
+              P4
+
+              Aplicar o modelo proibido em algum modo (ex: Simples) e o correto em outro (ex: Proporcional)
+
+              A semântica é universal; inconsistência entre modos gera erro gerencial e desconfiança
+
+              P5
+
+              Omitir o percentual original quando há desconto
+
+              A comparação original → efetivo é a informação de valor gerencial; omiti-la oculta o impacto do desconto
+
+              P6
+
+              Arredondar Vₗ antes de calcular os percentuais efetivos
+
+              Arredondamentos intermediários acumulam erro; usar sempre o valor líquido com máxima precisão disponível
+
+        6. Algoritmo de Referência
+
+        O pseudocódigo abaixo define o fluxo de cálculo e exibição correto. Qualquer implementação deve produzir resultados idênticos para os dados da Seção 3.
+
+              // ENTRADAS
+
+              V0     = valor total bruto do orçamento
+
+              d      = percentual de desconto (0 ≤ d &lt; 1)
+
+              p0[i]  = percentual original de cada rubrica i
+
+              // CÁLCULO BASE
+
+              Vl     = V0 × (1 − d)                    // valor líquido pós-desconto
+
+              RRO    = Σ p0[i] × V0                    // resultado residual total
+
+              // PARA CADA RUBRICA i:
+
+              Ri[i]  = RRO × (p0[i] / Σp0)            // valor monetário da rubrica
+
+              pe[i]  = Ri[i] / Vl                      // percentual efetivo ← EXIBIR ISSO
+
+              // EXIBIÇÃO (por rubrica):
+
+              EXIBIR  Ri[i]   formatado como R$ x.xxx,xx
+
+              EXIBIR  p0[i]   como '5,000% original'
+
+              EXIBIR  pe[i]   como '→ 3,967% sobre o total c/ desconto'   ← OBRIGATÓRIO
+
+        7. Checklist de Validação
+
+        Antes de publicar qualquer versão do módulo de distribuição, verificar todos os itens abaixo:
+
+              ✓
+
+              Critério de Aceite
+
+              ☐
+
+              pₑᵢ calculado como Rᵢ / Vₗ para todas as rubricas
+
+              ☐
+
+              Soma dos percentuais efetivos = RRO / Vₗ (tolerância: ±0,001%)
+
+              ☐
+
+              Com d=5%, Comissão exibe 3,967% (não 27,964% nem 5,000%)
+
+              ☐
+
+              Com d=0%, percentual efetivo = percentual original (sem seta)
+
+              ☐
+
+              Modo Simples e Proporcional produzem a mesma semântica de exibição
+
+              ☐
+
+              Nenhum percentual exibido usa o RRO como denominador
+
+              ☐
+
+              Valores canônicos da Seção 3 são reproduzidos com precisão de 3 casas decimais
+
+              ☐
+
+              Interface exibe rótulo explícito 'sobre o total c/ desconto' junto ao percentual efetivo
+
+        8. Impacto Gerencial
+
+        A exibição correta dos percentuais efetivos tem valor direto para a tomada de decisão:
+
+              Informação visível
+
+              Decisão que ela apoia
+
+              Comissão caiu de 5,000% para 3,967%
+
+              Gestor sabe quanto o vendedor perde por desconto concedido
+
+              Lucro caiu de 10,000% para 7,934%
+
+              Diretor vê margem real antes de aprovar o desconto
+
+              RRO = 13,805% do faturamento líquido
+
+              Auditor confirma que custos fixos e variáveis estão cobertos
+
+              Erosão proporcional entre todas as rubricas
+
+              Verifica-se que nenhuma rubrica foi penalizada desproporcionalmente
+
+              Conclusão normativa
+
+              O RRO de R$ 18.580,04 representa 13,805% do valor total de venda pós-desconto. Essa é a única leitura semanticamente correta e a única que deve ser comunicada ao usuário — em todos os modos, em todos os regimes, sem exceção.
+
+              Elaborado por
+
+              Análise Técnica de Sistema
+
+              Módulo de Orçamentos
+
+              Aprovação requerida de
+
+              Engenharia de Software  |  Produto
+
+              Antes de publicar em produção

@@ -35,7 +35,10 @@ import {
 import { syncCustomerRecurrenceOnSale } from '@/lib/customer-recurrence'
 import { distributeDiscountToItems } from '@/utils/distribute-discount'
 import { useTenantTaxContext } from '@/hooks/use-tenant-tax-context'
-import { MRM_ERROR_RRO_NON_POSITIVE, MRM_ENGINE_VERSION } from '@/types/mrm'
+import { MRM_ERROR_RRO_NON_POSITIVE, MRM_ENGINE_VERSION, type TaxBreakdown } from '@/types/mrm'
+import { useResidualDistribution } from '@/hooks/use-residual-distribution'
+import type { ResidualItemInput } from '@/utils/residual-distribution'
+import { ResidualDistributionBlock } from '@/page-parts/shared/residual-distribution-block.component'
 import { hydrateItemSnapshot, type TenantSnapshotContext } from '@/lib/items-snapshot'
 import { calculateMarginReapuration } from '@/utils/margin-reapuration'
 import { coerceLegacyDiscountMode } from '@/config/feature-flags'
@@ -170,6 +173,40 @@ function Sales() {
     const mrmConfig = useTenantTaxContext()
     // P0 — Loading guard (Aria §7 + Quinn §4): rates ausentes inflam comissão.
     const motorReady = !mrmConfig.enabled || (!mrmConfig.loading && mrmConfig.rates.length > 0)
+
+    // EPIC-RR-DISPLAY S5: distribuição semântica do RR para venda no drawer de detalhe.
+    // Vendas consomem snapshot persistido em `sale_items.tax_breakdown` (fallback para
+    // `budget_items.tax_breakdown` em vendas antigas FROM_BUDGET).
+    // Schema: commission_pct/profit_pct em DECIMAL (0.05) — convertemos para base 100.
+    const saleResidualItems: ResidualItemInput[] = useMemo(
+        () => (detailItems || []).map((it: any) => ({
+            unit_price: Number(it.unit_price) || 0,
+            quantity: Number(it.quantity) || 0,
+            commission_percent: it.commission_pct != null ? Number(it.commission_pct) * 100 : null,
+            profit_percent: it.profit_pct != null ? Number(it.profit_pct) * 100 : null,
+            tax_breakdown: (it.tax_breakdown ?? null) as TaxBreakdown | null,
+        })),
+        [detailItems],
+    )
+    const saleSubtotal = useMemo(
+        () => (detailItems || []).reduce(
+            (s: number, it: any) => s + (Number(it.unit_price) || 0) * (Number(it.quantity) || 0),
+            0,
+        ),
+        [detailItems],
+    )
+    const saleFinalValue = Number(selectedSale?.finalValue) || saleSubtotal
+    const saleTenantTaxRates = useMemo(
+        () => ({ irpj: mrmConfig.irpj_pct || 0, csll: mrmConfig.csll_pct || 0 }),
+        [mrmConfig.irpj_pct, mrmConfig.csll_pct],
+    )
+    const saleResidualDistribution = useResidualDistribution(
+        saleResidualItems,
+        saleSubtotal,
+        saleFinalValue,
+        mrmConfig.regime ?? null,
+        saleTenantTaxRates,
+    )
     const [discountInputModeV, setDiscountInputModeV] = useState<'PERCENT' | 'AMOUNT'>('PERCENT')
     const selectedEmployeeIdV = Form.useWatch('employee_id', form)
     const latestEmployeeIdVRef = useRef<string | undefined>(undefined)
@@ -2330,9 +2367,6 @@ function Sales() {
                                 <div><span style={{ color: 'var(--color-neutral-500)' }}>Vendedor:</span> <strong>{selectedSale.sellerName && selectedSale.sellerName !== '-' ? selectedSale.sellerName : 'Sem vendedor'}</strong></div>
                                 <div><span style={{ color: 'var(--color-neutral-500)' }}>Data:</span> {new Date(selectedSale.saleDate).toLocaleDateString('pt-BR')}</div>
                                 <div><span style={{ color: 'var(--color-neutral-500)' }}>Valor total:</span> <strong style={{ fontSize: 18, color: '#12B76A' }}>{formatCurrency(selectedSale.finalValue)}</strong></div>
-                                {selectedSale.commissionAmount > 0 && (
-                                    <div><span style={{ color: 'var(--color-neutral-500)' }}>Comissão paga:</span> <strong style={{ color: '#F59E0B' }}>{formatCurrency(selectedSale.commissionAmount)}</strong></div>
-                                )}
                                 <div>
                                     <span style={{ color: 'var(--color-neutral-500)' }}>Pagamento:</span>{' '}
                                     <Tag color="green">{PAYMENT_METHODS.find(p => p.value === selectedSale.paymentMethod)?.label || selectedSale.paymentMethod}</Tag>
@@ -2340,6 +2374,14 @@ function Sales() {
                                 </div>
                             </div>
                         </div>
+
+                        {/* EPIC-RR-DISPLAY S5: Distribuição do resultado da venda.
+                            Substitui a antiga linha solta "Comissão paga" — agora os 4 componentes
+                            (Comissão, Lucro, IRPJ, CSLL) aparecem com %s sobre o total c/ desconto.
+                            Em MEI/SN, IRPJ/CSLL ocultam automaticamente. */}
+                        {saleSubtotal > 0 && (
+                            <ResidualDistributionBlock distribution={saleResidualDistribution} />
+                        )}
 
                         {detailItems.length > 0 && (
                             <div style={{ padding: 16, background: 'var(--color-neutral-50)', borderRadius: 8 }}>

@@ -24,7 +24,10 @@ import { getCurrentUserId } from '@/utils/get-tenant-id'
 import dayjs from 'dayjs'
 import { useTenantTaxContext } from '@/hooks/use-tenant-tax-context'
 import { hydrateItemSnapshot, type TenantSnapshotContext } from '@/lib/items-snapshot'
-import { MRM_ENGINE_VERSION } from '@/types/mrm'
+import { MRM_ENGINE_VERSION, type TaxBreakdown } from '@/types/mrm'
+import { useResidualDistribution } from '@/hooks/use-residual-distribution'
+import type { ResidualItemInput } from '@/utils/residual-distribution'
+import { ResidualDistributionBlock } from '@/page-parts/shared/residual-distribution-block.component'
 import { coerceLegacyDiscountMode } from '@/config/feature-flags'
 import { decideMrmAction } from '@/utils/mrm-policies'
 import { aggregateMotorResults } from '@/utils/mrm-aggregate'
@@ -65,6 +68,10 @@ interface OrderItemRow {
     unit_price: number
     total_price: number
     manual_description?: string | null
+    // EPIC-RR-DISPLAY S4: snapshot fiscal persistido em order_items
+    commission_percent?: number | null
+    profit_percent?: number | null
+    tax_breakdown?: TaxBreakdown | null
 }
 
 interface Order {
@@ -199,6 +206,39 @@ function OrdersPage() {
     const [orderInstallmentRows, setOrderInstallmentRows] = useState<{ due_date: string; amount: number; sort_order: number }[]>([])
     const [savingEdit, setSavingEdit] = useState(false)
     const [editForm] = Form.useForm()
+    // EPIC-RR-DISPLAY S4: distribuição semântica do RR para pedido em edição.
+    // Pedidos consomem snapshot persistido em `order_items.tax_breakdown` — caller
+    // não recalcula motor em runtime (Q2: fonte de verdade é o snapshot).
+    const editingDiscountPct = Form.useWatch('discount_percent', editForm) ?? 0
+    const orderResidualItems: ResidualItemInput[] = useMemo(
+        () => orderItems.map((item) => ({
+            unit_price: item.unit_price,
+            quantity: item.quantity,
+            commission_percent: item.commission_percent,
+            profit_percent: item.profit_percent,
+            tax_breakdown: item.tax_breakdown ?? null,
+        })),
+        [orderItems],
+    )
+    const orderSubtotal = useMemo(
+        () => orderItems.reduce((s, it) => s + (it.total_price || 0), 0),
+        [orderItems],
+    )
+    const orderFinalTotal = useMemo(() => {
+        const pct = Math.max(0, Math.min(100, Number(editingDiscountPct) || 0))
+        return orderSubtotal * (1 - pct / 100)
+    }, [orderSubtotal, editingDiscountPct])
+    const orderTenantTaxRates = useMemo(
+        () => ({ irpj: mrmConfig.irpj_pct || 0, csll: mrmConfig.csll_pct || 0 }),
+        [mrmConfig.irpj_pct, mrmConfig.csll_pct],
+    )
+    const orderResidualDistribution = useResidualDistribution(
+        orderResidualItems,
+        orderSubtotal,
+        orderFinalTotal,
+        mrmConfig.regime ?? null,
+        orderTenantTaxRates,
+    )
 
     // Send to sale modal
     const [sendToSaleOpen, setSendToSaleOpen] = useState(false)
@@ -285,10 +325,15 @@ function OrdersPage() {
     }, [tenantId, fetchOrders])
 
     const fetchOrderItems = async (orderId: string): Promise<OrderItemRow[]> => {
+        // Bug fix QA Quinn S4: colunas reais em order_items são `commission_pct`/`profit_pct`
+        // (NÃO `commission_percent`/`profit_percent`) e os valores são em DECIMAL
+        // (0.05 = 5%). Convertemos para base 100 (% legível) ao popular OrderItemRow.
+        // Ref: supabase/migrations/20260518000002_mrm_items_engine_fields.sql:52-57
         const { data, error } = await (supabase as any)
             .from('order_items')
             .select(`
                 id, product_id, service_id, quantity, unit_price, total_price, manual_description,
+                commission_pct, profit_pct, tax_breakdown,
                 products ( name ),
                 services ( name )
             `)
@@ -309,6 +354,10 @@ function OrdersPage() {
             unit_price: Number(it.unit_price || 0),
             total_price: Number(it.total_price || 0),
             manual_description: it.manual_description || null,
+            // Schema: NUMERIC decimal (0.05). UI/hook: base 100 (5). Multiplicar.
+            commission_percent: it.commission_pct != null ? Number(it.commission_pct) * 100 : null,
+            profit_percent: it.profit_pct != null ? Number(it.profit_pct) * 100 : null,
+            tax_breakdown: it.tax_breakdown ?? null,
         }))
     }
 
@@ -1294,6 +1343,13 @@ function OrdersPage() {
                 </Button>
 
                 <OrderTotalsSummary form={editForm} items={orderItems} />
+
+                {/* EPIC-RR-DISPLAY S4: Distribuição do resultado (mesma semântica que orçamentos).
+                    Pedidos usam snapshot persistido em order_items.tax_breakdown — sem
+                    recálculo runtime do motor. Em MEI/SN, IRPJ/CSLL ocultos automaticamente. */}
+                {orderSubtotal > 0 && (
+                    <ResidualDistributionBlock distribution={orderResidualDistribution} />
+                )}
             </Drawer>
 
             {/* Send to Sale Modal */}
