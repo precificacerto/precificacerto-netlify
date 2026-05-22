@@ -1,0 +1,148 @@
+storyId: STORY-MRM-V5-001
+title: Adicionar Peso/Âncora Op Interna + Memória Cascata ao Motor
+verdict: PASS
+date: 2026-05-22
+reviewer: '@qa Quinn'
+branch: feature/mrm-v5-001-peso-ancora-cascade-trace
+commits: 5
+engine_version: '2.2.0'
+epic: EPIC-MRM-V5-AJUSTES
+
+# 7 Quality Checks obrigatórios (story-lifecycle.md)
+qa_checks:
+  code_review:
+    status: PASS
+    notes: |
+      Implementação excepcional. Pontos fortes:
+      - margin-reapuration.ts: refatoração Etapa 5 limpa, destructuring claro (peso_op_interna: peso_input),
+        clamp defensivo Math.max(0, Math.min(1, peso_input ?? 1)) em uma única linha
+      - buildCascadeTrace: função privada (encapsulamento), argumentos tipados, lógica O(13) constante
+      - mrm-orchestrator.ts: 3 fontes de prioridade documentadas inline, Number.isFinite guard contra NaN,
+        clamp aplicado em TODAS as fontes
+      - types/mrm.ts: CascadeStep com JSDoc completo por campo, listagem explícita das 13 etapas
+      - Imports organizados, sem dependencies espúrias
+
+  unit_tests:
+    status: PASS
+    notes: |
+      Cobertura excelente. Resultados independentes:
+      - npx jest mrm margin-reapur --no-watch → 123/123 PASS (5 suites)
+      - 33 testes novos V5-001 cobrindo: retrocompat V4 (peso=1), golden Excel canônico
+        (peso=0,931585 / ICMS / PIS+COFINS / RRO), cascade_trace 13 etapas, 3 fontes do orchestrator
+      - Cenários edge: peso fora [0,1] clampado, ISS=0 (sem omissão step), snapshot null vs undefined
+    tests_total: 123
+    tests_new_v5_001: 33
+
+  acceptance_criteria:
+    status: PASS
+    notes: 'Todos os 9 ACs implementados e verificados via tests'
+    coverage:
+      AC1_schema_TaxBreakdown: PASS
+      AC2_peso_origem_precificacao: PASS
+      AC3_ancora_pos_desconto: PASS
+      AC4_cascade_trace_13: PASS
+      AC5_engine_2_2_0: PASS
+      AC6_golden_excel: PASS
+      AC7_motor_puro: PASS
+      AC8_jsdoc: PASS
+      AC9_snapshot_3_fontes: PASS
+
+  no_regressions:
+    status: PASS
+    notes: |
+      Retrocompatibilidade V4 perfeita:
+      - 55 testes V4 existentes passam sem alteração funcional (apenas hardcoded engine_version 2.1.0 → 2.2.0)
+      - Snapshots V4 (engine_version='2.1.0') lidos sem erro — campos novos opcionais default null
+      - Quando peso_op_interna ausente no input: default 1 → Âncora ≡ RV → comportamento idêntico ao V4
+      - ADR-003 (snapshot imutável) preservado: snapshots antigos nunca recalculam
+
+  performance:
+    status: PASS
+    notes: |
+      Impacto desprezível:
+      - buildCascadeTrace: O(13) constante, ~0,1ms estimado (13 push em array)
+      - findInside iterações no inside_lines: O(4) constante (no máximo 4 tipos por dentro)
+      - Tempo total da suite jest: 1,198s para 123 tests = ~10ms/test médio (aceitável)
+      - Output cascade_trace adiciona ~2KB/item no jsonb (dentro do esperado por ARCH v2.0 §2A)
+      - Nenhuma alocação em loop crítico
+
+  security:
+    status: PASS
+    notes: |
+      OWASP basics verificados:
+      - Nenhuma I/O no motor puro (ADR-004 preservado — sem fetch/db/fs)
+      - Inputs validados: clamp [0,1] em peso, Number.isFinite contra NaN/Infinity
+      - Nenhum eval ou dynamic code execution
+      - Nenhum hardcoded credential (apenas valores canônicos do Excel oficial em comentários)
+      - Type safety preservada: todos os campos novos tipados explicitamente
+
+  documentation:
+    status: PASS
+    notes: |
+      Documentação completa e auditável:
+      - JSDoc no motor: header com 13 etapas detalhadas, referências cruzadas (PDF Motor RR Seção 10,
+        ARCH v2.0 §1.L1-L3, Excel células H35/H36/H41/H43)
+      - JSDoc no orchestrator: 3 fontes de prioridade, justificativa ADR-004
+      - JSDoc na interface CascadeStep: campo a campo
+      - Story file: File List preenchido (7 arquivos), Dev Agent Record completo com decisões técnicas
+      - Change Log da story: v1.0 → v1.3 documentando cada transição
+
+# Issues encontrados (categorizados por severidade)
+issues:
+  - severity: low
+    category: docs
+    file: src/types/mrm.ts
+    line: 109
+    description: |
+      JSDoc da interface CascadeStep menciona "`value`" no comentário do campo `amount`:
+      "value` representa o valor agregado da etapa". O campo se chama `amount`, não `value`.
+      Pequena inconsistência semântica nos comentários (cosmetic).
+    recommendation: |
+      Em revisão futura, substituir "value" por "amount" nos comentários da JSDoc.
+      Não bloqueante — não impacta runtime nem testability.
+    blocking: false
+
+# Métricas finais
+metrics:
+  tests_total: 123
+  tests_passed: 123
+  tests_failed: 0
+  tests_new: 33
+  acs_implemented: 9
+  acs_passed: 9
+  tasks_completed: 6
+  files_modified: 7
+  files_created: 0
+  files_deleted: 0
+  lines_added: 1151
+  lines_removed: 55
+
+# Notas finais
+notes: |
+  Story exemplar para o Epic V5. Estabelece baseline de qualidade alto para as 4 stories seguintes.
+  Demonstra como a orquestração disciplinada (Orion → Morgan → Aria → Quinn → River → Pax → Dex)
+  produz código com:
+    - Zero regressão funcional
+    - Decisões técnicas explícitas (Pre-Flight justificou cada escolha)
+    - Princípios constitucionais preservados (ADR-002, ADR-003, ADR-004)
+    - Documentação cross-referenciada (PRD v1.1, ARCH v2.0, Excel células, PDF Motor RR Seção 10)
+    - Retrocompatibilidade absoluta (V4 continua funcional)
+
+  Recomendo prosseguir IMEDIATAMENTE com:
+    - STORY-002 (S2): contém AC5 do ADR-008 — fórmula PIS/COFINS apuração 9,25%
+    - STORY-003 (S2 paralelo): unificação rates loader
+  Ambas dependem desta STORY-001 (schema novo) que agora está disponível.
+
+  Gate de promote para produção (ADR-008 critério 5): shadow mode 7 dias OBRIGATÓRIO
+  antes de @devops Gage promover. Configurar após STORY-002 entregue.
+
+next_steps:
+  - 'STORY-002 + STORY-003 podem iniciar em paralelo (S2)'
+  - 'Branch feature/mrm-v5-001-* aguarda @devops Gage para push + PR'
+  - 'Considerar fixar issue LOW (JSDoc value → amount) em commit de cleanup futuro'
+
+status_transition:
+  from: InReview
+  to: Done
+  authorized_by: '@qa Quinn'
+  authorization_basis: 'QA Gate PASS conforme story-lifecycle.md Fase 4'

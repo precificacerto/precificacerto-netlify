@@ -3,11 +3,12 @@
 **Sprint:** S1
 **Esforço estimado:** 10h
 **Owner:** @dev (Dex)
-**Status:** InReview
+**Status:** Done
 **Created:** 2026-05-22
 **Ready since:** 2026-05-22 (validado @po Pax — 10/10)
 **InProgress since:** 2026-05-22 (branch `feature/mrm-v5-001-peso-ancora-cascade-trace`)
 **InReview since:** 2026-05-22 (123/123 tests MRM passam — 33 novos)
+**Done since:** 2026-05-22 (QA Gate PASS por @qa Quinn — 1 issue LOW não bloqueante)
 **Created by:** @sm River
 **Epic:** EPIC-MRM-V5-AJUSTES
 **Validador:** @architect Aria + @qa Quinn
@@ -150,6 +151,7 @@ As an **auditor/contador do cliente**, I want **ver explicitamente "Peso Op Inte
 | 2026-05-22 | 1.1 | Status promovido **Draft → Ready** após 10-point checklist (score **10/10**). Story liberada para @dev iniciar S1. | @po Pax |
 | 2026-05-22 | 1.2 | Status promovido **Ready → InProgress**. Branch `feature/mrm-v5-001-peso-ancora-cascade-trace` criada. Pre-flight (plan-first) executado. | @dev Dex |
 | 2026-05-22 | 1.3 | Status promovido **InProgress → InReview**. Todos os 9 ACs e 6 Tasks marcados como `[x]`. 4 commits atômicos locais. **123/123 tests MRM passam** (33 novos V5-001). File List preenchido. Dev Agent Record completo. Aguarda review do @qa Quinn. | @dev Dex |
+| 2026-05-22 | 1.4 | **QA Gate PASS** — Status promovido **InReview → Done**. 7/7 quality checks aprovados. 1 issue LOW (JSDoc cosmetic, não bloqueante). Gate file: `docs/qa/gates/STORY-MRM-V5-001.yaml`. Trace requirements→tests documentado. Story pronta para @devops Gage push + PR. STORY-002 + STORY-003 liberadas para paralelizar no S2. | @qa Quinn |
 
 ## Dev Agent Record
 
@@ -197,4 +199,71 @@ Branch local: `feature/mrm-v5-001-peso-ancora-cascade-trace`. Push pendente — 
 
 ## QA Results
 
-_(vazio — preenchido pelo @qa Quinn após implementação)_
+### Veredicto: ✅ **PASS**
+
+**Reviewer:** @qa Quinn (Senior QA Engineer)
+**Date:** 2026-05-22
+**Gate file:** `docs/qa/gates/STORY-MRM-V5-001.yaml`
+
+### Resumo dos 7 Quality Checks
+
+| # | Check | Status | Observação |
+|---|-------|--------|------------|
+| 1 | **Code review** | ✅ PASS | Refatoração Etapa 5 limpa; clamp defensivo em uma linha; encapsulamento via `buildCascadeTrace` privado; 3 fontes do orchestrator com Number.isFinite guard |
+| 2 | **Unit tests** | ✅ PASS | 123/123 tests MRM (verificação independente). 33 novos testes V5-001 cobrindo todos os ACs |
+| 3 | **Acceptance criteria** | ✅ PASS | 9/9 ACs verificados via tests (AC1-AC9 mapeados no gate YAML) |
+| 4 | **No regressions** | ✅ PASS | 55 testes V4 passam sem alteração funcional; snapshots V4 lidos sem erro; default peso=1 → Âncora≡RV |
+| 5 | **Performance** | ✅ PASS | buildCascadeTrace O(13) constante; ~2KB/item no jsonb (aceitável ARCH v2.0 §2A) |
+| 6 | **Security** | ✅ PASS | Motor puro preservado (ADR-004); inputs validados (clamp + isFinite); zero eval/dynamic code |
+| 7 | **Documentation** | ✅ PASS | JSDoc cross-referenciado (PRD v1.1, ARCH v2.0, Excel células, PDF Motor RR §10); Story Dev Agent Record completo |
+
+### Issues encontrados (1 LOW, não bloqueante)
+
+| Severidade | Categoria | Local | Descrição | Recomendação |
+|------------|-----------|-------|-----------|--------------|
+| 🟡 LOW | docs | `src/types/mrm.ts:109` | JSDoc do `CascadeStep.amount` menciona `"value"` em vez de `"amount"` — pequena inconsistência semântica nos comentários | Substituir `value` por `amount` em revisão futura. Não bloqueante; não impacta runtime nem testability |
+
+**Nenhum issue MEDIUM/HIGH/CRITICAL identificado.**
+
+### Métricas validadas independentemente
+
+```
+npx jest mrm margin-reapur --no-watch
+Test Suites: 5 passed, 5 total
+Tests:       123 passed, 123 total
+Time:        ~1.2s
+```
+
+- Tests novos V5-001: **33** (17 em margin-reapuration + 16 em mrm-orchestrator)
+- Regressão V4: **0**
+- ACs implementados: **9/9** ✓
+- Tasks completas: **6/6** ✓
+- Arquivos modificados: **7** (0 criados, 0 deletados — restrição-mãe preservada)
+- Engine version: **2.1.0 → 2.2.0** ✓
+
+### Trace Requirements → Tests (Given-When-Then)
+
+| AC | Test(s) que validam |
+|----|---------------------|
+| AC1 (Schema) | `Schema V5: campos novos sempre populados` em margin-reapuration.test.ts |
+| AC2 (Peso ORIGINAL) | `peso_op_interna persistido bate célula I21 do Excel (0,931585)` |
+| AC3 (Âncora PÓS-desc) | `Âncora Interna bate célula H36 do Excel (R$ 159.342,38, PÓS desconto)` |
+| AC4 (Cascade 13) | `cascade_trace tem exatamente 13 entradas em ordem fixa` + `Labels dos 13 steps alinhados ao PDF` |
+| AC5 (Engine 2.2.0) | `Engine version reflete bump V5 (2.2.0)` |
+| AC6 (Golden Excel) | 6 testes do bloco `V5-001 — Golden test Excel canônico` |
+| AC7 (Motor puro) | `Pureza ADR-004` — assert sem imports de I/O |
+| AC8 (JSDoc) | Inspeção manual: header do motor lista 13 etapas + refs |
+| AC9 (3 fontes peso) | 8 testes do bloco `V5-001 — resolvePesoOpInterna` |
+
+### Recomendações para próximas stories
+
+1. **STORY-002 + STORY-003 podem iniciar em paralelo (S2)** — STORY-001 não é mais bloqueante.
+2. **STORY-002.AC5** (fórmula PIS/COFINS apuração 9,25%) já tem ADR-008 ACCEPTED — pode prosseguir.
+3. **Considerar** fix do issue LOW (JSDoc `value` → `amount`) em commit de cleanup futuro — pode ser absorvido na STORY-005 (UI cascada).
+4. **Shadow mode 7 dias** (critério 5 do ADR-008) é responsabilidade do @devops Gage antes do promote para produção — não bloqueia stories.
+
+### Authorization
+
+Conforme `.claude/rules/story-lifecycle.md` Fase 4, **@qa Quinn está autorizado** a promover Status `InReview → Done` após QA Gate PASS.
+
+— Quinn, guardião da qualidade 🛡️
