@@ -85,6 +85,13 @@ export interface OrchestrateOptions {
    * via markup divisor. Quando ausente, motor usa default 1.
    */
   product_config?: ProductPricingConfig
+  /**
+   * Story MRM-V5-004 AC4: snapshot de créditos tributários do item
+   * (lidos da tabela `item_tax_credits` pelo caller). Quando presente,
+   * orchestrator agrega em recoverable/non_recoverable conforme regime.
+   * Quando ausente, motor usa { 0, 0 } (retrocompat V4/V5-003).
+   */
+  item_tax_credits?: ItemTaxCreditSnapshot[]
 }
 
 export type OrchestrateInput = Omit<ReapurationInput, 'rates' | 'effective_date' | 'use_snapshot_rates'> & {
@@ -139,6 +146,66 @@ export function calculatePesoOpInternaFromMarkup(config: ProductPricingConfig): 
  * Esta função vive no orchestrator (não no motor puro) porque envolve cálculo
  * derivado de dados externos ao input do motor — ADR-004.
  */
+/**
+ * Snapshot de crédito tributário do item — lido de `item_tax_credits`.
+ *
+ * Estrutura mínima que o orchestrator consome do registro DB:
+ * - is_active=true para considerar
+ * - tax_type identifica o tributo (PIS/COFINS/ICMS) — apenas tributos recuperáveis em LR/LP
+ * - credit_value: valor R$ do crédito
+ * - source: 'AUTO' (calculado) ou 'MANUAL' (digitado pelo tenant)
+ *
+ * Story MRM-V5-004 AC4. Tabela existente: migration 20260213000000:232-244.
+ */
+export interface ItemTaxCreditSnapshot {
+  tax_type: 'PIS' | 'COFINS' | 'ICMS' | 'IPI'
+  is_active: boolean
+  credit_value: number
+  source?: string
+}
+
+/**
+ * Agrega créditos tributários em recoverable/non_recoverable conforme regime.
+ *
+ * Story MRM-V5-004 AC1+AC4:
+ * - LR / LP não-cumulativo: PIS, COFINS, ICMS são recoverable (não-cumulatividade)
+ * - LP cumulativo: nenhum recoverable (PIS/COFINS embutidos no preço)
+ * - MEI / SN: nenhum recoverable (DAS absorve)
+ *
+ * Apenas créditos com `is_active=true` são considerados. IPI sempre non_recoverable
+ * por simplicidade (raro em serviços).
+ */
+export function aggregateItemTaxCredits(
+  credits: ItemTaxCreditSnapshot[],
+  regime: 'MEI' | 'SIMPLES_NACIONAL' | 'LUCRO_PRESUMIDO' | 'LUCRO_REAL',
+): { recoverable: number; non_recoverable: number } {
+  // MEI/SN: regime cumulativo absorvido pelo DAS — zero créditos
+  if (regime === 'MEI' || regime === 'SIMPLES_NACIONAL') {
+    return { recoverable: 0, non_recoverable: 0 }
+  }
+
+  let recoverable = 0
+  let non_recoverable = 0
+
+  for (const credit of credits) {
+    if (!credit.is_active || credit.credit_value <= 0) continue
+
+    // LR + LP não-cumulativo: PIS/COFINS/ICMS recuperáveis
+    // (assumindo LP=cumulativo por padrão; tenant pode override via política)
+    const isRecoverable =
+      regime === 'LUCRO_REAL' &&
+      (credit.tax_type === 'PIS' || credit.tax_type === 'COFINS' || credit.tax_type === 'ICMS')
+
+    if (isRecoverable) {
+      recoverable += credit.credit_value
+    } else {
+      non_recoverable += credit.credit_value
+    }
+  }
+
+  return { recoverable, non_recoverable }
+}
+
 export function resolvePesoOpInterna(args: {
   peso_op_interna_input?: number
   prev_breakdown?: TaxBreakdown | null
@@ -199,9 +266,15 @@ export async function orchestrateReapuration(input: OrchestrateInput): Promise<T
     product_config: options.product_config,
   })
 
+  // Story MRM-V5-004 AC4: agregar créditos tributários conforme regime
+  const tax_credits = options.item_tax_credits
+    ? aggregateItemTaxCredits(options.item_tax_credits, rest.regime)
+    : rest.tax_credits
+
   const motorInput: ReapurationInput = {
     ...rest,
     peso_op_interna,
+    tax_credits,
     rates,
     effective_date,
     use_snapshot_rates: options.use_snapshot_rates,
@@ -236,9 +309,15 @@ export function orchestrateReapurationSync(
     product_config: options.product_config,
   })
 
+  // Story MRM-V5-004 AC4: agregar créditos tributários conforme regime
+  const tax_credits = options.item_tax_credits
+    ? aggregateItemTaxCredits(options.item_tax_credits, rest.regime)
+    : rest.tax_credits
+
   const motorInput: ReapurationInput = {
     ...rest,
     peso_op_interna,
+    tax_credits,
     rates: finalRates,
     effective_date,
     use_snapshot_rates: options.use_snapshot_rates,

@@ -928,3 +928,176 @@ describe('V5-003 — rro_threshold_check observacional (ADR-004 reforçado)', ()
     expect(result.error_code).toBe('RRO_NON_POSITIVE')
   })
 })
+
+// ===========================================================================
+// Story MRM-V5-004: Créditos tributários + ISS fallback regime
+// ===========================================================================
+
+describe('V5-004 — Créditos tributários reduzem cp_efetivo', () => {
+  it('Crédito recoverable=R$ 5.000 reduz cp_efetivo em LR', () => {
+    const result = calculateMarginReapuration({
+      rb: 100000,
+      desc_value: 0,
+      regime: 'LUCRO_REAL',
+      rates: [rate('ICMS', 0.17), rate('PIS', 0.0165), rate('COFINS', 0.076)],
+      cp: 30000,
+      mod: 5000,
+      dop: 10000,
+      commission_pct: 0.05,
+      profit_pct: 0.10,
+      csll_pct: 0.009,
+      irpj_pct: 0.015,
+      tax_credits: { recoverable: 5000, non_recoverable: 0 },
+      effective_date: '2026-05-22',
+      use_snapshot_rates: true,
+    })
+
+    // tax_credits_applied refletindo input
+    expect(result.tax_credits_applied).toEqual({ recoverable: 5000, non_recoverable: 0 })
+    // RRO maior do que seria sem crédito (cp_efetivo = 30000 - 5000 = 25000)
+    // RRO esperado ≈ Âncora − impostos − 25000 − 5000 − 10000
+    expect(result.rro).toBeGreaterThan(0)
+  })
+
+  it('Sem tax_credits, motor opera idêntico a V5-003 (retrocompat)', () => {
+    const baseInput = {
+      rb: 100000,
+      desc_value: 0,
+      regime: 'LUCRO_REAL' as const,
+      rates: [rate('ICMS', 0.17), rate('PIS', 0.0165), rate('COFINS', 0.076)],
+      cp: 30000,
+      mod: 5000,
+      dop: 10000,
+      commission_pct: 0.05,
+      profit_pct: 0.10,
+      csll_pct: 0.009,
+      irpj_pct: 0.015,
+      effective_date: '2026-05-22',
+      use_snapshot_rates: true,
+    }
+
+    const withZeroCredits = calculateMarginReapuration({
+      ...baseInput,
+      tax_credits: { recoverable: 0, non_recoverable: 0 },
+    })
+    const withoutCredits = calculateMarginReapuration(baseInput)
+
+    expect(withZeroCredits.rro).toBeCloseTo(withoutCredits.rro, 2)
+    expect(withZeroCredits.tax_credits_applied).toEqual({ recoverable: 0, non_recoverable: 0 })
+    expect(withoutCredits.tax_credits_applied).toEqual({ recoverable: 0, non_recoverable: 0 })
+  })
+
+  it('non_recoverable é preservado em tax_credits_applied mas não reduz cp', () => {
+    const result = calculateMarginReapuration({
+      rb: 100000,
+      desc_value: 0,
+      regime: 'LUCRO_REAL',
+      rates: [rate('ICMS', 0.17)],
+      cp: 30000,
+      mod: 5000,
+      dop: 10000,
+      commission_pct: 0.05,
+      profit_pct: 0.10,
+      tax_credits: { recoverable: 0, non_recoverable: 2000 },
+      effective_date: '2026-05-22',
+      use_snapshot_rates: true,
+    })
+
+    expect(result.tax_credits_applied?.non_recoverable).toBe(2000)
+    // RRO inalterado (non_recoverable não reduz cp)
+  })
+})
+
+describe('V5-004 — Guard regime cumulativo (MEI/SN)', () => {
+  it('Regime SN força recoverable=0 mesmo com input > 0', () => {
+    const result = calculateMarginReapuration({
+      rb: 100000,
+      desc_value: 0,
+      regime: 'SIMPLES_NACIONAL',
+      rates: [rate('ICMS', 0.07)],
+      cp: 30000,
+      mod: 5000,
+      dop: 10000,
+      commission_pct: 0.05,
+      profit_pct: 0.10,
+      tax_credits: { recoverable: 5000, non_recoverable: 1000 },
+      effective_date: '2026-05-22',
+      use_snapshot_rates: true,
+    })
+
+    expect(result.tax_credits_applied?.recoverable).toBe(0) // forçado a 0
+    expect(result.tax_credits_applied?.non_recoverable).toBe(1000)
+    expect(result.messages.some((m) => m.includes('CREDITOS_NAO_APLICAVEIS_REGIME_CUMULATIVO'))).toBe(true)
+  })
+
+  it('Regime MEI força recoverable=0', () => {
+    const result = calculateMarginReapuration({
+      rb: 100000,
+      desc_value: 0,
+      regime: 'MEI',
+      rates: [],
+      cp: 30000,
+      mod: 5000,
+      dop: 10000,
+      commission_pct: 0.05,
+      profit_pct: 0.10,
+      tax_credits: { recoverable: 5000, non_recoverable: 0 },
+      effective_date: '2026-05-22',
+      use_snapshot_rates: true,
+    })
+
+    expect(result.tax_credits_applied?.recoverable).toBe(0)
+    expect(result.messages.some((m) => m.includes('CREDITOS_NAO_APLICAVEIS_REGIME_CUMULATIVO'))).toBe(true)
+  })
+
+  it('Regime LR não dispara guard — créditos válidos', () => {
+    const result = calculateMarginReapuration({
+      rb: 100000,
+      desc_value: 0,
+      regime: 'LUCRO_REAL',
+      rates: [rate('ICMS', 0.17), rate('PIS', 0.0165), rate('COFINS', 0.076)],
+      cp: 30000,
+      mod: 5000,
+      dop: 10000,
+      commission_pct: 0.05,
+      profit_pct: 0.10,
+      csll_pct: 0.009,
+      irpj_pct: 0.015,
+      tax_credits: { recoverable: 3000, non_recoverable: 0 },
+      effective_date: '2026-05-22',
+      use_snapshot_rates: true,
+    })
+
+    expect(result.tax_credits_applied?.recoverable).toBe(3000) // aplicado integralmente
+    expect(result.messages.some((m) => m.includes('CREDITOS_NAO_APLICAVEIS_REGIME_CUMULATIVO'))).toBe(false)
+  })
+})
+
+describe('V5-004 — cp_efetivo no limite_minimo', () => {
+  it('limite_minimo usa cp_efetivo (reflete créditos recuperáveis)', () => {
+    const baseInput = {
+      rb: 100000,
+      desc_value: 0,
+      regime: 'LUCRO_REAL' as const,
+      rates: [rate('ICMS', 0.17), rate('PIS', 0.0165), rate('COFINS', 0.076)],
+      cp: 30000,
+      mod: 5000,
+      dop: 10000,
+      commission_pct: 0.05,
+      profit_pct: 0.10,
+      csll_pct: 0.009,
+      irpj_pct: 0.015,
+      effective_date: '2026-05-22',
+      use_snapshot_rates: true,
+    }
+
+    const withoutCredits = calculateMarginReapuration(baseInput)
+    const withCredits = calculateMarginReapuration({
+      ...baseInput,
+      tax_credits: { recoverable: 5000, non_recoverable: 0 },
+    })
+
+    // limite_minimo deve ser menor com créditos (cp_efetivo reduzido)
+    expect(withCredits.limite_minimo).toBeLessThan(withoutCredits.limite_minimo!)
+  })
+})

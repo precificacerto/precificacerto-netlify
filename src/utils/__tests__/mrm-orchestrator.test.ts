@@ -1,7 +1,9 @@
 import {
+  aggregateItemTaxCredits,
   calculatePesoOpInternaFromMarkup,
   orchestrateReapurationSync,
   resolvePesoOpInterna,
+  type ItemTaxCreditSnapshot,
   type ProductPricingConfig,
 } from '../mrm-orchestrator'
 import type { TaxBreakdown, TaxRatePeriod } from '@/types/mrm'
@@ -519,5 +521,145 @@ describe('V5-001 — orchestrateReapurationSync injeta peso resolvido no motor',
       },
     })
     expect(result.peso_op_interna).toBe(0.85)
+  })
+})
+
+// ===========================================================================
+// Story MRM-V5-004 — aggregateItemTaxCredits (créditos por regime)
+// ===========================================================================
+
+describe('V5-004 — aggregateItemTaxCredits', () => {
+  it('LR: PIS/COFINS/ICMS são recoverable; IPI é non_recoverable', () => {
+    const credits: ItemTaxCreditSnapshot[] = [
+      { tax_type: 'PIS', is_active: true, credit_value: 100 },
+      { tax_type: 'COFINS', is_active: true, credit_value: 200 },
+      { tax_type: 'ICMS', is_active: true, credit_value: 300 },
+      { tax_type: 'IPI', is_active: true, credit_value: 50 },
+    ]
+    const result = aggregateItemTaxCredits(credits, 'LUCRO_REAL')
+    expect(result.recoverable).toBe(600) // PIS + COFINS + ICMS
+    expect(result.non_recoverable).toBe(50) // IPI
+  })
+
+  it('SN: todos forçados a 0 (regime cumulativo absorve via DAS)', () => {
+    const credits: ItemTaxCreditSnapshot[] = [
+      { tax_type: 'PIS', is_active: true, credit_value: 100 },
+      { tax_type: 'ICMS', is_active: true, credit_value: 300 },
+    ]
+    const result = aggregateItemTaxCredits(credits, 'SIMPLES_NACIONAL')
+    expect(result.recoverable).toBe(0)
+    expect(result.non_recoverable).toBe(0)
+  })
+
+  it('MEI: todos forçados a 0', () => {
+    const credits: ItemTaxCreditSnapshot[] = [
+      { tax_type: 'PIS', is_active: true, credit_value: 999 },
+    ]
+    const result = aggregateItemTaxCredits(credits, 'MEI')
+    expect(result.recoverable).toBe(0)
+    expect(result.non_recoverable).toBe(0)
+  })
+
+  it('LP (cumulativo): PIS/COFINS/ICMS non_recoverable', () => {
+    const credits: ItemTaxCreditSnapshot[] = [
+      { tax_type: 'PIS', is_active: true, credit_value: 100 },
+      { tax_type: 'COFINS', is_active: true, credit_value: 200 },
+    ]
+    const result = aggregateItemTaxCredits(credits, 'LUCRO_PRESUMIDO')
+    expect(result.recoverable).toBe(0) // LP cumulativo
+    expect(result.non_recoverable).toBe(300)
+  })
+
+  it('Créditos inativos são ignorados', () => {
+    const credits: ItemTaxCreditSnapshot[] = [
+      { tax_type: 'PIS', is_active: false, credit_value: 1000 }, // ignorado
+      { tax_type: 'COFINS', is_active: true, credit_value: 200 },
+    ]
+    const result = aggregateItemTaxCredits(credits, 'LUCRO_REAL')
+    expect(result.recoverable).toBe(200) // só COFINS
+  })
+
+  it('Créditos com value <= 0 são ignorados', () => {
+    const credits: ItemTaxCreditSnapshot[] = [
+      { tax_type: 'PIS', is_active: true, credit_value: 0 }, // ignorado
+      { tax_type: 'COFINS', is_active: true, credit_value: -100 }, // ignorado
+      { tax_type: 'ICMS', is_active: true, credit_value: 50 },
+    ]
+    const result = aggregateItemTaxCredits(credits, 'LUCRO_REAL')
+    expect(result.recoverable).toBe(50)
+  })
+
+  it('Lista vazia retorna { 0, 0 }', () => {
+    const result = aggregateItemTaxCredits([], 'LUCRO_REAL')
+    expect(result.recoverable).toBe(0)
+    expect(result.non_recoverable).toBe(0)
+  })
+})
+
+describe('V5-004 — orchestrateReapurationSync injeta créditos agregados', () => {
+  it('Sem item_tax_credits: usa rest.tax_credits direto se fornecido', () => {
+    const result = orchestrateReapurationSync({
+      rb: 100000,
+      desc_value: 0,
+      regime: 'LUCRO_REAL',
+      cp: 30000,
+      mod: 5000,
+      dop: 10000,
+      commission_pct: 0.05,
+      profit_pct: 0.10,
+      csll_pct: 0.009,
+      irpj_pct: 0.015,
+      tax_credits: { recoverable: 2000, non_recoverable: 0 },
+      rates: [rate('ICMS', 0.17), rate('PIS', 0.0165), rate('COFINS', 0.076)],
+      options: { use_snapshot_rates: false },
+    })
+    expect(result.tax_credits_applied?.recoverable).toBe(2000)
+  })
+
+  it('Com item_tax_credits: agrega e injeta no motor', () => {
+    const result = orchestrateReapurationSync({
+      rb: 100000,
+      desc_value: 0,
+      regime: 'LUCRO_REAL',
+      cp: 30000,
+      mod: 5000,
+      dop: 10000,
+      commission_pct: 0.05,
+      profit_pct: 0.10,
+      csll_pct: 0.009,
+      irpj_pct: 0.015,
+      rates: [rate('ICMS', 0.17), rate('PIS', 0.0165), rate('COFINS', 0.076)],
+      options: {
+        use_snapshot_rates: false,
+        item_tax_credits: [
+          { tax_type: 'PIS', is_active: true, credit_value: 500 },
+          { tax_type: 'COFINS', is_active: true, credit_value: 1500 },
+        ],
+      },
+    })
+    expect(result.tax_credits_applied?.recoverable).toBe(2000) // 500 + 1500
+  })
+
+  it('Com item_tax_credits + regime SN: agrega para 0 (DAS absorve)', () => {
+    const result = orchestrateReapurationSync({
+      rb: 100000,
+      desc_value: 0,
+      regime: 'SIMPLES_NACIONAL',
+      cp: 30000,
+      mod: 5000,
+      dop: 10000,
+      commission_pct: 0.05,
+      profit_pct: 0.10,
+      rates: [rate('ICMS', 0.07)],
+      options: {
+        use_snapshot_rates: false,
+        item_tax_credits: [
+          { tax_type: 'PIS', is_active: true, credit_value: 5000 },
+          { tax_type: 'ICMS', is_active: true, credit_value: 3000 },
+        ],
+      },
+    })
+    expect(result.tax_credits_applied?.recoverable).toBe(0)
+    expect(result.tax_credits_applied?.non_recoverable).toBe(0)
   })
 })
