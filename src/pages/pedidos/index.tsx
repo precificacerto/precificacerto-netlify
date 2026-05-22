@@ -30,6 +30,7 @@ import type { ResidualItemInput } from '@/utils/residual-distribution'
 import { ResidualDistributionBlock } from '@/page-parts/shared/residual-distribution-block.component'
 import { computeConsolidatedDRE, type DREItemInput } from '@/utils/consolidated-dre'
 import { ConsolidatedDREBlock } from '@/page-parts/shared/consolidated-dre-block.component'
+import { extractEpicV5DisplayData } from '@/utils/mrm-display-extractor'
 // S9: configWarning não aplicado em pedidos — snapshot é imutável (decisão Q3=A)
 import { coerceLegacyDiscountMode } from '@/config/feature-flags'
 import { decideMrmAction } from '@/utils/mrm-policies'
@@ -1374,14 +1375,29 @@ function OrdersPage() {
                 {/* EPIC-RR-DISPLAY S4: Distribuição do resultado (mesma semântica que orçamentos).
                     Pedidos usam snapshot persistido em order_items.tax_breakdown — sem
                     recálculo runtime do motor. Em MEI/SN, IRPJ/CSLL ocultos automaticamente. */}
-                {orderSubtotal > 0 && (
-                    <ResidualDistributionBlock distribution={orderResidualDistribution} />
-                )}
-
-                {/* S14 — DRE Consolidada (R3=B + R7=B). Snapshot histórico imutável. */}
-                {orderSubtotal > 0 && (
-                    <ConsolidatedDREBlock dre={orderConsolidatedDRE} />
-                )}
+                {orderSubtotal > 0 && (() => {
+                    // EPIC-MRM-V5: extrai dados do schema V5 dos snapshots persistidos
+                    // em order_items.tax_breakdown para alimentar UI cascata + banner.
+                    const epicV5 = extractEpicV5DisplayData(orderItems, {
+                        regime: mrmConfig.regime,
+                        csll_pct: mrmConfig.csll_pct,
+                        irpj_pct: mrmConfig.irpj_pct,
+                    })
+                    return (
+                        <>
+                            <ResidualDistributionBlock
+                                distribution={orderResidualDistribution}
+                                regimeGuardActive={epicV5.regimeGuardActive}
+                            />
+                            <ConsolidatedDREBlock
+                                dre={orderConsolidatedDRE}
+                                cascadeTrace={epicV5.cascadeTrace}
+                                pesoOpInterna={epicV5.pesoOpInterna}
+                                ancoraInterna={epicV5.ancoraInterna}
+                            />
+                        </>
+                    )
+                })()}
             </Drawer>
 
             {/* Send to Sale Modal */}

@@ -47,6 +47,7 @@ import {
 } from '@/utils/item-tax-rates'
 import { computeConsolidatedDRE, type DREItemInput } from '@/utils/consolidated-dre'
 import { ConsolidatedDREBlock } from '@/page-parts/shared/consolidated-dre-block.component'
+import { extractEpicV5DisplayData } from '@/utils/mrm-display-extractor'
 import { hydrateItemSnapshot, type TenantSnapshotContext } from '@/lib/items-snapshot'
 import { calculateMarginReapuration } from '@/utils/margin-reapuration'
 import { coerceLegacyDiscountMode } from '@/config/feature-flags'
@@ -2502,14 +2503,29 @@ function Sales() {
                             Substitui a antiga linha solta "Comissão paga" — agora os 4 componentes
                             (Comissão, Lucro, IRPJ, CSLL) aparecem com %s sobre o total c/ desconto.
                             Em MEI/SN, IRPJ/CSLL ocultam automaticamente. */}
-                        {saleSubtotal > 0 && (
-                            <ResidualDistributionBlock distribution={saleResidualDistribution} />
-                        )}
-
-                        {/* S14 — DRE Consolidada (R3=B + R7=B). Snapshot histórico imutável. */}
-                        {saleSubtotal > 0 && (
-                            <ConsolidatedDREBlock dre={saleConsolidatedDRE} />
-                        )}
+                        {saleSubtotal > 0 && (() => {
+                            // EPIC-MRM-V5: extrai dados do schema V5 dos snapshots persistidos
+                            // em sale_items.tax_breakdown (fallback budget_items para vendas antigas FROM_BUDGET).
+                            const epicV5 = extractEpicV5DisplayData(detailItems, {
+                                regime: mrmConfig.regime,
+                                csll_pct: mrmConfig.csll_pct,
+                                irpj_pct: mrmConfig.irpj_pct,
+                            })
+                            return (
+                                <>
+                                    <ResidualDistributionBlock
+                                        distribution={saleResidualDistribution}
+                                        regimeGuardActive={epicV5.regimeGuardActive}
+                                    />
+                                    <ConsolidatedDREBlock
+                                        dre={saleConsolidatedDRE}
+                                        cascadeTrace={epicV5.cascadeTrace}
+                                        pesoOpInterna={epicV5.pesoOpInterna}
+                                        ancoraInterna={epicV5.ancoraInterna}
+                                    />
+                                </>
+                            )
+                        })()}
 
                         {detailItems.length > 0 && (
                             <div style={{ padding: 16, background: 'var(--color-neutral-50)', borderRadius: 8 }}>

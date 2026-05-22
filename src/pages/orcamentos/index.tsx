@@ -50,6 +50,7 @@ import {
 } from '@/utils/item-tax-rates'
 import { computeConsolidatedDRE, type DREItemInput } from '@/utils/consolidated-dre'
 import { ConsolidatedDREBlock } from '@/page-parts/shared/consolidated-dre-block.component'
+import { extractEpicV5DisplayData } from '@/utils/mrm-display-extractor'
 import { coerceLegacyDiscountMode } from '@/config/feature-flags'
 import { decideMrmAction } from '@/utils/mrm-policies'
 import { aggregateMotorResults } from '@/utils/mrm-aggregate'
@@ -2361,17 +2362,34 @@ function Budgets() {
                         Bloco aparece também SEM desconto (Q7): exibe apenas % original.
                         Em MEI/SN, hidesProfitTaxes oculta IRPJ/CSLL automaticamente.
                         S9: configWarning alerta quando CP+DOP+MOD = 0 (RRO degradado). */}
-                    {budgetTotal > 0 && (
-                        <ResidualDistributionBlock
-                            distribution={residualDistribution}
-                            configWarning={residualConfigWarning}
-                        />
-                    )}
-
-                    {/* S14 — DRE Consolidada (R3=B: adicional, R7=B: universal) */}
-                    {budgetTotal > 0 && (
-                        <ConsolidatedDREBlock dre={consolidatedDRE} />
-                    )}
+                    {budgetTotal > 0 && (() => {
+                        // EPIC-MRM-V5: extrai cascade_trace, peso_op_interna, ancora_interna,
+                        // regime_guard_active dos tax_breakdowns dos items para alimentar UI.
+                        // Quando items não têm schema V5, props ficam null (degrade graceful).
+                        const itemsForDisplay = budgetItems.map(bi => ({
+                            tax_breakdown: motorResultsByItem.get(bi.id) ?? null
+                        }))
+                        const epicV5 = extractEpicV5DisplayData(itemsForDisplay, {
+                            regime: mrmConfig.regime,
+                            csll_pct: mrmConfig.csll_pct,
+                            irpj_pct: mrmConfig.irpj_pct,
+                        })
+                        return (
+                            <>
+                                <ResidualDistributionBlock
+                                    distribution={residualDistribution}
+                                    configWarning={residualConfigWarning}
+                                    regimeGuardActive={epicV5.regimeGuardActive}
+                                />
+                                <ConsolidatedDREBlock
+                                    dre={consolidatedDRE}
+                                    cascadeTrace={epicV5.cascadeTrace}
+                                    pesoOpInterna={epicV5.pesoOpInterna}
+                                    ancoraInterna={epicV5.ancoraInterna}
+                                />
+                            </>
+                        )
+                    })()}
 
                     <Form.Item name="payment_method" label="Método de Pagamento" style={{ marginTop: 16 }}>
                         <Select
