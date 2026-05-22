@@ -504,3 +504,319 @@ describe('V5-001 — Cascade Trace (13 etapas obrigatórias — PDF Motor RR Se�
     expect(result.cascade_trace![10].amount).toBe(result.rro)
   })
 })
+
+// ===========================================================================
+// Story MRM-V5-002: Base canônica tributos por fora + V7 dupla perspectiva
+// ===========================================================================
+
+describe('V5-002 — Base canônica taxes_outside_base (Excel H62 ≡ Âncora)', () => {
+  it('taxes_outside_base = ancora_interna − Σ(ICMS + PIS + COFINS) — cenário Excel', () => {
+    const result = calculateMarginReapuration({
+      rb: 190055.94,
+      desc_value: 19005.594,
+      regime: 'LUCRO_REAL',
+      rates: [
+        rate('ICMS', 0.17),
+        rate('PIS', 0.0165),
+        rate('COFINS', 0.076),
+        rate('IBS', 0.01),
+        rate('CBS', 0.0875),
+      ],
+      cp: 53509.92,
+      mod: 18608.30,
+      dop: 18838.47 + 10835.66 + 761.33,
+      commission_pct: 0.05,
+      profit_pct: 0.10,
+      csll_pct: 0.009,
+      irpj_pct: 0.015,
+      peso_op_interna: 0.931585,
+      effective_date: '2026-05-22',
+      use_snapshot_rates: false,
+    })
+
+    // taxes_outside_base ≈ R$ 120.020,65 (Âncora 159.342,38 − ICMS 27.088,20 − PIS/COFINS 12.233,5)
+    expect(result.taxes_outside_base).not.toBeNull()
+    expect(result.taxes_outside_base!).toBeGreaterThan(119500)
+    expect(result.taxes_outside_base!).toBeLessThan(120300)
+  })
+
+  it('IBS_final ≈ R$ 1.200,21 e CBS_final ≈ R$ 10.501,81 (Excel H65/H66)', () => {
+    const result = calculateMarginReapuration({
+      rb: 190055.94,
+      desc_value: 19005.594,
+      regime: 'LUCRO_REAL',
+      rates: [
+        rate('ICMS', 0.17),
+        rate('PIS', 0.0165),
+        rate('COFINS', 0.076),
+        rate('IBS', 0.01),
+        rate('CBS', 0.0875),
+      ],
+      cp: 53509.92,
+      mod: 18608.30,
+      dop: 30435.46,
+      commission_pct: 0.05,
+      profit_pct: 0.10,
+      csll_pct: 0.009,
+      irpj_pct: 0.015,
+      peso_op_interna: 0.931585,
+      effective_date: '2026-05-22',
+      use_snapshot_rates: false,
+    })
+
+    const ibs = result.taxes_outside.find((l) => l.type === 'IBS')
+    const cbs = result.taxes_outside.find((l) => l.type === 'CBS')
+    expect(ibs).toBeDefined()
+    expect(cbs).toBeDefined()
+    // IBS ≈ 120020.65 × 1% = 1200.21
+    expect(ibs!.amount).toBeGreaterThan(1100)
+    expect(ibs!.amount).toBeLessThan(1300)
+    // CBS ≈ 120020.65 × 8.75% = 10501.81
+    expect(cbs!.amount).toBeGreaterThan(10300)
+    expect(cbs!.amount).toBeLessThan(10700)
+    // Cada TaxLine usa taxes_outside_base como `base`
+    expect(ibs!.base).toBeCloseTo(result.taxes_outside_base!, 2)
+    expect(cbs!.base).toBeCloseTo(result.taxes_outside_base!, 2)
+  })
+
+  it('Clamp em 0 quando ICMS + PIS/COFINS > Âncora (super-impostos)', () => {
+    // Caso degenerado: ICMS=50% + PIS=30% + COFINS=30% = 110% sobre Âncora
+    const result = calculateMarginReapuration({
+      rb: 10000,
+      desc_value: 1000,
+      regime: 'LUCRO_REAL',
+      rates: [rate('ICMS', 0.50), rate('PIS', 0.30), rate('COFINS', 0.30), rate('IBS', 0.01)],
+      cp: 4500,
+      mod: 0,
+      dop: 1200,
+      commission_pct: 0.05,
+      profit_pct: 0.10,
+      effective_date: '2026-05-22',
+      use_snapshot_rates: false,
+    })
+
+    expect(result.taxes_outside_base).toBeGreaterThanOrEqual(0)
+  })
+
+  it('Retrocompat V4: quando peso=1, taxes_outside_base = rv − imp_total', () => {
+    // Sem peso_op_interna explícito → default = 1 → Âncora ≡ RV
+    const result = calculateMarginReapuration({
+      rb: 10000,
+      desc_value: 1000,
+      regime: 'LUCRO_PRESUMIDO',
+      rates: [rate('ICMS', 0.18), rate('PIS', 0.0065), rate('COFINS', 0.03)],
+      cp: 4500,
+      mod: 0,
+      dop: 1200,
+      commission_pct: 0.05,
+      profit_pct: 0.10,
+      effective_date: '2026-05-22',
+      use_snapshot_rates: true,
+    })
+
+    // Para LP cumulativo, PIS+COFINS = 0,65%+3% = 3,65% (válido V7)
+    // taxes_outside_base = ancora − ICMS − PIS − COFINS
+    const icms = result.taxes_inside.find((l) => l.type === 'ICMS')!.amount
+    const pis = result.taxes_inside.find((l) => l.type === 'PIS')!.amount
+    const cofins = result.taxes_inside.find((l) => l.type === 'COFINS')!.amount
+    expect(result.taxes_outside_base!).toBeCloseTo(
+      result.ancora_interna! - icms - pis - cofins,
+      2,
+    )
+  })
+})
+
+describe('V5-002 — V7 Invariante PIS/COFINS apuração (ADR-008)', () => {
+  it('V7 PASS quando PIS+COFINS=9,25% (LR não-cumulativo)', () => {
+    const result = calculateMarginReapuration({
+      rb: 10000,
+      desc_value: 1000,
+      regime: 'LUCRO_REAL',
+      rates: [rate('ICMS', 0.17), rate('PIS', 0.0165), rate('COFINS', 0.076)],
+      cp: 4500,
+      mod: 0,
+      dop: 1200,
+      commission_pct: 0.05,
+      profit_pct: 0.10,
+      csll_pct: 0.009,
+      irpj_pct: 0.015,
+      effective_date: '2026-05-22',
+      use_snapshot_rates: true,
+    })
+    expect(result.validations.V7).toBe(true)
+  })
+
+  it('V7 PASS quando PIS+COFINS=3,65% (LP cumulativo)', () => {
+    const result = calculateMarginReapuration({
+      rb: 10000,
+      desc_value: 1000,
+      regime: 'LUCRO_PRESUMIDO',
+      rates: [rate('ICMS', 0.18), rate('PIS', 0.0065), rate('COFINS', 0.03)],
+      cp: 4500,
+      mod: 0,
+      dop: 1200,
+      commission_pct: 0.05,
+      profit_pct: 0.10,
+      effective_date: '2026-05-22',
+      use_snapshot_rates: true,
+    })
+    expect(result.validations.V7).toBe(true)
+  })
+
+  it('V7 PASS para regime SN (DAS absorve, invariante NA)', () => {
+    const result = calculateMarginReapuration({
+      rb: 10000,
+      desc_value: 1000,
+      regime: 'SIMPLES_NACIONAL',
+      rates: [rate('ICMS', 0.07)],
+      cp: 4500,
+      mod: 0,
+      dop: 1200,
+      commission_pct: 0.05,
+      profit_pct: 0.10,
+      effective_date: '2026-05-22',
+      use_snapshot_rates: true,
+    })
+    expect(result.validations.V7).toBe(true)
+  })
+
+  it('V7 PASS para regime MEI (sem PIS/COFINS)', () => {
+    const result = calculateMarginReapuration({
+      rb: 10000,
+      desc_value: 1000,
+      regime: 'MEI',
+      rates: [],
+      cp: 4500,
+      mod: 0,
+      dop: 1200,
+      commission_pct: 0.05,
+      profit_pct: 0.10,
+      effective_date: '2026-05-22',
+      use_snapshot_rates: true,
+    })
+    expect(result.validations.V7).toBe(true)
+  })
+
+  it('V7 PASS quando rates vazios (não-tributado)', () => {
+    const result = calculateMarginReapuration({
+      rb: 10000,
+      desc_value: 1000,
+      regime: 'LUCRO_REAL',
+      rates: [],
+      cp: 4500,
+      mod: 0,
+      dop: 1200,
+      commission_pct: 0.05,
+      profit_pct: 0.10,
+      effective_date: '2026-05-22',
+      use_snapshot_rates: true,
+    })
+    expect(result.validations.V7).toBe(true)
+  })
+
+  it('V7 FAIL quando PIS+COFINS=5% (fora das faixas conhecidas)', () => {
+    const result = calculateMarginReapuration({
+      rb: 10000,
+      desc_value: 1000,
+      regime: 'LUCRO_REAL',
+      rates: [rate('PIS', 0.02), rate('COFINS', 0.03)], // 5%
+      cp: 4500,
+      mod: 0,
+      dop: 1200,
+      commission_pct: 0.05,
+      profit_pct: 0.10,
+      effective_date: '2026-05-22',
+      use_snapshot_rates: true,
+    })
+    expect(result.validations.V7).toBe(false)
+  })
+})
+
+describe('V5-002 — GT-7 Não-equivalência ICMS=18% (ADR-008)', () => {
+  // GT-7: prova que motor V5 (apuração) ≠ motor V4 (construção 7,6775%) quando ICMS ≠ 17%.
+  // Quando ICMS=17%: 9,25% × 0,83 = 7,6775% → fórmulas equivalentes
+  // Quando ICMS=18%: 9,25% × 0,82 = 7,585% ≠ 7,6775% → divergência ~0,09pp
+
+  it('Com ICMS=18%, motor V5 produz PIS/COFINS sobre base reduzida (não sobre RV)', () => {
+    const result = calculateMarginReapuration({
+      rb: 190055.94,
+      desc_value: 19005.594,
+      regime: 'LUCRO_REAL',
+      rates: [rate('ICMS', 0.18), rate('PIS', 0.0165), rate('COFINS', 0.076)],
+      cp: 53509.92,
+      mod: 18608.30,
+      dop: 30435.46,
+      commission_pct: 0.05,
+      profit_pct: 0.10,
+      csll_pct: 0.009,
+      irpj_pct: 0.015,
+      peso_op_interna: 0.931585,
+      effective_date: '2026-05-22',
+      use_snapshot_rates: false,
+    })
+
+    // Âncora ≈ 159.342,38; ICMS = Âncora × 18% ≈ 28.681,63
+    // baseReduzida = Âncora − ICMS ≈ 130.660,75
+    // PIS+COFINS = baseReduzida × 9,25% ≈ 12.086,12 (fórmula V5/apuração)
+    const pis = result.taxes_inside.find((l) => l.type === 'PIS')!.amount
+    const cofins = result.taxes_inside.find((l) => l.type === 'COFINS')!.amount
+    const totalPisCofins = pis + cofins
+
+    // V5 esperado: ~12.086,12 (com ICMS=18%)
+    expect(totalPisCofins).toBeGreaterThan(11900)
+    expect(totalPisCofins).toBeLessThan(12300)
+
+    // Hipotético V4 errado (RV × 7,6775%): 171.050,346 × 7,6775% ≈ 13.130,89
+    const v4Wrong = 171050.346 * 0.076775
+    // Diferença |V5 − V4_wrong| > R$ 800 — confirma não-equivalência
+    expect(Math.abs(totalPisCofins - v4Wrong)).toBeGreaterThan(800)
+  })
+
+  it('Com ICMS=17%, fórmulas equivalentes (identidade STF)', () => {
+    const result = calculateMarginReapuration({
+      rb: 100000,
+      desc_value: 0,
+      regime: 'LUCRO_REAL',
+      rates: [rate('ICMS', 0.17), rate('PIS', 0.0165), rate('COFINS', 0.076)],
+      cp: 0,
+      mod: 0,
+      dop: 0,
+      commission_pct: 0.05,
+      profit_pct: 0.10,
+      peso_op_interna: 1, // V4 equivalence: ancora ≡ rv
+      effective_date: '2026-05-22',
+      use_snapshot_rates: true,
+    })
+
+    // V5 com peso=1: ancora = rv = 100.000
+    // ICMS = 100.000 × 17% = 17.000
+    // PIS+COFINS V5 = (100.000 − 17.000) × 9,25% = 83.000 × 9,25% = 7.677,50
+    // V4 hipotético: 100.000 × 7,6775% = 7.677,50 → IDÊNTICO
+    const pis = result.taxes_inside.find((l) => l.type === 'PIS')!.amount
+    const cofins = result.taxes_inside.find((l) => l.type === 'COFINS')!.amount
+    expect(pis + cofins).toBeCloseTo(100000 * 0.076775, 2) // = 7677,50
+  })
+
+  it('Documentação ADR-008: V5 é canônica para qualquer ICMS', () => {
+    // Cenário ZFM (ICMS=0%): construção = apuração = 9,25%
+    const result = calculateMarginReapuration({
+      rb: 100000,
+      desc_value: 0,
+      regime: 'LUCRO_REAL',
+      rates: [rate('ICMS', 0), rate('PIS', 0.0165), rate('COFINS', 0.076)],
+      cp: 0,
+      mod: 0,
+      dop: 0,
+      commission_pct: 0.05,
+      profit_pct: 0.10,
+      peso_op_interna: 1,
+      effective_date: '2026-05-22',
+      use_snapshot_rates: true,
+    })
+
+    // ICMS=0: ancora=100.000, PIS+COFINS = 100.000 × 9,25% = 9.250
+    const pis = result.taxes_inside.find((l) => l.type === 'PIS')!.amount
+    const cofins = result.taxes_inside.find((l) => l.type === 'COFINS')!.amount
+    expect(pis + cofins).toBeCloseTo(9250, 2)
+  })
+})
