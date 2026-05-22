@@ -820,3 +820,75 @@ describe('V5-002 — GT-7 Não-equivalência ICMS=18% (ADR-008)', () => {
     expect(pis + cofins).toBeCloseTo(9250, 2)
   })
 })
+
+// ===========================================================================
+// Story MRM-V5-003: rro_threshold_check observacional + unificação rates loader
+// ===========================================================================
+
+describe('V5-003 — rro_threshold_check observacional (ADR-004 reforçado)', () => {
+  it('rro_threshold_check populado com passed=true quando RRO > 0', () => {
+    const result = calculateMarginReapuration({
+      rb: 10000,
+      desc_value: 1000,
+      regime: 'LUCRO_REAL',
+      rates: [rate('ICMS', 0.17), rate('PIS', 0.0165), rate('COFINS', 0.076)],
+      cp: 4500,
+      mod: 0,
+      dop: 1200,
+      commission_pct: 0.05,
+      profit_pct: 0.10,
+      csll_pct: 0.009,
+      irpj_pct: 0.015,
+      effective_date: '2026-05-22',
+      use_snapshot_rates: true,
+    })
+    expect(result.rro_threshold_check).not.toBeNull()
+    expect(result.rro_threshold_check?.passed).toBe(result.rro > 0)
+    expect(result.rro_threshold_check?.threshold).toBe(0)
+    expect(result.rro_threshold_check?.observed).toBe(result.rro)
+  })
+
+  it('rro_threshold_check.passed=false quando RRO ≤ 0 (cenário desconto excessivo)', () => {
+    const result = calculateMarginReapuration({
+      rb: 10000,
+      desc_value: 9000, // 90% desc → RV=1000, impostos+custos > RV
+      regime: 'LUCRO_REAL',
+      rates: [rate('ICMS', 0.17), rate('PIS', 0.0165), rate('COFINS', 0.076)],
+      cp: 4500,
+      mod: 0,
+      dop: 1200,
+      commission_pct: 0.05,
+      profit_pct: 0.10,
+      csll_pct: 0.009,
+      irpj_pct: 0.015,
+      effective_date: '2026-05-22',
+      use_snapshot_rates: true,
+    })
+    // RRO deve ser negativo
+    expect(result.rro).toBeLessThanOrEqual(0)
+    expect(result.rro_threshold_check?.passed).toBe(false)
+    expect(result.rro_threshold_check?.observed).toBe(result.rro)
+  })
+
+  it('rro_threshold_check é OBSERVACIONAL — não altera status nem bloqueia motor', () => {
+    // Motor V5 com RRO_NEGATIVE: status reflete, mas threshold_check apenas espelha
+    const result = calculateMarginReapuration({
+      rb: 10000,
+      desc_value: 9500,
+      regime: 'LUCRO_REAL',
+      rates: [rate('ICMS', 0.17)],
+      cp: 5000,
+      mod: 0,
+      dop: 2000,
+      commission_pct: 0.05,
+      profit_pct: 0.10,
+      effective_date: '2026-05-22',
+      use_snapshot_rates: true,
+    })
+    // Status é a fonte de decisão; threshold_check é observação derivada
+    expect(['RRO_NEGATIVE', 'RRO_ZERO']).toContain(result.status)
+    expect(result.rro_threshold_check?.passed).toBe(false)
+    // Motor não falhou — apenas sinalizou
+    expect(result.error_code).toBe('RRO_NON_POSITIVE')
+  })
+})

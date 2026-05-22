@@ -254,6 +254,24 @@ export interface TaxBreakdown {
   cascade_trace?: CascadeStep[] | null
 
   /**
+   * Verificação observacional de RRO > threshold (Story MRM-V5-003 AC3).
+   *
+   * Campo informacional — NÃO move lógica de bloqueio para o motor (ADR-004 preservado).
+   * `mrm-policies.ts` continua sendo a fonte única de decisão sobre bloquear/avisar.
+   * UI pode consumir este campo para feedback visual leve sem precisar decodificar `status`.
+   *
+   * Story MRM-V5-003 AC3 + ADR-004 reforçado.
+   */
+  rro_threshold_check?: {
+    /** Atendeu o threshold? `true` se observed > threshold. */
+    passed: boolean
+    /** Threshold mínimo para RRO (R$). Default 0 (RRO > 0 estrito). */
+    threshold: number
+    /** Valor observado de RRO (R$) — espelho de `rro`. */
+    observed: number
+  } | null
+
+  /**
    * Base canônica dos tributos por fora (R$). Excel cenário canônico ≈ R$ 120.020,65.
    *
    * Fórmula: `ancora_interna − Σ(ICMS_amount + PIS_amount + COFINS_amount)`.

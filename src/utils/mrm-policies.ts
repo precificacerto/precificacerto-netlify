@@ -1,10 +1,15 @@
 /**
- * MRM Policies — Camada de decisão (ADR-004 / Story MRM-V2-S2.3)
+ * MRM Policies — Camada de decisão (ADR-004 / Story MRM-V2-S2.3 / Story MRM-V5-003)
  *
  * Esta camada existe para SEPARAR cálculo de POLÍTICA:
  *   - Motor (`margin-reapuration.ts`): PURO, apenas calcula RRO. Nunca bloqueia.
+ *     Pode expor `rro_threshold_check` (observacional, NÃO decisório — V5-003).
  *   - Policy (este arquivo): aplica regras de UX/negócio em cima do resultado do
  *     motor — decide se a UI deve BLOQUEAR save, AVISAR ou PERMITIR sem ressalva.
+ *
+ * Story MRM-V5-003: policy consome `breakdown.status` (e opcionalmente
+ * `breakdown.rro_threshold_check` para feedback visual leve). NÃO recalcula
+ * invariantes — apenas mapeia status para ação.
  *
  * Defaults aprovados (ADR-004, decisão Q1):
  *   - `sales`           + status RRO_NEGATIVE/RRO_ZERO   → `block_save`

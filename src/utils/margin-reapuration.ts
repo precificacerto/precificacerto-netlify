@@ -375,6 +375,14 @@ export function calculateMarginReapuration(input: ReapurationInput): TaxBreakdow
     status = 'VALID'
   }
 
+  // Story MRM-V5-003 AC3: campo observacional `rro_threshold_check`.
+  // Espelho informacional do status — policy continua sendo a fonte de decisão (ADR-004).
+  const rro_threshold_check = {
+    passed: rro > 0,
+    threshold: 0,
+    observed: rro,
+  }
+
   // Etapa 12 (V5): materializar memória cascata 13 etapas (PDF Motor RR Seção 10).
   // Story MRM-V5-001 AC4. Trace é "human-readable" do que o motor já computou —
   // não recalcula valores, apenas etiqueta e ordena para exibição/auditoria.
@@ -417,6 +425,7 @@ export function calculateMarginReapuration(input: ReapurationInput): TaxBreakdow
     ancora_interna,
     cascade_trace,
     taxes_outside_base,
+    rro_threshold_check,
     new_commission,
     new_profit,
     new_csll,

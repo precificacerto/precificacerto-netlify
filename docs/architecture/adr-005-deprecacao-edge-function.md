@@ -1,10 +1,12 @@
 # ADR-005: Estratégia de deprecação da edge function `calc-tax-engine`
 
-**Status:** Accepted
-**Data:** 2026-05-19
+**Status:** Accepted (atualizado em 2026-05-22 — vide Change Log no final)
+**Data:** 2026-05-19 (atualizado 2026-05-22 com nota Story MRM-V5-003)
 **Decididores:** @architect Aria, @pm Morgan, @qa Quinn, @aios-master Orion
 **Aprovado por:** Hyago (Founder)
 **Contexto:** Motor de Reapuração de Margem V2 — Sprint S0
+
+> **🔄 Nota Story MRM-V5-003 (2026-05-22):** Confirmação formal de que `mrm-rates-loader.ts` é a **fonte autoritativa** de regime e alíquotas para o motor RR (single source of truth — ADR-001). O `mrm-orchestrator.ts` consome exclusivamente o loader; a edge `calc-tax-engine` continua em modo shadow conforme Fase 1-2 desta deprecação. STORY-MRM-V5-003.AC1 confirma a arquitetura.
 
 ## Contexto
 
