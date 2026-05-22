@@ -354,7 +354,10 @@ export function calculateMarginReapuration(input: ReapurationInput): TaxBreakdow
   const v7 = isSnMei || pisCofinsAggregate === 0 || validApuracaoLR || validApuracaoLP
 
   const validations: ValidationMap = { V1: v1, V2: v2, V3: v3, V4: v4, V5: v5, V6: v6, V7: v7 }
-  const allValid = v1 && v2 && v3 && v4 && v5 && v6 && v7
+  // V7 NÃO entra em allValid — é apenas INFORMACIONAL (Story MRM-V5-002 AC5).
+  // UI consome `validations.V7` para warning visual; motor não bloqueia status quando V7=false.
+  // Fix do issue HIGH apontado em QA gate STORY-MRM-V5-002.
+  const allValid = v1 && v2 && v3 && v4 && v5 && v6
 
   let status: ReapurationStatus
   let error_code: string | null = null
@@ -368,11 +371,19 @@ export function calculateMarginReapuration(input: ReapurationInput): TaxBreakdow
     status = 'ERROR'
     error_code = 'VALIDATION_FAILED'
     const failed = (Object.entries(validations) as [keyof ValidationMap, boolean][])
-      .filter(([, ok]) => !ok)
+      .filter(([id, ok]) => !ok && id !== 'V7')  // V7 não conta como falha bloqueante
       .map(([id]) => id)
     messages.push(`Validações falharam: ${failed.join(', ')}`)
   } else {
     status = 'VALID'
+  }
+
+  // V7 informacional (Story MRM-V5-002 AC5): exibe warning sem bloquear status.
+  if (!v7) {
+    const actualPct = (pisCofinsAggregate * 100).toFixed(4) + '%'
+    messages.push(
+      `[INFO-V7] PIS/COFINS agregado ${actualPct} fora das faixas conhecidas (9,25% LR / 3,65% LP / 0% SN-MEI). UI pode exibir warning sem bloquear save.`,
+    )
   }
 
   // Story MRM-V5-003 AC3: campo observacional `rro_threshold_check`.

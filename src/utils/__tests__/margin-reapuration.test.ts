@@ -730,6 +730,42 @@ describe('V5-002 — V7 Invariante PIS/COFINS apuração (ADR-008)', () => {
     })
     expect(result.validations.V7).toBe(false)
   })
+
+  // Story MRM-V5-002 QA fix HIGH: V7 NÃO entra em allValid (informacional).
+  // Garante que V7=false + V1-V6=true não causa status='ERROR' (não bloqueia save).
+  it('V7=false + V1-V6=true → status=VALID (V7 informacional, não bloqueia)', () => {
+    const result = calculateMarginReapuration({
+      rb: 10000,
+      desc_value: 1000,
+      regime: 'LUCRO_REAL',
+      // PIS+COFINS = 5% (fora das faixas conhecidas → V7=false)
+      rates: [rate('ICMS', 0.17), rate('PIS', 0.02), rate('COFINS', 0.03)],
+      cp: 1000, // Custos baixos → V1 (RRO>0) garantido
+      mod: 0,
+      dop: 100,
+      commission_pct: 0.05,
+      profit_pct: 0.10,
+      csll_pct: 0.009,
+      irpj_pct: 0.015,
+      effective_date: '2026-05-22',
+      use_snapshot_rates: true,
+    })
+
+    // V1-V6 todas OK
+    expect(result.validations.V1).toBe(true)
+    expect(result.validations.V2).toBe(true)
+    expect(result.validations.V3).toBe(true)
+    expect(result.validations.V4).toBe(true)
+    expect(result.validations.V5).toBe(true)
+    expect(result.validations.V6).toBe(true)
+    // V7 falha (PIS+COFINS=5% fora de [9,25% LR / 3,65% LP / 0])
+    expect(result.validations.V7).toBe(false)
+    // CRÍTICO: status NÃO é 'ERROR' — V7 é informacional
+    expect(result.status).toBe('VALID')
+    expect(result.error_code).toBeNull()
+    // Mensagem informativa V7 está presente
+    expect(result.messages.some((m) => m.includes('[INFO-V7]'))).toBe(true)
+  })
 })
 
 describe('V5-002 — GT-7 Não-equivalência ICMS=18% (ADR-008)', () => {
