@@ -82,9 +82,55 @@ export interface TaxLine {
   amount: number
 }
 
-export type ValidationId = 'V1' | 'V2' | 'V3' | 'V4' | 'V5' | 'V6'
+export type ValidationId = 'V1' | 'V2' | 'V3' | 'V4' | 'V5' | 'V6' | 'V7'
 
 export type ValidationMap = Record<ValidationId, boolean>
+
+/**
+ * Perspectiva PIS/COFINS (Story MRM-V5-002 + ADR-008).
+ *
+ *   - CONSTRUCAO: alíquota agregada usada no markup divisor da precificação
+ *     original (módulo de formação de preço). Excel: 7,6775% para regime LR
+ *     não-cumulativo com ICMS=17% (= 9,25% × 0,83 via identidade STF).
+ *
+ *   - APURACAO: alíquota agregada aplicada sobre base reduzida (`Âncora − ICMS − ISS`)
+ *     pelo motor RR na Etapa 5. Excel: 9,25% para regime LR não-cumulativo (célula H43).
+ *
+ * Identidade matemática: `apuracao × (1 − icms_pct) = construcao` quando ISS=0.
+ */
+export type PisCofinsPerspective = 'CONSTRUCAO' | 'APURACAO'
+
+/**
+ * Erro estruturado de invariante fiscal. Story MRM-V5-002 AC6.
+ *
+ * Lançado pelo `mrm-rates-loader` quando a soma agregada PIS+COFINS não está
+ * dentro de nenhuma das faixas conhecidas (7,6775% construção ou 9,25% apuração)
+ * para o regime LR. Motor consome via `messages`/`error_code` — não derruba a app.
+ */
+export class MrmInvariantError extends Error {
+  public readonly code: string
+  public readonly actual: number
+  public readonly expected: string
+  public readonly perspective: PisCofinsPerspective | null
+
+  constructor(args: {
+    code: string
+    actual: number
+    expected: string
+    perspective: PisCofinsPerspective | null
+    message?: string
+  }) {
+    super(
+      args.message ??
+        `[MRM Invariant] ${args.code}: actual=${args.actual}, expected=${args.expected}, perspective=${args.perspective ?? 'NONE'}`,
+    )
+    this.name = 'MrmInvariantError'
+    this.code = args.code
+    this.actual = args.actual
+    this.expected = args.expected
+    this.perspective = args.perspective
+  }
+}
 
 /**
  * Memória cascata — 13 etapas obrigatórias conforme PDF Motor RR Seção 10.
@@ -206,6 +252,23 @@ export interface TaxBreakdown {
    * Story MRM-V5-001 AC4.
    */
   cascade_trace?: CascadeStep[] | null
+
+  /**
+   * Base canônica dos tributos por fora (R$). Excel cenário canônico ≈ R$ 120.020,65.
+   *
+   * Fórmula: `ancora_interna − Σ(ICMS_amount + PIS_amount + COFINS_amount)`.
+   *
+   * Identidade matemática (Excel H62 ≡ Âncora_Interna quando RRO é 100% redistribuído):
+   *   H65 (IBS final) = (H62 − H43 − H41) × IBS_rate
+   *                  ≡ (Âncora − ICMS − PIS/COFINS) × IBS_rate
+   *
+   * ISS NÃO entra na base canônica (não aparece na planilha; ICMS e PIS/COFINS
+   * são os tributos isolados pela LC 214/2025). Quando há ISS, permanece em
+   * `taxes_inside` mas a base por fora é `Âncora − ICMS − PIS/COFINS`.
+   *
+   * Story MRM-V5-002 AC1+AC2.
+   */
+  taxes_outside_base?: number | null
 
   new_commission: number
   new_profit: number

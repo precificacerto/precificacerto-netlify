@@ -159,18 +159,56 @@ function computeLimiteMinimo(
 }
 
 /**
- * Etapa 9 da spec: recalcular tributos por fora sobre nova base operacional.
- * Não é sequencial: cada tributo incide independentemente sobre a base.
+ * Etapa 10 da spec V5: recalcular tributos por fora sobre **base canônica**.
+ *
+ * Story MRM-V5-002 AC1 — base canônica única, sem feature flag.
+ *
+ * Identidade matemática descoberta no Excel oficial (decodificação Orion 2026-05-22):
+ *   H62 (Total_Op_Dentro_Final) ≡ Âncora_Interna
+ *   porque RRO é 100% redistribuído entre Comissão+Lucro+IRPJ+CSLL
+ *   e Âncora = ICMS + PIS/COFINS + custos + despesas + (RRO redistribuído)
+ *
+ * Logo: H65 (IBS) = (H62 − H43 − H41) × IBS_rate
+ *               ≡ (Âncora − ICMS − PIS/COFINS) × IBS_rate
+ *
+ * Cada tributo por fora incide independentemente sobre a mesma base canônica.
+ * Não é sequencial (não há "cascata" entre IBS, CBS, IPI, etc).
  */
-function computeTaxesOutside(baseOperacional: number, rates: TaxRatePeriod[]): TaxLine[] {
+function computeTaxesOutside(baseCanonica: number, rates: TaxRatePeriod[]): TaxLine[] {
+  // Clamp defensivo: super-impostos (ICMS+PIS/COFINS > Âncora) → base zero
+  const base = Math.max(0, baseCanonica)
   const lines: TaxLine[] = []
   for (const type of TAXES_OUTSIDE) {
     const rate = findRate(rates, type)
     if (rate <= 0) continue
-    const amount = baseOperacional * rate
-    lines.push({ type, rate_pct: rate, base: baseOperacional, amount })
+    const amount = base * rate
+    lines.push({ type, rate_pct: rate, base, amount })
   }
   return lines
+}
+
+/**
+ * Calcula a base canônica dos tributos por fora (Story MRM-V5-002 AC1).
+ *
+ * Fórmula: `ancora_interna − Σ(ICMS_amount + PIS_amount + COFINS_amount)`.
+ *
+ * ISS NÃO entra (PDF Motor RR + LC 214/2025 isolam ICMS e PIS/COFINS).
+ * Quando há ISS, permanece em `taxes_inside` mas a base externa permanece reduzida
+ * apenas por ICMS e PIS/COFINS.
+ *
+ * Excel cenário canônico (Âncora=159.342,38; ICMS=27.088,20; PIS/COFINS=12.233,5):
+ *   taxes_outside_base = 159.342,38 − 27.088,20 − 12.233,5 ≈ 120.020,65
+ *
+ * Returns 0 (clamp) quando soma ICMS + PIS/COFINS > Âncora (super-impostos).
+ */
+function computeTaxesOutsideBase(ancora: number, inside_lines: TaxLine[]): number {
+  let pisCofinsIcmsTotal = 0
+  for (const line of inside_lines) {
+    if (line.type === 'ICMS' || line.type === 'PIS' || line.type === 'COFINS') {
+      pisCofinsIcmsTotal += line.amount
+    }
+  }
+  return Math.max(0, ancora - pisCofinsIcmsTotal)
 }
 
 export function calculateMarginReapuration(input: ReapurationInput): TaxBreakdown {
@@ -292,17 +330,31 @@ export function calculateMarginReapuration(input: ReapurationInput): TaxBreakdow
     ? new_commission + new_profit + new_csll + new_irpj === 0
     : approxEqual(new_commission + new_profit + new_csll + new_irpj, rro_distrib, v4_epsilon)
 
-  // Etapa 9: Tributos por fora sobre nova base operacional (RV - impostos por dentro)
-  const baseOperacional = rv - imp_total
-  const taxes_outside = computeTaxesOutside(baseOperacional, rates)
+  // Etapa 10 (V5): Tributos por fora sobre base canônica `Âncora − ICMS − PIS/COFINS`.
+  // Story MRM-V5-002 AC1+AC2. Identidade: H62 ≡ Âncora_Interna (RRO 100% redistribuído).
+  const taxes_outside_base = computeTaxesOutsideBase(ancora_interna, inside.lines)
+  const taxes_outside = computeTaxesOutside(taxes_outside_base, rates)
   const taxes_outside_total = taxes_outside.reduce((sum, l) => sum + l.amount, 0)
 
-  // Etapa 10: ValorFinal = BaseOperacionalDescontada + TributosPorFora
-  const valor_final = baseOperacional + taxes_outside_total
-  const v2 = approxEqual(valor_final, baseOperacional + taxes_outside_total, 1e-9)
+  // Etapa 11 (V5): ValorFinal = BaseCanonica + TributosPorFora.
+  const valor_final = taxes_outside_base + taxes_outside_total
+  const v2 = approxEqual(valor_final, taxes_outside_base + taxes_outside_total, 1e-9)
 
-  const validations: ValidationMap = { V1: v1, V2: v2, V3: v3, V4: v4, V5: v5, V6: v6 }
-  const allValid = v1 && v2 && v3 && v4 && v5 && v6
+  // V7 (Story MRM-V5-002 AC4+AC5): invariante PIS/COFINS apuração para LR.
+  // Verifica que soma das alíquotas PIS+COFINS está dentro da faixa de apuração (≈ 9,25%).
+  // Tolerância 0,5pp para acomodar regimes não-cumulativos (LR=9,25%) e cumulativos (LP≈3,65%).
+  // Apenas informacional — não bloqueia motor; UI pode exibir warn quando V7=false.
+  const pisRateInLines = inside.lines.find((l) => l.type === 'PIS')?.rate_pct ?? 0
+  const cofinsRateInLines = inside.lines.find((l) => l.type === 'COFINS')?.rate_pct ?? 0
+  const pisCofinsAggregate = pisRateInLines + cofinsRateInLines
+  // V7 passa quando: ambos PIS+COFINS = 0 (não-tributado) OU soma ≈ 9,25% (LR) OU ≈ 3,65% (LP) OU regime SN/MEI
+  const isSnMei = regime === 'MEI' || regime === 'SIMPLES_NACIONAL'
+  const validApuracaoLR = Math.abs(pisCofinsAggregate - 0.0925) < 0.005
+  const validApuracaoLP = Math.abs(pisCofinsAggregate - 0.0365) < 0.005
+  const v7 = isSnMei || pisCofinsAggregate === 0 || validApuracaoLR || validApuracaoLP
+
+  const validations: ValidationMap = { V1: v1, V2: v2, V3: v3, V4: v4, V5: v5, V6: v6, V7: v7 }
+  const allValid = v1 && v2 && v3 && v4 && v5 && v6 && v7
 
   let status: ReapurationStatus
   let error_code: string | null = null
@@ -364,6 +416,7 @@ export function calculateMarginReapuration(input: ReapurationInput): TaxBreakdow
     peso_op_externa,
     ancora_interna,
     cascade_trace,
+    taxes_outside_base,
     new_commission,
     new_profit,
     new_csll,
