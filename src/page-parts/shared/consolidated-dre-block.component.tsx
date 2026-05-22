@@ -32,6 +32,7 @@ import React from 'react'
 import { formatBRL } from '@/utils/formatters'
 import type { DRESection } from '@/utils/consolidated-dre'
 import { formatResidualLine } from '@/utils/residual-distribution'
+import type { CascadeStep } from '@/types/mrm'
 
 function formatPct(pct: number, fractionDigits = 3): string {
   return pct.toLocaleString('pt-BR', {
@@ -77,6 +78,81 @@ function Divider() {
 
 // ─────────────── Componente principal ───────────────
 
+// ─────────────── Cascata 13 etapas (Story MRM-V5-005 AC1+AC2) ───────────────
+
+function CascadeExpander({ trace }: { trace: CascadeStep[] }) {
+  if (trace.length === 0) return null
+
+  return (
+    <details
+      style={{
+        marginTop: 12,
+        padding: '8px 12px',
+        background: 'rgba(99,102,241,0.06)',
+        border: '1px solid rgba(99,102,241,0.20)',
+        borderRadius: 6,
+      }}
+    >
+      <summary
+        style={{
+          cursor: 'pointer',
+          fontSize: 11,
+          fontWeight: 700,
+          color: '#a5b4fc',
+          textTransform: 'uppercase',
+          letterSpacing: 1,
+          padding: '4px 0',
+        }}
+        aria-label="Expandir memória cascata de 13 etapas"
+      >
+        📋 Memória cascata (13 etapas — PDF Motor RR Seção 10)
+      </summary>
+      <div
+        style={{
+          marginTop: 8,
+          display: 'grid',
+          gridTemplateColumns: 'auto 1fr auto auto auto',
+          gap: '4px 12px',
+          fontSize: 11,
+          color: '#94a3b8',
+        }}
+      >
+        <div style={{ fontWeight: 700, color: '#c7d2fe' }}>#</div>
+        <div style={{ fontWeight: 700, color: '#c7d2fe' }}>Etapa</div>
+        <div style={{ fontWeight: 700, color: '#c7d2fe', textAlign: 'right' }}>Base (R$)</div>
+        <div style={{ fontWeight: 700, color: '#c7d2fe', textAlign: 'right' }}>Alíquota</div>
+        <div style={{ fontWeight: 700, color: '#c7d2fe', textAlign: 'right' }}>Valor (R$)</div>
+        {trace.map((step) => (
+          <React.Fragment key={step.step}>
+            <div style={{ fontVariantNumeric: 'tabular-nums' }}>{step.step}</div>
+            <div title={step.formula}>{step.label}</div>
+            <div style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+              {step.base != null ? formatBRL(step.base) : '—'}
+            </div>
+            <div style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+              {step.rate != null
+                ? `${(step.rate * 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}%`
+                : '—'}
+            </div>
+            <div
+              style={{
+                textAlign: 'right',
+                fontVariantNumeric: 'tabular-nums',
+                color: step.amount < 0 ? '#fca5a5' : '#cbd5e1',
+              }}
+            >
+              {formatBRL(step.amount)}
+            </div>
+          </React.Fragment>
+        ))}
+      </div>
+      <div style={{ fontSize: 10, color: '#64748b', marginTop: 8, fontStyle: 'italic' }}>
+        Referência: PDF Motor RR Seção 10 + Excel oficial (`Motor de descontos do resultado residual operacional.xlsx`).
+      </div>
+    </details>
+  )
+}
+
 export interface ConsolidatedDREBlockProps {
   dre: DRESection
   /** Espaçamento superior em px (default: 8). */
@@ -86,12 +162,30 @@ export interface ConsolidatedDREBlockProps {
    * está dentro de um modal/popup que já tem cabeçalho).
    */
   hideTitle?: boolean
+  /**
+   * Story MRM-V5-005 AC1+AC2: memória cascata 13 etapas (PDF Motor RR Seção 10).
+   * Quando presente, renderiza expansível inline (default fechado) com os 13 itens.
+   * Default `null` → não renderiza (retrocompat com chamadas existentes).
+   */
+  cascadeTrace?: CascadeStep[] | null
+  /**
+   * Story MRM-V5-005 AC3: "Peso Op Interna" como linha direta (não dentro do collapse).
+   * Decimal 0..1, exibido com 4 casas (e.g. 93,1585%).
+   */
+  pesoOpInterna?: number | null
+  /**
+   * Story MRM-V5-005 AC3: "Âncora Interna" como linha direta (R$).
+   */
+  ancoraInterna?: number | null
 }
 
 export function ConsolidatedDREBlock({
   dre,
   marginTop = 8,
   hideTitle = false,
+  cascadeTrace = null,
+  pesoOpInterna = null,
+  ancoraInterna = null,
 }: ConsolidatedDREBlockProps) {
   const {
     receitas,
@@ -264,6 +358,31 @@ export function ConsolidatedDREBlock({
           {formatPct(rro.effectivePct)}% s/ receita
         </div>
       </div>
+
+      {/* Story MRM-V5-005 AC3: Peso/Âncora visíveis (acima do collapse) */}
+      {(pesoOpInterna != null || ancoraInterna != null) && (
+        <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px dashed rgba(99,102,241,0.20)' }}>
+          {pesoOpInterna != null && (
+            <Row
+              label="Peso Operação Interna"
+              value={`${(pesoOpInterna * 100).toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}%`}
+              color="#c4b5fd"
+              hint="Propriedade do produto (markup divisor). Excel célula I21."
+            />
+          )}
+          {ancoraInterna != null && (
+            <Row
+              label="Âncora Interna (PÓS desconto)"
+              value={formatBRL(ancoraInterna)}
+              color="#c4b5fd"
+              hint="Base operacional reapurada = RV × Peso Op Interna. Excel célula H36."
+            />
+          )}
+        </div>
+      )}
+
+      {/* Story MRM-V5-005 AC1+AC2: Cascata 13 etapas (expansível, default fechado) */}
+      {cascadeTrace && cascadeTrace.length === 13 && <CascadeExpander trace={cascadeTrace} />}
 
       <div style={{ fontSize: 11, color: '#64748b', marginTop: 10, fontStyle: 'italic' }}>
         Esta DRE consolida os RRs individuais já calculados por cada produto/serviço.

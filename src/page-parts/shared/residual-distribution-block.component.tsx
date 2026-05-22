@@ -60,6 +60,22 @@ export interface ResidualDistributionBlockProps {
    *   "Configure despesas operacionais em Configurações → Estrutura."
    */
   configWarning?: string | null
+  /**
+   * Story MRM-V5-005 AC4 — banner de guard MEI/SN.
+   *
+   * Quando regime ∈ {MEI, SIMPLES_NACIONAL} E (csll_pct > 0 OU irpj_pct > 0)
+   * configurados em tenant_settings, exibir banner inline.
+   *
+   * Exemplo: { regime: 'MEI', attempted_csll: 0.0207, attempted_irpj: 0.0345 }
+   *
+   * Quando null/undefined, banner não aparece. Caller (page que monta o bloco)
+   * é responsável por compor o objeto baseado em tenant_settings.
+   */
+  regimeGuardActive?: {
+    regime: 'MEI' | 'SIMPLES_NACIONAL'
+    attempted_csll: number
+    attempted_irpj: number
+  } | null
 }
 
 /**
@@ -72,6 +88,7 @@ export function ResidualDistributionBlock({
   hideFooterNote = false,
   marginTop = 8,
   configWarning = null,
+  regimeGuardActive = null,
 }: ResidualDistributionBlockProps) {
   const { commission, profit, irpj, csll, hasDiscount, hidesProfitTaxes, requiresReview } = distribution
 
@@ -120,6 +137,35 @@ export function ResidualDistributionBlock({
         }}>
           <span style={{ fontSize: 13 }}>⚠</span>
           <span>{configWarning}</span>
+        </div>
+      )}
+      {/* Story MRM-V5-005 AC4+AC6 — Banner guard MEI/SN (role="alert" para a11y) */}
+      {regimeGuardActive && (regimeGuardActive.attempted_csll > 0 || regimeGuardActive.attempted_irpj > 0) && (
+        <div
+          role="alert"
+          style={{
+            fontSize: 11,
+            color: '#fde68a',
+            background: 'rgba(234,179,8,0.10)',
+            border: '1px solid rgba(234,179,8,0.35)',
+            padding: '8px 12px',
+            borderRadius: 6,
+            marginBottom: 8,
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: 8,
+          }}
+        >
+          <span style={{ fontSize: 13 }}>⚠</span>
+          <span>
+            <strong>Guard ativo:</strong> regime{' '}
+            {regimeGuardActive.regime === 'MEI' ? 'MEI' : 'Simples Nacional'} não rateia CSLL/IRPJ.
+            Valores configurados (
+            CSLL {(regimeGuardActive.attempted_csll * 100).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%
+            {' / '}
+            IRPJ {(regimeGuardActive.attempted_irpj * 100).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%
+            ) foram forçados a 0 no cálculo. DAS absorve esses tributos no regime cumulativo.
+          </span>
         </div>
       )}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 8 }}>
