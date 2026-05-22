@@ -1,33 +1,52 @@
 /**
  * Motor de Reapuração de Margem (MRM) — Núcleo (cliente-only, D3).
  *
- * Implementa o fluxo de 11 etapas da spec:
- *   1. Receber RB (Receita Bruta original)
- *   2. RV = RB - DESC
- *   3. Confirmar RV como nova âncora da precificação
- *   4. Reapurar impostos por dentro SEQUENCIALMENTE (ICMS → PIS → COFINS → ISS)
- *   5. Remover custos líquidos (CP)
- *   6. Remover despesas operacionais (DOP) — MOD imune (R6)
- *   7. RRO = RV - IMP - CP - MOD - DOP; se RRO ≤ 0 → status RRO_ZERO/NEGATIVE
- *   8. Redistribuir comissão e lucro PROPORCIONALMENTE sobre RRO (pesos originais)
- *   9. Recalcular tributos POR FORA (IPI, ICMS_ST, DIFAL, FCP, IBS, CBS, ISS_RETIDO)
- *  10. ValorFinal = BaseOperacionalDescontada + TributosPorFora
- *  11. Validar V1-V6
+ * Implementa o fluxo de 13 etapas da spec V5 (PDF Motor RR Seção 10):
+ *   1.  Receber RB (Receita Bruta original)
+ *   2.  Aplicar desconto: RV = RB - DESC
+ *   3.  Confirmar RV como nova receita pós-desconto
+ *   4.  Aplicar Peso Operação Interna (V5): ancora_interna = RV × peso_op_interna
+ *   5.  Reapurar impostos por dentro sobre Âncora (V5 — antes era RV):
+ *         ICMS = Âncora × aliq_ICMS
+ *         ISS  = Âncora × aliq_ISS
+ *         PIS/COFINS = (Âncora − ICMS − ISS) × aliq_PISCOFINS  (V4 / STF)
+ *   6.  Remover custos líquidos (CP)
+ *   7.  Remover despesas operacionais (MOD + DOP) — MOD imune (R6)
+ *   8.  RRO = Âncora − IMP − CP − MOD − DOP; se RRO ≤ 0 → status RRO_ZERO/NEGATIVE
+ *   9.  Redistribuir 4 componentes (Com+Lucro+CSLL+IRPJ) PROPORCIONALMENTE sobre RRO
+ *  10. Recalcular tributos POR FORA (IPI, ICMS_ST, DIFAL, FCP, IBS, CBS, ISS_RETIDO)
+ *      Nota: base canônica `ancora − ICMS − PIS/COFINS` é STORY-002 (fora deste escopo).
+ *      Esta story preserva base V4 (`rv - imp_total`) para retrocompat.
+ *  11. ValorFinal = BaseOperacional + TributosPorFora
+ *  12. Materializar cascade_trace (13 etapas — Story MRM-V5-001 AC4)
+ *  13. Validar V1-V6
+ *
+ * Versão V5 (Story MRM-V5-001):
+ *   - Recebe `input.peso_op_interna` (default 1 — comportamento V4 equivalente).
+ *   - Calcula `ancora_interna = rv × peso_op_interna` (PÓS desconto, Excel H36).
+ *   - Impostos por dentro reapurados sobre Âncora (não mais sobre RV).
+ *   - Quando peso=1, Âncora ≡ RV → comportamento numérico idêntico ao V4.
  *
  * Validações:
  *   V1: RRO ≥ 0
  *   V2: ValorFinal = Base + Tributos (consistência fiscal)
- *   V3: PesoComissao + PesoLucro = 1
- *   V4: NovaComissao + NovoLucro = RRO
+ *   V3: PesoComissao + PesoLucro + PesoCSLL + PesoIRPJ = 1
+ *   V4: NovaComissao + NovoLucro + NovoCSLL + NovoIRPJ = RRO
  *   V5: RV < RB (quando desconto > 0)
- *   V6: IMP calculado sobre RV (não RB)
+ *   V6: IMP calculado sobre Âncora (não RB)
  *
  * Diretrizes:
  *   R5: Quando RRO ≤ 0, motor retorna status mas NÃO altera valores — UI orienta usuário.
  *   R6: MOD (mão de obra direta) imune sem exceções.
  *
- * Esta é uma FUNÇÃO PURA. Não faz I/O. Alíquotas devem ser passadas via input.rates
- * (caller é responsável por buscar de /api/tax-periods quando use_snapshot_rates=false).
+ * Esta é uma FUNÇÃO PURA. Não faz I/O. Não calcula markup divisor (responsabilidade
+ * do orchestrator — ADR-004). Alíquotas e peso_op_interna são passados via input.
+ *
+ * Refs:
+ *   - PDF Motor RR Seção 10 (memória cascata 13 etapas)
+ *   - PRD v1.1 STORY-MRM-V5-001 (docs/prd/EPIC-MRM-V5-AJUSTES.md)
+ *   - ARCH v2.0 §1.L1, §1.L2, §1.L3 (docs/architecture/ARCH-EPIC-MRM-V5.md)
+ *   - Excel canônico: células H35 (RV), H36 (Âncora), H41 (ICMS), H43 (PIS/COFINS), H54 (RRO)
  */
 
 import {
@@ -35,6 +54,7 @@ import {
   MRM_ERROR_RRO_NON_POSITIVE,
   TAXES_INSIDE,
   TAXES_OUTSIDE,
+  type CascadeStep,
   type ReapurationInput,
   type ReapurationStatus,
   type TaxBreakdown,
@@ -56,46 +76,49 @@ function findRate(rates: TaxRatePeriod[], type: TaxType): number {
 }
 
 /**
- * Etapa 4 da spec: reapurar impostos por dentro (motor RR V4).
+ * Etapa 5 da spec: reapurar impostos por dentro (motor RR V5).
  *
- * Convenção V4 (motor_rro_v4.html, 22/05/2026) — confirmada pelo usuário Q1=A:
- *   - ICMS = RV × aliq_ICMS
- *   - ISS  = RV × aliq_ISS
- *   - PIS/COFINS = (RV − ValorICMS − ValorISS) × aliq_PISCOFINS
+ * Convenção V5 (Story MRM-V5-001) — base é a Âncora Interna (PÓS desconto):
+ *   - ICMS = Âncora × aliq_ICMS
+ *   - ISS  = Âncora × aliq_ISS
+ *   - PIS/COFINS = (Âncora − ValorICMS − ValorISS) × aliq_PISCOFINS  (V4 / STF)
  *
- * Esta interpretação está alinhada com a jurisprudência (STF RE 574.706,
- * mar/2017, efetiva 2021): ICMS e ISS NÃO compõem a base do PIS/COFINS.
+ * Mudança vs V4: base agora é `ancora_interna` (= rv × peso_op_interna), não `rv` direto.
+ * Quando `peso_op_interna = 1` (default), Âncora ≡ RV → comportamento numérico
+ * idêntico ao V4. Quando peso < 1, impostos por dentro reduzem proporcionalmente
+ * (refletindo que parte da venda é op externa — IBS/CBS/IPI/etc).
  *
- * Substitui a interpretação anterior (todos sobre RV) que era baseada no
- * exemplo numérico do PDF Claude/GPT — o V4 corrige a fórmula para refletir
- * a realidade tributária e a especificação executável (HTML).
+ * Excel canônico (cenário RB=190.055,94, desc=10%, peso=0,931585):
+ *   Âncora = 159.342,38 (H36)
+ *   ICMS   = 159.342,38 × 17%  = R$ 27.088,20 (H41)
+ *   PIS/COFINS = (159.342,38 − 27.088,20) × 7,6775% = R$ 10.155,82 (V4 fórmula)
  *
- * Ordem da iteração TAXES_INSIDE: ['ICMS', 'PIS', 'COFINS', 'ISS']
- *   - ICMS é calculado primeiro (sobre RV)
- *   - ISS é calculado sobre RV (não depende de outros)
- *   - PIS e COFINS são calculados sobre (RV − ValorICMS − ValorISS)
+ * Nota STORY-002.AC5/ADR-008: a fórmula PIS/COFINS apuração `(Âncora − ICMS) × 9,25%`
+ * é introduzida em STORY-002 (fora deste escopo). Esta story preserva V4 (7,6775%).
  *
- * Quando PIS e COFINS estão separados (alíquotas distintas), ambos usam
- * a MESMA base reduzida — cada um com sua alíquota própria.
+ * Jurisprudência preservada (STF RE 574.706): ICMS e ISS NÃO compõem base do PIS/COFINS.
  */
-function computeTaxesInside(rv: number, rates: TaxRatePeriod[]): { lines: TaxLine[]; total: number } {
+function computeTaxesInside(
+  ancora: number,
+  rates: TaxRatePeriod[],
+): { lines: TaxLine[]; total: number } {
   const lines: TaxLine[] = []
 
-  // 1) ICMS e ISS sobre RV (sempre)
+  // 1) ICMS e ISS sobre Âncora (V5)
   const icmsRate = findRate(rates, 'ICMS')
   const issRate = findRate(rates, 'ISS')
-  const icmsAmount = icmsRate > 0 ? rv * icmsRate : 0
-  const issAmount = issRate > 0 ? rv * issRate : 0
+  const icmsAmount = icmsRate > 0 ? ancora * icmsRate : 0
+  const issAmount = issRate > 0 ? ancora * issRate : 0
 
   if (icmsRate > 0) {
-    lines.push({ type: 'ICMS', rate_pct: icmsRate, base: rv, amount: icmsAmount })
+    lines.push({ type: 'ICMS', rate_pct: icmsRate, base: ancora, amount: icmsAmount })
   }
   if (issRate > 0) {
-    lines.push({ type: 'ISS', rate_pct: issRate, base: rv, amount: issAmount })
+    lines.push({ type: 'ISS', rate_pct: issRate, base: ancora, amount: issAmount })
   }
 
-  // 2) PIS e COFINS sobre base reduzida = RV − ICMS − ISS (V4 / STF)
-  const baseReduzida = rv - icmsAmount - issAmount
+  // 2) PIS e COFINS sobre base reduzida = Âncora − ICMS − ISS (V4 / STF)
+  const baseReduzida = ancora - icmsAmount - issAmount
   const pisRate = findRate(rates, 'PIS')
   const cofinsRate = findRate(rates, 'COFINS')
 
@@ -163,6 +186,7 @@ export function calculateMarginReapuration(input: ReapurationInput): TaxBreakdow
     profit_pct,
     csll_pct,
     irpj_pct,
+    peso_op_interna: peso_input,
     effective_date,
     use_snapshot_rates,
   } = input
@@ -186,18 +210,29 @@ export function calculateMarginReapuration(input: ReapurationInput): TaxBreakdow
     })
   }
 
-  // Etapa 2: RV
+  // Etapa 2-3: RV pós-desconto
   const rv = rb - desc_value
 
-  // Etapa 4: Impostos por dentro (cada um sobre RV — sem subtração sequencial)
-  const inside = computeTaxesInside(rv, rates)
+  // Etapa 4 (V5 NOVO): aplicar Peso Operação Interna sobre RV → Âncora Interna
+  // Story MRM-V5-001 AC2 + AC3 + AC9. Default = 1 (comportamento V4 equivalente).
+  // Peso vem do orchestrator (3 fontes: snapshot → markup divisor → default 1).
+  // Clamp em [0, 1] para defender contra inputs inválidos sem alterar pureza do motor.
+  const peso_op_interna = Math.max(0, Math.min(1, peso_input ?? 1))
+  const peso_op_externa = 1 - peso_op_interna
+  const ancora_interna = rv * peso_op_interna
+
+  // Etapa 5 (V5): impostos por dentro reapurados sobre Âncora (não mais RV).
+  // Quando peso=1, ancora=rv → comportamento numérico idêntico ao V4.
+  const inside = computeTaxesInside(ancora_interna, rates)
   const imp_total = inside.total
 
   // Limite mínimo operacional (Seção 4.5) — para orientar UI quando RRO ≤ 0
   const limite_minimo = computeLimiteMinimo(cp, mod, dop, rates)
 
-  // Etapa 7: RRO (R6: MOD imune — subtraído junto com CP/DOP, nunca alterado)
-  const rro = rv - imp_total - cp - mod - dop
+  // Etapas 6-8 (V5): RRO = Âncora − IMP − CP − MOD − DOP
+  // R6: MOD imune — subtraído junto com CP/DOP, nunca alterado.
+  // Quando peso=1, ancora=rv → RRO equivalente ao V4.
+  const rro = ancora_interna - imp_total - cp - mod - dop
 
   // Validações
   // V1 (Tabela 25 da spec): RRO > 0 estrito. RRO = 0 também bloqueia ("Se RRO < 0 ou RRO = 0: bloquear").
@@ -288,6 +323,27 @@ export function calculateMarginReapuration(input: ReapurationInput): TaxBreakdow
     status = 'VALID'
   }
 
+  // Etapa 12 (V5): materializar memória cascata 13 etapas (PDF Motor RR Seção 10).
+  // Story MRM-V5-001 AC4. Trace é "human-readable" do que o motor já computou —
+  // não recalcula valores, apenas etiqueta e ordena para exibição/auditoria.
+  const cascade_trace = buildCascadeTrace({
+    rb,
+    desc_value,
+    rv,
+    peso_op_interna,
+    ancora_interna,
+    inside_lines: inside.lines,
+    cp,
+    mod,
+    dop,
+    rro,
+    new_commission,
+    new_profit,
+    new_csll,
+    new_irpj,
+    taxes_outside,
+  })
+
   return {
     engine_version: MRM_ENGINE_VERSION,
     effective_date,
@@ -304,6 +360,10 @@ export function calculateMarginReapuration(input: ReapurationInput): TaxBreakdow
     imp_total,
     rro,
     limite_minimo,
+    peso_op_interna,
+    peso_op_externa,
+    ancora_interna,
+    cascade_trace,
     new_commission,
     new_profit,
     new_csll,
@@ -314,6 +374,167 @@ export function calculateMarginReapuration(input: ReapurationInput): TaxBreakdow
     error_code,
     messages,
   }
+}
+
+/**
+ * Constrói memória cascata 13 etapas conforme PDF Motor RR Seção 10.
+ *
+ * Ordem fixa, mesmo quando uma etapa tem amount=0 (e.g. ISS=0 em produto):
+ * o step é registrado com value=0 e formula='N/A' — preserva ordem.
+ *
+ * Story MRM-V5-001 AC4.
+ */
+function buildCascadeTrace(args: {
+  rb: number
+  desc_value: number
+  rv: number
+  peso_op_interna: number
+  ancora_interna: number
+  inside_lines: TaxLine[]
+  cp: number
+  mod: number
+  dop: number
+  rro: number
+  new_commission: number
+  new_profit: number
+  new_csll: number
+  new_irpj: number
+  taxes_outside: TaxLine[]
+}): CascadeStep[] {
+  const findInside = (type: TaxType): TaxLine | undefined =>
+    args.inside_lines.find((l) => l.type === type)
+
+  const icmsLine = findInside('ICMS')
+  const issLine = findInside('ISS')
+  const pisLine = findInside('PIS')
+  const cofinsLine = findInside('COFINS')
+  const pisCofinsAmount = (pisLine?.amount ?? 0) + (cofinsLine?.amount ?? 0)
+  const pisCofinsRate = (pisLine?.rate_pct ?? 0) + (cofinsLine?.rate_pct ?? 0)
+  const pisCofinsBase = pisLine?.base ?? cofinsLine?.base ?? null
+
+  const despesas_total = args.mod + args.dop
+  const rateio_total = args.new_commission + args.new_profit + args.new_csll + args.new_irpj
+  const taxes_outside_total = args.taxes_outside.reduce((sum, l) => sum + l.amount, 0)
+
+  return [
+    {
+      step: 1,
+      label: 'Receita Bruta',
+      base: null,
+      rate: null,
+      amount: args.rb,
+      formula: 'RB (input)',
+      source: 'INPUT',
+    },
+    {
+      step: 2,
+      label: 'Desconto aplicado',
+      base: args.rb,
+      rate: args.rb > 0 ? args.desc_value / args.rb : null,
+      amount: -args.desc_value,
+      formula: 'RB × desconto%',
+      source: 'INPUT',
+    },
+    {
+      step: 3,
+      label: 'Receita pós-desconto (RV)',
+      base: null,
+      rate: null,
+      amount: args.rv,
+      formula: 'RB − Desconto',
+      source: 'ETAPA_2',
+    },
+    {
+      step: 4,
+      label: 'Aplicação do Peso Operação Interna',
+      base: args.rv,
+      rate: args.peso_op_interna,
+      amount: args.ancora_interna,
+      formula: 'RV × peso_op_interna',
+      source: 'ETAPA_3+PRODUTO',
+    },
+    {
+      step: 5,
+      label: 'Âncora Interna',
+      base: null,
+      rate: null,
+      amount: args.ancora_interna,
+      formula: 'RV × peso_op_interna',
+      source: 'ETAPA_4',
+    },
+    {
+      step: 6,
+      label: 'Reapuração ICMS',
+      base: icmsLine?.base ?? args.ancora_interna,
+      rate: icmsLine?.rate_pct ?? null,
+      amount: icmsLine ? -icmsLine.amount : 0,
+      formula: icmsLine ? 'Âncora × ICMS%' : 'N/A',
+      source: 'ETAPA_5',
+    },
+    {
+      step: 7,
+      label: 'Reapuração ISS',
+      base: issLine?.base ?? args.ancora_interna,
+      rate: issLine?.rate_pct ?? null,
+      amount: issLine ? -issLine.amount : 0,
+      formula: issLine ? 'Âncora × ISS%' : 'N/A',
+      source: 'ETAPA_5',
+    },
+    {
+      step: 8,
+      label: 'Reapuração PIS/COFINS',
+      base: pisCofinsBase,
+      rate: pisCofinsRate > 0 ? pisCofinsRate : null,
+      amount: -pisCofinsAmount,
+      formula: pisCofinsAmount > 0 ? '(Âncora − ICMS − ISS) × PIS/COFINS%' : 'N/A',
+      source: 'ETAPA_5',
+    },
+    {
+      step: 9,
+      label: 'Redução de custos',
+      base: null,
+      rate: null,
+      amount: -args.cp,
+      formula: 'CP (input)',
+      source: 'INPUT',
+    },
+    {
+      step: 10,
+      label: 'Redução de despesas (MOD + DOP)',
+      base: null,
+      rate: null,
+      amount: -despesas_total,
+      formula: 'MOD + DOP',
+      source: 'INPUT',
+    },
+    {
+      step: 11,
+      label: 'Resultado Residual Operacional (RRO)',
+      base: null,
+      rate: null,
+      amount: args.rro,
+      formula: 'Âncora − IMP − CP − MOD − DOP',
+      source: 'ETAPA_8',
+    },
+    {
+      step: 12,
+      label: 'Redistribuição proporcional (Comissão + Lucro + CSLL + IRPJ)',
+      base: args.rro,
+      rate: null,
+      amount: rateio_total,
+      formula: 'RRO × pesos_componentes',
+      source: 'ETAPA_9',
+    },
+    {
+      step: 13,
+      label: 'Reapuração tributos por fora (recomposição final)',
+      base: args.taxes_outside[0]?.base ?? null,
+      rate: null,
+      amount: taxes_outside_total,
+      formula: taxes_outside_total > 0 ? 'Base × Σ(IBS+CBS+IPI+...)' : 'N/A',
+      source: 'ETAPA_10',
+    },
+  ]
 }
 
 /**

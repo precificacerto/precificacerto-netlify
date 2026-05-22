@@ -624,10 +624,10 @@ describe('EDGES — RRO em limiares', () => {
 })
 
 describe('EDGES — Schema V2.1', () => {
-  it('engine_version reflete V2.1.0', () => {
+  it('engine_version reflete V2.2.0 após bump da Story MRM-V5-001', () => {
     const result = calculateMarginReapuration(makeInput())
     expect(result.engine_version).toBe(MRM_ENGINE_VERSION)
-    expect(result.engine_version).toBe('2.1.0')
+    expect(result.engine_version).toBe('2.2.0')
   })
 
   it('TaxBreakdown contém new_csll e new_irpj sempre (mesmo regime sem rateio)', () => {
