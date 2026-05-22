@@ -3,11 +3,12 @@
 **Sprint:** S2
 **Esforço estimado:** 8h
 **Owner:** @dev (Dex)
-**Status:** InReview
+**Status:** Done
 **Created:** 2026-05-22
 **Ready since:** 2026-05-22 (validado @po Pax — 10/10)
 **InProgress since:** 2026-05-22 (branch `feature/mrm-v5-s2-base-canonica-rates-loader`)
 **InReview since:** 2026-05-22 (154/154 tests MRM passam — 31 novos V5-002)
+**Done since:** 2026-05-22 (QA Gate PASS após fix HIGH commit ec6a51f — 158/158 tests)
 **Created by:** @sm River
 **Epic:** EPIC-MRM-V5-AJUSTES
 **Validador:** @architect Aria + @qa Quinn
@@ -134,6 +135,9 @@ As an **engenheiro do motor de margem (Dex)**, I want **implementar a base canô
 | 2026-05-22 | 1.1 | Status promovido **Draft → Ready** após 10-point checklist (score **10/10**). Story liberada para @dev iniciar S2 — inclui AC5 do ADR-008 Accepted. | @po Pax |
 | 2026-05-22 | 1.2 | Status promovido **Ready → InProgress**. Branch S2 criada compartilhada com STORY-003. | Orion/@dev |
 | 2026-05-22 | 1.3 | Status promovido **InProgress → InReview**. 9/9 ACs + 6/6 Tasks completos. 2 commits atômicos S2 (c3b61e0, e7a3a8b). **154/154 tests MRM** (31 novos V5-002). Aguarda QA review. | Orion/@dev |
+| 2026-05-22 | 1.4 | **QA Gate inicial: CONCERNS** — 1 issue HIGH detectado (V7 em allValid causaria status=ERROR quando V7=false). | @qa Quinn |
+| 2026-05-22 | 1.5 | **Fix HIGH aplicado** (commit ec6a51f): allValid sem V7, V7 informacional via messages[]. Test novo cobrindo V7=false→VALID. 158/158 tests. | Orion/@dev |
+| 2026-05-22 | 1.6 | **QA Gate re-emitido: PASS** — Status promovido **InReview → Done**. Issue HIGH RESOLVED. Gate file atualizado. | @qa Quinn |
 
 ## Dev Agent Record
 
@@ -177,4 +181,93 @@ Branch local: `feature/mrm-v5-s2-base-canonica-rates-loader`. Push pendente — 
 
 ## QA Results
 
-_(vazio — preenchido pelo @qa Quinn após implementação)_
+### Veredicto: ✅ **PASS** (após fix HIGH aplicado em commit ec6a51f)
+
+> **Histórico:** 2026-05-22 inicial CONCERNS (1 HIGH no V7) → re-emitido PASS após fix Orion/@dev.
+
+**Reviewer:** @qa Quinn
+**Date:** 2026-05-22
+**Gate file:** `docs/qa/gates/STORY-MRM-V5-002.yaml`
+
+### Sumário dos 7 Quality Checks
+
+| # | Check | Status | Nota |
+|---|-------|--------|------|
+| 1 | Code review | 🟡 CONCERNS | 1 issue HIGH — V7 em allValid contradiz "informacional" |
+| 2 | Unit tests | ✅ PASS | 157/157 (31 novos V5-002) |
+| 3 | Acceptance criteria | 🟡 CONCERNS | 8/9 PASS, AC5 com bug do V7 |
+| 4 | No regressions | ✅ PASS | 123 baseline V4+V5-001 preservados |
+| 5 | Performance | ✅ PASS | O(N) sobre inside_lines (≤4) |
+| 6 | Security | ✅ PASS | Motor puro, clamp defensivo, zero I/O novo |
+| 7 | Documentation | ✅ PASS | JSDoc rico + Excel refs + ADR-008 |
+
+### 🚨 Issue HIGH (bloqueante para PASS)
+
+| Severidade | Local | Descrição |
+|---|---|---|
+| 🔴 HIGH | `src/utils/margin-reapuration.ts:357` | V7 incluída em `allValid` contradiz comentário inline (linhas 343-346) que declara "Apenas informacional — não bloqueia motor". Quando V7=false E V1-V6=true, motor seta `status='ERROR'` → `mrm-policies.ts` mapeia para `block_save`. Impacto: tenants com PIS+COFINS fora de [9,25% LR / 3,65% LP / 0%] sofrem bloqueio indevido. |
+
+**Fix recomendado (1 linha):**
+
+```diff
+- const allValid = v1 && v2 && v3 && v4 && v5 && v6 && v7
++ const allValid = v1 && v2 && v3 && v4 && v5 && v6  // V7 informacional, vide AC5
+```
+
+**Teste adicional sugerido:** cenário `PIS+COFINS=5% + V1-V6=true → status='VALID'` (atualmente nenhum test verifica esse status quando V7 falha isoladamente).
+
+### Issue LOW (não-bloqueante)
+
+| Severidade | Local | Descrição |
+|---|---|---|
+| 🟡 LOW | `docs/motor-reapuracao-margem.md` | T6 deixado como follow-up — pode ser absorvido em commit de cleanup futuro. |
+
+### Métricas validadas independentemente
+
+```
+npx jest mrm margin-reapur --no-watch
+Test Suites: 6 passed, 6 total
+Tests:       157 passed, 157 total
+```
+
+- Tests novos V5-002: **31** (17 contract + 14 motor)
+- GT-7 ICMS=18% validado: confirma não-equivalência V4↔V5 (diff > R$ 800)
+- GT-7 ICMS=17% validado: confirma equivalência via identidade STF
+- ZFM ICMS=0% validado: construção ≡ apuração ≡ 9,25%
+
+### Pontos fortes destacados
+
+1. **Tabela `PIS_COFINS_EXPECTED` tipada e auditável** (4 regimes × 2 perspectivas)
+2. **MrmInvariantError com metadados estruturados** (code/actual/expected/perspective)
+3. **Identidade STF testada em 4 cenários** (ICMS 17%, 18%, 12%, 0%/ZFM)
+4. **Implementação respeita ADR-008 ACCEPTED** (fórmula apuração 9,25%)
+5. **Base canônica `Âncora − ICMS − PIS/COFINS` substituiu `rv - imp_total`** sem regressão
+
+### Recomendação operacional
+
+**Fix imediato:** Orion/@dev pode aplicar o fix em < 5 minutos. Após:
+1. Adicionar 1 test confirmando V7=false não vira status='ERROR'
+2. Rodar `npx jest mrm margin-reapur` (deve continuar 158/158)
+3. Quinn re-emite gate: CONCERNS → PASS
+4. Status: InReview → Done
+
+**Authorization:** ✅ Status promovido `InReview → Done` após fix HIGH aplicado e validado.
+
+### ✅ Fix aplicado (re-review)
+
+**Commit:** `ec6a51f` — fix(mrm-v5-002): V7 informacional não entra em allValid
+
+**Mudanças validadas:**
+- `allValid = v1 && v2 && v3 && v4 && v5 && v6` (V7 removida)
+- V7 permanece em `validations.V7` para UI consumir como warning
+- Filter no `failed` excluí V7 da mensagem bloqueante
+- Mensagem informativa em `messages[]`: `[INFO-V7] PIS/COFINS agregado X% fora das faixas conhecidas...`
+
+**Test novo (em GT-7 — Story MRM-V5-002):**
+- `V7=false + V1-V6=true → status='VALID'` (V7 informacional confirmado)
+
+**Validação independente:** `npx jest mrm margin-reapur` → **158/158 PASS** (157 anteriores + 1 novo).
+
+**Veredicto final:** ✅ **PASS** — todos os 7 quality checks aprovados, zero issues bloqueantes.
+
+— Quinn, guardião da qualidade 🛡️

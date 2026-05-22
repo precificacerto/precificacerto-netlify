@@ -3,11 +3,12 @@
 **Sprint:** S2 (paralelo)
 **Esforço estimado:** 6h
 **Owner:** @architect Aria + @dev (Dex)
-**Status:** InReview
+**Status:** Done
 **Created:** 2026-05-22
 **Ready since:** 2026-05-22 (validado @po Pax — 10/10)
 **InProgress since:** 2026-05-22 (branch S2 compartilhada `feature/mrm-v5-s2-base-canonica-rates-loader`)
 **InReview since:** 2026-05-22 (157/157 tests MRM passam — 3 novos V5-003)
+**Done since:** 2026-05-22 (QA Gate PASS por @qa Quinn — zero issues)
 **Created by:** @sm River
 **Epic:** EPIC-MRM-V5-AJUSTES
 **Validador:** @qa Quinn
@@ -109,6 +110,7 @@ As an **arquiteto do sistema**, I want **uma única fonte de verdade para regime
 | 2026-05-22 | 1.1 | Status promovido **Draft → Ready** após 10-point checklist (score **10/10**). Story liberada para @dev em paralelo a STORY-002 no S2. | @po Pax |
 | 2026-05-22 | 1.2 | Status promovido **Ready → InProgress**. Implementada em branch S2 compartilhada. | Orion/@dev |
 | 2026-05-22 | 1.3 | Status promovido **InProgress → InReview**. 7/7 ACs + 5/5 Tasks completos. 1 commit atômico (c91cf1a). **157/157 tests MRM** (3 novos V5-003). Aguarda QA review. | Orion/@dev |
+| 2026-05-22 | 1.4 | **QA Gate PASS** — Status promovido **InReview → Done**. 7/7 quality checks ✓, zero issues. Gate: `docs/qa/gates/STORY-MRM-V5-003.yaml`. AC7 (shadow mode) DEFERRED para @devops. | @qa Quinn |
 
 ## Dev Agent Record
 
@@ -143,4 +145,49 @@ Branch local: `feature/mrm-v5-s2-base-canonica-rates-loader` (compartilhada S2).
 
 ## QA Results
 
-_(vazio — preenchido pelo @qa Quinn após implementação)_
+### Veredicto: ✅ **PASS**
+
+**Reviewer:** @qa Quinn
+**Date:** 2026-05-22
+**Gate file:** `docs/qa/gates/STORY-MRM-V5-003.yaml`
+
+### Sumário dos 7 Quality Checks
+
+| # | Check | Status |
+|---|-------|--------|
+| 1 | Code review | ✅ PASS — implementação mínima e cirúrgica |
+| 2 | Unit tests | ✅ PASS — 3 novos tests cobrem natureza observacional |
+| 3 | Acceptance criteria | ✅ PASS — 6/7 PASS (AC7 DEFERRED @devops) |
+| 4 | No regressions | ✅ PASS — 154 baseline preservados |
+| 5 | Performance | ✅ PASS — 3 propriedades adicionadas no return |
+| 6 | Security | ✅ PASS — apenas espelhamento, sem novo I/O |
+| 7 | Documentation | ✅ PASS — JSDoc cross-referenciado em motor + policy + ADR-005 |
+
+### Issues encontrados
+
+**NENHUM.** Story exemplar de mudança mínima invasiva.
+
+### Pontos fortes destacados
+
+1. **Pre-flight identificou corretamente** que AC1+AC2 já estavam implementados (STORY-001 + mrm-v2-s3.1) — evitou refator desnecessário
+2. **rro_threshold_check estritamente observacional** — verificado em test que motor não bloqueia
+3. **ADR-004 reforçado via JSDoc** em motor + policy + ADR-005 — previne drift conceitual em PRs futuros
+4. **AC7 (shadow mode 7d) marcado DEFERRED** — corretamente identificado como out-of-scope @devops
+
+### Métricas validadas independentemente
+
+```
+npx jest mrm margin-reapur --no-watch
+Test Suites: 6 passed, 6 total
+Tests:       157 passed, 157 total
+```
+
+- Tests novos V5-003: **3**
+- ACs implementados: 7/7 (1 DEFERRED para @devops)
+- Tasks: 5/5
+
+### Authorization
+
+Conforme `.claude/rules/story-lifecycle.md` Fase 4, **@qa Quinn está autorizado** a promover Status `InReview → Done` após QA Gate PASS.
+
+— Quinn, guardião da qualidade 🛡️

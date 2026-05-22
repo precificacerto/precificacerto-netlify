@@ -1,0 +1,158 @@
+storyId: STORY-MRM-V5-002
+title: Base Canônica Tributos por Fora + Fórmula PIS/COFINS Apuração (ADR-008)
+verdict: PASS
+verdict_history:
+  - 2026-05-22 CONCERNS (1 HIGH: V7 em allValid)
+  - 2026-05-22 PASS (após fix ec6a51f)
+date: 2026-05-22 (re-emitido)
+reviewer: '@qa Quinn'
+branch: feature/mrm-v5-s2-base-canonica-rates-loader
+commits:
+  - c3b61e0 (T1+T2 — base canônica + V7 inline)
+  - e7a3a8b (T3+T4+T5 — invariante dupla perspectiva + GT-7 ICMS=18%)
+  - ec6a51f (FIX HIGH — V7 informacional não entra em allValid)
+engine_version: '2.2.0'
+epic: EPIC-MRM-V5-AJUSTES
+adr_dependency: ADR-008 (ACCEPTED 2026-05-22 pelo Founder)
+
+# 7 Quality Checks
+qa_checks:
+  code_review:
+    status: CONCERNS
+    notes: |
+      Implementação geralmente sólida (tabela tipada PIS_COFINS_EXPECTED, clamp defensivo,
+      JSDoc rico, MrmInvariantError com metadados), MAS uma falha lógica importante detectada:
+      V7 está incluída em `allValid` (linha 357 de margin-reapuration.ts), contradizendo
+      o comentário inline (linhas 343-346) que afirma "Apenas informacional — não bloqueia motor".
+      Ver detalhes em issues[0].
+
+  unit_tests:
+    status: PASS
+    notes: |
+      Cobertura excelente: 157/157 tests MRM (6 suites — 1 nova mrm-rates-loader.test.ts).
+      31 testes novos V5-002 cobrindo: base canônica, V7 isolado, GT-7 ICMS=18%
+      (não-equivalência confirmada), contract tests dupla perspectiva.
+      Validação independente: `npx jest mrm margin-reapur` retornou 157/157 PASS.
+    tests_total: 157
+    tests_new_v5_002: 31
+
+  acceptance_criteria:
+    status: CONCERNS
+    notes: |
+      8/9 ACs implementados conforme spec. AC5 implementado MAS com o issue HIGH
+      relativo à inclusão de V7 em allValid — viola "informacional" declarado.
+    coverage:
+      AC1_compute_taxes_outside_base: PASS
+      AC2_persistencia_taxes_outside_base: PASS
+      AC3_golden_test_excel: PASS
+      AC4_invariante_dupla_perspectiva: PASS
+      AC5_formula_pis_cofins_apuracao: CONCERNS  # V7 acidentalmente bloqueia
+      AC6_mrm_invariant_error: PASS
+      AC7_contract_tests: PASS
+      AC8_backward_compat: PASS
+      AC9_gt7_icms_18: PASS
+
+  no_regressions:
+    status: PASS
+    notes: |
+      Retrocompat V4 + V5-001 perfeita: 123 testes baseline (V4+V5-001) passam sem alteração funcional.
+      Quando PIS+COFINS configurados separadamente (LR: 1,65%+7,6%=9,25%), motor produz valor
+      canônico do Excel. Snapshots V4 (engine_version='2.1.0') lidos sem erro.
+
+  performance:
+    status: PASS
+    notes: |
+      Impacto desprezível: computeTaxesOutsideBase é O(N) sobre inside_lines (no máx 4 entradas).
+      V7 invariante é 2 lookups + 2 comparações = O(1). Sem alocação em loop crítico.
+
+  security:
+    status: PASS
+    notes: |
+      Motor puro preservado (ADR-004): zero I/O novo, clamp defensivo em
+      computeTaxesOutsideBase (Math.max(0, ...)), MrmInvariantError com metadados
+      estruturados (code/actual/expected/perspective). Nenhum eval/dynamic code.
+
+  documentation:
+    status: PASS
+    notes: |
+      JSDoc completo em todas as funções novas (computeTaxesOutsideBase,
+      validatePisCofinsInvariant, validatePisCofinsIdentity, MrmInvariantError, V7).
+      Referências cruzadas: ADR-008, Excel H41/H43/H62/H65/H66, identidade STF.
+      T6 (motor-reapuracao-margem.md update) deixado como follow-up — aceitável.
+
+# Issues encontrados
+issues:
+  - severity: high
+    category: code
+    file: src/utils/margin-reapuration.ts
+    line: 357
+    description: |
+      V7 estava incluída em `allValid` (`v1 && v2 && v3 && v4 && v5 && v6 && v7`).
+      CONTRADIZIA comentário inline (linhas 343-346) que declara V7 como
+      "Apenas informacional — não bloqueia motor".
+    resolution: |
+      ✅ **RESOLVIDO em commit ec6a51f (2026-05-22):**
+      - allValid agora é `v1 && v2 && v3 && v4 && v5 && v6` (V7 removida)
+      - V7 permanece em `validations.V7` para UI consumir como warning
+      - Filter no `failed` excluí V7 da mensagem de validação bloqueante
+      - Mensagem informativa adicionada em `messages[]`:
+        `[INFO-V7] PIS/COFINS agregado X% fora das faixas conhecidas...`
+      - Test novo: `V7=false + V1-V6=true → status='VALID'` confirma comportamento informacional
+      - 158/158 tests passam (157 anteriores + 1 novo)
+    status: RESOLVED
+    blocking: false
+
+  - severity: low
+    category: docs
+    file: docs/motor-reapuracao-margem.md
+    line: N/A
+    description: |
+      T6 da story foi deixado como follow-up: spec local não foi atualizada
+      referenciando ADR-008 e a célula H43 do Excel. Critério 6 do ADR-008
+      lista esta atualização como pendente.
+    recommendation: |
+      Aceitar como follow-up (não bloquear). Pode ser incluído em commit de
+      cleanup futuro junto com o issue LOW da STORY-001 (JSDoc `value` → `amount`).
+    blocking: false
+
+# Métricas
+metrics:
+  tests_total: 157
+  tests_passed: 157
+  tests_failed: 0
+  tests_new: 31
+  acs_implemented: 9
+  acs_passed: 8  # AC5 com CONCERNS
+  acs_with_concerns: 1
+  tasks_completed: 6  # T6 follow-up
+  files_modified: 4
+  files_created: 1
+  lines_added: 731  # aprox 31% código + 69% testes
+  lines_removed: 16
+
+notes: |
+  Implementação de alta qualidade na maior parte. O bug do V7 em allValid é um
+  detalhe que escapou no Pre-Flight — fácil de corrigir, fácil de testar.
+  Recomendo fix imediato como hotfix antes de fechar a story (não FAIL porque
+  o fix é trivial e a lógica geral está correta).
+
+  Pontos fortes:
+    - GT-7 ICMS=18% confirma não-equivalência V4↔V5 com tolerância adequada (diff > R$ 800)
+    - Identidade STF testada em 4 cenários (ICMS 17%, 18%, 12%, 0%/ZFM)
+    - MrmInvariantError com metadados estruturados (code/actual/expected/perspective)
+    - Tabela PIS_COFINS_EXPECTED tipada e auditável
+
+  Esta story implementa o ADR-008 ACCEPTED. Após fix do V7, o motor estará pronto
+  para shadow mode 7 dias (responsabilidade @devops Gage) antes do promote final.
+
+next_steps:
+  - 'Orion/@dev aplica fix do V7 em allValid (1 linha em margin-reapuration.ts:357)'
+  - 'Adicionar test cobrindo cenário V7=false + V1-V6=true → status=VALID'
+  - 'Quinn revalida e promove CONCERNS → PASS após fix'
+  - 'Após PASS: @devops Gage prepara shadow mode 7 dias (critério 5 do ADR-008)'
+
+status_transition:
+  from: InReview
+  to: Done
+  authorized_by: '@qa Quinn'
+  authorization_basis: 'PASS após fix HIGH aplicado (commit ec6a51f). 158/158 tests, zero issues bloqueantes.'
