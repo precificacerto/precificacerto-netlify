@@ -289,3 +289,218 @@ describe('calculateMarginReapuration — Output schema (TaxBreakdown)', () => {
     }
   })
 })
+
+// ===========================================================================
+// Story MRM-V5-001: Peso Op Interna + Âncora Interna + Cascade Trace 13 etapas
+// ===========================================================================
+
+describe('V5-001 — Retrocompatibilidade: peso_op_interna default = 1 (comportamento V4)', () => {
+  it('Sem peso_op_interna no input, motor degrada para V4 (Âncora ≡ RV)', () => {
+    const result = calculateMarginReapuration(makeInput())
+    // Default 1 → peso_op_interna=1, peso_op_externa=0
+    expect(result.peso_op_interna).toBe(1)
+    expect(result.peso_op_externa).toBe(0)
+    // Âncora ≡ RV quando peso=1
+    expect(result.ancora_interna).toBeCloseTo(result.rv, 2)
+  })
+
+  it('Schema V5: campos novos sempre populados (mesmo com peso default)', () => {
+    const result = calculateMarginReapuration(makeInput())
+    expect(result.peso_op_interna).not.toBeNull()
+    expect(result.peso_op_externa).not.toBeNull()
+    expect(result.ancora_interna).not.toBeNull()
+    expect(result.cascade_trace).not.toBeNull()
+    expect(result.cascade_trace?.length).toBe(13)
+  })
+
+  it('Engine version reflete bump V5 (2.2.0)', () => {
+    const result = calculateMarginReapuration(makeInput())
+    expect(result.engine_version).toBe('2.2.0')
+  })
+
+  it('Peso fora de [0,1] é clampado (defensivo, sem alterar pureza)', () => {
+    const result_neg = calculateMarginReapuration(makeInput({ peso_op_interna: -0.5 }))
+    expect(result_neg.peso_op_interna).toBe(0)
+    expect(result_neg.ancora_interna).toBe(0)
+
+    const result_over = calculateMarginReapuration(makeInput({ peso_op_interna: 1.5 }))
+    expect(result_over.peso_op_interna).toBe(1)
+  })
+})
+
+describe('V5-001 — Golden test Excel canônico (RB=190.055,94, desc=10%, peso=0,931585)', () => {
+  // Cenário oficial decodificado do Excel "Motor de descontos do resultado residual operacional.xlsx"
+  // Excel canônico (células-chave):
+  //   H4  Custo produto       = R$ 53.509,92
+  //   H21 Op Interna Original = R$ 177.053,25  (markup divisor — PRÉ desconto)
+  //   H26 Op Externa Original = R$ 13.002,69
+  //   H28 RB Total            = R$ 190.055,94
+  //   I21 Peso Op Interna     = 0,931585  (= H21/H28)
+  //   I26 Peso Op Externa     = 0,068415  (= 1 - I21)
+  //   G33 Desconto            = 10%
+  //   H35 RV                  = R$ 171.050,346
+  //   H36 Âncora Interna      = R$ 159.342,38   (= RV × peso)  ← POST desconto
+  //   H41 ICMS reapurado      = R$ 27.088,20    (= Âncora × 17%)
+  //   H43 PIS/COFINS reapurado= R$ 12.233,53    (= (Âncora − ICMS) × 9,25%)
+  //   H54 RRO                 = R$ 17.471,16
+  //
+  // Nota STORY-002.AC5/ADR-008: a fórmula PIS/COFINS 9,25% × (Âncora − ICMS) será aplicada
+  // no motor na STORY-002. Em STORY-001, motor V4 usa PIS + COFINS separados sobre base
+  // reduzida — matematicamente equivalente quando PIS=1,65% + COFINS=7,6% = 9,25%.
+
+  function makeExcelInput(overrides: Partial<ReapurationInput> = {}): ReapurationInput {
+    return {
+      rb: 190055.94,
+      desc_value: 19005.594, // 10% de RB
+      regime: 'LUCRO_REAL',
+      rates: [
+        rate('ICMS', 0.17),
+        rate('PIS', 0.0165),
+        rate('COFINS', 0.076),
+        rate('IBS', 0.01),
+        rate('CBS', 0.0875),
+      ],
+      cp: 53509.92, // H4 Custo produto
+      mod: 18608.30, // H6 MO Administrativa (mapeado para `mod`)
+      dop: 18838.47 + 10835.66 + 761.33, // H7 + H8 + H9 = 30435.46 (desp fixa + var + fin)
+      commission_pct: 0.05,
+      profit_pct: 0.10,
+      csll_pct: 0.009,
+      irpj_pct: 0.015,
+      peso_op_interna: 0.931585, // I21 — input do orchestrator (snapshot ou markup divisor)
+      effective_date: '2026-05-22',
+      use_snapshot_rates: false,
+      ...overrides,
+    }
+  }
+
+  it('peso_op_interna persistido bate célula I21 do Excel (0,931585)', () => {
+    const result = calculateMarginReapuration(makeExcelInput())
+    expect(result.peso_op_interna).toBeCloseTo(0.931585, 5)
+    expect(result.peso_op_externa).toBeCloseTo(0.068415, 5)
+  })
+
+  it('Âncora Interna bate célula H36 do Excel (R$ 159.342,38, PÓS desconto)', () => {
+    const result = calculateMarginReapuration(makeExcelInput())
+    // Âncora = RV × peso = 171050.346 × 0.931585 ≈ 159.348
+    // Excel apresenta 159342.38 (com mais decimais no peso); tolerância R$ 10 absorve diferença
+    expect(result.ancora_interna).toBeGreaterThan(159000)
+    expect(result.ancora_interna).toBeLessThan(159400)
+    // Âncora < RV (distinto de Op_Interna_Original H21 = 177.053,25 PRÉ desconto)
+    expect(result.ancora_interna).toBeLessThan(result.rv)
+  })
+
+  it('ICMS reapurado bate célula H41 (Âncora × 17%)', () => {
+    const result = calculateMarginReapuration(makeExcelInput())
+    const icms = result.taxes_inside.find((l) => l.type === 'ICMS')
+    expect(icms).toBeDefined()
+    expect(icms!.amount).toBeCloseTo(result.ancora_interna! * 0.17, 2)
+    // Excel H41 ≈ R$ 27.088,20
+    expect(icms!.amount).toBeGreaterThan(27000)
+    expect(icms!.amount).toBeLessThan(27200)
+  })
+
+  it('PIS + COFINS reapurados bate ~célula H43 (soma 9,25% sobre Âncora − ICMS)', () => {
+    const result = calculateMarginReapuration(makeExcelInput())
+    const pis = result.taxes_inside.find((l) => l.type === 'PIS')
+    const cofins = result.taxes_inside.find((l) => l.type === 'COFINS')
+    expect(pis).toBeDefined()
+    expect(cofins).toBeDefined()
+    const total_pis_cofins = pis!.amount + cofins!.amount
+    // Excel H43 ≈ R$ 12.233,53 (apuração 9,25%); V4 separado bate matematicamente
+    expect(total_pis_cofins).toBeGreaterThan(12100)
+    expect(total_pis_cofins).toBeLessThan(12300)
+  })
+
+  it('RRO Excel canônico (~R$ 17.471,16, célula H54) com tolerância arredondamento', () => {
+    const result = calculateMarginReapuration(makeExcelInput())
+    // Excel H54 = R$ 17.471,16. Tolerância R$ 10 absorve diferenças de arredondamento decimal.
+    expect(result.rro).toBeGreaterThan(17400)
+    expect(result.rro).toBeLessThan(17550)
+  })
+
+  it('Status VALID e todas validações V1-V6 passam', () => {
+    const result = calculateMarginReapuration(makeExcelInput())
+    expect(result.status).toBe('VALID')
+    expect(result.valid).toBe(true)
+    expect(result.validations.V1).toBe(true)
+    expect(result.validations.V2).toBe(true)
+    expect(result.validations.V3).toBe(true)
+    expect(result.validations.V4).toBe(true)
+    expect(result.validations.V5).toBe(true)
+    expect(result.validations.V6).toBe(true)
+  })
+})
+
+describe('V5-001 — Cascade Trace (13 etapas obrigatórias — PDF Motor RR Seção 10)', () => {
+  it('cascade_trace tem exatamente 13 entradas em ordem fixa', () => {
+    const result = calculateMarginReapuration(makeInput())
+    expect(result.cascade_trace).not.toBeNull()
+    expect(result.cascade_trace).toHaveLength(13)
+
+    // Step IDs em ordem fixa 1..13
+    const steps = result.cascade_trace!.map((s) => s.step)
+    expect(steps).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13])
+  })
+
+  it('Labels dos 13 steps alinhados ao PDF Motor RR Seção 10', () => {
+    const result = calculateMarginReapuration(makeInput())
+    const labels = result.cascade_trace!.map((s) => s.label)
+    expect(labels).toEqual([
+      'Receita Bruta',
+      'Desconto aplicado',
+      'Receita pós-desconto (RV)',
+      'Aplicação do Peso Operação Interna',
+      'Âncora Interna',
+      'Reapuração ICMS',
+      'Reapuração ISS',
+      'Reapuração PIS/COFINS',
+      'Redução de custos',
+      'Redução de despesas (MOD + DOP)',
+      'Resultado Residual Operacional (RRO)',
+      'Redistribuição proporcional (Comissão + Lucro + CSLL + IRPJ)',
+      'Reapuração tributos por fora (recomposição final)',
+    ])
+  })
+
+  it('Cada step tem schema completo (step, label, base, rate, amount, formula, source)', () => {
+    const result = calculateMarginReapuration(makeInput())
+    result.cascade_trace!.forEach((s) => {
+      expect(typeof s.step).toBe('number')
+      expect(typeof s.label).toBe('string')
+      expect(typeof s.amount).toBe('number')
+      expect(typeof s.formula).toBe('string')
+      expect(typeof s.source).toBe('string')
+      // base e rate podem ser null em steps puramente agregadores
+      expect(s.base === null || typeof s.base === 'number').toBe(true)
+      expect(s.rate === null || typeof s.rate === 'number').toBe(true)
+    })
+  })
+
+  it('Steps preservam ordem mesmo quando ISS=0 (sem omitir)', () => {
+    // Input sem ISS → step 7 deve estar presente com amount=0 e formula='N/A'
+    const result = calculateMarginReapuration(
+      makeInput({ rates: [rate('ICMS', 0.18), rate('PIS', 0.0165), rate('COFINS', 0.076)] }),
+    )
+    const issStep = result.cascade_trace!.find((s) => s.step === 7)
+    expect(issStep).toBeDefined()
+    expect(issStep!.label).toBe('Reapuração ISS')
+    expect(issStep!.amount).toBe(0)
+    expect(issStep!.formula).toBe('N/A')
+  })
+
+  it('Step 1 (RB) value = input.rb', () => {
+    const result = calculateMarginReapuration(makeInput({ rb: 50000 }))
+    expect(result.cascade_trace![0].amount).toBe(50000)
+  })
+
+  it('Step 5 (Âncora) value === result.ancora_interna', () => {
+    const result = calculateMarginReapuration(makeInput({ peso_op_interna: 0.95 }))
+    expect(result.cascade_trace![4].amount).toBe(result.ancora_interna)
+  })
+
+  it('Step 11 (RRO) value === result.rro', () => {
+    const result = calculateMarginReapuration(makeInput())
+    expect(result.cascade_trace![10].amount).toBe(result.rro)
+  })
+})

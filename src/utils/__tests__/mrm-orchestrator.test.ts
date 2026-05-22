@@ -1,4 +1,9 @@
-import { orchestrateReapurationSync } from '../mrm-orchestrator'
+import {
+  calculatePesoOpInternaFromMarkup,
+  orchestrateReapurationSync,
+  resolvePesoOpInterna,
+  type ProductPricingConfig,
+} from '../mrm-orchestrator'
 import type { TaxBreakdown, TaxRatePeriod } from '@/types/mrm'
 
 function rate(tax_type: TaxRatePeriod['tax_type'], pct: number): TaxRatePeriod {
@@ -296,5 +301,223 @@ describe('orchestrateReapurationSync — Effective date propagation', () => {
     })
 
     expect(result.effective_date).toBe(today)
+  })
+})
+
+// ===========================================================================
+// Story MRM-V5-001 AC9 — Resolução de peso_op_interna (3 fontes de prioridade)
+// ===========================================================================
+
+describe('V5-001 — calculatePesoOpInternaFromMarkup (markup divisor da precificação original)', () => {
+  // Excel cenário canônico — derivado das células I21 e configurações do produto
+  function excelConfig(overrides: Partial<ProductPricingConfig> = {}): ProductPricingConfig {
+    return {
+      cost: 53509.92, // H4
+      // Σ percentuais internos: MO + Desp + Comm + Lucro + IRPJ + CSLL + ICMS + PIS/COFINS
+      // = 0.1051 + 0.1064 + 0.0612 + 0.0043 + 0.05 + 0.10 + 0.015 + 0.009 + 0.17 + 0.076775
+      // ≈ 0.697775 (Excel C19)
+      internal_percentuals_sum: 0.697775,
+      internal_tax_rates_sum: 0.17 + 0.076775, // ICMS + PIS/COFINS (V4)
+      external_tax_rates_sum: 0.01 + 0.0875, // IBS + CBS
+      ...overrides,
+    }
+  }
+
+  it('Calcula peso aproximadamente igual ao valor canônico do Excel (0,931585)', () => {
+    const peso = calculatePesoOpInternaFromMarkup(excelConfig())
+    // Tolerância 1% (arredondamento dos percentuais)
+    expect(peso).toBeGreaterThan(0.92)
+    expect(peso).toBeLessThan(0.94)
+  })
+
+  it('Retorna 1 (default) quando Σ percentuais ≥ 1 (configuração inválida)', () => {
+    const peso = calculatePesoOpInternaFromMarkup(excelConfig({ internal_percentuals_sum: 1.05 }))
+    expect(peso).toBe(1)
+  })
+
+  it('Retorna 1 (default) quando cost ≤ 0', () => {
+    const peso = calculatePesoOpInternaFromMarkup(excelConfig({ cost: 0 }))
+    expect(peso).toBe(1)
+  })
+
+  it('Retorna 1 (default) quando external_tax_rates = 0 (sem op externa)', () => {
+    const peso = calculatePesoOpInternaFromMarkup(excelConfig({ external_tax_rates_sum: 0 }))
+    expect(peso).toBe(1) // Op_Externa = 0 → peso = Op_Interna / Op_Interna = 1
+  })
+
+  it('Peso clampado em [0, 1]', () => {
+    const peso = calculatePesoOpInternaFromMarkup(excelConfig())
+    expect(peso).toBeGreaterThanOrEqual(0)
+    expect(peso).toBeLessThanOrEqual(1)
+  })
+})
+
+describe('V5-001 — resolvePesoOpInterna (3 fontes de prioridade)', () => {
+  it('Fonte 1 (input explícito): retorna peso_op_interna_input quando válido', () => {
+    const peso = resolvePesoOpInterna({ peso_op_interna_input: 0.85 })
+    expect(peso).toBe(0.85)
+  })
+
+  it('Fonte 1 sobrescreve fonte 2 (snapshot)', () => {
+    const snapshot: TaxBreakdown = {
+      engine_version: '2.2.0',
+      effective_date: '2026-05-22',
+      regime: 'LUCRO_REAL',
+      use_snapshot_rates: true,
+      taxes_inside: [],
+      taxes_outside: [],
+      rb: 0,
+      desc_value: 0,
+      rv: 0,
+      cp: 0,
+      mod: 0,
+      dop: 0,
+      imp_total: 0,
+      rro: 0,
+      limite_minimo: null,
+      peso_op_interna: 0.5, // snapshot
+      peso_op_externa: 0.5,
+      ancora_interna: 0,
+      cascade_trace: null,
+      new_commission: 0,
+      new_profit: 0,
+      new_csll: 0,
+      new_irpj: 0,
+      validations: { V1: true, V2: true, V3: true, V4: true, V5: true, V6: true },
+      valid: true,
+      status: 'VALID',
+      error_code: null,
+      messages: [],
+    }
+    const peso = resolvePesoOpInterna({ peso_op_interna_input: 0.9, prev_breakdown: snapshot })
+    expect(peso).toBe(0.9) // input > snapshot
+  })
+
+  it('Fonte 2 (snapshot histórico): usa quando input ausente — ADR-003 imutabilidade', () => {
+    const snapshot: Partial<TaxBreakdown> = {
+      peso_op_interna: 0.85,
+    }
+    const peso = resolvePesoOpInterna({ prev_breakdown: snapshot as TaxBreakdown })
+    expect(peso).toBe(0.85)
+  })
+
+  it('Fonte 3 (markup divisor): usa product_config quando input e snapshot ausentes', () => {
+    const peso = resolvePesoOpInterna({
+      product_config: {
+        cost: 100,
+        internal_percentuals_sum: 0.5,
+        internal_tax_rates_sum: 0.1,
+        external_tax_rates_sum: 0.1,
+      },
+    })
+    // Op_Interna = 100 / 0.5 = 200
+    // base_externa = 200 × 0.9 = 180
+    // Op_Externa = 180 × 0.1 = 18
+    // peso = 200 / 218 ≈ 0.9174
+    expect(peso).toBeGreaterThan(0.9)
+    expect(peso).toBeLessThan(0.92)
+  })
+
+  it('Fonte 4 (default conservador): peso = 1 quando todas as fontes ausentes', () => {
+    const peso = resolvePesoOpInterna({})
+    expect(peso).toBe(1)
+  })
+
+  it('Input fora de [0, 1] é clampado (defesa)', () => {
+    expect(resolvePesoOpInterna({ peso_op_interna_input: -0.5 })).toBe(0)
+    expect(resolvePesoOpInterna({ peso_op_interna_input: 1.5 })).toBe(1)
+  })
+
+  it('Snapshot com peso_op_interna=null retorna default 1', () => {
+    const snapshot: Partial<TaxBreakdown> = { peso_op_interna: null }
+    const peso = resolvePesoOpInterna({ prev_breakdown: snapshot as TaxBreakdown })
+    expect(peso).toBe(1)
+  })
+
+  it('Snapshot com peso_op_interna=undefined cai para product_config', () => {
+    const snapshot: Partial<TaxBreakdown> = {} // sem peso_op_interna
+    const peso = resolvePesoOpInterna({
+      prev_breakdown: snapshot as TaxBreakdown,
+      product_config: {
+        cost: 100,
+        internal_percentuals_sum: 0.5,
+        internal_tax_rates_sum: 0,
+        external_tax_rates_sum: 0.2,
+      },
+    })
+    // Op_Interna = 200, Op_Externa = 200 × 1 × 0.2 = 40, peso = 200/240 ≈ 0.833
+    expect(peso).toBeGreaterThan(0.83)
+    expect(peso).toBeLessThan(0.84)
+  })
+})
+
+describe('V5-001 — orchestrateReapurationSync injeta peso resolvido no motor', () => {
+  it('Sem product_config nem snapshot: motor recebe peso=1 (degrade V4)', () => {
+    const result = orchestrateReapurationSync({
+      rb: 10000,
+      desc_value: 1000,
+      regime: 'LUCRO_REAL',
+      cp: 5000,
+      mod: 500,
+      dop: 1000,
+      commission_pct: 0.05,
+      profit_pct: 0.10,
+      rates: [rate('ICMS', 0.17)],
+      options: { use_snapshot_rates: false },
+    })
+    expect(result.peso_op_interna).toBe(1)
+    expect(result.ancora_interna).toBeCloseTo(result.rv, 2)
+  })
+
+  it('Com product_config: orchestrator calcula peso via markup divisor', () => {
+    const result = orchestrateReapurationSync({
+      rb: 10000,
+      desc_value: 1000,
+      regime: 'LUCRO_REAL',
+      cp: 5000,
+      mod: 500,
+      dop: 1000,
+      commission_pct: 0.05,
+      profit_pct: 0.10,
+      rates: [rate('ICMS', 0.17)],
+      options: {
+        use_snapshot_rates: false,
+        product_config: {
+          cost: 5000,
+          internal_percentuals_sum: 0.5,
+          internal_tax_rates_sum: 0.17,
+          external_tax_rates_sum: 0.0975, // IBS + CBS
+        },
+      },
+    })
+    expect(result.peso_op_interna).not.toBe(1) // calculou via markup
+    expect(result.peso_op_interna!).toBeGreaterThan(0.9)
+    expect(result.peso_op_interna!).toBeLessThan(1)
+  })
+
+  it('Com snapshot prev_breakdown.peso_op_interna: usa valor histórico (ADR-003)', () => {
+    const previousBreakdown: Partial<TaxBreakdown> = {
+      engine_version: '2.2.0',
+      peso_op_interna: 0.85,
+      taxes_inside: [],
+      taxes_outside: [],
+      valid: true,
+    }
+    const result = orchestrateReapurationSync({
+      rb: 10000,
+      desc_value: 1000,
+      regime: 'LUCRO_REAL',
+      cp: 5000,
+      mod: 500,
+      dop: 1000,
+      commission_pct: 0.05,
+      profit_pct: 0.10,
+      rates: [rate('ICMS', 0.17)],
+      options: {
+        use_snapshot_rates: false,
+        prev_breakdown: previousBreakdown as TaxBreakdown,
+      },
+    })
+    expect(result.peso_op_interna).toBe(0.85)
   })
 })
