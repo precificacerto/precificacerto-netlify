@@ -225,6 +225,7 @@ export function calculateMarginReapuration(input: ReapurationInput): TaxBreakdow
     csll_pct,
     irpj_pct,
     peso_op_interna: peso_input,
+    tax_credits,
     effective_date,
     use_snapshot_rates,
   } = input
@@ -264,13 +265,28 @@ export function calculateMarginReapuration(input: ReapurationInput): TaxBreakdow
   const inside = computeTaxesInside(ancora_interna, rates)
   const imp_total = inside.total
 
-  // Limite mínimo operacional (Seção 4.5) — para orientar UI quando RRO ≤ 0
-  const limite_minimo = computeLimiteMinimo(cp, mod, dop, rates)
+  // Etapa 5.5 (V5-004): Aplicação de créditos tributários — Story MRM-V5-004 AC1+AC2+AC4.
+  // Guard regime cumulativo: MEI/SN não aplicam créditos (regime cumulativo absorve via DAS).
+  // Quando regime ∈ {MEI, SN} e recoverable > 0, força a 0 e adiciona mensagem.
+  const tax_credits_input = tax_credits ?? { recoverable: 0, non_recoverable: 0 }
+  const isRegimeCumulativo = regime === 'MEI' || regime === 'SIMPLES_NACIONAL'
+  const recoverable_effective = isRegimeCumulativo ? 0 : Math.max(0, tax_credits_input.recoverable)
+  const non_recoverable_effective = Math.max(0, tax_credits_input.non_recoverable)
+  const tax_credits_applied = {
+    recoverable: recoverable_effective,
+    non_recoverable: non_recoverable_effective,
+  }
 
-  // Etapas 6-8 (V5): RRO = Âncora − IMP − CP − MOD − DOP
+  // CP efetivo: créditos recuperáveis reduzem o custo
+  const cp_efetivo = Math.max(0, cp - recoverable_effective)
+
+  // Limite mínimo operacional (Seção 4.5) — usa cp_efetivo para refletir créditos
+  const limite_minimo = computeLimiteMinimo(cp_efetivo, mod, dop, rates)
+
+  // Etapas 6-8 (V5): RRO = Âncora − IMP − CP_efetivo − MOD − DOP
   // R6: MOD imune — subtraído junto com CP/DOP, nunca alterado.
-  // Quando peso=1, ancora=rv → RRO equivalente ao V4.
-  const rro = ancora_interna - imp_total - cp - mod - dop
+  // Quando peso=1 e sem créditos, comportamento idêntico ao V4.
+  const rro = ancora_interna - imp_total - cp_efetivo - mod - dop
 
   // Validações
   // V1 (Tabela 25 da spec): RRO > 0 estrito. RRO = 0 também bloqueia ("Se RRO < 0 ou RRO = 0: bloquear").
@@ -386,6 +402,13 @@ export function calculateMarginReapuration(input: ReapurationInput): TaxBreakdow
     )
   }
 
+  // Story MRM-V5-004 AC4+AC8: guard regime cumulativo — créditos forçados a 0
+  if (isRegimeCumulativo && tax_credits_input.recoverable > 0) {
+    messages.push(
+      `[CREDITOS_NAO_APLICAVEIS_REGIME_CUMULATIVO] Regime ${regime} é cumulativo — créditos recuperáveis (R$ ${tax_credits_input.recoverable.toFixed(2)}) forçados a 0. DAS absorve esses tributos.`,
+    )
+  }
+
   // Story MRM-V5-003 AC3: campo observacional `rro_threshold_check`.
   // Espelho informacional do status — policy continua sendo a fonte de decisão (ADR-004).
   const rro_threshold_check = {
@@ -437,6 +460,7 @@ export function calculateMarginReapuration(input: ReapurationInput): TaxBreakdow
     cascade_trace,
     taxes_outside_base,
     rro_threshold_check,
+    tax_credits_applied,
     new_commission,
     new_profit,
     new_csll,

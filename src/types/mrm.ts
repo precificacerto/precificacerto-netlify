@@ -272,6 +272,24 @@ export interface TaxBreakdown {
   } | null
 
   /**
+   * Créditos tributários aplicados ao motor (Story MRM-V5-004 AC3).
+   *
+   * `recoverable`: somado a `cp` como dedução → `cp_efetivo = cp − recoverable`.
+   *   Aplicável apenas em regimes não-cumulativos (LR, LP não-cumulativo).
+   *   MEI/SN são cumulativos — créditos forçados a 0 pelo orchestrator.
+   *
+   * `non_recoverable`: permanece no custo, apenas auditado para relatório fiscal.
+   *
+   * Fonte: tabela `item_tax_credits` (migration 20260213000000) — lida pelo orchestrator.
+   *
+   * Story MRM-V5-004 AC1+AC3.
+   */
+  tax_credits_applied?: {
+    recoverable: number
+    non_recoverable: number
+  } | null
+
+  /**
    * Base canônica dos tributos por fora (R$). Excel cenário canônico ≈ R$ 120.020,65.
    *
    * Fórmula: `ancora_interna − Σ(ICMS_amount + PIS_amount + COFINS_amount)`.
@@ -345,6 +363,23 @@ export interface ReapurationInput {
    * Story MRM-V5-001 AC9; ADR-004.
    */
   peso_op_interna?: number
+  /**
+   * Créditos tributários aplicáveis ao item (Story MRM-V5-004 AC1+AC2).
+   *
+   * `recoverable`: tributos recuperáveis (PIS/COFINS não-cumulativos, ICMS LP) que
+   *   reduzem `cp` efetivo. Aplicável apenas em LR e LP não-cumulativo.
+   * `non_recoverable`: tributos não-recuperáveis (permanecem no custo).
+   *
+   * Resolvido pelo orchestrator via leitura de `item_tax_credits` (existente).
+   * Default `{ recoverable: 0, non_recoverable: 0 }` quando ausente → retrocompat V4.
+   * MEI/SN: orchestrator força recoverable=0 (regime cumulativo absorve via DAS).
+   *
+   * Story MRM-V5-004 AC1+AC4+AC8.
+   */
+  tax_credits?: {
+    recoverable: number
+    non_recoverable: number
+  }
   effective_date: string
   use_snapshot_rates: boolean
 }
