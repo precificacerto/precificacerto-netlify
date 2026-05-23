@@ -117,14 +117,16 @@ describe('resolveItemCsllPct / resolveItemIrpjPct', () => {
     expect(resolveItemCsllPct({ csll_pct: null }, 0.0288)).toBe(0.0288)
   })
 
-  it('CSLL item=0 override mesmo de tenant > 0', () => {
-    // 0 é valor válido (isento) e DEVE prevalecer sobre tenant
-    expect(resolveItemCsllPct({ csll_pct: 0 }, 0.0288)).toBe(0)
+  it('CSLL item=0 NÃO é override válido — fallback para tenant (FIX 2026-05-23)', () => {
+    // Semântica corrigida: CSLL/IRPJ são impostos da EMPRESA sobre lucro residual,
+    // não podem ser "isentos por produto". Zero no item é tratado como "sem override".
+    // Bug original: produto novo com csll_pct=0 default zerava CSLL na distribuição.
+    expect(resolveItemCsllPct({ csll_pct: 0 }, 0.0288)).toBe(0.0288)
   })
 
-  it('IRPJ — mesmo comportamento', () => {
+  it('IRPJ — mesmo comportamento (0 vira fallback tenant)', () => {
     expect(resolveItemIrpjPct({ irpj_pct: 0.0345 }, 0.048)).toBe(0.0345)
     expect(resolveItemIrpjPct(null, 0.048)).toBe(0.048)
-    expect(resolveItemIrpjPct({ irpj_pct: 0 }, 0.048)).toBe(0)
+    expect(resolveItemIrpjPct({ irpj_pct: 0 }, 0.048)).toBe(0.048)
   })
 })

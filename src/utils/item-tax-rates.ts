@@ -107,22 +107,40 @@ export function mergeItemAndTenantRates(
 /**
  * Extrai a alíquota efetiva de CSLL para o item (override item > fallback tenant).
  * Retorna decimal (0.0207 = 2,07%).
+ *
+ * BUG FIX (2026-05-23, Hyago): CSLL e IRPJ são impostos da EMPRESA sobre lucro
+ * residual — não fazem sentido como "isento por produto". Quando `item_tax_rates.csll_pct = 0`
+ * (default NOT NULL de produto novo recém-cadastrado sem override explícito),
+ * o motor anteriormente respeitava o 0 e zerava CSLL na distribuição, perdendo
+ * o rateio do tenant. Fix: tratar 0 (ou negativo) como "sem override" → fallback tenant.
+ *
+ * Semântica corrigida: apenas valor > 0 conta como override genuíno do produto.
  */
 export function resolveItemCsllPct(
   itemRates: ItemTaxRates | null | undefined,
   tenantCsllPct: number,
 ): number {
   const itemVal = itemRates?.csll_pct
-  return itemVal != null && Number.isFinite(itemVal) ? Number(itemVal) : tenantCsllPct
+  if (itemVal != null && Number.isFinite(itemVal) && Number(itemVal) > 0) {
+    return Number(itemVal)
+  }
+  return tenantCsllPct
 }
 
 /**
  * Extrai a alíquota efetiva de IRPJ para o item (override item > fallback tenant).
+ *
+ * BUG FIX (2026-05-23, Hyago): mesma semântica de `resolveItemCsllPct` — IRPJ
+ * é imposto empresarial sobre lucro, não por produto. Zero no item é tratado como
+ * "sem override", caindo no fallback tenant.
  */
 export function resolveItemIrpjPct(
   itemRates: ItemTaxRates | null | undefined,
   tenantIrpjPct: number,
 ): number {
   const itemVal = itemRates?.irpj_pct
-  return itemVal != null && Number.isFinite(itemVal) ? Number(itemVal) : tenantIrpjPct
+  if (itemVal != null && Number.isFinite(itemVal) && Number(itemVal) > 0) {
+    return Number(itemVal)
+  }
+  return tenantIrpjPct
 }
