@@ -78,75 +78,83 @@ function aggregateCascadeTraces(traces: CascadeStep[][]): CascadeStep[] | null {
  * válido com schema V5 (engine_version >= 2.2.0) — componentes degradam
  * silenciosamente para o comportamento V4.
  */
+/** Fallback seguro retornado em qualquer erro inesperado. NUNCA quebra a UI. */
+const EMPTY_DISPLAY_DATA: EpicV5DisplayData = {
+  cascadeTrace: null,
+  pesoOpInterna: null,
+  ancoraInterna: null,
+  regimeGuardActive: null,
+}
+
 export function extractEpicV5DisplayData(
-  items: ItemWithBreakdown[],
-  tenantContext: TenantContext,
+  items: ItemWithBreakdown[] | null | undefined,
+  tenantContext: TenantContext | null | undefined,
 ): EpicV5DisplayData {
-  // Filtra breakdowns válidos com schema V5 (têm cascade_trace ou campos novos)
-  const breakdowns = items
-    .map((it) => it.tax_breakdown)
-    .filter((b): b is TaxBreakdown => {
-      if (!b) return false
+  // Defensive guards — NUNCA throwar (tela branca seria pior que feature ausente)
+  try {
+    if (!Array.isArray(items) || items.length === 0) return EMPTY_DISPLAY_DATA
+    if (!tenantContext || typeof tenantContext !== 'object') return EMPTY_DISPLAY_DATA
+
+    // Filtra breakdowns válidos com schema V5
+    const breakdowns: TaxBreakdown[] = []
+    for (const it of items) {
+      const b = it?.tax_breakdown
+      if (!b || typeof b !== 'object') continue
       // Considera V5 quando tem cascade_trace OU ancora_interna ou peso_op_interna
-      return (
-        b.cascade_trace != null ||
-        b.ancora_interna != null ||
-        b.peso_op_interna != null
-      )
-    })
+      if (b.cascade_trace != null || b.ancora_interna != null || b.peso_op_interna != null) {
+        breakdowns.push(b)
+      }
+    }
 
-  // Sempre calcula regime guard (depende apenas do tenant)
-  const isRegimeCumulativo =
-    tenantContext.regime === 'MEI' || tenantContext.regime === 'SIMPLES_NACIONAL'
-  const attemptedCsll = tenantContext.csll_pct ?? 0
-  const attemptedIrpj = tenantContext.irpj_pct ?? 0
-  const hasAttemptedTaxes = attemptedCsll > 0 || attemptedIrpj > 0
+    // Regime guard (sempre calculado — depende apenas do tenant)
+    const regime = tenantContext.regime
+    const isRegimeCumulativo = regime === 'MEI' || regime === 'SIMPLES_NACIONAL'
+    const attemptedCsll = Number(tenantContext.csll_pct) || 0
+    const attemptedIrpj = Number(tenantContext.irpj_pct) || 0
+    const hasAttemptedTaxes = attemptedCsll > 0 || attemptedIrpj > 0
 
-  const regimeGuardActive =
-    isRegimeCumulativo && hasAttemptedTaxes
-      ? {
-          regime: tenantContext.regime as 'MEI' | 'SIMPLES_NACIONAL',
-          attempted_csll: attemptedCsll,
-          attempted_irpj: attemptedIrpj,
-        }
-      : null
+    const regimeGuardActive =
+      isRegimeCumulativo && hasAttemptedTaxes
+        ? {
+            regime: regime as 'MEI' | 'SIMPLES_NACIONAL',
+            attempted_csll: attemptedCsll,
+            attempted_irpj: attemptedIrpj,
+          }
+        : null
 
-  // Quando não há breakdowns V5, retorna apenas o guard (cascata/peso/âncora nulos)
-  if (breakdowns.length === 0) {
+    if (breakdowns.length === 0) {
+      return { cascadeTrace: null, pesoOpInterna: null, ancoraInterna: null, regimeGuardActive }
+    }
+
+    // Âncora SOMADA (R$ somável)
+    const ancoraInterna = breakdowns.reduce((sum, b) => sum + (Number(b.ancora_interna) || 0), 0)
+
+    // Peso ponderado pela RV
+    const totalRv = breakdowns.reduce((sum, b) => sum + (Number(b.rv) || 0), 0)
+    const pesoOpInterna =
+      totalRv > 0
+        ? breakdowns.reduce((sum, b) => sum + (Number(b.peso_op_interna) || 1) * (Number(b.rv) || 0), 0) / totalRv
+        : null
+
+    // Cascade trace agregado
+    const tracesValidos: CascadeStep[][] = []
+    for (const b of breakdowns) {
+      if (Array.isArray(b.cascade_trace) && b.cascade_trace.length > 0) {
+        tracesValidos.push(b.cascade_trace)
+      }
+    }
+    const cascadeTrace = aggregateCascadeTraces(tracesValidos)
+
     return {
-      cascadeTrace: null,
-      pesoOpInterna: null,
-      ancoraInterna: null,
+      cascadeTrace,
+      pesoOpInterna: pesoOpInterna != null && Number.isFinite(pesoOpInterna) ? pesoOpInterna : null,
+      ancoraInterna: ancoraInterna > 0 ? ancoraInterna : null,
       regimeGuardActive,
     }
-  }
-
-  // Âncora SOMADA (R$ é somável entre items)
-  const ancoraInterna = breakdowns.reduce(
-    (sum, b) => sum + (b.ancora_interna ?? 0),
-    0,
-  )
-
-  // Peso ponderado pela RV de cada item: Σ(peso_i × rv_i) / Σ rv_i
-  const totalRv = breakdowns.reduce((sum, b) => sum + b.rv, 0)
-  const pesoOpInterna =
-    totalRv > 0
-      ? breakdowns.reduce(
-          (sum, b) => sum + (b.peso_op_interna ?? 1) * b.rv,
-          0,
-        ) / totalRv
-      : null
-
-  // Cascade trace agregado
-  const tracesValidos = breakdowns
-    .map((b) => b.cascade_trace)
-    .filter((t): t is CascadeStep[] => Array.isArray(t) && t.length > 0)
-  const cascadeTrace = aggregateCascadeTraces(tracesValidos)
-
-  return {
-    cascadeTrace,
-    pesoOpInterna: pesoOpInterna != null ? pesoOpInterna : null,
-    ancoraInterna: ancoraInterna > 0 ? ancoraInterna : null,
-    regimeGuardActive,
+  } catch (error) {
+    // Caso impossível em runtime (qualquer exceção inesperada) — log e fallback seguro.
+    // eslint-disable-next-line no-console
+    console.warn('[extractEpicV5DisplayData] erro inesperado:', error)
+    return EMPTY_DISPLAY_DATA
   }
 }

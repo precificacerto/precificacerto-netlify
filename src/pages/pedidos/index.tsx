@@ -268,6 +268,17 @@ function OrdersPage() {
         })
     }, [orderItems, orderSubtotal, orderFinalTotal, mrmConfig.regime, mrmConfig.mod_pct, mrmConfig.expense_breakdown, orderTenantTaxRates])
 
+    // EPIC-MRM-V5 (Story 005): extrai cascade_trace, peso/âncora, regime guard dos
+    // snapshots persistidos em order_items.tax_breakdown.
+    const orderEpicV5DisplayData = useMemo(
+        () => extractEpicV5DisplayData(orderItems, {
+            regime: mrmConfig.regime,
+            csll_pct: mrmConfig.csll_pct,
+            irpj_pct: mrmConfig.irpj_pct,
+        }),
+        [orderItems, mrmConfig.regime, mrmConfig.csll_pct, mrmConfig.irpj_pct],
+    )
+
     // Send to sale modal
     const [sendToSaleOpen, setSendToSaleOpen] = useState(false)
     const [sendingOrder, setSendingOrder] = useState<Order | null>(null)
@@ -1375,29 +1386,22 @@ function OrdersPage() {
                 {/* EPIC-RR-DISPLAY S4: Distribuição do resultado (mesma semântica que orçamentos).
                     Pedidos usam snapshot persistido em order_items.tax_breakdown — sem
                     recálculo runtime do motor. Em MEI/SN, IRPJ/CSLL ocultos automaticamente. */}
-                {orderSubtotal > 0 && (() => {
-                    // EPIC-MRM-V5: extrai dados do schema V5 dos snapshots persistidos
-                    // em order_items.tax_breakdown para alimentar UI cascata + banner.
-                    const epicV5 = extractEpicV5DisplayData(orderItems, {
-                        regime: mrmConfig.regime,
-                        csll_pct: mrmConfig.csll_pct,
-                        irpj_pct: mrmConfig.irpj_pct,
-                    })
-                    return (
-                        <>
-                            <ResidualDistributionBlock
-                                distribution={orderResidualDistribution}
-                                regimeGuardActive={epicV5.regimeGuardActive}
-                            />
-                            <ConsolidatedDREBlock
-                                dre={orderConsolidatedDRE}
-                                cascadeTrace={epicV5.cascadeTrace}
-                                pesoOpInterna={epicV5.pesoOpInterna}
-                                ancoraInterna={epicV5.ancoraInterna}
-                            />
-                        </>
-                    )
-                })()}
+                {orderSubtotal > 0 && (
+                    <ResidualDistributionBlock
+                        distribution={orderResidualDistribution}
+                        regimeGuardActive={orderEpicV5DisplayData.regimeGuardActive}
+                    />
+                )}
+
+                {/* S14 — DRE Consolidada (R3=B + R7=B). Snapshot histórico imutável. */}
+                {orderSubtotal > 0 && (
+                    <ConsolidatedDREBlock
+                        dre={orderConsolidatedDRE}
+                        cascadeTrace={orderEpicV5DisplayData.cascadeTrace}
+                        pesoOpInterna={orderEpicV5DisplayData.pesoOpInterna}
+                        ancoraInterna={orderEpicV5DisplayData.ancoraInterna}
+                    />
+                )}
             </Drawer>
 
             {/* Send to Sale Modal */}

@@ -245,6 +245,17 @@ function Sales() {
             tenantTaxRates: saleTenantTaxRates,
         })
     }, [detailItems, saleSubtotal, saleFinalValue, mrmConfig.regime, mrmConfig.mod_pct, mrmConfig.expense_breakdown, saleTenantTaxRates])
+
+    // EPIC-MRM-V5 (Story 005): extrai cascade_trace, peso/âncora, regime guard dos
+    // snapshots persistidos em sale_items.tax_breakdown.
+    const saleEpicV5DisplayData = useMemo(
+        () => extractEpicV5DisplayData(detailItems || [], {
+            regime: mrmConfig.regime,
+            csll_pct: mrmConfig.csll_pct,
+            irpj_pct: mrmConfig.irpj_pct,
+        }),
+        [detailItems, mrmConfig.regime, mrmConfig.csll_pct, mrmConfig.irpj_pct],
+    )
     const [discountInputModeV, setDiscountInputModeV] = useState<'PERCENT' | 'AMOUNT'>('PERCENT')
     const selectedEmployeeIdV = Form.useWatch('employee_id', form)
     const latestEmployeeIdVRef = useRef<string | undefined>(undefined)
@@ -2503,29 +2514,22 @@ function Sales() {
                             Substitui a antiga linha solta "Comissão paga" — agora os 4 componentes
                             (Comissão, Lucro, IRPJ, CSLL) aparecem com %s sobre o total c/ desconto.
                             Em MEI/SN, IRPJ/CSLL ocultam automaticamente. */}
-                        {saleSubtotal > 0 && (() => {
-                            // EPIC-MRM-V5: extrai dados do schema V5 dos snapshots persistidos
-                            // em sale_items.tax_breakdown (fallback budget_items para vendas antigas FROM_BUDGET).
-                            const epicV5 = extractEpicV5DisplayData(detailItems, {
-                                regime: mrmConfig.regime,
-                                csll_pct: mrmConfig.csll_pct,
-                                irpj_pct: mrmConfig.irpj_pct,
-                            })
-                            return (
-                                <>
-                                    <ResidualDistributionBlock
-                                        distribution={saleResidualDistribution}
-                                        regimeGuardActive={epicV5.regimeGuardActive}
-                                    />
-                                    <ConsolidatedDREBlock
-                                        dre={saleConsolidatedDRE}
-                                        cascadeTrace={epicV5.cascadeTrace}
-                                        pesoOpInterna={epicV5.pesoOpInterna}
-                                        ancoraInterna={epicV5.ancoraInterna}
-                                    />
-                                </>
-                            )
-                        })()}
+                        {saleSubtotal > 0 && (
+                            <ResidualDistributionBlock
+                                distribution={saleResidualDistribution}
+                                regimeGuardActive={saleEpicV5DisplayData.regimeGuardActive}
+                            />
+                        )}
+
+                        {/* S14 — DRE Consolidada (R3=B + R7=B). Snapshot histórico imutável. */}
+                        {saleSubtotal > 0 && (
+                            <ConsolidatedDREBlock
+                                dre={saleConsolidatedDRE}
+                                cascadeTrace={saleEpicV5DisplayData.cascadeTrace}
+                                pesoOpInterna={saleEpicV5DisplayData.pesoOpInterna}
+                                ancoraInterna={saleEpicV5DisplayData.ancoraInterna}
+                            />
+                        )}
 
                         {detailItems.length > 0 && (
                             <div style={{ padding: 16, background: 'var(--color-neutral-50)', borderRadius: 8 }}>
