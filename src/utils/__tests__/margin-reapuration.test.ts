@@ -274,7 +274,7 @@ describe('calculateMarginReapuration — Output schema (TaxBreakdown)', () => {
   it('Inclui engine_version, effective_date, regime e use_snapshot_rates', () => {
     const result = calculateMarginReapuration(makeInput({ effective_date: '2026-05-18' }))
     // V2.2.0 (Story MRM-V5-001): peso_op_interna + ancora_interna + cascade_trace 13 etapas
-    expect(result.engine_version).toBe('2.2.0')
+    expect(result.engine_version).toBe('2.3.0')
     expect(result.effective_date).toBe('2026-05-18')
     expect(result.regime).toBe('LUCRO_PRESUMIDO')
     expect(result.use_snapshot_rates).toBe(true)
@@ -315,7 +315,7 @@ describe('V5-001 — Retrocompatibilidade: peso_op_interna default = 1 (comporta
 
   it('Engine version reflete bump V5 (2.2.0)', () => {
     const result = calculateMarginReapuration(makeInput())
-    expect(result.engine_version).toBe('2.2.0')
+    expect(result.engine_version).toBe('2.3.0')
   })
 
   it('Peso fora de [0,1] é clampado (defensivo, sem alterar pureza)', () => {

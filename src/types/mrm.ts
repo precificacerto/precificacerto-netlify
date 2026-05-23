@@ -25,8 +25,13 @@
  *           Adiciona campos opcionais retrocompatíveis no TaxBreakdown e
  *           ReapurationInput. Snapshots V4 (engine_version='2.1.0') continuam
  *           válidos (ADR-003 imutabilidade). Story MRM-V5-001, ADR-002.
+ * - 2.3.0: discount_mode na Etapa 9 (rateio do RRO) — V6 (Epic MRM-V6, ADR-009).
+ *           Reverte R2 da spec V2: 3 modos (PROPORTIONAL/SELLER/PROFIT) voltam
+ *           a estar disponíveis. Campo opcional retrocompatível — snapshots V5
+ *           sem discount_mode lidos como PROPORTIONAL. Invariante tributária
+ *           bit-exact preservada (Etapas 1-8 invariantes nos 3 modos).
  */
-export const MRM_ENGINE_VERSION = '2.2.0'
+export const MRM_ENGINE_VERSION = '2.3.0'
 
 export type TaxType =
   | 'ICMS'
@@ -60,6 +65,7 @@ export type ReapurationStatus =
   | 'RRO_ZERO'
   | 'RRO_NEGATIVE'
   | 'ERROR'
+  | 'DISCOUNT_MODE_FALLBACK'
 
 export type DiscountMode = 'PROPORTIONAL' | 'PROFIT_REDUCTION' | 'SELLER_REDUCTION' | 'MRM'
 
@@ -319,6 +325,23 @@ export interface TaxBreakdown {
    */
   new_irpj: number
 
+  /**
+   * Modo de desconto solicitado pelo caller (Epic MRM-V6 — ADR-009).
+   *
+   * Default `PROPORTIONAL` quando ausente — preserva retrocompat V4/V5.
+   * Snapshots V5 antigos com `discount_mode='MRM'` são lidos como PROPORTIONAL.
+   */
+  discount_mode_requested?: DiscountMode
+  /**
+   * Modo efetivamente aplicado pelo motor (pode divergir do solicitado em fallback).
+   *
+   * Quando `discount_mode_requested !== discount_mode_applied`, status =
+   * `DISCOUNT_MODE_FALLBACK` e `messages[]` contém razão estruturada.
+   *
+   * Epic MRM-V6 — ADR-009 §5.4 (fallback safety).
+   */
+  discount_mode_applied?: DiscountMode
+
   validations: ValidationMap
   valid: boolean
   status: ReapurationStatus
@@ -380,6 +403,28 @@ export interface ReapurationInput {
     recoverable: number
     non_recoverable: number
   }
+  /**
+   * Modo de desconto que controla o rateio do RRO (Etapa 9 da spec V5).
+   *
+   * Epic MRM-V6 — ADR-009 (reverte R2 da spec V2). Default `PROPORTIONAL` quando
+   * ausente — comportamento V5 idêntico.
+   *
+   *   - `PROPORTIONAL` (default): peso_comm e peso_lucro baseados em commission_pct
+   *     e profit_pct originais (rateio proporcional sobre RRO).
+   *   - `SELLER_REDUCTION`: vendedor absorve o desconto. Lucro preservado em valor
+   *     absoluto (= profit_pct × RB). Comissão recebe o resíduo.
+   *   - `PROFIT_REDUCTION`: empresa absorve o desconto. Comissão preservada em
+   *     valor absoluto (= commission_pct × RB). Lucro recebe o resíduo.
+   *   - `MRM` (legacy V5): tratado como PROPORTIONAL — sem comportamento próprio.
+   *
+   * Invariante (ADR-009 §2.2 — bit-exact): ICMS/PIS/COFINS/ISS/IBS/CBS/IPI/CP/MOD/
+   * DOP/CSLL/IRPJ idênticos nos 3 modos. APENAS new_commission e new_profit divergem.
+   *
+   * Fallback safety: quando modo escolhido é inviável (e.g. SELLER com
+   * commission_pct=0), motor degrada para PROPORTIONAL e popula
+   * `status='DISCOUNT_MODE_FALLBACK'` + `discount_mode_applied='PROPORTIONAL'`.
+   */
+  discount_mode?: DiscountMode
   effective_date: string
   use_snapshot_rates: boolean
 }

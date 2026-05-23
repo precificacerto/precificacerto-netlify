@@ -521,14 +521,22 @@ function Budgets() {
     const getItemTotalWithCommission = (item: BudgetItemRow) => item.unit_price * item.quantity
     const budgetTotal = budgetItems.reduce((s, i) => s + getItemTotalWithCommission(i), 0)
 
-    // Teto do desconto: soma ponderada (comissão + lucro). PROFIT_REDUCTION e
-    // SELLER_REDUCTION foram descontinuados (R2 da spec MRM).
+    // Teto do desconto: pool varia conforme discount_mode (Epic MRM-V6 / ADR-009).
+    //   - PROPORTIONAL: pool = comissão + lucro (somam-se ambas)
+    //   - SELLER_REDUCTION: pool = apenas comissão (vendedor absorve)
+    //   - PROFIT_REDUCTION: pool = apenas lucro (empresa absorve)
     const maxDiscountPercent = (() => {
         if (budgetTotal <= 0) return 100
         const pool = budgetItems.reduce((s, i) => {
             const comm = i.commission_percent || 0
             const prof = i.profit_percent || 0
-            return s + i.unit_price * i.quantity * (comm + prof) / 100
+            const contributing =
+                discountMode === 'SELLER_REDUCTION'
+                    ? comm
+                    : discountMode === 'PROFIT_REDUCTION'
+                        ? prof
+                        : comm + prof
+            return s + i.unit_price * i.quantity * contributing / 100
         }, 0)
         return Math.min(100, (pool / budgetTotal) * 100)
     })()
@@ -587,6 +595,7 @@ function Budgets() {
             profit_pct: profPctDecimal,
             csll_pct: itemCsll,
             irpj_pct: itemIrpj,
+            discount_mode: discountMode,
             effective_date: reapurationEffectiveDate,
             use_snapshot_rates: mrmConfig.useSnapshotRates,
         })
@@ -756,10 +765,9 @@ function Budgets() {
                 customerId = newCustomer.id
             }
 
-            // MRM-V2-S2.1: coage modos legacy → PROPORTIONAL quando flag desligada (default).
-            const persistedDiscountModeInsert = mrmConfig.enabled
-                ? 'MRM'
-                : coerceLegacyDiscountMode(discountMode, { tenant_id, surface: 'budget' })
+            // Epic MRM-V6 (ADR-009): reverte R2 — 3 modos disponíveis em todos os contextos.
+            // Persistimos o modo escolhido pelo usuário sem coerção.
+            const persistedDiscountModeInsert = discountMode
 
             // MRM-V3 S1+S2+S3: snapshot context completo via useTenantTaxContext.
             // - regime: tenants.tax_regime real
@@ -940,10 +948,8 @@ function Budgets() {
                 }
             }
 
-            // MRM-V2-S2.1: coage modos legacy → PROPORTIONAL quando flag desligada (default).
-            const persistedDiscountModeUpdate = mrmConfig.enabled
-                ? 'MRM'
-                : coerceLegacyDiscountMode(discountMode, { tenant_id: tenantId, document_id: editingBudgetId, surface: 'budget' })
+            // Epic MRM-V6 (ADR-009): persistimos o modo escolhido pelo usuário sem coerção.
+            const persistedDiscountModeUpdate = discountMode
 
             // MRM-V3 S1+S2+S3: snapshot context na edição com regime/rates/csll/irpj reais.
             const snapshotCtxEdit: TenantSnapshotContext = {
@@ -1104,9 +1110,11 @@ function Budgets() {
         skipTableAutoSelectRef.current = true
         setGlobalDiscountPercent(Number(record.global_discount_percent || 0))
         // MRM D1: ao abrir registro legado com motor ativo, força PROPORTIONAL
-        // (auto-recálculo na próxima edição). Modos legacy descontinuados (R2). // mrm-legacy-allowlist
-        const legacyMode = ((record as any).discount_mode as DiscountMode) || 'PROPORTIONAL'
-        setDiscountMode(mrmConfig.enabled ? 'PROPORTIONAL' : legacyMode)
+        // Epic MRM-V6 (ADR-009): 3 modos disponíveis. Snapshots V5 legacy com
+        // discount_mode='MRM' são lidos como PROPORTIONAL (sem recálculo do snapshot).
+        const persistedMode = ((record as any).discount_mode as DiscountMode) || 'PROPORTIONAL'
+        const normalizedMode: DiscountMode = persistedMode === 'MRM' ? 'PROPORTIONAL' : persistedMode
+        setDiscountMode(normalizedMode)
 
         const allLoadedTables = [...(tablesResult.data || []).map((r: any) => r.commission_tables).filter(Boolean)]
         const rows: BudgetItemRow[] = (itemsResult.data || []).map((it: any, idx: number) => {
@@ -2313,11 +2321,13 @@ function Budgets() {
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                                 <span style={{ fontSize: 14, color: '#94a3b8', whiteSpace: 'nowrap' }}>Modo</span>
                                 <Select
-                                    value="PROPORTIONAL"
-                                    disabled
-                                    style={{ width: 210 }}
+                                    value={discountMode}
+                                    onChange={(v) => setDiscountMode(v as DiscountMode)}
+                                    style={{ width: 230 }}
                                     options={[
-                                        { value: 'PROPORTIONAL', label: mrmConfig.enabled ? 'Motor de Reapuração' : 'Proporcional' },
+                                        { value: 'PROPORTIONAL', label: 'Proporcional (Comissão + Lucro)' },
+                                        { value: 'SELLER_REDUCTION', label: 'Vendedor absorve (Comissão)' },
+                                        { value: 'PROFIT_REDUCTION', label: 'Empresa absorve (Lucro)' },
                                     ]}
                                 />
                                 <span style={{ fontSize: 14, color: '#94a3b8', whiteSpace: 'nowrap' }}>Desconto</span>
@@ -2386,6 +2396,7 @@ function Budgets() {
                             distribution={residualDistribution}
                             configWarning={residualConfigWarning}
                             regimeGuardActive={epicV5DisplayData.regimeGuardActive}
+                            discountMode={discountMode}
                         />
                     )}
 

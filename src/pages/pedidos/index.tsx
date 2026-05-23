@@ -32,7 +32,7 @@ import { computeConsolidatedDRE, type DREItemInput } from '@/utils/consolidated-
 import { ConsolidatedDREBlock } from '@/page-parts/shared/consolidated-dre-block.component'
 import { extractEpicV5DisplayData } from '@/utils/mrm-display-extractor'
 // S9: configWarning não aplicado em pedidos — snapshot é imutável (decisão Q3=A)
-import { coerceLegacyDiscountMode } from '@/config/feature-flags'
+import { coerceLegacyDiscountMode, normalizeDiscountModeForDisplay } from '@/config/feature-flags'
 import { decideMrmAction } from '@/utils/mrm-policies'
 import { aggregateMotorResults } from '@/utils/mrm-aggregate'
 import { RROWarningModal } from '@/components/mrm/RROWarningModal'
@@ -698,10 +698,9 @@ function OrdersPage() {
                     total_value: totalValue,
                     payment_method: sendingOrder.payment_method || null,
                     installments: sendingOrder.installments || 1,
-                    // MRM-V2-S2.1: coage modos legacy do pedido pai → PROPORTIONAL ao espelhar no orçamento.
-                    discount_mode: mrmConfig.enabled
-                        ? 'MRM'
-                        : coerceLegacyDiscountMode(sendingOrder.discount_mode || null, { tenant_id: tenantId, document_id: sendingOrder.id, surface: 'budget' }),
+                    // Epic MRM-V6 (ADR-009): espelha o discount_mode do pedido pai sem coerção.
+                    // Snapshots V5 antigos com 'MRM' são normalizados para PROPORTIONAL.
+                    discount_mode: normalizeDiscountModeForDisplay(sendingOrder.discount_mode),
                     global_discount_percent: globalDiscountPct,
                     engine_version: mrmConfig.enabled ? MRM_ENGINE_VERSION : 'legacy',
                     installment_preset: (sendingOrder.payment_method === 'BOLETO' || sendingOrder.payment_method === 'CHEQUE_PRE_DATADO') ? 'customizado' : null,
@@ -1390,6 +1389,7 @@ function OrdersPage() {
                     <ResidualDistributionBlock
                         distribution={orderResidualDistribution}
                         regimeGuardActive={orderEpicV5DisplayData.regimeGuardActive}
+                        discountMode={normalizeDiscountModeForDisplay(editingOrder?.discount_mode)}
                     />
                 )}
 

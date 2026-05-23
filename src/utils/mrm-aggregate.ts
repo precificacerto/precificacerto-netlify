@@ -24,6 +24,9 @@ const STATUS_PRIORITY: Record<ReapurationStatus, number> = {
   ERROR: 5,
   RRO_NEGATIVE: 4,
   RRO_ZERO: 3,
+  // Epic MRM-V6 (ADR-009): fallback é informacional — prioridade entre VALID e RRO_ZERO.
+  // Policy interpreta como `allow` (não bloqueia save) mas UI mostra banner.
+  DISCOUNT_MODE_FALLBACK: 2,
   VALID: 1,
   PENDING: 0,
 }

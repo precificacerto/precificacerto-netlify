@@ -50,7 +50,10 @@ export interface FeatureFlags {
 }
 
 export const FEATURE_FLAGS: FeatureFlags = {
-  'mrm.legacy_modes_visible': false,
+  // Epic MRM-V6 (ADR-009): reverte R2 — 3 modos voltam habilitados por padrão.
+  // Mantemos a flag por compatibilidade com call sites legados de `coerceLegacyDiscountMode`,
+  // mas o novo fluxo do orchestrator persiste o modo escolhido sem coerção.
+  'mrm.legacy_modes_visible': true,
   'mrm.shadow_mode_enabled': false,
 }
 
@@ -71,14 +74,34 @@ export function isFeatureEnabled<K extends keyof FeatureFlags>(key: K): FeatureF
 export const LEGACY_DISCOUNT_MODES = ['PROFIT_REDUCTION', 'SELLER_REDUCTION'] as const
 
 /**
+ * Normaliza um `discount_mode` lido de snapshot persistido para display na UI
+ * (Epic MRM-V6 — ADR-009).
+ *
+ * Snapshots V5 antigos persistiram `'MRM'` (placeholder do motor) — não é um
+ * modo válido para o ResidualDistributionBlock filtrar cards. Convertemos:
+ *
+ *   - `'MRM'` → `'PROPORTIONAL'` (mostrar Comissão + Lucro como padrão)
+ *   - `null` / `undefined` → `'PROPORTIONAL'` (default seguro)
+ *   - `'SELLER_REDUCTION'` / `'PROFIT_REDUCTION'` / `'PROPORTIONAL'` → preservados
+ *
+ * Função síncrona, pura, sem side effects.
+ */
+export function normalizeDiscountModeForDisplay(
+  mode: string | null | undefined,
+): 'PROPORTIONAL' | 'SELLER_REDUCTION' | 'PROFIT_REDUCTION' {
+  if (mode === 'SELLER_REDUCTION' || mode === 'PROFIT_REDUCTION') return mode
+  return 'PROPORTIONAL'
+}
+
+/**
+ * @deprecated Epic MRM-V6 (ADR-009) reverte R2 — coerção não é mais necessária.
+ * Mantida apenas para retrocompat de call sites legados que ainda não migraram.
+ * Novos call sites devem persistir o modo escolhido sem coerção.
+ *
  * Coage `discount_mode` para `PROPORTIONAL` quando o valor recebido é um
  * dos modos legados e a feature flag de visibilidade está desligada. Faz
  * log estruturado (`console.warn`) para viabilizar a auditoria pós-deploy
  * (AC4 da story S2.1).
- *
- * Mantém valores não-legados (incluindo `MRM` e `null`/`undefined`)
- * intocados — a função é especificamente sobre o "saneamento" dos modos
- * proibidos pela Decisão R2.
  */
 export function coerceLegacyDiscountMode(
   mode: string | null | undefined,

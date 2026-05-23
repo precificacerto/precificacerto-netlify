@@ -55,6 +55,7 @@ import {
   TAXES_INSIDE,
   TAXES_OUTSIDE,
   type CascadeStep,
+  type DiscountMode,
   type ReapurationInput,
   type ReapurationStatus,
   type TaxBreakdown,
@@ -226,9 +227,18 @@ export function calculateMarginReapuration(input: ReapurationInput): TaxBreakdow
     irpj_pct,
     peso_op_interna: peso_input,
     tax_credits,
+    discount_mode: discount_mode_input,
     effective_date,
     use_snapshot_rates,
   } = input
+
+  // Epic MRM-V6 — ADR-009: normalização do modo solicitado.
+  // 'MRM' (legacy V5) é tratado como PROPORTIONAL — sem comportamento próprio.
+  // Default PROPORTIONAL quando ausente (retrocompat V4/V5).
+  const discount_mode_requested: DiscountMode =
+    discount_mode_input === 'SELLER_REDUCTION' || discount_mode_input === 'PROFIT_REDUCTION'
+      ? discount_mode_input
+      : 'PROPORTIONAL'
 
   // Q5 (Story S1.1): Guard defensivo — Simples Nacional/MEI não rateiam CSLL/IRPJ.
   // Mesmo se caller passar valor > 0, forçamos a zero e emitimos warn estruturado.
@@ -294,11 +304,53 @@ export function calculateMarginReapuration(input: ReapurationInput): TaxBreakdow
   const v5 = desc_value <= 0 ? true : rv < rb
   const v6 = true // Por construção: computeTaxesInside usa RV, nunca RB.
 
-  // Etapa 8: Redistribuição proporcional 4 componentes (R2 + Story S1.1)
-  // combined_pct = profit + commission + csll + irpj
-  const combined_pct = commission_pct + profit_pct + csll_pct_effective + irpj_pct_effective
-  const peso_comm = combined_pct > 0 ? commission_pct / combined_pct : 0
-  const peso_lucro = combined_pct > 0 ? profit_pct / combined_pct : 0
+  // Etapa 8 (Epic MRM-V6 — ADR-009): Redistribuição condicional por discount_mode.
+  //
+  // SELLER_REDUCTION: vendedor absorve o desconto → lucro preservado em valor
+  //   absoluto (= profit_pct × RB). Equivale a transferir profit_pct para
+  //   commission_pct no rateio.
+  // PROFIT_REDUCTION: empresa absorve o desconto → comissão preservada em valor
+  //   absoluto (= commission_pct × RB). Equivale a transferir commission_pct
+  //   para profit_pct no rateio.
+  // PROPORTIONAL (default): comportamento V5 — peso baseado em commission_pct
+  //   e profit_pct originais.
+  //
+  // Fallback safety (ADR-009 §5.4): SELLER com commission_pct=0 ou PROFIT com
+  // profit_pct=0 → degrada para PROPORTIONAL + status DISCOUNT_MODE_FALLBACK.
+  //
+  // INVARIANTE: csll_pct_effective e irpj_pct_effective NUNCA mudam por modo —
+  // são impostos sobre o lucro residual e mantêm rateio proporcional original.
+  let discount_mode_applied: DiscountMode = discount_mode_requested
+  let fallbackReason: string | null = null
+  let effective_commission_pct = commission_pct
+  let effective_profit_pct = profit_pct
+
+  if (discount_mode_requested === 'SELLER_REDUCTION') {
+    if (commission_pct <= 0) {
+      // Vendedor não pode absorver se commission_pct=0 → fallback
+      discount_mode_applied = 'PROPORTIONAL'
+      fallbackReason = 'commission_pct_zero'
+    } else {
+      // Toda margem (comm + profit) vai para commission no rateio
+      effective_commission_pct = commission_pct + profit_pct
+      effective_profit_pct = 0
+    }
+  } else if (discount_mode_requested === 'PROFIT_REDUCTION') {
+    if (profit_pct <= 0) {
+      // Empresa não pode absorver se profit_pct=0 → fallback
+      discount_mode_applied = 'PROPORTIONAL'
+      fallbackReason = 'profit_pct_zero'
+    } else {
+      // Toda margem (comm + profit) vai para profit no rateio
+      effective_commission_pct = 0
+      effective_profit_pct = commission_pct + profit_pct
+    }
+  }
+
+  // combined_pct = profit + commission + csll + irpj (usando effective_*)
+  const combined_pct = effective_commission_pct + effective_profit_pct + csll_pct_effective + irpj_pct_effective
+  const peso_comm = combined_pct > 0 ? effective_commission_pct / combined_pct : 0
+  const peso_lucro = combined_pct > 0 ? effective_profit_pct / combined_pct : 0
   const peso_csll = combined_pct > 0 ? csll_pct_effective / combined_pct : 0
   const peso_irpj = combined_pct > 0 ? irpj_pct_effective / combined_pct : 0
   const v3 = combined_pct === 0
@@ -390,6 +442,13 @@ export function calculateMarginReapuration(input: ReapurationInput): TaxBreakdow
       .filter(([id, ok]) => !ok && id !== 'V7')  // V7 não conta como falha bloqueante
       .map(([id]) => id)
     messages.push(`Validações falharam: ${failed.join(', ')}`)
+  } else if (fallbackReason !== null) {
+    // Epic MRM-V6 — ADR-009 §5.4: status informacional, NÃO bloqueia save.
+    // Policy (mrm-policies.ts) trata DISCOUNT_MODE_FALLBACK como 'allow'.
+    status = 'DISCOUNT_MODE_FALLBACK'
+    messages.push(
+      `DISCOUNT_MODE_FALLBACK: requested=${discount_mode_requested}, applied=PROPORTIONAL, reason=${fallbackReason}`,
+    )
   } else {
     status = 'VALID'
   }
@@ -465,6 +524,8 @@ export function calculateMarginReapuration(input: ReapurationInput): TaxBreakdow
     new_profit,
     new_csll,
     new_irpj,
+    discount_mode_requested,
+    discount_mode_applied,
     validations,
     valid: allValid,
     status,

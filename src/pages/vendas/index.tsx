@@ -50,7 +50,7 @@ import { ConsolidatedDREBlock } from '@/page-parts/shared/consolidated-dre-block
 import { extractEpicV5DisplayData } from '@/utils/mrm-display-extractor'
 import { hydrateItemSnapshot, type TenantSnapshotContext } from '@/lib/items-snapshot'
 import { calculateMarginReapuration } from '@/utils/margin-reapuration'
-import { coerceLegacyDiscountMode } from '@/config/feature-flags'
+import { coerceLegacyDiscountMode, normalizeDiscountModeForDisplay } from '@/config/feature-flags'
 import { decideMrmAction } from '@/utils/mrm-policies'
 import { aggregateMotorResults } from '@/utils/mrm-aggregate'
 import { RequiresReviewBadge } from '@/components/mrm/RequiresReviewBadge'
@@ -996,14 +996,22 @@ function Sales() {
 
     const saleTotal = saleItems.reduce((s, i) => s + i.total, 0)
 
-    // Teto do desconto: soma ponderada (comissão + lucro). PROFIT_REDUCTION e
-    // SELLER_REDUCTION foram descontinuados (R2 da spec MRM).
+    // Teto do desconto: pool varia conforme discount_mode (Epic MRM-V6 / ADR-009).
+    //   - PROPORTIONAL: pool = comissão + lucro
+    //   - SELLER_REDUCTION: pool = apenas comissão
+    //   - PROFIT_REDUCTION: pool = apenas lucro
     const maxDiscountPercentV = (() => {
         if (saleTotal <= 0) return 0
         const sumWeighted = saleItems.reduce((s, i) => {
             const comm = i.commission_percent || 0
             const prof = i.profit_percent || 0
-            return s + i.total * (comm + prof) / 100
+            const contributing =
+                discountModeV === 'SELLER_REDUCTION'
+                    ? comm
+                    : discountModeV === 'PROFIT_REDUCTION'
+                        ? prof
+                        : comm + prof
+            return s + i.total * contributing / 100
         }, 0)
         return Math.min(100, sumWeighted / saleTotal * 100)
     })()
@@ -1065,6 +1073,7 @@ function Sales() {
                         profit_pct: profPct,
                         csll_pct: itemCsll,
                         irpj_pct: itemIrpj,
+                        discount_mode: discountModeV,
                         effective_date: reapDate,
                         use_snapshot_rates: mrmConfig.useSnapshotRates,
                     })
@@ -1117,6 +1126,7 @@ function Sales() {
                     profit_pct: profPctDecimal,
                     csll_pct: itemCsll,
                     irpj_pct: itemIrpj,
+                    discount_mode: discountModeV,
                     effective_date: reapurationEffectiveDateSale,
                     use_snapshot_rates: mrmConfig.useSnapshotRates,
                 })
@@ -1188,10 +1198,8 @@ function Sales() {
                 sale_type: 'MANUAL',
                 status: 'COMPLETED',
                 commission_amount: commissionAmount,
-                // MRM-V2-S2.1: coage modos legacy → PROPORTIONAL quando flag desligada (default).
-                discount_mode: mrmConfig.enabled
-                    ? 'MRM'
-                    : coerceLegacyDiscountMode(discountModeV, { tenant_id: tenantId, surface: 'sale' }),
+                // Epic MRM-V6 (ADR-009): persistimos o modo escolhido pelo usuário sem coerção.
+                discount_mode: discountModeV,
                 engine_version: mrmConfig.enabled ? MRM_ENGINE_VERSION : 'legacy',
             }).select().single()
 
@@ -2260,11 +2268,13 @@ function Sales() {
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                                 <span style={{ fontSize: 14, color: '#94a3b8', whiteSpace: 'nowrap' }}>Modo</span>
                                 <Select
-                                    value="PROPORTIONAL"
-                                    disabled
-                                    style={{ width: 210 }}
+                                    value={discountModeV}
+                                    onChange={(v) => setDiscountModeV(v as DiscountMode)}
+                                    style={{ width: 230 }}
                                     options={[
-                                        { value: 'PROPORTIONAL', label: mrmConfig.enabled ? 'Motor de Reapuração' : 'Proporcional' },
+                                        { value: 'PROPORTIONAL', label: 'Proporcional (Comissão + Lucro)' },
+                                        { value: 'SELLER_REDUCTION', label: 'Vendedor absorve (Comissão)' },
+                                        { value: 'PROFIT_REDUCTION', label: 'Empresa absorve (Lucro)' },
                                     ]}
                                 />
                                 <span style={{ fontSize: 14, color: '#94a3b8', whiteSpace: 'nowrap' }}>Desconto</span>
@@ -2518,6 +2528,7 @@ function Sales() {
                             <ResidualDistributionBlock
                                 distribution={saleResidualDistribution}
                                 regimeGuardActive={saleEpicV5DisplayData.regimeGuardActive}
+                                discountMode={normalizeDiscountModeForDisplay(selectedSale?.discount_mode)}
                             />
                         )}
 

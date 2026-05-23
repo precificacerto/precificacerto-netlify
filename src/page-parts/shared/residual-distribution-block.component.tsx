@@ -19,6 +19,7 @@
 
 import React from 'react'
 
+import type { DiscountMode } from '@/types/mrm'
 import { formatBRL } from '@/utils/formatters'
 import {
   formatResidualLine,
@@ -76,6 +77,18 @@ export interface ResidualDistributionBlockProps {
     attempted_csll: number
     attempted_irpj: number
   } | null
+  /**
+   * Epic MRM-V6 — ADR-009: filtragem condicional dos cards conforme modo.
+   *
+   *   - `'PROPORTIONAL'` (default): renderiza Comissão + Lucro
+   *   - `'SELLER_REDUCTION'`: oculta Lucro (vendedor absorve o desconto)
+   *   - `'PROFIT_REDUCTION'`: oculta Comissão (empresa absorve)
+   *
+   * IRPJ/CSLL aparecem independentemente do modo quando `hidesProfitTaxes=false`.
+   * 'MRM' (legacy V5) é normalizado para PROPORTIONAL pelo caller via
+   * `normalizeDiscountModeForDisplay()`.
+   */
+  discountMode?: DiscountMode
 }
 
 /**
@@ -89,13 +102,24 @@ export function ResidualDistributionBlock({
   marginTop = 8,
   configWarning = null,
   regimeGuardActive = null,
+  discountMode = 'PROPORTIONAL',
 }: ResidualDistributionBlockProps) {
   const { commission, profit, irpj, csll, hasDiscount, hidesProfitTaxes, requiresReview } = distribution
 
-  const cards: CardConfig[] = [
-    { label: 'Comissão do Vendedor', bgColor: 'rgba(99,102,241,0.12)', valueColor: '#818cf8', line: commission },
-    { label: 'Lucro da Empresa', bgColor: 'rgba(16,185,129,0.12)', valueColor: '#34d399', line: profit },
-  ]
+  // Epic MRM-V6 — ADR-009: ocultação condicional dos cards conforme modo.
+  // SELLER_REDUCTION: vendedor absorve → não mostra Lucro.
+  // PROFIT_REDUCTION: empresa absorve → não mostra Comissão.
+  // PROPORTIONAL (e 'MRM' legacy): mostra ambos.
+  const hideProfitCard = discountMode === 'SELLER_REDUCTION'
+  const hideCommissionCard = discountMode === 'PROFIT_REDUCTION'
+
+  const cards: CardConfig[] = []
+  if (!hideCommissionCard) {
+    cards.push({ label: 'Comissão do Vendedor', bgColor: 'rgba(99,102,241,0.12)', valueColor: '#818cf8', line: commission })
+  }
+  if (!hideProfitCard) {
+    cards.push({ label: 'Lucro da Empresa', bgColor: 'rgba(16,185,129,0.12)', valueColor: '#34d399', line: profit })
+  }
 
   if (!hidesProfitTaxes) {
     cards.push(

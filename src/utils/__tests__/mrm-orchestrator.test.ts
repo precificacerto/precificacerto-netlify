@@ -362,7 +362,7 @@ describe('V5-001 — resolvePesoOpInterna (3 fontes de prioridade)', () => {
 
   it('Fonte 1 sobrescreve fonte 2 (snapshot)', () => {
     const snapshot: TaxBreakdown = {
-      engine_version: '2.2.0',
+      engine_version: '2.3.0',
       effective_date: '2026-05-22',
       regime: 'LUCRO_REAL',
       use_snapshot_rates: true,
@@ -499,7 +499,7 @@ describe('V5-001 — orchestrateReapurationSync injeta peso resolvido no motor',
 
   it('Com snapshot prev_breakdown.peso_op_interna: usa valor histórico (ADR-003)', () => {
     const previousBreakdown: Partial<TaxBreakdown> = {
-      engine_version: '2.2.0',
+      engine_version: '2.3.0',
       peso_op_interna: 0.85,
       taxes_inside: [],
       taxes_outside: [],
