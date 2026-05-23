@@ -76,15 +76,20 @@ export function mergeItemAndTenantRates(
     const hasItemValue = itemVal != null && Number.isFinite(itemVal)
 
     if (hasItemValue) {
+      const raw = Number(itemVal)
       // Override item — só inclui no array se > 0 (motor ignora rate 0 por design)
-      if (Number(itemVal) > 0) {
+      if (raw > 0) {
+        // BUG FIX (2026-05-23, Hyago): produtos podem ter alíquotas salvas em
+        // formato porcentual (17 = 17%) em vez de decimal (0.17). Motor RR
+        // espera decimal. Heurística: valor < 1 já é decimal; valor >= 1 é porcentagem.
+        const normalized = raw < 1 ? raw : raw / 100
         result.push({
           id: `item-override-${taxType}`,
           tenant_id: 'item-override',
           tax_type: taxType,
           origin_state: null,
           dest_state: null,
-          rate_pct: Number(itemVal),
+          rate_pct: normalized,
           valid_from: '2026-01-01',
           valid_until: null,
           notes: 'override from item-level tax rates (S11)',

@@ -77,7 +77,17 @@ export async function loadTaxRates(query: LoaderQuery = {}): Promise<TaxRatePeri
     }
 
     const json = (await response.json()) as { rates?: TaxRatePeriod[] }
-    const rates = Array.isArray(json.rates) ? json.rates : []
+    const rawRates = Array.isArray(json.rates) ? json.rates : []
+    // BUG FIX (2026-05-23, Hyago): `tax_rates_periods.rate_pct` foi cadastrado
+    // historicamente em FORMATO PERCENTUAL (17 = 17%) em vez de decimal (0.17).
+    // Motor RR espera DECIMAL (0..1). Heurística defensiva (mesmo padrão de
+    // `tax-sync.ts:169`): valor < 1 já é decimal; valor >= 1 é porcentagem → /100.
+    // Garante retrocompat com qualquer estado do banco sem migration obrigatória.
+    const rates: TaxRatePeriod[] = rawRates.map((r) => {
+      const raw = Number(r.rate_pct) || 0
+      const normalized = raw <= 0 ? 0 : raw < 1 ? raw : raw / 100
+      return { ...r, rate_pct: normalized }
+    })
     cache.set(key, { data: rates, expires_at: now + CACHE_TTL_MS })
     return rates
   } catch {

@@ -157,15 +157,30 @@ export function useTenantTaxContext(options: HookOptions = {}): TenantTaxContext
       const rro_policy: RroPolicy | null =
         rroPolicyRaw === 'strict' || rroPolicyRaw === 'permissive' ? rroPolicyRaw : null
 
-      // S8 — DOP = soma das despesas operacionais (estrutura + MOI). Convenção
-      // do build-calc-base: structurePct = fixed + variable + financial; MOI
-      // (admin/indirect_labor) é tratada à parte mas conceitualmente é DOP.
-      const fixedPct = Number(cfg?.fixed_expense_percent) || 0
-      const variablePct = Number(cfg?.variable_expense_percent) || 0
-      const financialPct = Number(cfg?.financial_expense_percent) || 0
-      const moiPct = Number(cfg?.admin_labor_percent) || Number(cfg?.indirect_labor_percent) || 0
+      // S8 — DOP = soma das despesas operacionais (estrutura + MOI).
+      //
+      // BUG FIX (2026-05-23, Hyago): as colunas `*_percent` em tenant_expense_config
+      // são salvas em FORMATO PERCENTUAL (0..100, ex: 10.64 = 10,64%) — vide
+      // `recalc-expense-config.ts:119` (`round2(percents.X * 100)`) e o módulo
+      // canônico `compute-service-price.ts:74` (`structurePct = (fixed+var+fin)/100`).
+      // Sem a normalização, o motor RR recebia dop_pct ≈ 27 e calculava despesas 100×
+      // maiores que a receita, fazendo o RRO negativar e zerar toda a distribuição
+      // (Comissão/Lucro/IRPJ/CSLL → R$ 0,00 na UI mesmo com produto válido).
+      //
+      // Heurística defensiva (mesmo padrão de `tax-sync.ts:169`): se o valor já está
+      // em decimal (0..1), preserva; se está em formato percentual (>1), divide por 100.
+      // Garante retrocompat com qualquer estado pré-existente do banco.
+      const toDecimal = (raw: unknown): number => {
+        const n = Number(raw) || 0
+        if (n <= 0) return 0
+        return n < 1 ? n : n / 100
+      }
+      const fixedPct = toDecimal(cfg?.fixed_expense_percent)
+      const variablePct = toDecimal(cfg?.variable_expense_percent)
+      const financialPct = toDecimal(cfg?.financial_expense_percent)
+      const moiPct = toDecimal(cfg?.admin_labor_percent ?? cfg?.indirect_labor_percent)
       const dop_pct = fixedPct + variablePct + financialPct + moiPct
-      const mod_pct = Number(cfg?.production_labor_percent) || 0
+      const mod_pct = toDecimal(cfg?.production_labor_percent)
 
       // 2. Carrega componentes tributários (tax-sync) e rates em paralelo
       const [components, rates] = await Promise.all([
