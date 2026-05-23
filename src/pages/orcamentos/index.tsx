@@ -559,17 +559,22 @@ function Budgets() {
     const motorResultsByItem = budgetItems.map(i => {
         const commPctDecimal = (i.commission_percent ?? 0) / 100
         const profPctDecimal = (i.profit_percent ?? 0) / 100
-        if (commPctDecimal === 0 && profPctDecimal === 0) return null
         const itemBase = i.unit_price * i.quantity
         if (itemBase <= 0) return null
-        // S8: estrutura operacional real do item (Etapa 5/6 da spec do motor)
-        const cpItem = (Number(i.cost_total) || 0) * (Number(i.quantity) || 0)
-        const modItem = itemBase * (Number(mrmConfig.mod_pct) || 0)
-        const dopItem = itemBase * (Number(mrmConfig.dop_pct) || 0)
         // S11: alíquotas específicas do item (com fallback tenant para campos NULL)
         const itemRates = mergeItemAndTenantRates(i.item_tax_rates ?? null, mrmConfig.rates)
         const itemCsll = resolveItemCsllPct(i.item_tax_rates ?? null, mrmConfig.csll_pct)
         const itemIrpj = resolveItemIrpjPct(i.item_tax_rates ?? null, mrmConfig.irpj_pct)
+        // FIX (2026-05-23): chamar motor SEMPRE que houver pelo menos 1 componente
+        // distribuível (commission OU profit OU csll OU irpj). Sem isso, produto sem
+        // comissão/lucro do próprio cadastro perde a distribuição de CSLL/IRPJ
+        // vindo do tenant_settings (bug reportado pelo user — display zerado).
+        const totalPctDistribuivel = commPctDecimal + profPctDecimal + (Number(itemCsll) || 0) + (Number(itemIrpj) || 0)
+        if (totalPctDistribuivel === 0) return null
+        // S8: estrutura operacional real do item (Etapa 5/6 da spec do motor)
+        const cpItem = (Number(i.cost_total) || 0) * (Number(i.quantity) || 0)
+        const modItem = itemBase * (Number(mrmConfig.mod_pct) || 0)
+        const dopItem = itemBase * (Number(mrmConfig.dop_pct) || 0)
         return calculateMarginReapuration({
             rb: itemBase,
             desc_value: itemBase * (globalDiscountPercent / 100),
