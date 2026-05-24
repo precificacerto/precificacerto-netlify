@@ -274,3 +274,57 @@ O cenário real do user é o golden test (Nível 1 → R$ 42.645,94), e a cadeia
 3. **Backward Compatibility (§6) garante zero impacto em snapshots persistidos e ADRs anteriores.** ADR-001 (single source of truth do motor), ADR-003 (snapshot fiscal invariante), ADR-010 (separação Display vs Fiscal) preservados integralmente. `MRM_ENGINE_VERSION = 2.3.0` inalterado. Produtos modernos com `cost_total > 0` permanecem em Nível 2 (zero regressão fluxo feliz V7). Riscos CR1-CR5 cobertos por clamp + optional chaining + condições explícitas de SUM.
 
 **Quinn, 2026-05-24** — APPROVED. ADR-011 ACCEPTED arquiteturalmente E operacionalmente. Pode prosseguir para Dev.
+
+---
+
+## Addendum V8.6 — Productive Labor Runtime Fallback (Aria, 2026-05-23)
+
+**Status:** PATCH — extende a cadeia de fallback de **labor** (MOD) sem alterar a cadeia principal de custo de produto (§2). Cobre o cenario residual onde `pricing_calculations` foi gravado mas `product_workload_price` permaneceu `null` (engine nunca re-executou apos cadastro).
+
+### 1. Nova cadeia de fallback para MOD (5 niveis)
+
+```
+Nivel 1: labor_costs.net_value                          (do banco — V8.1)
+Nivel 2: pricing_calculations.product_workload_price     (do banco — V8.3)
+Nivel 3: pricing_calculations.total_labor_net            (do banco — V8.4)
+Nivel 4: RUNTIME calculation                             ← NOVO (V8.6)
+         = product_workload × (production_labor_cost / monthly_workload_minutes)
+Nivel 5: zero                                            (fallback final, clamp)
+```
+
+A cadeia preserva 100% do comportamento dos Niveis 1-3 (zero regressao). Nivel 4 so dispara quando os 3 primeiros retornam `null` ou `0` **E** `pricing_calculations.product_workload > 0` esta presente (input minimo). Nivel 5 e o clamp final inegociavel — nenhuma branch pode lancar exception ou retornar `NaN`.
+
+### 2. Risco arquitetural e mitigacao
+
+**Risco:** Nivel 4 depende de **duas tabelas externas** estarem populadas: `tenant_expense_config.production_labor_cost` (custo mensal da MOD) e `tenants.monthly_workload` + `tenants.num_productive_employees` + `tenants.workload_unit` (capacidade produtiva mensal). Se qualquer um for `null` ou zero, a divisao explode ou produz infinito.
+
+**Mitigacao (obrigatoria):**
+- Clamp em zero quando qualquer denominador for `<= 0` ou `null`.
+- Optional chaining em todos os acessos (`tenant?.monthly_workload ?? 0`).
+- Helper retorna `0` (nao `null`) — call-site decide se renderiza linha condicionalmente (AC2 do PRD).
+
+### 3. Dois pontos criticos para Dev (Dex)
+
+**3.1 Derivacao de `monthly_workload_minutes` depende de `workload_unit`:**
+
+```
+const hoursPerMonth =
+  workload_unit === 'HOURS'   ? monthly_workload :
+  workload_unit === 'DAYS'    ? monthly_workload × 8 :  // 8h/dia (convencao do tenant)
+  workload_unit === 'MINUTES' ? monthly_workload / 60 :
+  0;
+
+const monthly_workload_minutes = num_productive_employees × hoursPerMonth × 60;
+```
+
+`workload_unit` e enum em `tenants` — Dev DEVE validar os 3 valores antes de calcular. Qualquer valor desconhecido cai em `0` (que dispara o clamp do Nivel 5).
+
+**3.2 `production_labor_cost` ja e mensal — sem outras conversoes:**
+
+`tenant_expense_config.production_labor_cost` ja esta armazenado como **custo total mensal da MOD em reais**, conforme contrato V5+ do tenant_expense_config. Dev NAO deve multiplicar por num_employees, nem dividir por semanas/dias. Usar valor cru.
+
+### 4. Backward compatibility
+
+`MRM_ENGINE_VERSION` permanece `2.3.0` (alteracao opera em camada de **display**, nao no motor). ADR-001/003/010 preservados. Zero migration Supabase. Snapshots persistidos em `budgets.snapshot_jsonb`/`sales.snapshot_jsonb` **nao mudam** — V8.6 so afeta render runtime da DRE Consolidada.
+
+**Aria, 2026-05-23** — Addendum V8.6 **APPROVED (PATCH)**. Pode prosseguir para Quinn.

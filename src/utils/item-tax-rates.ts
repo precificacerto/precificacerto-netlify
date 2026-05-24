@@ -136,7 +136,7 @@ export function mergeItemAndTenantRates(
  *   `yield_quantity` clamped em Math.max(1, ...) para evitar NaN/Infinity quando
  *   produto antigo tem yield=null/0/negativo.
  */
-export function resolveProductCostTotal(prod: any): number {
+export function resolveProductCostTotal(prod: any, tenantCtx?: TenantLaborContext): number {
   const yieldQty = Math.max(1, Number(prod?.yield_quantity) || 1)
   // V8.4 (2026-05-24): pricing_calculations pode ter múltiplas linhas (por regime).
   // Itera buscando a primeira com valor não-zero em vez de pegar [0] cego.
@@ -144,8 +144,8 @@ export function resolveProductCostTotal(prod: any): number {
     ? prod.pricing_calculations
     : (prod?.pricing_calculations ? [prod.pricing_calculations] : [])
 
-  // labor_net via resolveProductLaborTotal (cobre labor_costs + pricing iterado)
-  const laborUnit = resolveProductLaborTotal(prod)
+  // labor_net via resolveProductLaborTotal (cobre labor_costs + pricing iterado + runtime V8.6)
+  const laborUnit = resolveProductLaborTotal(prod, tenantCtx)
   const laborTotal = laborUnit * yieldQty // valor total para somar com itens
 
   // ★ Nível 1 (PRIMÁRIO — ADR-011): soma direta dos itens cadastrados + MO produtiva
@@ -203,7 +203,16 @@ export function resolveProductCostTotal(prod: any): number {
  *
  * Cenário do user: labor_costs.net_value = R$ 2.716,00 / yield 1 = R$ 2.716,00/un
  */
-export function resolveProductLaborTotal(prod: any): number {
+/**
+ * Contexto opcional do tenant para o cálculo runtime de MOD (V8.6 / ADR-011 patch).
+ * Fórmula: MOD = product_workload × (production_labor_cost / monthly_workload_minutes)
+ */
+export interface TenantLaborContext {
+  production_labor_cost: number   // R$/mês (tenant_expense_config.production_labor_cost)
+  monthly_workload_minutes: number // minutos/mês (derivado de tenants)
+}
+
+export function resolveProductLaborTotal(prod: any, tenantCtx?: TenantLaborContext): number {
   const yieldQty = Math.max(1, Number(prod?.yield_quantity) || 1)
 
   // 1º labor_costs (tabela dedicada — fonte primária)
@@ -218,11 +227,7 @@ export function resolveProductLaborTotal(prod: any): number {
 
   // V8.5 (2026-05-24): pricing_calculations tem MÚLTIPLAS LINHAS por produto
   // (por tax_regime + sale_scope + buyer_type). Cada linha pode ter campos
-  // diferentes preenchidos. Busca o PRIMEIRO valor > 0 nesta ordem em qualquer linha:
-  //   product_workload_price (campo canônico do engine)
-  //   total_labor_net (variante)
-  //   total_labor_gross (último recurso)
-  //   val_indirect_labor (campo derivado V2)
+  // diferentes preenchidos. Busca o PRIMEIRO valor > 0 em qualquer linha.
   const pricingArr: any[] = Array.isArray(prod?.pricing_calculations)
     ? prod.pricing_calculations
     : (prod?.pricing_calculations ? [prod.pricing_calculations] : [])
@@ -242,6 +247,19 @@ export function resolveProductLaborTotal(prod: any): number {
   for (const p of pricingArr) {
     const v = Number(p?.val_indirect_labor) || 0
     if (v > 0) return v / yieldQty
+  }
+
+  // V8.6 (ADR-011 patch): CÁLCULO RUNTIME quando todas as fontes do banco vazias.
+  // Usa product_workload (minutos do produto) + tenant context. Cenário canônico user:
+  //   5000 min × (R$ production_labor_cost / monthly_workload_minutes) = R$ 2.716
+  if (tenantCtx && tenantCtx.production_labor_cost > 0 && tenantCtx.monthly_workload_minutes > 0) {
+    for (const p of pricingArr) {
+      const workloadMin = Number(p?.product_workload) || 0
+      if (workloadMin > 0) {
+        const costPerMinute = tenantCtx.production_labor_cost / tenantCtx.monthly_workload_minutes
+        return (workloadMin * costPerMinute) / yieldQty
+      }
+    }
   }
 
   return 0

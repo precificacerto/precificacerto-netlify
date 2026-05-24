@@ -219,3 +219,50 @@ Bate exatamente com o numero da tela de cadastro do produto.
 ---
 
 **Fim do PRD EPIC-MRM-V8 v1.0**
+
+---
+
+## Patch V8.6 — Productive Labor Runtime Calculation (Morgan, 2026-05-23)
+
+### Problema
+
+Apos 5 commits de fix (V8.1 a V8.5), o Founder Hyago reporta que a DRE Consolidada continua exibindo apenas "Custo do produto" sem a linha "Mao de Obra Direta (MOD)" de R$ 2.716,00:
+
+```
+DRE Consolidada
+Custos
+  Custo do produto: R$ 39.929,94
+  Total custos: R$ 39.929,94
+```
+
+A linha MOD nao aparece porque o produto canonico foi cadastrado com `productWorkloadInMinutes = 5000`, mas o engine de precificacao (`pricing-engine.ts:203`) nunca foi re-executado para esse produto apos o cadastro inicial. Como consequencia, `pricing_calculations.product_workload_price` esta `null` no banco, e os fallbacks V8.1 a V8.5 (que leem `labor_costs.net_value`, `pricing_calculations.product_workload_price` e `pricing_calculations.total_labor_net`) todos retornam zero. A cadeia de resolucao do ADR-011 nao tem caminho de saida para este caso.
+
+### Decisao
+
+Calcular MOD **em runtime** dentro de orcamentos/vendas, usando os mesmos inputs que o engine usa para popular `productiveLaborCost`. A formula e estritamente derivada dos mesmos campos ja persistidos em `tenant_expense_config` (`production_labor_cost`) e `tenants` (`monthly_workload`, `num_productive_employees`, `workload_unit`), eliminando a dependencia de `pricing_calculations` estar atualizado. **Zero invencao** (Artigo IV) — todos os inputs ja existem no schema.
+
+### Story
+
+**STORY-V8-006 — Productive Labor Runtime Fallback (~3h)**
+
+Adicionar contexto do tenant ao `mrmConfig` e implementar helper `calculateLaborInRuntime(product, mrmConfig)` que aciona quando os Niveis 1-3 da cadeia retornam 0/null para MOD.
+
+**Arquivos afetados:**
+- `src/contexts/mrm-config.ts` (extender com `production_labor_cost_monthly`, `monthly_workload_minutes`)
+- `src/utils/resolveProductLaborCost.ts` (novo helper, ou estender o existente)
+- `src/page-parts/budgets/dre-consolidada.tsx` + `src/page-parts/sales/dre-consolidada.tsx` (call-sites)
+
+### Criterios de Aceite
+
+**AC1 — Caminho canonico runtime:** Produto com `pricing_calculations.product_workload > 0` (ex: 5000 min) mas `product_workload_price = null` → DRE Consolidada deve calcular MOD em runtime usando a formula `product_workload × (production_labor_cost / monthly_workload_minutes)` e exibir a linha "Mao de Obra Direta (MOD): R$ 2.716,00" (cenario do Founder, valor bit-exact ± R$ 0,01).
+
+**AC2 — Produto sem workload:** Produto sem `product_workload` (nem em `pricing_calculations` nem em outras fontes) → MOD = 0 e a linha "Mao de Obra Direta (MOD)" **NAO** aparece na DRE (clamp em zero + linha condicional).
+
+**AC3 — Tenant sem configuracao:** Tenant que nao possui `tenant_expense_config.production_labor_cost` configurado (ou valor zero/null) → fallback de MOD = 0, linha some, DRE renderiza sem erro de divisao por zero ou exception.
+
+### Riscos
+
+- R1: `monthly_workload_minutes` deve ser **derivado** dos campos do tenant (depende de `workload_unit` ser HOURS, DAYS ou MINUTES) — Aria detalha conversao no ADR-011 Addendum V8.6.
+- R2: Se `pricing_calculations.product_workload` tambem estiver `null`, nao ha como adivinhar o valor — neste cenario a linha MOD some (AC2) e o user precisa recadastrar/recalcular o produto.
+
+**Morgan, 2026-05-23** — Patch V8.6 documentado, pronto para Aria revisar arquitetura.

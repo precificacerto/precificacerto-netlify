@@ -271,3 +271,40 @@ A solução proposta é arquiteturalmente conservadora (zero migration, zero mud
 **Recomendação:** prosseguir com Epic V8 para implementação por @dev Dex conforme stories MRM-V8-001/002/003 no PRD.
 
 **Quinn, 2026-05-24** — APPROVED. Pode prosseguir para Dev.
+
+---
+
+## QG V8.6 — Productive Labor Runtime Fallback (Quinn, 2026-05-23)
+
+### Escopo
+
+Validar o helper `calculateLaborInRuntime(product, mrmConfig)` introduzido no Patch V8.6 do PRD e no Addendum V8.6 do ADR-011. Cobre o cenario residual do Founder onde `pricing_calculations.product_workload_price` esta `null` no banco e a linha "Mao de Obra Direta (MOD)" sumiu da DRE Consolidada.
+
+### Testes Blocking (3)
+
+**QG-V8.6-001 BLOCKING — Cenario canonico do Founder (bit-exact):**
+- **Setup:** produto com `pricing_calculations.product_workload = 5000` (minutos), `product_workload_price = null`, `labor_costs.net_value = null`, `total_labor_net = null`. Tenant configurado com `production_labor_cost = R$ X`, `monthly_workload = Y`, `num_productive_employees = Z`, `workload_unit = HOURS` (ou DAYS/MINUTES — conforme contexto real do Founder).
+- **Acao:** abrir orcamento → renderizar DRE Consolidada.
+- **Esperado:** linha "Mao de Obra Direta (MOD): R$ 2.716,00" aparece (± R$ 0,01). Validar matematicamente que `5000 × (production_labor_cost / monthly_workload_minutes) ≈ 2.716,00` — em outras palavras, `costPerMinute` agregado deve ser **R$ 0,5432/min** (= 2716 / 5000). Test unitario + sign-off visual do Founder Hyago em staging.
+
+**QG-V8.6-002 BLOCKING — Tenant sem `production_labor_cost`:**
+- **Setup:** tenant sem `tenant_expense_config.production_labor_cost` configurado (campo `null` ou `0`). Produto com `product_workload = 5000`.
+- **Acao:** abrir orcamento → renderizar DRE.
+- **Esperado:** MOD = 0, linha "Mao de Obra Direta (MOD)" **NAO** aparece na DRE (renderizacao condicional). Zero exception, zero `NaN`, zero divisao por zero. Clamp do Nivel 5 dispara corretamente.
+
+**QG-V8.6-003 BLOCKING — Produto sem `product_workload`:**
+- **Setup:** produto sem `product_workload` em `pricing_calculations` (campo `null` ou ausente). Tenant pode ou nao ter `production_labor_cost` configurado.
+- **Acao:** abrir orcamento → renderizar DRE.
+- **Esperado:** MOD = 0, linha some da DRE. Helper retorna `0` sem erro. Producoes com produtos nao-industrializados (servicos puros, revenda) nao sao afetadas.
+
+### Estrategia de execucao
+
+- **Pre-merge:** rodar testes unitarios do helper + grep audit confirmando que call-sites de orcamentos e vendas balcao chamam `calculateLaborInRuntime` quando Niveis 1-3 falham.
+- **Staging:** Founder Hyago abre o orcamento canonico do produto onde V8.1-V8.5 falharam. Validar visualmente que MOD = R$ 2.716,00 aparece. Sign-off escrito obrigatorio.
+- **Pos-deploy:** monitorar logs de exception no helper por 48h. Validar amostra de 3-5 tenants distintos (com `workload_unit` HOURS, DAYS e MINUTES) para garantir conversao correta da derivacao §3.1 do ADR Addendum.
+
+### Veredito
+
+**Patch V8.6 — APPROVED.** Os 3 testes blocking cobrem caso canonico do Founder, edge case de configuracao ausente do tenant e edge case de produto sem workload. Formula matematica do ADR Addendum (§3.1) e deterministica e auditavel. Clamp em zero (Nivel 5) elimina qualquer risco de exception ou `NaN`. Pode prosseguir para Dev Dex.
+
+**Quinn, 2026-05-23** — QG V8.6 **APPROVED**. Patch V8.6 liberado para implementacao.

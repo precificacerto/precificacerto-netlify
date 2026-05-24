@@ -66,6 +66,13 @@ export interface TenantTaxContext {
   components: TaxComponents | null
   /** Alíquotas vigentes para a data corrente (carregadas se loadRates=true). */
   rates: TaxRatePeriod[]
+  /**
+   * V8.6 (ADR-011): contexto para calcular MO produtiva em RUNTIME quando
+   * pricing_calculations.product_workload_price está vazio.
+   * Fórmula: MOD = product_workload × (production_labor_cost / monthly_workload_minutes)
+   */
+  production_labor_cost: number
+  monthly_workload_minutes: number
   /** Flag de carregamento. */
   loading: boolean
 }
@@ -82,6 +89,8 @@ const DEFAULT_CONTEXT: TenantTaxContext = {
   rro_policy: null,
   components: null,
   rates: [],
+  production_labor_cost: 0,
+  monthly_workload_minutes: 0,
   loading: true,
 }
 
@@ -129,10 +138,18 @@ export function useTenantTaxContext(options: HookOptions = {}): TenantTaxContext
       // 1. Carrega config MRM + rro_policy + percentuais de despesa (S8)
       // tenant_expense_config armazena percentuais em DECIMAL (0.05 = 5%) por
       // convenção do projeto (mesma de commission_pct/profit_pct).
+      // V8.6 (2026-05-24): inclui production_labor_cost para cálculo de MOD em runtime
       const { data: cfgRow } = await supabase
         .from('tenant_expense_config')
-        .select('margin_reapuration_enabled, use_snapshot_rates, rro_policy, fixed_expense_percent, variable_expense_percent, financial_expense_percent, admin_labor_percent, indirect_labor_percent, production_labor_percent')
+        .select('margin_reapuration_enabled, use_snapshot_rates, rro_policy, fixed_expense_percent, variable_expense_percent, financial_expense_percent, admin_labor_percent, indirect_labor_percent, production_labor_percent, production_labor_cost')
         .eq('tenant_id', tenantId as string)
+        .maybeSingle()
+
+      // V8.6: carrega dados de workload do tenant para calcular monthly_workload_minutes
+      const { data: tenantRow } = await supabase
+        .from('tenants')
+        .select('monthly_workload, num_productive_employees, workload_unit')
+        .eq('id', tenantId as string)
         .maybeSingle()
 
       const cfg = cfgRow as
@@ -146,6 +163,7 @@ export function useTenantTaxContext(options: HookOptions = {}): TenantTaxContext
             admin_labor_percent?: number | null
             indirect_labor_percent?: number | null
             production_labor_percent?: number | null
+            production_labor_cost?: number | null
           }
         | null
         | undefined
@@ -181,6 +199,31 @@ export function useTenantTaxContext(options: HookOptions = {}): TenantTaxContext
       const moiPct = toDecimal(cfg?.admin_labor_percent ?? cfg?.indirect_labor_percent)
       const dop_pct = fixedPct + variablePct + financialPct + moiPct
       const mod_pct = toDecimal(cfg?.production_labor_percent)
+
+      // V8.6 (ADR-011 V8.6): contexto para calcular MO produtiva em RUNTIME quando
+      // pricing_calculations.product_workload_price está vazio (engine nunca rodou).
+      // Fórmula validada pela triade (Morgan + Aria + Quinn):
+      //   hoursPerMonth = workload_unit === 'HOURS' ? monthly_workload
+      //                 : 'DAYS' ? monthly_workload × 8
+      //                 : 'MINUTES' ? monthly_workload / 60
+      //                 : 0
+      //   monthly_workload_minutes = num_productive_employees × hoursPerMonth × 60
+      //   MOD_runtime = product_workload × (production_labor_cost / monthly_workload_minutes)
+      const tenantInfo = tenantRow as {
+        monthly_workload?: number | null
+        num_productive_employees?: number | null
+        workload_unit?: string | null
+      } | null | undefined
+      const rawWorkload = Number(tenantInfo?.monthly_workload) || 0
+      const workloadUnit = String(tenantInfo?.workload_unit || '').toUpperCase()
+      const hoursPerMonth =
+        workloadUnit === 'HOURS' ? rawWorkload
+          : workloadUnit === 'DAYS' ? rawWorkload * 8
+          : workloadUnit === 'MINUTES' ? rawWorkload / 60
+          : 0
+      const totalEmployees = Math.max(1, Number(tenantInfo?.num_productive_employees) || 1)
+      const monthly_workload_minutes = totalEmployees * hoursPerMonth * 60
+      const production_labor_cost = Number(cfg?.production_labor_cost) || 0
 
       // 2. Carrega componentes tributários (tax-sync) e rates em paralelo
       const [components, ratesRaw] = await Promise.all([
@@ -241,6 +284,8 @@ export function useTenantTaxContext(options: HookOptions = {}): TenantTaxContext
         rro_policy,
         components,
         rates,
+        production_labor_cost,
+        monthly_workload_minutes,
         loading: false,
       }
     },

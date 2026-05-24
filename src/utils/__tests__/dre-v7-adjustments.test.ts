@@ -393,6 +393,31 @@ describe('V8.1 (2026-05-24) — resolveProductLaborTotal e MOD do produto na DRE
     expect(resolveProductLaborTotal(prod)).toBe(1500)
   })
 
+  it('V8.6: cálculo RUNTIME usando tenant context quando pricing vazia', () => {
+    // Cenário canônico user: 5000min × (cost_per_min) = R$ 2.716,00
+    const prod = {
+      yield_quantity: 1,
+      labor_costs: [],
+      pricing_calculations: [
+        { product_workload: 5000, product_workload_price: 0, total_labor_net: 0 },
+      ],
+    }
+    const tenantCtx = {
+      production_labor_cost: 8691.2, // R$/mês (8691.2 / 16000 = 0.5432)
+      monthly_workload_minutes: 16000, // min/mês
+    }
+    // 5000 × 0.5432 = R$ 2.716,00 (cenário canônico user)
+    expect(resolveProductLaborTotal(prod, tenantCtx)).toBeCloseTo(2716, 2)
+  })
+
+  it('V8.6: runtime NÃO calcula se tenant.monthly_workload_minutes=0', () => {
+    const prod = {
+      yield_quantity: 1,
+      pricing_calculations: [{ product_workload: 5000 }],
+    }
+    expect(resolveProductLaborTotal(prod, { production_labor_cost: 1000, monthly_workload_minutes: 0 })).toBe(0)
+  })
+
   it('V8.4: pricing_calculations com múltiplas linhas → itera buscando a com labor', () => {
     // Cenário real: produto tem 3 pricing_calculations (regimes diferentes).
     // Primeiro [0] pode ser regime sem labor; iterar até achar uma com valor.

@@ -385,8 +385,13 @@ function Budgets() {
                 : Number(commTable?.commission_percent || 0)
             const basePrice = Number(svc?.base_price || 0)
             // V7+ (2026-05-24): fallback robusto para serviços com cost_total=0
-            const costTotal = resolveProductCostTotal(svc)
-            const productiveLaborUnit = resolveProductLaborTotal(svc)
+            // V8.6: passa tenant context para cálculo runtime de MO produtiva
+            const laborTenantCtxSvc = {
+                production_labor_cost: mrmConfig.production_labor_cost,
+                monthly_workload_minutes: mrmConfig.monthly_workload_minutes,
+            }
+            const costTotal = resolveProductCostTotal(svc, laborTenantCtxSvc)
+            const productiveLaborUnit = resolveProductLaborTotal(svc, laborTenantCtxSvc)
             const profitPercent = (svc?.profit_percent != null && Number(svc.profit_percent) > 0)
                 ? Number(svc.profit_percent)
                 : (basePrice > 0 && costTotal > 0 ? Math.max(0, ((basePrice - costTotal) / basePrice) * 100) : 0)
@@ -419,9 +424,14 @@ function Budgets() {
                 : Number(commTable?.commission_percent || 0)
             const salePrice = Number(prod?.sale_price || 0)
             // V7+ (2026-05-24): fallback robusto para produtos com cost_total=0
-            const costTotal = resolveProductCostTotal(prod)
+            // V8.6: passa tenant context para cálculo runtime de MO produtiva
+            const laborTenantCtx = {
+                production_labor_cost: mrmConfig.production_labor_cost,
+                monthly_workload_minutes: mrmConfig.monthly_workload_minutes,
+            }
+            const costTotal = resolveProductCostTotal(prod, laborTenantCtx)
             // V8.1 (2026-05-24): MO produtiva do produto para separar de MOD do tenant
-            const productiveLaborUnit = resolveProductLaborTotal(prod)
+            const productiveLaborUnit = resolveProductLaborTotal(prod, laborTenantCtx)
             const profitPercent = (prod?.profit_percent != null && Number(prod.profit_percent) > 0)
                 ? Number(prod.profit_percent)
                 : (salePrice > 0 && costTotal > 0 ? Math.max(0, ((salePrice - costTotal) / salePrice) * 100) : 0)

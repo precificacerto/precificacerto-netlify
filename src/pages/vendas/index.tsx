@@ -938,9 +938,13 @@ function Sales() {
         setSaleItems(prev => prev.map(item => {
             if (item.key !== key) return item
             const price = Number(svc?.base_price || 0)
-            // V7+ (2026-05-24): fallback robusto para serviços com cost_total=0
-            const costTotal = resolveProductCostTotal(svc)
-            const productiveLaborUnit = resolveProductLaborTotal(svc) // V8.1
+            // V8.6: passa tenant context para cálculo runtime de MO produtiva
+            const laborTenantCtxV = {
+                production_labor_cost: mrmConfig.production_labor_cost,
+                monthly_workload_minutes: mrmConfig.monthly_workload_minutes,
+            }
+            const costTotal = resolveProductCostTotal(svc, laborTenantCtxV)
+            const productiveLaborUnit = resolveProductLaborTotal(svc, laborTenantCtxV)
             const allTables = [...empProductTablesV, ...empServiceTablesV]
             const commTable = allTables.find(t => t.id === item.commission_table_id)
             const commPct = Number(commTable?.commission_percent || svc?.commission_percent || 0)
@@ -962,9 +966,13 @@ function Sales() {
         setSaleItems(prev => prev.map(item => {
             if (item.key !== key) return item
             const price = Number(prod?.sale_price || 0)
-            // V7+ (2026-05-24): fallback robusto para produtos com cost_total=0
-            const costTotal = resolveProductCostTotal(prod)
-            const productiveLaborUnit = resolveProductLaborTotal(prod) // V8.1
+            // V8.6: passa tenant context para cálculo runtime de MO produtiva
+            const laborTenantCtxP = {
+                production_labor_cost: mrmConfig.production_labor_cost,
+                monthly_workload_minutes: mrmConfig.monthly_workload_minutes,
+            }
+            const costTotal = resolveProductCostTotal(prod, laborTenantCtxP)
+            const productiveLaborUnit = resolveProductLaborTotal(prod, laborTenantCtxP)
             const allTables = [...empProductTablesV, ...empServiceTablesV]
             const commTable = allTables.find(t => t.id === item.commission_table_id)
             const commPct = Number(commTable?.commission_percent || 0)
