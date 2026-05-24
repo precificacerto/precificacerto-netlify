@@ -48,6 +48,7 @@ import {
   resolveItemCsllPct,
   resolveItemIrpjPct,
   resolveProductCostTotal,
+  resolveProductLaborTotal,
   type ItemTaxRates,
 } from '@/utils/item-tax-rates'
 import { computeConsolidatedDRE, type DREItemInput } from '@/utils/consolidated-dre'
@@ -109,6 +110,9 @@ interface BudgetItemRow {
     profit_percent?: number
     /** Custo unitário do produto/serviço — alimenta CP do motor RR (Sprint S8). */
     cost_total?: number
+    /** V8.1 (2026-05-24): Parcela de MO produtiva inclusa em cost_total (R$ unitário).
+     *  Permite separar "Custo do produto" (material) de "MOD" (mão de obra) na DRE. */
+    productive_labor_unit?: number
     /** Alíquotas tributárias específicas do item (Sprint S11). NULL = fallback tenant. */
     item_tax_rates?: ItemTaxRates | null
     isManual?: boolean
@@ -382,6 +386,7 @@ function Budgets() {
             const basePrice = Number(svc?.base_price || 0)
             // V7+ (2026-05-24): fallback robusto para serviços com cost_total=0
             const costTotal = resolveProductCostTotal(svc)
+            const productiveLaborUnit = resolveProductLaborTotal(svc)
             const profitPercent = (svc?.profit_percent != null && Number(svc.profit_percent) > 0)
                 ? Number(svc.profit_percent)
                 : (basePrice > 0 && costTotal > 0 ? Math.max(0, ((basePrice - costTotal) / basePrice) * 100) : 0)
@@ -395,6 +400,7 @@ function Budgets() {
                 commission_percent: commissionPercent,
                 profit_percent: profitPercent,
                 cost_total: costTotal,
+                productive_labor_unit: productiveLaborUnit,
                 item_tax_rates: svcTaxRates,
                 total: basePrice * item.quantity,
                 isService: true,
@@ -414,6 +420,8 @@ function Budgets() {
             const salePrice = Number(prod?.sale_price || 0)
             // V7+ (2026-05-24): fallback robusto para produtos com cost_total=0
             const costTotal = resolveProductCostTotal(prod)
+            // V8.1 (2026-05-24): MO produtiva do produto para separar de MOD do tenant
+            const productiveLaborUnit = resolveProductLaborTotal(prod)
             const profitPercent = (prod?.profit_percent != null && Number(prod.profit_percent) > 0)
                 ? Number(prod.profit_percent)
                 : (salePrice > 0 && costTotal > 0 ? Math.max(0, ((salePrice - costTotal) / salePrice) * 100) : 0)
@@ -427,6 +435,7 @@ function Budgets() {
                 commission_percent: commissionPercent,
                 profit_percent: profitPercent,
                 cost_total: costTotal,
+                productive_labor_unit: productiveLaborUnit,
                 item_tax_rates: prodTaxRates,
                 total: salePrice * item.quantity,
                 isManual: false,
@@ -643,6 +652,7 @@ function Budgets() {
                 unit_price: item.unit_price,
                 quantity: item.quantity,
                 cost_total: item.cost_total,
+                productive_labor_unit: item.productive_labor_unit, // V8.1
                 commission_percent: item.commission_percent,
                 profit_percent: item.profit_percent,
                 tax_breakdown: null as null,

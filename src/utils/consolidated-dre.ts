@@ -31,7 +31,18 @@ import type { ResidualLine } from './residual-distribution'
 export interface DREItemInput {
   unit_price: number
   quantity: number
+  /**
+   * Custo TOTAL unitário do produto (material + mão de obra produtiva).
+   * Vem de `resolveProductCostTotal()` em utils/item-tax-rates.ts.
+   */
   cost_total?: number | null
+  /**
+   * Parcela de MO produtiva inclusa em `cost_total` (R$ unitário).
+   * V8.1 (2026-05-24): permite separar visualmente "Custo do produto" (material)
+   * de "MOD" (mão de obra) na DRE, ambos vindos do mesmo produto.
+   * Vem de `resolveProductLaborTotal()`. Quando 0/ausente, MOD usa tenant pct.
+   */
+  productive_labor_unit?: number | null
   commission_percent?: number | null
   profit_percent?: number | null
   /** Snapshot fiscal persistido pelo motor RR. Fonte preferencial. */
@@ -222,6 +233,7 @@ export function computeConsolidatedDRE(input: DREInput): DRESection {
 
   // ───── 1. AGREGAÇÃO BÁSICA ─────
   let totalCost = 0
+  let productLaborSum = 0 // V8.1: soma da MO produtiva dos produtos (Σ labor_unit × qty)
   let commissionAmount = 0
   let profitAmount = 0
   let csllAmount = 0
@@ -231,7 +243,9 @@ export function computeConsolidatedDRE(input: DREInput): DRESection {
   const allTaxesOutside: TaxLine[] = []
 
   for (const item of items) {
-    totalCost += (Number(item.cost_total) || 0) * (Number(item.quantity) || 0)
+    const qty = Number(item.quantity) || 0
+    totalCost += (Number(item.cost_total) || 0) * qty
+    productLaborSum += (Number(item.productive_labor_unit) || 0) * qty
     const v = extractItemMonetary(item)
     commissionAmount += v.commission
     profitAmount += v.profit
@@ -258,15 +272,25 @@ export function computeConsolidatedDRE(input: DREInput): DRESection {
 
   // ───── 4. DESPESAS (4 BUCKETS proporcionais à receita líquida) ─────
   // R6=b: usar 4 buckets existentes (fixed, variable, financial, indirect/admin)
-  // V7+ (2026-05-24): MOD migrada para Custos (decisão do Founder); aqui calculamos
-  // o valor mas não soma em `despesas.total` — entra em `custos.mod`.
+  // V7+ (2026-05-24): MOD migrada para Custos (decisão do Founder).
+  // V8.1 (2026-05-24): MOD da DRE = MO produtiva DOS PRODUTOS (productLaborSum),
+  // NÃO mais `receita × tenant.mod_pct` que era estimativa agregada do tenant.
+  // Fallback: quando productLaborSum=0 (produtos antigos sem labor cadastrado),
+  // mantém comportamento V7 (tenant pct × receita) para não regredir.
   const despFixas = receitaLiquida * (Number(expenseStructure.fixed_pct) || 0)
   const despVariaveis = receitaLiquida * (Number(expenseStructure.variable_pct) || 0)
   const despFinanceiras = receitaLiquida * (Number(expenseStructure.financial_pct) || 0)
   const despAdministrativas = receitaLiquida * (Number(expenseStructure.administrative_pct) || 0)
-  const modAmount = receitaLiquida * (Number(expenseStructure.mod_pct) || 0)
+  const modAmount = productLaborSum > 0
+    ? productLaborSum
+    : receitaLiquida * (Number(expenseStructure.mod_pct) || 0)
   const despTotal = despFixas + despVariaveis + despFinanceiras + despAdministrativas
-  const custosTotal = totalCost + modAmount
+  // V8.1: separa "Custo do produto" (material) de "MOD" (mão de obra do produto).
+  // totalCost JÁ inclui labor (vem de resolveProductCostTotal que soma ambos).
+  // Subtrai productLaborSum para obter material puro. Quando labor não está
+  // separado (productLaborSum=0), custosProduto = totalCost inteiro.
+  const custosProduto = Math.max(0, totalCost - productLaborSum)
+  const custosTotal = custosProduto + modAmount
 
   // ───── 5. RRO consolidado ─────
   const rroValor = commissionAmount + profitAmount + (hidesProfitTaxes ? 0 : csllAmount + irpjAmount)
@@ -303,7 +327,7 @@ export function computeConsolidatedDRE(input: DREInput): DRESection {
       liquida: receitaLiquida,
     },
     custos: {
-      produto: totalCost,
+      produto: custosProduto,
       mod: modAmount,
       total: custosTotal,
     },

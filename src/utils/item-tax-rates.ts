@@ -176,6 +176,29 @@ export function resolveProductCostTotal(prod: any): number {
 }
 
 /**
+ * Resolve a parcela de "Mão de Obra Produtiva" (labor) do CUSTO UNITÁRIO do produto.
+ *
+ * Story V8.1 (2026-05-24): user reportou que MOD na DRE era `tenant.mod_pct × receita`,
+ * gerando valor inflado (R$ 16.481) em vez do labor REAL do produto (R$ 2.716).
+ *
+ * Fonte canônica: `pricing_calculations.total_labor_net / yield_quantity`.
+ * Quando ausente, retorna 0 e o caller usa fallback do tenant (mod_pct × receita).
+ *
+ * NOTA: este valor JÁ está incluído no `cost_total` retornado por
+ * `resolveProductCostTotal` (que soma material + labor). Para separar visualmente
+ * em "Custo do produto" e "MOD" na DRE, subtraia este valor do total.
+ */
+export function resolveProductLaborTotal(prod: any): number {
+  const yieldQty = Math.max(1, Number(prod?.yield_quantity) || 1)
+  const pricing = Array.isArray(prod?.pricing_calculations)
+    ? prod.pricing_calculations[0]
+    : prod?.pricing_calculations
+  const laborNet = Number(pricing?.total_labor_net) || 0
+  if (laborNet <= 0) return 0
+  return laborNet / yieldQty
+}
+
+/**
  * Constrói `ItemTaxRates` a partir do cadastro do produto/serviço.
  *
  * Lê tanto os campos separados (`pis_pct` + `cofins_pct`) quanto o campo

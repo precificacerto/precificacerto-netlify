@@ -183,7 +183,7 @@ export function useTenantTaxContext(options: HookOptions = {}): TenantTaxContext
       const mod_pct = toDecimal(cfg?.production_labor_percent)
 
       // 2. Carrega componentes tributários (tax-sync) e rates em paralelo
-      const [components, rates] = await Promise.all([
+      const [components, ratesRaw] = await Promise.all([
         loadTenantTaxComponents(tenantId as string).catch((): TaxComponents | null => null),
         loadRates
           ? loadTaxRates({ date: effectiveDate }).catch((): TaxRatePeriod[] => [])
@@ -191,6 +191,38 @@ export function useTenantTaxContext(options: HookOptions = {}): TenantTaxContext
       ])
 
       const regime = mapToMotorRegime(components?.regime)
+
+      // V8.1 (2026-05-24): injeta PIS/COFINS do tenant em `rates` como fallback
+      // automático para produtos que não têm `pis_cofins_pct` cadastrado.
+      // O motor RR usa `rates` para calcular taxes_inside; sem essas entradas,
+      // PIS/COFINS não aparecem na DRE Consolidada mesmo o tenant tendo regime LR/LP.
+      const rates: TaxRatePeriod[] = [...ratesRaw]
+      const hasPisRate = rates.some(r => r.tax_type === 'PIS')
+      const hasCofinsRate = rates.some(r => r.tax_type === 'COFINS')
+      const tenantPis = Number(components?.pis) || 0
+      const tenantCofins = Number(components?.cofins) || 0
+      if (!hasPisRate && tenantPis > 0) {
+        rates.push({
+          id: 'tenant-fallback-PIS',
+          tenant_id: tenantId as string,
+          tax_type: 'PIS',
+          origin_state: null, dest_state: null,
+          rate_pct: tenantPis,
+          valid_from: '2026-01-01', valid_until: null,
+          notes: 'tenant fallback (tax-sync)',
+        })
+      }
+      if (!hasCofinsRate && tenantCofins > 0) {
+        rates.push({
+          id: 'tenant-fallback-COFINS',
+          tenant_id: tenantId as string,
+          tax_type: 'COFINS',
+          origin_state: null, dest_state: null,
+          rate_pct: tenantCofins,
+          valid_from: '2026-01-01', valid_until: null,
+          notes: 'tenant fallback (tax-sync)',
+        })
+      }
 
       return {
         enabled,

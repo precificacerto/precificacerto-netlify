@@ -6,7 +6,7 @@
  */
 
 import { computeConsolidatedDRE, type DREItemInput } from '../consolidated-dre'
-import { buildItemTaxRatesFromProduct, resolveProductCostTotal } from '../item-tax-rates'
+import { buildItemTaxRatesFromProduct, resolveProductCostTotal, resolveProductLaborTotal } from '../item-tax-rates'
 
 describe('Ajuste #1+#2 — Custos = produto + MOD (movido de despesas)', () => {
   const items: DREItemInput[] = [
@@ -294,5 +294,82 @@ describe('V8 (ADR-011, 2026-05-24) — resolveProductCostTotal nova cadeia', () 
       }
       expect(resolveProductCostTotal(prod)).toBe(150)
     })
+  })
+})
+
+describe('V8.1 (2026-05-24) — resolveProductLaborTotal e MOD do produto na DRE', () => {
+  it('resolveProductLaborTotal retorna labor_net / yield_quantity', () => {
+    const prod = {
+      yield_quantity: 1,
+      pricing_calculations: [{ total_labor_net: 2716.00 }],
+    }
+    expect(resolveProductLaborTotal(prod)).toBeCloseTo(2716, 2)
+  })
+
+  it('resolveProductLaborTotal retorna 0 quando pricing_calculations vazia', () => {
+    expect(resolveProductLaborTotal({})).toBe(0)
+    expect(resolveProductLaborTotal({ pricing_calculations: [] })).toBe(0)
+  })
+
+  it('resolveProductLaborTotal divide por yield_quantity > 1', () => {
+    const prod = {
+      yield_quantity: 50,
+      pricing_calculations: [{ total_labor_net: 1000 }],
+    }
+    expect(resolveProductLaborTotal(prod)).toBe(20)
+  })
+
+  it('cenário canônico user: DRE separa Custo (R$ 39.929,94) e MOD (R$ 2.716,00)', () => {
+    const dreItems: DREItemInput[] = [{
+      unit_price: 141106.60,
+      quantity: 1,
+      cost_total: 42645.94,            // material + labor (vem do resolveProductCostTotal)
+      productive_labor_unit: 2716.00,  // labor isolado (vem do resolveProductLaborTotal)
+      commission_percent: 5,
+      profit_percent: 10,
+      tax_breakdown: null,
+    }]
+    const dre = computeConsolidatedDRE({
+      items: dreItems,
+      totalGross: 141106.60,
+      totalNet: 141106.60,
+      regime: 'LUCRO_PRESUMIDO',
+      expenseStructure: {
+        fixed_pct: 0.10, variable_pct: 0.05, financial_pct: 0.02,
+        administrative_pct: 0.03, mod_pct: 0.117, // tenant pct — NÃO deve ser usado
+      },
+      tenantTaxRates: { irpj: 0.018, csll: 0.0108 },
+    })
+
+    expect(dre.custos.produto).toBeCloseTo(39929.94, 2)  // material puro
+    expect(dre.custos.mod).toBeCloseTo(2716.00, 2)       // MO produtiva do produto
+    expect(dre.custos.total).toBeCloseTo(42645.94, 2)    // total
+  })
+
+  it('fallback legacy: quando productive_labor_unit ausente, MOD usa tenant pct', () => {
+    const dreItems: DREItemInput[] = [{
+      unit_price: 1000,
+      quantity: 1,
+      cost_total: 500,
+      // SEM productive_labor_unit (produto antigo)
+      commission_percent: 5,
+      profit_percent: 10,
+      tax_breakdown: null,
+    }]
+    const dre = computeConsolidatedDRE({
+      items: dreItems,
+      totalGross: 1000,
+      totalNet: 1000,
+      regime: 'LUCRO_PRESUMIDO',
+      expenseStructure: {
+        fixed_pct: 0, variable_pct: 0, financial_pct: 0,
+        administrative_pct: 0, mod_pct: 0.10, // 10% tenant
+      },
+      tenantTaxRates: { irpj: 0, csll: 0 },
+    })
+
+    expect(dre.custos.produto).toBe(500) // cost_total inteiro (nada para subtrair)
+    expect(dre.custos.mod).toBe(100)     // 1000 × 10% (fallback tenant)
+    expect(dre.custos.total).toBe(600)
   })
 })
