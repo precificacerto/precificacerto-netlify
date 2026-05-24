@@ -210,32 +210,40 @@ export function resolveProductLaborTotal(prod: any): number {
   const laborCosts = Array.isArray(prod?.labor_costs) ? prod.labor_costs : []
   if (laborCosts.length > 0) {
     const laborSum = laborCosts.reduce((sum: number, lc: any) => {
-      const net = Number(lc?.net_value) || 0
+      const net = Number(lc?.net_value) || Number(lc?.gross_value) || 0
       return sum + net
     }, 0)
     if (laborSum > 0) return laborSum / yieldQty
   }
 
-  // 2º product_workload_price (campo derivado do engine de pricing).
-  // V8.4 (2026-05-24): pricing_calculations pode ter MÚLTIPLAS linhas (por regime/
-  // sale_scope/buyer_type). Itera buscando a primeira que TEM dados de labor,
-  // em vez de pegar [0] cego que pode ser regime errado sem labor.
+  // V8.5 (2026-05-24): pricing_calculations tem MÚLTIPLAS LINHAS por produto
+  // (por tax_regime + sale_scope + buyer_type). Cada linha pode ter campos
+  // diferentes preenchidos. Busca o PRIMEIRO valor > 0 nesta ordem em qualquer linha:
+  //   product_workload_price (campo canônico do engine)
+  //   total_labor_net (variante)
+  //   total_labor_gross (último recurso)
+  //   val_indirect_labor (campo derivado V2)
   const pricingArr: any[] = Array.isArray(prod?.pricing_calculations)
     ? prod.pricing_calculations
     : (prod?.pricing_calculations ? [prod.pricing_calculations] : [])
 
   for (const p of pricingArr) {
-    const workloadPrice = Number(p?.product_workload_price) || 0
-    if (workloadPrice > 0) return workloadPrice / yieldQty
+    const v = Number(p?.product_workload_price) || 0
+    if (v > 0) return v / yieldQty
   }
-
-  // 3º total_labor_net (variante histórica) — também itera
   for (const p of pricingArr) {
-    const laborNet = Number(p?.total_labor_net) || 0
-    if (laborNet > 0) return laborNet / yieldQty
+    const v = Number(p?.total_labor_net) || 0
+    if (v > 0) return v / yieldQty
+  }
+  for (const p of pricingArr) {
+    const v = Number(p?.total_labor_gross) || 0
+    if (v > 0) return v / yieldQty
+  }
+  for (const p of pricingArr) {
+    const v = Number(p?.val_indirect_labor) || 0
+    if (v > 0) return v / yieldQty
   }
 
-  // 4º zero — sem fallback tenant
   return 0
 }
 

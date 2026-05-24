@@ -36,7 +36,9 @@ export function useProducts() {
       // tem o valor correto). Mantém pricing_calculations como fallback secundário.
       const { data, error } = await supabase
         .from('products')
-        .select('*, pricing_calculations(sale_price_total, sale_price_per_unit, pct_profit_margin, cmv, total_material_cost_net, total_labor_net, product_workload_price), product_items(item_id, item_cost_net, item_cost_gross, quantity_needed, items(item_type)), labor_costs(net_value, gross_value, labor_type)')
+        // V8.5 (2026-05-24): SELECT * em pricing_calculations + labor_costs para garantir
+        // que TODOS os campos cheguem (mesma estratégia do cadastro de produto).
+        .select('*, pricing_calculations(*), product_items(item_id, item_cost_net, item_cost_gross, quantity_needed, items(item_type)), labor_costs(*)')
         .or('is_active.is.null,is_active.eq.true')
         .order('name')
       if (error) throw error
@@ -106,7 +108,7 @@ export function useServices() {
       // (alguns serviços usam materiais via product_items). Inclui alíquotas + pricing.
       const { data, error } = await supabase
         .from('services')
-        .select('*, pricing_calculations(cmv, total_material_cost_net, total_labor_net, product_workload_price), product_items(item_id, item_cost_net, item_cost_gross, quantity_needed), labor_costs(net_value, gross_value, labor_type)')
+        .select('*, pricing_calculations(*), product_items(item_id, item_cost_net, item_cost_gross, quantity_needed), labor_costs(*)')
         .eq('status', 'ACTIVE')
         .order('name')
       if (error) throw error
