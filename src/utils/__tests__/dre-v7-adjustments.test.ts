@@ -35,23 +35,22 @@ describe('Ajuste #1+#2 — Custos = produto + MOD (movido de despesas)', () => {
     expect(dre.custos.produto).toBe(600) // 300 × 2
   })
 
-  it('custos.mod = receitaLiquida × mod_pct (R$ 234)', () => {
+  it('V8.2: custos.mod = 0 quando items não têm productive_labor_unit (sem fallback tenant)', () => {
     const dre = computeConsolidatedDRE({
-      items,
+      items, // sem productive_labor_unit
       totalGross: 2000,
       totalNet: 2000,
       regime: 'LUCRO_PRESUMIDO',
       expenseStructure: {
         fixed_pct: 0.10, variable_pct: 0.05, financial_pct: 0.02,
-        administrative_pct: 0.03, mod_pct: 0.117, // 11,7%
+        administrative_pct: 0.03, mod_pct: 0.117,
       },
       tenantTaxRates: { irpj: 0.018, csll: 0.0108 },
     })
-    // MOD = 2000 × 0.117 = R$ 234
-    expect(dre.custos.mod).toBeCloseTo(234, 2)
+    expect(dre.custos.mod).toBe(0)
   })
 
-  it('custos.total = produto + mod (R$ 600 + R$ 234 = R$ 834)', () => {
+  it('V8.2: custos.total = produto apenas (sem MOD do tenant)', () => {
     const dre = computeConsolidatedDRE({
       items,
       totalGross: 2000,
@@ -63,7 +62,7 @@ describe('Ajuste #1+#2 — Custos = produto + MOD (movido de despesas)', () => {
       },
       tenantTaxRates: { irpj: 0.018, csll: 0.0108 },
     })
-    expect(dre.custos.total).toBeCloseTo(834, 2)
+    expect(dre.custos.total).toBe(600) // só cost_total (sem MOD)
   })
 
   it('despesas.mod === 0 (migrado para Custos, retrocompat preservada)', () => {
@@ -346,12 +345,12 @@ describe('V8.1 (2026-05-24) — resolveProductLaborTotal e MOD do produto na DRE
     expect(dre.custos.total).toBeCloseTo(42645.94, 2)    // total
   })
 
-  it('fallback legacy: quando productive_labor_unit ausente, MOD usa tenant pct', () => {
+  it('V8.2: quando productive_labor_unit=0, MOD = 0 (SEM fallback tenant)', () => {
     const dreItems: DREItemInput[] = [{
       unit_price: 1000,
       quantity: 1,
       cost_total: 500,
-      // SEM productive_labor_unit (produto antigo)
+      // SEM productive_labor_unit (produto sem MO produtiva cadastrada)
       commission_percent: 5,
       profit_percent: 10,
       tax_breakdown: null,
@@ -363,13 +362,35 @@ describe('V8.1 (2026-05-24) — resolveProductLaborTotal e MOD do produto na DRE
       regime: 'LUCRO_PRESUMIDO',
       expenseStructure: {
         fixed_pct: 0, variable_pct: 0, financial_pct: 0,
-        administrative_pct: 0, mod_pct: 0.10, // 10% tenant
+        administrative_pct: 0, mod_pct: 0.10, // tenant mod_pct NÃO deve ser usado
       },
       tenantTaxRates: { irpj: 0, csll: 0 },
     })
 
-    expect(dre.custos.produto).toBe(500) // cost_total inteiro (nada para subtrair)
-    expect(dre.custos.mod).toBe(100)     // 1000 × 10% (fallback tenant)
-    expect(dre.custos.total).toBe(600)
+    expect(dre.custos.produto).toBe(500) // cost_total inteiro
+    expect(dre.custos.mod).toBe(0)       // SEM MO produtiva no produto = 0
+    expect(dre.custos.total).toBe(500)   // só custo do produto
+  })
+
+  it('V8.2: resolveProductLaborTotal usa product_workload_price primeiro', () => {
+    const prod = {
+      yield_quantity: 1,
+      pricing_calculations: [{
+        product_workload_price: 2716.00,
+        total_labor_net: 9999, // não deve ser usado pois product_workload_price tem prioridade
+      }],
+    }
+    expect(resolveProductLaborTotal(prod)).toBeCloseTo(2716, 2)
+  })
+
+  it('V8.2: resolveProductLaborTotal cai em total_labor_net se product_workload_price=0', () => {
+    const prod = {
+      yield_quantity: 1,
+      pricing_calculations: [{
+        product_workload_price: 0,
+        total_labor_net: 1500,
+      }],
+    }
+    expect(resolveProductLaborTotal(prod)).toBe(1500)
   })
 })

@@ -273,17 +273,15 @@ export function computeConsolidatedDRE(input: DREInput): DRESection {
   // ───── 4. DESPESAS (4 BUCKETS proporcionais à receita líquida) ─────
   // R6=b: usar 4 buckets existentes (fixed, variable, financial, indirect/admin)
   // V7+ (2026-05-24): MOD migrada para Custos (decisão do Founder).
-  // V8.1 (2026-05-24): MOD da DRE = MO produtiva DOS PRODUTOS (productLaborSum),
-  // NÃO mais `receita × tenant.mod_pct` que era estimativa agregada do tenant.
-  // Fallback: quando productLaborSum=0 (produtos antigos sem labor cadastrado),
-  // mantém comportamento V7 (tenant pct × receita) para não regredir.
+  // V8.2 (2026-05-24): MOD = APENAS MO produtiva DO PRODUTO (productLaborSum).
+  // SEM fallback tenant — `tenant.mod_pct` é mão de obra ADMINISTRATIVA do tenant,
+  // já entra em "Administrativas". Não duplicar em MOD. Se produto não tem MO
+  // produtiva cadastrada, MOD = 0 (linha some na UI).
   const despFixas = receitaLiquida * (Number(expenseStructure.fixed_pct) || 0)
   const despVariaveis = receitaLiquida * (Number(expenseStructure.variable_pct) || 0)
   const despFinanceiras = receitaLiquida * (Number(expenseStructure.financial_pct) || 0)
   const despAdministrativas = receitaLiquida * (Number(expenseStructure.administrative_pct) || 0)
-  const modAmount = productLaborSum > 0
-    ? productLaborSum
-    : receitaLiquida * (Number(expenseStructure.mod_pct) || 0)
+  const modAmount = productLaborSum
   const despTotal = despFixas + despVariaveis + despFinanceiras + despAdministrativas
   // V8.1: separa "Custo do produto" (material) de "MOD" (mão de obra do produto).
   // totalCost JÁ inclui labor (vem de resolveProductCostTotal que soma ambos).

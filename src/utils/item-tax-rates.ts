@@ -176,26 +176,36 @@ export function resolveProductCostTotal(prod: any): number {
 }
 
 /**
- * Resolve a parcela de "Mão de Obra Produtiva" (labor) do CUSTO UNITÁRIO do produto.
+ * Resolve a parcela de "Mão de Obra Produtiva" (MOD) do CUSTO UNITÁRIO do produto.
  *
- * Story V8.1 (2026-05-24): user reportou que MOD na DRE era `tenant.mod_pct × receita`,
- * gerando valor inflado (R$ 16.481) em vez do labor REAL do produto (R$ 2.716).
+ * Story V8.2 (2026-05-24): MOD na DRE = APENAS mão de obra produtiva do PRODUTO.
+ * NÃO usar `tenant.mod_pct × receita` (que é mão de obra administrativa do tenant
+ * — já entra em "Administrativas" das despesas operacionais).
  *
- * Fonte canônica: `pricing_calculations.total_labor_net / yield_quantity`.
- * Quando ausente, retorna 0 e o caller usa fallback do tenant (mod_pct × receita).
+ * Cadeia de fontes (todas POR PRODUTO, nunca tenant):
+ *   1º pricing_calculations.product_workload_price / yield_quantity
+ *      (campo canônico — productWorkloadMinutes × costPerMinute)
+ *   2º pricing_calculations.total_labor_net / yield_quantity (variante histórica)
+ *   3º zero (produto sem MO produtiva cadastrada — linha some na UI)
  *
- * NOTA: este valor JÁ está incluído no `cost_total` retornado por
- * `resolveProductCostTotal` (que soma material + labor). Para separar visualmente
- * em "Custo do produto" e "MOD" na DRE, subtraia este valor do total.
+ * Cenário do user: product_workload_price = R$ 2.716,00 / yield 1 = R$ 2.716,00/un
  */
 export function resolveProductLaborTotal(prod: any): number {
   const yieldQty = Math.max(1, Number(prod?.yield_quantity) || 1)
   const pricing = Array.isArray(prod?.pricing_calculations)
     ? prod.pricing_calculations[0]
     : prod?.pricing_calculations
+
+  // 1º product_workload_price (campo canônico do engine de pricing)
+  const workloadPrice = Number(pricing?.product_workload_price) || 0
+  if (workloadPrice > 0) return workloadPrice / yieldQty
+
+  // 2º total_labor_net (variante histórica)
   const laborNet = Number(pricing?.total_labor_net) || 0
-  if (laborNet <= 0) return 0
-  return laborNet / yieldQty
+  if (laborNet > 0) return laborNet / yieldQty
+
+  // 3º zero — sem fallback tenant (mod_pct do tenant é admin, não produtiva)
+  return 0
 }
 
 /**
