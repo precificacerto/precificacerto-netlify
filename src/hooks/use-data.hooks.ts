@@ -31,9 +31,11 @@ export function useProducts() {
   return useSWR(
     tenantId ? `products-${tenantId}` : null,
     async () => {
+      // V7+ (2026-05-24): inclui total_material_cost_net + total_labor_net + cmv
+      // para fallback de custo quando products.cost_total = 0 (produtos antigos).
       const { data, error } = await supabase
         .from('products')
-        .select('*, pricing_calculations(sale_price_total, sale_price_per_unit, pct_profit_margin), product_items(item_id, items(item_type))')
+        .select('*, pricing_calculations(sale_price_total, sale_price_per_unit, pct_profit_margin, cmv, total_material_cost_net, total_labor_net), product_items(item_id, items(item_type))')
         .or('is_active.is.null,is_active.eq.true')
         .order('name')
       if (error) throw error
@@ -99,9 +101,12 @@ export function useServices() {
   return useSWR(
     tenantId ? `services-${tenantId}` : null,
     async () => {
+      // V7+ (2026-05-24): inclui alíquotas tributárias + pricing_calculations.cmv para
+      // fallback de custo (mesmo padrão dos produtos). pis_cofins_pct é lido em
+      // buildItemTaxRatesFromProduct.
       const { data, error } = await supabase
         .from('services')
-        .select('id, name, base_price, cost_total, commission_percent, profit_percent, recurrence_days, commission_table_id')
+        .select('*, pricing_calculations(cmv, total_material_cost_net, total_labor_net)')
         .eq('status', 'ACTIVE')
         .order('name')
       if (error) throw error

@@ -110,6 +110,51 @@ export function mergeItemAndTenantRates(
 }
 
 /**
+ * Resolve o "custo total POR UNIDADE" de um produto/serviço lendo de múltiplas fontes
+ * em ordem de prioridade. Bug fix 2026-05-24 (Hyago):
+ *
+ *   - Produtos antigos têm `cost_total = 0` no banco mas têm valor correto em
+ *     `pricing_calculations.cmv` (CMV unitário) ou em
+ *     `pricing_calculations.total_material_cost_net + total_labor_net` (totais).
+ *
+ *   - O fallback combina material líquido + mão de obra produtiva, que é a soma
+ *     exibida como "Custo produto" no cadastro do produto (R$ 42.645,94 no caso
+ *     do user).
+ *
+ * Retorna o custo POR UNIDADE do produto (não total). Caller multiplica por qty.
+ *
+ * Ordem de fallback:
+ *   1. products.cost_total (campo principal, fica em produtos modernos)
+ *   2. pricing_calculations.cmv (CMV unitário canônico)
+ *   3. pricing_calculations.(total_material_cost_net + total_labor_net) / yield_quantity
+ *      (custo total dividido pela qty produzida = unitário)
+ *   4. zero (sem custo disponível)
+ */
+export function resolveProductCostTotal(prod: any): number {
+  // 1. cost_total direto (preferencial — produtos modernos)
+  const direct = Number(prod?.cost_total) || 0
+  if (direct > 0) return direct
+
+  // 2. pricing_calculations.cmv (unitário)
+  const pricing = Array.isArray(prod?.pricing_calculations)
+    ? prod.pricing_calculations[0]
+    : prod?.pricing_calculations
+  const cmv = Number(pricing?.cmv) || 0
+  if (cmv > 0) return cmv
+
+  // 3. (material líquido + mão de obra líquida) / yield_quantity
+  const materialNet = Number(pricing?.total_material_cost_net) || 0
+  const laborNet = Number(pricing?.total_labor_net) || 0
+  const totalCost = materialNet + laborNet
+  if (totalCost > 0) {
+    const yieldQty = Number(prod?.yield_quantity) || 1
+    return totalCost / yieldQty
+  }
+
+  return 0
+}
+
+/**
  * Constrói `ItemTaxRates` a partir do cadastro do produto/serviço.
  *
  * Lê tanto os campos separados (`pis_pct` + `cofins_pct`) quanto o campo

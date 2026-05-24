@@ -6,7 +6,7 @@
  */
 
 import { computeConsolidatedDRE, type DREItemInput } from '../consolidated-dre'
-import { buildItemTaxRatesFromProduct } from '../item-tax-rates'
+import { buildItemTaxRatesFromProduct, resolveProductCostTotal } from '../item-tax-rates'
 
 describe('Ajuste #1+#2 — Custos = produto + MOD (movido de despesas)', () => {
   const items: DREItemInput[] = [
@@ -137,7 +137,7 @@ describe('Ajuste #3 — PIS/COFINS NCM agregado (pis_cofins_pct)', () => {
     expect(rates.cofins_pct).toBeCloseTo(4.108, 2)
   })
 
-  it('outros campos do produto continuam mapeados', () => {
+  it('outros campos do produto continuam mapeados (placeholder)', () => {
     const prod = {
       icms_pct: 17,
       iss_pct: 5,
@@ -151,5 +151,56 @@ describe('Ajuste #3 — PIS/COFINS NCM agregado (pis_cofins_pct)', () => {
     expect(rates.ipi_pct).toBe(10)
     expect(rates.irpj_pct).toBe(1.8)
     expect(rates.csll_pct).toBe(1.08)
+  })
+})
+
+describe('Ajuste #4 (2026-05-24) — resolveProductCostTotal com fallback', () => {
+  it('cost_total > 0 → prioridade 1', () => {
+    const prod = { cost_total: 100, pricing_calculations: [{ cmv: 999 }] }
+    expect(resolveProductCostTotal(prod)).toBe(100)
+  })
+
+  it('cost_total=0 + pricing.cmv > 0 → usa cmv (prioridade 2)', () => {
+    const prod = { cost_total: 0, pricing_calculations: [{ cmv: 50 }] }
+    expect(resolveProductCostTotal(prod)).toBe(50)
+  })
+
+  it('cost_total=0 + cmv=0 + material+labor → soma / yield (prioridade 3)', () => {
+    // Cenário do user: material R$ 39.929,94 + labor R$ 2.716,00 = R$ 42.645,94 / yield 50000
+    const prod = {
+      cost_total: 0,
+      yield_quantity: 50000,
+      pricing_calculations: [{
+        cmv: null,
+        total_material_cost_net: 39929.94,
+        total_labor_net: 2716.00,
+      }],
+    }
+    const result = resolveProductCostTotal(prod)
+    // 42645.94 / 50000 = 0.85291... por unidade
+    expect(result).toBeCloseTo(0.85292, 3)
+  })
+
+  it('sem nenhum dado → 0', () => {
+    expect(resolveProductCostTotal({})).toBe(0)
+    expect(resolveProductCostTotal({ cost_total: null })).toBe(0)
+  })
+
+  it('pricing_calculations como objeto (não array) também funciona', () => {
+    const prod = { cost_total: 0, pricing_calculations: { cmv: 42 } }
+    expect(resolveProductCostTotal(prod)).toBe(42)
+  })
+
+  it('yield_quantity ausente → divide por 1 (fallback seguro)', () => {
+    const prod = {
+      cost_total: 0,
+      pricing_calculations: [{
+        cmv: null,
+        total_material_cost_net: 100,
+        total_labor_net: 50,
+      }],
+    }
+    // Sem yield: retorna o total (não unitário). Comportamento defensivo.
+    expect(resolveProductCostTotal(prod)).toBe(150)
   })
 })

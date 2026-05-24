@@ -47,6 +47,7 @@ import {
   mergeItemAndTenantRates,
   resolveItemCsllPct,
   resolveItemIrpjPct,
+  resolveProductCostTotal,
   type ItemTaxRates,
 } from '@/utils/item-tax-rates'
 import { computeConsolidatedDRE, type DREItemInput } from '@/utils/consolidated-dre'
@@ -379,7 +380,8 @@ function Budgets() {
                 ? Number(svc.commission_percent)
                 : Number(commTable?.commission_percent || 0)
             const basePrice = Number(svc?.base_price || 0)
-            const costTotal = Number(svc?.cost_total || 0)
+            // V7+ (2026-05-24): fallback robusto para serviços com cost_total=0
+            const costTotal = resolveProductCostTotal(svc)
             const profitPercent = (svc?.profit_percent != null && Number(svc.profit_percent) > 0)
                 ? Number(svc.profit_percent)
                 : (basePrice > 0 && costTotal > 0 ? Math.max(0, ((basePrice - costTotal) / basePrice) * 100) : 0)
@@ -410,7 +412,8 @@ function Budgets() {
                 ? Number(prod.commission_percent)
                 : Number(commTable?.commission_percent || 0)
             const salePrice = Number(prod?.sale_price || 0)
-            const costTotal = Number(prod?.cost_total || 0)
+            // V7+ (2026-05-24): fallback robusto para produtos com cost_total=0
+            const costTotal = resolveProductCostTotal(prod)
             const profitPercent = (prod?.profit_percent != null && Number(prod.profit_percent) > 0)
                 ? Number(prod.profit_percent)
                 : (salePrice > 0 && costTotal > 0 ? Math.max(0, ((salePrice - costTotal) / salePrice) * 100) : 0)
