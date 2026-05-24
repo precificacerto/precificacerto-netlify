@@ -579,10 +579,17 @@ function Budgets() {
         // vindo do tenant_settings (bug reportado pelo user — display zerado).
         const totalPctDistribuivel = commPctDecimal + profPctDecimal + (Number(itemCsll) || 0) + (Number(itemIrpj) || 0)
         if (totalPctDistribuivel === 0) return null
-        // S8: estrutura operacional real do item (Etapa 5/6 da spec do motor)
+        // S8: estrutura operacional real do item (Etapa 5/6 da spec do motor).
+        //
+        // BUG FIX (2026-05-24, Hyago): MOD e DOP devem ser proporcionais à
+        // RECEITA pós-desconto (rvItem), não ao RB original (itemBase). Sem isso,
+        // ao aplicar qualquer desconto, RV cai mas MOD/DOP ficam fixos → RRO vira
+        // negativo absurdo e a distribuição zera tudo (Comissão/Lucro/IRPJ/CSLL=0).
+        // Mesma semântica usada por `consolidated-dre.ts:245-249` (receitaLiquida × pct).
         const cpItem = (Number(i.cost_total) || 0) * (Number(i.quantity) || 0)
-        const modItem = itemBase * (Number(mrmConfig.mod_pct) || 0)
-        const dopItem = itemBase * (Number(mrmConfig.dop_pct) || 0)
+        const rvItem = itemBase - itemBase * (globalDiscountPercent / 100)
+        const modItem = rvItem * (Number(mrmConfig.mod_pct) || 0)
+        const dopItem = rvItem * (Number(mrmConfig.dop_pct) || 0)
         return calculateMarginReapuration({
             rb: itemBase,
             desc_value: itemBase * (globalDiscountPercent / 100),

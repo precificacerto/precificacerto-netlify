@@ -1055,9 +1055,11 @@ function Sales() {
                     const profPct = (item.profit_percent ?? 0) / 100
                     if (commPct === 0 && profPct === 0) continue
                     if (item.total <= 0) continue
+                    // BUG FIX (2026-05-24): MOD/DOP proporcionais à RV pós-desconto (não item.total = RB)
                     const cpItem = (Number(item.cost_total) || 0) * (Number(item.quantity) || 0)
-                    const modItem = item.total * (Number(mrmConfig.mod_pct) || 0)
-                    const dopItem = item.total * (Number(mrmConfig.dop_pct) || 0)
+                    const rvItem = item.total - item.total * (globalDiscountPercentV / 100)
+                    const modItem = rvItem * (Number(mrmConfig.mod_pct) || 0)
+                    const dopItem = rvItem * (Number(mrmConfig.dop_pct) || 0)
                     const itemRates = mergeItemAndTenantRates(item.item_tax_rates ?? null, mrmConfig.rates)
                     const itemCsll = resolveItemCsllPct(item.item_tax_rates ?? null, mrmConfig.csll_pct)
                     const itemIrpj = resolveItemIrpjPct(item.item_tax_rates ?? null, mrmConfig.irpj_pct)
@@ -1107,9 +1109,11 @@ function Sales() {
                 const profPctDecimal = (item.profit_percent ?? 0) / 100
                 if (commPctDecimal === 0 && profPctDecimal === 0) return sum
                 if (item.total <= 0) return sum
+                // BUG FIX (2026-05-24): MOD/DOP proporcionais à RV pós-desconto (não item.total = RB)
                 const cpItem = (Number(item.cost_total) || 0) * (Number(item.quantity) || 0)
-                const modItem = item.total * (Number(mrmConfig.mod_pct) || 0)
-                const dopItem = item.total * (Number(mrmConfig.dop_pct) || 0)
+                const rvItem = item.total - item.total * (globalDiscountPercentV / 100)
+                const modItem = rvItem * (Number(mrmConfig.mod_pct) || 0)
+                const dopItem = rvItem * (Number(mrmConfig.dop_pct) || 0)
                 // S11: alíquotas específicas do item (com fallback tenant)
                 const itemRates = mergeItemAndTenantRates(item.item_tax_rates ?? null, mrmConfig.rates)
                 const itemCsll = resolveItemCsllPct(item.item_tax_rates ?? null, mrmConfig.csll_pct)
