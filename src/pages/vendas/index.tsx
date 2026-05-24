@@ -213,12 +213,22 @@ function Sales() {
         () => ({ irpj: mrmConfig.irpj_pct || 0, csll: mrmConfig.csll_pct || 0 }),
         [mrmConfig.irpj_pct, mrmConfig.csll_pct],
     )
+    // Epic MRM-V7 / ADR-010: derivar discountPct a partir do snapshot persistido
+    // (saleSubtotal − saleFinalValue) / saleSubtotal × 100
+    const saleDiscountPct = useMemo(() => {
+        if (saleSubtotal <= 0 || saleFinalValue >= saleSubtotal) return 0
+        return ((saleSubtotal - saleFinalValue) / saleSubtotal) * 100
+    }, [saleSubtotal, saleFinalValue])
     const saleResidualDistribution = useResidualDistribution(
         saleResidualItems,
         saleSubtotal,
         saleFinalValue,
         mrmConfig.regime ?? null,
         saleTenantTaxRates,
+        saleDiscountPct,
+        (selectedSale?.discount_mode === 'SELLER_REDUCTION' || selectedSale?.discount_mode === 'PROFIT_REDUCTION')
+            ? selectedSale.discount_mode
+            : 'PROPORTIONAL',
     )
     // S14 — DRE Consolidada para vendas (lê snapshot persistido em sale_items.tax_breakdown)
     const saleConsolidatedDRE = useMemo(() => {
@@ -1075,12 +1085,15 @@ function Sales() {
         () => ({ irpj: mrmConfig.irpj_pct || 0, csll: mrmConfig.csll_pct || 0 }),
         [mrmConfig.irpj_pct, mrmConfig.csll_pct],
     )
+    // Epic MRM-V7 / ADR-010: caminho display-first com discountPct + discountMode
     const balcaoResidualDistribution = useResidualDistribution(
         balcaoResidualItems,
         saleTotal,
         saleTotalWithDiscount,
         mrmConfig.regime ?? null,
         balcaoTenantTaxRates,
+        globalDiscountPercentV,
+        discountModeV,
     )
     const balcaoTotalCostBase = useMemo(
         () => saleItems.reduce(

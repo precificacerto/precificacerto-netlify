@@ -30,7 +30,7 @@ import {
   type ResidualItemInput,
   type TenantOriginalTaxRates,
 } from '@/utils/residual-distribution'
-import type { TaxRegime } from '@/types/mrm'
+import type { DiscountMode, TaxRegime } from '@/types/mrm'
 
 export function useResidualDistribution(
   items: ResidualItemInput[],
@@ -38,9 +38,11 @@ export function useResidualDistribution(
   totalNet: number,
   regime: TaxRegime | null,
   tenantTaxRates?: TenantOriginalTaxRates,
+  discountPct?: number,
+  discountMode?: DiscountMode,
 ): ResidualDistribution {
   return useMemo(
-    () => computeResidualDistribution(items, totalGross, totalNet, regime, tenantTaxRates),
-    [items, totalGross, totalNet, regime, tenantTaxRates],
+    () => computeResidualDistribution(items, totalGross, totalNet, regime, tenantTaxRates, discountPct, discountMode),
+    [items, totalGross, totalNet, regime, tenantTaxRates, discountPct, discountMode],
   )
 }

@@ -634,12 +634,15 @@ function Budgets() {
         () => ({ irpj: mrmConfig.irpj_pct || 0, csll: mrmConfig.csll_pct || 0 }),
         [mrmConfig.irpj_pct, mrmConfig.csll_pct],
     )
+    // Epic MRM-V7 / ADR-010: passa discountPct + discountMode para usar caminho display-first
     const residualDistribution = useResidualDistribution(
         residualItems,
         budgetTotal,
         budgetTotalWithDiscount,
         mrmConfig.regime ?? null,
         tenantTaxRates,
+        globalDiscountPercent,
+        discountMode,
     )
     // S9 — Aviso de configuração incompleta (RRO degradado)
     const budgetTotalCostBase = useMemo(

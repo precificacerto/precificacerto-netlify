@@ -20,7 +20,8 @@
  *   - Mensagem WhatsApp (`api/orcamentos/[id]/send-whatsapp.ts`)
  */
 
-import type { TaxBreakdown, TaxRegime } from '@/types/mrm'
+import type { TaxBreakdown, TaxRegime, DiscountMode } from '@/types/mrm'
+import { calculateDiscountedPrice } from './calculate-discount'
 
 /**
  * Linha de exibição de uma rubrica do RR.
@@ -165,12 +166,27 @@ function weightedOriginalPct(
 /**
  * Função pura — agrega valores monetários e calcula percentuais semânticos.
  *
+ * Epic MRM-V7 / ADR-010: Display vs Snapshot Fiscal.
+ *   Quando `discountPct` e `discountMode` são fornecidos, usa `calculateDiscountedPrice`
+ *   (spec "Desconto com Preservação Operacional") para derivar Comissão/Lucro DIRETO
+ *   do cadastro do produto (commission_percent/profit_percent), produzindo valores
+ *   que BATEM com o que o usuário vê no cadastro.
+ *
+ *   IRPJ/CSLL são calculados como `tenantTaxRates × totalNet` (direto, sem motor).
+ *
+ *   Fallback legacy: quando o item não tem `commission_percent`/`profit_percent` mas
+ *   tem `tax_breakdown`/`motor_*` (snapshot pré-V7), cai no comportamento anterior.
+ *
  * @param items Items do documento (budget/order/sale).
  * @param totalGross V₀ — valor bruto total antes do desconto.
  * @param totalNet Vₗ — valor líquido pós-desconto. Quando d=0, totalNet === totalGross.
  * @param regime Regime tributário do tenant (para ocultar IRPJ/CSLL em MEI/SN).
  * @param tenantTaxRates Alíquotas originais IRPJ/CSLL do tenant (default: 0).
  *                       Quando regime suprime CSLL/IRPJ, ignora.
+ * @param discountPct Percentual de desconto aplicado (0..100). Opcional — quando ausente,
+ *                    usa lógica legacy (snapshot/motor_*).
+ * @param discountMode Modo de absorção do desconto (PROPORTIONAL/SELLER_REDUCTION/PROFIT_REDUCTION).
+ *                     Default PROPORTIONAL.
  */
 export function computeResidualDistribution(
   items: ResidualItemInput[],
@@ -178,6 +194,8 @@ export function computeResidualDistribution(
   totalNet: number,
   regime: TaxRegime | null,
   tenantTaxRates?: TenantOriginalTaxRates,
+  discountPct?: number,
+  discountMode?: DiscountMode,
 ): ResidualDistribution {
   const hidesProfitTaxes = isHiddenRegime(regime)
   const hasDiscount = totalGross > totalNet && totalNet > 0
@@ -203,13 +221,72 @@ export function computeResidualDistribution(
   let irpjAmount = 0
   let itemsWithoutSource = 0
 
+  // Epic MRM-V7 / ADR-010: caminho Display-First — cálculo derivado do cadastro do produto.
+  // Cada item tem seu próprio commission_percent/profit_percent; o desconto é absorvido
+  // conforme `discountMode` e o residual aparece nos cards.
+  // Snapshots persistidos (tax_breakdown em DB) NUNCA são modificados (ADR-003).
+  const useDisplayFirst = typeof discountPct === 'number' && discountPct >= 0
+  const mode: DiscountMode = (discountMode === 'SELLER_REDUCTION' || discountMode === 'PROFIT_REDUCTION')
+    ? discountMode
+    : 'PROPORTIONAL'
+
   for (const item of items) {
+    const unitPrice = Number(item.unit_price) || 0
+    const qty = Number(item.quantity) || 0
+    const itemSubtotal = unitPrice * qty
+    const commPct = Number(item.commission_percent) || 0
+    const profPct = Number(item.profit_percent) || 0
+    const hasItemMargin = commPct > 0 || profPct > 0
+
+    if (useDisplayFirst && itemSubtotal > 0 && hasItemMargin) {
+      // Caminho display-first (V7): deriva Commission/Profit do cadastro
+      const commissionOriginal = itemSubtotal * (commPct / 100)
+      const profitOriginal = itemSubtotal * (profPct / 100)
+      const margin = commissionOriginal + profitOriginal
+      const discountAbsolute = itemSubtotal * ((discountPct ?? 0) / 100)
+
+      let itemComm = commissionOriginal
+      let itemProf = profitOriginal
+
+      if (discountAbsolute > 0 && margin > 0) {
+        // calculateDiscountedPrice: discountPercent é % DA MARGEM (não do preço).
+        // Conversão: discountAbsolute / margin × 100. Clamp em [0, 100].
+        const discountPercentOfMargin = Math.min(100, (discountAbsolute / margin) * 100)
+        const result = calculateDiscountedPrice(
+          itemSubtotal,
+          itemSubtotal - margin, // costWithTaxes = parte preservada
+          discountPercentOfMargin,
+          mode,
+          commPct,
+          profPct,
+        )
+        itemComm = Math.max(0, commissionOriginal - result.commissionReduction)
+        itemProf = Math.max(0, profitOriginal - result.profitReduction)
+      }
+
+      commAmount += itemComm
+      profitAmount += itemProf
+      // Marca que esta agregação tem fonte (display-first, dados do cadastro)
+      // — não conta como itemsWithoutSource
+      continue
+    }
+
+    // Caminho legacy: snapshot persistido ou motor runtime
     const v = extractItemValues(item)
     commAmount += v.commission
     profitAmount += v.profit
     csllAmount += v.csll
     irpjAmount += v.irpj
     if (!v.hasSource) itemsWithoutSource += 1
+  }
+
+  // Epic MRM-V7 / ADR-010: IRPJ/CSLL no caminho display-first
+  // = tenantTaxRates × totalNet (cálculo direto, não via motor RR distribution).
+  if (useDisplayFirst && !hidesProfitTaxes) {
+    const irpjRate = Number(tenantTaxRates?.irpj) || 0
+    const csllRate = Number(tenantTaxRates?.csll) || 0
+    irpjAmount = totalNet * irpjRate
+    csllAmount = totalNet * csllRate
   }
 
   const requiresReview = itemsWithoutSource > 0 && itemsWithoutSource === items.length

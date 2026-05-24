@@ -106,6 +106,13 @@ export function ResidualDistributionBlock({
 }: ResidualDistributionBlockProps) {
   const { commission, profit, irpj, csll, hasDiscount, hidesProfitTaxes, requiresReview } = distribution
 
+  // Epic MRM-V7 — ADR-010: Cenário B — esconder bloco quando NÃO há desconto.
+  // A "Distribuição do resultado" só faz sentido quando há desconto sendo absorvido;
+  // sem desconto, os valores nominais já estão no cadastro do produto + na DRE.
+  if (!hasDiscount) {
+    return null
+  }
+
   // Epic MRM-V6 — ADR-009: ocultação condicional dos cards conforme modo.
   // SELLER_REDUCTION: vendedor absorve → não mostra Lucro.
   // PROFIT_REDUCTION: empresa absorve → não mostra Comissão.

@@ -236,12 +236,23 @@ function OrdersPage() {
         () => ({ irpj: mrmConfig.irpj_pct || 0, csll: mrmConfig.csll_pct || 0 }),
         [mrmConfig.irpj_pct, mrmConfig.csll_pct],
     )
+    // Epic MRM-V7 / ADR-010: derivar discountPct do pedido (snapshot persistido)
+    const orderDiscountPct = useMemo(() => {
+        if (orderSubtotal <= 0 || orderFinalTotal >= orderSubtotal) return 0
+        return ((orderSubtotal - orderFinalTotal) / orderSubtotal) * 100
+    }, [orderSubtotal, orderFinalTotal])
+    const orderDiscountMode = useMemo(() => {
+        const m = (editingOrder?.discount_mode as string | null | undefined)
+        return (m === 'SELLER_REDUCTION' || m === 'PROFIT_REDUCTION') ? m : 'PROPORTIONAL'
+    }, [editingOrder?.discount_mode])
     const orderResidualDistribution = useResidualDistribution(
         orderResidualItems,
         orderSubtotal,
         orderFinalTotal,
         mrmConfig.regime ?? null,
         orderTenantTaxRates,
+        orderDiscountPct,
+        orderDiscountMode,
     )
     // S14 — DRE Consolidada para pedidos (lê snapshot persistido em tax_breakdown)
     const orderConsolidatedDRE = useMemo(() => {
