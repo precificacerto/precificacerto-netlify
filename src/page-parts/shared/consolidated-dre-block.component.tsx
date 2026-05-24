@@ -247,14 +247,10 @@ export function ConsolidatedDREBlock({
 
       <Divider />
 
-      {/* ─── 2. CUSTOS (V7+: produto + MOD) ─── */}
+      {/* ─── 2. CUSTOS (V8.8: linha única — CMV total já inclui MO produtiva) ─── */}
       <SectionHeader title="Custos" accent="#fcd34d" />
       <Row label="Custo do produto" value={formatBRL(custos.produto)} color="#fde68a" indent={12}
-        hint="Soma de (cost_total × quantity) por item. Vem do cadastro do produto/serviço." />
-      {custos.mod !== 0 && (
-        <Row label="Mão de Obra Direta (MOD)" value={formatBRL(custos.mod)} color="#fde68a" indent={12}
-          hint="V7+: MOD migrada de Despesas para Custos (compõe o custo do produto)." />
-      )}
+        hint="CMV total do produto (material + mão de obra produtiva). Igual ao 'Custo produto' do cadastro." />
       <Row label="Total custos" value={formatBRL(custos.total)} color="#fcd34d" />
 
       <Divider />

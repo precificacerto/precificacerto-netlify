@@ -206,9 +206,10 @@ describe('V8 (ADR-011, 2026-05-24) — resolveProductCostTotal nova cadeia', () 
   })
 
   describe('Nível 2 — cost_total quando product_items vazio', () => {
-    it('C2 produto moderno: cost_total > 0 e sem product_items', () => {
+    it('C2 produto moderno: V8.8 cmv prevalece sobre cost_total', () => {
+      // V8.8 inverteu prioridade: cmv (canônico do cadastro) prevalece sobre cost_total
       const prod = { cost_total: 100, pricing_calculations: [{ cmv: 999 }] }
-      expect(resolveProductCostTotal(prod)).toBe(100)
+      expect(resolveProductCostTotal(prod)).toBe(999)
     })
 
     it('product_items existe mas item_cost_net=null → usa cost_total', () => {
@@ -318,12 +319,11 @@ describe('V8.1 (2026-05-24) — resolveProductLaborTotal e MOD do produto na DRE
     expect(resolveProductLaborTotal(prod)).toBe(20)
   })
 
-  it('cenário canônico user: DRE separa Custo (R$ 39.929,94) e MOD (R$ 2.716,00)', () => {
+  it('V8.8 cenário canônico: Custo do produto = CMV TOTAL (R$ 42.645,94) sem MOD separada', () => {
     const dreItems: DREItemInput[] = [{
       unit_price: 141106.60,
       quantity: 1,
-      cost_total: 42645.94,            // material + labor (vem do resolveProductCostTotal)
-      productive_labor_unit: 2716.00,  // labor isolado (vem do resolveProductLaborTotal)
+      cost_total: 42645.94, // CMV TOTAL (material + MO produtiva — vem de pricing_calculations.cmv)
       commission_percent: 5,
       profit_percent: 10,
       tax_breakdown: null,
@@ -335,14 +335,24 @@ describe('V8.1 (2026-05-24) — resolveProductLaborTotal e MOD do produto na DRE
       regime: 'LUCRO_PRESUMIDO',
       expenseStructure: {
         fixed_pct: 0.10, variable_pct: 0.05, financial_pct: 0.02,
-        administrative_pct: 0.03, mod_pct: 0.117, // tenant pct — NÃO deve ser usado
+        administrative_pct: 0.03, mod_pct: 0.117, // tenant pct NÃO deve ser usado
       },
       tenantTaxRates: { irpj: 0.018, csll: 0.0108 },
     })
 
-    expect(dre.custos.produto).toBeCloseTo(39929.94, 2)  // material puro
-    expect(dre.custos.mod).toBeCloseTo(2716.00, 2)       // MO produtiva do produto
-    expect(dre.custos.total).toBeCloseTo(42645.94, 2)    // total
+    expect(dre.custos.produto).toBeCloseTo(42645.94, 2)  // CMV total
+    expect(dre.custos.mod).toBe(0)                       // V8.8: linha removida
+    expect(dre.custos.total).toBeCloseTo(42645.94, 2)    // = produto (sem somar MOD)
+  })
+
+  it('V8.8: resolveProductCostTotal prioriza pricing_calculations.cmv direto', () => {
+    const prod = {
+      yield_quantity: 1,
+      pricing_calculations: [{ cmv: 42645.94 }],
+      product_items: [{ item_cost_net: 999 }], // ignorado pois cmv prevalece
+      labor_costs: [{ net_value: 999 }],
+    }
+    expect(resolveProductCostTotal(prod)).toBeCloseTo(42645.94, 2)
   })
 
   it('V8.2: quando productive_labor_unit=0, MOD = 0 (SEM fallback tenant)', () => {

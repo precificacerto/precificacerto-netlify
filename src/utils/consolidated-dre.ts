@@ -271,24 +271,20 @@ export function computeConsolidatedDRE(input: DREInput): DRESection {
   const receitaLiquida = Math.max(0, receitaBruta - porForaTotal)
 
   // ───── 4. DESPESAS (4 BUCKETS proporcionais à receita líquida) ─────
-  // R6=b: usar 4 buckets existentes (fixed, variable, financial, indirect/admin)
-  // V7+ (2026-05-24): MOD migrada para Custos (decisão do Founder).
-  // V8.2 (2026-05-24): MOD = APENAS MO produtiva DO PRODUTO (productLaborSum).
-  // SEM fallback tenant — `tenant.mod_pct` é mão de obra ADMINISTRATIVA do tenant,
-  // já entra em "Administrativas". Não duplicar em MOD. Se produto não tem MO
-  // produtiva cadastrada, MOD = 0 (linha some na UI).
+  // V8.8 (2026-05-24): "Custo do produto" = CMV TOTAL (já inclui MO produtiva).
+  // resolveProductCostTotal prioriza pricing_calculations.cmv que é o valor canônico
+  // do cadastro do produto ("Custo produto: R$ 42.645,94" = material + MO produtiva).
+  // MOD foi removida como linha separada para evitar dupla contagem.
+  // tenant.mod_pct é admin → vai em "Administrativas".
   const despFixas = receitaLiquida * (Number(expenseStructure.fixed_pct) || 0)
   const despVariaveis = receitaLiquida * (Number(expenseStructure.variable_pct) || 0)
   const despFinanceiras = receitaLiquida * (Number(expenseStructure.financial_pct) || 0)
   const despAdministrativas = receitaLiquida * (Number(expenseStructure.administrative_pct) || 0)
-  const modAmount = productLaborSum
   const despTotal = despFixas + despVariaveis + despFinanceiras + despAdministrativas
-  // V8.1: separa "Custo do produto" (material) de "MOD" (mão de obra do produto).
-  // totalCost JÁ inclui labor (vem de resolveProductCostTotal que soma ambos).
-  // Subtrai productLaborSum para obter material puro. Quando labor não está
-  // separado (productLaborSum=0), custosProduto = totalCost inteiro.
-  const custosProduto = Math.max(0, totalCost - productLaborSum)
-  const custosTotal = custosProduto + modAmount
+  // V8.8: Custo do produto = CMV TOTAL. MOD não separada — está dentro do CMV.
+  const custosProduto = totalCost
+  const modAmount = 0
+  const custosTotal = custosProduto
 
   // ───── 5. RRO consolidado ─────
   const rroValor = commissionAmount + profitAmount + (hidesProfitTaxes ? 0 : csllAmount + irpjAmount)

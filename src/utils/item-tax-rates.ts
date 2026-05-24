@@ -138,18 +138,24 @@ export function mergeItemAndTenantRates(
  */
 export function resolveProductCostTotal(prod: any, tenantCtx?: TenantLaborContext): number {
   const yieldQty = Math.max(1, Number(prod?.yield_quantity) || 1)
-  // V8.4 (2026-05-24): pricing_calculations pode ter múltiplas linhas (por regime).
-  // Itera buscando a primeira com valor não-zero em vez de pegar [0] cego.
   const pricingArr: any[] = Array.isArray(prod?.pricing_calculations)
     ? prod.pricing_calculations
     : (prod?.pricing_calculations ? [prod.pricing_calculations] : [])
 
-  // labor_net via resolveProductLaborTotal (cobre labor_costs + pricing iterado + runtime V8.6)
-  const laborUnit = resolveProductLaborTotal(prod, tenantCtx)
-  const laborTotal = laborUnit * yieldQty // valor total para somar com itens
+  // ★ V8.8 (2026-05-24): pricing_calculations.cmv é o CMV CANÔNICO já calculado
+  // pelo módulo de Formação de Preço (material + MO produtiva consolidado).
+  // É EXATAMENTE o valor exibido como "Custo produto" no cadastro do produto.
+  // Quando disponível, retorna direto — não precisa derivar nada.
+  for (const p of pricingArr) {
+    const cmv = Number(p?.cmv) || 0
+    if (cmv > 0) return cmv
+  }
 
-  // ★ Nível 1 (PRIMÁRIO — ADR-011): soma direta dos itens cadastrados + MO produtiva
-  // É o que a tela do cadastro do produto exibe como "Custo produto".
+  // labor_net via resolveProductLaborTotal (cobre labor_costs + pricing iterado + runtime)
+  const laborUnit = resolveProductLaborTotal(prod, tenantCtx)
+  const laborTotal = laborUnit * yieldQty
+
+  // Nível 2: SUM(product_items.item_cost_net) + labor / yield
   const productItems = Array.isArray(prod?.product_items) ? prod.product_items : []
   if (productItems.length > 0) {
     const itemsCostSum = productItems.reduce((sum: number, pi: any) => {
@@ -157,23 +163,15 @@ export function resolveProductCostTotal(prod: any, tenantCtx?: TenantLaborContex
       return sum + itemNet
     }, 0)
     if (itemsCostSum > 0) {
-      // Custo total do produto = SUM(item_cost_net) + labor (já total)
-      // Custo por unidade = total / yield_quantity
       return (itemsCostSum + laborTotal) / yieldQty
     }
   }
 
-  // Nível 2: cost_total direto (produtos modernos)
+  // Nível 3: cost_total direto (produtos modernos pré-calculados)
   const direct = Number(prod?.cost_total) || 0
   if (direct > 0) return direct
 
-  // Nível 3: pricing_calculations.cmv (unitário canônico) — itera array
-  for (const p of pricingArr) {
-    const cmv = Number(p?.cmv) || 0
-    if (cmv > 0) return cmv
-  }
-
-  // Nível 4: (material líquido + mão de obra líquida) / yield_quantity — itera
+  // Nível 4: (material + labor) / yield — fallback parcial
   for (const p of pricingArr) {
     const materialNet = Number(p?.total_material_cost_net) || 0
     const laborNet = Number(p?.total_labor_net) || 0
@@ -181,7 +179,6 @@ export function resolveProductCostTotal(prod: any, tenantCtx?: TenantLaborContex
     if (totalCost > 0) return totalCost / yieldQty
   }
 
-  // Nível 5: sem custo
   return 0
 }
 
