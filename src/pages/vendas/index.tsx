@@ -37,7 +37,7 @@ import { distributeDiscountToItems } from '@/utils/distribute-discount'
 import { useTenantTaxContext } from '@/hooks/use-tenant-tax-context'
 import { MRM_ERROR_RRO_NON_POSITIVE, MRM_ENGINE_VERSION, type TaxBreakdown } from '@/types/mrm'
 import { useResidualDistribution } from '@/hooks/use-residual-distribution'
-import type { ResidualItemInput } from '@/utils/residual-distribution'
+import { detectConfigWarning, type ResidualItemInput } from '@/utils/residual-distribution'
 import { ResidualDistributionBlock } from '@/page-parts/shared/residual-distribution-block.component'
 import {
   mergeItemAndTenantRates,
@@ -1016,6 +1016,128 @@ function Sales() {
         return Math.min(100, sumWeighted / saleTotal * 100)
     })()
     const saleTotalWithDiscount = saleTotal * (1 - globalDiscountPercentV / 100)
+
+    // ── Motor RR runtime para o drawer "Venda no Balcão" (espelha orçamentos) ──
+    // FIX 2026-05-24: balcão estava sem Distribuição/DRE — só Total + Desconto.
+    // Reaproveita exatamente o mesmo pipeline de orcamentos para garantir paridade.
+    const balcaoReapurationDate = new Date().toISOString().slice(0, 10)
+    const balcaoMotorResultsByItem = saleItems.map((i) => {
+        const commPctDecimal = (i.commission_percent ?? 0) / 100
+        const profPctDecimal = (i.profit_percent ?? 0) / 100
+        const itemBase = (Number(i.unit_price) || 0) * (Number(i.quantity) || 0)
+        if (itemBase <= 0) return null
+        const itemRates = mergeItemAndTenantRates(i.item_tax_rates ?? null, mrmConfig.rates)
+        const itemCsll = resolveItemCsllPct(i.item_tax_rates ?? null, mrmConfig.csll_pct)
+        const itemIrpj = resolveItemIrpjPct(i.item_tax_rates ?? null, mrmConfig.irpj_pct)
+        const totalPctDistribuivel = commPctDecimal + profPctDecimal + (Number(itemCsll) || 0) + (Number(itemIrpj) || 0)
+        if (totalPctDistribuivel === 0) return null
+        // MOD/DOP proporcionais à RV pós-desconto (fix commit 38f99e5)
+        const cpItem = (Number(i.cost_total) || 0) * (Number(i.quantity) || 0)
+        const rvItem = itemBase - itemBase * (globalDiscountPercentV / 100)
+        const modItem = rvItem * (Number(mrmConfig.mod_pct) || 0)
+        const dopItem = rvItem * (Number(mrmConfig.dop_pct) || 0)
+        return calculateMarginReapuration({
+            rb: itemBase,
+            desc_value: itemBase * (globalDiscountPercentV / 100),
+            regime: mrmConfig.regime,
+            rates: itemRates,
+            cp: cpItem,
+            mod: modItem,
+            dop: dopItem,
+            commission_pct: commPctDecimal,
+            profit_pct: profPctDecimal,
+            csll_pct: itemCsll,
+            irpj_pct: itemIrpj,
+            discount_mode: discountModeV,
+            effective_date: balcaoReapurationDate,
+            use_snapshot_rates: mrmConfig.useSnapshotRates,
+        })
+    })
+
+    const balcaoResidualItems: ResidualItemInput[] = useMemo(
+        () => saleItems.map((item, idx) => {
+            const motor = balcaoMotorResultsByItem[idx]
+            return {
+                unit_price: item.unit_price,
+                quantity: item.quantity,
+                commission_percent: item.commission_percent,
+                profit_percent: item.profit_percent,
+                tax_breakdown: null as null,
+                motor_new_commission: motor?.new_commission,
+                motor_new_profit: motor?.new_profit,
+                motor_new_csll: motor?.new_csll,
+                motor_new_irpj: motor?.new_irpj,
+            }
+        }),
+        [saleItems, balcaoMotorResultsByItem],
+    )
+    const balcaoTenantTaxRates = useMemo(
+        () => ({ irpj: mrmConfig.irpj_pct || 0, csll: mrmConfig.csll_pct || 0 }),
+        [mrmConfig.irpj_pct, mrmConfig.csll_pct],
+    )
+    const balcaoResidualDistribution = useResidualDistribution(
+        balcaoResidualItems,
+        saleTotal,
+        saleTotalWithDiscount,
+        mrmConfig.regime ?? null,
+        balcaoTenantTaxRates,
+    )
+    const balcaoTotalCostBase = useMemo(
+        () => saleItems.reduce(
+            (s, i) => s + (Number(i.cost_total) || 0) * (Number(i.quantity) || 0),
+            0,
+        ),
+        [saleItems],
+    )
+    const balcaoConfigWarning = detectConfigWarning({
+        totalCostBase: balcaoTotalCostBase,
+        dopPct: mrmConfig.dop_pct,
+        modPct: mrmConfig.mod_pct,
+        totalGross: saleTotal,
+    })
+    const balcaoConsolidatedDRE = useMemo(() => {
+        const dreItems: DREItemInput[] = saleItems.map((item, idx) => {
+            const motor = balcaoMotorResultsByItem[idx]
+            return {
+                unit_price: item.unit_price,
+                quantity: item.quantity,
+                cost_total: item.cost_total,
+                commission_percent: item.commission_percent,
+                profit_percent: item.profit_percent,
+                tax_breakdown: motor ?? (null as null),
+                motor_new_commission: motor?.new_commission,
+                motor_new_profit: motor?.new_profit,
+                motor_new_csll: motor?.new_csll,
+                motor_new_irpj: motor?.new_irpj,
+            }
+        })
+        return computeConsolidatedDRE({
+            items: dreItems,
+            totalGross: saleTotal,
+            totalNet: saleTotalWithDiscount,
+            regime: mrmConfig.regime ?? null,
+            expenseStructure: {
+                fixed_pct: Number(mrmConfig.expense_breakdown.fixed_pct) || 0,
+                variable_pct: Number(mrmConfig.expense_breakdown.variable_pct) || 0,
+                financial_pct: Number(mrmConfig.expense_breakdown.financial_pct) || 0,
+                administrative_pct: Number(mrmConfig.expense_breakdown.administrative_pct) || 0,
+                mod_pct: Number(mrmConfig.mod_pct) || 0,
+            },
+            tenantTaxRates: balcaoTenantTaxRates,
+        })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [saleItems, balcaoMotorResultsByItem, saleTotal, saleTotalWithDiscount, mrmConfig.regime, mrmConfig.mod_pct, mrmConfig.expense_breakdown, balcaoTenantTaxRates])
+    const balcaoEpicV5DisplayData = useMemo(() => {
+        const itemsForDisplay = saleItems.map((_, idx) => ({
+            tax_breakdown: balcaoMotorResultsByItem[idx] ?? null,
+        }))
+        return extractEpicV5DisplayData(itemsForDisplay, {
+            regime: mrmConfig.regime,
+            csll_pct: mrmConfig.csll_pct,
+            irpj_pct: mrmConfig.irpj_pct,
+        })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [saleItems, balcaoMotorResultsByItem, mrmConfig.regime, mrmConfig.csll_pct, mrmConfig.irpj_pct])
 
     // ── Salvar venda manual (balcão) ──
     const handleSaveSale = async () => {
@@ -2170,6 +2292,12 @@ function Sales() {
                         </Select>
                     </Form.Item>
 
+                    <Form.Item name="customer_id" label="Cliente (opcional)">
+                        <Select placeholder="Selecione o cliente" showSearch optionFilterProp="children" allowClear>
+                            {customers.map(c => (<Select.Option key={c.id} value={c.id}>{c.name}</Select.Option>))}
+                        </Select>
+                    </Form.Item>
+
                     {selectedEmployeeIdV && employeeHasNoTablesV && (
                         <div style={{ background: 'rgba(249,115,22,0.1)', border: '1px solid rgba(249,115,22,0.3)', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 12, color: '#fdba74' }}>
                             Este funcionário não possui tabelas de comissão vinculadas. Apenas lançamento manual está disponível.
@@ -2359,6 +2487,24 @@ function Sales() {
                         </div>
                     )}
 
+                    {/* Distribuição Residual + DRE Consolidada — paridade com orçamentos */}
+                    {saleTotal > 0 && (
+                        <ResidualDistributionBlock
+                            distribution={balcaoResidualDistribution}
+                            configWarning={balcaoConfigWarning}
+                            regimeGuardActive={balcaoEpicV5DisplayData.regimeGuardActive}
+                            discountMode={discountModeV}
+                        />
+                    )}
+                    {saleTotal > 0 && (
+                        <ConsolidatedDREBlock
+                            dre={balcaoConsolidatedDRE}
+                            cascadeTrace={balcaoEpicV5DisplayData.cascadeTrace}
+                            pesoOpInterna={balcaoEpicV5DisplayData.pesoOpInterna}
+                            ancoraInterna={balcaoEpicV5DisplayData.ancoraInterna}
+                        />
+                    )}
+
                     <Divider orientation="left" style={{ fontSize: 12, color: '#94a3b8' }}>Pagamento</Divider>
 
                     <Form.Item name="payment_method" label="Forma de recebimento" rules={[{ required: true, message: 'Selecione' }]}>
@@ -2423,12 +2569,6 @@ function Sales() {
                     </Form.Item>
 
                     <Divider orientation="left" style={{ fontSize: 12, color: '#94a3b8' }}>Detalhes</Divider>
-
-                    <Form.Item name="customer_id" label="Cliente (opcional)">
-                        <Select placeholder="Selecione o cliente" showSearch optionFilterProp="children" allowClear>
-                            {customers.map(c => (<Select.Option key={c.id} value={c.id}>{c.name}</Select.Option>))}
-                        </Select>
-                    </Form.Item>
 
                     <Form.Item name="sale_date" label="Data da venda" initialValue={dayjs()}>
                         <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
