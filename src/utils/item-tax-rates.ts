@@ -110,47 +110,68 @@ export function mergeItemAndTenantRates(
 }
 
 /**
- * Resolve o "custo total POR UNIDADE" de um produto/serviço lendo de múltiplas fontes
- * em ordem de prioridade. Bug fix 2026-05-24 (Hyago):
+ * Resolve o "custo total POR UNIDADE" de um produto/serviço lendo de múltiplas
+ * fontes do Supabase em ordem de prioridade canônica (ADR-011, 2026-05-24).
  *
- *   - Produtos antigos têm `cost_total = 0` no banco mas têm valor correto em
- *     `pricing_calculations.cmv` (CMV unitário) ou em
- *     `pricing_calculations.total_material_cost_net + total_labor_net` (totais).
+ * Cenário motivador (Hyago): produto "PVC" com cost_total=0 no banco mas com
+ * o custo real (R$ 42.645,94) vivendo em `product_items.item_cost_net` +
+ * `pricing_calculations.total_labor_net`. Esta é a fonte que aparece como
+ * "Custo produto" na tela do cadastro.
  *
- *   - O fallback combina material líquido + mão de obra produtiva, que é a soma
- *     exibida como "Custo produto" no cadastro do produto (R$ 42.645,94 no caso
- *     do user).
+ * Cadeia de fallback (ADR-011 §3):
+ *   1º SUM(product_items.item_cost_net) + pricing_calc.total_labor_net
+ *      / yield_quantity  ← FONTE PRIMÁRIA (cenário real do user)
+ *   2º products.cost_total > 0 (produtos modernos pré-calculados)
+ *   3º pricing_calc.cmv > 0 (CMV unitário canônico)
+ *   4º (total_material_cost_net + total_labor_net) / yield_quantity (fallback parcial)
+ *   5º zero (sem custo cadastrado)
  *
- * Retorna o custo POR UNIDADE do produto (não total). Caller multiplica por qty.
+ * Retorna o custo POR UNIDADE do produto. Caller multiplica por qty no orçamento.
  *
- * Ordem de fallback:
- *   1. products.cost_total (campo principal, fica em produtos modernos)
- *   2. pricing_calculations.cmv (CMV unitário canônico)
- *   3. pricing_calculations.(total_material_cost_net + total_labor_net) / yield_quantity
- *      (custo total dividido pela qty produzida = unitário)
- *   4. zero (sem custo disponível)
+ * IMPORTANTE (Ponto crítico #1 do Dev):
+ *   `product_items.item_cost_net` é o TOTAL da linha (já inclui quantity_needed).
+ *   NÃO multiplicar por quantity_needed de novo — usar SUM direto.
+ *
+ * IMPORTANTE (Ponto crítico #2 do Dev):
+ *   `yield_quantity` clamped em Math.max(1, ...) para evitar NaN/Infinity quando
+ *   produto antigo tem yield=null/0/negativo.
  */
 export function resolveProductCostTotal(prod: any): number {
-  // 1. cost_total direto (preferencial — produtos modernos)
-  const direct = Number(prod?.cost_total) || 0
-  if (direct > 0) return direct
-
-  // 2. pricing_calculations.cmv (unitário)
+  const yieldQty = Math.max(1, Number(prod?.yield_quantity) || 1)
   const pricing = Array.isArray(prod?.pricing_calculations)
     ? prod.pricing_calculations[0]
     : prod?.pricing_calculations
+  const laborNet = Number(pricing?.total_labor_net) || 0
+
+  // ★ Nível 1 (PRIMÁRIO — ADR-011): soma direta dos itens cadastrados + MO produtiva
+  // É o que a tela do cadastro do produto exibe como "Custo produto".
+  const productItems = Array.isArray(prod?.product_items) ? prod.product_items : []
+  if (productItems.length > 0) {
+    const itemsCostSum = productItems.reduce((sum: number, pi: any) => {
+      const itemNet = Number(pi?.item_cost_net) || 0
+      return sum + itemNet
+    }, 0)
+    if (itemsCostSum > 0) {
+      // Custo total do produto = SUM(item_cost_net) + total_labor_net
+      // Custo por unidade = total / yield_quantity
+      return (itemsCostSum + laborNet) / yieldQty
+    }
+  }
+
+  // Nível 2: cost_total direto (produtos modernos)
+  const direct = Number(prod?.cost_total) || 0
+  if (direct > 0) return direct
+
+  // Nível 3: pricing_calculations.cmv (unitário canônico)
   const cmv = Number(pricing?.cmv) || 0
   if (cmv > 0) return cmv
 
-  // 3. (material líquido + mão de obra líquida) / yield_quantity
+  // Nível 4: (material líquido + mão de obra líquida) / yield_quantity
   const materialNet = Number(pricing?.total_material_cost_net) || 0
-  const laborNet = Number(pricing?.total_labor_net) || 0
   const totalCost = materialNet + laborNet
-  if (totalCost > 0) {
-    const yieldQty = Number(prod?.yield_quantity) || 1
-    return totalCost / yieldQty
-  }
+  if (totalCost > 0) return totalCost / yieldQty
 
+  // Nível 5: sem custo
   return 0
 }
 

@@ -154,53 +154,145 @@ describe('Ajuste #3 — PIS/COFINS NCM agregado (pis_cofins_pct)', () => {
   })
 })
 
-describe('Ajuste #4 (2026-05-24) — resolveProductCostTotal com fallback', () => {
-  it('cost_total > 0 → prioridade 1', () => {
-    const prod = { cost_total: 100, pricing_calculations: [{ cmv: 999 }] }
-    expect(resolveProductCostTotal(prod)).toBe(100)
+describe('V8 (ADR-011, 2026-05-24) — resolveProductCostTotal nova cadeia', () => {
+  describe('Nível 1 (PRIMÁRIO) — product_items.item_cost_net + total_labor_net', () => {
+    it('C1 canônico user: cost_total=0 + product_items + labor_net → R$ 42.645,94', () => {
+      const prod = {
+        cost_total: 0,
+        yield_quantity: 1,
+        product_items: [
+          { item_cost_net: 39929.94, quantity_needed: 50000 },
+        ],
+        pricing_calculations: [{ total_labor_net: 2716.00 }],
+      }
+      // SUM(item_cost_net) = 39929.94 + labor 2716 = 42645.94 / yield 1 = 42645.94
+      expect(resolveProductCostTotal(prod)).toBeCloseTo(42645.94, 2)
+    })
+
+    it('C3 multi-item: 3 product_items somados', () => {
+      const prod = {
+        cost_total: 0,
+        yield_quantity: 1,
+        product_items: [
+          { item_cost_net: 100, quantity_needed: 10 },
+          { item_cost_net: 200, quantity_needed: 5 },
+          { item_cost_net: 50, quantity_needed: 2 },
+        ],
+        pricing_calculations: [{ total_labor_net: 0 }],
+      }
+      expect(resolveProductCostTotal(prod)).toBeCloseTo(350, 2)
+    })
+
+    it('C4 yield_quantity=50: custo dividido', () => {
+      const prod = {
+        cost_total: 0,
+        yield_quantity: 50,
+        product_items: [{ item_cost_net: 39929.94 }],
+        pricing_calculations: [{ total_labor_net: 2716.00 }],
+      }
+      // (39929.94 + 2716) / 50 = 852.92 por unidade
+      expect(resolveProductCostTotal(prod)).toBeCloseTo(852.92, 2)
+    })
+
+    it('Nível 1 prevalece mesmo com cost_total > 0 (product_items é fonte de verdade)', () => {
+      const prod = {
+        cost_total: 999,
+        yield_quantity: 1,
+        product_items: [{ item_cost_net: 100 }],
+        pricing_calculations: [{ total_labor_net: 50 }],
+      }
+      // ADR-011: product_items é Nível 1, prevalece sobre cost_total
+      expect(resolveProductCostTotal(prod)).toBe(150)
+    })
   })
 
-  it('cost_total=0 + pricing.cmv > 0 → usa cmv (prioridade 2)', () => {
-    const prod = { cost_total: 0, pricing_calculations: [{ cmv: 50 }] }
-    expect(resolveProductCostTotal(prod)).toBe(50)
+  describe('Nível 2 — cost_total quando product_items vazio', () => {
+    it('C2 produto moderno: cost_total > 0 e sem product_items', () => {
+      const prod = { cost_total: 100, pricing_calculations: [{ cmv: 999 }] }
+      expect(resolveProductCostTotal(prod)).toBe(100)
+    })
+
+    it('product_items existe mas item_cost_net=null → usa cost_total', () => {
+      const prod = {
+        cost_total: 100,
+        product_items: [{ item_cost_net: null, quantity_needed: 10 }],
+      }
+      expect(resolveProductCostTotal(prod)).toBe(100)
+    })
+
+    it('product_items array vazio → usa cost_total', () => {
+      const prod = { cost_total: 100, product_items: [] }
+      expect(resolveProductCostTotal(prod)).toBe(100)
+    })
   })
 
-  it('cost_total=0 + cmv=0 + material+labor → soma / yield (prioridade 3)', () => {
-    // Cenário do user: material R$ 39.929,94 + labor R$ 2.716,00 = R$ 42.645,94 / yield 50000
-    const prod = {
-      cost_total: 0,
-      yield_quantity: 50000,
-      pricing_calculations: [{
-        cmv: null,
-        total_material_cost_net: 39929.94,
-        total_labor_net: 2716.00,
-      }],
-    }
-    const result = resolveProductCostTotal(prod)
-    // 42645.94 / 50000 = 0.85291... por unidade
-    expect(result).toBeCloseTo(0.85292, 3)
+  describe('Nível 3 — pricing.cmv como fallback', () => {
+    it('cost_total=0 + product_items=0 + cmv=50 → R$ 50', () => {
+      const prod = {
+        cost_total: 0,
+        product_items: [],
+        pricing_calculations: [{ cmv: 50 }],
+      }
+      expect(resolveProductCostTotal(prod)).toBe(50)
+    })
   })
 
-  it('sem nenhum dado → 0', () => {
-    expect(resolveProductCostTotal({})).toBe(0)
-    expect(resolveProductCostTotal({ cost_total: null })).toBe(0)
+  describe('Nível 4 — material+labor agregado', () => {
+    it('cost_total=0 + cmv=0 + product_items vazio → soma material+labor / yield', () => {
+      const prod = {
+        cost_total: 0,
+        product_items: [],
+        yield_quantity: 50000,
+        pricing_calculations: [{
+          cmv: null,
+          total_material_cost_net: 39929.94,
+          total_labor_net: 2716.00,
+        }],
+      }
+      expect(resolveProductCostTotal(prod)).toBeCloseTo(0.85292, 3)
+    })
   })
 
-  it('pricing_calculations como objeto (não array) também funciona', () => {
-    const prod = { cost_total: 0, pricing_calculations: { cmv: 42 } }
-    expect(resolveProductCostTotal(prod)).toBe(42)
-  })
+  describe('Nível 5 / edge cases', () => {
+    it('C5 sem nenhum dado → R$ 0', () => {
+      expect(resolveProductCostTotal({})).toBe(0)
+      expect(resolveProductCostTotal({ cost_total: null })).toBe(0)
+    })
 
-  it('yield_quantity ausente → divide por 1 (fallback seguro)', () => {
-    const prod = {
-      cost_total: 0,
-      pricing_calculations: [{
-        cmv: null,
-        total_material_cost_net: 100,
-        total_labor_net: 50,
-      }],
-    }
-    // Sem yield: retorna o total (não unitário). Comportamento defensivo.
-    expect(resolveProductCostTotal(prod)).toBe(150)
+    it('pricing_calculations como objeto (não array)', () => {
+      const prod = { cost_total: 0, product_items: [], pricing_calculations: { cmv: 42 } }
+      expect(resolveProductCostTotal(prod)).toBe(42)
+    })
+
+    it('yield_quantity=0 → clamp em 1 (defesa contra divisão por zero)', () => {
+      const prod = {
+        cost_total: 0,
+        yield_quantity: 0, // tentativa de bug
+        product_items: [{ item_cost_net: 100 }],
+        pricing_calculations: [{ total_labor_net: 50 }],
+      }
+      // Math.max(1, 0) = 1 → 150 / 1 = 150
+      expect(resolveProductCostTotal(prod)).toBe(150)
+    })
+
+    it('yield_quantity=null → clamp em 1', () => {
+      const prod = {
+        cost_total: 0,
+        yield_quantity: null,
+        product_items: [{ item_cost_net: 100 }],
+        pricing_calculations: [{ total_labor_net: 50 }],
+      }
+      expect(resolveProductCostTotal(prod)).toBe(150)
+    })
+
+    it('yield_quantity negativo → clamp em 1', () => {
+      const prod = {
+        cost_total: 0,
+        yield_quantity: -5,
+        product_items: [{ item_cost_net: 100 }],
+        pricing_calculations: [{ total_labor_net: 50 }],
+      }
+      expect(resolveProductCostTotal(prod)).toBe(150)
+    })
   })
 })

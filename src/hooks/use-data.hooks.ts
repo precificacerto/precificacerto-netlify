@@ -31,11 +31,12 @@ export function useProducts() {
   return useSWR(
     tenantId ? `products-${tenantId}` : null,
     async () => {
-      // V7+ (2026-05-24): inclui total_material_cost_net + total_labor_net + cmv
-      // para fallback de custo quando products.cost_total = 0 (produtos antigos).
+      // V8 (2026-05-24, ADR-011): inclui product_items.item_cost_net + quantity_needed
+      // como FONTE PRIMÁRIA do custo (cenário real do user: cost_total=0 mas item_cost_net
+      // tem o valor correto). Mantém pricing_calculations como fallback secundário.
       const { data, error } = await supabase
         .from('products')
-        .select('*, pricing_calculations(sale_price_total, sale_price_per_unit, pct_profit_margin, cmv, total_material_cost_net, total_labor_net), product_items(item_id, items(item_type))')
+        .select('*, pricing_calculations(sale_price_total, sale_price_per_unit, pct_profit_margin, cmv, total_material_cost_net, total_labor_net), product_items(item_id, item_cost_net, item_cost_gross, quantity_needed, items(item_type))')
         .or('is_active.is.null,is_active.eq.true')
         .order('name')
       if (error) throw error
@@ -101,12 +102,11 @@ export function useServices() {
   return useSWR(
     tenantId ? `services-${tenantId}` : null,
     async () => {
-      // V7+ (2026-05-24): inclui alíquotas tributárias + pricing_calculations.cmv para
-      // fallback de custo (mesmo padrão dos produtos). pis_cofins_pct é lido em
-      // buildItemTaxRatesFromProduct.
+      // V8 (2026-05-24, ADR-011): serviços também ganham product_items para fallback de custo
+      // (alguns serviços usam materiais via product_items). Inclui alíquotas + pricing.
       const { data, error } = await supabase
         .from('services')
-        .select('*, pricing_calculations(cmv, total_material_cost_net, total_labor_net)')
+        .select('*, pricing_calculations(cmv, total_material_cost_net, total_labor_net), product_items(item_id, item_cost_net, item_cost_gross, quantity_needed)')
         .eq('status', 'ACTIVE')
         .order('name')
       if (error) throw error
