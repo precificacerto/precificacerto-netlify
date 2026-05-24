@@ -393,6 +393,23 @@ describe('V8.1 (2026-05-24) — resolveProductLaborTotal e MOD do produto na DRE
     expect(resolveProductLaborTotal(prod)).toBe(1500)
   })
 
+  it('V8.7: usa productive_value_per_minute DIRETO (preferencial)', () => {
+    // Cenário canônico: 5000min × R$ 0,5432/min = R$ 2.716,00
+    const prod = {
+      yield_quantity: 1,
+      labor_costs: [],
+      pricing_calculations: [
+        { product_workload: 5000, product_workload_price: 0 },
+      ],
+    }
+    const tenantCtx = {
+      production_labor_cost: 0, // fallback nem usado
+      monthly_workload_minutes: 0,
+      productive_value_per_minute: 0.5432, // valor direto do banco
+    }
+    expect(resolveProductLaborTotal(prod, tenantCtx)).toBeCloseTo(2716, 2)
+  })
+
   it('V8.6: cálculo RUNTIME usando tenant context quando pricing vazia', () => {
     // Cenário canônico user: 5000min × (cost_per_min) = R$ 2.716,00
     const prod = {

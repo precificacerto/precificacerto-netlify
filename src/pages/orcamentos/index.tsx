@@ -389,6 +389,7 @@ function Budgets() {
             const laborTenantCtxSvc = {
                 production_labor_cost: mrmConfig.production_labor_cost,
                 monthly_workload_minutes: mrmConfig.monthly_workload_minutes,
+                productive_value_per_minute: mrmConfig.productive_value_per_minute,
             }
             const costTotal = resolveProductCostTotal(svc, laborTenantCtxSvc)
             const productiveLaborUnit = resolveProductLaborTotal(svc, laborTenantCtxSvc)
@@ -428,6 +429,7 @@ function Budgets() {
             const laborTenantCtx = {
                 production_labor_cost: mrmConfig.production_labor_cost,
                 monthly_workload_minutes: mrmConfig.monthly_workload_minutes,
+                productive_value_per_minute: mrmConfig.productive_value_per_minute,
             }
             const costTotal = resolveProductCostTotal(prod, laborTenantCtx)
             // V8.1 (2026-05-24): MO produtiva do produto para separar de MOD do tenant

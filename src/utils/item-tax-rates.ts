@@ -204,12 +204,15 @@ export function resolveProductCostTotal(prod: any, tenantCtx?: TenantLaborContex
  * Cenário do user: labor_costs.net_value = R$ 2.716,00 / yield 1 = R$ 2.716,00/un
  */
 /**
- * Contexto opcional do tenant para o cálculo runtime de MOD (V8.6 / ADR-011 patch).
- * Fórmula: MOD = product_workload × (production_labor_cost / monthly_workload_minutes)
+ * Contexto opcional do tenant para o cálculo runtime de MOD.
+ *
+ * V8.7 (preferencial): MOD = product_workload × productive_value_per_minute
+ * V8.6 (fallback):     MOD = product_workload × (production_labor_cost / monthly_workload_minutes)
  */
 export interface TenantLaborContext {
   production_labor_cost: number   // R$/mês (tenant_expense_config.production_labor_cost)
-  monthly_workload_minutes: number // minutos/mês (derivado de tenants)
+  monthly_workload_minutes: number // minutos/mês (derivado de tenant_settings)
+  productive_value_per_minute?: number // R$/minuto (já calculado em tenant_expense_config)
 }
 
 export function resolveProductLaborTotal(prod: any, tenantCtx?: TenantLaborContext): number {
@@ -249,9 +252,21 @@ export function resolveProductLaborTotal(prod: any, tenantCtx?: TenantLaborConte
     if (v > 0) return v / yieldQty
   }
 
-  // V8.6 (ADR-011 patch): CÁLCULO RUNTIME quando todas as fontes do banco vazias.
-  // Usa product_workload (minutos do produto) + tenant context. Cenário canônico user:
-  //   5000 min × (R$ production_labor_cost / monthly_workload_minutes) = R$ 2.716
+  // V8.7 (PREFERENCIAL): cálculo RUNTIME usando productive_value_per_minute direto.
+  // tenant_expense_config.productive_value_per_minute JÁ é o valor calculado.
+  if (tenantCtx) {
+    const pvpm = Number(tenantCtx.productive_value_per_minute) || 0
+    if (pvpm > 0) {
+      for (const p of pricingArr) {
+        const workloadMin = Number(p?.product_workload) || 0
+        if (workloadMin > 0) {
+          return (workloadMin * pvpm) / yieldQty
+        }
+      }
+    }
+  }
+
+  // V8.6 (FALLBACK): derivar cost_per_minute via (labor_cost / monthly_minutes).
   if (tenantCtx && tenantCtx.production_labor_cost > 0 && tenantCtx.monthly_workload_minutes > 0) {
     for (const p of pricingArr) {
       const workloadMin = Number(p?.product_workload) || 0
