@@ -178,33 +178,46 @@ export function resolveProductCostTotal(prod: any): number {
 /**
  * Resolve a parcela de "Mão de Obra Produtiva" (MOD) do CUSTO UNITÁRIO do produto.
  *
- * Story V8.2 (2026-05-24): MOD na DRE = APENAS mão de obra produtiva do PRODUTO.
- * NÃO usar `tenant.mod_pct × receita` (que é mão de obra administrativa do tenant
- * — já entra em "Administrativas" das despesas operacionais).
+ * Story V8.3 (2026-05-24): cadeia expandida para incluir labor_costs (tabela
+ * dedicada por produto onde a UI do cadastro persiste mão de obra produtiva).
+ *
+ * NÃO usar `tenant.mod_pct × receita` (mão de obra administrativa do tenant —
+ * já entra em "Administrativas" das despesas operacionais).
  *
  * Cadeia de fontes (todas POR PRODUTO, nunca tenant):
- *   1º pricing_calculations.product_workload_price / yield_quantity
- *      (campo canônico — productWorkloadMinutes × costPerMinute)
- *   2º pricing_calculations.total_labor_net / yield_quantity (variante histórica)
- *   3º zero (produto sem MO produtiva cadastrada — linha some na UI)
+ *   1º SUM(labor_costs.net_value) / yield_quantity
+ *      (tabela dedicada — fonte primária do "Mão de obra produtiva" do cadastro)
+ *   2º pricing_calculations.product_workload_price / yield_quantity
+ *   3º pricing_calculations.total_labor_net / yield_quantity
+ *   4º zero (produto sem MO produtiva cadastrada — linha some na UI)
  *
- * Cenário do user: product_workload_price = R$ 2.716,00 / yield 1 = R$ 2.716,00/un
+ * Cenário do user: labor_costs.net_value = R$ 2.716,00 / yield 1 = R$ 2.716,00/un
  */
 export function resolveProductLaborTotal(prod: any): number {
   const yieldQty = Math.max(1, Number(prod?.yield_quantity) || 1)
+
+  // 1º labor_costs (tabela dedicada — fonte primária)
+  const laborCosts = Array.isArray(prod?.labor_costs) ? prod.labor_costs : []
+  if (laborCosts.length > 0) {
+    const laborSum = laborCosts.reduce((sum: number, lc: any) => {
+      const net = Number(lc?.net_value) || 0
+      return sum + net
+    }, 0)
+    if (laborSum > 0) return laborSum / yieldQty
+  }
+
+  // 2º product_workload_price (campo derivado do engine de pricing)
   const pricing = Array.isArray(prod?.pricing_calculations)
     ? prod.pricing_calculations[0]
     : prod?.pricing_calculations
-
-  // 1º product_workload_price (campo canônico do engine de pricing)
   const workloadPrice = Number(pricing?.product_workload_price) || 0
   if (workloadPrice > 0) return workloadPrice / yieldQty
 
-  // 2º total_labor_net (variante histórica)
+  // 3º total_labor_net (variante histórica)
   const laborNet = Number(pricing?.total_labor_net) || 0
   if (laborNet > 0) return laborNet / yieldQty
 
-  // 3º zero — sem fallback tenant (mod_pct do tenant é admin, não produtiva)
+  // 4º zero — sem fallback tenant
   return 0
 }
 

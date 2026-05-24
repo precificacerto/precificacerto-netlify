@@ -372,6 +372,36 @@ describe('V8.1 (2026-05-24) — resolveProductLaborTotal e MOD do produto na DRE
     expect(dre.custos.total).toBe(500)   // só custo do produto
   })
 
+  it('V8.3: resolveProductLaborTotal usa labor_costs primeiro (cenário user)', () => {
+    const prod = {
+      yield_quantity: 1,
+      labor_costs: [{ net_value: 2716.00, labor_type: 'PROPRIA' }],
+      pricing_calculations: [], // pricing vazio
+    }
+    expect(resolveProductLaborTotal(prod)).toBeCloseTo(2716, 2)
+  })
+
+  it('V8.3: labor_costs com múltiplas entradas → soma', () => {
+    const prod = {
+      yield_quantity: 1,
+      labor_costs: [
+        { net_value: 1000, labor_type: 'PROPRIA' },
+        { net_value: 500, labor_type: 'TERCEIRIZADA' },
+      ],
+      pricing_calculations: [],
+    }
+    expect(resolveProductLaborTotal(prod)).toBe(1500)
+  })
+
+  it('V8.3: labor_costs vazio → fallback para product_workload_price', () => {
+    const prod = {
+      yield_quantity: 1,
+      labor_costs: [],
+      pricing_calculations: [{ product_workload_price: 800 }],
+    }
+    expect(resolveProductLaborTotal(prod)).toBe(800)
+  })
+
   it('V8.2: resolveProductLaborTotal usa product_workload_price primeiro', () => {
     const prod = {
       yield_quantity: 1,
