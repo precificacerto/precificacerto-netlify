@@ -393,6 +393,21 @@ describe('V8.1 (2026-05-24) — resolveProductLaborTotal e MOD do produto na DRE
     expect(resolveProductLaborTotal(prod)).toBe(1500)
   })
 
+  it('V8.4: pricing_calculations com múltiplas linhas → itera buscando a com labor', () => {
+    // Cenário real: produto tem 3 pricing_calculations (regimes diferentes).
+    // Primeiro [0] pode ser regime sem labor; iterar até achar uma com valor.
+    const prod = {
+      yield_quantity: 1,
+      labor_costs: [],
+      pricing_calculations: [
+        { product_workload_price: 0, tax_regime: 'MEI' },      // sem labor
+        { product_workload_price: 2716.00, tax_regime: 'LUCRO_REAL' }, // com labor
+        { product_workload_price: 0, tax_regime: 'SIMPLES' },  // sem labor
+      ],
+    }
+    expect(resolveProductLaborTotal(prod)).toBeCloseTo(2716, 2)
+  })
+
   it('V8.3: labor_costs vazio → fallback para product_workload_price', () => {
     const prod = {
       yield_quantity: 1,

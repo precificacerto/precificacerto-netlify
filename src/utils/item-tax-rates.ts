@@ -138,10 +138,15 @@ export function mergeItemAndTenantRates(
  */
 export function resolveProductCostTotal(prod: any): number {
   const yieldQty = Math.max(1, Number(prod?.yield_quantity) || 1)
-  const pricing = Array.isArray(prod?.pricing_calculations)
-    ? prod.pricing_calculations[0]
-    : prod?.pricing_calculations
-  const laborNet = Number(pricing?.total_labor_net) || 0
+  // V8.4 (2026-05-24): pricing_calculations pode ter múltiplas linhas (por regime).
+  // Itera buscando a primeira com valor não-zero em vez de pegar [0] cego.
+  const pricingArr: any[] = Array.isArray(prod?.pricing_calculations)
+    ? prod.pricing_calculations
+    : (prod?.pricing_calculations ? [prod.pricing_calculations] : [])
+
+  // labor_net via resolveProductLaborTotal (cobre labor_costs + pricing iterado)
+  const laborUnit = resolveProductLaborTotal(prod)
+  const laborTotal = laborUnit * yieldQty // valor total para somar com itens
 
   // ★ Nível 1 (PRIMÁRIO — ADR-011): soma direta dos itens cadastrados + MO produtiva
   // É o que a tela do cadastro do produto exibe como "Custo produto".
@@ -152,9 +157,9 @@ export function resolveProductCostTotal(prod: any): number {
       return sum + itemNet
     }, 0)
     if (itemsCostSum > 0) {
-      // Custo total do produto = SUM(item_cost_net) + total_labor_net
+      // Custo total do produto = SUM(item_cost_net) + labor (já total)
       // Custo por unidade = total / yield_quantity
-      return (itemsCostSum + laborNet) / yieldQty
+      return (itemsCostSum + laborTotal) / yieldQty
     }
   }
 
@@ -162,14 +167,19 @@ export function resolveProductCostTotal(prod: any): number {
   const direct = Number(prod?.cost_total) || 0
   if (direct > 0) return direct
 
-  // Nível 3: pricing_calculations.cmv (unitário canônico)
-  const cmv = Number(pricing?.cmv) || 0
-  if (cmv > 0) return cmv
+  // Nível 3: pricing_calculations.cmv (unitário canônico) — itera array
+  for (const p of pricingArr) {
+    const cmv = Number(p?.cmv) || 0
+    if (cmv > 0) return cmv
+  }
 
-  // Nível 4: (material líquido + mão de obra líquida) / yield_quantity
-  const materialNet = Number(pricing?.total_material_cost_net) || 0
-  const totalCost = materialNet + laborNet
-  if (totalCost > 0) return totalCost / yieldQty
+  // Nível 4: (material líquido + mão de obra líquida) / yield_quantity — itera
+  for (const p of pricingArr) {
+    const materialNet = Number(p?.total_material_cost_net) || 0
+    const laborNet = Number(p?.total_labor_net) || 0
+    const totalCost = materialNet + laborNet
+    if (totalCost > 0) return totalCost / yieldQty
+  }
 
   // Nível 5: sem custo
   return 0
@@ -206,16 +216,24 @@ export function resolveProductLaborTotal(prod: any): number {
     if (laborSum > 0) return laborSum / yieldQty
   }
 
-  // 2º product_workload_price (campo derivado do engine de pricing)
-  const pricing = Array.isArray(prod?.pricing_calculations)
-    ? prod.pricing_calculations[0]
-    : prod?.pricing_calculations
-  const workloadPrice = Number(pricing?.product_workload_price) || 0
-  if (workloadPrice > 0) return workloadPrice / yieldQty
+  // 2º product_workload_price (campo derivado do engine de pricing).
+  // V8.4 (2026-05-24): pricing_calculations pode ter MÚLTIPLAS linhas (por regime/
+  // sale_scope/buyer_type). Itera buscando a primeira que TEM dados de labor,
+  // em vez de pegar [0] cego que pode ser regime errado sem labor.
+  const pricingArr: any[] = Array.isArray(prod?.pricing_calculations)
+    ? prod.pricing_calculations
+    : (prod?.pricing_calculations ? [prod.pricing_calculations] : [])
 
-  // 3º total_labor_net (variante histórica)
-  const laborNet = Number(pricing?.total_labor_net) || 0
-  if (laborNet > 0) return laborNet / yieldQty
+  for (const p of pricingArr) {
+    const workloadPrice = Number(p?.product_workload_price) || 0
+    if (workloadPrice > 0) return workloadPrice / yieldQty
+  }
+
+  // 3º total_labor_net (variante histórica) — também itera
+  for (const p of pricingArr) {
+    const laborNet = Number(p?.total_labor_net) || 0
+    if (laborNet > 0) return laborNet / yieldQty
+  }
 
   // 4º zero — sem fallback tenant
   return 0
