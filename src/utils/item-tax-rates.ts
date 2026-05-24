@@ -110,6 +110,59 @@ export function mergeItemAndTenantRates(
 }
 
 /**
+ * Constrói `ItemTaxRates` a partir do cadastro do produto/serviço.
+ *
+ * Lê tanto os campos separados (`pis_pct` + `cofins_pct`) quanto o campo
+ * agregado `pis_cofins_pct` (novo padrão do módulo de Formação de Preço).
+ *
+ * Quando apenas `pis_cofins_pct` está preenchido, divide pela proporção
+ * canônica LR não-cumulativo:
+ *   PIS    = agregado × (1.65 / 9.25)  ≈ 17,84%
+ *   COFINS = agregado × (7.60 / 9.25)  ≈ 82,16%
+ *
+ * Essa proporção é matematicamente correta para LR; para LP (cumulativo,
+ * 0.65 + 3.0 = 3.65%) a mesma proporção (1.65/9.25 ≈ 0.178) se aproxima
+ * de 0.65/3.65 ≈ 0.178 — desvio < 0.01pp. Para MEI/SN o motor já zera
+ * via guard de regime cumulativo (ADR-004).
+ *
+ * Story MRM-V7+ (2026-05-24): user reportou que PIS/COFINS NCM não
+ * aparecia na DRE Consolidada. Causa: callers liam só pis_pct/cofins_pct
+ * separados e não viam o `pis_cofins_pct` agregado.
+ */
+export function buildItemTaxRatesFromProduct(prod: any): ItemTaxRates {
+  const pisSep = Number(prod?.pis_pct)
+  const cofinsSep = Number(prod?.cofins_pct)
+  let pisFinal: number | null = Number.isFinite(pisSep) ? pisSep : null
+  let cofinsFinal: number | null = Number.isFinite(cofinsSep) ? cofinsSep : null
+
+  // Quando os campos separados estão ausentes ou zerados, tenta o agregado.
+  const hasSeparated = (pisFinal != null && pisFinal > 0) || (cofinsFinal != null && cofinsFinal > 0)
+  if (!hasSeparated) {
+    const agg = Number(prod?.pis_cofins_pct)
+    if (Number.isFinite(agg) && agg > 0) {
+      pisFinal = agg * (1.65 / 9.25)
+      cofinsFinal = agg * (7.60 / 9.25)
+    }
+  }
+
+  return {
+    icms_pct: prod?.icms_pct ?? null,
+    pis_pct: pisFinal,
+    cofins_pct: cofinsFinal,
+    iss_pct: prod?.iss_pct ?? null,
+    ipi_pct: prod?.ipi_pct ?? null,
+    icms_st_pct: prod?.icms_st_pct ?? null,
+    difal_pct: prod?.difal_pct ?? null,
+    fcp_pct: prod?.fcp_pct ?? null,
+    ibs_pct: prod?.ibs_pct ?? null,
+    cbs_pct: prod?.cbs_pct ?? null,
+    iss_retido_pct: prod?.iss_retido_pct ?? null,
+    irpj_pct: prod?.irpj_pct ?? null,
+    csll_pct: prod?.csll_pct ?? null,
+  }
+}
+
+/**
  * Extrai a alíquota efetiva de CSLL para o item (override item > fallback tenant).
  * Retorna decimal (0.0207 = 2,07%).
  *

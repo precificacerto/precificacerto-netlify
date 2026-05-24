@@ -43,6 +43,7 @@ import { useResidualDistribution } from '@/hooks/use-residual-distribution'
 import { detectConfigWarning, type ResidualItemInput } from '@/utils/residual-distribution'
 import { ResidualDistributionBlock } from '@/page-parts/shared/residual-distribution-block.component'
 import {
+  buildItemTaxRatesFromProduct,
   mergeItemAndTenantRates,
   resolveItemCsllPct,
   resolveItemIrpjPct,
@@ -382,22 +383,8 @@ function Budgets() {
             const profitPercent = (svc?.profit_percent != null && Number(svc.profit_percent) > 0)
                 ? Number(svc.profit_percent)
                 : (basePrice > 0 && costTotal > 0 ? Math.max(0, ((basePrice - costTotal) / basePrice) * 100) : 0)
-            // S11: captura alíquotas específicas do serviço (NULL → fallback tenant)
-            const svcTaxRates: ItemTaxRates = {
-                icms_pct: svc?.icms_pct ?? null,
-                pis_pct: svc?.pis_pct ?? null,
-                cofins_pct: svc?.cofins_pct ?? null,
-                iss_pct: svc?.iss_pct ?? null,
-                ipi_pct: svc?.ipi_pct ?? null,
-                icms_st_pct: svc?.icms_st_pct ?? null,
-                difal_pct: svc?.difal_pct ?? null,
-                fcp_pct: svc?.fcp_pct ?? null,
-                ibs_pct: svc?.ibs_pct ?? null,
-                cbs_pct: svc?.cbs_pct ?? null,
-                iss_retido_pct: svc?.iss_retido_pct ?? null,
-                irpj_pct: svc?.irpj_pct ?? null,
-                csll_pct: svc?.csll_pct ?? null,
-            }
+            // V7+ (2026-05-24): usa helper centralizado que também lê pis_cofins_pct agregado
+            const svcTaxRates: ItemTaxRates = buildItemTaxRatesFromProduct(svc)
             return {
                 ...item,
                 service_id: serviceId,
@@ -427,22 +414,8 @@ function Budgets() {
             const profitPercent = (prod?.profit_percent != null && Number(prod.profit_percent) > 0)
                 ? Number(prod.profit_percent)
                 : (salePrice > 0 && costTotal > 0 ? Math.max(0, ((salePrice - costTotal) / salePrice) * 100) : 0)
-            // S11: captura alíquotas específicas do produto (NULL → fallback tenant)
-            const prodTaxRates: ItemTaxRates = {
-                icms_pct: prod?.icms_pct ?? null,
-                pis_pct: prod?.pis_pct ?? null,
-                cofins_pct: prod?.cofins_pct ?? null,
-                iss_pct: prod?.iss_pct ?? null,
-                ipi_pct: prod?.ipi_pct ?? null,
-                icms_st_pct: prod?.icms_st_pct ?? null,
-                difal_pct: prod?.difal_pct ?? null,
-                fcp_pct: prod?.fcp_pct ?? null,
-                ibs_pct: prod?.ibs_pct ?? null,
-                cbs_pct: prod?.cbs_pct ?? null,
-                iss_retido_pct: prod?.iss_retido_pct ?? null,
-                irpj_pct: prod?.irpj_pct ?? null,
-                csll_pct: prod?.csll_pct ?? null,
-            }
+            // V7+ (2026-05-24): usa helper centralizado que também lê pis_cofins_pct agregado
+            const prodTaxRates: ItemTaxRates = buildItemTaxRatesFromProduct(prod)
             return {
                 ...item,
                 product_id: productId,

@@ -87,7 +87,18 @@ export interface DRESection {
     liquida: number
   }
   custos: {
-    /** Custos líquidos totais (Σ cost_total × quantity). */
+    /**
+     * Custos do produto (Σ cost_total × quantity).
+     * V7+ (2026-05-24): exposto separado para display "Custo do produto" + "MOD" + "Total".
+     */
+    produto: number
+    /**
+     * MOD (Mão de Obra Direta) — movida de "Despesas Operacionais" para "Custos"
+     * por decisão do Founder em 2026-05-24. Conceitualmente faz parte do custo
+     * do produto, não da estrutura operacional do tenant.
+     */
+    mod: number
+    /** Custos líquidos totais = produto + mod. Retrocompat com consumers anteriores. */
     total: number
   }
   despesas: {
@@ -96,6 +107,11 @@ export interface DRESection {
     variaveis: number
     financeiras: number
     administrativas: number
+    /**
+     * @deprecated 2026-05-24 — MOD migrada para `custos.mod`. Mantido como 0 aqui
+     * para retrocompat de tipo (consumers podem ler `despesas.mod` mas valor
+     * sempre virá 0).
+     */
     mod: number
     total: number
   }
@@ -242,12 +258,15 @@ export function computeConsolidatedDRE(input: DREInput): DRESection {
 
   // ───── 4. DESPESAS (4 BUCKETS proporcionais à receita líquida) ─────
   // R6=b: usar 4 buckets existentes (fixed, variable, financial, indirect/admin)
+  // V7+ (2026-05-24): MOD migrada para Custos (decisão do Founder); aqui calculamos
+  // o valor mas não soma em `despesas.total` — entra em `custos.mod`.
   const despFixas = receitaLiquida * (Number(expenseStructure.fixed_pct) || 0)
   const despVariaveis = receitaLiquida * (Number(expenseStructure.variable_pct) || 0)
   const despFinanceiras = receitaLiquida * (Number(expenseStructure.financial_pct) || 0)
   const despAdministrativas = receitaLiquida * (Number(expenseStructure.administrative_pct) || 0)
-  const despMod = receitaLiquida * (Number(expenseStructure.mod_pct) || 0)
-  const despTotal = despFixas + despVariaveis + despFinanceiras + despAdministrativas + despMod
+  const modAmount = receitaLiquida * (Number(expenseStructure.mod_pct) || 0)
+  const despTotal = despFixas + despVariaveis + despFinanceiras + despAdministrativas
+  const custosTotal = totalCost + modAmount
 
   // ───── 5. RRO consolidado ─────
   const rroValor = commissionAmount + profitAmount + (hidesProfitTaxes ? 0 : csllAmount + irpjAmount)
@@ -283,13 +302,17 @@ export function computeConsolidatedDRE(input: DREInput): DRESection {
       impostosForaTotal: porForaTotal,
       liquida: receitaLiquida,
     },
-    custos: { total: totalCost },
+    custos: {
+      produto: totalCost,
+      mod: modAmount,
+      total: custosTotal,
+    },
     despesas: {
       fixas: despFixas,
       variaveis: despVariaveis,
       financeiras: despFinanceiras,
       administrativas: despAdministrativas,
-      mod: despMod,
+      mod: 0, // V7+: MOD migrada para Custos
       total: despTotal,
     },
     impostos: {

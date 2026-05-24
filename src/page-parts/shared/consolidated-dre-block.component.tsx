@@ -247,27 +247,28 @@ export function ConsolidatedDREBlock({
 
       <Divider />
 
-      {/* ─── 2. CUSTOS ─── */}
+      {/* ─── 2. CUSTOS (V7+: produto + MOD) ─── */}
       <SectionHeader title="Custos" accent="#fcd34d" />
-      <Row
-        label="Custos líquidos totais"
-        value={formatBRL(custos.total)}
-        color="#fde68a"
-        hint="Soma de (cost_total × quantity) por item. Custos cadastrados em produtos/serviços."
-      />
+      <Row label="Custo do produto" value={formatBRL(custos.produto)} color="#fde68a" indent={12}
+        hint="Soma de (cost_total × quantity) por item. Vem do cadastro do produto/serviço." />
+      {custos.mod !== 0 && (
+        <Row label="Mão de Obra Direta (MOD)" value={formatBRL(custos.mod)} color="#fde68a" indent={12}
+          hint="V7+: MOD migrada de Despesas para Custos (compõe o custo do produto)." />
+      )}
+      <Row label="Total custos" value={formatBRL(custos.total)} color="#fcd34d" />
 
       <Divider />
 
-      {/* ─── 3. DESPESAS (4 buckets) ─── */}
+      {/* ─── 3. DESPESAS (4 buckets — V7+: sem MOD) ─── */}
       {/* Quinn S13 review: usar `!== 0` em vez de `> 0` para defender contra
           bucket negativo (ajustes contábeis); previne inconsistência onde
-          a linha some mas o valor continua entrando no total. */}
+          a linha some mas o valor continua entrando no total.
+          V7+: MOD removida deste bloco (agora em Custos). */}
       <SectionHeader title="Despesas Operacionais" accent="#f97316" />
       {despesas.fixas !== 0 && <Row label="Fixas" value={formatBRL(despesas.fixas)} color="#fed7aa" indent={12} />}
       {despesas.variaveis !== 0 && <Row label="Variáveis" value={formatBRL(despesas.variaveis)} color="#fed7aa" indent={12} />}
       {despesas.financeiras !== 0 && <Row label="Financeiras" value={formatBRL(despesas.financeiras)} color="#fed7aa" indent={12} />}
       {despesas.administrativas !== 0 && <Row label="Administrativas" value={formatBRL(despesas.administrativas)} color="#fed7aa" indent={12} />}
-      {despesas.mod !== 0 && <Row label="Mão de Obra Direta (MOD)" value={formatBRL(despesas.mod)} color="#fed7aa" indent={12} />}
       <Row label="Total despesas" value={formatBRL(despesas.total)} color="#fb923c" />
 
       <Divider />

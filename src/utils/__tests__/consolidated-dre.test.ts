@@ -142,8 +142,10 @@ describe('computeConsolidatedDRE — 4 buckets de despesa', () => {
     expect(dre.despesas.variaveis).toBe(500)       // 5% × 10.000
     expect(dre.despesas.financeiras).toBe(200)     // 2% × 10.000
     expect(dre.despesas.administrativas).toBe(300) // 3% × 10.000
-    expect(dre.despesas.mod).toBe(400)             // 4% × 10.000
-    expect(dre.despesas.total).toBe(2400)
+    // V7+ (2026-05-24): MOD migrada de despesas para custos (decisão do Founder)
+    expect(dre.despesas.mod).toBe(0)               // sempre 0 (migrado)
+    expect(dre.custos.mod).toBe(400)               // 4% × 10.000 — agora em Custos
+    expect(dre.despesas.total).toBe(2000)          // sem MOD: 1000+500+200+300
   })
 })
 

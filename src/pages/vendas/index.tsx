@@ -40,6 +40,7 @@ import { useResidualDistribution } from '@/hooks/use-residual-distribution'
 import { detectConfigWarning, type ResidualItemInput } from '@/utils/residual-distribution'
 import { ResidualDistributionBlock } from '@/page-parts/shared/residual-distribution-block.component'
 import {
+  buildItemTaxRatesFromProduct,
   mergeItemAndTenantRates,
   resolveItemCsllPct,
   resolveItemIrpjPct,
@@ -938,22 +939,8 @@ function Sales() {
             const commTable = allTables.find(t => t.id === item.commission_table_id)
             const commPct = Number(commTable?.commission_percent || svc?.commission_percent || 0)
             const profitPct = Number(svc?.profit_percent || 0)
-            // S11: captura alíquotas específicas do serviço
-            const svcTaxRates: ItemTaxRates = {
-                icms_pct: svc?.icms_pct ?? null,
-                pis_pct: svc?.pis_pct ?? null,
-                cofins_pct: svc?.cofins_pct ?? null,
-                iss_pct: svc?.iss_pct ?? null,
-                ipi_pct: svc?.ipi_pct ?? null,
-                icms_st_pct: svc?.icms_st_pct ?? null,
-                difal_pct: svc?.difal_pct ?? null,
-                fcp_pct: svc?.fcp_pct ?? null,
-                ibs_pct: svc?.ibs_pct ?? null,
-                cbs_pct: svc?.cbs_pct ?? null,
-                iss_retido_pct: svc?.iss_retido_pct ?? null,
-                irpj_pct: svc?.irpj_pct ?? null,
-                csll_pct: svc?.csll_pct ?? null,
-            }
+            // V7+ (2026-05-24): helper centralizado, também lê pis_cofins_pct agregado
+            const svcTaxRates: ItemTaxRates = buildItemTaxRatesFromProduct(svc)
             return { ...item, service_id: serviceId, product_name: svc?.name || '', unit_price: price, discount: 0, commission_percent: commPct, profit_percent: profitPct, cost_total: costTotal, item_tax_rates: svcTaxRates, total: price * item.quantity }
         }))
     }
@@ -974,23 +961,8 @@ function Sales() {
             const commTable = allTables.find(t => t.id === item.commission_table_id)
             const commPct = Number(commTable?.commission_percent || 0)
             const profitPct = Number(prod?.profit_percent || 0)
-            // S11: captura alíquotas específicas do produto
-            const prodAny = prod as any
-            const prodTaxRates: ItemTaxRates = {
-                icms_pct: prodAny?.icms_pct ?? null,
-                pis_pct: prodAny?.pis_pct ?? null,
-                cofins_pct: prodAny?.cofins_pct ?? null,
-                iss_pct: prodAny?.iss_pct ?? null,
-                ipi_pct: prodAny?.ipi_pct ?? null,
-                icms_st_pct: prodAny?.icms_st_pct ?? null,
-                difal_pct: prodAny?.difal_pct ?? null,
-                fcp_pct: prodAny?.fcp_pct ?? null,
-                ibs_pct: prodAny?.ibs_pct ?? null,
-                cbs_pct: prodAny?.cbs_pct ?? null,
-                iss_retido_pct: prodAny?.iss_retido_pct ?? null,
-                irpj_pct: prodAny?.irpj_pct ?? null,
-                csll_pct: prodAny?.csll_pct ?? null,
-            }
+            // V7+ (2026-05-24): helper centralizado, também lê pis_cofins_pct agregado
+            const prodTaxRates: ItemTaxRates = buildItemTaxRatesFromProduct(prod)
             return { ...item, product_id: productId, product_name: prod?.name || '', unit_price: price, discount: 0, commission_percent: commPct, profit_percent: profitPct, cost_total: costTotal, item_tax_rates: prodTaxRates, total: price * item.quantity }
         }))
     }
