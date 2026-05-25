@@ -32,7 +32,13 @@
 import { calculateMarginReapuration } from './margin-reapuration'
 import { loadTaxRates } from './mrm-rates-loader'
 import { runShadowComparison, type ShadowContext } from './mrm-shadow'
-import type { ReapurationInput, TaxBreakdown, TaxRatePeriod, TaxType } from '@/types/mrm'
+import {
+  mergeItemAndTenantRates,
+  resolveItemCsllPct,
+  resolveItemIrpjPct,
+  type ItemTaxRates,
+} from './item-tax-rates'
+import type { DiscountMode, ReapurationInput, TaxBreakdown, TaxRatePeriod, TaxRegime, TaxType } from '@/types/mrm'
 
 /**
  * Configuração de precificação original do produto/serviço — usada pelo orchestrator
@@ -204,6 +210,105 @@ export function aggregateItemTaxCredits(
   }
 
   return { recoverable, non_recoverable }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// V9 (Epic MRM-V9, ADR-010) — buildMotorInput helper
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Estrutura mínima de um item de orçamento/venda para alimentar o motor RR.
+ *
+ * Compatível com `BudgetItemRow` (orcamentos/index.tsx:100) e estruturas
+ * similares em vendas/pedidos. Campos opcionais permitem chamada parcial.
+ */
+export interface MotorInputItem {
+  unit_price: number
+  quantity: number
+  /** Custo base (sem MO produtiva quando V8.8 está cumprido pelo cadastro). */
+  cost_total?: number | null
+  /** V8.1 — parcela de MO produtiva inclusa no custo unitário (R$/un). */
+  productive_labor_unit?: number | null
+  commission_percent?: number | null
+  profit_percent?: number | null
+  item_tax_rates?: ItemTaxRates | null
+}
+
+/**
+ * Contexto mínimo do tenant para o motor (subset de `useTenantTaxContext`).
+ */
+export interface MotorInputTenantCtx {
+  regime: TaxRegime
+  rates: TaxRatePeriod[]
+  /** Mantido por retrocompat — V9 D1 migra para DOP bucket. */
+  mod_pct?: number | null
+  dop_pct?: number | null
+  csll_pct?: number | null
+  irpj_pct?: number | null
+  useSnapshotRates?: boolean
+}
+
+export interface BuildMotorInputArgs {
+  item: MotorInputItem
+  tenantCtx: MotorInputTenantCtx
+  /** Desconto global em base 100 (0..100). */
+  globalDiscountPercent: number
+  discountMode: DiscountMode
+  effectiveDate?: string
+}
+
+/**
+ * Helper V9: monta `ReapurationInput` alinhado com a DRE Consolidada V8.8.
+ *
+ * Regras V9 (ADR-010):
+ *   - **V9 D1 (MOD=0):** motor recebe `mod=0` sempre. tenant.mod_pct é migrada
+ *     para o bucket DOP (consistente com `consolidated-dre.ts:278-282` que
+ *     classifica MOD-administrativa como "Administrativas").
+ *   - **V9 D2 (CMV canônico):** `cp = (cost_total + productive_labor_unit) × qty`
+ *     — alinha com `consolidated-dre.ts:284-287` (V8.8) que considera CMV TOTAL
+ *     já incluindo MO produtiva.
+ *
+ * Invariantes (validadas por testes em `__tests__/build-motor-input.test.ts`):
+ *   V9-I4: `result.mod === 0` sempre.
+ *   V9-I5: `result.cp === (cost_total + productive_labor_unit) × qty`.
+ *
+ * Story MRM-V9-001 AC1-AC6.
+ */
+export function buildMotorInput(args: BuildMotorInputArgs): ReapurationInput {
+  const qty = Number(args.item.quantity) || 0
+  const itemBase = (Number(args.item.unit_price) || 0) * qty
+  const discountFactor = Math.max(0, Math.min(1, args.globalDiscountPercent / 100))
+  const rvItem = itemBase - itemBase * discountFactor
+
+  // V9 D2: CMV canônico unitário = cost_total + productive_labor_unit (V8.8 V8.1)
+  const cmvUnit =
+    (Number(args.item.cost_total) || 0) + (Number(args.item.productive_labor_unit) || 0)
+  const cpItem = cmvUnit * qty
+
+  // V9 D1: MOD sempre 0 no motor — tenant.mod_pct vai para DOP bucket
+  const modItem = 0
+  const dopRate =
+    (Number(args.tenantCtx.mod_pct) || 0) + (Number(args.tenantCtx.dop_pct) || 0)
+  const dopItem = rvItem * dopRate
+
+  const itemTaxRates = args.item.item_tax_rates ?? null
+
+  return {
+    rb: itemBase,
+    desc_value: itemBase * discountFactor,
+    regime: args.tenantCtx.regime,
+    rates: mergeItemAndTenantRates(itemTaxRates, args.tenantCtx.rates),
+    cp: cpItem,
+    mod: modItem,
+    dop: dopItem,
+    commission_pct: (Number(args.item.commission_percent) || 0) / 100,
+    profit_pct: (Number(args.item.profit_percent) || 0) / 100,
+    csll_pct: resolveItemCsllPct(itemTaxRates, Number(args.tenantCtx.csll_pct) || 0),
+    irpj_pct: resolveItemIrpjPct(itemTaxRates, Number(args.tenantCtx.irpj_pct) || 0),
+    discount_mode: args.discountMode,
+    effective_date: args.effectiveDate ?? new Date().toISOString().slice(0, 10),
+    use_snapshot_rates: args.tenantCtx.useSnapshotRates ?? false,
+  }
 }
 
 export function resolvePesoOpInterna(args: {

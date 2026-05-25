@@ -274,7 +274,8 @@ describe('calculateMarginReapuration — Output schema (TaxBreakdown)', () => {
   it('Inclui engine_version, effective_date, regime e use_snapshot_rates', () => {
     const result = calculateMarginReapuration(makeInput({ effective_date: '2026-05-18' }))
     // V2.2.0 (Story MRM-V5-001): peso_op_interna + ancora_interna + cascade_trace 13 etapas
-    expect(result.engine_version).toBe('2.3.0')
+    // V9 (2026-05-25): bump 2.3.0 → 2.4.0 (cascade sequencial + alinhamento DRE V8.8)
+    expect(result.engine_version).toBe('2.4.0')
     expect(result.effective_date).toBe('2026-05-18')
     expect(result.regime).toBe('LUCRO_PRESUMIDO')
     expect(result.use_snapshot_rates).toBe(true)
@@ -315,7 +316,8 @@ describe('V5-001 — Retrocompatibilidade: peso_op_interna default = 1 (comporta
 
   it('Engine version reflete bump V5 (2.2.0)', () => {
     const result = calculateMarginReapuration(makeInput())
-    expect(result.engine_version).toBe('2.3.0')
+    // V9 (2026-05-25): bump 2.3.0 → 2.4.0 (cascade sequencial + alinhamento DRE V8.8)
+    expect(result.engine_version).toBe('2.4.0')
   })
 
   it('Peso fora de [0,1] é clampado (defensivo, sem alterar pureza)', () => {
@@ -456,7 +458,10 @@ describe('V5-001 — Cascade Trace (13 etapas obrigatórias — PDF Motor RR Se�
       'Reapuração ISS',
       'Reapuração PIS/COFINS',
       'Redução de custos',
-      'Redução de despesas (MOD + DOP)',
+      // V9 (ADR-010): label dinâmico — quando mod=0 mostra apenas "(DOP)"
+      // (V9 D1: MOD migrada para DOP bucket no buildMotorInput).
+      // Quando mod>0 (legacy/V4 callers diretos) mantém "(MOD + DOP)".
+      'Redução de despesas (DOP)',
       'Resultado Residual Operacional (RRO)',
       'Redistribuição proporcional (Comissão + Lucro + CSLL + IRPJ)',
       'Reapuração tributos por fora (recomposição final)',

@@ -53,6 +53,7 @@ import { ConsolidatedDREBlock } from '@/page-parts/shared/consolidated-dre-block
 import { extractEpicV5DisplayData } from '@/utils/mrm-display-extractor'
 import { hydrateItemSnapshot, type TenantSnapshotContext } from '@/lib/items-snapshot'
 import { calculateMarginReapuration } from '@/utils/margin-reapuration'
+import { buildMotorInput } from '@/utils/mrm-orchestrator'
 import { coerceLegacyDiscountMode, normalizeDiscountModeForDisplay } from '@/config/feature-flags'
 import { decideMrmAction } from '@/utils/mrm-policies'
 import { aggregateMotorResults } from '@/utils/mrm-aggregate'
@@ -1022,36 +1023,30 @@ function Sales() {
     // Reaproveita exatamente o mesmo pipeline de orcamentos para garantir paridade.
     const balcaoReapurationDate = new Date().toISOString().slice(0, 10)
     const balcaoMotorResultsByItem = saleItems.map((i) => {
-        const commPctDecimal = (i.commission_percent ?? 0) / 100
-        const profPctDecimal = (i.profit_percent ?? 0) / 100
         const itemBase = (Number(i.unit_price) || 0) * (Number(i.quantity) || 0)
         if (itemBase <= 0) return null
-        const itemRates = mergeItemAndTenantRates(i.item_tax_rates ?? null, mrmConfig.rates)
+        const commPctDecimal = (i.commission_percent ?? 0) / 100
+        const profPctDecimal = (i.profit_percent ?? 0) / 100
         const itemCsll = resolveItemCsllPct(i.item_tax_rates ?? null, mrmConfig.csll_pct)
         const itemIrpj = resolveItemIrpjPct(i.item_tax_rates ?? null, mrmConfig.irpj_pct)
         const totalPctDistribuivel = commPctDecimal + profPctDecimal + (Number(itemCsll) || 0) + (Number(itemIrpj) || 0)
         if (totalPctDistribuivel === 0) return null
-        // MOD/DOP proporcionais à RV pós-desconto (fix commit 38f99e5)
-        const cpItem = (Number(i.cost_total) || 0) * (Number(i.quantity) || 0)
-        const rvItem = itemBase - itemBase * (globalDiscountPercentV / 100)
-        const modItem = rvItem * (Number(mrmConfig.mod_pct) || 0)
-        const dopItem = rvItem * (Number(mrmConfig.dop_pct) || 0)
-        return calculateMarginReapuration({
-            rb: itemBase,
-            desc_value: itemBase * (globalDiscountPercentV / 100),
-            regime: mrmConfig.regime,
-            rates: itemRates,
-            cp: cpItem,
-            mod: modItem,
-            dop: dopItem,
-            commission_pct: commPctDecimal,
-            profit_pct: profPctDecimal,
-            csll_pct: itemCsll,
-            irpj_pct: itemIrpj,
-            discount_mode: discountModeV,
-            effective_date: balcaoReapurationDate,
-            use_snapshot_rates: mrmConfig.useSnapshotRates,
-        })
+        // V9 (ADR-010, 2026-05-25): buildMotorInput aplica D1 (MOD=0) e D2 (CMV canônico).
+        return calculateMarginReapuration(buildMotorInput({
+            item: i,
+            tenantCtx: {
+                regime: mrmConfig.regime,
+                rates: mrmConfig.rates,
+                mod_pct: mrmConfig.mod_pct,
+                dop_pct: mrmConfig.dop_pct,
+                csll_pct: mrmConfig.csll_pct,
+                irpj_pct: mrmConfig.irpj_pct,
+                useSnapshotRates: mrmConfig.useSnapshotRates,
+            },
+            globalDiscountPercent: globalDiscountPercentV,
+            discountMode: discountModeV,
+            effectiveDate: balcaoReapurationDate,
+        }))
     })
 
     const balcaoResidualItems: ResidualItemInput[] = useMemo(
@@ -1181,30 +1176,22 @@ function Sales() {
                     const profPct = (item.profit_percent ?? 0) / 100
                     if (commPct === 0 && profPct === 0) continue
                     if (item.total <= 0) continue
-                    // BUG FIX (2026-05-24): MOD/DOP proporcionais à RV pós-desconto (não item.total = RB)
-                    const cpItem = (Number(item.cost_total) || 0) * (Number(item.quantity) || 0)
-                    const rvItem = item.total - item.total * (globalDiscountPercentV / 100)
-                    const modItem = rvItem * (Number(mrmConfig.mod_pct) || 0)
-                    const dopItem = rvItem * (Number(mrmConfig.dop_pct) || 0)
-                    const itemRates = mergeItemAndTenantRates(item.item_tax_rates ?? null, mrmConfig.rates)
-                    const itemCsll = resolveItemCsllPct(item.item_tax_rates ?? null, mrmConfig.csll_pct)
-                    const itemIrpj = resolveItemIrpjPct(item.item_tax_rates ?? null, mrmConfig.irpj_pct)
-                    const preview = calculateMarginReapuration({
-                        rb: item.total,
-                        desc_value: item.total * (globalDiscountPercentV / 100),
-                        regime: mrmConfig.regime,
-                        rates: itemRates,
-                        cp: cpItem,
-                        mod: modItem,
-                        dop: dopItem,
-                        commission_pct: commPct,
-                        profit_pct: profPct,
-                        csll_pct: itemCsll,
-                        irpj_pct: itemIrpj,
-                        discount_mode: discountModeV,
-                        effective_date: reapDate,
-                        use_snapshot_rates: mrmConfig.useSnapshotRates,
-                    })
+                    // V9 (ADR-010): buildMotorInput aplica D1 (MOD=0) e D2 (CMV canônico).
+                    const preview = calculateMarginReapuration(buildMotorInput({
+                        item,
+                        tenantCtx: {
+                            regime: mrmConfig.regime,
+                            rates: mrmConfig.rates,
+                            mod_pct: mrmConfig.mod_pct,
+                            dop_pct: mrmConfig.dop_pct,
+                            csll_pct: mrmConfig.csll_pct,
+                            irpj_pct: mrmConfig.irpj_pct,
+                            useSnapshotRates: mrmConfig.useSnapshotRates,
+                        },
+                        globalDiscountPercent: globalDiscountPercentV,
+                        discountMode: discountModeV,
+                        effectiveDate: reapDate,
+                    }))
                     if (preview.rro <= 0) {
                         messageApi.error(`Não é possível salvar: o item "${item.product_name || 'sem nome'}" está com Resultado Residual Operacional ≤ R$ 0. Reduza o desconto ou revise os custos.`)
                         return
@@ -1235,31 +1222,22 @@ function Sales() {
                 const profPctDecimal = (item.profit_percent ?? 0) / 100
                 if (commPctDecimal === 0 && profPctDecimal === 0) return sum
                 if (item.total <= 0) return sum
-                // BUG FIX (2026-05-24): MOD/DOP proporcionais à RV pós-desconto (não item.total = RB)
-                const cpItem = (Number(item.cost_total) || 0) * (Number(item.quantity) || 0)
-                const rvItem = item.total - item.total * (globalDiscountPercentV / 100)
-                const modItem = rvItem * (Number(mrmConfig.mod_pct) || 0)
-                const dopItem = rvItem * (Number(mrmConfig.dop_pct) || 0)
-                // S11: alíquotas específicas do item (com fallback tenant)
-                const itemRates = mergeItemAndTenantRates(item.item_tax_rates ?? null, mrmConfig.rates)
-                const itemCsll = resolveItemCsllPct(item.item_tax_rates ?? null, mrmConfig.csll_pct)
-                const itemIrpj = resolveItemIrpjPct(item.item_tax_rates ?? null, mrmConfig.irpj_pct)
-                const result = calculateMarginReapuration({
-                    rb: item.total,
-                    desc_value: item.total * (globalDiscountPercentV / 100),
-                    regime: mrmConfig.regime,
-                    rates: itemRates,
-                    cp: cpItem,
-                    mod: modItem,
-                    dop: dopItem,
-                    commission_pct: commPctDecimal,
-                    profit_pct: profPctDecimal,
-                    csll_pct: itemCsll,
-                    irpj_pct: itemIrpj,
-                    discount_mode: discountModeV,
-                    effective_date: reapurationEffectiveDateSale,
-                    use_snapshot_rates: mrmConfig.useSnapshotRates,
-                })
+                // V9 (ADR-010): buildMotorInput aplica D1 (MOD=0) e D2 (CMV canônico).
+                const result = calculateMarginReapuration(buildMotorInput({
+                    item,
+                    tenantCtx: {
+                        regime: mrmConfig.regime,
+                        rates: mrmConfig.rates,
+                        mod_pct: mrmConfig.mod_pct,
+                        dop_pct: mrmConfig.dop_pct,
+                        csll_pct: mrmConfig.csll_pct,
+                        irpj_pct: mrmConfig.irpj_pct,
+                        useSnapshotRates: mrmConfig.useSnapshotRates,
+                    },
+                    globalDiscountPercent: globalDiscountPercentV,
+                    discountMode: discountModeV,
+                    effectiveDate: reapurationEffectiveDateSale,
+                }))
                 return sum + result.new_commission
             }, 0)
 

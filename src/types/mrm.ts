@@ -30,8 +30,14 @@
  *           a estar disponíveis. Campo opcional retrocompatível — snapshots V5
  *           sem discount_mode lidos como PROPORTIONAL. Invariante tributária
  *           bit-exact preservada (Etapas 1-8 invariantes nos 3 modos).
+ * - 2.4.0: cascade_trace sequencial + alinhamento Motor RR ↔ DRE Consolidada V8.8
+ *           — V9 (Epic MRM-V9, ADR-010). Steps 6-11 propagam base etapa-a-etapa
+ *           (base[N] = base[N-1] − abs(amount[N-1])). MOD=0 invariante (V9 D1)
+ *           alinhada com V8.8. RRO matemático inalterado — apenas visualização e
+ *           contrato de cp (CMV canônico = cost_total + productive_labor_unit)
+ *           mudam. Snapshots V5/V6 (2.2.0/2.3.0) preservados via ADR-003.
  */
-export const MRM_ENGINE_VERSION = '2.3.0'
+export const MRM_ENGINE_VERSION = '2.4.0'
 
 export type TaxType =
   | 'ICMS'

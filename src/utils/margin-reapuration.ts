@@ -537,10 +537,15 @@ export function calculateMarginReapuration(input: ReapurationInput): TaxBreakdow
 /**
  * Constrói memória cascata 13 etapas conforme PDF Motor RR Seção 10.
  *
- * Ordem fixa, mesmo quando uma etapa tem amount=0 (e.g. ISS=0 em produto):
- * o step é registrado com value=0 e formula='N/A' — preserva ordem.
+ * V9 (ADR-010, 2026-05-25): steps 6-11 propagam base sequencialmente —
+ * `base[N] = base[N-1] − abs(amount[N-1])`. RRO matemático preservado:
+ * step 11 amount === args.rro (invariante V9-I2 verificada por test).
  *
- * Story MRM-V5-001 AC4.
+ * V9 D1 (MOD=0): step 10 label "Redução de despesas (DOP)" quando args.mod=0.
+ * Quando mod > 0 (caller legacy), label volta a "(MOD + DOP)" e amount soma ambos
+ * — preserva retrocompat com chamadas pré-V9.
+ *
+ * Story MRM-V5-001 AC4 → atualizada para Story MRM-V9-002 AC1-AC6.
  */
 function buildCascadeTrace(args: {
   rb: number
@@ -566,13 +571,29 @@ function buildCascadeTrace(args: {
   const issLine = findInside('ISS')
   const pisLine = findInside('PIS')
   const cofinsLine = findInside('COFINS')
+  const icmsAmount = icmsLine?.amount ?? 0
+  const issAmount = issLine?.amount ?? 0
   const pisCofinsAmount = (pisLine?.amount ?? 0) + (cofinsLine?.amount ?? 0)
   const pisCofinsRate = (pisLine?.rate_pct ?? 0) + (cofinsLine?.rate_pct ?? 0)
-  const pisCofinsBase = pisLine?.base ?? cofinsLine?.base ?? null
 
   const despesas_total = args.mod + args.dop
   const rateio_total = args.new_commission + args.new_profit + args.new_csll + args.new_irpj
   const taxes_outside_total = args.taxes_outside.reduce((sum, l) => sum + l.amount, 0)
+
+  // V9 cascade sequencial — base propaga etapa-a-etapa.
+  // Step 6 (ICMS) parte da Âncora. Cada step subsequente recebe base = prev.base − abs(prev.amount).
+  const baseStep6 = args.ancora_interna
+  const baseStep7 = baseStep6 - icmsAmount        // base após ICMS
+  const baseStep8 = baseStep7 - issAmount         // base após ISS
+  const baseStep9 = baseStep8 - pisCofinsAmount   // base após PIS/COFINS
+  const baseStep10 = baseStep9 - args.cp          // base após Custos
+  const baseStep11 = baseStep10 - despesas_total  // base após Despesas (≡ RRO matemático)
+
+  // V9 D1: label dinâmico — se MOD=0, mostra apenas "DOP".
+  const despesasLabel = args.mod === 0
+    ? 'Redução de despesas (DOP)'
+    : 'Redução de despesas (MOD + DOP)'
+  const despesasFormula = args.mod === 0 ? 'DOP (input)' : 'MOD + DOP'
 
   return [
     {
@@ -623,56 +644,57 @@ function buildCascadeTrace(args: {
     {
       step: 6,
       label: 'Reapuração ICMS',
-      base: icmsLine?.base ?? args.ancora_interna,
+      base: baseStep6,
       rate: icmsLine?.rate_pct ?? null,
-      amount: icmsLine ? -icmsLine.amount : 0,
+      // V9: evita `-0` quando amount=0 (cleaner para asserts de teste e UI)
+      amount: icmsAmount === 0 ? 0 : -icmsAmount,
       formula: icmsLine ? 'Âncora × ICMS%' : 'N/A',
       source: 'ETAPA_5',
     },
     {
       step: 7,
       label: 'Reapuração ISS',
-      base: issLine?.base ?? args.ancora_interna,
+      base: baseStep7,
       rate: issLine?.rate_pct ?? null,
-      amount: issLine ? -issLine.amount : 0,
-      formula: issLine ? 'Âncora × ISS%' : 'N/A',
-      source: 'ETAPA_5',
+      amount: issAmount === 0 ? 0 : -issAmount,
+      formula: issLine ? 'Base × ISS%' : 'N/A',
+      source: 'ETAPA_6',
     },
     {
       step: 8,
       label: 'Reapuração PIS/COFINS',
-      base: pisCofinsBase,
+      base: baseStep8,
       rate: pisCofinsRate > 0 ? pisCofinsRate : null,
-      amount: -pisCofinsAmount,
-      formula: pisCofinsAmount > 0 ? '(Âncora − ICMS − ISS) × PIS/COFINS%' : 'N/A',
-      source: 'ETAPA_5',
+      amount: pisCofinsAmount === 0 ? 0 : -pisCofinsAmount,
+      formula: pisCofinsAmount > 0 ? '(Base após ICMS/ISS) × PIS/COFINS%' : 'N/A',
+      source: 'ETAPA_7',
     },
     {
       step: 9,
       label: 'Redução de custos',
-      base: null,
+      base: baseStep9,
       rate: null,
       amount: -args.cp,
-      formula: 'CP (input)',
-      source: 'INPUT',
+      formula: 'CP (input — CMV canônico V9)',
+      source: 'ETAPA_8',
     },
     {
       step: 10,
-      label: 'Redução de despesas (MOD + DOP)',
-      base: null,
+      label: despesasLabel,
+      base: baseStep10,
       rate: null,
       amount: -despesas_total,
-      formula: 'MOD + DOP',
-      source: 'INPUT',
+      formula: despesasFormula,
+      source: 'ETAPA_9',
     },
     {
       step: 11,
       label: 'Resultado Residual Operacional (RRO)',
-      base: null,
+      base: baseStep11,
       rate: null,
-      amount: args.rro,
-      formula: 'Âncora − IMP − CP − MOD − DOP',
-      source: 'ETAPA_8',
+      amount: baseStep11,
+      formula: 'Base após Despesas (≡ Âncora − IMP − CP − MOD − DOP)',
+      source: 'ETAPA_10',
     },
     {
       step: 12,
@@ -681,7 +703,7 @@ function buildCascadeTrace(args: {
       rate: null,
       amount: rateio_total,
       formula: 'RRO × pesos_componentes',
-      source: 'ETAPA_9',
+      source: 'ETAPA_11',
     },
     {
       step: 13,
