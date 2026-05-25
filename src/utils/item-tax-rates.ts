@@ -236,6 +236,69 @@ export function resolveProductFinancialExpense(prod: any): number | null {
   return null
 }
 
+/**
+ * V14 (Founder 2026-05-25): snapshot COMPLETO dos 4 buckets de despesa do produto.
+ *
+ * Origem: `pricing_calculations.val_* + pct_*` populados quando produto foi precificado.
+ * Cada bucket guarda valor unitário (R$/un) + taxa decimal (0..1) snapshot.
+ *
+ * Quando ausente OU todos os val_* zerados → retorna `null` (caller usa fallback tenant).
+ *
+ * `toDecimal` interno: pct_* no banco vem em formato percentual (e.g. 10.51 = 10,51%);
+ * normaliza para decimal (0.1051). Se já < 1, preserva.
+ */
+export interface ProductExpenseBreakdown {
+  mo_admin: { rate: number; amount_unit: number }
+  fixa: { rate: number; amount_unit: number }
+  variavel: { rate: number; amount_unit: number }
+  financeira: { rate: number; amount_unit: number }
+}
+
+function toDecimalRate(raw: unknown): number {
+  const n = Number(raw) || 0
+  if (n <= 0) return 0
+  // V14 sanity check (mesma lógica do V13.1 use-tenant-tax-context):
+  // Valor já em decimal (< 1): preserva, mas se ainda > 20% após preservar é
+  // quase sempre erro de escala (e.g. cadastrado 0.43 querendo 0,43%) → /100.
+  // Valor em formato percentual (>= 1): /100 (10.51 → 0.1051).
+  const decimal = n < 1 ? n : n / 100
+  return decimal > 0.2 ? decimal / 100 : decimal
+}
+
+export function resolveProductExpenseBreakdown(prod: any): ProductExpenseBreakdown | null {
+  const yieldQty = Math.max(1, Number(prod?.yield_quantity) || 1)
+  const pricingArr: any[] = Array.isArray(prod?.pricing_calculations)
+    ? prod.pricing_calculations
+    : (prod?.pricing_calculations ? [prod.pricing_calculations] : [])
+
+  if (pricingArr.length === 0) return null
+
+  // Itera linhas — pega primeiro val_* > 0 e pct_* > 0 por bucket (V8.5 padrão)
+  const pickPair = (valField: string, pctField: string): { amount_unit: number; rate: number } => {
+    let amount_unit = 0
+    let rate = 0
+    for (const p of pricingArr) {
+      const v = Number(p?.[valField]) || 0
+      if (v > 0 && amount_unit === 0) amount_unit = v / yieldQty
+      const r = toDecimalRate(p?.[pctField])
+      if (r > 0 && rate === 0) rate = r
+      if (amount_unit > 0 && rate > 0) break
+    }
+    return { amount_unit, rate }
+  }
+
+  const mo_admin = pickPair('val_indirect_labor', 'pct_indirect_labor')
+  const fixa = pickPair('val_fixed_expense', 'pct_fixed_expense')
+  const variavel = pickPair('val_variable_expense', 'pct_variable_expense')
+  const financeira = pickPair('val_financial_expense', 'pct_financial_expense')
+
+  const totalAmount =
+    mo_admin.amount_unit + fixa.amount_unit + variavel.amount_unit + financeira.amount_unit
+  if (totalAmount === 0) return null
+
+  return { mo_admin, fixa, variavel, financeira }
+}
+
 export function resolveProductLaborTotal(prod: any, tenantCtx?: TenantLaborContext): number {
   const yieldQty = Math.max(1, Number(prod?.yield_quantity) || 1)
 
