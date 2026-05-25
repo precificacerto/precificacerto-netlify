@@ -9,18 +9,34 @@ ADR-008 (V5) aceitou a fórmula de apuração STF: `(Âncora − ICMS) × 9,25%`
 
 ## Decision
 
-Em `computeTaxesInside`:
+Em `computeTaxesInside` — heurística por regime + alíquota:
 
 ```ts
-const pisCofinsConstrucao = pisRate + cofinsRate
-const pisCofinsApuracao = icmsRate < 1
-  ? pisCofinsConstrucao / (1 - icmsRate)
-  : pisCofinsConstrucao
+const isLR = regime === 'LUCRO_REAL'
+const hasBothPisCofins = pisRate > 0 && cofinsRate > 0
+const pisCofinsAggregate = pisRate + cofinsRate
+// Só converte quando LR + AMBOS PIS/COFINS presentes + soma < 8,5%
+const isConstrucao = isLR && hasBothPisCofins && pisCofinsAggregate < 0.085
+
+const denom = 1 - icmsRate
+const pisCofinsApuracao = isConstrucao && denom > 0
+  ? pisCofinsAggregate / denom
+  : pisCofinsAggregate
 const baseApuracao = ancora - icmsAmount   // sem ISS
 const pisCofinsAmount = baseApuracao * pisCofinsApuracao
 ```
 
-Distribuição entre TaxLines PIS e COFINS é proporcional (`pisRate / pisCofinsConstrucao` × pisCofinsApuracao), mantendo 2 linhas separadas para retrocompat de UI/consumidores.
+**Cenários cobertos:**
+
+| Regime | Alíquotas cadastradas | Detecção | Cálculo |
+|---|---|---|---|
+| LR | PIS=1,65% + COFINS=6,0275% = 7,6775% | CONSTRUÇÃO (< 8,5%) | converte para 9,25% via `/(1−ICMS)` |
+| LR | PIS=1,65% + COFINS=7,60% = 9,25% | APURAÇÃO (≥ 8,5%) | aplica direto 9,25% |
+| LP | PIS+COFINS = 3,65% | APURAÇÃO (regime cumulativo) | aplica direto |
+| SN/MEI | — | APURAÇÃO (DAS unificado) | aplica direto |
+| Snapshot só com PIS (test) | apenas PIS, sem COFINS | APURAÇÃO (falta COFINS) | aplica direto |
+
+Distribuição entre TaxLines PIS e COFINS proporcional (`pisRate / aggregate × apuração`), mantendo 2 linhas separadas para retrocompat.
 
 ## Rationale
 

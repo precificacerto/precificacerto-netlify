@@ -61,6 +61,7 @@ import {
   type TaxBreakdown,
   type TaxLine,
   type TaxRatePeriod,
+  type TaxRegime,
   type TaxType,
   type ValidationMap,
 } from '@/types/mrm'
@@ -102,6 +103,7 @@ function findRate(rates: TaxRatePeriod[], type: TaxType): number {
 function computeTaxesInside(
   ancora: number,
   rates: TaxRatePeriod[],
+  regime: TaxRegime,
 ): { lines: TaxLine[]; total: number } {
   const lines: TaxLine[] = []
 
@@ -118,31 +120,63 @@ function computeTaxesInside(
     lines.push({ type: 'ISS', rate_pct: issRate, base: ancora, amount: issAmount })
   }
 
-  // 2) PIS/COFINS — V12 (ADR-013): base de apuração + alíquota direta do tenant.
+  // 2) PIS/COFINS — V12 (ADR-013): detecta perspectiva CONSTRUÇÃO vs APURAÇÃO.
   //
+  // Tenant pode cadastrar em qualquer das duas perspectivas:
+  //   - APURAÇÃO (LR=9,25%, LP=3,65%) — direto da legislação federal
+  //   - CONSTRUÇÃO (LR=7,6775% com ICMS=17%) — alíquota do markup divisor
+  //
+  // Motor detecta perspectiva via heurística por regime:
+  //   - LR + soma < 8,5% → CONSTRUÇÃO → converte: apuração = construção/(1−ICMS)
+  //   - LR + soma ≥ 8,5% → APURAÇÃO → aplica direto
+  //   - LP/SN/MEI → sempre APURAÇÃO (regime cumulativo não tem conversão)
+  //
+  // Em ambos os casos:
   //   base_apuração = Âncora − ICMS    (ISS NÃO subtrai — Excel H43 / STF)
-  //   amount        = base_apuração × (pis_rate + cofins_rate)
+  //   amount        = base_apuração × alíquota_apuração
   //
-  // Tenant configura alíquotas em perspectiva APURAÇÃO (LR=9,25%, LP=3,65%).
-  // Identidade matemática (motivação user 2026-05-25):
-  //   apuracao = construcao / (1 − ICMS)
-  //   9,25% = 7,6775% / 0,83 (com ICMS=17%)
-  // Logo o motor aplica direto a alíquota apuração — sem conversão runtime.
+  // Cenário Hyago (LR + 7,6775% construção):
+  //   apuração = 7,6775% / (1 − 17%) = 9,25%
+  //   amount   = 105.406,63 × 9,25% = R$ 9.750,11
   //
-  // Diferente de V4/V10 (que subtraía ISS da base): V12 segue Excel H43 oficial.
-  //
-  // Cenário Hyago: 105.406,63 × 9,25% = R$ 9.750,11.
+  // Cenário Excel V5 (LR + 9,25% apuração já cadastrada):
+  //   amount = (Âncora − ICMS) × 9,25%  (sem conversão)
   const pisRate = findRate(rates, 'PIS')
   const cofinsRate = findRate(rates, 'COFINS')
+  const pisCofinsAggregate = pisRate + cofinsRate
   const baseApuracao = ancora - icmsAmount
+  // Heurística (V12 D1): só converte quando regime LR + PIS e COFINS presentes +
+  // soma < 8,5% (faixa construção típica LR).
+  const isLR = regime === 'LUCRO_REAL'
+  const hasBothPisCofins = pisRate > 0 && cofinsRate > 0
+  const isConstrucao = isLR && hasBothPisCofins && pisCofinsAggregate < 0.085
 
-  if (pisRate > 0) {
-    const pisAmount = baseApuracao * pisRate
-    lines.push({ type: 'PIS', rate_pct: pisRate, base: baseApuracao, amount: pisAmount })
-  }
-  if (cofinsRate > 0) {
-    const cofinsAmount = baseApuracao * cofinsRate
-    lines.push({ type: 'COFINS', rate_pct: cofinsRate, base: baseApuracao, amount: cofinsAmount })
+  if (pisCofinsAggregate > 0) {
+    const denom = 1 - icmsRate
+    const pisCofinsApuracao = isConstrucao && denom > 0
+      ? pisCofinsAggregate / denom
+      : pisCofinsAggregate
+    const pisCofinsAmount = baseApuracao * pisCofinsApuracao
+    // Distribui proporcionalmente entre PIS e COFINS (soma exata = 1)
+    const pisShare = pisRate / pisCofinsAggregate
+    const cofinsShare = cofinsRate / pisCofinsAggregate
+
+    if (pisRate > 0) {
+      lines.push({
+        type: 'PIS',
+        rate_pct: pisCofinsApuracao * pisShare,
+        base: baseApuracao,
+        amount: pisCofinsAmount * pisShare,
+      })
+    }
+    if (cofinsRate > 0) {
+      lines.push({
+        type: 'COFINS',
+        rate_pct: pisCofinsApuracao * cofinsShare,
+        base: baseApuracao,
+        amount: pisCofinsAmount * cofinsShare,
+      })
+    }
   }
 
   const total = lines.reduce((sum, l) => sum + l.amount, 0)
@@ -286,7 +320,7 @@ export function calculateMarginReapuration(input: ReapurationInput): TaxBreakdow
 
   // Etapa 5 (V5): impostos por dentro reapurados sobre Âncora (não mais RV).
   // Quando peso=1, ancora=rv → comportamento numérico idêntico ao V4.
-  const inside = computeTaxesInside(ancora_interna, rates)
+  const inside = computeTaxesInside(ancora_interna, rates, regime)
   const imp_total = inside.total
 
   // Etapa 5.5 (V5-004): Aplicação de créditos tributários — Story MRM-V5-004 AC1+AC2+AC4.
@@ -426,9 +460,9 @@ export function calculateMarginReapuration(input: ReapurationInput): TaxBreakdow
   // Verifica que soma das alíquotas PIS+COFINS está dentro da faixa de apuração (≈ 9,25%).
   // Tolerância 0,5pp para acomodar regimes não-cumulativos (LR=9,25%) e cumulativos (LP≈3,65%).
   // Apenas informacional — não bloqueia motor; UI pode exibir warn quando V7=false.
-  // V12 (ADR-013): `rate_pct` em taxes_inside agora é APURAÇÃO (não construção).
-  // V7 valida contra faixas APURAÇÃO conhecidas: LR=9,25%, LP=3,65%, SN/MEI=0%.
-  // (Antes de V12 o rate_pct era a construção, equivalente após /(1−ICMS) ≈ apuração quando ICMS=17%.)
+  // V12 (ADR-013): `rate_pct` em taxes_inside é APURAÇÃO derivada (construção / (1−ICMS)).
+  // V7 aceita faixas APURAÇÃO conhecidas para LR/LP — tolerância 0,5pp.
+  // SN/MEI sempre passa (regime cumulativo absorve PIS/COFINS via DAS).
   const pisRateInLines = inside.lines.find((l) => l.type === 'PIS')?.rate_pct ?? 0
   const cofinsRateInLines = inside.lines.find((l) => l.type === 'COFINS')?.rate_pct ?? 0
   const pisCofinsAggregate = pisRateInLines + cofinsRateInLines
