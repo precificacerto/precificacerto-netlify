@@ -118,18 +118,31 @@ function computeTaxesInside(
     lines.push({ type: 'ISS', rate_pct: issRate, base: ancora, amount: issAmount })
   }
 
-  // 2) PIS e COFINS sobre base reduzida = Âncora − ICMS − ISS (V4 / STF)
-  const baseReduzida = ancora - icmsAmount - issAmount
+  // 2) PIS/COFINS — V12 (ADR-013): base de apuração + alíquota direta do tenant.
+  //
+  //   base_apuração = Âncora − ICMS    (ISS NÃO subtrai — Excel H43 / STF)
+  //   amount        = base_apuração × (pis_rate + cofins_rate)
+  //
+  // Tenant configura alíquotas em perspectiva APURAÇÃO (LR=9,25%, LP=3,65%).
+  // Identidade matemática (motivação user 2026-05-25):
+  //   apuracao = construcao / (1 − ICMS)
+  //   9,25% = 7,6775% / 0,83 (com ICMS=17%)
+  // Logo o motor aplica direto a alíquota apuração — sem conversão runtime.
+  //
+  // Diferente de V4/V10 (que subtraía ISS da base): V12 segue Excel H43 oficial.
+  //
+  // Cenário Hyago: 105.406,63 × 9,25% = R$ 9.750,11.
   const pisRate = findRate(rates, 'PIS')
   const cofinsRate = findRate(rates, 'COFINS')
+  const baseApuracao = ancora - icmsAmount
 
   if (pisRate > 0) {
-    const pisAmount = baseReduzida * pisRate
-    lines.push({ type: 'PIS', rate_pct: pisRate, base: baseReduzida, amount: pisAmount })
+    const pisAmount = baseApuracao * pisRate
+    lines.push({ type: 'PIS', rate_pct: pisRate, base: baseApuracao, amount: pisAmount })
   }
   if (cofinsRate > 0) {
-    const cofinsAmount = baseReduzida * cofinsRate
-    lines.push({ type: 'COFINS', rate_pct: cofinsRate, base: baseReduzida, amount: cofinsAmount })
+    const cofinsAmount = baseApuracao * cofinsRate
+    lines.push({ type: 'COFINS', rate_pct: cofinsRate, base: baseApuracao, amount: cofinsAmount })
   }
 
   const total = lines.reduce((sum, l) => sum + l.amount, 0)
@@ -413,10 +426,12 @@ export function calculateMarginReapuration(input: ReapurationInput): TaxBreakdow
   // Verifica que soma das alíquotas PIS+COFINS está dentro da faixa de apuração (≈ 9,25%).
   // Tolerância 0,5pp para acomodar regimes não-cumulativos (LR=9,25%) e cumulativos (LP≈3,65%).
   // Apenas informacional — não bloqueia motor; UI pode exibir warn quando V7=false.
+  // V12 (ADR-013): `rate_pct` em taxes_inside agora é APURAÇÃO (não construção).
+  // V7 valida contra faixas APURAÇÃO conhecidas: LR=9,25%, LP=3,65%, SN/MEI=0%.
+  // (Antes de V12 o rate_pct era a construção, equivalente após /(1−ICMS) ≈ apuração quando ICMS=17%.)
   const pisRateInLines = inside.lines.find((l) => l.type === 'PIS')?.rate_pct ?? 0
   const cofinsRateInLines = inside.lines.find((l) => l.type === 'COFINS')?.rate_pct ?? 0
   const pisCofinsAggregate = pisRateInLines + cofinsRateInLines
-  // V7 passa quando: ambos PIS+COFINS = 0 (não-tributado) OU soma ≈ 9,25% (LR) OU ≈ 3,65% (LP) OU regime SN/MEI
   const isSnMei = regime === 'MEI' || regime === 'SIMPLES_NACIONAL'
   const validApuracaoLR = Math.abs(pisCofinsAggregate - 0.0925) < 0.005
   const validApuracaoLP = Math.abs(pisCofinsAggregate - 0.0365) < 0.005

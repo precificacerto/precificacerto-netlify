@@ -42,8 +42,14 @@
  *           N tributos por fora). Fix V10 D1: buildMotorInput remove mod_pct do
  *           dopRate (MO Produtiva já está no CMV). Snapshots V9 (2.4.0) sem
  *           children continuam renderizando — graceful degradation.
+ * - 2.6.0: PIS/COFINS apuração via fórmula `construção / (1 − ICMS)` — V12
+ *           (Epic MRM-V12, ADR-013). computeTaxesInside passa a aplicar alíquota
+ *           apuração sobre `(Âncora − ICMS)` (ISS NÃO subtrai). Cenário Hyago:
+ *           7,6775% → 9,25% via fórmula; R$ 105.406,63 × 9,25% = R$ 9.750,11.
+ *           Mudança matemática alinha com Excel oficial + STF RE 574.706.
+ *           Snapshots V10 (2.5.0) preservam cálculo antigo via ADR-003.
  */
-export const MRM_ENGINE_VERSION = '2.5.0'
+export const MRM_ENGINE_VERSION = '2.6.0'
 
 export type TaxType =
   | 'ICMS'
