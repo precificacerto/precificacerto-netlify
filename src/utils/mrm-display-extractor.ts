@@ -55,31 +55,49 @@ function aggregateCascadeTraces(traces: CascadeStep[][]): CascadeStep[] | null {
   const template = traces[0]
   if (template.length !== 13) return template // se não tem 13 etapas, devolve como está
 
-  return template.map((step, idx) => {
-    const aggregatedAmount = traces.reduce((sum, trace) => {
-      const matchingStep = trace[idx]
-      return sum + (matchingStep?.amount ?? 0)
-    }, 0)
+  // Helper: soma `field` entre traces na posição `idx`. Retorna null quando todos null.
+  const sumField = (
+    field: 'base' | 'amount',
+    idx: number,
+    childIdx?: number,
+  ): number | null => {
+    let total = 0
+    let hasAny = false
+    for (const trace of traces) {
+      const node = childIdx != null ? trace[idx]?.children?.[childIdx] : trace[idx]
+      const v = node?.[field]
+      if (v != null && Number.isFinite(v)) {
+        total += v
+        hasAny = true
+      }
+    }
+    return hasAny ? total : null
+  }
 
-    // V10 (ADR-011): agrega children quando existirem no template.
-    // Children são somados por POSIÇÃO (e.g. todos os "Comissão" do step 12 dos N items).
+  return template.map((step, idx) => {
+    // V15.3 (2026-05-25 Founder request): soma `base` E `amount` entre traces.
+    // Quando todos têm base null, mantém null (steps puramente agregadores).
+    const aggregatedBase = sumField('base', idx)
+    const aggregatedAmount = sumField('amount', idx) ?? 0
+
+    // V10 (ADR-011) + V15.3: agrega children (base + amount).
     let aggregatedChildren: CascadeStep[] | undefined
     if (Array.isArray(step.children) && step.children.length > 0) {
-      aggregatedChildren = step.children.map((tplChild, childIdx) => {
-        const childAmount = traces.reduce((sum, trace) => {
-          const matchingChild = trace[idx]?.children?.[childIdx]
-          return sum + (matchingChild?.amount ?? 0)
-        }, 0)
-        return { ...tplChild, amount: childAmount }
-      })
+      aggregatedChildren = step.children.map((tplChild, childIdx) => ({
+        ...tplChild,
+        base: sumField('base', idx, childIdx),
+        amount: sumField('amount', idx, childIdx) ?? 0,
+      }))
     }
 
     return {
       ...step,
+      base: aggregatedBase,
       amount: aggregatedAmount,
       ...(aggregatedChildren ? { children: aggregatedChildren } : {}),
-      // base/rate são referência do primeiro — agregação numérica de bases/rates
-      // não faz sentido (são parâmetros, não acumuladores)
+      // rate fica do primeiro trace — alíquotas tributárias geralmente são uniformes
+      // entre produtos (LR=17% ICMS, etc). Se divergirem, mostra a do primeiro
+      // (caso raro — tenant geralmente tem 1 perfil tributário).
     }
   })
 }
