@@ -229,6 +229,13 @@ export interface MotorInputItem {
   cost_total?: number | null
   /** V8.1 — parcela de MO produtiva inclusa no custo unitário (R$/un). */
   productive_labor_unit?: number | null
+  /**
+   * V13 (2026-05-25): Snapshot Despesa Financeira POR UNIDADE do produto (R$).
+   * Origem: pricing_calculations.val_financial_expense / yield_quantity.
+   * Quando presente, motor usa SUM(unit × qty) como bucket financeira em vez
+   * de RV × tenant.financial_pct. Não afeta MO Admin/Fixa/Variável (continuam pct).
+   */
+  financial_expense_unit?: number | null
   commission_percent?: number | null
   profit_percent?: number | null
   item_tax_rates?: ItemTaxRates | null
@@ -297,35 +304,57 @@ export function buildMotorInput(args: BuildMotorInputArgs): ReapurationInput {
   const cpItem = cmvUnit * qty
 
   // V9 D1: MOD sempre 0 no motor.
-  // V10 D1 (2026-05-25): dopRate usa APENAS dop_pct.
-  //   - `dop_pct` já inclui MO Admin (`moiPct`) — vide `use-tenant-tax-context.ts:210`.
-  //   - `mod_pct` (MO Produtiva) já está contabilizada no CMV via `productive_labor_unit`
-  //     (V8.8 cascade). Somar `mod_pct + dop_pct` é dupla contagem.
+  // V10 D1: dopRate usa APENAS dop_pct (sem mod_pct — MO Produtiva já no CMV).
+  // V13 (2026-05-25): bucket Despesa Financeira usa snapshot do produto quando presente.
+  //   - Outros 3 buckets (MO Admin/Fixa/Variável) continuam via tenant.expense_breakdown.
+  //   - Financeira: se `financial_expense_unit` presente → snapshot × qty,
+  //     senão fallback `RV × tenant.financial_pct`.
   const modItem = 0
-  const dopRate = Number(args.tenantCtx.dop_pct) || 0
-  const dopItem = rvItem * dopRate
+  const ebTenant = args.tenantCtx.expense_breakdown ?? null
+  const moAdminPct = Number(ebTenant?.administrative_pct) || 0
+  const fixaPct = Number(ebTenant?.fixed_pct) || 0
+  const variavelPct = Number(ebTenant?.variable_pct) || 0
+  const financeiraPctTenant = Number(ebTenant?.financial_pct) || 0
+  // V13: snapshot do produto (× qty) quando presente, senão tenant pct × RV
+  const financeiraUnit = Number(args.item.financial_expense_unit) || 0
+  const financeiraOverride = args.item.financial_expense_unit != null && financeiraUnit > 0
+
+  // Quando `expense_breakdown` ausente, fallback ao `dop_pct` agregado (retrocompat V10).
+  // Quando presente, agrega os 4 buckets individualmente (V13: financeira pode ser snapshot).
+  let dopItem: number
+  if (ebTenant) {
+    const moAdminAmount = rvItem * moAdminPct
+    const fixaAmount = rvItem * fixaPct
+    const variavelAmount = rvItem * variavelPct
+    const financeiraAmount = financeiraOverride
+      ? financeiraUnit * qty
+      : rvItem * financeiraPctTenant
+    dopItem = moAdminAmount + fixaAmount + variavelAmount + financeiraAmount
+  } else {
+    // Fallback V10 — sem breakdown, usa dop_pct agregado
+    const dopRate = Number(args.tenantCtx.dop_pct) || 0
+    const dopBase = rvItem * dopRate
+    // V13: se há snapshot financeira, troca a parcela tenant pelo snapshot
+    if (financeiraOverride) {
+      const financeiraTenantImplicita = rvItem * financeiraPctTenant
+      dopItem = dopBase - financeiraTenantImplicita + financeiraUnit * qty
+    } else {
+      dopItem = dopBase
+    }
+  }
 
   const itemTaxRates = args.item.item_tax_rates ?? null
 
-  // V10 (ADR-011): popula expense_breakdown para o motor enriquecer cascade_trace[10].children
-  const eb = args.tenantCtx.expense_breakdown ?? null
-  const expense_breakdown = eb
+  // V10 (ADR-011) + V13 (2026-05-25): popula expense_breakdown para children do step 10.
+  // V13: bucket Financeira usa snapshot do produto quando presente — rate fica 0 (snapshot).
+  const expense_breakdown = ebTenant
     ? {
-        mo_admin: {
-          rate: Number(eb.administrative_pct) || 0,
-          amount: rvItem * (Number(eb.administrative_pct) || 0),
-        },
-        fixa: {
-          rate: Number(eb.fixed_pct) || 0,
-          amount: rvItem * (Number(eb.fixed_pct) || 0),
-        },
-        variavel: {
-          rate: Number(eb.variable_pct) || 0,
-          amount: rvItem * (Number(eb.variable_pct) || 0),
-        },
+        mo_admin: { rate: moAdminPct, amount: rvItem * moAdminPct },
+        fixa: { rate: fixaPct, amount: rvItem * fixaPct },
+        variavel: { rate: variavelPct, amount: rvItem * variavelPct },
         financeira: {
-          rate: Number(eb.financial_pct) || 0,
-          amount: rvItem * (Number(eb.financial_pct) || 0),
+          rate: financeiraOverride ? 0 : financeiraPctTenant,
+          amount: financeiraOverride ? financeiraUnit * qty : rvItem * financeiraPctTenant,
         },
       }
     : undefined

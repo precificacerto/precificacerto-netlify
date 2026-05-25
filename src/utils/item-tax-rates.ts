@@ -212,6 +212,30 @@ export interface TenantLaborContext {
   productive_value_per_minute?: number // R$/minuto (já calculado em tenant_expense_config)
 }
 
+/**
+ * V13 (Founder request 2026-05-25): Despesa Financeira POR UNIDADE do produto.
+ *
+ * Resolve `pricing_calculations.val_financial_expense / yield_quantity` em R$.
+ * Quando ausente OU zero, retorna `null` (caller usa fallback tenant.financial_pct).
+ *
+ * Itera múltiplas linhas de pricing_calculations (V8.5) pegando primeiro valor > 0.
+ *
+ * Motivação: tenant_expense_config.financial_expense_percent pode estar
+ * mal-configurado (ex: 43% por engano). Pegar do snapshot do produto evita
+ * contaminação por má configuração do tenant.
+ */
+export function resolveProductFinancialExpense(prod: any): number | null {
+  const yieldQty = Math.max(1, Number(prod?.yield_quantity) || 1)
+  const pricingArr: any[] = Array.isArray(prod?.pricing_calculations)
+    ? prod.pricing_calculations
+    : (prod?.pricing_calculations ? [prod.pricing_calculations] : [])
+  for (const p of pricingArr) {
+    const v = Number(p?.val_financial_expense) || 0
+    if (v > 0) return v / yieldQty
+  }
+  return null
+}
+
 export function resolveProductLaborTotal(prod: any, tenantCtx?: TenantLaborContext): number {
   const yieldQty = Math.max(1, Number(prod?.yield_quantity) || 1)
 

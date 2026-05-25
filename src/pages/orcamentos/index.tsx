@@ -50,6 +50,7 @@ import {
   resolveItemIrpjPct,
   resolveProductCostTotal,
   resolveProductLaborTotal,
+  resolveProductFinancialExpense,
   type ItemTaxRates,
 } from '@/utils/item-tax-rates'
 import { computeConsolidatedDRE, type DREItemInput } from '@/utils/consolidated-dre'
@@ -114,6 +115,10 @@ interface BudgetItemRow {
     /** V8.1 (2026-05-24): Parcela de MO produtiva inclusa em cost_total (R$ unitário).
      *  Permite separar "Custo do produto" (material) de "MOD" (mão de obra) na DRE. */
     productive_labor_unit?: number
+    /** V13 (2026-05-25): Despesa Financeira POR UNIDADE do produto (R$).
+     *  Origem: pricing_calculations.val_financial_expense / yield_quantity.
+     *  Quando presente, motor usa snapshot (× qty) em vez de tenant.financial_pct × RV. */
+    financial_expense_unit?: number | null
     /** Alíquotas tributárias específicas do item (Sprint S11). NULL = fallback tenant. */
     item_tax_rates?: ItemTaxRates | null
     isManual?: boolean
@@ -394,6 +399,8 @@ function Budgets() {
             }
             const costTotal = resolveProductCostTotal(svc, laborTenantCtxSvc)
             const productiveLaborUnit = resolveProductLaborTotal(svc, laborTenantCtxSvc)
+            // V13 (2026-05-25): snapshot Despesa Financeira do produto
+            const financialExpenseUnit = resolveProductFinancialExpense(svc)
             const profitPercent = (svc?.profit_percent != null && Number(svc.profit_percent) > 0)
                 ? Number(svc.profit_percent)
                 : (basePrice > 0 && costTotal > 0 ? Math.max(0, ((basePrice - costTotal) / basePrice) * 100) : 0)
@@ -408,6 +415,7 @@ function Budgets() {
                 profit_percent: profitPercent,
                 cost_total: costTotal,
                 productive_labor_unit: productiveLaborUnit,
+                financial_expense_unit: financialExpenseUnit,
                 item_tax_rates: svcTaxRates,
                 total: basePrice * item.quantity,
                 isService: true,
@@ -435,6 +443,8 @@ function Budgets() {
             const costTotal = resolveProductCostTotal(prod, laborTenantCtx)
             // V8.1 (2026-05-24): MO produtiva do produto para separar de MOD do tenant
             const productiveLaborUnit = resolveProductLaborTotal(prod, laborTenantCtx)
+            // V13 (2026-05-25): snapshot Despesa Financeira do produto
+            const financialExpenseUnit = resolveProductFinancialExpense(prod)
             const profitPercent = (prod?.profit_percent != null && Number(prod.profit_percent) > 0)
                 ? Number(prod.profit_percent)
                 : (salePrice > 0 && costTotal > 0 ? Math.max(0, ((salePrice - costTotal) / salePrice) * 100) : 0)
@@ -449,6 +459,7 @@ function Budgets() {
                 profit_percent: profitPercent,
                 cost_total: costTotal,
                 productive_labor_unit: productiveLaborUnit,
+                financial_expense_unit: financialExpenseUnit,
                 item_tax_rates: prodTaxRates,
                 total: salePrice * item.quantity,
                 isManual: false,
