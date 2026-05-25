@@ -278,6 +278,71 @@ export function resolveProductLaborTotal(prod: any, tenantCtx?: TenantLaborConte
 }
 
 /**
+ * V11 (Epic MRM-V11, ADR-012): Snapshot de despesas operacionais por unidade do produto.
+ *
+ * Origem: `pricing_calculations` populada quando o produto foi precificado.
+ * Cada bucket representa uma despesa absoluta CALCULADA no momento da precificação —
+ * é imutável (ADR-003) e não muda quando tenant ajusta percentuais.
+ *
+ * Estrutura:
+ *   - `mo_admin_unit`     = val_indirect_labor / yield_quantity
+ *   - `fixa_unit`         = val_fixed_expense / yield_quantity
+ *   - `variavel_unit`     = val_variable_expense / yield_quantity
+ *   - `financeira_unit`   = val_financial_expense / yield_quantity
+ *
+ * Caller multiplica cada um por `quantity` para obter o valor absoluto da linha.
+ *
+ * Quando `pricing_calculations` ausente OU todos zerados → retorna `null`,
+ * sinalizando ao caller para usar fallback V10 (`RV × tenant.dop_pct`).
+ */
+export interface ProductExpenseBreakdown {
+  /** MO Administrativa (R$/un) — pricing_calculations.val_indirect_labor / yield. */
+  mo_admin_unit: number
+  /** Despesa Fixa (R$/un). */
+  fixa_unit: number
+  /** Despesa Variável (R$/un). */
+  variavel_unit: number
+  /** Despesa Financeira (R$/un). */
+  financeira_unit: number
+}
+
+export function resolveProductExpenses(prod: any): ProductExpenseBreakdown | null {
+  const yieldQty = Math.max(1, Number(prod?.yield_quantity) || 1)
+  const pricingArr: any[] = Array.isArray(prod?.pricing_calculations)
+    ? prod.pricing_calculations
+    : (prod?.pricing_calculations ? [prod.pricing_calculations] : [])
+
+  if (pricingArr.length === 0) return null
+
+  // V8.5 padrão: iterar pricing_calculations e pegar primeiro valor > 0 por bucket
+  // (cada linha pode ter campos parcialmente preenchidos por tax_regime/sale_scope).
+  const pickFirst = (field: string): number => {
+    for (const p of pricingArr) {
+      const v = Number(p?.[field]) || 0
+      if (v > 0) return v
+    }
+    return 0
+  }
+
+  const moAdmin = pickFirst('val_indirect_labor') / yieldQty
+  const fixa = pickFirst('val_fixed_expense') / yieldQty
+  const variavel = pickFirst('val_variable_expense') / yieldQty
+  const financeira = pickFirst('val_financial_expense') / yieldQty
+
+  // Quando TODOS os 4 buckets são zero, retorna null (caller usa fallback)
+  if (moAdmin === 0 && fixa === 0 && variavel === 0 && financeira === 0) {
+    return null
+  }
+
+  return {
+    mo_admin_unit: moAdmin,
+    fixa_unit: fixa,
+    variavel_unit: variavel,
+    financeira_unit: financeira,
+  }
+}
+
+/**
  * Constrói `ItemTaxRates` a partir do cadastro do produto/serviço.
  *
  * Lê tanto os campos separados (`pis_pct` + `cofins_pct`) quanto o campo

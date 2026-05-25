@@ -42,8 +42,14 @@
  *           N tributos por fora). Fix V10 D1: buildMotorInput remove mod_pct do
  *           dopRate (MO Produtiva já está no CMV). Snapshots V9 (2.4.0) sem
  *           children continuam renderizando — graceful degradation.
+ * - 2.6.0: despesas via snapshot do produto (pricing_calculations.val_*) — V11
+ *           (Epic MRM-V11, ADR-012). DOP agora usa SUM(expense_breakdown_unit ×
+ *           qty) dos produtos quando snapshot disponível — imutável vs desconto
+ *           (Opção A). Fallback `RV × tenant.dop_pct` preservado para produtos
+ *           sem pricing_calculations. Elimina contaminação do tenant.dop_pct
+ *           mal-configurado nos orçamentos. Retrocompat 100%.
  */
-export const MRM_ENGINE_VERSION = '2.5.0'
+export const MRM_ENGINE_VERSION = '2.6.0'
 
 export type TaxType =
   | 'ICMS'
