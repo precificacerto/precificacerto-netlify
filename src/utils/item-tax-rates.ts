@@ -324,7 +324,13 @@ export function resolveProductExpenseBreakdown(prod: any): ProductExpenseBreakdo
 export function resolveProductLaborTotal(prod: any, tenantCtx?: TenantLaborContext): number {
   const yieldQty = Math.max(1, Number(prod?.yield_quantity) || 1)
 
-  // 1º labor_costs (tabela dedicada — fonte primária)
+  // 0º V15.1 (2026-05-25): coluna canônica `products.productive_labor_total` (R$/un).
+  // Adicionada via migration `20260525000001_add_productive_labor_total_to_products.sql`.
+  // Backfill puxa de labor_costs ou pricing_calculations. Quando > 0, fonte preferencial.
+  const productiveLaborTotal = Number(prod?.productive_labor_total) || 0
+  if (productiveLaborTotal > 0) return productiveLaborTotal
+
+  // 1º labor_costs (tabela dedicada — fonte primária V8.3)
   const laborCosts = Array.isArray(prod?.labor_costs) ? prod.labor_costs : []
   if (laborCosts.length > 0) {
     const laborSum = laborCosts.reduce((sum: number, lc: any) => {

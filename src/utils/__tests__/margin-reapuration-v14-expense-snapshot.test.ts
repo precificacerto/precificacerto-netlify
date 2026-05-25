@@ -225,6 +225,57 @@ describe('V14 — Snapshot completo dos 4 buckets', () => {
     })
   })
 
+  describe('V15.1 — coluna canônica products.productive_labor_total', () => {
+    // resolveProductLaborTotal precedência 0: products.productive_labor_total
+    // (acima de labor_costs[], pricing_calculations.total_labor_net, etc).
+    // Migration: 20260525000001_add_productive_labor_total_to_products.sql
+
+    it('resolveProductLaborTotal usa products.productive_labor_total quando > 0 (precedência máxima)', () => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { resolveProductLaborTotal } = require('../item-tax-rates')
+      const prod = {
+        yield_quantity: 1,
+        productive_labor_total: 1358.00,  // V15.1 — fonte canônica
+        // Outras fontes propositalmente NÃO populadas
+      }
+      expect(resolveProductLaborTotal(prod)).toBe(1358.00)
+    })
+
+    it('resolveProductLaborTotal cai em labor_costs quando productive_labor_total = 0', () => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { resolveProductLaborTotal } = require('../item-tax-rates')
+      const prod = {
+        yield_quantity: 1,
+        productive_labor_total: 0,
+        labor_costs: [{ net_value: 800 }, { net_value: 200 }],
+      }
+      expect(resolveProductLaborTotal(prod)).toBe(1000)
+    })
+
+    it('V15.1 + V15 combinados: produto com snapshot completo produz CP correto', () => {
+      const input = buildMotorInput({
+        item: {
+          unit_price: 100,
+          quantity: 1,
+          cost_total: 9982.49,
+          productive_labor_unit: 1358.00,  // V8.1 — derivado de products.productive_labor_total
+          expense_breakdown_unit: {
+            cmv_unit: 11340.49,  // V15 — CMV consolidado V8.8
+            mo_admin: { rate: 0.1051, amount_unit: 3943.70 },
+            fixa: { rate: 0.1064, amount_unit: 3992.48 },
+            variavel: { rate: 0.0612, amount_unit: 2296.43 },
+            financeira: { rate: 0.0043, amount_unit: 161.35 },
+          },
+        },
+        tenantCtx: tenantCtxComBug,
+        globalDiscountPercent: 0,
+        discountMode: 'PROPORTIONAL',
+      })
+      // V15: usa cmv_unit do snapshot (11340.49)
+      expect(input.cp).toBeCloseTo(11340.49, 2)
+    })
+  })
+
   describe('V15 — cmv_unit (CMV consolidado material + MO produtiva)', () => {
     it('buildMotorInput usa cmv_unit do snapshot quando > 0 (ignora cost_total/productive_labor_unit)', () => {
       const input = buildMotorInput({
