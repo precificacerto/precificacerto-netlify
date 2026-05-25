@@ -306,8 +306,14 @@ export function buildMotorInput(args: BuildMotorInputArgs): ReapurationInput {
   const rvItem = itemBase - itemBase * discountFactor
 
   // V9 D2: CMV canônico unitário = cost_total + productive_labor_unit (V8.8 V8.1)
+  // V15 (2026-05-25): quando `expense_breakdown_unit.cmv_unit > 0` (snapshot V14+),
+  // usa direto o cmv do produto (já inclui material + MO produtiva consolidados).
+  // Evita perder MO quando `productive_labor_unit` retorna 0 do helper.
+  const snapshotCmvUnit = Number(args.item.expense_breakdown_unit?.cmv_unit) || 0
   const cmvUnit =
-    (Number(args.item.cost_total) || 0) + (Number(args.item.productive_labor_unit) || 0)
+    snapshotCmvUnit > 0
+      ? snapshotCmvUnit
+      : (Number(args.item.cost_total) || 0) + (Number(args.item.productive_labor_unit) || 0)
   const cpItem = cmvUnit * qty
 
   // V9 D1: MOD sempre 0 no motor.

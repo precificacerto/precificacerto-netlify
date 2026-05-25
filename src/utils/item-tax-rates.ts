@@ -248,6 +248,13 @@ export function resolveProductFinancialExpense(prod: any): number | null {
  * normaliza para decimal (0.1051). Se já < 1, preserva.
  */
 export interface ProductExpenseBreakdown {
+  /**
+   * V15 (2026-05-25): CMV completo POR UNIDADE (R$) — material + MO produtiva consolidados.
+   * Origem: `pricing_calculations.cmv / yield_quantity` (V8.8 canônico).
+   * Quando > 0, motor usa direto como CP × qty (não soma productive_labor_unit).
+   * Garante que step 9 (Redução de custos) reflita exatamente o "Custo produto" do cadastro.
+   */
+  cmv_unit: number
   mo_admin: { rate: number; amount_unit: number }
   fixa: { rate: number; amount_unit: number }
   variavel: { rate: number; amount_unit: number }
@@ -292,11 +299,26 @@ export function resolveProductExpenseBreakdown(prod: any): ProductExpenseBreakdo
   const variavel = pickPair('val_variable_expense', 'pct_variable_expense')
   const financeira = pickPair('val_financial_expense', 'pct_financial_expense')
 
+  // V15 (2026-05-25): CMV completo (material + MO produtiva). Tenta cmv direto,
+  // senão soma `total_material_cost_net + total_labor_net` (mesma semântica V8.8).
+  let cmv_unit = 0
+  for (const p of pricingArr) {
+    const v = Number(p?.cmv) || 0
+    if (v > 0) { cmv_unit = v / yieldQty; break }
+  }
+  if (cmv_unit === 0) {
+    for (const p of pricingArr) {
+      const material = Number(p?.total_material_cost_net) || 0
+      const labor = Number(p?.total_labor_net) || 0
+      if (material + labor > 0) { cmv_unit = (material + labor) / yieldQty; break }
+    }
+  }
+
   const totalAmount =
     mo_admin.amount_unit + fixa.amount_unit + variavel.amount_unit + financeira.amount_unit
-  if (totalAmount === 0) return null
+  if (totalAmount === 0 && cmv_unit === 0) return null
 
-  return { mo_admin, fixa, variavel, financeira }
+  return { cmv_unit, mo_admin, fixa, variavel, financeira }
 }
 
 export function resolveProductLaborTotal(prod: any, tenantCtx?: TenantLaborContext): number {
