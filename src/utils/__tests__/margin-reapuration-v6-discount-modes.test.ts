@@ -46,10 +46,10 @@ function makeCanonicalInput(overrides: Partial<ReapurationInput> = {}): Reapurat
 
 describe('Epic MRM-V6 — discount_mode no motor (ADR-009)', () => {
   describe('Engine version', () => {
-    it('motor retorna engine_version 2.4.0', () => {
+    it('motor retorna engine_version 2.5.0', () => {
       const result = calculateMarginReapuration(makeCanonicalInput())
-      // V9 (2026-05-25): bump 2.3.0 → 2.4.0
-      expect(result.engine_version).toBe('2.4.0')
+      // V10 (2026-05-25): bump 2.4.0 → 2.5.0 (cascade granular)
+      expect(result.engine_version).toBe('2.5.0')
     })
   })
 

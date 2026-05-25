@@ -60,9 +60,24 @@ function aggregateCascadeTraces(traces: CascadeStep[][]): CascadeStep[] | null {
       const matchingStep = trace[idx]
       return sum + (matchingStep?.amount ?? 0)
     }, 0)
+
+    // V10 (ADR-011): agrega children quando existirem no template.
+    // Children são somados por POSIÇÃO (e.g. todos os "Comissão" do step 12 dos N items).
+    let aggregatedChildren: CascadeStep[] | undefined
+    if (Array.isArray(step.children) && step.children.length > 0) {
+      aggregatedChildren = step.children.map((tplChild, childIdx) => {
+        const childAmount = traces.reduce((sum, trace) => {
+          const matchingChild = trace[idx]?.children?.[childIdx]
+          return sum + (matchingChild?.amount ?? 0)
+        }, 0)
+        return { ...tplChild, amount: childAmount }
+      })
+    }
+
     return {
       ...step,
       amount: aggregatedAmount,
+      ...(aggregatedChildren ? { children: aggregatedChildren } : {}),
       // base/rate são referência do primeiro — agregação numérica de bases/rates
       // não faz sentido (são parâmetros, não acumuladores)
     }

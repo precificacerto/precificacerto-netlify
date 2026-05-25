@@ -36,8 +36,14 @@
  *           alinhada com V8.8. RRO matemático inalterado — apenas visualização e
  *           contrato de cp (CMV canônico = cost_total + productive_labor_unit)
  *           mudam. Snapshots V5/V6 (2.2.0/2.3.0) preservados via ADR-003.
+ * - 2.5.0: cascade granular com sub-itens (children) — V10 (Epic MRM-V10, ADR-011).
+ *           CascadeStep ganha `children?: CascadeStep[]` + `peso?: number | null`.
+ *           Steps 10/12/13 emitem sub-itens (4 buckets despesa / 4 redistribuição /
+ *           N tributos por fora). Fix V10 D1: buildMotorInput remove mod_pct do
+ *           dopRate (MO Produtiva já está no CMV). Snapshots V9 (2.4.0) sem
+ *           children continuam renderizando — graceful degradation.
  */
-export const MRM_ENGINE_VERSION = '2.4.0'
+export const MRM_ENGINE_VERSION = '2.5.0'
 
 export type TaxType =
   | 'ICMS'
@@ -183,6 +189,19 @@ export interface CascadeStep {
   formula: string
   /** Origem do dado (e.g. "INPUT", "ETAPA_2", "PRODUTO", "SNAPSHOT"). */
   source: string
+  /**
+   * V10 (ADR-011): sub-itens que detalham o step pai.
+   * Steps complexos (10 Despesas, 12 Redistribuição, 13 Imp. por fora) emitem children.
+   * Soma de children.amount ≈ parent.amount (±R$ 0,01). Invariante V10-I1/I2/I4.
+   * Snapshots V5/V6/V9 sem este campo renderizam normalmente (retrocompat).
+   */
+  children?: CascadeStep[]
+  /**
+   * V10 (ADR-011): peso decimal usado em redistribuição proporcional.
+   * Populado apenas em sub-itens do step 12 (Comissão/Lucro/IRPJ/CSLL).
+   * Soma dos pesos dos 4 children do step 12 ≈ 1 (quando rateio > 0). Invariante V10-I3.
+   */
+  peso?: number | null
 }
 
 /**
@@ -433,6 +452,21 @@ export interface ReapurationInput {
   discount_mode?: DiscountMode
   effective_date: string
   use_snapshot_rates: boolean
+  /**
+   * V10 (ADR-011): breakdown opcional dos 4 buckets de DOP para popular
+   * `cascade_trace[10].children` (MO Admin, Fixa, Variável, Financeira).
+   *
+   * Quando ausente, step 10 fica sem children (degradação graceful).
+   * Não afeta matemática — `dop` continua sendo a fonte da verdade do total.
+   *
+   * Soma dos 4 buckets deve aproximar `rv × dop_pct` (validado por invariante V10-I1).
+   */
+  expense_breakdown?: {
+    mo_admin: { rate: number; amount: number }
+    fixa: { rate: number; amount: number }
+    variavel: { rate: number; amount: number }
+    financeira: { rate: number; amount: number }
+  }
 }
 
 /**

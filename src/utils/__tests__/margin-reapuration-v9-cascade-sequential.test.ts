@@ -265,17 +265,17 @@ describe('V9 — buildMotorInput helper (invariantes V9-I4, V9-I5)', () => {
     })
   })
 
-  describe('DOP absorve mod_pct (V9 D1)', () => {
-    it('dop_input = RV × (mod_pct + dop_pct)', () => {
+  describe('V10 D1 — dop_input = RV × dop_pct (sem mod_pct)', () => {
+    it('mod_pct NÃO entra em dop (V10 corrige dupla contagem residual)', () => {
       const input = buildMotorInput({
         item: baseItem,
-        tenantCtx: baseCtx,
+        tenantCtx: baseCtx, // mod_pct=0.10, dop_pct=0.21
         globalDiscountPercent: 10,
         discountMode: 'PROPORTIONAL',
       })
-      // RV = 141106.60 × 0.9 = 126995.94
-      // dop = 126995.94 × (0.10 + 0.21) = 126995.94 × 0.31 = 39368.74
-      expect(input.dop).toBeCloseTo(126995.94 * 0.31, 1)
+      // V10 (ADR-011): dop = RV × dop_pct = 126995.94 × 0.21 = 26669.15
+      // (mod_pct está no CMV via productive_labor_unit — não duplicar)
+      expect(input.dop).toBeCloseTo(126995.94 * 0.21, 1)
     })
   })
 

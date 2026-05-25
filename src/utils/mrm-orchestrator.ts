@@ -246,6 +246,17 @@ export interface MotorInputTenantCtx {
   csll_pct?: number | null
   irpj_pct?: number | null
   useSnapshotRates?: boolean
+  /**
+   * V10 (ADR-011): breakdown opcional dos 4 buckets de DOP em decimal (0..1).
+   * Quando presente, helper popula `cascade_trace[10].children`.
+   * Origem: `useTenantTaxContext.expense_breakdown`.
+   */
+  expense_breakdown?: {
+    fixed_pct?: number | null
+    variable_pct?: number | null
+    financial_pct?: number | null
+    administrative_pct?: number | null
+  } | null
 }
 
 export interface BuildMotorInputArgs {
@@ -285,13 +296,39 @@ export function buildMotorInput(args: BuildMotorInputArgs): ReapurationInput {
     (Number(args.item.cost_total) || 0) + (Number(args.item.productive_labor_unit) || 0)
   const cpItem = cmvUnit * qty
 
-  // V9 D1: MOD sempre 0 no motor — tenant.mod_pct vai para DOP bucket
+  // V9 D1: MOD sempre 0 no motor.
+  // V10 D1 (2026-05-25): dopRate usa APENAS dop_pct.
+  //   - `dop_pct` já inclui MO Admin (`moiPct`) — vide `use-tenant-tax-context.ts:210`.
+  //   - `mod_pct` (MO Produtiva) já está contabilizada no CMV via `productive_labor_unit`
+  //     (V8.8 cascade). Somar `mod_pct + dop_pct` é dupla contagem.
   const modItem = 0
-  const dopRate =
-    (Number(args.tenantCtx.mod_pct) || 0) + (Number(args.tenantCtx.dop_pct) || 0)
+  const dopRate = Number(args.tenantCtx.dop_pct) || 0
   const dopItem = rvItem * dopRate
 
   const itemTaxRates = args.item.item_tax_rates ?? null
+
+  // V10 (ADR-011): popula expense_breakdown para o motor enriquecer cascade_trace[10].children
+  const eb = args.tenantCtx.expense_breakdown ?? null
+  const expense_breakdown = eb
+    ? {
+        mo_admin: {
+          rate: Number(eb.administrative_pct) || 0,
+          amount: rvItem * (Number(eb.administrative_pct) || 0),
+        },
+        fixa: {
+          rate: Number(eb.fixed_pct) || 0,
+          amount: rvItem * (Number(eb.fixed_pct) || 0),
+        },
+        variavel: {
+          rate: Number(eb.variable_pct) || 0,
+          amount: rvItem * (Number(eb.variable_pct) || 0),
+        },
+        financeira: {
+          rate: Number(eb.financial_pct) || 0,
+          amount: rvItem * (Number(eb.financial_pct) || 0),
+        },
+      }
+    : undefined
 
   return {
     rb: itemBase,
@@ -308,6 +345,7 @@ export function buildMotorInput(args: BuildMotorInputArgs): ReapurationInput {
     discount_mode: args.discountMode,
     effective_date: args.effectiveDate ?? new Date().toISOString().slice(0, 10),
     use_snapshot_rates: args.tenantCtx.useSnapshotRates ?? false,
+    expense_breakdown,
   }
 }
 

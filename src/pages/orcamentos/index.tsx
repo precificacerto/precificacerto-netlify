@@ -586,6 +586,7 @@ function Budgets() {
                 csll_pct: mrmConfig.csll_pct,
                 irpj_pct: mrmConfig.irpj_pct,
                 useSnapshotRates: mrmConfig.useSnapshotRates,
+                expense_breakdown: mrmConfig.expense_breakdown,
             },
             globalDiscountPercent,
             discountMode,

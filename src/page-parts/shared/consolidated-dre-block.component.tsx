@@ -80,6 +80,58 @@ function Divider() {
 
 // ─────────────── Cascata 13 etapas (Story MRM-V5-005 AC1+AC2) ───────────────
 
+/**
+ * V10 (ADR-011): renderiza row de step (pai ou child). Indent + cor diferenciam children.
+ * Peso opcional aparece apenas em sub-itens do step 12 (redistribuição).
+ */
+function CascadeRow({
+  step,
+  isChild = false,
+  showStepNumber = true,
+}: {
+  step: CascadeStep
+  isChild?: boolean
+  showStepNumber?: boolean
+}) {
+  const labelColor = isChild ? '#94a3b8' : '#cbd5e1'
+  const indent = isChild ? '└─ ' : ''
+  const fontWeight = isChild ? 400 : 600
+  const pesoText =
+    step.peso != null
+      ? `peso ${step.peso.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}`
+      : ''
+  return (
+    <>
+      <div style={{ fontVariantNumeric: 'tabular-nums', color: isChild ? '#64748b' : '#a5b4fc' }}>
+        {showStepNumber && !isChild ? step.step : ''}
+      </div>
+      <div title={step.formula} style={{ color: labelColor, fontWeight, paddingLeft: isChild ? 12 : 0 }}>
+        {indent}
+        {step.label}
+        {pesoText && <span style={{ color: '#64748b', fontSize: 10, marginLeft: 6 }}>({pesoText})</span>}
+      </div>
+      <div style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: labelColor }}>
+        {step.base != null ? formatBRL(step.base) : '—'}
+      </div>
+      <div style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: labelColor }}>
+        {step.rate != null
+          ? `${(step.rate * 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}%`
+          : '—'}
+      </div>
+      <div
+        style={{
+          textAlign: 'right',
+          fontVariantNumeric: 'tabular-nums',
+          color: step.amount < 0 ? '#fca5a5' : labelColor,
+          fontWeight,
+        }}
+      >
+        {formatBRL(step.amount)}
+      </div>
+    </>
+  )
+}
+
 function CascadeExpander({ trace }: { trace: CascadeStep[] }) {
   if (trace.length === 0) return null
 
@@ -103,9 +155,9 @@ function CascadeExpander({ trace }: { trace: CascadeStep[] }) {
           letterSpacing: 1,
           padding: '4px 0',
         }}
-        aria-label="Expandir memória cascata de 13 etapas"
+        aria-label="Expandir memória cascata"
       >
-        📋 Memória cascata (13 etapas — PDF Motor RR Seção 10)
+        📋 Memória cascata (PDF Motor RR Seção 10 + Excel oficial)
       </summary>
       <div
         style={{
@@ -123,31 +175,23 @@ function CascadeExpander({ trace }: { trace: CascadeStep[] }) {
         <div style={{ fontWeight: 700, color: '#c7d2fe', textAlign: 'right' }}>Alíquota</div>
         <div style={{ fontWeight: 700, color: '#c7d2fe', textAlign: 'right' }}>Valor (R$)</div>
         {trace.map((step) => (
-          <React.Fragment key={step.step}>
-            <div style={{ fontVariantNumeric: 'tabular-nums' }}>{step.step}</div>
-            <div title={step.formula}>{step.label}</div>
-            <div style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-              {step.base != null ? formatBRL(step.base) : '—'}
-            </div>
-            <div style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-              {step.rate != null
-                ? `${(step.rate * 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}%`
-                : '—'}
-            </div>
-            <div
-              style={{
-                textAlign: 'right',
-                fontVariantNumeric: 'tabular-nums',
-                color: step.amount < 0 ? '#fca5a5' : '#cbd5e1',
-              }}
-            >
-              {formatBRL(step.amount)}
-            </div>
+          <React.Fragment key={`step-${step.step}-${step.source}`}>
+            <CascadeRow step={step} />
+            {/* V10 (ADR-011): renderiza children como sub-itens indentados */}
+            {step.children?.map((child, idx) => (
+              <CascadeRow
+                key={`step-${step.step}-child-${idx}-${child.source}`}
+                step={child}
+                isChild
+                showStepNumber={false}
+              />
+            ))}
           </React.Fragment>
         ))}
       </div>
       <div style={{ fontSize: 10, color: '#64748b', marginTop: 8, fontStyle: 'italic' }}>
         Referência: PDF Motor RR Seção 10 + Excel oficial (`Motor de descontos do resultado residual operacional.xlsx`).
+        Sub-itens em cinza detalham cada componente.
       </div>
     </details>
   )

@@ -230,6 +230,7 @@ export function calculateMarginReapuration(input: ReapurationInput): TaxBreakdow
     discount_mode: discount_mode_input,
     effective_date,
     use_snapshot_rates,
+    expense_breakdown, // V10 ADR-011
   } = input
 
   // Epic MRM-V6 — ADR-009: normalização do modo solicitado.
@@ -495,6 +496,16 @@ export function calculateMarginReapuration(input: ReapurationInput): TaxBreakdow
     new_csll,
     new_irpj,
     taxes_outside,
+    // V10 (ADR-011): args para enriquecer cascade_trace com sub-itens
+    expense_breakdown,
+    commission_pct: effective_commission_pct,
+    profit_pct: effective_profit_pct,
+    csll_pct: csll_pct_effective,
+    irpj_pct: irpj_pct_effective,
+    peso_comm,
+    peso_lucro,
+    peso_csll,
+    peso_irpj,
   })
 
   return {
@@ -563,6 +574,16 @@ function buildCascadeTrace(args: {
   new_csll: number
   new_irpj: number
   taxes_outside: TaxLine[]
+  // V10 (ADR-011): args opcionais para emitir sub-itens
+  expense_breakdown?: ReapurationInput['expense_breakdown']
+  commission_pct?: number
+  profit_pct?: number
+  csll_pct?: number
+  irpj_pct?: number
+  peso_comm?: number
+  peso_lucro?: number
+  peso_csll?: number
+  peso_irpj?: number
 }): CascadeStep[] {
   const findInside = (type: TaxType): TaxLine | undefined =>
     args.inside_lines.find((l) => l.type === type)
@@ -686,6 +707,47 @@ function buildCascadeTrace(args: {
       amount: -despesas_total,
       formula: despesasFormula,
       source: 'ETAPA_9',
+      // V10 (ADR-011): sub-itens dos 4 buckets de DOP (quando expense_breakdown presente)
+      children: args.expense_breakdown
+        ? [
+            {
+              step: 10,
+              label: 'MO Administrativa',
+              base: null,
+              rate: args.expense_breakdown.mo_admin.rate || null,
+              amount: -args.expense_breakdown.mo_admin.amount,
+              formula: 'RV × admin_labor_pct',
+              source: 'ETAPA_9.1',
+            },
+            {
+              step: 10,
+              label: 'Despesa Fixa',
+              base: null,
+              rate: args.expense_breakdown.fixa.rate || null,
+              amount: -args.expense_breakdown.fixa.amount,
+              formula: 'RV × fixed_pct',
+              source: 'ETAPA_9.2',
+            },
+            {
+              step: 10,
+              label: 'Despesa Variável',
+              base: null,
+              rate: args.expense_breakdown.variavel.rate || null,
+              amount: -args.expense_breakdown.variavel.amount,
+              formula: 'RV × variable_pct',
+              source: 'ETAPA_9.3',
+            },
+            {
+              step: 10,
+              label: 'Despesa Financeira',
+              base: null,
+              rate: args.expense_breakdown.financeira.rate || null,
+              amount: -args.expense_breakdown.financeira.amount,
+              formula: 'RV × financial_pct',
+              source: 'ETAPA_9.4',
+            },
+          ]
+        : undefined,
     },
     {
       step: 11,
@@ -704,6 +766,51 @@ function buildCascadeTrace(args: {
       amount: rateio_total,
       formula: 'RRO × pesos_componentes',
       source: 'ETAPA_11',
+      // V10 (ADR-011): sub-itens da redistribuição (4 componentes)
+      children: rateio_total > 0
+        ? [
+            {
+              step: 12,
+              label: 'Comissão',
+              base: null,
+              rate: args.commission_pct ?? null,
+              amount: args.new_commission,
+              formula: 'RRO × peso_comissão',
+              source: 'ETAPA_11.1',
+              peso: args.peso_comm ?? null,
+            },
+            {
+              step: 12,
+              label: 'Lucro',
+              base: null,
+              rate: args.profit_pct ?? null,
+              amount: args.new_profit,
+              formula: 'RRO × peso_lucro',
+              source: 'ETAPA_11.2',
+              peso: args.peso_lucro ?? null,
+            },
+            {
+              step: 12,
+              label: 'IRPJ',
+              base: null,
+              rate: args.irpj_pct ?? null,
+              amount: args.new_irpj,
+              formula: 'RRO × peso_irpj',
+              source: 'ETAPA_11.3',
+              peso: args.peso_irpj ?? null,
+            },
+            {
+              step: 12,
+              label: 'CSLL',
+              base: null,
+              rate: args.csll_pct ?? null,
+              amount: args.new_csll,
+              formula: 'RRO × peso_csll',
+              source: 'ETAPA_11.4',
+              peso: args.peso_csll ?? null,
+            },
+          ]
+        : undefined,
     },
     {
       step: 13,
@@ -713,6 +820,18 @@ function buildCascadeTrace(args: {
       amount: taxes_outside_total,
       formula: taxes_outside_total > 0 ? 'Base × Σ(IBS+CBS+IPI+...)' : 'N/A',
       source: 'ETAPA_10',
+      // V10 (ADR-011): sub-itens por tributo configurado em taxes_outside
+      children: args.taxes_outside.length > 0
+        ? args.taxes_outside.map((line): CascadeStep => ({
+            step: 13,
+            label: line.type,
+            base: line.base,
+            rate: line.rate_pct,
+            amount: line.amount,
+            formula: `${line.type === 'IBS' ? 'Base canônica' : 'Base'} × ${line.type}%`,
+            source: `ETAPA_10.${line.type}`,
+          }))
+        : undefined,
     },
   ]
 }

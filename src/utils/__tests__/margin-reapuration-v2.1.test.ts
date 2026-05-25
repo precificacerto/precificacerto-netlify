@@ -628,7 +628,7 @@ describe('EDGES — Schema V2.1', () => {
     const result = calculateMarginReapuration(makeInput())
     expect(result.engine_version).toBe(MRM_ENGINE_VERSION)
     // V9 (2026-05-25): bump 2.3.0 → 2.4.0
-    expect(result.engine_version).toBe('2.4.0')
+    expect(result.engine_version).toBe('2.5.0')
   })
 
   it('TaxBreakdown contém new_csll e new_irpj sempre (mesmo regime sem rateio)', () => {
