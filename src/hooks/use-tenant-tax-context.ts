@@ -205,7 +205,14 @@ export function useTenantTaxContext(options: HookOptions = {}): TenantTaxContext
       }
       const fixedPct = toDecimal(cfg?.fixed_expense_percent)
       const variablePct = toDecimal(cfg?.variable_expense_percent)
-      const financialPct = toDecimal(cfg?.financial_expense_percent)
+      // Despesa financeira: sanity check adicional (Hyago 2026-05-25).
+      // Cadastros antigos salvavam o valor já em formato percentual sem escalar
+      // (ex: tenant salva `0.43` querendo dizer 0,43%; `toDecimal` preserva
+      // `0.43` interpretando como 43% e contaminava o motor).
+      // Despesa financeira plausível ≤ 20%. Valores > 20% após `toDecimal` são
+      // quase sempre erro de escala — dividimos por 100 extra para corrigir.
+      const financialPctRaw = toDecimal(cfg?.financial_expense_percent)
+      const financialPct = financialPctRaw > 0.2 ? financialPctRaw / 100 : financialPctRaw
       const moiPct = toDecimal(cfg?.admin_labor_percent ?? cfg?.indirect_labor_percent)
       const dop_pct = fixedPct + variablePct + financialPct + moiPct
       const mod_pct = toDecimal(cfg?.production_labor_percent)
