@@ -88,10 +88,13 @@ function CascadeRow({
   step,
   isChild = false,
   showStepNumber = true,
+  hideRate = false,
 }: {
   step: CascadeStep
   isChild?: boolean
   showStepNumber?: boolean
+  /** V15.2 (2026-05-25): oculta % nos children de despesas (step 10) — Founder request. */
+  hideRate?: boolean
 }) {
   const labelColor = isChild ? '#94a3b8' : '#cbd5e1'
   const indent = isChild ? '└─ ' : ''
@@ -114,9 +117,11 @@ function CascadeRow({
         {step.base != null ? formatBRL(step.base) : '—'}
       </div>
       <div style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: labelColor }}>
-        {step.rate != null
-          ? `${(step.rate * 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}%`
-          : '—'}
+        {hideRate
+          ? '—'
+          : step.rate != null
+            ? `${(step.rate * 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}%`
+            : '—'}
       </div>
       <div
         style={{
@@ -178,12 +183,14 @@ function CascadeExpander({ trace }: { trace: CascadeStep[] }) {
           <React.Fragment key={`step-${step.step}-${step.source}`}>
             <CascadeRow step={step} />
             {/* V10 (ADR-011): renderiza children como sub-itens indentados */}
+            {/* V15.2 (2026-05-25): oculta % nos children do step 10 (despesas) — Founder request */}
             {step.children?.map((child, idx) => (
               <CascadeRow
                 key={`step-${step.step}-child-${idx}-${child.source}`}
                 step={child}
                 isChild
                 showStepNumber={false}
+                hideRate={step.step === 10}
               />
             ))}
           </React.Fragment>
