@@ -272,7 +272,7 @@ describe('runShadowComparison — TC2: divergência > epsilon', () => {
     expect(row.tenant_id).toBe('tnt-1')
     expect(row.document_id).toBe('doc-1')
     expect(row.document_type).toBe('budget')
-    expect(row.motor_version_client).toBe('2.6.0')
+    expect(row.motor_version_client).toBe('2.5.0')
   })
 })
 

@@ -37,7 +37,6 @@ import {
   resolveItemCsllPct,
   resolveItemIrpjPct,
   type ItemTaxRates,
-  type ProductExpenseBreakdown,
 } from './item-tax-rates'
 import type { DiscountMode, ReapurationInput, TaxBreakdown, TaxRatePeriod, TaxRegime, TaxType } from '@/types/mrm'
 
@@ -233,12 +232,6 @@ export interface MotorInputItem {
   commission_percent?: number | null
   profit_percent?: number | null
   item_tax_rates?: ItemTaxRates | null
-  /**
-   * V11 (ADR-012): snapshot de despesas operacionais do produto (R$/un).
-   * Quando presente, motor usa SUM(buckets) × qty como `dop` (Opção A — imutável).
-   * Quando ausente, fallback V10: `RV × tenant.dop_pct`.
-   */
-  expense_breakdown_unit?: ProductExpenseBreakdown | null
 }
 
 /**
@@ -304,64 +297,38 @@ export function buildMotorInput(args: BuildMotorInputArgs): ReapurationInput {
   const cpItem = cmvUnit * qty
 
   // V9 D1: MOD sempre 0 no motor.
-  // V10 D1: dopRate usa APENAS dop_pct (sem mod_pct — MO Produtiva já está no CMV).
-  // V11 D1 (2026-05-25, ADR-012): se item tem `expense_breakdown_unit` (snapshot do
-  // produto via pricing_calculations.val_*), usa SUM × qty (Opção A — imutável vs
-  // desconto). Senão, fallback V10: `RV × tenant.dop_pct`.
+  // V10 D1 (2026-05-25): dopRate usa APENAS dop_pct.
+  //   - `dop_pct` já inclui MO Admin (`moiPct`) — vide `use-tenant-tax-context.ts:210`.
+  //   - `mod_pct` (MO Produtiva) já está contabilizada no CMV via `productive_labor_unit`
+  //     (V8.8 cascade). Somar `mod_pct + dop_pct` é dupla contagem.
   const modItem = 0
-  const breakdownUnit = args.item.expense_breakdown_unit ?? null
-  let dopItem: number
-  if (breakdownUnit) {
-    // V11 — snapshot absoluto do produto
-    dopItem =
-      (breakdownUnit.mo_admin_unit +
-        breakdownUnit.fixa_unit +
-        breakdownUnit.variavel_unit +
-        breakdownUnit.financeira_unit) *
-      qty
-  } else {
-    // V10 fallback — produto sem snapshot
-    const dopRate = Number(args.tenantCtx.dop_pct) || 0
-    dopItem = rvItem * dopRate
-  }
+  const dopRate = Number(args.tenantCtx.dop_pct) || 0
+  const dopItem = rvItem * dopRate
 
   const itemTaxRates = args.item.item_tax_rates ?? null
 
-  // V11 (ADR-012): expense_breakdown via snapshot do produto.
-  // Quando `expense_breakdown_unit` presente, monta children com valores absolutos
-  // × qty. Rate fica 0 (não há % do tenant aplicada — é valor congelado da precificação).
-  // Fallback V10: usa pcts do tenant aplicados a RV (comportamento V10 preservado).
-  let expense_breakdown: ReapurationInput['expense_breakdown'] | undefined
-  if (breakdownUnit) {
-    expense_breakdown = {
-      mo_admin: { rate: 0, amount: breakdownUnit.mo_admin_unit * qty },
-      fixa: { rate: 0, amount: breakdownUnit.fixa_unit * qty },
-      variavel: { rate: 0, amount: breakdownUnit.variavel_unit * qty },
-      financeira: { rate: 0, amount: breakdownUnit.financeira_unit * qty },
-    }
-  } else {
-    const eb = args.tenantCtx.expense_breakdown ?? null
-    expense_breakdown = eb
-      ? {
-          mo_admin: {
-            rate: Number(eb.administrative_pct) || 0,
-            amount: rvItem * (Number(eb.administrative_pct) || 0),
-          },
-          fixa: {
-            rate: Number(eb.fixed_pct) || 0,
-            amount: rvItem * (Number(eb.fixed_pct) || 0),
-          },
-          variavel: {
-            rate: Number(eb.variable_pct) || 0,
-            amount: rvItem * (Number(eb.variable_pct) || 0),
-          },
-          financeira: {
-            rate: Number(eb.financial_pct) || 0,
-            amount: rvItem * (Number(eb.financial_pct) || 0),
-          },
-        }
-      : undefined
-  }
+  // V10 (ADR-011): popula expense_breakdown para o motor enriquecer cascade_trace[10].children
+  const eb = args.tenantCtx.expense_breakdown ?? null
+  const expense_breakdown = eb
+    ? {
+        mo_admin: {
+          rate: Number(eb.administrative_pct) || 0,
+          amount: rvItem * (Number(eb.administrative_pct) || 0),
+        },
+        fixa: {
+          rate: Number(eb.fixed_pct) || 0,
+          amount: rvItem * (Number(eb.fixed_pct) || 0),
+        },
+        variavel: {
+          rate: Number(eb.variable_pct) || 0,
+          amount: rvItem * (Number(eb.variable_pct) || 0),
+        },
+        financeira: {
+          rate: Number(eb.financial_pct) || 0,
+          amount: rvItem * (Number(eb.financial_pct) || 0),
+        },
+      }
+    : undefined
 
   return {
     rb: itemBase,

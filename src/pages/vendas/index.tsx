@@ -46,7 +46,6 @@ import {
   resolveItemIrpjPct,
   resolveProductCostTotal,
   resolveProductLaborTotal,
-  resolveProductExpenses,
   type ItemTaxRates,
 } from '@/utils/item-tax-rates'
 import { computeConsolidatedDRE, type DREItemInput } from '@/utils/consolidated-dre'
@@ -119,8 +118,6 @@ interface SaleItemRow {
     cost_total?: number
     /** V8.1 (2026-05-24): MO produtiva inclusa em cost_total (R$ unitário). */
     productive_labor_unit?: number
-    /** V11 (ADR-012): snapshot despesas do produto (R$/un). Caller multiplica por qty. */
-    expense_breakdown_unit?: import('@/utils/item-tax-rates').ProductExpenseBreakdown | null
     /** Alíquotas tributárias específicas do item (Sprint S11). NULL = fallback tenant. */
     item_tax_rates?: ItemTaxRates | null
     /** true = item manual (nome/valor digitados), false = produto do catálogo */
@@ -950,14 +947,13 @@ function Sales() {
             }
             const costTotal = resolveProductCostTotal(svc, laborTenantCtxV)
             const productiveLaborUnit = resolveProductLaborTotal(svc, laborTenantCtxV)
-            const expenseBreakdownUnit = resolveProductExpenses(svc)
             const allTables = [...empProductTablesV, ...empServiceTablesV]
             const commTable = allTables.find(t => t.id === item.commission_table_id)
             const commPct = Number(commTable?.commission_percent || svc?.commission_percent || 0)
             const profitPct = Number(svc?.profit_percent || 0)
             // V7+ (2026-05-24): helper centralizado, também lê pis_cofins_pct agregado
             const svcTaxRates: ItemTaxRates = buildItemTaxRatesFromProduct(svc)
-            return { ...item, service_id: serviceId, product_name: svc?.name || '', unit_price: price, discount: 0, commission_percent: commPct, profit_percent: profitPct, cost_total: costTotal, productive_labor_unit: productiveLaborUnit, expense_breakdown_unit: expenseBreakdownUnit, item_tax_rates: svcTaxRates, total: price * item.quantity }
+            return { ...item, service_id: serviceId, product_name: svc?.name || '', unit_price: price, discount: 0, commission_percent: commPct, profit_percent: profitPct, cost_total: costTotal, productive_labor_unit: productiveLaborUnit, item_tax_rates: svcTaxRates, total: price * item.quantity }
         }))
     }
 
@@ -980,14 +976,13 @@ function Sales() {
             }
             const costTotal = resolveProductCostTotal(prod, laborTenantCtxP)
             const productiveLaborUnit = resolveProductLaborTotal(prod, laborTenantCtxP)
-            const expenseBreakdownUnit = resolveProductExpenses(prod)
             const allTables = [...empProductTablesV, ...empServiceTablesV]
             const commTable = allTables.find(t => t.id === item.commission_table_id)
             const commPct = Number(commTable?.commission_percent || 0)
             const profitPct = Number(prod?.profit_percent || 0)
             // V7+ (2026-05-24): helper centralizado, também lê pis_cofins_pct agregado
             const prodTaxRates: ItemTaxRates = buildItemTaxRatesFromProduct(prod)
-            return { ...item, product_id: productId, product_name: prod?.name || '', unit_price: price, discount: 0, commission_percent: commPct, profit_percent: profitPct, cost_total: costTotal, productive_labor_unit: productiveLaborUnit, expense_breakdown_unit: expenseBreakdownUnit, item_tax_rates: prodTaxRates, total: price * item.quantity }
+            return { ...item, product_id: productId, product_name: prod?.name || '', unit_price: price, discount: 0, commission_percent: commPct, profit_percent: profitPct, cost_total: costTotal, productive_labor_unit: productiveLaborUnit, item_tax_rates: prodTaxRates, total: price * item.quantity }
         }))
     }
 
