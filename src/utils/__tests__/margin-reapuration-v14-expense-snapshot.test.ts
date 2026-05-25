@@ -329,6 +329,48 @@ describe('V14 — Snapshot completo dos 4 buckets', () => {
       expect(result?.cmv_unit).toBeCloseTo(11340.49, 2)
     })
 
+    it('V15.4 (Founder 2026-05-25): cmv parcial (só material) → motor usa MAX(cmv, material+labor)', () => {
+      // Cenário real: módulo de cadastro salvou cmv=167,71 (só material) mas
+      // produto tem total_labor_net=543,20 (MO produtiva). Resultado esperado: 710,91.
+      const prod = {
+        yield_quantity: 1,
+        pricing_calculations: [{
+          cmv: 167.71,                       // ← faltando MO
+          total_material_cost_net: 167.71,
+          total_labor_net: 543.20,           // ← MO produtiva separada
+          pct_indirect_labor: 10.51,
+          val_indirect_labor: 315.93,
+        }],
+      }
+      const result = resolveProductExpenseBreakdown(prod)
+      expect(result?.cmv_unit).toBeCloseTo(710.91, 2)  // 167.71 + 543.20
+    })
+
+    it('V15.4: cmv completo já tem MO (V8.8 ideal) → preserva (max retorna mesmo)', () => {
+      const prod = {
+        yield_quantity: 1,
+        pricing_calculations: [{
+          cmv: 710.91,                       // já consolidado
+          total_material_cost_net: 167.71,
+          total_labor_net: 543.20,
+          val_indirect_labor: 315.93, pct_indirect_labor: 10.51,
+        }],
+      }
+      const result = resolveProductExpenseBreakdown(prod)
+      expect(result?.cmv_unit).toBeCloseTo(710.91, 2)
+    })
+
+    it('V15.4 fallback: sem pricing → usa products.productive_labor_total + cost_total', () => {
+      const prod = {
+        yield_quantity: 1,
+        cost_total: 167.71,
+        productive_labor_total: 543.20,
+        pricing_calculations: [{ val_indirect_labor: 315.93, pct_indirect_labor: 10.51 }],
+      }
+      const result = resolveProductExpenseBreakdown(prod)
+      expect(result?.cmv_unit).toBeCloseTo(710.91, 2)
+    })
+
     it('Fallback cmv: soma total_material_cost_net + total_labor_net quando cmv ausente', () => {
       const prod = {
         yield_quantity: 1,

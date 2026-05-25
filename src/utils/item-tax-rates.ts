@@ -299,18 +299,38 @@ export function resolveProductExpenseBreakdown(prod: any): ProductExpenseBreakdo
   const variavel = pickPair('val_variable_expense', 'pct_variable_expense')
   const financeira = pickPair('val_financial_expense', 'pct_financial_expense')
 
-  // V15 (2026-05-25): CMV completo (material + MO produtiva). Tenta cmv direto,
-  // senão soma `total_material_cost_net + total_labor_net` (mesma semântica V8.8).
-  let cmv_unit = 0
+  // V15.4 (2026-05-25): CMV completo = material + MO produtiva, garantido.
+  //
+  // Cenário: módulo de cadastro do produto pode salvar `cmv` apenas com material
+  // (sem somar MO produtiva), causando perda da MO no motor da cascade.
+  // Solução: pega o MAIOR entre cmv direto e (material_net + labor_net).
+  //
+  // Casos cobertos:
+  //   - cmv populado completo (material+MO): usa cmv ✓
+  //   - cmv só com material: usa soma manual (maior) ✓
+  //   - cmv ausente: usa soma manual ✓
+  //   - sem pricing_calculations: fallback labor_costs + cost_total
+  let cmvFromColumn = 0
+  let materialNet = 0
+  let laborNet = 0
   for (const p of pricingArr) {
     const v = Number(p?.cmv) || 0
-    if (v > 0) { cmv_unit = v / yieldQty; break }
+    if (v > 0 && cmvFromColumn === 0) cmvFromColumn = v / yieldQty
+    const mat = Number(p?.total_material_cost_net) || 0
+    const lab = Number(p?.total_labor_net) || 0
+    if (mat > 0 && materialNet === 0) materialNet = mat / yieldQty
+    if (lab > 0 && laborNet === 0) laborNet = lab / yieldQty
   }
+  const cmvFromSum = materialNet + laborNet
+  let cmv_unit = Math.max(cmvFromColumn, cmvFromSum)
+
+  // Fallback: usa `products.productive_labor_total` (V15.1) + cost_total quando
+  // pricing_calculations não tem material/labor populados.
   if (cmv_unit === 0) {
-    for (const p of pricingArr) {
-      const material = Number(p?.total_material_cost_net) || 0
-      const labor = Number(p?.total_labor_net) || 0
-      if (material + labor > 0) { cmv_unit = (material + labor) / yieldQty; break }
+    const productiveLaborTotal = Number(prod?.productive_labor_total) || 0
+    const directCost = Number(prod?.cost_total) || 0
+    if (productiveLaborTotal + directCost > 0) {
+      cmv_unit = productiveLaborTotal + directCost
     }
   }
 
