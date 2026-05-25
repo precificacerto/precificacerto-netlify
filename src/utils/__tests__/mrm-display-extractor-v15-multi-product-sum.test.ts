@@ -184,6 +184,46 @@ describe('V15.3 — Agregação multi-produto na cascade', () => {
     expect(result.cascadeTrace![9].amount).toBe(-(10000 + 6000 + 4000))  // DOP
   })
 
+  it('Cenário Founder 2026-05-25: 4 produtos do print real', () => {
+    // RB: 132.119,92 + 104.113,02 + 123,17 + 141.106,60 = 377.462,71
+    const prod1 = makeBreakdown(132119.92, 132119.92, 11000, 28000, {
+      moAdmin: 10500, fixa: 11000, variavel: 6300, financeira: 200,
+    })
+    const prod2 = makeBreakdown(104113.02, 104113.02, 9000, 22000, {
+      moAdmin: 8500, fixa: 8500, variavel: 4800, financeira: 200,
+    })
+    const prod3 = makeBreakdown(123.17, 123.17, 10, 25, {
+      moAdmin: 10, fixa: 10, variavel: 4, financeira: 1,
+    })
+    const prod4 = makeBreakdown(141106.60, 141106.60, 19922.34, 54532.17, {
+      moAdmin: 20661.33, fixa: 20652.03, variavel: 11996.72, financeira: 1222.09,
+    })
+    const result = extractEpicV5DisplayData(
+      [
+        { tax_breakdown: prod1 },
+        { tax_breakdown: prod2 },
+        { tax_breakdown: prod3 },
+        { tax_breakdown: prod4 },
+      ],
+      tenantContext,
+    )
+    // Step 1 (RB): soma = 377.462,71
+    expect(result.cascadeTrace![0].amount).toBeCloseTo(377462.71, 1)
+    // Step 2 (Desconto) base = soma RB = 377.462,71 (NÃO 132.119,92!)
+    expect(result.cascadeTrace![1].base).toBeCloseTo(377462.71, 1)
+    // Step 4 (Peso) base = soma RV = 377.462,71
+    expect(result.cascadeTrace![3].base).toBeCloseTo(377462.71, 1)
+    // Step 4 amount (Âncora) = soma das âncoras = 377.462,71
+    expect(result.cascadeTrace![3].amount).toBeCloseTo(377462.71, 1)
+    // Step 6 (ICMS) base = soma Âncoras = 377.462,71
+    expect(result.cascadeTrace![5].base).toBeCloseTo(377462.71, 1)
+    // Step 9 (Custos) base = soma das bases pós-impostos
+    expect(result.cascadeTrace![8].base).toBeCloseTo(132119.92 + 104113.02 + 123.17 + 141106.60, 1)
+    // Step 11 (RRO) base = soma das bases pós-despesas
+    const expectedRROBase = (132119.92 - 11000 - 28000) + (104113.02 - 9000 - 22000) + (123.17 - 10 - 25) + (141106.60 - 19922.34 - 54532.17)
+    expect(result.cascadeTrace![10].base).toBeCloseTo(expectedRROBase, 0)
+  })
+
   it('1 produto único → preserva trace direto (não duplica)', () => {
     const prodA = makeBreakdown(100000, 100000, 30000, 20000, {
       moAdmin: 8000, fixa: 8000, variavel: 3000, financeira: 1000,
