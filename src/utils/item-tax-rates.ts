@@ -272,6 +272,50 @@ function toDecimalRate(raw: unknown): number {
   return decimal > 0.2 ? decimal / 100 : decimal
 }
 
+/**
+ * V16 (Founder 2026-05-25): resolve MO produtiva tentando 5 fontes em ordem.
+ * Garante que helpers downstream (resolveProductExpenseBreakdown.cmv_unit) somem
+ * MO ao material independente de onde o pipeline de cadastro salvou.
+ *
+ * Precedência:
+ *   1. pricing_calculations.total_labor_net (spec V8.8)
+ *   2. pricing_calculations.product_workload_price (cadastro com minutos)
+ *   3. pricing_calculations.total_labor_gross
+ *   4. SUM(labor_costs[].net_value ‖ gross_value) (V8.3 dedicada)
+ *   5. products.productive_labor_total (V15.1 coluna canônica)
+ *
+ * Retorna 0 quando nenhuma fonte tem valor.
+ */
+function resolveLaborFromAllSources(
+  prod: any,
+  pricingArr: any[],
+  yieldQty: number,
+): number {
+  for (const p of pricingArr) {
+    const v = Number(p?.total_labor_net) || 0
+    if (v > 0) return v / yieldQty
+  }
+  for (const p of pricingArr) {
+    const v = Number(p?.product_workload_price) || 0
+    if (v > 0) return v / yieldQty
+  }
+  for (const p of pricingArr) {
+    const v = Number(p?.total_labor_gross) || 0
+    if (v > 0) return v / yieldQty
+  }
+  const laborCosts = Array.isArray(prod?.labor_costs) ? prod.labor_costs : []
+  if (laborCosts.length > 0) {
+    const sum = laborCosts.reduce(
+      (s: number, lc: any) => s + (Number(lc?.net_value) || Number(lc?.gross_value) || 0),
+      0,
+    )
+    if (sum > 0) return sum / yieldQty
+  }
+  const productive = Number(prod?.productive_labor_total) || 0
+  if (productive > 0) return productive
+  return 0
+}
+
 export function resolveProductExpenseBreakdown(prod: any): ProductExpenseBreakdown | null {
   const yieldQty = Math.max(1, Number(prod?.yield_quantity) || 1)
   const pricingArr: any[] = Array.isArray(prod?.pricing_calculations)
@@ -299,40 +343,33 @@ export function resolveProductExpenseBreakdown(prod: any): ProductExpenseBreakdo
   const variavel = pickPair('val_variable_expense', 'pct_variable_expense')
   const financeira = pickPair('val_financial_expense', 'pct_financial_expense')
 
-  // V15.4 (2026-05-25): CMV completo = material + MO produtiva, garantido.
+  // V16 (Founder 2026-05-25): CMV completo via 5 fontes de labor.
   //
-  // Cenário: módulo de cadastro do produto pode salvar `cmv` apenas com material
-  // (sem somar MO produtiva), causando perda da MO no motor da cascade.
-  // Solução: pega o MAIOR entre cmv direto e (material_net + labor_net).
+  // Cenário: pipeline de cadastro varia onde salva MO produtiva:
+  //   - V8.8 ideal:           pricing_calculations.cmv (já consolidado)
+  //   - cadastro com minutos: pricing_calculations.product_workload_price
+  //   - cadastro padrão:      pricing_calculations.total_labor_net
+  //   - V8.3:                 labor_costs[] (tabela dedicada)
+  //   - V15.1:                products.productive_labor_total (coluna canônica)
   //
-  // Casos cobertos:
-  //   - cmv populado completo (material+MO): usa cmv ✓
-  //   - cmv só com material: usa soma manual (maior) ✓
-  //   - cmv ausente: usa soma manual ✓
-  //   - sem pricing_calculations: fallback labor_costs + cost_total
+  // Helper aceita TODAS as fontes (precedência fixa), garantindo que MO produtiva
+  // SEMPRE seja somada ao material no `cmv_unit`.
   let cmvFromColumn = 0
   let materialNet = 0
-  let laborNet = 0
   for (const p of pricingArr) {
     const v = Number(p?.cmv) || 0
     if (v > 0 && cmvFromColumn === 0) cmvFromColumn = v / yieldQty
     const mat = Number(p?.total_material_cost_net) || 0
-    const lab = Number(p?.total_labor_net) || 0
     if (mat > 0 && materialNet === 0) materialNet = mat / yieldQty
-    if (lab > 0 && laborNet === 0) laborNet = lab / yieldQty
   }
-  const cmvFromSum = materialNet + laborNet
+  // V16: fallback material — usa `products.cost_total` quando pricing não tem material.
+  if (materialNet === 0) {
+    const direct = Number(prod?.cost_total) || 0
+    if (direct > 0) materialNet = direct
+  }
+  const laborResolved = resolveLaborFromAllSources(prod, pricingArr, yieldQty)
+  const cmvFromSum = materialNet + laborResolved
   let cmv_unit = Math.max(cmvFromColumn, cmvFromSum)
-
-  // Fallback: usa `products.productive_labor_total` (V15.1) + cost_total quando
-  // pricing_calculations não tem material/labor populados.
-  if (cmv_unit === 0) {
-    const productiveLaborTotal = Number(prod?.productive_labor_total) || 0
-    const directCost = Number(prod?.cost_total) || 0
-    if (productiveLaborTotal + directCost > 0) {
-      cmv_unit = productiveLaborTotal + directCost
-    }
-  }
 
   const totalAmount =
     mo_admin.amount_unit + fixa.amount_unit + variavel.amount_unit + financeira.amount_unit
