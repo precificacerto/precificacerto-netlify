@@ -17,12 +17,10 @@ import {
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import { useDevice } from '@/contexts/device.context'
 
-import {
-    exportCashFlowToExcel, exportCashFlowMultiMonth,
-    INCOME_LABELS, getIncomeLabel,
-} from '@/utils/export-cash-flow-excel'
+// Onda 3 / CRÍT-perf (Founder 2026-05-27): types/helpers leves importados
+// estaticamente; funções pesadas (ExcelJS, jsPDF) via dynamic import.
+import { INCOME_LABELS, getIncomeLabel } from '@/utils/cash-flow-types'
 import { ExportFormatModal } from '@/components/ui/export-format-modal.component'
-import { exportTableToPdf } from '@/utils/export-generic-pdf'
 import { getExpenseGroupLabel, getExpenseGroupColor } from '@/constants/cashier-category'
 import {
     CATEGORY_GROUP_MAP,
@@ -370,6 +368,7 @@ export default function CashFlow() {
                 current = current.add(1, 'month')
             }
 
+            const { exportCashFlowToExcel, exportCashFlowMultiMonth } = await import('@/utils/export-cash-flow-excel')
             if (months.length === 1) {
                 await exportCashFlowToExcel(months[0].data, months[0].month)
             } else {
@@ -384,7 +383,7 @@ export default function CashFlow() {
         }
     }
 
-    const handleExportCashFlowPdf = () => {
+    const handleExportCashFlowPdf = async () => {
         if (data.length === 0) { messageApi.warning('Nenhum dado para exportar.'); return }
         try {
         const monthLabel = month.format('MMMM/YYYY')
@@ -411,6 +410,7 @@ export default function CashFlow() {
         })
         rows.push(['', 'TOTAL', '', `${balance >= 0 ? '+' : ''} ${formatCurrency(balance)}`])
 
+        const { exportTableToPdf } = await import('@/utils/export-generic-pdf')
         exportTableToPdf({
             title: `Fluxo de Caixa — ${monthLabel}`,
             subtitle: `${data.length} lançamentos`,
