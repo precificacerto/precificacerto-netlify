@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { supabaseAdmin } from '@/supabase/admin'
+import { getCallerContext } from '@/lib/get-caller-tenant'
 
 type RevenueTier = 'ate_200k' | 'acima_200k'
 type PlanSlug = 'individual' | 'intermediario' | 'pro' | 'advanced'
@@ -53,14 +54,32 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(405).json({ error: 'Method not allowed' })
   }
 
-  const { tenantId, newPlanSlug } = req.body as {
-    tenantId?: string
+  // CRÍT-5 (Founder 2026-05-27): endpoint serve EXCLUSIVAMENTE upgrade —
+  // auth obrigatória ANTES de qualquer leitura do body. tenantId é derivado
+  // SEMPRE da sessão JWT, nunca do body. Body.tenantId é parseado apenas
+  // pra logar divergência (frontend desatualizado ou tentativa maliciosa).
+  const caller = await getCallerContext(req, res)
+  if (!caller) return // getCallerContext já enviou 401/403
+
+  const { newPlanSlug, tenantId: bodyTenantId } = req.body as {
     newPlanSlug?: PlanSlug
+    tenantId?: string // ignorado; apenas pra logar divergência
   }
 
-  if (!tenantId || !newPlanSlug) {
-    return res.status(400).json({ error: 'tenantId e newPlanSlug são obrigatórios.' })
+  if (!newPlanSlug) {
+    return res.status(400).json({ error: 'newPlanSlug é obrigatório.' })
   }
+
+  // Log estruturado se body.tenantId divergir da sessão (não falha — apenas alerta)
+  if (bodyTenantId && bodyTenantId !== caller.tenant_id) {
+    // eslint-disable-next-line no-console
+    console.warn('[CRÍT-5] body.tenantId divergente do session.tenant_id em upgrade-session', {
+      caller_tenant: caller.tenant_id,
+      body_tenant: bodyTenantId,
+      caller_user: caller.user_id,
+    })
+  }
+  const tenantId = caller.tenant_id
 
   const { data: tenant, error: tenantError } = await supabaseAdmin
     .from('tenants')
