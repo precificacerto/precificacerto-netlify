@@ -22,7 +22,7 @@ import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import { useDevice } from '@/contexts/device.context'
 import { CurrencyInput } from '@/components/currency-input.component'
 import { ExportFormatModal } from '@/components/ui/export-format-modal.component'
-import { exportTableToPdf } from '@/utils/export-generic-pdf'
+// Onda 3 / CRÍT-perf: exportTableToPdf (jsPDF ~100KB) via dynamic import no handler abaixo.
 import { calculateDiscountedPrice, DiscountMode } from '@/utils/calculate-discount'
 import { formatBRL } from '@/utils/formatters'
 import {
@@ -1918,7 +1918,7 @@ function Sales() {
         }
     }
 
-    const handleExportPdf = (startDate?: string, endDate?: string) => {
+    const handleExportPdf = async (startDate?: string, endDate?: string) => {
         try {
         const filtered = startDate && endDate
             ? sales.filter(s => {
@@ -1953,6 +1953,7 @@ function Sales() {
         // Append TOTAL row
         rows.push(['TOTAL', '', '', formatCurrency(totalValue), '', '', ''])
 
+        const { exportTableToPdf } = await import('@/utils/export-generic-pdf')
         exportTableToPdf({
             title: 'Relatório de Vendas',
             subtitle: startDate && endDate

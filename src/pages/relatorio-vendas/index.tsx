@@ -20,7 +20,7 @@ import {
     TeamOutlined,
 } from '@ant-design/icons'
 import { ExportFormatModal } from '@/components/ui/export-format-modal.component'
-import { exportTableToPdf } from '@/utils/export-generic-pdf'
+// Onda 3 / CRÍT-perf: exportTableToPdf (jsPDF ~100KB) via dynamic import nos 3 handlers.
 import { computeSaleCommission } from '@/utils/commission-calc'
 import { safeExport } from '@/utils/safe-export'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
@@ -315,7 +315,7 @@ function SalesReport() {
         })
     }
 
-    const handleExportProductsPdf = () => safeExport(() => {
+    const handleExportProductsPdf = () => safeExport(async () => {
         if (!abcData.length) return
         const totalQty = abcData.reduce((s, r) => s + r.qtdSold, 0)
         const totalRev = abcData.reduce((s, r) => s + r.totalRevenue, 0)
@@ -325,6 +325,7 @@ function SalesReport() {
         const rows = abcData.map(r => [r.position, r.productCode || '—', r.productName, r.qtdSold, formatCurrency(r.totalRevenue), `${r.commissionPercent.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%`, formatCurrency(r.commissionValue), r.curve, r.employeeName])
         rows.push(['', '', 'TOTAL', totalQty, formatCurrency(totalRev), '', formatCurrency(totalComm), '', ''])
 
+        const { exportTableToPdf } = await import('@/utils/export-generic-pdf')
         exportTableToPdf({
             title: 'Curva ABC - Produtos',
             subtitle: `Período: ${abcDateRange[0].format('DD/MM/YYYY')} a ${abcDateRange[1].format('DD/MM/YYYY')}`,
@@ -341,7 +342,7 @@ function SalesReport() {
         })
     }, messageApi.error, 'Erro ao exportar PDF Curva ABC Produtos')
 
-    const handleExportServicesPdf = () => safeExport(() => {
+    const handleExportServicesPdf = () => safeExport(async () => {
         if (!svcData.length) return
         const totalQty = svcData.reduce((s, r) => s + r.qtdSold, 0)
         const totalRev = svcData.reduce((s, r) => s + r.totalRevenue, 0)
@@ -351,6 +352,7 @@ function SalesReport() {
         const rows = svcData.map(r => [r.position, r.serviceCode || '—', r.serviceName, r.qtdSold, formatCurrency(r.totalRevenue), `${r.commissionPercent.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%`, formatCurrency(r.commissionValue), r.curve, r.employeeName])
         rows.push(['', '', 'TOTAL', totalQty, formatCurrency(totalRev), '', formatCurrency(totalComm), '', ''])
 
+        const { exportTableToPdf } = await import('@/utils/export-generic-pdf')
         exportTableToPdf({
             title: 'Curva ABC - Serviços',
             subtitle: `Período: ${svcDateRange[0].format('DD/MM/YYYY')} a ${svcDateRange[1].format('DD/MM/YYYY')}`,
@@ -1785,7 +1787,7 @@ function SalesReport() {
         })
     }
 
-    const handleExportCommissionsPdf = () => safeExport(() => {
+    const handleExportCommissionsPdf = () => safeExport(async () => {
         if (!commData.length) return
         const rows = commData.map(r => [
             r.saleDate ? dayjs(r.saleDate + 'T00:00:00').format('DD/MM/YYYY') : '—',
@@ -1798,6 +1800,7 @@ function SalesReport() {
         ])
         rows.push(['', '', '', 'TOTAL', formatCurrency(commTotalVendido), '', formatCurrency(commTotalComissao)])
 
+        const { exportTableToPdf } = await import('@/utils/export-generic-pdf')
         exportTableToPdf({
             title: 'Relatório de Comissões',
             subtitle: `Período: ${commDateRange[0].format('DD/MM/YYYY')} a ${commDateRange[1].format('DD/MM/YYYY')}`,

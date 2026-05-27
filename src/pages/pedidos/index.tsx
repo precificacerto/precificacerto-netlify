@@ -19,7 +19,7 @@ import { useAuth } from '@/hooks/use-auth.hook'
 import { useCustomers, useProducts, useEmployees } from '@/hooks/use-data.hooks'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import { formatBRL } from '@/utils/formatters'
-import { exportTableToPdf } from '@/utils/export-generic-pdf'
+// Onda 3 / CRÍT-perf: exportTableToPdf (jsPDF ~100KB) via dynamic import no callback.
 import { getCurrentUserId } from '@/utils/get-tenant-id'
 import dayjs from 'dayjs'
 import { useTenantTaxContext } from '@/hooks/use-tenant-tax-context'
@@ -1457,7 +1457,7 @@ function OrdersPage() {
                     <Button
                         icon={<FilePdfOutlined />}
                         size="small"
-                        onClick={() => {
+                        onClick={async () => {
                             if (!compiledData.length) return
                             try {
                                 const totalQty = compiledData.reduce((s, r) => s + r.total_qty, 0)
@@ -1465,6 +1465,7 @@ function OrdersPage() {
                                 const totalOrders = new Set(compiledData.flatMap(r => r.orders)).size
                                 const rows: (string | number)[][] = compiledData.map(r => [r.product_name, String(r.total_qty), r.orders.join(', ')])
                                 rows.push(['TOTAL', String(totalQty), ''])
+                                const { exportTableToPdf } = await import('@/utils/export-generic-pdf')
                                 exportTableToPdf({
                                     title: 'Produtos em Pedidos Abertos',
                                     headers: ['Produto', 'Qtd Total', 'Pedidos'],

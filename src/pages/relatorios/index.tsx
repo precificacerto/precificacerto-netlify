@@ -11,7 +11,7 @@ import { supabase } from '@/supabase/client'
 import { getTenantId } from '@/utils/get-tenant-id'
 import { mergeExpenseConfig } from '@/utils/recalc-expense-config'
 import { ExportFormatModal } from '@/components/ui/export-format-modal.component'
-import { exportTableToPdf } from '@/utils/export-generic-pdf'
+// Onda 3 / CRÍT-perf: exportTableToPdf (jsPDF ~100KB) via dynamic import no handler.
 import {
     Chart as ChartJS,
     CategoryScale,
@@ -495,7 +495,7 @@ function Reports() {
         messageApi.success('CSV exportado!')
     }
 
-    function exportReportPdf() {
+    async function exportReportPdf() {
         if (events.length === 0) { messageApi.warning('Nenhum dado para exportar.'); return }
         const headers = ['Data', 'Horário', 'Serviço', 'Funcionário', 'Cliente', 'Status', 'Duração (min)']
         const rows = events.map((e: any) => {
@@ -510,6 +510,7 @@ function Reports() {
                 dur,
             ]
         })
+        const { exportTableToPdf } = await import('@/utils/export-generic-pdf')
         exportTableToPdf({
             title: 'Relatório de Serviços',
             subtitle: `${startDate.format('DD/MM/YYYY')} a ${endDate.format('DD/MM/YYYY')} — ${events.length} serviços`,

@@ -20,7 +20,7 @@ import {
     PaperClipOutlined, UploadOutlined, ShoppingCartOutlined, ToolOutlined,
     UnorderedListOutlined, FilePdfOutlined,
 } from '@ant-design/icons'
-import { exportTableToPdf } from '@/utils/export-generic-pdf'
+// Onda 3 / CRÍT-perf: exportTableToPdf (jsPDF ~100KB) via dynamic import no callback.
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import { CurrencyInput } from '@/components/currency-input.component'
 import type { DiscountMode } from '@/utils/calculate-discount'
@@ -2696,7 +2696,7 @@ function Budgets() {
                 extra={
                     <Button
                         icon={<FilePdfOutlined />}
-                        onClick={() => {
+                        onClick={async () => {
                             try {
                                 const headers = ['Orçamento', 'Cliente', 'Funcionário', 'Produtos', 'Qtd. Total']
                                 const totalQty = pbFilteredRows.reduce((s, r) => s + r.matchItems.reduce((q, i) => q + i.quantity, 0), 0)
@@ -2708,6 +2708,7 @@ function Budgets() {
                                     r.matchItems.reduce((s, i) => s + i.quantity, 0),
                                 ])
                                 rows.push(['', '', '', 'TOTAL', totalQty])
+                                const { exportTableToPdf } = await import('@/utils/export-generic-pdf')
                                 exportTableToPdf({
                                     title: 'Produtos em Orçamentos',
                                     subtitle: `Total de itens: ${pbTotalQty}`,
