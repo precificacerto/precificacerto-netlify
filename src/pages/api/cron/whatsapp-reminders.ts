@@ -1,14 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { runReminderCycle } from '@/pages/api/whatsapp/send-reminder'
-
-const CRON_SECRET = process.env.CRON_SECRET
-
-function checkCronAuth(req: NextApiRequest): boolean {
-  if (!CRON_SECRET) return true
-  const auth = req.headers.authorization
-  if (auth?.startsWith('Bearer ')) return auth.slice(7) === CRON_SECRET
-  return false
-}
+import { checkCronAuth } from '@/lib/cron-helpers'
 
 /**
  * GET/POST /api/cron/whatsapp-reminders
