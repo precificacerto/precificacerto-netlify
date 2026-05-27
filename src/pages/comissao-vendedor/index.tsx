@@ -7,8 +7,9 @@ import { PAGE_TITLES } from '@/constants/page-titles'
 import { supabase } from '@/supabase/client'
 import { getTenantId } from '@/utils/get-tenant-id'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
-import { exportCommissionToExcel } from '@/utils/export-commission-excel'
-import { exportCommissionToPdf } from '@/utils/export-commission-pdf'
+// Onda 3 / CRÍT-perf (Founder 2026-05-27): exports pesados (ExcelJS ~350KB,
+// jsPDF+autotable ~100KB) carregados via dynamic import nos handlers,
+// não no top-level. Reduz First Load JS de /comissao-vendedor (~870 kB).
 import {
   FileExcelOutlined,
   FilePdfOutlined,
@@ -835,6 +836,7 @@ export default function CommissionPage() {
       const selectedEmpName = selectedEmployee
         ? employees.find(e => e.id === selectedEmployee)?.name
         : undefined
+      const { exportCommissionToExcel } = await import('@/utils/export-commission-excel')
       await exportCommissionToExcel(filteredData, month, selectedEmpName)
       messageApi.success('Excel exportado com sucesso!')
     } catch (err: any) {
@@ -843,7 +845,7 @@ export default function CommissionPage() {
     }
   }
 
-  const handleExportPdf = () => {
+  const handleExportPdf = async () => {
     if (!filteredData.length) {
       messageApi.warning('Nenhum dado para exportar.')
       return
@@ -852,6 +854,7 @@ export default function CommissionPage() {
       const selectedEmpName = selectedEmployee
         ? employees.find(e => e.id === selectedEmployee)?.name
         : undefined
+      const { exportCommissionToPdf } = await import('@/utils/export-commission-pdf')
       exportCommissionToPdf(filteredData, month.month(), month.year(), selectedEmpName)
       messageApi.success('PDF exportado com sucesso!')
     } catch (err: any) {
