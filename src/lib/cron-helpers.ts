@@ -4,13 +4,25 @@ import type Stripe from 'stripe'
 export type PlanStatus = 'TRIAL' | 'ACTIVE' | 'SUSPENDED' | 'CANCELLED'
 
 /**
- * Verifica autenticação do Vercel Cron via CRON_SECRET.
- * Se a env não estiver setada, libera (útil para dev local) — em produção,
- * o Vercel Cron envia automaticamente `Authorization: Bearer ${CRON_SECRET}`.
+ * Verifica autenticação do Vercel Cron via CRON_SECRET (FAIL-CLOSED).
+ *
+ * Em produção, o Vercel Cron envia automaticamente
+ * `Authorization: Bearer ${CRON_SECRET}` quando a env está setada no projeto.
+ *
+ * Política (CRÍT-4, Founder 2026-05-27):
+ *   - Se CRON_SECRET NÃO estiver setado em qualquer environment (prod/preview/dev),
+ *     REJEITA o acesso. Antes da mudança o helper liberava com `return true`,
+ *     o que tornava o endpoint público em qualquer deploy/ambiente sem a env.
+ *   - Para dev local, configure `CRON_SECRET=qualquer-valor` no `.env.local`
+ *     e envie `Authorization: Bearer qualquer-valor` no curl.
  */
 export function checkCronAuth(req: NextApiRequest): boolean {
   const secret = process.env.CRON_SECRET
-  if (!secret) return true
+  if (!secret) {
+    // eslint-disable-next-line no-console
+    console.error('[cron] CRON_SECRET não configurado — recusando acesso (fail-closed)')
+    return false
+  }
   const auth = req.headers.authorization
   if (auth?.startsWith('Bearer ')) return auth.slice(7) === secret
   return false
