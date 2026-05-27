@@ -2,9 +2,9 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import { Alert, Button, Select, Spin, Tooltip, DatePicker } from 'antd'
 import dayjs, { Dayjs } from 'dayjs'
 import { FileExcelOutlined, InfoCircleOutlined } from '@ant-design/icons'
-import { exportDfcToExcel } from '@/utils/export-dfc-excel'
+// Onda 3 / CRÍT-perf: exportDfcToExcel (ExcelJS ~350KB) via dynamic import no handler.
 import { ExportFormatModal } from '@/components/ui/export-format-modal.component'
-import { exportTableToPdf } from '@/utils/export-generic-pdf'
+// Onda 3 / CRÍT-perf: exportTableToPdf (jsPDF ~100KB) via dynamic import no handler abaixo.
 import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
 import { supabase } from '@/supabase/client'
@@ -672,7 +672,7 @@ export default function DfcPage() {
   const receitaLiquidaRow = useMemo(() => dreRows.find(r => r.key === 'receita_liquida'), [dreRows])
   const receitaBrutaRow = useMemo(() => dreRows.find(r => r.key === 'receita_bruta'), [dreRows])
 
-  const handleExportDfcPdf = () => {
+  const handleExportDfcPdf = async () => {
     if (dreRows.length === 0) return
     const pCols = getPeriodColumns(periodType, selectedMonth, customMonthRange)
     const periodHeaders = pCols.map(c => c.label)
@@ -700,6 +700,7 @@ export default function DfcPage() {
     const regimeLabel = getVariantLabel(taxRegime)
     const calcLabel = calcType === 'INDUSTRIALIZATION' ? 'Industrialização' : calcType === 'RESALE' ? 'Revenda' : calcType === 'SERVICE' ? 'Serviço' : ''
     const periodLabel = periodType === 'trimestral' ? 'Trimestral' : periodType === 'semestral' ? 'Semestral' : periodType === 'anual' ? 'Anual' : `Mensal (${MONTH_LABELS[selectedMonth]})`
+    const { exportTableToPdf } = await import('@/utils/export-generic-pdf')
     exportTableToPdf({
       title: `DRE — Análise Financeira — ${year} — ${periodLabel}`,
       subtitle: `Regime: ${regimeLabel} | Tipo: ${calcLabel}`,
@@ -969,7 +970,10 @@ export default function DfcPage() {
         onClose={() => setDfcExportModalOpen(false)}
         title="Exportar DRE"
         skipDateRange
-        onExportExcel={() => exportDfcToExcel(dreRows, year, taxRegime, calcType, periodType, selectedMonth, customMonthRange)}
+        onExportExcel={async () => {
+          const { exportDfcToExcel } = await import('@/utils/export-dfc-excel')
+          return exportDfcToExcel(dreRows, year, taxRegime, calcType, periodType, selectedMonth, customMonthRange)
+        }}
         onExportPdf={handleExportDfcPdf}
       />
     </Layout>
