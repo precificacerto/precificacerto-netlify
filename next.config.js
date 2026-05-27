@@ -9,6 +9,15 @@ const nextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
+  // Onda 3 (Founder 2026-05-27): removeConsole em produção. Preserva
+  // console.error e console.warn (usados pra security logging: CRÍT-4,
+  // CRÍT-5, mrm-divergence-alerts) e remove apenas console.log/info/debug.
+  // Reduz bundle ~5-10% + evita vazamento de dados de debug em produção.
+  compiler: {
+    removeConsole: process.env.NODE_ENV === 'production'
+      ? { exclude: ['error', 'warn'] }
+      : false,
+  },
   async headers() {
     return [
       {
