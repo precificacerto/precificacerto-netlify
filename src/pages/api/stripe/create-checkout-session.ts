@@ -1,8 +1,14 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
+import { getCallerContext } from '@/lib/get-caller-tenant'
 
 /**
  * Cria sessão do Stripe Checkout via API REST (sem pacote 'stripe').
  * Price IDs lidos em tempo de requisição (env) com fallback dos IDs criados no Stripe.
+ *
+ * Bifurcação de fluxo (CRÍT-5, Founder 2026-05-27):
+ *   - Cadastro novo (sem tenantId no body): público, webhook cria tenant após pagamento.
+ *   - Upgrade tenant existente (com tenantId): exige sessão autenticada, tenantId
+ *     deve corresponder ao caller.tenant_id (derivado do JWT). Caso contrário 401/403.
  */
 type RevenueTier = 'ate_200k' | 'acima_200k'
 type PlanSlug = 'individual' | 'intermediario' | 'pro' | 'advanced'
@@ -69,6 +75,36 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(400).json({ error: 'Faixa de faturamento inválida.' })
   }
 
+  // CRÍT-5 (Founder 2026-05-27): bifurcação inteligente.
+  //   A) Cadastro novo (sem tenantId) — público; webhook cria tenant após pagamento.
+  //   B) Upgrade tenant existente (com tenantId) — autenticado; tenantId deve bater
+  //      com o caller.tenant_id derivado da sessão JWT.
+  // Sem essa validação, atacante poderia passar tenantId alheio e via webhook
+  // substituir stripe_customer_id/stripe_subscription_id da vítima.
+  let effectiveTenantId: string | undefined
+  const hasTenantId = typeof tenantId === 'string' && tenantId.length > 0
+  if (hasTenantId) {
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    if (!uuidRegex.test(tenantId!)) {
+      return res.status(400).json({ error: 'tenantId inválido' })
+    }
+    const caller = await getCallerContext(req, res)
+    if (!caller) return // getCallerContext já enviou 401/403
+    if (caller.tenant_id !== tenantId) {
+      // eslint-disable-next-line no-console
+      console.warn('[CRÍT-5] Tentativa de cross-tenant checkout', {
+        caller_tenant: caller.tenant_id,
+        body_tenant: tenantId,
+        caller_user: caller.user_id,
+        ip: req.headers['x-forwarded-for'] || req.socket?.remoteAddress,
+      })
+      return res.status(403).json({
+        error: 'tenant_id no body diverge da sessão autenticada',
+      })
+    }
+    effectiveTenantId = caller.tenant_id
+  }
+
   const priceId = getPriceId(revenueTier, planSlug)
   if (!priceId) {
     return res.status(400).json({ error: 'Plano não encontrado. Tente novamente.' })
@@ -87,7 +123,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const adminEmail = email.trim().toLowerCase()
   const adminName = name.trim()
 
-  const cancelUrl = tenantId ? `${origin}/assinar` : `${origin}/cadastro`
+  const cancelUrl = effectiveTenantId ? `${origin}/assinar` : `${origin}/cadastro`
 
   const params = new URLSearchParams({
     mode: 'subscription',
@@ -109,9 +145,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     ),
   })
 
-  if (tenantId) {
-    params.set('metadata[tenant_id]', tenantId)
-    params.set('subscription_data[metadata][tenant_id]', tenantId)
+  if (effectiveTenantId) {
+    params.set('metadata[tenant_id]', effectiveTenantId)
+    params.set('subscription_data[metadata][tenant_id]', effectiveTenantId)
   }
 
   try {
