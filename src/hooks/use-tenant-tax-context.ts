@@ -150,7 +150,7 @@ export function useTenantTaxContext(options: HookOptions = {}): TenantTaxContext
       // (productive_salary_total + fgts + other) / monthly_workload_minutes
       const { data: cfgRow } = await supabase
         .from('tenant_expense_config')
-        .select('margin_reapuration_enabled, use_snapshot_rates, rro_policy, fixed_expense_percent, variable_expense_percent, financial_expense_percent, admin_labor_percent, indirect_labor_percent, production_labor_percent, production_labor_cost, productive_value_per_minute')
+        .select('margin_reapuration_enabled, use_snapshot_rates, rro_policy, fixed_expense_percent, variable_expense_percent, financial_expense_percent, admin_labor_percent, indirect_labor_percent, production_labor_percent, production_labor_cost, production_labor_cost_hub, productive_value_per_minute')
         .eq('tenant_id', tenantId as string)
         .maybeSingle()
 
@@ -173,6 +173,7 @@ export function useTenantTaxContext(options: HookOptions = {}): TenantTaxContext
             indirect_labor_percent?: number | null
             production_labor_percent?: number | null
             production_labor_cost?: number | null
+            production_labor_cost_hub?: number | null
             productive_value_per_minute?: number | null
           }
         | null
