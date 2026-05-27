@@ -44,8 +44,7 @@ import {
   mergeItemAndTenantRates,
   resolveItemCsllPct,
   resolveItemIrpjPct,
-  resolveProductCostTotal,
-  resolveProductLaborTotal,
+  resolveProductCostAndLabor,
   resolveProductFinancialExpense,
   resolveProductExpenseBreakdown,
   type ItemTaxRates,
@@ -952,8 +951,9 @@ function Sales() {
                 monthly_workload_minutes: mrmConfig.monthly_workload_minutes,
                 productive_value_per_minute: mrmConfig.productive_value_per_minute,
             }
-            const costTotal = resolveProductCostTotal(svc, laborTenantCtxV)
-            const productiveLaborUnit = resolveProductLaborTotal(svc, laborTenantCtxV)
+            // V16.2 (Founder 2026-05-27): semântica V9-I5 — cost_total = só material,
+            // productive_labor_unit = MO separada. Motor soma. Evita dupla contagem.
+            const { costTotal, productiveLaborUnit } = resolveProductCostAndLabor(svc, laborTenantCtxV)
             const financialExpenseUnit = resolveProductFinancialExpense(svc)
             const expenseBreakdownUnit = resolveProductExpenseBreakdown(svc)
             const allTables = [...empProductTablesV, ...empServiceTablesV]
@@ -983,8 +983,9 @@ function Sales() {
                 monthly_workload_minutes: mrmConfig.monthly_workload_minutes,
                 productive_value_per_minute: mrmConfig.productive_value_per_minute,
             }
-            const costTotal = resolveProductCostTotal(prod, laborTenantCtxP)
-            const productiveLaborUnit = resolveProductLaborTotal(prod, laborTenantCtxP)
+            // V16.2 (Founder 2026-05-27): semântica V9-I5 — cost_total = só material,
+            // productive_labor_unit = MO separada. Motor soma. Evita dupla contagem.
+            const { costTotal, productiveLaborUnit } = resolveProductCostAndLabor(prod, laborTenantCtxP)
             const financialExpenseUnit = resolveProductFinancialExpense(prod)
             const expenseBreakdownUnit = resolveProductExpenseBreakdown(prod)
             const allTables = [...empProductTablesV, ...empServiceTablesV]

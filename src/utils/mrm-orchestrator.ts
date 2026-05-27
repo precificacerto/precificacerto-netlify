@@ -305,15 +305,17 @@ export function buildMotorInput(args: BuildMotorInputArgs): ReapurationInput {
   const discountFactor = Math.max(0, Math.min(1, args.globalDiscountPercent / 100))
   const rvItem = itemBase - itemBase * discountFactor
 
-  // V9 D2: CMV canônico unitário = cost_total + productive_labor_unit (V8.8 V8.1)
+  // V9 D2: CMV canônico unitário = cost_total + productive_labor_unit (V9-I5).
+  // CONVENÇÃO MOTOR: `cost_total` = só MATERIAL, `productive_labor_unit` = MO.
   // V15 (2026-05-25): quando `expense_breakdown_unit.cmv_unit > 0` (snapshot V14+),
   // usa direto o cmv do produto (já inclui material + MO produtiva consolidados).
-  // Evita perder MO quando `productive_labor_unit` retorna 0 do helper.
+  // V16.1 (Founder 2026-05-27): Math.max(snapshot, cost_total + labor) — defensivo
+  // contra snapshot incompleto. Callers (orcamentos/vendas) devem alinhar à convenção
+  // V9-I5 subtraindo labor do helper ADR-011 antes de popular `cost_total` no item.
   const snapshotCmvUnit = Number(args.item.expense_breakdown_unit?.cmv_unit) || 0
-  const cmvUnit =
-    snapshotCmvUnit > 0
-      ? snapshotCmvUnit
-      : (Number(args.item.cost_total) || 0) + (Number(args.item.productive_labor_unit) || 0)
+  const fallbackCmvUnit =
+    (Number(args.item.cost_total) || 0) + (Number(args.item.productive_labor_unit) || 0)
+  const cmvUnit = Math.max(snapshotCmvUnit, fallbackCmvUnit)
   const cpItem = cmvUnit * qty
 
   // V9 D1: MOD sempre 0 no motor.

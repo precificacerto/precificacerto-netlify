@@ -48,8 +48,7 @@ import {
   mergeItemAndTenantRates,
   resolveItemCsllPct,
   resolveItemIrpjPct,
-  resolveProductCostTotal,
-  resolveProductLaborTotal,
+  resolveProductCostAndLabor,
   resolveProductFinancialExpense,
   resolveProductExpenseBreakdown,
   type ItemTaxRates,
@@ -402,8 +401,9 @@ function Budgets() {
                 monthly_workload_minutes: mrmConfig.monthly_workload_minutes,
                 productive_value_per_minute: mrmConfig.productive_value_per_minute,
             }
-            const costTotal = resolveProductCostTotal(svc, laborTenantCtxSvc)
-            const productiveLaborUnit = resolveProductLaborTotal(svc, laborTenantCtxSvc)
+            // V16.2 (Founder 2026-05-27): semântica V9-I5 — cost_total = só material,
+            // productive_labor_unit = MO separada. Motor soma. Evita dupla contagem.
+            const { costTotal, productiveLaborUnit } = resolveProductCostAndLabor(svc, laborTenantCtxSvc)
             // V13 (2026-05-25): snapshot Despesa Financeira do produto
             const financialExpenseUnit = resolveProductFinancialExpense(svc)
             // V14 (2026-05-25): snapshot completo dos 4 buckets de despesa
@@ -448,9 +448,9 @@ function Budgets() {
                 monthly_workload_minutes: mrmConfig.monthly_workload_minutes,
                 productive_value_per_minute: mrmConfig.productive_value_per_minute,
             }
-            const costTotal = resolveProductCostTotal(prod, laborTenantCtx)
-            // V8.1 (2026-05-24): MO produtiva do produto para separar de MOD do tenant
-            const productiveLaborUnit = resolveProductLaborTotal(prod, laborTenantCtx)
+            // V16.2 (Founder 2026-05-27): semântica V9-I5 — cost_total = só material,
+            // productive_labor_unit = MO separada. Motor soma. Evita dupla contagem.
+            const { costTotal, productiveLaborUnit } = resolveProductCostAndLabor(prod, laborTenantCtx)
             // V13 (2026-05-25): snapshot Despesa Financeira do produto
             const financialExpenseUnit = resolveProductFinancialExpense(prod)
             // V14 (2026-05-25): snapshot completo dos 4 buckets de despesa

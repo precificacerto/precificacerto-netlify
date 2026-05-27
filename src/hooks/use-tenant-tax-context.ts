@@ -238,8 +238,16 @@ export function useTenantTaxContext(options: HookOptions = {}): TenantTaxContext
           : workloadUnit === 'MINUTES' ? rawWorkload / 60
           : 0
       const totalEmployees = Math.max(1, Number(tenantSettings?.num_productive_employees) || 1)
-      const monthly_workload_minutes = totalEmployees * hoursPerMonth * 60
-      const production_labor_cost = Number(cfg?.production_labor_cost) || 0
+      // V16.2 (Founder 2026-05-27): fallback 176h/mês quando `monthly_workload=0` —
+      // alinha com `content.component.tsx:641` que aplica esse mesmo default na UI de
+      // cadastro do produto. Sem isso, motor RR recebe `monthly_workload_minutes=0`,
+      // V8.6 não ativa, e step 9 "Redução de custos" perde MO produtiva.
+      const hoursPerMonthSafe = hoursPerMonth > 0 ? hoursPerMonth : 176
+      const monthly_workload_minutes = totalEmployees * hoursPerMonthSafe * 60
+      // V16.2: prefere `production_labor_cost_hub` (custo MO mensal consolidado do
+      // módulo HUB) antes do `production_labor_cost` legado — alinha com
+      // `build-calc-base.ts:15` que já tem essa precedência.
+      const production_labor_cost = Number(cfg?.production_labor_cost_hub) || Number(cfg?.production_labor_cost) || 0
       // V8.7: campo direto do banco — preferir este sobre o cálculo derivado
       const productive_value_per_minute = Number(cfg?.productive_value_per_minute) || 0
 

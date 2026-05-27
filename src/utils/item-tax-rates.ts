@@ -155,7 +155,7 @@ export function resolveProductCostTotal(prod: any, tenantCtx?: TenantLaborContex
   const laborUnit = resolveProductLaborTotal(prod, tenantCtx)
   const laborTotal = laborUnit * yieldQty
 
-  // Nível 2: SUM(product_items.item_cost_net) + labor / yield
+  // Nível 2: SUM(product_items.item_cost_net) + labor / yield (ADR-011: CMV consolidado)
   const productItems = Array.isArray(prod?.product_items) ? prod.product_items : []
   if (productItems.length > 0) {
     const itemsCostSum = productItems.reduce((sum: number, pi: any) => {
@@ -171,7 +171,7 @@ export function resolveProductCostTotal(prod: any, tenantCtx?: TenantLaborContex
   const direct = Number(prod?.cost_total) || 0
   if (direct > 0) return direct
 
-  // Nível 4: (material + labor) / yield — fallback parcial
+  // Nível 4: (material + labor) / yield — fallback parcial (ADR-011: CMV consolidado)
   for (const p of pricingArr) {
     const materialNet = Number(p?.total_material_cost_net) || 0
     const laborNet = Number(p?.total_labor_net) || 0
@@ -180,6 +180,33 @@ export function resolveProductCostTotal(prod: any, tenantCtx?: TenantLaborContex
   }
 
   return 0
+}
+
+/**
+ * V16.2 (Founder 2026-05-27): helper unificado que normaliza semântica entre o
+ * helper ADR-011 (`resolveProductCostTotal` = CMV consolidado) e a convenção do
+ * motor V9-I5 (`cost_total` = só material, soma `productive_labor_unit` por cima).
+ *
+ * Subtrai `productive_labor_unit` do CMV consolidado para devolver SÓ material,
+ * evitando dupla contagem quando motor faz `cp = cost_total + productive_labor_unit`.
+ *
+ * Cenário Agulha (Founder 2026-05-27):
+ *   resolveProductCostTotal → 2428.20 (798.60 material + 1629.60 MO via V8.6 runtime)
+ *   resolveProductLaborTotal → 1629.60
+ *   Helper retorna: { costTotal: 798.60, productiveLaborUnit: 1629.60 }
+ *   Motor: cp = 798.60 + 1629.60 = 2428.20 ✓ (step 9 "Redução de custos" correto)
+ *
+ * Use em callers que populam `BudgetItemRow`/`SaleItemRow` para o motor MRM.
+ * NÃO use em callers que esperam CMV consolidado (DRE display, cadastro produto).
+ */
+export function resolveProductCostAndLabor(
+  prod: any,
+  tenantCtx?: TenantLaborContext,
+): { costTotal: number; productiveLaborUnit: number } {
+  const consolidated = resolveProductCostTotal(prod, tenantCtx)
+  const productiveLaborUnit = resolveProductLaborTotal(prod, tenantCtx)
+  const costTotal = Math.max(0, consolidated - productiveLaborUnit)
+  return { costTotal, productiveLaborUnit }
 }
 
 /**
@@ -369,7 +396,19 @@ export function resolveProductExpenseBreakdown(prod: any): ProductExpenseBreakdo
   }
   const laborResolved = resolveLaborFromAllSources(prod, pricingArr, yieldQty)
   const cmvFromSum = materialNet + laborResolved
-  let cmv_unit = Math.max(cmvFromColumn, cmvFromSum)
+  // V16.1 (Founder 2026-05-27): fonte de garantia DIRETA via products.cost_total
+  // + productive_labor_total. Soma o "Custo Produto" exibido no cadastro
+  // (R$ 2.428,20 = R$ 798,60 + R$ 1.629,60 no cenário Aluminio).
+  // Garante que MO produtiva nunca seja perdida mesmo quando pricing_calculations.cmv
+  // ficou stale (precificado como REVENDA) ou backfill V15.1 não rodou no tenant.
+  //
+  // Guard de ativação: SÓ contribui se `cost_total > 0` — preserva precedência
+  // existente do `resolveLaborFromAllSources` quando produto não declara cost_total
+  // canônico (testes de precedência interna labor_costs > productive_labor_total).
+  const directCostTotal = Number(prod?.cost_total) || 0
+  const directLaborTotal = Number(prod?.productive_labor_total) || 0
+  const cmvFromDirect = directCostTotal > 0 ? directCostTotal + directLaborTotal : 0
+  let cmv_unit = Math.max(cmvFromColumn, cmvFromSum, cmvFromDirect)
 
   const totalAmount =
     mo_admin.amount_unit + fixa.amount_unit + variavel.amount_unit + financeira.amount_unit
