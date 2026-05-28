@@ -1,0 +1,336 @@
+/**
+ * mrm-engine-v17/legacy-adapter.ts — Compatibilidade V17 ↔ V16
+ *
+ * EPIC-MRM-V17 (2026-05-28)
+ *
+ * Permite que páginas existentes (orcamentos, pedidos, vendas) e componentes
+ * downstream (useResidualDistribution, ConsolidatedDREBlock, mrm-display-extractor)
+ * continuem funcionando sem refactor profundo, enquanto o motor real por baixo
+ * é o V17.
+ *
+ * Estratégia: distribui o resultado consolidado V17 proporcional ao RB de cada
+ * item, produzindo um array de "TaxBreakdown-like" no shape esperado pelo V16.
+ *
+ * Limitação conhecida: os valores `new_commission`/`new_profit`/`new_csll`/
+ * `new_irpj` por item são RATEIOS proporcionais ao RB, não cálculos individuais
+ * (consistente com o princípio "orçamento consolida, não recalcula").
+ *
+ * Após a UI ser atualizada para consumir `MotorV17Result` diretamente, este
+ * adapter será deprecado.
+ */
+
+import type {
+  AbsorptionPolicy,
+  EngineItemV17,
+  MotorV17Input,
+  MotorV17Result,
+  TaxBreakdown,
+  TaxRatePeriod,
+  TaxRegime,
+} from '@/types/mrm'
+import {
+  MRM_ENGINE_VERSION_V17,
+} from '@/types/mrm'
+
+import { calculateMotorV17 } from '../mrm-engine-v17'
+
+/**
+ * Item esperado pelas páginas (subset do BudgetItemRow / OrderItemRow / SaleItemRow).
+ * Equivale ao input de `buildMotorInput` do orchestrator V16.
+ */
+export interface PageItem {
+  unit_price: number
+  quantity: number
+  cost_total?: number | null
+  productive_labor_unit?: number | null
+  commission_percent?: number | null
+  profit_percent?: number | null
+  item_tax_rates?: unknown
+  expense_breakdown_unit?: {
+    mo_admin: { rate: number; amount_unit: number }
+    fixa: { rate: number; amount_unit: number }
+    variavel: { rate: number; amount_unit: number }
+    financeira: { rate: number; amount_unit: number }
+    cmv_unit?: number
+  } | null
+  financial_expense_unit?: number | null
+}
+
+export interface PageTenantCtx {
+  regime: TaxRegime
+  rates: TaxRatePeriod[]
+  mod_pct?: number | null
+  dop_pct?: number | null
+  csll_pct?: number | null
+  irpj_pct?: number | null
+  useSnapshotRates?: boolean
+  absorption_policy?: AbsorptionPolicy | null
+  expense_breakdown?: {
+    fixed_pct?: number | null
+    variable_pct?: number | null
+    financial_pct?: number | null
+    administrative_pct?: number | null
+  } | null
+}
+
+export interface PageBuildArgs {
+  items: PageItem[]
+  tenantCtx: PageTenantCtx
+  globalDiscountPercent: number
+  effectiveDate?: string
+}
+
+/**
+ * Resultado "TaxBreakdown-like" por item — shape compatível com V16.
+ * Componentes downstream continuam consumindo `new_commission`, `new_profit`, etc.
+ */
+export type LegacyMotorResult = Pick<
+  TaxBreakdown,
+  | 'new_commission'
+  | 'new_profit'
+  | 'new_csll'
+  | 'new_irpj'
+  | 'rro'
+  | 'cascade_trace'
+  | 'engine_version'
+  | 'status'
+> & {
+  /** Marker pra debug — identifica que veio via adapter V17. */
+  _v17_adapter: true
+}
+
+/**
+ * Calcula motor V17 para uma página inteira e retorna array compatível V16.
+ *
+ * Substitui `calculateMarginReapuration(buildMotorInput(...))` em:
+ *   - src/pages/orcamentos/index.tsx
+ *   - src/pages/pedidos/index.tsx
+ *   - src/pages/vendas/index.tsx
+ *
+ * Retorna `null` para items inválidos (preserva contract V16).
+ */
+export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResult | null)[] {
+  const { items, tenantCtx, globalDiscountPercent } = args
+
+  // ───── Filtra items válidos ─────
+  const validItems: { item: PageItem; idx: number }[] = []
+  items.forEach((item, idx) => {
+    const itemBase = (Number(item.unit_price) || 0) * (Number(item.quantity) || 0)
+    if (itemBase > 0) validItems.push({ item, idx })
+  })
+
+  // ───── Caso vazio → array de nulls ─────
+  if (validItems.length === 0) {
+    return items.map(() => null)
+  }
+
+  // ───── Converte PageItem → EngineItemV17 ─────
+  const engineItems: EngineItemV17[] = validItems.map(({ item, idx }) => {
+    const rb = (Number(item.unit_price) || 0) * (Number(item.quantity) || 0)
+    const qty = Number(item.quantity) || 0
+
+    // CMV canônico V9-I5 + V14/V15.4 cmv_unit snapshot quando presente
+    const snapshotCmv = Number(item.expense_breakdown_unit?.cmv_unit) || 0
+    const fallbackCmv =
+      ((Number(item.cost_total) || 0) + (Number(item.productive_labor_unit) || 0)) * qty
+    const cmvUsed = snapshotCmv > 0 ? snapshotCmv * qty : fallbackCmv
+
+    // DOP agregado (4 buckets do tenant)
+    const eb = tenantCtx.expense_breakdown ?? null
+    const dop_pct = eb
+      ? (Number(eb.administrative_pct) || 0) +
+        (Number(eb.fixed_pct) || 0) +
+        (Number(eb.variable_pct) || 0) +
+        (Number(eb.financial_pct) || 0)
+      : (Number(tenantCtx.dop_pct) || 0)
+
+    // mod_pct (V9 D1 — sempre 0 no V17 por princípio, MOD vai pro CMV)
+    const mod_pct = 0
+
+    // % decimais do item
+    const commission_pct = (Number(item.commission_percent) || 0) / 100
+    const profit_pct = (Number(item.profit_percent) || 0) / 100
+    const csll_pct = Number(tenantCtx.csll_pct) || 0
+    const irpj_pct = Number(tenantCtx.irpj_pct) || 0
+
+    // Snapshot V14 expense_breakdown (se presente, vira amounts agregados)
+    const ebSnapshot = item.expense_breakdown_unit
+    const expense_breakdown = ebSnapshot
+      ? {
+          mo_admin: {
+            rate: Number(ebSnapshot.mo_admin?.rate) || 0,
+            amount: (Number(ebSnapshot.mo_admin?.amount_unit) || 0) * qty,
+          },
+          fixa: {
+            rate: Number(ebSnapshot.fixa?.rate) || 0,
+            amount: (Number(ebSnapshot.fixa?.amount_unit) || 0) * qty,
+          },
+          variavel: {
+            rate: Number(ebSnapshot.variavel?.rate) || 0,
+            amount: (Number(ebSnapshot.variavel?.amount_unit) || 0) * qty,
+          },
+          financeira: {
+            rate: Number(ebSnapshot.financeira?.rate) || 0,
+            amount: (Number(ebSnapshot.financeira?.amount_unit) || 0) * qty,
+          },
+        }
+      : undefined
+
+    return {
+      item_id: `idx-${idx}`,
+      rb,
+      cp: cmvUsed,
+      mod_pct,
+      dop_pct,
+      commission_pct,
+      profit_pct,
+      csll_pct,
+      irpj_pct,
+      peso_op_interna: 1, // simplificação V17 — todos os items são op interna por enquanto
+      expense_breakdown,
+    }
+  })
+
+  // ───── Chama motor V17 ─────
+  const v17Input: MotorV17Input = {
+    items: engineItems,
+    discount: { pct: Math.max(0, Math.min(1, (globalDiscountPercent || 0) / 100)) },
+    policy: tenantCtx.absorption_policy ?? 'RRO_PROPORTIONAL',
+    regime: tenantCtx.regime,
+    rates: tenantCtx.rates ?? [],
+    effective_date: args.effectiveDate ?? new Date().toISOString().slice(0, 10),
+    use_snapshot_rates: tenantCtx.useSnapshotRates ?? false,
+  }
+
+  const v17Result = calculateMotorV17(v17Input)
+
+  // ───── Rateia resultado consolidado proporcional ao RB de cada item ─────
+  const rbTotal = v17Result.consolidated.rb_total
+  const results: (LegacyMotorResult | null)[] = items.map(() => null)
+
+  validItems.forEach(({ item, idx }, validIdx) => {
+    const rb_i = engineItems[validIdx].rb
+    const ratio = rbTotal > 0 ? rb_i / rbTotal : 0
+
+    results[idx] = {
+      _v17_adapter: true,
+      engine_version: MRM_ENGINE_VERSION_V17,
+      new_commission: v17Result.distribution.new_commission * ratio,
+      new_profit: v17Result.distribution.new_profit * ratio,
+      new_csll: v17Result.distribution.new_csll * ratio,
+      new_irpj: v17Result.distribution.new_irpj * ratio,
+      rro: v17Result.motor.rro * ratio,
+      cascade_trace: v17Result.motor.cascade_trace,  // consolidado (mesmo p/ todos)
+      status: v17Result.status,
+    }
+  })
+
+  return results
+}
+
+/**
+ * Versão "full" — retorna também o resultado consolidado completo
+ * (para callers que precisam acessar ConsolidatedView ou MotorV17Result diretamente).
+ */
+export function calculateMotorV17ForPageFull(args: PageBuildArgs): {
+  per_item: (LegacyMotorResult | null)[]
+  consolidated: MotorV17Result
+} {
+  const per_item = calculateMotorV17ForPage(args)
+
+  // Recalcula consolidado (caro, mas correto para callers que precisam dos dois)
+  const validItems = args.items.filter(
+    item => (Number(item.unit_price) || 0) * (Number(item.quantity) || 0) > 0,
+  )
+
+  if (validItems.length === 0) {
+    // Empty consolidated
+    const emptyResult: MotorV17Result = {
+      engine_version: MRM_ENGINE_VERSION_V17,
+      consolidated: {
+        items_count: 0,
+        rb_total: 0,
+        desc_value: 0,
+        rv_total: 0,
+        peso_op_interna_ponderado: 1,
+        ancora_interna: 0,
+        cp_total: 0,
+        mod_total: 0,
+        dop_total: 0,
+        commission_amount_original: 0,
+        profit_amount_original: 0,
+        csll_amount_original: 0,
+        irpj_amount_original: 0,
+        peso_comissao_original: 0,
+        peso_lucro_original: 1,
+        peso_csll_original: 0,
+        peso_irpj_original: 0,
+        items_breakdown: [],
+        expense_breakdown_total: null,
+      },
+      motor: {
+        rb: 0, desc_value: 0, rv: 0, ancora: 0, icms: 0, iss: 0, pis_cofins: 0,
+        imp_dentro_total: 0, cp_efetivo: 0, mod: 0, dop: 0, rro: 0,
+        rro_status: 'PENDING',
+        cascade_trace: [],
+        limite_minimo: null,
+      },
+      distribution: {
+        policy_applied: args.tenantCtx.absorption_policy ?? 'RRO_PROPORTIONAL',
+        new_commission: 0, new_profit: 0, new_csll: 0, new_irpj: 0,
+        taxes_outside: [], taxes_outside_base: 0, taxes_outside_total: 0,
+        valor_final: 0,
+        absorption_audit: { commission_floor_applied: false, profit_absorbed: 0, delta_vs_proportional: 0 },
+        validations: { V1: true, V2: true, V3: true, V4: true, V5: true, V6: true, V7: true },
+      },
+      status: 'PENDING',
+      error_code: null,
+      messages: [],
+    }
+    return { per_item, consolidated: emptyResult }
+  }
+
+  // Reconverte items para EngineItemV17 e chama motor V17 de novo
+  // (reuso da lógica via calculateMotorV17ForPage seria mais limpo, mas
+  // precisamos do MotorV17Result completo, não apenas o per-item rateado)
+  const engineItems: EngineItemV17[] = validItems.map((item, idx) => {
+    const rb = (Number(item.unit_price) || 0) * (Number(item.quantity) || 0)
+    const qty = Number(item.quantity) || 0
+    const snapshotCmv = Number(item.expense_breakdown_unit?.cmv_unit) || 0
+    const fallbackCmv =
+      ((Number(item.cost_total) || 0) + (Number(item.productive_labor_unit) || 0)) * qty
+    const cmvUsed = snapshotCmv > 0 ? snapshotCmv * qty : fallbackCmv
+    const eb = args.tenantCtx.expense_breakdown ?? null
+    const dop_pct = eb
+      ? (Number(eb.administrative_pct) || 0) +
+        (Number(eb.fixed_pct) || 0) +
+        (Number(eb.variable_pct) || 0) +
+        (Number(eb.financial_pct) || 0)
+      : (Number(args.tenantCtx.dop_pct) || 0)
+
+    return {
+      item_id: `idx-${idx}`,
+      rb,
+      cp: cmvUsed,
+      mod_pct: 0,
+      dop_pct,
+      commission_pct: (Number(item.commission_percent) || 0) / 100,
+      profit_pct: (Number(item.profit_percent) || 0) / 100,
+      csll_pct: Number(args.tenantCtx.csll_pct) || 0,
+      irpj_pct: Number(args.tenantCtx.irpj_pct) || 0,
+      peso_op_interna: 1,
+    }
+  })
+
+  const consolidated = calculateMotorV17({
+    items: engineItems,
+    discount: { pct: Math.max(0, Math.min(1, (args.globalDiscountPercent || 0) / 100)) },
+    policy: args.tenantCtx.absorption_policy ?? 'RRO_PROPORTIONAL',
+    regime: args.tenantCtx.regime,
+    rates: args.tenantCtx.rates ?? [],
+    effective_date: args.effectiveDate ?? new Date().toISOString().slice(0, 10),
+    use_snapshot_rates: args.tenantCtx.useSnapshotRates ?? false,
+  })
+
+  return { per_item, consolidated }
+}
