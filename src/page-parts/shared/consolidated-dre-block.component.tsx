@@ -429,8 +429,8 @@ export function ConsolidatedDREBlock({
         </div>
       )}
 
-      {/* Story MRM-V5-005 AC1+AC2: Cascata 13 etapas (expansível, default fechado) */}
-      {cascadeTrace && cascadeTrace.length === 13 && <CascadeExpander trace={cascadeTrace} />}
+      {/* Memória cascata: V16 (13 etapas) ou V17 (17 etapas) */}
+      {cascadeTrace && (cascadeTrace.length === 13 || cascadeTrace.length === 17) && <CascadeExpander trace={cascadeTrace} />}
 
       <div style={{ fontSize: 11, color: '#64748b', marginTop: 10, fontStyle: 'italic' }}>
         Esta DRE consolida os RRs individuais já calculados por cada produto/serviço.

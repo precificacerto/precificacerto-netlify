@@ -25,6 +25,7 @@ import type {
   MotorV17Input,
   MotorV17Result,
   TaxBreakdown,
+  TaxLine,
   TaxRatePeriod,
   TaxRegime,
 } from '@/types/mrm'
@@ -33,6 +34,12 @@ import {
 } from '@/types/mrm'
 
 import { calculateMotorV17 } from '../mrm-engine-v17'
+import {
+  mergeItemAndTenantRates,
+  resolveItemCsllPct,
+  resolveItemIrpjPct,
+  type ItemTaxRates,
+} from '../item-tax-rates'
 
 /**
  * Item esperado pelas páginas (subset do BudgetItemRow / OrderItemRow / SaleItemRow).
@@ -45,7 +52,8 @@ export interface PageItem {
   productive_labor_unit?: number | null
   commission_percent?: number | null
   profit_percent?: number | null
-  item_tax_rates?: unknown
+  /** Alíquotas tributárias específicas do item (V17: merge com tenant). */
+  item_tax_rates?: ItemTaxRates | null
   expense_breakdown_unit?: {
     mo_admin: { rate: number; amount_unit: number }
     fixa: { rate: number; amount_unit: number }
@@ -94,6 +102,15 @@ export type LegacyMotorResult = Pick<
   | 'cascade_trace'
   | 'engine_version'
   | 'status'
+  | 'taxes_inside'
+  | 'taxes_outside'
+  | 'imp_total'
+  | 'rb'
+  | 'desc_value'
+  | 'rv'
+  | 'cp'
+  | 'mod'
+  | 'dop'
 > & {
   /** Marker pra debug — identifica que veio via adapter V17. */
   _v17_adapter: true
@@ -147,11 +164,11 @@ export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResul
     // mod_pct (V9 D1 — sempre 0 no V17 por princípio, MOD vai pro CMV)
     const mod_pct = 0
 
-    // % decimais do item
+    // % decimais do item (CSLL/IRPJ: prefere item, fallback tenant)
     const commission_pct = (Number(item.commission_percent) || 0) / 100
     const profit_pct = (Number(item.profit_percent) || 0) / 100
-    const csll_pct = Number(tenantCtx.csll_pct) || 0
-    const irpj_pct = Number(tenantCtx.irpj_pct) || 0
+    const csll_pct = resolveItemCsllPct(item.item_tax_rates ?? null, Number(tenantCtx.csll_pct) || 0)
+    const irpj_pct = resolveItemIrpjPct(item.item_tax_rates ?? null, Number(tenantCtx.irpj_pct) || 0)
 
     // Snapshot V14 expense_breakdown (se presente, vira amounts agregados)
     const ebSnapshot = item.expense_breakdown_unit
@@ -191,26 +208,77 @@ export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResul
     }
   })
 
+  // ───── Merge rates do item com rates do tenant ─────
+  // V17 trabalha com rates CONSOLIDADAS — usamos a do primeiro item válido com
+  // tax_rates definidos (assume perfil tributário homogêneo entre items, o que é
+  // verdade para >95% dos casos: produtos da mesma loja têm mesma tributação).
+  const firstItemWithRates = validItems.find(({ item }) => item.item_tax_rates != null)
+  const mergedRates = firstItemWithRates
+    ? mergeItemAndTenantRates(firstItemWithRates.item.item_tax_rates ?? null, tenantCtx.rates ?? [])
+    : (tenantCtx.rates ?? [])
+
   // ───── Chama motor V17 ─────
   const v17Input: MotorV17Input = {
     items: engineItems,
     discount: { pct: Math.max(0, Math.min(1, (globalDiscountPercent || 0) / 100)) },
     policy: tenantCtx.absorption_policy ?? 'RRO_PROPORTIONAL',
     regime: tenantCtx.regime,
-    rates: tenantCtx.rates ?? [],
+    rates: mergedRates,
     effective_date: args.effectiveDate ?? new Date().toISOString().slice(0, 10),
     use_snapshot_rates: tenantCtx.useSnapshotRates ?? false,
   }
 
   const v17Result = calculateMotorV17(v17Input)
 
+  // ───── Constrói taxes_inside/outside agregados para rateio ─────
+  // taxes_inside: ICMS, ISS, PIS, COFINS (PIS/COFINS é split do agregado V17)
+  const icmsRate = resolveRate(tenantCtx.rates, 'ICMS')
+  const issRate = resolveRate(tenantCtx.rates, 'ISS')
+  const pisRate = resolveRate(tenantCtx.rates, 'PIS')
+  const cofinsRate = resolveRate(tenantCtx.rates, 'COFINS')
+  const pisCofinsRateTotal = pisRate + cofinsRate
+  const pisAmount = pisCofinsRateTotal > 0
+    ? v17Result.motor.pis_cofins * (pisRate / pisCofinsRateTotal)
+    : 0
+  const cofinsAmount = pisCofinsRateTotal > 0
+    ? v17Result.motor.pis_cofins * (cofinsRate / pisCofinsRateTotal)
+    : 0
+
+  const taxesInsideTotal: TaxLine[] = [
+    { type: 'ICMS' as const, rate_pct: icmsRate, base: v17Result.motor.ancora, amount: v17Result.motor.icms },
+    { type: 'ISS' as const, rate_pct: issRate, base: v17Result.motor.ancora - v17Result.motor.icms, amount: v17Result.motor.iss },
+    { type: 'PIS' as const, rate_pct: pisRate, base: v17Result.motor.ancora - v17Result.motor.icms, amount: pisAmount },
+    { type: 'COFINS' as const, rate_pct: cofinsRate, base: v17Result.motor.ancora - v17Result.motor.icms, amount: cofinsAmount },
+  ].filter(t => t.amount > 0 || t.rate_pct > 0)
+
+  const taxesOutsideTotal: TaxLine[] = v17Result.distribution.taxes_outside.map(t => ({
+    type: t.type,
+    rate_pct: t.rate_pct,
+    base: t.base,
+    amount: t.amount,
+  }))
+
   // ───── Rateia resultado consolidado proporcional ao RB de cada item ─────
   const rbTotal = v17Result.consolidated.rb_total
   const results: (LegacyMotorResult | null)[] = items.map(() => null)
 
-  validItems.forEach(({ item, idx }, validIdx) => {
+  validItems.forEach(({ idx }, validIdx) => {
     const rb_i = engineItems[validIdx].rb
     const ratio = rbTotal > 0 ? rb_i / rbTotal : 0
+
+    // Ratear taxes_inside/outside proporcional (preserva alíquotas, divide R$)
+    const taxes_inside: TaxLine[] = taxesInsideTotal.map(t => ({
+      type: t.type,
+      rate_pct: t.rate_pct,
+      base: t.base * ratio,
+      amount: t.amount * ratio,
+    }))
+    const taxes_outside: TaxLine[] = taxesOutsideTotal.map(t => ({
+      type: t.type,
+      rate_pct: t.rate_pct,
+      base: t.base * ratio,
+      amount: t.amount * ratio,
+    }))
 
     results[idx] = {
       _v17_adapter: true,
@@ -220,12 +288,34 @@ export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResul
       new_csll: v17Result.distribution.new_csll * ratio,
       new_irpj: v17Result.distribution.new_irpj * ratio,
       rro: v17Result.motor.rro * ratio,
+      rb: rb_i,
+      desc_value: v17Result.motor.desc_value * ratio,
+      rv: v17Result.motor.rv * ratio,
+      cp: v17Result.motor.cp_efetivo * ratio,
+      mod: v17Result.motor.mod * ratio,
+      dop: v17Result.motor.dop * ratio,
+      taxes_inside,
+      taxes_outside,
+      imp_total: (v17Result.motor.imp_dentro_total + v17Result.distribution.taxes_outside_total) * ratio,
       cascade_trace: v17Result.motor.cascade_trace,  // consolidado (mesmo p/ todos)
       status: v17Result.status,
     }
   })
 
   return results
+}
+
+// Helper interno para resolver alíquota agregada de um tributo
+function resolveRate(rates: TaxRatePeriod[] | null | undefined, type: string): number {
+  if (!Array.isArray(rates)) return 0
+  let acc = 0
+  for (const r of rates) {
+    if (r?.tax_type === type) {
+      const v = Number(r.rate_pct)
+      if (Number.isFinite(v) && v > 0) acc += v
+    }
+  }
+  return acc
 }
 
 /**
