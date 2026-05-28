@@ -172,12 +172,26 @@ export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResul
 
     // DOP agregado (4 buckets do tenant)
     const eb = tenantCtx.expense_breakdown ?? null
-    const dop_pct = eb
+    const dop_pct_nominal = eb
       ? (Number(eb.administrative_pct) || 0) +
         (Number(eb.fixed_pct) || 0) +
         (Number(eb.variable_pct) || 0) +
         (Number(eb.financial_pct) || 0)
       : (Number(tenantCtx.dop_pct) || 0)
+
+    // V17 fix DOP_pct efetivo (2026-05-28 noite revisão 3):
+    // Cadastro do produto calcula DOP sobre Op Interna (não RB).
+    // Para o motor V17 (que faz rb × dop_pct), convertemos pct nominal para efetivo:
+    //   dop_pct_efetivo = dop_pct_nominal × peso_op_interna
+    // Resultado: motor faz rb × dop_pct_efetivo = rb × pct × (op_interna/rb)
+    //                                            = op_interna × pct ✅ bate cadastro
+    const salePriceBaseTemp = Number(item.sale_price_base_unit) || 0
+    const terceirizadasTemp = Number(item.terceirizadas_unit) || 0
+    const unitPriceTemp = Number(item.unit_price) || 0
+    const pesoOpInternaTemp = salePriceBaseTemp > 0 && unitPriceTemp > 0
+      ? Math.max(0, Math.min(1, (salePriceBaseTemp - terceirizadasTemp) / unitPriceTemp))
+      : 1
+    const dop_pct = dop_pct_nominal * pesoOpInternaTemp
 
     // mod_pct (V9 D1 — sempre 0 no V17 por princípio, MOD vai pro CMV)
     const mod_pct = 0
@@ -188,28 +202,69 @@ export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResul
     const csll_pct = resolveItemCsllPct(item.item_tax_rates ?? null, Number(tenantCtx.csll_pct) || 0)
     const irpj_pct = resolveItemIrpjPct(item.item_tax_rates ?? null, Number(tenantCtx.irpj_pct) || 0)
 
-    // Snapshot V14 expense_breakdown (se presente, vira amounts agregados)
+    // V17 fix DOP via Op Interna (2026-05-28 noite revisão 3):
+    // Cadastro do produto calcula despesas sobre Op Interna (não RB).
+    // Quando temos sale_price_base_unit + terceirizadas, calculamos op_interna_unit
+    // e gerar snapshot V14 sintético com despesas calculadas sobre OP INTERNA.
+    // Isso faz DOP bater com cadastro do produto:
+    //   - cadastro: 27,7% × R$ 11.847,88 = R$ 3.281,86 ✅
+    //   - V17 antes: 27,7% × R$ 22.888,21 = R$ 6.340,03 ❌
+    const salePriceBaseLocal = Number(item.sale_price_base_unit) || 0
+    const terceirizadasLocal = Number(item.terceirizadas_unit) || 0
+    const opInternaUnit = salePriceBaseLocal > 0
+      ? salePriceBaseLocal - terceirizadasLocal
+      : 0
+
     const ebSnapshot = item.expense_breakdown_unit
-    const expense_breakdown = ebSnapshot
-      ? {
-          mo_admin: {
-            rate: Number(ebSnapshot.mo_admin?.rate) || 0,
-            amount: (Number(ebSnapshot.mo_admin?.amount_unit) || 0) * qty,
-          },
-          fixa: {
-            rate: Number(ebSnapshot.fixa?.rate) || 0,
-            amount: (Number(ebSnapshot.fixa?.amount_unit) || 0) * qty,
-          },
-          variavel: {
-            rate: Number(ebSnapshot.variavel?.rate) || 0,
-            amount: (Number(ebSnapshot.variavel?.amount_unit) || 0) * qty,
-          },
-          financeira: {
-            rate: Number(ebSnapshot.financeira?.rate) || 0,
-            amount: (Number(ebSnapshot.financeira?.amount_unit) || 0) * qty,
-          },
-        }
-      : undefined
+    type ExpenseBreakdownAmount = {
+      mo_admin: { rate: number; amount: number }
+      fixa: { rate: number; amount: number }
+      variavel: { rate: number; amount: number }
+      financeira: { rate: number; amount: number }
+    }
+    let expense_breakdown: ExpenseBreakdownAmount | undefined
+
+    if (ebSnapshot) {
+      // V14 snapshot do produto (banco populou) — usar direto
+      expense_breakdown = {
+        mo_admin: {
+          rate: Number(ebSnapshot.mo_admin?.rate) || 0,
+          amount: (Number(ebSnapshot.mo_admin?.amount_unit) || 0) * qty,
+        },
+        fixa: {
+          rate: Number(ebSnapshot.fixa?.rate) || 0,
+          amount: (Number(ebSnapshot.fixa?.amount_unit) || 0) * qty,
+        },
+        variavel: {
+          rate: Number(ebSnapshot.variavel?.rate) || 0,
+          amount: (Number(ebSnapshot.variavel?.amount_unit) || 0) * qty,
+        },
+        financeira: {
+          rate: Number(ebSnapshot.financeira?.rate) || 0,
+          amount: (Number(ebSnapshot.financeira?.amount_unit) || 0) * qty,
+        },
+      }
+    } else if (opInternaUnit > 0 && eb) {
+      // V17 fix: calcula despesas sobre Op Interna (não RB) — bate cadastro
+      const moAdminP = Number(eb.administrative_pct) || 0
+      const fixaP = Number(eb.fixed_pct) || 0
+      const varP = Number(eb.variable_pct) || 0
+      const finP = Number(eb.financial_pct) || 0
+      const opInternaTotal = opInternaUnit * qty
+      expense_breakdown = {
+        mo_admin: { rate: moAdminP, amount: opInternaTotal * moAdminP },
+        fixa: { rate: fixaP, amount: opInternaTotal * fixaP },
+        variavel: { rate: varP, amount: opInternaTotal * varP },
+        financeira: { rate: finP, amount: opInternaTotal * finP },
+      }
+    } else {
+      expense_breakdown = undefined
+    }
+
+    // V17 fix DOP_pct: quando expense_breakdown calculado sobre Op Interna,
+    // ajusta dop_pct para refletir taxa efetiva sobre RB (motor usa rb × dop_pct)
+    // mas o motor agora também usa expense_breakdown.*.amount direto (V14 path).
+    // Mantém dop_pct para fallback, mas o motor preferirá os amounts do snapshot.
 
     // V17 fix peso_op_interna real (2026-05-28 noite - revisão 2):
     // PRIORIDADE de cálculo:
@@ -263,9 +318,10 @@ export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResul
       const commissionP = Number(item.commission_percent) / 100 || 0
       const profitP = Number(item.profit_percent) / 100 || 0
 
+      // CMV reverse markup usa dop_pct_nominal (sobre Op Interna), não o efetivo (sobre RB)
       const sumInternalRates =
         icmsPctP + pisPctP + cofinsPctP + issPctP +
-        commissionP + profitP + csllPctP + irpjPctP + dop_pct
+        commissionP + profitP + csllPctP + irpjPctP + dop_pct_nominal
       const reverseFactor = Math.max(0, 1 - sumInternalRates)
       cmvFinal = opInterna * reverseFactor
     }
