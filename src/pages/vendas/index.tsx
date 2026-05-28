@@ -1129,6 +1129,9 @@ function Sales() {
     const balcaoConsolidatedDRE = useMemo(() => {
         const dreItems: DREItemInput[] = saleItems.map((item, idx) => {
             const motor = balcaoMotorResultsByItem[idx]
+            // V17: inclui motor_cp_total + motor_expense_breakdown (cf. orcamentos)
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const motorV17 = motor as any
             return {
                 unit_price: item.unit_price,
                 quantity: item.quantity,
@@ -1141,6 +1144,8 @@ function Sales() {
                 motor_new_profit: motor?.new_profit,
                 motor_new_csll: motor?.new_csll,
                 motor_new_irpj: motor?.new_irpj,
+                motor_cp_total: motor?.cp,
+                motor_expense_breakdown: motorV17?.expense_breakdown_v17 ?? null,
             }
         })
         return computeConsolidatedDRE({

@@ -695,6 +695,11 @@ function Budgets() {
     const consolidatedDRE = useMemo(() => {
         const dreItems: DREItemInput[] = budgetItems.map((item, idx) => {
             const motor = motorResultsByItem[idx]
+            // V17 (2026-05-28): inclui motor_cp_total e motor_expense_breakdown
+            // para DRE consumir valores calculados pelo motor V17 (reverse markup CMV
+            // + despesas sobre Op Interna) em vez de recalcular sobre Receita Líquida.
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const motorV17 = motor as any
             return {
                 unit_price: item.unit_price,
                 quantity: item.quantity,
@@ -707,6 +712,8 @@ function Budgets() {
                 motor_new_profit: motor?.new_profit,
                 motor_new_csll: motor?.new_csll,
                 motor_new_irpj: motor?.new_irpj,
+                motor_cp_total: motor?.cp,
+                motor_expense_breakdown: motorV17?.expense_breakdown_v17 ?? null,
             }
         })
         // Para DRE: os snapshots de taxes_inside/outside precisam vir do motor

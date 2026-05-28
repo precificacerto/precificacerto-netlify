@@ -132,6 +132,17 @@ export type LegacyMotorResult = Pick<
 > & {
   /** Marker pra debug — identifica que veio via adapter V17. */
   _v17_adapter: true
+  /**
+   * V17 (2026-05-28): expense_breakdown POR ITEM (rateio proporcional do total).
+   * Usado pela DRE Consolidada para exibir despesas calculadas pelo motor
+   * (sobre Op Interna) em vez de recalcular sobre Receita Líquida.
+   */
+  expense_breakdown_v17?: {
+    mo_admin: number
+    fixa: number
+    variavel: number
+    financeira: number
+  } | null
 }
 
 /**
@@ -396,6 +407,7 @@ export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResul
   // ───── Rateia resultado consolidado proporcional ao RB de cada item ─────
   const rbTotal = v17Result.consolidated.rb_total
   const results: (LegacyMotorResult | null)[] = items.map(() => null)
+  const ebTotal = v17Result.consolidated.expense_breakdown_total ?? null
 
   validItems.forEach(({ idx }, validIdx) => {
     const rb_i = engineItems[validIdx].rb
@@ -414,6 +426,15 @@ export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResul
       base: t.base * ratio,
       amount: t.amount * ratio,
     }))
+
+    const expense_breakdown_v17 = ebTotal
+      ? {
+          mo_admin: ebTotal.mo_admin * ratio,
+          fixa: ebTotal.fixa * ratio,
+          variavel: ebTotal.variavel * ratio,
+          financeira: ebTotal.financeira * ratio,
+        }
+      : null
 
     results[idx] = {
       _v17_adapter: true,
@@ -434,6 +455,7 @@ export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResul
       imp_total: (v17Result.motor.imp_dentro_total + v17Result.distribution.taxes_outside_total) * ratio,
       cascade_trace: v17Result.motor.cascade_trace,  // consolidado (mesmo p/ todos)
       status: v17Result.status,
+      expense_breakdown_v17,
     }
   })
 

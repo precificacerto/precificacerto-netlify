@@ -52,6 +52,22 @@ export interface DREItemInput {
   motor_new_profit?: number
   motor_new_csll?: number
   motor_new_irpj?: number
+  /**
+   * V17 (2026-05-28): CMV total (R$) calculado pelo motor V17 — via reverse markup
+   * quando produto tem cost_total = 0 no banco. Tem prioridade sobre cost_total × qty.
+   */
+  motor_cp_total?: number | null
+  /**
+   * V17 (2026-05-28): Breakdown das 4 despesas operacionais POR ITEM (R$),
+   * calculadas pelo motor V17 sobre Op Interna (não Receita Líquida).
+   * Tem prioridade sobre o cálculo `receita_liquida × pct` quando presente.
+   */
+  motor_expense_breakdown?: {
+    mo_admin: number
+    fixa: number
+    variavel: number
+    financeira: number
+  } | null
 }
 
 /**
@@ -241,6 +257,11 @@ export function computeConsolidatedDRE(input: DREInput): DRESection {
   let itemsWithoutSource = 0
   const allTaxesInside: TaxLine[] = []
   const allTaxesOutside: TaxLine[] = []
+  // V17 (2026-05-28): aggregação de overrides do motor V17
+  let motorCpAccum = 0
+  let motorCpItems = 0
+  let motorEbAccum = { mo_admin: 0, fixa: 0, variavel: 0, financeira: 0 }
+  let motorEbItems = 0
 
   for (const item of items) {
     const qty = Number(item.quantity) || 0
@@ -254,6 +275,18 @@ export function computeConsolidatedDRE(input: DREInput): DRESection {
     if (!v.hasSource) itemsWithoutSource += 1
     allTaxesInside.push(...v.taxesInside)
     allTaxesOutside.push(...v.taxesOutside)
+    // V17 overrides — só conta items que efetivamente trouxeram override
+    if (Number(item.motor_cp_total) > 0) {
+      motorCpAccum += Number(item.motor_cp_total)
+      motorCpItems += 1
+    }
+    if (item.motor_expense_breakdown) {
+      motorEbAccum.mo_admin += Number(item.motor_expense_breakdown.mo_admin) || 0
+      motorEbAccum.fixa += Number(item.motor_expense_breakdown.fixa) || 0
+      motorEbAccum.variavel += Number(item.motor_expense_breakdown.variavel) || 0
+      motorEbAccum.financeira += Number(item.motor_expense_breakdown.financeira) || 0
+      motorEbItems += 1
+    }
   }
 
   const requiresReview = itemsWithoutSource > 0 && itemsWithoutSource === items.length
@@ -270,19 +303,28 @@ export function computeConsolidatedDRE(input: DREInput): DRESection {
   const receitaBruta = safeNet
   const receitaLiquida = Math.max(0, receitaBruta - porForaTotal)
 
-  // ───── 4. DESPESAS (4 BUCKETS proporcionais à receita líquida) ─────
-  // V8.8 (2026-05-24): "Custo do produto" = CMV TOTAL (já inclui MO produtiva).
-  // resolveProductCostTotal prioriza pricing_calculations.cmv que é o valor canônico
-  // do cadastro do produto ("Custo produto: R$ 42.645,94" = material + MO produtiva).
-  // MOD foi removida como linha separada para evitar dupla contagem.
-  // tenant.mod_pct é admin → vai em "Administrativas".
-  const despFixas = receitaLiquida * (Number(expenseStructure.fixed_pct) || 0)
-  const despVariaveis = receitaLiquida * (Number(expenseStructure.variable_pct) || 0)
-  const despFinanceiras = receitaLiquida * (Number(expenseStructure.financial_pct) || 0)
-  const despAdministrativas = receitaLiquida * (Number(expenseStructure.administrative_pct) || 0)
+  // ───── 4. DESPESAS (4 BUCKETS) ─────
+  // V17 (2026-05-28): quando o motor V17 fornece expense_breakdown (sobre Op Interna),
+  // usamos esses valores diretamente (batem com cadastro do produto). Fallback ao
+  // cálculo legado (receita_liquida × pcts) quando override ausente.
+  const useMotorEb = motorEbItems > 0 && motorEbItems === items.length
+  const despFixas = useMotorEb
+    ? motorEbAccum.fixa
+    : receitaLiquida * (Number(expenseStructure.fixed_pct) || 0)
+  const despVariaveis = useMotorEb
+    ? motorEbAccum.variavel
+    : receitaLiquida * (Number(expenseStructure.variable_pct) || 0)
+  const despFinanceiras = useMotorEb
+    ? motorEbAccum.financeira
+    : receitaLiquida * (Number(expenseStructure.financial_pct) || 0)
+  const despAdministrativas = useMotorEb
+    ? motorEbAccum.mo_admin
+    : receitaLiquida * (Number(expenseStructure.administrative_pct) || 0)
   const despTotal = despFixas + despVariaveis + despFinanceiras + despAdministrativas
   // V8.8: Custo do produto = CMV TOTAL. MOD não separada — está dentro do CMV.
-  const custosProduto = totalCost
+  // V17: prefere motor_cp_total (reverse markup quando produto.cost_total = 0).
+  const useMotorCp = motorCpItems > 0 && motorCpItems === items.length
+  const custosProduto = useMotorCp ? motorCpAccum : totalCost
   const modAmount = 0
   const custosTotal = custosProduto
 
