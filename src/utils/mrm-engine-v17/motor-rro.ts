@@ -48,29 +48,42 @@ export function applyMotorRRO(input: ApplyMotorRROInput): ApplyMotorRROResult {
   const { view } = input
   const messages: string[] = []
 
-  // ───── Resolver alíquotas relevantes ─────
+  // ───── Resolver alíquotas relevantes (fallback quando produtos não consolidam) ─────
   const icms_rate = resolveRate(input.rates, 'ICMS')
   const iss_rate = resolveRate(input.rates, 'ISS')
   const pis_rate = resolveRate(input.rates, 'PIS')
   const cofins_rate = resolveRate(input.rates, 'COFINS')
   const pis_cofins_rate = pis_rate + cofins_rate
 
-  // ───── PDF Etapa 13: cascata tributária SEQUENCIAL ─────
-  // (ancora_interna já vem da Etapa 7 do consolidate.ts)
+  // ───── PDF Etapa 13: cascata tributária ─────
   const ancora = view.ancora_interna
 
-  // 1º ICMS sobre Âncora
-  const icms = ancora * icms_rate
+  // V17 (2026-05-28): se produtos forneceram taxes_inside_amounts (R$ consolidados),
+  // usar valores direto + aplicar desconto proporcional. Multi-produto com alíquotas
+  // distintas resulta em ICMS/ISS/PIS/COFINS efetivos diferentes da nominal do tenant.
+  // Caso contrário, fallback ao cálculo via Âncora × pct_tenant (legado).
+  const tit = view.taxes_inside_total
+  const rb_total = view.rb_total
+  const rv_total = view.rv_total
+  // Fator de desconto proporcional: rv_total / rb_total (PDF Seção 23)
+  const ancoraFactor = rb_total > 0 ? rv_total / rb_total : 1
 
-  // 2º ISS sobre (Âncora − ICMS)
-  const base_pos_icms = ancora - icms
-  const iss = base_pos_icms * iss_rate
+  let icms: number
+  let iss: number
+  let pis_cofins: number
 
-  // 3º PIS/COFINS sobre Âncora (V17 fix 2026-05-28: reverte V12/ADR-013)
-  // Decisão Founder pre-launch: motor deve bater com cadastro do produto.
-  // Cadastro calcula PIS/COFINS = Op_Interna × pct (sem subtrair ICMS).
-  // Isso faz RRO=0 exato quando margem produto=0.
-  const pis_cofins = ancora * pis_cofins_rate
+  if (tit) {
+    // Consolidação por produto (R$ pré-desconto × desconto)
+    icms = tit.icms * ancoraFactor
+    iss = tit.iss * ancoraFactor
+    pis_cofins = tit.pis_cofins * ancoraFactor
+  } else {
+    // Legado: 1º ICMS sobre Âncora, 2º ISS sobre (Âncora−ICMS), 3º PIS/COFINS sobre Âncora
+    icms = ancora * icms_rate
+    const base_pos_icms = ancora - icms
+    iss = base_pos_icms * iss_rate
+    pis_cofins = ancora * pis_cofins_rate
+  }
 
   const imp_dentro_total = icms + iss + pis_cofins
 

@@ -545,6 +545,17 @@ export interface EngineItemV17 {
     variavel: { rate: number; amount: number }
     financeira: { rate: number; amount: number }
   }
+  /**
+   * V17 (2026-05-28): impostos por dentro CONSOLIDADOS por produto (R$ pré-desconto).
+   * Permite que cada produto contribua com alíquotas próprias (multi-produto heterogêneo).
+   * Quando presente: motor usa valores direto + aplica desconto proporcional.
+   * Quando ausente: motor calcula via Âncora × pct_tenant (comportamento legado).
+   */
+  taxes_inside_amounts?: {
+    icms: number
+    iss: number
+    pis_cofins: number
+  }
   /** Créditos tributários do item (V5-004). */
   tax_credits?: { recoverable: number; non_recoverable: number }
 }
@@ -592,6 +603,16 @@ export interface ConsolidatedView {
   peso_csll_original: number
   /** Espelhos por item para Camada 2 (COMMISSION_PROTECTED). */
   items_breakdown: ItemConsolidatedSnapshot[]
+  /**
+   * V17 (2026-05-28): impostos por dentro CONSOLIDADOS pré-desconto (R$).
+   * Agregado de cada item.taxes_inside_amounts. Permite multi-produto heterogêneo.
+   * `null` quando nenhum item forneceu valores explícitos.
+   */
+  taxes_inside_total?: {
+    icms: number
+    iss: number
+    pis_cofins: number
+  } | null
   /** Soma agregada dos 4 buckets de despesa (quando snapshots V14 presentes). */
   expense_breakdown_total?: {
     mo_admin: number

@@ -287,34 +287,38 @@ export function buildCascadeTrace17(input: BuildCascadeInput): CascadeStep[] {
           step: 13,
           label: 'ICMS',
           base: motor.ancora,
-          rate: input.rates.icms,
+          // V17: alíquota efetiva real = motor.icms / motor.ancora (consolidada dos produtos)
+          rate: motor.ancora > 0 ? motor.icms / motor.ancora : input.rates.icms,
           amount: -motor.icms,
-          formula: 'ancora × icms_rate',
+          formula: 'ancora × icms_efetiva (consolidada dos produtos)',
           source: 'ETAPA_12',
         },
         {
           step: 13,
           label: 'ISS',
           base: motor.ancora - motor.icms,
-          rate: input.rates.iss,
+          // V17: alíquota efetiva real = motor.iss / (ancora − icms)
+          rate: (motor.ancora - motor.icms) > 0
+            ? motor.iss / (motor.ancora - motor.icms)
+            : input.rates.iss,
           amount: -motor.iss,
-          formula: '(ancora − icms) × iss_rate',
+          formula: '(ancora − icms) × iss_efetiva',
           source: 'ETAPA_13.ICMS',
         },
         {
           step: 13,
           label: 'PIS/COFINS',
-          base: motor.ancora - motor.icms,
-          // V17 (2026-05-28): alíquota AJUSTADA — pis_cofins_nominal / (1 − icms_rate)
-          // Representa a alíquota EFETIVA que, aplicada sobre (ancora − icms), produz
-          // exatamente o mesmo R$ que pis_cofins_nominal × ancora. Bate cadastro do produto.
-          // Exemplo: 9,25% / (1 − 0,17) = 11,1446% × 9.833,74 = R$ 1.095,93 ✅
-          rate: input.rates.icms < 1
-            ? input.rates.pis_cofins / (1 - input.rates.icms)
+          base: motor.ancora - motor.icms - motor.iss,
+          // V17 (2026-05-28): alíquota EFETIVA real (nominal recomposta para base pós-ICMS-ISS).
+          // PIS/COFINS R$ vem CONSOLIDADO dos produtos (cada produto contribui com seu
+          // valor). A alíquota exibida é: motor.pis_cofins / (Âncora − ICMS − ISS).
+          // Bate exatamente com o R$ apurado.
+          rate: (motor.ancora - motor.icms - motor.iss) > 0
+            ? motor.pis_cofins / (motor.ancora - motor.icms - motor.iss)
             : input.rates.pis_cofins,
           amount: -motor.pis_cofins,
-          formula: '(ancora − icms) × pis_cofins_ajustada [ajustada = nominal / (1 − icms_rate)]',
-          source: 'ETAPA_13.ICMS',
+          formula: '(ancora − icms − iss) × pis_cofins_nominal_recomposta',
+          source: 'ETAPA_13.ICMS+ISS',
         },
       ],
     },

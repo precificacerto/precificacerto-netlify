@@ -337,6 +337,28 @@ export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResul
       cmvFinal = opInterna * reverseFactor
     }
 
+    // V17 (2026-05-28): calcula impostos por dentro POR PRODUTO usando alíquotas
+    // do próprio item (item_tax_rates). Multi-produto com alíquotas distintas
+    // resulta em consolidação correta (não usa rate estática do tenant).
+    // Base = Op_Interna do produto (Op_Interna_unit × qty).
+    const opInternaTotal = opInternaUnit > 0 ? opInternaUnit * qty : rb * peso_op_interna
+    const itemRatesForTaxes = item.item_tax_rates ?? null
+    const normalizePct = (v: unknown) => {
+      const n = Number(v) || 0
+      return n < 1 ? n : n / 100
+    }
+    const icmsPctItem = normalizePct(itemRatesForTaxes?.icms_pct)
+    const issPctItem = normalizePct(itemRatesForTaxes?.iss_pct)
+    const pisPctItem = normalizePct(itemRatesForTaxes?.pis_pct)
+    const cofinsPctItem = normalizePct(itemRatesForTaxes?.cofins_pct)
+    const taxes_inside_amounts = (itemRatesForTaxes && opInternaTotal > 0)
+      ? {
+          icms: opInternaTotal * icmsPctItem,
+          iss: opInternaTotal * issPctItem,
+          pis_cofins: opInternaTotal * (pisPctItem + cofinsPctItem),
+        }
+      : undefined
+
     return {
       item_id: `idx-${idx}`,
       rb,
@@ -349,6 +371,7 @@ export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResul
       irpj_pct,
       peso_op_interna,
       expense_breakdown,
+      taxes_inside_amounts,
     }
   })
 

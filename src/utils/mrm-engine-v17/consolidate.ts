@@ -58,6 +58,11 @@ export function consolidateItems(
   let expense_variavel = 0
   let expense_financeira = 0
   let has_any_expense_breakdown = false
+  // V17 (2026-05-28): consolidação de impostos por dentro POR PRODUTO
+  let tax_icms_amount = 0
+  let tax_iss_amount = 0
+  let tax_pis_cofins_amount = 0
+  let has_any_tax_inside_amounts = false
 
   const items_breakdown: ItemConsolidatedSnapshot[] = []
 
@@ -91,6 +96,14 @@ export function consolidateItems(
       expense_fixa += safeNum(item.expense_breakdown.fixa?.amount)
       expense_variavel += safeNum(item.expense_breakdown.variavel?.amount)
       expense_financeira += safeNum(item.expense_breakdown.financeira?.amount)
+    }
+
+    // V17: tax_inside_amounts (impostos por dentro consolidados por produto)
+    if (item.taxes_inside_amounts) {
+      has_any_tax_inside_amounts = true
+      tax_icms_amount += safeNum(item.taxes_inside_amounts.icms)
+      tax_iss_amount += safeNum(item.taxes_inside_amounts.iss)
+      tax_pis_cofins_amount += safeNum(item.taxes_inside_amounts.pis_cofins)
     }
 
     items_breakdown.push({
@@ -142,6 +155,14 @@ export function consolidateItems(
       }
     : null
 
+  const taxes_inside_total = has_any_tax_inside_amounts
+    ? {
+        icms: tax_icms_amount,
+        iss: tax_iss_amount,
+        pis_cofins: tax_pis_cofins_amount,
+      }
+    : null
+
   return {
     items_count: items_breakdown.length,
     rb_total,
@@ -161,6 +182,7 @@ export function consolidateItems(
     peso_csll_original,
     peso_irpj_original,
     items_breakdown,
+    taxes_inside_total,
     expense_breakdown_total,
   }
 }
@@ -199,6 +221,7 @@ function emptyConsolidatedView(): ConsolidatedView {
     peso_csll_original: 0,
     peso_irpj_original: 0,
     items_breakdown: [],
+    taxes_inside_total: null,
     expense_breakdown_total: null,
   }
 }
