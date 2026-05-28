@@ -481,3 +481,203 @@ export interface ReapurationInput {
  */
 export const MRM_ERROR_RRO_NON_POSITIVE =
   'Operação sem margem residual positiva. O desconto solicitado excede o limite máximo operacional permitido. Revise o desconto ou os parâmetros de custo.'
+
+// ═══════════════════════════════════════════════════════════════════════════
+// V17 — Motor RRO Aderente ao PDF Oficial (EPIC-MRM-V17)
+// ═══════════════════════════════════════════════════════════════════════════
+// Arquitetura 2 camadas:
+//   Camada 1 — Motor matemático oficial (consolidate + motor-rro)
+//   Camada 2 — Política comercial parametrizada (absorption)
+// ADR-015: docs/architecture/adr-015-motor-v17-policies-absorption.md
+
+/**
+ * Engine version V17 (3.x.x). Snapshots V16 (2.x.x) continuam imutáveis (ADR-003).
+ */
+export const MRM_ENGINE_VERSION_V17 = '3.0.0'
+
+/**
+ * Política comercial de absorção do desconto (V17 Camada 2).
+ *
+ * - RRO_PROPORTIONAL: redistribui RRO conforme pesos originais (PDF Seção 23)
+ * - COMMISSION_PROTECTED: comissão integral em R$, lucro absorve desconto
+ *
+ * Persistido em `tenants.absorption_policy`. Default `RRO_PROPORTIONAL`.
+ */
+export type AbsorptionPolicy = 'RRO_PROPORTIONAL' | 'COMMISSION_PROTECTED'
+
+/**
+ * Desconto aplicado sobre venda consolidada (V17 PDF Etapa 11).
+ * Apenas modo global proporcional suportado em V17.
+ */
+export interface DiscountV17 {
+  /** Decimal 0..1 (e.g. 0.10 = 10%). */
+  pct: number
+}
+
+/**
+ * Item individual antes da consolidação (V17 input mínimo).
+ * Equivale a 1 linha de budget_items/order_items/sale_items.
+ */
+export interface EngineItemV17 {
+  item_id: string
+  /** Receita Bruta unitária × quantidade (R$ pré-desconto). */
+  rb: number
+  /** CMV canônico = cost_total + productive_labor_unit (V9 D2). */
+  cp: number
+  /** MO Produtiva como % decimal — imune a desconto (R6). */
+  mod_pct: number
+  /** DOP agregado (4 buckets) como % decimal. */
+  dop_pct: number
+  /** % decimal original do item (peso pré-desconto PDF Seção 23). */
+  commission_pct: number
+  /** % decimal original do item. */
+  profit_pct: number
+  /** 0 forçado para MEI/SN pelo orchestrator (guard Q5). */
+  csll_pct: number
+  /** 0 forçado para MEI/SN pelo orchestrator (guard Q5). */
+  irpj_pct: number
+  /** Peso Op Interna decimal 0..1 (do markup divisor do produto). */
+  peso_op_interna: number
+  /** Snapshot V14 dos 4 buckets de despesa do produto (opcional). */
+  expense_breakdown?: {
+    mo_admin: { rate: number; amount: number }
+    fixa: { rate: number; amount: number }
+    variavel: { rate: number; amount: number }
+    financeira: { rate: number; amount: number }
+  }
+  /** Créditos tributários do item (V5-004). */
+  tax_credits?: { recoverable: number; non_recoverable: number }
+}
+
+/**
+ * Snapshot por item dentro do consolidado — usado pela Camada 2
+ * para resolver COMMISSION_PROTECTED (soma dos valores absolutos originais).
+ */
+export interface ItemConsolidatedSnapshot {
+  item_id: string
+  rb: number
+  commission_amount_original: number
+  profit_amount_original: number
+  csll_amount_original: number
+  irpj_amount_original: number
+}
+
+/**
+ * Output da Etapa 1 (consolidateItems) — PDF Etapas 1-9.
+ *
+ * Agrega N itens em UMA visão consolidada com pesos originais pré-desconto.
+ * Os pesos PDF Seção 23 são a chave da redistribuição RRO V17.
+ */
+export interface ConsolidatedView {
+  items_count: number
+  rb_total: number
+  desc_value: number
+  rv_total: number
+  /** Média ponderada por RB dos pesos op_interna individuais. */
+  peso_op_interna_ponderado: number
+  /** rv_total × peso_op_interna_ponderado (PDF Etapa 7 — Op Interna pós-desconto). */
+  ancora_interna: number
+  cp_total: number
+  mod_total: number
+  dop_total: number
+  /** Σ(rb_i × commission_pct_i) — R$ absoluto pré-desconto de cada componente. */
+  commission_amount_original: number
+  profit_amount_original: number
+  csll_amount_original: number
+  irpj_amount_original: number
+  /** Pesos PDF Seção 23 — base para redistribuição RRO (1.0 quando sum=0 vira fallback). */
+  peso_comissao_original: number
+  peso_lucro_original: number
+  peso_irpj_original: number
+  peso_csll_original: number
+  /** Espelhos por item para Camada 2 (COMMISSION_PROTECTED). */
+  items_breakdown: ItemConsolidatedSnapshot[]
+  /** Soma agregada dos 4 buckets de despesa (quando snapshots V14 presentes). */
+  expense_breakdown_total?: {
+    mo_admin: number
+    fixa: number
+    variavel: number
+    financeira: number
+  } | null
+}
+
+/**
+ * Output da Etapa 2 (applyMotorRRO) — PDF Etapas 10-15.
+ *
+ * Cascata tributária sequencial + RRO consolidado. Bit-exact entre flavors
+ * da Camada 2 — só `new_commission` e `new_profit` divergem após Etapa 3.
+ */
+export interface MotorOutput {
+  /** Espelho dos valores consolidados (para auditoria). */
+  rb: number
+  desc_value: number
+  rv: number
+  ancora: number
+  /** Cascata tributária sequencial (PDF Seção 19). */
+  icms: number
+  iss: number
+  pis_cofins: number
+  imp_dentro_total: number
+  /** CMV efetivo = cp_total − tax_credits.recoverable. */
+  cp_efetivo: number
+  mod: number
+  dop: number
+  rro: number
+  rro_status: ReapurationStatus
+  /** Cascade trace 17 etapas (PDF — superseta as 13 etapas V16). */
+  cascade_trace: CascadeStep[]
+  limite_minimo: number | null
+}
+
+/**
+ * Output da Etapa 3 (applyAbsorptionPolicy) — PDF Etapas 16-17 + Camada 2.
+ */
+export interface FinalDistribution {
+  policy_applied: AbsorptionPolicy
+  new_commission: number
+  new_profit: number
+  new_csll: number
+  new_irpj: number
+  /** Tributos por fora sobre base canônica (Âncora − ICMS − PIS/COFINS). */
+  taxes_outside: TaxLine[]
+  taxes_outside_base: number
+  taxes_outside_total: number
+  /** Valor final = ancora + Σ taxes_outside. */
+  valor_final: number
+  absorption_audit: {
+    /** True apenas em COMMISSION_PROTECTED com floor aplicado. */
+    commission_floor_applied: boolean
+    /** R$ que o lucro absorveu além do proporcional. */
+    profit_absorbed: number
+    /** Diferença vs comportamento RRO_PROPORTIONAL. */
+    delta_vs_proportional: number
+  }
+  validations: ValidationMap
+}
+
+/**
+ * Input completo do motor V17 — equivale a 1 documento (orçamento/pedido/venda).
+ */
+export interface MotorV17Input {
+  items: EngineItemV17[]
+  discount: DiscountV17
+  policy: AbsorptionPolicy
+  regime: TaxRegime
+  rates: TaxRatePeriod[]
+  effective_date: string
+  use_snapshot_rates: boolean
+}
+
+/**
+ * Resultado completo do motor V17 (pronto para persistir em
+ * `budgets/orders/sales.consolidated_breakdown`).
+ */
+export interface MotorV17Result {
+  engine_version: typeof MRM_ENGINE_VERSION_V17
+  consolidated: ConsolidatedView
+  motor: MotorOutput
+  distribution: FinalDistribution
+  status: ReapurationStatus
+  error_code: string | null
+  messages: string[]
+}

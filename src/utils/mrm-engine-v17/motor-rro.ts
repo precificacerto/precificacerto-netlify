@@ -1,0 +1,144 @@
+/**
+ * mrm-engine-v17/motor-rro.ts — Camada 1, Etapa 2
+ *
+ * EPIC-MRM-V17 (2026-05-28)
+ * Cobre PDF Etapas 10-15: cascata tributária sequencial + RRO consolidado.
+ *
+ * Princípio cascata inviolável (PDF Seção 19):
+ *   1º ICMS sobre Âncora
+ *   2º ISS  sobre (Âncora − ICMS)
+ *   3º PIS/COFINS sobre (Âncora − ICMS)   [V12 / ADR-013: NÃO subtrai ISS]
+ *
+ * Princípio V16.3: despesas operacionais e MOD/CP imutáveis a desconto.
+ */
+
+import type {
+  ConsolidatedView,
+  DiscountV17,
+  MotorOutput,
+  ReapurationStatus,
+  TaxRatePeriod,
+  TaxType,
+} from '@/types/mrm'
+import {
+  MRM_ERROR_RRO_NON_POSITIVE,
+} from '@/types/mrm'
+
+import { buildCascadeTrace17 } from './cascade-trace'
+
+interface ApplyMotorRROInput {
+  view: ConsolidatedView
+  discount: DiscountV17
+  rates: TaxRatePeriod[]
+  tax_credits_recoverable_total: number
+}
+
+interface ApplyMotorRROResult {
+  motor: MotorOutput
+  messages: string[]
+}
+
+/**
+ * Aplica cascata tributária + RRO sobre a visão consolidada.
+ *
+ * Output bit-exact entre os 2 flavors da Camada 2 — só `new_commission` e
+ * `new_profit` divergem após Camada 2.
+ */
+export function applyMotorRRO(input: ApplyMotorRROInput): ApplyMotorRROResult {
+  const { view } = input
+  const messages: string[] = []
+
+  // ───── Resolver alíquotas relevantes ─────
+  const icms_rate = resolveRate(input.rates, 'ICMS')
+  const iss_rate = resolveRate(input.rates, 'ISS')
+  const pis_rate = resolveRate(input.rates, 'PIS')
+  const cofins_rate = resolveRate(input.rates, 'COFINS')
+  const pis_cofins_rate = pis_rate + cofins_rate
+
+  // ───── PDF Etapa 13: cascata tributária SEQUENCIAL ─────
+  // (ancora_interna já vem da Etapa 7 do consolidate.ts)
+  const ancora = view.ancora_interna
+
+  // 1º ICMS sobre Âncora
+  const icms = ancora * icms_rate
+
+  // 2º ISS sobre (Âncora − ICMS)
+  const base_pos_icms = ancora - icms
+  const iss = base_pos_icms * iss_rate
+
+  // 3º PIS/COFINS sobre (Âncora − ICMS) — V12 ADR-013
+  // ISS NÃO subtrai da base PIS/COFINS (diverge do V16 antigo, alinha com STF)
+  const pis_cofins = base_pos_icms * pis_cofins_rate
+
+  const imp_dentro_total = icms + iss + pis_cofins
+
+  // ───── PDF Etapa 14: cascata custos e despesas ─────
+  // V16.3 princípio: estes valores são IMUTÁVEIS a desconto.
+  // CP efetivo = CP total − créditos recuperáveis (V5-004)
+  const cp_efetivo = Math.max(0, view.cp_total - input.tax_credits_recoverable_total)
+  const mod = view.mod_total
+  const dop = view.dop_total
+
+  // ───── PDF Etapa 15: RRO ─────
+  const rro = ancora - imp_dentro_total - cp_efetivo - mod - dop
+
+  // Status do RRO (R5 — não força a zero, apenas sinaliza)
+  let rro_status: ReapurationStatus = 'VALID'
+  if (Math.abs(rro) < 0.01) {
+    rro_status = 'RRO_ZERO'
+    messages.push(MRM_ERROR_RRO_NON_POSITIVE)
+  } else if (rro < 0) {
+    rro_status = 'RRO_NEGATIVE'
+    messages.push(MRM_ERROR_RRO_NON_POSITIVE)
+  }
+
+  // ───── Limite mínimo operacional (Seção 4.5 Relatório Consolidado) ─────
+  const soma_rates_internos = icms_rate + iss_rate + pis_cofins_rate
+  const denom_lim = 1 - soma_rates_internos
+  const limite_minimo = denom_lim > 0 ? (cp_efetivo + mod + dop) / denom_lim : null
+
+  // ───── Cascade trace 17 etapas ─────
+  const motorPartial: Omit<MotorOutput, 'cascade_trace'> = {
+    rb: view.rb_total,
+    desc_value: view.desc_value,
+    rv: view.rv_total,
+    ancora,
+    icms,
+    iss,
+    pis_cofins,
+    imp_dentro_total,
+    cp_efetivo,
+    mod,
+    dop,
+    rro,
+    rro_status,
+    limite_minimo,
+  }
+
+  const cascade_trace = buildCascadeTrace17({
+    view,
+    motor: motorPartial,
+    rates: { icms: icms_rate, iss: iss_rate, pis_cofins: pis_cofins_rate },
+  })
+
+  const motor: MotorOutput = { ...motorPartial, cascade_trace }
+  return { motor, messages }
+}
+
+// ─────────────────────────── Helpers internos ───────────────────────────
+
+/**
+ * Resolve alíquota agregada de um tipo de tributo entre os rates disponíveis.
+ * Soma quando há múltiplos registros (e.g. ICMS por origin/dest distintos).
+ */
+function resolveRate(rates: TaxRatePeriod[] | null | undefined, type: TaxType): number {
+  if (!Array.isArray(rates)) return 0
+  let acc = 0
+  for (const r of rates) {
+    if (r?.tax_type === type) {
+      const v = Number(r.rate_pct)
+      if (Number.isFinite(v) && v > 0) acc += v
+    }
+  }
+  return acc
+}

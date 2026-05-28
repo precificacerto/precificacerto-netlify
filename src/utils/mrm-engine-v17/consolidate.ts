@@ -1,0 +1,204 @@
+/**
+ * mrm-engine-v17/consolidate.ts — Camada 1, Etapa 1
+ *
+ * EPIC-MRM-V17 (2026-05-28)
+ * Cobre PDF Etapas 1-9: fragmentação individual → consolidação cross-produto.
+ *
+ * Princípio (PDF Seções 3-9):
+ *   1. Cada produto/serviço tem sua estrutura individual completa
+ *   2. Sistema SOMA por categoria equivalente (custos+custos, despesas+despesas)
+ *   3. Pesos de redistribuição RRO derivados dos VALORES ABSOLUTOS originais
+ *      pré-desconto (PDF Seção 23) — NÃO dos %s configurados
+ *
+ * Princípio V16.3 preservado: despesas operacionais imutáveis a desconto.
+ * Esta consolidação usa `rb_total` (PRÉ-desconto) como base dos buckets.
+ */
+
+import type {
+  ConsolidatedView,
+  DiscountV17,
+  EngineItemV17,
+  ItemConsolidatedSnapshot,
+} from '@/types/mrm'
+
+/**
+ * Consolida N items em uma única visão estruturada (PDF Etapas 1-9).
+ *
+ * Garantias:
+ * - Retorna view com zeros quando items vazio (não throw)
+ * - Pesos PDF Seção 23 somam 1.0 (±1e-9) quando há pelo menos 1 componente > 0
+ * - Quando soma_componentes_originais = 0, pesos viram fallback (lucro=1, demais=0)
+ *
+ * @param items   array de items pré-validados pelo orchestrator
+ * @param discount desconto global proporcional (PDF Etapa 11)
+ * @returns ConsolidatedView pronto para Etapa 2 (applyMotorRRO)
+ */
+export function consolidateItems(
+  items: EngineItemV17[],
+  discount: DiscountV17,
+): ConsolidatedView {
+  if (!Array.isArray(items) || items.length === 0) {
+    return emptyConsolidatedView()
+  }
+
+  const discountFactor = clamp01(discount.pct)
+
+  // ───── Acumuladores ─────
+  let rb_total = 0
+  let cp_total = 0
+  let mod_total = 0
+  let dop_total = 0
+  let peso_op_interna_num = 0  // numerador da média ponderada
+  let commission_amount_original = 0
+  let profit_amount_original = 0
+  let csll_amount_original = 0
+  let irpj_amount_original = 0
+  let expense_mo_admin = 0
+  let expense_fixa = 0
+  let expense_variavel = 0
+  let expense_financeira = 0
+  let has_any_expense_breakdown = false
+
+  const items_breakdown: ItemConsolidatedSnapshot[] = []
+
+  // ───── Loop principal: PDF Etapas 1-6 (estrutura individual + consolidação) ─────
+  for (const item of items) {
+    const rb_i = safeNum(item.rb)
+    if (rb_i <= 0) continue  // ignora items inválidos sem throw
+
+    rb_total += rb_i
+    cp_total += safeNum(item.cp)
+    // V16.3 princípio: despesas estruturais sobre RB pré-desconto
+    mod_total += rb_i * safeNum(item.mod_pct)
+    dop_total += rb_i * safeNum(item.dop_pct)
+    peso_op_interna_num += rb_i * clamp01(item.peso_op_interna)
+
+    // Valores absolutos originais (R$ pré-desconto) — base PDF Seção 23
+    const commission_i = rb_i * safeNum(item.commission_pct)
+    const profit_i = rb_i * safeNum(item.profit_pct)
+    const csll_i = rb_i * safeNum(item.csll_pct)
+    const irpj_i = rb_i * safeNum(item.irpj_pct)
+
+    commission_amount_original += commission_i
+    profit_amount_original += profit_i
+    csll_amount_original += csll_i
+    irpj_amount_original += irpj_i
+
+    // V14 snapshot expense_breakdown (quando presente)
+    if (item.expense_breakdown) {
+      has_any_expense_breakdown = true
+      expense_mo_admin += safeNum(item.expense_breakdown.mo_admin?.amount)
+      expense_fixa += safeNum(item.expense_breakdown.fixa?.amount)
+      expense_variavel += safeNum(item.expense_breakdown.variavel?.amount)
+      expense_financeira += safeNum(item.expense_breakdown.financeira?.amount)
+    }
+
+    items_breakdown.push({
+      item_id: item.item_id,
+      rb: rb_i,
+      commission_amount_original: commission_i,
+      profit_amount_original: profit_i,
+      csll_amount_original: csll_i,
+      irpj_amount_original: irpj_i,
+    })
+  }
+
+  // ───── PDF Etapas 7-8: peso op interna ponderado por RB ─────
+  const peso_op_interna_ponderado = rb_total > 0 ? peso_op_interna_num / rb_total : 1
+
+  // ───── PDF Etapa 9: venda consolidada + desconto + Op Interna ─────
+  const desc_value = rb_total * discountFactor
+  const rv_total = rb_total - desc_value
+  const ancora_interna = rv_total * peso_op_interna_ponderado
+
+  // ───── PDF Seção 23: pesos originais para redistribuição RRO ─────
+  const soma_componentes =
+    commission_amount_original +
+    profit_amount_original +
+    csll_amount_original +
+    irpj_amount_original
+
+  let peso_comissao_original = 0
+  let peso_lucro_original = 0
+  let peso_csll_original = 0
+  let peso_irpj_original = 0
+
+  if (soma_componentes > 0) {
+    peso_comissao_original = commission_amount_original / soma_componentes
+    peso_lucro_original = profit_amount_original / soma_componentes
+    peso_csll_original = csll_amount_original / soma_componentes
+    peso_irpj_original = irpj_amount_original / soma_componentes
+  } else {
+    // Fallback degenerado: todos componentes zerados → 100% vira lucro
+    peso_lucro_original = 1
+  }
+
+  const expense_breakdown_total = has_any_expense_breakdown
+    ? {
+        mo_admin: expense_mo_admin,
+        fixa: expense_fixa,
+        variavel: expense_variavel,
+        financeira: expense_financeira,
+      }
+    : null
+
+  return {
+    items_count: items_breakdown.length,
+    rb_total,
+    desc_value,
+    rv_total,
+    peso_op_interna_ponderado,
+    ancora_interna,
+    cp_total,
+    mod_total,
+    dop_total,
+    commission_amount_original,
+    profit_amount_original,
+    csll_amount_original,
+    irpj_amount_original,
+    peso_comissao_original,
+    peso_lucro_original,
+    peso_csll_original,
+    peso_irpj_original,
+    items_breakdown,
+    expense_breakdown_total,
+  }
+}
+
+// ─────────────────────────── Helpers internos ───────────────────────────
+
+function safeNum(v: unknown): number {
+  const n = Number(v)
+  return Number.isFinite(n) ? n : 0
+}
+
+function clamp01(v: unknown): number {
+  const n = safeNum(v)
+  if (n < 0) return 0
+  if (n > 1) return 1
+  return n
+}
+
+function emptyConsolidatedView(): ConsolidatedView {
+  return {
+    items_count: 0,
+    rb_total: 0,
+    desc_value: 0,
+    rv_total: 0,
+    peso_op_interna_ponderado: 1,
+    ancora_interna: 0,
+    cp_total: 0,
+    mod_total: 0,
+    dop_total: 0,
+    commission_amount_original: 0,
+    profit_amount_original: 0,
+    csll_amount_original: 0,
+    irpj_amount_original: 0,
+    peso_comissao_original: 0,
+    peso_lucro_original: 1,
+    peso_csll_original: 0,
+    peso_irpj_original: 0,
+    items_breakdown: [],
+    expense_breakdown_total: null,
+  }
+}
