@@ -25,7 +25,7 @@ Resumo: **tenant**, **tenant_settings**, **tenant_expense_config**, **auth.users
 
 ## 2. E-mail de convite (link definir senha)
 
-- O **link** é gerado pelo Supabase Auth (convite); o domínio depende da **Site URL** no projeto (ex.: `https://precificav2.netlify.app/criar-senha`).
+- O **link** é gerado pelo Supabase Auth (convite); o domínio depende da **Site URL** no projeto (ex.: `https://app.precificacerto.com/criar-senha`).
 - Nenhuma tabela adicional é escrita no clique do link; o Auth valida o token e inicia a sessão.
 
 ---

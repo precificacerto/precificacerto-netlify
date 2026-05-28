@@ -7,7 +7,7 @@ const getAppOrigin = () =>
     ? process.env.NEXT_PUBLIC_APP_URL
     : process.env.VERCEL_URL
       ? `https://${process.env.VERCEL_URL}`
-      : 'https://precificav2.netlify.app'
+      : 'https://app.precificacerto.com'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {

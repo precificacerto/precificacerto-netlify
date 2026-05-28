@@ -122,7 +122,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const origin =
     rawOrigin && !rawOrigin.includes('localhost')
       ? rawOrigin
-      : 'https://precificav2.netlify.app'
+      : 'https://app.precificacerto.com'
   const adminEmail = ((tenant as any).email || '').trim().toLowerCase()
 
   const params = new URLSearchParams({

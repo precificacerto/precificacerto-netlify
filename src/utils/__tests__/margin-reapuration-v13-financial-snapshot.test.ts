@@ -43,7 +43,7 @@ const tenantCtxBugFinanceira = {
 
 describe('V13 — Despesa Financeira snapshot do produto', () => {
   describe('Quando produto tem snapshot — overrides bucket Financeira', () => {
-    it('Financeira usa snapshot × qty; outros 3 buckets continuam % do tenant', () => {
+    it('Financeira usa snapshot × qty; outros 3 buckets % do tenant sobre itemBase (V16.3)', () => {
       const input = buildMotorInput({
         item: {
           unit_price: 141106.60,
@@ -59,13 +59,14 @@ describe('V13 — Despesa Financeira snapshot do produto', () => {
         discountMode: 'PROPORTIONAL',
       })
 
-      // RV = 141106.60 × 0.9 = 126995.94
-      // MO Admin (tenant 10,51%): 126995.94 × 0.1051 = 13347.27
-      // Fixa (tenant 10,64%): 126995.94 × 0.1064 = 13512.37
-      // Variável (tenant 6,12%): 126995.94 × 0.0612 = 7772.15
-      // Financeira (snapshot): 606.76 × 1 = 606.76 (NÃO 43% × RV = 54.608)
-      // Total DOP = 13347.27 + 13512.37 + 7772.15 + 606.76 ≈ 35.238,55
-      expect(input.dop).toBeCloseTo(13347.27 + 13512.37 + 7772.15 + 606.76, 1)
+      // V16.3 (2026-05-28): despesas operacionais imutáveis a desconto (sobre itemBase).
+      // itemBase = 141106.60 (PRÉ-desconto, não RV pós-desconto)
+      // MO Admin (tenant 10,51%): 141106.60 × 0.1051 = 14830.30
+      // Fixa (tenant 10,64%): 141106.60 × 0.1064 = 15013.74
+      // Variável (tenant 6,12%): 141106.60 × 0.0612 = 8635.72
+      // Financeira (snapshot): 606.76 × 1 = 606.76 (já era estático — V13)
+      // Total DOP = 14830.30 + 15013.74 + 8635.72 + 606.76 ≈ 39.086,52
+      expect(input.dop).toBeCloseTo(14830.30 + 15013.74 + 8635.72 + 606.76, 1)
     })
 
     it('expense_breakdown.financeira.rate = 0 quando snapshot ativo', () => {

@@ -155,8 +155,8 @@ describe('V10 — Cascade Granular (ADR-011)', () => {
     })
   })
 
-  describe('V10-I5 — buildMotorInput.dop = rv × dop_pct (sem mod_pct)', () => {
-    it('mod_pct NÃO entra em dop (cenário Hyago real)', () => {
+  describe('V10-I5 — buildMotorInput.dop = itemBase × dop_pct (V16.3 imutável a desconto)', () => {
+    it('mod_pct NÃO entra em dop; dop não encolhe com desconto (V16.3)', () => {
       const input = buildMotorInput({
         item: {
           unit_price: 141106.60,
@@ -178,8 +178,9 @@ describe('V10 — Cascade Granular (ADR-011)', () => {
         globalDiscountPercent: 10,
         discountMode: 'PROPORTIONAL',
       })
-      // dop = RV × dop_pct = 126995.94 × 0.3078 = 39089.74 (≈ planilha 39.086,52, diferença <R$5 por arredondamento)
-      expect(input.dop).toBeCloseTo(126995.94 * 0.3078, 1)
+      // V16.3 (2026-05-28): dop = itemBase × dop_pct = 141106.60 × 0.3078 = 43432.61
+      // (despesas operacionais imutáveis a desconto — semântica pré-desconto)
+      expect(input.dop).toBeCloseTo(141106.60 * 0.3078, 1)
       expect(input.mod).toBe(0)
       // CP V9 D2 preservado: cost + productive_labor
       expect(input.cp).toBeCloseTo(42645.94, 2)

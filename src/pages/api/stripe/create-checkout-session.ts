@@ -119,7 +119,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const origin =
     rawOrigin && !rawOrigin.includes('localhost')
       ? rawOrigin
-      : 'https://precificav2.netlify.app'
+      : 'https://app.precificacerto.com'
   const adminEmail = email.trim().toLowerCase()
   const adminName = name.trim()
 

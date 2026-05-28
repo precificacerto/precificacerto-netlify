@@ -179,7 +179,7 @@ export async function handleCheckoutCompleted(session: Stripe.Checkout.Session) 
   const origin =
     rawOrigin && !rawOrigin.includes('localhost')
       ? rawOrigin
-      : 'https://precificav2.netlify.app'
+      : 'https://app.precificacerto.com'
 
   if (existingTenantId) {
     const { data: existingTenant } = await supabaseAdmin

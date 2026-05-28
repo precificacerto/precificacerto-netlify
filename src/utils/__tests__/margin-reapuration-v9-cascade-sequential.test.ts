@@ -265,27 +265,27 @@ describe('V9 — buildMotorInput helper (invariantes V9-I4, V9-I5)', () => {
     })
   })
 
-  describe('V10 D1 — dop_input = RV × dop_pct (sem mod_pct)', () => {
-    it('mod_pct NÃO entra em dop (V10 corrige dupla contagem residual)', () => {
+  describe('V10 D1 — dop_input = itemBase × dop_pct (V16.3 imutável a desconto, sem mod_pct)', () => {
+    it('mod_pct NÃO entra em dop; dop não encolhe com desconto (V16.3)', () => {
       const input = buildMotorInput({
         item: baseItem,
         tenantCtx: baseCtx, // mod_pct=0.10, dop_pct=0.21
         globalDiscountPercent: 10,
         discountMode: 'PROPORTIONAL',
       })
-      // V10 (ADR-011): dop = RV × dop_pct = 126995.94 × 0.21 = 26669.15
-      // (mod_pct está no CMV via productive_labor_unit — não duplicar)
-      expect(input.dop).toBeCloseTo(126995.94 * 0.21, 1)
+      // V16.3 (2026-05-28): dop = itemBase × dop_pct = 141106.60 × 0.21 = 29632.39
+      // (despesas estruturais não dependem de desconto — semântica pré-desconto)
+      expect(input.dop).toBeCloseTo(141106.60 * 0.21, 1)
     })
   })
 
   describe('Cenário Hyago end-to-end via buildMotorInput + motor', () => {
-    it('Helper produz mesmo RRO que input direto', () => {
-      // Para reproduzir o cenário exato Hyago, dop precisa ser 39086.52, então:
-      // dop_pct + mod_pct = 39086.52 / 126995.94 = 0.30779 ≈ 30.78%
+    it('Helper produz RRO calibrado com dop_pct pré-desconto (V16.3)', () => {
+      // V16.3: para reproduzir dop=39086.52 absoluto, dop_pct = 39086.52 / 141106.60 = 0.27701
+      // (antes V16.2: 39086.52 / 126995.94 = 0.30779 — calibrado sobre RV pós-desconto)
       const input = buildMotorInput({
         item: baseItem,
-        tenantCtx: { ...baseCtx, mod_pct: 0, dop_pct: 0.30779 },
+        tenantCtx: { ...baseCtx, mod_pct: 0, dop_pct: 0.27701 },
         globalDiscountPercent: 10,
         discountMode: 'PROPORTIONAL',
       })

@@ -359,11 +359,14 @@ export function buildMotorInput(args: BuildMotorInputArgs): ReapurationInput {
     financeiraRate = breakdownSnapshot.financeira.rate
     dopItem = moAdminAmount + fixaAmount + variavelAmount + financeiraAmount
   } else if (ebTenant) {
-    // V13 / V10: tenant breakdown + override Financeira V13 quando presente
-    moAdminAmount = rvItem * moAdminPct
-    fixaAmount = rvItem * fixaPct
-    variavelAmount = rvItem * variavelPct
-    financeiraAmount = financeiraOverride ? financeiraUnit * qty : rvItem * financeiraPctTenant
+    // V16.3 (2026-05-28): despesas operacionais imutáveis a desconto.
+    // Base = itemBase (PRÉ-desconto), não rvItem. Princípio: despesas estruturais
+    // da empresa (MO Admin, Fixa, Variável, Financeira) NÃO mudam com desconto
+    // comercial — alinha V10/V13 com o princípio V14 (snapshot do produto).
+    moAdminAmount = itemBase * moAdminPct
+    fixaAmount = itemBase * fixaPct
+    variavelAmount = itemBase * variavelPct
+    financeiraAmount = financeiraOverride ? financeiraUnit * qty : itemBase * financeiraPctTenant
     moAdminRate = moAdminPct
     fixaRate = fixaPct
     variavelRate = variavelPct
@@ -371,10 +374,11 @@ export function buildMotorInput(args: BuildMotorInputArgs): ReapurationInput {
     dopItem = moAdminAmount + fixaAmount + variavelAmount + financeiraAmount
   } else {
     // V10 fallback agregado — sem breakdown detalhado
+    // V16.3: idem — base = itemBase (pré-desconto)
     const dopRate = Number(args.tenantCtx.dop_pct) || 0
-    const dopBase = rvItem * dopRate
+    const dopBase = itemBase * dopRate
     if (financeiraOverride) {
-      const financeiraTenantImplicita = rvItem * financeiraPctTenant
+      const financeiraTenantImplicita = itemBase * financeiraPctTenant
       dopItem = dopBase - financeiraTenantImplicita + financeiraUnit * qty
     } else {
       dopItem = dopBase

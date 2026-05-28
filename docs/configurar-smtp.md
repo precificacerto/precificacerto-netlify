@@ -74,7 +74,7 @@ Para o link de **redefinição de senha** funcionar, a URL de destino precisa es
 
 1. No Dashboard: **Authentication** → **URL Configuration**.
 2. Em **Redirect URLs**, inclua:
-   - Produção: `https://precificav2.netlify.app/reset-password`
+   - Produção: `https://app.precificacerto.com/reset-password`
 
 ---
 
