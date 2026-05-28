@@ -63,13 +63,23 @@ export interface PageItem {
   } | null
   financial_expense_unit?: number | null
   /**
-   * V17 Op Interna (R$ unitário) — valor do produto sem incluir impostos por fora
-   * (IBS/CBS/IS/IPI/ICMS-ST/DIFAL/FCP) nem atividades terceirizadas.
-   * Origem: `products.valor_precificado_icms_piscofins` (campo persistido no cadastro).
-   * Usado para calcular `peso_op_interna = valor_op_interna_unit / unit_price`.
-   * Quando ausente, adapter usa fallback 1 (toda venda tratada como Op Interna).
+   * V17 Op Interna (R$ unitário) — DEPRECATED em favor dos campos abaixo.
+   * Origem: `products.valor_precificado_icms_piscofins` (frequentemente errado/stale).
+   * Quando os 4 campos abaixo estão disponíveis, são preferidos.
    */
   valor_op_interna_unit?: number | null
+  /**
+   * V17 fix (2026-05-28 noite): preço base PRÉ impostos por fora (R$ unitário).
+   * = Op Interna + Atividades Terceirizadas (frete + seguro + despesas acessórias).
+   * Origem: `products.sale_price_base` (campo confiável, sempre populado).
+   */
+  sale_price_base_unit?: number | null
+  /**
+   * V17 fix: atividades terceirizadas (R$ unitário). Frete + Seguro + Despesas Acessórias.
+   * Origem: `products.freight_value + insurance_value + accessory_expenses_value`.
+   * Usado para calcular Op Interna real: `sale_price_base_unit - terceirizadas_unit`.
+   */
+  terceirizadas_unit?: number | null
 }
 
 export interface PageTenantCtx {
@@ -201,19 +211,69 @@ export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResul
         }
       : undefined
 
-    // V17 fix peso_op_interna real (2026-05-28 noite):
-    // Quando produto tem `valor_op_interna_unit` (mapeado de products.valor_precificado_icms_piscofins),
-    // calcula peso = R$_op_interna / unit_price. Caso contrário, fallback 1 (legacy).
-    const valorOpInterna = Number(item.valor_op_interna_unit) || 0
+    // V17 fix peso_op_interna real (2026-05-28 noite - revisão 2):
+    // PRIORIDADE de cálculo:
+    //   1) Fórmula confiável: (sale_price_base - terceirizadas) / unit_price
+    //      → bate exato com cadastro do produto (validado via SQL no banco)
+    //   2) Campo legacy valor_op_interna_unit (frequentemente errado/stale)
+    //   3) Fallback 1 (toda venda tratada como Op Interna)
     const unitPrice = Number(item.unit_price) || 0
-    const peso_op_interna = valorOpInterna > 0 && unitPrice > 0
-      ? Math.min(1, Math.max(0, valorOpInterna / unitPrice))
-      : 1
+    const salePriceBase = Number(item.sale_price_base_unit) || 0
+    const terceirizadas = Number(item.terceirizadas_unit) || 0
+    const valorOpInternaLegacy = Number(item.valor_op_interna_unit) || 0
+
+    let peso_op_interna: number
+    if (salePriceBase > 0 && unitPrice > 0) {
+      // FÓRMULA CORRETA (preferida)
+      const opInternaCorreta = salePriceBase - terceirizadas
+      peso_op_interna = opInternaCorreta > 0
+        ? Math.min(1, Math.max(0, opInternaCorreta / unitPrice))
+        : 1
+    } else if (valorOpInternaLegacy > 0 && unitPrice > 0) {
+      // Fallback campo legacy
+      peso_op_interna = Math.min(1, Math.max(0, valorOpInternaLegacy / unitPrice))
+    } else {
+      peso_op_interna = 1
+    }
+
+    // V17 fix CMV via reverse markup (2026-05-28 noite revisão 2):
+    // Quando produto tem cost_total = 0 no banco (módulo Precificação não persiste),
+    // derivamos CMV a partir do Op Interna usando a mesma fórmula que o módulo
+    // de cadastro do produto usou:
+    //   cmv = Op_Interna × (1 − Σ pcts_internos_PRODUTO)
+    // IMPORTANTE: usa apenas pcts DO PRODUTO (não fallback tenant), pois o produto
+    // pode ter Lucro 0%, Comissão 0%, IRPJ 0%, CSLL 0% explicitamente no cadastro.
+    let cmvFinal = cmvUsed
+    if (cmvFinal <= 0 && salePriceBase > 0) {
+      const opInterna = (salePriceBase - terceirizadas) * qty
+      // Pcts do PRODUTO (não usa fallback tenant para CMV reverse)
+      const itemRates = item.item_tax_rates ?? null
+      const normalize = (v: unknown) => {
+        const n = Number(v) || 0
+        return n < 1 ? n : n / 100
+      }
+      const icmsPctP = normalize(itemRates?.icms_pct)
+      const pisPctP = normalize(itemRates?.pis_pct)
+      const cofinsPctP = normalize(itemRates?.cofins_pct)
+      const issPctP = normalize(itemRates?.iss_pct)
+      // Para CSLL/IRPJ na fórmula CMV reverse, usa só do produto (não tenant)
+      const csllPctP = normalize(itemRates?.csll_pct)
+      const irpjPctP = normalize(itemRates?.irpj_pct)
+      // commission_pct e profit_pct já vêm em decimal, do item
+      const commissionP = Number(item.commission_percent) / 100 || 0
+      const profitP = Number(item.profit_percent) / 100 || 0
+
+      const sumInternalRates =
+        icmsPctP + pisPctP + cofinsPctP + issPctP +
+        commissionP + profitP + csllPctP + irpjPctP + dop_pct
+      const reverseFactor = Math.max(0, 1 - sumInternalRates)
+      cmvFinal = opInterna * reverseFactor
+    }
 
     return {
       item_id: `idx-${idx}`,
       rb,
-      cp: cmvUsed,
+      cp: cmvFinal,
       mod_pct,
       dop_pct,
       commission_pct,
@@ -249,10 +309,12 @@ export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResul
 
   // ───── Constrói taxes_inside/outside agregados para rateio ─────
   // taxes_inside: ICMS, ISS, PIS, COFINS (PIS/COFINS é split do agregado V17)
-  const icmsRate = resolveRate(tenantCtx.rates, 'ICMS')
-  const issRate = resolveRate(tenantCtx.rates, 'ISS')
-  const pisRate = resolveRate(tenantCtx.rates, 'PIS')
-  const cofinsRate = resolveRate(tenantCtx.rates, 'COFINS')
+  // V17 fix: usa mergedRates (item + tenant) ao invés de só tenantCtx.rates
+  // (tenant pode ter array vazio; alíquotas vêm do produto via item_tax_rates).
+  const icmsRate = resolveRate(mergedRates, 'ICMS')
+  const issRate = resolveRate(mergedRates, 'ISS')
+  const pisRate = resolveRate(mergedRates, 'PIS')
+  const cofinsRate = resolveRate(mergedRates, 'COFINS')
   const pisCofinsRateTotal = pisRate + cofinsRate
   const pisAmount = pisCofinsRateTotal > 0
     ? v17Result.motor.pis_cofins * (pisRate / pisCofinsRateTotal)

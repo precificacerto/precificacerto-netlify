@@ -1042,12 +1042,16 @@ function Sales() {
     // valor_op_interna_unit do produto (campo products.valor_precificado_icms_piscofins).
     const balcaoEnrichedItems = saleItems.map(i => {
         const prod = i.product_id ? (products as any[]).find(p => p.id === i.product_id) : null
-        const valorOpInterna = prod?.valor_precificado_icms_piscofins
+        const numOrNull = (v: unknown) =>
+            v != null && Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : null
+        const terc = prod
+            ? (Number(prod.freight_value) || 0) + (Number(prod.insurance_value) || 0) + (Number(prod.accessory_expenses_value) || 0)
+            : 0
         return {
             ...i,
-            valor_op_interna_unit: valorOpInterna != null && Number.isFinite(Number(valorOpInterna)) && Number(valorOpInterna) > 0
-                ? Number(valorOpInterna)
-                : null,
+            valor_op_interna_unit: numOrNull(prod?.valor_precificado_icms_piscofins),
+            sale_price_base_unit: numOrNull(prod?.sale_price_base),
+            terceirizadas_unit: terc > 0 ? terc : null,
         }
     })
     const balcaoV17Results = calculateMotorV17ForPage({
@@ -1202,12 +1206,16 @@ function Sales() {
                 const reapDate = new Date().toISOString().slice(0, 10)
                 const validationEnrichedItems = saleItems.map(i => {
                     const prod = i.product_id ? (products as any[]).find(p => p.id === i.product_id) : null
-                    const valorOpInterna = prod?.valor_precificado_icms_piscofins
+                    const numOrNull = (v: unknown) =>
+                        v != null && Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : null
+                    const terc = prod
+                        ? (Number(prod.freight_value) || 0) + (Number(prod.insurance_value) || 0) + (Number(prod.accessory_expenses_value) || 0)
+                        : 0
                     return {
                         ...i,
-                        valor_op_interna_unit: valorOpInterna != null && Number.isFinite(Number(valorOpInterna)) && Number(valorOpInterna) > 0
-                            ? Number(valorOpInterna)
-                            : null,
+                        valor_op_interna_unit: numOrNull(prod?.valor_precificado_icms_piscofins),
+                        sale_price_base_unit: numOrNull(prod?.sale_price_base),
+                        terceirizadas_unit: terc > 0 ? terc : null,
                     }
                 })
                 const previewResults = calculateMotorV17ForPage({
@@ -1256,12 +1264,16 @@ function Sales() {
             const reapurationEffectiveDateSale = new Date().toISOString().slice(0, 10)
             const saveEnrichedItems = saleItems.map(i => {
                 const prod = i.product_id ? (products as any[]).find(p => p.id === i.product_id) : null
-                const valorOpInterna = prod?.valor_precificado_icms_piscofins
+                const numOrNull = (v: unknown) =>
+                    v != null && Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : null
+                const terc = prod
+                    ? (Number(prod.freight_value) || 0) + (Number(prod.insurance_value) || 0) + (Number(prod.accessory_expenses_value) || 0)
+                    : 0
                 return {
                     ...i,
-                    valor_op_interna_unit: valorOpInterna != null && Number.isFinite(Number(valorOpInterna)) && Number(valorOpInterna) > 0
-                        ? Number(valorOpInterna)
-                        : null,
+                    valor_op_interna_unit: numOrNull(prod?.valor_precificado_icms_piscofins),
+                    sale_price_base_unit: numOrNull(prod?.sale_price_base),
+                    terceirizadas_unit: terc > 0 ? terc : null,
                 }
             })
             const saveV17Results = calculateMotorV17ForPage({

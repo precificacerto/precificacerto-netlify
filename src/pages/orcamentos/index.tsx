@@ -589,16 +589,24 @@ function Budgets() {
     // V17 Cutover (2026-05-28): motor agora roda UMA VEZ sobre todos os items
     // (consolida cross-produto antes de aplicar desconto, conforme PDF Etapas 1-9).
     // Adapter mantém shape V16 (motorResultsByItem) para componentes downstream.
-    // V17 fix (2026-05-28 noite): enriquece items com valor_op_interna_unit do produto
-    // para que adapter calcule peso_op_interna real (não 100% hardcoded).
+    // V17 fix (2026-05-28 noite revisão 2): enriquece items com 4 campos do produto
+    // para que adapter calcule Op Interna real via fórmula confiável:
+    //   Op_Interna = sale_price_base - (freight + insurance + accessory_expenses)
+    // O campo valor_precificado_icms_piscofins do banco está stale/errado (validado via SQL).
     const enrichedItems = budgetItems.map(i => {
         const prod = i.product_id ? (products as any[]).find(p => p.id === i.product_id) : null
-        const valorOpInterna = prod?.valor_precificado_icms_piscofins
+        const numOrNull = (v: unknown) =>
+            v != null && Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : null
+        const terceirizadas = prod
+            ? (Number(prod.freight_value) || 0) +
+              (Number(prod.insurance_value) || 0) +
+              (Number(prod.accessory_expenses_value) || 0)
+            : 0
         return {
             ...i,
-            valor_op_interna_unit: valorOpInterna != null && Number.isFinite(Number(valorOpInterna)) && Number(valorOpInterna) > 0
-                ? Number(valorOpInterna)
-                : null,
+            valor_op_interna_unit: numOrNull(prod?.valor_precificado_icms_piscofins),
+            sale_price_base_unit: numOrNull(prod?.sale_price_base),
+            terceirizadas_unit: terceirizadas > 0 ? terceirizadas : null,
         }
     })
     const v17Results = calculateMotorV17ForPage({
