@@ -1,10 +1,24 @@
 # ADR-015 — Motor V17: Policies of Absorption (Camada 1 + Camada 2)
 
-**Status:** PROPOSED
+**Status:** ACCEPTED (2026-05-28 — confirmado pelo Founder)
 **Data:** 2026-05-28
 **Stakeholders:** Founder, @architect (Aria), @qa (Quinn), @pm (Morgan), @dev (Dex)
 **Supersedes:** —
 **Related:** ADR-003 (snapshot imutabilidade), ADR-010 (V9 cascade sequencial), ADR-011 (V10 children), ADR-013 (V12 PIS/COFINS base), V16.3 patch
+
+---
+
+## Decisões Founder confirmadas (2026-05-28)
+
+| Q | Decisão |
+|---|---------|
+| 1 | PDF = verdade normativa do motor (não apenas referência conceitual) |
+| 2 | **Camada 2 MVP:** 2 flavors apenas — `RRO_PROPORTIONAL` (default PDF) + `COMMISSION_PROTECTED`. Outras 3 (PROFIT_ABSORBS_ALL, SELLER_ABSORBS_PCT, HYBRID) entram em release futuro condicional a demanda |
+| 3 | **Tenants beta:** sistema avalia automaticamente via query SQL em `supabase/queries/beta-tenants-candidates.sql` — Founder seleciona finalistas com base no relatório retornado |
+| 4 | **Parecer contábil (D2 efetivas vs nominais):** ADIADO para Onda 3 — não bloqueia Camada 1 |
+| 5 | Snapshot freeze obrigatório (orçamentos APPROVED/CONFIRMED nunca recalculam) |
+| 6 | 2 motores paralelos (V16 + V17) por 3-6 meses via feature flag por tenant |
+| 7 | V16.3 confirmado aderente ao PDF Seção 10 (despesas integrais) — não desfazer |
 
 ---
 
