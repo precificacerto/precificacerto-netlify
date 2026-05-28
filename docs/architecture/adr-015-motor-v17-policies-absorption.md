@@ -2,23 +2,39 @@
 
 **Status:** ACCEPTED (2026-05-28 — confirmado pelo Founder)
 **Data:** 2026-05-28
+**Revisão:** 2026-05-28 (Founder esclareceu contexto pré-lançamento — estratégia simplificada)
 **Stakeholders:** Founder, @architect (Aria), @qa (Quinn), @pm (Morgan), @dev (Dex)
 **Supersedes:** —
 **Related:** ADR-003 (snapshot imutabilidade), ADR-010 (V9 cascade sequencial), ADR-011 (V10 children), ADR-013 (V12 PIS/COFINS base), V16.3 patch
 
 ---
 
-## Decisões Founder confirmadas (2026-05-28)
+## ⚠️ CONTEXTO CRÍTICO
+
+**Sistema em PRÉ-LANÇAMENTO.** Não há clientes reais em produção — todos os tenants existentes são contas de teste do Founder. Estamos finalizando ajustes antes do lançamento oficial.
+
+**Implicações arquiteturais:**
+- ❌ NÃO precisa feature flag por tenant
+- ❌ NÃO precisa motores paralelos V16+V17
+- ❌ NÃO precisa shadow mode V16↔V17
+- ❌ NÃO precisa snapshot freeze de orçamentos legados
+- ❌ NÃO precisa migração assistida
+- ❌ NÃO precisa tenants beta com convite
+- ✅ V17 substitui V16 diretamente (cutover único)
+- ✅ Foco em **qualidade do motor antes do lançamento**
+- ✅ Aderência ao PDF desde o dia 1
+
+## Decisões Founder confirmadas (2026-05-28 + revisão)
 
 | Q | Decisão |
 |---|---------|
 | 1 | PDF = verdade normativa do motor (não apenas referência conceitual) |
-| 2 | **Camada 2 MVP:** 2 flavors apenas — `RRO_PROPORTIONAL` (default PDF) + `COMMISSION_PROTECTED`. Outras 3 (PROFIT_ABSORBS_ALL, SELLER_ABSORBS_PCT, HYBRID) entram em release futuro condicional a demanda |
-| 3 | **Tenants beta:** sistema avalia automaticamente via query SQL em `supabase/queries/beta-tenants-candidates.sql` — Founder seleciona finalistas com base no relatório retornado |
-| 4 | **Parecer contábil (D2 efetivas vs nominais):** ADIADO para Onda 3 — não bloqueia Camada 1 |
-| 5 | Snapshot freeze obrigatório (orçamentos APPROVED/CONFIRMED nunca recalculam) |
-| 6 | 2 motores paralelos (V16 + V17) por 3-6 meses via feature flag por tenant |
-| 7 | V16.3 confirmado aderente ao PDF Seção 10 (despesas integrais) — não desfazer |
+| 2 | **Camada 2 MVP:** 2 flavors apenas — `RRO_PROPORTIONAL` (default PDF) + `COMMISSION_PROTECTED`. Outras 3 entram conforme demanda real pós-lançamento |
+| 3 | **Tenants beta:** ❌ DESCARTADO — não há clientes reais. Substituído por **testes sintéticos abrangentes** baseados em 3 fixtures (SIMPLE, MULTI_PRODUCT usando dados reais de Esquadrias, AGGRESSIVE_DISCOUNT) |
+| 4 | **Parecer contábil (D2 efetivas vs nominais):** ADIADO para pós-lançamento — não bloqueia Camada 1 |
+| 5 | Snapshot freeze ❌ DESCARTADO — não há orçamentos reais para proteger |
+| 6 | **Motor único V17** (cutover direto) — V16 é descontinuado simultaneamente |
+| 7 | V16.3 confirmado aderente ao PDF Seção 10 (despesas integrais) — princípio preservado em V17 |
 
 ---
 
@@ -102,51 +118,72 @@ Persistência: `tenant_absorption_policies` (novo)
 
 ---
 
-## Roadmap em 3 Ondas
+## Roadmap REVISADO — Pré-Lançamento
 
-### Onda 1 — Quick Wins (esta semana — ESCOPO DESTA ADR)
+### Onda 1 — Preparação (ENTREGUE 2026-05-28)
 
 - ✅ Suite de testes para `breakeven-calculator.ts` (PE PDF canônico 308.968,15)
 - ✅ Doc mapeamento 13→17 etapas (`docs/architecture/cascade-mapping-13-to-17.md`)
 - ✅ ADR-015 (este documento)
 - ✅ Memory project com plano V17
 
-**Zero risco matemático.** Sistema V16.3 em produção segue funcionando.
+### Onda 2 — Motor V17 + Camada 2 MVP (1-2 semanas — ÚNICO SPRINT)
 
-### Onda 2 — Alinhamento Estrutural (4-6 semanas — feature flag obrigatório)
+Sprint único combinando Camada 1 + Camada 2 MVP, sem feature flag:
 
-- Implementar Camada 1 completa (`consolidateItems` + `applyMotorRRO`)
-- Persistir `consolidated_tax_breakdown` no documento (não no item)
-- Flag por tenant: `motor_version` ∈ {`V16`, `V17`}
-- Shadow mode automático V16↔V17 com diff matemático logado
-- 2-3 tenants beta (perfil simples + multi-produto + agressivo em desconto)
+**Implementação técnica:**
+- Criar `src/utils/mrm-engine-v17.ts` com 3 funções puras encadeadas:
+  - `consolidateItems(items)` — agrega cross-produto (PDF Etapas 1-9)
+  - `applyMotorRRO(view, discount)` — cascata + RRO consolidado (PDF Etapas 10-15)
+  - `applyAbsorptionPolicy(motor, policy)` — distribuição final (PDF Etapas 16-17 + Camada 2)
+- Substituir uso de `margin-reapuration.ts` por `mrm-engine-v17.ts` em:
+  - `src/pages/orcamentos/index.tsx`
+  - `src/pages/vendas/index.tsx`
+  - `src/pages/pedidos/index.tsx`
+- Migration `tenants.absorption_policy` (default `RRO_PROPORTIONAL`)
+- Migration `documents.consolidated_breakdown` (JSON opcional)
 
-### Onda 3 — Política Comercial + Tributação Refinada (3-6 meses)
+**Validação:**
+- Cenário PDF canônico (RRO 3.093,37) como teste oficial obrigatório
+- Cenário Hyago (RRO 13.924,06) como teste de regressão
+- 3 fixtures sintéticas: SIMPLE, MULTI_PRODUCT (dados de Esquadrias), AGGRESSIVE
+- Smoke test manual do Founder antes do go-live
 
-- Implementar Camada 2 (`applyAbsorptionPolicy`)
-- UI de configuração de políticas por tenant
-- Decisão D2 com parecer contábil: alíquotas efetivas vs nominais (Motor V18 condicional)
-- Migration assistida V16 → V17 com freeze histórico
+**Sem precisar:**
+- ❌ Feature flag
+- ❌ Shadow mode
+- ❌ Motores paralelos
+- ❌ Migração assistida
+- ❌ Snapshot freeze
+
+### Onda 3 — Pós-lançamento (3-6 meses, condicional a demanda real)
+
+- Avaliar D2 (efetivas vs nominais) com parecer contábil se cliente exigir
+- Adicionar flavors da Camada 2 (PROFIT_ABSORBS_ALL, SELLER_ABSORBS_PCT, HYBRID) conforme pedido
+- Refinamentos baseados em feedback de clientes reais
 
 ---
 
-## Estratégia de migração e snapshot freeze
+## Estratégia de cutover (REVISADA — pré-lançamento)
 
-**Princípio:** orçamentos/vendas são documentos contábeis — não mudam valor sem ação do usuário.
+**Princípio:** sistema ainda não lançou, não há documentos contábeis reais. Cutover único direto.
 
-| Status do documento | Comportamento V17 |
-|---------------------|-------------------|
-| `DRAFT` | Pode recalcular com motor V17 (botão "Recalcular com Motor 3.0") |
-| `APPROVED` | Congelado permanentemente, badge "Motor V16 (legado)" |
-| `CONFIRMED` / `PAID` | Congelado permanentemente, nunca recalcula |
-| Novos documentos pós-deploy | Default = motor do tenant (`tenant.motor_version`) |
+| Etapa | Ação |
+|-------|------|
+| 1 | Implementar `mrm-engine-v17.ts` com cobertura de testes completa |
+| 2 | Substituir todas as chamadas de `calculateMarginReapuration` por `calculateMotorV17` |
+| 3 | Apagar dados de teste obsoletos no Supabase (orçamentos antigos pré-V17) |
+| 4 | Smoke test manual em todos os fluxos críticos (orçamento, pedido, venda) |
+| 5 | Deploy V17 como motor único |
+| 6 | `margin-reapuration.ts` mantido por 1 release como backup, depois deprecado |
 
 **Campos novos a persistir:**
-- `documents.motor_version` (string: "V16", "V17")
-- `documents.consolidated_tax_breakdown` (JSON, NULL para V16 legado)
-- `documents.absorption_policy_snapshot` (JSON, NULL para V16 legado)
-- `tenants.motor_version_default` (config tenant)
-- `tenants.absorption_policy_default` (config tenant)
+- `tenants.absorption_policy` (enum: `RRO_PROPORTIONAL` | `COMMISSION_PROTECTED`, default `RRO_PROPORTIONAL`)
+- `documents.consolidated_breakdown` (JSON, opcional — auditoria)
+
+**Campos descartados (não necessários):**
+- ~~`documents.motor_version`~~ — só existe um motor
+- ~~`tenants.motor_version_default`~~ — só existe um motor
 
 ---
 
