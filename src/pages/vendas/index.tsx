@@ -365,7 +365,9 @@ function Sales() {
 
             // Products: try with recurrence_days, fall back without
             let prods: any[] | null = null
-            const { data: prodsFull, error: prodsErr } = await supabase.from('products').select('id, name, sale_price, cost_total, profit_percent, commission_table_id, recurrence_days').order('name')
+            // V17 (2026-05-28): inclui campos para motor V17 (terceirizadas, sale_price_base, valor_precificado)
+            const v17Cols = 'freight_value, insurance_value, accessory_expenses_value, sale_price_base, valor_precificado_icms_piscofins'
+            const { data: prodsFull, error: prodsErr } = await supabase.from('products').select(`id, name, sale_price, cost_total, profit_percent, commission_table_id, recurrence_days, ${v17Cols}`).order('name')
             if (!prodsErr) {
                 prods = prodsFull
             } else {
@@ -1132,6 +1134,8 @@ function Sales() {
             // V17: inclui motor_cp_total + motor_expense_breakdown (cf. orcamentos)
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const motorV17 = motor as any
+            // V17: terceirizadas (frete + seguros + acessórias) do cadastro do produto
+            const prod = item.product_id ? (products as any[]).find(p => p.id === item.product_id) : null
             return {
                 unit_price: item.unit_price,
                 quantity: item.quantity,
@@ -1146,6 +1150,9 @@ function Sales() {
                 motor_new_irpj: motor?.new_irpj,
                 motor_cp_total: motor?.cp,
                 motor_expense_breakdown: motorV17?.expense_breakdown_v17 ?? null,
+                freight_unit: prod ? Number(prod.freight_value) || 0 : 0,
+                insurance_unit: prod ? Number(prod.insurance_value) || 0 : 0,
+                accessory_unit: prod ? Number(prod.accessory_expenses_value) || 0 : 0,
             }
         })
         return computeConsolidatedDRE({

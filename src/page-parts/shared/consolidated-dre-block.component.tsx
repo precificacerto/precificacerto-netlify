@@ -240,6 +240,7 @@ export function ConsolidatedDREBlock({
 }: ConsolidatedDREBlockProps) {
   const {
     receitas,
+    terceirizadas,
     custos,
     despesas,
     impostos,
@@ -319,6 +320,18 @@ export function ConsolidatedDREBlock({
       <Row label="Total despesas" value={formatBRL(despesas.total)} color="#fb923c" />
 
       <Divider />
+
+      {/* ─── 3b. ATIVIDADES TERCEIRIZADAS (V17 — opção C: seção própria após Despesas) ─── */}
+      {terceirizadas && terceirizadas.total > 0 && (
+        <>
+          <SectionHeader title="Atividades Terceirizadas" accent="#c084fc"  />
+          {terceirizadas.frete > 0 && <Row label="Frete" value={formatBRL(terceirizadas.frete)} color="#e9d5ff" indent={12} />}
+          {terceirizadas.seguros > 0 && <Row label="Seguros" value={formatBRL(terceirizadas.seguros)} color="#e9d5ff" indent={12} />}
+          {terceirizadas.acessorias > 0 && <Row label="Despesas acessórias" value={formatBRL(terceirizadas.acessorias)} color="#e9d5ff" indent={12} />}
+          <Row label="Total terceirizadas" value={formatBRL(terceirizadas.total)} color="#a855f7" />
+          <Divider />
+        </>
+      )}
 
       {/* ─── 4. IMPOSTOS (POR DENTRO / POR FORA separados — R5) ─── */}
       <SectionHeader title="Impostos" accent="#60a5fa" />

@@ -66,9 +66,11 @@ export function applyMotorRRO(input: ApplyMotorRROInput): ApplyMotorRROResult {
   const base_pos_icms = ancora - icms
   const iss = base_pos_icms * iss_rate
 
-  // 3º PIS/COFINS sobre (Âncora − ICMS) — V12 ADR-013
-  // ISS NÃO subtrai da base PIS/COFINS (diverge do V16 antigo, alinha com STF)
-  const pis_cofins = base_pos_icms * pis_cofins_rate
+  // 3º PIS/COFINS sobre Âncora (V17 fix 2026-05-28: reverte V12/ADR-013)
+  // Decisão Founder pre-launch: motor deve bater com cadastro do produto.
+  // Cadastro calcula PIS/COFINS = Op_Interna × pct (sem subtrair ICMS).
+  // Isso faz RRO=0 exato quando margem produto=0.
+  const pis_cofins = ancora * pis_cofins_rate
 
   const imp_dentro_total = icms + iss + pis_cofins
 

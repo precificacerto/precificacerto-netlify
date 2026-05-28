@@ -700,6 +700,8 @@ function Budgets() {
             // + despesas sobre Op Interna) em vez de recalcular sobre Receita Líquida.
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const motorV17 = motor as any
+            // V17: terceirizadas (frete + seguros + acessórias) do cadastro do produto
+            const prod = item.product_id ? (products as any[]).find(p => p.id === item.product_id) : null
             return {
                 unit_price: item.unit_price,
                 quantity: item.quantity,
@@ -714,6 +716,9 @@ function Budgets() {
                 motor_new_irpj: motor?.new_irpj,
                 motor_cp_total: motor?.cp,
                 motor_expense_breakdown: motorV17?.expense_breakdown_v17 ?? null,
+                freight_unit: prod ? Number(prod.freight_value) || 0 : 0,
+                insurance_unit: prod ? Number(prod.insurance_value) || 0 : 0,
+                accessory_unit: prod ? Number(prod.accessory_expenses_value) || 0 : 0,
             }
         })
         // Para DRE: os snapshots de taxes_inside/outside precisam vir do motor

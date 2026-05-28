@@ -68,6 +68,18 @@ export interface DREItemInput {
     variavel: number
     financeira: number
   } | null
+  /**
+   * V17 (2026-05-28): Atividades Terceirizadas POR UNIDADE (R$):
+   * frete + seguros + despesas acessórias. Exibido como seção própria na DRE
+   * (entre Despesas Operacionais e Impostos).
+   */
+  terceirizadas_unit?: number | null
+  /** Frete unitário (R$) — sub-item visual de Atividades Terceirizadas. */
+  freight_unit?: number | null
+  /** Seguros unitário (R$) — sub-item visual de Atividades Terceirizadas. */
+  insurance_unit?: number | null
+  /** Despesas acessórias unitário (R$) — sub-item visual de Atividades Terceirizadas. */
+  accessory_unit?: number | null
 }
 
 /**
@@ -113,6 +125,18 @@ export interface DRESection {
     /** Receita operacional líquida = bruta − impostos por fora. */
     liquida: number
   }
+  /**
+   * V17 (2026-05-28): Atividades Terceirizadas — seção própria exibida APÓS
+   * Despesas Operacionais. Conceitualmente NÃO é despesa operacional do tenant
+   * (vem de fornecedores externos: frete, seguros, despesas acessórias).
+   * `null` quando nenhum item tem terceirizadas configuradas.
+   */
+  terceirizadas: {
+    frete: number
+    seguros: number
+    acessorias: number
+    total: number
+  } | null
   custos: {
     /**
      * Custos do produto (Σ cost_total × quantity).
@@ -262,6 +286,9 @@ export function computeConsolidatedDRE(input: DREInput): DRESection {
   let motorCpItems = 0
   let motorEbAccum = { mo_admin: 0, fixa: 0, variavel: 0, financeira: 0 }
   let motorEbItems = 0
+  // V17: terceirizadas (frete + seguros + acessórias) consolidadas
+  let terceirizadasAccum = { frete: 0, seguros: 0, acessorias: 0, total: 0 }
+  let hasTerceirizadas = false
 
   for (const item of items) {
     const qty = Number(item.quantity) || 0
@@ -286,6 +313,24 @@ export function computeConsolidatedDRE(input: DREInput): DRESection {
       motorEbAccum.variavel += Number(item.motor_expense_breakdown.variavel) || 0
       motorEbAccum.financeira += Number(item.motor_expense_breakdown.financeira) || 0
       motorEbItems += 1
+    }
+    // V17: agrega terceirizadas (frete + seguros + acessórias) × qty
+    const freteUnit = Number(item.freight_unit) || 0
+    const seguroUnit = Number(item.insurance_unit) || 0
+    const acessoriaUnit = Number(item.accessory_unit) || 0
+    const tercUnit = freteUnit + seguroUnit + acessoriaUnit
+    if (tercUnit > 0) {
+      terceirizadasAccum.frete += freteUnit * qty
+      terceirizadasAccum.seguros += seguroUnit * qty
+      terceirizadasAccum.acessorias += acessoriaUnit * qty
+      terceirizadasAccum.total += tercUnit * qty
+      hasTerceirizadas = true
+    } else if (Number(item.terceirizadas_unit) > 0) {
+      // Fallback: só total disponível (sem split por sub-categoria)
+      const tercTotal = Number(item.terceirizadas_unit) * qty
+      terceirizadasAccum.total += tercTotal
+      terceirizadasAccum.acessorias += tercTotal // joga em acessorias como bucket genérico
+      hasTerceirizadas = true
     }
   }
 
@@ -362,6 +407,7 @@ export function computeConsolidatedDRE(input: DREInput): DRESection {
       impostosForaTotal: porForaTotal,
       liquida: receitaLiquida,
     },
+    terceirizadas: hasTerceirizadas ? terceirizadasAccum : null,
     custos: {
       produto: custosProduto,
       mod: modAmount,
