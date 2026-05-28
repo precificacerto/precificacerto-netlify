@@ -16,7 +16,8 @@
 -- Critérios de exclusão:
 --   - Tenants criados há < 7 dias (insuficiente histórico)
 --   - Tenants sem orçamento nos últimos 30 dias (inativos)
---   - Tenants com plan_status = 'CANCELLED'
+--   - plan_status só inclui TRIAL e ACTIVE (exclui SUSPENDED e CANCELLED)
+--     enum plan_status disponível: TRIAL | ACTIVE | SUSPENDED | CANCELLED
 -- ============================================================================
 
 WITH tenant_metrics AS (
@@ -62,7 +63,7 @@ WITH tenant_metrics AS (
        WHERE b.tenant_id = t.id
          AND b.created_at > NOW() - INTERVAL '30 days')         AS revenue_last_30d
   FROM tenants t
-  WHERE t.plan_status IN ('TRIAL', 'ACTIVE', 'APPROVED')
+  WHERE t.plan_status IN ('TRIAL', 'ACTIVE')
     AND t.created_at < NOW() - INTERVAL '7 days'
 ),
 tenant_classified AS (
