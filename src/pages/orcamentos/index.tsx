@@ -40,6 +40,7 @@ import { MRM_ERROR_RRO_NON_POSITIVE, MRM_ENGINE_VERSION } from '@/types/mrm'
 import { hydrateItemSnapshot, type TenantSnapshotContext } from '@/lib/items-snapshot'
 import { calculateMarginReapuration } from '@/utils/margin-reapuration'
 import { buildMotorInput } from '@/utils/mrm-orchestrator'
+import { calculateMotorV17ForPage } from '@/utils/mrm-engine-v17/legacy-adapter'
 import { useResidualDistribution } from '@/hooks/use-residual-distribution'
 import { detectConfigWarning, type ResidualItemInput } from '@/utils/residual-distribution'
 import { ResidualDistributionBlock } from '@/page-parts/shared/residual-distribution-block.component'
@@ -584,37 +585,40 @@ function Budgets() {
     // e infla a comissão a ~100% da receita — risco de persistir valor absurdo.
     const motorReady = !mrmConfig.enabled || (!mrmConfig.loading && mrmConfig.rates.length > 0)
     const reapurationEffectiveDate = new Date().toISOString().slice(0, 10)
-    const motorResultsByItem = budgetItems.map(i => {
+
+    // V17 Cutover (2026-05-28): motor agora roda UMA VEZ sobre todos os items
+    // (consolida cross-produto antes de aplicar desconto, conforme PDF Etapas 1-9).
+    // Adapter mantém shape V16 (motorResultsByItem) para componentes downstream.
+    const v17Results = calculateMotorV17ForPage({
+        items: budgetItems,
+        tenantCtx: {
+            regime: mrmConfig.regime,
+            rates: mrmConfig.rates,
+            mod_pct: mrmConfig.mod_pct,
+            dop_pct: mrmConfig.dop_pct,
+            csll_pct: mrmConfig.csll_pct,
+            irpj_pct: mrmConfig.irpj_pct,
+            useSnapshotRates: mrmConfig.useSnapshotRates,
+            expense_breakdown: mrmConfig.expense_breakdown,
+            absorption_policy: 'RRO_PROPORTIONAL', // TODO: ler de tenant.absorption_policy
+        },
+        globalDiscountPercent,
+        effectiveDate: reapurationEffectiveDate,
+    })
+    // Preserva guard V16 — items sem componente distribuível retornam null
+    const motorResultsByItem = budgetItems.map((i, idx) => {
         const itemBase = i.unit_price * i.quantity
         if (itemBase <= 0) return null
-        // FIX (2026-05-23): chamar motor SEMPRE que houver pelo menos 1 componente
-        // distribuível (commission OU profit OU csll OU irpj). Guard pré-V9 mantido.
         const commPctDecimal = (i.commission_percent ?? 0) / 100
         const profPctDecimal = (i.profit_percent ?? 0) / 100
         const itemCsll = resolveItemCsllPct(i.item_tax_rates ?? null, mrmConfig.csll_pct)
         const itemIrpj = resolveItemIrpjPct(i.item_tax_rates ?? null, mrmConfig.irpj_pct)
         const totalPctDistribuivel = commPctDecimal + profPctDecimal + (Number(itemCsll) || 0) + (Number(itemIrpj) || 0)
         if (totalPctDistribuivel === 0) return null
-        // V9 (ADR-010, 2026-05-25): buildMotorInput aplica D1 (MOD=0) e D2 (CMV canônico
-        // = cost_total + productive_labor_unit) alinhados com DRE Consolidada V8.8.
-        // Elimina dupla contagem de MO produtiva.
-        return calculateMarginReapuration(buildMotorInput({
-            item: i,
-            tenantCtx: {
-                regime: mrmConfig.regime,
-                rates: mrmConfig.rates,
-                mod_pct: mrmConfig.mod_pct,
-                dop_pct: mrmConfig.dop_pct,
-                csll_pct: mrmConfig.csll_pct,
-                irpj_pct: mrmConfig.irpj_pct,
-                useSnapshotRates: mrmConfig.useSnapshotRates,
-                expense_breakdown: mrmConfig.expense_breakdown,
-            },
-            globalDiscountPercent,
-            discountMode,
-            effectiveDate: reapurationEffectiveDate,
-        }))
+        return v17Results[idx]
     })
+    // Mantido por compatibilidade (não usado após cutover V17 — remover em commit futuro):
+    void calculateMarginReapuration; void buildMotorInput; void discountMode;
     const profitAmount = motorResultsByItem.reduce((s, r) => s + (r?.new_profit ?? 0), 0)
     const commissionAmount = motorResultsByItem.reduce((s, r) => s + (r?.new_commission ?? 0), 0)
 

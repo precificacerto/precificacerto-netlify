@@ -55,6 +55,9 @@ import { extractEpicV5DisplayData } from '@/utils/mrm-display-extractor'
 import { hydrateItemSnapshot, type TenantSnapshotContext } from '@/lib/items-snapshot'
 import { calculateMarginReapuration } from '@/utils/margin-reapuration'
 import { buildMotorInput } from '@/utils/mrm-orchestrator'
+import { calculateMotorV17ForPage } from '@/utils/mrm-engine-v17/legacy-adapter'
+// V17 cutover: V16 imports mantidos por compatibilidade (não usados após substituição)
+void calculateMarginReapuration; void buildMotorInput;
 import { coerceLegacyDiscountMode, normalizeDiscountModeForDisplay } from '@/config/feature-flags'
 import { decideMrmAction } from '@/utils/mrm-policies'
 import { aggregateMotorResults } from '@/utils/mrm-aggregate'
@@ -1031,10 +1034,27 @@ function Sales() {
     const saleTotalWithDiscount = saleTotal * (1 - globalDiscountPercentV / 100)
 
     // ── Motor RR runtime para o drawer "Venda no Balcão" (espelha orçamentos) ──
-    // FIX 2026-05-24: balcão estava sem Distribuição/DRE — só Total + Desconto.
-    // Reaproveita exatamente o mesmo pipeline de orcamentos para garantir paridade.
+    // V17 Cutover (2026-05-28): motor agora roda UMA VEZ sobre todos os items,
+    // consolidando cross-produto antes de aplicar desconto (PDF Etapas 1-9).
+    // Adapter mantém shape V16 para componentes downstream (DRE, residual).
     const balcaoReapurationDate = new Date().toISOString().slice(0, 10)
-    const balcaoMotorResultsByItem = saleItems.map((i) => {
+    const balcaoV17Results = calculateMotorV17ForPage({
+        items: saleItems,
+        tenantCtx: {
+            regime: mrmConfig.regime,
+            rates: mrmConfig.rates,
+            mod_pct: mrmConfig.mod_pct,
+            dop_pct: mrmConfig.dop_pct,
+            csll_pct: mrmConfig.csll_pct,
+            irpj_pct: mrmConfig.irpj_pct,
+            useSnapshotRates: mrmConfig.useSnapshotRates,
+            expense_breakdown: mrmConfig.expense_breakdown,
+            absorption_policy: 'RRO_PROPORTIONAL', // TODO: ler de tenant.absorption_policy
+        },
+        globalDiscountPercent: globalDiscountPercentV,
+        effectiveDate: balcaoReapurationDate,
+    })
+    const balcaoMotorResultsByItem = saleItems.map((i, idx) => {
         const itemBase = (Number(i.unit_price) || 0) * (Number(i.quantity) || 0)
         if (itemBase <= 0) return null
         const commPctDecimal = (i.commission_percent ?? 0) / 100
@@ -1043,23 +1063,7 @@ function Sales() {
         const itemIrpj = resolveItemIrpjPct(i.item_tax_rates ?? null, mrmConfig.irpj_pct)
         const totalPctDistribuivel = commPctDecimal + profPctDecimal + (Number(itemCsll) || 0) + (Number(itemIrpj) || 0)
         if (totalPctDistribuivel === 0) return null
-        // V9 (ADR-010, 2026-05-25): buildMotorInput aplica D1 (MOD=0) e D2 (CMV canônico).
-        return calculateMarginReapuration(buildMotorInput({
-            item: i,
-            tenantCtx: {
-                regime: mrmConfig.regime,
-                rates: mrmConfig.rates,
-                mod_pct: mrmConfig.mod_pct,
-                dop_pct: mrmConfig.dop_pct,
-                csll_pct: mrmConfig.csll_pct,
-                irpj_pct: mrmConfig.irpj_pct,
-                useSnapshotRates: mrmConfig.useSnapshotRates,
-                expense_breakdown: mrmConfig.expense_breakdown,
-            },
-            globalDiscountPercent: globalDiscountPercentV,
-            discountMode: discountModeV,
-            effectiveDate: balcaoReapurationDate,
-        }))
+        return balcaoV17Results[idx]
     })
 
     const balcaoResidualItems: ResidualItemInput[] = useMemo(
@@ -1179,37 +1183,32 @@ function Sales() {
                 return
             }
 
-            // S19 (EPIC-RR-V4): bloquear save quando algum item tem RRO ≤ 0
-            // Pré-calcula motor por item APENAS para validação (não persiste — o save
-            // abaixo refaz o cálculo). Mais barato que persistir e depois reverter.
+            // V17 Cutover (2026-05-28): validação RRO consolidado.
+            // S19 (EPIC-RR-V4) reformulado: ao invés de validar item-a-item (V16),
+            // V17 valida RRO CONSOLIDADO da venda inteira (princípio PDF Etapas 1-9).
             if (mrmConfig.enabled) {
                 const reapDate = new Date().toISOString().slice(0, 10)
-                for (const item of saleItems) {
-                    const commPct = (item.commission_percent ?? 0) / 100
-                    const profPct = (item.profit_percent ?? 0) / 100
-                    if (commPct === 0 && profPct === 0) continue
-                    if (item.total <= 0) continue
-                    // V9 (ADR-010): buildMotorInput aplica D1 (MOD=0) e D2 (CMV canônico).
-                    const preview = calculateMarginReapuration(buildMotorInput({
-                        item,
-                        tenantCtx: {
-                            regime: mrmConfig.regime,
-                            rates: mrmConfig.rates,
-                            mod_pct: mrmConfig.mod_pct,
-                            dop_pct: mrmConfig.dop_pct,
-                            csll_pct: mrmConfig.csll_pct,
-                            irpj_pct: mrmConfig.irpj_pct,
-                            useSnapshotRates: mrmConfig.useSnapshotRates,
-                            expense_breakdown: mrmConfig.expense_breakdown,
-                        },
-                        globalDiscountPercent: globalDiscountPercentV,
-                        discountMode: discountModeV,
-                        effectiveDate: reapDate,
-                    }))
-                    if (preview.rro <= 0) {
-                        messageApi.error(`Não é possível salvar: o item "${item.product_name || 'sem nome'}" está com Resultado Residual Operacional ≤ R$ 0. Reduza o desconto ou revise os custos.`)
-                        return
-                    }
+                const previewResults = calculateMotorV17ForPage({
+                    items: saleItems,
+                    tenantCtx: {
+                        regime: mrmConfig.regime,
+                        rates: mrmConfig.rates,
+                        mod_pct: mrmConfig.mod_pct,
+                        dop_pct: mrmConfig.dop_pct,
+                        csll_pct: mrmConfig.csll_pct,
+                        irpj_pct: mrmConfig.irpj_pct,
+                        useSnapshotRates: mrmConfig.useSnapshotRates,
+                        expense_breakdown: mrmConfig.expense_breakdown,
+                        absorption_policy: 'RRO_PROPORTIONAL',
+                    },
+                    globalDiscountPercent: globalDiscountPercentV,
+                    effectiveDate: reapDate,
+                })
+                // RRO consolidado é o mesmo para todos os items rateados (V17)
+                const consolidatedRro = previewResults.find(r => r != null)?.rro ?? 0
+                if (consolidatedRro <= 0 && saleItems.some(it => it.total > 0)) {
+                    messageApi.error(`Não é possível salvar: o Resultado Residual Operacional consolidado da venda é ≤ R$ 0. Reduza o desconto ou revise os custos.`)
+                    return
                 }
             }
 
@@ -1230,31 +1229,29 @@ function Sales() {
             //   MOD_item = itemBase × mod_pct  (production_labor_percent)
             //   DOP_item = itemBase × dop_pct  (fixed + variable + financial + indirect_labor)
             // A "Opção A" (CP=MOD=DOP=0) violava Etapa 7 — RRO ≈ RV.
+            // V17 Cutover (2026-05-28): commission consolidado via motor único.
+            // Princípio PDF Seção 23: redistribuição RRO pelos pesos originais.
             const reapurationEffectiveDateSale = new Date().toISOString().slice(0, 10)
-            const commissionAmount = saleItems.reduce((sum, item) => {
-                const commPctDecimal = (item.commission_percent ?? 0) / 100
-                const profPctDecimal = (item.profit_percent ?? 0) / 100
-                if (commPctDecimal === 0 && profPctDecimal === 0) return sum
-                if (item.total <= 0) return sum
-                // V9 (ADR-010): buildMotorInput aplica D1 (MOD=0) e D2 (CMV canônico).
-                const result = calculateMarginReapuration(buildMotorInput({
-                    item,
-                    tenantCtx: {
-                        regime: mrmConfig.regime,
-                        rates: mrmConfig.rates,
-                        mod_pct: mrmConfig.mod_pct,
-                        dop_pct: mrmConfig.dop_pct,
-                        csll_pct: mrmConfig.csll_pct,
-                        irpj_pct: mrmConfig.irpj_pct,
-                        useSnapshotRates: mrmConfig.useSnapshotRates,
-                        expense_breakdown: mrmConfig.expense_breakdown,
-                    },
-                    globalDiscountPercent: globalDiscountPercentV,
-                    discountMode: discountModeV,
-                    effectiveDate: reapurationEffectiveDateSale,
-                }))
-                return sum + result.new_commission
-            }, 0)
+            const saveV17Results = calculateMotorV17ForPage({
+                items: saleItems,
+                tenantCtx: {
+                    regime: mrmConfig.regime,
+                    rates: mrmConfig.rates,
+                    mod_pct: mrmConfig.mod_pct,
+                    dop_pct: mrmConfig.dop_pct,
+                    csll_pct: mrmConfig.csll_pct,
+                    irpj_pct: mrmConfig.irpj_pct,
+                    useSnapshotRates: mrmConfig.useSnapshotRates,
+                    expense_breakdown: mrmConfig.expense_breakdown,
+                    absorption_policy: 'RRO_PROPORTIONAL',
+                },
+                globalDiscountPercent: globalDiscountPercentV,
+                effectiveDate: reapurationEffectiveDateSale,
+            })
+            const commissionAmount = saveV17Results.reduce(
+                (sum, result) => sum + (result?.new_commission ?? 0),
+                0,
+            )
 
             // MRM S2.3 — Policy gate (ADR-004): venda BLOQUEIA quando RRO ≤ 0.
             // Pré-computa snapshots para alimentar a agregação. Os mesmos snapshots
