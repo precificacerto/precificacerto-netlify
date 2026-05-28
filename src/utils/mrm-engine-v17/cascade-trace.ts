@@ -305,9 +305,15 @@ export function buildCascadeTrace17(input: BuildCascadeInput): CascadeStep[] {
           step: 13,
           label: 'PIS/COFINS',
           base: motor.ancora - motor.icms,
-          rate: input.rates.pis_cofins,
+          // V17 (2026-05-28): alíquota AJUSTADA — pis_cofins_nominal / (1 − icms_rate)
+          // Representa a alíquota EFETIVA que, aplicada sobre (ancora − icms), produz
+          // exatamente o mesmo R$ que pis_cofins_nominal × ancora. Bate cadastro do produto.
+          // Exemplo: 9,25% / (1 − 0,17) = 11,1446% × 9.833,74 = R$ 1.095,93 ✅
+          rate: input.rates.icms < 1
+            ? input.rates.pis_cofins / (1 - input.rates.icms)
+            : input.rates.pis_cofins,
           amount: -motor.pis_cofins,
-          formula: '(ancora − icms) × pis_cofins_rate (V12 ADR-013)',
+          formula: '(ancora − icms) × pis_cofins_ajustada [ajustada = nominal / (1 − icms_rate)]',
           source: 'ETAPA_13.ICMS',
         },
       ],
