@@ -1038,8 +1038,20 @@ function Sales() {
     // consolidando cross-produto antes de aplicar desconto (PDF Etapas 1-9).
     // Adapter mantém shape V16 para componentes downstream (DRE, residual).
     const balcaoReapurationDate = new Date().toISOString().slice(0, 10)
+    // V17 fix peso_op_interna real (2026-05-28 noite): enriquece items com
+    // valor_op_interna_unit do produto (campo products.valor_precificado_icms_piscofins).
+    const balcaoEnrichedItems = saleItems.map(i => {
+        const prod = i.product_id ? (products as any[]).find(p => p.id === i.product_id) : null
+        const valorOpInterna = prod?.valor_precificado_icms_piscofins
+        return {
+            ...i,
+            valor_op_interna_unit: valorOpInterna != null && Number.isFinite(Number(valorOpInterna)) && Number(valorOpInterna) > 0
+                ? Number(valorOpInterna)
+                : null,
+        }
+    })
     const balcaoV17Results = calculateMotorV17ForPage({
-        items: saleItems,
+        items: balcaoEnrichedItems,
         tenantCtx: {
             regime: mrmConfig.regime,
             rates: mrmConfig.rates,
@@ -1188,8 +1200,18 @@ function Sales() {
             // V17 valida RRO CONSOLIDADO da venda inteira (princípio PDF Etapas 1-9).
             if (mrmConfig.enabled) {
                 const reapDate = new Date().toISOString().slice(0, 10)
+                const validationEnrichedItems = saleItems.map(i => {
+                    const prod = i.product_id ? (products as any[]).find(p => p.id === i.product_id) : null
+                    const valorOpInterna = prod?.valor_precificado_icms_piscofins
+                    return {
+                        ...i,
+                        valor_op_interna_unit: valorOpInterna != null && Number.isFinite(Number(valorOpInterna)) && Number(valorOpInterna) > 0
+                            ? Number(valorOpInterna)
+                            : null,
+                    }
+                })
                 const previewResults = calculateMotorV17ForPage({
-                    items: saleItems,
+                    items: validationEnrichedItems,
                     tenantCtx: {
                         regime: mrmConfig.regime,
                         rates: mrmConfig.rates,
@@ -1232,8 +1254,18 @@ function Sales() {
             // V17 Cutover (2026-05-28): commission consolidado via motor único.
             // Princípio PDF Seção 23: redistribuição RRO pelos pesos originais.
             const reapurationEffectiveDateSale = new Date().toISOString().slice(0, 10)
+            const saveEnrichedItems = saleItems.map(i => {
+                const prod = i.product_id ? (products as any[]).find(p => p.id === i.product_id) : null
+                const valorOpInterna = prod?.valor_precificado_icms_piscofins
+                return {
+                    ...i,
+                    valor_op_interna_unit: valorOpInterna != null && Number.isFinite(Number(valorOpInterna)) && Number(valorOpInterna) > 0
+                        ? Number(valorOpInterna)
+                        : null,
+                }
+            })
             const saveV17Results = calculateMotorV17ForPage({
-                items: saleItems,
+                items: saveEnrichedItems,
                 tenantCtx: {
                     regime: mrmConfig.regime,
                     rates: mrmConfig.rates,

@@ -62,6 +62,14 @@ export interface PageItem {
     cmv_unit?: number
   } | null
   financial_expense_unit?: number | null
+  /**
+   * V17 Op Interna (R$ unitário) — valor do produto sem incluir impostos por fora
+   * (IBS/CBS/IS/IPI/ICMS-ST/DIFAL/FCP) nem atividades terceirizadas.
+   * Origem: `products.valor_precificado_icms_piscofins` (campo persistido no cadastro).
+   * Usado para calcular `peso_op_interna = valor_op_interna_unit / unit_price`.
+   * Quando ausente, adapter usa fallback 1 (toda venda tratada como Op Interna).
+   */
+  valor_op_interna_unit?: number | null
 }
 
 export interface PageTenantCtx {
@@ -193,6 +201,15 @@ export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResul
         }
       : undefined
 
+    // V17 fix peso_op_interna real (2026-05-28 noite):
+    // Quando produto tem `valor_op_interna_unit` (mapeado de products.valor_precificado_icms_piscofins),
+    // calcula peso = R$_op_interna / unit_price. Caso contrário, fallback 1 (legacy).
+    const valorOpInterna = Number(item.valor_op_interna_unit) || 0
+    const unitPrice = Number(item.unit_price) || 0
+    const peso_op_interna = valorOpInterna > 0 && unitPrice > 0
+      ? Math.min(1, Math.max(0, valorOpInterna / unitPrice))
+      : 1
+
     return {
       item_id: `idx-${idx}`,
       rb,
@@ -203,7 +220,7 @@ export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResul
       profit_pct,
       csll_pct,
       irpj_pct,
-      peso_op_interna: 1, // simplificação V17 — todos os items são op interna por enquanto
+      peso_op_interna,
       expense_breakdown,
     }
   })
