@@ -1,6 +1,9 @@
 # ADR-013 — PIS/COFINS apuração na cascata via fórmula `/(1−ICMS)`
 
-**Status:** ACCEPTED (Founder 2026-05-25)
+**Status:** SUPERSEDED por [ADR-016](adr-016-pis-cofins-base-ancora-icms-iss.md) (Founder 2026-05-29)
+> A base `Âncora − ICMS` (sem subtrair ISS) definida aqui foi revogada. No Motor V17,
+> o PIS/COFINS passa a incidir sobre `Âncora − ICMS − ISS` com alíquota efetiva
+> consolidada dos produtos. Esta ADR permanece como registro histórico (motor V10/V12).
 **Engine version:** 2.6.0
 
 ## Context

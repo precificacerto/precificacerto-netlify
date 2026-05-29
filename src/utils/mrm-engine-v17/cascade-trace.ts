@@ -273,21 +273,22 @@ export function buildCascadeTrace17(input: BuildCascadeInput): CascadeStep[] {
       formula: 'rv_total × peso_op_interna_ponderado',
       source: 'ETAPA_9+11',
     },
-    // 13. Cascata tributária (ICMS → ISS → PIS/COFINS)
+    // 13. Cascata tributária — ADR-016 (2026-05-29): segregada em 13A (impostos
+    //     sobre faturamento: ICMS + ISS) e 13B (PIS/COFINS sobre o resultado de 13A).
     {
       step: 13,
-      label: 'Cascata tributária (ICMS → ISS → PIS/COFINS)',
+      label: 'Cascata tributária (13A Faturamento → 13B PIS/COFINS)',
       base: motor.ancora,
       rate: null,
       amount: -motor.imp_dentro_total,
-      formula: 'Sequencial: cada um muda a base do próximo',
+      formula: '13A: ICMS+ISS sobre faturamento; 13B: PIS/COFINS sobre (Âncora − ICMS − ISS)',
       source: 'ETAPA_12',
       children: [
         {
           step: 13,
-          label: 'ICMS',
+          label: '13A · ICMS',
           base: motor.ancora,
-          // V17: alíquota efetiva real = motor.icms / motor.ancora (consolidada dos produtos)
+          // Alíquota efetiva real consolidada dos produtos = motor.icms / motor.ancora
           rate: motor.ancora > 0 ? motor.icms / motor.ancora : input.rates.icms,
           amount: -motor.icms,
           formula: 'ancora × icms_efetiva (consolidada dos produtos)',
@@ -295,9 +296,9 @@ export function buildCascadeTrace17(input: BuildCascadeInput): CascadeStep[] {
         },
         {
           step: 13,
-          label: 'ISS',
+          label: '13A · ISS',
           base: motor.ancora - motor.icms,
-          // V17: alíquota efetiva real = motor.iss / (ancora − icms)
+          // Alíquota efetiva real = motor.iss / (ancora − icms)
           rate: (motor.ancora - motor.icms) > 0
             ? motor.iss / (motor.ancora - motor.icms)
             : input.rates.iss,
@@ -307,18 +308,24 @@ export function buildCascadeTrace17(input: BuildCascadeInput): CascadeStep[] {
         },
         {
           step: 13,
-          label: 'PIS/COFINS',
+          // Linha-âncora obrigatória (documento Founder): base oficial do 13B.
+          label: '= Resultado após ICMS e ISS',
+          base: motor.ancora,
+          rate: null,
+          amount: motor.ancora - motor.icms - motor.iss,
+          formula: 'Âncora − ICMS − ISS (base oficial do PIS/COFINS)',
+          source: 'ETAPA_13A',
+        },
+        {
+          step: 13,
+          label: '13B · PIS/COFINS',
           base: motor.ancora - motor.icms - motor.iss,
-          // V17 (2026-05-28): alíquota EFETIVA real (nominal recomposta para base pós-ICMS-ISS).
-          // PIS/COFINS R$ vem CONSOLIDADO dos produtos (cada produto contribui com seu
-          // valor). A alíquota exibida é: motor.pis_cofins / (Âncora − ICMS − ISS).
-          // Bate exatamente com o R$ apurado.
-          rate: (motor.ancora - motor.icms - motor.iss) > 0
-            ? motor.pis_cofins / (motor.ancora - motor.icms - motor.iss)
-            : input.rates.pis_cofins,
+          // ADR-016: alíquota EFETIVA consolidada vinda do motor (Σ PIS/COFINS ÷ Op
+          // Interna consolidada), exibida DIRETO — não recomposta. valor = base × alíquota.
+          rate: input.rates.pis_cofins,
           amount: -motor.pis_cofins,
-          formula: '(ancora − icms − iss) × pis_cofins_nominal_recomposta',
-          source: 'ETAPA_13.ICMS+ISS',
+          formula: '(Âncora − ICMS − ISS) × pis_cofins_efetiva (Σ produtos ÷ Op Interna)',
+          source: 'ETAPA_13A',
         },
       ],
     },

@@ -413,12 +413,14 @@ export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResul
     ? v17Result.motor.pis_cofins * (cofinsRate / pisCofinsRateTotal)
     : 0
 
+  // ADR-016 (2026-05-29): base canônica do PIS/COFINS = Âncora − ICMS − ISS.
+  const basePisCofins = v17Result.motor.ancora - v17Result.motor.icms - v17Result.motor.iss
   const taxesInsideTotal: TaxLine[] = [
     { type: 'ICMS' as const, rate_pct: icmsRate, base: v17Result.motor.ancora, amount: v17Result.motor.icms },
     { type: 'ISS' as const, rate_pct: issRate, base: v17Result.motor.ancora - v17Result.motor.icms, amount: v17Result.motor.iss },
-    // V17 fix (2026-05-28): PIS/COFINS base = Âncora (reverte V12, bate cadastro)
-    { type: 'PIS' as const, rate_pct: pisRate, base: v17Result.motor.ancora, amount: pisAmount },
-    { type: 'COFINS' as const, rate_pct: cofinsRate, base: v17Result.motor.ancora, amount: cofinsAmount },
+    // ADR-016: PIS/COFINS sobre (Âncora − ICMS − ISS); amount já vem canônico do motor.
+    { type: 'PIS' as const, rate_pct: pisRate, base: basePisCofins, amount: pisAmount },
+    { type: 'COFINS' as const, rate_pct: cofinsRate, base: basePisCofins, amount: cofinsAmount },
   ].filter(t => t.amount > 0 || t.rate_pct > 0)
 
   const taxesOutsideTotal: TaxLine[] = v17Result.distribution.taxes_outside.map(t => ({

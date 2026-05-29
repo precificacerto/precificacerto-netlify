@@ -7,7 +7,9 @@
  * Princípio cascata inviolável (PDF Seção 19):
  *   1º ICMS sobre Âncora
  *   2º ISS  sobre (Âncora − ICMS)
- *   3º PIS/COFINS sobre (Âncora − ICMS)   [V12 / ADR-013: NÃO subtrai ISS]
+ *   3º PIS/COFINS sobre (Âncora − ICMS − ISS)   [ADR-016, 2026-05-29: REVOGA ADR-013
+ *      e passa a SUBTRAIR o ISS. Alíquota efetiva consolidada = Σ PIS/COFINS dos
+ *      produtos ÷ Operação Interna Consolidada, aplicada sobre a base 13A.]
  *
  * Princípio V16.3: despesas operacionais e MOD/CP imutáveis a desconto.
  */
@@ -68,21 +70,35 @@ export function applyMotorRRO(input: ApplyMotorRROInput): ApplyMotorRROResult {
   // Fator de desconto proporcional: rv_total / rb_total (PDF Seção 23)
   const ancoraFactor = rb_total > 0 ? rv_total / rb_total : 1
 
+  // ADR-016 (2026-05-29): alíquota efetiva consolidada de PIS/COFINS.
+  //   = Σ PIS/COFINS dos produtos ÷ Operação Interna Consolidada.
+  // Op Interna consolidada (pré-desconto) = peso_op_interna_ponderado × rb_total.
+  // É uma razão → invariante a desconto (numerador e denominador escalam juntos).
+  const op_interna_consolidada = view.peso_op_interna_ponderado * rb_total
+
   let icms: number
   let iss: number
   let pis_cofins: number
+  let pis_cofins_aliquota_efetiva: number
 
   if (tit) {
     // Consolidação por produto (R$ pré-desconto × desconto)
     icms = tit.icms * ancoraFactor
     iss = tit.iss * ancoraFactor
-    pis_cofins = tit.pis_cofins * ancoraFactor
+    // ADR-016: PIS/COFINS sobre base canônica (Âncora − ICMS − ISS), aplicando a
+    // alíquota efetiva consolidada dos produtos (revoga ADR-013, que não subtraía ISS).
+    pis_cofins_aliquota_efetiva = op_interna_consolidada > 0
+      ? tit.pis_cofins / op_interna_consolidada
+      : pis_cofins_rate
+    pis_cofins = (ancora - icms - iss) * pis_cofins_aliquota_efetiva
   } else {
-    // Legado: 1º ICMS sobre Âncora, 2º ISS sobre (Âncora−ICMS), 3º PIS/COFINS sobre Âncora
+    // Fallback (tenant uniforme): 1º ICMS sobre Âncora, 2º ISS sobre (Âncora−ICMS),
+    // 3º PIS/COFINS sobre (Âncora − ICMS − ISS) — base canônica ADR-016.
     icms = ancora * icms_rate
     const base_pos_icms = ancora - icms
     iss = base_pos_icms * iss_rate
-    pis_cofins = ancora * pis_cofins_rate
+    pis_cofins_aliquota_efetiva = pis_cofins_rate
+    pis_cofins = (base_pos_icms - iss) * pis_cofins_rate
   }
 
   const imp_dentro_total = icms + iss + pis_cofins
@@ -121,6 +137,7 @@ export function applyMotorRRO(input: ApplyMotorRROInput): ApplyMotorRROResult {
     icms,
     iss,
     pis_cofins,
+    pis_cofins_aliquota_efetiva,
     imp_dentro_total,
     cp_efetivo,
     mod,
@@ -133,7 +150,9 @@ export function applyMotorRRO(input: ApplyMotorRROInput): ApplyMotorRROResult {
   const cascade_trace = buildCascadeTrace17({
     view,
     motor: motorPartial,
-    rates: { icms: icms_rate, iss: iss_rate, pis_cofins: pis_cofins_rate },
+    // ADR-016: passa a alíquota EFETIVA consolidada do PIS/COFINS (não a nominal do
+    // tenant), para a cascata 13B exibir a % real sem recompor valor÷base.
+    rates: { icms: icms_rate, iss: iss_rate, pis_cofins: pis_cofins_aliquota_efetiva },
   })
 
   const motor: MotorOutput = { ...motorPartial, cascade_trace }

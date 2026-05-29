@@ -98,20 +98,25 @@ describe('Ajuste #1+#2 — Custos = produto + MOD (movido de despesas)', () => {
 })
 
 describe('Ajuste #3 — PIS/COFINS NCM agregado (pis_cofins_pct)', () => {
-  it('produto com pis_cofins_pct=9.25 → split LR padrão (PIS 1.65 / COFINS 7.60)', () => {
+  // FIX 2026-05-29 (Hyago — produto "Obra JJCR" 4,325%): o split agora normaliza
+  // o agregado para DECIMAL antes de proporcionar, evitando que a parcela PIS de
+  // alíquotas reduzidas (< ~5,6%) caia abaixo de 1 e seja lida como 77% pelo
+  // normalizePct downstream. Saída do split é DECIMAL (0.0165 = 1,65%).
+  it('produto com pis_cofins_pct=9.25 → split LR padrão (PIS 1,65% / COFINS 7,60% em decimal)', () => {
     const prod = { pis_cofins_pct: 9.25 }
     const rates = buildItemTaxRatesFromProduct(prod)
-    expect(rates.pis_pct).toBeCloseTo(1.65, 2)
-    expect(rates.cofins_pct).toBeCloseTo(7.60, 2)
+    // 0.0925 × (1.65/9.25) = 0.0165 ; 0.0925 × (7.60/9.25) = 0.076
+    expect(rates.pis_pct).toBeCloseTo(0.0165, 4)
+    expect(rates.cofins_pct).toBeCloseTo(0.076, 4)
   })
 
-  it('produto com pis_cofins_pct=3.65 (LP) → split proporcional', () => {
+  it('produto com pis_cofins_pct=3.65 (LP) → split proporcional em decimal', () => {
     const prod = { pis_cofins_pct: 3.65 }
     const rates = buildItemTaxRatesFromProduct(prod)
-    // 3.65 × (1.65/9.25) ≈ 0.651
-    expect(rates.pis_pct).toBeCloseTo(0.651, 2)
-    // 3.65 × (7.60/9.25) ≈ 2.999
-    expect(rates.cofins_pct).toBeCloseTo(2.999, 2)
+    // 0.0365 × (1.65/9.25) ≈ 0.006511
+    expect(rates.pis_pct).toBeCloseTo(0.006511, 5)
+    // 0.0365 × (7.60/9.25) ≈ 0.029989
+    expect(rates.cofins_pct).toBeCloseTo(0.029989, 5)
   })
 
   it('produto com pis_pct/cofins_pct separados > 0 → preserva (não usa agregado)', () => {
@@ -131,9 +136,9 @@ describe('Ajuste #3 — PIS/COFINS NCM agregado (pis_cofins_pct)', () => {
   it('produto com pis_pct=0 e pis_cofins_pct=5 → usa agregado (zero não é override)', () => {
     const prod = { pis_pct: 0, cofins_pct: 0, pis_cofins_pct: 5 }
     const rates = buildItemTaxRatesFromProduct(prod)
-    // Split: 5 × 1.65/9.25 ≈ 0.892, 5 × 7.60/9.25 ≈ 4.108
-    expect(rates.pis_pct).toBeCloseTo(0.892, 2)
-    expect(rates.cofins_pct).toBeCloseTo(4.108, 2)
+    // Split em decimal: 0.05 × 1.65/9.25 ≈ 0.008919, 0.05 × 7.60/9.25 ≈ 0.041081
+    expect(rates.pis_pct).toBeCloseTo(0.008919, 5)
+    expect(rates.cofins_pct).toBeCloseTo(0.041081, 5)
   })
 
   it('outros campos do produto continuam mapeados (placeholder)', () => {

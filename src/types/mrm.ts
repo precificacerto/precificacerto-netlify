@@ -638,6 +638,12 @@ export interface MotorOutput {
   icms: number
   iss: number
   pis_cofins: number
+  /**
+   * Alíquota efetiva consolidada de PIS/COFINS (decimal 0..1) — ADR-016 (2026-05-29).
+   * = Σ PIS/COFINS dos produtos ÷ Operação Interna Consolidada. Aplicada sobre a
+   * base canônica (Âncora − ICMS − ISS). Exibida diretamente na cascata 13B (não recomposta).
+   */
+  pis_cofins_aliquota_efetiva?: number
   imp_dentro_total: number
   /** CMV efetivo = cp_total − tax_credits.recoverable. */
   cp_efetivo: number

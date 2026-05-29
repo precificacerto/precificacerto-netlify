@@ -303,3 +303,97 @@ describe('Motor V17 — Edge Cases', () => {
     expect(result.error_code).toBe('RRO_NON_POSITIVE')
   })
 })
+
+// ============================================================================
+// SUITE 5 — ADR-016 (2026-05-29): PIS/COFINS sobre Âncora − ICMS − ISS
+// + alíquota efetiva consolidada + cascata 13A/13B. Revoga ADR-013.
+// ============================================================================
+describe('Motor V17 — ADR-016 PIS/COFINS base Âncora−ICMS−ISS + 13A/13B', () => {
+  // Cenário controlado: 1 produto, Op Interna = 100.000, sem desconto.
+  //   ICMS 10% = 10.000 | ISS 5% = 5.000 | PIS/COFINS 4,325% sobre Op Interna = 4.325
+  //   Base canônica 13B = 100.000 − 10.000 − 5.000 = 85.000
+  //   Alíquota efetiva = 4.325 / 100.000 = 0,04325
+  //   PIS/COFINS final = 85.000 × 0,04325 = 3.676,25
+  const controlledInput: MotorV17Input = {
+    items: [{
+      item_id: 'adr016',
+      rb: 100000, cp: 20000, mod_pct: 0, dop_pct: 0.10,
+      commission_pct: 0.05, profit_pct: 0.15, csll_pct: 0.009, irpj_pct: 0.015,
+      peso_op_interna: 1,
+      taxes_inside_amounts: { icms: 10000, iss: 5000, pis_cofins: 4325 },
+    }],
+    discount: { pct: 0 },
+    policy: 'RRO_PROPORTIONAL',
+    regime: 'LUCRO_REAL',
+    rates: [rate('ICMS', 0.10), rate('ISS', 0.05), rate('PIS', 0.0077), rate('COFINS', 0.0355)],
+    effective_date: '2026-05-29',
+    use_snapshot_rates: false,
+  }
+
+  it('PIS/COFINS incide sobre Âncora − ICMS − ISS (subtrai ISS — ADR-016)', () => {
+    const r = calculateMotorV17(controlledInput)
+    expect(r.motor.icms).toBeCloseTo(10000, 2)
+    expect(r.motor.iss).toBeCloseTo(5000, 2)
+    // 85.000 × 0,04325 = 3.676,25 (NÃO 100.000 × 0,04325 = 4.325 da base antiga)
+    expect(r.motor.pis_cofins).toBeCloseTo(3676.25, 1)
+  })
+
+  it('Expõe alíquota efetiva consolidada (Σ PIS/COFINS ÷ Op Interna)', () => {
+    const r = calculateMotorV17(controlledInput)
+    expect(r.motor.pis_cofins_aliquota_efetiva).toBeCloseTo(0.04325, 5)
+  })
+
+  it('Cascata 13 segregada em 13A/13B com linha "Resultado após ICMS e ISS"', () => {
+    const r = calculateMotorV17(controlledInput)
+    const step13 = r.motor.cascade_trace[12]
+    expect(step13.step).toBe(13)
+    const children = step13.children ?? []
+    expect(children).toHaveLength(4)
+    expect(children[0].label).toContain('ICMS')
+    expect(children[1].label).toContain('ISS')
+    // Linha-âncora obrigatória
+    expect(children[2].label).toContain('Resultado após ICMS e ISS')
+    expect(children[2].amount).toBeCloseTo(85000, 1) // Âncora − ICMS − ISS
+    // 13B PIS/COFINS — base e alíquota coerentes (valor = base × alíquota)
+    const pisLine = children[3]
+    expect(pisLine.label).toContain('PIS/COFINS')
+    expect(pisLine.base).toBeCloseTo(85000, 1)
+    expect(pisLine.rate).toBeCloseTo(0.04325, 5)
+    expect(pisLine.amount).toBeCloseTo(-3676.25, 1)
+    // Auditável: base × |rate| = |amount|
+    expect((pisLine.base ?? 0) * (pisLine.rate ?? 0)).toBeCloseTo(Math.abs(pisLine.amount), 1)
+  })
+
+  it('Regressão "Obra JJCR": pis_cofins 4,325% NÃO infla (bug 78% eliminado)', () => {
+    // Produto JJCR (PIS/COFINS 4,325%) + serviço sem impostos — diluição consolidada.
+    const r = calculateMotorV17({
+      items: [
+        {
+          item_id: 'jjcr', rb: 84023.28, cp: 50000, mod_pct: 0, dop_pct: 0.10,
+          commission_pct: 0.001, profit_pct: 0.12, csll_pct: 0.0108, irpj_pct: 0.018,
+          peso_op_interna: 1,
+          // ICMS 10% e PIS/COFINS 4,325% sobre Op Interna 84.023,28
+          taxes_inside_amounts: { icms: 8402.33, iss: 0, pis_cofins: 84023.28 * 0.04325 },
+        },
+        {
+          item_id: 'servico', rb: 10937.52, cp: 1000, mod_pct: 0, dop_pct: 0.10,
+          commission_pct: 0.001, profit_pct: 0.12, csll_pct: 0.0108, irpj_pct: 0.018,
+          peso_op_interna: 1,
+          taxes_inside_amounts: { icms: 0, iss: 0, pis_cofins: 0 },
+        },
+      ],
+      discount: { pct: 0 },
+      policy: 'RRO_PROPORTIONAL',
+      regime: 'LUCRO_REAL',
+      rates: [rate('ICMS', 0.10), rate('PIS', 0.0077), rate('COFINS', 0.0355)],
+      effective_date: '2026-05-29',
+      use_snapshot_rates: false,
+    })
+    // Alíquota efetiva consolidada ≈ 3,827% (4,325% diluído pelo serviço 0%) — NUNCA 78%
+    expect(r.motor.pis_cofins_aliquota_efetiva).toBeLessThan(0.05)
+    expect(r.motor.pis_cofins_aliquota_efetiva).toBeCloseTo(0.038269, 4)
+    // Valor ≈ R$ 3.313,5 (sobre base 86.558,47) — longe dos R$ 67.808,61 do bug
+    expect(r.motor.pis_cofins).toBeGreaterThan(3000)
+    expect(r.motor.pis_cofins).toBeLessThan(3500)
+  })
+})

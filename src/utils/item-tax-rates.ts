@@ -517,10 +517,20 @@ export function buildItemTaxRatesFromProduct(prod: any): ItemTaxRates {
   // Quando os campos separados estão ausentes ou zerados, tenta o agregado.
   const hasSeparated = (pisFinal != null && pisFinal > 0) || (cofinsFinal != null && cofinsFinal > 0)
   if (!hasSeparated) {
-    const agg = Number(prod?.pis_cofins_pct)
-    if (Number.isFinite(agg) && agg > 0) {
-      pisFinal = agg * (1.65 / 9.25)
-      cofinsFinal = agg * (7.60 / 9.25)
+    const aggRaw = Number(prod?.pis_cofins_pct)
+    if (Number.isFinite(aggRaw) && aggRaw > 0) {
+      // BUG FIX (2026-05-29, Hyago — produto "Obra JJCR" 4,325%):
+      // `pis_cofins_pct` vem em formato PERCENTUAL (ex.: 4.325 = 4,325%). O split
+      // proporcional fazia `pisFinal = agg × 1.65/9.25`, que para alíquotas < ~5,6%
+      // resultava em valor < 1 (ex.: 0,77). O `normalizePct` downstream
+      // (`n<1 ? n : n/100`) interpretava esse 0,77 como decimal e NÃO dividia por
+      // 100 → PIS virava 77% e a cascata exibia ~78% de alíquota artificial.
+      // Correção: converter o agregado para DECIMAL antes do split, garantindo que
+      // PIS e COFINS saiam em escala decimal inequívoca (sempre < 1, preservados
+      // corretamente pelo normalizePct). Robusto p/ agg em percentual OU decimal.
+      const aggDecimal = aggRaw < 1 ? aggRaw : aggRaw / 100
+      pisFinal = aggDecimal * (1.65 / 9.25)
+      cofinsFinal = aggDecimal * (7.60 / 9.25)
     }
   }
 
