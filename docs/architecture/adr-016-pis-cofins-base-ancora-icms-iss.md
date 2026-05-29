@@ -26,17 +26,27 @@ A cascata é segregada em:
 - **13A — Impostos sobre faturamento:** ICMS (sobre Âncora) → ISS (sobre Âncora − ICMS) → linha-âncora **"= Resultado após ICMS e ISS"**.
 - **13B — PIS/COFINS:** incide exclusivamente sobre o resultado de 13A.
 
-### Alíquota efetiva consolidada (`motor-rro.ts`)
+### Transmutação da alíquota (`motor-rro.ts`)
+
+O **valor monetário** do PIS/COFINS é o consolidado da **precificação** (`Σ Op Interna × pct`) — **PRESERVADO**, não reduzido pela base menor. A base de incidência exibida é `Âncora − ICMS − ISS`; a alíquota é **transmutada** para manter o valor:
 
 ```ts
-const op_interna_consolidada = view.peso_op_interna_ponderado * rb_total
-pis_cofins_aliquota_efetiva = op_interna_consolidada > 0
-  ? tit.pis_cofins / op_interna_consolidada   // Σ PIS/COFINS produtos ÷ Op Interna consolidada
-  : pis_cofins_rate                            // fallback nominal tenant
-pis_cofins = (ancora - icms - iss) * pis_cofins_aliquota_efetiva
+pis_cofins = tit.pis_cofins * ancoraFactor          // valor da precificação (preservado)
+const base_13a = ancora - icms - iss
+pis_cofins_aliquota_efetiva = base_13a > 0
+  ? pis_cofins / base_13a                            // = alíq_precif / (1 − ICMS% − ISS%)
+  : pis_cofins_rate
 ```
 
-A alíquota efetiva (`MotorOutput.pis_cofins_aliquota_efetiva`) é **exibida diretamente** na linha 13B da cascata — não recomposta via `valor ÷ base`. Como `valor = base × alíquota`, a memória de cálculo fica auditável (`base × alíquota = valor`).
+**Por que transmutar?** A alíquota da precificação (ex.: 3,8269%) é calculada sobre a Op Interna. Aplicá-la direto na base reduzida (`Âncora − ICMS − ISS`) **subestimaria** o tributo. A transmutação `alíq ÷ (1 − ICMS% − ISS%)` recompõe a alíquota para a base menor, garantindo:
+
+```
+valor = base_13A × alíq_transmutada = Âncora × alíq_precif = valor da precificação ✅
+```
+
+A alíquota transmutada (`MotorOutput.pis_cofins_aliquota_efetiva`) é **exibida na linha 13B** e a memória fica auditável (`base × alíquota = valor`).
+
+**Exemplo validado (orçamento Founder):** alíq_precif 3,8269%, ICMS 8,8482%, ISS 0% → transmutada = 3,8269% / 0,911518 = **4,1983%** → 86.558,46 × 4,1983% = **R$ 3.634,01** (= 94.960,79 × 3,8269%). Base da Etapa 14 = Âncora − ICMS − ISS − PIS/COFINS = **R$ 82.924,45**.
 
 ### Regra de segregação
 

@@ -320,11 +320,11 @@ export function buildCascadeTrace17(input: BuildCascadeInput): CascadeStep[] {
           step: 13,
           label: '13B · PIS/COFINS',
           base: motor.ancora - motor.icms - motor.iss,
-          // ADR-016: alíquota EFETIVA consolidada vinda do motor (Σ PIS/COFINS ÷ Op
-          // Interna consolidada), exibida DIRETO — não recomposta. valor = base × alíquota.
+          // ADR-016: alíquota TRANSMUTADA vinda do motor [alíq_precif/(1−ICMS%−ISS%)].
+          // valor = base 13A × alíq transmutada = valor da precificação (preservado).
           rate: input.rates.pis_cofins,
           amount: -motor.pis_cofins,
-          formula: '(Âncora − ICMS − ISS) × pis_cofins_efetiva (Σ produtos ÷ Op Interna)',
+          formula: '(Âncora − ICMS − ISS) × alíq_transmutada [precif ÷ (1 − ICMS% − ISS%)]',
           source: 'ETAPA_13A',
         },
       ],

@@ -639,9 +639,10 @@ export interface MotorOutput {
   iss: number
   pis_cofins: number
   /**
-   * Alíquota efetiva consolidada de PIS/COFINS (decimal 0..1) — ADR-016 (2026-05-29).
-   * = Σ PIS/COFINS dos produtos ÷ Operação Interna Consolidada. Aplicada sobre a
-   * base canônica (Âncora − ICMS − ISS). Exibida diretamente na cascata 13B (não recomposta).
+   * Alíquota TRANSMUTADA de PIS/COFINS (decimal 0..1) — ADR-016 (2026-05-29).
+   * = alíq_precificação / (1 − ICMS% − ISS%) = pis_cofins / (Âncora − ICMS − ISS).
+   * É a alíquota que, aplicada sobre a base 13A (Âncora − ICMS − ISS), reproduz
+   * EXATAMENTE o valor do PIS/COFINS da precificação. Exibida na cascata 13B.
    */
   pis_cofins_aliquota_efetiva?: number
   imp_dentro_total: number

@@ -305,15 +305,15 @@ describe('Motor V17 — Edge Cases', () => {
 })
 
 // ============================================================================
-// SUITE 5 — ADR-016 (2026-05-29): PIS/COFINS sobre Âncora − ICMS − ISS
-// + alíquota efetiva consolidada + cascata 13A/13B. Revoga ADR-013.
+// SUITE 5 — ADR-016 (2026-05-29): PIS/COFINS base Âncora−ICMS−ISS + TRANSMUTAÇÃO
+// (valor preservado da precificação) + cascata 13A/13B. Revoga ADR-013.
 // ============================================================================
-describe('Motor V17 — ADR-016 PIS/COFINS base Âncora−ICMS−ISS + 13A/13B', () => {
+describe('Motor V17 — ADR-016 PIS/COFINS transmutação + 13A/13B', () => {
   // Cenário controlado: 1 produto, Op Interna = 100.000, sem desconto.
-  //   ICMS 10% = 10.000 | ISS 5% = 5.000 | PIS/COFINS 4,325% sobre Op Interna = 4.325
-  //   Base canônica 13B = 100.000 − 10.000 − 5.000 = 85.000
-  //   Alíquota efetiva = 4.325 / 100.000 = 0,04325
-  //   PIS/COFINS final = 85.000 × 0,04325 = 3.676,25
+  //   ICMS 10% = 10.000 | ISS 5% = 5.000 | PIS/COFINS precificação = 4.325 (Op Interna × pct)
+  //   Base 13A = 100.000 − 10.000 − 5.000 = 85.000
+  //   VALOR preservado da precificação = 4.325 (NÃO reduzido pela base menor)
+  //   Alíquota TRANSMUTADA = 4.325 / 85.000 = 0,0508824 ; 85.000 × 0,0508824 = 4.325
   const controlledInput: MotorV17Input = {
     items: [{
       item_id: 'adr016',
@@ -330,17 +330,26 @@ describe('Motor V17 — ADR-016 PIS/COFINS base Âncora−ICMS−ISS + 13A/13B',
     use_snapshot_rates: false,
   }
 
-  it('PIS/COFINS incide sobre Âncora − ICMS − ISS (subtrai ISS — ADR-016)', () => {
+  it('ICMS/ISS sobre faturamento; PIS/COFINS preserva o VALOR da precificação', () => {
     const r = calculateMotorV17(controlledInput)
     expect(r.motor.icms).toBeCloseTo(10000, 2)
     expect(r.motor.iss).toBeCloseTo(5000, 2)
-    // 85.000 × 0,04325 = 3.676,25 (NÃO 100.000 × 0,04325 = 4.325 da base antiga)
-    expect(r.motor.pis_cofins).toBeCloseTo(3676.25, 1)
+    // Valor PRESERVADO = 4.325 (precificação), NÃO 85.000 × 0,04325 = 3.676,25
+    expect(r.motor.pis_cofins).toBeCloseTo(4325, 1)
   })
 
-  it('Expõe alíquota efetiva consolidada (Σ PIS/COFINS ÷ Op Interna)', () => {
+  it('Expõe alíquota TRANSMUTADA (precif ÷ (1−ICMS%−ISS%) = valor ÷ base 13A)', () => {
     const r = calculateMotorV17(controlledInput)
-    expect(r.motor.pis_cofins_aliquota_efetiva).toBeCloseTo(0.04325, 5)
+    // 4.325 / 85.000 = 0,0508824 (> 0,04325 da precificação, pois base é menor)
+    expect(r.motor.pis_cofins_aliquota_efetiva).toBeCloseTo(0.0508824, 5)
+  })
+
+  it('Base da Etapa 14 desconta o PIS/COFINS (Âncora − ICMS − ISS − PIS/COFINS)', () => {
+    const r = calculateMotorV17(controlledInput)
+    // imp_dentro = 10.000 + 5.000 + 4.325 = 19.325 → base 14 = 100.000 − 19.325 = 80.675
+    expect(r.motor.imp_dentro_total).toBeCloseTo(19325, 1)
+    const step14 = r.motor.cascade_trace[13]
+    expect(step14.base).toBeCloseTo(80675, 1)
   })
 
   it('Cascata 13 segregada em 13A/13B com linha "Resultado após ICMS e ISS"', () => {
@@ -351,20 +360,20 @@ describe('Motor V17 — ADR-016 PIS/COFINS base Âncora−ICMS−ISS + 13A/13B',
     expect(children).toHaveLength(4)
     expect(children[0].label).toContain('ICMS')
     expect(children[1].label).toContain('ISS')
-    // Linha-âncora obrigatória
+    // Linha-âncora obrigatória (base 13A)
     expect(children[2].label).toContain('Resultado após ICMS e ISS')
     expect(children[2].amount).toBeCloseTo(85000, 1) // Âncora − ICMS − ISS
-    // 13B PIS/COFINS — base e alíquota coerentes (valor = base × alíquota)
+    // 13B PIS/COFINS — base 13A, alíquota transmutada, valor preservado
     const pisLine = children[3]
     expect(pisLine.label).toContain('PIS/COFINS')
     expect(pisLine.base).toBeCloseTo(85000, 1)
-    expect(pisLine.rate).toBeCloseTo(0.04325, 5)
-    expect(pisLine.amount).toBeCloseTo(-3676.25, 1)
-    // Auditável: base × |rate| = |amount|
+    expect(pisLine.rate).toBeCloseTo(0.0508824, 5)
+    expect(pisLine.amount).toBeCloseTo(-4325, 1)
+    // Auditável: base × |rate| = |amount| (= valor da precificação)
     expect((pisLine.base ?? 0) * (pisLine.rate ?? 0)).toBeCloseTo(Math.abs(pisLine.amount), 1)
   })
 
-  it('Regressão "Obra JJCR": pis_cofins 4,325% NÃO infla (bug 78% eliminado)', () => {
+  it('Regressão "Obra JJCR": valor preservado ≈ 3.634 (bug 78% eliminado)', () => {
     // Produto JJCR (PIS/COFINS 4,325%) + serviço sem impostos — diluição consolidada.
     const r = calculateMotorV17({
       items: [
@@ -372,7 +381,7 @@ describe('Motor V17 — ADR-016 PIS/COFINS base Âncora−ICMS−ISS + 13A/13B',
           item_id: 'jjcr', rb: 84023.28, cp: 50000, mod_pct: 0, dop_pct: 0.10,
           commission_pct: 0.001, profit_pct: 0.12, csll_pct: 0.0108, irpj_pct: 0.018,
           peso_op_interna: 1,
-          // ICMS 10% e PIS/COFINS 4,325% sobre Op Interna 84.023,28
+          // ICMS 10% e PIS/COFINS 4,325% sobre Op Interna 84.023,28 = 3.634,01
           taxes_inside_amounts: { icms: 8402.33, iss: 0, pis_cofins: 84023.28 * 0.04325 },
         },
         {
@@ -389,11 +398,10 @@ describe('Motor V17 — ADR-016 PIS/COFINS base Âncora−ICMS−ISS + 13A/13B',
       effective_date: '2026-05-29',
       use_snapshot_rates: false,
     })
-    // Alíquota efetiva consolidada ≈ 3,827% (4,325% diluído pelo serviço 0%) — NUNCA 78%
+    // VALOR preservado da precificação = 84.023,28 × 4,325% = R$ 3.634,01 — NUNCA 67.808
+    expect(r.motor.pis_cofins).toBeCloseTo(3634.01, 0)
+    // Alíquota transmutada ≈ 4,198% (3.634,01 / 86.558,46), NUNCA 78%
+    expect(r.motor.pis_cofins_aliquota_efetiva).toBeCloseTo(0.041982, 4)
     expect(r.motor.pis_cofins_aliquota_efetiva).toBeLessThan(0.05)
-    expect(r.motor.pis_cofins_aliquota_efetiva).toBeCloseTo(0.038269, 4)
-    // Valor ≈ R$ 3.313,5 (sobre base 86.558,47) — longe dos R$ 67.808,61 do bug
-    expect(r.motor.pis_cofins).toBeGreaterThan(3000)
-    expect(r.motor.pis_cofins).toBeLessThan(3500)
   })
 })
