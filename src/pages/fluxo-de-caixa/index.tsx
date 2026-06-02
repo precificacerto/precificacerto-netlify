@@ -325,7 +325,10 @@ export default function CashFlow() {
     }
 
     const handleDeleteFromPaymentModal = async () => {
-        if (!paymentEntry) return
+        if (!paymentEntry) {
+            messageApi.error('Nenhum lançamento selecionado para excluir. Reabra o lançamento e tente novamente.')
+            return
+        }
         try {
             const res = await fetch('/api/delete/cash-entries', {
                 method: 'POST',
