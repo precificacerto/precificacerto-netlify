@@ -36,8 +36,7 @@ import {
 import { calculateMotorV17 } from '../mrm-engine-v17'
 import {
   mergeItemAndTenantRates,
-  resolveItemCsllPct,
-  resolveItemIrpjPct,
+  resolveStructuralProfitTaxes,
   type ItemTaxRates,
 } from '../item-tax-rates'
 
@@ -207,11 +206,20 @@ export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResul
     // mod_pct (V9 D1 — sempre 0 no V17 por princípio, MOD vai pro CMV)
     const mod_pct = 0
 
-    // % decimais do item (CSLL/IRPJ: prefere item, fallback tenant)
+    // % decimais do item (comissão/lucro do cadastro do produto)
     const commission_pct = (Number(item.commission_percent) || 0) / 100
     const profit_pct = (Number(item.profit_percent) || 0) / 100
-    const csll_pct = resolveItemCsllPct(item.item_tax_rates ?? null, Number(tenantCtx.csll_pct) || 0)
-    const irpj_pct = resolveItemIrpjPct(item.item_tax_rates ?? null, Number(tenantCtx.irpj_pct) || 0)
+    // ADENDO RRO (2026-06-02, Seção 23.1): pesos de redistribuição derivam dos
+    // percentuais ESTRUTURAIS por produto. Em LUCRO_REAL, IRPJ/CSLL incidem sobre
+    // o lucro do produto (profit_pct × alíquota nominal), não sobre a margem global
+    // do tenant — que distorcia os pesos (margem 0 → default 12%).
+    const { csll_pct, irpj_pct } = resolveStructuralProfitTaxes(
+      tenantCtx.regime,
+      profit_pct,
+      item.item_tax_rates ?? null,
+      Number(tenantCtx.csll_pct) || 0,
+      Number(tenantCtx.irpj_pct) || 0,
+    )
 
     // V17 fix DOP via Op Interna (2026-05-28 noite revisão 3):
     // Cadastro do produto calcula despesas sobre Op Interna (não RB).
@@ -581,16 +589,27 @@ export function calculateMotorV17ForPageFull(args: PageBuildArgs): {
         (Number(eb.financial_pct) || 0)
       : (Number(args.tenantCtx.dop_pct) || 0)
 
+    const commission_pct = (Number(item.commission_percent) || 0) / 100
+    const profit_pct = (Number(item.profit_percent) || 0) / 100
+    // ADENDO RRO (2026-06-02, Seção 23.1): IRPJ/CSLL estruturais por produto.
+    const { csll_pct, irpj_pct } = resolveStructuralProfitTaxes(
+      args.tenantCtx.regime,
+      profit_pct,
+      item.item_tax_rates ?? null,
+      Number(args.tenantCtx.csll_pct) || 0,
+      Number(args.tenantCtx.irpj_pct) || 0,
+    )
+
     return {
       item_id: `idx-${idx}`,
       rb,
       cp: cmvUsed,
       mod_pct: 0,
       dop_pct,
-      commission_pct: (Number(item.commission_percent) || 0) / 100,
-      profit_pct: (Number(item.profit_percent) || 0) / 100,
-      csll_pct: Number(args.tenantCtx.csll_pct) || 0,
-      irpj_pct: Number(args.tenantCtx.irpj_pct) || 0,
+      commission_pct,
+      profit_pct,
+      csll_pct,
+      irpj_pct,
       peso_op_interna: 1,
     }
   })

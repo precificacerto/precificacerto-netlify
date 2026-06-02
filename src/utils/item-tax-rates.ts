@@ -15,7 +15,7 @@
  * 0 explícito no item = "isento" → vence o fallback (override).
  */
 
-import type { TaxRatePeriod, TaxType } from '@/types/mrm'
+import type { TaxRatePeriod, TaxType, TaxRegime } from '@/types/mrm'
 
 /**
  * Alíquotas tributárias persistidas em `products`/`services` (todas em DECIMAL).
@@ -590,4 +590,65 @@ export function resolveItemIrpjPct(
     return Number(itemVal)
   }
   return tenantIrpjPct
+}
+
+/**
+ * Alíquotas nominais federais sobre o lucro em LUCRO_REAL — fixas por lei
+ * (IRPJ 15%, CSLL 9%). O adicional de IRPJ (10% sobre excedente anual) NÃO é
+ * aplicado na precificação estrutural por produto.
+ */
+export const IRPJ_NOMINAL_RATE_LR = 0.15
+export const CSLL_NOMINAL_RATE_LR = 0.09
+
+/**
+ * ADENDO OFICIAL DE CORREÇÃO — MOTOR RRO (2026-06-02, Seção 23.1).
+ *
+ * Resolve os percentuais ESTRUTURAIS de IRPJ/CSLL que alimentam os pesos da
+ * redistribuição do Resultado Residual Operacional (RRO). Os pesos devem ser
+ * derivados exclusivamente dos percentuais estruturais ORIGINAIS da precificação,
+ * preservando a proporcionalidade econômica da operação.
+ *
+ * Em LUCRO_REAL, IRPJ/CSLL incidem sobre o LUCRO efetivo. O lucro estrutural do
+ * produto é o seu `profit_percent` (cadastro). Logo:
+ *   irpj_estrutural = profit_pct × 15%
+ *   csll_estrutural = profit_pct × 9%
+ *
+ * Isso corrige a distorção em que IRPJ/CSLL eram derivados da margem de lucro
+ * GLOBAL do tenant (`tenant_expense_config.profit_margin_percent`, com default
+ * 12% quando 0), inflando o peso de IRPJ/CSLL e roubando peso de Comissão/Lucro.
+ *
+ * Override: se o produto tiver alíquota explícita cadastrada (item_tax_rates,
+ * valor > 0), ela é o percentual estrutural e prevalece.
+ *
+ * Demais regimes (Presumido/RET/Simples/MEI): IRPJ/CSLL NÃO dependem do lucro do
+ * produto (presunção sobre receita ou embutido no DAS). Mantém-se o fallback do
+ * tenant (resolveItem*Pct) — comportamento legado preservado.
+ *
+ * Todos os percentuais retornados são DECIMAIS (0.015 = 1,5%).
+ */
+export function resolveStructuralProfitTaxes(
+  regime: TaxRegime | null | undefined,
+  profitPctDecimal: number,
+  itemRates: ItemTaxRates | null | undefined,
+  tenantCsllPct: number,
+  tenantIrpjPct: number,
+): { csll_pct: number; irpj_pct: number } {
+  if (regime === 'LUCRO_REAL') {
+    const profit = Number.isFinite(profitPctDecimal) && profitPctDecimal > 0 ? profitPctDecimal : 0
+    const overrideIrpj = itemRates?.irpj_pct
+    const overrideCsll = itemRates?.csll_pct
+    const irpj_pct = overrideIrpj != null && Number.isFinite(overrideIrpj) && Number(overrideIrpj) > 0
+      ? Number(overrideIrpj)
+      : profit * IRPJ_NOMINAL_RATE_LR
+    const csll_pct = overrideCsll != null && Number.isFinite(overrideCsll) && Number(overrideCsll) > 0
+      ? Number(overrideCsll)
+      : profit * CSLL_NOMINAL_RATE_LR
+    return { csll_pct, irpj_pct }
+  }
+
+  // Demais regimes: comportamento legado (fallback tenant)
+  return {
+    csll_pct: resolveItemCsllPct(itemRates, tenantCsllPct),
+    irpj_pct: resolveItemIrpjPct(itemRates, tenantIrpjPct),
+  }
 }
