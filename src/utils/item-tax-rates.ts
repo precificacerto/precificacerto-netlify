@@ -28,6 +28,7 @@ export interface ItemTaxRates {
   cofins_pct?: number | null
   iss_pct?: number | null
   // Bloco B — impostos por fora
+  is_pct?: number | null
   ipi_pct?: number | null
   icms_st_pct?: number | null
   difal_pct?: number | null
@@ -45,6 +46,7 @@ const ITEM_RATE_BY_TAX_TYPE: Record<TaxType, keyof ItemTaxRates> = {
   PIS: 'pis_pct',
   COFINS: 'cofins_pct',
   ISS: 'iss_pct',
+  IS: 'is_pct',
   IPI: 'ipi_pct',
   ICMS_ST: 'icms_st_pct',
   DIFAL: 'difal_pct',
@@ -539,6 +541,7 @@ export function buildItemTaxRatesFromProduct(prod: any): ItemTaxRates {
     pis_pct: pisFinal,
     cofins_pct: cofinsFinal,
     iss_pct: prod?.iss_pct ?? null,
+    is_pct: prod?.is_pct ?? null,
     ipi_pct: prod?.ipi_pct ?? null,
     icms_st_pct: prod?.icms_st_pct ?? null,
     difal_pct: prod?.difal_pct ?? null,

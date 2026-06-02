@@ -1214,6 +1214,7 @@ function Budgets() {
                 pis_pct: source.pis_pct ?? null,
                 cofins_pct: source.cofins_pct ?? null,
                 iss_pct: source.iss_pct ?? null,
+                is_pct: source.is_pct ?? null,
                 ipi_pct: source.ipi_pct ?? null,
                 icms_st_pct: source.icms_st_pct ?? null,
                 difal_pct: source.difal_pct ?? null,

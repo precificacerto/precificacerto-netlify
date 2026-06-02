@@ -14,6 +14,7 @@ import { ROUTES } from '@/constants/routes'
 import { getMonetaryValue } from '@/utils/get-monetary-value'
 import { CalcBaseType } from '@/types/calc-base.type'
 import { calculatePricing } from '@/utils/pricing-engine'
+import { computeIvaDualOutside } from '@/utils/iva-dual-outside'
 import { CALC_TYPE_ENUM } from '@/shared/enums/calc-type'
 import { ContentIndustrialization } from './content-industrialization'
 import { ContentResale } from './content-resale'
@@ -968,28 +969,30 @@ export const Content: FC<ContentProps> = ({
         extraFields.icms_pct = icmsPct || 0
         extraFields.pis_cofins_pct = pisCofinsLRPct || 0
         extraFields.iva_dual_reduction_factor = ivaDualReductionFactor ?? null
-        // Impostos IBS/CBS/IS/IPI — usar basePrice capturado do ProductPrice via ref
+        // Impostos IBS/CBS/IS/IPI — usar basePrice capturado do ProductPrice via ref.
+        // Hierarquia oficial PDF (Reforma Tributária / IVA Dual): BaseIVA = Operação
+        // Interna − ICMS − ISS − PIS/COFINS (sem gross-up); IS compõe base IBS/CBS;
+        // IPI destacado. Fonte única em computeIvaDualOutside.
         const _saleBase = salePriceBaseRef.current > 0 ? salePriceBaseRef.current : salePriceToSave
-        const _totalEmb2 = (icmsPct || 0) + (pisCofinsLRPct || 0)
-        const _grossDen2 = _totalEmb2 > 0 ? (100 - _totalEmb2) / 100 : 1
-        const _grossed2 = _grossDen2 > 0 ? _saleBase / _grossDen2 : _saleBase
-        const _icmsForBase2 = _grossed2 * (icmsPct || 0) / 100
-        const _pisCofForBase2 = _grossed2 * (pisCofinsLRPct || 0) / 100
-        const _ibsCbsBase2 = Math.max(0, _saleBase - _icmsForBase2 - _pisCofForBase2)
-        const _isVal2 = _ibsCbsBase2 * (isPct || 0) / 100
-        const _ibsCbsWithIs2 = _ibsCbsBase2 + _isVal2
-        const _ibsVal2 = _ibsCbsWithIs2 * (ibsPct || 0) / 100
-        const _cbsVal2 = _ibsCbsWithIs2 * (cbsPct || 0) / 100
-        const _ipiVal2 = _saleBase * (ipiPct || 0) / 100
+        const _iva2 = computeIvaDualOutside({
+          opInterna: _saleBase,
+          icmsPct: icmsPct || 0,
+          pisCofinsPct: pisCofinsLRPct || 0,
+          issPct: issPct || 0,
+          isPct: isPct || 0,
+          ibsPct: ibsPct || 0,
+          cbsPct: cbsPct || 0,
+          ipiPct: ipiPct || 0,
+        })
         extraFields.taxes_launched = true
         extraFields.is_pct = isPct || 0
-        extraFields.is_value = _isVal2
+        extraFields.is_value = _iva2.isValue
         extraFields.ibs_pct = ibsPct || 0
-        extraFields.ibs_value = _ibsVal2
+        extraFields.ibs_value = _iva2.ibsValue
         extraFields.cbs_pct = cbsPct || 0
-        extraFields.cbs_value = _cbsVal2
+        extraFields.cbs_value = _iva2.cbsValue
         extraFields.ipi_pct = ipiPct || 0
-        extraFields.ipi_value = _ipiVal2
+        extraFields.ipi_value = _iva2.ipiValue
         extraFields.sale_price_base = _saleBase
         extraFields.sale_price_after_taxes = finalSalePriceForSave
         extraFields.valor_precificado_icms_piscofins = Number(productPriceInfo.totalProductPrice) || 0

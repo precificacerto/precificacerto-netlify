@@ -1,8 +1,16 @@
 import { FC, useEffect, useState } from 'react'
 import { Modal, Form, InputNumber, Button, Divider, Row, Col, Typography, Spin, message } from 'antd'
 import { supabase } from '@/supabase/client'
+import { computeIvaDualOutside } from '@/utils/iva-dual-outside'
 
 const { Text } = Typography
+
+/** Normaliza alíquota para base 100. Colunas S15 (iss_pct) são decimais (0.05 → 5). */
+function toBase100(raw: unknown): number {
+  const n = Number(raw)
+  if (!Number.isFinite(n) || n <= 0) return 0
+  return n < 1 ? n * 100 : n
+}
 
 interface LancamentoImpostosModalProps {
   open: boolean
@@ -18,26 +26,34 @@ function fmt(v: number) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 }).format(v)
 }
 
-// ICMS e PIS/COFINS já estão embutidos "por dentro" no preço de venda (calculados na precificação).
-// Aqui só entram os impostos "por fora": IS, IBS, CBS, IPI.
-// Base de IBS/CBS = salePrice − valor ICMS − valor PIS/COFINS (ambos calculados no cadastro do produto).
-function calcIcmsPisCofinsValues(salePrice: number, icmsPct: number, pisCofinsLRPct: number) {
-  const totalPct = icmsPct + pisCofinsLRPct
-  const denominator = totalPct > 0 ? (100 - totalPct) / 100 : 1
-  const grossedPrice = denominator > 0 ? salePrice / denominator : salePrice
-  return {
-    icmsValue: grossedPrice * icmsPct / 100,
-    pisCofinsValue: grossedPrice * pisCofinsLRPct / 100,
-  }
+// ICMS, ISS e PIS/COFINS já estão embutidos "por dentro" no preço de venda (calculados na
+// precificação). Aqui só entram os impostos "por fora" da Reforma: IS, IBS, CBS, IPI.
+// Hierarquia oficial PDF: BaseIVA = salePrice − ICMS − ISS − PIS/COFINS (valores apurados
+// na operação por dentro, sem gross-up); IS compõe a base de IBS/CBS; IPI destacado.
+interface InsideRates {
+  icmsPct: number
+  issPct: number
+  pisCofinsPct: number
 }
 
-function calcTaxes(salePrice: number, ibsCbsBase: number, isPct: number, ibsPct: number, cbsPct: number, ipiPct: number) {
-  const isValue = salePrice * (isPct / 100)
-  const ibsValue = ibsCbsBase * (ibsPct / 100)
-  const cbsValue = ibsCbsBase * (cbsPct / 100)
-  const ipiValue = salePrice * (ipiPct / 100)
-  const finalPrice = salePrice + isValue + ibsValue + cbsValue + ipiValue
-  return { isValue, ibsValue, cbsValue, ipiValue, finalPrice }
+function calcTaxes(
+  salePrice: number,
+  inside: InsideRates,
+  isPct: number,
+  ibsPct: number,
+  cbsPct: number,
+  ipiPct: number,
+) {
+  return computeIvaDualOutside({
+    opInterna: salePrice,
+    icmsPct: inside.icmsPct,
+    issPct: inside.issPct,
+    pisCofinsPct: inside.pisCofinsPct,
+    isPct,
+    ibsPct,
+    cbsPct,
+    ipiPct,
+  })
 }
 
 export const LancamentoImpostosModal: FC<LancamentoImpostosModalProps> = ({
@@ -53,8 +69,9 @@ export const LancamentoImpostosModal: FC<LancamentoImpostosModalProps> = ({
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(false)
 
-  const [ibsCbsBase, setIbsCbsBase] = useState(salePrice)
-  const [calc, setCalc] = useState(() => calcTaxes(salePrice, salePrice, 0, 0, 0, 0))
+  const ZERO_INSIDE: InsideRates = { icmsPct: 0, issPct: 0, pisCofinsPct: 0 }
+  const [inside, setInside] = useState<InsideRates>(ZERO_INSIDE)
+  const [calc, setCalc] = useState(() => calcTaxes(salePrice, ZERO_INSIDE, 0, 0, 0, 0))
 
   const table = entityType === 'product' ? 'products' : 'services'
 
@@ -64,15 +81,16 @@ export const LancamentoImpostosModal: FC<LancamentoImpostosModalProps> = ({
     ;(async () => {
       const { data } = await (supabase as any)
         .from(table)
-        .select('icms_pct, pis_cofins_pct, is_pct, ibs_pct, cbs_pct, ipi_pct, taxes_launched')
+        .select('icms_pct, pis_cofins_pct, iss_pct, is_pct, ibs_pct, cbs_pct, ipi_pct, taxes_launched')
         .eq('id', entityId)
         .single()
       if (data) {
-        const icmsPct = Number(data.icms_pct) || 0
-        const pisCofinsLRPct = Number(data.pis_cofins_pct) || 0
-        const { icmsValue, pisCofinsValue } = calcIcmsPisCofinsValues(salePrice, icmsPct, pisCofinsLRPct)
-        const base = Math.max(0, salePrice - icmsValue - pisCofinsValue)
-        setIbsCbsBase(base)
+        const insideRates: InsideRates = {
+          icmsPct: Number(data.icms_pct) || 0,        // base 100 (formação de preço)
+          pisCofinsPct: Number(data.pis_cofins_pct) || 0, // base 100
+          issPct: toBase100(data.iss_pct),            // decimal (S15) → base 100
+        }
+        setInside(insideRates)
         const vals = {
           is_pct: Number(data.is_pct) || 0,
           ibs_pct: Number(data.ibs_pct) || 0,
@@ -80,11 +98,11 @@ export const LancamentoImpostosModal: FC<LancamentoImpostosModalProps> = ({
           ipi_pct: Number(data.ipi_pct) || 0,
         }
         form.setFieldsValue(vals)
-        setCalc(calcTaxes(salePrice, base, vals.is_pct, vals.ibs_pct, vals.cbs_pct, vals.ipi_pct))
+        setCalc(calcTaxes(salePrice, insideRates, vals.is_pct, vals.ibs_pct, vals.cbs_pct, vals.ipi_pct))
       } else {
         form.resetFields()
-        setIbsCbsBase(salePrice)
-        setCalc(calcTaxes(salePrice, salePrice, 0, 0, 0, 0))
+        setInside(ZERO_INSIDE)
+        setCalc(calcTaxes(salePrice, ZERO_INSIDE, 0, 0, 0, 0))
       }
       setLoading(false)
     })()
@@ -94,7 +112,7 @@ export const LancamentoImpostosModal: FC<LancamentoImpostosModalProps> = ({
     const v = form.getFieldsValue()
     setCalc(calcTaxes(
       salePrice,
-      ibsCbsBase,
+      inside,
       Number(v.is_pct) || 0,
       Number(v.ibs_pct) || 0,
       Number(v.cbs_pct) || 0,
@@ -109,7 +127,7 @@ export const LancamentoImpostosModal: FC<LancamentoImpostosModalProps> = ({
     const cbsPct = Number(v.cbs_pct) || 0
     const ipiPct = Number(v.ipi_pct) || 0
     const { isValue, ibsValue, cbsValue, ipiValue, finalPrice } =
-      calcTaxes(salePrice, ibsCbsBase, isPct, ibsPct, cbsPct, ipiPct)
+      calcTaxes(salePrice, inside, isPct, ibsPct, cbsPct, ipiPct)
 
     setSaving(true)
     try {
@@ -199,10 +217,10 @@ export const LancamentoImpostosModal: FC<LancamentoImpostosModalProps> = ({
             <Col span={14}><Text type="secondary">Preço de venda base</Text></Col>
             <Col span={10} style={{ textAlign: 'right' }}><Text>{fmt(salePrice)}</Text></Col>
           </Row>
-          {ibsCbsBase < salePrice && (
+          {calc.baseIVA < salePrice && (
             <Row gutter={8} style={{ marginBottom: 6 }}>
-              <Col span={14}><Text type="secondary" style={{ fontSize: 11 }}>Base IBS/CBS (PV − ICMS − PIS/COFINS)</Text></Col>
-              <Col span={10} style={{ textAlign: 'right' }}><Text style={{ fontSize: 11 }}>{fmt(ibsCbsBase)}</Text></Col>
+              <Col span={14}><Text type="secondary" style={{ fontSize: 11 }}>Base Econômica IVA (PV − ICMS − ISS − PIS/COFINS)</Text></Col>
+              <Col span={10} style={{ textAlign: 'right' }}><Text style={{ fontSize: 11 }}>{fmt(calc.baseIVA)}</Text></Col>
             </Row>
           )}
           <Row gutter={8} style={{ marginBottom: 6 }}>

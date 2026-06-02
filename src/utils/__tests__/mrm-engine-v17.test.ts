@@ -194,6 +194,62 @@ describe('Motor V17 — Invariantes', () => {
 })
 
 // ============================================================================
+// SUITE 2b — Tributação POR FORA (IVA Dual / Reforma Tributária)
+// ============================================================================
+// Valida a hierarquia oficial do PDF "Formação de Preço com Tributação Por Fora":
+// Base Econômica IVA = Âncora − ICMS − ISS − PIS/COFINS; IS compõe a base de
+// IBS/CBS; IPI destacado; Preço Final = Âncora + Σ tributos por fora.
+describe('Motor V17 — Tributação por fora (IVA Dual)', () => {
+  const ivaInput: MotorV17Input = {
+    items: [
+      { item_id: 'iva', rb: 10000, cp: 0, mod_pct: 0, dop_pct: 0, commission_pct: 0.05, profit_pct: 0.15, csll_pct: 0, irpj_pct: 0, peso_op_interna: 1 },
+    ],
+    discount: { pct: 0 },
+    policy: 'RRO_PROPORTIONAL',
+    regime: 'LUCRO_REAL',
+    rates: [rate('ICMS', 0.17), rate('IS', 0.10), rate('IBS', 0.01), rate('CBS', 0.088), rate('IPI', 0.05)],
+    effective_date: '2026-06-02',
+    use_snapshot_rates: false,
+  }
+
+  it('Base Econômica IVA = Âncora − ICMS − ISS − PIS/COFINS', () => {
+    const r = calculateMotorV17(ivaInput)
+    const is = r.distribution.taxes_outside.find((x) => x.type === 'IS')!
+    const baseIva = r.motor.ancora - r.motor.icms - r.motor.iss - r.motor.pis_cofins
+    expect(is.base).toBeCloseTo(baseIva, 2)
+    expect(is.amount).toBeCloseTo(baseIva * 0.10, 2)
+  })
+
+  it('IBS/CBS incidem sobre (Base Econômica IVA + IS)', () => {
+    const r = calculateMotorV17(ivaInput)
+    const t = r.distribution.taxes_outside
+    const is = t.find((x) => x.type === 'IS')!
+    const ibs = t.find((x) => x.type === 'IBS')!
+    const cbs = t.find((x) => x.type === 'CBS')!
+    const baseIbsCbs = is.base + is.amount
+    expect(ibs.base).toBeCloseTo(baseIbsCbs, 2)
+    expect(cbs.base).toBeCloseTo(baseIbsCbs, 2)
+    expect(ibs.amount).toBeCloseTo(baseIbsCbs * 0.01, 2)
+    expect(cbs.amount).toBeCloseTo(baseIbsCbs * 0.088, 2)
+  })
+
+  it('IPI é destacado sobre a Âncora (não integra base IBS/CBS)', () => {
+    const r = calculateMotorV17(ivaInput)
+    const ipi = r.distribution.taxes_outside.find((x) => x.type === 'IPI')!
+    expect(ipi.base).toBeCloseTo(r.motor.ancora, 2)
+    expect(ipi.amount).toBeCloseTo(r.motor.ancora * 0.05, 2)
+  })
+
+  it('valor_final = Âncora + Σ tributos por fora', () => {
+    const r = calculateMotorV17(ivaInput)
+    expect(r.distribution.valor_final).toBeCloseTo(
+      r.motor.ancora + r.distribution.taxes_outside_total,
+      2,
+    )
+  })
+})
+
+// ============================================================================
 // SUITE 3 — Camada 2 (RRO_PROPORTIONAL vs COMMISSION_PROTECTED)
 // ============================================================================
 describe('Motor V17 — Camada 2 Políticas de Absorção', () => {

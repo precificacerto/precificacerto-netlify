@@ -17,6 +17,7 @@ import type { TaxPreviewResult } from '@/utils/calc-tax-preview'
 import { useRouter } from 'next/router'
 import { ROUTES } from '@/constants/routes'
 import { calculatePricing } from '@/utils/pricing-engine'
+import { computeIvaDualOutside } from '@/utils/iva-dual-outside'
 
 const UNIT_LABELS: Record<string, string> = {
     G: 'g', KG: 'kg', ML: 'ml', L: 'l', MM: 'mm', CM: 'cm',
@@ -467,18 +468,23 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
             let svcFinalPrice = pricing.sellingPrice
             let svcIsVal = 0, svcIbsVal = 0, svcCbsVal = 0, svcIpiVal = 0
             if (isLRorLPorSHSvcComp) {
-                const _pisCof = pisCofinsLRPct || 0
-                const _grossDen = _pisCof > 0 ? (100 - _pisCof) / 100 : 1
-                const _grossed = _grossDen > 0 ? pricing.sellingPrice / _grossDen : pricing.sellingPrice
-                const _pisCofVal = _grossed * _pisCof / 100
-                const _ibsCbsBase = Math.max(0, pricing.sellingPrice - _pisCofVal)
-                svcIsVal = _ibsCbsBase * (isPct || 0) / 100
-                const _ibsCbsWithIs = _ibsCbsBase + svcIsVal
-                svcIbsVal = _ibsCbsWithIs * (ibsPct || 0) / 100
-                svcCbsVal = _ibsCbsWithIs * (cbsPct || 0) / 100
-                svcIpiVal = pricing.sellingPrice * (ipiPct || 0) / 100
-                const totalTax = svcIsVal + svcIbsVal + svcCbsVal + svcIpiVal
-                if (totalTax > 0) svcFinalPrice = pricing.sellingPrice + totalTax
+                // Hierarquia oficial PDF (IVA Dual): BaseIVA = Operação Interna − ISS −
+                // PIS/COFINS (serviço não tem ICMS), sem gross-up; IS compõe base IBS/CBS.
+                const _iva = computeIvaDualOutside({
+                    opInterna: pricing.sellingPrice,
+                    icmsPct: 0,
+                    issPct: issPctSvc || 0,
+                    pisCofinsPct: pisCofinsLRPct || 0,
+                    isPct: isPct || 0,
+                    ibsPct: ibsPct || 0,
+                    cbsPct: cbsPct || 0,
+                    ipiPct: ipiPct || 0,
+                })
+                svcIsVal = _iva.isValue
+                svcIbsVal = _iva.ibsValue
+                svcCbsVal = _iva.cbsValue
+                svcIpiVal = _iva.ipiValue
+                if (_iva.totalOutside > 0) svcFinalPrice = _iva.finalPrice
             }
 
             const data: Record<string, any> = {
@@ -1070,18 +1076,23 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
 
                     {/* IBS / CBS */}
                     {isLRorLPDisplay && (() => {
-                        const _pisCof = pisCofinsLRPct || 0
-                        const _grossDen = _pisCof > 0 ? (100 - _pisCof) / 100 : 1
-                        const _grossed = _grossDen > 0 ? pricing.sellingPrice / _grossDen : pricing.sellingPrice
-                        const _pisCofVal = _grossed * _pisCof / 100
-                        const _ibsCbsBase = Math.max(0, pricing.sellingPrice - _pisCofVal)
-                        const _isVal = _ibsCbsBase * (isPct || 0) / 100
-                        const _ibsCbsWithIs = _ibsCbsBase + _isVal
-                        const _ibsVal = _ibsCbsWithIs * (ibsPct || 0) / 100
-                        const _cbsVal = _ibsCbsWithIs * (cbsPct || 0) / 100
-                        const _ipiVal = pricing.sellingPrice * (ipiPct || 0) / 100
-                        const _total = _isVal + _ibsVal + _cbsVal + _ipiVal
-                        const _finalPrice = _total > 0 ? pricing.sellingPrice + _total : pricing.sellingPrice
+                        // Hierarquia oficial PDF (IVA Dual) — fonte única computeIvaDualOutside.
+                        const _ivaDisp = computeIvaDualOutside({
+                            opInterna: pricing.sellingPrice,
+                            icmsPct: 0,
+                            issPct: issPctSvc || 0,
+                            pisCofinsPct: pisCofinsLRPct || 0,
+                            isPct: isPct || 0,
+                            ibsPct: ibsPct || 0,
+                            cbsPct: cbsPct || 0,
+                            ipiPct: ipiPct || 0,
+                        })
+                        const _isVal = _ivaDisp.isValue
+                        const _ibsVal = _ivaDisp.ibsValue
+                        const _cbsVal = _ivaDisp.cbsValue
+                        const _ipiVal = _ivaDisp.ipiValue
+                        const _total = _ivaDisp.totalOutside
+                        const _finalPrice = _ivaDisp.finalPrice
                         const ibsCbsRows = [
                             { label: 'IBS — Imposto sobre Bens e Serv. (%)', value: ibsPct, setter: setIbsPct, taxValue: _ibsVal },
                             { label: 'CBS — Contrib. sobre Bens e Serv. (%)', value: cbsPct, setter: setCbsPct, taxValue: _cbsVal },

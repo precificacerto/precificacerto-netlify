@@ -56,6 +56,7 @@ export type TaxType =
   | 'PIS'
   | 'COFINS'
   | 'ISS'
+  | 'IS'
   | 'IPI'
   | 'ICMS_ST'
   | 'DIFAL'
@@ -65,13 +66,16 @@ export type TaxType =
   | 'ISS_RETIDO'
 
 export const TAXES_INSIDE: readonly TaxType[] = ['ICMS', 'PIS', 'COFINS', 'ISS'] as const
+// Tributos destacados da Reforma Tributária (IVA Dual) + legados "por fora".
+// Ordem segue a hierarquia do PDF: IS → IBS → CBS → IPI (Reforma); demais legados.
 export const TAXES_OUTSIDE: readonly TaxType[] = [
+  'IS',
+  'IBS',
+  'CBS',
   'IPI',
   'ICMS_ST',
   'DIFAL',
   'FCP',
-  'IBS',
-  'CBS',
   'ISS_RETIDO',
 ] as const
 

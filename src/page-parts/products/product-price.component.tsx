@@ -2,6 +2,7 @@ import { ChangeEvent, FC, useEffect } from 'react'
 import { Card, Divider, InputNumber, Tooltip } from 'antd'
 import { CalculatorOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { getMonetaryValue } from '@/utils/get-monetary-value'
+import { computeIvaDualOutside } from '@/utils/iva-dual-outside'
 import { CALC_TYPE_ENUM } from '@/shared/enums/calc-type'
 import { ProductPriceInfoType } from './content.component'
 import { CalcBaseType } from '@/types/calc-base.type'
@@ -158,21 +159,28 @@ export const ProductPrice: FC<Props> = ({
   const baseForSalePrice = (isLucroReal || isLucroPresumed) ? valorPrecificado : pricePerUnit
   const finalSalePrice = baseForSalePrice + terceirizadasTotal
 
-  // Impostos "por fora" (IBS/CBS/IS/IPI)
-  const _lrTotalEmb = (isLucroReal || isLucroPresumed) ? (icmsPct + pisCofinsLRPct) : 0
-  const _lrGrossDen = _lrTotalEmb > 0 ? (100 - _lrTotalEmb) / 100 : 1
-  const _lrGrossed = _lrGrossDen > 0 ? finalSalePrice / _lrGrossDen : finalSalePrice
-  const _lrIcmsForBase = _lrGrossed * icmsPct / 100
-  const _lrPisCofForBase = _lrGrossed * pisCofinsLRPct / 100
-  const ibsCbsBase = (isLucroReal || isLucroPresumed) ? Math.max(0, finalSalePrice - _lrIcmsForBase - _lrPisCofForBase) : finalSalePrice
-  const taxIsValue = ibsCbsBase * (isPct || 0) / 100
-  const ibsCbsWithIs = ibsCbsBase + taxIsValue
-  const taxIbsValue = ibsCbsWithIs * (ibsPct || 0) / 100
-  const taxCbsValue = ibsCbsWithIs * (cbsPct || 0) / 100
-  const taxIpiValue = finalSalePrice * (ipiPct || 0) / 100
-  const totalInlineTax = taxIsValue + taxIbsValue + taxCbsValue + taxIpiValue
-  // Preço de Venda por Unidade = valorPrecificado + terceirizadas + IBS/CBS + IS/IPI
-  const finalPriceWithTaxes = finalSalePrice + totalInlineTax
+  // Impostos "por fora" (IBS/CBS/IS/IPI) — hierarquia oficial PDF Reforma Tributária.
+  // Base Econômica IVA = Operação Interna − ICMS − ISS − PIS/COFINS (valores já apurados
+  // na operação por dentro, SEM gross-up). IS compõe a base de IBS/CBS. IPI destacado.
+  const _ivaApplies = isLucroReal || isLucroPresumed
+  const _iva = computeIvaDualOutside({
+    opInterna: finalSalePrice,
+    icmsPct: _ivaApplies ? icmsPct : 0,
+    pisCofinsPct: _ivaApplies ? pisCofinsLRPct : 0,
+    issPct: 0, // produtos não têm ISS (industrialização/revenda)
+    isPct: isPct || 0,
+    ibsPct: ibsPct || 0,
+    cbsPct: cbsPct || 0,
+    ipiPct: ipiPct || 0,
+  })
+  const ibsCbsBase = _iva.baseIVA
+  const taxIsValue = _iva.isValue
+  const taxIbsValue = _iva.ibsValue
+  const taxCbsValue = _iva.cbsValue
+  const taxIpiValue = _iva.ipiValue
+  const totalInlineTax = _iva.totalOutside
+  // Preço de Venda por Unidade = Operação Interna + Operação Externa (IS+IBS+CBS+IPI)
+  const finalPriceWithTaxes = _iva.finalPrice
   const hasInlineTaxes = (isLucroReal || isLucroPresumed || isSimplesHibrido) && totalInlineTax > 0
 
   useEffect(() => {

@@ -21,9 +21,9 @@ import type {
   MotorOutput,
   TaxLine,
   TaxRatePeriod,
+  TaxType,
   ValidationMap,
 } from '@/types/mrm'
-import { TAXES_OUTSIDE } from '@/types/mrm'
 
 interface ApplyAbsorptionInput {
   view: ConsolidatedView
@@ -79,20 +79,39 @@ export function applyAbsorptionPolicy(input: ApplyAbsorptionInput): ApplyAbsorpt
     }
   }
 
-  // ───── PDF Etapa 17: tributos por fora ─────
-  // Base canônica: Âncora − ICMS − PIS/COFINS (ISS NÃO subtrai — V12)
-  const taxes_outside_base = motor.ancora - motor.icms - motor.pis_cofins
+  // ───── PDF Etapa 17: tributos por fora (Reforma Tributária / IVA Dual) ─────
+  // Hierarquia oficial (Relatório "Formação de Preço com Tributação Por Fora"):
+  //   Base Econômica IVA = Âncora − ICMS − ISS − PIS/COFINS  (Etapas 2-3)
+  //   IS  = Base Econômica IVA × alíq.IS   → compõe a base de IBS/CBS (Etapas 4-5)
+  //   IBS = (Base + IS) × alíq.IBS  ·  CBS = (Base + IS) × alíq.CBS  (Etapas 6-7)
+  //   IPI = Âncora × alíq.IPI (destacado; não integra base IBS/CBS)  (Etapa 8)
+  const base_iva = Math.max(0, motor.ancora - motor.icms - motor.iss - motor.pis_cofins)
+  const is_rate = resolveRate(input.rates, 'IS')
+  const is_amount = base_iva * is_rate
+  const base_ibs_cbs = base_iva + is_amount
+
   const taxes_outside: TaxLine[] = []
   let taxes_outside_total = 0
-
-  for (const type of TAXES_OUTSIDE) {
-    const rate = resolveRate(input.rates, type)
-    if (rate <= 0) continue
-    const amount = taxes_outside_base > 0 ? taxes_outside_base * rate : 0
-    taxes_outside.push({ type, rate_pct: rate, base: taxes_outside_base, amount })
+  const pushTax = (type: TaxType, rate: number, base: number) => {
+    if (rate <= 0) return
+    const amount = base > 0 ? base * rate : 0
+    taxes_outside.push({ type, rate_pct: rate, base, amount })
     taxes_outside_total += amount
   }
 
+  // Etapa 4: Imposto Seletivo sobre a Base Econômica IVA.
+  pushTax('IS', is_rate, base_iva)
+  // Etapas 6-7: IBS e CBS sobre a base com IS incorporado.
+  pushTax('IBS', resolveRate(input.rates, 'IBS'), base_ibs_cbs)
+  pushTax('CBS', resolveRate(input.rates, 'CBS'), base_ibs_cbs)
+  // Etapa 8: IPI destacado sobre a operação interna (Âncora).
+  pushTax('IPI', resolveRate(input.rates, 'IPI'), motor.ancora)
+  // Legados "por fora" pré-Reforma — incidem sobre a Base Econômica IVA.
+  for (const type of ['ICMS_ST', 'DIFAL', 'FCP', 'ISS_RETIDO'] as TaxType[]) {
+    pushTax(type, resolveRate(input.rates, type), base_iva)
+  }
+
+  const taxes_outside_base = base_iva
   const valor_final = motor.ancora + taxes_outside_total
 
   // ───── Validations / Audit ─────
