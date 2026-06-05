@@ -85,5 +85,6 @@ export function checkI6DistribuicaoSoma(motor: MotorOutput, dist: FinalDistribut
 }
 
 export function checkI7ValorFinal(motor: MotorOutput, dist: FinalDistribution): boolean {
-  return Math.abs(dist.valor_final - (motor.ancora + dist.taxes_outside_total)) < EPS
+  const desp = Number(dist.desp_acessorias) || 0
+  return Math.abs(dist.valor_final - (motor.ancora + desp + dist.taxes_outside_total)) < EPS
 }

@@ -58,6 +58,7 @@ export type TaxType =
   | 'ISS'
   | 'IS'
   | 'IPI'
+  | 'ICMS_COMPL'
   | 'ICMS_ST'
   | 'DIFAL'
   | 'FCP'
@@ -67,12 +68,15 @@ export type TaxType =
 
 export const TAXES_INSIDE: readonly TaxType[] = ['ICMS', 'PIS', 'COFINS', 'ISS'] as const
 // Tributos destacados da Reforma Tributária (IVA Dual) + legados "por fora".
-// Ordem segue a hierarquia do PDF: IS → IBS → CBS → IPI (Reforma); demais legados.
+// Ordem segue a hierarquia do PDF: IS → IBS → CBS → IPI → ICMS Complementar (Reforma);
+// demais legados. ICMS_COMPL (LC 87/1996, art. 13, §1º, II) é condicional ao destinatário
+// consumidor final NÃO contribuinte do ICMS.
 export const TAXES_OUTSIDE: readonly TaxType[] = [
   'IS',
   'IBS',
   'CBS',
   'IPI',
+  'ICMS_COMPL',
   'ICMS_ST',
   'DIFAL',
   'FCP',
@@ -674,7 +678,9 @@ export interface FinalDistribution {
   taxes_outside: TaxLine[]
   taxes_outside_base: number
   taxes_outside_total: number
-  /** Valor final = ancora + Σ taxes_outside. */
+  /** Despesas Acessórias consolidadas (frete + seguro + despesas acessórias, R$). */
+  desp_acessorias: number
+  /** Valor final = ancora + Desp. Acessórias + Σ taxes_outside. */
   valor_final: number
   absorption_audit: {
     /** True apenas em COMMISSION_PROTECTED com floor aplicado. */
@@ -698,6 +704,17 @@ export interface MotorV17Input {
   rates: TaxRatePeriod[]
   effective_date: string
   use_snapshot_rates: boolean
+  /**
+   * Despesas Acessórias consolidadas (frete + seguro + despesas acessórias, R$) cobradas do
+   * adquirente. Compõem a base de IBS/CBS e do IPI e a base do ICMS Complementar — NÃO a base
+   * do IS nem sofrem dedução de ICMS/PIS/ISS (Conferência Fiscal, seções 1–5).
+   */
+  desp_acessorias?: number
+  /**
+   * Ativa o ICMS Complementar (LC 87/1996, art. 13, §1º, II): só quando o destinatário for
+   * consumidor final NÃO contribuinte do ICMS (`customers.is_icms_contributor === false`).
+   */
+  icms_compl_applies?: boolean
 }
 
 /**

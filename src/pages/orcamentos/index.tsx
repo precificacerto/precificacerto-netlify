@@ -499,6 +499,11 @@ function Budgets() {
     }
 
     const selectedEmployeeId = Form.useWatch('employee_id', form)
+    // ICMS Complementar (LC 87/1996, art. 13, §1º, II): só consumidor final NÃO contribuinte
+    // do ICMS. Resolve o destinatário selecionado; ausência de cliente → assume contribuinte.
+    const selectedCustomerId = Form.useWatch('customer_id', form)
+    const selectedCustomer = (customers as any[]).find((c) => c.id === selectedCustomerId)
+    const icmsComplApplies = selectedCustomer?.is_icms_contributor === false
     const latestEmployeeIdRef = useRef<string | undefined>(undefined)
     const selectedEmployee = employees.find((e: any) => e.id === selectedEmployeeId) as any
     const sellerCommissionPct = (selectedEmployee?.commission_percent != null && Number(selectedEmployee.commission_percent) > 0)
@@ -624,6 +629,7 @@ function Budgets() {
         },
         globalDiscountPercent,
         effectiveDate: reapurationEffectiveDate,
+        icmsComplApplies,
     })
     // Preserva guard V16 — items sem componente distribuível retornam null
     const motorResultsByItem = budgetItems.map((i, idx) => {
@@ -641,6 +647,11 @@ function Budgets() {
     void calculateMarginReapuration; void buildMotorInput; void discountMode;
     const profitAmount = motorResultsByItem.reduce((s, r) => s + (r?.new_profit ?? 0), 0)
     const commissionAmount = motorResultsByItem.reduce((s, r) => s + (r?.new_commission ?? 0), 0)
+    // ICMS Complementar consolidado (Etapa 17) — só > 0 quando destinatário não contribuinte.
+    const icmsComplAmount = motorResultsByItem.reduce(
+        (s, r) => s + (r?.taxes_outside?.find((t) => t.type === 'ICMS_COMPL')?.amount ?? 0),
+        0,
+    )
 
     // ── EPIC-RR-DISPLAY: distribuição semântica (PDF GPT + DOCX Claude, 20/05/2026) ──
     // Aria S2 review: memoizar array de items antes de passar ao hook (evita
@@ -896,6 +907,7 @@ function Budgets() {
                 discount_mode: persistedDiscountModeInsert,
                 commission_amount: commissionAmount,
                 profit_amount: profitAmount,
+                icms_compl_value: icmsComplAmount,
                 engine_version: mrmConfig.enabled ? MRM_ENGINE_VERSION : 'legacy',
                 expiration_date: values.expiration_date?.format('YYYY-MM-DD') || null,
                 notes: values.notes || null,
@@ -1065,6 +1077,7 @@ function Budgets() {
                 discount_mode: persistedDiscountModeUpdate,
                 commission_amount: commissionAmount,
                 profit_amount: profitAmount,
+                icms_compl_value: icmsComplAmount,
                 engine_version: mrmConfig.enabled ? MRM_ENGINE_VERSION : 'legacy',
                 expiration_date: values.expiration_date?.format('YYYY-MM-DD') || null,
                 notes: values.notes || null,
@@ -1363,6 +1376,8 @@ function Budgets() {
                 original_budget_id: b.id,
                 status: 'DRAFT',
                 total_value: b.total_value || 0,
+                // ICMS Complementar — espelha o valor consolidado do orçamento de origem.
+                icms_compl_value: (b as any).icms_compl_value || 0,
                 // MRM-V2-S2.1: coage modos legacy do budget pai → PROPORTIONAL ao copiar para o pedido.
                 discount_mode: coerceLegacyDiscountMode(b.discount_mode || null, { tenant_id: tenantId, document_id: b.id, surface: 'order' }),
                 discount_value: b.discount_value || null,

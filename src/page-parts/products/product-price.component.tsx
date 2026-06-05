@@ -159,12 +159,15 @@ export const ProductPrice: FC<Props> = ({
   const baseForSalePrice = (isLucroReal || isLucroPresumed) ? valorPrecificado : pricePerUnit
   const finalSalePrice = baseForSalePrice + terceirizadasTotal
 
-  // Impostos "por fora" (IBS/CBS/IS/IPI) — hierarquia oficial PDF Reforma Tributária.
-  // Base Econômica IVA = Operação Interna − ICMS − ISS − PIS/COFINS (valores já apurados
-  // na operação por dentro, SEM gross-up). IS compõe a base de IBS/CBS. IPI destacado.
+  // Impostos "por fora" (IBS/CBS/IS/IPI) — bases individualizadas da Conferência Fiscal.
+  // OpDentro = preço por dentro SEM Desp. Acessórias. As terceirizadas (frete + seguro +
+  // despesas acessórias) entram como Desp. Acessórias: compõem a base de IBS/CBS e do IPI,
+  // mas NÃO a base do IS nem sofrem dedução de ICMS/PIS. ICMS Complementar não se aplica no
+  // cadastro (depende do destinatário — só em orçamento/pedido/venda).
   const _ivaApplies = isLucroReal || isLucroPresumed
   const _iva = computeIvaDualOutside({
-    opInterna: finalSalePrice,
+    opInterna: baseForSalePrice,
+    despAcessorias: terceirizadasTotal,
     icmsPct: _ivaApplies ? icmsPct : 0,
     pisCofinsPct: _ivaApplies ? pisCofinsLRPct : 0,
     issPct: 0, // produtos não têm ISS (industrialização/revenda)
@@ -173,7 +176,7 @@ export const ProductPrice: FC<Props> = ({
     cbsPct: cbsPct || 0,
     ipiPct: ipiPct || 0,
   })
-  const ibsCbsBase = _iva.baseIVA
+  const ibsCbsBase = _iva.baseIbsCbs
   const taxIsValue = _iva.isValue
   const taxIbsValue = _iva.ibsValue
   const taxCbsValue = _iva.cbsValue

@@ -333,7 +333,7 @@ function OrdersPage() {
                 .from('orders')
                 .select(`
                     id, tenant_id, order_code, customer_id, employee_id, budget_id, sale_id, status,
-                    total_value, discount_mode, discount_value, discount_percent,
+                    total_value, icms_compl_value, discount_mode, discount_value, discount_percent,
                     payment_method, installments, entry_value, notes,
                     created_at, updated_at, requires_review,
                     customers ( name ),
@@ -707,6 +707,8 @@ function OrdersPage() {
                     employee_id: sendingOrder.employee_id || null,
                     status: 'APPROVED',
                     total_value: totalValue,
+                    // ICMS Complementar — espelha o valor do pedido (que veio do orçamento original).
+                    icms_compl_value: (sendingOrder as any).icms_compl_value || 0,
                     payment_method: sendingOrder.payment_method || null,
                     installments: sendingOrder.installments || 1,
                     // Epic MRM-V6 (ADR-009): espelha o discount_mode do pedido pai sem coerção.

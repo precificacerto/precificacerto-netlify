@@ -103,6 +103,12 @@ export interface PageBuildArgs {
   tenantCtx: PageTenantCtx
   globalDiscountPercent: number
   effectiveDate?: string
+  /**
+   * Ativa o ICMS Complementar (LC 87/1996, art. 13, §1º, II) na Etapa 17: só quando o
+   * destinatário for consumidor final NÃO contribuinte do ICMS
+   * (`customers.is_icms_contributor === false`). Default: false.
+   */
+  icmsComplApplies?: boolean
 }
 
 /**
@@ -392,6 +398,15 @@ export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResul
     ? mergeItemAndTenantRates(firstItemWithRates.item.item_tax_rates ?? null, tenantCtx.rates ?? [])
     : (tenantCtx.rates ?? [])
 
+  // ───── Despesas Acessórias consolidadas (frete + seguro + despesas acessórias) ─────
+  // Conferência Fiscal (2026-06-05): compõem a base de IBS/CBS e do IPI e a base do ICMS
+  // Complementar — NÃO entram na base do IS nem sofrem dedução de ICMS/PIS/ISS.
+  const despAcessoriasTotal = validItems.reduce((acc, { item }) => {
+    const terc = Number(item.terceirizadas_unit) || 0
+    const qty = Number(item.quantity) || 0
+    return acc + (terc > 0 ? terc * qty : 0)
+  }, 0)
+
   // ───── Chama motor V17 ─────
   const v17Input: MotorV17Input = {
     items: engineItems,
@@ -401,6 +416,8 @@ export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResul
     rates: mergedRates,
     effective_date: args.effectiveDate ?? new Date().toISOString().slice(0, 10),
     use_snapshot_rates: tenantCtx.useSnapshotRates ?? false,
+    desp_acessorias: despAcessoriasTotal,
+    icms_compl_applies: args.icmsComplApplies ?? false,
   }
 
   const v17Result = calculateMotorV17(v17Input)
@@ -560,6 +577,7 @@ export function calculateMotorV17ForPageFull(args: PageBuildArgs): {
         policy_applied: args.tenantCtx.absorption_policy ?? 'RRO_PROPORTIONAL',
         new_commission: 0, new_profit: 0, new_csll: 0, new_irpj: 0,
         taxes_outside: [], taxes_outside_base: 0, taxes_outside_total: 0,
+        desp_acessorias: 0,
         valor_final: 0,
         absorption_audit: { commission_floor_applied: false, profit_absorbed: 0, delta_vs_proportional: 0 },
         validations: { V1: true, V2: true, V3: true, V4: true, V5: true, V6: true, V7: true },

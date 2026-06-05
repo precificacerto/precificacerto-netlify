@@ -30,6 +30,10 @@ interface ApplyAbsorptionInput {
   motor: MotorOutput
   policy: AbsorptionPolicy
   rates: TaxRatePeriod[]
+  /** Despesas Acessórias consolidadas (frete + seguro + despesas acessórias, R$). */
+  desp_acessorias?: number
+  /** Ativa ICMS Complementar (destinatário consumidor final NÃO contribuinte do ICMS). */
+  icms_compl_applies?: boolean
 }
 
 interface ApplyAbsorptionResult {
@@ -80,15 +84,18 @@ export function applyAbsorptionPolicy(input: ApplyAbsorptionInput): ApplyAbsorpt
   }
 
   // ───── PDF Etapa 17: tributos por fora (Reforma Tributária / IVA Dual) ─────
-  // Hierarquia oficial (Relatório "Formação de Preço com Tributação Por Fora"):
-  //   Base Econômica IVA = Âncora − ICMS − ISS − PIS/COFINS  (Etapas 2-3)
-  //   IS  = Base Econômica IVA × alíq.IS   → compõe a base de IBS/CBS (Etapas 4-5)
-  //   IBS = (Base + IS) × alíq.IBS  ·  CBS = (Base + IS) × alíq.CBS  (Etapas 6-7)
-  //   IPI = Âncora × alíq.IPI (destacado; não integra base IBS/CBS)  (Etapa 8)
+  // Bases individualizadas (documento "Bases de Cálculo dos Tributos Por Fora",
+  // Conferência Fiscal 2026-06-05). OpDentro = Âncora (operação interna, SEM despesas
+  // acessórias). Desp. Acessórias = frete + seguro + despesas acessórias cobradas do cliente.
+  //   IS          = (Âncora − ICMS − ISS − PIS/COFINS) × alíq.IS        (sem Desp. Acessórias)
+  //   IBS / CBS   = (Base IS + IS + Desp. Acessórias) × alíq.           (Desp. compõe a base)
+  //   IPI         = (Âncora + Desp. Acessórias) × alíq.IPI              (RIPI; não deduz ICMS)
+  //   ICMS Compl. = (IPI + Desp. Acessórias) × alíq.ICMS                (só não contribuinte)
+  const desp_acessorias = Math.max(0, Number(input.desp_acessorias) || 0)
   const base_iva = Math.max(0, motor.ancora - motor.icms - motor.iss - motor.pis_cofins)
   const is_rate = resolveRate(input.rates, 'IS')
   const is_amount = base_iva * is_rate
-  const base_ibs_cbs = base_iva + is_amount
+  const base_ibs_cbs = base_iva + is_amount + desp_acessorias
 
   const taxes_outside: TaxLine[] = []
   let taxes_outside_total = 0
@@ -99,20 +106,29 @@ export function applyAbsorptionPolicy(input: ApplyAbsorptionInput): ApplyAbsorpt
     taxes_outside_total += amount
   }
 
-  // Etapa 4: Imposto Seletivo sobre a Base Econômica IVA.
+  // Etapa 4: Imposto Seletivo sobre a Base Econômica IVA (sem Desp. Acessórias).
   pushTax('IS', is_rate, base_iva)
-  // Etapas 6-7: IBS e CBS sobre a base com IS incorporado.
+  // Etapas 6-7: IBS e CBS sobre a base com IS e Desp. Acessórias incorporados.
   pushTax('IBS', resolveRate(input.rates, 'IBS'), base_ibs_cbs)
   pushTax('CBS', resolveRate(input.rates, 'CBS'), base_ibs_cbs)
-  // Etapa 8: IPI destacado sobre a operação interna (Âncora).
-  pushTax('IPI', resolveRate(input.rates, 'IPI'), motor.ancora)
+  // Etapa 8: IPI destacado sobre Âncora + Desp. Acessórias (RIPI art. 190).
+  const ipi_rate = resolveRate(input.rates, 'IPI')
+  const ipi_base = motor.ancora + desp_acessorias
+  const ipi_amount = ipi_base > 0 ? ipi_base * ipi_rate : 0
+  pushTax('IPI', ipi_rate, ipi_base)
+  // ICMS Complementar: (IPI + Desp. Acessórias) × alíq.ICMS — só consumidor final NÃO
+  // contribuinte do ICMS (LC 87/1996, art. 13, §1º, II).
+  if (input.icms_compl_applies) {
+    pushTax('ICMS_COMPL', resolveRate(input.rates, 'ICMS'), ipi_amount + desp_acessorias)
+  }
   // Legados "por fora" pré-Reforma — incidem sobre a Base Econômica IVA.
   for (const type of ['ICMS_ST', 'DIFAL', 'FCP', 'ISS_RETIDO'] as TaxType[]) {
     pushTax(type, resolveRate(input.rates, type), base_iva)
   }
 
   const taxes_outside_base = base_iva
-  const valor_final = motor.ancora + taxes_outside_total
+  // Preço Final = Âncora + Desp. Acessórias + Operação Externa.
+  const valor_final = motor.ancora + desp_acessorias + taxes_outside_total
 
   // ───── Validations / Audit ─────
   const delta_vs_proportional = commission_floor_applied
@@ -126,7 +142,7 @@ export function applyAbsorptionPolicy(input: ApplyAbsorptionInput): ApplyAbsorpt
     V4: Math.abs(motor.rro - (final_commission + final_profit + final_csll + final_irpj)) < 0.01,
     V5: motor.cascade_trace.length === 17,
     V6: true, // distribuição = RRO (V4 acima)
-    V7: Math.abs(valor_final - (motor.ancora + taxes_outside_total)) < 0.01,
+    V7: Math.abs(valor_final - (motor.ancora + desp_acessorias + taxes_outside_total)) < 0.01,
   }
 
   const distribution: FinalDistribution = {
@@ -138,6 +154,7 @@ export function applyAbsorptionPolicy(input: ApplyAbsorptionInput): ApplyAbsorpt
     taxes_outside,
     taxes_outside_base,
     taxes_outside_total,
+    desp_acessorias,
     valor_final,
     absorption_audit: {
       commission_floor_applied,

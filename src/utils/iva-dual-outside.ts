@@ -1,31 +1,36 @@
 /**
  * iva-dual-outside.ts — Fonte única da tributação "POR FORA" (Reforma Tributária / IVA Dual).
  *
- * Implementa a hierarquia oficial do "Relatório de Formação de Preço com Tributação
- * Por Fora — Modelo Reforma Tributária / IVA Dual" (PrecificaCerto, 2026-06-02).
+ * Implementa as bases de cálculo individualizadas do documento "Bases de Cálculo dos
+ * Tributos Por Fora — Conferência Fiscal" (PrecificaCerto, 2026-06-05), aderente à
+ * LC 214/2025 (IBS/CBS/IS), RIPI Decreto 7.212/2010 (IPI) e LC 87/1996 (ICMS Compl.).
  *
  * Princípio: a Operação Interna ("por dentro") e a Operação Externa ("por fora") são
- * estruturas INDEPENDENTES. Os tributos da Reforma (IBS, CBS, IS, IPI) NÃO participam
- * de markup, margem, lucro, comissão, RRO nem ponto de equilíbrio — são apenas somados
- * ao preço final como tributação destacada.
+ * estruturas INDEPENDENTES. Cada tributo possui base inviolável e individualizada; as
+ * Despesas Acessórias (frete + seguro + despesas acessórias cobradas do adquirente) NÃO
+ * integram a Operação Interna nem sofrem dedução de ICMS/PIS/ISS — entram apenas nas bases
+ * em que a legislação as inclui.
  *
- * Hierarquia (Etapas 2 → 10 do PDF):
- *   2-3) Base Econômica IVA = Operação Interna − ICMS − ISS − PIS/COFINS
- *        (remove os tributos substituídos pela Reforma — valores JÁ apurados na
- *         operação por dentro, SEM novo gross-up — decisão Founder 2026-06-02)
- *   4)   IS  = Base Econômica IVA × Alíquota IS   (quando houver Imposto Seletivo)
- *   5)   Base IBS/CBS = Base Econômica IVA + IS   (IS compõe a base de IBS e CBS)
- *   6)   IBS = Base IBS/CBS × Alíquota IBS
- *   7)   CBS = Base IBS/CBS × Alíquota CBS
- *   8)   IPI = Base Fiscal IPI × Alíquota IPI     (destacado; NÃO integra base IBS/CBS)
- *   9)   Operação Externa = IBS + CBS + IS + IPI
- *   10)  Preço Final = Operação Interna + Operação Externa
+ * Hierarquia das bases (documento, seções 1–6):
+ *   OpDentro = Operação Interna (preço "por dentro", com ICMS/ISS/PIS-COFINS embutidos),
+ *              SEM Despesas Acessórias.
+ *
+ *   IS          → base = OpDentro − ICMS − PIS/COFINS − ISS                (sem Desp. Acessórias)
+ *   IBS / CBS   → base = (OpDentro − ICMS − PIS/COFINS − ISS) + IS + Desp. Acessórias
+ *   IPI         → base = OpDentro + Desp. Acessórias                       (NÃO deduz ICMS)
+ *   ICMS Compl. → base = (IPI + Desp. Acessórias) × alíq. ICMS             (condicional)
+ *
+ * O ICMS Complementar (LC 87/1996, art. 13, §1º, II) só é devido quando o destinatário for
+ * consumidor final NÃO contribuinte do ICMS — ativado via `icmsComplApplies`.
+ *
+ *   Operação Externa = IS + IBS + CBS + IPI + ICMS Complementar
+ *   Preço Final      = OpDentro + Desp. Acessórias + Operação Externa
  *
  * Convenção: todas as alíquotas de ENTRADA são em base 100 (ex.: 17 = 17%).
  */
 
 export interface IvaDualInput {
-  /** Operação Interna — preço de venda "por dentro" (ICMS/ISS/PIS-COFINS embutidos). */
+  /** Operação Interna — preço de venda "por dentro" (ICMS/ISS/PIS-COFINS embutidos), SEM Desp. Acessórias. */
   opInterna: number
   /** Alíquota ICMS (base 100). Já embutida na operação interna. */
   icmsPct?: number
@@ -42,17 +47,34 @@ export interface IvaDualInput {
   /** Alíquota IPI (base 100). */
   ipiPct?: number
   /**
-   * Base fiscal do IPI. Quando omitida, usa a própria Operação Interna (comportamento
-   * padrão do módulo). O PDF define o IPI sobre a "Base Fiscal do IPI".
+   * Despesas Acessórias cobradas do adquirente (frete + seguro + despesas acessórias).
+   * Compõem a base de IBS/CBS, a base do IPI e a base do ICMS Complementar — NÃO compõem
+   * a base do IS nem sofrem dedução de ICMS/PIS/ISS.
+   */
+  despAcessorias?: number
+  /**
+   * Ativa o cálculo do ICMS Complementar (LC 87/1996, art. 13, §1º, II). Só deve ser TRUE
+   * quando o destinatário for consumidor final NÃO contribuinte do ICMS — informação que só
+   * existe em orçamento/pedido/venda (customers.is_icms_contributor === false).
+   */
+  icmsComplApplies?: boolean
+  /**
+   * Base fiscal do IPI. Quando omitida, usa `OpDentro + Desp. Acessórias` (RIPI art. 190).
    */
   ipiBase?: number
 }
 
 export interface IvaDualResult {
-  /** Base Econômica IVA = Op.Interna − ICMS − ISS − PIS/COFINS. */
+  /** Base do IS = OpDentro − ICMS − ISS − PIS/COFINS (também base econômica de IBS/CBS antes do IS e das despesas). */
   baseIVA: number
-  /** Base de IBS/CBS = Base Econômica IVA + IS. */
+  /** Base de IBS/CBS = Base IS + IS + Desp. Acessórias. */
   baseIbsCbs: number
+  /** Base fiscal do IPI = OpDentro + Desp. Acessórias (ou `ipiBase` explícito). */
+  ipiBase: number
+  /** Base do ICMS Complementar = IPI + Desp. Acessórias. */
+  icmsComplBase: number
+  /** Despesas Acessórias consideradas (frete + seguro + despesas acessórias). */
+  despAcessorias: number
   /** Valor ICMS removido da operação interna (apuração por dentro). */
   icmsValue: number
   /** Valor ISS removido da operação interna. */
@@ -67,9 +89,11 @@ export interface IvaDualResult {
   cbsValue: number
   /** Valor do IPI. */
   ipiValue: number
-  /** Operação Externa = IS + IBS + CBS + IPI. */
+  /** Valor do ICMS Complementar (0 quando `icmsComplApplies` é falso). */
+  icmsComplValue: number
+  /** Operação Externa = IS + IBS + CBS + IPI + ICMS Complementar. */
   totalOutside: number
-  /** Preço Final = Operação Interna + Operação Externa. */
+  /** Preço Final = OpDentro + Desp. Acessórias + Operação Externa. */
   finalPrice: number
 }
 
@@ -78,43 +102,56 @@ function pct(v: number | undefined | null): number {
   return Number.isFinite(n) && n > 0 ? n / 100 : 0
 }
 
+function val(v: number | undefined | null): number {
+  const n = Number(v)
+  return Number.isFinite(n) && n > 0 ? n : 0
+}
+
 /**
- * Calcula a tributação "por fora" (IVA Dual) sobre uma operação interna.
+ * Calcula a tributação "por fora" (IVA Dual) sobre uma operação interna, conforme as bases
+ * individualizadas do documento de Conferência Fiscal.
  *
  * Reaproveita os valores de ICMS/ISS/PIS-COFINS já apurados na operação por dentro
- * (= operaçãoInterna × alíquota), removendo-os diretamente para encontrar a Base
- * Econômica IVA — sem qualquer gross-up adicional.
+ * (= OpDentro × alíquota), removendo-os para encontrar a base do IS — SEM gross-up.
  */
 export function computeIvaDualOutside(input: IvaDualInput): IvaDualResult {
-  const op = Number(input.opInterna) || 0
+  const op = val(input.opInterna)
+  const despAcessorias = val(input.despAcessorias)
 
-  // Etapas 2-3: remover ICMS, ISS, PIS/COFINS já apurados na operação por dentro.
+  // Base do IS: remover ICMS, ISS, PIS/COFINS já apurados na operação por dentro.
+  // (As Despesas Acessórias NÃO entram aqui — base mais enxuta, só receita líquida.)
   const icmsValue = op * pct(input.icmsPct)
   const issValue = op * pct(input.issPct)
   const pisCofinsValue = op * pct(input.pisCofinsPct)
   const baseIVA = Math.max(0, op - icmsValue - issValue - pisCofinsValue)
 
-  // Etapa 4: Imposto Seletivo sobre a Base Econômica IVA.
+  // IS sobre a base econômica do IS.
   const isValue = baseIVA * pct(input.isPct)
 
-  // Etapa 5: o IS compõe a base de IBS e CBS.
-  const baseIbsCbs = baseIVA + isValue
-
-  // Etapas 6-7: IBS e CBS sobre a base com IS incorporado.
+  // Base de IBS/CBS: base do IS + IS + Despesas Acessórias.
+  const baseIbsCbs = baseIVA + isValue + despAcessorias
   const ibsValue = baseIbsCbs * pct(input.ibsPct)
   const cbsValue = baseIbsCbs * pct(input.cbsPct)
 
-  // Etapa 8: IPI sobre a base fiscal do IPI (default = operação interna).
-  const ipiBase = input.ipiBase != null ? Number(input.ipiBase) || 0 : op
+  // IPI: preço cheio com ICMS embutido + Despesas Acessórias (RIPI, não deduz ICMS).
+  const ipiBase = input.ipiBase != null ? val(input.ipiBase) : op + despAcessorias
   const ipiValue = ipiBase * pct(input.ipiPct)
 
-  // Etapas 9-10: operação externa e preço final.
-  const totalOutside = isValue + ibsValue + cbsValue + ipiValue
-  const finalPrice = op + totalOutside
+  // ICMS Complementar: (IPI + Despesas Acessórias) × alíq. ICMS — só consumidor final
+  // NÃO contribuinte (LC 87/1996, art. 13, §1º, II).
+  const icmsComplBase = ipiValue + despAcessorias
+  const icmsComplValue = input.icmsComplApplies ? icmsComplBase * pct(input.icmsPct) : 0
+
+  // Operação externa e preço final.
+  const totalOutside = isValue + ibsValue + cbsValue + ipiValue + icmsComplValue
+  const finalPrice = op + despAcessorias + totalOutside
 
   return {
     baseIVA,
     baseIbsCbs,
+    ipiBase,
+    icmsComplBase,
+    despAcessorias,
     icmsValue,
     issValue,
     pisCofinsValue,
@@ -122,6 +159,7 @@ export function computeIvaDualOutside(input: IvaDualInput): IvaDualResult {
     ibsValue,
     cbsValue,
     ipiValue,
+    icmsComplValue,
     totalOutside,
     finalPrice,
   }

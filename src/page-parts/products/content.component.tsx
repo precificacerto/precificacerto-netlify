@@ -970,12 +970,15 @@ export const Content: FC<ContentProps> = ({
         extraFields.pis_cofins_pct = pisCofinsLRPct || 0
         extraFields.iva_dual_reduction_factor = ivaDualReductionFactor ?? null
         // Impostos IBS/CBS/IS/IPI — usar basePrice capturado do ProductPrice via ref.
-        // Hierarquia oficial PDF (Reforma Tributária / IVA Dual): BaseIVA = Operação
-        // Interna − ICMS − ISS − PIS/COFINS (sem gross-up); IS compõe base IBS/CBS;
-        // IPI destacado. Fonte única em computeIvaDualOutside.
+        // Bases individualizadas da Conferência Fiscal: OpDentro = preço por dentro SEM
+        // Desp. Acessórias. As terceirizadas (frete + seguro + despesas acessórias) entram
+        // como Desp. Acessórias (compõem base de IBS/CBS e IPI, não a do IS). ICMS Compl.
+        // não se aplica no cadastro (depende do destinatário). Fonte única computeIvaDualOutside.
         const _saleBase = salePriceBaseRef.current > 0 ? salePriceBaseRef.current : salePriceToSave
+        const _opDentro = Math.max(0, _saleBase - terceirizadasSum)
         const _iva2 = computeIvaDualOutside({
-          opInterna: _saleBase,
+          opInterna: _opDentro,
+          despAcessorias: terceirizadasSum,
           icmsPct: icmsPct || 0,
           pisCofinsPct: pisCofinsLRPct || 0,
           issPct: issPct || 0,

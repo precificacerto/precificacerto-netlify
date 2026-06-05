@@ -112,3 +112,68 @@ describe('computeIvaDualOutside — hierarquia PDF', () => {
     expect(round(r.ipiValue)).toBe(80)
   })
 })
+
+describe('computeIvaDualOutside — Conferência Fiscal (Desp. Acessórias + ICMS Complementar)', () => {
+  // Cenário canônico do documento "Bases de Cálculo dos Tributos Por Fora" (2026-06-05):
+  // OpDentro 98.403,56 · ICMS 17% · Desp. Acessórias 1.200,00 · IBS 1% · CBS 8,8% · IPI 5%.
+  const base = {
+    opInterna: 98403.56,
+    icmsPct: 17,
+    pisCofinsPct: 0,
+    issPct: 0,
+    isPct: 0,
+    ibsPct: 1,
+    cbsPct: 8.8,
+    ipiPct: 5,
+    despAcessorias: 1200,
+  }
+
+  it('base do IS = OpDentro − ICMS (sem Desp. Acessórias) — doc seção 3', () => {
+    const r = computeIvaDualOutside(base)
+    // 98.403,56 − 16.728,61 = 81.674,95
+    expect(round(r.icmsValue)).toBe(16728.61)
+    expect(round(r.baseIVA)).toBe(81674.95)
+  })
+
+  it('base de IBS/CBS soma Desp. Acessórias — doc seções 1 e 2', () => {
+    const r = computeIvaDualOutside(base)
+    // 81.674,95 + IS(0) + 1.200 = 82.874,95
+    expect(round(r.baseIbsCbs)).toBe(82874.95)
+    expect(round(r.ibsValue)).toBe(828.75)
+    expect(round(r.cbsValue)).toBe(7293.0)
+  })
+
+  it('base do IPI = OpDentro + Desp. Acessórias (não deduz ICMS) — doc seção 4', () => {
+    const r = computeIvaDualOutside(base)
+    // 98.403,56 + 1.200 = 99.603,56 × 5% = 4.980,18
+    expect(round(r.ipiBase)).toBe(99603.56)
+    expect(round(r.ipiValue)).toBe(4980.18)
+  })
+
+  it('ICMS Complementar = (IPI + Desp. Acessórias) × ICMS quando aplicável — doc seção 5', () => {
+    const r = computeIvaDualOutside({ ...base, icmsComplApplies: true })
+    // (4.980,18 + 1.200) × 17% = 6.180,18 × 17% = 1.050,63
+    expect(round(r.icmsComplBase)).toBe(6180.18)
+    expect(round(r.icmsComplValue)).toBe(1050.63)
+  })
+
+  it('ICMS Complementar é zero para destinatário contribuinte (não aplicável)', () => {
+    const r = computeIvaDualOutside({ ...base, icmsComplApplies: false })
+    expect(r.icmsComplValue).toBe(0)
+  })
+
+  it('Desp. Acessórias NÃO sofrem dedução de ICMS/PIS nem entram na base do IS', () => {
+    const semDesp = computeIvaDualOutside({ ...base, despAcessorias: 0 })
+    const comDesp = computeIvaDualOutside(base)
+    // A base do IS (baseIVA) é idêntica com ou sem despesas acessórias.
+    expect(round(comDesp.baseIVA)).toBe(round(semDesp.baseIVA))
+    // A diferença na base de IBS/CBS é exatamente a Desp. Acessórias (1.200), sem dedução.
+    expect(round(comDesp.baseIbsCbs - semDesp.baseIbsCbs)).toBe(1200)
+  })
+
+  it('Preço Final = OpDentro + Desp. Acessórias + Operação Externa', () => {
+    const r = computeIvaDualOutside({ ...base, icmsComplApplies: true })
+    const expected = base.opInterna + 1200 + r.isValue + r.ibsValue + r.cbsValue + r.ipiValue + r.icmsComplValue
+    expect(round(r.finalPrice)).toBe(round(expected))
+  })
+})

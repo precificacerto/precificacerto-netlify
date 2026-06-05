@@ -41,7 +41,9 @@ export interface ItemTaxRates {
   csll_pct?: number | null
 }
 
-const ITEM_RATE_BY_TAX_TYPE: Record<TaxType, keyof ItemTaxRates> = {
+// ICMS_COMPL é OMITIDO de propósito: não possui coluna própria no item — é derivado da
+// alíquota ICMS na Etapa 17 do motor (absorption.ts). Por isso o mapa é Partial.
+const ITEM_RATE_BY_TAX_TYPE: Partial<Record<TaxType, keyof ItemTaxRates>> = {
   ICMS: 'icms_pct',
   PIS: 'pis_pct',
   COFINS: 'cofins_pct',

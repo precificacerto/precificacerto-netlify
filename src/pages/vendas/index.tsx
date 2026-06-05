@@ -149,6 +149,7 @@ interface PendingBudget {
     installments?: number
     commission_amount?: number
     profit_amount?: number
+    icms_compl_value?: number
     installment_preset?: string | null
     discount_mode?: string | null
     global_discount_percent?: number
@@ -283,6 +284,12 @@ function Sales() {
     )
     const [discountInputModeV, setDiscountInputModeV] = useState<'PERCENT' | 'AMOUNT'>('PERCENT')
     const selectedEmployeeIdV = Form.useWatch('employee_id', form)
+    // ICMS Complementar (LC 87/1996, art. 13, §1º, II): só consumidor final NÃO contribuinte.
+    // Ausência de cliente (venda de balcão sem destinatário) → assume contribuinte (não aplica).
+    const resolveIcmsComplApplies = (customerId?: string | null) =>
+        customers.find((c) => c.id === customerId)?.is_icms_contributor === false
+    const selectedCustomerIdV = Form.useWatch('customer_id', form)
+    const icmsComplAppliesV = resolveIcmsComplApplies(selectedCustomerIdV)
     const latestEmployeeIdVRef = useRef<string | undefined>(undefined)
 
     useEffect(() => {
@@ -389,7 +396,7 @@ function Sales() {
             }
 
             // Customers and employees (employees may not have the table yet)
-            const { data: custs } = await (supabase as any).from('customers').select('id, name').eq('is_active', true).order('name')
+            const { data: custs } = await (supabase as any).from('customers').select('id, name, is_icms_contributor').eq('is_active', true).order('name')
             let emps: any[] | null = null
             try {
                 const { data: empsData, error: empsErr } = await (supabase as any).from('employees').select('id, name, commission_percent').eq('is_active', true).order('name')
@@ -434,7 +441,7 @@ function Sales() {
     const fetchPendingBudgets = async () => {
         const { data } = await supabase
             .from('budgets')
-            .select('id, total_value, created_at, status, sale_id, payment_method, installments, commission_amount, profit_amount, installment_preset, discount_mode, global_discount_percent, customer_id, employee_id, customer:customers(name)')
+            .select('id, total_value, created_at, status, sale_id, payment_method, installments, commission_amount, profit_amount, icms_compl_value, installment_preset, discount_mode, global_discount_percent, customer_id, employee_id, customer:customers(name)')
             .in('status', ['APPROVED', 'SENT', 'AWAITING_PAYMENT'])
             .is('sale_id', null)
             .order('created_at', { ascending: false })
@@ -450,6 +457,7 @@ function Sales() {
             installments: Number(b.installments) || 1,
             commission_amount: Number(b.commission_amount) || 0,
             profit_amount: Number(b.profit_amount) || 0,
+            icms_compl_value: Number(b.icms_compl_value) || 0,
             installment_preset: b.installment_preset || null,
             discount_mode: b.discount_mode || null,
             global_discount_percent: Number(b.global_discount_percent) || 0,
@@ -459,7 +467,7 @@ function Sales() {
     const handleOpenRegisterSale = async (budget: PendingBudget) => {
         const { data: fresh } = await (supabase as any)
             .from('budgets')
-            .select('id, status, total_value, created_at, payment_method, installments, commission_amount, profit_amount, installment_preset, discount_mode, global_discount_percent, customer_id, employee_id, customer:customers(name)')
+            .select('id, status, total_value, created_at, payment_method, installments, commission_amount, profit_amount, icms_compl_value, installment_preset, discount_mode, global_discount_percent, customer_id, employee_id, customer:customers(name)')
             .eq('id', budget.id)
             .single()
         if (fresh?.status === 'PAID') {
@@ -479,6 +487,7 @@ function Sales() {
             installments: Number((fresh as any).installments) || 1,
             commission_amount: Number((fresh as any).commission_amount) || 0,
             profit_amount: Number((fresh as any).profit_amount) || 0,
+            icms_compl_value: Number((fresh as any).icms_compl_value) || 0,
             installment_preset: (fresh as any).installment_preset || null,
             discount_mode: (fresh as any).discount_mode || null,
             global_discount_percent: Number((fresh as any).global_discount_percent) || 0,
@@ -574,6 +583,7 @@ function Sales() {
                 status: 'COMPLETED',
                 commission_amount: selectedBudget.commission_amount || 0,
                 profit_amount: selectedBudget.profit_amount || 0,
+                icms_compl_value: selectedBudget.icms_compl_value || 0,
             }).select().single()
             if (saleErr) throw saleErr
 
@@ -1071,6 +1081,7 @@ function Sales() {
         },
         globalDiscountPercent: globalDiscountPercentV,
         effectiveDate: balcaoReapurationDate,
+        icmsComplApplies: icmsComplAppliesV,
     })
     const balcaoMotorResultsByItem = saleItems.map((i, idx) => {
         const itemBase = (Number(i.unit_price) || 0) * (Number(i.quantity) || 0)
@@ -1245,6 +1256,7 @@ function Sales() {
                     },
                     globalDiscountPercent: globalDiscountPercentV,
                     effectiveDate: reapDate,
+                    icmsComplApplies: resolveIcmsComplApplies(formValues.customer_id),
                 })
                 // RRO consolidado é o mesmo para todos os items rateados (V17)
                 const consolidatedRro = previewResults.find(r => r != null)?.rro ?? 0
@@ -1303,9 +1315,15 @@ function Sales() {
                 },
                 globalDiscountPercent: globalDiscountPercentV,
                 effectiveDate: reapurationEffectiveDateSale,
+                icmsComplApplies: resolveIcmsComplApplies(formValues.customer_id),
             })
             const commissionAmount = saveV17Results.reduce(
                 (sum, result) => sum + (result?.new_commission ?? 0),
+                0,
+            )
+            // ICMS Complementar consolidado (Etapa 17) — só > 0 p/ destinatário não contribuinte.
+            const icmsComplAmount = saveV17Results.reduce(
+                (sum, r) => sum + (r?.taxes_outside?.find((t) => t.type === 'ICMS_COMPL')?.amount ?? 0),
                 0,
             )
 
@@ -1374,6 +1392,7 @@ function Sales() {
                 sale_type: 'MANUAL',
                 status: 'COMPLETED',
                 commission_amount: commissionAmount,
+                icms_compl_value: icmsComplAmount,
                 // Epic MRM-V6 (ADR-009): persistimos o modo escolhido pelo usuário sem coerção.
                 discount_mode: discountModeV,
                 engine_version: mrmConfig.enabled ? MRM_ENGINE_VERSION : 'legacy',

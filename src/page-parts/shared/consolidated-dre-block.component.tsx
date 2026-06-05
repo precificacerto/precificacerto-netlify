@@ -41,6 +41,24 @@ function formatPct(pct: number, fractionDigits = 3): string {
   })
 }
 
+// Rótulos legíveis dos tributos (display). Para tipos não mapeados, usa o próprio código.
+const TAX_LABELS: Record<string, string> = {
+  ICMS: 'ICMS',
+  PIS: 'PIS',
+  COFINS: 'COFINS',
+  ISS: 'ISS',
+  IS: 'IS — Imposto Seletivo',
+  IPI: 'IPI',
+  ICMS_COMPL: 'ICMS Complementar',
+  ICMS_ST: 'ICMS-ST',
+  DIFAL: 'DIFAL',
+  FCP: 'FCP',
+  IBS: 'IBS',
+  CBS: 'CBS',
+  ISS_RETIDO: 'ISS Retido',
+}
+const taxLabel = (type: string) => TAX_LABELS[type] ?? type
+
 // ─────────────── Sub-componentes visuais ───────────────
 
 function SectionHeader({ title, accent = '#a5b4fc' }: { title: string; accent?: string }) {
@@ -344,7 +362,7 @@ export function ConsolidatedDREBlock({
       {impostos.porDentro.map(tax => (
         <Row
           key={`inside-${tax.type}`}
-          label={tax.type}
+          label={taxLabel(tax.type)}
           value={`${formatBRL(tax.amount)}  (${formatPct(tax.effectivePct)}%)`}
           color="#bfdbfe"
           indent={12}
@@ -361,7 +379,7 @@ export function ConsolidatedDREBlock({
       {impostos.porForaArr.map(tax => (
         <Row
           key={`outside-${tax.type}`}
-          label={tax.type}
+          label={taxLabel(tax.type)}
           value={`${formatBRL(tax.amount)}  (${formatPct(tax.effectivePct)}%)`}
           color="#bfdbfe"
           indent={12}
