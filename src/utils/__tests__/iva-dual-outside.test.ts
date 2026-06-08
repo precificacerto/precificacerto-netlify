@@ -128,11 +128,17 @@ describe('computeIvaDualOutside — Conferência Fiscal (Desp. Acessórias + ICM
     despAcessorias: 1200,
   }
 
-  it('base do IS = OpDentro − ICMS (sem Desp. Acessórias) — doc seção 3', () => {
+  it('base econômica IVA = OpDentro − ICMS (sem Desp. Acessórias)', () => {
     const r = computeIvaDualOutside(base)
     // 98.403,56 − 16.728,61 = 81.674,95
     expect(round(r.icmsValue)).toBe(16728.61)
     expect(round(r.baseIVA)).toBe(81674.95)
+  })
+
+  it('base do IS = base econômica IVA + Desp. Acessórias (EPIC-POR-FORA-V2 D1 — doc v4 Tab. 69/71)', () => {
+    const r = computeIvaDualOutside(base)
+    // 81.674,95 + 1.200 = 82.874,95
+    expect(round(r.baseIS)).toBe(82874.95)
   })
 
   it('base de IBS/CBS soma Desp. Acessórias — doc seções 1 e 2', () => {
@@ -162,12 +168,14 @@ describe('computeIvaDualOutside — Conferência Fiscal (Desp. Acessórias + ICM
     expect(r.icmsComplValue).toBe(0)
   })
 
-  it('Desp. Acessórias NÃO sofrem dedução de ICMS/PIS nem entram na base do IS', () => {
+  it('Desp. Acessórias entram na base do IS e de IBS/CBS sem sofrer dedução de ICMS/PIS', () => {
     const semDesp = computeIvaDualOutside({ ...base, despAcessorias: 0 })
     const comDesp = computeIvaDualOutside(base)
-    // A base do IS (baseIVA) é idêntica com ou sem despesas acessórias.
+    // A base econômica IVA (X) é idêntica com ou sem despesas acessórias.
     expect(round(comDesp.baseIVA)).toBe(round(semDesp.baseIVA))
-    // A diferença na base de IBS/CBS é exatamente a Desp. Acessórias (1.200), sem dedução.
+    // A diferença na base do IS é exatamente a Desp. Acessórias (1.200), sem dedução (D1).
+    expect(round(comDesp.baseIS - semDesp.baseIS)).toBe(1200)
+    // A diferença na base de IBS/CBS é a Desp. Acessórias (1.200) — aqui IS=0, sem efeito do IS.
     expect(round(comDesp.baseIbsCbs - semDesp.baseIbsCbs)).toBe(1200)
   })
 
@@ -175,5 +183,32 @@ describe('computeIvaDualOutside — Conferência Fiscal (Desp. Acessórias + ICM
     const r = computeIvaDualOutside({ ...base, icmsComplApplies: true })
     const expected = base.opInterna + 1200 + r.isValue + r.ibsValue + r.cbsValue + r.ipiValue + r.icmsComplValue
     expect(round(r.finalPrice)).toBe(round(expected))
+  })
+})
+
+describe('computeIvaDualOutside — Excel "Motor RRO 29.05" (Produto 1: IS 5% + frete 1.000)', () => {
+  // Caso canônico que comprova a inclusão de Desp. Acessórias na base do IS (D1).
+  // OpD 143.669,80 · ICMS 17% · frete 1.000 · IS 5% · IBS 0,1% · CBS 0,9% · IPI 0%.
+  const p1 = computeIvaDualOutside({
+    opInterna: 143669.8021,
+    icmsPct: 17,
+    issPct: 0,
+    pisCofinsPct: 0,
+    isPct: 5,
+    ibsPct: 0.1,
+    cbsPct: 0.9,
+    ipiPct: 0,
+    despAcessorias: 1000,
+  })
+
+  it('base do IS = 120.245,94 (E28) e IS = 6.012,30 (I28)', () => {
+    expect(round(p1.baseIS)).toBe(120245.94)
+    expect(round(p1.isValue)).toBe(6012.3)
+  })
+
+  it('base IBS/CBS = 126.258,23 (E26) → IBS 126,26 (I26) e CBS 1.136,32 (I27)', () => {
+    expect(round(p1.baseIbsCbs)).toBe(126258.23)
+    expect(round(p1.ibsValue)).toBe(126.26)
+    expect(round(p1.cbsValue)).toBe(1136.32)
   })
 })

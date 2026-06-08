@@ -15,6 +15,7 @@ import { getMonetaryValue } from '@/utils/get-monetary-value'
 import { CalcBaseType } from '@/types/calc-base.type'
 import { calculatePricing } from '@/utils/pricing-engine'
 import { computeIvaDualOutside } from '@/utils/iva-dual-outside'
+import { computeIcmsSt, computeDifal, computeIcmsComplementar } from '@/utils/icms-st-difal'
 import { CALC_TYPE_ENUM } from '@/shared/enums/calc-type'
 import { ContentIndustrialization } from './content-industrialization'
 import { ContentResale } from './content-resale'
@@ -320,7 +321,20 @@ export const Content: FC<ContentProps> = ({
     (product as any)?.csll_pct != null ? Number((product as any).csll_pct) * 100 : 0
   )
 
-
+  // ───────── EPIC-POR-FORA-V2 (S4/S5) — ICMS-ST / DIFAL / ICMS Complementar avançados ─────────
+  // Convenção BASE 100 direta (sem heurística decimal — Architect P0-3). Acionadores ST e DIFAL
+  // são mutuamente exclusivos (doc v4 §9.3). ICMS Compl. é exibido como prévia; sua aplicação
+  // efetiva depende do destinatário (consumidor final não contribuinte) e é resolvida no orçamento.
+  const [icmsStActive, setIcmsStActive] = useState<boolean>((product as any)?.icms_st_active ?? false)
+  const [difalActive, setDifalActive] = useState<boolean>((product as any)?.difal_active ?? false)
+  const [stDifalInterestadual, setStDifalInterestadual] = useState<boolean>((product as any)?.st_difal_interestadual ?? false)
+  const [difalBaseDupla, setDifalBaseDupla] = useState<boolean>((product as any)?.difal_base_dupla ?? false)
+  const num100 = (v: any) => (v != null ? Number(v) : 0)
+  const [mvaOriginalPct, setMvaOriginalPct] = useState<number>(num100((product as any)?.mva_original_pct))
+  const [icmsAlqInternaDestinoPct, setIcmsAlqInternaDestinoPct] = useState<number>(num100((product as any)?.icms_alq_interna_destino_pct))
+  const [icmsAlqInterestadualOrigemPct, setIcmsAlqInterestadualOrigemPct] = useState<number>(num100((product as any)?.icms_alq_interestadual_origem_pct))
+  const [icmsInternaOrigemPct, setIcmsInternaOrigemPct] = useState<number>(num100((product as any)?.icms_interna_origem_pct))
+  const [fcpAlqPct, setFcpAlqPct] = useState<number>(num100((product as any)?.fcp_alq_pct))
 
   const [recurrenceActive, setRecurrenceActive] = useState<boolean>((product as any)?.recurrence_active ?? false)
   const [recurrenceModalOpen, setRecurrenceModalOpen] = useState(false)
@@ -999,6 +1013,36 @@ export const Content: FC<ContentProps> = ({
         extraFields.sale_price_base = _saleBase
         extraFields.sale_price_after_taxes = finalSalePriceForSave
         extraFields.valor_precificado_icms_piscofins = Number(productPriceInfo.totalProductPrice) || 0
+
+        // EPIC-POR-FORA-V2: ICMS-ST / DIFAL avançados (fonte única icms-st-difal.ts).
+        // Bases incluem frete+seguro (terceirizadas) e o IPI(R$) apurado acima. Sem desconto aqui
+        // (cadastro) — o recálculo sobre a âncora pós-desconto ocorre no Motor RRO (orçamento).
+        const _icmsSt = icmsStActive
+          ? computeIcmsSt({
+              opInterna: _opDentro,
+              despAcessorias: terceirizadasSum,
+              ipiValue: _iva2.ipiValue,
+              mvaOriginalPct,
+              alqInternaDestinoPct: icmsAlqInternaDestinoPct,
+              alqInterestadualOrigemPct: icmsAlqInterestadualOrigemPct,
+              interestadual: stDifalInterestadual,
+            })
+          : null
+        const _difal = difalActive
+          ? computeDifal({
+              opInterna: _opDentro,
+              despAcessorias: terceirizadasSum,
+              ipiValue: _iva2.ipiValue,
+              alqInternaDestinoPct: icmsAlqInternaDestinoPct,
+              alqInterestadualOrigemPct: icmsAlqInterestadualOrigemPct,
+              fcpPct: fcpAlqPct,
+              baseDupla: difalBaseDupla,
+              icmsInternaOrigemPct,
+            })
+          : null
+        extraFields.icms_st_value = _icmsSt ? _icmsSt.icmsSt : 0
+        extraFields.difal_value = _difal ? _difal.difal : 0
+        extraFields.fcp_value = _difal ? _difal.fcp : 0
       }
 
       // S15 — persistência das 7 alíquotas adicionais (base 100 → decimal).
@@ -1010,6 +1054,18 @@ export const Content: FC<ContentProps> = ({
       extraFields.fcp_pct = fcpPct > 0 ? fcpPct / 100 : null
       extraFields.irpj_pct = irpjItemPct > 0 ? irpjItemPct / 100 : null
       extraFields.csll_pct = csllItemPct > 0 ? csllItemPct / 100 : null
+
+      // EPIC-POR-FORA-V2: parâmetros avançados ICMS-ST/DIFAL — BASE 100 DIRETA (sem /100).
+      // Acionadores e flags sempre persistidos; alíquotas null quando 0 (= não cadastrado).
+      extraFields.icms_st_active = icmsStActive
+      extraFields.difal_active = difalActive
+      extraFields.st_difal_interestadual = stDifalInterestadual
+      extraFields.difal_base_dupla = difalBaseDupla
+      extraFields.mva_original_pct = mvaOriginalPct > 0 ? mvaOriginalPct : null
+      extraFields.icms_alq_interna_destino_pct = icmsAlqInternaDestinoPct > 0 ? icmsAlqInternaDestinoPct : null
+      extraFields.icms_alq_interestadual_origem_pct = icmsAlqInterestadualOrigemPct > 0 ? icmsAlqInterestadualOrigemPct : null
+      extraFields.icms_interna_origem_pct = icmsInternaOrigemPct > 0 ? icmsInternaOrigemPct : null
+      extraFields.fcp_alq_pct = fcpAlqPct > 0 ? fcpAlqPct : null
 
       extraFields.recurrence_active = recurrenceActive
       extraFields.recurrence_days = recurrenceActive && recurrenceDays ? recurrenceDays : null
@@ -2016,6 +2072,72 @@ export const Content: FC<ContentProps> = ({
               CSLL (%) ℹ
             </label>
             <InputNumber value={csllItemPct} onChange={(v) => setCsllItemPct(Number(v) || 0)} min={0} max={100} step={0.01} style={{ width: '100%' }} />
+          </div>
+        </div>
+
+        {/* ───── EPIC-POR-FORA-V2: ICMS-ST / DIFAL / ICMS Complementar (cálculo completo) ───── */}
+        <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px dashed #cbd5e1' }}>
+          <div style={{ fontWeight: 600, color: '#475569', marginBottom: 4 }}>ICMS-ST e DIFAL (cálculo completo)</div>
+          <div style={{ fontSize: 12, color: '#64748b', marginBottom: 12 }}>
+            ICMS-ST e DIFAL nunca coexistem na mesma operação. Bases incluem frete + seguro. Valores recalculados sobre a âncora no desconto.
+          </div>
+
+          {/* Acionadores mutuamente exclusivos */}
+          <div style={{ display: 'flex', gap: 24, marginBottom: 12, flexWrap: 'wrap' }}>
+            <label style={{ fontSize: 13, color: '#334155', display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+              <input type="checkbox" checked={icmsStActive} onChange={(e) => { setIcmsStActive(e.target.checked); if (e.target.checked) setDifalActive(false) }} />
+              Ativar ICMS-ST
+            </label>
+            <label style={{ fontSize: 13, color: '#334155', display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+              <input type="checkbox" checked={difalActive} onChange={(e) => { setDifalActive(e.target.checked); if (e.target.checked) setIcmsStActive(false) }} />
+              Ativar DIFAL
+            </label>
+            <label style={{ fontSize: 13, color: '#334155', display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+              <input type="checkbox" checked={stDifalInterestadual} onChange={(e) => setStDifalInterestadual(e.target.checked)} />
+              Operação interestadual
+            </label>
+          </div>
+
+          {(icmsStActive || difalActive) && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+              <div>
+                <label style={{ fontSize: 12, color: '#475569' }}>ALQ interna destino (%)</label>
+                <InputNumber value={icmsAlqInternaDestinoPct} onChange={(v) => setIcmsAlqInternaDestinoPct(Number(v) || 0)} min={0} max={100} step={0.01} style={{ width: '100%' }} />
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: '#475569' }}>ALQ interestadual origem (%)</label>
+                <InputNumber value={icmsAlqInterestadualOrigemPct} onChange={(v) => setIcmsAlqInterestadualOrigemPct(Number(v) || 0)} min={0} max={100} step={0.01} style={{ width: '100%' }} />
+              </div>
+              {icmsStActive && (
+                <div>
+                  <label style={{ fontSize: 12, color: '#475569' }}>MVA original (%)</label>
+                  <InputNumber value={mvaOriginalPct} onChange={(v) => setMvaOriginalPct(Number(v) || 0)} min={0} max={300} step={0.01} style={{ width: '100%' }} />
+                </div>
+              )}
+              {difalActive && (
+                <>
+                  <div>
+                    <label style={{ fontSize: 12, color: '#475569' }}>FCP/FECP (%)</label>
+                    <InputNumber value={fcpAlqPct} onChange={(v) => setFcpAlqPct(Number(v) || 0)} min={0} max={10} step={0.01} style={{ width: '100%' }} />
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+                    <label style={{ fontSize: 13, color: '#334155', display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                      <input type="checkbox" checked={difalBaseDupla} onChange={(e) => setDifalBaseDupla(e.target.checked)} />
+                      Base dupla (LC 190/2022)
+                    </label>
+                  </div>
+                  {difalBaseDupla && (
+                    <div>
+                      <label style={{ fontSize: 12, color: '#475569' }}>ICMS interno origem (%)</label>
+                      <InputNumber value={icmsInternaOrigemPct} onChange={(v) => setIcmsInternaOrigemPct(Number(v) || 0)} min={0} max={100} step={0.01} style={{ width: '100%' }} />
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+          <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 10 }}>
+            ℹ️ ICMS Complementar (LC 87/96) = (IPI + frete + seguro) × ICMS é aplicado automaticamente no orçamento quando o destinatário for consumidor final NÃO contribuinte do ICMS.
           </div>
         </div>
       </details>

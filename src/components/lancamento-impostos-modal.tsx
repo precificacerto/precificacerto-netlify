@@ -43,6 +43,7 @@ function calcTaxes(
   ibsPct: number,
   cbsPct: number,
   ipiPct: number,
+  despAcessorias = 0,
 ) {
   return computeIvaDualOutside({
     opInterna: salePrice,
@@ -53,6 +54,7 @@ function calcTaxes(
     ibsPct,
     cbsPct,
     ipiPct,
+    despAcessorias,
   })
 }
 
@@ -71,7 +73,9 @@ export const LancamentoImpostosModal: FC<LancamentoImpostosModalProps> = ({
 
   const ZERO_INSIDE: InsideRates = { icmsPct: 0, issPct: 0, pisCofinsPct: 0 }
   const [inside, setInside] = useState<InsideRates>(ZERO_INSIDE)
-  const [calc, setCalc] = useState(() => calcTaxes(salePrice, ZERO_INSIDE, 0, 0, 0, 0))
+  // Desp. Acessórias (frete + seguro + despesas acessórias) — integram a base por fora (D1).
+  const [despAcessorias, setDespAcessorias] = useState(0)
+  const [calc, setCalc] = useState(() => calcTaxes(salePrice, ZERO_INSIDE, 0, 0, 0, 0, 0))
 
   const table = entityType === 'product' ? 'products' : 'services'
 
@@ -81,7 +85,7 @@ export const LancamentoImpostosModal: FC<LancamentoImpostosModalProps> = ({
     ;(async () => {
       const { data } = await (supabase as any)
         .from(table)
-        .select('icms_pct, pis_cofins_pct, iss_pct, is_pct, ibs_pct, cbs_pct, ipi_pct, taxes_launched')
+        .select('icms_pct, pis_cofins_pct, iss_pct, is_pct, ibs_pct, cbs_pct, ipi_pct, taxes_launched, freight_value, insurance_value, accessory_expenses_value')
         .eq('id', entityId)
         .single()
       if (data) {
@@ -91,6 +95,8 @@ export const LancamentoImpostosModal: FC<LancamentoImpostosModalProps> = ({
           issPct: toBase100(data.iss_pct),            // decimal (S15) → base 100
         }
         setInside(insideRates)
+        const desp = (Number(data.freight_value) || 0) + (Number(data.insurance_value) || 0) + (Number(data.accessory_expenses_value) || 0)
+        setDespAcessorias(desp)
         const vals = {
           is_pct: Number(data.is_pct) || 0,
           ibs_pct: Number(data.ibs_pct) || 0,
@@ -98,11 +104,12 @@ export const LancamentoImpostosModal: FC<LancamentoImpostosModalProps> = ({
           ipi_pct: Number(data.ipi_pct) || 0,
         }
         form.setFieldsValue(vals)
-        setCalc(calcTaxes(salePrice, insideRates, vals.is_pct, vals.ibs_pct, vals.cbs_pct, vals.ipi_pct))
+        setCalc(calcTaxes(salePrice, insideRates, vals.is_pct, vals.ibs_pct, vals.cbs_pct, vals.ipi_pct, desp))
       } else {
         form.resetFields()
         setInside(ZERO_INSIDE)
-        setCalc(calcTaxes(salePrice, ZERO_INSIDE, 0, 0, 0, 0))
+        setDespAcessorias(0)
+        setCalc(calcTaxes(salePrice, ZERO_INSIDE, 0, 0, 0, 0, 0))
       }
       setLoading(false)
     })()
@@ -117,6 +124,7 @@ export const LancamentoImpostosModal: FC<LancamentoImpostosModalProps> = ({
       Number(v.ibs_pct) || 0,
       Number(v.cbs_pct) || 0,
       Number(v.ipi_pct) || 0,
+      despAcessorias,
     ))
   }
 
@@ -127,7 +135,7 @@ export const LancamentoImpostosModal: FC<LancamentoImpostosModalProps> = ({
     const cbsPct = Number(v.cbs_pct) || 0
     const ipiPct = Number(v.ipi_pct) || 0
     const { isValue, ibsValue, cbsValue, ipiValue, finalPrice } =
-      calcTaxes(salePrice, inside, isPct, ibsPct, cbsPct, ipiPct)
+      calcTaxes(salePrice, inside, isPct, ibsPct, cbsPct, ipiPct, despAcessorias)
 
     setSaving(true)
     try {

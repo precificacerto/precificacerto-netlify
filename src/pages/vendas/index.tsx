@@ -56,6 +56,7 @@ import { hydrateItemSnapshot, type TenantSnapshotContext } from '@/lib/items-sna
 import { calculateMarginReapuration } from '@/utils/margin-reapuration'
 import { buildMotorInput } from '@/utils/mrm-orchestrator'
 import { calculateMotorV17ForPage } from '@/utils/mrm-engine-v17/legacy-adapter'
+import { consolidateStDifalFromItems } from '@/utils/icms-st-difal'
 // V17 cutover: V16 imports mantidos por compatibilidade (não usados após substituição)
 void calculateMarginReapuration; void buildMotorInput;
 import { coerceLegacyDiscountMode, normalizeDiscountModeForDisplay } from '@/config/feature-flags'
@@ -150,6 +151,9 @@ interface PendingBudget {
     commission_amount?: number
     profit_amount?: number
     icms_compl_value?: number
+    icms_st_value?: number
+    difal_value?: number
+    fcp_value?: number
     installment_preset?: string | null
     discount_mode?: string | null
     global_discount_percent?: number
@@ -373,7 +377,7 @@ function Sales() {
             // Products: try with recurrence_days, fall back without
             let prods: any[] | null = null
             // V17 (2026-05-28): inclui campos para motor V17 (terceirizadas, sale_price_base, valor_precificado)
-            const v17Cols = 'freight_value, insurance_value, accessory_expenses_value, sale_price_base, valor_precificado_icms_piscofins'
+            const v17Cols = 'freight_value, insurance_value, accessory_expenses_value, sale_price_base, valor_precificado_icms_piscofins, ipi_value, icms_st_active, difal_active, st_difal_interestadual, difal_base_dupla, mva_original_pct, icms_alq_interna_destino_pct, icms_alq_interestadual_origem_pct, icms_interna_origem_pct, fcp_alq_pct'
             const { data: prodsFull, error: prodsErr } = await supabase.from('products').select(`id, name, sale_price, cost_total, profit_percent, commission_table_id, recurrence_days, ${v17Cols}`).order('name')
             if (!prodsErr) {
                 prods = prodsFull
@@ -441,7 +445,7 @@ function Sales() {
     const fetchPendingBudgets = async () => {
         const { data } = await supabase
             .from('budgets')
-            .select('id, total_value, created_at, status, sale_id, payment_method, installments, commission_amount, profit_amount, icms_compl_value, installment_preset, discount_mode, global_discount_percent, customer_id, employee_id, customer:customers(name)')
+            .select('id, total_value, created_at, status, sale_id, payment_method, installments, commission_amount, profit_amount, icms_compl_value, icms_st_value, difal_value, fcp_value, installment_preset, discount_mode, global_discount_percent, customer_id, employee_id, customer:customers(name)')
             .in('status', ['APPROVED', 'SENT', 'AWAITING_PAYMENT'])
             .is('sale_id', null)
             .order('created_at', { ascending: false })
@@ -458,6 +462,9 @@ function Sales() {
             commission_amount: Number(b.commission_amount) || 0,
             profit_amount: Number(b.profit_amount) || 0,
             icms_compl_value: Number(b.icms_compl_value) || 0,
+            icms_st_value: Number(b.icms_st_value) || 0,
+            difal_value: Number(b.difal_value) || 0,
+            fcp_value: Number(b.fcp_value) || 0,
             installment_preset: b.installment_preset || null,
             discount_mode: b.discount_mode || null,
             global_discount_percent: Number(b.global_discount_percent) || 0,
@@ -467,7 +474,7 @@ function Sales() {
     const handleOpenRegisterSale = async (budget: PendingBudget) => {
         const { data: fresh } = await (supabase as any)
             .from('budgets')
-            .select('id, status, total_value, created_at, payment_method, installments, commission_amount, profit_amount, icms_compl_value, installment_preset, discount_mode, global_discount_percent, customer_id, employee_id, customer:customers(name)')
+            .select('id, status, total_value, created_at, payment_method, installments, commission_amount, profit_amount, icms_compl_value, icms_st_value, difal_value, fcp_value, installment_preset, discount_mode, global_discount_percent, customer_id, employee_id, customer:customers(name)')
             .eq('id', budget.id)
             .single()
         if (fresh?.status === 'PAID') {
@@ -488,6 +495,9 @@ function Sales() {
             commission_amount: Number((fresh as any).commission_amount) || 0,
             profit_amount: Number((fresh as any).profit_amount) || 0,
             icms_compl_value: Number((fresh as any).icms_compl_value) || 0,
+            icms_st_value: Number((fresh as any).icms_st_value) || 0,
+            difal_value: Number((fresh as any).difal_value) || 0,
+            fcp_value: Number((fresh as any).fcp_value) || 0,
             installment_preset: (fresh as any).installment_preset || null,
             discount_mode: (fresh as any).discount_mode || null,
             global_discount_percent: Number((fresh as any).global_discount_percent) || 0,
@@ -584,6 +594,9 @@ function Sales() {
                 commission_amount: selectedBudget.commission_amount || 0,
                 profit_amount: selectedBudget.profit_amount || 0,
                 icms_compl_value: selectedBudget.icms_compl_value || 0,
+                icms_st_value: (selectedBudget as any).icms_st_value || 0,
+                difal_value: (selectedBudget as any).difal_value || 0,
+                fcp_value: (selectedBudget as any).fcp_value || 0,
             }).select().single()
             if (saleErr) throw saleErr
 
@@ -1326,6 +1339,9 @@ function Sales() {
                 (sum, r) => sum + (r?.taxes_outside?.find((t) => t.type === 'ICMS_COMPL')?.amount ?? 0),
                 0,
             )
+            // EPIC-POR-FORA-V2 (S4a): ICMS-ST / DIFAL / FCP laterais — venda direta (balcão).
+            // Fonte única compartilhada com orçamento (icms-st-difal.ts).
+            const stDifalSale = consolidateStDifalFromItems(saleItems, products as any[], globalDiscountPercentV)
 
             // MRM S2.3 — Policy gate (ADR-004): venda BLOQUEIA quando RRO ≤ 0.
             // Pré-computa snapshots para alimentar a agregação. Os mesmos snapshots
@@ -1393,6 +1409,9 @@ function Sales() {
                 status: 'COMPLETED',
                 commission_amount: commissionAmount,
                 icms_compl_value: icmsComplAmount,
+                icms_st_value: stDifalSale.st,
+                difal_value: stDifalSale.difal,
+                fcp_value: stDifalSale.fcp,
                 // Epic MRM-V6 (ADR-009): persistimos o modo escolhido pelo usuário sem coerção.
                 discount_mode: discountModeV,
                 engine_version: mrmConfig.enabled ? MRM_ENGINE_VERSION : 'legacy',

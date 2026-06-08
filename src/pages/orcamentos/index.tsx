@@ -41,6 +41,7 @@ import { hydrateItemSnapshot, type TenantSnapshotContext } from '@/lib/items-sna
 import { calculateMarginReapuration } from '@/utils/margin-reapuration'
 import { buildMotorInput } from '@/utils/mrm-orchestrator'
 import { calculateMotorV17ForPage } from '@/utils/mrm-engine-v17/legacy-adapter'
+import { consolidateStDifalFromItems, computeTotalACobrar } from '@/utils/icms-st-difal'
 import { useResidualDistribution } from '@/hooks/use-residual-distribution'
 import { detectConfigWarning, type ResidualItemInput } from '@/utils/residual-distribution'
 import { ResidualDistributionBlock } from '@/page-parts/shared/residual-distribution-block.component'
@@ -653,6 +654,21 @@ function Budgets() {
         0,
     )
 
+    // EPIC-POR-FORA-V2 (S4a): ICMS-ST / DIFAL / FCP laterais — por produto, recalculados sobre a
+    // âncora pós-desconto (frete fixo, D3). NÃO integram o RRO; consolidados e persistidos à parte
+    // (mesmo padrão de icms_compl_value, sem somar a total_value). Fonte única: icms-st-difal.ts.
+    const stDifalConsolidated = consolidateStDifalFromItems(budgetItems, products as any[], globalDiscountPercent)
+    // R1 (doc v4 Tab. 30/36): total a cobrar do cliente inclui os tributos por fora destacados.
+    // Derivado — não contamina total_value/RRO. Só difere do total quando há ST/DIFAL/FCP/Compl > 0.
+    const totalPorForaExtra = stDifalConsolidated.st + stDifalConsolidated.difal + stDifalConsolidated.fcp + icmsComplAmount
+    const budgetTotalACobrar = computeTotalACobrar({
+        total_value: budgetTotalWithDiscount,
+        icms_st_value: stDifalConsolidated.st,
+        difal_value: stDifalConsolidated.difal,
+        fcp_value: stDifalConsolidated.fcp,
+        icms_compl_value: icmsComplAmount,
+    })
+
     // ── EPIC-RR-DISPLAY: distribuição semântica (PDF GPT + DOCX Claude, 20/05/2026) ──
     // Aria S2 review: memoizar array de items antes de passar ao hook (evita
     // recálculo a cada render). budgetItems é stable enquanto não há edição.
@@ -908,6 +924,9 @@ function Budgets() {
                 commission_amount: commissionAmount,
                 profit_amount: profitAmount,
                 icms_compl_value: icmsComplAmount,
+                icms_st_value: stDifalConsolidated.st,
+                difal_value: stDifalConsolidated.difal,
+                fcp_value: stDifalConsolidated.fcp,
                 engine_version: mrmConfig.enabled ? MRM_ENGINE_VERSION : 'legacy',
                 expiration_date: values.expiration_date?.format('YYYY-MM-DD') || null,
                 notes: values.notes || null,
@@ -1078,6 +1097,9 @@ function Budgets() {
                 commission_amount: commissionAmount,
                 profit_amount: profitAmount,
                 icms_compl_value: icmsComplAmount,
+                icms_st_value: stDifalConsolidated.st,
+                difal_value: stDifalConsolidated.difal,
+                fcp_value: stDifalConsolidated.fcp,
                 engine_version: mrmConfig.enabled ? MRM_ENGINE_VERSION : 'legacy',
                 expiration_date: values.expiration_date?.format('YYYY-MM-DD') || null,
                 notes: values.notes || null,
@@ -1378,6 +1400,10 @@ function Budgets() {
                 total_value: b.total_value || 0,
                 // ICMS Complementar — espelha o valor consolidado do orçamento de origem.
                 icms_compl_value: (b as any).icms_compl_value || 0,
+                // EPIC-POR-FORA-V2: ICMS-ST / DIFAL / FCP — espelham o orçamento de origem.
+                icms_st_value: (b as any).icms_st_value || 0,
+                difal_value: (b as any).difal_value || 0,
+                fcp_value: (b as any).fcp_value || 0,
                 // MRM-V2-S2.1: coage modos legacy do budget pai → PROPORTIONAL ao copiar para o pedido.
                 discount_mode: coerceLegacyDiscountMode(b.discount_mode || null, { tenant_id: tenantId, document_id: b.id, surface: 'order' }),
                 discount_value: b.discount_value || null,
@@ -2447,6 +2473,20 @@ function Budgets() {
                         <div style={{ marginTop: 8, padding: '12px 16px', background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <strong style={{ color: '#f1f5f9', fontSize: 14 }}>Total Orçamento c/ Desconto:</strong>
                             <strong style={{ color: '#f87171', fontSize: 20 }}>{formatCurrency(budgetTotalWithDiscount)}</strong>
+                        </div>
+                    )}
+
+                    {/* EPIC-POR-FORA-V2 R1: total a cobrar inclui tributos por fora destacados (doc v4 Tab. 30/36). */}
+                    {totalPorForaExtra > 0 && (
+                        <div style={{ marginTop: 8, padding: '12px 16px', background: 'rgba(34, 197, 94, 0.08)', border: '1px solid rgba(34, 197, 94, 0.25)', borderRadius: 8 }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#94a3b8' }}>
+                                <span>+ Tributos por fora (ICMS-ST / DIFAL / FCP / ICMS Compl.)</span>
+                                <span>{formatCurrency(totalPorForaExtra)}</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
+                                <strong style={{ color: '#f1f5f9', fontSize: 14 }}>Total a cobrar:</strong>
+                                <strong style={{ color: '#4ade80', fontSize: 20 }}>{formatCurrency(budgetTotalACobrar)}</strong>
+                            </div>
                         </div>
                     )}
 

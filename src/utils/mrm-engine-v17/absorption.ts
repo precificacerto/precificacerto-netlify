@@ -24,6 +24,7 @@ import type {
   TaxType,
   ValidationMap,
 } from '@/types/mrm'
+import { computeIvaDualFromBase } from '@/utils/iva-dual-outside'
 
 interface ApplyAbsorptionInput {
   view: ConsolidatedView
@@ -87,44 +88,60 @@ export function applyAbsorptionPolicy(input: ApplyAbsorptionInput): ApplyAbsorpt
   // Bases individualizadas (documento "Bases de Cálculo dos Tributos Por Fora",
   // Conferência Fiscal 2026-06-05). OpDentro = Âncora (operação interna, SEM despesas
   // acessórias). Desp. Acessórias = frete + seguro + despesas acessórias cobradas do cliente.
-  //   IS          = (Âncora − ICMS − ISS − PIS/COFINS) × alíq.IS        (sem Desp. Acessórias)
-  //   IBS / CBS   = (Base IS + IS + Desp. Acessórias) × alíq.           (Desp. compõe a base)
+  //   Base IVA(X) = Âncora − ICMS − ISS − PIS/COFINS
+  //   IS          = (X + Desp. Acessórias) × alíq.IS                    (EPIC-POR-FORA-V2 D1)
+  //   IBS / CBS   = (X + IS + Desp. Acessórias) × alíq.                 (Desp. compõe a base)
   //   IPI         = (Âncora + Desp. Acessórias) × alíq.IPI              (RIPI; não deduz ICMS)
   //   ICMS Compl. = (IPI + Desp. Acessórias) × alíq.ICMS                (só não contribuinte)
   const desp_acessorias = Math.max(0, Number(input.desp_acessorias) || 0)
   const base_iva = Math.max(0, motor.ancora - motor.icms - motor.iss - motor.pis_cofins)
+  const ipi_base = motor.ancora + desp_acessorias
+
+  // Alíquotas do motor são DECIMAIS (0,009 = 0,9%); o núcleo IVA Dual usa base 100 (× 100).
   const is_rate = resolveRate(input.rates, 'IS')
-  const is_amount = base_iva * is_rate
-  const base_ibs_cbs = base_iva + is_amount + desp_acessorias
+  const ibs_rate = resolveRate(input.rates, 'IBS')
+  const cbs_rate = resolveRate(input.rates, 'CBS')
+  const ipi_rate = resolveRate(input.rates, 'IPI')
+  const icms_rate = resolveRate(input.rates, 'ICMS')
+
+  // NÚCLEO ÚNICO IVA Dual (ADR-017) — mesma matemática usada na formação do produto/modal.
+  const iva = computeIvaDualFromBase({
+    baseIVA: base_iva,
+    ipiBase: ipi_base,
+    despAcessorias: desp_acessorias,
+    isPct: is_rate * 100,
+    ibsPct: ibs_rate * 100,
+    cbsPct: cbs_rate * 100,
+    ipiPct: ipi_rate * 100,
+    icmsPct: icms_rate * 100,
+    icmsComplApplies: input.icms_compl_applies,
+  })
 
   const taxes_outside: TaxLine[] = []
   let taxes_outside_total = 0
-  const pushTax = (type: TaxType, rate: number, base: number) => {
+  const pushLine = (type: TaxType, rate: number, base: number, amount: number) => {
     if (rate <= 0) return
-    const amount = base > 0 ? base * rate : 0
     taxes_outside.push({ type, rate_pct: rate, base, amount })
     taxes_outside_total += amount
   }
 
-  // Etapa 4: Imposto Seletivo sobre a Base Econômica IVA (sem Desp. Acessórias).
-  pushTax('IS', is_rate, base_iva)
-  // Etapas 6-7: IBS e CBS sobre a base com IS e Desp. Acessórias incorporados.
-  pushTax('IBS', resolveRate(input.rates, 'IBS'), base_ibs_cbs)
-  pushTax('CBS', resolveRate(input.rates, 'CBS'), base_ibs_cbs)
+  // Etapa 4: IS sobre Base do IS (X + Desp. Acessórias) — D1.
+  pushLine('IS', is_rate, iva.baseIS, iva.isValue)
+  // Etapas 6-7: IBS e CBS sobre a base com IS e Desp. Acessórias.
+  pushLine('IBS', ibs_rate, iva.baseIbsCbs, iva.ibsValue)
+  pushLine('CBS', cbs_rate, iva.baseIbsCbs, iva.cbsValue)
   // Etapa 8: IPI destacado sobre Âncora + Desp. Acessórias (RIPI art. 190).
-  const ipi_rate = resolveRate(input.rates, 'IPI')
-  const ipi_base = motor.ancora + desp_acessorias
-  const ipi_amount = ipi_base > 0 ? ipi_base * ipi_rate : 0
-  pushTax('IPI', ipi_rate, ipi_base)
-  // ICMS Complementar: (IPI + Desp. Acessórias) × alíq.ICMS — só consumidor final NÃO
-  // contribuinte do ICMS (LC 87/1996, art. 13, §1º, II).
+  pushLine('IPI', ipi_rate, iva.ipiBase, iva.ipiValue)
+  // ICMS Complementar: (IPI + Desp. Acessórias) × alíq.ICMS — só consumidor final NÃO contribuinte.
   if (input.icms_compl_applies) {
-    pushTax('ICMS_COMPL', resolveRate(input.rates, 'ICMS'), ipi_amount + desp_acessorias)
+    pushLine('ICMS_COMPL', icms_rate, iva.icmsComplBase, iva.icmsComplValue)
   }
-  // Legados "por fora" pré-Reforma — incidem sobre a Base Econômica IVA.
-  for (const type of ['ICMS_ST', 'DIFAL', 'FCP', 'ISS_RETIDO'] as TaxType[]) {
-    pushTax(type, resolveRate(input.rates, type), base_iva)
-  }
+  // ICMS-ST / DIFAL / FCP: tributos avançados com base própria (BC própria + MVA + presumido−próprio
+  // / base simples-dupla), recalculados sobre a âncora pós-desconto, que NÃO integram a cascata do
+  // RRO. Vivem em src/utils/icms-st-difal.ts e são consolidados como linha lateral na fiação S4a
+  // (orçamento), não aqui. ISS_RETIDO segue como % plano sobre a Base IVA.
+  const iss_retido_rate = resolveRate(input.rates, 'ISS_RETIDO')
+  pushLine('ISS_RETIDO', iss_retido_rate, base_iva, base_iva * iss_retido_rate)
 
   const taxes_outside_base = base_iva
   // Preço Final = Âncora + Desp. Acessórias + Operação Externa.

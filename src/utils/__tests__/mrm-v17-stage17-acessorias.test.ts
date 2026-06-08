@@ -103,7 +103,7 @@ describe('Motor V17 Etapa 17 — Despesas Acessórias', () => {
 })
 
 describe('Motor V17 Etapa 17 — IS e ISS combinados com Desp. Acessórias', () => {
-  it('IS > 0: base de IBS/CBS = base_iva + IS + Desp. (IS sem despesas)', () => {
+  it('IS > 0: base do IS = base_iva + Desp. (D1); base IBS/CBS = base_iva + IS + Desp.', () => {
     const ratesIS: TaxRatePeriod[] = [
       rate('ICMS', 0.17), rate('IS', 0.1), rate('IBS', 0.01), rate('CBS', 0.088), rate('IPI', 0.05),
     ]
@@ -111,8 +111,8 @@ describe('Motor V17 Etapa 17 — IS e ISS combinados com Desp. Acessórias', () 
     const baseIva = r.motor.ancora - r.motor.icms - r.motor.iss - r.motor.pis_cofins
     const is = find(r.distribution.taxes_outside, 'IS')!
     const ibs = find(r.distribution.taxes_outside, 'IBS')!
-    // Base do IS = base_iva (sem despesas).
-    expect(is.base).toBeCloseTo(baseIva, 2)
+    // EPIC-POR-FORA-V2 D1: a base do IS inclui as Desp. Acessórias.
+    expect(is.base).toBeCloseTo(baseIva + DESP, 2)
     // Base de IBS/CBS = base_iva + IS + Desp.
     expect(ibs.base).toBeCloseTo(baseIva + is.amount + DESP, 2)
   })
