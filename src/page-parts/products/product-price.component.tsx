@@ -10,6 +10,7 @@ import { ProductPriceInfoType } from './content.component'
 import { CalcBaseType } from '@/types/calc-base.type'
 import { LoggedUser } from '@/types/logged-user.type'
 import { FormInstance } from 'antd/lib/form/Form'
+import { useDevice } from '@/contexts/device.context'
 
 function fmt(v: number) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 }).format(v)
@@ -86,6 +87,7 @@ export const ProductPrice: FC<Props> = ({
   advancedTaxesSection,
   advancedTaxParams,
 }: Props) => {
+  const { isMobile } = useDevice()
   const isCalcTypeResale = currentUser?.calcType === CALC_TYPE_ENUM.RESALE
   const isCalcTypeService = currentUser?.calcType === CALC_TYPE_ENUM.SERVICE
   const isMei = !!calcBase.isMei
@@ -240,13 +242,13 @@ export const ProductPrice: FC<Props> = ({
 
     return (
       <tr key={label}>
-        <td style={{ width: 140, padding: '6px 0' }}>
+        <td style={{ width: isMobile ? 92 : 140, padding: '6px 0' }}>
           {editable ? (
             <InputNumber
               size="small" min={0} max={100} step={0.0001} precision={4}
               value={pct}
               onChange={handleEditableChange}
-              style={{ width: 110 }}
+              style={{ width: isMobile ? 84 : 110 }}
               formatter={(v) => {
                 if (v == null || v === '') return '%'
                 const n = typeof v === 'string' ? parseFloat(v.replace(',', '.')) : Number(v)
@@ -262,17 +264,17 @@ export const ProductPrice: FC<Props> = ({
           ) : (
             <Tooltip title={tooltipText || 'Calculado automaticamente a partir do fluxo de caixa. Altere em Configurações > Custos.'}>
               <span style={{
-                display: 'inline-block', padding: '4px 12px', background: 'rgba(255,255,255,0.04)',
-                borderRadius: 4, fontSize: 13, minWidth: 80, textAlign: 'right',
+                display: 'inline-block', padding: isMobile ? '4px 6px' : '4px 12px', background: 'rgba(255,255,255,0.04)',
+                borderRadius: 4, fontSize: isMobile ? 12 : 13, minWidth: isMobile ? 0 : 80, textAlign: 'right',
                 cursor: 'help',
               }}>
                 {pct.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%
-                <InfoCircleOutlined style={{ marginLeft: 4, fontSize: 10, color: '#64748b' }} />
+                {!isMobile && <InfoCircleOutlined style={{ marginLeft: 4, fontSize: 10, color: '#64748b' }} />}
               </span>
             </Tooltip>
           )}
         </td>
-        <td style={{ padding: '6px 12px', fontSize: 13 }}>
+        <td style={{ padding: isMobile ? '6px 6px' : '6px 12px', fontSize: isMobile ? 12 : 13 }}>
           {tooltipText ? (
             <Tooltip title={tooltipText}>
               <span style={{ cursor: 'help' }}>{label}</span>
@@ -281,7 +283,7 @@ export const ProductPrice: FC<Props> = ({
             label
           )}
         </td>
-        <td style={{ padding: '6px 0', textAlign: 'right', fontSize: 13, fontWeight: 500 }}>
+        <td style={{ padding: '6px 0', textAlign: 'right', fontSize: isMobile ? 12 : 13, fontWeight: 500, whiteSpace: 'nowrap' }}>
           R$ {getMonetaryValue(val)}
         </td>
       </tr>
@@ -314,9 +316,9 @@ export const ProductPrice: FC<Props> = ({
         <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0 2px' }}>
           <thead>
             <tr style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase' as const }}>
-              <th style={{ textAlign: 'left', padding: '0 0 8px', width: 140 }}>%</th>
-              <th style={{ textAlign: 'left', padding: '0 12px 8px' }}>Despesa</th>
-              <th style={{ textAlign: 'right', padding: '0 0 8px' }}>Valor (R$)</th>
+              <th style={{ textAlign: 'left', padding: '0 0 8px', width: isMobile ? 92 : 140 }}>{isMobile ? 'Alíquotas' : '%'}</th>
+              <th style={{ textAlign: 'left', padding: isMobile ? '0 6px 8px' : '0 12px 8px' }}>{isMobile ? 'Tipo despesa' : 'Despesa'}</th>
+              <th style={{ textAlign: 'right', padding: '0 0 8px', whiteSpace: 'nowrap' }}>Valor (R$)</th>
             </tr>
           </thead>
           <tbody>

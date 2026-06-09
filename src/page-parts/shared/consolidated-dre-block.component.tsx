@@ -29,6 +29,7 @@
 
 import React from 'react'
 
+import { useDevice } from '@/contexts/device.context'
 import { formatBRL } from '@/utils/formatters'
 import type { DRESection } from '@/utils/consolidated-dre'
 import { formatResidualLine } from '@/utils/residual-distribution'
@@ -155,7 +156,103 @@ function CascadeRow({
   )
 }
 
+/**
+ * Mobile (DM2, ≤639px): renderiza um step como bloco vertical (cartão) em vez de
+ * linha de grid. Children aparecem como sub-blocos indentados. `hideRate` oculta
+ * a linha de Alíquota. Reaproveita os mesmos dados/formatadores do grid desktop.
+ */
+function CascadeMobileItem({
+  step,
+  isChild = false,
+  hideRate = false,
+}: {
+  step: CascadeStep
+  isChild?: boolean
+  hideRate?: boolean
+}) {
+  const labelColor = isChild ? '#94a3b8' : '#cbd5e1'
+  const valueColor = step.amount < 0 ? '#fca5a5' : labelColor
+  const pesoText =
+    step.peso != null
+      ? `peso ${step.peso.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}`
+      : ''
+  return (
+    <div
+      style={{
+        marginLeft: isChild ? 12 : 0,
+        marginTop: isChild ? 6 : 0,
+        padding: isChild ? '6px 8px' : '8px 10px',
+        background: isChild ? 'rgba(99,102,241,0.04)' : 'rgba(99,102,241,0.08)',
+        border: `1px solid ${isChild ? 'rgba(99,102,241,0.12)' : 'rgba(99,102,241,0.20)'}`,
+        borderRadius: 5,
+        borderLeft: isChild ? '2px solid rgba(99,102,241,0.30)' : undefined,
+      }}
+    >
+      {/* Cabeçalho do bloco: #step + nome da etapa */}
+      <div
+        title={step.formula}
+        style={{
+          display: 'flex',
+          alignItems: 'baseline',
+          gap: 6,
+          fontWeight: isChild ? 500 : 700,
+          fontSize: isChild ? 11 : 12,
+          color: isChild ? '#cbd5e1' : '#e2e8f0',
+          marginBottom: 4,
+        }}
+      >
+        {!isChild && (
+          <span style={{ color: '#a5b4fc', fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}>
+            #{step.step}
+          </span>
+        )}
+        <span>
+          {isChild ? '└─ ' : ''}
+          {step.label}
+        </span>
+        {pesoText && <span style={{ color: '#64748b', fontSize: 10 }}>({pesoText})</span>}
+      </div>
+      {/* Linhas rotuladas: Base · Alíquota (se não hideRate) · Valor */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 16px', fontSize: 11 }}>
+        <span style={{ color: '#64748b' }}>
+          Base:{' '}
+          <span style={{ color: labelColor, fontVariantNumeric: 'tabular-nums' }}>
+            {step.base != null ? formatBRL(step.base) : '—'}
+          </span>
+        </span>
+        {!hideRate && (
+          <span style={{ color: '#64748b' }}>
+            Alíquota:{' '}
+            <span style={{ color: labelColor, fontVariantNumeric: 'tabular-nums' }}>
+              {step.rate != null
+                ? `${(step.rate * 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}%`
+                : '—'}
+            </span>
+          </span>
+        )}
+        <span style={{ color: '#64748b' }}>
+          Valor:{' '}
+          <span style={{ color: valueColor, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+            {formatBRL(step.amount)}
+          </span>
+        </span>
+      </div>
+      {/* Children como sub-blocos indentados; hideRate herda regra do step 10 (despesas) */}
+      {step.children?.map((child, idx) => (
+        <CascadeMobileItem
+          key={`mstep-${step.step}-child-${idx}-${child.source}`}
+          step={child}
+          isChild
+          hideRate={step.step === 10}
+        />
+      ))}
+    </div>
+  )
+}
+
 function CascadeExpander({ trace }: { trace: CascadeStep[] }) {
+  const { isMobile } = useDevice()
+
   if (trace.length === 0) return null
 
   return (
@@ -182,38 +279,47 @@ function CascadeExpander({ trace }: { trace: CascadeStep[] }) {
       >
         📋 Memória cascata (PDF Motor RR Seção 10 + Excel oficial)
       </summary>
-      <div
-        style={{
-          marginTop: 8,
-          display: 'grid',
-          gridTemplateColumns: 'auto 1fr auto auto auto',
-          gap: '4px 12px',
-          fontSize: 11,
-          color: '#94a3b8',
-        }}
-      >
-        <div style={{ fontWeight: 700, color: '#c7d2fe' }}>#</div>
-        <div style={{ fontWeight: 700, color: '#c7d2fe' }}>Etapa</div>
-        <div style={{ fontWeight: 700, color: '#c7d2fe', textAlign: 'right' }}>Base (R$)</div>
-        <div style={{ fontWeight: 700, color: '#c7d2fe', textAlign: 'right' }}>Alíquota</div>
-        <div style={{ fontWeight: 700, color: '#c7d2fe', textAlign: 'right' }}>Valor (R$)</div>
-        {trace.map((step) => (
-          <React.Fragment key={`step-${step.step}-${step.source}`}>
-            <CascadeRow step={step} />
-            {/* V10 (ADR-011): renderiza children como sub-itens indentados */}
-            {/* V15.2 (2026-05-25): oculta % nos children do step 10 (despesas) — Founder request */}
-            {step.children?.map((child, idx) => (
-              <CascadeRow
-                key={`step-${step.step}-child-${idx}-${child.source}`}
-                step={child}
-                isChild
-                showStepNumber={false}
-                hideRate={step.step === 10}
-              />
-            ))}
-          </React.Fragment>
-        ))}
-      </div>
+      {isMobile ? (
+        /* DM2 mobile (≤639px): blocos verticais por etapa — grid de 5 colunas vira ilegível */
+        <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {trace.map((step) => (
+            <CascadeMobileItem key={`mstep-${step.step}-${step.source}`} step={step} />
+          ))}
+        </div>
+      ) : (
+        <div
+          style={{
+            marginTop: 8,
+            display: 'grid',
+            gridTemplateColumns: 'auto 1fr auto auto auto',
+            gap: '4px 12px',
+            fontSize: 11,
+            color: '#94a3b8',
+          }}
+        >
+          <div style={{ fontWeight: 700, color: '#c7d2fe' }}>#</div>
+          <div style={{ fontWeight: 700, color: '#c7d2fe' }}>Etapa</div>
+          <div style={{ fontWeight: 700, color: '#c7d2fe', textAlign: 'right' }}>Base (R$)</div>
+          <div style={{ fontWeight: 700, color: '#c7d2fe', textAlign: 'right' }}>Alíquota</div>
+          <div style={{ fontWeight: 700, color: '#c7d2fe', textAlign: 'right' }}>Valor (R$)</div>
+          {trace.map((step) => (
+            <React.Fragment key={`step-${step.step}-${step.source}`}>
+              <CascadeRow step={step} />
+              {/* V10 (ADR-011): renderiza children como sub-itens indentados */}
+              {/* V15.2 (2026-05-25): oculta % nos children do step 10 (despesas) — Founder request */}
+              {step.children?.map((child, idx) => (
+                <CascadeRow
+                  key={`step-${step.step}-child-${idx}-${child.source}`}
+                  step={child}
+                  isChild
+                  showStepNumber={false}
+                  hideRate={step.step === 10}
+                />
+              ))}
+            </React.Fragment>
+          ))}
+        </div>
+      )}
       <div style={{ fontSize: 10, color: '#64748b', marginTop: 8, fontStyle: 'italic' }}>
         Referência: PDF Motor RR Seção 10 + Excel oficial (`Motor de descontos do resultado residual operacional.xlsx`).
         Sub-itens em cinza detalham cada componente.

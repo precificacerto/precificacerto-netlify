@@ -8,6 +8,7 @@ import { CalcBaseType } from '@/types/calc-base.type'
 import { ProductPrice, AdvancedTaxParams } from './product-price.component'
 import { LoggedUser } from '@/types/logged-user.type'
 import { ProductPriceInfoType } from './content.component'
+import { useDevice } from '@/contexts/device.context'
 
 interface ContentIndustrializationProps {
   itemsForm: FormInstance
@@ -47,6 +48,8 @@ interface ContentIndustrializationProps {
   onFinalPriceWithTaxesChange?: (data: { finalPrice: number; basePrice: number }) => void
   advancedTaxesSection?: ReactNode
   advancedTaxParams?: AdvancedTaxParams
+  /** Frente 2: lista compacta dos itens renderizada SÓ no mobile (≤639). */
+  mobileItemsList?: ReactNode
 }
 export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
   itemsForm,
@@ -86,7 +89,9 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
   onFinalPriceWithTaxesChange,
   advancedTaxesSection,
   advancedTaxParams,
+  mobileItemsList,
 }: ContentIndustrializationProps) => {
+  const { isMobile } = useDevice()
   return (
     <>
       <Card size="small" className="mt-5 mb-5">
@@ -125,7 +130,11 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
             </Button>
           </Form>
         </div>
-        <Table pagination={false} columns={columns} dataSource={productItemsData} scroll={{ x: 'max-content' }} />
+        {isMobile && mobileItemsList ? (
+          mobileItemsList
+        ) : (
+          <Table pagination={false} columns={columns} dataSource={productItemsData} scroll={{ x: 'max-content' }} />
+        )}
         <section className="flex items-center p-1 mt-3 ps-row-flex">
           <div className="w-[36%] p-4">Mão de obra produtiva</div>
           <div className="w-[20%] p-1">

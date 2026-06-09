@@ -24,6 +24,8 @@ import { ProductPrice } from './product-price.component'
 import { LoggedUser } from '@/types/logged-user.type'
 import { supabase } from '@/supabase/client'
 import { getTenantId, getCurrentUserId } from '@/utils/get-tenant-id'
+import { useDevice } from '@/contexts/device.context'
+import { ProductItemsMobileList } from './product-items-mobile-list.component'
 
 type ContentProps = {
   messageApi: MessageInstance
@@ -132,6 +134,7 @@ export const Content: FC<ContentProps> = ({
   currentUser,
   prefill,
 }: ContentProps) => {
+  const { isMobile } = useDevice()
   const [productItemsData, setProductItemsData] = useState<IItemProductModel[]>(
     product?.items.map((item) => ({ ...item, key: item.id })) || []
   )
@@ -1347,6 +1350,19 @@ export const Content: FC<ContentProps> = ({
     },
   ]
 
+  // Frente 2 (mobile): lista compacta + Drawer dos itens, reusando os MESMOS handlers
+  // das columns. Passada aos 3 subcomponentes; cada um a usa só quando isMobile (≤639).
+  const productItemsMobileList = (
+    <ProductItemsMobileList
+      items={productItemsData}
+      yieldQty={yieldQty}
+      isEditingMode={isEditingMode}
+      handleQuantityChange={handleQuantityChange}
+      handleClickUpdateItemPrice={handleClickUpdateItemPrice}
+      handleClickRemoveItem={handleClickRemoveItem}
+    />
+  )
+
   const handleChangePrecificationInputs = (event: ChangeEvent<HTMLInputElement>) => {
     event.preventDefault()
 
@@ -1476,7 +1492,18 @@ export const Content: FC<ContentProps> = ({
   return (
     <>
       <header className="flex justify-between mb-4">
-        <h1 className="text-3xl">{product ? PAGE_TITLES.EDIT_PRODUCT : PAGE_TITLES.NEW_PRODUCT}</h1>
+        <div>
+          <h1 className={isMobile ? 'text-xl' : 'text-3xl'}>
+            {product ? PAGE_TITLES.EDIT_PRODUCT : PAGE_TITLES.NEW_PRODUCT}
+          </h1>
+          {isMobile && (
+            <p style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>
+              {product
+                ? 'Altere as informações do produto'
+                : 'Preencha as informações do produto'}
+            </p>
+          )}
+        </div>
       </header>
 
       {/* ══════════════════════════════════════════════════════
@@ -2040,6 +2067,7 @@ export const Content: FC<ContentProps> = ({
           onFinalPriceWithTaxesChange={(d) => { finalPriceWithTaxesRef.current = d.finalPrice; salePriceBaseRef.current = d.basePrice }}
           advancedTaxesSection={advancedTaxesSection}
           advancedTaxParams={advancedTaxParams}
+          mobileItemsList={productItemsMobileList}
         />
       )}
       {productType === 'REVENDA' && isCalcTypeService && (
@@ -2082,6 +2110,7 @@ export const Content: FC<ContentProps> = ({
           onFinalPriceWithTaxesChange={(d) => { finalPriceWithTaxesRef.current = d.finalPrice; salePriceBaseRef.current = d.basePrice }}
           advancedTaxesSection={advancedTaxesSection}
           advancedTaxParams={advancedTaxParams}
+          mobileItemsList={productItemsMobileList}
         />
       )}
       {productType === 'REVENDA' && !isCalcTypeService && (
@@ -2123,6 +2152,7 @@ export const Content: FC<ContentProps> = ({
           onFinalPriceWithTaxesChange={(d) => { finalPriceWithTaxesRef.current = d.finalPrice; salePriceBaseRef.current = d.basePrice }}
           advancedTaxesSection={advancedTaxesSection}
           advancedTaxParams={advancedTaxParams}
+          mobileItemsList={productItemsMobileList}
         />
       )}
       {/* EPIC-POR-FORA-V3: a seção "Alíquotas tributárias adicionais (avançado)" foi movida para a
@@ -2130,9 +2160,33 @@ export const Content: FC<ContentProps> = ({
           Preço de Venda (via prop advancedTaxesSection do ProductPrice), somando ICMS-ST/DIFAL/FCP
           ao preço final exibido. */}
 
+      {/* Frente 1 (mobile): card "Dica" antes do footer */}
+      {isMobile && (
+        <div
+          style={{
+            background: 'rgba(46, 144, 250, 0.12)',
+            border: '1px solid rgba(46, 144, 250, 0.3)',
+            borderRadius: 8,
+            padding: '12px 14px',
+            fontSize: 12,
+            color: '#e2e8f0',
+            marginTop: 20,
+            display: 'flex',
+            gap: 8,
+            alignItems: 'flex-start',
+          }}
+        >
+          <InfoCircleOutlined style={{ color: '#38bdf8', marginTop: 2 }} />
+          <span>
+            <strong>Dica:</strong> Mantenha as informações do produto sempre
+            atualizadas para uma precificação mais precisa.
+          </span>
+        </div>
+      )}
+
       <footer className="flex flex-row-reverse mt-5 mr-4">
         <Button onClick={handleSaveProduct} type="primary" className="ml-2">
-          Salvar
+          {product ? 'Salvar alterações' : 'Salvar'}
         </Button>
         <Button onClick={goBack}>Cancelar</Button>
       </footer>

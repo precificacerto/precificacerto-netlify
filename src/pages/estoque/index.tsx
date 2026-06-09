@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react'
-import { Button, Drawer, Form, Input, Select, Space, Table, Tag, Tabs, message, InputNumber, Empty, Checkbox, Radio, Tooltip, Popconfirm } from 'antd'
+import { Button, Drawer, Dropdown, Form, Input, Select, Space, Spin, Table, Tag, Tabs, message, InputNumber, Empty, Checkbox, Radio, Tooltip, Popconfirm } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
@@ -19,8 +19,10 @@ import {
     ShoppingOutlined,
     CustomerServiceOutlined,
     DeleteOutlined,
+    MoreOutlined,
 } from '@ant-design/icons'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
+import { useDevice } from '@/contexts/device.context'
 import { formatBRL } from '@/utils/formatters'
 
 interface StockRow {
@@ -83,11 +85,160 @@ const statusColors: Record<string, string> = {
     Crítico: 'error',
 }
 
+/**
+ * Lista compacta de estoque para mobile (DM2): cada registro vira uma linha
+ * clicável que abre um Drawer de detalhes com todos os campos e ações.
+ * Reutilizada pelas listagens de PRODUTOS e ITENS. Não altera lógica/queries —
+ * apenas a renderização; os handlers são recebidos via props.
+ */
+function StockMobileList({
+    rows,
+    type,
+    sections,
+    canEditStock,
+    loading,
+    onDeleteQty,
+    onSoftDelete,
+}: {
+    rows: StockRow[]
+    type: 'ITEM' | 'PRODUCT'
+    sections: { id: string; name: string }[]
+    canEditStock: boolean
+    loading: boolean
+    onDeleteQty: (record: StockRow) => void
+    onSoftDelete: (record: StockRow) => void
+}) {
+    const [detail, setDetail] = useState<StockRow | null>(null)
+
+    const statusColor = (status: string) =>
+        status === 'Crítico' ? 'var(--color-error)' : status === 'Baixo' ? '#f59e0b' : '#e2e8f0'
+
+    const sectionName = (sectionId: string | null) =>
+        sectionId ? (sections.find(s => s.id === sectionId)?.name ?? '—') : '—'
+
+    if (loading) {
+        return <div style={{ textAlign: 'center', padding: 40 }}><Spin /></div>
+    }
+    if (rows.length === 0) {
+        return (
+            <Empty
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                description={
+                    type === 'ITEM'
+                        ? 'Nenhum item no estoque. Cadastre itens na aba "Itens" para popular automaticamente.'
+                        : 'Nenhum produto acabado no estoque. Registre uma produção para criar estoque de produtos.'
+                }
+            />
+        )
+    }
+
+    return (
+        <div className="estoque-mobile-list">
+            {rows.map((r) => {
+                const menuItems = canEditStock
+                    ? [
+                          { key: 'detail', label: 'Ver detalhes', onClick: () => setDetail(r) },
+                          { key: 'del-qty', label: 'Excluir qtd', onClick: () => onDeleteQty(r) },
+                          { key: 'del', label: 'Excluir', danger: true, onClick: () => onSoftDelete(r) },
+                      ]
+                    : [{ key: 'detail', label: 'Ver detalhes', onClick: () => setDetail(r) }]
+                return (
+                    <div key={r.id} className="pc-row-compact" onClick={() => setDetail(r)}>
+                        <div className="pc-row-compact__main">
+                            <span className="pc-row-compact__title">{r.name}</span>
+                            <span className="pc-row-compact__sub">
+                                {type === 'PRODUCT'
+                                    ? `Código: ${r.code || '—'}`
+                                    : (r.status === 'Baixo' || r.status === 'Crítico')
+                                        ? 'Estoque abaixo do mínimo'
+                                        : `Mín.: ${r.minQty} ${r.unit}`}
+                            </span>
+                        </div>
+                        <span className="pc-row-compact__value" style={{ color: statusColor(r.status) }}>
+                            {r.currentQty} {r.unit}
+                        </span>
+                        <Dropdown menu={{ items: menuItems }} trigger={['click']} placement="bottomRight">
+                            <span className="pc-row-compact__kebab" onClick={(e) => e.stopPropagation()}><MoreOutlined /></span>
+                        </Dropdown>
+                    </div>
+                )
+            })}
+
+            <Drawer
+                title={detail?.name || 'Detalhes'}
+                placement="bottom"
+                height="auto"
+                open={!!detail}
+                onClose={() => setDetail(null)}
+            >
+                {detail && (
+                    <div className="estoque-detail">
+                        <DetailRow label="Código" value={type === 'PRODUCT' ? (detail.code || '—') : '—'} />
+                        <DetailRow label="Nome" value={detail.name} />
+                        {type === 'PRODUCT' && <DetailRow label="Seção" value={sectionName(detail.section_id)} />}
+                        <DetailRow
+                            label="Margem de lucro"
+                            value={`${detail.profitPercent.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%`}
+                        />
+                        <DetailRow
+                            label="Preço de venda"
+                            value={<span style={{ color: '#4ade80', fontWeight: 600 }}>{formatCurrency(detail.salePrice)}</span>}
+                        />
+                        <DetailRow
+                            label="Qtd em estoque"
+                            value={<span style={{ color: statusColor(detail.status), fontWeight: 600 }}>{detail.currentQty} {detail.unit}</span>}
+                        />
+                        {canEditStock && (
+                            <div className="pc-row-compact__actions" style={{ marginTop: 16, borderRadius: 10 }}>
+                                <Button
+                                    danger
+                                    onClick={() => { const r = detail; setDetail(null); onDeleteQty(r) }}
+                                >
+                                    Excluir qtd
+                                </Button>
+                                <Popconfirm
+                                    title={type === 'PRODUCT' ? 'Excluir produto' : 'Excluir item'}
+                                    description={`Tem certeza que deseja excluir "${detail.name}" do estoque?`}
+                                    okText="Excluir"
+                                    cancelText="Cancelar"
+                                    okButtonProps={{ danger: true }}
+                                    onConfirm={() => { const r = detail; setDetail(null); onSoftDelete(r) }}
+                                >
+                                    <Button danger type="primary" icon={<DeleteOutlined />}>Excluir</Button>
+                                </Popconfirm>
+                            </div>
+                        )}
+                    </div>
+                )}
+            </Drawer>
+        </div>
+    )
+}
+
+function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
+    return (
+        <div
+            style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: 12,
+                padding: '8px 0',
+                borderBottom: '1px solid rgba(255,255,255,0.06)',
+            }}
+        >
+            <span style={{ color: '#94a3b8', fontSize: 13 }}>{label}</span>
+            <span style={{ color: '#e2e8f0', textAlign: 'right' }}>{value}</span>
+        </div>
+    )
+}
+
 function Stock() {
     const { data: rawStock, isLoading, mutate: reloadStock } = useStock()
     const { data: rawProducts } = useProducts()
     const { mutate: reloadItems } = useItems()
     const { tenantId, currentUser } = useAuth()
+    const { isMobile } = useDevice()
     const effectiveTenantId = tenantId ?? currentUser?.tenant_id
     const [movementDrawerOpen, setMovementDrawerOpen] = useState(false)
     const [editDrawerOpen, setEditDrawerOpen] = useState(false)
@@ -856,6 +1007,16 @@ function Stock() {
                                 />
                             ),
                         }}
+                    />
+                ) : isMobile ? (
+                    <StockMobileList
+                        rows={filteredData}
+                        type={activeTab}
+                        sections={sections}
+                        canEditStock={canEdit(MODULES.STOCK)}
+                        loading={isLoading}
+                        onDeleteQty={handleOpenDeleteQty}
+                        onSoftDelete={handleSoftDeleteStockRow}
                     />
                 ) : (
                     <Table

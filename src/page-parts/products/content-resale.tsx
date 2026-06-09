@@ -7,6 +7,7 @@ import { CalcBaseType } from '@/types/calc-base.type'
 import { ProductPrice, AdvancedTaxParams } from './product-price.component'
 import { LoggedUser } from '@/types/logged-user.type'
 import { ProductPriceInfoType } from './content.component'
+import { useDevice } from '@/contexts/device.context'
 
 interface ContentResaleProps {
   itemsForm: FormInstance
@@ -46,6 +47,8 @@ interface ContentResaleProps {
   onFinalPriceWithTaxesChange?: (data: { finalPrice: number; basePrice: number }) => void
   advancedTaxesSection?: ReactNode
   advancedTaxParams?: AdvancedTaxParams
+  /** Frente 2: lista compacta dos itens renderizada SÓ no mobile (≤639). */
+  mobileItemsList?: ReactNode
 }
 export const ContentResale: FC<ContentResaleProps> = ({
   itemsForm,
@@ -85,7 +88,9 @@ export const ContentResale: FC<ContentResaleProps> = ({
   onFinalPriceWithTaxesChange,
   advancedTaxesSection,
   advancedTaxParams,
+  mobileItemsList,
 }: ContentResaleProps) => {
+  const { isMobile } = useDevice()
   return (
     <>
       <Card size="small" className="mt-5 mb-5">
@@ -124,7 +129,11 @@ export const ContentResale: FC<ContentResaleProps> = ({
             </Button>
           </Form>
         </div>
-        <Table pagination={false} columns={columns} dataSource={productItemsData} scroll={{ x: 'max-content' }} />
+        {isMobile && mobileItemsList ? (
+          mobileItemsList
+        ) : (
+          <Table pagination={false} columns={columns} dataSource={productItemsData} scroll={{ x: 'max-content' }} />
+        )}
       </Card>
 
       <ProductPrice

@@ -2152,6 +2152,111 @@ function Budgets() {
         },
     ]
 
+    // ── DM2: cartão de edição de item (mobile ≤639) — reusa os mesmos inputs/handlers das itemColumns ──
+    const renderMobileItemCard = (record: BudgetItemRow) => {
+        const rowProds = record.commission_table_id
+            ? (products as any[]).filter((p: any) => p.commission_table_id === record.commission_table_id)
+            : (products as any[])
+        const rowSvcs = record.commission_table_id
+            ? (services as any[]).filter((s: any) => s.commission_table_id === record.commission_table_id)
+            : (services as any[])
+        const labelStyle: React.CSSProperties = { fontSize: 11, color: '#94a3b8', marginBottom: 2, display: 'block' }
+        return (
+            <div
+                key={record.key}
+                style={{
+                    border: '1px solid rgba(255,255,255,0.08)',
+                    borderRadius: 8,
+                    padding: 12,
+                    marginBottom: 8,
+                    background: 'rgba(255,255,255,0.02)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 10,
+                }}
+            >
+                {/* Linha 1: seletor Produto/Serviço/Descrição (full width) */}
+                <div>
+                    {record.isManual ? (
+                        <Input
+                            placeholder="Descreva o item manualmente"
+                            value={record.product_name}
+                            onChange={(e) => handleManualDescriptionChange(record.key, e.target.value)}
+                            style={{ width: '100%' }}
+                        />
+                    ) : record.isService ? (
+                        <Select
+                            placeholder="Selecione o serviço"
+                            showSearch
+                            optionFilterProp="children"
+                            style={{ width: '100%' }}
+                            value={record.service_id || undefined}
+                            onChange={(v) => handleServiceSelect(record.key, v)}
+                        >
+                            {rowSvcs.map((s: any) => (
+                                <Select.Option key={s.id} value={s.id}>{s.name}</Select.Option>
+                            ))}
+                        </Select>
+                    ) : (
+                        <Select
+                            placeholder="Selecione o produto"
+                            showSearch
+                            optionFilterProp="children"
+                            style={{ width: '100%' }}
+                            value={record.product_id || undefined}
+                            onChange={(v) => handleProductSelect(record.key, v)}
+                        >
+                            {rowProds.map((p: any) => (
+                                <Select.Option key={p.id} value={p.id}>{p.name}</Select.Option>
+                            ))}
+                        </Select>
+                    )}
+                </div>
+
+                {/* Linha 2: Quantidade e Preço unitário lado a lado */}
+                <div style={{ display: 'flex', gap: 10 }}>
+                    <div style={{ flex: 1 }}>
+                        <span style={labelStyle}>Quantidade</span>
+                        <InputNumber
+                            min={1}
+                            value={record.quantity}
+                            onChange={(v) => handleItemChange(record.key, 'quantity', v || 1)}
+                            style={{ width: '100%' }}
+                        />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                        <span style={labelStyle}>Preço unitário</span>
+                        <CurrencyInput
+                            min={0}
+                            value={record.unit_price}
+                            onChange={(v) => handleItemChange(record.key, 'unit_price', v)}
+                            style={{ width: '100%' }}
+                        />
+                    </div>
+                </div>
+
+                {/* Linha 3: Total (verde/bold) e Excluir produto (vermelho à direita) */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                        <span style={labelStyle}>Total</span>
+                        <strong style={{ color: '#12B76A', fontSize: 16 }}>
+                            {formatCurrency(getItemTotalWithCommission(record))}
+                        </strong>
+                    </div>
+                    <Button
+                        type="text"
+                        danger
+                        icon={<DeleteOutlined />}
+                        onClick={() => handleRemoveItem(record.key)}
+                        size="small"
+                    >
+                        Excluir produto
+                    </Button>
+                </div>
+            </div>
+        )
+    }
+
     return (
         <Layout title={PAGE_TITLES.BUDGETS} subtitle="Pipeline comercial — do orçamento à venda">
             {contextHolder}
@@ -2411,10 +2516,20 @@ function Budgets() {
                                         </div>
                                         {section.tableId && (
                                             <>
-                                                <Table columns={itemColumns} dataSource={sectionItems} rowKey="key" pagination={false} size="small"
-                                                    locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Nenhum item adicionado desta tabela" /> }}
-                                                    style={{ marginBottom: 8 }}
-                                                />
+                                                {isMobile ? (
+                                                    <div style={{ marginBottom: 8 }}>
+                                                        {sectionItems.length === 0 ? (
+                                                            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Nenhum item adicionado desta tabela" />
+                                                        ) : (
+                                                            sectionItems.map((item) => renderMobileItemCard(item))
+                                                        )}
+                                                    </div>
+                                                ) : (
+                                                    <Table columns={itemColumns} dataSource={sectionItems} rowKey="key" pagination={false} size="small"
+                                                        locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Nenhum item adicionado desta tabela" /> }}
+                                                        style={{ marginBottom: 8 }}
+                                                    />
+                                                )}
                                                 <Space style={{ marginTop: 4 }}>
                                                     {isProduct && (
                                                         <Button size="small" type="dashed" icon={<PlusOutlined />} onClick={() => handleAddProduct(section.tableId!)}>
@@ -2443,9 +2558,13 @@ function Budgets() {
 
                     {budgetItems.filter(i => i.isManual).length > 0 && (
                         <div style={{ marginBottom: 8 }}>
-                            <Table columns={itemColumns} dataSource={budgetItems.filter(i => i.isManual)} rowKey="key" pagination={false} size="small"
-                                locale={{ emptyText: null }}
-                            />
+                            {isMobile ? (
+                                budgetItems.filter(i => i.isManual).map((item) => renderMobileItemCard(item))
+                            ) : (
+                                <Table columns={itemColumns} dataSource={budgetItems.filter(i => i.isManual)} rowKey="key" pagination={false} size="small"
+                                    locale={{ emptyText: null }}
+                                />
+                            )}
                         </div>
                     )}
 
