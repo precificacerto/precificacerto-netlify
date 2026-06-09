@@ -1,10 +1,10 @@
-import { ChangeEvent, FC } from 'react'
+import { ChangeEvent, FC, ReactNode } from 'react'
 import { Button, Card, Form, FormInstance, Select, Table } from 'antd'
 import { IItemModel } from '@/server/model/item'
 import { IItemProductModel } from '@/server/model/item-product-item'
 import { ColumnsType } from 'antd/es/table'
 import { CalcBaseType } from '@/types/calc-base.type'
-import { ProductPrice } from './product-price.component'
+import { ProductPrice, AdvancedTaxParams } from './product-price.component'
 import { LoggedUser } from '@/types/logged-user.type'
 import { ProductPriceInfoType } from './content.component'
 
@@ -44,6 +44,8 @@ interface ContentResaleProps {
   ipiPct?: number
   onIpiPctChange?: (value: number) => void
   onFinalPriceWithTaxesChange?: (data: { finalPrice: number; basePrice: number }) => void
+  advancedTaxesSection?: ReactNode
+  advancedTaxParams?: AdvancedTaxParams
 }
 export const ContentResale: FC<ContentResaleProps> = ({
   itemsForm,
@@ -81,6 +83,8 @@ export const ContentResale: FC<ContentResaleProps> = ({
   ipiPct,
   onIpiPctChange,
   onFinalPriceWithTaxesChange,
+  advancedTaxesSection,
+  advancedTaxParams,
 }: ContentResaleProps) => {
   return (
     <>
@@ -152,6 +156,8 @@ export const ContentResale: FC<ContentResaleProps> = ({
         ipiPct={ipiPct}
         onIpiPctChange={onIpiPctChange}
         onFinalPriceWithTaxesChange={onFinalPriceWithTaxesChange}
+        advancedTaxesSection={advancedTaxesSection}
+        advancedTaxParams={advancedTaxParams}
       />
     </>
   )

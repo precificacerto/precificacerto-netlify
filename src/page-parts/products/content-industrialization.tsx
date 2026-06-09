@@ -1,11 +1,11 @@
-import { ChangeEvent, FC } from 'react'
+import { ChangeEvent, FC, ReactNode } from 'react'
 import { Button, Card, Form, FormInstance, Input, Select, Table } from 'antd'
 import { IItemModel } from '@/server/model/item'
 import { IItemProductModel } from '@/server/model/item-product-item'
 import { ColumnsType } from 'antd/es/table'
 import { getMonetaryValue } from '@/utils/get-monetary-value'
 import { CalcBaseType } from '@/types/calc-base.type'
-import { ProductPrice } from './product-price.component'
+import { ProductPrice, AdvancedTaxParams } from './product-price.component'
 import { LoggedUser } from '@/types/logged-user.type'
 import { ProductPriceInfoType } from './content.component'
 
@@ -45,6 +45,8 @@ interface ContentIndustrializationProps {
   ipiPct?: number
   onIpiPctChange?: (value: number) => void
   onFinalPriceWithTaxesChange?: (data: { finalPrice: number; basePrice: number }) => void
+  advancedTaxesSection?: ReactNode
+  advancedTaxParams?: AdvancedTaxParams
 }
 export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
   itemsForm,
@@ -82,6 +84,8 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
   ipiPct,
   onIpiPctChange,
   onFinalPriceWithTaxesChange,
+  advancedTaxesSection,
+  advancedTaxParams,
 }: ContentIndustrializationProps) => {
   return (
     <>
@@ -174,6 +178,8 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
         ipiPct={ipiPct}
         onIpiPctChange={onIpiPctChange}
         onFinalPriceWithTaxesChange={onFinalPriceWithTaxesChange}
+        advancedTaxesSection={advancedTaxesSection}
+        advancedTaxParams={advancedTaxParams}
       />
     </>
   )

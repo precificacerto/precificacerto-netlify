@@ -1,8 +1,9 @@
-import { ChangeEvent, FC, useEffect } from 'react'
+import { ChangeEvent, FC, ReactNode, useEffect } from 'react'
 import { Card, Divider, InputNumber, Tooltip } from 'antd'
 import { CalculatorOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { getMonetaryValue } from '@/utils/get-monetary-value'
 import { computeIvaDualOutside } from '@/utils/iva-dual-outside'
+import { computeIcmsSt, computeDifal } from '@/utils/icms-st-difal'
 import { CALC_TYPE_ENUM } from '@/shared/enums/calc-type'
 import { ProductPriceInfoType } from './content.component'
 import { CalcBaseType } from '@/types/calc-base.type'
@@ -11,6 +12,20 @@ import { FormInstance } from 'antd/lib/form/Form'
 
 function fmt(v: number) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 }).format(v)
+}
+
+/* EPIC-POR-FORA-V3: parâmetros ICMS-ST/DIFAL/FCP avançados (base 100) — usados só para somar
+   (exibição) ao preço final ao cliente. Reutilizado pelos subcomponentes de precificação. */
+export type AdvancedTaxParams = {
+  icmsStActive?: boolean
+  difalActive?: boolean
+  stDifalInterestadual?: boolean
+  difalBaseDupla?: boolean
+  mvaOriginalPct?: number
+  icmsAlqInternaDestinoPct?: number
+  icmsAlqInterestadualOrigemPct?: number
+  icmsInternaOrigemPct?: number
+  fcpAlqPct?: number
 }
 
 interface Props {
@@ -42,6 +57,10 @@ interface Props {
   ipiPct?: number
   onIpiPctChange?: (value: number) => void
   onFinalPriceWithTaxesChange?: (data: { finalPrice: number; basePrice: number }) => void
+  /* EPIC-POR-FORA-V3: seção "Alíquotas tributárias adicionais (avançado)" renderizada ACIMA do card de resultado. */
+  advancedTaxesSection?: ReactNode
+  /* EPIC-POR-FORA-V3: parâmetros ICMS-ST/DIFAL/FCP para somar (apenas EXIBIÇÃO) ao preço final ao cliente. */
+  advancedTaxParams?: AdvancedTaxParams
 }
 
 export const ProductPrice: FC<Props> = ({
@@ -73,6 +92,8 @@ export const ProductPrice: FC<Props> = ({
   ipiPct = 0,
   onIpiPctChange,
   onFinalPriceWithTaxesChange,
+  advancedTaxesSection,
+  advancedTaxParams,
 }: Props) => {
   const isCalcTypeResale = currentUser?.calcType === CALC_TYPE_ENUM.RESALE
   const isCalcTypeService = currentUser?.calcType === CALC_TYPE_ENUM.SERVICE
@@ -185,6 +206,35 @@ export const ProductPrice: FC<Props> = ({
   // Preço de Venda por Unidade = Operação Interna + Operação Externa (IS+IBS+CBS+IPI)
   const finalPriceWithTaxes = _iva.finalPrice
   const hasInlineTaxes = (isLucroReal || isLucroPresumed || isSimplesHibrido) && totalInlineTax > 0
+
+  // EPIC-POR-FORA-V3: ICMS-ST/DIFAL/FCP "por fora" — APENAS EXIBIÇÃO (preço final ao cliente).
+  // Não altera finalPriceWithTaxes/sale_price (motor/RRO seguem sobre a base). Mesma base e fórmula
+  // do save: opInterna = baseForSalePrice, despAcessorias = terceirizadasTotal, ipiValue = taxIpiValue.
+  const _advSt = advancedTaxParams?.icmsStActive
+    ? computeIcmsSt({
+        opInterna: baseForSalePrice,
+        despAcessorias: terceirizadasTotal,
+        ipiValue: taxIpiValue,
+        mvaOriginalPct: advancedTaxParams.mvaOriginalPct,
+        alqInternaDestinoPct: advancedTaxParams.icmsAlqInternaDestinoPct,
+        alqInterestadualOrigemPct: advancedTaxParams.icmsAlqInterestadualOrigemPct,
+        interestadual: advancedTaxParams.stDifalInterestadual,
+      }).icmsSt
+    : 0
+  const _advDifalR = advancedTaxParams?.difalActive
+    ? computeDifal({
+        opInterna: baseForSalePrice,
+        despAcessorias: terceirizadasTotal,
+        ipiValue: taxIpiValue,
+        alqInternaDestinoPct: advancedTaxParams.icmsAlqInternaDestinoPct,
+        alqInterestadualOrigemPct: advancedTaxParams.icmsAlqInterestadualOrigemPct,
+        fcpPct: advancedTaxParams.fcpAlqPct,
+        baseDupla: advancedTaxParams.difalBaseDupla,
+        icmsInternaOrigemPct: advancedTaxParams.icmsInternaOrigemPct,
+      })
+    : null
+  const advancedOutsideTotal = _advSt + (_advDifalR?.difal || 0) + (_advDifalR?.fcp || 0)
+  const finalPriceToCustomer = finalPriceWithTaxes + advancedOutsideTotal
 
   useEffect(() => {
     if (finalPriceWithTaxes > 0) onFinalPriceWithTaxesChange?.({ finalPrice: finalPriceWithTaxes, basePrice: finalSalePrice })
@@ -529,6 +579,9 @@ export const ProductPrice: FC<Props> = ({
           </div>
         )}
 
+        {/* EPIC-POR-FORA-V3: "Alíquotas tributárias adicionais (avançado)" renderizada ACIMA do card de resultado */}
+        {advancedTaxesSection}
+
         {/* Result box */}
         <div style={{
           padding: '16px 20px', borderRadius: 8, marginTop: 12,
@@ -556,6 +609,19 @@ export const ProductPrice: FC<Props> = ({
               <div style={{ fontSize: 28, fontWeight: 800, color: finalPriceWithTaxes > 0 ? '#027A48' : '#B42318' }}>
                 {fmt(finalPriceWithTaxes)}
               </div>
+              {/* EPIC-POR-FORA-V3: ICMS-ST/DIFAL/FCP somados ao preço final ao cliente (exibição) */}
+              {advancedOutsideTotal > 0 && (
+                <div style={{ marginTop: 4, paddingTop: 4, borderTop: '1px dashed #6CE9A6' }}>
+                  <div style={{ fontSize: 11, color: '#94a3b8' }}>
+                    + Tributos adicionais (ICMS-ST/DIFAL/FCP): {fmt(advancedOutsideTotal)}
+                  </div>
+                  <Tooltip title="Tributos 'por fora' (ICMS-ST/DIFAL/FCP) somados ao preço de venda. Não alteram o cálculo de lucro/desconto/comissão — são cobrados adicionalmente do cliente.">
+                    <div style={{ fontSize: 15, fontWeight: 800, color: '#027A48', cursor: 'help' }}>
+                      Preço final ao cliente: {fmt(finalPriceToCustomer)}
+                    </div>
+                  </Tooltip>
+                </div>
+              )}
               {(isLucroReal || isLucroPresumed || isSimplesHibrido) && (terceirizadasTotal > 0 || totalInlineTax > 0) && (
                 <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
                   Base: {fmt(baseForSalePrice)}{terceirizadasTotal > 0 ? ` + Terc.: ${fmt(terceirizadasTotal)}` : ''}{totalInlineTax > 0 ? ` + Imp.: ${fmt(totalInlineTax)}` : ''}

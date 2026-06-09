@@ -1160,6 +1160,38 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                         )
                     })()}
 
+                    {/* EPIC-POR-FORA-V3: "Alíquotas tributárias adicionais (avançado)" ACIMA do card de Preço de Venda / Lucro Líquido */}
+                    <details style={{ marginBottom: 16, padding: 16, background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0' }}>
+                        <summary style={{ cursor: 'pointer', fontWeight: 600, color: '#475569' }}>
+                            🧾 Alíquotas tributárias adicionais (avançado)
+                        </summary>
+                        <div style={{ fontSize: 12, color: '#64748b', marginTop: 8, marginBottom: 12 }}>
+                            Use se este serviço tem alíquota diferente do padrão do tenant. Deixe em 0 para usar o padrão.
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+                            <div>
+                                <label style={{ fontSize: 12, color: '#475569' }}>ISS (%)</label>
+                                <InputNumber value={issPctSvc} onChange={(v) => setIssPctSvc(Number(v) || 0)} min={0} max={100} step={0.01} style={{ width: '100%' }} />
+                            </div>
+                            <div>
+                                <label style={{ fontSize: 12, color: '#475569' }}>ISS Retido (%)</label>
+                                <InputNumber value={issRetidoPctSvc} onChange={(v) => setIssRetidoPctSvc(Number(v) || 0)} min={0} max={100} step={0.01} style={{ width: '100%' }} />
+                            </div>
+                            <div>
+                                <label style={{ fontSize: 12, color: '#475569' }} title="Use apenas se a atividade deste serviço exigir IRPJ presumido diferente do regime padrão.">
+                                    IRPJ (%) ℹ
+                                </label>
+                                <InputNumber value={irpjItemPctSvc} onChange={(v) => setIrpjItemPctSvc(Number(v) || 0)} min={0} max={100} step={0.01} style={{ width: '100%' }} />
+                            </div>
+                            <div>
+                                <label style={{ fontSize: 12, color: '#475569' }} title="Use apenas se a atividade deste serviço exigir CSLL presumido diferente do regime padrão.">
+                                    CSLL (%) ℹ
+                                </label>
+                                <InputNumber value={csllItemPctSvc} onChange={(v) => setCsllItemPctSvc(Number(v) || 0)} min={0} max={100} step={0.01} style={{ width: '100%' }} />
+                            </div>
+                        </div>
+                    </details>
+
                     <div style={{
                         padding: '16px 20px', borderRadius: 8, marginTop: 12,
                         background: pricing.isValid && pricing.sellingPrice > 0 ? '#ECFDF5' : '#FEF2F2',
@@ -1228,40 +1260,8 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                 </div>
             </div>
 
-            {/* ───── S15 EPIC-RR-V2: Alíquotas tributárias adicionais ───── */}
-            <details style={{ marginTop: 24, padding: 16, background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0' }}>
-                <summary style={{ cursor: 'pointer', fontWeight: 600, color: '#475569' }}>
-                    🧾 Alíquotas tributárias adicionais (avançado)
-                </summary>
-                <div style={{ fontSize: 12, color: '#64748b', marginTop: 8, marginBottom: 12 }}>
-                    Use se este serviço tem alíquota diferente do padrão do tenant. Deixe em 0 para usar o padrão.
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
-                    <div>
-                        <label style={{ fontSize: 12, color: '#475569' }}>ISS (%)</label>
-                        <InputNumber value={issPctSvc} onChange={(v) => setIssPctSvc(Number(v) || 0)} min={0} max={100} step={0.01} style={{ width: '100%' }} />
-                    </div>
-                    <div>
-                        <label style={{ fontSize: 12, color: '#475569' }}>ISS Retido (%)</label>
-                        <InputNumber value={issRetidoPctSvc} onChange={(v) => setIssRetidoPctSvc(Number(v) || 0)} min={0} max={100} step={0.01} style={{ width: '100%' }} />
-                    </div>
-                    {/* EPIC-POR-FORA-V3 / S1: ICMS-ST/DIFAL/FCP REMOVIDOS de Serviços (são tributos de
-                        mercadoria, não de serviço — fonte de dupla contagem). ISS/ISS Retido/IRPJ/CSLL
-                        permanecem (ISS é o imposto central do serviço). */}
-                    <div>
-                        <label style={{ fontSize: 12, color: '#475569' }} title="Use apenas se a atividade deste serviço exigir IRPJ presumido diferente do regime padrão (ex: serviços 32% vs revenda 8%).">
-                            IRPJ (%) ℹ
-                        </label>
-                        <InputNumber value={irpjItemPctSvc} onChange={(v) => setIrpjItemPctSvc(Number(v) || 0)} min={0} max={100} step={0.01} style={{ width: '100%' }} />
-                    </div>
-                    <div>
-                        <label style={{ fontSize: 12, color: '#475569' }} title="Use apenas se a atividade deste serviço exigir CSLL presumido diferente do regime padrão.">
-                            CSLL (%) ℹ
-                        </label>
-                        <InputNumber value={csllItemPctSvc} onChange={(v) => setCsllItemPctSvc(Number(v) || 0)} min={0} max={100} step={0.01} style={{ width: '100%' }} />
-                    </div>
-                </div>
-            </details>
+            {/* EPIC-POR-FORA-V3: "Alíquotas tributárias adicionais (avançado)" movida para ACIMA do
+                card de Preço de Venda / Lucro Líquido (ver inserção antes do card de resultado). */}
 
             <footer className="flex flex-row-reverse mt-5 mr-4" style={{ gap: 8 }}>
                 <Button type="primary" icon={<SaveOutlined />} onClick={handleSave} loading={saving}>

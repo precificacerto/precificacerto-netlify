@@ -1359,6 +1359,109 @@ export const Content: FC<ContentProps> = ({
   const filterOption = (input: string, option: { children: string }) =>
     (option?.children ?? '').toLowerCase().includes(input.toLowerCase())
 
+  // EPIC-POR-FORA-V3: parâmetros ICMS-ST/DIFAL/FCP repassados ao card de preço para SOMAR
+  // (apenas exibição) ao preço final ao cliente — sem alterar o cálculo de lucro/desconto/comissão.
+  const advancedTaxParams = {
+    icmsStActive,
+    difalActive,
+    stDifalInterestadual,
+    difalBaseDupla,
+    mvaOriginalPct,
+    icmsAlqInternaDestinoPct,
+    icmsAlqInterestadualOrigemPct,
+    icmsInternaOrigemPct,
+    fcpAlqPct,
+  }
+
+  // EPIC-POR-FORA-V3: seção "Alíquotas tributárias adicionais (avançado)" — renderizada ACIMA do
+  // card de Lucro Líquido / Preço de Venda (via prop advancedTaxesSection do ProductPrice).
+  const advancedTaxesSection = (
+    <details style={{ marginTop: 24, padding: 16, background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0' }}>
+      <summary style={{ cursor: 'pointer', fontWeight: 600, color: '#475569' }}>
+        🧾 Alíquotas tributárias adicionais (avançado)
+      </summary>
+      <div style={{ fontSize: 12, color: '#64748b', marginTop: 8, marginBottom: 12 }}>
+        ICMS-ST, DIFAL e ICMS Complementar com cálculo completo (base capturada automaticamente do preço montado). Quando preenchidos, somam ao preço de venda exibido abaixo. Deixe os acionadores desligados para usar o padrão do tenant.
+      </div>
+      <div style={{ marginTop: 4, paddingTop: 4 }}>
+        <div style={{ fontWeight: 600, color: '#475569', marginBottom: 4 }}>ICMS-ST e DIFAL (cálculo completo)</div>
+        <div style={{ fontSize: 12, color: '#64748b', marginBottom: 12 }}>
+          ICMS-ST e DIFAL nunca coexistem na mesma operação. Bases incluem frete + seguro. Valores recalculados sobre a âncora no desconto.
+        </div>
+        <div style={{ display: 'flex', gap: 24, marginBottom: 12, flexWrap: 'wrap' }}>
+          <label style={{ fontSize: 13, color: '#334155', display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+            <input type="checkbox" checked={icmsStActive} onChange={(e) => { setIcmsStActive(e.target.checked); if (e.target.checked) setDifalActive(false) }} />
+            Ativar ICMS-ST
+          </label>
+          <label style={{ fontSize: 13, color: '#334155', display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+            <input type="checkbox" checked={difalActive} onChange={(e) => { setDifalActive(e.target.checked); if (e.target.checked) setIcmsStActive(false) }} />
+            Ativar DIFAL
+          </label>
+          <label style={{ fontSize: 13, color: '#334155', display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+            <input type="checkbox" checked={stDifalInterestadual} onChange={(e) => setStDifalInterestadual(e.target.checked)} />
+            Operação interestadual
+          </label>
+        </div>
+        {(icmsStActive || difalActive) && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+            <div>
+              <label style={{ fontSize: 12, color: '#475569' }}>ALQ interna destino (%)</label>
+              <InputNumber value={icmsAlqInternaDestinoPct} onChange={(v) => setIcmsAlqInternaDestinoPct(Number(v) || 0)} min={0} max={100} step={0.01} style={{ width: '100%' }} />
+            </div>
+            <div>
+              <label style={{ fontSize: 12, color: '#475569' }}>ALQ interestadual origem (%)</label>
+              <InputNumber value={icmsAlqInterestadualOrigemPct} onChange={(v) => setIcmsAlqInterestadualOrigemPct(Number(v) || 0)} min={0} max={100} step={0.01} style={{ width: '100%' }} />
+            </div>
+            {icmsStActive && (
+              <div>
+                <label style={{ fontSize: 12, color: '#475569' }}>MVA original (%)</label>
+                <InputNumber value={mvaOriginalPct} onChange={(v) => setMvaOriginalPct(Number(v) || 0)} min={0} max={300} step={0.01} style={{ width: '100%' }} />
+              </div>
+            )}
+            {icmsStActive && (
+              <div>
+                <label style={{ fontSize: 12, color: '#475569' }}>MVA ajustada (%)</label>
+                <InputNumber
+                  value={Number((mvaAjustada(mvaOriginalPct, icmsAlqInterestadualOrigemPct, icmsAlqInternaDestinoPct) * 100).toFixed(4))}
+                  disabled
+                  style={{ width: '100%', opacity: stDifalInterestadual ? 1 : 0.5 }}
+                />
+                <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 2 }}>
+                  {stDifalInterestadual
+                    ? 'Calculada automaticamente (operação interestadual).'
+                    : 'Não se aplica em operação interna (usa a MVA original).'}
+                </div>
+              </div>
+            )}
+            {difalActive && (
+              <>
+                <div>
+                  <label style={{ fontSize: 12, color: '#475569' }}>FCP/FECP (%)</label>
+                  <InputNumber value={fcpAlqPct} onChange={(v) => setFcpAlqPct(Number(v) || 0)} min={0} max={10} step={0.01} style={{ width: '100%' }} />
+                </div>
+                <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+                  <label style={{ fontSize: 13, color: '#334155', display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={difalBaseDupla} onChange={(e) => setDifalBaseDupla(e.target.checked)} />
+                    Base dupla (LC 190/2022)
+                  </label>
+                </div>
+                {difalBaseDupla && (
+                  <div>
+                    <label style={{ fontSize: 12, color: '#475569' }}>ICMS interno origem (%)</label>
+                    <InputNumber value={icmsInternaOrigemPct} onChange={(v) => setIcmsInternaOrigemPct(Number(v) || 0)} min={0} max={100} step={0.01} style={{ width: '100%' }} />
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 10 }}>
+          ℹ️ ICMS Complementar (LC 87/96) = (IPI + frete + seguro) × ICMS é aplicado automaticamente no orçamento quando o destinatário for consumidor final NÃO contribuinte do ICMS.
+        </div>
+      </div>
+    </details>
+  )
+
   return (
     <>
       <header className="flex justify-between mb-4">
@@ -1924,6 +2027,8 @@ export const Content: FC<ContentProps> = ({
           ipiPct={ipiPct}
           onIpiPctChange={setIpiPct}
           onFinalPriceWithTaxesChange={(d) => { finalPriceWithTaxesRef.current = d.finalPrice; salePriceBaseRef.current = d.basePrice }}
+          advancedTaxesSection={advancedTaxesSection}
+          advancedTaxParams={advancedTaxParams}
         />
       )}
       {productType === 'REVENDA' && isCalcTypeService && (
@@ -1964,6 +2069,8 @@ export const Content: FC<ContentProps> = ({
           ipiPct={ipiPct}
           onIpiPctChange={setIpiPct}
           onFinalPriceWithTaxesChange={(d) => { finalPriceWithTaxesRef.current = d.finalPrice; salePriceBaseRef.current = d.basePrice }}
+          advancedTaxesSection={advancedTaxesSection}
+          advancedTaxParams={advancedTaxParams}
         />
       )}
       {productType === 'REVENDA' && !isCalcTypeService && (
@@ -2003,105 +2110,14 @@ export const Content: FC<ContentProps> = ({
           ipiPct={ipiPct}
           onIpiPctChange={setIpiPct}
           onFinalPriceWithTaxesChange={(d) => { finalPriceWithTaxesRef.current = d.finalPrice; salePriceBaseRef.current = d.basePrice }}
+          advancedTaxesSection={advancedTaxesSection}
+          advancedTaxParams={advancedTaxParams}
         />
       )}
-      {/* ───── S15 EPIC-RR-V2: Alíquotas tributárias adicionais ───── */}
-      {/* Bloco opcional. Deixe em 0 para usar alíquota padrão do tenant.
-          Não conflita com os campos legados (ICMS/PIS-COFINS/IBS/CBS/IS/IPI). */}
-      <details style={{ marginTop: 24, padding: 16, background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0' }}>
-        <summary style={{ cursor: 'pointer', fontWeight: 600, color: '#475569' }}>
-          🧾 Alíquotas tributárias adicionais (avançado)
-        </summary>
-        <div style={{ fontSize: 12, color: '#64748b', marginTop: 8, marginBottom: 12 }}>
-          ICMS-ST, DIFAL e ICMS Complementar com cálculo completo (base capturada automaticamente do preço montado). Deixe os acionadores desligados para usar o padrão do tenant.
-        </div>
-
-        {/* ───── EPIC-POR-FORA-V2: ICMS-ST / DIFAL / ICMS Complementar (cálculo completo) ───── */}
-        {/* EPIC-POR-FORA-V3 / S1: seção superior dos 7 campos % simples (ISS/ISS Retido/ICMS-ST%/
-            DIFAL%/FCP%/IRPJ/CSLL) REMOVIDA — ICMS-ST/DIFAL/FCP agora têm cálculo completo (abaixo)
-            e ISS/IRPJ/CSLL usam o padrão do tenant (decisão D1, 09/06). */}
-        <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px dashed #cbd5e1' }}>
-          <div style={{ fontWeight: 600, color: '#475569', marginBottom: 4 }}>ICMS-ST e DIFAL (cálculo completo)</div>
-          <div style={{ fontSize: 12, color: '#64748b', marginBottom: 12 }}>
-            ICMS-ST e DIFAL nunca coexistem na mesma operação. Bases incluem frete + seguro. Valores recalculados sobre a âncora no desconto.
-          </div>
-
-          {/* Acionadores mutuamente exclusivos */}
-          <div style={{ display: 'flex', gap: 24, marginBottom: 12, flexWrap: 'wrap' }}>
-            <label style={{ fontSize: 13, color: '#334155', display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-              <input type="checkbox" checked={icmsStActive} onChange={(e) => { setIcmsStActive(e.target.checked); if (e.target.checked) setDifalActive(false) }} />
-              Ativar ICMS-ST
-            </label>
-            <label style={{ fontSize: 13, color: '#334155', display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-              <input type="checkbox" checked={difalActive} onChange={(e) => { setDifalActive(e.target.checked); if (e.target.checked) setIcmsStActive(false) }} />
-              Ativar DIFAL
-            </label>
-            <label style={{ fontSize: 13, color: '#334155', display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-              <input type="checkbox" checked={stDifalInterestadual} onChange={(e) => setStDifalInterestadual(e.target.checked)} />
-              Operação interestadual
-            </label>
-          </div>
-
-          {(icmsStActive || difalActive) && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
-              <div>
-                <label style={{ fontSize: 12, color: '#475569' }}>ALQ interna destino (%)</label>
-                <InputNumber value={icmsAlqInternaDestinoPct} onChange={(v) => setIcmsAlqInternaDestinoPct(Number(v) || 0)} min={0} max={100} step={0.01} style={{ width: '100%' }} />
-              </div>
-              <div>
-                <label style={{ fontSize: 12, color: '#475569' }}>ALQ interestadual origem (%)</label>
-                <InputNumber value={icmsAlqInterestadualOrigemPct} onChange={(v) => setIcmsAlqInterestadualOrigemPct(Number(v) || 0)} min={0} max={100} step={0.01} style={{ width: '100%' }} />
-              </div>
-              {icmsStActive && (
-                <div>
-                  <label style={{ fontSize: 12, color: '#475569' }}>MVA original (%)</label>
-                  <InputNumber value={mvaOriginalPct} onChange={(v) => setMvaOriginalPct(Number(v) || 0)} min={0} max={300} step={0.01} style={{ width: '100%' }} />
-                </div>
-              )}
-              {/* EPIC-POR-FORA-V3 / S4: MVA ajustada — readonly. Esmaecida no modo interna (não aplica,
-                  usa MVA original); calculada automaticamente no modo interestadual via mvaAjustada(). */}
-              {icmsStActive && (
-                <div>
-                  <label style={{ fontSize: 12, color: '#475569' }}>MVA ajustada (%)</label>
-                  <InputNumber
-                    value={Number((mvaAjustada(mvaOriginalPct, icmsAlqInterestadualOrigemPct, icmsAlqInternaDestinoPct) * 100).toFixed(4))}
-                    disabled
-                    style={{ width: '100%', opacity: stDifalInterestadual ? 1 : 0.5 }}
-                  />
-                  <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 2 }}>
-                    {stDifalInterestadual
-                      ? 'Calculada automaticamente (operação interestadual).'
-                      : 'Não se aplica em operação interna (usa a MVA original).'}
-                  </div>
-                </div>
-              )}
-              {difalActive && (
-                <>
-                  <div>
-                    <label style={{ fontSize: 12, color: '#475569' }}>FCP/FECP (%)</label>
-                    <InputNumber value={fcpAlqPct} onChange={(v) => setFcpAlqPct(Number(v) || 0)} min={0} max={10} step={0.01} style={{ width: '100%' }} />
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'flex-end' }}>
-                    <label style={{ fontSize: 13, color: '#334155', display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-                      <input type="checkbox" checked={difalBaseDupla} onChange={(e) => setDifalBaseDupla(e.target.checked)} />
-                      Base dupla (LC 190/2022)
-                    </label>
-                  </div>
-                  {difalBaseDupla && (
-                    <div>
-                      <label style={{ fontSize: 12, color: '#475569' }}>ICMS interno origem (%)</label>
-                      <InputNumber value={icmsInternaOrigemPct} onChange={(v) => setIcmsInternaOrigemPct(Number(v) || 0)} min={0} max={100} step={0.01} style={{ width: '100%' }} />
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-          )}
-          <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 10 }}>
-            ℹ️ ICMS Complementar (LC 87/96) = (IPI + frete + seguro) × ICMS é aplicado automaticamente no orçamento quando o destinatário for consumidor final NÃO contribuinte do ICMS.
-          </div>
-        </div>
-      </details>
+      {/* EPIC-POR-FORA-V3: a seção "Alíquotas tributárias adicionais (avançado)" foi movida para a
+          const `advancedTaxesSection` e agora é renderizada ACIMA do card de Lucro Líquido /
+          Preço de Venda (via prop advancedTaxesSection do ProductPrice), somando ICMS-ST/DIFAL/FCP
+          ao preço final exibido. */}
 
       <footer className="flex flex-row-reverse mt-5 mr-4">
         <Button onClick={handleSaveProduct} type="primary" className="ml-2">
