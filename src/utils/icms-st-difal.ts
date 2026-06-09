@@ -187,6 +187,79 @@ export function computeIcmsComplementar(ipiValue: number, despAcessorias: number
   return base * pct(icmsPct)
 }
 
+// ───────── Fonte única: tributos avançados "por fora" a partir da base (EPIC-POR-FORA-V3) ─────────
+
+/** Parâmetros (base 100) dos acionadores ICMS-ST/DIFAL avançados — espelham as colunas do produto. */
+export interface AdvancedOutsideParams {
+  icmsStActive?: boolean
+  difalActive?: boolean
+  stDifalInterestadual?: boolean
+  difalBaseDupla?: boolean
+  mvaOriginalPct?: number
+  icmsAlqInternaDestinoPct?: number
+  icmsAlqInterestadualOrigemPct?: number
+  icmsInternaOrigemPct?: number
+  fcpAlqPct?: number
+}
+
+export interface AdvancedOutsideResult {
+  /** Decomposição completa do ICMS-ST (null quando inativo). */
+  st: IcmsStResult | null
+  /** Decomposição completa do DIFAL + FCP (null quando inativo). */
+  difal: DifalResult | null
+  /** Total "por fora" a somar ao preço final = ICMS-ST + DIFAL + FCP. */
+  total: number
+}
+
+/**
+ * FONTE ÚNICA dos tributos avançados "por fora" (ICMS-ST + DIFAL + FCP) a partir da base.
+ * Usado pelo cadastro (exibição do preço final / painéis de auditoria) E pelo save, garantindo
+ * que exibição e persistência produzam EXATAMENTE os mesmos valores (invariante cadastro↔save).
+ *
+ * - `opInterna` = operação por dentro (preço NF-e, sem Desp. Acessórias).
+ * - `despAcessorias` = frete + seguro + despesas acessórias.
+ * - `ipiValue` = IPI apurado (R$).
+ * - `discount` (decimal) = aplicado apenas no orçamento (frete fixo D3); no cadastro é 0/omitido.
+ *
+ * ICMS-ST e DIFAL nunca coexistem (acionadores exclusivos), mas o helper não impõe isso —
+ * apenas computa o que estiver ativo.
+ */
+export function computeAdvancedOutsideTaxes(
+  opInterna: number,
+  despAcessorias: number,
+  ipiValue: number,
+  p: AdvancedOutsideParams | null | undefined,
+  discount?: number,
+): AdvancedOutsideResult {
+  const st = p?.icmsStActive
+    ? computeIcmsSt({
+        opInterna,
+        despAcessorias,
+        ipiValue,
+        mvaOriginalPct: p.mvaOriginalPct,
+        alqInternaDestinoPct: p.icmsAlqInternaDestinoPct,
+        alqInterestadualOrigemPct: p.icmsAlqInterestadualOrigemPct,
+        interestadual: p.stDifalInterestadual,
+        discount,
+      })
+    : null
+  const difal = p?.difalActive
+    ? computeDifal({
+        opInterna,
+        despAcessorias,
+        ipiValue,
+        alqInternaDestinoPct: p.icmsAlqInternaDestinoPct,
+        alqInterestadualOrigemPct: p.icmsAlqInterestadualOrigemPct,
+        fcpPct: p.fcpAlqPct,
+        baseDupla: p.difalBaseDupla,
+        icmsInternaOrigemPct: p.icmsInternaOrigemPct,
+        discount,
+      })
+    : null
+  const total = (st?.icmsSt || 0) + (difal?.difal || 0) + (difal?.fcp || 0)
+  return { st, difal, total }
+}
+
 /**
  * Total a cobrar do cliente (EPIC-POR-FORA-V2 R1 — doc v4 Tab. 30/36): o "VALOR DO ORÇAMENTO"
  * soma os tributos por fora destacados (ICMS-ST + DIFAL + FCP + ICMS Complementar) ao total da

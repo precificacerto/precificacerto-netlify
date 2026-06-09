@@ -5,7 +5,7 @@
  * OpD 143.669,80 · frete 1.000 · MVA 40% · ALQ destino 17% · ALQ origem 12%).
  */
 
-import { computeIcmsSt, computeDifal, computeIcmsComplementar, mvaAjustada, consolidateStDifalFromItems, computeTotalACobrar } from '../icms-st-difal'
+import { computeIcmsSt, computeDifal, computeIcmsComplementar, mvaAjustada, consolidateStDifalFromItems, computeTotalACobrar, computeAdvancedOutsideTaxes } from '../icms-st-difal'
 
 const round = (v: number) => Math.round(v * 100) / 100
 const round4 = (v: number) => Math.round(v * 10000) / 10000
@@ -145,5 +145,61 @@ describe('computeTotalACobrar — R1 (doc v4 Tab. 30/36)', () => {
   it('campos ausentes contam como zero; registro nulo → 0', () => {
     expect(computeTotalACobrar({ total_value: 50000 })).toBe(50000)
     expect(computeTotalACobrar(null)).toBe(0)
+  })
+})
+
+describe('computeAdvancedOutsideTaxes — fonte única (EPIC-POR-FORA-V3): exibição == save', () => {
+  it('ICMS-ST interna (base 100.000, MVA 40%, ALQ 17%) → total R$ 6.800,00', () => {
+    const r = computeAdvancedOutsideTaxes(100000, 0, 0, {
+      icmsStActive: true, mvaOriginalPct: 40, icmsAlqInternaDestinoPct: 17,
+    })
+    expect(round(r.total)).toBe(6800)
+    expect(round(r.st!.icmsSt)).toBe(6800)
+    expect(r.difal).toBeNull()
+  })
+
+  it('ICMS-ST interestadual (inter 12% / interna 17%, MVA 40%) → MVA ajustada 48,4337% e ICMS-ST R$ 13.233,73', () => {
+    const r = computeAdvancedOutsideTaxes(100000, 0, 0, {
+      icmsStActive: true, stDifalInterestadual: true,
+      mvaOriginalPct: 40, icmsAlqInternaDestinoPct: 17, icmsAlqInterestadualOrigemPct: 12,
+    })
+    expect(round4(r.st!.mvaAjustada)).toBe(0.4843)
+    expect(round(r.st!.basePresumida)).toBe(148433.73)
+    expect(round(r.st!.icmsPresumido)).toBe(25233.73)
+    expect(round(r.st!.icmsProprio)).toBe(12000)
+    expect(round(r.st!.icmsSt)).toBe(13233.73)
+    expect(round(r.total)).toBe(13233.73)
+  })
+
+  it('DIFAL (destino 17% − origem 12% sobre 100.000) → R$ 5.000,00', () => {
+    const r = computeAdvancedOutsideTaxes(100000, 0, 0, {
+      difalActive: true, icmsAlqInternaDestinoPct: 17, icmsAlqInterestadualOrigemPct: 12,
+    })
+    expect(round(r.difal!.difal)).toBe(5000)
+    expect(round(r.total)).toBe(5000)
+    expect(r.st).toBeNull()
+  })
+
+  it('INVARIANTE exibição↔save: helper == chamada direta de computeIcmsSt/computeDifal com os mesmos inputs', () => {
+    const params = {
+      icmsStActive: true, stDifalInterestadual: true,
+      mvaOriginalPct: 40, icmsAlqInternaDestinoPct: 17, icmsAlqInterestadualOrigemPct: 12,
+    }
+    const viaHelper = computeAdvancedOutsideTaxes(120000, 2000, 500, params)
+    const direct = computeIcmsSt({
+      opInterna: 120000, despAcessorias: 2000, ipiValue: 500,
+      mvaOriginalPct: 40, alqInternaDestinoPct: 17, alqInterestadualOrigemPct: 12, interestadual: true,
+    })
+    expect(viaHelper.st!.icmsSt).toBe(direct.icmsSt)
+    expect(viaHelper.st!.basePresumida).toBe(direct.basePresumida)
+    expect(viaHelper.total).toBe(direct.icmsSt)
+  })
+
+  it('sem acionadores → total 0 e decomposições nulas; params nulo idem', () => {
+    expect(computeAdvancedOutsideTaxes(100000, 0, 0, { icmsStActive: false, difalActive: false }).total).toBe(0)
+    const r = computeAdvancedOutsideTaxes(100000, 0, 0, null)
+    expect(r.total).toBe(0)
+    expect(r.st).toBeNull()
+    expect(r.difal).toBeNull()
   })
 })

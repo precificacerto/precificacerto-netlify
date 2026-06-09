@@ -1,5 +1,5 @@
-import { ChangeEvent, FC, useCallback, useEffect, useRef, useState } from 'react'
-import { AutoComplete, Button, Card, Form, Input, InputNumber, Popconfirm, Select, Space, Alert, Radio, Divider, Tooltip, Spin, Switch, Modal, Tag } from 'antd'
+import { ChangeEvent, FC, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { AutoComplete, Button, Card, Form, Input, InputNumber, Popconfirm, Select, Space, Alert, Radio, Divider, Tooltip, Spin, Switch, Modal, Tag, Segmented } from 'antd'
 import { InfoCircleOutlined, PlusOutlined, SearchOutlined, SyncOutlined } from '@ant-design/icons'
 import { PAGE_TITLES } from '@/constants/page-titles'
 import { IItemModel } from '@/server/model/item'
@@ -1361,7 +1361,7 @@ export const Content: FC<ContentProps> = ({
 
   // EPIC-POR-FORA-V3: parâmetros ICMS-ST/DIFAL/FCP repassados ao card de preço para SOMAR
   // (apenas exibição) ao preço final ao cliente — sem alterar o cálculo de lucro/desconto/comissão.
-  const advancedTaxParams = {
+  const advancedTaxParams = useMemo(() => ({
     icmsStActive,
     difalActive,
     stDifalInterestadual,
@@ -1371,7 +1371,7 @@ export const Content: FC<ContentProps> = ({
     icmsAlqInterestadualOrigemPct,
     icmsInternaOrigemPct,
     fcpAlqPct,
-  }
+  }), [icmsStActive, difalActive, stDifalInterestadual, difalBaseDupla, mvaOriginalPct, icmsAlqInternaDestinoPct, icmsAlqInterestadualOrigemPct, icmsInternaOrigemPct, fcpAlqPct])
 
   // EPIC-POR-FORA-V3: seção "Alíquotas tributárias adicionais (avançado)" — renderizada ACIMA do
   // card de Lucro Líquido / Preço de Venda (via prop advancedTaxesSection do ProductPrice).
@@ -1397,21 +1397,32 @@ export const Content: FC<ContentProps> = ({
             <input type="checkbox" checked={difalActive} onChange={(e) => { setDifalActive(e.target.checked); if (e.target.checked) setIcmsStActive(false) }} />
             Ativar DIFAL
           </label>
-          <label style={{ fontSize: 13, color: '#334155', display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-            <input type="checkbox" checked={stDifalInterestadual} onChange={(e) => setStDifalInterestadual(e.target.checked)} />
-            Operação interestadual
-          </label>
         </div>
+        {/* EPIC-POR-FORA-V3: seletor "Tipo de operação" (substitui o checkbox). Só p/ ICMS-ST —
+            DIFAL é sempre interestadual e usa alíquotas destino/origem diretamente. */}
+        {icmsStActive && (
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' as const, letterSpacing: 0.5, marginBottom: 6 }}>Tipo de operação</div>
+            <Segmented
+              value={stDifalInterestadual ? 'Interestadual' : 'Interna'}
+              onChange={(v) => setStDifalInterestadual(v === 'Interestadual')}
+              options={['Interna', 'Interestadual']}
+            />
+          </div>
+        )}
         {(icmsStActive || difalActive) && (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
             <div>
               <label style={{ fontSize: 12, color: '#475569' }}>ALQ interna destino (%)</label>
               <InputNumber value={icmsAlqInternaDestinoPct} onChange={(v) => setIcmsAlqInternaDestinoPct(Number(v) || 0)} min={0} max={100} step={0.01} style={{ width: '100%' }} />
             </div>
-            <div>
-              <label style={{ fontSize: 12, color: '#475569' }}>ALQ interestadual origem (%)</label>
-              <InputNumber value={icmsAlqInterestadualOrigemPct} onChange={(v) => setIcmsAlqInterestadualOrigemPct(Number(v) || 0)} min={0} max={100} step={0.01} style={{ width: '100%' }} />
-            </div>
+            {/* EPIC-POR-FORA-V3: ALQ interestadual origem só no modo interestadual (ICMS-ST) ou no DIFAL */}
+            {(stDifalInterestadual || difalActive) && (
+              <div>
+                <label style={{ fontSize: 12, color: '#475569' }}>ALQ interestadual origem (%)</label>
+                <InputNumber value={icmsAlqInterestadualOrigemPct} onChange={(v) => setIcmsAlqInterestadualOrigemPct(Number(v) || 0)} min={0} max={100} step={0.01} style={{ width: '100%' }} />
+              </div>
+            )}
             {icmsStActive && (
               <div>
                 <label style={{ fontSize: 12, color: '#475569' }}>MVA original (%)</label>
