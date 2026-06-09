@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import {
-    Button, Drawer, Form, Input, InputNumber, Select, Space, Table, Tag,
+    Button, Drawer, Dropdown, Form, Input, InputNumber, Select, Space, Table, Tag,
     message, Popconfirm, Empty, Tooltip, Modal,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
@@ -11,8 +11,9 @@ import { supabase } from '@/supabase/client'
 import { getTenantId, getCurrentUserId } from '@/utils/get-tenant-id'
 import type { Service } from '@/supabase/types'
 import {
-    PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined, MinusCircleOutlined, ReloadOutlined,
+    PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined, MinusCircleOutlined, ReloadOutlined, MoreOutlined,
 } from '@ant-design/icons'
+import { useDevice } from '@/contexts/device.context'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import { useAuth } from '@/hooks/use-auth.hook'
 import { calculateItemPrice } from '@/utils/calculate-item-price'
@@ -27,6 +28,7 @@ function fmt(v: number) {
 function ServicesPage() {
     const { canView, canEdit } = usePermissions()
     const { currentUser } = useAuth()
+    const { isMobile } = useDevice()
     const router = useRouter()
 
     if (!canView(MODULES.SERVICES)) return (
@@ -735,11 +737,51 @@ function ServicesPage() {
                 </Form>
             </Drawer>
 
-            <div className="pc-card" style={{ padding: 0 }}>
-                <Table columns={columns} dataSource={filtered} rowKey="id" loading={loading}
-                    pagination={{ pageSize: 15 }} locale={{ emptyText: <Empty description={tableFilter ? "Nenhum serviço cadastrado nesta tabela" : "Selecione uma tabela para ver os serviços"} /> }}
-                    size="middle" />
-            </div>
+            {isMobile ? (
+                <div className="servicos-mobile-list">
+                    {loading ? (
+                        <div style={{ textAlign: 'center', padding: 40 }}><Empty description="Carregando..." image={Empty.PRESENTED_IMAGE_SIMPLE} /></div>
+                    ) : filtered.length === 0 ? (
+                        <Empty description={tableFilter ? 'Nenhum serviço cadastrado nesta tabela' : 'Selecione uma tabela para ver os serviços'} />
+                    ) : (
+                        filtered.map((r: any) => {
+                            const openDetail = () => router.push(`/servicos/${r.id}`)
+                            const tableName = commissionTables.find(t => t.id === r.commission_table_id)?.name
+                            const subParts: string[] = []
+                            if (tableName) subParts.push(tableName)
+                            if (r.profit_percent != null) subParts.push(`${Number(r.profit_percent).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}% lucro`)
+                            const menuItems = [
+                                ...(r.needs_cost_update
+                                    ? [{ key: 'update', label: 'Atualizar serviço', onClick: () => handleUpdateService(r.id) }]
+                                    : []),
+                                { key: 'edit', label: 'Editar', onClick: openDetail },
+                                { key: 'del-qty', label: 'Excluir quantidade do estoque', onClick: () => handleOpenDeleteQty(r) },
+                                { key: 'del', label: 'Excluir serviço', danger: true, onClick: () => setConfirmDeleteSvcId(r.id) },
+                            ]
+                            return (
+                                <div key={r.id} className="pc-row-compact" onClick={openDetail}>
+                                    <div className="pc-row-compact__main">
+                                        <span className="pc-row-compact__title">{r.name}</span>
+                                        <span className="pc-row-compact__sub">{subParts.length ? subParts.join(' · ') : 'Sem tabela'}</span>
+                                    </div>
+                                    <span className="pc-row-compact__value pc-row-compact__value--in">{fmt(Number(r.base_price) || 0)}</span>
+                                    {canEdit(MODULES.SERVICES) && (
+                                        <Dropdown menu={{ items: menuItems }} trigger={['click']} placement="bottomRight">
+                                            <span className="pc-row-compact__kebab" onClick={(e) => e.stopPropagation()}><MoreOutlined /></span>
+                                        </Dropdown>
+                                    )}
+                                </div>
+                            )
+                        })
+                    )}
+                </div>
+            ) : (
+                <div className="pc-card" style={{ padding: 0 }}>
+                    <Table columns={columns} dataSource={filtered} rowKey="id" loading={loading}
+                        pagination={{ pageSize: 15 }} locale={{ emptyText: <Empty description={tableFilter ? "Nenhum serviço cadastrado nesta tabela" : "Selecione uma tabela para ver os serviços"} /> }}
+                        size="middle" />
+                </div>
+            )}
 
             <Drawer
                 title="Excluir quantidade do estoque"

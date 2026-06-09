@@ -1,15 +1,16 @@
 import { useState, useMemo, useEffect } from 'react'
 import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
-import { Button, Empty, Form, Input, InputNumber, message, Modal, Radio, Select, Space, Table, Tag, Tooltip, Drawer, Spin } from 'antd'
+import { Button, Dropdown, Empty, Form, Input, InputNumber, message, Modal, Radio, Select, Space, Table, Tag, Tooltip, Drawer, Spin } from 'antd'
 import type { FormInstance } from 'antd'
 import { ColumnsType } from 'antd/es/table'
 import { useRouter } from 'next/router'
 import { ROUTES } from '@/constants/routes'
 import {
   PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined,
-  ExclamationCircleOutlined, MinusCircleOutlined, AppstoreAddOutlined, ReloadOutlined,
+  ExclamationCircleOutlined, MinusCircleOutlined, AppstoreAddOutlined, ReloadOutlined, MoreOutlined,
 } from '@ant-design/icons'
+import { useDevice } from '@/contexts/device.context'
 import { supabase } from '@/supabase/client'
 import { useProducts, useStock } from '@/hooks/use-data.hooks'
 import { useAuth } from '@/hooks/use-auth.hook'
@@ -68,6 +69,7 @@ function Products() {
   const { data: rawStock, mutate: reloadStock } = useStock()
   const { tenantId: contextTenantId, currentUser } = useAuth()
   const { canView, canEdit } = usePermissions()
+  const { isMobile } = useDevice()
   const [searchText, setSearchText] = useState('')
   const router = useRouter()
   const [renewDrawerOpen, setRenewDrawerOpen] = useState(false)
@@ -1355,17 +1357,66 @@ function Products() {
         )}
       </Drawer>
 
-      <div className="pc-card" style={{ padding: 0 }}>
-        <Table
-          columns={columns}
-          dataSource={filteredData}
-          rowKey="id"
-          loading={isLoading}
-          pagination={{ pageSize: 15 }}
-          locale={{ emptyText: <Empty description={tableFilter ? "Nenhum produto cadastrado nesta tabela" : "Selecione uma tabela para ver os produtos"} /> }}
-          size="middle"
-        />
-      </div>
+      {isMobile ? (
+        <div className="produtos-mobile-list">
+          {isLoading ? (
+            <div style={{ textAlign: 'center', padding: 40 }}><Spin /></div>
+          ) : filteredData.length === 0 ? (
+            <Empty description={tableFilter ? 'Nenhum produto cadastrado nesta tabela' : 'Selecione uma tabela para ver os produtos'} />
+          ) : (
+            filteredData.map((r) => {
+              const openDetail = () => {
+                if (r.status === 'PENDING') {
+                  router.push(`${ROUTES.PRODUCTS}/criar?pending_item=${r.pending_item_id || r.id}`)
+                } else {
+                  router.push(`${ROUTES.PRODUCTS}/${r.id}`)
+                }
+              }
+              const menuItems = [
+                ...(r.needs_cost_update
+                  ? [{ key: 'update', label: 'Atualizar produto', onClick: () => handleUpdateProduct(r.id) }]
+                  : []),
+                {
+                  key: 'edit',
+                  label: r.status === 'PENDING' ? 'Completar cadastro' : 'Editar',
+                  onClick: openDetail,
+                },
+                { key: 'del-qty', label: 'Excluir quantidade do estoque', onClick: () => handleOpenDeleteQty(r) },
+                { key: 'del', label: 'Excluir produto', danger: true, onClick: () => setConfirmDeleteId(r.id) },
+              ]
+              return (
+                <div key={r.id} className="pc-row-compact" onClick={openDetail}>
+                  <div className="pc-row-compact__main">
+                    <span className="pc-row-compact__title">{r.name}</span>
+                    <span className="pc-row-compact__sub">
+                      {r.code ? `Cód. ${r.code}` : 'Sem código'}
+                      {r.stock_quantity != null ? ` · ${r.stock_quantity} ${UNIT_LABELS[r.stock_unit] || r.stock_unit}` : ''}
+                    </span>
+                  </div>
+                  <span className="pc-row-compact__value pc-row-compact__value--in">{fmt(r.sale_price)}</span>
+                  {canEdit(MODULES.PRODUCTS) && (
+                    <Dropdown menu={{ items: menuItems }} trigger={['click']} placement="bottomRight">
+                      <span className="pc-row-compact__kebab" onClick={(e) => e.stopPropagation()}><MoreOutlined /></span>
+                    </Dropdown>
+                  )}
+                </div>
+              )
+            })
+          )}
+        </div>
+      ) : (
+        <div className="pc-card" style={{ padding: 0 }}>
+          <Table
+            columns={columns}
+            dataSource={filteredData}
+            rowKey="id"
+            loading={isLoading}
+            pagination={{ pageSize: 15 }}
+            locale={{ emptyText: <Empty description={tableFilter ? "Nenhum produto cadastrado nesta tabela" : "Selecione uma tabela para ver os produtos"} /> }}
+            size="middle"
+          />
+        </div>
+      )}
       <Modal
         open={!!confirmDeleteId}
         onCancel={() => setConfirmDeleteId(null)}

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
 import {
     App as AntdApp,
-    Button, Drawer, Form, Input, InputNumber, Select, Space, Table, Tag, Tooltip,
+    Button, Drawer, Dropdown, Form, Input, InputNumber, Select, Space, Table, Tag, Tooltip,
     message, Popconfirm, DatePicker, Empty, Divider, Modal, Upload, Checkbox, Radio, Segmented,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
@@ -15,7 +15,7 @@ import {
     ShoppingCartOutlined, DollarOutlined, RiseOutlined, PlusOutlined,
     SearchOutlined, CheckCircleOutlined, DeleteOutlined, CreditCardOutlined,
     ShopOutlined, FileTextOutlined, UploadOutlined, PaperClipOutlined,
-    DownloadOutlined, ToolOutlined,
+    DownloadOutlined, ToolOutlined, MoreOutlined,
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
@@ -331,8 +331,7 @@ function Sales() {
     const [registerCustomInstallments, setRegisterCustomInstallments] = useState<InstallmentRow[]>([{ date: null, amount: 0 }])
 
     const { canView, canEdit } = usePermissions()
-    const { isMobile, isTablet } = useDevice()
-    const isCompact = isMobile || isTablet
+    const { isMobile } = useDevice()
     if (!canView(MODULES.SALES)) {
         return <Layout title={PAGE_TITLES.SALES}><div style={{ padding: 40, textAlign: 'center' }}>Você não tem acesso a este módulo.</div></Layout>
     }
@@ -2238,6 +2237,42 @@ function Sales() {
                         <FileTextOutlined style={{ marginRight: 8 }} />
                         Orçamentos para lançar ({pendingBudgets.length})
                     </div>
+                    {isMobile ? (
+                        <div className="pc-row-compact-list">
+                            {pendingBudgets.map((r: PendingBudget) => {
+                                const statusLabel = r.status === 'APPROVED' ? 'Aprovado'
+                                    : r.status === 'AWAITING_PAYMENT' ? 'Aguardando pagamento'
+                                    : 'Enviado'
+                                const codigo = `ORC-${r.id.substring(0, 4).toUpperCase()}`
+                                const dataFmt = new Date(r.created_at).toLocaleDateString('pt-BR')
+                                const cancelToDraft = async () => {
+                                    const { error } = await supabase.from('budgets').update({ status: 'DRAFT', updated_at: new Date().toISOString() }).eq('id', r.id)
+                                    if (error) messageApi.error('Erro ao cancelar.')
+                                    else { messageApi.success('Orçamento voltou para rascunho.'); await fetchPendingBudgets() }
+                                }
+                                return (
+                                    <React.Fragment key={r.id}>
+                                        <div className="pc-row-compact pc-row-compact--has-actions" onClick={() => handleOpenRegisterSale(r)}>
+                                            <div className="pc-row-compact__main">
+                                                <span className="pc-row-compact__title">{r.customer_name || 'Sem cliente'}</span>
+                                                <span className="pc-row-compact__sub">{codigo} · {dataFmt} · {statusLabel}</span>
+                                            </div>
+                                            <span className="pc-row-compact__value">{formatCurrency(r.total_value)}</span>
+                                        </div>
+                                        <div className="pc-row-compact__actions" onClick={(e) => e.stopPropagation()}>
+                                            <Button size="small" type="primary" onClick={(e) => { e.stopPropagation(); handleOpenRegisterSale(r) }}>Lançar recebimento</Button>
+                                            <Popconfirm
+                                                title="Voltar orçamento para rascunho? Ele sairá da lista de pendentes e poderá ser editado em Orçamentos."
+                                                onConfirm={cancelToDraft}
+                                            >
+                                                <Button size="small" danger onClick={(e) => e.stopPropagation()}>Cancelar</Button>
+                                            </Popconfirm>
+                                        </div>
+                                    </React.Fragment>
+                                )
+                            })}
+                        </div>
+                    ) : (
                     <Table
                         dataSource={pendingBudgets}
                         rowKey="id"
@@ -2278,6 +2313,7 @@ function Sales() {
                             },
                         ]}
                     />
+                    )}
                 </div>
             )}
 
@@ -2308,8 +2344,8 @@ function Sales() {
                     </Button>
                 </div>
 
-                {isCompact ? (
-                    <div className="vendas-mobile-list">
+                {isMobile ? (
+                    <div className="pc-row-compact-list">
                         {loading && (
                             <div style={{ padding: 24, textAlign: 'center', color: '#94a3b8' }}>Carregando vendas…</div>
                         )}
@@ -2317,41 +2353,33 @@ function Sales() {
                             <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Nenhuma venda registrada." style={{ padding: '24px 0' }} />
                         )}
                         {!loading && filteredSales.map((r: SaleRow) => {
-                            const pm = PAYMENT_METHODS.find(p => p.value === r.paymentMethod)
                             const dateLabel = r.saleDate ? new Date(r.saleDate).toLocaleDateString('pt-BR') : '—'
+                            const isAwaitingOrder = r.status === 'AWAITING_PAYMENT' && r.saleType === 'FROM_ORDER'
+                            const statusLabel = isAwaitingOrder ? 'Aguardando pagamento' : 'Concluído'
+                            const codigo = r.sale_code || '—'
+                            // Kebab: Ver (ações de transição vão na faixa inferior — DM1)
+                            const kebabItems: any[] = [
+                                { key: 'view', label: 'Ver', onClick: () => handleViewDetail(r) },
+                            ]
                             return (
-                                <div key={r.id} className="pc-mobile-card">
-                                    <div className="pc-mobile-card-header">
-                                        <div style={{ minWidth: 0, flex: 1 }}>
-                                            <h3 className="pc-mobile-card-title">{r.customerName || 'Sem cliente'}</h3>
-                                            <p className="pc-mobile-card-subtitle">
-                                                <span style={{ fontFamily: 'monospace', color: '#7A5AF8', fontWeight: 600 }}>
-                                                    {r.sale_code || '—'}
-                                                </span>
-                                                {' · '}
-                                                {dateLabel}
-                                            </p>
+                                <React.Fragment key={r.id}>
+                                    <div className="pc-row-compact pc-row-compact--has-actions" onClick={() => handleViewDetail(r)}>
+                                        <div className="pc-row-compact__main">
+                                            <span className="pc-row-compact__title">{r.customerName || 'Sem cliente'}</span>
+                                            <span className="pc-row-compact__sub">{codigo} · {dateLabel} · {statusLabel}</span>
                                         </div>
-                                        <strong className="pc-mobile-card-amount positive">
-                                            {formatCurrency(r.finalValue)}
-                                        </strong>
+                                        <span className="pc-row-compact__value pc-row-compact__value--in">{formatCurrency(r.finalValue)}</span>
+                                        <Dropdown menu={{ items: kebabItems }} trigger={['click']} placement="bottomRight">
+                                            <span className="pc-row-compact__kebab" onClick={(e) => e.stopPropagation()}><MoreOutlined /></span>
+                                        </Dropdown>
                                     </div>
-                                    <div className="pc-mobile-card-body">
-                                        <span>
-                                            <Tag style={{ fontSize: 10, marginRight: 0 }}>{pm?.label || r.paymentMethod}</Tag>
-                                            {r.installments > 1 && <Tag color="blue" style={{ fontSize: 10, marginLeft: 4, marginRight: 0 }}>{r.installments}x</Tag>}
-                                        </span>
-                                        {r.sellerName && r.sellerName !== '-' && (
-                                            <span>👤 {r.sellerName}</span>
+                                    <div className="pc-row-compact__actions" onClick={(e) => e.stopPropagation()}>
+                                        {isAwaitingOrder && (
+                                            <Button size="small" type="primary" onClick={(e) => { e.stopPropagation(); handleOpenOrderPaymentModal(r) }}>Lançar pagamento</Button>
                                         )}
+                                        <Button size="small" danger onClick={(e) => { e.stopPropagation(); confirmCancelSale(r) }}>Cancelar</Button>
                                     </div>
-                                    <div className="pc-mobile-card-footer">
-                                        <Button size="small" onClick={() => handleViewDetail(r)}>Ver</Button>
-                                        <Popconfirm title="Cancelar venda?" onConfirm={() => handleDelete(r.id)}>
-                                            <Button size="small" danger>Cancelar</Button>
-                                        </Popconfirm>
-                                    </div>
-                                </div>
+                                </React.Fragment>
                             )
                         })}
                     </div>

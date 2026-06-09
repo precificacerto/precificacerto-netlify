@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
 import {
     App as AntdApp,
-    Button, Drawer, Form, Input, InputNumber, Select, Space, Table, Tag,
+    Button, Drawer, Dropdown, Form, Input, InputNumber, Select, Space, Table, Tag,
     message, DatePicker, Steps, Popconfirm, Divider, Empty, Modal, Upload, Radio, Segmented,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
@@ -18,8 +18,9 @@ import {
     DollarOutlined, SearchOutlined, PlusOutlined, DeleteOutlined,
     CreditCardOutlined, WhatsAppOutlined, SendOutlined, EditOutlined,
     PaperClipOutlined, UploadOutlined, ShoppingCartOutlined, ToolOutlined,
-    UnorderedListOutlined, FilePdfOutlined,
+    UnorderedListOutlined, FilePdfOutlined, MoreOutlined,
 } from '@ant-design/icons'
+import { useDevice } from '@/contexts/device.context'
 // Onda 3 / CRÍT-perf: exportTableToPdf (jsPDF ~100KB) via dynamic import no callback.
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import { CurrencyInput } from '@/components/currency-input.component'
@@ -139,6 +140,7 @@ function Budgets() {
     const { data: employees = [] } = useEmployees()
     const { data: services = [] } = useServices()
     const { currentUser, tenantId } = useAuth()
+    const { isMobile } = useDevice()
     const mrmConfig = useTenantTaxContext()
     const [drawerOpen, setDrawerOpen] = useState(false)
     const [editingBudgetId, setEditingBudgetId] = useState<string | null>(null)
@@ -1242,24 +1244,12 @@ function Budgets() {
             const itemCostTotal = isService
                 ? Number(it.services?.cost_total || 0)
                 : Number(it.products?.cost_total || 0)
-            // S11: alíquotas tributárias específicas do item (NULL → fallback tenant)
+            // S11: alíquotas tributárias específicas do item (NULL → fallback tenant).
+            // EPIC-POR-FORA-V3/S2: usar o helper único (em vez de montar inline) garante a
+            // neutralização condicional de ICMS-ST/DIFAL/FCP também no caminho de EDIÇÃO
+            // (defesa-em-profundidade — QA/Arquiteto 09/06).
             const source = isService ? it.services : it.products
-            const itemTaxRates: ItemTaxRates | null = source ? {
-                icms_pct: source.icms_pct ?? null,
-                pis_pct: source.pis_pct ?? null,
-                cofins_pct: source.cofins_pct ?? null,
-                iss_pct: source.iss_pct ?? null,
-                is_pct: source.is_pct ?? null,
-                ipi_pct: source.ipi_pct ?? null,
-                icms_st_pct: source.icms_st_pct ?? null,
-                difal_pct: source.difal_pct ?? null,
-                fcp_pct: source.fcp_pct ?? null,
-                ibs_pct: source.ibs_pct ?? null,
-                cbs_pct: source.cbs_pct ?? null,
-                iss_retido_pct: source.iss_retido_pct ?? null,
-                irpj_pct: source.irpj_pct ?? null,
-                csll_pct: source.csll_pct ?? null,
-            } : null
+            const itemTaxRates: ItemTaxRates | null = source ? buildItemTaxRatesFromProduct(source) : null
             return {
                 key: `edit-${record.id}-${idx}`,
                 product_id: it.product_id ?? null,
@@ -2222,15 +2212,77 @@ function Budgets() {
                         </Button>
                     )}
                 </div>
-                <Table
-                    columns={columns}
-                    dataSource={filteredData}
-                    rowKey="id"
-                    pagination={{ pageSize: 10, showTotal: (t) => `${t} orçamentos` }}
-                    size="middle"
-                    loading={isLoading}
-                    components={{ header: { cell: TableHeaderCell } }}
-                />
+                {isMobile ? (
+                    <div className="pc-row-compact-list">
+                        {filteredData.length === 0 ? (
+                            <Empty description="Nenhum orçamento encontrado" />
+                        ) : (
+                            filteredData.map((r: any) => {
+                                const cfg = statusConfig[r.status] || { color: 'default', label: r.status }
+                                const dataFmt = new Date(r.created_at).toLocaleDateString('pt-BR')
+                                const orcCode = `ORC-${r.id.substring(0, 4).toUpperCase()}`
+                                const hasPhone = !!(r.customer?.whatsapp_phone || r.customer?.phone)
+                                const isDraft = r.status === 'DRAFT'
+                                const isPayable = r.status === 'APPROVED' || r.status === 'AWAITING_PAYMENT'
+                                const canDelete = r.status !== 'CANCELLED'
+                                const showActions = isDraft || isPayable || canDelete
+                                const kebabItems: any[] = [
+                                    { key: 'edit', label: 'Editar', onClick: () => handleEdit(r) },
+                                    { key: 'view', label: 'Ver', onClick: () => handleViewDetail(r) },
+                                ]
+                                if (hasPhone) {
+                                    kebabItems.push({ key: 'wa', label: 'Enviar via WhatsApp', disabled: waThrottleSecondsLeft > 0, onClick: () => { if (waThrottleSecondsLeft <= 0) handleSendWhatsApp(r) } })
+                                }
+                                if (isDraft) {
+                                    kebabItems.push({ key: 'order', label: 'Enviar para Pedido', onClick: () => handleSendToOrder(r) })
+                                }
+                                if (canDelete) {
+                                    kebabItems.push({ key: 'del', label: 'Excluir', danger: true, onClick: () => confirmDeleteBudget(r) })
+                                }
+                                return (
+                                    <React.Fragment key={r.id}>
+                                        <div
+                                            className={showActions ? 'pc-row-compact pc-row-compact--has-actions' : 'pc-row-compact'}
+                                            onClick={() => handleViewDetail(r)}
+                                        >
+                                            <div className="pc-row-compact__main">
+                                                <span className="pc-row-compact__title">{r.customer?.name || 'Sem cliente'}</span>
+                                                <span className="pc-row-compact__sub">{orcCode} · {dataFmt} · {cfg.label}</span>
+                                            </div>
+                                            <span className="pc-row-compact__value">{formatCurrency(Number(r.total_value || 0))}</span>
+                                            <Dropdown menu={{ items: kebabItems }} trigger={['click']} placement="bottomRight">
+                                                <span className="pc-row-compact__kebab" onClick={(e) => e.stopPropagation()}><MoreOutlined /></span>
+                                            </Dropdown>
+                                        </div>
+                                        {showActions && (
+                                            <div className="pc-row-compact__actions" onClick={(e) => e.stopPropagation()}>
+                                                {isDraft && (
+                                                    <Button size="small" type="primary" onClick={(e) => { e.stopPropagation(); handleSendToSales(r) }}>Enviar para vendas</Button>
+                                                )}
+                                                {isPayable && (
+                                                    <Button size="small" type="primary" onClick={(e) => { e.stopPropagation(); handleOpenPayment(r) }}>Finalizar</Button>
+                                                )}
+                                                {canDelete && (
+                                                    <Button size="small" danger onClick={(e) => { e.stopPropagation(); confirmDeleteBudget(r) }}>Excluir</Button>
+                                                )}
+                                            </div>
+                                        )}
+                                    </React.Fragment>
+                                )
+                            })
+                        )}
+                    </div>
+                ) : (
+                    <Table
+                        columns={columns}
+                        dataSource={filteredData}
+                        rowKey="id"
+                        pagination={{ pageSize: 10, showTotal: (t) => `${t} orçamentos` }}
+                        size="middle"
+                        loading={isLoading}
+                        components={{ header: { cell: TableHeaderCell } }}
+                    />
+                )}
             </div>
 
             {/* ── Drawer: Criar / Editar Orçamento ── */}

@@ -1,7 +1,8 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react'
-import { Button, Space, Table, Input, Drawer, message, Form, Spin, Tag, Radio, InputNumber, Modal } from 'antd'
+import { Button, Space, Table, Input, Drawer, message, Form, Spin, Tag, Radio, InputNumber, Modal, Dropdown } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { Layout } from '@/components/layout/layout.component'
+import { useDevice } from '@/contexts/device.context'
 import { NewItemForm } from '@/page-parts/items/new-item-form.component'
 import { RenewQuantityForm, type ItemOption } from '@/page-parts/items/renew-quantity-form.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
@@ -9,7 +10,7 @@ import { UNIT_TYPE } from '@/constants/item-unit-types'
 import { getMonetaryValue } from '@/utils/get-monetary-value'
 import { getCurrentUserId } from '@/utils/get-tenant-id'
 import { supabase } from '@/supabase/client'
-import { PlusOutlined, SearchOutlined, ReloadOutlined } from '@ant-design/icons'
+import { PlusOutlined, SearchOutlined, ReloadOutlined, MoreOutlined } from '@ant-design/icons'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import { useAuth } from '@/hooks/use-auth.hook'
 import { useItems } from '@/hooks/use-data.hooks'
@@ -55,6 +56,7 @@ const ncmMask = (value: string) => {
 function Items() {
   const { data: rawItems, isLoading, mutate: reloadItems } = useItems()
   const { currentUser, tenantId: contextTenantId } = useAuth()
+  const { isMobile } = useDevice()
   const [searchText, setSearchText] = useState('')
   const [newItemOpen, setNewItemOpen] = useState(false)
   const [titleDrawer, setTitleDrawer] = useState('Novo Item')
@@ -1202,6 +1204,48 @@ function Items() {
 
         {isLoading ? (
           <div style={{ textAlign: 'center', padding: 60 }}><Spin size="large" /></div>
+        ) : isMobile ? (
+          <div className="itens-mobile-list">
+            {filteredData.length === 0 ? (
+              <div style={{ padding: 24, textAlign: 'center', color: '#94a3b8' }}>
+                Nenhum item cadastrado. Clique em &quot;Adicionar item&quot; para começar.
+              </div>
+            ) : (
+              filteredData.map((record) => {
+                const regime = currentUser?.taxableRegime
+                const hasItemTaxes = regime === 'LUCRO_REAL' || regime === 'LUCRO_PRESUMIDO' || regime === 'SIMPLES_HIBRIDO'
+                const valorUnitario = hasItemTaxes
+                  ? (record.cost_gross > 0 ? record.cost_gross : record.cost_per_base_unit * (record.measure_quantity || 1))
+                  : record.cost_per_base_unit * (record.measure_quantity || 1)
+                const precoFormatado = hasItemTaxes
+                  ? `R$ ${valorUnitario.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 3 })}`
+                  : `R$ ${getMonetaryValue(valorUnitario)}`
+                const tipoLabel = (ITEM_TYPE_LABELS[record.item_type] || ITEM_TYPE_LABELS.INSUMO).label
+                const stockQty = stockMap[record.id]
+                const subParts: string[] = [tipoLabel]
+                if (stockQty !== undefined) subParts.push(`${stockQty} un`)
+                const menuItems = [
+                  { key: 'edit', label: 'Editar', onClick: () => handleEdit(record) },
+                  { key: 'renew', label: 'Renovar quantidade', onClick: openRenewDrawer },
+                  ...(canEdit(MODULES.ITEMS)
+                    ? [{ key: 'del', label: 'Excluir item', danger: true, onClick: () => handleDeleteItem(record) }]
+                    : []),
+                ]
+                return (
+                  <div key={record.id} className="pc-row-compact" onClick={() => handleEdit(record)}>
+                    <div className="pc-row-compact__main">
+                      <span className="pc-row-compact__title">{record.name}</span>
+                      <span className="pc-row-compact__sub">{subParts.join(' · ')}</span>
+                    </div>
+                    <span className="pc-row-compact__value">{precoFormatado}</span>
+                    <Dropdown menu={{ items: menuItems }} trigger={['click']} placement="bottomRight">
+                      <span className="pc-row-compact__kebab" onClick={(e) => e.stopPropagation()}><MoreOutlined /></span>
+                    </Dropdown>
+                  </div>
+                )
+              })
+            )}
+          </div>
         ) : (
           <Table
             columns={columns}

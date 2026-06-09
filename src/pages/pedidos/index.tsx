@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import {
     App as AntdApp,
-    Button, DatePicker, Drawer, Form, Input, InputNumber, Select, Space, Table, Tag,
+    Button, DatePicker, Drawer, Dropdown, Form, Input, InputNumber, Select, Space, Table, Tag,
     message, Modal, Popconfirm, Empty, Checkbox, Divider, Typography,
 } from 'antd'
 import { CurrencyInput } from '@/components/currency-input.component'
@@ -9,8 +9,9 @@ import type { ColumnsType } from 'antd/es/table'
 import {
     ShoppingCartOutlined, EditOutlined, DeleteOutlined, PlusOutlined,
     SendOutlined, UnorderedListOutlined, SearchOutlined, DollarOutlined,
-    FileTextOutlined, ClockCircleOutlined, CheckCircleOutlined, FilePdfOutlined,
+    FileTextOutlined, ClockCircleOutlined, CheckCircleOutlined, FilePdfOutlined, MoreOutlined,
 } from '@ant-design/icons'
+import { useDevice } from '@/contexts/device.context'
 import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
 import { CardKPI } from '@/components/ui/card-kpi.component'
@@ -191,6 +192,7 @@ function OrderTotalsSummary({ form, items }: { form: any; items: OrderItemRow[] 
 function OrdersPage() {
     const { modal: modalApi } = AntdApp.useApp()
     const { currentUser, tenantId } = useAuth()
+    const { isMobile } = useDevice()
     const mrmConfig = useTenantTaxContext()
     // P0 — Loading guard (Aria §7 + Quinn §4): rates ausentes geram snapshot fiscal vazio.
     const motorReady = !mrmConfig.enabled || (!mrmConfig.loading && mrmConfig.rates.length > 0)
@@ -1219,17 +1221,69 @@ function OrdersPage() {
             </Space>
 
             <div className="orders-table-wrap">
-                <Table
-                    rowKey="id"
-                    columns={columns}
-                    dataSource={filteredOrders}
-                    loading={loading}
-                    size="small"
-                    tableLayout="fixed"
-                    scroll={{ x: 'max-content' }}
-                    pagination={{ pageSize: 20, showSizeChanger: true }}
-                    locale={{ emptyText: <Empty description="Nenhum pedido em aberto" /> }}
-                />
+                {isMobile ? (
+                    <div className="pc-row-compact-list">
+                        {filteredOrders.length === 0 ? (
+                            <Empty description="Nenhum pedido em aberto" />
+                        ) : (
+                            filteredOrders.map((r: Order) => {
+                                const cfg = STATUS_CONFIG[r.status] || { color: 'default', label: r.status }
+                                const dataFmt = new Date(r.created_at).toLocaleDateString('pt-BR')
+                                const budgetBlocked = r.budget_status && ['REJECTED', 'EXPIRED', 'CANCELLED'].includes(r.budget_status)
+                                const canModify = r.status !== 'SENT_TO_SALE' || !!budgetBlocked
+                                const canSendApproval = r.status === 'DRAFT' || r.status === 'AWAITING_PAYMENT' || (r.status === 'SENT_TO_SALE' && !!budgetBlocked)
+                                const canDelete = r.status !== 'CANCELLED'
+                                const showActions = canSendApproval || canDelete
+                                const kebabItems: any[] = [
+                                    { key: 'edit', label: 'Editar', disabled: !canEditOrders || !canModify, onClick: () => { if (canEditOrders && canModify) handleEdit(r) } },
+                                ]
+                                if (canDelete) {
+                                    kebabItems.push({ key: 'del', label: 'Excluir', danger: true, disabled: !canEditOrders, onClick: () => { if (canEditOrders) confirmDeleteOrder(r) } })
+                                }
+                                const openRow = () => { if (canEditOrders && canModify) handleEdit(r) }
+                                return (
+                                    <React.Fragment key={r.id}>
+                                        <div
+                                            className={showActions ? 'pc-row-compact pc-row-compact--has-actions' : 'pc-row-compact'}
+                                            onClick={openRow}
+                                        >
+                                            <div className="pc-row-compact__main">
+                                                <span className="pc-row-compact__title">{r.customer_name || 'Sem cliente'}</span>
+                                                <span className="pc-row-compact__sub">{r.order_code} · {dataFmt} · {cfg.label}</span>
+                                            </div>
+                                            <span className="pc-row-compact__value">{formatCurrency(Number(r.total_value || 0))}</span>
+                                            <Dropdown menu={{ items: kebabItems }} trigger={['click']} placement="bottomRight">
+                                                <span className="pc-row-compact__kebab" onClick={(e) => e.stopPropagation()}><MoreOutlined /></span>
+                                            </Dropdown>
+                                        </div>
+                                        {showActions && (
+                                            <div className="pc-row-compact__actions" onClick={(e) => e.stopPropagation()}>
+                                                {canSendApproval && (
+                                                    <Button size="small" type="primary" disabled={!canEditOrders} onClick={(e) => { e.stopPropagation(); handleOpenSendToSale(r) }}>Enviar para Aprovação</Button>
+                                                )}
+                                                {canDelete && (
+                                                    <Button size="small" danger disabled={!canEditOrders} onClick={(e) => { e.stopPropagation(); confirmDeleteOrder(r) }}>Excluir</Button>
+                                                )}
+                                            </div>
+                                        )}
+                                    </React.Fragment>
+                                )
+                            })
+                        )}
+                    </div>
+                ) : (
+                    <Table
+                        rowKey="id"
+                        columns={columns}
+                        dataSource={filteredOrders}
+                        loading={loading}
+                        size="small"
+                        tableLayout="fixed"
+                        scroll={{ x: 'max-content' }}
+                        pagination={{ pageSize: 20, showSizeChanger: true }}
+                        locale={{ emptyText: <Empty description="Nenhum pedido em aberto" /> }}
+                    />
+                )}
             </div>
 
             {/* Edit drawer */}

@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react'
-import { Button, Drawer, Form, Input, Select, Space, Table, Tag, message, Popconfirm, InputNumber, Tooltip, Radio, Checkbox, Divider, Modal } from 'antd'
+import { Button, Drawer, Dropdown, Form, Input, Select, Space, Table, Tag, message, Popconfirm, InputNumber, Tooltip, Radio, Checkbox, Divider, Modal, Spin } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { Layout } from '@/components/layout/layout.component'
 import { CardKPI } from '@/components/ui/card-kpi.component'
@@ -23,8 +23,10 @@ import {
     CheckCircleOutlined,
     CloseCircleOutlined,
     CrownOutlined,
+    MoreOutlined,
 } from '@ant-design/icons'
 import { formatBRL } from '@/utils/formatters'
+import { useDevice } from '@/contexts/device.context'
 
 const formatCurrency = formatBRL
 
@@ -110,6 +112,7 @@ function Employees() {
     const [messageApi, contextHolder] = message.useMessage()
     const { currentUser, tenantId } = useAuth()
     const { canEdit } = usePermissions()
+    const { isMobile } = useDevice()
     const router = useRouter()
     const isAdmin = currentUser?.permissions?.find((p) => p === PERMISSIONS.ADMIN)
     const canManagePermissions = currentUser?.is_super_admin === true || !!isAdmin
@@ -495,14 +498,80 @@ function Employees() {
                         </Button>
                     )}
                 </div>
-                <Table
-                    columns={columns as any}
-                    dataSource={filteredData}
-                    rowKey="id"
-                    pagination={{ pageSize: 10, showTotal: (t) => `${t} funcionários` }}
-                    size="middle"
-                    loading={isLoading}
-                />
+                {isMobile ? (
+                    <div className="funcionarios-mobile-list">
+                        {isLoading ? (
+                            <div style={{ textAlign: 'center', padding: 40 }}><Spin /></div>
+                        ) : filteredData.length === 0 ? (
+                            <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>Nenhum funcionário encontrado.</div>
+                        ) : (
+                            (filteredData as Employee[]).map((record) => {
+                                const roleLabel = roleLabels[record.role as EmployeeRole]?.label
+                                const subParts = [
+                                    record.position || roleLabel || undefined,
+                                    record.email || undefined,
+                                ].filter(Boolean)
+                                const menuItems: any[] = [
+                                    {
+                                        key: 'edit',
+                                        label: 'Editar',
+                                        onClick: () => handleEdit(record),
+                                    },
+                                ]
+                                if (canManagePermissions && record.user_id) {
+                                    menuItems.push({
+                                        key: 'perms',
+                                        label: 'Permissões',
+                                        onClick: () => router.push(`/funcionarios/${record.id}/permissoes`),
+                                    })
+                                }
+                                if (record.email) {
+                                    menuItems.push({
+                                        key: 'invite',
+                                        label: 'Convidar',
+                                        onClick: () => handleSendInvite(record),
+                                    })
+                                }
+                                menuItems.push({
+                                    key: 'del',
+                                    label: 'Desativar',
+                                    danger: true,
+                                    onClick: () => handleDelete(record.id),
+                                })
+                                return (
+                                    <div
+                                        key={record.id}
+                                        className="pc-row-compact"
+                                        onClick={() => handleEdit(record)}
+                                    >
+                                        <div className="pc-row-compact__main">
+                                            <span className="pc-row-compact__title">{record.name}</span>
+                                            <span className="pc-row-compact__sub">{subParts.join(' · ')}</span>
+                                        </div>
+                                        <Dropdown
+                                            menu={{ items: menuItems }}
+                                            trigger={['click']}
+                                            placement="bottomRight"
+                                        >
+                                            <span className="pc-row-compact__kebab" onClick={(e) => e.stopPropagation()}>
+                                                <MoreOutlined />
+                                            </span>
+                                        </Dropdown>
+                                    </div>
+                                )
+                            })
+                        )}
+                    </div>
+                ) : (
+                    <Table
+                        columns={columns as any}
+                        dataSource={filteredData}
+                        rowKey="id"
+                        pagination={{ pageSize: 10, showTotal: (t) => `${t} funcionários` }}
+                        size="middle"
+                        loading={isLoading}
+                    />
+                )}
             </div>
 
             <Modal

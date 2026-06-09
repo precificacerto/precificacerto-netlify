@@ -15,7 +15,7 @@ import { getMonetaryValue } from '@/utils/get-monetary-value'
 import { CalcBaseType } from '@/types/calc-base.type'
 import { calculatePricing } from '@/utils/pricing-engine'
 import { computeIvaDualOutside } from '@/utils/iva-dual-outside'
-import { computeIcmsSt, computeDifal, computeIcmsComplementar } from '@/utils/icms-st-difal'
+import { computeIcmsSt, computeDifal, computeIcmsComplementar, mvaAjustada } from '@/utils/icms-st-difal'
 import { CALC_TYPE_ENUM } from '@/shared/enums/calc-type'
 import { ContentIndustrialization } from './content-industrialization'
 import { ContentResale } from './content-resale'
@@ -296,30 +296,10 @@ export const Content: FC<ContentProps> = ({
     (product as any)?.ipi_pct != null ? Number((product as any).ipi_pct) : 0
   )
 
-  // ───────── S15 (EPIC-RR-V2) — Alíquotas tributárias adicionais por produto ─────────
-  // 7 campos que complementam o cadastro existente. Convenção: BASE 100 na UI
-  // (5 = 5%), DECIMAL no DB (0.05). Conversão simétrica no save (/100) e load (×100).
-  const [issPct, setIssPct] = useState<number>(
-    (product as any)?.iss_pct != null ? Number((product as any).iss_pct) * 100 : 0
-  )
-  const [issRetidoPct, setIssRetidoPct] = useState<number>(
-    (product as any)?.iss_retido_pct != null ? Number((product as any).iss_retido_pct) * 100 : 0
-  )
-  const [icmsStPct, setIcmsStPct] = useState<number>(
-    (product as any)?.icms_st_pct != null ? Number((product as any).icms_st_pct) * 100 : 0
-  )
-  const [difalPct, setDifalPct] = useState<number>(
-    (product as any)?.difal_pct != null ? Number((product as any).difal_pct) * 100 : 0
-  )
-  const [fcpPct, setFcpPct] = useState<number>(
-    (product as any)?.fcp_pct != null ? Number((product as any).fcp_pct) * 100 : 0
-  )
-  const [irpjItemPct, setIrpjItemPct] = useState<number>(
-    (product as any)?.irpj_pct != null ? Number((product as any).irpj_pct) * 100 : 0
-  )
-  const [csllItemPct, setCsllItemPct] = useState<number>(
-    (product as any)?.csll_pct != null ? Number((product as any).csll_pct) * 100 : 0
-  )
+  // ───────── EPIC-POR-FORA-V3 / S1 — seção superior dos 7 campos % simples REMOVIDA ─────────
+  // Os estados issPct/issRetidoPct/icmsStPct/difalPct/fcpPct/irpjItemPct/csllItemPct foram
+  // removidos (decisão D1, 09/06). ICMS-ST/DIFAL/FCP usam o cálculo completo abaixo; ISS/IRPJ/CSLL
+  // usam o padrão do tenant.
 
   // ───────── EPIC-POR-FORA-V2 (S4/S5) — ICMS-ST / DIFAL / ICMS Complementar avançados ─────────
   // Convenção BASE 100 direta (sem heurística decimal — Architect P0-3). Acionadores ST e DIFAL
@@ -995,7 +975,7 @@ export const Content: FC<ContentProps> = ({
           despAcessorias: terceirizadasSum,
           icmsPct: icmsPct || 0,
           pisCofinsPct: pisCofinsLRPct || 0,
-          issPct: issPct || 0,
+          issPct: 0, // EPIC-POR-FORA-V3/S1: produto é mercadoria (ISS=0). Campo ISS removido da UI.
           isPct: isPct || 0,
           ibsPct: ibsPct || 0,
           cbsPct: cbsPct || 0,
@@ -1045,15 +1025,10 @@ export const Content: FC<ContentProps> = ({
         extraFields.fcp_value = _difal ? _difal.fcp : 0
       }
 
-      // S15 — persistência das 7 alíquotas adicionais (base 100 → decimal).
-      // Apenas grava quando > 0 (NULL = "não cadastrado" → fallback tenant).
-      extraFields.iss_pct = issPct > 0 ? issPct / 100 : null
-      extraFields.iss_retido_pct = issRetidoPct > 0 ? issRetidoPct / 100 : null
-      extraFields.icms_st_pct = icmsStPct > 0 ? icmsStPct / 100 : null
-      extraFields.difal_pct = difalPct > 0 ? difalPct / 100 : null
-      extraFields.fcp_pct = fcpPct > 0 ? fcpPct / 100 : null
-      extraFields.irpj_pct = irpjItemPct > 0 ? irpjItemPct / 100 : null
-      extraFields.csll_pct = csllItemPct > 0 ? csllItemPct / 100 : null
+      // EPIC-POR-FORA-V3 / S1+S2: a seção superior dos 7 campos % simples foi removida.
+      // ICMS-ST/DIFAL/FCP deixam de ser persistidos como % plano (eliminando a dupla contagem
+      // com o cálculo completo — ver buildItemTaxRatesFromProduct que também neutraliza na leitura).
+      // ISS/IRPJ/CSLL passam a usar o padrão do tenant (IRPJ/CSLL em LR já caem no cálculo estrutural).
 
       // EPIC-POR-FORA-V2: parâmetros avançados ICMS-ST/DIFAL — BASE 100 DIRETA (sem /100).
       // Acionadores e flags sempre persistidos; alíquotas null quando 0 (= não cadastrado).
@@ -2038,44 +2013,13 @@ export const Content: FC<ContentProps> = ({
           🧾 Alíquotas tributárias adicionais (avançado)
         </summary>
         <div style={{ fontSize: 12, color: '#64748b', marginTop: 8, marginBottom: 12 }}>
-          Use se este produto tem alíquota diferente do padrão do tenant. Deixe em 0 para usar o padrão.
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
-          <div>
-            <label style={{ fontSize: 12, color: '#475569' }}>ISS (%)</label>
-            <InputNumber value={issPct} onChange={(v) => setIssPct(Number(v) || 0)} min={0} max={100} step={0.01} style={{ width: '100%' }} />
-          </div>
-          <div>
-            <label style={{ fontSize: 12, color: '#475569' }}>ISS Retido (%)</label>
-            <InputNumber value={issRetidoPct} onChange={(v) => setIssRetidoPct(Number(v) || 0)} min={0} max={100} step={0.01} style={{ width: '100%' }} />
-          </div>
-          <div>
-            <label style={{ fontSize: 12, color: '#475569' }}>ICMS-ST (%)</label>
-            <InputNumber value={icmsStPct} onChange={(v) => setIcmsStPct(Number(v) || 0)} min={0} max={100} step={0.01} style={{ width: '100%' }} />
-          </div>
-          <div>
-            <label style={{ fontSize: 12, color: '#475569' }}>DIFAL (%)</label>
-            <InputNumber value={difalPct} onChange={(v) => setDifalPct(Number(v) || 0)} min={0} max={100} step={0.01} style={{ width: '100%' }} />
-          </div>
-          <div>
-            <label style={{ fontSize: 12, color: '#475569' }}>FCP (%)</label>
-            <InputNumber value={fcpPct} onChange={(v) => setFcpPct(Number(v) || 0)} min={0} max={100} step={0.01} style={{ width: '100%' }} />
-          </div>
-          <div>
-            <label style={{ fontSize: 12, color: '#475569' }} title="Use apenas se a atividade do produto exigir IRPJ presumido diferente do regime padrão (ex: revenda 8% vs serviço 32%).">
-              IRPJ (%) ℹ
-            </label>
-            <InputNumber value={irpjItemPct} onChange={(v) => setIrpjItemPct(Number(v) || 0)} min={0} max={100} step={0.01} style={{ width: '100%' }} />
-          </div>
-          <div>
-            <label style={{ fontSize: 12, color: '#475569' }} title="Use apenas se a atividade do produto exigir CSLL presumido diferente do regime padrão.">
-              CSLL (%) ℹ
-            </label>
-            <InputNumber value={csllItemPct} onChange={(v) => setCsllItemPct(Number(v) || 0)} min={0} max={100} step={0.01} style={{ width: '100%' }} />
-          </div>
+          ICMS-ST, DIFAL e ICMS Complementar com cálculo completo (base capturada automaticamente do preço montado). Deixe os acionadores desligados para usar o padrão do tenant.
         </div>
 
         {/* ───── EPIC-POR-FORA-V2: ICMS-ST / DIFAL / ICMS Complementar (cálculo completo) ───── */}
+        {/* EPIC-POR-FORA-V3 / S1: seção superior dos 7 campos % simples (ISS/ISS Retido/ICMS-ST%/
+            DIFAL%/FCP%/IRPJ/CSLL) REMOVIDA — ICMS-ST/DIFAL/FCP agora têm cálculo completo (abaixo)
+            e ISS/IRPJ/CSLL usam o padrão do tenant (decisão D1, 09/06). */}
         <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px dashed #cbd5e1' }}>
           <div style={{ fontWeight: 600, color: '#475569', marginBottom: 4 }}>ICMS-ST e DIFAL (cálculo completo)</div>
           <div style={{ fontSize: 12, color: '#64748b', marginBottom: 12 }}>
@@ -2112,6 +2056,23 @@ export const Content: FC<ContentProps> = ({
                 <div>
                   <label style={{ fontSize: 12, color: '#475569' }}>MVA original (%)</label>
                   <InputNumber value={mvaOriginalPct} onChange={(v) => setMvaOriginalPct(Number(v) || 0)} min={0} max={300} step={0.01} style={{ width: '100%' }} />
+                </div>
+              )}
+              {/* EPIC-POR-FORA-V3 / S4: MVA ajustada — readonly. Esmaecida no modo interna (não aplica,
+                  usa MVA original); calculada automaticamente no modo interestadual via mvaAjustada(). */}
+              {icmsStActive && (
+                <div>
+                  <label style={{ fontSize: 12, color: '#475569' }}>MVA ajustada (%)</label>
+                  <InputNumber
+                    value={Number((mvaAjustada(mvaOriginalPct, icmsAlqInterestadualOrigemPct, icmsAlqInternaDestinoPct) * 100).toFixed(4))}
+                    disabled
+                    style={{ width: '100%', opacity: stDifalInterestadual ? 1 : 0.5 }}
+                  />
+                  <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 2 }}>
+                    {stDifalInterestadual
+                      ? 'Calculada automaticamente (operação interestadual).'
+                      : 'Não se aplica em operação interna (usa a MVA original).'}
+                  </div>
                 </div>
               )}
               {difalActive && (

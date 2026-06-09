@@ -6,6 +6,7 @@ import {
   mergeItemAndTenantRates,
   resolveItemCsllPct,
   resolveItemIrpjPct,
+  buildItemTaxRatesFromProduct,
   type ItemTaxRates,
 } from '../item-tax-rates'
 import type { TaxRatePeriod } from '@/types/mrm'
@@ -128,5 +129,39 @@ describe('resolveItemCsllPct / resolveItemIrpjPct', () => {
     expect(resolveItemIrpjPct({ irpj_pct: 0.0345 }, 0.048)).toBe(0.0345)
     expect(resolveItemIrpjPct(null, 0.048)).toBe(0.048)
     expect(resolveItemIrpjPct({ irpj_pct: 0 }, 0.048)).toBe(0.048)
+  })
+})
+
+describe('buildItemTaxRatesFromProduct — neutralização condicional ST/DIFAL/FCP (EPIC-POR-FORA-V3 / S2)', () => {
+  it('Produto com icms_st_active=true → icms_st_pct é NEUTRALIZADO (null) p/ evitar dupla contagem', () => {
+    const rates = buildItemTaxRatesFromProduct({ icms_st_active: true, icms_st_pct: 0.18 })
+    // O cálculo lateral (consolidateStDifalFromItems) assume o ICMS-ST; o % plano deve sumir do merge.
+    expect(rates.icms_st_pct).toBeNull()
+  })
+
+  it('Produto com difal_active=true → difal_pct e fcp_pct são NEUTRALIZADOS (null)', () => {
+    const rates = buildItemTaxRatesFromProduct({ difal_active: true, difal_pct: 0.05, fcp_pct: 0.02 })
+    expect(rates.difal_pct).toBeNull()
+    expect(rates.fcp_pct).toBeNull()
+  })
+
+  it('Produto LEGADO (sem acionadores) → preserva icms_st_pct/difal_pct/fcp_pct (% plano puro)', () => {
+    const rates = buildItemTaxRatesFromProduct({
+      icms_st_active: false,
+      difal_active: false,
+      icms_st_pct: 0.18,
+      difal_pct: 0.05,
+      fcp_pct: 0.02,
+    })
+    expect(rates.icms_st_pct).toBe(0.18)
+    expect(rates.difal_pct).toBe(0.05)
+    expect(rates.fcp_pct).toBe(0.02)
+  })
+
+  it('icms_st_active NÃO afeta difal_pct/fcp_pct (acionadores independentes)', () => {
+    const rates = buildItemTaxRatesFromProduct({ icms_st_active: true, icms_st_pct: 0.18, difal_pct: 0.05, fcp_pct: 0.02 })
+    expect(rates.icms_st_pct).toBeNull()
+    expect(rates.difal_pct).toBe(0.05)
+    expect(rates.fcp_pct).toBe(0.02)
   })
 })

@@ -2678,8 +2678,10 @@ body {
    coluna acima do valor. Remove a necessidade de scroll horizontal.
    Labels são injetados em runtime por src/lib/mobile-table-labels.ts.
    Opt-out: adicionar classe .no-mobile-stack no .ant-table-wrapper.
+   EPIC-POR-FORA-V3 / M13: 639px (não 640) para casar com useDevice().isMobile (≤639) —
+   evita empilhar a tabela do tablet em 640px exatos (DM2).
    ============================================================ */
-@media (max-width: 640px) {
+@media (max-width: 639px) {
   .ant-table-wrapper:not(.no-mobile-stack) {
     .ant-table,
     .ant-table-container,
@@ -2713,7 +2715,10 @@ body {
       padding: 8px 0 !important;
       text-align: left !important;
       white-space: normal !important;
-      word-break: break-word;
+      /* EPIC-POR-FORA-V3 / M3: quebra SÓ em limites naturais — nunca letra-a-letra.
+         Corrige o bug de strings sem espaço (datas "01/04/2026", frases longas) em telas estreitas. */
+      word-break: normal !important;
+      overflow-wrap: anywhere !important;
     }
 
     .ant-table-tbody > tr > td:last-child {
@@ -2775,7 +2780,122 @@ body {
     .ant-table-expanded-row > td {
       display: block !important;
       width: 100% !important;
+      /* EPIC-POR-FORA-V3 / M9: placeholder ("Selecione uma tabela…") nunca quebra char-a-char */
+      word-break: normal !important;
+      overflow-wrap: anywhere !important;
+      text-align: center !important;
     }
+  }
+
+  /* ───────────────────────────────────────────────────────────────────────
+     EPIC-POR-FORA-V3 / M9 — Empty / placeholder textual fora ou dentro de tabelas:
+     garante quebra natural (corrige "Selecione uma tabela para ver os serviços"
+     empilhando letra-a-letra em telas estreitas).
+     ─────────────────────────────────────────────────────────────────────── */
+  .ant-empty-description,
+  .ant-table-placeholder .ant-empty-description {
+    word-break: normal !important;
+    overflow-wrap: anywhere !important;
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   EPIC-POR-FORA-V3 / Sprint M — Ferramentas Row Compacto + KPI compacto
+   (mobile ≤640px). Classes reutilizáveis (M1/M2/M4); aplicar via className
+   nas telas de listagem/pipeline. Não afetam tablet (≥640px) nem desktop (DM2).
+   ════════════════════════════════════════════════════════════════════════ */
+@media (max-width: 639px) {
+  /* M1 — Row Compacto: 1 registro por linha [main flex · valor nowrap · kebab 44px] */
+  .pc-row-compact {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    background: rgba(17, 28, 46, 0.65);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    margin-bottom: 8px;
+    min-height: 56px;
+  }
+  .pc-row-compact--has-actions {
+    margin-bottom: 0;
+    border-radius: 10px 10px 0 0;
+  }
+  .pc-row-compact__main {
+    flex: 1 1 auto;
+    min-width: 0; /* habilita truncamento */
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .pc-row-compact__title {
+    font-weight: 600;
+    color: #e2e8f0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .pc-row-compact__sub {
+    font-size: 12px;
+    color: #94a3b8;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .pc-row-compact__value {
+    flex: 0 0 auto;
+    white-space: nowrap;
+    font-weight: 700;
+    color: #e2e8f0;
+    text-align: right;
+  }
+  .pc-row-compact__value--in { color: var(--color-success, #22c55e); }
+  .pc-row-compact__value--out { color: var(--color-error, #ef4444); }
+  .pc-row-compact__kebab {
+    flex: 0 0 auto;
+    width: 44px;
+    height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #cbd5e1;
+  }
+
+  /* M2 — Faixa inferior de ações de pipeline (primária esq. + destrutiva dir.) */
+  .pc-row-compact__actions {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 8px;
+    padding: 8px 12px;
+    background: rgba(17, 28, 46, 0.45);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-top: 0;
+    border-radius: 0 0 10px 10px;
+  }
+  .pc-row-compact__actions > * { flex: 1 1 0; min-height: 36px; }
+
+  /* M4/M12 — KPI compacto no mobile: reduz a altura de TODOS os .kpi-card (Dashboard e Vendas)
+     sem reescrever JSX. Atende "diminuir altura dos cards" do documento. Sistêmico e seguro. */
+  .kpi-card {
+    padding: 12px 14px !important;
+    gap: 6px !important;
+  }
+  .kpi-card-icon {
+    width: 36px !important;
+    height: 36px !important;
+    border-radius: 8px !important;
+  }
+  .kpi-card-value {
+    font-size: 20px !important;
+    line-height: 1.2 !important;
+  }
+  .kpi-card-label {
+    font-size: 11px !important;
+  }
+  /* Opção horizontal opt-in (para telas que reagruparem value+label num wrapper). */
+  .kpi-card.kpi-card--compact {
+    flex-direction: row !important;
+    align-items: center !important;
   }
 }
 

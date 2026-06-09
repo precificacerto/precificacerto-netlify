@@ -29,6 +29,7 @@ import { getTenantId } from '@/utils/get-tenant-id'
 import { getEffectiveIncomeAmount } from '@/utils/cash-entry-amount'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import { useAuth } from '@/hooks/use-auth.hook'
+import { useDevice } from '@/contexts/device.context'
 
 type DataItem = {
   category: string
@@ -155,6 +156,7 @@ const DAY_OF_MONTH_LIMIT = 25
 
 function Cashier() {
   const router = useRouter()
+  const { isMobile } = useDevice()
   const { canView, canEdit } = usePermissions()
   const { currentUser } = useAuth()
   const taxRegime = currentUser?.taxableRegime ?? null
@@ -338,26 +340,59 @@ function Cashier() {
       ? 'var(--color-success)' : 'var(--color-error)'
     const cols = type === PAYMENT_REVENUE_TITLE_TYPE.INCOME ? makeIncomeColumns(customerMap, saleCodeMap) : expenseColumns
 
+    const isIncome = type === PAYMENT_REVENUE_TITLE_TYPE.INCOME
+
     return (
       <div className="pc-card--table" style={{ borderTop: `3px solid ${borderColor}` }}>
         <div className="filter-bar">
           <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--color-neutral-700)' }}>{title}</span>
         </div>
-        <Table
-          columns={cols}
-          expandable={{
-            expandedRowRender: (record) => <p style={{ margin: 0 }}>{
-              type === PAYMENT_REVENUE_TITLE_TYPE.INCOME
-                ? extractCleanDescription(record.description)
-                : record.description
-            }</p>,
-            rowExpandable: (record) => !!record.description,
-          }}
-          rowKey={(record) => record.id}
-          dataSource={data}
-          pagination={false}
-          size="small"
-        />
+        {isMobile ? (
+          <div style={{ padding: '8px 0' }}>
+            {data.length === 0 ? (
+              <div style={{ padding: '16px 12px', textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>
+                Nenhum lançamento neste mês.
+              </div>
+            ) : (
+              data.map((record) => {
+                const dataFormatada = getFormattedDate(new Date(record.date))
+                const valorFormatado = `R$ ${getMonetaryValue(record.price)}`
+                const titulo = isIncome
+                  ? (extractCleanDescription(record.description) || getCategoryName(record.category) || record.category)
+                  : (record.description
+                      ? (record.description.split(' — ')[0].split(' - ')[0].trim() || getCategoryName(record.category) || record.category)
+                      : (getCategoryName(record.category) || record.category))
+                return (
+                  <div className="pc-row-compact" key={record.id}>
+                    <div className="pc-row-compact__main">
+                      <span className="pc-row-compact__title">{titulo}</span>
+                      <span className="pc-row-compact__sub">{dataFormatada}</span>
+                    </div>
+                    <span className={`pc-row-compact__value ${isIncome ? 'pc-row-compact__value--in' : 'pc-row-compact__value--out'}`}>
+                      {valorFormatado}
+                    </span>
+                  </div>
+                )
+              })
+            )}
+          </div>
+        ) : (
+          <Table
+            columns={cols}
+            expandable={{
+              expandedRowRender: (record) => <p style={{ margin: 0 }}>{
+                isIncome
+                  ? extractCleanDescription(record.description)
+                  : record.description
+              }</p>,
+              rowExpandable: (record) => !!record.description,
+            }}
+            rowKey={(record) => record.id}
+            dataSource={data}
+            pagination={false}
+            size="small"
+          />
+        )}
       </div>
     )
   }

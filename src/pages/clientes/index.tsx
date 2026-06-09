@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react'
-import { Button, Drawer, Form, Input, InputNumber, Modal, Select, Space, Switch, Table, Tag, message, Popconfirm, Spin, Tooltip } from 'antd'
+import { Button, Drawer, Dropdown, Form, Input, InputNumber, Modal, Select, Space, Switch, Table, Tag, message, Popconfirm, Spin, Tooltip } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
@@ -23,12 +23,14 @@ import {
     BookOutlined,
     ReloadOutlined,
     ShoppingCartOutlined,
+    MoreOutlined,
 } from '@ant-design/icons'
 import { cpf, cnpj } from 'cpf-cnpj-validator'
 import VMasker from 'vanilla-masker'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import { useAuth } from '@/hooks/use-auth.hook'
 import { recalcCustomerRecurrenceOnEdit } from '@/lib/customer-recurrence'
+import { useDevice } from '@/contexts/device.context'
 
 const segments = ['Alimentício', 'Varejo', 'Tecnologia', 'Serviços', 'Indústria', 'Beleza', 'Saúde', 'Outros']
 
@@ -95,6 +97,7 @@ function Clients() {
     const [recurrenceSaving, setRecurrenceSaving] = useState(false)
 
     const { canView, canEdit } = usePermissions()
+    const { isMobile } = useDevice()
     const { currentUser, tenantId } = useAuth()
     const isSuperAdmin = currentUser?.is_super_admin === true
     const isAdminRole = isSuperAdmin || (currentUser?.role && String(currentUser.role).toLowerCase() === 'admin')
@@ -893,14 +896,78 @@ function Clients() {
                         </Button>
                     )}
                 </div>
-                <Table
-                    columns={columns}
-                    dataSource={filteredData}
-                    rowKey="id"
-                    pagination={{ pageSize: 10, showSizeChanger: true, showTotal: (t) => `${t} clientes` }}
-                    size="middle"
-                    loading={isLoading}
-                />
+                {isMobile ? (
+                    <div className="clientes-mobile-list">
+                        {isLoading ? (
+                            <div style={{ textAlign: 'center', padding: 40 }}><Spin /></div>
+                        ) : filteredData.length === 0 ? (
+                            <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>Nenhum cliente encontrado.</div>
+                        ) : (
+                            (filteredData as Customer[]).map((record) => {
+                                const allowed = canEdit(MODULES.CUSTOMERS) && canEditCustomer(record)
+                                const subParts = [
+                                    record.customer_type,
+                                    record.document || undefined,
+                                    record.whatsapp_phone || record.phone || undefined,
+                                ].filter(Boolean)
+                                const menuItems = [
+                                    {
+                                        key: 'history',
+                                        label: 'Histórico',
+                                        onClick: () => {
+                                            setHistoryCustomerId(record.id)
+                                            setHistoryCustomerName(record.name)
+                                            setHistoryDrawerOpen(true)
+                                        },
+                                    },
+                                    {
+                                        key: 'edit',
+                                        label: 'Editar',
+                                        disabled: !allowed,
+                                        onClick: () => { if (allowed) handleEdit(record) },
+                                    },
+                                    {
+                                        key: 'del',
+                                        label: 'Desativar',
+                                        danger: true,
+                                        disabled: !allowed,
+                                        onClick: () => { if (allowed) handleDelete(record.id) },
+                                    },
+                                ]
+                                return (
+                                    <div
+                                        key={record.id}
+                                        className="pc-row-compact"
+                                        onClick={() => { if (allowed) handleEdit(record) }}
+                                    >
+                                        <div className="pc-row-compact__main">
+                                            <span className="pc-row-compact__title">{record.name}</span>
+                                            <span className="pc-row-compact__sub">{subParts.join(' · ')}</span>
+                                        </div>
+                                        <Dropdown
+                                            menu={{ items: menuItems }}
+                                            trigger={['click']}
+                                            placement="bottomRight"
+                                        >
+                                            <span className="pc-row-compact__kebab" onClick={(e) => e.stopPropagation()}>
+                                                <MoreOutlined />
+                                            </span>
+                                        </Dropdown>
+                                    </div>
+                                )
+                            })
+                        )}
+                    </div>
+                ) : (
+                    <Table
+                        columns={columns}
+                        dataSource={filteredData}
+                        rowKey="id"
+                        pagination={{ pageSize: 10, showSizeChanger: true, showTotal: (t) => `${t} clientes` }}
+                        size="middle"
+                        loading={isLoading}
+                    />
+                )}
             </div>
 
             {/* Drawer */}

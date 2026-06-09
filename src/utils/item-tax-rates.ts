@@ -538,6 +538,15 @@ export function buildItemTaxRatesFromProduct(prod: any): ItemTaxRates {
     }
   }
 
+  // EPIC-POR-FORA-V3 / S2 (neutralização CONDICIONAL da dupla contagem — Architect Aria):
+  // quando o produto usa o CÁLCULO COMPLETO (icms_st_active / difal_active), o ICMS-ST/DIFAL/FCP
+  // são apurados como linha LATERAL por `consolidateStDifalFromItems` (icms-st-difal.ts). Manter o
+  // `*_pct` legado no merge faria o motor contar o mesmo tributo DUAS vezes (lateral + % plano).
+  // Solução: zerar SÓ o pct correspondente ao acionador ativo. Produtos LEGADOS sem os acionadores
+  // (% plano puro) preservam o valor — o mapa global ITEM_RATE_BY_TAX_TYPE permanece intacto.
+  const usesAdvancedSt = !!prod?.icms_st_active
+  const usesAdvancedDifal = !!prod?.difal_active
+
   return {
     icms_pct: prod?.icms_pct ?? null,
     pis_pct: pisFinal,
@@ -545,9 +554,9 @@ export function buildItemTaxRatesFromProduct(prod: any): ItemTaxRates {
     iss_pct: prod?.iss_pct ?? null,
     is_pct: prod?.is_pct ?? null,
     ipi_pct: prod?.ipi_pct ?? null,
-    icms_st_pct: prod?.icms_st_pct ?? null,
-    difal_pct: prod?.difal_pct ?? null,
-    fcp_pct: prod?.fcp_pct ?? null,
+    icms_st_pct: usesAdvancedSt ? null : (prod?.icms_st_pct ?? null),
+    difal_pct: usesAdvancedDifal ? null : (prod?.difal_pct ?? null),
+    fcp_pct: usesAdvancedDifal ? null : (prod?.fcp_pct ?? null),
     ibs_pct: prod?.ibs_pct ?? null,
     cbs_pct: prod?.cbs_pct ?? null,
     iss_retido_pct: prod?.iss_retido_pct ?? null,

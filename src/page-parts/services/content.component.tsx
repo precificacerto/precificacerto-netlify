@@ -98,15 +98,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
     const [issRetidoPctSvc, setIssRetidoPctSvc] = useState<number>(
         (serviceData as any)?.iss_retido_pct != null ? Number((serviceData as any).iss_retido_pct) * 100 : 0
     )
-    const [icmsStPctSvc, setIcmsStPctSvc] = useState<number>(
-        (serviceData as any)?.icms_st_pct != null ? Number((serviceData as any).icms_st_pct) * 100 : 0
-    )
-    const [difalPctSvc, setDifalPctSvc] = useState<number>(
-        (serviceData as any)?.difal_pct != null ? Number((serviceData as any).difal_pct) * 100 : 0
-    )
-    const [fcpPctSvc, setFcpPctSvc] = useState<number>(
-        (serviceData as any)?.fcp_pct != null ? Number((serviceData as any).fcp_pct) * 100 : 0
-    )
+    // EPIC-POR-FORA-V3 / S1: estados icmsStPctSvc/difalPctSvc/fcpPctSvc removidos (não se aplicam a serviço).
     const [irpjItemPctSvc, setIrpjItemPctSvc] = useState<number>(
         (serviceData as any)?.irpj_pct != null ? Number((serviceData as any).irpj_pct) * 100 : 0
     )
@@ -522,9 +514,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                 // NULL quando 0 (não cadastrado → fallback tenant no motor RR).
                 iss_pct: issPctSvc > 0 ? issPctSvc / 100 : null,
                 iss_retido_pct: issRetidoPctSvc > 0 ? issRetidoPctSvc / 100 : null,
-                icms_st_pct: icmsStPctSvc > 0 ? icmsStPctSvc / 100 : null,
-                difal_pct: difalPctSvc > 0 ? difalPctSvc / 100 : null,
-                fcp_pct: fcpPctSvc > 0 ? fcpPctSvc / 100 : null,
+                // EPIC-POR-FORA-V3 / S1: icms_st_pct/difal_pct/fcp_pct não são mais persistidos em serviços.
                 irpj_pct: irpjItemPctSvc > 0 ? irpjItemPctSvc / 100 : null,
                 csll_pct: csllItemPctSvc > 0 ? csllItemPctSvc / 100 : null,
                 updated_at: new Date().toISOString(),
@@ -1255,18 +1245,9 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                         <label style={{ fontSize: 12, color: '#475569' }}>ISS Retido (%)</label>
                         <InputNumber value={issRetidoPctSvc} onChange={(v) => setIssRetidoPctSvc(Number(v) || 0)} min={0} max={100} step={0.01} style={{ width: '100%' }} />
                     </div>
-                    <div>
-                        <label style={{ fontSize: 12, color: '#475569' }}>ICMS-ST (%)</label>
-                        <InputNumber value={icmsStPctSvc} onChange={(v) => setIcmsStPctSvc(Number(v) || 0)} min={0} max={100} step={0.01} style={{ width: '100%' }} />
-                    </div>
-                    <div>
-                        <label style={{ fontSize: 12, color: '#475569' }}>DIFAL (%)</label>
-                        <InputNumber value={difalPctSvc} onChange={(v) => setDifalPctSvc(Number(v) || 0)} min={0} max={100} step={0.01} style={{ width: '100%' }} />
-                    </div>
-                    <div>
-                        <label style={{ fontSize: 12, color: '#475569' }}>FCP (%)</label>
-                        <InputNumber value={fcpPctSvc} onChange={(v) => setFcpPctSvc(Number(v) || 0)} min={0} max={100} step={0.01} style={{ width: '100%' }} />
-                    </div>
+                    {/* EPIC-POR-FORA-V3 / S1: ICMS-ST/DIFAL/FCP REMOVIDOS de Serviços (são tributos de
+                        mercadoria, não de serviço — fonte de dupla contagem). ISS/ISS Retido/IRPJ/CSLL
+                        permanecem (ISS é o imposto central do serviço). */}
                     <div>
                         <label style={{ fontSize: 12, color: '#475569' }} title="Use apenas se a atividade deste serviço exigir IRPJ presumido diferente do regime padrão (ex: serviços 32% vs revenda 8%).">
                             IRPJ (%) ℹ
