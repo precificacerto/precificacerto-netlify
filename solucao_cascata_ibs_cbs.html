@@ -1,0 +1,193 @@
+
+<style>
+.card{background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:1rem 1.25rem;margin-bottom:1rem}
+.card-title{font-size:12px;font-weight:500;color:var(--color-text-secondary);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.75rem}
+.tbl{width:100%;border-collapse:collapse;font-size:13px}
+.tbl th{font-size:11px;font-weight:500;color:var(--color-text-secondary);text-align:left;padding:5px 8px;border-bottom:0.5px solid var(--color-border-tertiary)}
+.tbl td{padding:6px 8px;border-bottom:0.5px solid var(--color-border-tertiary);vertical-align:middle}
+.tbl tr:last-child td{border-bottom:none}
+.tbl .num{text-align:right;font-family:var(--font-mono);font-size:12px}
+.err{color:#A32D2D}
+.ok{color:#0F6E56}
+.neutral{color:var(--color-text-secondary)}
+.badge-err{display:inline-block;font-size:10px;padding:1px 7px;border-radius:var(--border-radius-md);background:var(--color-background-danger);color:var(--color-text-danger);font-weight:500}
+.badge-ok{display:inline-block;font-size:10px;padding:1px 7px;border-radius:var(--border-radius-md);background:var(--color-background-success);color:var(--color-text-success);font-weight:500}
+.badge-info{display:inline-block;font-size:10px;padding:1px 7px;border-radius:var(--border-radius-md);background:var(--color-background-info);color:var(--color-text-info);font-weight:500}
+.arrow-block{text-align:center;padding:.5rem 0;color:var(--color-text-secondary);font-size:20px}
+.formula{background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:.65rem .9rem;font-family:var(--font-mono);font-size:12px;line-height:2;margin:.5rem 0}
+.param-row{display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:.5px solid var(--color-border-tertiary);font-size:13px}
+.param-row:last-child{border-bottom:none}
+.param-name{flex:1;color:var(--color-text-primary)}
+.param-old{font-family:var(--font-mono);font-size:12px;color:#A32D2D;text-decoration:line-through;min-width:70px;text-align:right}
+.arrow-r{color:var(--color-text-secondary)}
+.param-new{font-family:var(--font-mono);font-size:12px;font-weight:500;color:#0F6E56;min-width:70px;text-align:right}
+.sep{border:none;border-top:.5px solid var(--color-border-tertiary);margin:.75rem 0}
+.total-row td{font-weight:500;font-size:14px;border-top:1px solid var(--color-border-secondary) !important}
+.diff-bad{font-family:var(--font-mono);font-size:11px;color:#A32D2D}
+.diff-good{font-family:var(--font-mono);font-size:11px;color:#0F6E56}
+.highlight-row td{background:var(--color-background-success)}
+.highlight-row-err td{background:var(--color-background-danger)}
+.step-label{display:inline-block;background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:2px 8px;font-size:11px;font-weight:500;color:var(--color-text-secondary);margin-right:6px}
+</style>
+
+<h2 class="sr-only">Solução para a operação cascata IBS e CBS — correção dos parâmetros e recálculo da etapa 17.</h2>
+
+<div style="padding:1rem 0 0">
+
+<div class="card">
+  <div class="card-title">Raiz do problema — campo único, dois significados conflitantes</div>
+  <div class="formula">
+<span style="color:var(--color-text-secondary);">Campo "alíquota" da cascata armazena:</span>
+
+  IBS → <span class="err">10%</span>   ← <span class="err">peso de distribuição, não taxa</span>
+  CBS → <span class="err">90%</span>   ← <span class="err">peso de distribuição, não taxa</span>
+
+<span style="color:var(--color-text-secondary);">Resultado:</span>
+  CBS = 120.445,93 × <span class="err">90%</span> = <span class="err">R$ 108.401,34</span>  ✗ (≈ base inteira)
+  IBS = 120.445,93 × <span class="err">10%</span> = <span class="err">R$  12.044,59</span>  ✗
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">Solução — separar alíquota_combinada dos pesos</div>
+  <div style="font-size:13px;color:var(--color-text-secondary);margin-bottom:.75rem">Introduzir um único parâmetro novo no sistema: <code>alíquota_combinada</code></div>
+
+  <div class="formula">
+<span style="color:#185FA5;font-weight:500;">alíquota_combinada</span> = <span class="ok">1,00%</span>   ← <span style="color:var(--color-text-secondary);">parâmetro a criar/informar</span>
+
+peso_CBS             = 90%     ← <span style="color:var(--color-text-secondary);">já existe, não muda</span>
+peso_IBS             = 10%     ← <span style="color:var(--color-text-secondary);">já existe, não muda</span>
+
+CBS_alíquota = alíquota_combinada × peso_CBS = 1,00% × 90% = <span class="ok">0,90%</span>
+IBS_alíquota = alíquota_combinada × peso_IBS = 1,00% × 10% = <span class="ok">0,10%</span>
+  </div>
+
+  <hr class="sep">
+  <div style="font-size:12px;font-weight:500;color:var(--color-text-secondary);margin-bottom:.5rem">Parâmetros antes × depois</div>
+  <div class="param-row">
+    <span class="param-name">alíquota_combinada <span class="badge-info">novo</span></span>
+    <span class="param-old">—</span>
+    <span class="arrow-r">→</span>
+    <span class="param-new">1,00%</span>
+  </div>
+  <div class="param-row">
+    <span class="param-name">CBS — campo alíquota</span>
+    <span class="param-old">90%</span>
+    <span class="arrow-r">→</span>
+    <span class="param-new">0,90%</span>
+  </div>
+  <div class="param-row">
+    <span class="param-name">IBS — campo alíquota</span>
+    <span class="param-old">10%</span>
+    <span class="arrow-r">→</span>
+    <span class="param-new">0,10%</span>
+  </div>
+  <div class="param-row">
+    <span class="param-name">CBS — peso distribuição</span>
+    <span class="param-old" style="text-decoration:none;color:var(--color-text-secondary);">90%</span>
+    <span class="arrow-r">→</span>
+    <span class="param-new" style="color:var(--color-text-secondary);">90% (inalterado)</span>
+  </div>
+  <div class="param-row">
+    <span class="param-name">IBS — peso distribuição</span>
+    <span class="param-old" style="text-decoration:none;color:var(--color-text-secondary);">10%</span>
+    <span class="arrow-r">→</span>
+    <span class="param-new" style="color:var(--color-text-secondary);">10% (inalterado)</span>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">Etapa 17 — cascata tributária antes × depois</div>
+  <table class="tbl">
+    <thead>
+      <tr>
+        <th>Componente</th>
+        <th style="text-align:right">Base (R$)</th>
+        <th style="text-align:right">Alíquota</th>
+        <th style="text-align:right">Antes (errado)</th>
+        <th style="text-align:right">Depois (correto)</th>
+        <th style="text-align:right">Diferença</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>IBS</td>
+        <td class="num">120.445,93</td>
+        <td class="num ok">0,10%</td>
+        <td class="num err">R$ 12.044,59</td>
+        <td class="num ok">R$ 120,45</td>
+        <td class="num diff-bad">−R$ 11.924,14</td>
+      </tr>
+      <tr>
+        <td>CBS</td>
+        <td class="num">120.445,93</td>
+        <td class="num ok">0,90%</td>
+        <td class="num err">R$ 108.401,34</td>
+        <td class="num ok">R$ 1.084,01</td>
+        <td class="num diff-bad">−R$ 107.317,33</td>
+      </tr>
+      <tr>
+        <td>IPI</td>
+        <td class="num">144.869,80</td>
+        <td class="num neutral">5,00%</td>
+        <td class="num neutral">R$ 7.243,49</td>
+        <td class="num neutral">R$ 7.243,49</td>
+        <td class="num neutral">—</td>
+      </tr>
+      <tr>
+        <td>ICMS_COMPL</td>
+        <td class="num">8.443,49</td>
+        <td class="num neutral">17,00%</td>
+        <td class="num neutral">R$ 1.435,39</td>
+        <td class="num neutral">R$ 1.435,39</td>
+        <td class="num neutral">—</td>
+      </tr>
+      <tr class="total-row">
+        <td><strong>Total etapa 17</strong></td>
+        <td class="num"></td>
+        <td class="num"></td>
+        <td class="num err"><strong>R$ 273.994,62</strong> <span class="badge-err">✗</span></td>
+        <td class="num ok"><strong>R$ 154.753,14</strong> <span class="badge-ok">✓</span></td>
+        <td class="num diff-bad"><strong>−R$ 119.241,48</strong></td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <div class="card-title">Reconciliação final — cascata × precificação</div>
+  <table class="tbl">
+    <tbody>
+      <tr>
+        <td>Preço base (PV + terceirizadas)</td>
+        <td class="num">R$ 144.869,80</td>
+        <td></td>
+      </tr>
+      <tr>
+        <td>+ IBS corrigido (0,10%)</td>
+        <td class="num ok">R$ 120,45</td>
+        <td style="text-align:right"><span class="badge-ok">✓</span></td>
+      </tr>
+      <tr>
+        <td>+ CBS corrigido (0,90%)</td>
+        <td class="num ok">R$ 1.084,01</td>
+        <td style="text-align:right"><span class="badge-ok">✓</span></td>
+      </tr>
+      <tr>
+        <td>+ IPI (5,00%)</td>
+        <td class="num neutral">R$ 7.243,49</td>
+        <td style="text-align:right"><span class="badge-ok">✓</span></td>
+      </tr>
+      <tr class="total-row">
+        <td><strong>Preço final com impostos</strong></td>
+        <td class="num ok"><strong>R$ 153.317,75</strong></td>
+        <td style="text-align:right"><span class="badge-ok">= venda etapa 9 ✓</span></td>
+      </tr>
+    </tbody>
+  </table>
+  <div style="font-size:12px;color:var(--color-text-secondary);margin-top:.75rem">
+    A cascata fecha com a venda consolidada (etapa 9 = R$ 153.317,75) somente após a correção. O ICMS_COMPL (R$ 1.435,39) é acréscimo fiscal sobre acessórias e IPI, computado separadamente na etapa 17 extrafiscal.
+  </div>
+</div>
+
+</div>

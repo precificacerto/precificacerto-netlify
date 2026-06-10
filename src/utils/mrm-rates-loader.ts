@@ -83,9 +83,15 @@ export async function loadTaxRates(query: LoaderQuery = {}): Promise<TaxRatePeri
     // Motor RR espera DECIMAL (0..1). Heurística defensiva (mesmo padrão de
     // `tax-sync.ts:169`): valor < 1 já é decimal; valor >= 1 é porcentagem → /100.
     // Garante retrocompat com qualquer estado do banco sem migration obrigatória.
+    //
+    // EXCEÇÃO IBS/CBS (FIX 2026-06-10, paridade com `item-tax-rates.ts`): as alíquotas
+    // de transição de IBS (0,1%) e CBS (0,9%) vivem ABAIXO de 1% — zona onde a heurística
+    // dual falha e mantém 0.9 como 0.9, inflando ×100 na Etapa 17 (CBS = base × 90%). Para
+    // esses dois tributos, normalizar é SEMPRE dividir por 100 (são gravados em percentual).
     const rates: TaxRatePeriod[] = rawRates.map((r) => {
       const raw = Number(r.rate_pct) || 0
-      const normalized = raw <= 0 ? 0 : raw < 1 ? raw : raw / 100
+      const alwaysPercent = r.tax_type === 'IBS' || r.tax_type === 'CBS'
+      const normalized = raw <= 0 ? 0 : alwaysPercent ? raw / 100 : raw < 1 ? raw : raw / 100
       return { ...r, rate_pct: normalized }
     })
     cache.set(key, { data: rates, expires_at: now + CACHE_TTL_MS })

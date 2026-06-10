@@ -93,10 +93,12 @@ describe('mergeItemAndTenantRates — precedência item > tenant', () => {
   })
 
   it('Bloco B — IPI/CBS/IBS/etc também respeitam override item', () => {
+    // IBS/CBS são gravados SEMPRE em percentual (FIX 2026-06-10): 8.5 = 8,5% → 0.085.
+    // IPI mantém a convenção dual (0.05 já é decimal = 5%).
     const itemRates: ItemTaxRates = {
       ipi_pct: 0.05,
-      ibs_pct: 0.085,
-      cbs_pct: 0.025,
+      ibs_pct: 8.5,
+      cbs_pct: 2.5,
     }
     const tenantRates = [rate('IPI', 0.10), rate('IBS', 0), rate('CBS', 0)]
     const result = mergeItemAndTenantRates(itemRates, tenantRates)
@@ -104,6 +106,27 @@ describe('mergeItemAndTenantRates — precedência item > tenant', () => {
     expect(result.find(r => r.tax_type === 'IPI')?.rate_pct).toBe(0.05)
     expect(result.find(r => r.tax_type === 'IBS')?.rate_pct).toBe(0.085)
     expect(result.find(r => r.tax_type === 'CBS')?.rate_pct).toBe(0.025)
+  })
+
+  it('IBS/CBS sub-1% (transição 2026) NÃO são inflados ×100 (FIX 2026-06-10)', () => {
+    // Regressão da "cascata desencontrada": produto AAATeste0506 grava ibs_pct=0.1
+    // (0,1%) e cbs_pct=0.9 (0,9%). A heurística antiga `raw<1?raw:raw/100` mantinha
+    // 0.9 como 0.9 → motor ×100 → CBS = base × 90%. Agora IBS/CBS são SEMPRE /100.
+    const itemRates: ItemTaxRates = { ibs_pct: 0.1, cbs_pct: 0.9 }
+    const result = mergeItemAndTenantRates(itemRates, [])
+
+    // 0,1% → 0.001 e 0,9% → 0.009 (não 0.1 / 0.9 = 10% / 90%).
+    expect(result.find(r => r.tax_type === 'IBS')?.rate_pct).toBeCloseTo(0.001, 10)
+    expect(result.find(r => r.tax_type === 'CBS')?.rate_pct).toBeCloseTo(0.009, 10)
+  })
+
+  it('IBS/CBS percentuais ≥ 1% continuam corretos (1% → 0.01, 8,8% → 0.088)', () => {
+    // Cenário AAAtesteCBS3 — não deve haver regressão para alíquotas ≥ 1%.
+    const itemRates: ItemTaxRates = { ibs_pct: 1, cbs_pct: 8.8 }
+    const result = mergeItemAndTenantRates(itemRates, [])
+
+    expect(result.find(r => r.tax_type === 'IBS')?.rate_pct).toBeCloseTo(0.01, 10)
+    expect(result.find(r => r.tax_type === 'CBS')?.rate_pct).toBeCloseTo(0.088, 10)
   })
 })
 

@@ -83,10 +83,20 @@ export function mergeItemAndTenantRates(
       const raw = Number(itemVal)
       // Override item — só inclui no array se > 0 (motor ignora rate 0 por design)
       if (raw > 0) {
-        // BUG FIX (2026-05-23, Hyago): produtos podem ter alíquotas salvas em
-        // formato porcentual (17 = 17%) em vez de decimal (0.17). Motor RR
-        // espera decimal. Heurística: valor < 1 já é decimal; valor >= 1 é porcentagem.
-        const normalized = raw < 1 ? raw : raw / 100
+        // Normalização para DECIMAL. A heurística genérica `raw < 1 ? raw : raw/100`
+        // (FIX 2026-05-23, Hyago) suporta a convenção DUAL do cadastro de ICMS/PIS/COFINS:
+        // o valor pode chegar como decimal (0.17) OU percentual (17). Ambas viram 0,17.
+        //
+        // EXCEÇÃO IBS/CBS (FIX 2026-06-10): IBS e CBS são gravados SEMPRE em percentual
+        // (única via de produção é `buildItemTaxRatesFromProduct`, sem split decimal) e suas
+        // alíquotas de transição vivem ABAIXO de 1% (IBS 0,1% · CBS 0,9%) — justamente onde
+        // a heurística dual falha. Com ela, 0.9 era mantido como 0.9 e o motor multiplicava
+        // ×100 → CBS = base × 90% (inflação de 100×), enquanto o cadastro mostrava 0,9%
+        // correto (cascata "desencontrada"). Para esses dois tributos, normalizar é SEMPRE
+        // dividir por 100. Auditoria no Supabase confirmou que todos os produtos gravam
+        // IBS/CBS em percentual (0.1, 0.9, 1, 8.8) — nunca decimal.
+        const alwaysPercent = taxType === 'IBS' || taxType === 'CBS'
+        const normalized = alwaysPercent ? raw / 100 : raw < 1 ? raw : raw / 100
         result.push({
           id: `item-override-${taxType}`,
           tenant_id: 'item-override',
