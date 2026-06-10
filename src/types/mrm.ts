@@ -713,8 +713,35 @@ export interface MotorV17Input {
   /**
    * Ativa o ICMS Complementar (LC 87/1996, art. 13, §1º, II): só quando o destinatário for
    * consumidor final NÃO contribuinte do ICMS (`customers.is_icms_contributor === false`).
+   *
+   * LEGADO (binário). Quando `icms_compl` está presente, a Etapa 17 usa a hierarquia completa
+   * e este campo é ignorado.
    */
   icms_compl_applies?: boolean
+  /**
+   * Hierarquia completa do ICMS Complementar (documento oficial 2026-06-10). Resolve a decisão
+   * de ativação por destinatário (contribuinte?) + frete (CIF/FOB) + bloqueio ST/DIFAL + override
+   * manual. Quando presente, substitui o binário `icms_compl_applies`.
+   */
+  icms_compl?: IcmsComplMotorInput
+}
+
+/** Parâmetros de operação para a hierarquia do ICMS Complementar (Etapa 17). */
+export interface IcmsComplMotorInput {
+  /** Destinatário é contribuinte do ICMS? `null` = não resolvido (não cobra — legado). */
+  is_contributor: boolean | null
+  /** Modalidade de frete da operação. */
+  freight_mode: 'CIF' | 'FOB'
+  /** Algum item da operação tem ICMS-ST ativo. */
+  st_active: boolean
+  /** Algum item da operação tem DIFAL ativo. */
+  difal_active: boolean
+  /** Frete + seguro consolidado da operação (R$). */
+  freight: number
+  /** Despesas acessórias consolidadas da operação (R$). */
+  accessory: number
+  /** Override manual: `FORCE_OFF` isenta; `null`/ausente = automático. */
+  override?: 'FORCE_OFF' | null
 }
 
 /**

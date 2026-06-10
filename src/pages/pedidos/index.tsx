@@ -711,6 +711,9 @@ function OrdersPage() {
                     total_value: totalValue,
                     // ICMS Complementar — espelha o valor do pedido (que veio do orçamento original).
                     icms_compl_value: (sendingOrder as any).icms_compl_value || 0,
+                    // ICMS Complementar — parâmetros de operação da hierarquia (linhagem pedido→orçamento espelho).
+                    freight_mode: (sendingOrder as any).freight_mode || 'CIF',
+                    icms_compl_override: (sendingOrder as any).icms_compl_override ?? null,
                     // EPIC-POR-FORA-V2: ICMS-ST / DIFAL / FCP — espelham o pedido.
                     icms_st_value: (sendingOrder as any).icms_st_value || 0,
                     difal_value: (sendingOrder as any).difal_value || 0,

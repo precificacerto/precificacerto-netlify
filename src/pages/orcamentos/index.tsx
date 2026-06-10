@@ -502,11 +502,25 @@ function Budgets() {
     }
 
     const selectedEmployeeId = Form.useWatch('employee_id', form)
-    // ICMS Complementar (LC 87/1996, art. 13, §1º, II): só consumidor final NÃO contribuinte
-    // do ICMS. Resolve o destinatário selecionado; ausência de cliente → assume contribuinte.
+    // ICMS Complementar — hierarquia de ativação (documento oficial 2026-06-10): destinatário
+    // (contribuinte?) + frete (CIF/FOB) + bloqueio ST/DIFAL + override. A decisão roda no motor
+    // (Etapa 17); aqui só consolidamos os parâmetros da operação.
     const selectedCustomerId = Form.useWatch('customer_id', form)
     const selectedCustomer = (customers as any[]).find((c) => c.id === selectedCustomerId)
-    const icmsComplApplies = selectedCustomer?.is_icms_contributor === false
+    const freightMode: 'CIF' | 'FOB' = (Form.useWatch('freight_mode', form) as 'CIF' | 'FOB') ?? 'CIF'
+    // Override no form é 'AUTO' | 'FORCE_OFF' (UI); o motor/DB só conhece 'FORCE_OFF' | null.
+    const icmsComplOverride: 'FORCE_OFF' | null =
+        Form.useWatch('icms_compl_override', form) === 'FORCE_OFF' ? 'FORCE_OFF' : null
+    // Só true/false explícito dirige a hierarquia; cliente ausente ou flag nula → não cobra (legado).
+    const isContributor: boolean | null =
+        selectedCustomer == null
+            ? null
+            : selectedCustomer.is_icms_contributor === true
+                ? true
+                : selectedCustomer.is_icms_contributor === false
+                    ? false
+                    : null
+    const icmsComplApplies = selectedCustomer?.is_icms_contributor === false // legado (display)
     const latestEmployeeIdRef = useRef<string | undefined>(undefined)
     const selectedEmployee = employees.find((e: any) => e.id === selectedEmployeeId) as any
     const sellerCommissionPct = (selectedEmployee?.commission_percent != null && Number(selectedEmployee.commission_percent) > 0)
@@ -617,6 +631,26 @@ function Budgets() {
             terceirizadas_unit: terceirizadas > 0 ? terceirizadas : null,
         }
     })
+    // Parâmetros de operação para a hierarquia do ICMS Complementar (Etapa 17). ST/DIFAL é
+    // por-produto; consolidamos como "algum item ativo" (bloqueio no nível da operação). Frete
+    // e seguro separados das demais despesas acessórias (FOB exclui frete; CIF contribuinte usa
+    // frete+seguro; não-contribuinte usa o total).
+    const findProd = (id?: string | null) => (products as any[]).find((x) => x.id === id)
+    const icmsComplParams = {
+        is_contributor: isContributor,
+        freight_mode: freightMode,
+        st_active: budgetItems.some((i) => !!findProd(i.product_id)?.icms_st_active),
+        difal_active: budgetItems.some((i) => !!findProd(i.product_id)?.difal_active),
+        freight: budgetItems.reduce((s, i) => {
+            const p = findProd(i.product_id)
+            return s + ((Number(p?.freight_value) || 0) + (Number(p?.insurance_value) || 0)) * (Number(i.quantity) || 0)
+        }, 0),
+        accessory: budgetItems.reduce((s, i) => {
+            const p = findProd(i.product_id)
+            return s + (Number(p?.accessory_expenses_value) || 0) * (Number(i.quantity) || 0)
+        }, 0),
+        override: icmsComplOverride,
+    }
     const v17Results = calculateMotorV17ForPage({
         items: enrichedItems,
         tenantCtx: {
@@ -633,6 +667,7 @@ function Budgets() {
         globalDiscountPercent,
         effectiveDate: reapurationEffectiveDate,
         icmsComplApplies,
+        icmsCompl: icmsComplParams,
     })
     // Preserva guard V16 — items sem componente distribuível retornam null
     const motorResultsByItem = budgetItems.map((i, idx) => {
@@ -929,6 +964,9 @@ function Budgets() {
                 icms_st_value: stDifalConsolidated.st,
                 difal_value: stDifalConsolidated.difal,
                 fcp_value: stDifalConsolidated.fcp,
+                // ICMS Complementar — parâmetros de operação da hierarquia (Etapa 17).
+                freight_mode: freightMode,
+                icms_compl_override: icmsComplOverride,
                 engine_version: mrmConfig.enabled ? MRM_ENGINE_VERSION : 'legacy',
                 expiration_date: values.expiration_date?.format('YYYY-MM-DD') || null,
                 notes: values.notes || null,
@@ -1102,6 +1140,9 @@ function Budgets() {
                 icms_st_value: stDifalConsolidated.st,
                 difal_value: stDifalConsolidated.difal,
                 fcp_value: stDifalConsolidated.fcp,
+                // ICMS Complementar — parâmetros de operação da hierarquia (Etapa 17).
+                freight_mode: freightMode,
+                icms_compl_override: icmsComplOverride,
                 engine_version: mrmConfig.enabled ? MRM_ENGINE_VERSION : 'legacy',
                 expiration_date: values.expiration_date?.format('YYYY-MM-DD') || null,
                 notes: values.notes || null,
@@ -1274,6 +1315,9 @@ function Budgets() {
             expiration_date: record.expiration_date ? dayjs(record.expiration_date) : undefined,
             notes: record.notes || undefined,
             payment_method: (record as any).payment_method || undefined,
+            // ICMS Complementar — parâmetros de operação da hierarquia (Etapa 17).
+            freight_mode: (record as any).freight_mode || 'CIF',
+            icms_compl_override: (record as any).icms_compl_override === 'FORCE_OFF' ? 'FORCE_OFF' : 'AUTO',
         })
         setBudgetFormInstallmentPreset((record as any).installment_preset || 'customizado')
         setBudgetFormWithEntry(false)
@@ -1390,6 +1434,9 @@ function Budgets() {
                 total_value: b.total_value || 0,
                 // ICMS Complementar — espelha o valor consolidado do orçamento de origem.
                 icms_compl_value: (b as any).icms_compl_value || 0,
+                // ICMS Complementar — parâmetros de operação da hierarquia (linhagem orçamento→pedido).
+                freight_mode: (b as any).freight_mode || 'CIF',
+                icms_compl_override: (b as any).icms_compl_override ?? null,
                 // EPIC-POR-FORA-V2: ICMS-ST / DIFAL / FCP — espelham o orçamento de origem.
                 icms_st_value: (b as any).icms_st_value || 0,
                 difal_value: (b as any).difal_value || 0,
@@ -1542,6 +1589,9 @@ function Budgets() {
                 status: 'COMPLETED',
                 commission_amount: Number(selectedBudget.commission_amount || 0),
                 profit_amount: Number(selectedBudget.profit_amount || 0),
+                // ICMS Complementar — parâmetros de operação da hierarquia (linhagem orçamento→venda).
+                freight_mode: (selectedBudget as any).freight_mode || 'CIF',
+                icms_compl_override: (selectedBudget as any).icms_compl_override ?? null,
             }).select().single()
 
             if (saleErr) throw saleErr
@@ -2476,6 +2526,37 @@ function Budgets() {
                             </Form.Item>
                         </>
                     )}
+
+                    {/* ICMS Complementar — hierarquia de ativação (documento oficial 2026-06-10).
+                        Parâmetros de OPERAÇÃO: o motor decide sozinho na Etapa 17 (destinatário
+                        contribuinte? · frete CIF/FOB · ST/DIFAL ativos). Avançado/raro → recolhido. */}
+                    <details style={{ marginTop: 4, marginBottom: 12, padding: '10px 14px', background: 'rgba(148, 163, 184, 0.06)', border: '1px solid rgba(148, 163, 184, 0.18)', borderRadius: 8 }}>
+                        <summary style={{ cursor: 'pointer', fontWeight: 600, color: '#cbd5e1', fontSize: 13 }}>
+                            🧾 Alíquotas tributárias adicionais (avançado)
+                        </summary>
+                        <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 8, marginBottom: 12 }}>
+                            <strong>ICMS Complementar</strong> (LC 87/96, art. 13, §1º, II): o sistema avalia
+                            automaticamente a hierarquia — destinatário contribuinte? · frete CIF/FOB · ST/DIFAL
+                            ativos — e decide se cobra. Ajuste a modalidade de frete da operação e, em casos
+                            excepcionais (ex.: isenção específica por estado), force a isenção.
+                        </div>
+                        <Form.Item name="freight_mode" label="Modalidade de frete" initialValue="CIF" style={{ marginBottom: 12 }}>
+                            <Segmented
+                                options={[
+                                    { label: 'CIF (frete na base)', value: 'CIF' },
+                                    { label: 'FOB (frete fora)', value: 'FOB' },
+                                ]}
+                            />
+                        </Form.Item>
+                        <Form.Item name="icms_compl_override" label="ICMS Complementar" initialValue="AUTO" style={{ marginBottom: 0 }}>
+                            <Segmented
+                                options={[
+                                    { label: 'Automático (hierarquia decide)', value: 'AUTO' },
+                                    { label: 'Forçar isenção (não cobrar)', value: 'FORCE_OFF' },
+                                ]}
+                            />
+                        </Form.Item>
+                    </details>
 
                     <Divider orientation="left" style={{ fontSize: 12, color: '#94a3b8' }}>Produtos e Serviços</Divider>
 

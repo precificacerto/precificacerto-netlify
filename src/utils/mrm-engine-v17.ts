@@ -77,6 +77,8 @@ export function calculateMotorV17(input: MotorV17Input): MotorV17Result {
     rates: input.rates,
     desp_acessorias: input.desp_acessorias,
     icms_compl_applies: input.icms_compl_applies,
+    icms_compl: input.icms_compl,
+    effective_date: input.effective_date,
   })
   messages.push(...absorptionResult.messages)
 

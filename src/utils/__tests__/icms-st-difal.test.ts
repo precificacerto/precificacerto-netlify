@@ -5,7 +5,8 @@
  * OpD 143.669,80 · frete 1.000 · MVA 40% · ALQ destino 17% · ALQ origem 12%).
  */
 
-import { computeIcmsSt, computeDifal, computeIcmsComplementar, mvaAjustada, consolidateStDifalFromItems, computeTotalACobrar, computeAdvancedOutsideTaxes } from '../icms-st-difal'
+import { computeIcmsSt, computeDifal, computeIcmsComplementar, mvaAjustada, consolidateStDifalFromItems, computeTotalACobrar, computeAdvancedOutsideTaxes, resolveIcmsComplementar } from '../icms-st-difal'
+import type { ResolveIcmsComplInput } from '../icms-st-difal'
 
 const round = (v: number) => Math.round(v * 100) / 100
 const round4 = (v: number) => Math.round(v * 10000) / 10000
@@ -201,5 +202,102 @@ describe('computeAdvancedOutsideTaxes — fonte única (EPIC-POR-FORA-V3): exibi
     expect(r.total).toBe(0)
     expect(r.st).toBeNull()
     expect(r.difal).toBeNull()
+  })
+})
+
+// ───────── Hierarquia de ativação do ICMS Complementar (documento oficial 2026-06-10) ─────────
+
+describe('resolveIcmsComplementar — hierarquia de 3 níveis', () => {
+  // Base canônica do documento: IPI 1.000, frete+seguro 8.443,49−... — usamos valores simples
+  // e verificáveis à mão. Alíquota ICMS herdada = 17% (interna).
+  const base: ResolveIcmsComplInput = {
+    isContributor: false,
+    freightMode: 'CIF',
+    stActive: false,
+    difalActive: false,
+    ipiValue: 1000,
+    freight: 5000,    // frete + seguro
+    accessory: 500,   // despesas acessórias
+    icmsRate: 17,
+  }
+
+  it('Nível 2B — não-contribuinte, sem ST/DIFAL → base IPI+frete+seguro+desp (17%)', () => {
+    const r = resolveIcmsComplementar({ ...base, isContributor: false })
+    expect(r.applies).toBe(true)
+    expect(r.reason).toBe('NAO_CONTRIB_AUTO')
+    expect(r.base).toBe(6500) // 1000 + 5000 + 500
+    expect(round(r.value)).toBe(round(6500 * 0.17)) // 1.105,00
+  })
+
+  it('Nível 2B — não-contribuinte com DIFAL ativo → BLOQUEADO', () => {
+    const r = resolveIcmsComplementar({ ...base, isContributor: false, difalActive: true })
+    expect(r.applies).toBe(false)
+    expect(r.value).toBe(0)
+    expect(r.reason).toBe('NAO_CONTRIB_ST_DIFAL')
+  })
+
+  it('Nível 2B — não-contribuinte com ST ativo → BLOQUEADO', () => {
+    const r = resolveIcmsComplementar({ ...base, isContributor: false, stActive: true })
+    expect(r.applies).toBe(false)
+    expect(r.reason).toBe('NAO_CONTRIB_ST_DIFAL')
+  })
+
+  it('Nível 2A — contribuinte FOB → parcial, base SÓ IPI (frete fora)', () => {
+    const r = resolveIcmsComplementar({ ...base, isContributor: true, freightMode: 'FOB' })
+    expect(r.applies).toBe(true)
+    expect(r.reason).toBe('CONTRIB_FOB_PARCIAL')
+    expect(r.base).toBe(1000) // só IPI
+    expect(round(r.value)).toBe(round(1000 * 0.17)) // 170,00
+  })
+
+  it('Nível 3 — contribuinte CIF, sem ST → base IPI+frete (sem desp. acessórias)', () => {
+    const r = resolveIcmsComplementar({ ...base, isContributor: true, freightMode: 'CIF' })
+    expect(r.applies).toBe(true)
+    expect(r.reason).toBe('CONTRIB_CIF_AUTO')
+    expect(r.base).toBe(6000) // 1000 + 5000 (frete+seguro), SEM accessory 500
+    expect(round(r.value)).toBe(round(6000 * 0.17)) // 1.020,00
+  })
+
+  it('Nível 3 — contribuinte CIF com ST ativo → BLOQUEADO (ST absorve)', () => {
+    const r = resolveIcmsComplementar({ ...base, isContributor: true, freightMode: 'CIF', stActive: true })
+    expect(r.applies).toBe(false)
+    expect(r.reason).toBe('CONTRIB_CIF_ST')
+  })
+
+  it('IS só entra na base a partir de 2027 (isVigente)', () => {
+    const com2026 = resolveIcmsComplementar({ ...base, isContributor: false, isValue: 2000, isVigente: false })
+    const com2027 = resolveIcmsComplementar({ ...base, isContributor: false, isValue: 2000, isVigente: true })
+    expect(com2026.base).toBe(6500)          // IS fora em 2026
+    expect(com2027.base).toBe(8500)          // 6500 + 2000 IS em 2027
+  })
+
+  it('Override FORCE_OFF isenta qualquer ramo', () => {
+    const r = resolveIcmsComplementar({ ...base, isContributor: false, override: 'FORCE_OFF' })
+    expect(r.applies).toBe(false)
+    expect(r.value).toBe(0)
+    expect(r.reason).toBe('OVERRIDE_OFF')
+  })
+
+  it('Sem destinatário (isContributor null) → não cobra (legado preservado)', () => {
+    const r = resolveIcmsComplementar({ ...base, isContributor: null })
+    expect(r.applies).toBe(false)
+    expect(r.reason).toBe('SEM_DESTINATARIO')
+  })
+
+  it('Alíquota é herdada — muda a alíquota, recalcula o valor (sem armazenar)', () => {
+    const a = resolveIcmsComplementar({ ...base, isContributor: false, icmsRate: 17 })
+    const b = resolveIcmsComplementar({ ...base, isContributor: false, icmsRate: 12 })
+    expect(round(a.value)).toBe(round(6500 * 0.17))
+    expect(round(b.value)).toBe(round(6500 * 0.12))
+  })
+
+  it('Cenário do documento: base 8.443,49 × 17% = R$ 1.435,39', () => {
+    // base_ICMS_COMPL = IPI + frete + desp = 8.443,49 (não-contribuinte, automático).
+    const r = resolveIcmsComplementar({
+      isContributor: false, freightMode: 'CIF', stActive: false, difalActive: false,
+      ipiValue: 7243.49, freight: 1200, accessory: 0, icmsRate: 17,
+    })
+    expect(round(r.base)).toBe(8443.49)
+    expect(round(r.value)).toBe(1435.39)
   })
 })

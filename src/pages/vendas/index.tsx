@@ -294,6 +294,34 @@ function Sales() {
         customers.find((c) => c.id === customerId)?.is_icms_contributor === false
     const selectedCustomerIdV = Form.useWatch('customer_id', form)
     const icmsComplAppliesV = resolveIcmsComplApplies(selectedCustomerIdV)
+    // ICMS Complementar — hierarquia de ativação (documento oficial 2026-06-10): destinatário
+    // (contribuinte?) + frete (CIF/FOB) + bloqueio ST/DIFAL + override. O motor decide na Etapa 17.
+    const freightModeV: 'CIF' | 'FOB' = (Form.useWatch('freight_mode', form) as 'CIF' | 'FOB') ?? 'CIF'
+    const icmsComplOverrideV: 'FORCE_OFF' | null =
+        Form.useWatch('icms_compl_override', form) === 'FORCE_OFF' ? 'FORCE_OFF' : null
+    // Consolida os parâmetros de OPERAÇÃO da hierarquia para um destinatário. ST/DIFAL é por-produto
+    // (bloqueio quando "algum item ativo"); frete+seguro separados das demais despesas acessórias.
+    const buildIcmsComplParams = (customerId?: string | null) => {
+        const cust = customers.find((c) => c.id === customerId)
+        const is_contributor: boolean | null =
+            cust == null ? null : cust.is_icms_contributor === true ? true : cust.is_icms_contributor === false ? false : null
+        const findProd = (id?: string | null) => (products as any[]).find((x) => x.id === id)
+        return {
+            is_contributor,
+            freight_mode: freightModeV,
+            st_active: saleItems.some((i) => !!findProd(i.product_id)?.icms_st_active),
+            difal_active: saleItems.some((i) => !!findProd(i.product_id)?.difal_active),
+            freight: saleItems.reduce((s, i) => {
+                const p = findProd(i.product_id)
+                return s + ((Number(p?.freight_value) || 0) + (Number(p?.insurance_value) || 0)) * (Number(i.quantity) || 0)
+            }, 0),
+            accessory: saleItems.reduce((s, i) => {
+                const p = findProd(i.product_id)
+                return s + (Number(p?.accessory_expenses_value) || 0) * (Number(i.quantity) || 0)
+            }, 0),
+            override: icmsComplOverrideV,
+        }
+    }
     const latestEmployeeIdVRef = useRef<string | undefined>(undefined)
 
     useEffect(() => {
@@ -596,6 +624,9 @@ function Sales() {
                 icms_st_value: (selectedBudget as any).icms_st_value || 0,
                 difal_value: (selectedBudget as any).difal_value || 0,
                 fcp_value: (selectedBudget as any).fcp_value || 0,
+                // ICMS Complementar — parâmetros de operação da hierarquia (linhagem orçamento→venda).
+                freight_mode: (selectedBudget as any).freight_mode || 'CIF',
+                icms_compl_override: (selectedBudget as any).icms_compl_override ?? null,
             }).select().single()
             if (saleErr) throw saleErr
 
@@ -1094,6 +1125,7 @@ function Sales() {
         globalDiscountPercent: globalDiscountPercentV,
         effectiveDate: balcaoReapurationDate,
         icmsComplApplies: icmsComplAppliesV,
+        icmsCompl: buildIcmsComplParams(selectedCustomerIdV),
     })
     const balcaoMotorResultsByItem = saleItems.map((i, idx) => {
         const itemBase = (Number(i.unit_price) || 0) * (Number(i.quantity) || 0)
@@ -1269,6 +1301,7 @@ function Sales() {
                     globalDiscountPercent: globalDiscountPercentV,
                     effectiveDate: reapDate,
                     icmsComplApplies: resolveIcmsComplApplies(formValues.customer_id),
+                    icmsCompl: buildIcmsComplParams(formValues.customer_id),
                 })
                 // RRO consolidado é o mesmo para todos os items rateados (V17)
                 const consolidatedRro = previewResults.find(r => r != null)?.rro ?? 0
@@ -1328,6 +1361,7 @@ function Sales() {
                 globalDiscountPercent: globalDiscountPercentV,
                 effectiveDate: reapurationEffectiveDateSale,
                 icmsComplApplies: resolveIcmsComplApplies(formValues.customer_id),
+                icmsCompl: buildIcmsComplParams(formValues.customer_id),
             })
             const commissionAmount = saveV17Results.reduce(
                 (sum, result) => sum + (result?.new_commission ?? 0),
@@ -1411,6 +1445,9 @@ function Sales() {
                 icms_st_value: stDifalSale.st,
                 difal_value: stDifalSale.difal,
                 fcp_value: stDifalSale.fcp,
+                // ICMS Complementar — parâmetros de operação da hierarquia (Etapa 17).
+                freight_mode: freightModeV,
+                icms_compl_override: icmsComplOverrideV,
                 // Epic MRM-V6 (ADR-009): persistimos o modo escolhido pelo usuário sem coerção.
                 discount_mode: discountModeV,
                 engine_version: mrmConfig.enabled ? MRM_ENGINE_VERSION : 'legacy',
@@ -2414,6 +2451,37 @@ function Sales() {
                             {customers.map(c => (<Select.Option key={c.id} value={c.id}>{c.name}</Select.Option>))}
                         </Select>
                     </Form.Item>
+
+                    {/* ICMS Complementar — hierarquia de ativação (documento oficial 2026-06-10).
+                        Parâmetros de OPERAÇÃO: o motor decide sozinho na Etapa 17 (destinatário
+                        contribuinte? · frete CIF/FOB · ST/DIFAL ativos). Avançado/raro → recolhido. */}
+                    <details style={{ marginBottom: 12, padding: '10px 14px', background: 'rgba(148, 163, 184, 0.06)', border: '1px solid rgba(148, 163, 184, 0.18)', borderRadius: 8 }}>
+                        <summary style={{ cursor: 'pointer', fontWeight: 600, color: '#cbd5e1', fontSize: 13 }}>
+                            🧾 Alíquotas tributárias adicionais (avançado)
+                        </summary>
+                        <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 8, marginBottom: 12 }}>
+                            <strong>ICMS Complementar</strong> (LC 87/96, art. 13, §1º, II): o sistema avalia
+                            automaticamente a hierarquia — destinatário contribuinte? · frete CIF/FOB · ST/DIFAL
+                            ativos — e decide se cobra. Ajuste a modalidade de frete da operação e, em casos
+                            excepcionais (ex.: isenção específica por estado), force a isenção.
+                        </div>
+                        <Form.Item name="freight_mode" label="Modalidade de frete" initialValue="CIF" style={{ marginBottom: 12 }}>
+                            <Segmented
+                                options={[
+                                    { label: 'CIF (frete na base)', value: 'CIF' },
+                                    { label: 'FOB (frete fora)', value: 'FOB' },
+                                ]}
+                            />
+                        </Form.Item>
+                        <Form.Item name="icms_compl_override" label="ICMS Complementar" initialValue="AUTO" style={{ marginBottom: 0 }}>
+                            <Segmented
+                                options={[
+                                    { label: 'Automático (hierarquia decide)', value: 'AUTO' },
+                                    { label: 'Forçar isenção (não cobrar)', value: 'FORCE_OFF' },
+                                ]}
+                            />
+                        </Form.Item>
+                    </details>
 
                     {selectedEmployeeIdV && employeeHasNoTablesV && (
                         <div style={{ background: 'rgba(249,115,22,0.1)', border: '1px solid rgba(249,115,22,0.3)', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 12, color: '#fdba74' }}>

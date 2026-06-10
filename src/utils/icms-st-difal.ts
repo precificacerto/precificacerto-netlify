@@ -181,10 +181,121 @@ export function computeDifal(input: DifalInput): DifalResult {
 /**
  * ICMS Complementar (LC 87/96 art. 13 §1º II) = (IPI + Desp. Acessórias) × alíq. ICMS.
  * Devido apenas a consumidor final NÃO contribuinte. NÃO sofre desconto (BC fixa).
+ *
+ * LEGADO: cálculo plano sem a hierarquia de ativação. Mantido como fallback interno e
+ * para retrocompatibilidade. Para a decisão completa (contribuinte / CIF-FOB / bloqueio
+ * ST-DIFAL / override), use `resolveIcmsComplementar`.
  */
 export function computeIcmsComplementar(ipiValue: number, despAcessorias: number, icmsPct: number): number {
   const base = val(ipiValue) + val(despAcessorias)
   return base * pct(icmsPct)
+}
+
+// ───────── Hierarquia de ativação do ICMS Complementar (documento oficial 2026-06-10) ─────────
+
+/** Modalidade de frete da OPERAÇÃO (definida no pedido). */
+export type FreightMode = 'CIF' | 'FOB'
+
+/**
+ * Override manual do ICMS Complementar (casos excepcionais — ex.: isenção específica por estado).
+ * `null` = automático (a hierarquia decide). `FORCE_OFF` = isenta a operação.
+ */
+export type IcmsComplOverride = 'FORCE_OFF' | null
+
+export interface ResolveIcmsComplInput {
+  /**
+   * Destinatário é contribuinte do ICMS? (`customers.is_icms_contributor`).
+   * `null`/`undefined` = destinatário não resolvido (ex.: orçamento sem cliente) → não cobra,
+   * preservando o comportamento legado (nenhuma cobrança sem destinatário definido).
+   */
+  isContributor: boolean | null | undefined
+  /** Modalidade de frete da operação (CIF/FOB). Default conservador = CIF. */
+  freightMode: FreightMode
+  /** Algum item da operação tem ICMS-ST ativo (acionador do produto). */
+  stActive: boolean
+  /** Algum item da operação tem DIFAL ativo (acionador do produto). */
+  difalActive: boolean
+  /** Valor do IPI apurado (R$). */
+  ipiValue: number
+  /** Frete + seguro (R$) — a parcela de transporte da base. Excluída na modalidade FOB. */
+  freight: number
+  /** Demais despesas acessórias cobradas do adquirente (R$). */
+  accessory: number
+  /** Valor do Imposto Seletivo (R$) — só entra na base a partir de 2027 (`isVigente`). */
+  isValue?: number
+  /** Alíquota ICMS herdada da operação (base 100): 17 interna, 12 interestadual. */
+  icmsRate: number
+  /** IS vigente? (operação com `effective_date >= 2027-01-01`). Default false. */
+  isVigente?: boolean
+  /** Override manual (`FORCE_OFF` isenta; `null`/ausente = automático). */
+  override?: IcmsComplOverride
+}
+
+export interface ResolveIcmsComplResult {
+  /** ICMS Complementar é devido nesta operação? */
+  applies: boolean
+  /** Base de cálculo apurada (R$). 0 quando bloqueado/isento. */
+  base: number
+  /** Valor do ICMS Complementar (R$) = base × alíq. ICMS. */
+  value: number
+  /**
+   * Código do ramo decidido (auditoria): OVERRIDE_OFF | SEM_DESTINATARIO |
+   * NAO_CONTRIB_ST_DIFAL | NAO_CONTRIB_AUTO | CONTRIB_FOB_PARCIAL | CONTRIB_CIF_ST |
+   * CONTRIB_CIF_AUTO.
+   */
+  reason: string
+}
+
+/**
+ * Resolve a hierarquia de ativação do ICMS Complementar (documento oficial + fluxograma,
+ * 2026-06-10). Fonte ÚNICA da decisão — consumida pela Etapa 17 (`absorption.ts`).
+ *
+ * Sequência (espelha o fluxograma):
+ *   0. override FORCE_OFF      → isenta (0).
+ *   0b. destinatário ausente   → não cobra (0), preserva comportamento legado.
+ *   N1: contribuinte do ICMS?
+ *     ├─ NÃO (consumidor final) → N2B: ST ou DIFAL ativo? → BLOQUEADO ; senão base = IPI+frete+seguro+desp.acess.
+ *     └─ SIM (contribuinte)     → N2A: frete CIF/FOB?
+ *           ├─ FOB → base = só IPI (frete fora) — cobra parcial, NÃO bloqueia.
+ *           └─ CIF → N3: ST ativo? → BLOQUEADO (ST absorve) ; senão base = IPI+frete+seguro.
+ *
+ * Camada de base (acumulativa): IPI + frete(+seguro) + desp.acess + IS — porém PODADA por ramo.
+ * O IS (`isValue`) só compõe a base quando `isVigente` (>= 2027). A alíquota é herdada
+ * (`icmsRate`), nunca armazenada: muda a alíquota → o valor recalcula automaticamente.
+ */
+export function resolveIcmsComplementar(i: ResolveIcmsComplInput): ResolveIcmsComplResult {
+  const ipi = val(i.ipiValue)
+  const freight = val(i.freight)
+  const accessory = val(i.accessory)
+  const isPart = i.isVigente ? val(i.isValue) : 0
+  const rate = pct(i.icmsRate)
+
+  const block = (reason: string): ResolveIcmsComplResult => ({ applies: false, base: 0, value: 0, reason })
+  const charge = (rawBase: number, reason: string): ResolveIcmsComplResult => {
+    const base = Math.max(0, rawBase)
+    return { applies: base > 0 && rate > 0, base, value: base * rate, reason }
+  }
+
+  // 0. Override de isenção vence tudo.
+  if (i.override === 'FORCE_OFF') return block('OVERRIDE_OFF')
+
+  // 0b. Sem destinatário resolvido → não cobra (legado).
+  if (i.isContributor == null) return block('SEM_DESTINATARIO')
+
+  // Nível 1 — destinatário NÃO contribuinte (consumidor final) → Nível 2B.
+  if (i.isContributor === false) {
+    if (i.stActive || i.difalActive) return block('NAO_CONTRIB_ST_DIFAL')
+    return charge(ipi + freight + accessory + isPart, 'NAO_CONTRIB_AUTO')
+  }
+
+  // Nível 2A — destinatário contribuinte → frete CIF/FOB.
+  if (i.freightMode === 'FOB') {
+    // Frete fora da base do vendedor → ICMS Compl. incide só sobre o IPI.
+    return charge(ipi + isPart, 'CONTRIB_FOB_PARCIAL')
+  }
+  // CIF → Nível 3: ST ativo bloqueia (substituição já absorve o ICMS da cadeia).
+  if (i.stActive) return block('CONTRIB_CIF_ST')
+  return charge(ipi + freight + isPart, 'CONTRIB_CIF_AUTO')
 }
 
 // ───────── Fonte única: tributos avançados "por fora" a partir da base (EPIC-POR-FORA-V3) ─────────

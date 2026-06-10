@@ -22,6 +22,7 @@
 import type {
   AbsorptionPolicy,
   EngineItemV17,
+  IcmsComplMotorInput,
   MotorV17Input,
   MotorV17Result,
   TaxBreakdown,
@@ -103,6 +104,12 @@ export interface PageBuildArgs {
   tenantCtx: PageTenantCtx
   globalDiscountPercent: number
   effectiveDate?: string
+  /**
+   * Hierarquia completa do ICMS Complementar da OPERAÇÃO (destinatário contribuinte? + frete
+   * CIF/FOB + bloqueio ST/DIFAL + override). Quando presente, substitui o binário
+   * `icmsComplApplies`. Frete/accessory já consolidados pelo caller (página).
+   */
+  icmsCompl?: IcmsComplMotorInput
   /**
    * Ativa o ICMS Complementar (LC 87/1996, art. 13, §1º, II) na Etapa 17: só quando o
    * destinatário for consumidor final NÃO contribuinte do ICMS
@@ -418,6 +425,7 @@ export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResul
     use_snapshot_rates: tenantCtx.useSnapshotRates ?? false,
     desp_acessorias: despAcessoriasTotal,
     icms_compl_applies: args.icmsComplApplies ?? false,
+    icms_compl: args.icmsCompl,
   }
 
   const v17Result = calculateMotorV17(v17Input)
@@ -640,6 +648,8 @@ export function calculateMotorV17ForPageFull(args: PageBuildArgs): {
     rates: args.tenantCtx.rates ?? [],
     effective_date: args.effectiveDate ?? new Date().toISOString().slice(0, 10),
     use_snapshot_rates: args.tenantCtx.useSnapshotRates ?? false,
+    icms_compl_applies: args.icmsComplApplies ?? false,
+    icms_compl: args.icmsCompl,
   })
 
   return { per_item, consolidated }

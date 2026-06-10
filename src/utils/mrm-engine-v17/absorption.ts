@@ -18,6 +18,7 @@ import type {
   AbsorptionPolicy,
   ConsolidatedView,
   FinalDistribution,
+  IcmsComplMotorInput,
   MotorOutput,
   TaxLine,
   TaxRatePeriod,
@@ -25,6 +26,7 @@ import type {
   ValidationMap,
 } from '@/types/mrm'
 import { computeIvaDualFromBase } from '@/utils/iva-dual-outside'
+import { resolveIcmsComplementar } from '@/utils/icms-st-difal'
 
 interface ApplyAbsorptionInput {
   view: ConsolidatedView
@@ -33,8 +35,12 @@ interface ApplyAbsorptionInput {
   rates: TaxRatePeriod[]
   /** Despesas Acessórias consolidadas (frete + seguro + despesas acessórias, R$). */
   desp_acessorias?: number
-  /** Ativa ICMS Complementar (destinatário consumidor final NÃO contribuinte do ICMS). */
+  /** Ativa ICMS Complementar (LEGADO binário — usado só quando `icms_compl` ausente). */
   icms_compl_applies?: boolean
+  /** Hierarquia completa do ICMS Complementar (substitui o binário quando presente). */
+  icms_compl?: IcmsComplMotorInput
+  /** Data de vigência da operação (YYYY-MM-DD) — habilita IS na base do ICMS Compl. a partir de 2027. */
+  effective_date?: string
 }
 
 interface ApplyAbsorptionResult {
@@ -132,9 +138,30 @@ export function applyAbsorptionPolicy(input: ApplyAbsorptionInput): ApplyAbsorpt
   pushLine('CBS', cbs_rate, iva.baseIbsCbs, iva.cbsValue)
   // Etapa 8: IPI destacado sobre Âncora + Desp. Acessórias (RIPI art. 190).
   pushLine('IPI', ipi_rate, iva.ipiBase, iva.ipiValue)
-  // ICMS Complementar: (IPI + Desp. Acessórias) × alíq.ICMS — só consumidor final NÃO contribuinte.
-  if (input.icms_compl_applies) {
-    pushLine('ICMS_COMPL', icms_rate, iva.icmsComplBase, iva.icmsComplValue)
+  // ICMS Complementar — hierarquia de ativação completa (documento oficial 2026-06-10):
+  // destinatário (contribuinte?) + frete (CIF/FOB) + bloqueio ST/DIFAL + override. A alíquota é
+  // herdada (icms_rate) e a base é apurada com o IPI e o IS já calculados (IS só vigora >= 2027).
+  // Quando `input.icms_compl` está ausente, mantém o comportamento legado binário (retrocompat).
+  const isVigente = (input.effective_date ?? '') >= '2027-01-01'
+  const icmsCompl = input.icms_compl
+    ? resolveIcmsComplementar({
+        isContributor: input.icms_compl.is_contributor,
+        freightMode: input.icms_compl.freight_mode,
+        stActive: input.icms_compl.st_active,
+        difalActive: input.icms_compl.difal_active,
+        ipiValue: iva.ipiValue,
+        freight: input.icms_compl.freight,
+        accessory: input.icms_compl.accessory,
+        isValue: iva.isValue,
+        icmsRate: icms_rate * 100, // resolveIcmsComplementar usa base 100
+        isVigente,
+        override: input.icms_compl.override,
+      })
+    : input.icms_compl_applies
+      ? { applies: iva.icmsComplValue > 0, base: iva.icmsComplBase, value: iva.icmsComplValue, reason: 'LEGACY_APPLIES' }
+      : { applies: false, base: 0, value: 0, reason: 'LEGACY_OFF' }
+  if (icmsCompl.applies) {
+    pushLine('ICMS_COMPL', icms_rate, icmsCompl.base, icmsCompl.value)
   }
   // ICMS-ST / DIFAL / FCP: tributos avançados com base própria (BC própria + MVA + presumido−próprio
   // / base simples-dupla), recalculados sobre a âncora pós-desconto, que NÃO integram a cascata do
