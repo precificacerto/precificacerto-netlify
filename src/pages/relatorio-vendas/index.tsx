@@ -109,6 +109,17 @@ const { RangePicker } = DatePicker
 
 const formatCurrency = formatBRL
 
+// Frente 4 (mobile): em containers estreitos o AntD Empty quebra o texto letra-a-letra.
+// Forçamos quebra por palavra. Estilo inline (sem tocar globals.scss).
+const emptyTextStyle: React.CSSProperties = {
+    display: 'block',
+    wordBreak: 'normal',
+    overflowWrap: 'anywhere',
+    whiteSpace: 'normal',
+    maxWidth: 320,
+    margin: '0 auto',
+}
+
 /**
  * Sprint Mai/2026 — formata data tolerante a null/undefined/formatos inesperados.
  * Aceita 'YYYY-MM-DD', timestamps ISO completos, Date objects e strings vazias.
@@ -2051,7 +2062,7 @@ function SalesReport() {
                             <CardKPI title="Lançamentos Pendentes" value={recData.length} icon={<DollarOutlined />} variant="blue" />
                         </div>
 
-                        <div className="filter-bar" style={{ marginBottom: 16, display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
+                        <div className="filter-bar" style={{ marginBottom: 16, display: 'flex', flexWrap: 'wrap', gap: isMobile ? 8 : 12, alignItems: 'center' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                                 <FilterOutlined style={{ color: '#94a3b8' }} />
                                 <span style={{ color: '#94a3b8', fontSize: 13 }}>Filtros:</span>
@@ -2064,14 +2075,16 @@ function SalesReport() {
                                 }}
                                 format="DD/MM/YYYY"
                                 placeholder={['Data inicial', 'Data final']}
-                                style={{ minWidth: 260 }}
+                                size={isMobile ? 'small' : 'middle'}
+                                style={isMobile ? { width: '100%', minWidth: 0 } : { minWidth: 260 }}
                             />
                             <Select
                                 placeholder="Vendedor"
                                 value={recEmployeeFilter}
                                 onChange={setRecEmployeeFilter}
                                 allowClear
-                                style={{ minWidth: 200 }}
+                                size={isMobile ? 'small' : 'middle'}
+                                style={isMobile ? { flex: '1 1 45%', minWidth: 0 } : { minWidth: 200 }}
                                 options={(employees as any[]).map((e: any) => ({ value: e.id, label: e.name }))}
                             />
                             <Select
@@ -2081,10 +2094,11 @@ function SalesReport() {
                                 allowClear
                                 showSearch
                                 optionFilterProp="label"
-                                style={{ minWidth: 200 }}
+                                size={isMobile ? 'small' : 'middle'}
+                                style={isMobile ? { flex: '1 1 45%', minWidth: 0 } : { minWidth: 200 }}
                                 options={allCustomers}
                             />
-                            <Button icon={<ReloadOutlined />} onClick={fetchReceivables} loading={recLoading}>
+                            <Button icon={<ReloadOutlined />} onClick={fetchReceivables} loading={recLoading} size={isMobile ? 'small' : 'middle'} style={isMobile ? { flex: '1 1 100%' } : undefined}>
                                 Atualizar
                             </Button>
                         </div>
@@ -2101,7 +2115,7 @@ function SalesReport() {
                                 emptyText: (
                                     <Empty
                                         image={Empty.PRESENTED_IMAGE_SIMPLE}
-                                        description="Nenhum lançamento a receber pendente."
+                                        description={<span style={emptyTextStyle}>Nenhum lançamento a receber pendente.</span>}
                                     />
                                 ),
                             }}
@@ -2128,7 +2142,7 @@ function SalesReport() {
                         </div>
 
                         {/* Commissions Filters */}
-                        <div className="filter-bar" style={{ marginBottom: 16, display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
+                        <div className="filter-bar" style={{ marginBottom: 16, display: 'flex', flexWrap: 'wrap', gap: isMobile ? 8 : 10, alignItems: 'center' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
                                 <FilterOutlined style={{ color: '#94a3b8' }} />
                                 <span style={{ color: '#94a3b8', fontSize: 13 }}>Filtros:</span>
@@ -2140,14 +2154,16 @@ function SalesReport() {
                                 }}
                                 format="DD/MM/YYYY"
                                 allowClear={false}
-                                style={{ width: 220 }}
+                                size={isMobile ? 'small' : 'middle'}
+                                style={isMobile ? { width: '100%', minWidth: 0 } : { width: 220 }}
                             />
                             <Select
                                 placeholder="Vendedor"
                                 value={commEmployeeFilter}
                                 onChange={setCommEmployeeFilter}
                                 allowClear
-                                style={{ width: 150 }}
+                                size={isMobile ? 'small' : 'middle'}
+                                style={isMobile ? { flex: '1 1 45%', minWidth: 0 } : { width: 150 }}
                                 options={(employees as any[]).map((e: any) => ({ value: e.id, label: e.name }))}
                             />
                             <Select
@@ -2157,7 +2173,8 @@ function SalesReport() {
                                 allowClear
                                 showSearch
                                 optionFilterProp="label"
-                                style={{ width: 150 }}
+                                size={isMobile ? 'small' : 'middle'}
+                                style={isMobile ? { flex: '1 1 45%', minWidth: 0 } : { width: 150 }}
                                 options={commData.map(r => ({ value: r.saleId, label: r.saleCode }))}
                             />
                             <Select
@@ -2167,11 +2184,12 @@ function SalesReport() {
                                 allowClear
                                 showSearch
                                 optionFilterProp="label"
-                                style={{ width: 170 }}
+                                size={isMobile ? 'small' : 'middle'}
+                                style={isMobile ? { flex: '1 1 45%', minWidth: 0 } : { width: 170 }}
                                 options={allProducts}
                             />
-                            <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexShrink: 0 }}>
-                                <Button icon={<ReloadOutlined />} onClick={fetchCommissionsReport} loading={commLoading}>
+                            <div style={{ marginLeft: isMobile ? 0 : 'auto', display: 'flex', gap: 8, flexShrink: 0, width: isMobile ? '100%' : undefined }}>
+                                <Button icon={<ReloadOutlined />} onClick={fetchCommissionsReport} loading={commLoading} size={isMobile ? 'small' : 'middle'} style={isMobile ? { flex: 1 } : undefined}>
                                     Atualizar
                                 </Button>
                                 <Button
@@ -2179,6 +2197,8 @@ function SalesReport() {
                                     onClick={() => setCommExportModalOpen(true)}
                                     disabled={!commData.length}
                                     type="primary"
+                                    size={isMobile ? 'small' : 'middle'}
+                                    style={isMobile ? { flex: 1 } : undefined}
                                 >
                                     Exportar
                                 </Button>
@@ -2206,7 +2226,7 @@ function SalesReport() {
                                 emptyText: (
                                     <Empty
                                         image={Empty.PRESENTED_IMAGE_SIMPLE}
-                                        description="Nenhuma venda encontrada no período selecionado."
+                                        description={<span style={emptyTextStyle}>Nenhuma venda encontrada no período selecionado.</span>}
                                     />
                                 ),
                             }}
@@ -2223,7 +2243,7 @@ function SalesReport() {
                         </div>
 
                         {/* Product Filters */}
-                        <div className="filter-bar" style={{ marginBottom: 16, display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
+                        <div className="filter-bar" style={{ marginBottom: 16, display: 'flex', flexWrap: 'wrap', gap: isMobile ? 8 : 10, alignItems: 'center' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
                                 <FilterOutlined style={{ color: '#94a3b8' }} />
                                 <span style={{ color: '#94a3b8', fontSize: 13 }}>Filtros:</span>
@@ -2237,14 +2257,16 @@ function SalesReport() {
                                 }}
                                 format="DD/MM/YYYY"
                                 allowClear={false}
-                                style={{ width: 220 }}
+                                size={isMobile ? 'small' : 'middle'}
+                                style={isMobile ? { width: '100%', minWidth: 0 } : { width: 220 }}
                             />
                             <Select
                                 placeholder="Vendedor"
                                 value={abcEmployeeFilter}
                                 onChange={setAbcEmployeeFilter}
                                 allowClear
-                                style={{ width: 160 }}
+                                size={isMobile ? 'small' : 'middle'}
+                                style={isMobile ? { flex: '1 1 45%', minWidth: 0 } : { width: 160 }}
                                 options={[
                                     ...(employees as any[]).map((e: any) => ({ value: e.id, label: e.name })),
                                 ]}
@@ -2256,7 +2278,8 @@ function SalesReport() {
                                 allowClear
                                 showSearch
                                 optionFilterProp="label"
-                                style={{ width: 170 }}
+                                size={isMobile ? 'small' : 'middle'}
+                                style={isMobile ? { flex: '1 1 45%', minWidth: 0 } : { width: 170 }}
                                 options={allProducts}
                             />
                             <Select
@@ -2266,11 +2289,12 @@ function SalesReport() {
                                 allowClear
                                 showSearch
                                 optionFilterProp="label"
-                                style={{ width: 170 }}
+                                size={isMobile ? 'small' : 'middle'}
+                                style={isMobile ? { flex: '1 1 45%', minWidth: 0 } : { width: 170 }}
                                 options={allCustomers}
                             />
-                            <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexShrink: 0 }}>
-                                <Button icon={<ReloadOutlined />} onClick={fetchAbcReport} loading={abcLoading}>
+                            <div style={{ marginLeft: isMobile ? 0 : 'auto', display: 'flex', gap: 8, flexShrink: 0, width: isMobile ? '100%' : undefined }}>
+                                <Button icon={<ReloadOutlined />} onClick={fetchAbcReport} loading={abcLoading} size={isMobile ? 'small' : 'middle'} style={isMobile ? { flex: 1 } : undefined}>
                                     Atualizar
                                 </Button>
                                 <Button
@@ -2278,6 +2302,8 @@ function SalesReport() {
                                     onClick={() => setProductExportModalOpen(true)}
                                     disabled={!abcData.length}
                                     type="primary"
+                                    size={isMobile ? 'small' : 'middle'}
+                                    style={isMobile ? { flex: 1 } : undefined}
                                 >
                                     Exportar
                                 </Button>
@@ -2306,7 +2332,7 @@ function SalesReport() {
                                 emptyText: (
                                     <Empty
                                         image={Empty.PRESENTED_IMAGE_SIMPLE}
-                                        description="Nenhuma venda encontrada no período selecionado. Ajuste os filtros ou registre vendas via orçamentos."
+                                        description={<span style={emptyTextStyle}>Nenhuma venda encontrada no período selecionado. Ajuste os filtros ou registre vendas via orçamentos.</span>}
                                     />
                                 ),
                             }}
@@ -2323,7 +2349,7 @@ function SalesReport() {
                         </div>
 
                         {/* Service Filters */}
-                        <div className="filter-bar" style={{ marginBottom: 16, display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
+                        <div className="filter-bar" style={{ marginBottom: 16, display: 'flex', flexWrap: 'wrap', gap: isMobile ? 8 : 10, alignItems: 'center' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
                                 <FilterOutlined style={{ color: '#94a3b8' }} />
                                 <span style={{ color: '#94a3b8', fontSize: 13 }}>Filtros:</span>
@@ -2337,14 +2363,16 @@ function SalesReport() {
                                 }}
                                 format="DD/MM/YYYY"
                                 allowClear={false}
-                                style={{ width: 220 }}
+                                size={isMobile ? 'small' : 'middle'}
+                                style={isMobile ? { width: '100%', minWidth: 0 } : { width: 220 }}
                             />
                             <Select
                                 placeholder="Vendedor"
                                 value={svcEmployeeFilter}
                                 onChange={setSvcEmployeeFilter}
                                 allowClear
-                                style={{ width: 170 }}
+                                size={isMobile ? 'small' : 'middle'}
+                                style={isMobile ? { flex: '1 1 45%', minWidth: 0 } : { width: 170 }}
                                 options={[
                                     ...(employees as any[]).map((e: any) => ({ value: e.id, label: e.name })),
                                 ]}
@@ -2356,11 +2384,12 @@ function SalesReport() {
                                 allowClear
                                 showSearch
                                 optionFilterProp="label"
-                                style={{ width: 170 }}
+                                size={isMobile ? 'small' : 'middle'}
+                                style={isMobile ? { flex: '1 1 45%', minWidth: 0 } : { width: 170 }}
                                 options={allCustomers}
                             />
-                            <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexShrink: 0 }}>
-                                <Button icon={<ReloadOutlined />} onClick={fetchSvcReport} loading={svcLoading}>
+                            <div style={{ marginLeft: isMobile ? 0 : 'auto', display: 'flex', gap: 8, flexShrink: 0, width: isMobile ? '100%' : undefined }}>
+                                <Button icon={<ReloadOutlined />} onClick={fetchSvcReport} loading={svcLoading} size={isMobile ? 'small' : 'middle'} style={isMobile ? { flex: 1 } : undefined}>
                                     Atualizar
                                 </Button>
                                 <Button
@@ -2368,6 +2397,8 @@ function SalesReport() {
                                     onClick={() => setServiceExportModalOpen(true)}
                                     disabled={!svcData.length}
                                     type="primary"
+                                    size={isMobile ? 'small' : 'middle'}
+                                    style={isMobile ? { flex: 1 } : undefined}
                                 >
                                     Exportar
                                 </Button>
@@ -2396,7 +2427,7 @@ function SalesReport() {
                                 emptyText: (
                                     <Empty
                                         image={Empty.PRESENTED_IMAGE_SIMPLE}
-                                        description="Nenhum serviço concluído encontrado no período selecionado. Serviços concluídos na Agenda aparecem aqui."
+                                        description={<span style={emptyTextStyle}>Nenhum serviço concluído encontrado no período selecionado. Serviços concluídos na Agenda aparecem aqui.</span>}
                                     />
                                 ),
                             }}

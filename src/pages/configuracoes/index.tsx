@@ -14,6 +14,7 @@ import {
     SettingOutlined,
 } from '@ant-design/icons'
 import { useAuth } from '@/hooks/use-auth.hook'
+import { useDevice } from '@/contexts/device.context'
 import { CALC_TYPE_ENUM } from '@/shared/enums/calc-type'
 import { UNIT_MEASURE_ENUM } from '@/shared/enums/unit-measure-type'
 import { CurrencyInput } from '@/components/currency-input.component'
@@ -712,6 +713,7 @@ function Settings() {
     const [taxForm] = Form.useForm()
     const [calcForm] = Form.useForm()
     const { currentUser, setCurrentUser, refreshUser } = useAuth()
+    const { isMobile } = useDevice()
     const [activeTab, setActiveTab] = useState('business')
     const [loading, setLoading] = useState(false)
     const [savingCalc, setSavingCalc] = useState(false)
@@ -1023,7 +1025,7 @@ function Settings() {
                 {loading && !tenant ? (
                     <div style={{ textAlign: 'center', padding: 80 }}><Spin size="large" /></div>
                 ) : (
-                    <Tabs activeKey={activeTab} onChange={setActiveTab} tabPosition="left" style={{ minHeight: 450 }} destroyInactiveTabPane items={[
+                    <Tabs activeKey={activeTab} onChange={setActiveTab} tabPosition={isMobile ? 'top' : 'left'} tabBarGutter={isMobile ? 8 : undefined} style={{ minHeight: 450 }} destroyInactiveTabPane items={[
                         {
                             key: 'business',
                             label: (<span><ShopOutlined style={{ marginRight: 6 }} />Empresa</span>),

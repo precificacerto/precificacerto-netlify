@@ -36,8 +36,11 @@ import {
     DollarOutlined,
     DeleteOutlined,
     EditOutlined,
+    RightOutlined,
+    DownOutlined,
 } from '@ant-design/icons'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
+import { useDevice } from '@/contexts/device.context'
 
 dayjs.extend(isoWeek)
 dayjs.locale('pt-br')
@@ -81,9 +84,12 @@ function Reports() {
         )
     }
 
+    const { isMobile } = useDevice()
     const [loading, setLoading] = useState(false)
     const [messageApi, contextHolder] = message.useMessage()
     const [periodType, setPeriodType] = useState<'week' | 'month' | 'custom'>('week')
+    // Frente 3 (mobile): controla quais funcionários estão expandidos na lista compacta
+    const [expandedEmp, setExpandedEmp] = useState<Set<string>>(new Set())
 
     // Edit/Delete lançamento states
     const [editLancOpen, setEditLancOpen] = useState(false)
@@ -616,14 +622,61 @@ function Reports() {
                             <div className="chart-card-header">
                                 <h3 className="chart-card-title">Desempenho por Funcionário</h3>
                             </div>
-                            <Table
-                                columns={empColumns}
-                                dataSource={employeeStats}
-                                rowKey="id"
-                                pagination={false}
-                                size="small"
-                                loading={loading}
-                            />
+                            {isMobile ? (
+                                <div className="pc-row-compact-list">
+                                    {employeeStats.length === 0 ? (
+                                        <div style={{ textAlign: 'center', padding: 24, color: '#98A2B3' }}>Sem dados</div>
+                                    ) : employeeStats.map((emp, i) => {
+                                        const isOpen = expandedEmp.has(emp.id)
+                                        return (
+                                            <div key={emp.id} style={{ marginBottom: 8 }}>
+                                                <div
+                                                    className="pc-row-compact"
+                                                    style={{ marginBottom: 0 }}
+                                                    onClick={() => setExpandedEmp(prev => {
+                                                        const next = new Set(prev)
+                                                        if (next.has(emp.id)) next.delete(emp.id); else next.add(emp.id)
+                                                        return next
+                                                    })}
+                                                >
+                                                    <span style={{ flex: '0 0 auto', fontWeight: 700, color: i < 3 ? '#F79009' : '#98A2B3', minWidth: 18 }}>{i + 1}</span>
+                                                    <div className="pc-row-compact__main">
+                                                        <span className="pc-row-compact__title">{emp.name}</span>
+                                                        <span className="pc-row-compact__sub">{emp.totalServices} serv · {emp.completed} concl · {emp.totalHours.toFixed(1)}h</span>
+                                                    </div>
+                                                    <Tag color={emp.completionRate >= 80 ? 'success' : emp.completionRate >= 50 ? 'warning' : 'error'} style={{ margin: 0, flexShrink: 0 }}>{emp.completionRate}%</Tag>
+                                                    <span className="pc-row-compact__kebab" style={{ width: 32 }}>
+                                                        {isOpen ? <DownOutlined /> : <RightOutlined />}
+                                                    </span>
+                                                </div>
+                                                {isOpen && (
+                                                    <div style={{
+                                                        background: 'rgba(17, 28, 46, 0.45)', border: '1px solid rgba(255,255,255,0.08)',
+                                                        borderTop: 0, borderRadius: '0 0 10px 10px', padding: '10px 12px',
+                                                        display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 12px', fontSize: 12,
+                                                    }}>
+                                                        <span style={{ color: '#94a3b8' }}>Cargo</span><span style={{ color: '#e2e8f0', textAlign: 'right' }}>{emp.position}</span>
+                                                        <span style={{ color: '#94a3b8' }}>Serviços</span><span style={{ color: '#e2e8f0', textAlign: 'right' }}>{emp.totalServices}</span>
+                                                        <span style={{ color: '#94a3b8' }}>Concluídos</span><span style={{ color: '#12B76A', textAlign: 'right' }}>{emp.completed}</span>
+                                                        <span style={{ color: '#94a3b8' }}>Cancelados</span><span style={{ color: emp.cancelled > 0 ? '#F04438' : '#98A2B3', textAlign: 'right' }}>{emp.cancelled}</span>
+                                                        <span style={{ color: '#94a3b8' }}>Horas</span><span style={{ color: '#e2e8f0', textAlign: 'right' }}>{emp.totalHours.toFixed(1)}h</span>
+                                                        <span style={{ color: '#94a3b8' }}>Taxa Conclusão</span><span style={{ color: '#e2e8f0', textAlign: 'right' }}>{emp.completionRate}%</span>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )
+                                    })}
+                                </div>
+                            ) : (
+                                <Table
+                                    columns={empColumns}
+                                    dataSource={employeeStats}
+                                    rowKey="id"
+                                    pagination={false}
+                                    size="small"
+                                    loading={loading}
+                                />
+                            )}
                         </div>
                         <div className="chart-card">
                             <div className="chart-card-header">

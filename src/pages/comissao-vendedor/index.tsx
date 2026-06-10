@@ -7,6 +7,7 @@ import { PAGE_TITLES } from '@/constants/page-titles'
 import { supabase } from '@/supabase/client'
 import { getTenantId } from '@/utils/get-tenant-id'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
+import { useDevice } from '@/contexts/device.context'
 // Onda 3 / CRÍT-perf (Founder 2026-05-27): exports pesados (ExcelJS ~350KB,
 // jsPDF+autotable ~100KB) carregados via dynamic import nos handlers,
 // não no top-level. Reduz First Load JS de /comissao-vendedor (~870 kB).
@@ -19,6 +20,7 @@ import {
   DownloadOutlined,
   SplitCellsOutlined,
   EyeOutlined,
+  RightOutlined,
 } from '@ant-design/icons'
 import { ExportFormatModal } from '@/components/ui/export-format-modal.component'
 import { formatBRL } from '@/utils/formatters'
@@ -60,8 +62,35 @@ interface CommissionRow {
   detail_rows: CommissionDetailRow[]
 }
 
+// Linha horizontal de KPI no mobile: [ícone · label/valor · seta ›]
+function KpiRow({ icon, label, value, accent, border, valueColor, iconColor }: {
+  icon: React.ReactNode
+  label: string
+  value: string
+  accent: string
+  border: string
+  valueColor: string
+  iconColor: string
+}) {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 12,
+      background: accent, border: `1px solid ${border}`, borderRadius: 10,
+      padding: '10px 12px', minHeight: 56,
+    }}>
+      <span style={{ fontSize: 18, color: iconColor, display: 'inline-flex', flexShrink: 0 }}>{icon}</span>
+      <div style={{ flex: '1 1 auto', minWidth: 0 }}>
+        <div style={{ fontSize: 12, color: iconColor, lineHeight: 1.2 }}>{label}</div>
+        <div style={{ fontSize: 18, fontWeight: 700, color: valueColor, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{value}</div>
+      </div>
+      <RightOutlined style={{ fontSize: 12, color: iconColor, flexShrink: 0 }} />
+    </div>
+  )
+}
+
 export default function CommissionPage() {
   const { canView } = usePermissions()
+  const { isMobile } = useDevice()
   const [messageApi, contextHolder] = message.useMessage()
   const [loading, setLoading] = useState(false)
   const [month, setMonth] = useState(dayjs())
@@ -875,41 +904,57 @@ export default function CommissionPage() {
     <Layout title={PAGE_TITLES.COMMISSION} subtitle="Gerencie e exporte comissões dos vendedores">
       {contextHolder}
 
-      {/* Filters */}
-      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 24, alignItems: 'center' }}>
-        <div>
-          <label style={{ display: 'block', marginBottom: 4, fontSize: 12, color: '#9ca3af' }}>Mês/Ano</label>
+      {/* Filters — on mobile they sit on a single compact line (Mês/Ano · Vendedor · Exportar) */}
+      <div style={{ display: 'flex', gap: isMobile ? 8 : 16, flexWrap: 'wrap', marginBottom: isMobile ? 16 : 24, alignItems: isMobile ? 'center' : 'center' }}>
+        <div style={isMobile ? { flex: '0 0 auto' } : undefined}>
+          {!isMobile && <label style={{ display: 'block', marginBottom: 4, fontSize: 12, color: '#9ca3af' }}>Mês/Ano</label>}
           <DatePicker
             picker="month"
             value={month}
             onChange={(v) => v && setMonth(v)}
             format="MM/YYYY"
             allowClear={false}
-            style={{ width: '100%', maxWidth: 180, minWidth: 140 }}
+            size={isMobile ? 'small' : 'middle'}
+            style={isMobile ? { width: 110 } : { width: '100%', maxWidth: 180, minWidth: 140 }}
           />
         </div>
-        <div>
-          <label style={{ display: 'block', marginBottom: 4, fontSize: 12, color: '#9ca3af' }}>Vendedor</label>
+        <div style={isMobile ? { flex: '1 1 120px', minWidth: 0 } : undefined}>
+          {!isMobile && <label style={{ display: 'block', marginBottom: 4, fontSize: 12, color: '#9ca3af' }}>Vendedor</label>}
           <Select
-            placeholder="Todos os vendedores"
+            placeholder="Vendedores"
             allowClear
             value={selectedEmployee}
             onChange={(v) => setSelectedEmployee(v)}
-            style={{ width: '100%', maxWidth: 260, minWidth: 180 }}
+            size={isMobile ? 'small' : 'middle'}
+            style={isMobile ? { width: '100%' } : { width: '100%', maxWidth: 260, minWidth: 180 }}
             options={[
               ...employees.map(e => ({ label: e.name, value: e.id })),
             ]}
           />
         </div>
-        <div style={{ marginLeft: 'auto', alignSelf: 'flex-end' }}>
+        <div style={{ marginLeft: isMobile ? 0 : 'auto', alignSelf: isMobile ? 'center' : 'flex-end', flex: '0 0 auto' }}>
           <Button icon={<DownloadOutlined />} onClick={() => setExportModalOpen(true)} disabled={!filteredData.length}
+            size={isMobile ? 'small' : 'middle'}
             style={{ background: '#7C3AED', borderColor: '#7C3AED', color: '#fff' }}>
-            Exportar
+            {isMobile ? '' : 'Exportar'}
           </Button>
         </div>
       </div>
 
-      {/* KPI Cards */}
+      {/* KPI Cards — mobile renders horizontal rows [ícone · label/valor · seta] */}
+      {isMobile ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+          <KpiRow icon={<TeamOutlined />} label="Vendedores" value={String(filteredData.length)} accent="#1e1b4b" border="#312e81" valueColor="#e0e7ff" iconColor="#a5b4fc" />
+          <KpiRow icon={<DollarOutlined />} label="Receita Base" value={formatCurrency(totalBase)} accent="#1e1b4b" border="#312e81" valueColor="#e0e7ff" iconColor="#a5b4fc" />
+          <KpiRow icon={<PercentageOutlined />} label="Total Comissões" value={formatCurrency(totalCommission)} accent="#1e1b4b" border="#312e81" valueColor="#a78bfa" iconColor="#c4b5fd" />
+          {totalPendingRevenue > 0 && (
+            <KpiRow icon={<span>⏳</span>} label="Receita Aguardando" value={formatCurrency(totalPendingRevenue)} accent="#451a03" border="#92400e" valueColor="#fbbf24" iconColor="#fcd34d" />
+          )}
+          {totalPendingCommission > 0 && (
+            <KpiRow icon={<span>⏳</span>} label="Comissão Aguardando" value={formatCurrency(totalPendingCommission)} accent="#451a03" border="#92400e" valueColor="#fbbf24" iconColor="#fcd34d" />
+          )}
+        </div>
+      ) : (
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginBottom: 24 }}>
         <Card size="small" style={{ background: '#1e1b4b', border: '1px solid #312e81' }}>
           <Statistic
@@ -949,6 +994,7 @@ export default function CommissionPage() {
           </Card>
         )}
       </div>
+      )}
 
       {/* Main detail table — todas as vendas/serviços com comissão */}
       {allDetailRows.length > 0 ? (

@@ -10,6 +10,7 @@ import { PAGE_TITLES } from '@/constants/page-titles'
 import { supabase } from '@/supabase/client'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import { getTenantId } from '@/utils/get-tenant-id'
+import { useDevice } from '@/contexts/device.context'
 
 // ── Types ──
 
@@ -645,6 +646,7 @@ function getVariantLabel(taxRegime: TaxRegime): string {
 
 export default function DfcPage() {
   const { canView } = usePermissions()
+  const { isMobile } = useDevice()
   const currentYear = new Date().getFullYear()
   const [year, setYear] = useState(currentYear)
   const [loading, setLoading] = useState(true)
@@ -771,19 +773,29 @@ export default function DfcPage() {
   return (
     <Layout tabTitle={PAGE_TITLES.DFC}>
       {error && <Alert type="error" showIcon message={error} closable style={{ marginBottom: 16 }} />}
-      <header style={{ marginBottom: 24 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-          <div>
-            <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>
+      <header style={{ marginBottom: isMobile ? 14 : 24 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: isMobile ? 'flex-start' : 'center', flexWrap: 'wrap', gap: isMobile ? 8 : 12 }}>
+          <div style={{ flex: '1 1 auto', minWidth: 0 }}>
+            <h1 style={{ fontSize: isMobile ? 18 : 24, fontWeight: 700, margin: 0 }}>
               Análise Financeira — DRE
             </h1>
-            <span style={{ fontSize: 13, color: 'var(--color-neutral-400, #9CA3AF)' }}>
+            <span style={{ fontSize: isMobile ? 12 : 13, color: 'var(--color-neutral-400, #9CA3AF)' }}>
               Regime: <strong>{getVariantLabel(taxRegime)}</strong>
-              {calcType && <> | Tipo: <strong>{calcType === 'INDUSTRIALIZATION' ? 'Industrialização' : calcType === 'RESALE' ? 'Revenda' : 'Serviço'}</strong></>}
+              {calcType && <> • Tipo: <strong>{calcType === 'INDUSTRIALIZATION' ? 'Industrialização' : calcType === 'RESALE' ? 'Revenda' : 'Serviço'}</strong></>}
             </span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <Select value={periodType} onChange={(v: PeriodType) => setPeriodType(v)} style={{ width: 160 }}>
+          {/* On mobile, the export action sits at the top-right as a compact icon button */}
+          {isMobile && (
+            <Button
+              icon={<FileExcelOutlined />}
+              onClick={() => setDfcExportModalOpen(true)}
+              disabled={dreRows.length === 0}
+              size="small"
+              style={{ background: '#217346', borderColor: '#217346', color: '#fff', flexShrink: 0 }}
+            />
+          )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 6 : 8, flexWrap: 'wrap', width: isMobile ? '100%' : 'auto', marginTop: isMobile ? 4 : 0 }}>
+            <Select value={periodType} onChange={(v: PeriodType) => setPeriodType(v)} size={isMobile ? 'small' : 'middle'} style={{ width: isMobile ? 116 : 160 }}>
               <Select.Option value="mensal">Mensal</Select.Option>
               <Select.Option value="trimestral">Trimestral</Select.Option>
               <Select.Option value="semestral">Semestral</Select.Option>
@@ -791,7 +803,7 @@ export default function DfcPage() {
               <Select.Option value="personalizado">Personalizado</Select.Option>
             </Select>
             {periodType === 'mensal' && (
-              <Select value={selectedMonth} onChange={(v: number) => setSelectedMonth(v)} style={{ width: 120 }}>
+              <Select value={selectedMonth} onChange={(v: number) => setSelectedMonth(v)} size={isMobile ? 'small' : 'middle'} style={{ width: isMobile ? 92 : 120 }}>
                 {MONTH_LABELS.map((m, i) => (
                   <Select.Option key={i} value={i}>{m}</Select.Option>
                 ))}
@@ -803,37 +815,41 @@ export default function DfcPage() {
                 value={customRange}
                 onChange={(v) => setCustomRange(v as [Dayjs, Dayjs] | null)}
                 format="MMM/YYYY"
+                size={isMobile ? 'small' : 'middle'}
                 placeholder={['Mês inicial', 'Mês final']}
-                style={{ minWidth: 240 }}
+                style={{ minWidth: isMobile ? 0 : 240, flex: isMobile ? '1 1 100%' : undefined }}
                 disabledDate={(date) => date.year() !== year}
               />
             )}
-            <Select value={year} onChange={setYear} style={{ width: 120 }}>
+            <Select value={year} onChange={setYear} size={isMobile ? 'small' : 'middle'} style={{ width: isMobile ? 92 : 120 }}>
               {yearOptions.map(y => (
                 <Select.Option key={y} value={y}>{y}</Select.Option>
               ))}
             </Select>
-            <Button
-              icon={<FileExcelOutlined />}
-              onClick={() => setDfcExportModalOpen(true)}
-              disabled={dreRows.length === 0}
-              style={{ background: '#217346', borderColor: '#217346', color: '#fff' }}
-            >
-              Exportar
-            </Button>
+            {/* Desktop/tablet keep the labelled export button inline with selects */}
+            {!isMobile && (
+              <Button
+                icon={<FileExcelOutlined />}
+                onClick={() => setDfcExportModalOpen(true)}
+                disabled={dreRows.length === 0}
+                style={{ background: '#217346', borderColor: '#217346', color: '#fff' }}
+              >
+                Exportar
+              </Button>
+            )}
           </div>
         </div>
       </header>
 
-      <div className="pc-card" style={{ overflow: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: periodType === 'mensal' ? 500 : periodType === 'anual' ? 500 : 800 }}>
+      <div className="pc-card" style={{ overflow: 'auto', padding: isMobile ? 8 : undefined }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: isMobile ? 11 : 13, minWidth: isMobile ? (periodType === 'mensal' || periodType === 'anual' ? 320 : 600) : (periodType === 'mensal' ? 500 : periodType === 'anual' ? 500 : 800) }}>
           <thead>
             <tr style={{ borderBottom: '2px solid var(--color-neutral-700, #374151)' }}>
-              <th style={{ ...thStyle, width: 320, textAlign: 'left' }}>Descrição</th>
+              <th style={{ ...thStyle, ...(isMobile ? mThStyle : null), width: isMobile ? 150 : 320, textAlign: 'left' }}>Descrição</th>
               {periodColumns.map((col, i) => {
                 const closed = isPeriodClosed(col, year)
                 return (
-                  <th key={i} style={{ ...thStyle, textAlign: 'right', minWidth: 140 }}>
+                  <th key={i} style={{ ...thStyle, ...(isMobile ? mThStyle : null), textAlign: 'right', minWidth: isMobile ? 92 : 140 }}>
                     {col.label}
                     {!closed && (
                       <div style={{ fontSize: 10, fontWeight: 400, color: 'var(--color-neutral-400, #9CA3AF)', fontStyle: 'italic' }}>
@@ -844,9 +860,9 @@ export default function DfcPage() {
                 )
               })}
               {showTotal && (
-                <th style={{ ...thStyle, textAlign: 'right', minWidth: 140, fontWeight: 700 }}>Total</th>
+                <th style={{ ...thStyle, ...(isMobile ? mThStyle : null), textAlign: 'right', minWidth: isMobile ? 92 : 140, fontWeight: 700 }}>Total</th>
               )}
-              <th style={{ ...thStyle, textAlign: 'right', minWidth: 80 }}>% RL</th>
+              <th style={{ ...thStyle, ...(isMobile ? mThStyle : null), textAlign: 'right', minWidth: isMobile ? 56 : 80 }}>% RL</th>
             </tr>
           </thead>
           <tbody>
@@ -856,9 +872,10 @@ export default function DfcPage() {
                 <tr style={getRowStyle(row)}>
                   <td style={{
                     ...tdStyle,
-                    paddingLeft: (row.indent || 0) * 20 + 8,
+                    ...(isMobile ? mTdStyle : null),
+                    paddingLeft: (row.indent || 0) * (isMobile ? 10 : 20) + (isMobile ? 6 : 8),
                     fontWeight: row.isTotal || row.isSubtotal || row.isHeader ? 600 : 400,
-                    fontSize: row.isTotal ? 14 : 13,
+                    fontSize: isMobile ? (row.isTotal ? 12 : 11) : (row.isTotal ? 14 : 13),
                   }}>
                     {row.label}
                     {row.isHeader && (
@@ -873,6 +890,7 @@ export default function DfcPage() {
                     return (
                       <td key={ci} style={{
                         ...tdStyle,
+                        ...(isMobile ? mTdStyle : null),
                         textAlign: 'right',
                         fontWeight: row.isTotal || row.isSubtotal ? 600 : 400,
                         color: closed ? getValueColor(val!, row) : 'var(--color-neutral-500, #6B7280)',
@@ -890,6 +908,7 @@ export default function DfcPage() {
                     return (
                       <td style={{
                         ...tdStyle,
+                        ...(isMobile ? mTdStyle : null),
                         textAlign: 'right',
                         fontWeight: 700,
                         color: anyClosedPeriod ? getValueColor(closedTotal, row) : 'var(--color-neutral-500, #6B7280)',
@@ -900,10 +919,11 @@ export default function DfcPage() {
                   })()}
                   <td style={{
                     ...tdStyle,
+                    ...(isMobile ? mTdStyle : null),
                     textAlign: 'right',
                     fontWeight: row.isTotal || row.isSubtotal ? 600 : 400,
                     color: 'var(--color-neutral-400, #9CA3AF)',
-                    fontSize: 12,
+                    fontSize: isMobile ? 10 : 12,
                   }}>
                     {(() => {
                       if (!row.pctOfRL) return '—'
@@ -996,6 +1016,17 @@ const tdStyle: React.CSSProperties = {
   padding: '6px 8px',
   borderBottom: '1px solid var(--color-neutral-800, rgba(255,255,255,0.06))',
   whiteSpace: 'nowrap',
+}
+
+// Mobile-compact overrides (DM2): tighter paddings + smaller header text.
+const mThStyle: React.CSSProperties = {
+  padding: '6px 5px',
+  fontSize: 10,
+  letterSpacing: '0.2px',
+}
+
+const mTdStyle: React.CSSProperties = {
+  padding: '4px 5px',
 }
 
 function getRowStyle(row: DreRow): React.CSSProperties {

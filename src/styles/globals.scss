@@ -491,6 +491,19 @@ body {
   color: #f87171;
 }
 
+/* Wrapper value+label — neutro no desktop (mantém coluna como antes),
+   vira bloco central no layout horizontal mobile. */
+.kpi-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* Seta — escondida no desktop, exibida apenas no mobile (ver @media 639px). */
+.kpi-card-arrow {
+  display: none;
+}
+
 .kpi-card-value {
   font-size: 28px;
   font-weight: 700;
@@ -1024,7 +1037,7 @@ body {
   bottom: 0;
   z-index: 45;
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   padding: 6px calc(var(--safe-right) + 4px) calc(var(--safe-bottom) + 6px) calc(var(--safe-left) + 4px);
   background: rgba(15, 31, 56, 0.96);
   backdrop-filter: blur(12px);
@@ -2874,28 +2887,56 @@ body {
   }
   .pc-row-compact__actions > * { flex: 1 1 0; min-height: 36px; }
 
-  /* M4/M12 — KPI compacto no mobile: reduz a altura de TODOS os .kpi-card (Dashboard e Vendas)
-     sem reescrever JSX. Atende "diminuir altura dos cards" do documento. Sistêmico e seguro. */
+  /* KPI horizontal no mobile (Alterações mobile 3):
+     [ícone esquerda] · [value+label centro flex:1] · [seta › direita].
+     Sistêmico — afeta Dashboard, Relatório Agenda, Controle Financeiro, Relatório de Vendas. */
   .kpi-card {
+    flex-direction: row !important;
+    align-items: center !important;
+    gap: 12px !important;
     padding: 12px 14px !important;
-    gap: 6px !important;
+    min-height: 64px;
+  }
+  /* Header deixa de ser linha cheia; vira só o ícone à esquerda.
+     O trend (quando existir) flui junto ao value, sem ocupar espaço de topo. */
+  .kpi-card .kpi-card-header {
+    flex: 0 0 auto !important;
+    width: auto !important;
+    justify-content: flex-start !important;
   }
   .kpi-card-icon {
-    width: 36px !important;
-    height: 36px !important;
+    width: 40px !important;
+    height: 40px !important;
     border-radius: 8px !important;
+    flex: 0 0 auto;
+  }
+  /* Bloco central ocupa o espaço restante. */
+  .kpi-card .kpi-card-body {
+    flex: 1 1 auto !important;
+    min-width: 0;
+    gap: 2px !important;
   }
   .kpi-card-value {
     font-size: 20px !important;
     line-height: 1.2 !important;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .kpi-card-label {
     font-size: 11px !important;
   }
-  /* Opção horizontal opt-in (para telas que reagruparem value+label num wrapper). */
-  .kpi-card.kpi-card--compact {
-    flex-direction: row !important;
-    align-items: center !important;
+  /* Seta › à direita (renderizada apenas quando há onClick). */
+  .kpi-card .kpi-card-arrow {
+    display: inline-flex !important;
+    align-items: center;
+    flex: 0 0 auto;
+    color: var(--color-text-secondary, #a8b3c4);
+    font-size: 14px;
+  }
+  /* Remove a barra de cor de topo no mobile (não faz sentido no layout em linha). */
+  .kpi-card::after {
+    display: none !important;
   }
 }
 

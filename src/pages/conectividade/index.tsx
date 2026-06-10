@@ -5,6 +5,8 @@ import { PAGE_TITLES } from '@/constants/page-titles'
 import { supabase } from '@/supabase/client'
 import { getTenantId as fetchTenantId } from '@/utils/get-tenant-id'
 import { useAuth } from '@/hooks/use-auth.hook'
+import { useDevice } from '@/contexts/device.context'
+import { MobileCollapse } from '@/components/ui/mobile-collapse.component'
 import { useCustomers } from '@/hooks/use-data.hooks'
 import type { TenantSettings } from '@/supabase/types'
 import type { Customer } from '@/supabase/types'
@@ -25,6 +27,7 @@ import {
 
 function Conectividade() {
     const { currentUser } = useAuth()
+    const { isMobile } = useDevice()
     const [messageApi, contextHolder] = message.useMessage()
     const [loading, setLoading] = useState(false)
     const [tenantSettings, setTenantSettings] = useState<TenantSettings | null>(null)
@@ -343,20 +346,26 @@ function Conectividade() {
                         )}
 
                         {!isSuperAdmin && instanceMode === 'OWN' && (
-                            <Alert
-                                message="Sua conexão WhatsApp"
-                                description="Cada usuário tem sua própria conexão. As mensagens (lembretes, orçamentos) serão enviadas pelo número que você conectar aqui — não pelo WhatsApp do admin ou de outros usuários."
-                                type="info"
-                                showIcon
-                                icon={<UserOutlined />}
-                                style={{ marginBottom: 24 }}
-                            />
+                            isMobile ? (
+                                <MobileCollapse title={<><UserOutlined style={{ marginRight: 6 }} />Sua conexão WhatsApp</>}>
+                                    Cada usuário tem sua própria conexão. As mensagens (lembretes, orçamentos) serão enviadas pelo número que você conectar aqui — não pelo WhatsApp do admin ou de outros usuários.
+                                </MobileCollapse>
+                            ) : (
+                                <Alert
+                                    message="Sua conexão WhatsApp"
+                                    description="Cada usuário tem sua própria conexão. As mensagens (lembretes, orçamentos) serão enviadas pelo número que você conectar aqui — não pelo WhatsApp do admin ou de outros usuários."
+                                    type="info"
+                                    showIcon
+                                    icon={<UserOutlined />}
+                                    style={{ marginBottom: 24 }}
+                                />
+                            )
                         )}
 
                         <div style={{
-                            padding: '16px 20px',
+                            padding: isMobile ? '12px 14px' : '16px 20px',
                             borderRadius: 12,
-                            marginBottom: 24,
+                            marginBottom: isMobile ? 16 : 24,
                             background: waConnected
                                 ? 'linear-gradient(135deg, rgba(37,211,102,0.08), rgba(37,211,102,0.03))'
                                 : isConnecting
@@ -364,16 +373,16 @@ function Conectividade() {
                                     : 'linear-gradient(135deg, rgba(102,112,133,0.08), rgba(102,112,133,0.03))',
                             border: `1px solid ${waConnected ? 'rgba(37,211,102,0.2)' : isConnecting ? 'rgba(247,144,9,0.2)' : 'rgba(102,112,133,0.15)'}`,
                         }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'stretch' : 'center', gap: isMobile ? 12 : 0 }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                                     <div style={{
-                                        width: 48, height: 48, borderRadius: 12,
+                                        width: isMobile ? 40 : 48, height: isMobile ? 40 : 48, borderRadius: 12, flex: '0 0 auto',
                                         background: '#25D366', display: 'flex', alignItems: 'center', justifyContent: 'center',
                                     }}>
-                                        <WhatsAppOutlined style={{ fontSize: 24, color: '#FFF' }} />
+                                        <WhatsAppOutlined style={{ fontSize: isMobile ? 20 : 24, color: '#FFF' }} />
                                     </div>
-                                    <div>
-                                        <div style={{ fontSize: 16, fontWeight: 700 }}>
+                                    <div style={{ minWidth: 0 }}>
+                                        <div style={{ fontSize: isMobile ? 15 : 16, fontWeight: 700 }}>
                                             WhatsApp Business
                                             <Tag
                                                 color={waConnected ? 'success' : isConnecting ? 'warning' : 'default'}
@@ -385,22 +394,23 @@ function Conectividade() {
                                         {waConnected && waPhone && (
                                             <div style={{ fontSize: 13, color: 'var(--color-neutral-500)' }}>{waPhone}</div>
                                         )}
-                                        {!waConnected && !isConnecting && (
+                                        {!waConnected && !isConnecting && !isMobile && (
                                             <div style={{ fontSize: 13, color: 'var(--color-neutral-400)' }}>
                                                 Escaneie o QR Code para conectar seu WhatsApp e habilitar disparos automáticos
                                             </div>
                                         )}
                                     </div>
                                 </div>
-                                <Space>
+                                <Space style={{ width: isMobile ? '100%' : undefined }} direction={isMobile ? 'vertical' : 'horizontal'}>
                                     {(waConnected || qrCodeData) && (
-                                        <Button danger onClick={handleDisconnect} icon={<CloseCircleOutlined />}>
+                                        <Button danger block={isMobile} onClick={handleDisconnect} icon={<CloseCircleOutlined />}>
                                             Desconectar
                                         </Button>
                                     )}
                                     {!useSharedMessage && (
                                         <Button
                                             type="primary"
+                                            block={isMobile}
                                             onClick={handleGenerateQR}
                                             loading={isGeneratingQR}
                                             icon={<QrcodeOutlined />}

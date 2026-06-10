@@ -1,15 +1,12 @@
-import { useMemo } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/router'
 import {
-  HomeOutlined,
-  WalletOutlined,
+  FileTextOutlined,
   ShoppingOutlined,
-  FundOutlined,
+  CalendarOutlined,
   AppstoreOutlined,
 } from '@ant-design/icons'
 import { ROUTES } from '@/constants/routes'
-import { monthObjects } from '@/constants/month'
 
 type Props = {
   onOpenMore: () => void
@@ -18,18 +15,10 @@ type Props = {
 const MobileBottomNav = ({ onOpenMore }: Props) => {
   const router = useRouter()
 
-  const cashierHref = useMemo(() => {
-    const now = new Date()
-    const year = now.getFullYear()
-    const month = Object.values(monthObjects).find((m) => m.number === now.getMonth())?.short
-    return `${ROUTES.CASHIER}/${year}/${month}`
-  }, [])
-
   const pathStartsWith = (prefix: string) => router.pathname === prefix || router.pathname.startsWith(prefix + '/')
-  const isHome = router.pathname === '/'
-  const isCashier = pathStartsWith('/caixa')
+  const isBudgets = pathStartsWith('/orcamentos')
   const isSales = pathStartsWith('/vendas')
-  const isCashFlow = pathStartsWith('/fluxo-de-caixa')
+  const isSchedule = pathStartsWith('/agenda')
 
   const itemClass = (active: boolean) =>
     `pc-mobile-bottom-nav-item${active ? ' active' : ''}`
@@ -37,22 +26,13 @@ const MobileBottomNav = ({ onOpenMore }: Props) => {
   return (
     <nav className="pc-mobile-bottom-nav" aria-label="Navegação principal">
       <Link
-        href={ROUTES.DASHBOARD}
-        className={itemClass(isHome)}
-        aria-label="Home"
-        aria-current={isHome ? 'page' : undefined}
+        href={ROUTES.BUDGETS}
+        className={itemClass(isBudgets)}
+        aria-label="Orçamentos"
+        aria-current={isBudgets ? 'page' : undefined}
       >
-        <HomeOutlined />
-        <span>Home</span>
-      </Link>
-      <Link
-        href={cashierHref}
-        className={itemClass(isCashier)}
-        aria-label="Caixa"
-        aria-current={isCashier ? 'page' : undefined}
-      >
-        <WalletOutlined />
-        <span>Caixa</span>
+        <FileTextOutlined />
+        <span>Orçamentos</span>
       </Link>
       <Link
         href={ROUTES.SALES}
@@ -64,13 +44,13 @@ const MobileBottomNav = ({ onOpenMore }: Props) => {
         <span>Vendas</span>
       </Link>
       <Link
-        href={ROUTES.CASH_FLOW}
-        className={itemClass(isCashFlow)}
-        aria-label="Fluxo de Caixa"
-        aria-current={isCashFlow ? 'page' : undefined}
+        href={ROUTES.SCHEDULE}
+        className={itemClass(isSchedule)}
+        aria-label="Agenda"
+        aria-current={isSchedule ? 'page' : undefined}
       >
-        <FundOutlined />
-        <span>Fluxo</span>
+        <CalendarOutlined />
+        <span>Agenda</span>
       </Link>
       <button
         type="button"

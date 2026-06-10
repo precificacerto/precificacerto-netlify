@@ -41,6 +41,7 @@ import { RestitutionSummaryCard } from '@/components/restitution-summary.compone
 import { calculateBreakeven, buildBreakevenInputFromConfig } from '@/utils/breakeven-calculator'
 import { mergeExpenseConfig } from '@/utils/recalc-expense-config'
 import { formatBRL } from '@/utils/formatters'
+import { useDevice } from '@/contexts/device.context'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler)
 
@@ -65,6 +66,7 @@ const MONTH_OPTIONS = [
 
 function Home() {
   const { currentUser } = useAuth()
+  const { isMobile } = useDevice()
   const router = useRouter()
   const [loading, setLoading] = useState(true)
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth())
@@ -602,7 +604,16 @@ function Home() {
         />
       )}
 
-      <div className="dashboard-greeting" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div
+        className="dashboard-greeting"
+        style={{
+          display: 'flex',
+          flexDirection: isMobile ? 'column' : 'row',
+          justifyContent: 'space-between',
+          alignItems: isMobile ? 'stretch' : 'center',
+          gap: isMobile ? 12 : undefined,
+        }}
+      >
         <div>
           <h2>Olá! 👋</h2>
           <span className="dashboard-greeting-email">{currentUser?.email}</span>
@@ -613,7 +624,7 @@ function Home() {
             value={selectedMonth}
             onChange={(v) => setSelectedMonth(v)}
             options={MONTH_OPTIONS}
-            style={{ width: 160 }}
+            style={{ width: isMobile ? '100%' : 160, flex: isMobile ? 1 : undefined }}
           />
           {selectedMonth !== new Date().getMonth() && (
             <Button size="small" onClick={() => setSelectedMonth(new Date().getMonth())}>

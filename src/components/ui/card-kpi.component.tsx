@@ -1,5 +1,5 @@
 import React, { ReactNode } from 'react'
-import { ArrowUpOutlined, ArrowDownOutlined } from '@ant-design/icons'
+import { ArrowUpOutlined, ArrowDownOutlined, RightOutlined } from '@ant-design/icons'
 
 type CardVariant = 'green' | 'blue' | 'orange' | 'red'
 
@@ -39,22 +39,32 @@ const CardKPI = ({ title, value, icon, variant = 'green', trend, onClick }: Card
                 )}
             </div>
 
-            {/* Value */}
-            <div className="kpi-card-value">{value}</div>
+            {/* Body: value + label (agrupados para layout horizontal no mobile) */}
+            <div className="kpi-card-body">
+                {/* Value */}
+                <div className="kpi-card-value">{value}</div>
 
-            {/* Label */}
-            <div className="kpi-card-label">
-                {title}
-                {trend?.label && (
-                    <span style={{
-                        color: 'var(--color-neutral-400)',
-                        marginLeft: 4,
-                        fontSize: '12px'
-                    }}>
-                        {trend.label}
-                    </span>
-                )}
+                {/* Label */}
+                <div className="kpi-card-label">
+                    {title}
+                    {trend?.label && (
+                        <span style={{
+                            color: 'var(--color-neutral-400)',
+                            marginLeft: 4,
+                            fontSize: '12px'
+                        }}>
+                            {trend.label}
+                        </span>
+                    )}
+                </div>
             </div>
+
+            {/* Seta (visível apenas no mobile via CSS quando há onClick) */}
+            {onClick && (
+                <span className="kpi-card-arrow" aria-hidden="true">
+                    <RightOutlined />
+                </span>
+            )}
         </div>
     )
 }

@@ -3,6 +3,8 @@ import { useRouter } from 'next/router'
 import Link from 'next/link'
 import { Drawer } from 'antd'
 import {
+  HomeOutlined,
+  WalletOutlined,
   UnorderedListOutlined,
   AppstoreOutlined,
   ToolOutlined,
@@ -25,6 +27,7 @@ import {
   ClockCircleOutlined,
 } from '@ant-design/icons'
 import { ROUTES } from '@/constants/routes'
+import { monthObjects } from '@/constants/month'
 import { useAuth } from '@/hooks/use-auth.hook'
 import { usePermissions, MODULES, type ModuleKey } from '@/hooks/use-permissions.hook'
 import { PERMISSIONS } from '@/shared/enums/permissions'
@@ -63,7 +66,18 @@ const MobileMoreDrawer = ({ open, onClose }: Props) => {
     if (typeof window !== 'undefined') window.open(url, '_blank')
   }
 
-  const items: Item[] = useMemo(() => ([
+  const items: Item[] = useMemo(() => {
+    const now = new Date()
+    const year = now.getFullYear()
+    const monthShort = Object.values(monthObjects).find((m) => m.number === now.getMonth())?.short
+    const cashierHref = `${ROUTES.CASHIER}/${year}/${monthShort}`
+
+    return ([
+    // Início
+    { key: 'home', label: 'Home', href: ROUTES.DASHBOARD, icon: <HomeOutlined />, section: 'Início' },
+    { key: 'cashier', label: 'Caixa', href: cashierHref, icon: <WalletOutlined />, section: 'Início', module: MODULES.CASH_FLOW },
+    { key: 'cash-flow', label: 'Fluxo de Caixa', href: ROUTES.CASH_FLOW, icon: <FundOutlined />, section: 'Início', module: MODULES.CASH_FLOW },
+
     // Cadastros
     { key: 'items', label: 'Itens', href: ROUTES.ITEMS, icon: <UnorderedListOutlined />, section: 'Cadastros', module: MODULES.ITEMS },
     { key: 'products', label: 'Produtos', href: ROUTES.PRODUCTS, icon: <AppstoreOutlined />, section: 'Cadastros', module: MODULES.PRODUCTS },
@@ -104,8 +118,9 @@ const MobileMoreDrawer = ({ open, onClose }: Props) => {
     { key: 'plans', label: 'Planos', href: ROUTES.PLANS, icon: <CrownOutlined />, section: 'Conta', adminOnly: true, hideForSuperAdmin: true },
     { key: 'support', label: 'Suporte', icon: <CustomerServiceOutlined />, section: 'Conta', hideForSuperAdmin: true, onClick: handleSupport },
     { key: 'logout', label: 'Sair', icon: <LogoutOutlined />, section: 'Conta', onClick: logout },
+    ])
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  ]), [currentUser])
+  }, [currentUser])
 
   const visibleItems = items.filter((item) => {
     if (item.adminOnly && !isAdmin) return false
@@ -117,7 +132,7 @@ const MobileMoreDrawer = ({ open, onClose }: Props) => {
     return true
   })
 
-  const sectionOrder = ['Cadastros', 'Comercial', 'Financeiro', 'Operacional', 'Super Admin', 'Conta']
+  const sectionOrder = ['Início', 'Cadastros', 'Comercial', 'Financeiro', 'Operacional', 'Super Admin', 'Conta']
   const grouped = sectionOrder
     .map((section) => ({ section, list: visibleItems.filter((i) => i.section === section) }))
     .filter((g) => g.list.length > 0)

@@ -4,10 +4,12 @@ import type { ColumnsType } from 'antd/es/table'
 import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
 import { useAuth } from '@/hooks/use-auth.hook'
+import { useDevice } from '@/contexts/device.context'
+import { MobileCollapse } from '@/components/ui/mobile-collapse.component'
 import { useRouter } from 'next/router'
 import { ROUTES } from '@/constants/routes'
 import { MODULES, type ModuleKey } from '@/hooks/use-permissions.hook'
-import { SettingOutlined, UserAddOutlined } from '@ant-design/icons'
+import { SettingOutlined, UserAddOutlined, RightOutlined } from '@ant-design/icons'
 
 const MODULE_LABELS: Record<string, string> = {
   home: 'Home',
@@ -64,7 +66,9 @@ function Users() {
   const [permsLoading, setPermsLoading] = useState(false)
   const [savingPerms, setSavingPerms] = useState(false)
   const [togglingActive, setTogglingActive] = useState<string | null>(null)
+  const [actionsUser, setActionsUser] = useState<UserRow | null>(null)
   const { currentUser } = useAuth()
+  const { isMobile } = useDevice()
   const [messageApi, contextHolder] = message.useMessage()
   const router = useRouter()
 
@@ -279,25 +283,64 @@ function Users() {
   return (
     <Layout title={PAGE_TITLES.USERS}>
       {contextHolder}
-      <p style={{ color: '#94a3b8', maxWidth: 640, marginTop: 8 }}>
-        Você está em uma tela administrativa. Gerencie usuários vinculados ao seu tenant: ative/desative, edite permissões ou exclua. Para adicionar usuários, use a aba Funcionários em Cadastros.
-      </p>
+      {isMobile ? (
+        <MobileCollapse title="Sobre esta tela administrativa" style={{ marginTop: 8 }}>
+          Gerencie usuários vinculados ao seu tenant: ative/desative, edite permissões ou exclua. Para adicionar usuários, use a aba Funcionários em Cadastros.
+        </MobileCollapse>
+      ) : (
+        <p style={{ color: '#94a3b8', maxWidth: 640, marginTop: 8 }}>
+          Você está em uma tela administrativa. Gerencie usuários vinculados ao seu tenant: ative/desative, edite permissões ou exclua. Para adicionar usuários, use a aba Funcionários em Cadastros.
+        </p>
+      )}
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginTop: 24, marginBottom: 16 }}>
-        <Button type="primary" icon={<UserAddOutlined />} onClick={handleAddUser}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginTop: isMobile ? 16 : 24, marginBottom: 16 }}>
+        <Button type="primary" icon={<UserAddOutlined />} onClick={handleAddUser} block={isMobile}>
           Adicionar usuário
         </Button>
         <Input.Search
           placeholder="Buscar usuário pelo email ou nome"
           onSearch={handleSearch}
           onChange={(e) => handleSearch(e.target.value)}
-          style={{ maxWidth: 320 }}
+          style={{ maxWidth: isMobile ? '100%' : 320, width: isMobile ? '100%' : undefined }}
           allowClear
         />
       </div>
 
       {loading ? (
         <div style={{ textAlign: 'center', padding: 60 }}><Spin size="large" /></div>
+      ) : isMobile ? (
+        <div>
+          {filteredData.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: 32, color: '#94a3b8' }}>Nenhum usuário encontrado.</div>
+          ) : (
+            filteredData.map(record => {
+              const roleLabel = roleLabels[(record.role || '').toLowerCase()] || record.role
+              const statusTag = record.is_super_admin
+                ? <Tag color="blue" style={{ margin: 0 }}>Super Admin</Tag>
+                : record.is_tenant_owner
+                  ? <Tag style={{ margin: 0 }}>Dono</Tag>
+                  : <Tag color={record.is_active ? 'success' : 'default'} style={{ margin: 0 }}>{record.is_active ? 'Ativo' : 'Inativo'}</Tag>
+              return (
+                <div key={record.id} className="pc-row-compact">
+                  <div className="pc-row-compact__main">
+                    <span className="pc-row-compact__title">{record.email}</span>
+                    <span className="pc-row-compact__sub">{record.name ? `${record.name} · ${roleLabel}` : roleLabel}</span>
+                  </div>
+                  <span className="pc-row-compact__value" style={{ fontSize: 12 }}>{statusTag}</span>
+                  <button
+                    type="button"
+                    className="pc-row-compact__kebab"
+                    style={{ background: 'transparent', border: 0, cursor: 'pointer' }}
+                    aria-label="Ações do usuário"
+                    onClick={() => setActionsUser(record)}
+                  >
+                    <RightOutlined />
+                  </button>
+                </div>
+              )
+            })
+          )}
+        </div>
       ) : (
         <Table
           columns={columns}
@@ -350,6 +393,52 @@ function Users() {
             },
           ]}
         />
+        )}
+      </Drawer>
+
+      <Drawer
+        title={actionsUser?.email ?? 'Ações'}
+        placement="bottom"
+        height="auto"
+        open={!!actionsUser}
+        onClose={() => setActionsUser(null)}
+      >
+        {actionsUser && (
+          <Space direction="vertical" style={{ width: '100%' }} size={16}>
+            {actionsUser.name && (
+              <div style={{ fontSize: 13, color: '#94a3b8' }}>{actionsUser.name}</div>
+            )}
+            {actionsUser.is_super_admin ? (
+              <Tag color="blue">Super Admin</Tag>
+            ) : actionsUser.is_tenant_owner ? (
+              <Tag>Dono da conta</Tag>
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: 14 }}>Usuário ativo</span>
+                <Switch
+                  checked={actionsUser.is_active}
+                  loading={togglingActive === actionsUser.id}
+                  onChange={async () => {
+                    await handleToggleActive(actionsUser)
+                    setActionsUser(prev => prev ? { ...prev, is_active: !prev.is_active } : prev)
+                  }}
+                />
+              </div>
+            )}
+            {!actionsUser.is_super_admin && (
+              <Button
+                block
+                icon={<SettingOutlined />}
+                onClick={() => {
+                  const u = actionsUser
+                  setActionsUser(null)
+                  openPermsDrawer(u)
+                }}
+              >
+                Permissões
+              </Button>
+            )}
+          </Space>
         )}
       </Drawer>
     </Layout>
