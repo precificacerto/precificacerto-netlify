@@ -2833,33 +2833,38 @@ function Budgets() {
                                 {selectedBudget.employee && <div><span style={{ color: 'var(--color-neutral-500)' }}>Funcionário:</span> {selectedBudget.employee.name}</div>}
                                 <div><span style={{ color: 'var(--color-neutral-500)' }}>Data:</span> {new Date(selectedBudget.created_at).toLocaleDateString('pt-BR')}</div>
                                 <div><span style={{ color: 'var(--color-neutral-500)' }}>Validade:</span> {selectedBudget.expiration_date ? new Date(selectedBudget.expiration_date).toLocaleDateString('pt-BR') : '-'}</div>
-                                <div><span style={{ color: 'var(--color-neutral-500)' }}>Valor:</span> <strong style={{ fontSize: 18, color: '#12B76A' }}>{formatCurrency(Number(selectedBudget.total_value || 0))}</strong></div>
-                                {/* EPIC-POR-FORA-V2 R1: tributos por fora destacados (ICMS-ST/DIFAL/FCP/ICMS Compl.)
-                                    somados ao total a cobrar do cliente. Valores DERIVADOS já persistidos no
-                                    orçamento (não contaminam total_value/RRO). Fonte única: computeTotalACobrar. */}
+                                {/* EPIC-POR-FORA-V2 R1: quando há tributos por fora (ICMS-ST/DIFAL/FCP/ICMS Compl.),
+                                    eles aparecem ANTES e o total do orçamento = total a cobrar (valor + tributos).
+                                    Valores DERIVADOS já persistidos (não contaminam total_value/RRO). Fonte única:
+                                    computeTotalACobrar. Sem tributos por fora, exibe só o "Valor" como antes. */}
                                 {(() => {
                                     const sb = selectedBudget as any
+                                    const baseValue = Number(selectedBudget.total_value || 0)
                                     const trforaTotal =
                                         (Number(sb.icms_st_value) || 0) +
                                         (Number(sb.difal_value) || 0) +
                                         (Number(sb.fcp_value) || 0) +
                                         (Number(sb.icms_compl_value) || 0)
-                                    if (trforaTotal <= 0) return null
+                                    if (trforaTotal <= 0) {
+                                        return (
+                                            <div><span style={{ color: 'var(--color-neutral-500)' }}>Valor:</span> <strong style={{ fontSize: 18, color: '#12B76A' }}>{formatCurrency(baseValue)}</strong></div>
+                                        )
+                                    }
                                     const totalACobrar = computeTotalACobrar({
-                                        total_value: Number(selectedBudget.total_value || 0),
+                                        total_value: baseValue,
                                         icms_st_value: Number(sb.icms_st_value) || 0,
                                         difal_value: Number(sb.difal_value) || 0,
                                         fcp_value: Number(sb.fcp_value) || 0,
                                         icms_compl_value: Number(sb.icms_compl_value) || 0,
                                     })
                                     return (
-                                        <div style={{ marginTop: 4, padding: '10px 12px', background: 'rgba(34, 197, 94, 0.08)', border: '1px solid rgba(34, 197, 94, 0.25)', borderRadius: 8 }}>
+                                        <div style={{ padding: '10px 12px', background: 'rgba(34, 197, 94, 0.08)', border: '1px solid rgba(34, 197, 94, 0.25)', borderRadius: 8 }}>
                                             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 12, color: 'var(--color-neutral-500)' }}>
                                                 <span>+ Tributos por fora (ICMS-ST / DIFAL / FCP / ICMS Compl.)</span>
                                                 <span>{formatCurrency(trforaTotal)}</span>
                                             </div>
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
-                                                <strong style={{ fontSize: 14 }}>Total a cobrar:</strong>
+                                            <div style={{ borderTop: '1px solid rgba(34, 197, 94, 0.25)', marginTop: 8, paddingTop: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                <strong style={{ fontSize: 14 }}>Total do orçamento:</strong>
                                                 <strong style={{ fontSize: 18, color: '#12B76A' }}>{formatCurrency(totalACobrar)}</strong>
                                             </div>
                                         </div>
