@@ -60,12 +60,25 @@ export function calculateMotorV17(input: MotorV17Input): MotorV17Result {
     if (Number.isFinite(rec) && rec! > 0) tax_credits_recoverable_total += rec!
   }
 
+  // ───── Gargalo 3 (planilha "Motor RRO 11.06"): ajuste da âncora por Desp. Acessória FIXA ─────
+  // No desconto, frete/seguro (Desp. Acessória) são contratuais e não sofrem desconto comercial;
+  // o desconto que incidiria sobre eles é absorvido pela operação por dentro, reduzindo a âncora.
+  // Ajuste (espaço consolidado) = desp × d × (1 + icms × [ICMS Compl. com frete na base]).
+  // O termo de ICMS reflete o excesso da reapuração do ICMS Complementar (cuja base mantém a
+  // Desp. Acessória FIXA): ICMSCompl_pós − ICMSCompl×(1−d) = desp × d × icms.
+  const d = Math.max(0, Math.min(1, Number(input.discount?.pct) || 0))
+  const despAcess = Math.max(0, Number(input.desp_acessorias) || 0)
+  const icmsRate = resolveRateAgg(input.rates, 'ICMS')
+  const complFreightInBase = icmsComplHasFreightInBase(input.icms_compl, input.icms_compl_applies)
+  const desp_pool_adjustment = despAcess * d * (1 + (complFreightInBase ? icmsRate : 0))
+
   // ───── Etapa 2: Motor RRO ─────
   const motorResult = applyMotorRRO({
     view,
     discount: input.discount,
     rates: input.rates,
     tax_credits_recoverable_total,
+    desp_pool_adjustment,
   })
   messages.push(...motorResult.messages)
 
@@ -117,6 +130,44 @@ export function calculateMotorV17(input: MotorV17Input): MotorV17Result {
     error_code,
     messages,
   }
+}
+
+// ─────────────────────────── Helpers internos ───────────────────────────
+
+/** Soma a alíquota (decimal) de um tipo de tributo entre os rates. */
+function resolveRateAgg(rates: MotorV17Input['rates'] | null | undefined, type: string): number {
+  if (!Array.isArray(rates)) return 0
+  let acc = 0
+  for (const r of rates) {
+    if (r?.tax_type === type) {
+      const v = Number(r.rate_pct)
+      if (Number.isFinite(v) && v > 0) acc += v
+    }
+  }
+  return acc
+}
+
+/**
+ * Decide ESTRUTURALMENTE se o ICMS Complementar é cobrado COM a Desp. Acessória (frete) na base —
+ * espelha os ramos de `resolveIcmsComplementar` (icms-st-difal.ts), sem depender do IPI. Usado só
+ * para dimensionar o termo de ICMS no ajuste da âncora (gargalo 3).
+ */
+function icmsComplHasFreightInBase(
+  icms_compl: MotorV17Input['icms_compl'] | null | undefined,
+  icms_compl_applies: boolean | null | undefined,
+): boolean {
+  if (icms_compl) {
+    if (icms_compl.override === 'FORCE_OFF') return false
+    if (icms_compl.is_contributor == null) return false
+    // Não contribuinte: cobra com frete na base, salvo bloqueio por ST/DIFAL.
+    if (icms_compl.is_contributor === false) return !(icms_compl.st_active || icms_compl.difal_active)
+    // Contribuinte FOB: frete fora da base → sem termo de frete.
+    if (icms_compl.freight_mode === 'FOB') return false
+    // Contribuinte CIF: ST ativo bloqueia; senão frete na base.
+    if (icms_compl.st_active) return false
+    return true
+  }
+  return !!icms_compl_applies // legado binário: assume frete na base
 }
 
 /**

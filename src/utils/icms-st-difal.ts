@@ -7,8 +7,11 @@
  *
  * Regras invioláveis (EPIC-POR-FORA-V2):
  *   - ICMS-ST e DIFAL são RECALCULADOS sobre a base (nunca redistribuídos) e NÃO integram o RRO.
- *   - Frete é FIXO no desconto (D3): a base pós-desconto = OpDentro×(1−d) + Desp.Acess + IPI.
- *     (Padroniza ICMS-ST e DIFAL — recomendação Tabela 77 do doc v4.)
+ *   - O desconto comercial incide sobre TODA a base da operação: BC = (OpDentro + Desp.Acess + IPI)
+ *     × (1−d). O preço efetivo da operação (que serve de base ao ST/DIFAL) inclui o desconto.
+ *     [Planilha "Motor RRO 11.06" — fonte de verdade (2026-06-11); SUPERA a regra "frete fixo D3"
+ *     do doc v4 Tab. 77, que mantinha IPI/Desp.Acess fixos. A Desp.Acess permanece FIXA apenas na
+ *     base do ICMS COMPLEMENTAR (frete/seguro são contratuais lá) — base legal distinta.]
  *   - ICMS-ST e DIFAL nunca coexistem na mesma operação (acionadores distintos).
  *
  * Convenção: alíquotas de ENTRADA em base 100 (ex.: 17 = 17%). `discount` em decimal (0,10 = 10%).
@@ -50,12 +53,12 @@ export interface IcmsStInput {
   alqInterestadualOrigemPct?: number
   /** Operação interestadual? true → MVA ajustada + ICMS próprio pela ALQ interestadual. */
   interestadual?: boolean
-  /** Fator de desconto d (decimal). Frete fixo (D3): BC = opInterna×(1−d) + Desp.Acess + IPI. */
+  /** Fator de desconto d (decimal). Desconta toda a base: BC = (opInterna + Desp.Acess + IPI)×(1−d). */
   discount?: number
 }
 
 export interface IcmsStResult {
-  /** BC própria = OpDentro×(1−d) + IPI + Desp. Acessórias. */
+  /** BC própria = (OpDentro + IPI + Desp. Acessórias) × (1−d). */
   bcPropria: number
   /** MVA ajustada (sempre calculada; usada quando interestadual). */
   mvaAjustada: number
@@ -84,15 +87,15 @@ export function mvaAjustada(mvaOriginalPct: number, alqInterPct: number, alqIntr
 }
 
 /**
- * Calcula o ICMS-ST como DIFERENÇA (presumido − próprio) sobre a base própria, aplicando o
- * fator de desconto à operação por dentro (frete e IPI permanecem fixos — D3).
+ * Calcula o ICMS-ST como DIFERENÇA (presumido − próprio) sobre a base própria. O desconto
+ * comercial incide sobre TODA a operação: BC = (OpDentro + IPI + Desp. Acessórias) × (1−d)
+ * — o preço efetivo da operação inclui o desconto (planilha "Motor RRO 11.06", fonte de verdade).
  */
 export function computeIcmsSt(input: IcmsStInput): IcmsStResult {
-  const op = val(input.opInterna) * discountFactor(input.discount)
   const desp = val(input.despAcessorias)
   const ipi = val(input.ipiValue)
 
-  const bcPropria = op + ipi + desp
+  const bcPropria = (val(input.opInterna) + ipi + desp) * discountFactor(input.discount)
 
   const alqIntra = pct(input.alqInternaDestinoPct)
   const alqInter = pct(input.alqInterestadualOrigemPct)
@@ -126,12 +129,12 @@ export interface DifalInput {
   baseDupla?: boolean
   /** Alíquota ICMS interna embutida na ORIGEM (base 100). Só p/ base dupla. Default = ALQ destino. */
   icmsInternaOrigemPct?: number
-  /** Fator de desconto d (decimal). Frete fixo (D3): BC = opInterna×(1−d) + Desp.Acess + IPI. */
+  /** Fator de desconto d (decimal). Desconta toda a base: BC = (opInterna + Desp.Acess + IPI)×(1−d). */
   discount?: number
 }
 
 export interface DifalResult {
-  /** BC do DIFAL = OpDentro×(1−d) + IPI + Desp. Acessórias. */
+  /** BC do DIFAL = (OpDentro + IPI + Desp. Acessórias) × (1−d). */
   bc: number
   /** ICMS interno do destino. */
   icmsDestino: number
@@ -144,13 +147,13 @@ export interface DifalResult {
 }
 
 /**
- * Calcula o DIFAL (base simples ou dupla) e o FCP. Frete fixo no desconto (D3).
+ * Calcula o DIFAL (base simples ou dupla) e o FCP. O desconto incide sobre toda a operação:
+ * BC = (OpDentro + IPI + Desp. Acessórias) × (1−d) — planilha "Motor RRO 11.06".
  */
 export function computeDifal(input: DifalInput): DifalResult {
-  const op = val(input.opInterna) * discountFactor(input.discount)
   const desp = val(input.despAcessorias)
   const ipi = val(input.ipiValue)
-  const bc = op + ipi + desp
+  const bc = (val(input.opInterna) + ipi + desp) * discountFactor(input.discount)
 
   const alqDest = pct(input.alqInternaDestinoPct)
   const alqOrig = pct(input.alqInterestadualOrigemPct)
@@ -409,7 +412,7 @@ export interface StDifalConsolidated {
 
 /**
  * Consolida ICMS-ST / DIFAL / FCP de uma lista de itens (orçamento/venda), por produto,
- * recalculados sobre a âncora pós-desconto (frete fixo — D3). Fonte ÚNICA usada por
+ * recalculados sobre a base pós-desconto — BC = (OpDentro+Desp.Acess+IPI)×(1−d). Fonte ÚNICA usada por
  * `orcamentos`, `pedidos` e `vendas` (evita drift fiscal entre superfícies — Architect R5).
  *
  * - `products` deve conter as colunas avançadas (base 100): icms_st_active, difal_active,

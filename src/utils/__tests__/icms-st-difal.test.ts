@@ -39,14 +39,15 @@ describe('computeIcmsSt — Excel Produto 1 (formação, sem desconto)', () => {
   it('ICMS-ST = 19.145,22 (E50)', () => expect(round(r.icmsSt)).toBe(19145.22))
 })
 
-describe('computeIcmsSt — pós desconto 10% (frete fixo — D3)', () => {
+describe('computeIcmsSt — pós desconto 10% (toda a base descontada — planilha 11.06)', () => {
   const r = computeIcmsSt({ ...P1, discount: 0.1 })
-  it('BC própria pós = OpD×0,90 + frete = 130.302,82 (frete NÃO descontado)', () => {
-    expect(round(r.bcPropria)).toBe(130302.82)
+  it('BC própria pós = (OpD+frete+IPI)×0,90 = 130.202,82 (toda a operação descontada)', () => {
+    expect(round(r.bcPropria)).toBe(130202.82)
   })
-  it('ICMS-ST pós < ICMS-ST formação (reduz com o desconto)', () => {
+  it('ICMS-ST pós < ICMS-ST formação (recalculado, escala com (1−d))', () => {
     expect(r.icmsSt).toBeGreaterThan(0)
     expect(r.icmsSt).toBeLessThan(19145.22)
+    expect(round(r.icmsSt)).toBe(round(19145.22 * 0.9)) // linear na base → 0,9×
   })
 })
 
@@ -71,10 +72,10 @@ describe('computeDifal — Excel Produto 1', () => {
     expect(round(r.bc)).toBe(144669.8)
     expect(round(r.difal)).toBe(7233.49)
   })
-  it('pós desconto 10% (frete fixo): BC 130.302,82 → DIFAL 6.515,14 (H86)', () => {
+  it('pós desconto 10% (toda a base descontada — 11.06): BC 130.202,82 → DIFAL 6.510,14', () => {
     const r = computeDifal({ ...base, discount: 0.1 })
-    expect(round(r.bc)).toBe(130302.82)
-    expect(round(r.difal)).toBe(6515.14)
+    expect(round(r.bc)).toBe(130202.82)
+    expect(round(r.difal)).toBe(6510.14)
   })
   it('FCP 2% é calculado à parte (não soma ao DIFAL)', () => {
     const r = computeDifal({ ...base, fcpPct: 2 })

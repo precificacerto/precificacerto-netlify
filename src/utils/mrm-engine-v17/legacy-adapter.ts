@@ -321,6 +321,17 @@ export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResul
       peso_op_interna = Math.min(1, Math.max(0, valorOpInternaLegacy / unitPrice))
     } else {
       peso_op_interna = 1
+      // Fallback perigoso: sem sale_price_base nem valor_op_interna, a âncora vira o unit_price
+      // CHEIO. Para item COM produto (item_tax_rates presente), isso pode inflar o RRO caso o preço
+      // inclua tributos por fora. Item manual (sem produto/sem tax_rates) é legítimo aqui.
+      if (item.item_tax_rates != null && unitPrice > 0) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[MRM V17] peso_op_interna=1 (fallback) no item idx-${idx} COM produto: ` +
+            `sale_price_base e valor_op_interna ausentes — a âncora assume o unit_price cheio e ` +
+            `pode inflar o RRO. Verifique o cadastro do produto (campo sale_price_base).`,
+        )
+      }
     }
 
     // V17 fix CMV via reverse markup (2026-05-28 noite revisão 2):

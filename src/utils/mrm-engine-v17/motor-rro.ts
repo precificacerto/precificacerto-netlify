@@ -34,6 +34,12 @@ interface ApplyMotorRROInput {
   discount: DiscountV17
   rates: TaxRatePeriod[]
   tax_credits_recoverable_total: number
+  /**
+   * Gargalo 3 (planilha "Motor RRO 11.06"): ajuste do pool por Desp. Acessória FIXA no desconto.
+   * R$ no espaço consolidado (por-dentro + por-fora), pré-aplicação do peso. Calculado pelo
+   * orquestrador = desp × d × (1 + icms × [ICMS Compl com frete na base]). Default 0.
+   */
+  desp_pool_adjustment?: number
 }
 
 interface ApplyMotorRROResult {
@@ -59,8 +65,6 @@ export function applyMotorRRO(input: ApplyMotorRROInput): ApplyMotorRROResult {
   const pis_cofins_rate = pis_rate + cofins_rate
 
   // ───── PDF Etapa 13: cascata tributária ─────
-  const ancora = view.ancora_interna
-
   // V17 (2026-05-28): se produtos forneceram taxes_inside_amounts (R$ consolidados),
   // usar valores direto + aplicar desconto proporcional. Multi-produto com alíquotas
   // distintas resulta em ICMS/ISS/PIS/COFINS efetivos diferentes da nominal do tenant.
@@ -68,12 +72,22 @@ export function applyMotorRRO(input: ApplyMotorRROInput): ApplyMotorRROResult {
   const tit = view.taxes_inside_total
   const rb_total = view.rb_total
   const rv_total = view.rv_total
-  // Fator de desconto proporcional: rv_total / rb_total (PDF Seção 23)
-  const ancoraFactor = rb_total > 0 ? rv_total / rb_total : 1
 
-  // ADR-016 (2026-05-29): Operação Interna Consolidada (pré-desconto) — usada como
-  // denominador de fallback degenerado da alíquota. = peso_op_interna_ponderado × rb_total.
+  // ADR-016 (2026-05-29): Operação Interna Consolidada (pré-desconto) = peso × rb_total.
   const op_interna_consolidada = view.peso_op_interna_ponderado * rb_total
+
+  // Gargalo 3 (planilha "Motor RRO 11.06", 2026-06-11): a Desp. Acessória é FIXA no desconto
+  // (frete/seguro contratuais). O desconto que incidiria sobre ela é absorvido pela operação por
+  // dentro, reduzindo a âncora pós-desconto. `desp_pool_adjustment` chega do orquestrador no espaço
+  // consolidado; multiplica-se pelo peso por-dentro para obter o efeito na âncora.
+  const despPoolAdjustment = Math.max(0, Number(input.desp_pool_adjustment) || 0)
+  const ancora = Math.max(0, view.ancora_interna - despPoolAdjustment * view.peso_op_interna_ponderado)
+
+  // Fator efetivo = âncora (corrigida, pós-desconto) / Op Interna consolidada (pré-desconto).
+  // Sem ajuste de desp. equivale a rv_total/rb_total (ancoraFactor clássico, PDF Seção 23).
+  const ancoraFactor = op_interna_consolidada > 0
+    ? ancora / op_interna_consolidada
+    : (rb_total > 0 ? rv_total / rb_total : 1)
 
   let icms: number
   let iss: number
