@@ -208,8 +208,75 @@ export function applyAbsorptionPolicy(input: ApplyAbsorptionInput): ApplyAbsorpt
     validations,
   }
 
-  // ───── Atualiza cascade_trace etapas 16 e 17 ─────
+  // ───── Linha 9 (Venda consolidada) — DISPLAY com tributos por fora ─────
+  // EPIC-POR-FORA (cascata Produto1): a Linha 9 mostrava só `view.rb_total` (receita bruta,
+  // base do RRO), sem Desp. Acessórias nem tributos por fora destacados. A "Venda consolidada"
+  // física = Op. consolidada + Op. por fora (IS/IBS/CBS/IPI) + Desp. Acessórias + Tributos
+  // adicionais (ICMS Complementar / ISS Retido). NÃO altera `view.rb_total`: o RRO e o desconto
+  // (steps 11-12) seguem sobre a base; aqui só enriquecemos o amount + children EXIBIDOS.
+  // No cenário sem desconto, coincide com o valor_final (step 17). ICMS-ST/DIFAL/FCP vivem na
+  // fiação lateral do orçamento (computeTotalACobrar), fora do motor — somados no total a cobrar.
+  const vc_op_fora_total = taxes_outside
+    .filter((t) => t.type !== 'ICMS_COMPL' && t.type !== 'ISS_RETIDO')
+    .reduce((s, t) => s + t.amount, 0)
+  const vc_icms_compl = taxes_outside.find((t) => t.type === 'ICMS_COMPL')?.amount ?? 0
+  const vc_iss_retido = taxes_outside.find((t) => t.type === 'ISS_RETIDO')?.amount ?? 0
+  const vc_adicionais = vc_icms_compl + vc_iss_retido
+  const venda_consolidada = view.rb_total + desp_acessorias + vc_op_fora_total + vc_adicionais
+
+  // ───── Atualiza cascade_trace etapas 9, 16 e 17 ─────
   const updated_cascade_trace = motor.cascade_trace.map((step) => {
+    if (step.step === 9) {
+      return {
+        ...step,
+        amount: venda_consolidada,
+        formula: 'Op. consolidada + Op. por fora + Desp. Acessórias + Tributos adicionais',
+        children: [
+          {
+            step: 9,
+            label: 'Operação consolidada (base do RRO)',
+            base: null,
+            rate: null,
+            amount: view.rb_total,
+            formula: 'Op Interna + Op Externa (rb_total)',
+            source: 'ETAPA_7+8',
+          },
+          ...(vc_op_fora_total > 0
+            ? [{
+                step: 9,
+                label: 'Op. por fora (IS/IBS/CBS/IPI)',
+                base: null,
+                rate: null,
+                amount: vc_op_fora_total,
+                formula: 'Σ tributos por fora destacados',
+                source: 'CAMADA_2' as const,
+              }]
+            : []),
+          ...(desp_acessorias > 0
+            ? [{
+                step: 9,
+                label: 'Desp. Acessórias',
+                base: null,
+                rate: null,
+                amount: desp_acessorias,
+                formula: 'Frete + seguro + despesas acessórias',
+                source: 'INPUT' as const,
+              }]
+            : []),
+          ...(vc_adicionais > 0
+            ? [{
+                step: 9,
+                label: 'Tributos adicionais (ICMS Compl. / ISS Retido)',
+                base: null,
+                rate: null,
+                amount: vc_adicionais,
+                formula: '(IPI + Desp.) × ICMS  +  ISS retido',
+                source: 'CAMADA_2' as const,
+              }]
+            : []),
+        ],
+      }
+    }
     if (step.step === 16) {
       return {
         ...step,

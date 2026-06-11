@@ -144,3 +144,44 @@ describe('Motor V17 Etapa 17 — ICMS Complementar', () => {
     expect(compl.amount).toBeCloseTo((ipi.amount + DESP) * 0.17, 2)
   })
 })
+
+describe('Motor V17 Cascata — Linha 9 (Venda consolidada) com tributos por fora', () => {
+  const step9 = (r: ReturnType<typeof calculateMotorV17>) =>
+    r.motor.cascade_trace.find((s) => s.step === 9)!
+
+  it('Linha 9 inclui Op. por fora + Desp. Acessórias + ICMS Complementar (não só rb_total)', () => {
+    const r = calculateMotorV17(baseInput({ desp_acessorias: DESP, icms_compl_applies: true }))
+    const s9 = step9(r)
+    const opForaTotal = r.distribution.taxes_outside
+      .filter((t) => t.type !== 'ICMS_COMPL' && t.type !== 'ISS_RETIDO')
+      .reduce((acc, t) => acc + t.amount, 0)
+    const icmsCompl = find(r.distribution.taxes_outside, 'ICMS_COMPL')!.amount
+    // rb_total dos itens (ITEM.rb) = 100000; peso = 1.
+    expect(s9.amount).toBeCloseTo(100000 + DESP + opForaTotal + icmsCompl, 2)
+    // Estritamente maior que o rb_total cru (regressão do bug reportado).
+    expect(s9.amount).toBeGreaterThan(100000)
+  })
+
+  it('SEM desconto, Linha 9 == valor_final (step 17)', () => {
+    const r = calculateMotorV17(baseInput({ desp_acessorias: DESP, icms_compl_applies: true }))
+    expect(step9(r).amount).toBeCloseTo(r.distribution.valor_final, 2)
+  })
+
+  it('children da Linha 9 somam exatamente o amount', () => {
+    const r = calculateMotorV17(baseInput({ desp_acessorias: DESP, icms_compl_applies: true }))
+    const s9 = step9(r)
+    const childrenSum = (s9.children ?? []).reduce((acc, c) => acc + c.amount, 0)
+    expect(childrenSum).toBeCloseTo(s9.amount, 2)
+    // Primeiro child preserva a base do RRO (rb_total intocado).
+    expect(s9.children?.[0]?.amount).toBeCloseTo(100000, 2)
+  })
+
+  it('NÃO contamina o RRO: rb_total/distribuição permanecem inalterados', () => {
+    const semCompl = calculateMotorV17(baseInput({ desp_acessorias: DESP, icms_compl_applies: false }))
+    const comCompl = calculateMotorV17(baseInput({ desp_acessorias: DESP, icms_compl_applies: true }))
+    // ICMS Complementar é por fora: NÃO altera o RRO nem a distribuição interna.
+    expect(comCompl.motor.rro).toBeCloseTo(semCompl.motor.rro, 2)
+    expect(comCompl.distribution.new_commission).toBeCloseTo(semCompl.distribution.new_commission, 2)
+    expect(comCompl.distribution.new_profit).toBeCloseTo(semCompl.distribution.new_profit, 2)
+  })
+})
