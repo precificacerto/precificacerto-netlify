@@ -2834,6 +2834,37 @@ function Budgets() {
                                 <div><span style={{ color: 'var(--color-neutral-500)' }}>Data:</span> {new Date(selectedBudget.created_at).toLocaleDateString('pt-BR')}</div>
                                 <div><span style={{ color: 'var(--color-neutral-500)' }}>Validade:</span> {selectedBudget.expiration_date ? new Date(selectedBudget.expiration_date).toLocaleDateString('pt-BR') : '-'}</div>
                                 <div><span style={{ color: 'var(--color-neutral-500)' }}>Valor:</span> <strong style={{ fontSize: 18, color: '#12B76A' }}>{formatCurrency(Number(selectedBudget.total_value || 0))}</strong></div>
+                                {/* EPIC-POR-FORA-V2 R1: tributos por fora destacados (ICMS-ST/DIFAL/FCP/ICMS Compl.)
+                                    somados ao total a cobrar do cliente. Valores DERIVADOS já persistidos no
+                                    orçamento (não contaminam total_value/RRO). Fonte única: computeTotalACobrar. */}
+                                {(() => {
+                                    const sb = selectedBudget as any
+                                    const trforaTotal =
+                                        (Number(sb.icms_st_value) || 0) +
+                                        (Number(sb.difal_value) || 0) +
+                                        (Number(sb.fcp_value) || 0) +
+                                        (Number(sb.icms_compl_value) || 0)
+                                    if (trforaTotal <= 0) return null
+                                    const totalACobrar = computeTotalACobrar({
+                                        total_value: Number(selectedBudget.total_value || 0),
+                                        icms_st_value: Number(sb.icms_st_value) || 0,
+                                        difal_value: Number(sb.difal_value) || 0,
+                                        fcp_value: Number(sb.fcp_value) || 0,
+                                        icms_compl_value: Number(sb.icms_compl_value) || 0,
+                                    })
+                                    return (
+                                        <div style={{ marginTop: 4, padding: '10px 12px', background: 'rgba(34, 197, 94, 0.08)', border: '1px solid rgba(34, 197, 94, 0.25)', borderRadius: 8 }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 12, color: 'var(--color-neutral-500)' }}>
+                                                <span>+ Tributos por fora (ICMS-ST / DIFAL / FCP / ICMS Compl.)</span>
+                                                <span>{formatCurrency(trforaTotal)}</span>
+                                            </div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
+                                                <strong style={{ fontSize: 14 }}>Total a cobrar:</strong>
+                                                <strong style={{ fontSize: 18, color: '#12B76A' }}>{formatCurrency(totalACobrar)}</strong>
+                                            </div>
+                                        </div>
+                                    )
+                                })()}
                                 {selectedBudget.payment_method && (
                                     <div><span style={{ color: 'var(--color-neutral-500)' }}>Pagamento:</span> <Tag color="green">{PAYMENT_METHODS.find(p => p.value === selectedBudget.payment_method)?.label || selectedBudget.payment_method}</Tag>
                                         {selectedBudget.installments > 1 && <Tag>{selectedBudget.installments}x</Tag>}
