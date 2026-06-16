@@ -145,26 +145,39 @@ describe('Motor V17 Etapa 17 — ICMS Complementar', () => {
   })
 })
 
-describe('Motor V17 Cascata — Linha 9 (Venda consolidada) com tributos por fora', () => {
+describe('Motor V17 Cascata — Linha 9 (Venda consolidada): Op. Externa SEM duplicação', () => {
   const step9 = (r: ReturnType<typeof calculateMotorV17>) =>
     r.motor.cascade_trace.find((s) => s.step === 9)!
 
-  it('Linha 9 inclui Op. por fora + Desp. Acessórias + ICMS Complementar (não só rb_total)', () => {
+  // Regra das 3 camadas (16/06/2026): rb_total JÁ É Op.Interna + Op.Externa. A Venda
+  // Consolidada soma só Desp. Acessórias (fixa) + Tributos Complementares — NÃO repete a
+  // Op. por fora (que duplicava o valor; bug "tela azul" reportado em 16/06).
+  it('Linha 9 = rb_total + Desp. Acessórias + Complementares (NÃO soma a Op. por fora de novo)', () => {
     const r = calculateMotorV17(baseInput({ desp_acessorias: DESP, icms_compl_applies: true }))
     const s9 = step9(r)
+    const icmsCompl = find(r.distribution.taxes_outside, 'ICMS_COMPL')!.amount
     const opForaTotal = r.distribution.taxes_outside
       .filter((t) => t.type !== 'ICMS_COMPL' && t.type !== 'ISS_RETIDO')
       .reduce((acc, t) => acc + t.amount, 0)
-    const icmsCompl = find(r.distribution.taxes_outside, 'ICMS_COMPL')!.amount
-    // rb_total dos itens (ITEM.rb) = 100000; peso = 1.
-    expect(s9.amount).toBeCloseTo(100000 + DESP + opForaTotal + icmsCompl, 2)
-    // Estritamente maior que o rb_total cru (regressão do bug reportado).
-    expect(s9.amount).toBeGreaterThan(100000)
+    // rb_total = ITEM.rb = 100000 (peso=1). Venda = 100000 + Desp + ICMS Compl.
+    expect(s9.amount).toBeCloseTo(100000 + DESP + icmsCompl, 2)
+    // E NÃO o valor inflado que duplicava a Op. por fora (regressão do bug).
+    expect(s9.amount).not.toBeCloseTo(100000 + DESP + opForaTotal + icmsCompl, 2)
   })
 
-  it('SEM desconto, Linha 9 == valor_final (step 17)', () => {
-    const r = calculateMotorV17(baseInput({ desp_acessorias: DESP, icms_compl_applies: true }))
-    expect(step9(r).amount).toBeCloseTo(r.distribution.valor_final, 2)
+  it('Cenário real (peso<1, rb embute Op.Externa): Venda = rb_total + Desp, sem duplicar', () => {
+    // op.interna 143.669,80 + op.externa 8.447,95 = rb 152.117,75 (peso 94,4464%).
+    const realItem: EngineItemV17 = {
+      item_id: 'real', rb: 152117.75, cp: 55901.92, mod_pct: 0, dop_pct: 0.30,
+      commission_pct: 0.05, profit_pct: 0.10, csll_pct: 0.009, irpj_pct: 0.015,
+      peso_op_interna: 143669.8021074274 / 152117.75,
+    }
+    const r = calculateMotorV17({
+      items: [realItem], discount: { pct: 0 }, policy: 'RRO_PROPORTIONAL', regime: 'LUCRO_REAL',
+      rates: RATES, effective_date: '2026-06-16', use_snapshot_rates: false, desp_acessorias: DESP,
+    })
+    // Contribuinte (sem ICMS Compl): Venda Consolidada = 152.117,75 + 1.200 = 153.317,75.
+    expect(step9(r).amount).toBeCloseTo(152117.75 + DESP, 2)
   })
 
   it('children da Linha 9 somam exatamente o amount', () => {
@@ -172,7 +185,7 @@ describe('Motor V17 Cascata — Linha 9 (Venda consolidada) com tributos por for
     const s9 = step9(r)
     const childrenSum = (s9.children ?? []).reduce((acc, c) => acc + c.amount, 0)
     expect(childrenSum).toBeCloseTo(s9.amount, 2)
-    // Primeiro child preserva a base do RRO (rb_total intocado).
+    // Primeiro child = base (rb_total = Op.Interna + Op.Externa) intocada.
     expect(s9.children?.[0]?.amount).toBeCloseTo(100000, 2)
   })
 
