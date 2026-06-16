@@ -1141,14 +1141,25 @@ function Sales() {
 
     // Tributos por fora consolidados (render) — paridade com orçamentos (EPIC-POR-FORA-V2 R1).
     // Derivados; não contaminam total_value/RRO. Só diferem do total quando há ST/DIFAL/FCP/Compl > 0.
-    const balcaoIcmsComplAmount = balcaoMotorResultsByItem.reduce(
+    // ICMS Complementar CHEIO (o motor não aplica desconto sobre ele).
+    const balcaoIcmsComplFull = balcaoMotorResultsByItem.reduce(
         (s, r) => s + (r?.taxes_outside?.find((t) => t.type === 'ICMS_COMPL')?.amount ?? 0),
         0,
     )
+    // Desconto incide sobre o TOTAL A COBRAR (decisão 16/06/2026): tributos por fora também reduzem
+    // por (1−d). ST/DIFAL/FCP já escalam (base pós-desconto); ICMS Compl recebe o fator aqui.
+    const discountFactorV = 1 - (globalDiscountPercentV || 0) / 100
+    const balcaoIcmsComplAmount = balcaoIcmsComplFull * discountFactorV
+    // CHEIO (pré-desconto, d=0) → exibição ACIMA do campo de desconto.
+    const balcaoStDifalFull = consolidateStDifalFromItems(saleItems, products as any[], 0)
+    const balcaoTotalPorForaExtraFull =
+        balcaoStDifalFull.st + balcaoStDifalFull.difal + balcaoStDifalFull.fcp + balcaoIcmsComplFull
+    const balcaoTotalACobrarFull = saleTotal + balcaoTotalPorForaExtraFull
+    // COM desconto (base pós-desconto) → exibição ABAIXO do desconto e persistência.
     const balcaoStDifalConsolidated = consolidateStDifalFromItems(saleItems, products as any[], globalDiscountPercentV)
     const balcaoTotalPorForaExtra =
         balcaoStDifalConsolidated.st + balcaoStDifalConsolidated.difal + balcaoStDifalConsolidated.fcp + balcaoIcmsComplAmount
-    // Total a cobrar com desconto = base com desconto + tributos por fora (recalculados sobre a âncora pós-desconto).
+    // Total a cobrar com desconto = total a cobrar cheio × (1−d).
     const balcaoTotalACobrar = saleTotalWithDiscount + balcaoTotalPorForaExtra
 
     const balcaoResidualItems: ResidualItemInput[] = useMemo(
@@ -1380,10 +1391,13 @@ function Sales() {
                 0,
             )
             // ICMS Complementar consolidado (Etapa 17) — só > 0 p/ destinatário não contribuinte.
-            const icmsComplAmount = saveV17Results.reduce(
+            // Desconto incide sobre o total a cobrar (decisão 16/06/2026): o ICMS Compl também reduz
+            // por (1−d), igual ao ST/DIFAL (que já escalam na consolidação). Persiste o valor com desconto.
+            const icmsComplFull = saveV17Results.reduce(
                 (sum, r) => sum + (r?.taxes_outside?.find((t) => t.type === 'ICMS_COMPL')?.amount ?? 0),
                 0,
             )
+            const icmsComplAmount = icmsComplFull * (1 - (globalDiscountPercentV || 0) / 100)
             // EPIC-POR-FORA-V2 (S4a): ICMS-ST / DIFAL / FCP laterais — venda direta (balcão).
             // Fonte única compartilhada com orçamento (icms-st-difal.ts).
             const stDifalSale = consolidateStDifalFromItems(saleItems, products as any[], globalDiscountPercentV)
@@ -2592,15 +2606,15 @@ function Sales() {
                             <strong>Total:</strong>
                             <strong style={{ color: '#12B76A', fontSize: 20 }}>{formatCurrency(saleTotal)}</strong>
                         </div>
-                        {balcaoTotalPorForaExtra > 0 && (
+                        {balcaoTotalPorForaExtraFull > 0 && (
                             <>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#94a3b8', marginTop: 8 }}>
                                     <span>+ Tributos por fora (ICMS-ST / DIFAL / FCP / ICMS Compl.)</span>
-                                    <span>{formatCurrency(balcaoTotalPorForaExtra)}</span>
+                                    <span>{formatCurrency(balcaoTotalPorForaExtraFull)}</span>
                                 </div>
                                 <div style={{ borderTop: '1px solid rgba(34, 197, 94, 0.25)', marginTop: 8, paddingTop: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                     <strong style={{ fontSize: 14 }}>Total a cobrar:</strong>
-                                    <strong style={{ color: '#4ade80', fontSize: 20 }}>{formatCurrency(saleTotal + balcaoTotalPorForaExtra)}</strong>
+                                    <strong style={{ color: '#4ade80', fontSize: 20 }}>{formatCurrency(balcaoTotalACobrarFull)}</strong>
                                 </div>
                             </>
                         )}
@@ -2659,14 +2673,14 @@ function Sales() {
                                         />
                                     ) : (
                                         <CurrencyInput
-                                            disabled={maxDiscountPercentV <= 0 || saleTotal <= 0}
+                                            disabled={maxDiscountPercentV <= 0 || balcaoTotalACobrarFull <= 0}
                                             min={0}
-                                            max={saleTotal > 0 ? saleTotal * ((maxDiscountPercentV > 0 ? maxDiscountPercentV : 100) / 100) : 0}
-                                            value={Number((saleTotal * (globalDiscountPercentV / 100)).toFixed(2))}
+                                            max={balcaoTotalACobrarFull > 0 ? balcaoTotalACobrarFull * ((maxDiscountPercentV > 0 ? maxDiscountPercentV : 100) / 100) : 0}
+                                            value={Number((balcaoTotalACobrarFull * (globalDiscountPercentV / 100)).toFixed(2))}
                                             onChange={(v) => {
                                                 const amount = v || 0
-                                                if (saleTotal <= 0) { setGlobalDiscountPercentV(0); return }
-                                                const pct = (amount / saleTotal) * 100
+                                                if (balcaoTotalACobrarFull <= 0) { setGlobalDiscountPercentV(0); return }
+                                                const pct = (amount / balcaoTotalACobrarFull) * 100
                                                 const capped = Math.min(pct, maxDiscountPercentV > 0 ? maxDiscountPercentV : 100)
                                                 const finalPct = Number(capped.toFixed(4))
                                                 setGlobalDiscountPercentV(finalPct)

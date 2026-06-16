@@ -685,15 +685,27 @@ function Budgets() {
     void calculateMarginReapuration; void buildMotorInput; void discountMode;
     const profitAmount = motorResultsByItem.reduce((s, r) => s + (r?.new_profit ?? 0), 0)
     const commissionAmount = motorResultsByItem.reduce((s, r) => s + (r?.new_commission ?? 0), 0)
-    // ICMS Complementar consolidado (Etapa 17) — só > 0 quando destinatário não contribuinte.
-    const icmsComplAmount = motorResultsByItem.reduce(
+    // ICMS Complementar consolidado (Etapa 17) — valor CHEIO. O motor não aplica desconto sobre ele
+    // (resolveIcmsComplementar usa atributos fixos do produto: IPI + frete + desp.).
+    const icmsComplFull = motorResultsByItem.reduce(
         (s, r) => s + (r?.taxes_outside?.find((t) => t.type === 'ICMS_COMPL')?.amount ?? 0),
         0,
     )
 
-    // EPIC-POR-FORA-V2 (S4a): ICMS-ST / DIFAL / FCP laterais — por produto, recalculados sobre a
-    // âncora pós-desconto (frete fixo, D3). NÃO integram o RRO; consolidados e persistidos à parte
-    // (mesmo padrão de icms_compl_value, sem somar a total_value). Fonte única: icms-st-difal.ts.
+    // Desconto incide sobre o TOTAL A COBRAR (decisão 16/06/2026): os tributos por fora também
+    // reduzem por (1−d). ST/DIFAL/FCP já escalam (recalculados sobre a base pós-desconto, lineares);
+    // o ICMS Complementar precisa receber o fator explicitamente. Não afeta RRO/comissão/lucro — a
+    // margem da empresa só reduz sobre a base; o imposto de repasse é reduzido por opção do usuário.
+    const discountFactor = 1 - (globalDiscountPercent || 0) / 100
+    const icmsComplAmount = icmsComplFull * discountFactor
+
+    // EPIC-POR-FORA-V2 (S4a): ICMS-ST / DIFAL / FCP laterais — por produto. NÃO integram o RRO;
+    // consolidados e persistidos à parte. Fonte única: icms-st-difal.ts.
+    // CHEIO (pré-desconto, d=0) → exibição ACIMA do campo de desconto.
+    const stDifalFull = consolidateStDifalFromItems(budgetItems, products as any[], 0)
+    const totalPorForaExtraFull = stDifalFull.st + stDifalFull.difal + stDifalFull.fcp + icmsComplFull
+    const totalACobrarFull = budgetTotal + totalPorForaExtraFull
+    // COM desconto (base pós-desconto) → exibição ABAIXO do desconto e persistência.
     const stDifalConsolidated = consolidateStDifalFromItems(budgetItems, products as any[], globalDiscountPercent)
     // R1 (doc v4 Tab. 30/36): total a cobrar do cliente inclui os tributos por fora destacados.
     // Derivado — não contamina total_value/RRO. Só difere do total quando há ST/DIFAL/FCP/Compl > 0.
@@ -2665,15 +2677,15 @@ function Budgets() {
                             <strong>Total do Orçamento:</strong>
                             <strong style={{ color: '#12B76A', fontSize: 20 }}>{formatCurrency(budgetTotal)}</strong>
                         </div>
-                        {totalPorForaExtra > 0 && (
+                        {totalPorForaExtraFull > 0 && (
                             <>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#94a3b8', marginTop: 8 }}>
                                     <span>+ Tributos por fora (ICMS-ST / DIFAL / FCP / ICMS Compl.)</span>
-                                    <span>{formatCurrency(totalPorForaExtra)}</span>
+                                    <span>{formatCurrency(totalPorForaExtraFull)}</span>
                                 </div>
                                 <div style={{ borderTop: '1px solid rgba(34, 197, 94, 0.25)', marginTop: 8, paddingTop: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                     <strong style={{ color: '#f1f5f9', fontSize: 14 }}>Total a cobrar:</strong>
-                                    <strong style={{ color: '#4ade80', fontSize: 20 }}>{formatCurrency(budgetTotal + totalPorForaExtra)}</strong>
+                                    <strong style={{ color: '#4ade80', fontSize: 20 }}>{formatCurrency(totalACobrarFull)}</strong>
                                 </div>
                             </>
                         )}
@@ -2720,12 +2732,12 @@ function Budgets() {
                                 ) : (
                                     <CurrencyInput
                                         min={0}
-                                        max={budgetTotal > 0 ? budgetTotal * ((maxDiscountPercent > 0 ? maxDiscountPercent : 100) / 100) : 0}
-                                        value={budgetTotal * (globalDiscountPercent / 100)}
+                                        max={totalACobrarFull > 0 ? totalACobrarFull * ((maxDiscountPercent > 0 ? maxDiscountPercent : 100) / 100) : 0}
+                                        value={totalACobrarFull * (globalDiscountPercent / 100)}
                                         onChange={(v) => {
                                             const amount = v || 0
-                                            if (budgetTotal <= 0) { setGlobalDiscountPercent(0); return }
-                                            const pct = (amount / budgetTotal) * 100
+                                            if (totalACobrarFull <= 0) { setGlobalDiscountPercent(0); return }
+                                            const pct = (amount / totalACobrarFull) * 100
                                             const capped = Math.min(pct, maxDiscountPercent > 0 ? maxDiscountPercent : 100)
                                             setGlobalDiscountPercent(capped)
                                         }}
