@@ -184,8 +184,25 @@ export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResul
 
   // ───── Converte PageItem → EngineItemV17 ─────
   const engineItems: EngineItemV17[] = validItems.map(({ item, idx }) => {
-    const rb = (Number(item.unit_price) || 0) * (Number(item.quantity) || 0)
     const qty = Number(item.quantity) || 0
+    // FIX peso/desp (2026-06-16): `unit_price` (= products.sale_price) EMBUTE a Desp.
+    // Acessória — ver iva-dual-outside.ts:205 (finalPrice = op.interna + desp + por-fora).
+    // A Desp. Acessória NÃO compõe o peso interno/externo nem a base do RRO; ela é uma
+    // camada SEPARADA (canal `desp_acessorias`, somada depois). Por isso removemos a desp
+    // do `rb` E do denominador do peso de forma CONSISTENTE: como a âncora = rb × peso =
+    // op.interna, ela permanece invariante, mas o peso passa a refletir só
+    // op.interna ÷ (op.interna + op.externa) e o rb deixa de carregar a desp.
+    const terceirizadasUnit = Number(item.terceirizadas_unit) || 0
+    const salePriceBaseUnit = Number(item.sale_price_base_unit) || 0
+    const unitPriceRaw = Number(item.unit_price) || 0
+    // Só "limpa" a desp quando há op.interna confiável (sale_price_base presente indica que
+    // os tributos por fora foram lançados e a desp foi de fato somada ao sale_price). Item
+    // manual / sem cadastro mantém o unit_price cheio (terceirizadas costuma ser 0).
+    const hasReliableOpInterna = salePriceBaseUnit > 0 && unitPriceRaw > 0
+    const rbBaseUnit = hasReliableOpInterna
+      ? Math.max(0, unitPriceRaw - terceirizadasUnit)
+      : unitPriceRaw
+    const rb = rbBaseUnit * qty
 
     // CMV canônico V9-I5 + V14/V15.4 cmv_unit snapshot quando presente
     const snapshotCmv = Number(item.expense_breakdown_unit?.cmv_unit) || 0
@@ -208,11 +225,10 @@ export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResul
     //   dop_pct_efetivo = dop_pct_nominal × peso_op_interna
     // Resultado: motor faz rb × dop_pct_efetivo = rb × pct × (op_interna/rb)
     //                                            = op_interna × pct ✅ bate cadastro
-    const salePriceBaseTemp = Number(item.sale_price_base_unit) || 0
-    const terceirizadasTemp = Number(item.terceirizadas_unit) || 0
-    const unitPriceTemp = Number(item.unit_price) || 0
-    const pesoOpInternaTemp = salePriceBaseTemp > 0 && unitPriceTemp > 0
-      ? Math.max(0, Math.min(1, (salePriceBaseTemp - terceirizadasTemp) / unitPriceTemp))
+    // Denominador LIMPO (rbBaseUnit = unit_price − desp): mantém a identidade
+    // rbBaseUnit × dop_pct_efetivo = op.interna × dop_pct_nominal (despesa sobre Op Interna).
+    const pesoOpInternaTemp = hasReliableOpInterna && rbBaseUnit > 0
+      ? Math.max(0, Math.min(1, (salePriceBaseUnit - terceirizadasUnit) / rbBaseUnit))
       : 1
     const dop_pct = dop_pct_nominal * pesoOpInternaTemp
 
@@ -311,14 +327,15 @@ export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResul
 
     let peso_op_interna: number
     if (salePriceBase > 0 && unitPrice > 0) {
-      // FÓRMULA CORRETA (preferida)
+      // FÓRMULA CORRETA (preferida). Denominador = rbBaseUnit (op.interna + op.externa,
+      // SEM desp. acessória) — ver FIX peso/desp acima. peso = op.interna ÷ rbBaseUnit.
       const opInternaCorreta = salePriceBase - terceirizadas
-      peso_op_interna = opInternaCorreta > 0
-        ? Math.min(1, Math.max(0, opInternaCorreta / unitPrice))
+      peso_op_interna = opInternaCorreta > 0 && rbBaseUnit > 0
+        ? Math.min(1, Math.max(0, opInternaCorreta / rbBaseUnit))
         : 1
-    } else if (valorOpInternaLegacy > 0 && unitPrice > 0) {
-      // Fallback campo legacy
-      peso_op_interna = Math.min(1, Math.max(0, valorOpInternaLegacy / unitPrice))
+    } else if (valorOpInternaLegacy > 0 && rbBaseUnit > 0) {
+      // Fallback campo legacy (também sobre o rb limpo)
+      peso_op_interna = Math.min(1, Math.max(0, valorOpInternaLegacy / rbBaseUnit))
     } else {
       peso_op_interna = 1
       // Fallback perigoso: sem sale_price_base nem valor_op_interna, a âncora vira o unit_price
