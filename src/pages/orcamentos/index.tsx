@@ -2834,9 +2834,10 @@ function Budgets() {
                                 <div><span style={{ color: 'var(--color-neutral-500)' }}>Data:</span> {new Date(selectedBudget.created_at).toLocaleDateString('pt-BR')}</div>
                                 <div><span style={{ color: 'var(--color-neutral-500)' }}>Validade:</span> {selectedBudget.expiration_date ? new Date(selectedBudget.expiration_date).toLocaleDateString('pt-BR') : '-'}</div>
                                 {/* EPIC-POR-FORA-V2 R1: quando há tributos por fora (ICMS-ST/DIFAL/FCP/ICMS Compl.),
-                                    eles aparecem ANTES e o total do orçamento = total a cobrar (valor + tributos).
-                                    Valores DERIVADOS já persistidos (não contaminam total_value/RRO). Fonte única:
-                                    computeTotalACobrar. Sem tributos por fora, exibe só o "Valor" como antes. */}
+                                    exibe "Total do orçamento" (base = total_value), os tributos por fora e, ao final,
+                                    o "Total a cobrar" (base + tributos). Doutrina: icms-st-difal.ts computeTotalACobrar.
+                                    Valores DERIVADOS já persistidos (não contaminam total_value/RRO). Sem tributos por
+                                    fora, exibe só o "Valor" como antes. */}
                                 {(() => {
                                     const sb = selectedBudget as any
                                     const baseValue = Number(selectedBudget.total_value || 0)
@@ -2859,12 +2860,16 @@ function Budgets() {
                                     })
                                     return (
                                         <div style={{ padding: '10px 12px', background: 'rgba(34, 197, 94, 0.08)', border: '1px solid rgba(34, 197, 94, 0.25)', borderRadius: 8 }}>
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 12, color: 'var(--color-neutral-500)' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                <strong style={{ fontSize: 14 }}>Total do orçamento:</strong>
+                                                <strong style={{ fontSize: 18, color: '#12B76A' }}>{formatCurrency(baseValue)}</strong>
+                                            </div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 12, color: 'var(--color-neutral-500)', marginTop: 6 }}>
                                                 <span>+ Tributos por fora (ICMS-ST / DIFAL / FCP / ICMS Compl.)</span>
                                                 <span>{formatCurrency(trforaTotal)}</span>
                                             </div>
                                             <div style={{ borderTop: '1px solid rgba(34, 197, 94, 0.25)', marginTop: 8, paddingTop: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                                <strong style={{ fontSize: 14 }}>Total do orçamento:</strong>
+                                                <strong style={{ fontSize: 14 }}>Total a cobrar:</strong>
                                                 <strong style={{ fontSize: 18, color: '#12B76A' }}>{formatCurrency(totalACobrar)}</strong>
                                             </div>
                                         </div>
