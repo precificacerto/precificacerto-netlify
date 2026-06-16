@@ -1139,6 +1139,18 @@ function Sales() {
         return balcaoV17Results[idx]
     })
 
+    // Tributos por fora consolidados (render) — paridade com orçamentos (EPIC-POR-FORA-V2 R1).
+    // Derivados; não contaminam total_value/RRO. Só diferem do total quando há ST/DIFAL/FCP/Compl > 0.
+    const balcaoIcmsComplAmount = balcaoMotorResultsByItem.reduce(
+        (s, r) => s + (r?.taxes_outside?.find((t) => t.type === 'ICMS_COMPL')?.amount ?? 0),
+        0,
+    )
+    const balcaoStDifalConsolidated = consolidateStDifalFromItems(saleItems, products as any[], globalDiscountPercentV)
+    const balcaoTotalPorForaExtra =
+        balcaoStDifalConsolidated.st + balcaoStDifalConsolidated.difal + balcaoStDifalConsolidated.fcp + balcaoIcmsComplAmount
+    // Total a cobrar com desconto = base com desconto + tributos por fora (recalculados sobre a âncora pós-desconto).
+    const balcaoTotalACobrar = saleTotalWithDiscount + balcaoTotalPorForaExtra
+
     const balcaoResidualItems: ResidualItemInput[] = useMemo(
         () => saleItems.map((item, idx) => {
             const motor = balcaoMotorResultsByItem[idx]
@@ -2571,12 +2583,27 @@ function Sales() {
                         </Button>
                     </Space.Compact>
 
+                    {/* Resumo da venda (ACIMA do campo de desconto): base, tributos por fora e total a cobrar.
+                        Paridade com orçamentos. Sem desconto: total a cobrar = base + tributos. */}
                     <div style={{
                         marginTop: 16, padding: '12px 16px', background: 'rgba(34, 197, 94, 0.1)', border: '1px solid #86efac', borderRadius: 8,
-                        display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 16,
                     }}>
-                        <strong>Total:</strong>
-                        <strong style={{ color: '#12B76A', fontSize: 20 }}>{formatCurrency(saleTotal)}</strong>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 16 }}>
+                            <strong>Total:</strong>
+                            <strong style={{ color: '#12B76A', fontSize: 20 }}>{formatCurrency(saleTotal)}</strong>
+                        </div>
+                        {balcaoTotalPorForaExtra > 0 && (
+                            <>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#94a3b8', marginTop: 8 }}>
+                                    <span>+ Tributos por fora (ICMS-ST / DIFAL / FCP / ICMS Compl.)</span>
+                                    <span>{formatCurrency(balcaoTotalPorForaExtra)}</span>
+                                </div>
+                                <div style={{ borderTop: '1px solid rgba(34, 197, 94, 0.25)', marginTop: 8, paddingTop: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <strong style={{ fontSize: 14 }}>Total a cobrar:</strong>
+                                    <strong style={{ color: '#4ade80', fontSize: 20 }}>{formatCurrency(saleTotal + balcaoTotalPorForaExtra)}</strong>
+                                </div>
+                            </>
+                        )}
                     </div>
 
                     {/* Desconto Global */}
@@ -2665,10 +2692,26 @@ function Sales() {
                             </div>
                         )}
                     </div>
+                    {/* ABAIXO do campo de desconto: resultado com desconto. Se houver tributos por fora,
+                        mostra o total a cobrar já com o desconto aplicado. Paridade com orçamentos. */}
                     {globalDiscountPercentV > 0 && (
-                        <div style={{ marginTop: 8, padding: '12px 16px', background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <strong style={{ fontSize: 14 }}>Total c/ Desconto:</strong>
-                            <strong style={{ color: '#f87171', fontSize: 20 }}>{formatCurrency(saleTotalWithDiscount)}</strong>
+                        <div style={{ marginTop: 8, padding: '12px 16px', background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: 8 }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <strong style={{ fontSize: 14 }}>Total c/ Desconto:</strong>
+                                <strong style={{ color: '#f87171', fontSize: 20 }}>{formatCurrency(saleTotalWithDiscount)}</strong>
+                            </div>
+                            {balcaoTotalPorForaExtra > 0 && (
+                                <>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#94a3b8', marginTop: 8 }}>
+                                        <span>+ Tributos por fora (ICMS-ST / DIFAL / FCP / ICMS Compl.)</span>
+                                        <span>{formatCurrency(balcaoTotalPorForaExtra)}</span>
+                                    </div>
+                                    <div style={{ borderTop: '1px solid rgba(239, 68, 68, 0.2)', marginTop: 8, paddingTop: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <strong style={{ fontSize: 14 }}>Total a cobrar:</strong>
+                                        <strong style={{ color: '#4ade80', fontSize: 20 }}>{formatCurrency(balcaoTotalACobrar)}</strong>
+                                    </div>
+                                </>
+                            )}
                         </div>
                     )}
 

@@ -2656,12 +2656,27 @@ function Budgets() {
                         </Button>
                     </Space.Compact>
 
+                    {/* Resumo do orçamento (ACIMA do campo de desconto): base, tributos por fora e total a cobrar.
+                        Sem desconto: total a cobrar = base + tributos. Com desconto: ver bloco abaixo do campo. */}
                     <div style={{
                         marginTop: 16, padding: '12px 16px', background: 'rgba(34, 197, 94, 0.12)', border: '1px solid rgba(34, 197, 94, 0.3)', borderRadius: 8,
-                        display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 16, color: '#f1f5f9',
                     }}>
-                        <strong>Total do Orçamento:</strong>
-                        <strong style={{ color: '#12B76A', fontSize: 20 }}>{formatCurrency(budgetTotal)}</strong>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 16, color: '#f1f5f9' }}>
+                            <strong>Total do Orçamento:</strong>
+                            <strong style={{ color: '#12B76A', fontSize: 20 }}>{formatCurrency(budgetTotal)}</strong>
+                        </div>
+                        {totalPorForaExtra > 0 && (
+                            <>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#94a3b8', marginTop: 8 }}>
+                                    <span>+ Tributos por fora (ICMS-ST / DIFAL / FCP / ICMS Compl.)</span>
+                                    <span>{formatCurrency(totalPorForaExtra)}</span>
+                                </div>
+                                <div style={{ borderTop: '1px solid rgba(34, 197, 94, 0.25)', marginTop: 8, paddingTop: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <strong style={{ color: '#f1f5f9', fontSize: 14 }}>Total a cobrar:</strong>
+                                    <strong style={{ color: '#4ade80', fontSize: 20 }}>{formatCurrency(budgetTotal + totalPorForaExtra)}</strong>
+                                </div>
+                            </>
+                        )}
                     </div>
 
                     {/* Desconto Global */}
@@ -2721,24 +2736,27 @@ function Budgets() {
                         </div>
                     </div>
 
+                    {/* ABAIXO do campo de desconto: resultado com desconto. Se houver tributos por fora,
+                        mostra o total a cobrar já com o desconto aplicado.
+                        EPIC-POR-FORA-V2 R1: total a cobrar inclui tributos por fora (doc v4 Tab. 30/36). */}
                     {globalDiscountPercent > 0 && (
-                        <div style={{ marginTop: 8, padding: '12px 16px', background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <strong style={{ color: '#f1f5f9', fontSize: 14 }}>Total Orçamento c/ Desconto:</strong>
-                            <strong style={{ color: '#f87171', fontSize: 20 }}>{formatCurrency(budgetTotalWithDiscount)}</strong>
-                        </div>
-                    )}
-
-                    {/* EPIC-POR-FORA-V2 R1: total a cobrar inclui tributos por fora destacados (doc v4 Tab. 30/36). */}
-                    {totalPorForaExtra > 0 && (
-                        <div style={{ marginTop: 8, padding: '12px 16px', background: 'rgba(34, 197, 94, 0.08)', border: '1px solid rgba(34, 197, 94, 0.25)', borderRadius: 8 }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#94a3b8' }}>
-                                <span>+ Tributos por fora (ICMS-ST / DIFAL / FCP / ICMS Compl.)</span>
-                                <span>{formatCurrency(totalPorForaExtra)}</span>
+                        <div style={{ marginTop: 8, padding: '12px 16px', background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: 8 }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <strong style={{ color: '#f1f5f9', fontSize: 14 }}>Total Orçamento c/ Desconto:</strong>
+                                <strong style={{ color: '#f87171', fontSize: 20 }}>{formatCurrency(budgetTotalWithDiscount)}</strong>
                             </div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
-                                <strong style={{ color: '#f1f5f9', fontSize: 14 }}>Total a cobrar:</strong>
-                                <strong style={{ color: '#4ade80', fontSize: 20 }}>{formatCurrency(budgetTotalACobrar)}</strong>
-                            </div>
+                            {totalPorForaExtra > 0 && (
+                                <>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#94a3b8', marginTop: 8 }}>
+                                        <span>+ Tributos por fora (ICMS-ST / DIFAL / FCP / ICMS Compl.)</span>
+                                        <span>{formatCurrency(totalPorForaExtra)}</span>
+                                    </div>
+                                    <div style={{ borderTop: '1px solid rgba(239, 68, 68, 0.2)', marginTop: 8, paddingTop: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <strong style={{ color: '#f1f5f9', fontSize: 14 }}>Total a cobrar:</strong>
+                                        <strong style={{ color: '#4ade80', fontSize: 20 }}>{formatCurrency(budgetTotalACobrar)}</strong>
+                                    </div>
+                                </>
+                            )}
                         </div>
                     )}
 
