@@ -227,7 +227,24 @@ export function applyAbsorptionPolicy(input: ApplyAbsorptionInput): ApplyAbsorpt
   const vc_adicionais = vc_icms_compl + vc_iss_retido
   const venda_consolidada = view.rb_total + desp_acessorias + vc_adicionais
 
-  // ───── Atualiza cascade_trace etapas 9, 16 e 17 ─────
+  // ───── DISPLAY Etapas 11-12 (Engenharia Reversa, Base de Conhecimento Seção 8.10.2) ─────
+  // O motor calcula o desconto sobre `rb_total` e absorve a Desp. Acessória via
+  // `desp_pool_adjustment` (motor-rro) — a âncora REAL (`motor.ancora`) já está correta. Mas a
+  // cascata EXIBIA o desconto sobre `rb_total` (152.117,75) e a âncora pré-absorção
+  // (`view.ancora_interna`), contando a história errada de um cálculo certo. Aqui reescrevemos
+  // SÓ o display, na ordem documentada: (1) desconto sobre a VENDA CONSOLIDADA total
+  // (Op.Int+Op.Ext+Desp.); (2) isola a Desp. Acessória FIXA (imutável ao desconto); (3) o peso
+  // incide sobre o Restante. Tudo derivado de `motor.ancora` para casar EXATAMENTE com a Etapa
+  // 13 (que usa a âncora real) — base × rate = amount em toda a cadeia.
+  const peso_int = view.peso_op_interna_ponderado
+  const vc_base_desconto = view.rb_total + desp_acessorias // Venda Consolidada (sem complementares)
+  const restante_distribuivel = peso_int > 0 ? motor.ancora / peso_int : motor.ancora
+  const op_externa_pos = Math.max(0, restante_distribuivel - motor.ancora) // restante × (1 − peso)
+  const pos_desconto_display = restante_distribuivel + desp_acessorias
+  const desc_full_display = Math.max(0, vc_base_desconto - pos_desconto_display)
+  const dpct_display = vc_base_desconto > 0 ? desc_full_display / vc_base_desconto : 0
+
+  // ───── Atualiza cascade_trace etapas 9, 11, 12, 16 e 17 ─────
   const updated_cascade_trace = motor.cascade_trace.map((step) => {
     if (step.step === 9) {
       return {
@@ -266,6 +283,80 @@ export function applyAbsorptionPolicy(input: ApplyAbsorptionInput): ApplyAbsorpt
                 source: 'CAMADA_2' as const,
               }]
             : []),
+        ],
+      }
+    }
+    if (step.step === 11) {
+      // Desconto sobre a VENDA CONSOLIDADA total (Op.Int + Op.Ext + Desp.), não só rb_total.
+      return {
+        ...step,
+        base: vc_base_desconto,
+        rate: dpct_display,
+        amount: -desc_full_display,
+        formula: 'Venda Consolidada (Op.Int + Op.Ext + Desp.) × desconto_pct',
+        children: [
+          {
+            step: 11,
+            label: 'Venda Consolidada pós-desconto',
+            base: null,
+            rate: null,
+            amount: pos_desconto_display,
+            formula: 'Venda Consolidada × (1 − desconto)',
+            source: 'CAMADA_2' as const,
+          },
+          ...(desp_acessorias > 0
+            ? [{
+                step: 11,
+                label: '(−) Desp. Acessórias (fixa, imutável ao desconto)',
+                base: null,
+                rate: null,
+                amount: -desp_acessorias,
+                formula: 'isola valor fixo (não descontado)',
+                source: 'INPUT' as const,
+              }]
+            : []),
+          {
+            step: 11,
+            label: 'Restante distribuível',
+            base: null,
+            rate: null,
+            amount: restante_distribuivel,
+            formula: 'pós-desconto − Desp. Acessórias',
+            source: 'CAMADA_2' as const,
+          },
+        ],
+      }
+    }
+    if (step.step === 12) {
+      // Peso incide SÓ sobre o Restante (sem desp nem complementares). Âncora = motor.ancora
+      // (REAL, com a absorção da desp já aplicada) → casa exatamente com a Etapa 13.
+      return {
+        ...step,
+        base: restante_distribuivel,
+        rate: peso_int,
+        amount: motor.ancora,
+        formula: 'Restante distribuível × peso_op_interna',
+        children: [
+          {
+            step: 12,
+            label: 'Âncora Gerencial (Op. Interna pós-desconto)',
+            base: restante_distribuivel,
+            rate: peso_int,
+            amount: motor.ancora,
+            formula: 'restante × peso interno',
+            source: 'CAMADA_2' as const,
+            peso: peso_int,
+          },
+          {
+            step: 12,
+            label: 'Operação Externa (pós-desconto)',
+            base: restante_distribuivel,
+            rate: 1 - peso_int,
+            amount: op_externa_pos,
+            formula: 'restante × peso externo',
+            source: 'CAMADA_2' as const,
+            peso: 1 - peso_int,
+          },
         ],
       }
     }

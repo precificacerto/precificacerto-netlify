@@ -98,9 +98,14 @@ describe('Regressão — peso interno sem contaminação por Desp. Acessória', 
     expect(amount).toBeCloseTo(OP_INTERNA, 1)
   })
 
-  it('âncora correta também com desconto 10% (rb limpo × peso × (1−d))', () => {
-    const { amount } = ancoraStep(makeArgs({}, 10))
-    expect(amount).toBeCloseTo(OP_INTERNA * 0.9, 1)
+  it('âncora correta com desconto 10% (Venda Consolidada − desc − desp fixa, × peso)', () => {
+    // Etapa 12 agora exibe a âncora REAL (motor.ancora, com absorção da desp). Pela metodologia:
+    // restante = (rb_limpo + desp) × (1−d) − desp ; âncora = restante × peso.
+    const { rate: peso, amount } = ancoraStep(makeArgs({}, 10))
+    const restante = (RB_LIMPO + TERCEIRIZADAS) * 0.9 - TERCEIRIZADAS
+    expect(amount).toBeCloseTo(restante * peso, 1)
+    // Estritamente menor que a âncora pré-absorção (OP_INTERNA × 0,9), pela desp absorvida.
+    expect(amount).toBeLessThan(OP_INTERNA * 0.9)
   })
 
   it('CONTROLE: sem desp (terceirizadas=0) o peso e o rb não mudam', () => {
