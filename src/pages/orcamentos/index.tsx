@@ -2754,21 +2754,9 @@ function Budgets() {
                     {globalDiscountPercent > 0 && (
                         <div style={{ marginTop: 8, padding: '12px 16px', background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: 8 }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <strong style={{ color: '#f1f5f9', fontSize: 14 }}>Total Orçamento c/ Desconto:</strong>
-                                <strong style={{ color: '#f87171', fontSize: 20 }}>{formatCurrency(budgetTotalWithDiscount)}</strong>
+                                <strong style={{ color: '#f1f5f9', fontSize: 14 }}>Total a cobrar:</strong>
+                                <strong style={{ color: '#4ade80', fontSize: 20 }}>{formatCurrency(budgetTotalACobrar)}</strong>
                             </div>
-                            {totalPorForaExtra > 0 && (
-                                <>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#94a3b8', marginTop: 8 }}>
-                                        <span>+ Tributos por fora (ICMS-ST / DIFAL / FCP / ICMS Compl.)</span>
-                                        <span>{formatCurrency(totalPorForaExtra)}</span>
-                                    </div>
-                                    <div style={{ borderTop: '1px solid rgba(239, 68, 68, 0.2)', marginTop: 8, paddingTop: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                        <strong style={{ color: '#f1f5f9', fontSize: 14 }}>Total a cobrar:</strong>
-                                        <strong style={{ color: '#4ade80', fontSize: 20 }}>{formatCurrency(budgetTotalACobrar)}</strong>
-                                    </div>
-                                </>
-                            )}
                         </div>
                     )}
 
@@ -2800,6 +2788,7 @@ function Budgets() {
                             cascadeTrace={epicV5DisplayData.cascadeTrace}
                             pesoOpInterna={epicV5DisplayData.pesoOpInterna}
                             ancoraInterna={epicV5DisplayData.ancoraInterna}
+                            totalACobrarComDesconto={globalDiscountPercent > 0 ? budgetTotalACobrar : null}
                         />
                     )}
 

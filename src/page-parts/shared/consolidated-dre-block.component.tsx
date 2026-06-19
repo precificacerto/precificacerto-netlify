@@ -250,6 +250,52 @@ function CascadeMobileItem({
   )
 }
 
+/**
+ * Ajuste de DISPLAY (pedido do usuário, 19/06/2026): a linha "Venda Consolidada
+ * pós-desconto" da Etapa 11 deve refletir o TOTAL A COBRAR pós-desconto — o valor que
+ * o cliente efetivamente paga, já com os tributos por fora — e não a base distribuível
+ * do motor (restante + desp). Recebe `totalACobrar` da fiação lateral da página (mesmo
+ * número exibido em "Total a cobrar"). Reescreve SÓ os children EXIBIDOS do step 11;
+ * NÃO toca amount/rate do step pai nem o "Restante distribuível" (que casa com as
+ * Etapas 12/13 e alimenta o RRO/oráculos). A diferença (tributos por fora + Desp.
+ * Acessória fixa + arredondamento cascata↔lateral) é isolada numa linha de dedução
+ * agregada, para a sub-árvore fechar exatamente: TotalACobrar − dedução = Restante.
+ */
+function applyTotalACobrarToStep11(trace: CascadeStep[], totalACobrar: number): CascadeStep[] {
+  if (!(totalACobrar > 0)) return trace
+  return trace.map((step) => {
+    if (step.step !== 11 || !step.children?.length) return step
+    const restChild = step.children.find((c) => (c.label ?? '').toLowerCase().includes('restante distribu'))
+    if (!restChild) return step
+    const restante = restChild.amount
+    const naoDistribuivel = totalACobrar - restante
+    return {
+      ...step,
+      children: [
+        {
+          step: 11,
+          label: 'Venda Consolidada pós-desconto (Total a cobrar)',
+          base: null,
+          rate: null,
+          amount: totalACobrar,
+          formula: 'Total a cobrar do cliente pós-desconto (inclui tributos por fora)',
+          source: 'TOTAL_A_COBRAR',
+        },
+        {
+          step: 11,
+          label: '(−) Tributos por fora + Desp. Acessórias (não distribuíveis)',
+          base: null,
+          rate: null,
+          amount: -naoDistribuivel,
+          formula: 'Total a cobrar − Restante distribuível',
+          source: 'TOTAL_A_COBRAR',
+        },
+        restChild,
+      ],
+    }
+  })
+}
+
 function CascadeExpander({ trace }: { trace: CascadeStep[] }) {
   const { isMobile } = useDevice()
 
@@ -352,6 +398,12 @@ export interface ConsolidatedDREBlockProps {
    * Story MRM-V5-005 AC3: "Âncora Interna" como linha direta (R$).
    */
   ancoraInterna?: number | null
+  /**
+   * Display (19/06/2026): total a cobrar pós-desconto (fiação lateral da página).
+   * Quando > 0, a Etapa 11 da cascata passa a exibir esse valor na linha "Venda
+   * Consolidada pós-desconto". Default null → cascata exibida sem ajuste (retrocompat).
+   */
+  totalACobrarComDesconto?: number | null
 }
 
 export function ConsolidatedDREBlock({
@@ -361,7 +413,14 @@ export function ConsolidatedDREBlock({
   cascadeTrace = null,
   pesoOpInterna = null,
   ancoraInterna = null,
+  totalACobrarComDesconto = null,
 }: ConsolidatedDREBlockProps) {
+  // Display (19/06/2026): ajusta a linha "Venda Consolidada pós-desconto" (Etapa 11)
+  // para refletir o Total a cobrar pós-desconto. Puramente visual — não altera o motor.
+  const cascadeTraceForDisplay =
+    cascadeTrace && totalACobrarComDesconto != null && totalACobrarComDesconto > 0
+      ? applyTotalACobrarToStep11(cascadeTrace, totalACobrarComDesconto)
+      : cascadeTrace
   const {
     receitas,
     terceirizadas,
@@ -567,7 +626,7 @@ export function ConsolidatedDREBlock({
       )}
 
       {/* Memória cascata: V16 (13 etapas) ou V17 (17 etapas) */}
-      {cascadeTrace && (cascadeTrace.length === 13 || cascadeTrace.length === 17) && <CascadeExpander trace={cascadeTrace} />}
+      {cascadeTraceForDisplay && (cascadeTraceForDisplay.length === 13 || cascadeTraceForDisplay.length === 17) && <CascadeExpander trace={cascadeTraceForDisplay} />}
 
       <div style={{ fontSize: 11, color: '#64748b', marginTop: 10, fontStyle: 'italic' }}>
         Esta DRE consolida os RRs individuais já calculados por cada produto/serviço.

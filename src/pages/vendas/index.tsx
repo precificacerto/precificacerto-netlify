@@ -2711,21 +2711,9 @@ function Sales() {
                     {globalDiscountPercentV > 0 && (
                         <div style={{ marginTop: 8, padding: '12px 16px', background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: 8 }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <strong style={{ fontSize: 14 }}>Total c/ Desconto:</strong>
-                                <strong style={{ color: '#f87171', fontSize: 20 }}>{formatCurrency(saleTotalWithDiscount)}</strong>
+                                <strong style={{ fontSize: 14 }}>Total a cobrar:</strong>
+                                <strong style={{ color: '#4ade80', fontSize: 20 }}>{formatCurrency(balcaoTotalACobrar)}</strong>
                             </div>
-                            {balcaoTotalPorForaExtra > 0 && (
-                                <>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#94a3b8', marginTop: 8 }}>
-                                        <span>+ Tributos por fora (ICMS-ST / DIFAL / FCP / ICMS Compl.)</span>
-                                        <span>{formatCurrency(balcaoTotalPorForaExtra)}</span>
-                                    </div>
-                                    <div style={{ borderTop: '1px solid rgba(239, 68, 68, 0.2)', marginTop: 8, paddingTop: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                        <strong style={{ fontSize: 14 }}>Total a cobrar:</strong>
-                                        <strong style={{ color: '#4ade80', fontSize: 20 }}>{formatCurrency(balcaoTotalACobrar)}</strong>
-                                    </div>
-                                </>
-                            )}
                         </div>
                     )}
 
@@ -2744,6 +2732,7 @@ function Sales() {
                             cascadeTrace={balcaoEpicV5DisplayData.cascadeTrace}
                             pesoOpInterna={balcaoEpicV5DisplayData.pesoOpInterna}
                             ancoraInterna={balcaoEpicV5DisplayData.ancoraInterna}
+                            totalACobrarComDesconto={globalDiscountPercentV > 0 ? balcaoTotalACobrar : null}
                         />
                     )}
 
