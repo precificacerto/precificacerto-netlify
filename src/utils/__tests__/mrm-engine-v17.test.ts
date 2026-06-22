@@ -287,26 +287,53 @@ describe('Motor V17 — Camada 2 Políticas de Absorção', () => {
     }
   })
 
-  it('COMMISSION_PROTECTED preserva comissão integral quando RRO suficiente', () => {
+  it('COMMISSION_PROTECTED trava a ALÍQUOTA % da comissão (não o R$); lucro+CSLL+IRPJ absorvem', () => {
     const result = calculateMotorV17({ ...baseInput, policy: 'COMMISSION_PROTECTED' })
     if (result.distribution.absorption_audit.commission_floor_applied) {
-      // Comissão = floor integral (R$ 5.000)
-      expect(result.distribution.new_commission).toBeCloseTo(5000, 1)
-      expect(result.distribution.absorption_audit.profit_absorbed).toBeGreaterThanOrEqual(0)
+      const dist = result.distribution
+      // Relatório Item 2: desconto 10% → comissão = 5000 × (1 − 0,10) = 4500
+      // (a alíquota é travada; o R$ varia com a base pós-desconto).
+      expect(dist.new_commission).toBeCloseTo(5000 * 0.9, 1)
+      // Invariante V4: soma das 4 rubricas = RRO.
+      expect(dist.new_commission + dist.new_profit + dist.new_csll + dist.new_irpj)
+        .toBeCloseTo(result.motor.rro, 1)
+      // Lucro absorve → fica abaixo do proporcional puro.
+      expect(dist.absorption_audit.profit_absorbed).toBeGreaterThan(0)
     }
   })
 
-  it('COMMISSION_PROTECTED degrada para PROPORTIONAL quando RRO insuficiente', () => {
-    // Cenário com desconto agressivo (50%) → RRO pode ser insuficiente
-    const stressInput = {
-      ...baseInput,
-      discount: { pct: 0.50 },
-      policy: 'COMMISSION_PROTECTED' as const,
-    }
+  it('COMMISSION_PROTECTED degrada para PROPORTIONAL quando a comissão protegida > RRO', () => {
+    const stressInput = { ...baseInput, discount: { pct: 0.95 }, policy: 'COMMISSION_PROTECTED' as const }
     const result = calculateMotorV17(stressInput)
     if (!result.distribution.absorption_audit.commission_floor_applied) {
-      // Fallback ativado — message deve estar presente
       expect(result.messages.some(m => m.includes('COMMISSION_PROTECTED inviável'))).toBe(true)
+    }
+  })
+
+  it('PROFIT_PROTECTED trava a alíquota do lucro + CSLL/IRPJ; a comissão absorve', () => {
+    // Comissão alta para que ela consiga absorver o desconto (lucro protegido viável).
+    const sellerAbsorbsItem: EngineItemV17 = {
+      ...richItem, item_id: 'c2-profit-prot',
+      commission_pct: 0.25, profit_pct: 0.05, csll_pct: 0.01, irpj_pct: 0.015,
+    }
+    const result = calculateMotorV17({ ...baseInput, items: [sellerAbsorbsItem], policy: 'PROFIT_PROTECTED' })
+    if (result.distribution.absorption_audit.commission_floor_applied) {
+      const dist = result.distribution
+      // desconto 10% → lucro/CSLL/IRPJ × (1 − 0,10) (alíquota travada).
+      expect(dist.new_profit).toBeCloseTo(5000 * 0.9, 1)
+      expect(dist.new_csll).toBeCloseTo(1000 * 0.9, 1)
+      expect(dist.new_irpj).toBeCloseTo(1500 * 0.9, 1)
+      // Comissão = resíduo; soma fecha o RRO.
+      expect(dist.new_commission + dist.new_profit + dist.new_csll + dist.new_irpj)
+        .toBeCloseTo(result.motor.rro, 1)
+    }
+  })
+
+  it('PROFIT_PROTECTED degrada para PROPORTIONAL quando o lucro protegido > RRO', () => {
+    const stressInput = { ...baseInput, discount: { pct: 0.60 }, policy: 'PROFIT_PROTECTED' as const }
+    const result = calculateMotorV17(stressInput)
+    if (!result.distribution.absorption_audit.commission_floor_applied) {
+      expect(result.messages.some(m => m.includes('PROFIT_PROTECTED inviável'))).toBe(true)
     }
   })
 })

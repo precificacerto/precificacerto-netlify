@@ -506,12 +506,20 @@ export const MRM_ENGINE_VERSION_V17 = '3.0.0'
 /**
  * Política comercial de absorção do desconto (V17 Camada 2).
  *
- * - RRO_PROPORTIONAL: redistribui RRO conforme pesos originais (PDF Seção 23)
- * - COMMISSION_PROTECTED: comissão integral em R$, lucro absorve desconto
+ * - RRO_PROPORTIONAL: redistribui RRO conforme pesos originais (PDF Seção 23).
+ *   Dropdown "Proporcional (Comissão + Lucro)".
+ * - COMMISSION_PROTECTED: comissão protege a ALÍQUOTA (%); lucro + CSLL + IRPJ absorvem
+ *   o desconto. Dropdown "Empresa absorve (Lucro)".
+ * - PROFIT_PROTECTED: lucro protege a ALÍQUOTA (%), com CSLL/IRPJ acompanhando-o; a
+ *   comissão absorve o desconto. Dropdown "Vendedor absorve (Comissão)".
+ *
+ * Regra (Relatório 20/06/2026, Item 2): a parte protegida trava o PERCENTUAL, nunca o R$ —
+ * o valor em reais varia com a base pós-desconto. Fallback proporcional se a parte
+ * protegida exceder o RRO disponível.
  *
  * Persistido em `tenants.absorption_policy`. Default `RRO_PROPORTIONAL`.
  */
-export type AbsorptionPolicy = 'RRO_PROPORTIONAL' | 'COMMISSION_PROTECTED'
+export type AbsorptionPolicy = 'RRO_PROPORTIONAL' | 'COMMISSION_PROTECTED' | 'PROFIT_PROTECTED'
 
 /**
  * Desconto aplicado sobre venda consolidada (V17 PDF Etapa 11).

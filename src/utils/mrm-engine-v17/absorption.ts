@@ -6,12 +6,16 @@
  *   - Etapa 16: redistribuição RRO entre Comissão/Lucro/IRPJ/CSLL
  *   - Etapa 17: tributos por fora + consolidação final
  *
- * Camada 2 implementa 2 políticas comerciais:
+ * Camada 2 implementa 3 políticas comerciais (Relatório 20/06/2026, Item 2 — trava a
+ * ALÍQUOTA %, nunca o R$; fallback proporcional se a parte protegida exceder o RRO):
  *   - RRO_PROPORTIONAL  (default PDF Seção 23): pesos originais pré-desconto
- *   - COMMISSION_PROTECTED: comissão integral, lucro absorve diferença
+ *   - COMMISSION_PROTECTED ("Empresa absorve (Lucro)"): comissão protege a alíquota;
+ *     lucro + CSLL + IRPJ absorvem a diferença proporcionalmente entre si
+ *   - PROFIT_PROTECTED ("Vendedor absorve (Comissão)"): lucro protege a alíquota, com
+ *     CSLL/IRPJ acompanhando-o; a comissão absorve a diferença
  *
- * INVARIANTE I-V17-10: ICMS/ISS/PIS/COFINS bit-exact entre as 2 policies.
- * Apenas new_commission e new_profit podem divergir.
+ * INVARIANTE I-V17-10: ICMS/ISS/PIS/COFINS bit-exact entre as policies.
+ * Apenas new_commission/new_profit/new_csll/new_irpj podem divergir (soma = RRO sempre).
  */
 
 import type {
@@ -41,6 +45,8 @@ interface ApplyAbsorptionInput {
   icms_compl?: IcmsComplMotorInput
   /** Data de vigência da operação (YYYY-MM-DD) — habilita IS na base do ICMS Compl. a partir de 2027. */
   effective_date?: string
+  /** Fração de desconto aplicada (0..1). Usada para travar a ALÍQUOTA % nos modos protegidos. */
+  discount_pct?: number
 }
 
 interface ApplyAbsorptionResult {
@@ -67,26 +73,58 @@ export function applyAbsorptionPolicy(input: ApplyAbsorptionInput): ApplyAbsorpt
   let commission_floor_applied = false
   let profit_absorbed = 0
 
-  if (policy === 'COMMISSION_PROTECTED') {
-    const floor_commission = view.commission_amount_original
-    const floor_csll = view.csll_amount_original
-    const floor_irpj = view.irpj_amount_original
-    const required = floor_commission + floor_csll + floor_irpj
+  // Relatório 20/06/2026, Item 2: nos modos protegidos trava-se a ALÍQUOTA (%), não o R$.
+  // A parte protegida mantém sua participação na venda → escala por f = (1 − desconto);
+  // a parte absorvedora fica com o resíduo do RRO. A soma sempre fecha o RRO (invariante V4).
+  const f = 1 - Math.max(0, Math.min(1, Number(input.discount_pct) || 0))
 
-    if (motor.rro >= required) {
-      // RRO suficiente — comissão/CSLL/IRPJ preservados em R$ absoluto
-      final_commission = floor_commission
-      final_csll = floor_csll
-      final_irpj = floor_irpj
-      final_profit = motor.rro - final_commission - final_csll - final_irpj
-      profit_absorbed = view.profit_amount_original - final_profit
+  if (policy === 'COMMISSION_PROTECTED') {
+    // "Empresa absorve (Lucro)": comissão protege a alíquota; lucro + CSLL + IRPJ absorvem
+    // o resíduo proporcionalmente entre si (CSLL/IRPJ acompanham o lucro).
+    const protected_commission = view.commission_amount_original * f
+    const residual = motor.rro - protected_commission
+    if (residual >= 0) {
+      const l0 = view.profit_amount_original
+      const s0 = view.csll_amount_original
+      const i0 = view.irpj_amount_original
+      const base_lsi = l0 + s0 + i0
+      final_commission = protected_commission
+      if (base_lsi > 0) {
+        final_profit = residual * (l0 / base_lsi)
+        final_csll = residual * (s0 / base_lsi)
+        final_irpj = residual * (i0 / base_lsi)
+      } else {
+        final_profit = residual
+        final_csll = 0
+        final_irpj = 0
+      }
+      profit_absorbed = proportional.new_profit - final_profit
       commission_floor_applied = true
     } else {
-      // RRO insuficiente — degrada para proporcional
+      // Comissão protegida estoura o RRO — degrada para proporcional.
       messages.push(
-        'COMMISSION_PROTECTED inviável (RRO < floor de Comissão+CSLL+IRPJ); aplicada distribuição proporcional como fallback.',
+        'COMMISSION_PROTECTED inviável (comissão protegida > RRO); aplicada distribuição proporcional como fallback.',
       )
-      // proportional já está em final_*
+    }
+  } else if (policy === 'PROFIT_PROTECTED') {
+    // "Vendedor absorve (Comissão)": lucro protege a alíquota e CSLL/IRPJ o acompanham
+    // (também por alíquota); a comissão absorve todo o resíduo.
+    const protected_profit = view.profit_amount_original * f
+    const protected_csll = view.csll_amount_original * f
+    const protected_irpj = view.irpj_amount_original * f
+    const residual = motor.rro - protected_profit - protected_csll - protected_irpj
+    if (residual >= 0) {
+      final_profit = protected_profit
+      final_csll = protected_csll
+      final_irpj = protected_irpj
+      final_commission = residual
+      profit_absorbed = proportional.new_profit - final_profit
+      commission_floor_applied = true
+    } else {
+      // Lucro protegido estoura o RRO (comissão não absorve sozinha) — degrada para proporcional.
+      messages.push(
+        'PROFIT_PROTECTED inviável (lucro protegido > RRO); aplicada distribuição proporcional como fallback.',
+      )
     }
   }
 
@@ -372,7 +410,7 @@ export function applyAbsorptionPolicy(input: ApplyAbsorptionInput): ApplyAbsorpt
             rate: null,
             amount: final_commission,
             formula: commission_floor_applied
-              ? 'R$ original protegido (Camada 2)'
+              ? 'alíquota protegida × (1−desc) ou absorve resíduo (Camada 2)'
               : 'rro × peso_comissao_original',
             source: 'CAMADA_2',
             peso: view.peso_comissao_original,
@@ -384,7 +422,7 @@ export function applyAbsorptionPolicy(input: ApplyAbsorptionInput): ApplyAbsorpt
             rate: null,
             amount: final_profit,
             formula: commission_floor_applied
-              ? 'rro − comissão_protegida − csll − irpj'
+              ? 'alíquota protegida × (1−desc) ou absorve resíduo (Camada 2)'
               : 'rro × peso_lucro_original',
             source: 'CAMADA_2',
             peso: view.peso_lucro_original,
@@ -395,7 +433,7 @@ export function applyAbsorptionPolicy(input: ApplyAbsorptionInput): ApplyAbsorpt
             base: null,
             rate: null,
             amount: final_irpj,
-            formula: 'rro × peso_irpj_original (ou R$ protegido em COMMISSION_PROTECTED)',
+            formula: 'rro × peso_irpj_original (ou alíquota protegida × (1−desc) nos modos protegidos)',
             source: 'CAMADA_2',
             peso: view.peso_irpj_original,
           },
@@ -405,7 +443,7 @@ export function applyAbsorptionPolicy(input: ApplyAbsorptionInput): ApplyAbsorpt
             base: null,
             rate: null,
             amount: final_csll,
-            formula: 'rro × peso_csll_original (ou R$ protegido em COMMISSION_PROTECTED)',
+            formula: 'rro × peso_csll_original (ou alíquota protegida × (1−desc) nos modos protegidos)',
             source: 'CAMADA_2',
             peso: view.peso_csll_original,
           },

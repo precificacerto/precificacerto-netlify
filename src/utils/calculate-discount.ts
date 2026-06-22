@@ -6,6 +6,27 @@
 export type DiscountMode = 'PROPORTIONAL' | 'PROFIT_REDUCTION' | 'SELLER_REDUCTION'
 
 /**
+ * Mapeia o "Modo" de desconto (UI) para a política de absorção do motor V17 (Camada 2),
+ * conforme Relatório 20/06/2026, Item 2:
+ *   - PROPORTIONAL     → RRO_PROPORTIONAL (comissão + lucro reduzem juntos)
+ *   - PROFIT_REDUCTION ("Empresa absorve (Lucro)")    → COMMISSION_PROTECTED (protege comissão)
+ *   - SELLER_REDUCTION ("Vendedor absorve (Comissão)") → PROFIT_PROTECTED (protege lucro)
+ */
+export function discountModeToAbsorptionPolicy(
+  mode: DiscountMode | null | undefined,
+): import('@/types/mrm').AbsorptionPolicy {
+  switch (mode) {
+    case 'PROFIT_REDUCTION':
+      return 'COMMISSION_PROTECTED'
+    case 'SELLER_REDUCTION':
+      return 'PROFIT_PROTECTED'
+    case 'PROPORTIONAL':
+    default:
+      return 'RRO_PROPORTIONAL'
+  }
+}
+
+/**
  * Calcula o desconto preservando custos estruturais e absorvendo o impacto
  * econômico apenas na margem (comissão + lucro). Implementa a metodologia de
  * "Desconto com Preservação Operacional" para precificação por dentro.

@@ -23,7 +23,7 @@ import { useDevice } from '@/contexts/device.context'
 import { CurrencyInput } from '@/components/currency-input.component'
 import { ExportFormatModal } from '@/components/ui/export-format-modal.component'
 // Onda 3 / CRÍT-perf: exportTableToPdf (jsPDF ~100KB) via dynamic import no handler abaixo.
-import { calculateDiscountedPrice, DiscountMode } from '@/utils/calculate-discount'
+import { calculateDiscountedPrice, discountModeToAbsorptionPolicy, DiscountMode } from '@/utils/calculate-discount'
 import { formatBRL } from '@/utils/formatters'
 import {
     PaymentWithInstallments,
@@ -1120,7 +1120,7 @@ function Sales() {
             irpj_pct: mrmConfig.irpj_pct,
             useSnapshotRates: mrmConfig.useSnapshotRates,
             expense_breakdown: mrmConfig.expense_breakdown,
-            absorption_policy: 'RRO_PROPORTIONAL', // TODO: ler de tenant.absorption_policy
+            absorption_policy: discountModeToAbsorptionPolicy(discountModeV), // Item 2: modo do dropdown
         },
         globalDiscountPercent: globalDiscountPercentV,
         effectiveDate: balcaoReapurationDate,
@@ -1319,7 +1319,7 @@ function Sales() {
                         irpj_pct: mrmConfig.irpj_pct,
                         useSnapshotRates: mrmConfig.useSnapshotRates,
                         expense_breakdown: mrmConfig.expense_breakdown,
-                        absorption_policy: 'RRO_PROPORTIONAL',
+                        absorption_policy: discountModeToAbsorptionPolicy(discountModeV), // Item 2: modo do dropdown
                     },
                     globalDiscountPercent: globalDiscountPercentV,
                     effectiveDate: reapDate,
@@ -1379,7 +1379,7 @@ function Sales() {
                     irpj_pct: mrmConfig.irpj_pct,
                     useSnapshotRates: mrmConfig.useSnapshotRates,
                     expense_breakdown: mrmConfig.expense_breakdown,
-                    absorption_policy: 'RRO_PROPORTIONAL',
+                    absorption_policy: discountModeToAbsorptionPolicy(discountModeV), // Item 2: modo do dropdown
                 },
                 globalDiscountPercent: globalDiscountPercentV,
                 effectiveDate: reapurationEffectiveDateSale,

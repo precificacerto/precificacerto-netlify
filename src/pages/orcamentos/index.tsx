@@ -24,7 +24,7 @@ import { useDevice } from '@/contexts/device.context'
 // Onda 3 / CRÍT-perf: exportTableToPdf (jsPDF ~100KB) via dynamic import no callback.
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import { CurrencyInput } from '@/components/currency-input.component'
-import type { DiscountMode } from '@/utils/calculate-discount'
+import { discountModeToAbsorptionPolicy, type DiscountMode } from '@/utils/calculate-discount'
 import {
     PaymentWithInstallments,
     buildInstallmentsByPreset,
@@ -680,7 +680,7 @@ function Budgets() {
             irpj_pct: mrmConfig.irpj_pct,
             useSnapshotRates: mrmConfig.useSnapshotRates,
             expense_breakdown: mrmConfig.expense_breakdown,
-            absorption_policy: 'RRO_PROPORTIONAL', // TODO: ler de tenant.absorption_policy
+            absorption_policy: discountModeToAbsorptionPolicy(discountMode), // Item 2: modo do dropdown
         },
         globalDiscountPercent,
         effectiveDate: reapurationEffectiveDate,
@@ -700,7 +700,7 @@ function Budgets() {
         return v17Results[idx]
     })
     // Mantido por compatibilidade (não usado após cutover V17 — remover em commit futuro):
-    void calculateMarginReapuration; void buildMotorInput; void discountMode;
+    void calculateMarginReapuration; void buildMotorInput;
     const profitAmount = motorResultsByItem.reduce((s, r) => s + (r?.new_profit ?? 0), 0)
     const commissionAmount = motorResultsByItem.reduce((s, r) => s + (r?.new_commission ?? 0), 0)
     // ICMS Complementar consolidado (Etapa 17) — valor CHEIO. O motor não aplica desconto sobre ele
