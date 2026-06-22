@@ -67,6 +67,24 @@ import { RequiresReviewBadge } from '@/components/mrm/RequiresReviewBadge'
 
 const formatCurrency = formatBRL
 
+/**
+ * Total a cobrar de um orçamento SALVO (Relatório 20/06/2026, Item 3): reconstrói o valor
+ * que o cliente efetivamente paga = total_value + tributos por fora persistidos
+ * (ICMS-ST / DIFAL / FCP / ICMS Compl.). Usado para que a soma das parcelas (boleto/cartão)
+ * feche EXATAMENTE com o "Total a cobrar" pós-desconto, em vez do total_value (que exclui
+ * os tributos por fora). NÃO altera total_value/final_value da venda (base econômica do RRO).
+ */
+function getBudgetTotalACobrar(budget: any): number {
+    if (!budget) return 0
+    return computeTotalACobrar({
+        total_value: Number(budget.total_value) || 0,
+        icms_st_value: Number(budget.icms_st_value) || 0,
+        difal_value: Number(budget.difal_value) || 0,
+        fcp_value: Number(budget.fcp_value) || 0,
+        icms_compl_value: Number(budget.icms_compl_value) || 0,
+    })
+}
+
 /** Célula de cabeçalho que mantém título + ícone de ordenação + ícone de filtro agrupados à esquerda */
 function TableHeaderCell(props: React.HTMLAttributes<HTMLTableCellElement> & { children?: React.ReactNode }) {
     const { children, ...rest } = props
@@ -1672,7 +1690,8 @@ function Budgets() {
                     employee_id: selectedBudget.employee_id || null,
                     sale_id: sale.id,
                     budget_id: selectedBudget.id,
-                    amount: Number(selectedBudget.total_value),
+                    // Item 3 (Relatório 20/06): recebível fecha com o Total a cobrar (inclui tributos por fora).
+                    amount: getBudgetTotalACobrar(selectedBudget),
                     description: `Venda via orçamento ORC-${selectedBudget.id.substring(0, 4).toUpperCase()}`,
                     launch_date: dayjs().format('YYYY-MM-DD'),
                     origin_type: 'BUDGET',
@@ -1702,7 +1721,8 @@ function Budgets() {
                 }))
                 await (supabase as any).from('cash_entries').insert(boletoEntries)
             } else if (values.payment_method === 'CARTAO_CREDITO') {
-                const totalValue = Number(selectedBudget.total_value)
+                // Item 3 (Relatório 20/06): cartão fecha com o Total a cobrar (inclui tributos por fora).
+                const totalValue = getBudgetTotalACobrar(selectedBudget)
                 const amountPerInstallment = totalValue / numInstallments
                 const installmentEntries = []
                 for (let i = 1; i <= numInstallments; i++) {
@@ -2815,7 +2835,7 @@ function Budgets() {
                                     onPresetChange={setBudgetFormInstallmentPreset}
                                     rows={budgetFormCustomInstallments}
                                     onRowsChange={setBudgetFormCustomInstallments}
-                                    total={budgetTotalWithDiscount}
+                                    total={budgetTotalACobrar}
                                     title="📅 Previsão de parcelas (informativo)"
                                     withEntry={budgetFormWithEntry}
                                     onWithEntryChange={setBudgetFormWithEntry}
@@ -3020,7 +3040,7 @@ function Budgets() {
                                     <Select>
                                         {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(n => (
                                             <Select.Option key={n} value={n}>
-                                                {n}x de {formatCurrency(Number(selectedBudget?.total_value || 0) / n)}
+                                                {n}x de {formatCurrency(getBudgetTotalACobrar(selectedBudget) / n)}
                                             </Select.Option>
                                         ))}
                                     </Select>
@@ -3039,7 +3059,7 @@ function Budgets() {
                                     onPresetChange={setInstallmentPreset}
                                     rows={customInstallments}
                                     onRowsChange={setCustomInstallments}
-                                    total={Number(selectedBudget?.total_value) || 0}
+                                    total={getBudgetTotalACobrar(selectedBudget)}
                                     paymentMethod={pm}
                                 />
                             )

@@ -413,11 +413,21 @@ export function applyAbsorptionPolicy(input: ApplyAbsorptionInput): ApplyAbsorpt
       }
     }
     if (step.step === 17) {
+      // DISPLAY (Relatório 20/06/2026, Item 1): a "Consolidação final da operação" deve
+      // somar SOMENTE os tributos que são, por natureza, da operação por fora: IBS, CBS,
+      // IS, IPI. ICMS_COMPL / ICMS-ST / DIFAL / FCP / ISS_RETIDO pertencem à fiação lateral
+      // (Total a cobrar) e NÃO compõem esta consolidação. `view.valor_final` permanece
+      // intacto (inclui o ICMS Compl — é o que o cliente paga); aqui só ajustamos a EXIBIÇÃO
+      // desta etapa. Cenário do relatório: 147.019,06 − 1.373,77 (ICMS Compl) = 145.645,29.
+      const CONSOLIDACAO_TYPES = ['IBS', 'CBS', 'IS', 'IPI']
+      const consolidacao_taxes = taxes_outside.filter((t) => CONSOLIDACAO_TYPES.includes(t.type))
+      const consolidacao_total = consolidacao_taxes.reduce((acc, t) => acc + t.amount, 0)
+      const consolidacao_final = motor.ancora + desp_acessorias + consolidacao_total
       return {
         ...step,
-        amount: valor_final,
-        formula: 'Âncora + Σ Tributos por fora',
-        children: taxes_outside.map((tax) => ({
+        amount: consolidacao_final,
+        formula: 'Âncora + Σ (IBS + CBS + IS + IPI)',
+        children: consolidacao_taxes.map((tax) => ({
           step: 17,
           label: tax.type,
           base: tax.base,
