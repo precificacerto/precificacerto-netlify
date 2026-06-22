@@ -92,7 +92,6 @@ export function calculateMotorV17(input: MotorV17Input): MotorV17Result {
     icms_compl_applies: input.icms_compl_applies,
     icms_compl: input.icms_compl,
     effective_date: input.effective_date,
-    discount_pct: d, // trava a alíquota % nos modos protegidos (Item 2)
   })
   messages.push(...absorptionResult.messages)
 

@@ -287,18 +287,28 @@ describe('Motor V17 — Camada 2 Políticas de Absorção', () => {
     }
   })
 
-  it('COMMISSION_PROTECTED trava a ALÍQUOTA % da comissão (não o R$); lucro+CSLL+IRPJ absorvem', () => {
+  it('COMMISSION_PROTECTED: comissão = COM% × Âncora Gerencial (Adendo 24-A); lucro+CSLL+IRPJ absorvem', () => {
     const result = calculateMotorV17({ ...baseInput, policy: 'COMMISSION_PROTECTED' })
     if (result.distribution.absorption_audit.commission_floor_applied) {
       const dist = result.distribution
-      // Relatório Item 2: desconto 10% → comissão = 5000 × (1 − 0,10) = 4500
-      // (a alíquota é travada; o R$ varia com a base pós-desconto).
-      expect(dist.new_commission).toBeCloseTo(5000 * 0.9, 1)
+      // Adendo 24-A: a alíquota (5%) incide sobre a Âncora Gerencial (motor.ancora),
+      // NÃO sobre o restante distribuível (que embute a Op. Externa).
+      expect(dist.new_commission).toBeCloseTo(0.05 * result.motor.ancora, 1)
       // Invariante V4: soma das 4 rubricas = RRO.
       expect(dist.new_commission + dist.new_profit + dist.new_csll + dist.new_irpj)
         .toBeCloseTo(result.motor.rro, 1)
       // Lucro absorve → fica abaixo do proporcional puro.
       expect(dist.absorption_audit.profit_absorbed).toBeGreaterThan(0)
+    }
+  })
+
+  it('COMMISSION_PROTECTED: base é a Âncora Gerencial mesmo com Op. Externa (peso interno < 1)', () => {
+    // peso_op_interna 0,8 → há Op. Externa; a comissão protegida NÃO pode usar o restante.
+    const partialItem: EngineItemV17 = { ...richItem, item_id: 'c2-peso', peso_op_interna: 0.8 }
+    const result = calculateMotorV17({ ...baseInput, items: [partialItem], policy: 'COMMISSION_PROTECTED' })
+    if (result.distribution.absorption_audit.commission_floor_applied) {
+      // 5% × Âncora Gerencial (já reduzida pelo peso interno), não 5% × restante.
+      expect(result.distribution.new_commission).toBeCloseTo(0.05 * result.motor.ancora, 1)
     }
   })
 
@@ -310,30 +320,36 @@ describe('Motor V17 — Camada 2 Políticas de Absorção', () => {
     }
   })
 
-  it('PROFIT_PROTECTED trava a alíquota do lucro + CSLL/IRPJ; a comissão absorve', () => {
-    // Comissão alta para que ela consiga absorver o desconto (lucro protegido viável).
+  it('PROFIT_PROTECTED: lucro/CSLL/IRPJ = alíquota × Âncora Gerencial; a comissão absorve', () => {
+    // Comissão alta para a comissão conseguir absorver o desconto.
     const sellerAbsorbsItem: EngineItemV17 = {
       ...richItem, item_id: 'c2-profit-prot',
       commission_pct: 0.25, profit_pct: 0.05, csll_pct: 0.01, irpj_pct: 0.015,
     }
     const result = calculateMotorV17({ ...baseInput, items: [sellerAbsorbsItem], policy: 'PROFIT_PROTECTED' })
-    if (result.distribution.absorption_audit.commission_floor_applied) {
-      const dist = result.distribution
-      // desconto 10% → lucro/CSLL/IRPJ × (1 − 0,10) (alíquota travada).
-      expect(dist.new_profit).toBeCloseTo(5000 * 0.9, 1)
-      expect(dist.new_csll).toBeCloseTo(1000 * 0.9, 1)
-      expect(dist.new_irpj).toBeCloseTo(1500 * 0.9, 1)
-      // Comissão = resíduo; soma fecha o RRO.
+    const dist = result.distribution
+    if (dist.new_commission > 0) {
+      // alíquotas estruturais × Âncora Gerencial (Adendo 24-A).
+      expect(dist.new_profit).toBeCloseTo(0.05 * result.motor.ancora, 1)
+      expect(dist.new_csll).toBeCloseTo(0.01 * result.motor.ancora, 1)
+      expect(dist.new_irpj).toBeCloseTo(0.015 * result.motor.ancora, 1)
       expect(dist.new_commission + dist.new_profit + dist.new_csll + dist.new_irpj)
         .toBeCloseTo(result.motor.rro, 1)
     }
   })
 
-  it('PROFIT_PROTECTED degrada para PROPORTIONAL quando o lucro protegido > RRO', () => {
-    const stressInput = { ...baseInput, discount: { pct: 0.60 }, policy: 'PROFIT_PROTECTED' as const }
-    const result = calculateMotorV17(stressInput)
-    if (!result.distribution.absorption_audit.commission_floor_applied) {
-      expect(result.messages.some(m => m.includes('PROFIT_PROTECTED inviável'))).toBe(true)
+  it('PROFIT_PROTECTED zera a comissão e abate do lucro quando o protegido > RRO (Adendo 24-A §3.3)', () => {
+    // Lucro alto + custos altos → lucro protegido supera o RRO; comissão não pode ficar negativa.
+    const highProfitItem: EngineItemV17 = {
+      ...richItem, item_id: 'c2-zero-comm',
+      cp: 40000, dop_pct: 0.10, commission_pct: 0.02, profit_pct: 0.50, csll_pct: 0.01, irpj_pct: 0.015,
+    }
+    const result = calculateMotorV17({ ...baseInput, items: [highProfitItem], discount: { pct: 0.30 }, policy: 'PROFIT_PROTECTED' })
+    const dist = result.distribution
+    if (result.messages.some(m => m.includes('comissão zerada'))) {
+      expect(dist.new_commission).toBe(0)
+      expect(dist.new_commission + dist.new_profit + dist.new_csll + dist.new_irpj)
+        .toBeCloseTo(result.motor.rro, 1)
     }
   })
 })
