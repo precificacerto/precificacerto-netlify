@@ -45,8 +45,6 @@ interface ApplyAbsorptionInput {
   icms_compl?: IcmsComplMotorInput
   /** Data de vigência da operação (YYYY-MM-DD) — habilita IS na base do ICMS Compl. a partir de 2027. */
   effective_date?: string
-  /** Fração de desconto aplicada (0..1). Usada para travar a ALÍQUOTA % nos modos protegidos. */
-  discount_pct?: number
 }
 
 interface ApplyAbsorptionResult {
@@ -73,59 +71,61 @@ export function applyAbsorptionPolicy(input: ApplyAbsorptionInput): ApplyAbsorpt
   let commission_floor_applied = false
   let profit_absorbed = 0
 
-  // Relatório 20/06/2026, Item 2: nos modos protegidos trava-se a ALÍQUOTA (%), não o R$.
-  // A parte protegida mantém sua participação na venda → escala por f = (1 − desconto);
-  // a parte absorvedora fica com o resíduo do RRO. A soma sempre fecha o RRO (invariante V4).
-  const f = 1 - Math.max(0, Math.min(1, Number(input.discount_pct) || 0))
+  // Adendo 24-A (22/06/2026): nos modos protegidos a alíquota protegida incide sobre a
+  // ÂNCORA GERENCIAL (Op. por dentro pós-desconto = motor.ancora), NUNCA sobre o restante
+  // distribuível — que incorpora a Op. Externa (tributos por fora, de repasse). As alíquotas
+  // estruturais agregadas = amount_original ÷ rb_total. A soma sempre fecha o RRO (invariante V4).
+  const ancora_ger = motor.ancora
+  const rb_base = view.rb_total
+  const com_pct = rb_base > 0 ? view.commission_amount_original / rb_base : 0
+  const luc_pct = rb_base > 0 ? view.profit_amount_original / rb_base : 0
+  const csll_pct = rb_base > 0 ? view.csll_amount_original / rb_base : 0
+  const irpj_pct = rb_base > 0 ? view.irpj_amount_original / rb_base : 0
 
   if (policy === 'COMMISSION_PROTECTED') {
-    // "Empresa absorve (Lucro)": comissão protege a alíquota; lucro + CSLL + IRPJ absorvem
-    // o resíduo proporcionalmente entre si (CSLL/IRPJ acompanham o lucro).
-    const protected_commission = view.commission_amount_original * f
-    const residual = motor.rro - protected_commission
-    if (residual >= 0) {
-      const l0 = view.profit_amount_original
-      const s0 = view.csll_amount_original
-      const i0 = view.irpj_amount_original
-      const base_lsi = l0 + s0 + i0
+    // "Empresa absorve (Lucro)": comissão = COM% × Âncora Gerencial; lucro + CSLL + IRPJ
+    // absorvem o saldo proporcionalmente aos seus percentuais estruturais (acompanham o lucro).
+    const protected_commission = com_pct * ancora_ger
+    const saldo = motor.rro - protected_commission
+    if (saldo >= 0) {
       final_commission = protected_commission
-      if (base_lsi > 0) {
-        final_profit = residual * (l0 / base_lsi)
-        final_csll = residual * (s0 / base_lsi)
-        final_irpj = residual * (i0 / base_lsi)
+      const soma_lsi = luc_pct + csll_pct + irpj_pct
+      if (soma_lsi > 0) {
+        final_profit = saldo * (luc_pct / soma_lsi)
+        final_csll = saldo * (csll_pct / soma_lsi)
+        final_irpj = saldo * (irpj_pct / soma_lsi)
       } else {
-        final_profit = residual
+        final_profit = saldo
         final_csll = 0
         final_irpj = 0
       }
       profit_absorbed = proportional.new_profit - final_profit
       commission_floor_applied = true
     } else {
-      // Comissão protegida estoura o RRO — degrada para proporcional.
+      // Comissão protegida estoura o RRO — degrada para proporcional (alerta).
       messages.push(
         'COMMISSION_PROTECTED inviável (comissão protegida > RRO); aplicada distribuição proporcional como fallback.',
       )
     }
   } else if (policy === 'PROFIT_PROTECTED') {
-    // "Vendedor absorve (Comissão)": lucro protege a alíquota e CSLL/IRPJ o acompanham
-    // (também por alíquota); a comissão absorve todo o resíduo.
-    const protected_profit = view.profit_amount_original * f
-    const protected_csll = view.csll_amount_original * f
-    const protected_irpj = view.irpj_amount_original * f
-    const residual = motor.rro - protected_profit - protected_csll - protected_irpj
-    if (residual >= 0) {
-      final_profit = protected_profit
-      final_csll = protected_csll
-      final_irpj = protected_irpj
-      final_commission = residual
-      profit_absorbed = proportional.new_profit - final_profit
-      commission_floor_applied = true
-    } else {
-      // Lucro protegido estoura o RRO (comissão não absorve sozinha) — degrada para proporcional.
-      messages.push(
-        'PROFIT_PROTECTED inviável (lucro protegido > RRO); aplicada distribuição proporcional como fallback.',
-      )
+    // "Vendedor absorve (Comissão)": lucro/CSLL/IRPJ = alíquota × Âncora Gerencial; a comissão
+    // absorve o saldo. Se a comissão ficar negativa, zera e abate o excesso do lucro
+    // (Adendo 24-A §3.3 / Validação Nível 4 — nunca produzir comissão negativa).
+    const protected_csll = csll_pct * ancora_ger
+    const protected_irpj = irpj_pct * ancora_ger
+    let protected_profit = luc_pct * ancora_ger
+    let comm_residual = motor.rro - protected_profit - protected_csll - protected_irpj
+    if (comm_residual < 0) {
+      protected_profit += comm_residual // abate o excesso do lucro (comm_residual é negativo)
+      comm_residual = 0
+      messages.push('PROFIT_PROTECTED: comissão zerada — desconto absorvido pelo lucro (Adendo 24-A).')
     }
+    final_profit = protected_profit
+    final_csll = protected_csll
+    final_irpj = protected_irpj
+    final_commission = comm_residual
+    profit_absorbed = proportional.new_profit - final_profit
+    commission_floor_applied = true
   }
 
   // ───── PDF Etapa 17: tributos por fora (Reforma Tributária / IVA Dual) ─────
