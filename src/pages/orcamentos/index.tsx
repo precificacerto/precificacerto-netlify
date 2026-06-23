@@ -703,8 +703,11 @@ function Budgets() {
     void calculateMarginReapuration; void buildMotorInput;
     const profitAmount = motorResultsByItem.reduce((s, r) => s + (r?.new_profit ?? 0), 0)
     const commissionAmount = motorResultsByItem.reduce((s, r) => s + (r?.new_commission ?? 0), 0)
-    // ICMS Complementar consolidado (Etapa 17) — valor CHEIO. O motor não aplica desconto sobre ele
-    // (resolveIcmsComplementar usa atributos fixos do produto: IPI + frete + desp.).
+    // ICMS Complementar consolidado (Etapa 17), somado dos itens (Adendo 25-A: base = IPI somado
+    // + Desp. Acessórias). NOTA (QA Quinn 23/06/2026): o motor V17 deriva os tributos por fora da
+    // âncora PÓS-desconto, logo este valor já reflete o desconto da operação; a multiplicação extra
+    // por `discountFactor` abaixo é um ponto a revisar separadamente (risco pré-existente de duplo
+    // desconto, fora do escopo do Adendo 25-A — comportamento idêntico em single/multi-produto).
     const icmsComplFull = motorResultsByItem.reduce(
         (s, r) => s + (r?.taxes_outside?.find((t) => t.type === 'ICMS_COMPL')?.amount ?? 0),
         0,

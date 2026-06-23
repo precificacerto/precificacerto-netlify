@@ -25,6 +25,7 @@ import type {
   IcmsComplMotorInput,
   MotorV17Input,
   MotorV17Result,
+  OutsideItemProfile,
   TaxBreakdown,
   TaxLine,
   TaxRatePeriod,
@@ -183,6 +184,13 @@ export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResul
   }
 
   // ───── Converte PageItem → EngineItemV17 ─────
+  // ADENDO 25-A: além do EngineItem, coletamos o PERFIL POR FORA de cada produto (alíquotas
+  // individuais + desp. acessória + Op Interna p/ peso) para a consolidação por SOMA na Etapa 17.
+  const outsideProfiles: {
+    opInterna: number
+    desp: number
+    rates: { is: number; ibs: number; cbs: number; ipi: number; icms: number }
+  }[] = []
   const engineItems: EngineItemV17[] = validItems.map(({ item, idx }) => {
     const qty = Number(item.quantity) || 0
     // FIX peso/desp (2026-06-16): `unit_price` (= products.sale_price) EMBUTE a Desp.
@@ -408,6 +416,22 @@ export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResul
         }
       : undefined
 
+    // ADENDO 25-A: perfil por fora do produto. Alíquotas via merge item+tenant (normalização
+    // canônica, incl. fix IBS/CBS sempre %). Op Interna (base do peso da âncora) e desp. do item.
+    const itemMergedRates = mergeItemAndTenantRates(item.item_tax_rates ?? null, tenantCtx.rates ?? [])
+    const despItem = terceirizadasUnit > 0 ? terceirizadasUnit * qty : 0
+    outsideProfiles.push({
+      opInterna: opInternaTotal,
+      desp: despItem,
+      rates: {
+        is: resolveRate(itemMergedRates, 'IS'),
+        ibs: resolveRate(itemMergedRates, 'IBS'),
+        cbs: resolveRate(itemMergedRates, 'CBS'),
+        ipi: resolveRate(itemMergedRates, 'IPI'),
+        icms: resolveRate(itemMergedRates, 'ICMS'),
+      },
+    })
+
     return {
       item_id: `idx-${idx}`,
       rb,
@@ -423,6 +447,18 @@ export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResul
       taxes_inside_amounts,
     }
   })
+
+  // ADENDO 25-A: monta os perfis por fora com pesos = Op Interna_i ÷ Σ Op Interna. A soma dos
+  // pesos é 1, logo single-product (peso 1) e multi-produto homogêneo (alíquotas iguais)
+  // permanecem bit-exact com o caminho legado; só o multi-produto HETEROGÊNEO é corrigido.
+  const sumOpInternaOutside = outsideProfiles.reduce((s, p) => s + p.opInterna, 0)
+  const outsideItems: OutsideItemProfile[] | undefined = sumOpInternaOutside > 0
+    ? outsideProfiles.map((p) => ({
+        peso_ancora: p.opInterna / sumOpInternaOutside,
+        desp_acessorias: p.desp,
+        rates: p.rates,
+      }))
+    : undefined
 
   // ───── Merge rates do item com rates do tenant ─────
   // V17 trabalha com rates CONSOLIDADAS — usamos a do primeiro item válido com
@@ -454,6 +490,7 @@ export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResul
     desp_acessorias: despAcessoriasTotal,
     icms_compl_applies: args.icmsComplApplies ?? false,
     icms_compl: args.icmsCompl,
+    outside_items: outsideItems,
   }
 
   const v17Result = calculateMotorV17(v17Input)
@@ -628,6 +665,13 @@ export function calculateMotorV17ForPageFull(args: PageBuildArgs): {
   // Reconverte items para EngineItemV17 e chama motor V17 de novo
   // (reuso da lógica via calculateMotorV17ForPage seria mais limpo, mas
   // precisamos do MotorV17Result completo, não apenas o per-item rateado)
+  // ADENDO 25-A: coleta o perfil por fora também aqui, para que o `.consolidated`
+  // some os tributos por produto (espelha o caminho de produção `calculateMotorV17ForPage`).
+  const outsideProfilesFull: {
+    opInterna: number
+    desp: number
+    rates: { is: number; ibs: number; cbs: number; ipi: number; icms: number }
+  }[] = []
   const engineItems: EngineItemV17[] = validItems.map((item, idx) => {
     const rb = (Number(item.unit_price) || 0) * (Number(item.quantity) || 0)
     const qty = Number(item.quantity) || 0
@@ -654,6 +698,25 @@ export function calculateMotorV17ForPageFull(args: PageBuildArgs): {
       Number(args.tenantCtx.irpj_pct) || 0,
     )
 
+    // ADENDO 25-A: perfil por fora (op interna p/ peso, desp, alíquotas merged item+tenant).
+    const salePriceBaseFull = Number(item.sale_price_base_unit) || 0
+    const tercFull = Number(item.terceirizadas_unit) || 0
+    const opInternaUnitFull = salePriceBaseFull > 0
+      ? Math.max(0, salePriceBaseFull - tercFull)
+      : (Number(item.unit_price) || 0)
+    const itemMergedFull = mergeItemAndTenantRates(item.item_tax_rates ?? null, args.tenantCtx.rates ?? [])
+    outsideProfilesFull.push({
+      opInterna: opInternaUnitFull * qty,
+      desp: tercFull > 0 ? tercFull * qty : 0,
+      rates: {
+        is: resolveRate(itemMergedFull, 'IS'),
+        ibs: resolveRate(itemMergedFull, 'IBS'),
+        cbs: resolveRate(itemMergedFull, 'CBS'),
+        ipi: resolveRate(itemMergedFull, 'IPI'),
+        icms: resolveRate(itemMergedFull, 'ICMS'),
+      },
+    })
+
     return {
       item_id: `idx-${idx}`,
       rb,
@@ -668,6 +731,15 @@ export function calculateMotorV17ForPageFull(args: PageBuildArgs): {
     }
   })
 
+  const sumOpInternaFull = outsideProfilesFull.reduce((s, p) => s + p.opInterna, 0)
+  const outsideItemsFull: OutsideItemProfile[] | undefined = sumOpInternaFull > 0
+    ? outsideProfilesFull.map((p) => ({
+        peso_ancora: p.opInterna / sumOpInternaFull,
+        desp_acessorias: p.desp,
+        rates: p.rates,
+      }))
+    : undefined
+
   const consolidated = calculateMotorV17({
     items: engineItems,
     discount: { pct: Math.max(0, Math.min(1, (args.globalDiscountPercent || 0) / 100)) },
@@ -676,8 +748,10 @@ export function calculateMotorV17ForPageFull(args: PageBuildArgs): {
     rates: args.tenantCtx.rates ?? [],
     effective_date: args.effectiveDate ?? new Date().toISOString().slice(0, 10),
     use_snapshot_rates: args.tenantCtx.useSnapshotRates ?? false,
+    desp_acessorias: outsideItemsFull ? outsideProfilesFull.reduce((s, p) => s + p.desp, 0) : undefined,
     icms_compl_applies: args.icmsComplApplies ?? false,
     icms_compl: args.icmsCompl,
+    outside_items: outsideItemsFull,
   })
 
   return { per_item, consolidated }

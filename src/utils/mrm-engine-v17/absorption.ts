@@ -24,6 +24,7 @@ import type {
   FinalDistribution,
   IcmsComplMotorInput,
   MotorOutput,
+  OutsideItemProfile,
   TaxLine,
   TaxRatePeriod,
   TaxType,
@@ -45,6 +46,12 @@ interface ApplyAbsorptionInput {
   icms_compl?: IcmsComplMotorInput
   /** Data de vigência da operação (YYYY-MM-DD) — habilita IS na base do ICMS Compl. a partir de 2027. */
   effective_date?: string
+  /**
+   * ADENDO 25-A — perfil por fora POR PRODUTO. Quando presente, a Etapa 17 apura IS/IBS/CBS/IPI
+   * de cada produto (âncora rateada por peso × alíquota DO produto) e SOMA. Ausente → caminho
+   * legado (alíquota agregada × base consolidada).
+   */
+  outside_items?: OutsideItemProfile[]
 }
 
 interface ApplyAbsorptionResult {
@@ -148,18 +155,59 @@ export function applyAbsorptionPolicy(input: ApplyAbsorptionInput): ApplyAbsorpt
   const ipi_rate = resolveRate(input.rates, 'IPI')
   const icms_rate = resolveRate(input.rates, 'ICMS')
 
-  // NÚCLEO ÚNICO IVA Dual (ADR-017) — mesma matemática usada na formação do produto/modal.
-  const iva = computeIvaDualFromBase({
-    baseIVA: base_iva,
-    ipiBase: ipi_base,
-    despAcessorias: desp_acessorias,
-    isPct: is_rate * 100,
-    ibsPct: ibs_rate * 100,
-    cbsPct: cbs_rate * 100,
-    ipiPct: ipi_rate * 100,
-    icmsPct: icms_rate * 100,
-    icmsComplApplies: input.icms_compl_applies,
-  })
+  // ADENDO 25-A (Junho 2026): em orçamentos MULTI-PRODUTO o IPI/IBS/CBS/IS consolidado é a SOMA
+  // dos valores apurados individualmente por produto — NUNCA alíquota de um produto aplicada
+  // sobre a base consolidada total (que tributaria produtos sem aquele tributo). Cada produto
+  // recebe SUA parcela da âncora (rateada pelo peso de Op Interna) e SUAS alíquotas; os valores
+  // são somados. Quando `outside_items` está ausente (produto único / formação de preço), mantém
+  // o caminho legado — bit-exact (peso = 1, fórmula linear). Núcleo único: computeIvaDualFromBase.
+  const multiProduct = Array.isArray(input.outside_items) && input.outside_items.length > 0
+  let iva: ReturnType<typeof computeIvaDualFromBase>
+  if (multiProduct) {
+    const acc = {
+      baseIS: 0, baseIbsCbs: 0, ipiBase: 0, icmsComplBase: 0,
+      isValue: 0, ibsValue: 0, cbsValue: 0, ipiValue: 0, icmsComplValue: 0, totalOutside: 0,
+    }
+    for (const oi of input.outside_items!) {
+      const peso = Math.max(0, Number(oi.peso_ancora) || 0)
+      const desp_i = Math.max(0, Number(oi.desp_acessorias) || 0)
+      const part = computeIvaDualFromBase({
+        baseIVA: base_iva * peso,
+        ipiBase: motor.ancora * peso + desp_i,
+        despAcessorias: desp_i,
+        isPct: (Number(oi.rates?.is) || 0) * 100,
+        ibsPct: (Number(oi.rates?.ibs) || 0) * 100,
+        cbsPct: (Number(oi.rates?.cbs) || 0) * 100,
+        ipiPct: (Number(oi.rates?.ipi) || 0) * 100,
+        icmsPct: (Number(oi.rates?.icms) || 0) * 100,
+        icmsComplApplies: input.icms_compl_applies,
+      })
+      acc.baseIS += part.baseIS
+      acc.baseIbsCbs += part.baseIbsCbs
+      acc.ipiBase += part.ipiBase
+      acc.icmsComplBase += part.icmsComplBase
+      acc.isValue += part.isValue
+      acc.ibsValue += part.ibsValue
+      acc.cbsValue += part.cbsValue
+      acc.ipiValue += part.ipiValue
+      acc.icmsComplValue += part.icmsComplValue
+      acc.totalOutside += part.totalOutside
+    }
+    iva = acc
+  } else {
+    // NÚCLEO ÚNICO IVA Dual (ADR-017) — mesma matemática usada na formação do produto/modal.
+    iva = computeIvaDualFromBase({
+      baseIVA: base_iva,
+      ipiBase: ipi_base,
+      despAcessorias: desp_acessorias,
+      isPct: is_rate * 100,
+      ibsPct: ibs_rate * 100,
+      cbsPct: cbs_rate * 100,
+      ipiPct: ipi_rate * 100,
+      icmsPct: icms_rate * 100,
+      icmsComplApplies: input.icms_compl_applies,
+    })
+  }
 
   const taxes_outside: TaxLine[] = []
   let taxes_outside_total = 0
@@ -168,14 +216,19 @@ export function applyAbsorptionPolicy(input: ApplyAbsorptionInput): ApplyAbsorpt
     taxes_outside.push({ type, rate_pct: rate, base, amount })
     taxes_outside_total += amount
   }
+  // Etapa 17 (Adendo 25-A): no multi-produto a alíquota exibida é a EFETIVA PONDERADA
+  // (blended) = valor somado ÷ base consolidada — preserva rastreabilidade sem aplicar a
+  // alíquota de um produto sobre a base de outro. No single-product, efetiva ≡ nominal.
+  const effRate = (value: number, base: number, nominal: number) =>
+    multiProduct ? (base > 0 ? value / base : 0) : nominal
 
   // Etapa 4: IS sobre Base do IS (X + Desp. Acessórias) — D1.
-  pushLine('IS', is_rate, iva.baseIS, iva.isValue)
+  pushLine('IS', effRate(iva.isValue, iva.baseIS, is_rate), iva.baseIS, iva.isValue)
   // Etapas 6-7: IBS e CBS sobre a base com IS e Desp. Acessórias.
-  pushLine('IBS', ibs_rate, iva.baseIbsCbs, iva.ibsValue)
-  pushLine('CBS', cbs_rate, iva.baseIbsCbs, iva.cbsValue)
+  pushLine('IBS', effRate(iva.ibsValue, iva.baseIbsCbs, ibs_rate), iva.baseIbsCbs, iva.ibsValue)
+  pushLine('CBS', effRate(iva.cbsValue, iva.baseIbsCbs, cbs_rate), iva.baseIbsCbs, iva.cbsValue)
   // Etapa 8: IPI destacado sobre Âncora + Desp. Acessórias (RIPI art. 190).
-  pushLine('IPI', ipi_rate, iva.ipiBase, iva.ipiValue)
+  pushLine('IPI', effRate(iva.ipiValue, iva.ipiBase, ipi_rate), iva.ipiBase, iva.ipiValue)
   // ICMS Complementar — hierarquia de ativação completa (documento oficial 2026-06-10):
   // destinatário (contribuinte?) + frete (CIF/FOB) + bloqueio ST/DIFAL + override. A alíquota é
   // herdada (icms_rate) e a base é apurada com o IPI e o IS já calculados (IS só vigora >= 2027).

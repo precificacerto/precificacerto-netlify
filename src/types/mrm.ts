@@ -732,6 +732,34 @@ export interface MotorV17Input {
    * manual. Quando presente, substitui o binário `icms_compl_applies`.
    */
   icms_compl?: IcmsComplMotorInput
+  /**
+   * ADENDO 25-A (Junho 2026) — perfil tributário "por fora" POR PRODUTO, para a consolidação
+   * por SOMA na Etapa 17. Cada produto tem alíquotas heterogêneas (NCM/operação): o IPI/IBS/CBS/IS
+   * consolidado é a SOMA dos valores apurados individualmente, NUNCA alíquota de um produto sobre
+   * a base consolidada total. Quando ausente (produto único / formação de preço), a Etapa 17 usa
+   * o caminho legado (alíquota agregada × base consolidada) — bit-exact com os oráculos.
+   */
+  outside_items?: OutsideItemProfile[]
+}
+
+/**
+ * Perfil "por fora" de um produto na consolidação multi-produto (Adendo 25-A).
+ * As alíquotas são DECIMAIS (0,05 = 5%).
+ */
+export interface OutsideItemProfile {
+  /** Parcela da âncora consolidada atribuível a este produto (Op Interna_i ÷ Σ Op Interna). Σ = 1. */
+  peso_ancora: number
+  /** Despesas Acessórias do produto (frete + seguro + despesas acessórias, R$). Σ = desp_acessorias. */
+  desp_acessorias: number
+  /** Alíquotas por fora do produto (decimais). */
+  rates: {
+    is: number
+    ibs: number
+    cbs: number
+    ipi: number
+    /** Alíquota ICMS herdada (usada na base do ICMS Complementar deste produto). */
+    icms: number
+  }
 }
 
 /** Parâmetros de operação para a hierarquia do ICMS Complementar (Etapa 17). */
