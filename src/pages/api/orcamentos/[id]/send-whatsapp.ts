@@ -214,13 +214,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       )
       // Resumo textual no WhatsApp (4 ou 2 linhas conforme regime)
       if (residualDist.total.amount > 0) {
+        // Itens 2.1/3.1 (Relatório v2.0): IRPJ/CSLL removidos da Distribuição do Resultado.
         msgPadrao += `📊 *Distribuição do Resultado:*\n`
         msgPadrao += `  Comissão: ${formatCurrency(residualDist.commission.amount)} (${formatResidualLine(residualDist.commission, residualDist.hasDiscount)})\n`
         msgPadrao += `  Lucro: ${formatCurrency(residualDist.profit.amount)} (${formatResidualLine(residualDist.profit, residualDist.hasDiscount)})\n`
-        if (!residualDist.hidesProfitTaxes) {
-          msgPadrao += `  IRPJ: ${formatCurrency(residualDist.irpj.amount)} (${formatResidualLine(residualDist.irpj, residualDist.hasDiscount)})\n`
-          msgPadrao += `  CSLL: ${formatCurrency(residualDist.csll.amount)} (${formatResidualLine(residualDist.csll, residualDist.hasDiscount)})\n`
-        }
         msgPadrao += `\n`
       }
     } catch {

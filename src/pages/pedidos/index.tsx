@@ -522,10 +522,10 @@ function OrdersPage() {
             const totalValue = grossSum * (1 - discountPct / 100)
 
             // S1.2 MRM: hidrata snapshot fiscal nos order_items.
-            // O form de edição de pedido NÃO carrega commission/profit/cost
-            // (esses ficam no orçamento espelho). Passamos pesos=0 e o motor
-            // degrada graciosamente (status RRO_ZERO). TODO S2.x: herdar
-            // snapshot do orçamento pai quando edição preservar IDs.
+            // Item 2.3 (Relatório v2.0): HERDAR commission/profit/tax_breakdown do item do
+            // pedido (espelho do orçamento) em vez de gravar pesos=0. Antes o save zerava
+            // Comissão/Lucro e degradava o motor (RRO_ZERO / "Atualizando para nova versão
+            // do motor"). O snapshot fiscal do orçamento pai é a fonte de verdade (Q2).
             const orderSnapshotCtx: TenantSnapshotContext = {
                 regime: mrmConfig.regime,
                 rates: mrmConfig.rates,
@@ -537,24 +537,31 @@ function OrdersPage() {
                 .filter((it) => it.product_id || it.service_id || it.manual_description)
             // Story MRM-V2-S3.1: shadow context para rastrear divergências.
             const orderShadowCtx = { tenant_id: tenantId, document_id: editingOrder.id, document_type: 'order' as const }
-            const hydratedOrderItems = validOrderItems.map((it) => ({
-                src: it,
-                snap: hydrateItemSnapshot(
+            const hydratedOrderItems = validOrderItems.map((it) => {
+                // commission_percent/profit_percent vêm em base 100 do load (it.commission_pct × 100);
+                // o motor/DB usa decimal. Convertemos de volta para preservar a herança.
+                const inheritedCommPct = it.commission_percent != null ? Number(it.commission_percent) / 100 : 0
+                const inheritedProfitPct = it.profit_percent != null ? Number(it.profit_percent) / 100 : 0
+                const snap = hydrateItemSnapshot(
                     {
                         unit_price: it.unit_price || 0,
                         quantity: it.quantity || 0,
-                        commission_pct: 0,
-                        profit_pct: 0,
+                        commission_pct: inheritedCommPct,
+                        profit_pct: inheritedProfitPct,
                     },
                     orderSnapshotCtx,
                     orderShadowCtx,
-                ),
-            }))
+                )
+                // Preserva o tax_breakdown herdado do orçamento (fonte de verdade);
+                // só usa o recomputado quando o item não tinha snapshot (item novo/legado).
+                const preservedTaxBreakdown = it.tax_breakdown ?? snap.tax_breakdown
+                return { src: it, snap, inheritedCommPct, inheritedProfitPct, preservedTaxBreakdown }
+            })
 
             // MRM S2.3 — policy gate (ADR-004). Order é WARN-only por default.
             let requiresReview = false
             if (mrmConfig.enabled) {
-                const aggregate = aggregateMotorResults(hydratedOrderItems.map(h => h.snap.tax_breakdown))
+                const aggregate = aggregateMotorResults(hydratedOrderItems.map(h => h.preservedTaxBreakdown))
                 const decision = decideMrmAction({
                     motorResult: aggregate,
                     documentType: 'order',
@@ -598,7 +605,7 @@ function OrdersPage() {
             await (supabase as any).from('order_items').delete().eq('order_id', editingOrder.id)
 
             if (hydratedOrderItems.length > 0) {
-                const toInsert = hydratedOrderItems.map(({ src: it, snap }) => ({
+                const toInsert = hydratedOrderItems.map(({ src: it, inheritedCommPct, inheritedProfitPct, preservedTaxBreakdown }) => ({
                     order_id: editingOrder.id,
                     product_id: it.product_id || null,
                     service_id: it.service_id || null,
@@ -606,9 +613,10 @@ function OrdersPage() {
                     unit_price: it.unit_price || 0,
                     total_price: it.total_price || 0,
                     manual_description: it.manual_description || null,
-                    commission_pct: snap.commission_pct,
-                    profit_pct: snap.profit_pct,
-                    tax_breakdown: snap.tax_breakdown,
+                    // Item 2.3: preserva a herança fiscal do orçamento em vez de zerar.
+                    commission_pct: inheritedCommPct,
+                    profit_pct: inheritedProfitPct,
+                    tax_breakdown: preservedTaxBreakdown,
                 }))
                 if (toInsert.length > 0) {
                     const { error: insErr } = await (supabase as any).from('order_items').insert(toInsert)
@@ -750,12 +758,17 @@ function OrdersPage() {
                 // Story MRM-V2-S3.1: shadow context — espelho budget criado a partir do pedido.
                 const mirrorShadowCtx = { tenant_id: tenantId, document_id: newBudget.id, document_type: 'budget' as const }
                 const budgetItems = items.map((it) => {
+                    // Item 2.3 (Relatório v2.0): herdar commission/profit/tax_breakdown do
+                    // pedido em vez de zerar, para o orçamento espelho (e a venda que dele
+                    // nasce) preservarem Comissão/Lucro. base 100 (load) → decimal (DB/motor).
+                    const inheritedCommPct = it.commission_percent != null ? Number(it.commission_percent) / 100 : 0
+                    const inheritedProfitPct = it.profit_percent != null ? Number(it.profit_percent) / 100 : 0
                     const snap = hydrateItemSnapshot(
                         {
                             unit_price: it.unit_price || 0,
                             quantity: it.quantity || 0,
-                            commission_pct: 0,
-                            profit_pct: 0,
+                            commission_pct: inheritedCommPct,
+                            profit_pct: inheritedProfitPct,
                         },
                         mirrorSnapshotCtx,
                         mirrorShadowCtx,
@@ -769,9 +782,9 @@ function OrdersPage() {
                         unit_price: it.unit_price || 0,
                         discount_percent: 0,
                         discount: 0,
-                        commission_pct: snap.commission_pct,
-                        profit_pct: snap.profit_pct,
-                        tax_breakdown: snap.tax_breakdown,
+                        commission_pct: inheritedCommPct,
+                        profit_pct: inheritedProfitPct,
+                        tax_breakdown: it.tax_breakdown ?? snap.tax_breakdown,
                     }
                 })
                 await (supabase as any).from('budget_items').insert(budgetItems)

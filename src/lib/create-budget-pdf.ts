@@ -146,16 +146,12 @@ export function createBudgetPdf(data: BudgetPdfData): Uint8Array {
     doc.text('Distribuição do Resultado', margin, cursorY)
     cursorY += 6
 
+    // Itens 2.1/3.1 (Relatório v2.0): cards IRPJ/CSLL removidos da "Distribuição do
+    // Resultado" — alinhado com a tela. PDF entregue ao cliente mostra só Comissão e Lucro.
     const rdRows: string[][] = [
       ['Comissão do Vendedor', `R$ ${getMonetaryValue(rd.commission.amount)}`, formatResidualLine(rd.commission, rd.hasDiscount)],
       ['Lucro da Empresa', `R$ ${getMonetaryValue(rd.profit.amount)}`, formatResidualLine(rd.profit, rd.hasDiscount)],
     ]
-    if (!rd.hidesProfitTaxes) {
-      rdRows.push(
-        ['IRPJ', `R$ ${getMonetaryValue(rd.irpj.amount)}`, formatResidualLine(rd.irpj, rd.hasDiscount)],
-        ['CSLL', `R$ ${getMonetaryValue(rd.csll.amount)}`, formatResidualLine(rd.csll, rd.hasDiscount)],
-      )
-    }
     rdRows.push([
       'Total RRO',
       `R$ ${getMonetaryValue(rd.total.amount)}`,
@@ -185,7 +181,7 @@ export function createBudgetPdf(data: BudgetPdfData): Uint8Array {
     if (rd.hasDiscount && !rd.hidesProfitTaxes) {
       doc.setFont('helvetica', 'italic')
       doc.setFontSize(8)
-      const note = 'Percentuais calculados sobre o total da venda pós-desconto. Comissão, lucro, IRPJ e CSLL são proporcionalmente redistribuídos sobre o Resultado Residual Operacional.'
+      const note = 'Percentuais calculados sobre o total da venda pós-desconto. Comissão e lucro são proporcionalmente redistribuídos sobre o Resultado Residual Operacional.'
       const noteLines = doc.splitTextToSize(note, pageWidth - 2 * margin)
       doc.text(noteLines, margin, cursorY)
       cursorY += noteLines.length * 4 + 4

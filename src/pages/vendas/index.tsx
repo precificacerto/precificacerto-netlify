@@ -296,7 +296,8 @@ function Sales() {
     const icmsComplAppliesV = resolveIcmsComplApplies(selectedCustomerIdV)
     // ICMS Complementar — hierarquia de ativação (documento oficial 2026-06-10): destinatário
     // (contribuinte?) + frete (CIF/FOB) + bloqueio ST/DIFAL + override. O motor decide na Etapa 17.
-    const freightModeV: 'CIF' | 'FOB' = (Form.useWatch('freight_mode', form) as 'CIF' | 'FOB') ?? 'CIF'
+    // Padrão nativo FOB (item 5.1a): sem valor explícito, frete fica fora da base.
+    const freightModeV: 'CIF' | 'FOB' = (Form.useWatch('freight_mode', form) as 'CIF' | 'FOB') ?? 'FOB'
     const icmsComplOverrideV: 'FORCE_OFF' | null =
         Form.useWatch('icms_compl_override', form) === 'FORCE_OFF' ? 'FORCE_OFF' : null
     // Consolida os parâmetros de OPERAÇÃO da hierarquia para um destinatário. ST/DIFAL é por-produto
@@ -2486,12 +2487,13 @@ function Sales() {
                             🧾 Alíquotas tributárias adicionais (avançado)
                         </summary>
                         <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 8, marginBottom: 12 }}>
-                            <strong>ICMS Complementar</strong> (LC 87/96, art. 13, §1º, II): o sistema avalia
-                            automaticamente a hierarquia — destinatário contribuinte? · frete CIF/FOB · ST/DIFAL
-                            ativos — e decide se cobra. Ajuste a modalidade de frete da operação e, em casos
-                            excepcionais (ex.: isenção específica por estado), force a isenção.
+                            <strong>Padrão nativo:</strong> frete <strong>FOB</strong> (fora da base — não entra no cálculo)
+                            e ICMS Complementar <strong>isento</strong> (não cobrado). Para incluir o frete na base
+                            (CIF) ou deixar o sistema avaliar automaticamente a hierarquia do ICMS Complementar
+                            (LC 87/96, art. 13, §1º, II — destinatário contribuinte? · frete CIF/FOB · ST/DIFAL
+                            ativos), ative manualmente as opções abaixo.
                         </div>
-                        <Form.Item name="freight_mode" label="Modalidade de frete" initialValue="CIF" style={{ marginBottom: 12 }}>
+                        <Form.Item name="freight_mode" label="Modalidade de frete" initialValue="FOB" style={{ marginBottom: 12 }}>
                             <Segmented
                                 options={[
                                     { label: 'CIF (frete na base)', value: 'CIF' },
@@ -2499,7 +2501,7 @@ function Sales() {
                                 ]}
                             />
                         </Form.Item>
-                        <Form.Item name="icms_compl_override" label="ICMS Complementar" initialValue="AUTO" style={{ marginBottom: 0 }}>
+                        <Form.Item name="icms_compl_override" label="ICMS Complementar" initialValue="FORCE_OFF" style={{ marginBottom: 0 }}>
                             <Segmented
                                 options={[
                                     { label: 'Automático (hierarquia decide)', value: 'AUTO' },

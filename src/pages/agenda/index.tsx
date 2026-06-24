@@ -868,6 +868,33 @@ function Schedule() {
                 total_revenue: totalRevenue,
             })
 
+            // ─── Comissão/Lucro EFETIVOS da Agenda (item 1.2 — Relatório v2.0) ───
+            // 2ª origem de comissão: a Agenda é um autossoma das comissões individuais
+            // por item (serviço base + produtos/serviços/consumíveis adicionais). Cada
+            // item tem sua própria % de comissão e lucro; o desconto global é absorvido
+            // proporcionalmente da margem (mesma lógica dos Orçamentos — R2: PROPORTIONAL).
+            // O total é gravado em sales.commission_amount para que a tela de Comissão de
+            // Vendedor leia a alíquota EFETIVA (commission_amount ÷ final_value) — coerente
+            // com o item 1.1, que eliminou o fallback de % nominal.
+            const agendaSvc = payEvt.service_id ? regServices.find((s: any) => s.id === payEvt.service_id) : null
+            const agendaEmp = payEvt.employee_id ? allEmployees.find((e: any) => e.id === payEvt.employee_id) : null
+            const agendaSvcCommPct = getEffectiveCommissionPercent(agendaEmp?.commission_percent, agendaSvc?.commission_percent)
+            const agendaSvcProfitPct = Number(agendaSvc?.profit_percent) || 0
+            let agendaCommNominal = basePrice * agendaSvcCommPct / 100
+            let agendaProfitNominal = basePrice * agendaSvcProfitPct / 100
+            let agendaMargin = agendaCommNominal + agendaProfitNominal
+            for (const ep of extraProds) {
+                const c = ep.total * (Number(ep.commission_percent) || 0) / 100
+                const p = ep.total * (Number(ep.profit_percent) || 0) / 100
+                agendaCommNominal += c
+                agendaProfitNominal += p
+                agendaMargin += c + p
+            }
+            // Desconto absorvido proporcionalmente da margem (cap garantido por calcMaxDiscountPctAgenda).
+            const agendaReductionFactor = agendaMargin > 0 ? Math.min(1, discountAmt / agendaMargin) : 0
+            const agendaCommissionAmount = agendaCommNominal * (1 - agendaReductionFactor)
+            const agendaProfitAmount = agendaProfitNominal * (1 - agendaReductionFactor)
+
             // ─── Registrar venda (mesmo fluxo de Vendas no balcão) ───
             const installmentCount = v.payment_method === 'CARTAO_CREDITO'
                 ? (v.installments ?? 1)
@@ -888,6 +915,9 @@ function Schedule() {
                 sale_type: 'MANUAL',
                 status: 'COMPLETED',
                 discount_mode: hasDiscount ? discountModeAgenda : 'PROPORTIONAL',
+                // Item 1.2: autossoma das comissões/lucros efetivos dos itens do agendamento.
+                commission_amount: agendaCommissionAmount,
+                profit_amount: agendaProfitAmount,
             }).select('id').single()
             if (agendaSale?.id) {
                 // Gerar código AG-XXXXXX e salvar na venda e no evento da agenda

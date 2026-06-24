@@ -104,7 +104,7 @@ export function ResidualDistributionBlock({
   regimeGuardActive = null,
   discountMode = 'PROPORTIONAL',
 }: ResidualDistributionBlockProps) {
-  const { commission, profit, irpj, csll, hasDiscount, hidesProfitTaxes, requiresReview } = distribution
+  const { commission, profit, hasDiscount, hidesProfitTaxes, requiresReview } = distribution
 
   // Epic MRM-V7 — ADR-010: Cenário B — esconder bloco quando NÃO há desconto.
   // A "Distribuição do resultado" só faz sentido quando há desconto sendo absorvido;
@@ -128,12 +128,10 @@ export function ResidualDistributionBlock({
     cards.push({ label: 'Lucro da Empresa', bgColor: 'rgba(16,185,129,0.12)', valueColor: '#34d399', line: profit })
   }
 
-  if (!hidesProfitTaxes) {
-    cards.push(
-      { label: 'IRPJ', bgColor: 'rgba(251,146,60,0.12)', valueColor: '#fb923c', line: irpj },
-      { label: 'CSLL', bgColor: 'rgba(251,146,60,0.12)', valueColor: '#fb923c', line: csll },
-    )
-  }
+  // Relatório v2.0 (itens 2.1 / 3.1, 23/06/2026): cards IRPJ/CSLL NÃO devem
+  // aparecer na "Distribuição do resultado". Mantemos apenas Comissão e Lucro.
+  // Os tributos estruturais continuam apurados no motor (cascata), apenas não
+  // são exibidos como cards nesta seção.
 
   return (
     <div
@@ -206,7 +204,7 @@ export function ResidualDistributionBlock({
       </div>
       {!hideFooterNote && !hidesProfitTaxes && hasDiscount && (
         <div style={{ fontSize: 11, color: '#64748b', marginTop: 8, fontStyle: 'italic' }}>
-          Percentuais calculados sobre o total da venda pós-desconto. Custos, despesas e impostos por dentro são preservados; comissão, lucro, IRPJ e CSLL são proporcionalmente redistribuídos sobre o Resultado Residual Operacional.
+          Percentuais calculados sobre o total da venda pós-desconto. Custos, despesas e impostos por dentro são preservados; comissão e lucro são proporcionalmente redistribuídos sobre o Resultado Residual Operacional.
         </div>
       )}
     </div>

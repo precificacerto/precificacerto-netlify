@@ -1,30 +1,17 @@
-// TODO(EPIC-RR-V2+1): cobrir branches JSX (4 buckets, MEI/SN, requiresReview)
-// com testes de render quando @testing-library/react 19 + peer @testing-library/dom
-// estiverem estáveis no projeto. Lógica de dados já coberta por
-// consolidated-dre.test.ts (10 testes verdes).
-//
-// TODO(EPIC-A11Y-DRE / TD-RR-09): acessibilidade do bloco — adicionar
-// role="table"/role="row"/role="cell" no grid de distribuição, aria-labelledby
-// nos section headers, e aria-describedby no lugar de title= no Row de receitas.
-// Quinn S13 review apontou que `title` em <span> não é lido por todos
-// screen readers. Aceito como dívida MVP coerente com o padrão do app.
-//
 /**
- * ConsolidatedDREBlock — Card demonstrativo da DRE consolidada (Sprint S13 EPIC-RR-V2).
+ * ConsolidatedDREBlock — Bloco de resultado do painel de orçamento/pedido/venda.
  *
- * Princípio: "orçamento não recalcula; CONSOLIDA RRs individuais já calculados
- * por produto". Este componente apenas RENDERIZA o output de `computeConsolidatedDRE`.
+ * Relatório v2.0 (item 4.1, 23/06/2026): a "DRE Consolidada" (6 seções —
+ * Receitas, Custos, Despesas Operacionais, Atividades Terceirizadas, Impostos,
+ * Distribuição do RRO) foi REMOVIDA por ser redundante e menos precisa que a
+ * cascata. Este componente agora renderiza SOMENTE a "Memória Cascata"
+ * (apuração em etapas do Motor RR — PDF Seção 10 + Excel oficial), que é a
+ * fonte de dados correta e NÃO deve ser alterada.
  *
- * 6 seções estruturadas (R3=B: bloco NOVO, adicional ao Distribuição existente):
- *   1. RECEITAS — bruta pós-desconto + impostos por fora + receita líquida
- *   2. CUSTOS — total dos produtos/serviços
- *   3. DESPESAS — 4 buckets (R6=b: fixed/variable/financial/administrative) + MOD
- *   4. IMPOSTOS — POR DENTRO (ICMS/PIS/COFINS/ISS) e POR FORA (IPI/ST/DIFAL/...)
- *      separados (R5)
- *   5. RESULTADO RESIDUAL OPERACIONAL (RRO consolidado)
- *   6. DISTRIBUIÇÃO — Comissão/Lucro/IRPJ/CSLL com R$ + % original + % efetivo (R4=c)
- *
- * Usado em orçamento, pedido e venda (R7=B: aplicação universal).
+ * A assinatura de props (ConsolidatedDREBlockProps) foi preservada para não
+ * quebrar os call sites (orçamento, pedido e venda). Apenas `cascadeTrace` e
+ * `totalACobrarComDesconto` continuam tendo efeito; os demais campos são
+ * ignorados (mantidos por retrocompatibilidade).
  */
 
 import React from 'react'
@@ -32,72 +19,9 @@ import React from 'react'
 import { useDevice } from '@/contexts/device.context'
 import { formatBRL } from '@/utils/formatters'
 import type { DRESection } from '@/utils/consolidated-dre'
-import { formatResidualLine } from '@/utils/residual-distribution'
 import type { CascadeStep } from '@/types/mrm'
 
-function formatPct(pct: number, fractionDigits = 3): string {
-  return pct.toLocaleString('pt-BR', {
-    minimumFractionDigits: fractionDigits,
-    maximumFractionDigits: fractionDigits,
-  })
-}
-
-// Rótulos legíveis dos tributos (display). Para tipos não mapeados, usa o próprio código.
-const TAX_LABELS: Record<string, string> = {
-  ICMS: 'ICMS',
-  PIS: 'PIS',
-  COFINS: 'COFINS',
-  ISS: 'ISS',
-  IS: 'IS — Imposto Seletivo',
-  IPI: 'IPI',
-  ICMS_COMPL: 'ICMS Complementar',
-  ICMS_ST: 'ICMS-ST',
-  DIFAL: 'DIFAL',
-  FCP: 'FCP',
-  IBS: 'IBS',
-  CBS: 'CBS',
-  ISS_RETIDO: 'ISS Retido',
-}
-const taxLabel = (type: string) => TAX_LABELS[type] ?? type
-
-// ─────────────── Sub-componentes visuais ───────────────
-
-function SectionHeader({ title, accent = '#a5b4fc' }: { title: string; accent?: string }) {
-  return (
-    <div style={{
-      fontSize: 11, fontWeight: 700, color: accent, textTransform: 'uppercase',
-      letterSpacing: 1, marginBottom: 6, marginTop: 12,
-    }}>
-      {title}
-    </div>
-  )
-}
-
-function Row({ label, value, color, indent = 0, hint }: {
-  label: string
-  value: string
-  color?: string
-  indent?: number
-  hint?: string
-}) {
-  return (
-    <div style={{
-      display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
-      paddingLeft: indent, paddingTop: 2, paddingBottom: 2, fontSize: 12,
-    }}>
-      <span style={{ color: '#94a3b8' }} title={hint}>{label}</span>
-      <span style={{ color: color ?? '#cbd5e1', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{value}</span>
-    </div>
-  )
-}
-
-function Divider() {
-  return <div style={{ height: 1, background: 'rgba(99,102,241,0.15)', margin: '6px 0' }} />
-}
-
-// ─────────────── Componente principal ───────────────
-
-// ─────────────── Cascata 13 etapas (Story MRM-V5-005 AC1+AC2) ───────────────
+// ─────────────── Cascata (Story MRM-V5-005 AC1+AC2 — preservada intacta) ───────────────
 
 /**
  * V10 (ADR-011): renderiza row de step (pai ou child). Indent + cor diferenciam children.
@@ -296,7 +220,7 @@ function applyTotalACobrarToStep11(trace: CascadeStep[], totalACobrar: number): 
   })
 }
 
-function CascadeExpander({ trace }: { trace: CascadeStep[] }) {
+function CascadeExpander({ trace, marginTop = 8 }: { trace: CascadeStep[]; marginTop?: number }) {
   const { isMobile } = useDevice()
 
   if (trace.length === 0) return null
@@ -304,7 +228,7 @@ function CascadeExpander({ trace }: { trace: CascadeStep[] }) {
   return (
     <details
       style={{
-        marginTop: 12,
+        marginTop,
         padding: '8px 12px',
         background: 'rgba(99,102,241,0.06)',
         border: '1px solid rgba(99,102,241,0.20)',
@@ -375,265 +299,50 @@ function CascadeExpander({ trace }: { trace: CascadeStep[] }) {
 }
 
 export interface ConsolidatedDREBlockProps {
+  /** Mantido por retrocompatibilidade — não é mais renderizado (item 4.1). */
   dre: DRESection
   /** Espaçamento superior em px (default: 8). */
   marginTop?: number
-  /**
-   * Quando true, esconde o título "DRE Consolidada" (útil quando o bloco
-   * está dentro de um modal/popup que já tem cabeçalho).
-   */
+  /** Mantido por retrocompatibilidade — sem efeito (item 4.1). */
   hideTitle?: boolean
   /**
-   * Story MRM-V5-005 AC1+AC2: memória cascata 13 etapas (PDF Motor RR Seção 10).
-   * Quando presente, renderiza expansível inline (default fechado) com os 13 itens.
-   * Default `null` → não renderiza (retrocompat com chamadas existentes).
+   * Memória cascata (PDF Motor RR Seção 10). 13 etapas (V16) ou 17 etapas (V17).
+   * Quando presente e válida, renderiza o expansível (default fechado).
    */
   cascadeTrace?: CascadeStep[] | null
-  /**
-   * Story MRM-V5-005 AC3: "Peso Op Interna" como linha direta (não dentro do collapse).
-   * Decimal 0..1, exibido com 4 casas (e.g. 93,1585%).
-   */
+  /** Mantido por retrocompatibilidade — sem efeito (item 4.1). */
   pesoOpInterna?: number | null
-  /**
-   * Story MRM-V5-005 AC3: "Âncora Interna" como linha direta (R$).
-   */
+  /** Mantido por retrocompatibilidade — sem efeito (item 4.1). */
   ancoraInterna?: number | null
   /**
    * Display (19/06/2026): total a cobrar pós-desconto (fiação lateral da página).
-   * Quando > 0, a Etapa 11 da cascata passa a exibir esse valor na linha "Venda
-   * Consolidada pós-desconto". Default null → cascata exibida sem ajuste (retrocompat).
+   * Quando > 0, a Etapa 11 da cascata exibe esse valor na linha "Venda
+   * Consolidada pós-desconto". Default null → cascata exibida sem ajuste.
    */
   totalACobrarComDesconto?: number | null
 }
 
-export function ConsolidatedDREBlock({
-  dre,
-  marginTop = 8,
-  hideTitle = false,
-  cascadeTrace = null,
-  pesoOpInterna = null,
-  ancoraInterna = null,
-  totalACobrarComDesconto = null,
-}: ConsolidatedDREBlockProps) {
+/**
+ * Renderiza apenas a Memória Cascata (item 4.1). Os demais campos de props são
+ * aceitos para retrocompatibilidade dos call sites, mas não têm efeito visual.
+ */
+export function ConsolidatedDREBlock(props: ConsolidatedDREBlockProps) {
+  const { cascadeTrace = null, totalACobrarComDesconto = null, marginTop = 8 } = props
+
   // Display (19/06/2026): ajusta a linha "Venda Consolidada pós-desconto" (Etapa 11)
   // para refletir o Total a cobrar pós-desconto. Puramente visual — não altera o motor.
   const cascadeTraceForDisplay =
     cascadeTrace && totalACobrarComDesconto != null && totalACobrarComDesconto > 0
       ? applyTotalACobrarToStep11(cascadeTrace, totalACobrarComDesconto)
       : cascadeTrace
-  const {
-    receitas,
-    terceirizadas,
-    custos,
-    despesas,
-    impostos,
-    rro,
-    distribuicao,
-    hidesProfitTaxes,
-    requiresReview,
-  } = dre
 
-  return (
-    <div style={{
-      marginTop,
-      padding: '14px 18px',
-      background: 'rgba(15, 23, 42, 0.45)',
-      border: '1px solid rgba(99, 102, 241, 0.30)',
-      borderRadius: 8,
-    }}>
-      {!hideTitle && (
-        <div style={{
-          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-          fontSize: 13, fontWeight: 700, color: '#c7d2fe', marginBottom: 4,
-        }}>
-          <span>DRE Consolidada</span>
-          {requiresReview && (
-            <span style={{
-              fontSize: 10, fontWeight: 500, color: '#facc15',
-              background: 'rgba(234,179,8,0.15)', padding: '2px 8px', borderRadius: 4,
-            }}>
-              Atualizando para nova versão do motor
-            </span>
-          )}
-        </div>
-      )}
+  // Memória cascata: V16 (13 etapas) ou V17 (17 etapas). Sem cascata válida, nada é exibido.
+  if (
+    !cascadeTraceForDisplay ||
+    !(cascadeTraceForDisplay.length === 13 || cascadeTraceForDisplay.length === 17)
+  ) {
+    return null
+  }
 
-      {/* ─── 1. RECEITAS ─── */}
-      <SectionHeader title="Receitas" accent="#34d399" />
-      <Row
-        label="Receita (pós-desconto)"
-        value={formatBRL(receitas.bruta)}
-        color="#a7f3d0"
-        hint="Receita operacional já considerando o desconto aplicado no documento (não é a receita bruta original V₀)."
-      />
-      {receitas.impostosForaTotal > 0 && (
-        <Row
-          label="(−) Impostos por fora (IPI, ICMS-ST, DIFAL...)"
-          value={`− ${formatBRL(receitas.impostosForaTotal)}`}
-          color="#fda4af"
-          indent={12}
-        />
-      )}
-      <Row
-        label="= Receita operacional líquida"
-        value={formatBRL(receitas.liquida)}
-        color="#6ee7b7"
-      />
-
-      <Divider />
-
-      {/* ─── 2. CUSTOS (V8.8: linha única — CMV total já inclui MO produtiva) ─── */}
-      <SectionHeader title="Custos" accent="#fcd34d" />
-      <Row label="Custo do produto" value={formatBRL(custos.produto)} color="#fde68a" indent={12}
-        hint="CMV total do produto (material + mão de obra produtiva). Igual ao 'Custo produto' do cadastro." />
-      <Row label="Total custos" value={formatBRL(custos.total)} color="#fcd34d" />
-
-      <Divider />
-
-      {/* ─── 3. DESPESAS (4 buckets — V7+: sem MOD) ─── */}
-      {/* Quinn S13 review: usar `!== 0` em vez de `> 0` para defender contra
-          bucket negativo (ajustes contábeis); previne inconsistência onde
-          a linha some mas o valor continua entrando no total.
-          V7+: MOD removida deste bloco (agora em Custos). */}
-      <SectionHeader title="Despesas Operacionais" accent="#f97316" />
-      {despesas.fixas !== 0 && <Row label="Fixas" value={formatBRL(despesas.fixas)} color="#fed7aa" indent={12} />}
-      {despesas.variaveis !== 0 && <Row label="Variáveis" value={formatBRL(despesas.variaveis)} color="#fed7aa" indent={12} />}
-      {despesas.financeiras !== 0 && <Row label="Financeiras" value={formatBRL(despesas.financeiras)} color="#fed7aa" indent={12} />}
-      {despesas.administrativas !== 0 && <Row label="Administrativas" value={formatBRL(despesas.administrativas)} color="#fed7aa" indent={12} />}
-      <Row label="Total despesas" value={formatBRL(despesas.total)} color="#fb923c" />
-
-      <Divider />
-
-      {/* ─── 3b. ATIVIDADES TERCEIRIZADAS (V17 — opção C: seção própria após Despesas) ─── */}
-      {terceirizadas && terceirizadas.total > 0 && (
-        <>
-          <SectionHeader title="Atividades Terceirizadas" accent="#c084fc"  />
-          {terceirizadas.frete > 0 && <Row label="Frete" value={formatBRL(terceirizadas.frete)} color="#e9d5ff" indent={12} />}
-          {terceirizadas.seguros > 0 && <Row label="Seguros" value={formatBRL(terceirizadas.seguros)} color="#e9d5ff" indent={12} />}
-          {terceirizadas.acessorias > 0 && <Row label="Despesas acessórias" value={formatBRL(terceirizadas.acessorias)} color="#e9d5ff" indent={12} />}
-          <Row label="Total terceirizadas" value={formatBRL(terceirizadas.total)} color="#a855f7" />
-          <Divider />
-        </>
-      )}
-
-      {/* ─── 4. IMPOSTOS (POR DENTRO / POR FORA separados — R5) ─── */}
-      <SectionHeader title="Impostos" accent="#60a5fa" />
-      <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 4, fontStyle: 'italic' }}>
-        Por dentro (incidem sobre receita operacional):
-      </div>
-      {impostos.porDentro.length === 0 && (
-        <Row label="(sem impostos por dentro cadastrados)" value="—" color="#475569" indent={12} />
-      )}
-      {impostos.porDentro.map(tax => (
-        <Row
-          key={`inside-${tax.type}`}
-          label={taxLabel(tax.type)}
-          value={`${formatBRL(tax.amount)}  (${formatPct(tax.effectivePct)}%)`}
-          color="#bfdbfe"
-          indent={12}
-        />
-      ))}
-      <Row label="Subtotal impostos por dentro" value={formatBRL(impostos.porDentroTotal)} color="#93c5fd" />
-
-      <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 6, marginBottom: 4, fontStyle: 'italic' }}>
-        Por fora (acrescem ao preço operacional):
-      </div>
-      {impostos.porForaArr.length === 0 && (
-        <Row label="(sem impostos por fora cadastrados)" value="—" color="#475569" indent={12} />
-      )}
-      {impostos.porForaArr.map(tax => (
-        <Row
-          key={`outside-${tax.type}`}
-          label={taxLabel(tax.type)}
-          value={`${formatBRL(tax.amount)}  (${formatPct(tax.effectivePct)}%)`}
-          color="#bfdbfe"
-          indent={12}
-        />
-      ))}
-      <Row label="Subtotal impostos por fora" value={formatBRL(impostos.porForaTotal)} color="#93c5fd" />
-      <Row label="Total impostos" value={formatBRL(impostos.total)} color="#60a5fa" />
-
-      <Divider />
-
-      {/* ─── 5. RRO ─── */}
-      <SectionHeader title="Resultado Residual Operacional (RRO)" accent="#a78bfa" />
-      <Row
-        label="RRO consolidado"
-        value={`${formatBRL(rro.valor)}  (${formatPct(rro.effectivePct)}% s/ receita)`}
-        color="#c4b5fd"
-      />
-
-      <Divider />
-
-      {/* ─── 6. DISTRIBUIÇÃO (R$ + % original + % efetivo — R4=c) ─── */}
-      <SectionHeader title="Distribuição do RRO" accent="#818cf8" />
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'minmax(120px, 1.2fr) minmax(100px, 1fr) minmax(180px, 2fr)',
-        gap: 4, fontSize: 12, marginTop: 2,
-      }}>
-        <div style={{ fontSize: 10, color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5 }}>Rubrica</div>
-        <div style={{ fontSize: 10, color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5, textAlign: 'right' }}>Valor (R$)</div>
-        <div style={{ fontSize: 10, color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5, textAlign: 'right' }}>% original → % sobre venda c/ desc.</div>
-
-        <div style={{ color: '#a5b4fc' }}>Comissão</div>
-        <div style={{ textAlign: 'right', color: '#cbd5e1', fontVariantNumeric: 'tabular-nums' }}>{formatBRL(distribuicao.commission.amount)}</div>
-        <div style={{ textAlign: 'right', color: '#94a3b8', fontVariantNumeric: 'tabular-nums', fontSize: 11 }}>{formatResidualLine(distribuicao.commission, rro.valor > 0)}</div>
-
-        <div style={{ color: '#a5b4fc' }}>Lucro</div>
-        <div style={{ textAlign: 'right', color: '#cbd5e1', fontVariantNumeric: 'tabular-nums' }}>{formatBRL(distribuicao.profit.amount)}</div>
-        <div style={{ textAlign: 'right', color: '#94a3b8', fontVariantNumeric: 'tabular-nums', fontSize: 11 }}>{formatResidualLine(distribuicao.profit, rro.valor > 0)}</div>
-
-        {!hidesProfitTaxes && (
-          <>
-            <div style={{ color: '#a5b4fc' }}>IRPJ</div>
-            <div style={{ textAlign: 'right', color: '#cbd5e1', fontVariantNumeric: 'tabular-nums' }}>{formatBRL(distribuicao.irpj.amount)}</div>
-            <div style={{ textAlign: 'right', color: '#94a3b8', fontVariantNumeric: 'tabular-nums', fontSize: 11 }}>{formatResidualLine(distribuicao.irpj, rro.valor > 0)}</div>
-
-            <div style={{ color: '#a5b4fc' }}>CSLL</div>
-            <div style={{ textAlign: 'right', color: '#cbd5e1', fontVariantNumeric: 'tabular-nums' }}>{formatBRL(distribuicao.csll.amount)}</div>
-            <div style={{ textAlign: 'right', color: '#94a3b8', fontVariantNumeric: 'tabular-nums', fontSize: 11 }}>{formatResidualLine(distribuicao.csll, rro.valor > 0)}</div>
-          </>
-        )}
-
-        <div style={{ color: '#c7d2fe', fontWeight: 700 }}>Total RRO</div>
-        <div style={{ textAlign: 'right', color: '#c4b5fd', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{formatBRL(rro.valor)}</div>
-        <div style={{ textAlign: 'right', color: '#a78bfa', fontWeight: 700, fontVariantNumeric: 'tabular-nums', fontSize: 11 }}>
-          {formatPct(rro.effectivePct)}% s/ receita
-        </div>
-      </div>
-
-      {/* Story MRM-V5-005 AC3: Peso/Âncora visíveis (acima do collapse) */}
-      {(pesoOpInterna != null || ancoraInterna != null) && (
-        <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px dashed rgba(99,102,241,0.20)' }}>
-          {pesoOpInterna != null && (
-            <Row
-              label="Peso Operação Interna"
-              value={`${(pesoOpInterna * 100).toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}%`}
-              color="#c4b5fd"
-              hint="Propriedade do produto (markup divisor). Excel célula I21."
-            />
-          )}
-          {ancoraInterna != null && (
-            <Row
-              label="Âncora Interna (PÓS desconto)"
-              value={formatBRL(ancoraInterna)}
-              color="#c4b5fd"
-              hint="Base operacional reapurada = RV × Peso Op Interna. Excel célula H36."
-            />
-          )}
-        </div>
-      )}
-
-      {/* Memória cascata: V16 (13 etapas) ou V17 (17 etapas) */}
-      {cascadeTraceForDisplay && (cascadeTraceForDisplay.length === 13 || cascadeTraceForDisplay.length === 17) && <CascadeExpander trace={cascadeTraceForDisplay} />}
-
-      <div style={{ fontSize: 11, color: '#64748b', marginTop: 10, fontStyle: 'italic' }}>
-        Esta DRE consolida os RRs individuais já calculados por cada produto/serviço.
-        O orçamento NÃO recalcula percentuais — apenas agrupa resultados econômicos
-        para visão gerencial. Custos e despesas operacionais são preservados;
-        comissão, lucro, IRPJ e CSLL são proporcionalmente redistribuídos sobre o RRO.
-      </div>
-    </div>
-  )
+  return <CascadeExpander trace={cascadeTraceForDisplay} marginTop={marginTop} />
 }

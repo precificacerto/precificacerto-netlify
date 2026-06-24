@@ -167,9 +167,11 @@ export default function CommissionPage() {
         )
 
         // ── Completed services (original select — safe) ──
+        // calendar_event_id é necessário para deduplicar contra a venda AG-XXXXXX
+        // gerada pela mesma Agenda (item 1.2) e evitar contagem dupla de comissão/receita.
         const { data: services } = await supabase
           .from('completed_services')
-          .select('id, employee_id, total_revenue, service_id, discount_percent')
+          .select('id, employee_id, total_revenue, service_id, discount_percent, calendar_event_id')
           .eq('is_active', true)
           .gte('service_date', start)
           .lte('service_date', end)
@@ -209,26 +211,23 @@ export default function CommissionPage() {
         // Get all sale_items for product commission lookup
         const allSaleIds = salesData.map((s: any) => s.id)
         let allSaleItemRows: any[] = []
-        let allProdCommMap = new Map<string, number>()
         let prodNameMap = new Map<string, string>()
         if (allSaleIds.length > 0) {
           const { data: saleItemRows } = await supabase.from('sale_items').select('sale_id, product_id').in('sale_id', allSaleIds)
           allSaleItemRows = saleItemRows || []
           const productIds = [...new Set(allSaleItemRows.map((si: any) => si.product_id).filter(Boolean))]
           if (productIds.length > 0) {
-            const { data: prods } = await supabase.from('products').select('id, commission_percent, name').in('id', productIds)
-            allProdCommMap = new Map((prods || []).map((p: any) => [p.id, Number(p.commission_percent) || 0]))
+            // Item 1.1 (Relatório v2.0): só precisamos do NOME do produto (descrição).
+            // A % de comissão do produto NÃO é mais usada — a comissão vem exclusivamente
+            // da alíquota efetiva herdada do orçamento/venda (commission_amount).
+            const { data: prods } = await supabase.from('products').select('id, name').in('id', productIds)
             prodNameMap = new Map((prods || []).map((p: any) => [p.id, p.name || 'Produto']))
           }
         }
 
-        // Map sale_id → max product commission & product names
-        const saleProdCommMap = new Map<string, number>()
+        // Map sale_id → product names (apenas para descrição dos lançamentos)
         const saleItemNamesMap = new Map<string, string[]>()
         for (const si of allSaleItemRows) {
-          const cur = saleProdCommMap.get(si.sale_id) || 0
-          const pComm = si.product_id ? (allProdCommMap.get(si.product_id) || 0) : 0
-          if (pComm > cur) saleProdCommMap.set(si.sale_id, pComm)
           if (si.product_id) {
             const names = saleItemNamesMap.get(si.sale_id) || []
             const pName = prodNameMap.get(si.product_id) || 'Produto'
@@ -344,7 +343,11 @@ export default function CommissionPage() {
             // Usa distribuição por parcelas se: (1) funcionário configurado como INSTALLMENT, OU (2) venda foi registrada como parcelada
             const useInstallment = emp.payment_mode === 'INSTALLMENT' || saleInstallments > 1
 
-            if (storedCommission > 0 && sale.sale_type === 'FROM_BUDGET') {
+            // Item 1.1 (Relatório v2.0): SEMPRE usar a alíquota efetiva herdada do
+            // orçamento (commission_amount ÷ valor final pós-desconto), independente do
+            // sale_type. A comissão por parcela é proporcional ao valor da parcela e a
+            // soma fecha exatamente com a comissão definida no orçamento.
+            if (storedCommission > 0) {
               const effPct = finalValue > 0 ? (storedCommission / finalValue) * 100 : 0
 
               if (!useInstallment) {
@@ -396,58 +399,37 @@ export default function CommissionPage() {
               continue
             }
 
-            // Fallback: use product commission %
-            const prodComm = saleProdCommMap.get(sale.id) || 0
-            if (prodComm <= 0 || finalValue <= 0) continue
+            // Item 1.1 (Relatório v2.0): fallback de % nominal do produto/cadastro do
+            // vendedor REMOVIDO. Sem commission_amount efetivo herdado, não há alíquota
+            // válida — o lançamento é ignorado (comissão 0) em vez de inflar com % bruto.
+          }
+        }
 
-            if (!useInstallment) {
-              if (saleDate >= start && saleDate <= end) {
-                const commAmount = finalValue * (prodComm / 100)
-                emp.base_revenue += finalValue
-                emp.commission_value += commAmount
-                emp.sum_weighted_pct += prodComm * finalValue
-                emp.sum_value += finalValue
-                emp.detail_rows.push({ key: sale.id, type: 'VENDA', description, client_name: clientName, date: saleDate, value: finalValue, commission_percent: prodComm, commission_amount: commAmount, sale_code: saleCodeMap.get(sale.id) })
-              }
-            } else {
-              const entries = cashEntriesBySale.get(sale.id)
-              if (!entries || entries.length === 0) {
-                if (saleDate >= start && saleDate <= end) {
-                  const commAmount = finalValue * (prodComm / 100)
-                  emp.base_revenue += finalValue
-                  emp.commission_value += commAmount
-                  emp.sum_weighted_pct += prodComm * finalValue
-                  emp.sum_value += finalValue
-                  emp.detail_rows.push({ key: sale.id, type: 'VENDA', description, client_name: clientName, date: saleDate, value: finalValue, commission_percent: prodComm, commission_amount: commAmount, sale_code: saleCodeMap.get(sale.id) })
-                }
-              } else {
-                const totalInstallments = entries.reduce((s, e) => s + e.amount, 0)
-                if (totalInstallments <= 0) continue
-                const monthlyEntries = entries.filter(e => e.due_date >= start && e.due_date <= end)
-                const confirmedMonthly = monthlyEntries.filter(e => !isPendingEntry(e))
-                const pendingMonthly = monthlyEntries.filter(e => isPendingEntry(e))
-                const confirmedAmt = confirmedMonthly.reduce((s, e) => s + e.amount, 0)
-                const pendingAmt = pendingMonthly.reduce((s, e) => s + e.amount, 0)
-                if (confirmedAmt > 0) {
-                  const proportion = confirmedAmt / totalInstallments
-                  const creditedValue = finalValue * proportion
-                  const commAmount = creditedValue * (prodComm / 100)
-                  emp.base_revenue += creditedValue
-                  emp.commission_value += commAmount
-                  emp.sum_weighted_pct += prodComm * creditedValue
-                  emp.sum_value += creditedValue
-                  emp.detail_rows.push({ key: `${sale.id}-bc`, type: 'VENDA', description, client_name: clientName, date: saleDate, value: creditedValue, commission_percent: prodComm, commission_amount: commAmount, is_installment: true, pending: false, sale_code: saleCodeMap.get(sale.id), installment_label: `${confirmedMonthly.length}/${entries.length}` })
-                }
-                if (pendingAmt > 0) {
-                  const proportion = pendingAmt / totalInstallments
-                  const pendingValue = finalValue * proportion
-                  const pendingComm = pendingValue * (prodComm / 100)
-                  emp.pending_revenue += pendingValue
-                  emp.pending_commission += pendingComm
-                  emp.detail_rows.push({ key: `${sale.id}-bp`, type: 'VENDA', description, client_name: clientName, date: saleDate, value: pendingValue, commission_percent: prodComm, commission_amount: pendingComm, is_installment: true, pending: true, sale_code: saleCodeMap.get(sale.id), installment_label: `${pendingMonthly.length}/${entries.length}` })
+        // ── Dedup Agenda (item 1.2): a venda AG-XXXXXX já carrega a comissão efetiva
+        // (autossoma dos itens). Quando ela existe COM comissão > 0, pulamos o
+        // completed_services correspondente para não contar comissão/receita 2×.
+        // Para Agenda legada (venda AG sem commission_amount), mantemos o
+        // completed_services como única fonte — sem regressão histórica.
+        const agSaleCodesWithComm = new Set(
+          salesData
+            .filter((s: any) => Number(s.commission_amount) > 0 && String(s.sale_code || '').startsWith('AG-'))
+            .map((s: any) => String(s.sale_code)),
+        )
+        const coveredEventIds = new Set<string>()
+        if (agSaleCodesWithComm.size > 0) {
+          const svcEventIds = [...new Set((services || []).map((s: any) => s.calendar_event_id).filter(Boolean))]
+          if (svcEventIds.length > 0) {
+            try {
+              const { data: evRows } = await supabase
+                .from('calendar_events')
+                .select('id, agenda_code')
+                .in('id', svcEventIds)
+              for (const ev of evRows || []) {
+                if (ev.agenda_code && agSaleCodesWithComm.has(String(ev.agenda_code))) {
+                  coveredEventIds.add(ev.id)
                 }
               }
-            }
+            } catch { /* sem agenda_code → não deduplica (mantém comportamento) */ }
           }
         }
 
@@ -456,6 +438,8 @@ export default function CommissionPage() {
           if (!s.employee_id) continue
           const emp = empMap.get(s.employee_id)
           if (!emp) continue
+          // Dedup: serviço já contabilizado pela venda AG correspondente.
+          if (s.calendar_event_id && coveredEventIds.has(s.calendar_event_id)) continue
 
           const rev = Number(s.total_revenue) || 0
           const svcComm = s.service_id ? (svcCommMap.get(s.service_id) || 0) : 0
@@ -562,57 +546,9 @@ export default function CommissionPage() {
               continue
             }
 
-            const prodComm = saleProdCommMap.get(sale.id) || 0
-            if (prodComm <= 0 || finalValue <= 0) continue
-
-            if (!useInstallment) {
-              if (saleDate >= start && saleDate <= end) {
-                const commAmount = finalValue * (prodComm / 100)
-                emp.base_revenue += finalValue
-                emp.commission_value += commAmount
-                emp.sum_weighted_pct += prodComm * finalValue
-                emp.sum_value += finalValue
-                emp.detail_rows.push({ key: sale.id, type: 'VENDA', description, client_name: clientName, date: saleDate, value: finalValue, commission_percent: prodComm, commission_amount: commAmount, sale_code: saleCodeMap.get(sale.id) })
-              }
-            } else {
-              const entries = cashEntriesBySale.get(sale.id)
-              if (!entries || entries.length === 0) {
-                if (saleDate >= start && saleDate <= end) {
-                  const commAmount = finalValue * (prodComm / 100)
-                  emp.base_revenue += finalValue
-                  emp.commission_value += commAmount
-                  emp.sum_weighted_pct += prodComm * finalValue
-                  emp.sum_value += finalValue
-                  emp.detail_rows.push({ key: sale.id, type: 'VENDA', description, client_name: clientName, date: saleDate, value: finalValue, commission_percent: prodComm, commission_amount: commAmount, sale_code: saleCodeMap.get(sale.id) })
-                }
-              } else {
-                const totalInstallments = entries.reduce((s, e) => s + e.amount, 0)
-                if (totalInstallments <= 0) continue
-                const monthlyEntries = entries.filter(e => e.due_date >= start && e.due_date <= end)
-                const confirmedMonthly = monthlyEntries.filter(e => !isPendingEntry(e))
-                const pendingMonthly = monthlyEntries.filter(e => isPendingEntry(e))
-                const confirmedAmt = confirmedMonthly.reduce((s, e) => s + e.amount, 0)
-                const pendingAmt = pendingMonthly.reduce((s, e) => s + e.amount, 0)
-                if (confirmedAmt > 0) {
-                  const proportion = confirmedAmt / totalInstallments
-                  const creditedValue = finalValue * proportion
-                  const commAmount = creditedValue * (prodComm / 100)
-                  emp.base_revenue += creditedValue
-                  emp.commission_value += commAmount
-                  emp.sum_weighted_pct += prodComm * creditedValue
-                  emp.sum_value += creditedValue
-                  emp.detail_rows.push({ key: `${sale.id}-dc`, type: 'VENDA', description, client_name: clientName, date: saleDate, value: creditedValue, commission_percent: prodComm, commission_amount: commAmount, is_installment: true, pending: false, sale_code: saleCodeMap.get(sale.id), installment_label: `${confirmedMonthly.length}/${entries.length}` })
-                }
-                if (pendingAmt > 0) {
-                  const proportion = pendingAmt / totalInstallments
-                  const pendingValue = finalValue * proportion
-                  const pendingComm = pendingValue * (prodComm / 100)
-                  emp.pending_revenue += pendingValue
-                  emp.pending_commission += pendingComm
-                  emp.detail_rows.push({ key: `${sale.id}-dp`, type: 'VENDA', description, client_name: clientName, date: saleDate, value: pendingValue, commission_percent: prodComm, commission_amount: pendingComm, is_installment: true, pending: true, sale_code: saleCodeMap.get(sale.id), installment_label: `${pendingMonthly.length}/${entries.length}` })
-                }
-              }
-            }
+            // Item 1.1 (Relatório v2.0): fallback de % nominal do produto/cadastro do
+            // vendedor REMOVIDO também na venda direta. Sem commission_amount efetivo, o
+            // lançamento é ignorado (comissão 0) em vez de aplicar % bruto sobre a parcela.
           }
         }
 
