@@ -44,7 +44,7 @@ import { buildMotorInput } from '@/utils/mrm-orchestrator'
 import { calculateMotorV17ForPage } from '@/utils/mrm-engine-v17/legacy-adapter'
 import { consolidateStDifalFromItems, computeTotalACobrar } from '@/utils/icms-st-difal'
 import { useResidualDistribution } from '@/hooks/use-residual-distribution'
-import { detectConfigWarning, type ResidualItemInput } from '@/utils/residual-distribution'
+import { type ResidualItemInput } from '@/utils/residual-distribution'
 import { ResidualDistributionBlock } from '@/page-parts/shared/residual-distribution-block.component'
 import {
   buildItemTaxRatesFromProduct,
@@ -774,20 +774,10 @@ function Budgets() {
         globalDiscountPercent,
         discountMode,
     )
-    // S9 — Aviso de configuração incompleta (RRO degradado)
-    const budgetTotalCostBase = useMemo(
-        () => budgetItems.reduce(
-            (s, i) => s + (Number(i.cost_total) || 0) * (Number(i.quantity) || 0),
-            0,
-        ),
-        [budgetItems],
-    )
-    const residualConfigWarning = detectConfigWarning({
-        totalCostBase: budgetTotalCostBase,
-        dopPct: mrmConfig.dop_pct,
-        modPct: mrmConfig.mod_pct,
-        totalGross: budgetTotal,
-    })
+    // Ajuste 2A (Relatório v1.0, 24/06/2026): o aviso "Cadastre o custo dos produtos…"
+    // (detectConfigWarning) foi REMOVIDO da tela de Editar Orçamento — pertence ao
+    // cadastro de produtos, não ao orçamento, e gerava confusão. Não passamos mais
+    // configWarning ao ResidualDistributionBlock aqui.
 
     // S14 — DRE Consolidada (princípio: consolida RRs individuais, não recalcula)
     const consolidatedDRE = useMemo(() => {
@@ -1244,7 +1234,7 @@ function Budgets() {
         setCustomerMode(record.customer_id ? 'existing' : 'manual')
 
         const [itemsResult, tablesResult] = await Promise.all([
-            supabase.from('budget_items').select('*, products(id, name, code, max_discount_percent, commission_table_id, commission_percent, profit_percent, sale_price, cost_total, icms_pct, pis_pct, cofins_pct, iss_pct, ipi_pct, icms_st_pct, difal_pct, fcp_pct, ibs_pct, cbs_pct, iss_retido_pct, irpj_pct, csll_pct), services(id, name, commission_table_id, commission_percent, profit_percent, base_price, cost_total, icms_pct, pis_pct, cofins_pct, iss_pct, ipi_pct, icms_st_pct, difal_pct, fcp_pct, ibs_pct, cbs_pct, iss_retido_pct, irpj_pct, csll_pct), manual_description').eq('budget_id', record.id),
+            supabase.from('budget_items').select('*, products(id, name, code, max_discount_percent, commission_table_id, commission_percent, profit_percent, sale_price, cost_total, icms_pct, pis_cofins_pct, pis_pct, cofins_pct, iss_pct, ipi_pct, icms_st_pct, difal_pct, fcp_pct, ibs_pct, cbs_pct, iss_retido_pct, irpj_pct, csll_pct), services(id, name, commission_table_id, commission_percent, profit_percent, base_price, cost_total, icms_pct, pis_cofins_pct, pis_pct, cofins_pct, iss_pct, ipi_pct, icms_st_pct, difal_pct, fcp_pct, ibs_pct, cbs_pct, iss_retido_pct, irpj_pct, csll_pct), manual_description').eq('budget_id', record.id),
             record.employee_id
                 ? (supabase as any).from('employee_commission_tables').select('commission_tables(id, name, type, commission_percent)').eq('employee_id', record.employee_id)
                 : Promise.resolve({ data: [] }),
@@ -2807,7 +2797,6 @@ function Budgets() {
                     {budgetTotal > 0 && (
                         <ResidualDistributionBlock
                             distribution={residualDistribution}
-                            configWarning={residualConfigWarning}
                             regimeGuardActive={epicV5DisplayData.regimeGuardActive}
                             discountMode={discountMode}
                         />

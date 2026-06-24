@@ -102,36 +102,24 @@ export function ResidualDistributionBlock({
   marginTop = 8,
   configWarning = null,
   regimeGuardActive = null,
-  discountMode = 'PROPORTIONAL',
 }: ResidualDistributionBlockProps) {
   const { commission, profit, hasDiscount, hidesProfitTaxes, requiresReview } = distribution
 
-  // Epic MRM-V7 — ADR-010: Cenário B — esconder bloco quando NÃO há desconto.
-  // A "Distribuição do resultado" só faz sentido quando há desconto sendo absorvido;
-  // sem desconto, os valores nominais já estão no cadastro do produto + na DRE.
-  if (!hasDiscount) {
-    return null
-  }
-
-  // Epic MRM-V6 — ADR-009: ocultação condicional dos cards conforme modo.
-  // SELLER_REDUCTION: vendedor absorve → não mostra Lucro.
-  // PROFIT_REDUCTION: empresa absorve → não mostra Comissão.
-  // PROPORTIONAL (e 'MRM' legacy): mostra ambos.
-  const hideProfitCard = discountMode === 'SELLER_REDUCTION'
-  const hideCommissionCard = discountMode === 'PROFIT_REDUCTION'
-
-  const cards: CardConfig[] = []
-  if (!hideCommissionCard) {
-    cards.push({ label: 'Comissão do Vendedor', bgColor: 'rgba(99,102,241,0.12)', valueColor: '#818cf8', line: commission })
-  }
-  if (!hideProfitCard) {
-    cards.push({ label: 'Lucro da Empresa', bgColor: 'rgba(16,185,129,0.12)', valueColor: '#34d399', line: profit })
-  }
-
-  // Relatório v2.0 (itens 2.1 / 3.1, 23/06/2026): cards IRPJ/CSLL NÃO devem
-  // aparecer na "Distribuição do resultado". Mantemos apenas Comissão e Lucro.
-  // Os tributos estruturais continuam apurados no motor (cascata), apenas não
-  // são exibidos como cards nesta seção.
+  // Ajuste 2B (Relatório v1.0, 24/06/2026): os cards Comissão do Vendedor e Lucro da
+  // Empresa devem estar SEMPRE visíveis enquanto houver produto no documento — com ou
+  // sem desconto, em orçamento/pedido/venda. Isto REVERTE conscientemente:
+  //   • ADR-010 (Cenário B): que escondia o bloco inteiro quando NÃO havia desconto.
+  //   • ADR-009: que escondia 1 card conforme o modo de absorção (SELLER/PROFIT_REDUCTION).
+  // A página só monta este bloco quando há ao menos um produto (ex.: budgetTotal > 0),
+  // então não é necessário guard adicional aqui.
+  //
+  // Relatório v2.0 (itens 2.1 / 3.1, 23/06/2026): cards IRPJ/CSLL NÃO aparecem nesta
+  // seção (apenas Comissão e Lucro). Os tributos estruturais seguem apurados no motor
+  // (cascata), apenas não são exibidos como cards aqui.
+  const cards: CardConfig[] = [
+    { label: 'Comissão do Vendedor', bgColor: 'rgba(99,102,241,0.12)', valueColor: '#818cf8', line: commission },
+    { label: 'Lucro da Empresa', bgColor: 'rgba(16,185,129,0.12)', valueColor: '#34d399', line: profit },
+  ]
 
   return (
     <div
