@@ -11,6 +11,7 @@ import {
 } from '@ant-design/icons'
 import { useAuth } from '@/hooks/use-auth.hook'
 import { getMonetaryValue } from '@/utils/get-monetary-value'
+import { PercentInput } from '@/components/percent-input.component'
 import { calculateItemPrice } from '@/utils/calculate-item-price'
 import { UNIT_MEASURE_ENUM } from '@/shared/enums/unit-measure-type'
 import type { TaxPreviewResult } from '@/utils/calc-tax-preview'
@@ -663,8 +664,8 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                 </td>
                 <td style={{ width: 140, padding: '6px 0', textAlign: 'right' }}>
                     {editable ? (
-                        <InputNumber
-                            size="small" min={0} max={100} step={0.0001} precision={4}
+                        <PercentInput
+                            size="small" min={0} max={100}
                             value={pct}
                             onChange={(v) => {
                                 if (editable === 'commission') setCommissionPercent(v ?? 0)
@@ -673,13 +674,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                                 if (editable === 'additionalIrpj') setAdditionalIrpjPercent(v ?? 0)
                                 if (editable === 'pisCofins') setPisCofinsLRPct(v ?? 0)
                             }}
-                            style={{ width: 110 }}
-                            formatter={(v) => `${v}%`}
-                            parser={(v) => {
-                                const raw = (v || '0').toString().replace('%', '').replace(',', '.').trim()
-                                const n = Number(raw)
-                                return isNaN(n) ? 0 : n
-                            }}
+                            style={{ width: 120 }}
                         />
                     ) : (
                         <span style={{
@@ -1095,22 +1090,11 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                             <tr key={label}>
                                 <td style={{ fontSize: 13, color: '#cbd5e1', paddingRight: 12, paddingTop: 4, paddingBottom: 4 }}>{label}</td>
                                 <td style={{ textAlign: 'right', whiteSpace: 'nowrap' as const }}>
-                                    <InputNumber
-                                        size="small" min={0} max={100} step={0.0001} precision={4}
+                                    <PercentInput
+                                        size="small" min={0} max={100}
                                         value={value}
                                         onChange={(v) => setter(v ?? 0)}
-                                        style={{ width: 110 }}
-                                        formatter={(v) => {
-                                            if (v == null || v === '') return '%'
-                                            const n = typeof v === 'string' ? parseFloat(v.replace(',', '.')) : Number(v)
-                                            if (isNaN(n)) return '%'
-                                            return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 }) + '%'
-                                        }}
-                                        parser={(v) => {
-                                            const raw = (v || '0').toString().replace('%', '').replace(/\./g, '').replace(',', '.').trim()
-                                            const n = Number(raw)
-                                            return isNaN(n) ? 0 : n
-                                        }}
+                                        style={{ width: 120 }}
                                     />
                                     <span style={{ marginLeft: 10, fontSize: 12, color: taxValue > 0 ? '#4ade80' : '#64748b', minWidth: 80, display: 'inline-block', textAlign: 'right' }}>
                                         {fmt(taxValue)}
@@ -1171,23 +1155,23 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
                             <div>
                                 <label style={{ fontSize: 12, color: '#475569' }}>ISS (%)</label>
-                                <InputNumber value={issPctSvc} onChange={(v) => setIssPctSvc(Number(v) || 0)} min={0} max={100} step={0.01} style={{ width: '100%' }} />
+                                <PercentInput value={issPctSvc} onChange={(v) => setIssPctSvc(Number(v) || 0)} min={0} max={100} style={{ width: '100%' }} />
                             </div>
                             <div>
                                 <label style={{ fontSize: 12, color: '#475569' }}>ISS Retido (%)</label>
-                                <InputNumber value={issRetidoPctSvc} onChange={(v) => setIssRetidoPctSvc(Number(v) || 0)} min={0} max={100} step={0.01} style={{ width: '100%' }} />
+                                <PercentInput value={issRetidoPctSvc} onChange={(v) => setIssRetidoPctSvc(Number(v) || 0)} min={0} max={100} style={{ width: '100%' }} />
                             </div>
                             <div>
                                 <label style={{ fontSize: 12, color: '#475569' }} title="Use apenas se a atividade deste serviço exigir IRPJ presumido diferente do regime padrão.">
                                     IRPJ (%) ℹ
                                 </label>
-                                <InputNumber value={irpjItemPctSvc} onChange={(v) => setIrpjItemPctSvc(Number(v) || 0)} min={0} max={100} step={0.01} style={{ width: '100%' }} />
+                                <PercentInput value={irpjItemPctSvc} onChange={(v) => setIrpjItemPctSvc(Number(v) || 0)} min={0} max={100} style={{ width: '100%' }} />
                             </div>
                             <div>
                                 <label style={{ fontSize: 12, color: '#475569' }} title="Use apenas se a atividade deste serviço exigir CSLL presumido diferente do regime padrão.">
                                     CSLL (%) ℹ
                                 </label>
-                                <InputNumber value={csllItemPctSvc} onChange={(v) => setCsllItemPctSvc(Number(v) || 0)} min={0} max={100} step={0.01} style={{ width: '100%' }} />
+                                <PercentInput value={csllItemPctSvc} onChange={(v) => setCsllItemPctSvc(Number(v) || 0)} min={0} max={100} style={{ width: '100%' }} />
                             </div>
                         </div>
                     </details>

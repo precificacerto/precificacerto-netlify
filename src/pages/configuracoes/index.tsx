@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { Button, Card, Form, Input, InputNumber, Radio, Select, Tabs, message, Alert, Spin, Divider, Modal } from 'antd'
+import { PercentInput } from '@/components/percent-input.component'
 import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
 import { supabase } from '@/supabase/client'
@@ -315,7 +316,7 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                             tooltip="Alíquota consolidada: IRPJ 1,71% + CSLL 0,51% + PIS 0,37% + COFINS 1,41% = 4,00%."
                             initialValue={(tenantSettings?.ret_rate ?? 0.04) * 100}
                         >
-                            <InputNumber min={0} max={100} step={0.01} precision={4} style={{ width: '100%', maxWidth: 220 }} formatter={(v) => v != null ? String(v).replace('.', ',') : ''} parser={(v) => Number((v || '0').replace(',', '.'))} addonAfter="%" />
+                            <PercentInput min={0} max={100} style={{ width: '100%', maxWidth: 220 }} />
                         </Form.Item>
 
                         <Form.Item
@@ -324,7 +325,7 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                             tooltip="ISS cobrado separadamente pelo município (2% a 5%). Confirme com seu contador."
                             initialValue={(tenantSettings?.iss_municipality_rate ?? 0.05) * 100}
                         >
-                            <InputNumber min={0} max={10} step={0.01} precision={4} style={{ width: '100%', maxWidth: 220 }} formatter={(v) => v != null ? String(v).replace('.', ',') : ''} parser={(v) => Number((v || '0').replace(',', '.'))} addonAfter="%" />
+                            <PercentInput min={0} max={10} style={{ width: '100%', maxWidth: 220 }} />
                         </Form.Item>
 
                         <Form.Item
@@ -397,11 +398,8 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                                 label="Percentual de presunção para IRPJ"
                                 tooltip="Percentual de presunção da base de cálculo do IRPJ, definido conforme a atividade econômica da empresa. Confirme com seu contador. Ex: Comércio/Indústria = 8%."
                             >
-                                <InputNumber
-                                    min={0} max={100} step={0.5} precision={4} style={{ width: '100%' }}
-                                    addonAfter="%"
-                                    formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
-                                    parser={(v) => Number((v || '0').replace(',', '.'))}
+                                <PercentInput
+                                    min={0} max={100} style={{ width: '100%' }}
                                     onChange={(val) => setLpIrpjPresumptionPct(Number(val) || 0)}
                                 />
                             </Form.Item>
@@ -410,11 +408,8 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                                 label="Percentual de presunção para CSLL"
                                 tooltip="Percentual de presunção da base de cálculo da CSLL, definido conforme a atividade econômica da empresa. Confirme com seu contador. Ex: Comércio/Indústria = 12%."
                             >
-                                <InputNumber
-                                    min={0} max={100} step={0.5} precision={4} style={{ width: '100%' }}
-                                    addonAfter="%"
-                                    formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
-                                    parser={(v) => Number((v || '0').replace(',', '.'))}
+                                <PercentInput
+                                    min={0} max={100} style={{ width: '100%' }}
                                     onChange={(val) => setLpCsllPresumptionPct(Number(val) || 0)}
                                 />
                             </Form.Item>
@@ -517,13 +512,10 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                                         label="IBS — Imposto sobre Bens e Serviços"
                                         style={{ marginBottom: 0 }}
                                     >
-                                        <InputNumber
-                                            min={0} max={100} step={0.01} precision={4}
+                                        <PercentInput
+                                            min={0} max={100}
                                             style={{ width: '100%' }}
-                                            addonAfter="%"
                                             onChange={(v) => setIbsReferencePct(v ?? null)}
-                                            formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
-                                            parser={(v) => Number((v || '0').replace(',', '.'))}
                                         />
                                     </Form.Item>
                                     <Form.Item
@@ -531,13 +523,10 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                                         label="CBS — Contribuição sobre Bens e Serviços"
                                         style={{ marginBottom: 0 }}
                                     >
-                                        <InputNumber
-                                            min={0} max={100} step={0.01} precision={4}
+                                        <PercentInput
+                                            min={0} max={100}
                                             style={{ width: '100%' }}
-                                            addonAfter="%"
                                             onChange={(v) => setCbsReferencePct(v ?? null)}
-                                            formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
-                                            parser={(v) => Number((v || '0').replace(',', '.'))}
                                         />
                                     </Form.Item>
                                 </div>
@@ -598,7 +587,7 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                                 })()}
                                 <div style={{ marginTop: 16, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
                                     <Form.Item name="iss_municipality_rate" label="ISS Municipal (%)">
-                                        <InputNumber min={0} max={10} step={0.1} precision={4} style={{ width: '100%' }} addonAfter="%" formatter={(v) => v != null ? String(v).replace('.', ',') : ''} parser={(v) => Number((v || '0').replace(',', '.'))} />
+                                        <PercentInput min={0} max={10} style={{ width: '100%' }} />
                                     </Form.Item>
                                     <Form.Item name="lp_estimated_annual_revenue" label="Receita bruta anual estimada (R$)">
                                         <CurrencyInput min={0} style={{ width: '100%' }} />
@@ -610,10 +599,10 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                                     </div>
                                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
                                         <Form.Item name="ibs_reference_pct" label="IBS — Imposto sobre Bens e Serviços" style={{ marginBottom: 0 }}>
-                                            <InputNumber min={0} max={100} step={0.01} precision={4} style={{ width: '100%' }} addonAfter="%" onChange={(v) => setIbsReferencePct(v ?? null)} formatter={(v) => v != null ? String(v).replace('.', ',') : ''} parser={(v) => Number((v || '0').replace(',', '.'))} />
+                                            <PercentInput min={0} max={100} style={{ width: '100%' }} onChange={(v) => setIbsReferencePct(v ?? null)} />
                                         </Form.Item>
                                         <Form.Item name="cbs_reference_pct" label="CBS — Contribuição sobre Bens e Serviços" style={{ marginBottom: 0 }}>
-                                            <InputNumber min={0} max={100} step={0.01} precision={4} style={{ width: '100%' }} addonAfter="%" onChange={(v) => setCbsReferencePct(v ?? null)} formatter={(v) => v != null ? String(v).replace('.', ',') : ''} parser={(v) => Number((v || '0').replace(',', '.'))} />
+                                            <PercentInput min={0} max={100} style={{ width: '100%' }} onChange={(v) => setCbsReferencePct(v ?? null)} />
                                         </Form.Item>
                                     </div>
                                 </div>
@@ -664,13 +653,10 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                                             label="IBS — Imposto sobre Bens e Serviços"
                                             style={{ marginBottom: 0 }}
                                         >
-                                            <InputNumber
-                                                min={0} max={100} step={0.01} precision={4}
+                                            <PercentInput
+                                                min={0} max={100}
                                                 style={{ width: '100%' }}
-                                                addonAfter="%"
                                                 onChange={(v) => setIbsReferencePct(v ?? null)}
-                                                formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
-                                                parser={(v) => Number((v || '0').replace(',', '.'))}
                                             />
                                         </Form.Item>
                                         <Form.Item
@@ -678,13 +664,10 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                                             label="CBS — Contribuição sobre Bens e Serviços"
                                             style={{ marginBottom: 0 }}
                                         >
-                                            <InputNumber
-                                                min={0} max={100} step={0.01} precision={4}
+                                            <PercentInput
+                                                min={0} max={100}
                                                 style={{ width: '100%' }}
-                                                addonAfter="%"
                                                 onChange={(v) => setCbsReferencePct(v ?? null)}
-                                                formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
-                                                parser={(v) => Number((v || '0').replace(',', '.'))}
                                             />
                                         </Form.Item>
                                     </div>

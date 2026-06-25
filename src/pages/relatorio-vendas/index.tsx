@@ -50,6 +50,7 @@ interface PendingReceivableRow {
     launchDate: string
     description: string
     originType: string
+    saleId: string | null
     customerId: string
     employeeId: string | null
     sectionName: string
@@ -513,7 +514,7 @@ function SalesReport() {
             if (!effectiveTenantId) { setRecLoading(false); return }
             let query = (supabase as any)
                 .from('pending_receivables')
-                .select('id, customer_id, employee_id, amount, amount_paid, amount_remaining, launch_date, description, origin_type, customers(name), employees(name)')
+                .select('id, sale_id, customer_id, employee_id, amount, amount_paid, amount_remaining, launch_date, description, origin_type, customers(name), employees(name)')
                 .eq('tenant_id', effectiveTenantId)
                 .eq('status', 'PENDING')
                 .eq('is_active', true)
@@ -545,6 +546,7 @@ function SalesReport() {
                     launchDate: r.launch_date,
                     description: r.description || '',
                     originType: r.origin_type,
+                    saleId: r.sale_id || null,
                     customerId: r.customer_id,
                     employeeId: r.employee_id,
                     sectionName: '—',
@@ -775,6 +777,9 @@ function SalesReport() {
                             : `${payingRecord.description} — ${payLabel}`,
                         payment_method: values.payment_method,
                         origin_type: 'SALE',
+                        // Item 3 (Relatório v1.0): preserva a cadeia recebimento→venda→vendedor→comissão.
+                        // Sem origin_id, o módulo Comissão de Vendedor não enxerga o recebimento.
+                        ...(payingRecord.saleId ? { origin_id: payingRecord.saleId } : {}),
                         ...(numInstallments > 1 ? { installment_number: i, installment_total: numInstallments } : {}),
                         contact_id: payingRecord.customerId || null,
                         created_by: createdBy,
@@ -791,6 +796,8 @@ function SalesReport() {
                     description: `${payingRecord.description} — ${payLabel}${partialSuffix}`,
                     payment_method: values.payment_method,
                     origin_type: 'SALE',
+                    // Item 3 (Relatório v1.0): preserva a cadeia recebimento→venda→vendedor→comissão.
+                    ...(payingRecord.saleId ? { origin_id: payingRecord.saleId } : {}),
                     contact_id: payingRecord.customerId || null,
                     created_by: createdBy,
                 })

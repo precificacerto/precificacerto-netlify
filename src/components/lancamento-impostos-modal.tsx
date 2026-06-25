@@ -1,5 +1,6 @@
 import { FC, useEffect, useState } from 'react'
-import { Modal, Form, InputNumber, Button, Divider, Row, Col, Typography, Spin, message } from 'antd'
+import { Modal, Form, Button, Divider, Row, Col, Typography, Spin, message } from 'antd'
+import { PercentInput } from '@/components/percent-input.component'
 import { supabase } from '@/supabase/client'
 import { computeIvaDualOutside } from '@/utils/iva-dual-outside'
 
@@ -194,12 +195,12 @@ export const LancamentoImpostosModal: FC<LancamentoImpostosModalProps> = ({
           <Row gutter={16}>
             <Col span={12}>
               <Form.Item label="IS — Imposto Seletivo (%)" name="is_pct">
-                <InputNumber min={0} max={100} step={0.01} precision={4} style={{ width: '100%' }} placeholder="0,00" />
+                <PercentInput min={0} max={100} style={{ width: '100%' }} />
               </Form.Item>
             </Col>
             <Col span={12}>
               <Form.Item label="IBS — Imposto sobre Bens e Serv. (%)" name="ibs_pct">
-                <InputNumber min={0} max={100} step={0.01} precision={4} style={{ width: '100%' }} placeholder="0,00" />
+                <PercentInput min={0} max={100} style={{ width: '100%' }} />
               </Form.Item>
             </Col>
           </Row>
@@ -207,12 +208,12 @@ export const LancamentoImpostosModal: FC<LancamentoImpostosModalProps> = ({
           <Row gutter={16}>
             <Col span={12}>
               <Form.Item label="CBS — Contrib. sobre Bens e Serv. (%)" name="cbs_pct">
-                <InputNumber min={0} max={100} step={0.01} precision={4} style={{ width: '100%' }} placeholder="0,00" />
+                <PercentInput min={0} max={100} style={{ width: '100%' }} />
               </Form.Item>
             </Col>
             <Col span={12}>
               <Form.Item label="IPI (%)" name="ipi_pct">
-                <InputNumber min={0} max={100} step={0.01} precision={4} style={{ width: '100%' }} placeholder="0,00" />
+                <PercentInput min={0} max={100} style={{ width: '100%' }} />
               </Form.Item>
             </Col>
           </Row>

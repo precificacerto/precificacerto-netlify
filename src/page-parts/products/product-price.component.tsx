@@ -1,6 +1,7 @@
 import { ChangeEvent, FC, ReactNode, useEffect } from 'react'
 import { Card, Divider, InputNumber, Tooltip } from 'antd'
 import { CalculatorOutlined, InfoCircleOutlined } from '@ant-design/icons'
+import { PercentInput } from '@/components/percent-input.component'
 import { getMonetaryValue } from '@/utils/get-monetary-value'
 import { computeIvaDualOutside } from '@/utils/iva-dual-outside'
 import { computeAdvancedOutsideTaxes, type AdvancedOutsideParams } from '@/utils/icms-st-difal'
@@ -244,22 +245,11 @@ export const ProductPrice: FC<Props> = ({
       <tr key={label}>
         <td style={{ width: isMobile ? 92 : 140, padding: '6px 0' }}>
           {editable ? (
-            <InputNumber
-              size="small" min={0} max={100} step={0.0001} precision={4}
+            <PercentInput
+              size="small" min={0} max={100}
               value={pct}
-              onChange={handleEditableChange}
-              style={{ width: isMobile ? 84 : 110 }}
-              formatter={(v) => {
-                if (v == null || v === '') return '%'
-                const n = typeof v === 'string' ? parseFloat(v.replace(',', '.')) : Number(v)
-                if (isNaN(n)) return '%'
-                return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 }) + '%'
-              }}
-              parser={(v) => {
-                const raw = (v || '0').toString().replace('%', '').replace(/\./g, '').replace(',', '.').trim()
-                const n = Number(raw)
-                return isNaN(n) ? 0 : n
-              }}
+              onChange={(v) => handleEditableChange(v)}
+              style={{ width: isMobile ? 96 : 120 }}
             />
           ) : (
             <Tooltip title={tooltipText || 'Calculado automaticamente a partir do fluxo de caixa. Altere em Configurações > Custos.'}>
@@ -438,22 +428,11 @@ export const ProductPrice: FC<Props> = ({
                     <tr key={label}>
                       <td style={{ fontSize: 13, color: '#cbd5e1', paddingRight: 12, paddingTop: 4, paddingBottom: 4 }}>{label}</td>
                       <td style={{ textAlign: 'right', whiteSpace: 'nowrap' as const }}>
-                        <InputNumber
-                          size="small" min={0} max={100} step={0.0001} precision={4}
+                        <PercentInput
+                          size="small" min={0} max={100}
                           value={value}
                           onChange={(v) => onChange?.(v ?? 0)}
-                          style={{ width: 110 }}
-                          formatter={(v) => {
-                            if (v == null || v === '') return '%'
-                            const n = typeof v === 'string' ? parseFloat(v.replace(',', '.')) : Number(v)
-                            if (isNaN(n)) return '%'
-                            return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 }) + '%'
-                          }}
-                          parser={(v) => {
-                            const raw = (v || '0').toString().replace('%', '').replace(/\./g, '').replace(',', '.').trim()
-                            const n = Number(raw)
-                            return isNaN(n) ? 0 : n
-                          }}
+                          style={{ width: 120 }}
                         />
                         <span style={{ marginLeft: 10, fontSize: 12, color: taxValue > 0 ? '#4ade80' : '#64748b', minWidth: 80, display: 'inline-block', textAlign: 'right' }}>
                           {fmt(taxValue)}
@@ -484,22 +463,11 @@ export const ProductPrice: FC<Props> = ({
                     <tr key={label}>
                       <td style={{ fontSize: 13, color: '#cbd5e1', paddingRight: 12, paddingTop: 4, paddingBottom: 4 }}>{label}</td>
                       <td style={{ textAlign: 'right', whiteSpace: 'nowrap' as const }}>
-                        <InputNumber
-                          size="small" min={0} max={100} step={0.0001} precision={4}
+                        <PercentInput
+                          size="small" min={0} max={100}
                           value={value}
                           onChange={(v) => onChange?.(v ?? 0)}
-                          style={{ width: 110 }}
-                          formatter={(v) => {
-                            if (v == null || v === '') return '%'
-                            const n = typeof v === 'string' ? parseFloat(v.replace(',', '.')) : Number(v)
-                            if (isNaN(n)) return '%'
-                            return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 }) + '%'
-                          }}
-                          parser={(v) => {
-                            const raw = (v || '0').toString().replace('%', '').replace(/\./g, '').replace(',', '.').trim()
-                            const n = Number(raw)
-                            return isNaN(n) ? 0 : n
-                          }}
+                          style={{ width: 120 }}
                         />
                         <span style={{ marginLeft: 10, fontSize: 12, color: taxValue > 0 ? '#4ade80' : '#64748b', minWidth: 80, display: 'inline-block', textAlign: 'right' }}>
                           {fmt(taxValue)}

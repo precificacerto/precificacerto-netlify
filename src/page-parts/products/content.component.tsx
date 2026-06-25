@@ -1,5 +1,6 @@
 import { ChangeEvent, FC, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AutoComplete, Button, Card, Form, Input, InputNumber, Popconfirm, Select, Space, Alert, Radio, Divider, Tooltip, Spin, Switch, Modal, Tag, Segmented } from 'antd'
+import { PercentInput } from '@/components/percent-input.component'
 import { InfoCircleOutlined, PlusOutlined, SearchOutlined, SyncOutlined } from '@ant-design/icons'
 import { PAGE_TITLES } from '@/constants/page-titles'
 import { IItemModel } from '@/server/model/item'
@@ -1430,19 +1431,19 @@ export const Content: FC<ContentProps> = ({
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
             <div>
               <label style={{ fontSize: 12, color: '#475569' }}>ALQ interna destino (%)</label>
-              <InputNumber value={icmsAlqInternaDestinoPct} onChange={(v) => setIcmsAlqInternaDestinoPct(Number(v) || 0)} min={0} max={100} step={0.01} style={{ width: '100%' }} />
+              <PercentInput value={icmsAlqInternaDestinoPct} onChange={(v) => setIcmsAlqInternaDestinoPct(Number(v) || 0)} min={0} max={100} style={{ width: '100%' }} />
             </div>
             {/* EPIC-POR-FORA-V3: ALQ interestadual origem só no modo interestadual (ICMS-ST) ou no DIFAL */}
             {(stDifalInterestadual || difalActive) && (
               <div>
                 <label style={{ fontSize: 12, color: '#475569' }}>ALQ interestadual origem (%)</label>
-                <InputNumber value={icmsAlqInterestadualOrigemPct} onChange={(v) => setIcmsAlqInterestadualOrigemPct(Number(v) || 0)} min={0} max={100} step={0.01} style={{ width: '100%' }} />
+                <PercentInput value={icmsAlqInterestadualOrigemPct} onChange={(v) => setIcmsAlqInterestadualOrigemPct(Number(v) || 0)} min={0} max={100} style={{ width: '100%' }} />
               </div>
             )}
             {icmsStActive && (
               <div>
                 <label style={{ fontSize: 12, color: '#475569' }}>MVA original (%)</label>
-                <InputNumber value={mvaOriginalPct} onChange={(v) => setMvaOriginalPct(Number(v) || 0)} min={0} max={300} step={0.01} style={{ width: '100%' }} />
+                <PercentInput value={mvaOriginalPct} onChange={(v) => setMvaOriginalPct(Number(v) || 0)} min={0} max={300} style={{ width: '100%' }} />
               </div>
             )}
             {icmsStActive && (
@@ -1464,7 +1465,7 @@ export const Content: FC<ContentProps> = ({
               <>
                 <div>
                   <label style={{ fontSize: 12, color: '#475569' }}>FCP/FECP (%)</label>
-                  <InputNumber value={fcpAlqPct} onChange={(v) => setFcpAlqPct(Number(v) || 0)} min={0} max={10} step={0.01} style={{ width: '100%' }} />
+                  <PercentInput value={fcpAlqPct} onChange={(v) => setFcpAlqPct(Number(v) || 0)} min={0} max={10} style={{ width: '100%' }} />
                 </div>
                 <div style={{ display: 'flex', alignItems: 'flex-end' }}>
                   <label style={{ fontSize: 13, color: '#334155', display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
@@ -1475,7 +1476,7 @@ export const Content: FC<ContentProps> = ({
                 {difalBaseDupla && (
                   <div>
                     <label style={{ fontSize: 12, color: '#475569' }}>ICMS interno origem (%)</label>
-                    <InputNumber value={icmsInternaOrigemPct} onChange={(v) => setIcmsInternaOrigemPct(Number(v) || 0)} min={0} max={100} step={0.01} style={{ width: '100%' }} />
+                    <PercentInput value={icmsInternaOrigemPct} onChange={(v) => setIcmsInternaOrigemPct(Number(v) || 0)} min={0} max={100} style={{ width: '100%' }} />
                   </div>
                 )}
               </>

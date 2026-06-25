@@ -1,4 +1,5 @@
 import { Input, Form, InputNumber, Select, FormInstance, Divider, Tooltip, Tag, AutoComplete, Spin, Switch } from 'antd'
+import { PercentInput } from '@/components/percent-input.component'
 import { InfoCircleOutlined, SearchOutlined } from '@ant-design/icons'
 import { currencyMask, currencyDotMask } from '@/utils/currency-mask'
 import { useEffect, useState, useRef, useCallback } from 'react'
@@ -577,16 +578,10 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
               initialValue={undefined}
               style={{ marginBottom: 24 }}
             >
-              <InputNumber
+              <PercentInput
                 min={0}
                 max={100}
-                step={0.0001}
-                precision={4}
                 style={{ width: '100%' }}
-                placeholder="Ex: 0"
-                suffix="%"
-                formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
-                parser={(v) => Number((v || '0').replace(',', '.'))}
                 onChange={() => setTimeout(recalcNetCost, 50)}
               />
             </Form.Item>
@@ -608,17 +603,11 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
               name="icms_deferido_rate"
               style={{ marginBottom: 24 }}
             >
-              <InputNumber
+              <PercentInput
                 min={0}
                 max={100}
-                step={0.0001}
-                precision={4}
                 style={{ width: '100%' }}
-                placeholder="Ex: 29,4110"
-                suffix="%"
                 disabled={!icmsDeferidoEnabled}
-                formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
-                parser={(v) => Number((v || '0').replace(',', '.'))}
                 onChange={() => setTimeout(recalcNetCost, 50)}
               />
             </Form.Item>
@@ -744,16 +733,10 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
                 initialValue={0}
                 style={{ marginBottom: 24 }}
               >
-                <InputNumber
+                <PercentInput
                   min={0}
                   max={100}
-                  step={0.0001}
-                  precision={4}
                   style={{ width: '100%' }}
-                  placeholder="0,0000"
-                  suffix="%"
-                  formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
-                  parser={(v) => Number((v || '0').replace(',', '.'))}
                   onChange={() => setTimeout(recalcNetCost, 50)}
                 />
               </Form.Item>
@@ -771,16 +754,10 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
                 initialValue={0}
                 style={{ marginBottom: 24 }}
               >
-                <InputNumber
+                <PercentInput
                   min={0}
                   max={100}
-                  step={0.0001}
-                  precision={4}
                   style={{ width: '100%' }}
-                  placeholder="0,0000"
-                  suffix="%"
-                  formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
-                  parser={(v) => Number((v || '0').replace(',', '.'))}
                   onChange={() => setTimeout(recalcNetCost, 50)}
                 />
               </Form.Item>
@@ -807,12 +784,7 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
             {/* IPI: alíquota % → R$ calculado */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12, alignItems: 'end' }}>
               <Form.Item name="ipi_nr_pct" label="IPI — Alíquota (%)" initialValue={0} style={{ marginBottom: 0 }}>
-                <InputNumber
-                  min={0} max={100} step={0.0001} precision={4} style={{ width: '100%' }}
-                  placeholder="0,0000"
-                  formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
-                  parser={(v: any) => Number(String(v || '0').replace(',', '.'))}
-                />
+                <PercentInput min={0} max={100} style={{ width: '100%' }} />
               </Form.Item>
               <div style={{ paddingBottom: 1 }}>
                 <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 4 }}>IPI calculado</div>
@@ -823,20 +795,10 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
             {/* DIFAL: alíquota origem + destino → R$ calculado */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 12, marginTop: 12, alignItems: 'end' }}>
               <Form.Item name="difal_origem_pct" label={<span>DIFAL — Alíq. origem (%)<Tooltip title="Alíquota de ICMS interestadual do estado de origem do fornecedor."><InfoCircleOutlined style={{ color: '#64748b', marginLeft: 4 }} /></Tooltip></span>} initialValue={0} style={{ marginBottom: 0 }}>
-                <InputNumber
-                  min={0} max={100} step={0.0001} precision={4} style={{ width: '100%' }}
-                  placeholder="0,0000"
-                  formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
-                  parser={(v: any) => Number(String(v || '0').replace(',', '.'))}
-                />
+                <PercentInput min={0} max={100} style={{ width: '100%' }} />
               </Form.Item>
               <Form.Item name="difal_destino_pct" label={<span>DIFAL — Alíq. destino (%)<Tooltip title="Alíquota de ICMS do estado de destino da venda."><InfoCircleOutlined style={{ color: '#64748b', marginLeft: 4 }} /></Tooltip></span>} initialValue={0} style={{ marginBottom: 0 }}>
-                <InputNumber
-                  min={0} max={100} step={0.0001} precision={4} style={{ width: '100%' }}
-                  placeholder="0,0000"
-                  formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
-                  parser={(v: any) => Number(String(v || '0').replace(',', '.'))}
-                />
+                <PercentInput min={0} max={100} style={{ width: '100%' }} />
               </Form.Item>
               <div style={{ paddingBottom: 1 }}>
                 <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 4 }}>DIFAL calculado</div>
