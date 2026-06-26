@@ -1,6 +1,15 @@
 # ADR-010: Separação Motor RR (snapshot fiscal) vs Distribuição Display (UI consumer-friendly)
 
-**Status:** ACCEPTED (Aria, 2026-05-24 — promoção formal após review do PRD EPIC-MRM-V7-DISCOUNT-FIRST-DISPLAY v1.0; gates de QA Quinn pendentes em QA-VALIDATION-EPIC-MRM-V7.md mas escopo arquitetural está validado)
+> ⚠️ **SUPERSEDED (PARCIAL) por [ADR-019](./adr-019-cards-etapa16-rro.md) — 2026-06-26.**
+> A camada **Display-First de Comissão/Lucro** desta ADR (recalcular a partir do cadastro
+> via `calculateDiscountedPrice` quando há desconto) foi REVOGADA pelo BUG-CARDS-RRO-001:
+> os cards inflavam por proporção simples em vez de espelhar a Etapa 16 do Motor RRO.
+> A partir do ADR-019, a Etapa 16 (snapshot `tax_breakdown.new_*` / runtime `motor_new_*`)
+> é a fonte de verdade de Comissão e Lucro; o display-first sobrevive apenas como FALLBACK
+> para itens sem fonte do motor. A separação conceitual snapshot-fiscal × display e o
+> tratamento de IRPJ/CSLL no fallback permanecem válidos.
+
+**Status:** SUPERSEDED (PARCIAL) BY ADR-019 (2026-06-26) — originalmente ACCEPTED (Aria, 2026-05-24 — promoção formal após review do PRD EPIC-MRM-V7-DISCOUNT-FIRST-DISPLAY v1.0; gates de QA Quinn pendentes em QA-VALIDATION-EPIC-MRM-V7.md mas escopo arquitetural está validado)
 **Data:** 2026-05-24
 **Author:** @architect Aria
 **Decididores:** @architect Aria (arquitetura), @pm Morgan (PRD V7), Hyago (Founder — reportou bug visual em produção pós V6)

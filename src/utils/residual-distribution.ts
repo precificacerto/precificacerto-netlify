@@ -166,16 +166,21 @@ function weightedOriginalPct(
 /**
  * Função pura — agrega valores monetários e calcula percentuais semânticos.
  *
- * Epic MRM-V7 / ADR-010: Display vs Snapshot Fiscal.
- *   Quando `discountPct` e `discountMode` são fornecidos, usa `calculateDiscountedPrice`
- *   (spec "Desconto com Preservação Operacional") para derivar Comissão/Lucro DIRETO
- *   do cadastro do produto (commission_percent/profit_percent), produzindo valores
- *   que BATEM com o que o usuário vê no cadastro.
+ * BUG-CARDS-RRO-001 / ADR-019 (SUPERSEDE PARCIAL do ADR-010):
+ *   A Etapa 16 da cascata (Motor RRO) é a FONTE DE VERDADE de Comissão e Lucro.
+ *   Ordem de precedência por item (primeiro que existir vence):
+ *     1. Snapshot persistido `tax_breakdown.new_*` (Etapa 16 gravada)
+ *     2. Motor runtime `motor_new_*` (Etapa 16 calculada em memória)
+ *     3. Fallback display-first (`calculateDiscountedPrice`, proporção sobre o cadastro)
+ *        — SOMENTE para itens sem qualquer fonte do motor (legacy/edição inicial). É
+ *        PROIBIDO esse fallback sobrepor a cascata quando o motor está disponível.
  *
- *   IRPJ/CSLL são calculados como `tenantTaxRates × totalNet` (direto, sem motor).
+ *   IRPJ/CSLL: vêm da Etapa 16 quando há fonte do motor; no fallback display-first PURO
+ *   (nenhum item teve fonte do motor) são calculados como `tenantTaxRates × totalNet`.
  *
- *   Fallback legacy: quando o item não tem `commission_percent`/`profit_percent` mas
- *   tem `tax_breakdown`/`motor_*` (snapshot pré-V7), cai no comportamento anterior.
+ *   NOTA DE GOVERNANÇA: o ADR-010 (Epic MRM-V7, "Display-First") foi SUPERSEDIDO na
+ *   camada Comissão/Lucro — antes o display-first vencia quando havia desconto, o que
+ *   inflava os cards (BUG-CARDS-RRO-001). Ver `docs/architecture/adr-019-cards-etapa16-rro.md`.
  *
  * @param items Items do documento (budget/order/sale).
  * @param totalGross V₀ — valor bruto total antes do desconto.
@@ -221,14 +226,25 @@ export function computeResidualDistribution(
   let irpjAmount = 0
   let itemsWithoutSource = 0
 
-  // Epic MRM-V7 / ADR-010: caminho Display-First — cálculo derivado do cadastro do produto.
-  // Cada item tem seu próprio commission_percent/profit_percent; o desconto é absorvido
-  // conforme `discountMode` e o residual aparece nos cards.
-  // Snapshots persistidos (tax_breakdown em DB) NUNCA são modificados (ADR-003).
+  // ── BUG-CARDS-RRO-001 (Regra Inviolável, Junho/2026) ──────────────────────────────
+  // A Etapa 16 da cascata (motor RRO) é a FONTE DE VERDADE ABSOLUTA de Comissão e Lucro.
+  // Os cards/PDF/WhatsApp são displays de leitura — é PROIBIDO recalcular Comissão/Lucro
+  // por proporção simples (alíquota % pré-desconto × total pós-desconto), pois isso ignora
+  // a compressão desproporcional do RRO pelo desconto e infla os valores.
+  //
+  // Prioridade (primeiro que existir vence):
+  //   1. Snapshot persistido (tax_breakdown.new_*) — Etapa 16 gravada
+  //   2. Motor runtime (motor_new_*) — Etapa 16 calculada em memória
+  //   3. Fallback display-first (proporção sobre o cadastro) — SOMENTE para itens sem
+  //      qualquer fonte do motor (legacy/edição inicial). Mantido por retrocompat (ADR-010),
+  //      mas NUNCA sobrepõe a cascata quando o motor está disponível.
   const useDisplayFirst = typeof discountPct === 'number' && discountPct >= 0
   const mode: DiscountMode = (discountMode === 'SELLER_REDUCTION' || discountMode === 'PROFIT_REDUCTION')
     ? discountMode
     : 'PROPORTIONAL'
+
+  let usedMotorSource = false
+  let usedDisplayFirstFallback = false
 
   for (const item of items) {
     const unitPrice = Number(item.unit_price) || 0
@@ -238,8 +254,19 @@ export function computeResidualDistribution(
     const profPct = Number(item.profit_percent) || 0
     const hasItemMargin = commPct > 0 || profPct > 0
 
+    // Prioridade 1/2: Etapa 16 do motor (snapshot ou runtime). Fonte de verdade.
+    const v = extractItemValues(item)
+    if (v.hasSource) {
+      commAmount += v.commission
+      profitAmount += v.profit
+      csllAmount += v.csll
+      irpjAmount += v.irpj
+      usedMotorSource = true
+      continue
+    }
+
+    // Prioridade 3: fallback display-first (item sem dados do motor).
     if (useDisplayFirst && itemSubtotal > 0 && hasItemMargin) {
-      // Caminho display-first (V7): deriva Commission/Profit do cadastro
       const commissionOriginal = itemSubtotal * (commPct / 100)
       const profitOriginal = itemSubtotal * (profPct / 100)
       const margin = commissionOriginal + profitOriginal
@@ -266,30 +293,31 @@ export function computeResidualDistribution(
 
       commAmount += itemComm
       profitAmount += itemProf
-      // Marca que esta agregação tem fonte (display-first, dados do cadastro)
-      // — não conta como itemsWithoutSource
+      usedDisplayFirstFallback = true
       continue
     }
 
-    // Caminho legacy: snapshot persistido ou motor runtime
-    const v = extractItemValues(item)
-    commAmount += v.commission
-    profitAmount += v.profit
-    csllAmount += v.csll
-    irpjAmount += v.irpj
+    // Legacy puro: sem fonte e sem margem → conta para requiresReview.
     if (!v.hasSource) itemsWithoutSource += 1
   }
 
-  // Epic MRM-V7 / ADR-010: IRPJ/CSLL no caminho display-first
-  // = tenantTaxRates × totalNet (cálculo direto, não via motor RR distribution).
-  if (useDisplayFirst && !hidesProfitTaxes) {
+  // IRPJ/CSLL no fallback display-first PURO (nenhum item teve fonte do motor):
+  // = tenantTaxRates × totalNet. Quando há fonte do motor, IRPJ/CSLL já vieram da Etapa 16.
+  if (useDisplayFirst && usedDisplayFirstFallback && !usedMotorSource && !hidesProfitTaxes) {
     const irpjRate = Number(tenantTaxRates?.irpj) || 0
     const csllRate = Number(tenantTaxRates?.csll) || 0
     irpjAmount = totalNet * irpjRate
     csllAmount = totalNet * csllRate
   }
 
-  const requiresReview = itemsWithoutSource > 0 && itemsWithoutSource === items.length
+  // requiresReview: (a) legacy puro — TODOS os itens sem qualquer fonte; OU
+  // (b) BUG-CARDS-RRO-001 (Aria P1): fonte MISTA num mesmo documento — parte dos itens
+  // veio da Etapa 16 (motor) e parte caiu no fallback display-first. Numa operação que
+  // deveria ser 100% motor, isso denuncia falha de orquestração (item perdeu o motor) e
+  // os cards estariam misturando Etapa 16 + proporção inflada sem aviso. Sinaliza review.
+  const requiresReview =
+    (itemsWithoutSource > 0 && itemsWithoutSource === items.length) ||
+    (usedMotorSource && usedDisplayFirstFallback)
 
   // % originais
   const commOriginalPct = weightedOriginalPct(items, totalGross, 'commission_percent')
@@ -356,6 +384,40 @@ export function formatResidualLine(line: ResidualLine, hasDiscount: boolean): st
     n.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })
   if (!hasDiscount) return `${fmt(line.originalPct)}%`
   return `${fmt(line.originalPct)}% original → ${fmt(line.effectivePct)}% sobre o total c/ desconto`
+}
+
+/**
+ * BUG-CARDS-RRO-001 (item 5.2) — Validação de consistência card vs cascata.
+ *
+ * Os cards de Distribuição são displays da Etapa 16. Esta função compara os valores
+ * exibidos (`distribution`) com os valores apurados pelo motor (Etapa 16, somados dos
+ * itens) e reporta divergências acima da tolerância. Modo NÃO-bloqueante: apenas
+ * sinaliza para log/aviso de integridade (a UI não impede a emissão).
+ *
+ * @returns null quando consistente; caso contrário, objeto com as divergências detectadas.
+ */
+export interface CascadeIntegrityIssue {
+  field: 'comissao' | 'lucro'
+  card: number
+  cascade: number
+  diff: number
+}
+
+export function validateResidualVsCascade(
+  distribution: Pick<ResidualDistribution, 'commission' | 'profit'>,
+  cascade: { commission: number; profit: number },
+  toleranceBRL = 0.01,
+): CascadeIntegrityIssue[] | null {
+  const issues: CascadeIntegrityIssue[] = []
+  const commDiff = Math.abs((Number(distribution.commission?.amount) || 0) - (Number(cascade.commission) || 0))
+  const profDiff = Math.abs((Number(distribution.profit?.amount) || 0) - (Number(cascade.profit) || 0))
+  if (commDiff > toleranceBRL) {
+    issues.push({ field: 'comissao', card: distribution.commission.amount, cascade: cascade.commission, diff: commDiff })
+  }
+  if (profDiff > toleranceBRL) {
+    issues.push({ field: 'lucro', card: distribution.profit.amount, cascade: cascade.profit, diff: profDiff })
+  }
+  return issues.length > 0 ? issues : null
 }
 
 /**

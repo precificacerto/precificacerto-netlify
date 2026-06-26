@@ -44,7 +44,7 @@ import { buildMotorInput } from '@/utils/mrm-orchestrator'
 import { calculateMotorV17ForPage } from '@/utils/mrm-engine-v17/legacy-adapter'
 import { consolidateStDifalFromItems, computeTotalACobrar } from '@/utils/icms-st-difal'
 import { useResidualDistribution } from '@/hooks/use-residual-distribution'
-import { type ResidualItemInput } from '@/utils/residual-distribution'
+import { type ResidualItemInput, validateResidualVsCascade } from '@/utils/residual-distribution'
 import { ResidualDistributionBlock } from '@/page-parts/shared/residual-distribution-block.component'
 import {
   buildItemTaxRatesFromProduct,
@@ -778,6 +778,21 @@ function Budgets() {
     // (detectConfigWarning) foi REMOVIDO da tela de Editar Orçamento — pertence ao
     // cadastro de produtos, não ao orçamento, e gerava confusão. Não passamos mais
     // configWarning ao ResidualDistributionBlock aqui.
+
+    // BUG-CARDS-RRO-001 (item 5.2): validação de integridade card vs Etapa 16 da cascata.
+    // Por construção os cards leem a Etapa 16 (motor) — esta verificação é uma rede de
+    // segurança não-bloqueante: registra alerta em dev se houver divergência > R$ 0,01.
+    useEffect(() => {
+        if (process.env.NODE_ENV === 'production') return
+        if (!residualDistribution.hasDiscount) return
+        const issues = validateResidualVsCascade(
+            residualDistribution,
+            { commission: commissionAmount, profit: profitAmount },
+        )
+        if (issues) {
+            console.warn('[BUG-CARDS-RRO-001] Divergência card vs cascata (Etapa 16):', issues)
+        }
+    }, [residualDistribution, commissionAmount, profitAmount])
 
     // S14 — DRE Consolidada (princípio: consolida RRs individuais, não recalcula)
     const consolidatedDRE = useMemo(() => {

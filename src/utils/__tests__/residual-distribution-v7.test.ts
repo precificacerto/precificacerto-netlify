@@ -1,6 +1,12 @@
 /**
  * Tests do Epic MRM-V7 (ADR-010 — Display vs Snapshot Fiscal).
  *
+ * ⚠️ NOTA (BUG-CARDS-RRO-001 / ADR-019, 2026-06-26): estes cenários passam itens SEM fonte
+ * do motor (`tax_breakdown: null`, sem `motor_new_*`), portanto exercitam APENAS o caminho
+ * de FALLBACK display-first. Em PRODUÇÃO os cards usam a Etapa 16 do motor (ADR-019), coberta
+ * por `residual-distribution-cards-rro.test.ts`. O antigo rótulo "BLOCKING — QG-001" abaixo
+ * refere-se ao contrato do FALLBACK, não ao caminho de produção.
+ *
  * Cobertura conforme `docs/qa/QA-VALIDATION-EPIC-MRM-V7.md`:
  *   - C1: sem desconto + cadastro 5%/10% → valores nominais do produto
  *   - C2: desc 10% PROPORTIONAL → cenário canônico do user (R$ 2.351,78 / R$ 4.703,55)
