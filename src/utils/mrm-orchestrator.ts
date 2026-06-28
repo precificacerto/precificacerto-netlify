@@ -307,15 +307,15 @@ export function buildMotorInput(args: BuildMotorInputArgs): ReapurationInput {
 
   // V9 D2: CMV canônico unitário = cost_total + productive_labor_unit (V9-I5).
   // CONVENÇÃO MOTOR: `cost_total` = só MATERIAL, `productive_labor_unit` = MO.
-  // V15 (2026-05-25): quando `expense_breakdown_unit.cmv_unit > 0` (snapshot V14+),
-  // usa direto o cmv do produto (já inclui material + MO produtiva consolidados).
-  // V16.1 (Founder 2026-05-27): Math.max(snapshot, cost_total + labor) — defensivo
-  // contra snapshot incompleto. Callers (orcamentos/vendas) devem alinhar à convenção
-  // V9-I5 subtraindo labor do helper ADR-011 antes de popular `cost_total` no item.
-  const snapshotCmvUnit = Number(args.item.expense_breakdown_unit?.cmv_unit) || 0
-  const fallbackCmvUnit =
+  // Relatório RRO v1.0 (26/06/2026), Correção 1 / ADR-020: o "Custo produto" da Operação
+  // Interna (= cost_total + productive_labor_unit) é a fonte PRIMÁRIA do CMV — e somente ele.
+  // O snapshot V14 (expense_breakdown_unit.cmv_unit) vira FALLBACK defensivo (produto sem
+  // custo cadastrado). Revoga a regra V16.1 `Math.max(snapshot, custoProduto)`, que deixava
+  // um snapshot stale inflar o Item 4. Precedência idêntica à do legacy-adapter (caminho vivo).
+  const custoProdutoUnit =
     (Number(args.item.cost_total) || 0) + (Number(args.item.productive_labor_unit) || 0)
-  const cmvUnit = Math.max(snapshotCmvUnit, fallbackCmvUnit)
+  const snapshotCmvUnit = Number(args.item.expense_breakdown_unit?.cmv_unit) || 0
+  const cmvUnit = custoProdutoUnit > 0 ? custoProdutoUnit : snapshotCmvUnit
   const cpItem = cmvUnit * qty
 
   // V9 D1: MOD sempre 0 no motor.

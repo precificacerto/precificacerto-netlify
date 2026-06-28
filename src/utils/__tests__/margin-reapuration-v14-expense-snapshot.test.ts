@@ -271,21 +271,26 @@ describe('V14 — Snapshot completo dos 4 buckets', () => {
         globalDiscountPercent: 0,
         discountMode: 'PROPORTIONAL',
       })
-      // V15: usa cmv_unit do snapshot (11340.49)
+      // ADR-020: Custo produto (9.982,49 + 1.358,00 = 11.340,49) == snapshot; com a
+      // precedência nova é o Custo produto que vence (resultado idêntico).
       expect(input.cp).toBeCloseTo(11340.49, 2)
     })
   })
 
   describe('V15 — cmv_unit (CMV consolidado material + MO produtiva)', () => {
-    it('buildMotorInput usa cmv_unit do snapshot quando > 0 (ignora cost_total/productive_labor_unit)', () => {
+    it('ADR-020 (Relatório RRO v1.0): "Custo produto" vence o snapshot cmv_unit quando > 0', () => {
+      // REVOGA a regra V16.1 (Math.max(snapshot, custoProduto)). O Relatório RRO v1.0
+      // (26/06/2026) determina que a fonte do CMV é o "Custo produto" da Operação Interna
+      // (cost_total + productive_labor_unit) — e somente ele. Um snapshot stale/divergente
+      // NÃO pode mais inflar o CMV (era a causa do Item 4 = 150.319,70 em vez de 141.172,85).
       const input = buildMotorInput({
         item: {
           unit_price: 100,
           quantity: 1,
-          cost_total: 50,  // legacy — deveria ser ignorado
-          productive_labor_unit: 0,  // não populado
+          cost_total: 9982.49,
+          productive_labor_unit: 1358.0,  // Custo produto = 11.340,49
           expense_breakdown_unit: {
-            cmv_unit: 11340.49,  // V15: CMV consolidado (material + MO)
+            cmv_unit: 99999.99,  // snapshot stale/divergente — deve ser IGNORADO
             mo_admin: { rate: 0.1051, amount_unit: 3943.70 },
             fixa: { rate: 0.1064, amount_unit: 3992.48 },
             variavel: { rate: 0.0612, amount_unit: 2296.43 },
@@ -296,7 +301,30 @@ describe('V14 — Snapshot completo dos 4 buckets', () => {
         globalDiscountPercent: 0,
         discountMode: 'PROPORTIONAL',
       })
-      // V15: usa cmv_unit do snapshot, ignora cost_total + productive_labor_unit
+      // Custo produto (11.340,49) vence o snapshot stale (99.999,99).
+      expect(input.cp).toBeCloseTo(11340.49, 2)
+    })
+
+    it('ADR-020: snapshot cmv_unit é FALLBACK quando não há Custo produto (cost_total=0, sem MOD)', () => {
+      const input = buildMotorInput({
+        item: {
+          unit_price: 100,
+          quantity: 1,
+          cost_total: 0,  // produto sem custo cadastrado
+          productive_labor_unit: 0,
+          expense_breakdown_unit: {
+            cmv_unit: 11340.49,  // fallback defensivo
+            mo_admin: { rate: 0.1051, amount_unit: 3943.70 },
+            fixa: { rate: 0.1064, amount_unit: 3992.48 },
+            variavel: { rate: 0.0612, amount_unit: 2296.43 },
+            financeira: { rate: 0.0043, amount_unit: 161.35 },
+          },
+        },
+        tenantCtx: tenantCtxComBug,
+        globalDiscountPercent: 0,
+        discountMode: 'PROPORTIONAL',
+      })
+      // Sem Custo produto → usa o snapshot como rede de segurança.
       expect(input.cp).toBeCloseTo(11340.49, 2)
     })
 

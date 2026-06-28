@@ -212,11 +212,18 @@ export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResul
       : unitPriceRaw
     const rb = rbBaseUnit * qty
 
-    // CMV canônico V9-I5 + V14/V15.4 cmv_unit snapshot quando presente
-    const snapshotCmv = Number(item.expense_breakdown_unit?.cmv_unit) || 0
-    const fallbackCmv =
+    // CMV canônico — Relatório RRO v1.0 (26/06/2026), Correção 1 (Item 4 / CMV Efetivo):
+    // A fonte PRIMÁRIA do CMV é o "Custo produto" da Operação Interna de cada produto
+    // (= cost_total + productive_labor_unit, "Itens + MOD", exibido em vermelho no cadastro).
+    // É esse campo que o motor deve ler — e somente ele. O snapshot V14
+    // (expense_breakdown_unit.cmv_unit) passa a ser FALLBACK defensivo, usado só quando o
+    // "Custo produto" não existir (produto sem custo cadastrado). Antes o snapshot tinha
+    // prioridade e, quando stale/divergente, inflava o Item 4 (ex.: 150.319,70 vs 141.172,85
+    // corretos — base intermediária divergente). Ver ADR-020.
+    const custoProduto =
       ((Number(item.cost_total) || 0) + (Number(item.productive_labor_unit) || 0)) * qty
-    const cmvUsed = snapshotCmv > 0 ? snapshotCmv * qty : fallbackCmv
+    const snapshotCmv = Number(item.expense_breakdown_unit?.cmv_unit) || 0
+    const cmvUsed = custoProduto > 0 ? custoProduto : snapshotCmv * qty
 
     // DOP agregado (4 buckets do tenant)
     const eb = tenantCtx.expense_breakdown ?? null
@@ -675,10 +682,14 @@ export function calculateMotorV17ForPageFull(args: PageBuildArgs): {
   const engineItems: EngineItemV17[] = validItems.map((item, idx) => {
     const rb = (Number(item.unit_price) || 0) * (Number(item.quantity) || 0)
     const qty = Number(item.quantity) || 0
-    const snapshotCmv = Number(item.expense_breakdown_unit?.cmv_unit) || 0
-    const fallbackCmv =
+    // CMV canônico — Relatório RRO v1.0 (26/06/2026), Correção 1: "Custo produto"
+    // (cost_total + productive_labor_unit) é a fonte PRIMÁRIA; snapshot V14 vira fallback.
+    // Caminho ForPageFull/.consolidated — NÃO há reverse-markup aqui (cp = cmvUsed direto),
+    // portanto a precedência precisa ser idêntica à do caminho ForPage acima. Ver ADR-020.
+    const custoProduto =
       ((Number(item.cost_total) || 0) + (Number(item.productive_labor_unit) || 0)) * qty
-    const cmvUsed = snapshotCmv > 0 ? snapshotCmv * qty : fallbackCmv
+    const snapshotCmv = Number(item.expense_breakdown_unit?.cmv_unit) || 0
+    const cmvUsed = custoProduto > 0 ? custoProduto : snapshotCmv * qty
     const eb = args.tenantCtx.expense_breakdown ?? null
     const dop_pct = eb
       ? (Number(eb.administrative_pct) || 0) +

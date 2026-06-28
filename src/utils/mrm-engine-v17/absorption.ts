@@ -513,11 +513,17 @@ export function applyAbsorptionPolicy(input: ApplyAbsorptionInput): ApplyAbsorpt
       const CONSOLIDACAO_TYPES = ['IBS', 'CBS', 'IS', 'IPI']
       const consolidacao_taxes = taxes_outside.filter((t) => CONSOLIDACAO_TYPES.includes(t.type))
       const consolidacao_total = consolidacao_taxes.reduce((acc, t) => acc + t.amount, 0)
-      const consolidacao_final = motor.ancora + desp_acessorias + consolidacao_total
+      // Relatório RRO v1.0 (26/06/2026), Correção 2 (Item 17): Pai = Σ Filhos. O Item 17
+      // (Consolidação final da operação) reflete EXCLUSIVAMENTE a soma dos filhos diretos
+      // (IBS + CBS + IS + IPI). A âncora e a desp. acessórias NÃO são filhos deste nível —
+      // elas vivem no `valor_final` / "Total a cobrar" (calculado independentemente acima).
+      // Antes o amount injetava o acumulado da operação (ex.: 351.346,81), quebrando a
+      // semântica Pai=Σfilhos. Cada nível da cascata é autossuficiente. Ver ADR-020.
+      const consolidacao_final = consolidacao_total
       return {
         ...step,
         amount: consolidacao_final,
-        formula: 'Âncora + Σ (IBS + CBS + IS + IPI)',
+        formula: 'Σ (IBS + CBS + IS + IPI)',
         children: consolidacao_taxes.map((tax) => ({
           step: 17,
           label: tax.type,
