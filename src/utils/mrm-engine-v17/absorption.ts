@@ -504,35 +504,64 @@ export function applyAbsorptionPolicy(input: ApplyAbsorptionInput): ApplyAbsorpt
       }
     }
     if (step.step === 17) {
-      // DISPLAY (Relatório 20/06/2026, Item 1): a "Consolidação final da operação" deve
-      // somar SOMENTE os tributos que são, por natureza, da operação por fora: IBS, CBS,
-      // IS, IPI. ICMS_COMPL / ICMS-ST / DIFAL / FCP / ISS_RETIDO pertencem à fiação lateral
-      // (Total a cobrar) e NÃO compõem esta consolidação. `view.valor_final` permanece
-      // intacto (inclui o ICMS Compl — é o que o cliente paga); aqui só ajustamos a EXIBIÇÃO
-      // desta etapa. Cenário do relatório: 147.019,06 − 1.373,77 (ICMS Compl) = 145.645,29.
-      const CONSOLIDACAO_TYPES = ['IBS', 'CBS', 'IS', 'IPI']
-      const consolidacao_taxes = taxes_outside.filter((t) => CONSOLIDACAO_TYPES.includes(t.type))
-      const consolidacao_total = consolidacao_taxes.reduce((acc, t) => acc + t.amount, 0)
-      // Relatório RRO v1.0 (26/06/2026), Correção 2 (Item 17): Pai = Σ Filhos. O Item 17
-      // (Consolidação final da operação) reflete EXCLUSIVAMENTE a soma dos filhos diretos
-      // (IBS + CBS + IS + IPI). A âncora e a desp. acessórias NÃO são filhos deste nível —
-      // elas vivem no `valor_final` / "Total a cobrar" (calculado independentemente acima).
-      // Antes o amount injetava o acumulado da operação (ex.: 351.346,81), quebrando a
-      // semântica Pai=Σfilhos. Cada nível da cascata é autossuficiente. Ver ADR-020.
-      const consolidacao_final = consolidacao_total
+      // DISPLAY — Relatório de Correção v2.0 (28/06/2026), Item 01 / ADR-021 (REVOGA ADR-020).
+      // A "Consolidação final da operação" deve fechar EXATAMENTE com a Operação Externa
+      // pós-desconto do Step 12 (`op_externa_pos`, autoridade gerencial): Pai = Σ Filhos = Step 12.
+      //
+      // O modelo anterior (ADR-020) somava os tributos REAIS de `taxes_outside` (IBS/CBS/IPI
+      // recalculados sobre bases brutas pós-desconto, COM Desp. Acessórias re-somada na base do
+      // IPI e de IBS/CBS). Como a Desp. Acessória é FIXA (não descontada) e entra com peso
+      // distinto em cada base, essa soma (ex.: 8.049,75) NÃO fechava com o Step 12 (8.024,18) —
+      // diferença de R$ 25,57 que violava "Pai = Soma dos Filhos" na Op. Externa.
+      //
+      // CORREÇÃO v2.0: redistribuir proporcionalmente `op_externa_pos` entre IS/IBS/CBS/IPI
+      // usando os PESOS da construção ORIGINAL do Step 8 (PRÉ-desconto):
+      //     Step17_t = op_externa_pos × (Valor_t_Step8 / Σ Valores_Step8)
+      // Os pesos pré-desconto são obrigatórios: pós-desconto por-tributo daria proporção
+      // diferente (a Desp. fixa distorce). A âncora pré-desconto (Op. Interna consolidada) =
+      // peso_op_interna × rb_total (motor-rro:77); as bases por dentro escalam por ancoraFactor
+      // de forma uniforme, então a reconstrução pré-desconto é EXATA (ver computeStep8Outside).
+      //
+      // ISOLAMENTO (display-only): NÃO toca `taxes_outside` / `taxes_outside_total` /
+      // `valor_final` / RRO / âncora — o "Total a cobrar" (fiação lateral) e os valores fiscais
+      // reais permanecem intactos (oráculo 11.06 inalterado). Só o nó exibido do Step 17 muda.
+      const op_int_pre = Math.max(0, view.peso_op_interna_ponderado * view.rb_total)
+      const step8 = computeStep8Outside({
+        motorAncora: motor.ancora,
+        baseIvaPos: base_iva,
+        opIntPre: op_int_pre,
+        despAcessorias: desp_acessorias,
+        single: multiProduct ? null : { is: is_rate, ibs: ibs_rate, cbs: cbs_rate, ipi: ipi_rate },
+        multi: multiProduct ? input.outside_items! : null,
+      })
+      const CONSOLIDACAO_ORDER: { type: TaxType; value: number }[] = [
+        { type: 'IS', value: step8.is },
+        { type: 'IBS', value: step8.ibs },
+        { type: 'CBS', value: step8.cbs },
+        { type: 'IPI', value: step8.ipi },
+      ]
+      // Guard de degeneração: sem tributos por fora (Σ pesos = 0) não há o que redistribuir.
+      const children = step8.total > 0
+        ? CONSOLIDACAO_ORDER.filter((t) => t.value > 0).map((t) => {
+            const peso = t.value / step8.total
+            return {
+              step: 17,
+              label: t.type,
+              base: op_externa_pos,
+              rate: peso,
+              amount: op_externa_pos * peso,
+              formula: `Op. Externa pós-desconto (Step 12) × peso Step 8 (${(peso * 100).toFixed(4)}%)`,
+              source: 'CAMADA_2' as const,
+              peso,
+            }
+          })
+        : []
+      const consolidacao_final = children.reduce((acc, c) => acc + c.amount, 0)
       return {
         ...step,
         amount: consolidacao_final,
-        formula: 'Σ (IBS + CBS + IS + IPI)',
-        children: consolidacao_taxes.map((tax) => ({
-          step: 17,
-          label: tax.type,
-          base: tax.base,
-          rate: tax.rate_pct,
-          amount: tax.amount,
-          formula: `base_canônica × ${tax.type}_rate`,
-          source: 'CAMADA_2',
-        })),
+        formula: 'Op. Externa pós-desconto (Step 12) redistribuída por pesos do Step 8',
+        children,
       }
     }
     return step
@@ -542,6 +571,73 @@ export function applyAbsorptionPolicy(input: ApplyAbsorptionInput): ApplyAbsorpt
 }
 
 // ─────────────────────────── Helpers internos ───────────────────────────
+
+/**
+ * Relatório de Correção v2.0 (28/06/2026), Item 01 / ADR-021 — valores da CONSTRUÇÃO ORIGINAL
+ * (Step 8, PRÉ-desconto) dos tributos por fora (IS/IBS/CBS/IPI). Servem de PESOS para
+ * redistribuir a Op. Externa pós-desconto (Step 12) no DISPLAY do Step 17 (Pai = Σ Filhos).
+ *
+ * A âncora pré-desconto (Op. Interna consolidada) = `peso_op_interna × rb_total` (motor-rro:77).
+ * No motor, todas as bases por dentro (ICMS/ISS/PIS/COFINS) escalam pelo MESMO `ancoraFactor`
+ * (= motor.ancora / op_int_pre) nos dois caminhos (fallback e por-produto), enquanto a Desp.
+ * Acessória é FIXA. Logo `base_iva_pre = base_iva_pos / ancoraFactor` (exato) e o IPI pré incide
+ * sobre `op_int_pre + Desp.` Reusa o núcleo único `computeIvaDualFromBase` (ADR-017) — sem ICMS
+ * Compl. (não compõe a consolidação IS/IBS/CBS/IPI). Single-product e multi-produto (Adendo 25-A).
+ */
+function computeStep8Outside(args: {
+  motorAncora: number
+  baseIvaPos: number
+  opIntPre: number
+  despAcessorias: number
+  single: { is: number; ibs: number; cbs: number; ipi: number } | null
+  multi: OutsideItemProfile[] | null
+}): { is: number; ibs: number; cbs: number; ipi: number; total: number } {
+  const { motorAncora, baseIvaPos, opIntPre, despAcessorias } = args
+  const factorPre = motorAncora > 0 ? opIntPre / motorAncora : 1
+  const baseIvaPre = Math.max(0, baseIvaPos * factorPre)
+  let is = 0
+  let ibs = 0
+  let cbs = 0
+  let ipi = 0
+  if (args.multi && args.multi.length > 0) {
+    for (const oi of args.multi) {
+      const peso = Math.max(0, Number(oi.peso_ancora) || 0)
+      const desp_i = Math.max(0, Number(oi.desp_acessorias) || 0)
+      const part = computeIvaDualFromBase({
+        baseIVA: baseIvaPre * peso,
+        ipiBase: opIntPre * peso + desp_i,
+        despAcessorias: desp_i,
+        isPct: (Number(oi.rates?.is) || 0) * 100,
+        ibsPct: (Number(oi.rates?.ibs) || 0) * 100,
+        cbsPct: (Number(oi.rates?.cbs) || 0) * 100,
+        ipiPct: (Number(oi.rates?.ipi) || 0) * 100,
+        icmsPct: 0,
+        icmsComplApplies: false,
+      })
+      is += part.isValue
+      ibs += part.ibsValue
+      cbs += part.cbsValue
+      ipi += part.ipiValue
+    }
+  } else if (args.single) {
+    const part = computeIvaDualFromBase({
+      baseIVA: baseIvaPre,
+      ipiBase: opIntPre + despAcessorias,
+      despAcessorias,
+      isPct: args.single.is * 100,
+      ibsPct: args.single.ibs * 100,
+      cbsPct: args.single.cbs * 100,
+      ipiPct: args.single.ipi * 100,
+      icmsPct: 0,
+      icmsComplApplies: false,
+    })
+    is = part.isValue
+    ibs = part.ibsValue
+    cbs = part.cbsValue
+    ipi = part.ipiValue
+  }
+  return { is, ibs, cbs, ipi, total: is + ibs + cbs + ipi }
+}
 
 function distributeProportional(rro: number, view: ConsolidatedView): {
   new_commission: number

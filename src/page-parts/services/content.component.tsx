@@ -1044,7 +1044,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                                     style={{ width: 220 }}
                                     allowClear
                                 >
-                                    {[30, 40, 50, 60, 70].map(v => (
+                                    {[30, 40, 50, 60, 70, 80, 100].map(v => (
                                         <Select.Option key={v} value={v}>{v}%</Select.Option>
                                     ))}
                                 </Select>

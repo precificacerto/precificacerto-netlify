@@ -11,20 +11,25 @@
  *     AAATeste0506 55.901,92 + AAAtesteCBS5 39.929,94 + Obra Josue 45.340,99 = 141.172,85
  *     (valor incorreto anterior: 150.319,70 — diferença 9.146,85).
  *
- * CORREÇÃO 2 — Item 17 (Consolidação final): deve refletir EXCLUSIVAMENTE a soma dos
- *   filhos diretos (IBS + CBS + IS + IPI), sem injetar a âncora acumulada da operação.
+ * CORREÇÃO 2 — Item 17 (Consolidação final): SUPERSEDED pelo Relatório de Correção v2.0
+ *   (28/06/2026) / ADR-021. O Step 17 deixa de somar os tributos REAIS por fora
+ *   (taxes_outside, que re-somam a Desp. Acessória nas bases e não fechavam com o Step 12) e
+ *   passa a redistribuir a Op. Externa pós-desconto do Step 12 (autoridade gerencial) pelos
+ *   pesos da construção ORIGINAL do Step 8 (pré-desconto). Pai = Σ Filhos = Step 12.
+ *   Mudança DISPLAY-only: taxes_outside / valor_final / RRO permanecem intactos.
  *
- * Ver ADR-020.
+ * Ver ADR-020 (Correção 1, vigente) e ADR-021 (Correção 2, revoga a versão v1.0 do Item 17).
  */
 
 import { calculateMotorV17 } from '../mrm-engine-v17'
+import { computeIvaDualFromBase } from '../iva-dual-outside'
 import {
   calculateMotorV17ForPage,
   calculateMotorV17ForPageFull,
   type PageBuildArgs,
   type PageItem,
 } from '../mrm-engine-v17/legacy-adapter'
-import type { EngineItemV17, MotorV17Input, TaxLine, TaxRatePeriod, TaxType } from '@/types/mrm'
+import type { EngineItemV17, MotorV17Input, TaxRatePeriod } from '@/types/mrm'
 
 function rate(tax_type: TaxRatePeriod['tax_type'], rate_pct: number): TaxRatePeriod {
   return {
@@ -165,20 +170,23 @@ describe('Relatório RRO v1.0 — Correção 1: CMV (Item 4) = Σ Custo produto'
 })
 
 // ============================================================================
-// CORREÇÃO 2 — Item 17 (Consolidação final) = Σ filhos (Pai = Σ Filhos)
+// CORREÇÃO 2 (v2.0 / ADR-021) — Item 17 redistribui a Op. Externa pós-desconto
+// (Step 12) pelos pesos do Step 8. Pai = Σ Filhos = Step 12.
 // ============================================================================
-describe('Relatório RRO v1.0 — Correção 2: Item 17 = Σ filhos (IBS+CBS+IS+IPI)', () => {
+describe('Relatório de Correção v2.0 — Item 17: redistribuição da Op. Externa (ADR-021)', () => {
+  // Cenário com peso_op_interna < 1 → existe Op. Externa (de repasse) para redistribuir.
+  // op.interna 143.669,80 + op.externa 8.447,95 = rb 152.117,75 (peso 94,4464%).
   const ITEM: EngineItemV17 = {
     item_id: 'rro-fix-2',
-    rb: 100000,
-    cp: 40000,
+    rb: 152117.75,
+    cp: 55901.92,
     mod_pct: 0,
-    dop_pct: 0.2,
+    dop_pct: 0.3,
     commission_pct: 0.05,
     profit_pct: 0.1,
     irpj_pct: 0.015,
     csll_pct: 0.009,
-    peso_op_interna: 1,
+    peso_op_interna: 143669.8021074274 / 152117.75,
   }
   const RATES: TaxRatePeriod[] = [
     rate('ICMS', 0.17),
@@ -195,7 +203,7 @@ describe('Relatório RRO v1.0 — Correção 2: Item 17 = Σ filhos (IBS+CBS+IS+
       policy: 'RRO_PROPORTIONAL',
       regime: 'LUCRO_REAL',
       rates: RATES,
-      effective_date: '2026-06-26',
+      effective_date: '2026-06-28',
       use_snapshot_rates: false,
       ...overrides,
     }
@@ -203,7 +211,11 @@ describe('Relatório RRO v1.0 — Correção 2: Item 17 = Σ filhos (IBS+CBS+IS+
 
   const step17 = (r: ReturnType<typeof calculateMotorV17>) =>
     r.motor.cascade_trace.find((s) => s.step === 17)!
-  const find = (arr: TaxLine[], t: TaxType) => arr.find((x) => x.type === t)
+  // Op. Externa pós-desconto exibida no Step 12 (autoridade gerencial).
+  const opExternaPos = (r: ReturnType<typeof calculateMotorV17>) => {
+    const s12 = r.motor.cascade_trace.find((s) => s.step === 12)!
+    return (s12.children ?? []).find((c) => (c.label ?? '').includes('Externa'))?.amount ?? 0
+  }
 
   it('Pai = Σ Filhos: step17.amount === soma dos children (tolerância 0,01)', () => {
     const r = calculateMotorV17(baseInput({ desp_acessorias: 1200 }))
@@ -213,36 +225,28 @@ describe('Relatório RRO v1.0 — Correção 2: Item 17 = Σ filhos (IBS+CBS+IS+
     expect((s17.children ?? []).length).toBeGreaterThan(0)
   })
 
-  it('step17.amount = Σ (IBS + CBS + IS + IPI) dos tributos por fora', () => {
+  it('ADR-021: step17.amount === Op. Externa pós-desconto do Step 12 (cascata FECHA)', () => {
     const r = calculateMotorV17(baseInput({ desp_acessorias: 1200 }))
     const s17 = step17(r)
-    const soma =
-      (find(r.distribution.taxes_outside, 'IBS')?.amount ?? 0) +
-      (find(r.distribution.taxes_outside, 'CBS')?.amount ?? 0) +
-      (find(r.distribution.taxes_outside, 'IS')?.amount ?? 0) +
-      (find(r.distribution.taxes_outside, 'IPI')?.amount ?? 0)
-    expect(s17.amount).toBeCloseTo(soma, 2)
+    expect(s17.amount).toBeCloseTo(opExternaPos(r), 2)
+    // E fecha mesmo com desconto aplicado.
+    const rd = calculateMotorV17(baseInput({ desp_acessorias: 1200, discount: { pct: 5 } }))
+    expect(step17(rd).amount).toBeCloseTo(opExternaPos(rd), 2)
   })
 
-  it('NÃO injeta a âncora: step17.amount ≠ âncora + desp + Σ filhos', () => {
-    const desp = 1200
-    const r = calculateMotorV17(baseInput({ desp_acessorias: desp }))
-    const s17 = step17(r)
-    const comAncora =
-      r.motor.ancora +
-      desp +
-      (s17.children ?? []).reduce((acc, c) => acc + c.amount, 0)
-    expect(s17.amount).not.toBeCloseTo(comAncora, 2)
-    // O valor com âncora é muitas ordens de grandeza maior que a soma dos filhos.
-    expect(s17.amount).toBeLessThan(r.motor.ancora)
-  })
-
-  it('formula do step 17 não menciona mais a Âncora', () => {
+  it('NÃO injeta a âncora: step17.amount < âncora (é só a Op. Externa, não a operação)', () => {
     const r = calculateMotorV17(baseInput({ desp_acessorias: 1200 }))
-    expect(step17(r).formula).toBe('Σ (IBS + CBS + IS + IPI)')
+    expect(step17(r).amount).toBeLessThan(r.motor.ancora)
   })
 
-  it('IS > 0 entra na soma dos filhos do step 17', () => {
+  it('formula do step 17 reflete a redistribuição por pesos do Step 8 (não Σ bases brutas)', () => {
+    const r = calculateMotorV17(baseInput({ desp_acessorias: 1200 }))
+    const f = step17(r).formula ?? ''
+    expect(f).toMatch(/Op\. Externa.*Step 8/i)
+    expect(f).not.toBe('Σ (IBS + CBS + IS + IPI)')
+  })
+
+  it('IS > 0 entra no split do step 17 (Pai = Σ Filhos continua)', () => {
     const ratesIS: TaxRatePeriod[] = [
       rate('ICMS', 0.17), rate('IS', 0.1), rate('IBS', 0.01), rate('CBS', 0.088), rate('IPI', 0.05),
     ]
@@ -250,35 +254,60 @@ describe('Relatório RRO v1.0 — Correção 2: Item 17 = Σ filhos (IBS+CBS+IS+
     const s17 = step17(r)
     const isChild = (s17.children ?? []).find((c) => c.label === 'IS')
     expect(isChild?.amount).toBeGreaterThan(0)
-    // Pai = Σ Filhos continua valendo com IS > 0.
     const childrenSum = (s17.children ?? []).reduce((acc, c) => acc + c.amount, 0)
     expect(childrenSum).toBeCloseTo(s17.amount, 2)
   })
 
-  it('Oráculo do relatório: IBS+CBS+IPI fecham em 8.049,75 (Pai=Σfilhos, sem âncora)', () => {
-    // Reproduz a soma canônica do relatório a partir dos amounts dos filhos do step 17,
-    // independentemente das bases concretas: o pai é EXATAMENTE a soma dos filhos.
-    const r = calculateMotorV17(baseInput({ desp_acessorias: 1200 }))
-    const s17 = step17(r)
-    const ibs = (s17.children ?? []).find((c) => c.label === 'IBS')?.amount ?? 0
-    const cbs = (s17.children ?? []).find((c) => c.label === 'CBS')?.amount ?? 0
-    const ipi = (s17.children ?? []).find((c) => c.label === 'IPI')?.amount ?? 0
-    const is = (s17.children ?? []).find((c) => c.label === 'IS')?.amount ?? 0
-    // No relatório IS = 0 (alíquota 0) → só IBS+CBS+IPI compõem o total.
-    expect(is).toBe(0)
-    expect(s17.amount).toBeCloseTo(ibs + cbs + ipi, 2)
-    // E o amount NÃO é o acumulado da operação (âncora), que seria ordens de grandeza maior.
-    expect(s17.amount).toBeLessThan(r.motor.ancora * 0.5)
-  })
-
-  it('Independência: valor_final ("Total a cobrar") permanece = âncora + desp + Σ tributos por fora', () => {
+  it('Display-only: taxes_outside e valor_final permanecem INTACTOS (não vazam para o cobrado)', () => {
     const desp = 1200
     const r = calculateMotorV17(baseInput({ desp_acessorias: desp }))
-    // valor_final é calculado separadamente do step17.amount — remover a âncora do Item 17
-    // NÃO pode mover o Total a cobrar.
+    // O Total a cobrar continua derivando dos tributos REAIS por fora, não do Step 17.
     expect(r.distribution.valor_final).toBeCloseTo(
       r.motor.ancora + desp + r.distribution.taxes_outside_total,
       2,
     )
+    // taxes_outside (valores fiscais reais) seguem com a Desp. Acessória nas bases (inalterado).
+    const ipi = r.distribution.taxes_outside.find((t) => t.type === 'IPI')
+    expect(ipi?.base).toBeCloseTo(r.motor.ancora + desp, 2)
+  })
+
+  it('Alvos do relatório v2.0: redistribuir 8.024,18 pelos pesos do Step 8 → 114,42 / 1.029,66 / 6.880,10', () => {
+    // Validação MATEMÁTICA isolada (núcleo único). Bases pré-desconto do cenário do relatório:
+    //   baseIVA = 119.250,00 ; ipiBase = OpDentro 143.669,80 + Desp 1.200 = 144.869,80.
+    const step8 = computeIvaDualFromBase({
+      baseIVA: 119250, ipiBase: 144869.8, despAcessorias: 1200,
+      isPct: 0, ibsPct: 0.1, cbsPct: 0.9, ipiPct: 5, icmsPct: 0, icmsComplApplies: false,
+    })
+    const total = step8.isValue + step8.ibsValue + step8.cbsValue + step8.ipiValue
+    const opExt = 8024.18
+    expect(opExt * (step8.ibsValue / total)).toBeCloseTo(114.42, 1)
+    expect(opExt * (step8.cbsValue / total)).toBeCloseTo(1029.66, 1)
+    expect(opExt * (step8.ipiValue / total)).toBeCloseTo(6880.1, 1)
+    const soma =
+      opExt * (step8.ibsValue / total) +
+      opExt * (step8.cbsValue / total) +
+      opExt * (step8.ipiValue / total)
+    expect(soma).toBeCloseTo(8024.18, 1)
+  })
+
+  it('Multi-produto (Adendo 25-A): Step 17 fecha com Step 12 mesmo com produtos heterogêneos', () => {
+    // 3 produtos com IPI heterogêneo (5% / 0% / 3%) e pesos da âncora 0,5 / 0,3 / 0,2 (Σ=1).
+    // O ramo `args.multi` do helper computeStep8Outside soma os tributos por produto e o total
+    // redistribuído continua = op_externa_pos (Σ pesos = 1).
+    const r = calculateMotorV17(
+      baseInput({
+        desp_acessorias: 1200,
+        outside_items: [
+          { peso_ancora: 0.5, desp_acessorias: 600, rates: { is: 0, ibs: 0.001, cbs: 0.009, ipi: 0.05, icms: 0.17 } },
+          { peso_ancora: 0.3, desp_acessorias: 400, rates: { is: 0, ibs: 0.001, cbs: 0.009, ipi: 0, icms: 0.17 } },
+          { peso_ancora: 0.2, desp_acessorias: 200, rates: { is: 0, ibs: 0.001, cbs: 0.009, ipi: 0.03, icms: 0.17 } },
+        ],
+      }),
+    )
+    const s17 = step17(r)
+    const childrenSum = (s17.children ?? []).reduce((acc, c) => acc + c.amount, 0)
+    expect(childrenSum).toBeCloseTo(s17.amount, 2)
+    expect(s17.amount).toBeCloseTo(opExternaPos(r), 2)
+    expect((s17.children ?? []).length).toBeGreaterThan(0)
   })
 })
