@@ -118,9 +118,13 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
         serviceData?.iva_dual_reduction_factor != null ? Number(serviceData.iva_dual_reduction_factor) : null
     )
 
-    // Alíquotas de referência IBS/CBS do tenant (Lucro Real)
-    const [ibsReferencePct, setIbsReferencePct] = useState<number>(0)
-    const [cbsReferencePct, setCbsReferencePct] = useState<number>(0)
+    // Alíquotas de referência IBS/CBS (ADR-022: prefere o snapshot do serviço; tenant é fallback)
+    const [ibsReferencePct, setIbsReferencePct] = useState<number>(
+        serviceData?.ibs_reference_pct != null ? Number(serviceData.ibs_reference_pct) : 0
+    )
+    const [cbsReferencePct, setCbsReferencePct] = useState<number>(
+        serviceData?.cbs_reference_pct != null ? Number(serviceData.cbs_reference_pct) : 0
+    )
 
     useEffect(() => {
         if (!isLRorLPorSHSvcComp) return
@@ -133,8 +137,9 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                 .eq('tenant_id', tenantId)
                 .single()
             if (data) {
-                if (data.ibs_reference_pct != null) setIbsReferencePct(Number(data.ibs_reference_pct))
-                if (data.cbs_reference_pct != null) setCbsReferencePct(Number(data.cbs_reference_pct))
+                // Não sobrescreve o snapshot do serviço (ADR-022).
+                if (data.ibs_reference_pct != null && serviceData?.ibs_reference_pct == null) setIbsReferencePct(Number(data.ibs_reference_pct))
+                if (data.cbs_reference_pct != null && serviceData?.cbs_reference_pct == null) setCbsReferencePct(Number(data.cbs_reference_pct))
             }
         }
         fetchIvaRefRates()
@@ -508,6 +513,9 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                 sale_price_after_taxes: isLRorLPorSHSvcComp ? svcFinalPrice : null,
                 valor_precificado_icms_piscofins: isLRorLPorSHSvcComp ? pricing.sellingPrice : null,
                 iva_dual_reduction_factor: isLRorLPorSHSvcComp ? (ivaDualReductionFactor ?? null) : null,
+                // ADR-022: snapshot da referência bruta IBS/CBS (fonte da verdade + fator).
+                ibs_reference_pct: isLRorLPorSHSvcComp && ibsReferencePct > 0 ? ibsReferencePct : null,
+                cbs_reference_pct: isLRorLPorSHSvcComp && cbsReferencePct > 0 ? cbsReferencePct : null,
                 recurrence_active: recurrenceActive,
                 recurrence_days: recurrenceActive && recurrenceDays ? recurrenceDays : null,
                 recurrence_message: recurrenceActive && recurrenceMessage ? recurrenceMessage : null,

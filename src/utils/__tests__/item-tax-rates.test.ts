@@ -7,6 +7,7 @@ import {
   resolveItemCsllPct,
   resolveItemIrpjPct,
   buildItemTaxRatesFromProduct,
+  resolveIvaDualEffectiveRate,
   type ItemTaxRates,
 } from '../item-tax-rates'
 import type { TaxRatePeriod } from '@/types/mrm'
@@ -186,5 +187,91 @@ describe('buildItemTaxRatesFromProduct — neutralização condicional ST/DIFAL/
     expect(rates.icms_st_pct).toBeNull()
     expect(rates.difal_pct).toBe(0.05)
     expect(rates.fcp_pct).toBe(0.02)
+  })
+})
+
+// ============================================================================
+// ADR-022 — Fator de Redução IVA Dual (LC 214/2025): efetiva = bruta × (1 − fator/100)
+// ============================================================================
+describe('resolveIvaDualEffectiveRate — derivação determinística IBS/CBS', () => {
+  it('Fator 50%: IBS 0,1% → 0,05% e CBS 0,9% → 0,45% (escala percentual)', () => {
+    expect(resolveIvaDualEffectiveRate(0.1, 50, null)).toBeCloseTo(0.05, 6)
+    expect(resolveIvaDualEffectiveRate(0.9, 50, null)).toBeCloseTo(0.45, 6)
+  })
+
+  it('Idempotência: derivar parte SEMPRE da bruta — chamar 2× dá o mesmo resultado', () => {
+    const once = resolveIvaDualEffectiveRate(0.1, 50, null)! // 0,05
+    // re-aplicar a função usando o resultado como "bruta" seria dupla redução (0,025);
+    // mas o fluxo real sempre passa a BRUTA (0,1) → estável.
+    const twiceFromBruta = resolveIvaDualEffectiveRate(0.1, 50, once)
+    expect(twiceFromBruta).toBeCloseTo(0.05, 6)
+    expect(once).not.toBeCloseTo(0.025, 6)
+  })
+
+  it('Fator 100% → alíquota efetiva 0 (isenção)', () => {
+    expect(resolveIvaDualEffectiveRate(0.1, 100, null)).toBe(0)
+    expect(resolveIvaDualEffectiveRate(0.9, 100, null)).toBe(0)
+  })
+
+  it('Fator 0 (ou sem redução) → efetiva = bruta', () => {
+    expect(resolveIvaDualEffectiveRate(0.1, 0, null)).toBeCloseTo(0.1, 6)
+  })
+
+  it('Legado (sem referência) + fator preenchido → usa o valor SALVO (já efetivo), NÃO dupla redução', () => {
+    // Produto antigo: ibs_pct salvo já é 0,05 (efetivo), reference NULL, fator 50.
+    expect(resolveIvaDualEffectiveRate(null, 50, 0.05)).toBeCloseTo(0.05, 6)
+    expect(resolveIvaDualEffectiveRate(undefined, 50, 0.05)).toBeCloseTo(0.05, 6)
+    expect(resolveIvaDualEffectiveRate(0, 50, 0.05)).toBeCloseTo(0.05, 6)
+  })
+
+  it('Sem referência e sem fator → passa o valor salvo intacto', () => {
+    expect(resolveIvaDualEffectiveRate(null, null, 0.1)).toBeCloseTo(0.1, 6)
+    expect(resolveIvaDualEffectiveRate(null, null, null)).toBeNull()
+  })
+})
+
+describe('buildItemTaxRatesFromProduct — fator IVA Dual (ADR-022)', () => {
+  it('Deriva IBS/CBS efetivo da referência+fator; IPI/IS/ICMS inalterados (escopo)', () => {
+    const r = buildItemTaxRatesFromProduct({
+      ibs_reference_pct: 0.1, cbs_reference_pct: 0.9, iva_dual_reduction_factor: 50,
+      ibs_pct: 0.1, cbs_pct: 0.9, // valores "crus" no banco — devem ser superados pela derivação
+      is_pct: 0.3, ipi_pct: 5, icms_pct: 0.17,
+    })
+    expect(r.ibs_pct).toBeCloseTo(0.05, 6) // 0,1 × (1 − 0,5)
+    expect(r.cbs_pct).toBeCloseTo(0.45, 6) // 0,9 × (1 − 0,5)
+    // Fator NÃO toca os demais tributos:
+    expect(r.is_pct).toBe(0.3)
+    expect(r.ipi_pct).toBe(5)
+    expect(r.icms_pct).toBe(0.17)
+  })
+
+  it('Fator 100% → IBS/CBS = 0, IPI/IS intactos', () => {
+    const r = buildItemTaxRatesFromProduct({
+      ibs_reference_pct: 0.1, cbs_reference_pct: 0.9, iva_dual_reduction_factor: 100,
+      ipi_pct: 5, is_pct: 0.3,
+    })
+    expect(r.ibs_pct).toBe(0)
+    expect(r.cbs_pct).toBe(0)
+    expect(r.ipi_pct).toBe(5)
+    expect(r.is_pct).toBe(0.3)
+  })
+
+  it('Produto legado (sem referência) → mantém ibs_pct/cbs_pct salvos (sem dupla redução)', () => {
+    const r = buildItemTaxRatesFromProduct({
+      ibs_pct: 0.05, cbs_pct: 0.45, iva_dual_reduction_factor: 50, // reference ausente
+    })
+    expect(r.ibs_pct).toBeCloseTo(0.05, 6)
+    expect(r.cbs_pct).toBeCloseTo(0.45, 6)
+  })
+
+  it('Escala preservada no merge (alwaysPercent): efetiva 0,05% vira decimal 0,0005', () => {
+    const r = buildItemTaxRatesFromProduct({
+      ibs_reference_pct: 0.1, cbs_reference_pct: 0.9, iva_dual_reduction_factor: 50,
+    })
+    const merged = mergeItemAndTenantRates(r, [])
+    const ibs = merged.find(x => x.tax_type === 'IBS')
+    const cbs = merged.find(x => x.tax_type === 'CBS')
+    expect(ibs?.rate_pct).toBeCloseTo(0.0005, 8) // 0,05% → 0,0005 decimal
+    expect(cbs?.rate_pct).toBeCloseTo(0.0045, 8) // 0,45% → 0,0045 decimal
   })
 })

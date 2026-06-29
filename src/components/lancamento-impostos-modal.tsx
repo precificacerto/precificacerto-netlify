@@ -150,6 +150,12 @@ export const LancamentoImpostosModal: FC<LancamentoImpostosModalProps> = ({
           ibs_value: ibsValue,
           cbs_pct: cbsPct,
           cbs_value: cbsValue,
+          // ADR-022: lançamento manual é OVERRIDE explícito — o usuário digita a alíquota
+          // EFETIVA final. Limpa a referência/fator para que o motor use o valor digitado
+          // (fallback), evitando que a derivação (referência × fator) ignore o lançamento.
+          ibs_reference_pct: null,
+          cbs_reference_pct: null,
+          iva_dual_reduction_factor: null,
           ipi_pct: ipiPct,
           ipi_value: ipiValue,
           sale_price_base: salePrice,

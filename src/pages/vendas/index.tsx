@@ -406,7 +406,10 @@ function Sales() {
             let prods: any[] | null = null
             // V17 (2026-05-28): inclui campos para motor V17 (terceirizadas, sale_price_base, valor_precificado)
             const v17Cols = 'freight_value, insurance_value, accessory_expenses_value, sale_price_base, valor_precificado_icms_piscofins, ipi_value, icms_st_active, difal_active, st_difal_interestadual, difal_base_dupla, mva_original_pct, icms_alq_interna_destino_pct, icms_alq_interestadual_origem_pct, icms_interna_origem_pct, fcp_alq_pct'
-            const { data: prodsFull, error: prodsErr } = await supabase.from('products').select(`id, name, sale_price, cost_total, profit_percent, commission_table_id, recurrence_days, ${v17Cols}`).order('name')
+            // ADR-022: alíquotas tributárias por item — necessárias para o motor derivar IBS/CBS
+            // efetivo (referência × (1 − fator)) na venda balcão. Sem isto, IBS/CBS caíam no tenant.
+            const taxCols = 'icms_pct, pis_cofins_pct, pis_pct, cofins_pct, iss_pct, is_pct, ipi_pct, ibs_pct, cbs_pct, ibs_reference_pct, cbs_reference_pct, iva_dual_reduction_factor, icms_st_pct, difal_pct, fcp_pct, iss_retido_pct, irpj_pct, csll_pct'
+            const { data: prodsFull, error: prodsErr } = await supabase.from('products').select(`id, name, sale_price, cost_total, profit_percent, commission_table_id, recurrence_days, ${v17Cols}, ${taxCols}`).order('name')
             if (!prodsErr) {
                 prods = prodsFull
             } else {
@@ -418,7 +421,8 @@ function Sales() {
             // Services: try with recurrence_days, fall back without
             let svcs: any[] | null = null
             const svb = supabase as any
-            const { data: svcsFull, error: svcsErr } = await svb.from('services').select('id, name, base_price, commission_percent, profit_percent, commission_table_id, recurrence_days').eq('status', 'ACTIVE').order('name')
+            const svcTaxCols = 'icms_pct, pis_cofins_pct, pis_pct, cofins_pct, iss_pct, is_pct, ipi_pct, ibs_pct, cbs_pct, ibs_reference_pct, cbs_reference_pct, iva_dual_reduction_factor, iss_retido_pct, irpj_pct, csll_pct, sale_price_base, freight_value, insurance_value, accessory_expenses_value'
+            const { data: svcsFull, error: svcsErr } = await svb.from('services').select(`id, name, base_price, commission_percent, profit_percent, commission_table_id, recurrence_days, ${svcTaxCols}`).eq('status', 'ACTIVE').order('name')
             if (!svcsErr) {
                 svcs = svcsFull
             } else {

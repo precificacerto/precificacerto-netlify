@@ -217,8 +217,14 @@ export const Content: FC<ContentProps> = ({
   const isLRorLPorSH = isLRorLP || isSimplesHibridoProd
 
   // Alíquotas de referência IBS/CBS do tenant (Lucro Real / Simples Híbrido)
-  const [ibsReferencePct, setIbsReferencePct] = useState<number>(0)
-  const [cbsReferencePct, setCbsReferencePct] = useState<number>(0)
+  // ADR-022: prefere o snapshot da referência salvo no produto (imune a mudança posterior do
+  // tenant); cai no tenant só quando o produto não tem snapshot (criação / produto legado).
+  const [ibsReferencePct, setIbsReferencePct] = useState<number>(
+    (product as any)?.ibs_reference_pct != null ? Number((product as any).ibs_reference_pct) : 0
+  )
+  const [cbsReferencePct, setCbsReferencePct] = useState<number>(
+    (product as any)?.cbs_reference_pct != null ? Number((product as any).cbs_reference_pct) : 0
+  )
 
   useEffect(() => {
     if (!isLRorLPorSH) return
@@ -231,8 +237,10 @@ export const Content: FC<ContentProps> = ({
         .eq('tenant_id', tenantId)
         .single()
       if (data) {
-        if (data.ibs_reference_pct != null) setIbsReferencePct(Number(data.ibs_reference_pct))
-        if (data.cbs_reference_pct != null) setCbsReferencePct(Number(data.cbs_reference_pct))
+        // Não sobrescreve o snapshot do produto (ADR-022): só usa a referência do tenant quando
+        // o produto ainda não tem a sua própria (criação ou legado).
+        if (data.ibs_reference_pct != null && (product as any)?.ibs_reference_pct == null) setIbsReferencePct(Number(data.ibs_reference_pct))
+        if (data.cbs_reference_pct != null && (product as any)?.cbs_reference_pct == null) setCbsReferencePct(Number(data.cbs_reference_pct))
         // Auto-preenchimento do ICMS interno apenas para novos produtos (Lucro Real)
         if (!isEditingMode && data.state_code) {
           const { data: stateData } = await (supabase as any)
@@ -967,6 +975,10 @@ export const Content: FC<ContentProps> = ({
         extraFields.icms_pct = icmsPct || 0
         extraFields.pis_cofins_pct = pisCofinsLRPct || 0
         extraFields.iva_dual_reduction_factor = ivaDualReductionFactor ?? null
+        // ADR-022: snapshota a referência BRUTA (fonte da verdade junto com o fator). O motor
+        // deriva a efetiva = referência × (1 − fator) de forma idempotente. NULL = sem snapshot.
+        extraFields.ibs_reference_pct = ibsReferencePct > 0 ? ibsReferencePct : null
+        extraFields.cbs_reference_pct = cbsReferencePct > 0 ? cbsReferencePct : null
         // Impostos IBS/CBS/IS/IPI — usar basePrice capturado do ProductPrice via ref.
         // Bases individualizadas da Conferência Fiscal: OpDentro = preço por dentro SEM
         // Desp. Acessórias. As terceirizadas (frete + seguro + despesas acessórias) entram
