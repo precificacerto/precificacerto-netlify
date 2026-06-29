@@ -643,8 +643,34 @@ function Budgets() {
               (Number(prod.insurance_value) || 0) +
               (Number(prod.accessory_expenses_value) || 0)
             : 0
+        // PC-BUG-CMV-PERSIST-001 (regra inviolável do PO): o CMV Efetivo (Etapa 4) e os custos/
+        // MOD/despesas são SEMPRE recalculados do cadastro VIVO do produto, nunca lidos de campo
+        // serializado. Na reabertura, `budgetItems` carrega `cost_total` cru (sem MOD) e SEM
+        // `productive_labor_unit`/`expense_breakdown_unit` → o motor caía no fallback (snapshot V14
+        // stale ~150k). Aqui recomputamos via os MESMOS helpers do handleProductSelect, garantindo
+        // que a cascata reaberta == primeira abertura (ex.: CMV R$ 141.172,85). Preços de venda e
+        // desconto continuam vindo do registro salvo (não recalculados). Itens manuais preservam.
+        let costFields: Record<string, unknown> = {}
+        if (prod) {
+            const laborTenantCtx = {
+                production_labor_cost: mrmConfig.production_labor_cost,
+                monthly_workload_minutes: mrmConfig.monthly_workload_minutes,
+                productive_value_per_minute: mrmConfig.productive_value_per_minute,
+            }
+            const { costTotal, productiveLaborUnit } = resolveProductCostAndLabor(prod, laborTenantCtx)
+            // Guard: só sobrescreve quando o cadastro vivo tem custo > 0 (produto não deletado).
+            if (costTotal > 0 || productiveLaborUnit > 0) {
+                costFields = {
+                    cost_total: costTotal,
+                    productive_labor_unit: productiveLaborUnit,
+                    financial_expense_unit: resolveProductFinancialExpense(prod),
+                    expense_breakdown_unit: resolveProductExpenseBreakdown(prod),
+                }
+            }
+        }
         return {
             ...i,
+            ...costFields,
             valor_op_interna_unit: numOrNull(prod?.valor_precificado_icms_piscofins),
             sale_price_base_unit: numOrNull(prod?.sale_price_base),
             terceirizadas_unit: terceirizadas > 0 ? terceirizadas : null,
@@ -2825,6 +2851,14 @@ function Budgets() {
                             pesoOpInterna={epicV5DisplayData.pesoOpInterna}
                             ancoraInterna={epicV5DisplayData.ancoraInterna}
                             totalACobrarComDesconto={globalDiscountPercent > 0 ? budgetTotalACobrar : null}
+                            pdfMeta={{
+                                budgetId: editingBudgetId,
+                                customerName: selectedCustomer?.name ?? null,
+                                totalValue: budgetTotal,
+                                totalACobrar: globalDiscountPercent > 0 ? budgetTotalACobrar : budgetTotal,
+                                discountPercent: globalDiscountPercent,
+                                discountMode,
+                            }}
                         />
                     )}
 

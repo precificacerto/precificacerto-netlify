@@ -17,6 +17,7 @@
 import React from 'react'
 
 import { useDevice } from '@/contexts/device.context'
+import { downloadCascadePdf, type CascadePdfMeta } from '@/lib/create-cascade-pdf'
 import { formatBRL } from '@/utils/formatters'
 import type { DRESection } from '@/utils/consolidated-dre'
 import type { CascadeStep } from '@/types/mrm'
@@ -220,7 +221,7 @@ function applyTotalACobrarToStep11(trace: CascadeStep[], totalACobrar: number): 
   })
 }
 
-function CascadeExpander({ trace, marginTop = 8 }: { trace: CascadeStep[]; marginTop?: number }) {
+function CascadeExpander({ trace, marginTop = 8, pdfMeta }: { trace: CascadeStep[]; marginTop?: number; pdfMeta?: CascadePdfMeta }) {
   const { isMobile } = useDevice()
 
   if (trace.length === 0) return null
@@ -294,6 +295,28 @@ function CascadeExpander({ trace, marginTop = 8 }: { trace: CascadeStep[]; margi
         Referência: PDF Motor RR Seção 10 + Excel oficial (`Motor de descontos do resultado residual operacional.xlsx`).
         Sub-itens em cinza detalham cada componente.
       </div>
+      {/* PC-FEAT-CASCADE-PDF-001: botão de exportação no RODAPÉ, alinhado à DIREITA, após a Etapa 17. */}
+      {pdfMeta && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
+          <button
+            type="button"
+            onClick={() => downloadCascadePdf(trace, pdfMeta)}
+            style={{
+              cursor: 'pointer',
+              fontSize: 12,
+              fontWeight: 600,
+              color: '#fff',
+              background: '#6366f1',
+              border: 'none',
+              borderRadius: 6,
+              padding: '6px 14px',
+            }}
+            aria-label="Gerar PDF da memória cascata"
+          >
+            📄 Gerar PDF
+          </button>
+        </div>
+      )}
     </details>
   )
 }
@@ -320,6 +343,12 @@ export interface ConsolidatedDREBlockProps {
    * Consolidada pós-desconto". Default null → cascata exibida sem ajuste.
    */
   totalACobrarComDesconto?: number | null
+  /**
+   * PC-FEAT-CASCADE-PDF-001: metadados do orçamento para o botão "Gerar PDF" no rodapé da
+   * cascata. Quando presente, exibe o botão (após a Etapa 17). Opcional — pedido/venda podem
+   * omitir e o botão não aparece.
+   */
+  pdfMeta?: CascadePdfMeta
 }
 
 /**
@@ -327,7 +356,7 @@ export interface ConsolidatedDREBlockProps {
  * aceitos para retrocompatibilidade dos call sites, mas não têm efeito visual.
  */
 export function ConsolidatedDREBlock(props: ConsolidatedDREBlockProps) {
-  const { cascadeTrace = null, totalACobrarComDesconto = null, marginTop = 8 } = props
+  const { cascadeTrace = null, totalACobrarComDesconto = null, marginTop = 8, pdfMeta } = props
 
   // Display (19/06/2026): ajusta a linha "Venda Consolidada pós-desconto" (Etapa 11)
   // para refletir o Total a cobrar pós-desconto. Puramente visual — não altera o motor.
@@ -344,5 +373,5 @@ export function ConsolidatedDREBlock(props: ConsolidatedDREBlockProps) {
     return null
   }
 
-  return <CascadeExpander trace={cascadeTraceForDisplay} marginTop={marginTop} />
+  return <CascadeExpander trace={cascadeTraceForDisplay} marginTop={marginTop} pdfMeta={pdfMeta} />
 }

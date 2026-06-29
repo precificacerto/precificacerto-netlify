@@ -47,5 +47,30 @@ Quando a **referência está ausente/≤0** (produtos pré-ADR-022), usa-se `ibs
 ## 4. Invariantes / Testes
 `item-tax-rates.test.ts` (16 casos ADR-022): fator 50% (0,1%→0,05% / 0,9%→0,45%); idempotência; fator 100%→0; fator 0→bruta; fallback legado sem dupla redução; escopo (IPI/IS/ICMS intactos); escala pós-merge (0,05%→0,0005). Suíte `src/utils`: **671/671** verde. Typecheck: zero erro novo (baseline 369).
 
+## 4-A. ADENDO (29/06/2026 — PC-BUG-FATOR-REDUCAO-002, regra do PO Cristiano) — REVOGA D1/D2/D3
+
+A regra original (D1/D2 acima) usava `ibs_reference_pct` (snapshot do tenant por item) como BRUTA e
+`ibs_pct` como cache efetivo, com `resolveIvaDualEffectiveRate(reference, factor, savedEffective)`
+(3 args). Na prática isso era **frágil**: a redução só ocorria quando a referência do tenant estava
+configurada; sem ela, a derivação caía no fallback e cobrava a alíquota cheia (bug observado pelo PO:
+IBS 1,0% sem redução → R$ 588,56 em vez de R$ 294,28).
+
+**Nova regra (decisão consciente do usuário, após inspeção dos dados):**
+- **`ibs_pct`/`cbs_pct` = alíquota BRUTA digitada manualmente pelo usuário** (LC 214/2025, art. 261).
+- A EFETIVA = `bruta × (1 − fator/100)` é derivada on-read por
+  `resolveIvaDualEffectiveRate(brutaPct, factor)` (**2 args**), consumindo `prod.ibs_pct`/`prod.cbs_pct`.
+- O handler de cadastro **não sobrescreve mais** `ibs_pct`/`cbs_pct` (mantém a bruta digitada). A UI
+  exibe "bruta → efetiva".
+- Fator afeta **somente IBS/CBS** (IPI/IS/ICMS intactos). Fator 100 → efetiva 0.
+
+**Consequências:**
+- `ibs_reference_pct`/`cbs_reference_pct` (migration `20260629000001`) ficam **órfãs/deprecadas** —
+  não são mais lidas no cálculo (dado morto; remoção em commit de limpeza futuro).
+- **Transição:** produtos/serviços IVA-Dual salvos sob a regra antiga (com `ibs_pct` já = efetivo)
+  sofreriam dupla redução se não re-salvos. Ação: re-salvar esses itens digitando a alíquota BRUTA no
+  campo IBS/CBS (no banco hoje: ex. "Gabriel do Carmo"). Decisão "só daqui pra frente" aceita.
+- `ibs_value`/`cbs_value` snapshot no cadastro do produto refletem a alíquota BRUTA (informativo); o
+  motor/orçamento sempre recomputa a efetiva via `resolveIvaDualEffectiveRate` — não afeta o cobrado.
+
 ## 5. Dependência arquitetural (guarda)
 A derivação assume que IBS/CBS são gravados em **percentual** (regra `alwaysPercent` em `mergeItemAndTenantRates`). A referência por item segue a mesma escala. Mudanças nessa convenção exigem revisão do helper.

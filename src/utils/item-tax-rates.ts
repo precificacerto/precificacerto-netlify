@@ -523,32 +523,30 @@ export function resolveProductLaborTotal(prod: any, tenantCtx?: TenantLaborConte
  * separados e não viam o `pis_cofins_pct` agregado.
  */
 /**
- * Correção Fator de Redução IVA Dual (LC 214/2025) — ADR-022 (29/06/2026).
+ * Fator de Redução IVA Dual (LC 214/2025, art. 261) — ADR-022 + Adendo (PC-BUG-FATOR-REDUCAO-002,
+ * 29/06/2026, regra do PO Cristiano).
  *
- * Deriva a alíquota EFETIVA de IBS/CBS a partir da referência BRUTA e do fator de redução:
- *   efetiva = referência_bruta × (1 − fator/100)
+ * REGRA INVIOLÁVEL: IBS e CBS são digitados MANUALMENTE pelo usuário como alíquota TOTAL BRUTA
+ * (`ibs_pct`/`cbs_pct`). A alíquota EFETIVA = bruta × (1 − fator/100). O motor usa EXCLUSIVAMENTE
+ * a efetiva. Aplica-se SÓ a IBS/CBS — IPI, IS, ICMS NÃO sofrem o fator.
  *
- * Determinística e IDEMPOTENTE: parte SEMPRE da referência bruta (nunca de um valor já
- * reduzido), então reaplicar a função não reduz duas vezes. Escala PERCENTUAL (mesma de
- * `ibs_pct`/`cbs_pct`, consumida por `mergeItemAndTenantRates` via `alwaysPercent`).
- *
- * Fallback (anti-dupla-redução / produtos legados sem snapshot da referência): quando a
- * referência bruta está ausente/≤0 ou não há fator, retorna a alíquota salva (`savedEffective`,
- * já efetiva) — preserva o comportamento atual sem backfill (D2). Aplica-se SÓ a IBS/CBS;
- * IPI, IS, ICMS e demais tributos NÃO sofrem o fator (LC 214/2025, art. 16, parágrafo único).
+ * `brutaPct` é a alíquota do campo (BRUTA digitada). Determinística e idempotente: a redução é
+ * derivada on-read da bruta e NUNCA persistida de volta (o save grava a bruta digitada), então
+ * reaplicar a função não reduz duas vezes. Escala PERCENTUAL (mesma de `ibs_pct`/`cbs_pct`,
+ * consumida por `mergeItemAndTenantRates` via `alwaysPercent`). Sem fator → retorna a bruta.
  */
 export function resolveIvaDualEffectiveRate(
-  referenceBruta: number | null | undefined,
+  brutaPct: number | null | undefined,
   factor: number | null | undefined,
-  savedEffective: number | null | undefined,
 ): number | null {
-  const ref = Number(referenceBruta)
+  const bruta = Number(brutaPct)
+  if (!Number.isFinite(bruta) || bruta <= 0) return brutaPct == null ? null : Number(brutaPct) || 0
   const f = Number(factor)
-  if (Number.isFinite(ref) && ref > 0 && factor != null && Number.isFinite(f)) {
-    // f em [0..100]; fator 100 → efetiva 0 (isenção); fator 0 → efetiva = bruta.
-    return ref * (1 - f / 100)
+  if (factor != null && Number.isFinite(f) && f > 0) {
+    // f em (0..100]; fator 100 → efetiva 0 (isenção); fator 0/null → efetiva = bruta.
+    return bruta * (1 - f / 100)
   }
-  return savedEffective ?? null
+  return bruta
 }
 
 export function buildItemTaxRatesFromProduct(prod: any): ItemTaxRates {
@@ -596,10 +594,10 @@ export function buildItemTaxRatesFromProduct(prod: any): ItemTaxRates {
     icms_st_pct: usesAdvancedSt ? null : (prod?.icms_st_pct ?? null),
     difal_pct: usesAdvancedDifal ? null : (prod?.difal_pct ?? null),
     fcp_pct: usesAdvancedDifal ? null : (prod?.fcp_pct ?? null),
-    // ADR-022: IBS/CBS efetivo derivado da referência bruta × (1 − fator). Fallback ao
-    // valor salvo (já efetivo) para produtos legados sem snapshot da referência (anti-dupla-redução).
-    ibs_pct: resolveIvaDualEffectiveRate(prod?.ibs_reference_pct, prod?.iva_dual_reduction_factor, prod?.ibs_pct ?? null),
-    cbs_pct: resolveIvaDualEffectiveRate(prod?.cbs_reference_pct, prod?.iva_dual_reduction_factor, prod?.cbs_pct ?? null),
+    // PC-BUG-FATOR-REDUCAO-002: ibs_pct/cbs_pct são a alíquota BRUTA digitada; a EFETIVA =
+    // bruta × (1 − fator) é derivada on-read (regra do PO). Só IBS/CBS sofrem o fator.
+    ibs_pct: resolveIvaDualEffectiveRate(prod?.ibs_pct, prod?.iva_dual_reduction_factor),
+    cbs_pct: resolveIvaDualEffectiveRate(prod?.cbs_pct, prod?.iva_dual_reduction_factor),
     iss_retido_pct: prod?.iss_retido_pct ?? null,
     irpj_pct: prod?.irpj_pct ?? null,
     csll_pct: prod?.csll_pct ?? null,

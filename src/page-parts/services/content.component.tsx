@@ -145,15 +145,10 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
         fetchIvaRefRates()
     }, [isLRorLPorSHSvcComp, currentUser?.tenant_id])
 
-    // Handler: fator IVA DUAL muda → auto-recalcula IBS e CBS
+    // Handler: fator IVA DUAL muda (PC-BUG-FATOR-REDUCAO-002, regra do PO).
+    // O campo IBS/CBS guarda a alíquota BRUTA digitada; a EFETIVA é derivada on-read pelo motor.
     function handleIvaDualFactorChange(factor: number | null) {
         setIvaDualReductionFactor(factor)
-        if (factor != null && ibsReferencePct > 0) {
-            setIbsPct(parseFloat((ibsReferencePct * (1 - factor / 100)).toFixed(4)))
-        }
-        if (factor != null && cbsReferencePct > 0) {
-            setCbsPct(parseFloat((cbsReferencePct * (1 - factor / 100)).toFixed(4)))
-        }
     }
 
     // Commission tables
@@ -1056,11 +1051,11 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                                         <Select.Option key={v} value={v}>{v}%</Select.Option>
                                     ))}
                                 </Select>
-                                {ivaDualReductionFactor != null && (ibsReferencePct > 0 || cbsReferencePct > 0) && (
+                                {ivaDualReductionFactor != null && (ibsPct > 0 || cbsPct > 0) && (
                                     <span style={{ fontSize: 12, color: '#64748b' }}>
-                                        IBS: {parseFloat((ibsReferencePct * (1 - ivaDualReductionFactor / 100)).toFixed(4)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}%
+                                        IBS: {ibsPct.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}% (bruta) → {parseFloat((ibsPct * (1 - ivaDualReductionFactor / 100)).toFixed(4)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}% (efetiva)
                                         &nbsp;·&nbsp;
-                                        CBS: {parseFloat((cbsReferencePct * (1 - ivaDualReductionFactor / 100)).toFixed(4)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}%
+                                        CBS: {cbsPct.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}% (bruta) → {parseFloat((cbsPct * (1 - ivaDualReductionFactor / 100)).toFixed(4)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}% (efetiva)
                                     </span>
                                 )}
                             </div>
