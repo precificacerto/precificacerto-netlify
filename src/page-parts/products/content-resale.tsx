@@ -40,6 +40,7 @@ interface ContentResaleProps {
   onIbsPctChange?: (value: number) => void
   cbsPct?: number
   onCbsPctChange?: (value: number) => void
+  ivaDualReductionFactor?: number | null
   isPct?: number
   onIsPctChange?: (value: number) => void
   ipiPct?: number
@@ -81,6 +82,7 @@ export const ContentResale: FC<ContentResaleProps> = ({
   onIbsPctChange,
   cbsPct,
   onCbsPctChange,
+  ivaDualReductionFactor,
   isPct,
   onIsPctChange,
   ipiPct,
@@ -160,6 +162,7 @@ export const ContentResale: FC<ContentResaleProps> = ({
         onIbsPctChange={onIbsPctChange}
         cbsPct={cbsPct}
         onCbsPctChange={onCbsPctChange}
+        ivaDualReductionFactor={ivaDualReductionFactor}
         isPct={isPct}
         onIsPctChange={onIsPctChange}
         ipiPct={ipiPct}

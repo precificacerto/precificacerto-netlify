@@ -19,6 +19,7 @@ import { useRouter } from 'next/router'
 import { ROUTES } from '@/constants/routes'
 import { calculatePricing } from '@/utils/pricing-engine'
 import { computeIvaDualOutside } from '@/utils/iva-dual-outside'
+import { resolveIvaDualEffectiveRate } from '@/utils/item-tax-rates'
 
 const UNIT_LABELS: Record<string, string> = {
     G: 'g', KG: 'kg', ML: 'ml', L: 'l', MM: 'mm', CM: 'cm',
@@ -463,14 +464,15 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
             if (isLRorLPorSHSvcComp) {
                 // Hierarquia oficial PDF (IVA Dual): BaseIVA = Operação Interna − ISS −
                 // PIS/COFINS (serviço não tem ICMS), sem gross-up; IS compõe base IBS/CBS.
+                // PC-BUG-FATOR-REDUCAO-002 Ponto 1: fator de redução SOBRE a alíquota bruta IBS/CBS.
                 const _iva = computeIvaDualOutside({
                     opInterna: pricing.sellingPrice,
                     icmsPct: 0,
                     issPct: issPctSvc || 0,
                     pisCofinsPct: pisCofinsLRPct || 0,
                     isPct: isPct || 0,
-                    ibsPct: ibsPct || 0,
-                    cbsPct: cbsPct || 0,
+                    ibsPct: resolveIvaDualEffectiveRate(ibsPct, ivaDualReductionFactor) || 0,
+                    cbsPct: resolveIvaDualEffectiveRate(cbsPct, ivaDualReductionFactor) || 0,
                     ipiPct: ipiPct || 0,
                 })
                 svcIsVal = _iva.isValue
@@ -1065,14 +1067,15 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                     {/* IBS / CBS */}
                     {isLRorLPDisplay && (() => {
                         // Hierarquia oficial PDF (IVA Dual) — fonte única computeIvaDualOutside.
+                        // PC-BUG-FATOR-REDUCAO-002 Ponto 1: efetiva = bruta × (1 − fator) em IBS/CBS.
                         const _ivaDisp = computeIvaDualOutside({
                             opInterna: pricing.sellingPrice,
                             icmsPct: 0,
                             issPct: issPctSvc || 0,
                             pisCofinsPct: pisCofinsLRPct || 0,
                             isPct: isPct || 0,
-                            ibsPct: ibsPct || 0,
-                            cbsPct: cbsPct || 0,
+                            ibsPct: resolveIvaDualEffectiveRate(ibsPct, ivaDualReductionFactor) || 0,
+                            cbsPct: resolveIvaDualEffectiveRate(cbsPct, ivaDualReductionFactor) || 0,
                             ipiPct: ipiPct || 0,
                         })
                         const _isVal = _ivaDisp.isValue

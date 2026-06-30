@@ -16,6 +16,7 @@ import { getMonetaryValue } from '@/utils/get-monetary-value'
 import { CalcBaseType } from '@/types/calc-base.type'
 import { calculatePricing } from '@/utils/pricing-engine'
 import { computeIvaDualOutside } from '@/utils/iva-dual-outside'
+import { resolveIvaDualEffectiveRate } from '@/utils/item-tax-rates'
 import { computeIcmsSt, computeDifal, computeIcmsComplementar, mvaAjustada } from '@/utils/icms-st-difal'
 import { CALC_TYPE_ENUM } from '@/shared/enums/calc-type'
 import { ContentIndustrialization } from './content-industrialization'
@@ -983,6 +984,10 @@ export const Content: FC<ContentProps> = ({
         // não se aplica no cadastro (depende do destinatário). Fonte única computeIvaDualOutside.
         const _saleBase = salePriceBaseRef.current > 0 ? salePriceBaseRef.current : salePriceToSave
         const _opDentro = Math.max(0, _saleBase - terceirizadasSum)
+        // PC-BUG-FATOR-REDUCAO-002 Ponto 1: aplica o fator de redução SOBRE a alíquota bruta de
+        // IBS/CBS (efetiva = bruta × (1 − fator)) ao gravar ibs_value/cbs_value. IPI/IS intactos.
+        const _ibsEff2 = resolveIvaDualEffectiveRate(ibsPct, ivaDualReductionFactor) || 0
+        const _cbsEff2 = resolveIvaDualEffectiveRate(cbsPct, ivaDualReductionFactor) || 0
         const _iva2 = computeIvaDualOutside({
           opInterna: _opDentro,
           despAcessorias: terceirizadasSum,
@@ -990,8 +995,8 @@ export const Content: FC<ContentProps> = ({
           pisCofinsPct: pisCofinsLRPct || 0,
           issPct: 0, // EPIC-POR-FORA-V3/S1: produto é mercadoria (ISS=0). Campo ISS removido da UI.
           isPct: isPct || 0,
-          ibsPct: ibsPct || 0,
-          cbsPct: cbsPct || 0,
+          ibsPct: _ibsEff2,
+          cbsPct: _cbsEff2,
           ipiPct: ipiPct || 0,
         })
         extraFields.taxes_launched = true
@@ -2070,6 +2075,7 @@ export const Content: FC<ContentProps> = ({
           onIbsPctChange={setIbsPct}
           cbsPct={cbsPct}
           onCbsPctChange={setCbsPct}
+          ivaDualReductionFactor={ivaDualReductionFactor}
           isPct={isPct}
           onIsPctChange={setIsPct}
           ipiPct={ipiPct}
@@ -2113,6 +2119,7 @@ export const Content: FC<ContentProps> = ({
           onIbsPctChange={setIbsPct}
           cbsPct={cbsPct}
           onCbsPctChange={setCbsPct}
+          ivaDualReductionFactor={ivaDualReductionFactor}
           isPct={isPct}
           onIsPctChange={setIsPct}
           ipiPct={ipiPct}
@@ -2155,6 +2162,7 @@ export const Content: FC<ContentProps> = ({
           onIbsPctChange={setIbsPct}
           cbsPct={cbsPct}
           onCbsPctChange={setCbsPct}
+          ivaDualReductionFactor={ivaDualReductionFactor}
           isPct={isPct}
           onIsPctChange={setIsPct}
           ipiPct={ipiPct}

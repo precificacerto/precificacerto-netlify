@@ -4,6 +4,7 @@ import { CalculatorOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { PercentInput } from '@/components/percent-input.component'
 import { getMonetaryValue } from '@/utils/get-monetary-value'
 import { computeIvaDualOutside } from '@/utils/iva-dual-outside'
+import { resolveIvaDualEffectiveRate } from '@/utils/item-tax-rates'
 import { computeAdvancedOutsideTaxes, type AdvancedOutsideParams } from '@/utils/icms-st-difal'
 import { TaxDecompositionPanel } from './tax-decomposition-panel.component'
 import { CALC_TYPE_ENUM } from '@/shared/enums/calc-type'
@@ -45,6 +46,9 @@ interface Props {
   onIbsPctChange?: (value: number) => void
   cbsPct?: number
   onCbsPctChange?: (value: number) => void
+  /* PC-BUG-FATOR-REDUCAO-002 Ponto 1: fator de redução IVA Dual aplicado SOBRE a alíquota
+     bruta de IBS/CBS no cadastro (efetiva = bruta × (1 − fator)). Só IBS/CBS. */
+  ivaDualReductionFactor?: number | null
   isPct?: number
   onIsPctChange?: (value: number) => void
   ipiPct?: number
@@ -87,6 +91,7 @@ export const ProductPrice: FC<Props> = ({
   onFinalPriceWithTaxesChange,
   advancedTaxesSection,
   advancedTaxParams,
+  ivaDualReductionFactor = null,
 }: Props) => {
   const { isMobile } = useDevice()
   const isCalcTypeResale = currentUser?.calcType === CALC_TYPE_ENUM.RESALE
@@ -180,6 +185,11 @@ export const ProductPrice: FC<Props> = ({
   // mas NÃO a base do IS nem sofrem dedução de ICMS/PIS. ICMS Complementar não se aplica no
   // cadastro (depende do destinatário — só em orçamento/pedido/venda).
   const _ivaApplies = isLucroReal || isLucroPresumed
+  // PC-BUG-FATOR-REDUCAO-002 Ponto 1: aplica o fator de redução SOBRE a alíquota bruta de
+  // IBS/CBS (efetiva = bruta × (1 − fator)). IPI e IS NÃO sofrem o fator. É o que faz o valor
+  // de IBS/CBS reduzir já na tela de construção do produto ao selecionar o fator.
+  const _ibsEffective = resolveIvaDualEffectiveRate(ibsPct, ivaDualReductionFactor) || 0
+  const _cbsEffective = resolveIvaDualEffectiveRate(cbsPct, ivaDualReductionFactor) || 0
   const _iva = computeIvaDualOutside({
     opInterna: baseForSalePrice,
     despAcessorias: terceirizadasTotal,
@@ -187,8 +197,8 @@ export const ProductPrice: FC<Props> = ({
     pisCofinsPct: _ivaApplies ? pisCofinsLRPct : 0,
     issPct: 0, // produtos não têm ISS (industrialização/revenda)
     isPct: isPct || 0,
-    ibsPct: ibsPct || 0,
-    cbsPct: cbsPct || 0,
+    ibsPct: _ibsEffective,
+    cbsPct: _cbsEffective,
     ipiPct: ipiPct || 0,
   })
   const ibsCbsBase = _iva.baseIbsCbs
