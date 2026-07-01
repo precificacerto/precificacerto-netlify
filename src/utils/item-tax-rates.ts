@@ -132,13 +132,17 @@ export function mergeItemAndTenantRates(
  * `pricing_calculations.total_labor_net`. Esta é a fonte que aparece como
  * "Custo produto" na tela do cadastro.
  *
- * Cadeia de fallback (ADR-011 §3):
+ * Cadeia de fallback (ADR-011 §3, reordenada por PC-BUG-CMV-ETAPA4-004 em 2026-06-30):
  *   1º SUM(product_items.item_cost_net) + pricing_calc.total_labor_net
- *      / yield_quantity  ← FONTE PRIMÁRIA (cenário real do user)
- *   2º products.cost_total > 0 (produtos modernos pré-calculados)
- *   3º pricing_calc.cmv > 0 (CMV unitário canônico)
+ *      / yield_quantity  ← FONTE PRIMÁRIA (CMV VIVO — cenário real do user)
+ *   2º pricing_calc.cmv > 0 (snapshot canônico — fallback; pode estar stale)
+ *   3º products.cost_total > 0 (produtos modernos pré-calculados)
  *   4º (total_material_cost_net + total_labor_net) / yield_quantity (fallback parcial)
  *   5º zero (sem custo cadastrado)
+ *
+ * PC-BUG-CMV-ETAPA4-004 (2026-06-30): `pricing_calc.cmv` foi rebaixado de 1º para 2º.
+ * Era priorizado por V8.8 (2026-05-24), mas fica STALE após save/reopen, inflando a
+ * Etapa 4. O CMV vivo (product_items + MO recalculada) é a fonte de verdade.
  *
  * Retorna o custo POR UNIDADE do produto. Caller multiplica por qty no orçamento.
  *
@@ -156,20 +160,21 @@ export function resolveProductCostTotal(prod: any, tenantCtx?: TenantLaborContex
     ? prod.pricing_calculations
     : (prod?.pricing_calculations ? [prod.pricing_calculations] : [])
 
-  // ★ V8.8 (2026-05-24): pricing_calculations.cmv é o CMV CANÔNICO já calculado
-  // pelo módulo de Formação de Preço (material + MO produtiva consolidado).
-  // É EXATAMENTE o valor exibido como "Custo produto" no cadastro do produto.
-  // Quando disponível, retorna direto — não precisa derivar nada.
-  for (const p of pricingArr) {
-    const cmv = Number(p?.cmv) || 0
-    if (cmv > 0) return cmv
-  }
-
   // labor_net via resolveProductLaborTotal (cobre labor_costs + pricing iterado + runtime)
   const laborUnit = resolveProductLaborTotal(prod, tenantCtx)
   const laborTotal = laborUnit * yieldQty
 
-  // Nível 2: SUM(product_items.item_cost_net) + labor / yield (ADR-011: CMV consolidado)
+  // ★ PC-BUG-CMV-ETAPA4-004 (PO Cristiano, 2026-06-30) — REVERTE a precedência V8.8:
+  // A Etapa 4 (Consolidação dos custos) DEVE somar o CMV ATUAL, recalculado do cadastro
+  // VIVO de cada produto, NUNCA o snapshot serializado `pricing_calculations.cmv`.
+  // Motivo: o snapshot `cmv` fica STALE após o ciclo save/reopen do produto/orçamento
+  // (mesma causa-raiz de PC-BUG-CMV-PERSIST-001) — a Etapa 4 exibia R$ 147.638,46 em vez
+  // da soma real dos CMVs vivos R$ 141.172,85. Por isso o Nível 1 (SUM product_items +
+  // MO produtiva recalculada) passa a PREVALECER sobre o snapshot `cmv`, que permanece
+  // apenas como fallback (Nível 2) para produtos sem product_items detalhados.
+
+  // Nível 1 (PRIMÁRIO): SUM(product_items.item_cost_net) + labor / yield (ADR-011: CMV vivo)
+  // `product_items.item_cost_net` já é o TOTAL da linha (não multiplicar por quantity_needed).
   const productItems = Array.isArray(prod?.product_items) ? prod.product_items : []
   if (productItems.length > 0) {
     const itemsCostSum = productItems.reduce((sum: number, pi: any) => {
@@ -179,6 +184,14 @@ export function resolveProductCostTotal(prod: any, tenantCtx?: TenantLaborContex
     if (itemsCostSum > 0) {
       return (itemsCostSum + laborTotal) / yieldQty
     }
+  }
+
+  // Nível 2 (FALLBACK): pricing_calculations.cmv — snapshot canônico V8.8 do "Custo produto".
+  // Só usado quando não há product_items vivos (produtos modernos pré-calculados sem itens
+  // detalhados). Pode estar stale; por isso rebaixado de primário para fallback.
+  for (const p of pricingArr) {
+    const cmv = Number(p?.cmv) || 0
+    if (cmv > 0) return cmv
   }
 
   // Nível 3: cost_total direto (produtos modernos pré-calculados)

@@ -55,6 +55,11 @@ function CascadeRow({
       <div title={step.formula} style={{ color: labelColor, fontWeight, paddingLeft: isChild ? 12 : 0 }}>
         {indent}
         {step.label}
+        {step.effective_rate_pct != null && (
+          <span style={{ color: '#4ade80', fontSize: 10, marginLeft: 6, fontWeight: 600 }}>
+            efetiva {(step.effective_rate_pct * 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}%
+          </span>
+        )}
         {pesoText && <span style={{ color: '#64748b', fontSize: 10, marginLeft: 6 }}>({pesoText})</span>}
       </div>
       <div style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: labelColor }}>
@@ -135,6 +140,11 @@ function CascadeMobileItem({
           {isChild ? '└─ ' : ''}
           {step.label}
         </span>
+        {step.effective_rate_pct != null && (
+          <span style={{ color: '#4ade80', fontSize: 10, fontWeight: 600 }}>
+            efetiva {(step.effective_rate_pct * 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}%
+          </span>
+        )}
         {pesoText && <span style={{ color: '#64748b', fontSize: 10 }}>({pesoText})</span>}
       </div>
       {/* Linhas rotuladas: Base · Alíquota (se não hideRate) · Valor */}

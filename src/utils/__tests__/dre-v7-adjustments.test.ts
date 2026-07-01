@@ -350,14 +350,32 @@ describe('V8.1 (2026-05-24) — resolveProductLaborTotal e MOD do produto na DRE
     expect(dre.custos.total).toBeCloseTo(42645.94, 2)    // = produto (sem somar MOD)
   })
 
-  it('V8.8: resolveProductCostTotal prioriza pricing_calculations.cmv direto', () => {
+  it('PC-BUG-CMV-ETAPA4-004: CMV vivo (product_items + MO) prevalece sobre snapshot cmv stale', () => {
+    // REVERTE a precedência V8.8 (PO Cristiano 2026-06-30): o snapshot pricing_calculations.cmv
+    // fica STALE após save/reopen do produto/orçamento; a Etapa 4 deve somar o CMV recalculado
+    // do cadastro VIVO, nunca o snapshot serializado.
     const prod = {
       yield_quantity: 1,
-      pricing_calculations: [{ cmv: 42645.94 }],
-      product_items: [{ item_cost_net: 999 }], // ignorado pois cmv prevalece
-      labor_costs: [{ net_value: 999 }],
+      pricing_calculations: [{ cmv: 42645.94 }], // snapshot STALE — deve ser ignorado
+      product_items: [{ item_cost_net: 999 }],   // material vivo
+      labor_costs: [{ net_value: 999 }],         // MO produtiva viva
     }
-    expect(resolveProductCostTotal(prod)).toBeCloseTo(42645.94, 2)
+    // Nível 1 vivo: SUM(item_cost_net) 999 + MO produtiva 999 = 1998
+    expect(resolveProductCostTotal(prod)).toBeCloseTo(1998, 2)
+  })
+
+  it('PC-BUG-CMV-ETAPA4-004: Etapa 4 = Σ CMV vivo dos 3 produtos = R$ 141.172,85 (tolerância ZERO)', () => {
+    // Caso de regressão oficial do relatório (30/06/2026). Cada produto tem seu snapshot cmv
+    // stale/divergente, mas o CMV vivo (product_items + MO) é a fonte de verdade.
+    // Produto 1: 55.901,92 | Produto 2: 39.929,94 | Produto 3: 45.340,99 → Σ = 141.172,85
+    const p1 = { yield_quantity: 1, product_items: [{ item_cost_net: 55901.92 }], pricing_calculations: [{ cmv: 60000 }] }
+    const p2 = { yield_quantity: 1, product_items: [{ item_cost_net: 39929.94 }], pricing_calculations: [{ cmv: 41000 }] }
+    const p3 = { yield_quantity: 1, product_items: [{ item_cost_net: 45340.99 }], pricing_calculations: [{ cmv: 46638.46 }] }
+    const etapa4 =
+      resolveProductCostTotal(p1) + resolveProductCostTotal(p2) + resolveProductCostTotal(p3)
+    expect(etapa4).toBeCloseTo(141172.85, 2)
+    // Tolerância ZERO: diferença para a soma direta deve ser exatamente R$ 0,00
+    expect(Math.abs(etapa4 - (55901.92 + 39929.94 + 45340.99))).toBeLessThan(0.005)
   })
 
   it('V8.2: quando productive_labor_unit=0, MOD = 0 (SEM fallback tenant)', () => {

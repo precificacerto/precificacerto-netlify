@@ -86,9 +86,15 @@ export function buildCascadeDoc(trace: CascadeStep[], meta: CascadePdfMeta): jsP
       fmtMoney(step.amount),
     ])
     for (const child of step.children ?? []) {
+      // PC-UI-IBSCBS-ALIQEFETIVA-005: anexa a alíquota efetiva (pós-fator IVA Dual) ao rótulo
+      // dos tributos por fora da Etapa 17, refletindo a mesma transparência da tela.
+      const effSuffix =
+        child.effective_rate_pct != null
+          ? ` (efetiva ${(child.effective_rate_pct * 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}%)`
+          : ''
       body.push([
         '',
-        `   └─ ${child.label ?? ''}`,
+        `   └─ ${child.label ?? ''}${effSuffix}`,
         fmtMoney(child.base),
         step.step === 10 ? '' : fmtPct(child.rate),
         fmtMoney(child.amount),

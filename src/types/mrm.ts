@@ -216,6 +216,13 @@ export interface CascadeStep {
    * Soma dos pesos dos 4 children do step 12 ≈ 1 (quando rateio > 0). Invariante V10-I3.
    */
   peso?: number | null
+  /**
+   * PC-UI-IBSCBS-ALIQEFETIVA-005 (2026-06-30): alíquota EFETIVA (decimal) do tributo por fora,
+   * pós-fator de redução do IVA Dual. Populado apenas nos filhos IBS/CBS/IS/IPI da Etapa 17
+   * (cruzado com `taxes_outside[].rate_pct`). DISPLAY-only — não participa de nenhum cálculo,
+   * apenas dá transparência da alíquota real por trás do valor R$. `null`/ausente quando N/A.
+   */
+  effective_rate_pct?: number | null
 }
 
 /**

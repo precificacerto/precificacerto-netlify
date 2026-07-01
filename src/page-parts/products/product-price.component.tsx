@@ -427,6 +427,14 @@ export const ProductPrice: FC<Props> = ({
             { label: 'IBS — Imposto sobre Bens e Serv. (%)', value: ibsPct, onChange: onIbsPctChange, taxValue: taxIbsValue },
             { label: 'CBS — Contrib. sobre Bens e Serv. (%)', value: cbsPct, onChange: onCbsPctChange, taxValue: taxCbsValue },
           ] as { label: string; value: number; onChange?: (v: number) => void; taxValue: number }[]
+          // PC-UI-IBSCBS-ALIQEFETIVA-005 (PO Cristiano, 2026-06-30): exibe a alíquota EFETIVA
+          // (pós-fator de redução do IVA Dual) na própria linha do imposto, ao lado do R$ já
+          // calculado com o fator — eliminando a ambiguidade de ver só a alíquota cheia.
+          // Reusa a MESMA lógica do cálculo (resolveIvaDualEffectiveRate), sem nova regra.
+          const fmtPct = (n: number) =>
+            n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 3 }) + '%'
+          const hasReductionFactor =
+            ivaDualReductionFactor != null && Number(ivaDualReductionFactor) > 0
           return (
             <div style={{ marginTop: 14, background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '12px 14px', border: '1px solid rgba(255,255,255,0.07)' }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' as const, letterSpacing: 0.6, marginBottom: 10 }}>
@@ -434,7 +442,11 @@ export const ProductPrice: FC<Props> = ({
               </div>
               <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0 4px' }}>
                 <tbody>
-                  {ibsCbsRows.map(({ label, value, onChange, taxValue }) => (
+                  {ibsCbsRows.map(({ label, value, onChange, taxValue }) => {
+                    const effective = hasReductionFactor && value > 0
+                      ? (resolveIvaDualEffectiveRate(value, ivaDualReductionFactor) || 0)
+                      : null
+                    return (
                     <tr key={label}>
                       <td style={{ fontSize: 13, color: '#cbd5e1', paddingRight: 12, paddingTop: 4, paddingBottom: 4 }}>{label}</td>
                       <td style={{ textAlign: 'right', whiteSpace: 'nowrap' as const }}>
@@ -447,9 +459,15 @@ export const ProductPrice: FC<Props> = ({
                         <span style={{ marginLeft: 10, fontSize: 12, color: taxValue > 0 ? '#4ade80' : '#64748b', minWidth: 80, display: 'inline-block', textAlign: 'right' }}>
                           {fmt(taxValue)}
                         </span>
+                        {effective != null && (
+                          <div style={{ marginTop: 2, fontSize: 11, color: '#94a3b8', textAlign: 'right' as const }}>
+                            cheia {fmtPct(value)} → <span style={{ color: '#4ade80', fontWeight: 600 }}>efetiva {fmtPct(effective)}</span> (fator {Number(ivaDualReductionFactor)}%)
+                          </div>
+                        )}
                       </td>
                     </tr>
-                  ))}
+                    )
+                  })}
                 </tbody>
               </table>
             </div>

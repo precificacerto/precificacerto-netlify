@@ -544,6 +544,11 @@ export function applyAbsorptionPolicy(input: ApplyAbsorptionInput): ApplyAbsorpt
       const children = step8.total > 0
         ? CONSOLIDACAO_ORDER.filter((t) => t.value > 0).map((t) => {
             const peso = t.value / step8.total
+            // PC-UI-IBSCBS-ALIQEFETIVA-005 (display-only): anexa a alíquota EFETIVA real do
+            // tributo (pós-fator de redução do IVA Dual), lida de `taxes_outside[].rate_pct`
+            // — que já é a efetiva (single) ou a efetiva ponderada (multi, via effRate). NÃO
+            // altera amount/rate/base/peso; só dá transparência da alíquota por trás do R$.
+            const effLine = taxes_outside.find((l) => l.type === t.type)
             return {
               step: 17,
               label: t.type,
@@ -553,6 +558,7 @@ export function applyAbsorptionPolicy(input: ApplyAbsorptionInput): ApplyAbsorpt
               formula: `Op. Externa pós-desconto (Step 12) × peso Step 8 (${(peso * 100).toFixed(4)}%)`,
               source: 'CAMADA_2' as const,
               peso,
+              effective_rate_pct: effLine ? effLine.rate_pct : null,
             }
           })
         : []
