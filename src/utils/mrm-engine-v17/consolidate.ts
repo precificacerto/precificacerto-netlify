@@ -53,6 +53,11 @@ export function consolidateItems(
   let profit_amount_original = 0
   let csll_amount_original = 0
   let irpj_amount_original = 0
+  // Adendo 26-A: margens sobre Op. Interna (base sem Op. Externa) — só display Etapa 6
+  let commission_amount_internal = 0
+  let profit_amount_internal = 0
+  let csll_amount_internal = 0
+  let irpj_amount_internal = 0
   let expense_mo_admin = 0
   let expense_fixa = 0
   let expense_variavel = 0
@@ -88,6 +93,15 @@ export function consolidateItems(
     profit_amount_original += profit_i
     csll_amount_original += csll_i
     irpj_amount_original += irpj_i
+
+    // Adendo 26-A: base = Op. Interna do produto (rb_i × peso_op_interna_i), reproduzindo
+    // a margem da Etapa 2 (precificação). A Etapa 6 AGREGA — não recalcula sobre a Venda
+    // Consolidada (que inclui Op. Externa / IBS+CBS por fora). Ver Seção 26-A.
+    const opInternaBase_i = rb_i * clamp01(item.peso_op_interna)
+    commission_amount_internal += opInternaBase_i * safeNum(item.commission_pct)
+    profit_amount_internal += opInternaBase_i * safeNum(item.profit_pct)
+    csll_amount_internal += opInternaBase_i * safeNum(item.csll_pct)
+    irpj_amount_internal += opInternaBase_i * safeNum(item.irpj_pct)
 
     // V14 snapshot expense_breakdown (quando presente)
     if (item.expense_breakdown) {
@@ -177,6 +191,10 @@ export function consolidateItems(
     profit_amount_original,
     csll_amount_original,
     irpj_amount_original,
+    commission_amount_internal,
+    profit_amount_internal,
+    csll_amount_internal,
+    irpj_amount_internal,
     peso_comissao_original,
     peso_lucro_original,
     peso_csll_original,
@@ -216,6 +234,10 @@ function emptyConsolidatedView(): ConsolidatedView {
     profit_amount_original: 0,
     csll_amount_original: 0,
     irpj_amount_original: 0,
+    commission_amount_internal: 0,
+    profit_amount_internal: 0,
+    csll_amount_internal: 0,
+    irpj_amount_internal: 0,
     peso_comissao_original: 0,
     peso_lucro_original: 1,
     peso_csll_original: 0,

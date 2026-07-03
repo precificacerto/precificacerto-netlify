@@ -135,18 +135,22 @@ export function buildCascadeTrace17(input: BuildCascadeInput): CascadeStep[] {
           ]
         : undefined,
     },
-    // 6. Consolidação margens (4 componentes em R$ original)
+    // 6. Consolidação margens (Adendo 26-A: AGREGAÇÃO das margens da Etapa 2, sobre a
+    //    Operação Interna de cada produto — NÃO recálculo sobre a Venda Consolidada.
+    //    Os `amount` usam os campos `*_amount_internal` (base op_interna, sem Op. Externa).
+    //    Os `peso` permanecem as razões PDF Seção 23 (base rb) — são a chave de
+    //    redistribuição do RRO na Etapa 16, com semântica propositalmente distinta do amount.)
     {
       step: 6,
       label: 'Consolidação das margens',
       base: null,
       rate: null,
       amount:
-        view.commission_amount_original +
-        view.profit_amount_original +
-        view.csll_amount_original +
-        view.irpj_amount_original,
-      formula: 'Σ Comissão + Lucro + IRPJ + CSLL (R$ pré-desconto)',
+        view.commission_amount_internal +
+        view.profit_amount_internal +
+        view.csll_amount_internal +
+        view.irpj_amount_internal,
+      formula: 'Σ (Comissão + Lucro + IRPJ + CSLL) por produto — Etapa 2 (Op. Interna)',
       source: 'ITEMS',
       children: [
         {
@@ -154,8 +158,8 @@ export function buildCascadeTrace17(input: BuildCascadeInput): CascadeStep[] {
           label: 'Comissão',
           base: null,
           rate: null,
-          amount: view.commission_amount_original,
-          formula: 'Σ rb × commission_pct',
+          amount: view.commission_amount_internal,
+          formula: 'Σ Op. Interna × commission_pct (Etapa 2)',
           source: 'ITEMS',
           peso: view.peso_comissao_original,
         },
@@ -164,8 +168,8 @@ export function buildCascadeTrace17(input: BuildCascadeInput): CascadeStep[] {
           label: 'Lucro',
           base: null,
           rate: null,
-          amount: view.profit_amount_original,
-          formula: 'Σ rb × profit_pct',
+          amount: view.profit_amount_internal,
+          formula: 'Σ Op. Interna × profit_pct (Etapa 2)',
           source: 'ITEMS',
           peso: view.peso_lucro_original,
         },
@@ -174,8 +178,8 @@ export function buildCascadeTrace17(input: BuildCascadeInput): CascadeStep[] {
           label: 'IRPJ',
           base: null,
           rate: null,
-          amount: view.irpj_amount_original,
-          formula: 'Σ rb × irpj_pct',
+          amount: view.irpj_amount_internal,
+          formula: 'Σ Op. Interna × irpj_pct (Etapa 2)',
           source: 'ITEMS',
           peso: view.peso_irpj_original,
         },
@@ -184,8 +188,8 @@ export function buildCascadeTrace17(input: BuildCascadeInput): CascadeStep[] {
           label: 'CSLL',
           base: null,
           rate: null,
-          amount: view.csll_amount_original,
-          formula: 'Σ rb × csll_pct',
+          amount: view.csll_amount_internal,
+          formula: 'Σ Op. Interna × csll_pct (Etapa 2)',
           source: 'ITEMS',
           peso: view.peso_csll_original,
         },

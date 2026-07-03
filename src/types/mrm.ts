@@ -619,6 +619,18 @@ export interface ConsolidatedView {
   profit_amount_original: number
   csll_amount_original: number
   irpj_amount_original: number
+  /**
+   * Adendo Seção 26-A (Julho 2026): margens sobre a OPERAÇÃO INTERNA de cada produto
+   * — Σ(rb_i × peso_op_interna_i × pct_i) — reproduzindo a soma das margens já apuradas
+   * na Etapa 2 (precificação individual), SEM a Op. Externa (IBS/CBS por fora) que
+   * infla a base rb. Usado EXCLUSIVAMENTE no display da Etapa 6 (Consolidação das
+   * Margens). NÃO alimenta absorção/RRO/pesos — os `*_amount_original` (base rb cheia)
+   * permanecem a fonte dos modos protegidos (Adendo 24-A) e da redistribuição.
+   */
+  commission_amount_internal: number
+  profit_amount_internal: number
+  csll_amount_internal: number
+  irpj_amount_internal: number
   /** Pesos PDF Seção 23 — base para redistribuição RRO (1.0 quando sum=0 vira fallback). */
   peso_comissao_original: number
   peso_lucro_original: number
