@@ -142,6 +142,14 @@ export type LegacyMotorResult = Pick<
   | 'cp'
   | 'mod'
   | 'dop'
+  // Adendo 28-A (Julho 2026): Âncora Gerencial pós-desconto rateada por item
+  // (= motor.ancora × rb_i/rbTotal). Σ por item = motor.ancora — denominador ÚNICO
+  // da alíquota efetiva de margem no card, IDÊNTICO ao usado na Etapa 16 do RRO.
+  // ATENÇÃO: carrega a âncora PÓS-absorção de Desp. Acessória (motor.ancora), que
+  // difere do `TaxBreakdown.ancora_interna` canônico (rv × peso, PRÉ-absorção) por
+  // `despPoolAdjustment × peso`. NÃO "corrigir" para rv×peso — quebraria a coerência
+  // card ↔ Etapa 16 (Adendo Seção 28-A, regra inviolável).
+  | 'ancora_interna'
 > & {
   /** Marker pra debug — identifica que veio via adapter V17. */
   _v17_adapter: true
@@ -578,6 +586,9 @@ export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResul
       rb: rb_i,
       desc_value: v17Result.motor.desc_value * ratio,
       rv: v17Result.motor.rv * ratio,
+      // Adendo 28-A: Âncora Gerencial pós-desconto rateada (Σ = motor.ancora). Denominador
+      // ÚNICO da alíquota efetiva de margem no card, coerente com a Etapa 16 do RRO.
+      ancora_interna: v17Result.motor.ancora * ratio,
       cp: v17Result.motor.cp_efetivo * ratio,
       mod: v17Result.motor.mod * ratio,
       dop: v17Result.motor.dop * ratio,
