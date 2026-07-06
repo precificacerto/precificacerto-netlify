@@ -159,7 +159,7 @@ export function createBudgetPdf(data: BudgetPdfData): Uint8Array {
     ])
 
     autoTable(doc, {
-      head: [['Rubrica', 'Valor', '% sobre o total c/ desconto']],
+      head: [['Rubrica', 'Valor', '% sobre a operação interna']],
       body: rdRows,
       startY: cursorY,
       theme: 'grid',
@@ -181,7 +181,7 @@ export function createBudgetPdf(data: BudgetPdfData): Uint8Array {
     if (rd.hasDiscount && !rd.hidesProfitTaxes) {
       doc.setFont('helvetica', 'italic')
       doc.setFontSize(8)
-      const note = 'Percentuais calculados sobre o total da venda pós-desconto. Comissão e lucro são proporcionalmente redistribuídos sobre o Resultado Residual Operacional.'
+      const note = 'Percentuais calculados sobre a Operação Interna pós-desconto (Âncora Gerencial) — a base própria de comissão e lucro; a Operação Externa (tributos por fora) não entra no denominador. Comissão e lucro são proporcionalmente redistribuídos sobre o Resultado Residual Operacional.'
       const noteLines = doc.splitTextToSize(note, pageWidth - 2 * margin)
       doc.text(noteLines, margin, cursorY)
       cursorY += noteLines.length * 4 + 4

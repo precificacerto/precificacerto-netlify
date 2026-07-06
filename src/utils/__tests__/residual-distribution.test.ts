@@ -367,9 +367,9 @@ describe('detectConfigWarning (S9 — aviso de configuração incompleta)', () =
 })
 
 describe('formatResidualLine', () => {
-  it('com desconto: formato Claude completo', () => {
+  it('com desconto: formato Claude completo (Dossiê Correção 5 — base Op. Interna)', () => {
     const text = formatResidualLine({ amount: 5339.09, originalPct: 5, effectivePct: 3.967 }, true)
-    expect(text).toBe('5,000% original → 3,967% sobre o total c/ desconto')
+    expect(text).toBe('5,000% original → 3,967% sobre a operação interna')
   })
 
   it('sem desconto: apenas % original (sem seta)', () => {

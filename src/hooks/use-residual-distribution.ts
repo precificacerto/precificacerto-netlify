@@ -40,9 +40,14 @@ export function useResidualDistribution(
   tenantTaxRates?: TenantOriginalTaxRates,
   discountPct?: number,
   discountMode?: DiscountMode,
+  /**
+   * Dossiê Julho 2026 (Correção 5): Âncora Gerencial (Op. Interna pós-desconto) — denominador
+   * correto das alíquotas efetivas. Ausente → fallback para `totalNet` (retrocompat).
+   */
+  ancoraGerencial?: number,
 ): ResidualDistribution {
   return useMemo(
-    () => computeResidualDistribution(items, totalGross, totalNet, regime, tenantTaxRates, discountPct, discountMode),
-    [items, totalGross, totalNet, regime, tenantTaxRates, discountPct, discountMode],
+    () => computeResidualDistribution(items, totalGross, totalNet, regime, tenantTaxRates, discountPct, discountMode, ancoraGerencial),
+    [items, totalGross, totalNet, regime, tenantTaxRates, discountPct, discountMode, ancoraGerencial],
   )
 }

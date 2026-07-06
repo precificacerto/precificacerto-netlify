@@ -239,6 +239,12 @@ function Sales() {
         if (saleSubtotal <= 0 || saleFinalValue >= saleSubtotal) return 0
         return ((saleSubtotal - saleFinalValue) / saleSubtotal) * 100
     }, [saleSubtotal, saleFinalValue])
+    // Dossiê Julho 2026 (Correção 5): Âncora Gerencial = Σ âncoras (snapshot persistido) —
+    // denominador correto das alíquotas efetivas (isola a Op. Externa). Fallback a totalNet.
+    const saleAncoraGerencial = saleResidualItems.reduce(
+        (s, it) => s + (Number(it.tax_breakdown?.ancora_interna) || 0),
+        0,
+    )
     const saleResidualDistribution = useResidualDistribution(
         saleResidualItems,
         saleSubtotal,
@@ -249,6 +255,7 @@ function Sales() {
         (selectedSale?.discount_mode === 'SELLER_REDUCTION' || selectedSale?.discount_mode === 'PROFIT_REDUCTION')
             ? selectedSale.discount_mode
             : 'PROPORTIONAL',
+        saleAncoraGerencial,
     )
     // S14 — DRE Consolidada para vendas (lê snapshot persistido em sale_items.tax_breakdown)
     const saleConsolidatedDRE = useMemo(() => {
@@ -1188,6 +1195,11 @@ function Sales() {
         () => ({ irpj: mrmConfig.irpj_pct || 0, csll: mrmConfig.csll_pct || 0 }),
         [mrmConfig.irpj_pct, mrmConfig.csll_pct],
     )
+    // Dossiê Julho 2026 (Correção 5): Âncora Gerencial = Σ âncoras do motor runtime (balcão).
+    const balcaoAncoraGerencial = balcaoMotorResultsByItem.reduce(
+        (s, r) => s + (Number((r as { ancora_interna?: number } | null)?.ancora_interna) || 0),
+        0,
+    )
     // Epic MRM-V7 / ADR-010: caminho display-first com discountPct + discountMode
     const balcaoResidualDistribution = useResidualDistribution(
         balcaoResidualItems,
@@ -1197,6 +1209,7 @@ function Sales() {
         balcaoTenantTaxRates,
         globalDiscountPercentV,
         discountModeV,
+        balcaoAncoraGerencial,
     )
     const balcaoTotalCostBase = useMemo(
         () => saleItems.reduce(

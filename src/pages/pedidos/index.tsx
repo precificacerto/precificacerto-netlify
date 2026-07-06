@@ -247,6 +247,12 @@ function OrdersPage() {
         const m = (editingOrder?.discount_mode as string | null | undefined)
         return (m === 'SELLER_REDUCTION' || m === 'PROFIT_REDUCTION') ? m : 'PROPORTIONAL'
     }, [editingOrder?.discount_mode])
+    // Dossiê Julho 2026 (Correção 5): Âncora Gerencial = Σ âncoras (snapshot persistido) —
+    // denominador correto das alíquotas efetivas (isola a Op. Externa). Fallback a totalNet.
+    const orderAncoraGerencial = orderResidualItems.reduce(
+        (s, it) => s + (Number(it.tax_breakdown?.ancora_interna) || 0),
+        0,
+    )
     const orderResidualDistribution = useResidualDistribution(
         orderResidualItems,
         orderSubtotal,
@@ -255,6 +261,7 @@ function OrdersPage() {
         orderTenantTaxRates,
         orderDiscountPct,
         orderDiscountMode,
+        orderAncoraGerencial,
     )
     // S14 — DRE Consolidada para pedidos (lê snapshot persistido em tax_breakdown)
     const orderConsolidatedDRE = useMemo(() => {

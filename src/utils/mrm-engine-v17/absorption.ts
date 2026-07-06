@@ -452,6 +452,12 @@ export function applyAbsorptionPolicy(input: ApplyAbsorptionInput): ApplyAbsorpt
       }
     }
     if (step.step === 16) {
+      // Dossiê Julho 2026 (Correção 4): exibir a alíquota efetiva de cada componente
+      // redistribuído SOBRE A ÂNCORA GERENCIAL (Op. Interna pós-desconto = motor.ancora),
+      // nunca sobre a Venda Consolidada / Total a cobrar. Permite ler diretamente que a
+      // comissão protegida (Modo 2) manteve sua alíquota original. DISPLAY-only.
+      const effRateAncora = (amount: number): number | null =>
+        motor.ancora > 0 ? amount / motor.ancora : null
       return {
         ...step,
         formula: `Aplicada política ${policy}`,
@@ -459,7 +465,7 @@ export function applyAbsorptionPolicy(input: ApplyAbsorptionInput): ApplyAbsorpt
           {
             step: 16,
             label: 'Comissão',
-            base: null,
+            base: motor.ancora,
             rate: null,
             amount: final_commission,
             formula: commission_floor_applied
@@ -467,11 +473,12 @@ export function applyAbsorptionPolicy(input: ApplyAbsorptionInput): ApplyAbsorpt
               : 'rro × peso_comissao_original',
             source: 'CAMADA_2',
             peso: view.peso_comissao_original,
+            effective_rate_pct: effRateAncora(final_commission),
           },
           {
             step: 16,
             label: 'Lucro',
-            base: null,
+            base: motor.ancora,
             rate: null,
             amount: final_profit,
             formula: commission_floor_applied
@@ -479,26 +486,29 @@ export function applyAbsorptionPolicy(input: ApplyAbsorptionInput): ApplyAbsorpt
               : 'rro × peso_lucro_original',
             source: 'CAMADA_2',
             peso: view.peso_lucro_original,
+            effective_rate_pct: effRateAncora(final_profit),
           },
           {
             step: 16,
             label: 'IRPJ',
-            base: null,
+            base: motor.ancora,
             rate: null,
             amount: final_irpj,
             formula: 'rro × peso_irpj_original (ou alíquota protegida × (1−desc) nos modos protegidos)',
             source: 'CAMADA_2',
             peso: view.peso_irpj_original,
+            effective_rate_pct: effRateAncora(final_irpj),
           },
           {
             step: 16,
             label: 'CSLL',
-            base: null,
+            base: motor.ancora,
             rate: null,
             amount: final_csll,
             formula: 'rro × peso_csll_original (ou alíquota protegida × (1−desc) nos modos protegidos)',
             source: 'CAMADA_2',
             peso: view.peso_csll_original,
+            effective_rate_pct: effRateAncora(final_csll),
           },
         ],
       }

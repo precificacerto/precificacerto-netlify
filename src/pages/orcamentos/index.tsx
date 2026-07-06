@@ -790,6 +790,13 @@ function Budgets() {
         () => ({ irpj: mrmConfig.irpj_pct || 0, csll: mrmConfig.csll_pct || 0 }),
         [mrmConfig.irpj_pct, mrmConfig.csll_pct],
     )
+    // Dossiê Julho 2026 (Correção 5): Âncora Gerencial (Op. Interna pós-desconto) = Σ âncoras
+    // por item do motor V17 — denominador CORRETO das alíquotas efetivas dos cards (isola a
+    // Op. Externa). Derivada do motor, NÃO recomputada de unit_price (que embute Op. Externa).
+    const ancoraGerencial = motorResultsByItem.reduce(
+        (s, r) => s + (Number((r as { ancora_interna?: number } | null)?.ancora_interna) || 0),
+        0,
+    )
     // Epic MRM-V7 / ADR-010: passa discountPct + discountMode para usar caminho display-first
     const residualDistribution = useResidualDistribution(
         residualItems,
@@ -799,6 +806,7 @@ function Budgets() {
         tenantTaxRates,
         globalDiscountPercent,
         discountMode,
+        ancoraGerencial,
     )
     // Ajuste 2A (Relatório v1.0, 24/06/2026): o aviso "Cadastre o custo dos produtos…"
     // (detectConfigWarning) foi REMOVIDO da tela de Editar Orçamento — pertence ao

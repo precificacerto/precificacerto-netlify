@@ -80,7 +80,9 @@ function CascadeRow({
           fontWeight,
         }}
       >
-        {formatBRL(step.amount)}
+        {step.display_kind === 'count'
+          ? `${step.amount} produto${step.amount === 1 ? '' : 's'}`
+          : formatBRL(step.amount)}
       </div>
     </>
   )
@@ -168,7 +170,9 @@ function CascadeMobileItem({
         <span style={{ color: '#64748b' }}>
           Valor:{' '}
           <span style={{ color: valueColor, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
-            {formatBRL(step.amount)}
+            {step.display_kind === 'count'
+              ? `${step.amount} produto${step.amount === 1 ? '' : 's'}`
+              : formatBRL(step.amount)}
           </span>
         </span>
       </div>

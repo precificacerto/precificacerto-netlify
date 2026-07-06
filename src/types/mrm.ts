@@ -223,6 +223,13 @@ export interface CascadeStep {
    * apenas dá transparência da alíquota real por trás do valor R$. `null`/ausente quando N/A.
    */
   effective_rate_pct?: number | null
+  /**
+   * Dossiê Julho 2026 (Correção 1): natureza do valor exibido. `'count'` sinaliza que
+   * `amount` é uma CONTAGEM (ex.: quantidade de produtos na Etapa 1 — Fragmentação), e a UI
+   * deve renderizá-lo como quantitativo ("3 produtos"), NÃO como moeda (`formatBRL`).
+   * Ausente/`null` → valor monetário (comportamento padrão).
+   */
+  display_kind?: 'count' | null
 }
 
 /**

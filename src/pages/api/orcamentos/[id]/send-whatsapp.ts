@@ -205,12 +205,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         tax_breakdown: (it.tax_breakdown ?? null) as TaxBreakdown | null,
       }))
       const regime: TaxRegime | null = (taxComponents?.regime as TaxRegime) ?? null
+      // Dossiê Julho 2026 (Correção 5): Âncora Gerencial = Σ âncoras (snapshot persistido) —
+      // denominador correto das alíquotas efetivas exibidas no WhatsApp. Fallback a finalValue.
+      const ancoraGerencial = residualItems.reduce(
+        (s, it) => s + (Number(it.tax_breakdown?.ancora_interna) || 0),
+        0,
+      )
       residualDist = computeResidualDistribution(
         residualItems,
         subtotal,
         finalValue,
         regime,
         taxComponents ? { irpj: taxComponents.irpj, csll: taxComponents.csll } : undefined,
+        undefined,
+        undefined,
+        ancoraGerencial,
       )
       // Resumo textual no WhatsApp (4 ou 2 linhas conforme regime)
       if (residualDist.total.amount > 0) {

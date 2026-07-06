@@ -43,9 +43,16 @@ interface BuildCascadeInput {
 export function buildCascadeTrace17(input: BuildCascadeInput): CascadeStep[] {
   const { view, motor } = input
   const peso_externo = 1 - view.peso_op_interna_ponderado
+  // Dossiê Julho 2026 (Correções 2 e 3): base da Operação Interna PRÉ-desconto — usada como
+  // denominador das alíquotas efetivas exibidas na fase de construção (Etapas 5, 6 e 7).
+  // = rb_total × peso_op_interna_ponderado (idêntico ao `amount` da Etapa 7).
+  const op_interna_pre = view.rb_total * view.peso_op_interna_ponderado
+  const effRateInterna = (amount: number): number | null =>
+    op_interna_pre > 0 ? amount / op_interna_pre : null
 
   return [
-    // 1. Fragmentação individual
+    // 1. Fragmentação individual — Dossiê Correção 1: `amount` é a CONTAGEM de produtos,
+    //    exibida como quantitativo (display_kind: 'count'), não como moeda.
     {
       step: 1,
       label: 'Fragmentação individual dos produtos',
@@ -54,6 +61,7 @@ export function buildCascadeTrace17(input: BuildCascadeInput): CascadeStep[] {
       amount: view.items_count,
       formula: `${view.items_count} item(s) consolidado(s)`,
       source: 'INPUT',
+      display_kind: 'count',
     },
     // 2. Construção matemática individual
     {
@@ -99,38 +107,43 @@ export function buildCascadeTrace17(input: BuildCascadeInput): CascadeStep[] {
             {
               step: 5,
               label: 'MO Administrativa',
-              base: null,
+              base: op_interna_pre,
               rate: null,
               amount: view.expense_breakdown_total.mo_admin,
               formula: 'Σ snapshots V14',
               source: 'PRODUTO',
+              // Dossiê Correção 2: alíquota efetiva sobre a Op. Interna (rastreabilidade).
+              effective_rate_pct: effRateInterna(view.expense_breakdown_total.mo_admin),
             },
             {
               step: 5,
               label: 'Despesa Fixa',
-              base: null,
+              base: op_interna_pre,
               rate: null,
               amount: view.expense_breakdown_total.fixa,
               formula: 'Σ snapshots V14',
               source: 'PRODUTO',
+              effective_rate_pct: effRateInterna(view.expense_breakdown_total.fixa),
             },
             {
               step: 5,
               label: 'Despesa Variável',
-              base: null,
+              base: op_interna_pre,
               rate: null,
               amount: view.expense_breakdown_total.variavel,
               formula: 'Σ snapshots V14',
               source: 'PRODUTO',
+              effective_rate_pct: effRateInterna(view.expense_breakdown_total.variavel),
             },
             {
               step: 5,
               label: 'Despesa Financeira',
-              base: null,
+              base: op_interna_pre,
               rate: null,
               amount: view.expense_breakdown_total.financeira,
               formula: 'Σ snapshots V14',
               source: 'PRODUTO',
+              effective_rate_pct: effRateInterna(view.expense_breakdown_total.financeira),
             },
           ]
         : undefined,
@@ -152,58 +165,110 @@ export function buildCascadeTrace17(input: BuildCascadeInput): CascadeStep[] {
         view.irpj_amount_internal,
       formula: 'Σ (Comissão + Lucro + IRPJ + CSLL) por produto — Etapa 2 (Op. Interna)',
       source: 'ITEMS',
+      // Dossiê Correção 2: alíquota efetiva do bloco = Σ margens ÷ Op. Interna pré-desconto.
+      effective_rate_pct: effRateInterna(
+        view.commission_amount_internal +
+          view.profit_amount_internal +
+          view.csll_amount_internal +
+          view.irpj_amount_internal,
+      ),
       children: [
         {
           step: 6,
           label: 'Comissão',
-          base: null,
+          base: op_interna_pre,
           rate: null,
           amount: view.commission_amount_internal,
           formula: 'Σ Op. Interna × commission_pct (Etapa 2)',
           source: 'ITEMS',
           peso: view.peso_comissao_original,
+          // Dossiê Correção 2: alíquota efetiva sobre a Op. Interna (não o peso estrutural).
+          effective_rate_pct: effRateInterna(view.commission_amount_internal),
         },
         {
           step: 6,
           label: 'Lucro',
-          base: null,
+          base: op_interna_pre,
           rate: null,
           amount: view.profit_amount_internal,
           formula: 'Σ Op. Interna × profit_pct (Etapa 2)',
           source: 'ITEMS',
           peso: view.peso_lucro_original,
+          effective_rate_pct: effRateInterna(view.profit_amount_internal),
         },
         {
           step: 6,
           label: 'IRPJ',
-          base: null,
+          base: op_interna_pre,
           rate: null,
           amount: view.irpj_amount_internal,
           formula: 'Σ Op. Interna × irpj_pct (Etapa 2)',
           source: 'ITEMS',
           peso: view.peso_irpj_original,
+          effective_rate_pct: effRateInterna(view.irpj_amount_internal),
         },
         {
           step: 6,
           label: 'CSLL',
-          base: null,
+          base: op_interna_pre,
           rate: null,
           amount: view.csll_amount_internal,
           formula: 'Σ Op. Interna × csll_pct (Etapa 2)',
           source: 'ITEMS',
           peso: view.peso_csll_original,
+          effective_rate_pct: effRateInterna(view.csll_amount_internal),
         },
       ],
     },
     // 7. Formação Op Interna (pré-desconto)
+    //    Dossiê Correção 3: Op. Interna = Custos + Despesas + Margens + Tributos Internos.
+    //    Os Tributos Internos (ICMS/ISS/PIS-COFINS embutidos) aparecem como children desta
+    //    etapa — a camada onde a Op. Interna é FORMADA — fechando a estrutura de construção
+    //    sem renumerar a cascata (mantém o contrato de 17 etapas). Base/alíquota efetiva de
+    //    cada tributo sobre a Op. Interna pré-desconto. Ausentes quando o motor não trouxe
+    //    valores explícitos por produto (`taxes_inside_total == null`).
     {
       step: 7,
       label: 'Formação Op Interna',
       base: view.rb_total,
       rate: view.peso_op_interna_ponderado,
       amount: view.rb_total * view.peso_op_interna_ponderado,
-      formula: 'rb_total × peso_op_interna_ponderado',
+      formula: 'rb_total × peso_op_interna_ponderado (Custos + Despesas + Margens + Trib. Internos)',
       source: 'CONSOLIDADO',
+      children: view.taxes_inside_total
+        ? [
+            {
+              step: 7,
+              label: 'Tributos Internos · ICMS',
+              base: op_interna_pre,
+              rate: null,
+              amount: view.taxes_inside_total.icms,
+              formula: 'Σ ICMS por dentro (consolidado dos produtos)',
+              source: 'ITEMS',
+              effective_rate_pct: effRateInterna(view.taxes_inside_total.icms),
+            },
+            {
+              step: 7,
+              label: 'Tributos Internos · ISS',
+              base: op_interna_pre,
+              rate: null,
+              amount: view.taxes_inside_total.iss,
+              formula: 'Σ ISS por dentro (consolidado dos produtos)',
+              source: 'ITEMS',
+              effective_rate_pct: effRateInterna(view.taxes_inside_total.iss),
+            },
+            {
+              step: 7,
+              label: 'Tributos Internos · PIS/COFINS',
+              base: op_interna_pre,
+              rate: null,
+              amount: view.taxes_inside_total.pis_cofins,
+              formula: 'Σ PIS/COFINS por dentro (consolidado dos produtos)',
+              source: 'ITEMS',
+              effective_rate_pct: effRateInterna(view.taxes_inside_total.pis_cofins),
+            },
+          ]
+        : undefined,
     },
     // 8. Formação Op Externa (informacional)
     {

@@ -5,10 +5,18 @@
  *   - Relatorio_Complementar_Modelo_Correto_RR.pdf (GPT, 20/05/2026)
  *   - relatorio_distribuicao_proporcional.docx (Claude, 20/05/2026)
  *
- * Regra de ouro: percentuais exibidos ao usuário devem representar
- *   "Quanto cada rubrica representa sobre o valor total da venda pós-desconto (Vₗ)".
+ * Regra de ouro (REVISADA — Dossiê Julho 2026, Correção 5, REVOGA a regra "÷ Vₗ" da
+ * EPIC-RR-DISPLAY de Maio/2026): os percentuais efetivos de Comissão/Lucro/IRPJ/CSLL
+ * pertencem EXCLUSIVAMENTE à Operação Interna. O denominador da alíquota efetiva deve ser a
+ * ÂNCORA GERENCIAL (Op. Interna pós-desconto), NUNCA a Venda Consolidada / Total a cobrar
+ * (Vₗ), que contém a Operação Externa (IBS/CBS/IS/IPI/ICMS-ST/DIFAL) + Despesas Acessórias —
+ * base proibida (mesma classe de violação do Adendo 24-A, na camada de exibição).
  *
- *   pₑᵢ = Rᵢ / Vₗ × 100   (proibido qualquer outro denominador)
+ *   pₑᵢ = Rᵢ / Âncora_Gerencial × 100
+ *
+ * `ancoraGerencial` é passado pelo call site (derivado do motor). Quando ausente (retrocompat),
+ * cai em `totalNet` — nesse caso o % pode ficar contaminado pela Op. Externa; forneça a âncora.
+ * O denominador afeta APENAS a exibição do %; os valores monetários (Rᵢ) são intocados.
  *
  * Esta função NÃO faz cálculo tributário — apenas agrega valores já calculados
  * pelo motor RR (`new_commission`, `new_profit`, `new_csll`, `new_irpj` persistidos
@@ -192,6 +200,10 @@ function weightedOriginalPct(
  *                    usa lógica legacy (snapshot/motor_*).
  * @param discountMode Modo de absorção do desconto (PROPORTIONAL/SELLER_REDUCTION/PROFIT_REDUCTION).
  *                     Default PROPORTIONAL.
+ * @param ancoraGerencial Dossiê Julho 2026 (Correção 5): Âncora Gerencial (Op. Interna
+ *                        pós-desconto), denominador CORRETO das alíquotas efetivas. Quando
+ *                        ausente/≤0, faz fallback para `totalNet` (retrocompat). NÃO afeta
+ *                        nenhum valor monetário — só o `effectivePct` exibido.
  */
 export function computeResidualDistribution(
   items: ResidualItemInput[],
@@ -201,6 +213,7 @@ export function computeResidualDistribution(
   tenantTaxRates?: TenantOriginalTaxRates,
   discountPct?: number,
   discountMode?: DiscountMode,
+  ancoraGerencial?: number,
 ): ResidualDistribution {
   const hidesProfitTaxes = isHiddenRegime(regime)
   const hasDiscount = totalGross > totalNet && totalNet > 0
@@ -325,8 +338,11 @@ export function computeResidualDistribution(
   const irpjOriginalPct = hidesProfitTaxes ? 0 : (Number(tenantTaxRates?.irpj) || 0) * 100
   const csllOriginalPct = hidesProfitTaxes ? 0 : (Number(tenantTaxRates?.csll) || 0) * 100
 
-  // % efetivos sobre Vₗ (fórmula normativa Claude/GPT)
-  const toEffective = (amount: number): number => (amount / totalNet) * 100
+  // % efetivos — Dossiê Correção 5: denominador = Âncora Gerencial (Op. Interna pós-desconto).
+  // Fallback para totalNet quando a âncora não é fornecida (retrocompat). Isola a Op. Externa
+  // do denominador; NÃO altera nenhum valor monetário (amounts permanecem sobre totalNet).
+  const effectiveDenominator = ancoraGerencial != null && ancoraGerencial > 0 ? ancoraGerencial : totalNet
+  const toEffective = (amount: number): number => (amount / effectiveDenominator) * 100
 
   const commission: ResidualLine = {
     amount: commAmount,
@@ -374,8 +390,8 @@ export function computeResidualDistribution(
 
 /**
  * Helper de formatação para uso em PDF/WhatsApp (texto puro sem JSX).
- * Retorna a string canônica conforme Q3=B:
- *   "5,000% original → 3,967% sobre o total c/ desconto"
+ * Retorna a string canônica (Dossiê Julho 2026, Correção 5 — base = Operação Interna):
+ *   "5,000% original → 4,842% sobre a operação interna"
  *
  * Quando `hasDiscount=false`, retorna apenas "5,000%" (sem seta).
  */
@@ -383,7 +399,7 @@ export function formatResidualLine(line: ResidualLine, hasDiscount: boolean): st
   const fmt = (n: number): string =>
     n.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })
   if (!hasDiscount) return `${fmt(line.originalPct)}%`
-  return `${fmt(line.originalPct)}% original → ${fmt(line.effectivePct)}% sobre o total c/ desconto`
+  return `${fmt(line.originalPct)}% original → ${fmt(line.effectivePct)}% sobre a operação interna`
 }
 
 /**

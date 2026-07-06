@@ -6,10 +6,11 @@
 /**
  * ResidualDistributionBlock — Componente compartilhado (S2 do EPIC-RR-DISPLAY).
  *
- * Renderiza a "Distribuição do resultado" semanticamente correta conforme
- * spec consolidada PDF GPT + DOCX Claude (20/05/2026):
+ * Renderiza a "Distribuição do resultado" semanticamente correta. Dossiê Julho 2026
+ * (Correção 5, REVOGA a base "÷ total c/ desconto" de 20/05/2026): o % efetivo é sobre
+ * a Operação Interna pós-desconto (Âncora Gerencial), não sobre o Total a cobrar:
  *
- *   "X,XXX% original → Y,YYY% sobre o total c/ desconto"
+ *   "X,XXX% original → Y,YYY% sobre a operação interna"
  *
  * Quando NÃO há desconto: exibe apenas o % original (sem seta).
  * Quando regime MEI/SIMPLES_NACIONAL: cartões IRPJ/CSLL ficam ocultos.
@@ -192,7 +193,7 @@ export function ResidualDistributionBlock({
       </div>
       {!hideFooterNote && !hidesProfitTaxes && hasDiscount && (
         <div style={{ fontSize: 11, color: '#64748b', marginTop: 8, fontStyle: 'italic' }}>
-          Percentuais calculados sobre o total da venda pós-desconto. Custos, despesas e impostos por dentro são preservados; comissão e lucro são proporcionalmente redistribuídos sobre o Resultado Residual Operacional.
+          Percentuais efetivos calculados sobre a Operação Interna pós-desconto (Âncora Gerencial) — a base própria de comissão e lucro; a Operação Externa (tributos por fora) não entra no denominador. Custos, despesas e impostos por dentro são preservados; comissão e lucro são proporcionalmente redistribuídos sobre o Resultado Residual Operacional.
         </div>
       )}
     </div>
