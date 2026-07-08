@@ -38,6 +38,7 @@ import { useTenantTaxContext } from '@/hooks/use-tenant-tax-context'
 import { MRM_ERROR_RRO_NON_POSITIVE, MRM_ENGINE_VERSION, type TaxBreakdown } from '@/types/mrm'
 import { useResidualDistribution } from '@/hooks/use-residual-distribution'
 import { detectConfigWarning, type ResidualItemInput } from '@/utils/residual-distribution'
+import { PAGE_SIZE } from '@/constants/pagination'
 import { ResidualDistributionBlock } from '@/page-parts/shared/residual-distribution-block.component'
 import {
   buildItemTaxRatesFromProduct,
@@ -2466,7 +2467,7 @@ function Sales() {
                     </div>
                 ) : (
                 <Table columns={columns} dataSource={filteredSales} rowKey="id"
-                    pagination={{ pageSize: 10, showTotal: (t) => `${t} vendas` }}
+                    pagination={{ pageSize: PAGE_SIZE, showTotal: (t) => `${t} vendas` }}
                     size="middle" loading={loading}
                     locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Nenhuma venda registrada. Vendas de orçamentos finalizados e vendas no balcão aparecem aqui." /> }}
                 />

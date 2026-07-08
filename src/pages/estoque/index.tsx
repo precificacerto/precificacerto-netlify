@@ -24,6 +24,7 @@ import {
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import { useDevice } from '@/contexts/device.context'
 import { formatBRL } from '@/utils/formatters'
+import { PAGE_SIZE } from '@/constants/pagination'
 
 interface StockRow {
     id: string
@@ -996,7 +997,7 @@ function Stock() {
                         dataSource={filteredServiceData}
                         rowKey="id"
                         rowClassName={(r: ServiceRow) => (r.stockStatus === 'Baixo' || r.stockStatus === 'Crítico') ? 'pc-row-low-stock' : ''}
-                        pagination={{ pageSize: 10, showTotal: (t) => `${t} serviços` }}
+                        pagination={{ pageSize: PAGE_SIZE, showTotal: (t) => `${t} serviços` }}
                         size="middle"
                         loading={loadingServices}
                         locale={{
@@ -1024,7 +1025,7 @@ function Stock() {
                         dataSource={filteredData}
                         rowKey="id"
                         rowClassName={(r) => (r.status === 'Baixo' || r.status === 'Crítico') ? 'pc-row-low-stock' : ''}
-                        pagination={{ pageSize: 10, showTotal: (t) => `${t} itens` }}
+                        pagination={{ pageSize: PAGE_SIZE, showTotal: (t) => `${t} itens` }}
                         size="middle"
                         loading={isLoading}
                         locale={{

@@ -38,6 +38,7 @@ import { syncCustomerRecurrenceOnSale } from '@/lib/customer-recurrence'
 import { distributeDiscountToItems } from '@/utils/distribute-discount'
 import { useTenantTaxContext } from '@/hooks/use-tenant-tax-context'
 import { MRM_ERROR_RRO_NON_POSITIVE, MRM_ENGINE_VERSION } from '@/types/mrm'
+import { PAGE_SIZE } from '@/constants/pagination'
 import { hydrateItemSnapshot, type TenantSnapshotContext } from '@/lib/items-snapshot'
 import { calculateMarginReapuration } from '@/utils/margin-reapuration'
 import { buildMotorInput } from '@/utils/mrm-orchestrator'
@@ -2514,7 +2515,7 @@ function Budgets() {
                         columns={columns}
                         dataSource={filteredData}
                         rowKey="id"
-                        pagination={{ pageSize: 10, showTotal: (t) => `${t} orçamentos` }}
+                        pagination={{ pageSize: PAGE_SIZE, showTotal: (t) => `${t} orçamentos` }}
                         size="middle"
                         loading={isLoading}
                         components={{ header: { cell: TableHeaderCell } }}
@@ -2525,7 +2526,7 @@ function Budgets() {
             {/* ── Drawer: Criar / Editar Orçamento ── */}
             <Drawer
                 title={editingBudgetId ? 'Editar Orçamento' : 'Novo Orçamento'}
-                width={680}
+                width="50vw"
                 open={drawerOpen}
                 onClose={() => { setDrawerOpen(false); setEditingBudgetId(null); form.resetFields(); setBudgetItems([]); setGlobalDiscountPercent(0); setDiscountMode('PROPORTIONAL'); setTableSections([{key: 'ts-0', tableId: null}]); setEmpProductTables([]); setEmpServiceTables([]); setBudgetFormInstallmentPreset('customizado'); setBudgetFormCustomInstallments([{ date: null, amount: 0 }]); setBudgetFormWithEntry(false); setBudgetFormBaseDate(undefined) }}
                 extra={
@@ -2792,7 +2793,7 @@ function Budgets() {
                                         min={0}
                                         max={maxDiscountPercent > 0 ? maxDiscountPercent : 100}
                                         step={0.5}
-                                        precision={4}
+                                        precision={5}
                                         value={globalDiscountPercent}
                                         onChange={(v) => setGlobalDiscountPercent(Math.min(v ?? 0, maxDiscountPercent > 0 ? maxDiscountPercent : 100))}
                                         formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
@@ -3273,7 +3274,7 @@ function Budgets() {
                     dataSource={pbFilteredRows}
                     rowKey="budgetId"
                     size="small"
-                    pagination={{ pageSize: 20, showTotal: (t) => `${t} orçamentos` }}
+                    pagination={{ pageSize: PAGE_SIZE, showTotal: (t) => `${t} orçamentos` }}
                     columns={[
                         {
                             title: 'Orçamento',

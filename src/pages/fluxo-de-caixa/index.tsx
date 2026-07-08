@@ -29,6 +29,7 @@ import {
     getGroupForCategoryByRegime,
 } from '@/constants/expense-categories-by-regime'
 import { formatBRL } from '@/utils/formatters'
+import { PAGE_SIZE } from '@/constants/pagination'
 
 const formatCurrency = formatBRL
 
@@ -1252,7 +1253,7 @@ export default function CashFlow() {
                         dataSource={[...dfcData].sort((a: any, b: any) => (a.due_date || '').localeCompare(b.due_date || ''))}
                         rowKey="id"
                         size="small"
-                        pagination={{ pageSize: 20, showTotal: (t) => `${t} lançamentos` }}
+                        pagination={{ pageSize: PAGE_SIZE, showTotal: (t) => `${t} lançamentos` }}
                         columns={[
                             {
                                 title: 'Data',

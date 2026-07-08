@@ -38,6 +38,7 @@ import { decideMrmAction } from '@/utils/mrm-policies'
 import { aggregateMotorResults } from '@/utils/mrm-aggregate'
 import { RROWarningModal } from '@/components/mrm/RROWarningModal'
 import { RequiresReviewBadge } from '@/components/mrm/RequiresReviewBadge'
+import { PAGE_SIZE } from '@/constants/pagination'
 
 const { Text } = Typography
 
@@ -1303,7 +1304,7 @@ function OrdersPage() {
                         size="small"
                         tableLayout="fixed"
                         scroll={{ x: 'max-content' }}
-                        pagination={{ pageSize: 20, showSizeChanger: true }}
+                        pagination={{ pageSize: PAGE_SIZE, showSizeChanger: true }}
                         locale={{ emptyText: <Empty description="Nenhum pedido em aberto" /> }}
                     />
                 )}

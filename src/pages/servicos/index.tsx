@@ -19,6 +19,7 @@ import { useAuth } from '@/hooks/use-auth.hook'
 import { calculateItemPrice } from '@/utils/calculate-item-price'
 import { computeServiceSellingPrice } from '@/utils/compute-service-price'
 import { fetchTaxPreview } from '@/utils/calc-tax-preview'
+import { PAGE_SIZE } from '@/constants/pagination'
 import { useRouter } from 'next/router'
 
 function fmt(v: number) {
@@ -778,7 +779,7 @@ function ServicesPage() {
             ) : (
                 <div className="pc-card" style={{ padding: 0 }}>
                     <Table columns={columns} dataSource={filtered} rowKey="id" loading={loading}
-                        pagination={{ pageSize: 15 }} locale={{ emptyText: <Empty description={tableFilter ? "Nenhum serviço cadastrado nesta tabela" : "Selecione uma tabela para ver os serviços"} /> }}
+                        pagination={{ pageSize: PAGE_SIZE }} locale={{ emptyText: <Empty description={tableFilter ? "Nenhum serviço cadastrado nesta tabela" : "Selecione uma tabela para ver os serviços"} /> }}
                         size="middle" />
                 </div>
             )}

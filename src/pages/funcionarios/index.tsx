@@ -26,6 +26,7 @@ import {
     MoreOutlined,
 } from '@ant-design/icons'
 import { formatBRL } from '@/utils/formatters'
+import { PAGE_SIZE } from '@/constants/pagination'
 import { useDevice } from '@/contexts/device.context'
 
 const formatCurrency = formatBRL
@@ -567,7 +568,7 @@ function Employees() {
                         columns={columns as any}
                         dataSource={filteredData}
                         rowKey="id"
-                        pagination={{ pageSize: 10, showTotal: (t) => `${t} funcionários` }}
+                        pagination={{ pageSize: PAGE_SIZE, showTotal: (t) => `${t} funcionários` }}
                         size="middle"
                         loading={isLoading}
                     />

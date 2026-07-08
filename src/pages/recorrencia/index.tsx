@@ -17,6 +17,7 @@ import {
     WhatsAppOutlined,
 } from '@ant-design/icons'
 import { formatBRL } from '@/utils/formatters'
+import { PAGE_SIZE } from '@/constants/pagination'
 
 const formatCurrency = formatBRL
 
@@ -421,7 +422,7 @@ export default function RecurrencePage() {
                     dataSource={filteredRecords}
                     rowKey="id"
                     loading={loading}
-                    pagination={{ pageSize: 15, showTotal: (t) => `${t} recorrências` }}
+                    pagination={{ pageSize: PAGE_SIZE, showTotal: (t) => `${t} recorrências` }}
                     locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Nenhuma recorrência registrada. Vendas com produtos/serviços que possuem tempo de recorrência aparecem aqui." /> }}
                 />
             </div>

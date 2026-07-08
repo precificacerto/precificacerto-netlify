@@ -28,6 +28,7 @@ import { getTenantId, getCurrentUserId } from '@/utils/get-tenant-id'
 import dayjs from 'dayjs'
 import { formatBRL } from '@/utils/formatters'
 import { useDeviceInfo } from '@/hooks/use-device-info.hook'
+import { PAGE_SIZE } from '@/constants/pagination'
 
 const REGISTER_PAYMENT_METHODS = [
     { value: 'PIX', label: '⚡ PIX' },
@@ -2114,7 +2115,7 @@ function SalesReport() {
                             columns={recColumns}
                             dataSource={recData}
                             rowKey="id"
-                            pagination={{ pageSize: 20, showTotal: (t) => `${t} lançamentos` }}
+                            pagination={{ pageSize: PAGE_SIZE, showTotal: (t) => `${t} lançamentos` }}
                             size="middle"
                             loading={recLoading}
                             scroll={{ x: 900 }}
@@ -2225,7 +2226,7 @@ function SalesReport() {
                             columns={commColumns}
                             dataSource={commData}
                             rowKey="saleId"
-                            pagination={{ pageSize: 20, showTotal: (t) => `${t} pedidos` }}
+                            pagination={{ pageSize: PAGE_SIZE, showTotal: (t) => `${t} pedidos` }}
                             size={isMobile ? 'small' : 'middle'}
                             loading={commLoading}
                             scroll={{ x: isMobile ? 720 : 1100 }}
@@ -2331,7 +2332,7 @@ function SalesReport() {
                             columns={abcColumns}
                             dataSource={abcData}
                             rowKey={(r) => `${r.productId}-${r.employeeName}`}
-                            pagination={{ pageSize: 20, showTotal: (t) => `${t} produtos` }}
+                            pagination={{ pageSize: PAGE_SIZE, showTotal: (t) => `${t} produtos` }}
                             size="middle"
                             loading={abcLoading}
                             scroll={{ x: 1000 }}
@@ -2426,7 +2427,7 @@ function SalesReport() {
                             columns={svcColumns}
                             dataSource={svcData}
                             rowKey={(r) => `${r.serviceId}-${r.employeeName}`}
-                            pagination={{ pageSize: 20, showTotal: (t) => `${t} serviços` }}
+                            pagination={{ pageSize: PAGE_SIZE, showTotal: (t) => `${t} serviços` }}
                             size="middle"
                             loading={svcLoading}
                             scroll={{ x: 1000 }}

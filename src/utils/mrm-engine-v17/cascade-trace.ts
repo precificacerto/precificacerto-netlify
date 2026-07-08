@@ -417,15 +417,12 @@ export function buildCascadeTrace17(input: BuildCascadeInput): CascadeStep[] {
           formula: 'cp_total − tax_credits.recoverable',
           source: 'CONSOLIDADO',
         },
-        {
-          step: 14,
-          label: 'Mão de Obra Produtiva (MOD)',
-          base: null,
-          rate: null,
-          amount: -motor.mod,
-          formula: 'Σ(rb_i × mod_pct_i) — imune R6',
-          source: 'CONSOLIDADO',
-        },
+        // Documento Único de Correção (Item C, Julho 2026): a linha "Mão de Obra
+        // Produtiva (MOD)" foi removida do display da Etapa 14 — o valor da MOD já
+        // está integralmente contabilizado dentro de "Custos (CMV efetivo)"
+        // (motor.mod = 0 no fluxo normalizado). Exibi-la como categoria paralela e
+        // zerada era redundância enganosa. O amount/base/RRO do motor permanecem
+        // inalterados (incluem motor.mod = 0): correção exclusivamente de display.
         {
           step: 14,
           label: 'Despesas Operacionais (DOP)',

@@ -35,6 +35,7 @@ import {
 } from 'chart.js'
 import { Bar, Doughnut } from 'react-chartjs-2'
 import { formatBRL } from '@/utils/formatters'
+import { PAGE_SIZE } from '@/constants/pagination'
 import {
     getExpenseCategoryOptionsForRegime,
     getGroupForCategoryByRegime,
@@ -839,7 +840,7 @@ export default function ControleFinanceiro() {
                                     dataSource={filteredData}
                                     rowKey="id"
                                     loading={loading}
-                                    pagination={{ pageSize: 20, showTotal: (t) => `${t} lançamentos` }}
+                                    pagination={{ pageSize: PAGE_SIZE, showTotal: (t) => `${t} lançamentos` }}
                                     size="middle"
                                 />
                             </div>

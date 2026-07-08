@@ -2,6 +2,7 @@ import React, { ReactNode } from 'react'
 import { Table, Empty } from 'antd'
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table'
 import { InboxOutlined } from '@ant-design/icons'
+import { PAGE_SIZE } from '@/constants/pagination'
 
 interface DataTableProps<T> {
     columns: ColumnsType<T>
@@ -22,7 +23,7 @@ function DataTable<T extends object>({
     data,
     loading = false,
     rowKey = 'id',
-    pageSize = 10,
+    pageSize = PAGE_SIZE,
     showPagination = true,
     emptyText = 'Nenhum registro encontrado',
     onRowClick,

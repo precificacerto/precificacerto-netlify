@@ -69,7 +69,7 @@ function CascadeRow({
         {hideRate
           ? '—'
           : step.rate != null
-            ? `${(step.rate * 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}%`
+            ? `${(step.rate * 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: step.step === 11 ? 5 : 4 })}%`
             : '—'}
       </div>
       <div
@@ -162,7 +162,7 @@ function CascadeMobileItem({
             Alíquota:{' '}
             <span style={{ color: labelColor, fontVariantNumeric: 'tabular-nums' }}>
               {step.rate != null
-                ? `${(step.rate * 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}%`
+                ? `${(step.rate * 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: step.step === 11 ? 5 : 4 })}%`
                 : '—'}
             </span>
           </span>

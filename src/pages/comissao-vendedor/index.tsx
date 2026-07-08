@@ -24,6 +24,7 @@ import {
 } from '@ant-design/icons'
 import { ExportFormatModal } from '@/components/ui/export-format-modal.component'
 import { formatBRL } from '@/utils/formatters'
+import { PAGE_SIZE } from '@/constants/pagination'
 
 const formatCurrency = formatBRL
 
@@ -939,7 +940,7 @@ export default function CommissionPage() {
           dataSource={allDetailRows}
           rowKey="key"
           loading={loading}
-          pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (t) => `${t} lançamentos` }}
+          pagination={{ pageSize: PAGE_SIZE, showSizeChanger: true, showTotal: (t) => `${t} lançamentos` }}
           size="small"
           scroll={{ x: 1200 }}
           summary={() => (

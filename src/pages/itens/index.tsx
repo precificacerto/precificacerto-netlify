@@ -17,6 +17,7 @@ import { useItems } from '@/hooks/use-data.hooks'
 import { useRouter } from 'next/router'
 import { fetchTaxPreview } from '@/utils/calc-tax-preview'
 import { computeServiceSellingPrice } from '@/utils/compute-service-price'
+import { PAGE_SIZE } from '@/constants/pagination'
 
 const ITEM_TYPE_LABELS: Record<string, { label: string; color: string }> = {
   INSUMO: { label: '🧪 Insumos para beneficiamento', color: 'blue' },
@@ -1252,7 +1253,7 @@ function Items() {
             dataSource={filteredData}
             rowKey="id"
             size="middle"
-            pagination={{ pageSize: 10, showTotal: t => `${t} itens` }}
+            pagination={{ pageSize: PAGE_SIZE, showTotal: t => `${t} itens` }}
             locale={{ emptyText: 'Nenhum item cadastrado. Clique em "Adicionar item" para começar.' }}
           />
         )}

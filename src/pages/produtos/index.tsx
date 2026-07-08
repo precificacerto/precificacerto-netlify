@@ -17,6 +17,7 @@ import { useAuth } from '@/hooks/use-auth.hook'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import { getTenantId, getCurrentUserId } from '@/utils/get-tenant-id'
 import { calculateItemPrice } from '@/utils/calculate-item-price'
+import { PAGE_SIZE } from '@/constants/pagination'
 
 const UNIT_LABELS: Record<string, string> = {
   G: 'g', KG: 'kg', ML: 'ml', L: 'l', UN: 'un', M: 'm', CM: 'cm', MM: 'mm',
@@ -1411,7 +1412,7 @@ function Products() {
             dataSource={filteredData}
             rowKey="id"
             loading={isLoading}
-            pagination={{ pageSize: 15 }}
+            pagination={{ pageSize: PAGE_SIZE }}
             locale={{ emptyText: <Empty description={tableFilter ? "Nenhum produto cadastrado nesta tabela" : "Selecione uma tabela para ver os produtos"} /> }}
             size="middle"
           />

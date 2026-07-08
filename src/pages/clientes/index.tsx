@@ -28,6 +28,7 @@ import {
 import { cpf, cnpj } from 'cpf-cnpj-validator'
 import VMasker from 'vanilla-masker'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
+import { PAGE_SIZE } from '@/constants/pagination'
 import { useAuth } from '@/hooks/use-auth.hook'
 import { recalcCustomerRecurrenceOnEdit } from '@/lib/customer-recurrence'
 import { useDevice } from '@/contexts/device.context'
@@ -963,7 +964,7 @@ function Clients() {
                         columns={columns}
                         dataSource={filteredData}
                         rowKey="id"
-                        pagination={{ pageSize: 10, showSizeChanger: true, showTotal: (t) => `${t} clientes` }}
+                        pagination={{ pageSize: PAGE_SIZE, showSizeChanger: true, showTotal: (t) => `${t} clientes` }}
                         size="middle"
                         loading={isLoading}
                     />

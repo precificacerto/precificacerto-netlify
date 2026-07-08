@@ -9,6 +9,7 @@ import { MobileCollapse } from '@/components/ui/mobile-collapse.component'
 import { useRouter } from 'next/router'
 import { ROUTES } from '@/constants/routes'
 import { MODULES, type ModuleKey } from '@/hooks/use-permissions.hook'
+import { PAGE_SIZE } from '@/constants/pagination'
 import { SettingOutlined, UserAddOutlined, RightOutlined } from '@ant-design/icons'
 
 const MODULE_LABELS: Record<string, string> = {
@@ -346,7 +347,7 @@ function Users() {
           columns={columns}
           dataSource={filteredData}
           rowKey="id"
-          pagination={{ pageSize: 10, showTotal: (t) => `${t} usuário(s)` }}
+          pagination={{ pageSize: PAGE_SIZE, showTotal: (t) => `${t} usuário(s)` }}
         />
       )}
 

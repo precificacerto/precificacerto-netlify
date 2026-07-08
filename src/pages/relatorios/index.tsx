@@ -41,6 +41,7 @@ import {
 } from '@ant-design/icons'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import { useDevice } from '@/contexts/device.context'
+import { PAGE_SIZE } from '@/constants/pagination'
 
 dayjs.extend(isoWeek)
 dayjs.locale('pt-br')
@@ -699,7 +700,7 @@ function Reports() {
                             columns={eventListColumns}
                             dataSource={events}
                             rowKey="id"
-                            pagination={{ pageSize: 10 }}
+                            pagination={{ pageSize: PAGE_SIZE }}
                             size="small"
                             loading={loading}
                         />
