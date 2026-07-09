@@ -50,6 +50,11 @@ export function buildCascadeTrace17(input: BuildCascadeInput): CascadeStep[] {
   const effRateInterna = (amount: number): number | null =>
     op_interna_pre > 0 ? amount / op_interna_pre : null
 
+  // Adendo Seção 31-A (itens 1-2): a Etapa 5 discriminada usa PREFERENCIALMENTE a decomposição
+  // do dop_total (dop_breakdown_total) — que reconcilia com o total da etapa e soma a MO
+  // Administrativa de TODOS os produtos. Fallback para o snapshot V14 legado quando ausente.
+  const eb5 = view.dop_breakdown_total ?? view.expense_breakdown_total
+
   return [
     // 1. Fragmentação individual — Dossiê Correção 1: `amount` é a CONTAGEM de produtos,
     //    exibida como quantitativo (display_kind: 'count'), não como moeda.
@@ -102,48 +107,48 @@ export function buildCascadeTrace17(input: BuildCascadeInput): CascadeStep[] {
       amount: view.mod_total + view.dop_total,
       formula: 'MOD + Σ(MO Admin + DF + DV + DFin)',
       source: 'ITEMS',
-      children: view.expense_breakdown_total
+      children: eb5
         ? [
             {
               step: 5,
               label: 'MO Administrativa',
               base: op_interna_pre,
               rate: null,
-              amount: view.expense_breakdown_total.mo_admin,
-              formula: 'Σ snapshots V14',
+              amount: eb5.mo_admin,
+              formula: 'Σ MO Adm. de todos os produtos',
               source: 'PRODUTO',
               // Dossiê Correção 2: alíquota efetiva sobre a Op. Interna (rastreabilidade).
-              effective_rate_pct: effRateInterna(view.expense_breakdown_total.mo_admin),
+              effective_rate_pct: effRateInterna(eb5.mo_admin),
             },
             {
               step: 5,
               label: 'Despesa Fixa',
               base: op_interna_pre,
               rate: null,
-              amount: view.expense_breakdown_total.fixa,
-              formula: 'Σ snapshots V14',
+              amount: eb5.fixa,
+              formula: 'Σ Despesa Fixa de todos os produtos',
               source: 'PRODUTO',
-              effective_rate_pct: effRateInterna(view.expense_breakdown_total.fixa),
+              effective_rate_pct: effRateInterna(eb5.fixa),
             },
             {
               step: 5,
               label: 'Despesa Variável',
               base: op_interna_pre,
               rate: null,
-              amount: view.expense_breakdown_total.variavel,
-              formula: 'Σ snapshots V14',
+              amount: eb5.variavel,
+              formula: 'Σ Despesa Variável de todos os produtos',
               source: 'PRODUTO',
-              effective_rate_pct: effRateInterna(view.expense_breakdown_total.variavel),
+              effective_rate_pct: effRateInterna(eb5.variavel),
             },
             {
               step: 5,
               label: 'Despesa Financeira',
               base: op_interna_pre,
               rate: null,
-              amount: view.expense_breakdown_total.financeira,
-              formula: 'Σ snapshots V14',
+              amount: eb5.financeira,
+              formula: 'Σ Despesa Financeira de todos os produtos',
               source: 'PRODUTO',
-              effective_rate_pct: effRateInterna(view.expense_breakdown_total.financeira),
+              effective_rate_pct: effRateInterna(eb5.financeira),
             },
           ]
         : undefined,

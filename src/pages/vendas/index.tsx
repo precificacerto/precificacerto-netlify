@@ -2651,8 +2651,8 @@ function Sales() {
                                     style={{ width: 230 }}
                                     options={[
                                         { value: 'PROPORTIONAL', label: 'Proporcional (Comissão + Lucro)' },
-                                        { value: 'SELLER_REDUCTION', label: 'Vendedor absorve (Comissão)' },
-                                        { value: 'PROFIT_REDUCTION', label: 'Empresa absorve (Lucro)' },
+                                        { value: 'SELLER_REDUCTION', label: 'Congela Lucro (Vendedor absorve)' },
+                                        { value: 'PROFIT_REDUCTION', label: 'Congela Comissão (Empresa absorve)' },
                                     ]}
                                 />
                                 <span style={{ fontSize: 14, color: '#94a3b8', whiteSpace: 'nowrap' }}>Desconto</span>

@@ -576,6 +576,18 @@ export interface EngineItemV17 {
     financeira: { rate: number; amount: number }
   }
   /**
+   * Adendo Seção 31-A (itens 1-2): decomposição EFETIVA (sobre RB) do `dop_pct`
+   * nos 4 buckets. A soma dos 4 == `dop_pct`, garantindo que a Etapa 5 discriminada
+   * reconcilie com o total (`dop_total`) independentemente do snapshot V14. DISPLAY-only:
+   * NÃO afeta o RRO (que usa `dop_pct`). Ausente ⇒ Etapa 5 cai no `expense_breakdown` legado.
+   */
+  dop_components?: {
+    mo_admin: number
+    fixa: number
+    variavel: number
+    financeira: number
+  } | null
+  /**
    * V17 (2026-05-28): impostos por dentro CONSOLIDADOS por produto (R$ pré-desconto).
    * Permite que cada produto contribua com alíquotas próprias (multi-produto heterogêneo).
    * Quando presente: motor usa valores direto + aplica desconto proporcional.
@@ -657,6 +669,18 @@ export interface ConsolidatedView {
   } | null
   /** Soma agregada dos 4 buckets de despesa (quando snapshots V14 presentes). */
   expense_breakdown_total?: {
+    mo_admin: number
+    fixa: number
+    variavel: number
+    financeira: number
+  } | null
+  /**
+   * Adendo Seção 31-A (itens 1-2): decomposição de `dop_total` nos 4 buckets, somando
+   * `rb_i × dop_components_i`. Σ dos 4 == `dop_total` (mod_total é 0 no V17). É a fonte
+   * PREFERENCIAL da Etapa 5 discriminada — garante reconciliação total ⇄ linhas e soma
+   * a MO Administrativa de TODOS os produtos (não trava no 1º). DISPLAY-only.
+   */
+  dop_breakdown_total?: {
     mo_admin: number
     fixa: number
     variavel: number

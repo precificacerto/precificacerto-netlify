@@ -235,11 +235,12 @@ export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResul
 
     // DOP agregado (4 buckets do tenant)
     const eb = tenantCtx.expense_breakdown ?? null
+    const dopAdminNominal = eb ? (Number(eb.administrative_pct) || 0) : 0
+    const dopFixedNominal = eb ? (Number(eb.fixed_pct) || 0) : 0
+    const dopVariableNominal = eb ? (Number(eb.variable_pct) || 0) : 0
+    const dopFinancialNominal = eb ? (Number(eb.financial_pct) || 0) : 0
     const dop_pct_nominal = eb
-      ? (Number(eb.administrative_pct) || 0) +
-        (Number(eb.fixed_pct) || 0) +
-        (Number(eb.variable_pct) || 0) +
-        (Number(eb.financial_pct) || 0)
+      ? dopAdminNominal + dopFixedNominal + dopVariableNominal + dopFinancialNominal
       : (Number(tenantCtx.dop_pct) || 0)
 
     // V17 fix DOP_pct efetivo (2026-05-28 noite revisão 3):
@@ -254,6 +255,19 @@ export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResul
       ? Math.max(0, Math.min(1, (salePriceBaseUnit - terceirizadasUnit) / rbBaseUnit))
       : 1
     const dop_pct = dop_pct_nominal * pesoOpInternaTemp
+
+    // Adendo Seção 31-A (itens 1-2): decomposição EFETIVA do dop_pct nos 4 buckets
+    // (nominal × peso). Σ == dop_pct. Alimenta a Etapa 5 discriminada de forma que
+    // reconcilie com o total e some a MO Administrativa (tenant) de todos os produtos.
+    // Só disponível quando o tenant tem o breakdown por bucket (eb); senão null (fallback).
+    const dop_components = eb
+      ? {
+          mo_admin: dopAdminNominal * pesoOpInternaTemp,
+          fixa: dopFixedNominal * pesoOpInternaTemp,
+          variavel: dopVariableNominal * pesoOpInternaTemp,
+          financeira: dopFinancialNominal * pesoOpInternaTemp,
+        }
+      : null
 
     // mod_pct (V9 D1 — sempre 0 no V17 por princípio, MOD vai pro CMV)
     const mod_pct = 0
@@ -459,6 +473,7 @@ export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResul
       irpj_pct,
       peso_op_interna,
       expense_breakdown,
+      dop_components,
       taxes_inside_amounts,
     }
   })
@@ -706,12 +721,22 @@ export function calculateMotorV17ForPageFull(args: PageBuildArgs): {
     const snapshotCmv = Number(item.expense_breakdown_unit?.cmv_unit) || 0
     const cmvUsed = custoProduto > 0 ? custoProduto : snapshotCmv * qty
     const eb = args.tenantCtx.expense_breakdown ?? null
+    const dopAdminNominalFull = eb ? (Number(eb.administrative_pct) || 0) : 0
+    const dopFixedNominalFull = eb ? (Number(eb.fixed_pct) || 0) : 0
+    const dopVariableNominalFull = eb ? (Number(eb.variable_pct) || 0) : 0
+    const dopFinancialNominalFull = eb ? (Number(eb.financial_pct) || 0) : 0
     const dop_pct = eb
-      ? (Number(eb.administrative_pct) || 0) +
-        (Number(eb.fixed_pct) || 0) +
-        (Number(eb.variable_pct) || 0) +
-        (Number(eb.financial_pct) || 0)
+      ? dopAdminNominalFull + dopFixedNominalFull + dopVariableNominalFull + dopFinancialNominalFull
       : (Number(args.tenantCtx.dop_pct) || 0)
+    // Adendo Seção 31-A (itens 1-2): peso_op_interna é 1 neste caminho ⇒ componentes efetivos = nominais.
+    const dop_components = eb
+      ? {
+          mo_admin: dopAdminNominalFull,
+          fixa: dopFixedNominalFull,
+          variavel: dopVariableNominalFull,
+          financeira: dopFinancialNominalFull,
+        }
+      : null
 
     const commission_pct = (Number(item.commission_percent) || 0) / 100
     const profit_pct = (Number(item.profit_percent) || 0) / 100
@@ -754,6 +779,7 @@ export function calculateMotorV17ForPageFull(args: PageBuildArgs): {
       csll_pct,
       irpj_pct,
       peso_op_interna: 1,
+      dop_components,
     }
   })
 

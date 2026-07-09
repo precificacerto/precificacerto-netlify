@@ -697,7 +697,9 @@ function Budgets() {
         }, 0),
         override: icmsComplOverride,
     }
-    const v17Results = calculateMotorV17ForPage({
+    // Adendo Seção 31-A (item 5): fatorado para reuso na busca binária do teto de desconto.
+    // Mesma entrada do motor, variando apenas o desconto candidato.
+    const runMotorAtDiscount = (discountPct: number) => calculateMotorV17ForPage({
         items: enrichedItems,
         tenantCtx: {
             regime: mrmConfig.regime,
@@ -710,11 +712,39 @@ function Budgets() {
             expense_breakdown: mrmConfig.expense_breakdown,
             absorption_policy: discountModeToAbsorptionPolicy(discountMode), // Item 2: modo do dropdown
         },
-        globalDiscountPercent,
+        globalDiscountPercent: discountPct,
         effectiveDate: reapurationEffectiveDate,
         icmsComplApplies,
         icmsCompl: icmsComplParams,
     })
+    const v17Results = runMotorAtDiscount(globalDiscountPercent)
+
+    // Adendo Seção 31-A (item 5): teto REAL do desconto manual por Modo, medido na Etapa 16
+    // do motor (não no % nominal, que trava antes). Modo "Congela Comissão (Empresa absorve)"
+    // → teto onde o LUCRO chega a 0; "Congela Lucro (Vendedor absorve)" → onde a COMISSÃO
+    // chega a 0; Proporcional → onde Comissão+Lucro chegam a 0. Fallback ao nominal quando o
+    // motor não está pronto. Busca binária (protegida é monotônica decrescente no desconto).
+    const motorMaxDiscountPercent = (() => {
+        if (!motorReady || budgetTotal <= 0 || enrichedItems.length === 0) return maxDiscountPercent
+        const protectedAt = (pct: number): number => {
+            const res = runMotorAtDiscount(pct)
+            return budgetItems.reduce((s, _i, idx) => {
+                const r = res[idx]
+                if (!r) return s
+                if (discountMode === 'SELLER_REDUCTION') return s + (r.new_commission ?? 0)
+                if (discountMode === 'PROFIT_REDUCTION') return s + (r.new_profit ?? 0)
+                return s + (r.new_profit ?? 0) + (r.new_commission ?? 0)
+            }, 0)
+        }
+        if (protectedAt(0) <= 0) return 0
+        let lo = 0, hi = 100
+        for (let k = 0; k < 24; k++) {
+            const mid = (lo + hi) / 2
+            if (protectedAt(mid) > 0.005) lo = mid
+            else hi = mid
+        }
+        return Math.max(0, Math.min(100, hi))
+    })()
     // Preserva guard V16 — items sem componente distribuível retornam null
     const motorResultsByItem = budgetItems.map((i, idx) => {
         const itemBase = i.unit_price * i.quantity
@@ -2774,8 +2804,8 @@ function Budgets() {
                                     style={{ width: 230 }}
                                     options={[
                                         { value: 'PROPORTIONAL', label: 'Proporcional (Comissão + Lucro)' },
-                                        { value: 'SELLER_REDUCTION', label: 'Vendedor absorve (Comissão)' },
-                                        { value: 'PROFIT_REDUCTION', label: 'Empresa absorve (Lucro)' },
+                                        { value: 'SELLER_REDUCTION', label: 'Congela Lucro (Vendedor absorve)' },
+                                        { value: 'PROFIT_REDUCTION', label: 'Congela Comissão (Empresa absorve)' },
                                     ]}
                                 />
                                 <span style={{ fontSize: 14, color: '#94a3b8', whiteSpace: 'nowrap' }}>Desconto</span>
@@ -2791,11 +2821,11 @@ function Budgets() {
                                 {discountInputMode === 'PERCENT' ? (
                                     <InputNumber
                                         min={0}
-                                        max={maxDiscountPercent > 0 ? maxDiscountPercent : 100}
+                                        max={motorMaxDiscountPercent > 0 ? motorMaxDiscountPercent : 100}
                                         step={0.5}
                                         precision={5}
                                         value={globalDiscountPercent}
-                                        onChange={(v) => setGlobalDiscountPercent(Math.min(v ?? 0, maxDiscountPercent > 0 ? maxDiscountPercent : 100))}
+                                        onChange={(v) => setGlobalDiscountPercent(Math.min(v ?? 0, motorMaxDiscountPercent > 0 ? motorMaxDiscountPercent : 100))}
                                         formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
                                         parser={(v) => Number((v || '0').replace(',', '.'))}
                                         addonAfter="%"
@@ -2804,13 +2834,13 @@ function Budgets() {
                                 ) : (
                                     <CurrencyInput
                                         min={0}
-                                        max={totalACobrarFull > 0 ? totalACobrarFull * ((maxDiscountPercent > 0 ? maxDiscountPercent : 100) / 100) : 0}
+                                        max={totalACobrarFull > 0 ? totalACobrarFull * ((motorMaxDiscountPercent > 0 ? motorMaxDiscountPercent : 100) / 100) : 0}
                                         value={totalACobrarFull * (globalDiscountPercent / 100)}
                                         onChange={(v) => {
                                             const amount = v || 0
                                             if (totalACobrarFull <= 0) { setGlobalDiscountPercent(0); return }
                                             const pct = (amount / totalACobrarFull) * 100
-                                            const capped = Math.min(pct, maxDiscountPercent > 0 ? maxDiscountPercent : 100)
+                                            const capped = Math.min(pct, motorMaxDiscountPercent > 0 ? motorMaxDiscountPercent : 100)
                                             setGlobalDiscountPercent(capped)
                                         }}
                                         style={{ width: 180 }}

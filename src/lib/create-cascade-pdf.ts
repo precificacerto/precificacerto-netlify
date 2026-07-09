@@ -29,6 +29,21 @@ const fmtPct = (v: number | null | undefined): string =>
     ? '—'
     : `${(Number(v) * 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}%`
 
+/**
+ * Adendo Seção 31-A (item 4): rótulo amigável do modo de absorção de desconto,
+ * consistente com o seletor de Modo do orçamento/venda.
+ */
+const DISCOUNT_MODE_LABELS: Record<string, string> = {
+  PROPORTIONAL: 'Proporcional (Comissão + Lucro)',
+  SELLER_REDUCTION: 'Congela Lucro (Vendedor absorve)',
+  PROFIT_REDUCTION: 'Congela Comissão (Empresa absorve)',
+}
+
+function discountModeLabel(mode: string | null | undefined): string {
+  if (!mode) return ''
+  return DISCOUNT_MODE_LABELS[mode] ?? mode
+}
+
 /** Resolve o código do orçamento (ORC-XXXX) a partir do meta ou do id. */
 export function resolveCascadeCode(meta: CascadePdfMeta): string {
   if (meta.budgetCode) return meta.budgetCode
@@ -67,7 +82,7 @@ export function buildCascadeDoc(trace: CascadeStep[], meta: CascadePdfMeta): jsP
   if (meta.discountPercent != null && meta.discountPercent > 0) {
     doc.setFont('helvetica', 'normal')
     doc.text(
-      `Desconto: ${meta.discountPercent}%${meta.discountMode ? ` (${meta.discountMode})` : ''}`,
+      `Desconto: ${meta.discountPercent}%${meta.discountMode ? ` (${discountModeLabel(meta.discountMode)})` : ''}`,
       pageWidth - margin - 4,
       y + 9,
       { align: 'right' },

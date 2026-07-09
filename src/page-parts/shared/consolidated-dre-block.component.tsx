@@ -262,7 +262,8 @@ function CascadeExpander({ trace, marginTop = 8, pdfMeta }: { trace: CascadeStep
         }}
         aria-label="Expandir memória cascata"
       >
-        📋 Memória cascata (PDF Motor RR Seção 10 + Excel oficial)
+        {/* Adendo Seção 31-A (item 3): título sem sufixo técnico. Origem: PDF Motor RR Seção 10 + Excel oficial. */}
+        📋 Memória cascata
       </summary>
       {isMobile ? (
         /* DM2 mobile (≤639px): blocos verticais por etapa — grid de 5 colunas vira ilegível */
@@ -305,8 +306,10 @@ function CascadeExpander({ trace, marginTop = 8, pdfMeta }: { trace: CascadeStep
           ))}
         </div>
       )}
+      {/* Adendo Seção 31-A (item 3): referência técnica (PDF Motor RR Seção 10 + Excel oficial
+          `Motor de descontos do resultado residual operacional.xlsx`) mantida apenas em comentário,
+          fora da interface do usuário. */}
       <div style={{ fontSize: 10, color: '#64748b', marginTop: 8, fontStyle: 'italic' }}>
-        Referência: PDF Motor RR Seção 10 + Excel oficial (`Motor de descontos do resultado residual operacional.xlsx`).
         Sub-itens em cinza detalham cada componente.
       </div>
       {/* PC-FEAT-CASCADE-PDF-001: botão de exportação no RODAPÉ, alinhado à DIREITA, após a Etapa 17. */}

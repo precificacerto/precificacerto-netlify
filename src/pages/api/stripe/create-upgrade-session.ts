@@ -14,10 +14,10 @@ const PRICE_IDS_FALLBACK: Record<RevenueTier, Record<PlanSlug, string>> = {
     advanced: 'price_1TYZYdC91Syy1O80pWnr70WP',      // R$ 349,90
   },
   acima_200k: {
-    individual: 'price_1TYZYdC91Syy1O80KC8tv9ZJ',    // R$ 299,90
-    intermediario: 'price_1TYZYeC91Syy1O80kVRDudtx', // R$ 399,90
-    pro: 'price_1TYZYeC91Syy1O80I6pMn3rj',           // R$ 499,90
-    advanced: 'price_1TYZYeC91Syy1O807wLJnMOp',      // R$ 549,90
+    individual: 'price_1TYZYdC91Syy1O80KC8tv9ZJ',    // R$ 299,90 (até 3 usuários)
+    intermediario: 'price_1TYZYeC91Syy1O80kVRDudtx', // R$ 399,90 (até 5 usuários)
+    pro: 'price_1TYZYeC91Syy1O80I6pMn3rj',           // R$ 499,90 (até 7 usuários)
+    advanced: 'price_1TrH68C91Syy1O80CF0nxRsi',      // R$ 999,90 (ilimitado)
   },
 }
 

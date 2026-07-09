@@ -63,6 +63,13 @@ export function consolidateItems(
   let expense_variavel = 0
   let expense_financeira = 0
   let has_any_expense_breakdown = false
+  // Adendo Seção 31-A (itens 1-2): decomposição de dop_total por bucket (rb × dop_components).
+  // Σ dos 4 == dop_total, reconcilia a Etapa 5 discriminada. DISPLAY-only.
+  let dop_mo_admin = 0
+  let dop_fixa = 0
+  let dop_variavel = 0
+  let dop_financeira = 0
+  let has_dop_components = false
   // V17 (2026-05-28): consolidação de impostos por dentro POR PRODUTO
   let tax_icms_amount = 0
   let tax_iss_amount = 0
@@ -81,6 +88,17 @@ export function consolidateItems(
     // V16.3 princípio: despesas estruturais sobre RB pré-desconto
     mod_total += rb_i * safeNum(item.mod_pct)
     dop_total += rb_i * safeNum(item.dop_pct)
+
+    // Adendo Seção 31-A: decompõe o DOP do item nos 4 buckets (rb × pct efetivo).
+    // A soma dos componentes == dop_pct, então Σ(dop_*) == dop_total. Inclui a MO
+    // Administrativa vinda do tenant mesmo quando o snapshot V14 do produto é 0.
+    if (item.dop_components) {
+      has_dop_components = true
+      dop_mo_admin += rb_i * safeNum(item.dop_components.mo_admin)
+      dop_fixa += rb_i * safeNum(item.dop_components.fixa)
+      dop_variavel += rb_i * safeNum(item.dop_components.variavel)
+      dop_financeira += rb_i * safeNum(item.dop_components.financeira)
+    }
     peso_op_interna_num += rb_i * clamp01(item.peso_op_interna)
 
     // Valores absolutos originais (R$ pré-desconto) — base PDF Seção 23
@@ -169,6 +187,16 @@ export function consolidateItems(
       }
     : null
 
+  // Adendo Seção 31-A: fonte preferencial da Etapa 5 discriminada (reconcilia com dop_total).
+  const dop_breakdown_total = has_dop_components
+    ? {
+        mo_admin: dop_mo_admin,
+        fixa: dop_fixa,
+        variavel: dop_variavel,
+        financeira: dop_financeira,
+      }
+    : null
+
   const taxes_inside_total = has_any_tax_inside_amounts
     ? {
         icms: tax_icms_amount,
@@ -202,6 +230,7 @@ export function consolidateItems(
     items_breakdown,
     taxes_inside_total,
     expense_breakdown_total,
+    dop_breakdown_total,
   }
 }
 
@@ -245,5 +274,6 @@ function emptyConsolidatedView(): ConsolidatedView {
     items_breakdown: [],
     taxes_inside_total: null,
     expense_breakdown_total: null,
+    dop_breakdown_total: null,
   }
 }
