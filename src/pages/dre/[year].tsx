@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/router'
-import { Spin, Tabs, TabsProps, Table, Select } from 'antd'
+import { Spin, Tabs, TabsProps, Table } from 'antd'
+import { Select } from '@/components/ui/app-select.component'
 import { ColumnsType } from 'antd/es/table'
 import { Layout } from '@/components/layout/layout.component'
 import {

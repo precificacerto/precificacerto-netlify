@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
 import {
-    Button, Table, Tabs, Input, Select, Space, Tag, message, Popconfirm,
+    Button, Table, Tabs, Input, Space, Tag, message, Popconfirm,
     DatePicker, Empty, Drawer, Form, Tooltip,
 } from 'antd'
+import { Select } from '@/components/ui/app-select.component'
 import type { ColumnsType } from 'antd/es/table'
 import dayjs from 'dayjs'
 import { Layout } from '@/components/layout/layout.component'

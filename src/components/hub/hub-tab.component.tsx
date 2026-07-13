@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useMemo } from 'react'
-import { Table, Button, Spin, Empty, message, Select } from 'antd'
+import { Table, Button, Spin, Empty, message } from 'antd'
+import { Select } from '@/components/ui/app-select.component'
 import { SyncOutlined } from '@ant-design/icons'
 import { calculateHubData } from '@/utils/hub-engine'
 import type { HubData } from '@/utils/hub-engine'

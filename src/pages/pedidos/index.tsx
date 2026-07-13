@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import {
     App as AntdApp,
-    Button, DatePicker, Drawer, Dropdown, Form, Input, InputNumber, Select, Space, Table, Tag,
+    Button, DatePicker, Drawer, Dropdown, Form, Input, InputNumber, Space, Table, Tag,
     message, Modal, Popconfirm, Empty, Checkbox, Divider, Typography,
 } from 'antd'
+import { Select } from '@/components/ui/app-select.component'
 import { CurrencyInput } from '@/components/currency-input.component'
 import type { ColumnsType } from 'antd/es/table'
 import {

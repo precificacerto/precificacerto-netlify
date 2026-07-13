@@ -1,5 +1,6 @@
 import { ChangeEvent, FC, ReactNode } from 'react'
-import { Button, Card, Divider, Form, FormInstance, InputNumber, Select, Table, Tooltip } from 'antd'
+import { Button, Card, Divider, Form, FormInstance, InputNumber, Table, Tooltip } from 'antd'
+import { Select } from '@/components/ui/app-select.component'
 import { CalculatorOutlined } from '@ant-design/icons'
 import { IItemModel } from '@/server/model/item'
 import { IItemProductModel } from '@/server/model/item-product-item'

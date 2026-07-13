@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react'
-import { Modal, Select, Input, Button, DatePicker, message, Table, Steps, Alert } from 'antd'
+import { Modal, Input, Button, DatePicker, message, Table, Steps, Alert } from 'antd'
+import { Select } from '@/components/ui/app-select.component'
 import { PlusOutlined, DeleteOutlined, ArrowRightOutlined, CheckOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { supabase } from '@/supabase/client'

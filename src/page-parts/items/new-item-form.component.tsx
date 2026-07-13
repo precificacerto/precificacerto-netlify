@@ -1,4 +1,5 @@
-import { Input, Form, InputNumber, Select, FormInstance, Divider, Tooltip, Tag, AutoComplete, Spin, Switch } from 'antd'
+import { Input, Form, InputNumber, FormInstance, Divider, Tooltip, Tag, AutoComplete, Spin, Switch } from 'antd'
+import { Select } from '@/components/ui/app-select.component'
 import { PercentInput } from '@/components/percent-input.component'
 import { InfoCircleOutlined, SearchOutlined } from '@ant-design/icons'
 import { currencyMask, currencyDotMask } from '@/utils/currency-mask'

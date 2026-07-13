@@ -1,5 +1,6 @@
 import { ChangeEvent, FC, ReactNode } from 'react'
-import { Button, Card, Form, FormInstance, Input, Select, Table } from 'antd'
+import { Button, Card, Form, FormInstance, Input, Table } from 'antd'
+import { Select } from '@/components/ui/app-select.component'
 import { IItemModel } from '@/server/model/item'
 import { IItemProductModel } from '@/server/model/item-product-item'
 import { ColumnsType } from 'antd/es/table'
@@ -112,7 +113,6 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
               <Select
                 showSearch
                 filterOption={filterOption}
-                listHeight={512}
                 notFoundContent={
                   <div className="p-3 text-center text-neutral-500">
                     Não há itens, cadastre-os antes de criar um produto

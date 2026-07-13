@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react'
-import { Button, Card, Form, Input, InputNumber, Radio, Select, Tabs, message, Alert, Spin, Divider, Modal } from 'antd'
+import { Button, Card, Form, Input, InputNumber, Radio, Tabs, message, Alert, Spin, Divider, Modal } from 'antd'
+import { Select } from '@/components/ui/app-select.component'
 import { PercentInput } from '@/components/percent-input.component'
 import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'

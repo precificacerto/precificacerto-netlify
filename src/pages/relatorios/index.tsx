@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react'
-import { Button, Select, Table, Tag, Space, DatePicker, message, Empty, Tooltip, Modal, InputNumber, Input, Popconfirm } from 'antd'
+import { Button, Table, Tag, Space, DatePicker, message, Empty, Tooltip, Modal, InputNumber, Input, Popconfirm } from 'antd'
+import { Select } from '@/components/ui/app-select.component'
 import type { ColumnsType } from 'antd/es/table'
 import dayjs from 'dayjs'
 import isoWeek from 'dayjs/plugin/isoWeek'

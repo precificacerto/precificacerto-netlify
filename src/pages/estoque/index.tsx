@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react'
-import { Button, Drawer, Dropdown, Form, Input, Select, Space, Spin, Table, Tag, Tabs, message, InputNumber, Empty, Checkbox, Radio, Tooltip, Popconfirm } from 'antd'
+import { Button, Drawer, Dropdown, Form, Input, Space, Spin, Table, Tag, Tabs, message, InputNumber, Empty, Checkbox, Radio, Tooltip, Popconfirm } from 'antd'
+import { Select } from '@/components/ui/app-select.component'
 import type { ColumnsType } from 'antd/es/table'
 import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'

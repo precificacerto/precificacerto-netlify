@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/router'
-import { Button, Input, Select, Table, message, Alert, Spin } from 'antd'
+import { Button, Input, Table, message, Alert, Spin } from 'antd'
+import { Select } from '@/components/ui/app-select.component'
 import { Layout } from '@/components/layout/layout.component'
 import { Months } from '@/components/months/months.component'
 import { Month, MonthObjectType, monthObjects } from '@/constants/month'

@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import {
-    Button, Card, Drawer, Form, Input, InputNumber, Select, Space, Tag, TimePicker,
+    Button, Card, Drawer, Form, Input, InputNumber, Space, Tag, TimePicker,
     DatePicker, message, Popconfirm, Tooltip, Avatar, Empty, Modal, Divider,
     Checkbox, Alert, Radio, Upload, Switch, Segmented,
 } from 'antd'
+import { Select } from '@/components/ui/app-select.component'
 import dayjs from 'dayjs'
 import isoWeek from 'dayjs/plugin/isoWeek'
 import 'dayjs/locale/pt-br'

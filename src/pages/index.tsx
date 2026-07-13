@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react'
-import { Spin, Select, Button, Alert, Tooltip as AntTooltip } from 'antd'
+import { Spin, Button, Alert, Tooltip as AntTooltip } from 'antd'
+import { Select } from '@/components/ui/app-select.component'
 import { useRouter } from 'next/router'
 import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'

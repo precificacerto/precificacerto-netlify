@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react'
-import { Alert, Button, Select, Spin, Tooltip, DatePicker } from 'antd'
+import { Alert, Button, Spin, Tooltip, DatePicker } from 'antd'
+import { Select } from '@/components/ui/app-select.component'
 import dayjs, { Dayjs } from 'dayjs'
 import { FileExcelOutlined, InfoCircleOutlined } from '@ant-design/icons'
 // Onda 3 / CRÍT-perf: exportDfcToExcel (ExcelJS ~350KB) via dynamic import no handler.

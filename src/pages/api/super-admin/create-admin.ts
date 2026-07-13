@@ -5,6 +5,29 @@ import { supabaseAdmin } from '@/supabase/admin'
 const getAppOrigin = () =>
   process.env.NEXT_PUBLIC_APP_URL || 'https://app.precificacerto.com'
 
+// Gera um link de acesso (recovery → /criar-senha) para compartilhamento manual.
+// O token de recovery é independente do token de convite, então NÃO invalida o email.
+// Funciona como rede de segurança: o Supabase pode aceitar o inviteUserByEmail sem
+// erro mas falhar silenciosamente na ENTREGA (limite do SMTP padrão, spam, etc.).
+// Assim o super-admin sempre tem um link válido para enviar ao cliente.
+async function generateFallbackLink(email: string, redirectTo: string): Promise<string | null> {
+  try {
+    const { data, error } = await supabaseAdmin.auth.admin.generateLink({
+      type: 'recovery',
+      email,
+      options: { redirectTo },
+    })
+    if (error) {
+      console.warn('create-admin generateLink fallback falhou:', error.message)
+      return null
+    }
+    return data?.properties?.action_link ?? null
+  } catch (e) {
+    console.warn('create-admin generateLink fallback exception:', e instanceof Error ? e.message : String(e))
+    return null
+  }
+}
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' })
@@ -89,11 +112,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           .eq('id', inviteData.user.id)
       }
 
+      const fallbackLinkNew = await generateFallbackLink(adminEmail, redirectTo)
       return res.status(200).json({
         success: true,
         tenant_id: tenantIdNew,
         user_id: inviteData?.user?.id,
-        message: 'Tenant criada. O Supabase enviou um email ao admin para definir a senha e acessar a plataforma.',
+        action_link: fallbackLinkNew,
+        message: fallbackLinkNew
+          ? 'Tenant criada e email de convite enviado pelo Supabase. Se o email não chegar (confira também o spam), copie o link abaixo e envie manualmente ao admin.'
+          : 'Tenant criada. O Supabase enviou um email ao admin para definir a senha e acessar a plataforma.',
       })
     }
 
@@ -159,10 +186,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         .eq('id', inviteData.user.id)
     }
 
+    const fallbackLinkExisting = await generateFallbackLink(normalizedEmail, redirectTo)
     return res.status(200).json({
       success: true,
       user_id: inviteData?.user?.id,
-      message: 'Convite enviado por email pelo Supabase. O admin deve acessar o link para definir a senha.',
+      action_link: fallbackLinkExisting,
+      message: fallbackLinkExisting
+        ? 'Convite enviado por email pelo Supabase. Se o email não chegar (confira também o spam), copie o link abaixo e envie manualmente ao admin.'
+        : 'Convite enviado por email pelo Supabase. O admin deve acessar o link para definir a senha.',
     })
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Erro ao criar admin'

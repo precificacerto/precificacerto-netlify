@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react'
-import { Button, Drawer, Dropdown, Form, Input, Select, Space, Table, Tag, message, Popconfirm, InputNumber, Tooltip, Radio, Checkbox, Divider, Modal, Spin } from 'antd'
+import { Button, Drawer, Dropdown, Form, Input, Space, Table, Tag, message, Popconfirm, InputNumber, Tooltip, Radio, Checkbox, Divider, Modal, Spin } from 'antd'
+import { Select } from '@/components/ui/app-select.component'
 import type { ColumnsType } from 'antd/es/table'
 import { Layout } from '@/components/layout/layout.component'
 import { CardKPI } from '@/components/ui/card-kpi.component'

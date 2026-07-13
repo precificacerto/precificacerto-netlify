@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
-import { Form, Input, Modal, Select, message } from 'antd'
+import { Form, Input, Modal, message } from 'antd'
+import { Select } from '@/components/ui/app-select.component'
 import { UNIT_MEASURE_ENUM } from '@/shared/enums/unit-measure-type'
 import { CALC_TYPE_ENUM } from '@/shared/enums/calc-type'
 import { useAuth } from '@/hooks/use-auth.hook'

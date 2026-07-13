@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import {
-    Button, Select, Table, Tag, DatePicker, Space, message, Tabs,
+    Button, Table, Tag, DatePicker, Space, message, Tabs,
     Popconfirm, Form, Input, InputNumber, Drawer, Alert, Radio, Modal,
 } from 'antd'
+import { Select } from '@/components/ui/app-select.component'
 import type { ColumnsType } from 'antd/es/table'
 import dayjs from 'dayjs'
 import { Layout } from '@/components/layout/layout.component'
@@ -1193,7 +1194,6 @@ export default function ControleFinanceiro() {
                             placeholder="Selecione a categoria"
                             options={activeCategoryOptions}
                             showSearch
-                            listHeight={320}
                             filterOption={(input, option) => (option?.label as string || '').toLowerCase().includes(input.toLowerCase())}
                             onChange={(val: string) => {
                                 setNewRecurringCategory(val)
@@ -1467,7 +1467,6 @@ export default function ControleFinanceiro() {
                                 placeholder="Selecione a categoria"
                                 options={activeCategoryOptions}
                                 showSearch
-                                listHeight={320}
                                 filterOption={(input, option) => (option?.label as string || '').toLowerCase().includes(input.toLowerCase())}
                             />
                         </Form.Item>

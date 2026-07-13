@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react'
-import { Button, Select, Table, Tag, Tabs, message, Empty, DatePicker, Modal, Form } from 'antd'
+import { Button, Table, Tag, Tabs, message, Empty, DatePicker, Modal, Form } from 'antd'
+import { Select } from '@/components/ui/app-select.component'
 import type { ColumnsType } from 'antd/es/table'
 import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'

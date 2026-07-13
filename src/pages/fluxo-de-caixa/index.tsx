@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import {
-    Button, Select, DatePicker, Space, message, Alert,
+    Button, DatePicker, Space, message, Alert,
     Form, Input, InputNumber, Drawer, Modal, Table, Tag, Radio, Popconfirm,
 } from 'antd'
+import { Select } from '@/components/ui/app-select.component'
 import dayjs from 'dayjs'
 import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
@@ -1040,7 +1041,7 @@ export default function CashFlow() {
                                     <React.Fragment key={group}>
                                         {/* Group header row */}
                                         <tr style={{ background: `${color}33`, borderLeft: `4px solid ${color}` }}>
-                                            <td style={{ padding: '6px 12px', color: '#e2e8f0', fontWeight: 700, position: 'sticky', left: 0, background: `${color}44`, borderRight: '1px solid rgba(255,255,255,0.06)', zIndex: 1, whiteSpace: 'nowrap', overflow: 'hidden', maxWidth: 180, textOverflow: 'ellipsis', fontSize: 12 }}>
+                                            <td style={{ padding: '6px 12px', color: '#e2e8f0', fontWeight: 700, position: 'sticky', left: 0, background: `linear-gradient(${color}44, ${color}44), #0d1b2a`, borderRight: '1px solid rgba(255,255,255,0.06)', zIndex: 1, whiteSpace: 'nowrap', overflow: 'hidden', maxWidth: 180, textOverflow: 'ellipsis', fontSize: 12 }}>
                                                 {label}
                                             </td>
                                             {Array.from({ length: pivotByDay.daysInMonth }, (_, i) => i + 1).map(day => {
@@ -1083,7 +1084,7 @@ export default function CashFlow() {
                                             if (descTotal === 0) return null
                                             return (
                                                 <tr key={descKey} style={{ background: `${color}11`, borderLeft: `4px solid ${color}` }}>
-                                                    <td style={{ padding: '4px 12px 4px 28px', color: '#94a3b8', position: 'sticky', left: 0, background: `${color}18`, borderRight: '1px solid rgba(255,255,255,0.04)', zIndex: 1, whiteSpace: 'nowrap', overflow: 'hidden', maxWidth: 180, textOverflow: 'ellipsis', fontSize: 11 }}>
+                                                    <td style={{ padding: '4px 12px 4px 28px', color: '#94a3b8', position: 'sticky', left: 0, background: `linear-gradient(${color}18, ${color}18), #0d1b2a`, borderRight: '1px solid rgba(255,255,255,0.04)', zIndex: 1, whiteSpace: 'nowrap', overflow: 'hidden', maxWidth: 180, textOverflow: 'ellipsis', fontSize: 11 }}>
                                                         ↳ {desc}
                                                     </td>
                                                     {Array.from({ length: pivotByDay.daysInMonth }, (_, i) => i + 1).map(day => {
@@ -1385,7 +1386,6 @@ export default function CashFlow() {
                             placeholder="Selecione a categoria"
                             options={activeCategoryOptions}
                             showSearch
-                            listHeight={320}
                             filterOption={(input, option) => (option?.label as string || '').toLowerCase().includes(input.toLowerCase())}
                             onChange={(v: string) => {
                                 setSelectedExpenseCategory(v || '')

@@ -1,8 +1,9 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react'
 import {
-    Button, Form, Input, InputNumber, Select, Space, Table, Tag,
+    Button, Form, Input, InputNumber, Space, Table, Tag,
     message, Tooltip, Divider, Alert, Switch, Modal,
 } from 'antd'
+import { Select } from '@/components/ui/app-select.component'
 import type { ColumnsType } from 'antd/es/table'
 import { supabase } from '@/supabase/client'
 import { getTenantId } from '@/utils/get-tenant-id'

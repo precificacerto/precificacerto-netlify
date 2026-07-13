@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
 import {
     App as AntdApp,
-    Button, Drawer, Dropdown, Form, Input, InputNumber, Select, Space, Table, Tag,
+    Button, Drawer, Dropdown, Form, Input, InputNumber, Space, Table, Tag,
     message, DatePicker, Steps, Popconfirm, Divider, Empty, Modal, Upload, Radio, Segmented,
 } from 'antd'
+import { Select } from '@/components/ui/app-select.component'
 import type { ColumnsType } from 'antd/es/table'
 import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
@@ -169,6 +170,7 @@ function Budgets() {
     const [budgetItems, setBudgetItems] = useState<BudgetItemRow[]>([])
     const [detailItems, setDetailItems] = useState<any[]>([])
     const [searchText, setSearchText] = useState('')
+    const [filterEmployee, setFilterEmployee] = useState<string | null>(null)
     const [saving, setSaving] = useState(false)
     const [waConnected, setWaConnected] = useState(false)
     const [waWebhookUrl, setWaWebhookUrl] = useState<string | null>(null)
@@ -263,13 +265,15 @@ function Budgets() {
 
     const filteredData = useMemo(() => {
         // T12: ocultar pagos — lista mostra apenas Rascunho e Aguardando pagamento (+ SENT/APPROVED em transição)
-        const visible = budgets.filter(b => b.status !== 'PAID')
+        let visible = budgets.filter(b => b.status !== 'PAID')
+        // PC-FEAT-ORCAMENTOS-FILTROVENDEDOR-008: filtro por vendedor, combinável com a busca por cliente
+        if (filterEmployee) visible = visible.filter(b => b.employee_id === filterEmployee)
         if (!searchText) return visible
         return visible.filter(b =>
             (b.customer?.name || '').toLowerCase().includes(searchText.toLowerCase()) ||
             b.id.toLowerCase().includes(searchText.toLowerCase())
         )
-    }, [budgets, searchText])
+    }, [budgets, searchText, filterEmployee])
 
     // ── Fetch data for "Ver produtos em orçamentos" drawer ──
     const openProdBudgetDrawer = async () => {
@@ -2470,6 +2474,19 @@ function Budgets() {
                         style={{ maxWidth: 360 }}
                         allowClear
                     />
+                    <Select
+                        placeholder="Filtrar por vendedor"
+                        style={{ minWidth: 200 }}
+                        value={filterEmployee || undefined}
+                        onChange={(v) => setFilterEmployee(v || null)}
+                        allowClear
+                        showSearch
+                        optionFilterProp="children"
+                    >
+                        {(employees as any[]).map((e: any) => (
+                            <Select.Option key={e.id} value={e.id}>{e.name}</Select.Option>
+                        ))}
+                    </Select>
                     <div style={{ flex: 1 }} />
                     <Button icon={<UnorderedListOutlined />} onClick={openProdBudgetDrawer}>
                         Ver produtos em orçamentos

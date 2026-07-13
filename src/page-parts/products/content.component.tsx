@@ -1,5 +1,6 @@
 import { ChangeEvent, FC, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AutoComplete, Button, Card, Form, Input, InputNumber, Popconfirm, Select, Space, Alert, Radio, Divider, Tooltip, Spin, Switch, Modal, Tag, Segmented } from 'antd'
+import { AutoComplete, Button, Card, Form, Input, InputNumber, Popconfirm, Space, Alert, Radio, Divider, Tooltip, Spin, Switch, Modal, Tag, Segmented } from 'antd'
+import { Select } from '@/components/ui/app-select.component'
 import { PercentInput } from '@/components/percent-input.component'
 import { InfoCircleOutlined, PlusOutlined, SearchOutlined, SyncOutlined } from '@ant-design/icons'
 import { PAGE_TITLES } from '@/constants/page-titles'

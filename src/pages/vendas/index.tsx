@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
 import {
     App as AntdApp,
-    Button, Drawer, Dropdown, Form, Input, InputNumber, Select, Space, Table, Tag, Tooltip,
+    Button, Drawer, Dropdown, Form, Input, InputNumber, Space, Table, Tag, Tooltip,
     message, Popconfirm, DatePicker, Empty, Divider, Modal, Upload, Checkbox, Radio, Segmented,
 } from 'antd'
+import { Select } from '@/components/ui/app-select.component'
 import type { ColumnsType } from 'antd/es/table'
 import type { UploadFile } from 'antd/es/upload/interface'
 import { Layout } from '@/components/layout/layout.component'

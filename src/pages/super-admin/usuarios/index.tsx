@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { useRouter } from 'next/router'
-import { Button, Input, Table, Tag, Modal, Form, Select, Space, message, Switch, Checkbox } from 'antd'
+import { Button, Input, Table, Tag, Modal, Form, Space, message, Switch, Checkbox } from 'antd'
+import { Select } from '@/components/ui/app-select.component'
 import type { ColumnsType } from 'antd/es/table'
 import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
@@ -60,10 +61,33 @@ function SuperAdminUsuarios() {
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error || 'Erro ao criar')
-      messageApi.success(json.message || 'Convite enviado. O admin receberá um email do Supabase para definir a senha.')
       setCreateModalOpen(false)
       form.resetFields()
       mutate()
+      if (json.action_link) {
+        Modal.info({
+          title: 'Link de acesso do admin',
+          width: 'min(600px, calc(100vw - 32px))',
+          content: (
+            <div>
+              <p style={{ marginBottom: 8 }}>{json.message}</p>
+              <Input.TextArea
+                value={json.action_link}
+                readOnly
+                autoSize={{ minRows: 2, maxRows: 4 }}
+                style={{ fontFamily: 'monospace', fontSize: 12 }}
+                onClick={(e) => (e.target as HTMLTextAreaElement).select()}
+              />
+              <p style={{ marginTop: 8, color: '#888', fontSize: 12 }}>
+                Clique no campo acima para selecionar e copiar. Envie ao admin caso o email não chegue.
+              </p>
+            </div>
+          ),
+          okText: 'Fechar',
+        })
+      } else {
+        messageApi.success(json.message || 'Convite enviado. O admin receberá um email do Supabase para definir a senha.')
+      }
     } catch (e: unknown) {
       messageApi.error(e instanceof Error ? e.message : 'Erro ao criar usuário')
     } finally {

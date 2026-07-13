@@ -1,4 +1,5 @@
-import { Input, Form, Select, FormInstance, Divider, Tooltip, Radio, InputNumber } from 'antd'
+import { Input, Form, FormInstance, Divider, Tooltip, Radio, InputNumber } from 'antd'
+import { Select } from '@/components/ui/app-select.component'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { currencyMask } from '@/utils/currency-mask'
 import { UNIT_TYPE } from '@/constants/item-unit-types'

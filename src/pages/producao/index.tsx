@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
-import { Button, Card, Form, InputNumber, message, Select, Spin } from 'antd'
+import { Button, Card, Form, InputNumber, message, Spin } from 'antd'
+import { Select } from '@/components/ui/app-select.component'
 import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
 import { supabase } from '@/supabase/client'

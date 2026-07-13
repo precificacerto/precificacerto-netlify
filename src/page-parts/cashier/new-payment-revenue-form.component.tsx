@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { Input, Form, Select, FormInstance, DatePicker, Button } from 'antd'
+import { Input, Form, FormInstance, DatePicker, Button } from 'antd'
+import { Select } from '@/components/ui/app-select.component'
 import { currencyDotMask } from '@/utils/currency-mask'
 import {
   CASHIER_CATEGORY,
@@ -87,12 +88,11 @@ const NewPaymentRevenueForm = ({ form, year, month, type, onClickDelete, regime 
               showSearch
               filterOption={(input, option) => (option?.label as string || '').toLowerCase().includes(input.toLowerCase())}
               onChange={handleCategoryChange}
-              listHeight={320}
               options={expenseCategoryOptions}
               placeholder="Selecione a categoria de despesa"
             />
           ) : (
-            <Select showSearch filterOption onChange={handleCategoryChange} listHeight={320}>
+            <Select showSearch filterOption onChange={handleCategoryChange}>
               {Object.values(CASHIER_CATEGORY[type]).map(({ value, key }) => (
                 <Select.Option key={key} value={key}>
                   {value}

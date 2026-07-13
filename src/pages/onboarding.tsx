@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from 'react'
-import { Button, Form, Input, Select, Steps, message, InputNumber, Radio, Spin, Tag, Checkbox, Alert } from 'antd'
+import { Button, Form, Input, Steps, message, InputNumber, Radio, Spin, Tag, Checkbox, Alert } from 'antd'
+import { Select } from '@/components/ui/app-select.component'
 import {
   BankOutlined,
   EnvironmentOutlined,
