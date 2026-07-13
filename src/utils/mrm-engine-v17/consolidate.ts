@@ -53,6 +53,8 @@ export function consolidateItems(
   let profit_amount_original = 0
   let csll_amount_original = 0
   let irpj_amount_original = 0
+  // EPIC-RT v8: Σ(rb_i × rt_pct_i) — base da alíquota efetiva CONGELADA de RT.
+  let rt_amount_original = 0
   // Adendo 26-A: margens sobre Op. Interna (base sem Op. Externa) — só display Etapa 6
   let commission_amount_internal = 0
   let profit_amount_internal = 0
@@ -111,6 +113,8 @@ export function consolidateItems(
     profit_amount_original += profit_i
     csll_amount_original += csll_i
     irpj_amount_original += irpj_i
+    // EPIC-RT v8: RT sobre RB pré-desconto (paralelo a comissão/lucro). Default 0.
+    rt_amount_original += rb_i * safeNum(item.rt_pct)
 
     // Adendo 26-A: base = Op. Interna do produto (rb_i × peso_op_interna_i), reproduzindo
     // a margem da Etapa 2 (precificação). A Etapa 6 AGREGA — não recalcula sobre a Venda
@@ -219,6 +223,7 @@ export function consolidateItems(
     profit_amount_original,
     csll_amount_original,
     irpj_amount_original,
+    rt_amount_original,
     commission_amount_internal,
     profit_amount_internal,
     csll_amount_internal,
@@ -263,6 +268,7 @@ function emptyConsolidatedView(): ConsolidatedView {
     profit_amount_original: 0,
     csll_amount_original: 0,
     irpj_amount_original: 0,
+    rt_amount_original: 0,
     commission_amount_internal: 0,
     profit_amount_internal: 0,
     csll_amount_internal: 0,

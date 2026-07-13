@@ -566,6 +566,15 @@ export interface EngineItemV17 {
   csll_pct: number
   /** 0 forçado para MEI/SN pelo orchestrator (guard Q5). */
   irpj_pct: number
+  /**
+   * RT (Comissão Reserva Técnica) — % decimal congelada (EPIC-RT v8, 2026-07-13).
+   * Dedução gerencial autônoma (paralela a Comissão/Lucro): abatida do RRO ANTES da
+   * redistribuição (item 16), aplicada sobre a Op. Interna pós-desconto (Âncora) com
+   * alíquota efetiva SEMPRE congelada (independe do modo de desconto). NÃO entra na
+   * base de IRPJ/CSLL nem nos pesos de redistribuição. Default 0 (sem RT) ⇒ bit-exact
+   * com o comportamento anterior.
+   */
+  rt_pct?: number | null
   /** Peso Op Interna decimal 0..1 (do markup divisor do produto). */
   peso_op_interna: number
   /** Snapshot V14 dos 4 buckets de despesa do produto (opcional). */
@@ -650,6 +659,11 @@ export interface ConsolidatedView {
   profit_amount_internal: number
   csll_amount_internal: number
   irpj_amount_internal: number
+  /**
+   * RT (Comissão Reserva Técnica) — Σ(rb_i × rt_pct_i), R$ pré-desconto (EPIC-RT v8).
+   * A alíquota efetiva CONGELADA = rt_amount_original / rb_total. Default 0 (sem RT).
+   */
+  rt_amount_original?: number
   /** Pesos PDF Seção 23 — base para redistribuição RRO (1.0 quando sum=0 vira fallback). */
   peso_comissao_original: number
   peso_lucro_original: number
@@ -717,6 +731,13 @@ export interface MotorOutput {
   mod: number
   dop: number
   rro: number
+  /**
+   * RT (Comissão Reserva Técnica) abatido do RRO — R$ (EPIC-RT v8, 2026-07-13).
+   * = Âncora × rt_efetiva. O `rro` acima já está LÍQUIDO de RT. Default 0.
+   */
+  rt_value?: number
+  /** Alíquota efetiva CONGELADA de RT (decimal) = rt_amount_original / rb_total. Default 0. */
+  rt_efetiva?: number
   rro_status: ReapurationStatus
   /** Cascade trace 17 etapas (PDF — superseta as 13 etapas V16). */
   cascade_trace: CascadeStep[]

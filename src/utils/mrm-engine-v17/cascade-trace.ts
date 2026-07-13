@@ -50,6 +50,11 @@ export function buildCascadeTrace17(input: BuildCascadeInput): CascadeStep[] {
   const effRateInterna = (amount: number): number | null =>
     op_interna_pre > 0 ? amount / op_interna_pre : null
 
+  // EPIC-RT v8 (2026-07-13): RT (Comissão Reserva Técnica) abatido do RRO. Quando há RT,
+  // o item 15 (antes redundante com o 16) passa a exibi-lo com peso/% efetiva/valor.
+  const rt_value = Number(motor.rt_value) || 0
+  const rt_efetiva = Number(motor.rt_efetiva) || 0
+
   // Adendo Seção 31-A (itens 1-2): a Etapa 5 discriminada usa PREFERENCIALMENTE a decomposição
   // do dop_total (dop_breakdown_total) — que reconcilia com o total da etapa e soma a MO
   // Administrativa de TODOS os produtos. Fallback para o snapshot V14 legado quando ausente.
@@ -439,16 +444,29 @@ export function buildCascadeTrace17(input: BuildCascadeInput): CascadeStep[] {
         },
       ],
     },
-    // 15. RRO
-    {
-      step: 15,
-      label: 'Resultado Residual Operacional (RRO)',
-      base: motor.ancora - motor.imp_dentro_total - motor.cp_efetivo - motor.mod - motor.dop,
-      rate: null,
-      amount: motor.rro,
-      formula: 'ancora − imp_dentro − cp_efetivo − mod − dop',
-      source: 'ETAPA_14',
-    },
+    // 15. EPIC-RT v8: com RT, o item 15 (antes redundante com o 16, ambos exibiam o RRO)
+    //     passa a exibir o RT — Âncora × alíquota efetiva CONGELADA — abatido do RRO. Sem
+    //     RT, mantém o RRO (bit-exact com o comportamento anterior).
+    rt_value > 0.005
+      ? {
+          step: 15,
+          label: 'RT (Comissão Reserva Técnica)',
+          base: motor.ancora,
+          rate: rt_efetiva,
+          amount: -rt_value,
+          formula: 'Âncora (Op. Interna pós-desconto) × alíquota efetiva RT (congelada)',
+          source: 'ETAPA_14',
+          effective_rate_pct: rt_efetiva,
+        }
+      : {
+          step: 15,
+          label: 'Resultado Residual Operacional (RRO)',
+          base: motor.ancora - motor.imp_dentro_total - motor.cp_efetivo - motor.mod - motor.dop,
+          rate: null,
+          amount: motor.rro,
+          formula: 'ancora − imp_dentro − cp_efetivo − mod − dop',
+          source: 'ETAPA_14',
+        },
     // 16. Redistribuição RRO (placeholder)
     {
       step: 16,

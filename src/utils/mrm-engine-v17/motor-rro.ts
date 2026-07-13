@@ -127,8 +127,16 @@ export function applyMotorRRO(input: ApplyMotorRROInput): ApplyMotorRROResult {
   const mod = view.mod_total
   const dop = view.dop_total
 
-  // ───── PDF Etapa 15: RRO ─────
-  const rro = ancora - imp_dentro_total - cp_efetivo - mod - dop
+  // ───── EPIC-RT v8 (2026-07-13): RT (Comissão Reserva Técnica) ─────
+  // Dedução gerencial abatida do RRO ANTES da redistribuição (item 16). A alíquota
+  // efetiva é CONGELADA da construção (Σ rb_i×rt_pct_i / rb_total) e aplicada sobre a
+  // Âncora (Op. Interna pós-desconto). Independe do modo de desconto. Default 0 ⇒ RRO
+  // idêntico ao anterior (bit-exact). NÃO afeta base de IRPJ/CSLL nem pesos de redistribuição.
+  const rt_efetiva = rb_total > 0 ? (Number(view.rt_amount_original) || 0) / rb_total : 0
+  const rt_value = ancora * rt_efetiva
+
+  // ───── PDF Etapa 15: RRO (líquido de RT — EPIC-RT v8) ─────
+  const rro = ancora - imp_dentro_total - cp_efetivo - mod - dop - rt_value
 
   // Status do RRO (R5 — não força a zero, apenas sinaliza)
   let rro_status: ReapurationStatus = 'VALID'
@@ -160,6 +168,8 @@ export function applyMotorRRO(input: ApplyMotorRROInput): ApplyMotorRROResult {
     mod,
     dop,
     rro,
+    rt_value,
+    rt_efetiva,
     rro_status,
     limite_minimo,
   }

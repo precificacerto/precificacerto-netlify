@@ -510,6 +510,10 @@ body {
   color: #f1f5f9;
   line-height: 1.2;
   letter-spacing: -0.01em;
+  /* v8/Item1: impede o sinal "−" de valores negativos (ex.: "−R$ 22.404,13")
+     de quebrar para uma linha separada e mantém a altura/baseline dos 5 cards
+     consistente (o grid já iguala a altura externa; a quebra é que desalinhava). */
+  white-space: nowrap;
 }
 
 .kpi-card-label {
