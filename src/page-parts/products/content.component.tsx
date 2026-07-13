@@ -62,6 +62,10 @@ export type ProductPriceInfoType = {
   productProfitPercentByProduct: number
   productProfitPriceByProduct: number
 
+  // EPIC-RT v8: RT (Comissão Reserva Técnica) — % base 100 (ex.: 3.5 = 3,5%) + valor R$.
+  rtReservePercent: number
+  rtReservePrice: number
+
   indirectLaborExpensePrice: number
   /** laborUnit/priceUnit (0-100) for display. */
   laborPctShown: number
@@ -102,6 +106,8 @@ const PRODUCT_PRICE_INFO_BASE = {
   productProfitPrice: 0,
   productProfitPercentByProduct: 0,
   productProfitPriceByProduct: 0,
+  rtReservePercent: 0,
+  rtReservePrice: 0,
   indirectLaborExpensePercent: 0,
   indirectLaborExpensePrice: 0,
   laborPctShown: 0,
@@ -567,6 +573,7 @@ export const Content: FC<ContentProps> = ({
         ...PRODUCT_PRICE_INFO_BASE,
         productProfitPercent: Number((product as any)?.productPriceInfo?.productProfitPercent ?? (product as any)?.profit_percent) || 0,
         salesCommissionPercent: Number((product as any)?.productPriceInfo?.salesCommissionPercent ?? (product as any)?.commission_percent) || 0,
+        rtReservePercent: Number((product as any)?.productPriceInfo?.rtReservePercent ?? (product as any)?.rt_reserve_percent) || 0,
         productWorkloadInMinutes: Number((product as any)?.productPriceInfo?.productWorkloadInMinutes) || 0,
       } as ProductPriceInfoType)
       setUpdatedProductPriceInfoWithApi((prev) => prev + 1)
@@ -686,6 +693,7 @@ export const Content: FC<ContentProps> = ({
       taxPct: taxPctDecimal,
       commissionPct: productPriceInfo.salesCommissionPercent / 100,
       profitPct: productPriceInfo.productProfitPercent / 100,
+      rtReservePct: (productPriceInfo.rtReservePercent || 0) / 100,
     })
 
     // Para SERVICE + produto com itens (não REVENDA): calcula preço separado do produto
@@ -718,6 +726,7 @@ export const Content: FC<ContentProps> = ({
         indirectLaborExpensePercent: calcBase.indirectLaborPct,
         productProfitPrice: engineResult.profitValue,
         salesCommissionPrice: engineResult.commissionValue,
+        rtReservePrice: engineResult.rtReserveValue,
         productProfitPriceByProduct: resultProductService * (prev.productProfitPercentByProduct / 100) || 0,
         salesCommissionPriceByProduct: resultProductService * (prev.salesCommissionPercentByProduct / 100) || 0,
         indirectLaborExpensePrice: engineResult.laborValue,
@@ -745,6 +754,7 @@ export const Content: FC<ContentProps> = ({
     calcBase.financialExpensePct,
     itemsPriceSum,
     productPriceInfo.productWorkloadInMinutes,
+    productPriceInfo.rtReservePercent,
     productPriceInfo.productProfitPercent,
     productPriceInfo.productProfitPercentByProduct,
     productPriceInfo.salesCommissionPercent,
@@ -930,6 +940,7 @@ export const Content: FC<ContentProps> = ({
         cost_total: costTotalToSave,
         profit_percent: Number(productPriceInfo.productProfitPercent) || 0,
         commission_percent: Number(productPriceInfo.salesCommissionPercent) || 0,
+        rt_reserve_percent: Number(productPriceInfo.rtReservePercent) || 0,
         product_type: productType,
         base_item_id: productType === 'REVENDA' ? baseItemId : null,
         ncm_code: values.ncm_code || null,
@@ -1186,6 +1197,7 @@ export const Content: FC<ContentProps> = ({
           destination_state: destinationState,
           commission_percent: productPriceInfo.salesCommissionPercent || 0,
           profit_percent: productPriceInfo.productProfitPercent || 0,
+          rt_reserve_percent: productPriceInfo.rtReservePercent || 0,
           product_workload_minutes: normalizedWorkloadMinutes,
         },
       })

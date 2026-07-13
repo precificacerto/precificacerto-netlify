@@ -121,6 +121,8 @@ interface SaleItemRow {
     commission_table_id?: string | null
     commission_percent?: number
     profit_percent?: number
+    /** EPIC-RT v8: RT (Comissão Reserva Técnica) do produto/serviço — % base-100. */
+    rt_reserve_percent?: number
     /** Custo unitário do produto/serviço — alimenta CP do motor RR (Sprint S8). */
     cost_total?: number
     /** V8.1 (2026-05-24): MO produtiva inclusa em cost_total (R$ unitário). */
@@ -1118,6 +1120,8 @@ function Sales() {
             : 0
         return {
             ...i,
+            // EPIC-RT v8: RT do item (congelado) ou fallback ao cadastro vivo do produto.
+            rt_reserve_percent: Number((i as any).rt_reserve_percent ?? prod?.rt_reserve_percent) || 0,
             valor_op_interna_unit: numOrNull(prod?.valor_precificado_icms_piscofins),
             sale_price_base_unit: numOrNull(prod?.sale_price_base),
             terceirizadas_unit: terc > 0 ? terc : null,
@@ -1472,6 +1476,16 @@ function Sales() {
                 }
             }
 
+            // EPIC-RT v8 (3.9): RT consolidado congelado da venda (persistido em sales.rt_amount, lido pelos relatórios RT).
+            const rtAmountSale = (() => {
+                const w = saleItems.reduce((s, i) => {
+                    const prod = i.product_id ? (products as any[]).find(p => p.id === i.product_id) : null
+                    const rtPct = Number((i as any).rt_reserve_percent ?? prod?.rt_reserve_percent) || 0
+                    return s + i.unit_price * i.quantity * rtPct / 100
+                }, 0)
+                const t = saleItems.reduce((s, i) => s + i.unit_price * i.quantity, 0)
+                return t > 0 ? (w / t) * saleTotalWithDiscount : 0
+            })()
             // 1) Criar venda (employee_id saved separately to handle missing column)
             const { data: sale, error: saleErr } = await supabase.from('sales').insert({
                 tenant_id: tenantId,
@@ -1487,6 +1501,7 @@ function Sales() {
                 sale_type: 'MANUAL',
                 status: 'COMPLETED',
                 commission_amount: commissionAmount,
+                rt_amount: rtAmountSale,
                 icms_compl_value: icmsComplAmount,
                 icms_st_value: stDifalSale.st,
                 difal_value: stDifalSale.difal,

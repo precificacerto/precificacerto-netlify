@@ -89,6 +89,11 @@ export const BLOCK_COMISSOES: ExpenseSetupItem[] = [
   { key: 'COMISSOES_DE_VENDA', label: 'Comissões de Venda', expense_group: 'COMISSOES' },
 ]
 
+/** Bloco 6.5 (EPIC-RT v8): RT — Comissão Reserva Técnica (não afeta a precificação) */
+export const BLOCK_RESERVA_TECNICA: ExpenseSetupItem[] = [
+  { key: 'COMISSAO_RESERVA_TECNICA', label: 'Comissão Reserva Técnica', expense_group: 'RESERVA_TECNICA' },
+]
+
 /** Bloco 7: Lucro */
 export const BLOCK_LUCRO: ExpenseSetupItem[] = [
   { key: 'INVESTIMENTOS_MAQUINAS_E_EQUIPAMENTOS', label: 'Investimentos (máquinas, equipamentos, expansão e melhorias)', expense_group: 'LUCRO' },

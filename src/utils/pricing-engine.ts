@@ -83,6 +83,12 @@ export interface PricingInput {
   commissionPct: number
   /** Desired profit margin as decimal. */
   profitPct: number
+  /**
+   * RT (Comissão Reserva Técnica) as decimal (EPIC-RT v8, 2026-07-13).
+   * Dedução gerencial paralela a comissão/lucro — entra no total das alíquotas
+   * e no coeficiente. Opcional; default 0 ⇒ preço idêntico ao anterior.
+   */
+  rtReservePct?: number
 }
 
 export interface PricingResult {
@@ -106,11 +112,16 @@ export interface PricingResult {
   taxPct: number
   commissionPct: number
   profitPct: number
+  /** RT (Comissão Reserva Técnica) as decimal, echoed back. */
+  rtReservePct: number
 
   /** Productive labor cost in R$ for this product (productWorkloadMinutes × costPerMinute). */
   productiveLaborCost: number
 
-  /** 1 - (structurePct + taxPct + commissionPct + profitPct). Must be > 0. */
+  /** RT (Comissão Reserva Técnica) in R$ = priceUnit × rtReservePct. */
+  rtReserveValue: number
+
+  /** 1 - (structurePct + taxPct + rtReservePct + commissionPct + profitPct). Must be > 0. */
   coefficient: number
 
   // Prices
@@ -143,6 +154,8 @@ function emptyResult(errors: string[]): PricingResult {
     taxPct: 0,
     commissionPct: 0,
     profitPct: 0,
+    rtReservePct: 0,
+    rtReserveValue: 0,
     coefficient: 0,
     priceUnit: 0,
     priceTotal: 0,
@@ -195,6 +208,7 @@ export function calculatePricing(input: PricingInput): PricingResult {
     commissionPct,
     profitPct,
   } = input
+  const rtReservePct = input.rtReservePct ?? 0
 
   // Step 1 — custo de MO produtiva deste produto (R$)
   const costPerMinute = monthlyWorkloadMinutes > 0
@@ -214,7 +228,7 @@ export function calculatePricing(input: PricingInput): PricingResult {
 
   // Step 3 — coeficiente (todos os % incidem sobre o preço final, por dentro)
   // Não aplicar round2 aqui para preservar precisão na divisão.
-  const coefficient = 1 - (structurePct + taxPct + commissionPct + profitPct)
+  const coefficient = 1 - (structurePct + taxPct + rtReservePct + commissionPct + profitPct)
 
   // Step 4 — validar coeficiente
   if (coefficient <= 0) {
@@ -230,6 +244,7 @@ export function calculatePricing(input: PricingInput): PricingResult {
   const taxValue       = round2(priceUnit * taxPct)
   const commissionValue = round2(priceUnit * commissionPct)
   const profitValue    = round2(priceUnit * profitPct)
+  const rtReserveValue = round2(priceUnit * rtReservePct)
 
   // Para REVENDA: MO é parte da estrutura (já em structureValue); não aparece como linha separada.
   // Para INDUSTRIALIZACAO/SERVICO: MO produtiva já entrou no CMV como productiveLaborCost.
@@ -252,6 +267,8 @@ export function calculatePricing(input: PricingInput): PricingResult {
     taxPct,
     commissionPct,
     profitPct,
+    rtReservePct,
+    rtReserveValue,
     coefficient,
     priceUnit,
     priceTotal,

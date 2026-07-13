@@ -1,4 +1,4 @@
-export type ExpenseGroupKey = 'MAO_DE_OBRA' | 'MAO_DE_OBRA_PRODUTIVA' | 'MAO_DE_OBRA_ADMINISTRATIVA' | 'DESPESA_FIXA' | 'DESPESA_FINANCEIRA' | 'DESPESA_VARIAVEL' | 'IMPOSTO' | 'IMPOSTO_LUCRO' | 'IMPOSTO_FATURAMENTO_DENTRO' | 'CUSTO_PRODUTOS' | 'ATIVIDADES_TERCEIRIZADAS' | 'REGIME_TRIBUTARIO' | 'COMISSOES' | 'LUCRO'
+export type ExpenseGroupKey = 'MAO_DE_OBRA' | 'MAO_DE_OBRA_PRODUTIVA' | 'MAO_DE_OBRA_ADMINISTRATIVA' | 'DESPESA_FIXA' | 'DESPESA_FINANCEIRA' | 'DESPESA_VARIAVEL' | 'IMPOSTO' | 'IMPOSTO_LUCRO' | 'IMPOSTO_FATURAMENTO_DENTRO' | 'CUSTO_PRODUTOS' | 'ATIVIDADES_TERCEIRIZADAS' | 'REGIME_TRIBUTARIO' | 'COMISSOES' | 'RESERVA_TECNICA' | 'LUCRO'
 
 type StandardExpenseGroupKey = 'MAO_DE_OBRA' | 'DESPESA_FIXA' | 'DESPESA_FINANCEIRA' | 'DESPESA_VARIAVEL' | 'IMPOSTO'
 export const EXPENSE_GROUPS: Record<StandardExpenseGroupKey, { key: StandardExpenseGroupKey; label: string; color: string }> = {
@@ -17,6 +17,7 @@ export const EXPENSE_GROUP_OPTIONS: { value: string; label: string }[] = [
   { value: 'ATIVIDADES_TERCEIRIZADAS',   label: 'Atividades Terceirizadas Operacionais' },
   { value: 'REGIME_TRIBUTARIO',          label: 'Regime Tributário' },
   { value: 'COMISSOES',                  label: 'Comissões' },
+  { value: 'RESERVA_TECNICA',            label: 'RT — Comissão Reserva Técnica' },
   { value: 'LUCRO',                      label: 'Lucro' },
   { value: 'IMPOSTO_LUCRO',             label: 'Impostos sobre o Lucro' },
   { value: 'IMPOSTO_FATURAMENTO_DENTRO', label: 'Impostos sobre o Faturamento (Por dentro)' },
@@ -184,6 +185,7 @@ export const CASHIER_CATEGORY = {
     },
     MEI: { order: 46, key: 'MEI', value: 'MEI (Microempreendedor Individual)', group: 'DESPESA_FIXA' as ExpenseGroupKey },
     COMISSOES_DE_VENDA: { order: 47, key: 'COMISSOES_DE_VENDA', value: 'Comissões de Venda', group: 'COMISSOES' as ExpenseGroupKey },
+    COMISSAO_RESERVA_TECNICA: { order: 47.5, key: 'COMISSAO_RESERVA_TECNICA', value: 'Comissão Reserva Técnica', group: 'RESERVA_TECNICA' as ExpenseGroupKey },
     COMBUSTIVEIS: { order: 48, key: 'COMBUSTIVEIS', value: 'Combustíveis', group: 'DESPESA_VARIAVEL' as ExpenseGroupKey },
     CORREIOS: { order: 49, key: 'CORREIOS', value: 'Correios', group: 'DESPESA_VARIAVEL' as ExpenseGroupKey },
     DEPARTAMENTO_JURIDICO: {
@@ -347,6 +349,7 @@ import {
   BLOCK_ATIVIDADES_TERCEIRIZADAS,
   BLOCK_DESPESAS_FINANCEIRAS,
   BLOCK_COMISSOES,
+  BLOCK_RESERVA_TECNICA,
   BLOCK_LUCRO,
   BLOCK_IMPOSTOS_SIMPLES,
   BLOCK_IMPOSTOS_LUCRO,
@@ -389,6 +392,10 @@ const BASE_EXPENSE_CATEGORY_OPTIONS = [
   {
     label: '── Comissões ──',
     options: BLOCK_COMISSOES.map(i => ({ label: i.label, value: i.key })),
+  },
+  {
+    label: '── RT — Comissão Reserva Técnica ──',
+    options: BLOCK_RESERVA_TECNICA.map(i => ({ label: i.label, value: i.key })),
   },
   {
     label: '── Lucro ──',
@@ -457,6 +464,7 @@ const SN_CATEGORY_GROUP_MAP: { category: string; group: string }[] = [
   { category: 'Distribuição de lucros', group: 'LUCRO' },
   { category: 'Combustíveis', group: 'DESPESA_VARIAVEL' },
   { category: 'Comissões de venda', group: 'COMISSOES' },
+  { category: 'Comissão Reserva Técnica', group: 'RESERVA_TECNICA' },
   { category: 'Correios', group: 'DESPESA_VARIAVEL' },
   { category: 'Departamento jurídico', group: 'DESPESA_VARIAVEL' },
   { category: 'Embalagens diversas', group: 'DESPESA_VARIAVEL' },
@@ -498,6 +506,7 @@ const SN_GROUP_TO_STANDARD: Record<string, ExpenseGroupKey> = {
   ATIVIDADES_TERCEIRIZADAS: 'ATIVIDADES_TERCEIRIZADAS',
   REGIME_TRIBUTARIO: 'REGIME_TRIBUTARIO',
   COMISSOES: 'COMISSOES',
+  RESERVA_TECNICA: 'RESERVA_TECNICA',
   LUCRO: 'LUCRO',
 }
 
@@ -512,6 +521,7 @@ const SN_EXPENSE_CATEGORY_OPTIONS = [
   { label: '── Regime Tributário ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'REGIME_TRIBUTARIO').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Impostos sobre o Faturamento (Por dentro) ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'IMPOSTO_FATURAMENTO_DENTRO').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Comissões ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'COMISSOES').map(c => ({ label: c.category, value: c.category })) },
+  { label: '── RT — Comissão Reserva Técnica ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'RESERVA_TECNICA').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Lucro ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'LUCRO').map(c => ({ label: c.category, value: c.category })) },
 ]
 
@@ -597,6 +607,7 @@ const EXPENSE_TYPE_LABELS: Record<string, string> = {
   ATIVIDADES_TERCEIRIZADAS: 'Atividades Terceirizadas Operacionais',
   REGIME_TRIBUTARIO: 'Regime Tributário',
   COMISSOES: 'Comissões',
+  RESERVA_TECNICA: 'RT — Comissão Reserva Técnica',
   LUCRO: 'Lucro',
 }
 

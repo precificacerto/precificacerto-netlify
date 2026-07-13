@@ -53,6 +53,8 @@ export interface PageItem {
   productive_labor_unit?: number | null
   commission_percent?: number | null
   profit_percent?: number | null
+  /** EPIC-RT v8: RT (Comissão Reserva Técnica) do cadastro do produto — % base-100. */
+  rt_reserve_percent?: number | null
   /** Alíquotas tributárias específicas do item (V17: merge com tenant). */
   item_tax_rates?: ItemTaxRates | null
   expense_breakdown_unit?: {
@@ -275,6 +277,8 @@ export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResul
     // % decimais do item (comissão/lucro do cadastro do produto)
     const commission_pct = (Number(item.commission_percent) || 0) / 100
     const profit_pct = (Number(item.profit_percent) || 0) / 100
+    // EPIC-RT v8: RT (Comissão Reserva Técnica) — decimal do cadastro do produto.
+    const rt_pct = (Number(item.rt_reserve_percent) || 0) / 100
     // ADENDO RRO (2026-06-02, Seção 23.1): pesos de redistribuição derivam dos
     // percentuais ESTRUTURAIS por produto. Em LUCRO_REAL, IRPJ/CSLL incidem sobre
     // o lucro do produto (profit_pct × alíquota nominal), não sobre a margem global
@@ -469,6 +473,7 @@ export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResul
       dop_pct,
       commission_pct,
       profit_pct,
+      rt_pct,
       csll_pct,
       irpj_pct,
       peso_op_interna,
@@ -740,6 +745,8 @@ export function calculateMotorV17ForPageFull(args: PageBuildArgs): {
 
     const commission_pct = (Number(item.commission_percent) || 0) / 100
     const profit_pct = (Number(item.profit_percent) || 0) / 100
+    // EPIC-RT v8: RT (Comissão Reserva Técnica) — decimal do cadastro do produto.
+    const rt_pct = (Number(item.rt_reserve_percent) || 0) / 100
     // ADENDO RRO (2026-06-02, Seção 23.1): IRPJ/CSLL estruturais por produto.
     const { csll_pct, irpj_pct } = resolveStructuralProfitTaxes(
       args.tenantCtx.regime,
@@ -776,6 +783,7 @@ export function calculateMotorV17ForPageFull(args: PageBuildArgs): {
       dop_pct,
       commission_pct,
       profit_pct,
+      rt_pct,
       csll_pct,
       irpj_pct,
       peso_op_interna: 1,

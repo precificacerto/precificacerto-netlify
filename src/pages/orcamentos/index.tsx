@@ -133,6 +133,8 @@ interface BudgetItemRow {
     commission_table_id?: string | null
     commission_percent?: number
     profit_percent?: number
+    /** EPIC-RT v8: RT (Comissão Reserva Técnica) do produto/serviço — % base-100. */
+    rt_reserve_percent?: number
     /** Custo unitário do produto/serviço — alimenta CP do motor RR (Sprint S8). */
     cost_total?: number
     /** V8.1 (2026-05-24): Parcela de MO produtiva inclusa em cost_total (R$ unitário).
@@ -676,6 +678,8 @@ function Budgets() {
         return {
             ...i,
             ...costFields,
+            // EPIC-RT v8: RT do item (congelado) ou fallback ao cadastro vivo do produto.
+            rt_reserve_percent: Number((i as any).rt_reserve_percent ?? prod?.rt_reserve_percent) || 0,
             valor_op_interna_unit: numOrNull(prod?.valor_precificado_icms_piscofins),
             sale_price_base_unit: numOrNull(prod?.sale_price_base),
             terceirizadas_unit: terceirizadas > 0 ? terceirizadas : null,
@@ -765,6 +769,17 @@ function Budgets() {
     void calculateMarginReapuration; void buildMotorInput;
     const profitAmount = motorResultsByItem.reduce((s, r) => s + (r?.new_profit ?? 0), 0)
     const commissionAmount = motorResultsByItem.reduce((s, r) => s + (r?.new_commission ?? 0), 0)
+    // EPIC-RT v8 (3.9): RT consolidado CONGELADO = alíquota efetiva × total pós-desconto.
+    // Persistido em budgets.rt_amount (espelha commission_amount); lido pelos relatórios RT.
+    const rtAmount = (() => {
+        const w = budgetItems.reduce((s, i) => {
+            const prod = i.product_id ? (products as any[]).find(p => p.id === i.product_id) : null
+            const rtPct = Number((i as any).rt_reserve_percent ?? prod?.rt_reserve_percent) || 0
+            return s + i.unit_price * i.quantity * rtPct / 100
+        }, 0)
+        const t = budgetItems.reduce((s, i) => s + i.unit_price * i.quantity, 0)
+        return t > 0 ? (w / t) * budgetTotalWithDiscount : 0
+    })()
     // ICMS Complementar consolidado (Etapa 17), somado dos itens (Adendo 25-A: base = IPI somado
     // + Desp. Acessórias). NOTA (QA Quinn 23/06/2026): o motor V17 deriva os tributos por fora da
     // âncora PÓS-desconto, logo este valor já reflete o desconto da operação; a multiplicação extra
@@ -1068,6 +1083,7 @@ function Budgets() {
                 discount_mode: persistedDiscountModeInsert,
                 commission_amount: commissionAmount,
                 profit_amount: profitAmount,
+                rt_amount: rtAmount,
                 icms_compl_value: icmsComplAmount,
                 icms_st_value: stDifalConsolidated.st,
                 difal_value: stDifalConsolidated.difal,
@@ -1244,6 +1260,7 @@ function Budgets() {
                 discount_mode: persistedDiscountModeUpdate,
                 commission_amount: commissionAmount,
                 profit_amount: profitAmount,
+                rt_amount: rtAmount,
                 icms_compl_value: icmsComplAmount,
                 icms_st_value: stDifalConsolidated.st,
                 difal_value: stDifalConsolidated.difal,

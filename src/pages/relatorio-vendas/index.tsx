@@ -72,6 +72,9 @@ interface CommissionReportRow {
     comissaoPaga: number
     percentVendedor: number
     lucroEmpresa: number
+    // EPIC-RT v8: RT (Comissão Reserva Técnica) — alíquota efetiva congelada × valor vendido.
+    rtValor: number
+    rtPercent: number
     hasCommissionData: boolean
 }
 
@@ -148,7 +151,7 @@ function SalesReport() {
     const { isMobile } = useDeviceInfo()
     const canRegisterPayment = isAdmin || canEdit(MODULES.SALES_REPORT)
 
-    const [activeTab, setActiveTab] = useState<'RECEIVABLES' | 'COMMISSIONS' | 'PRODUCTS' | 'SERVICES'>('RECEIVABLES')
+    const [activeTab, setActiveTab] = useState<'RECEIVABLES' | 'COMMISSIONS' | 'RT_COMMISSIONS' | 'PRODUCTS' | 'SERVICES'>('RECEIVABLES')
 
     // Commissions report state
     const [commData, setCommData] = useState<CommissionReportRow[]>([])
@@ -572,7 +575,7 @@ function SalesReport() {
 
             let salesQuery: any = (supabase as any)
                 .from('sales')
-                .select('id, sale_code, sale_date, employee_id, customer_id, final_value, commission_amount, discount_value, description, budget_id')
+                .select('id, sale_code, sale_date, employee_id, customer_id, final_value, commission_amount, rt_amount, discount_value, description, budget_id')
                 .eq('tenant_id', effectiveTenantId)
                 .eq('is_active', true)
                 .gte('sale_date', start)
@@ -589,7 +592,7 @@ function SalesReport() {
                 // Fallback: remove potentially missing columns
                 const { data: salesSimple, error: salesErr2 } = await (supabase as any)
                     .from('sales')
-                    .select('id, sale_code, sale_date, employee_id, customer_id, final_value, commission_amount, description, budget_id')
+                    .select('id, sale_code, sale_date, employee_id, customer_id, final_value, commission_amount, rt_amount, description, budget_id')
                     .eq('tenant_id', effectiveTenantId)
                     .eq('is_active', true)
                     .gte('sale_date', start)
@@ -611,7 +614,7 @@ function SalesReport() {
 
             const { data: items } = await (supabase as any)
                 .from('sale_items')
-                .select('sale_id, product_id, quantity, unit_price, discount, total, cost, commission_percent, profit_percent, product:products(id, name, cost_total)')
+                .select('sale_id, product_id, quantity, unit_price, discount, total, cost, commission_percent, profit_percent, product:products(id, name, cost_total, rt_reserve_percent)')
                 .in('sale_id', saleIds)
 
             const itemsBySale = new Map<string, any[]>()
@@ -659,12 +662,14 @@ function SalesReport() {
 
                 let valorPreciso = 0
                 let totalCost = 0
+                let rtWeighted = 0 // EPIC-RT v8: Σ(qty × unit_price × rt_pct) — base da efetiva de RT
                 const productIds: string[] = []
                 const productNames: string[] = []
                 for (const it of saleItems) {
                     const qty = Number(it.quantity) || 0
                     const unitPrice = Number(it.unit_price) || 0
                     valorPreciso += qty * unitPrice
+                    rtWeighted += qty * unitPrice * (Number(it.product?.rt_reserve_percent) || 0) / 100
                     const itemCost = it.cost != null ? Number(it.cost) : Number(it.product?.cost_total) || 0
                     totalCost += qty * itemCost
                     if (it.product_id && !productIds.includes(it.product_id)) {
@@ -679,6 +684,13 @@ function SalesReport() {
                 const employeeCommissionPct = sale.employee_id ? employeeCommissionMap.get(sale.employee_id) : undefined
                 const { comissaoPaga, percentVendedor, hasData } = computeSaleCommission(sale, saleItems, employeeCommissionPct)
                 const lucroEmpresa = valorVendido - totalCost - comissaoPaga
+                // EPIC-RT v8 (3.9/3.10): prioriza o RT CONGELADO gravado na venda (sales.rt_amount);
+                // fallback on-the-fly (produto vivo) para vendas antigas sem o valor persistido.
+                const rtFrozen = Number(sale.rt_amount) || 0
+                const rtValor = rtFrozen > 0
+                    ? rtFrozen
+                    : (valorPreciso > 0 ? (rtWeighted / valorPreciso) * valorVendido : 0)
+                const rtPercent = valorVendido > 0 ? (rtValor / valorVendido) * 100 : 0
 
                 rows.push({
                     saleId: sale.id,
@@ -694,6 +706,8 @@ function SalesReport() {
                     comissaoPaga,
                     percentVendedor,
                     lucroEmpresa,
+                    rtValor,
+                    rtPercent,
                     hasCommissionData: hasData,
                 })
             }
@@ -1378,7 +1392,7 @@ function SalesReport() {
     }, [activeTab, fetchSvcReport])
 
     useEffect(() => {
-        if (activeTab === 'COMMISSIONS') fetchCommissionsReport()
+        if (activeTab === 'COMMISSIONS' || activeTab === 'RT_COMMISSIONS') fetchCommissionsReport()
     }, [activeTab, fetchCommissionsReport])
 
     // ─── KPIs ───
@@ -1676,6 +1690,34 @@ function SalesReport() {
     const commTotalVendido = useMemo(() => commData.reduce((s, r) => s + r.valorVendido, 0), [commData])
     const commTotalComissao = useMemo(() => commData.reduce((s, r) => s + r.comissaoPaga, 0), [commData])
     const commTotalLucro = useMemo(() => commData.reduce((s, r) => s + r.lucroEmpresa, 0), [commData])
+
+    // EPIC-RT v8: aba "RT Comissões" — reusa commData/filtros, troca Comissão %/R$ por RT %/R$.
+    const rtColumns: ColumnsType<CommissionReportRow> = [
+        ...commColumns.slice(0, -2),
+        {
+            title: 'RT %',
+            dataIndex: 'rtPercent',
+            key: 'rtPercent',
+            width: 120,
+            align: 'right',
+            sorter: (a, b) => a.rtPercent - b.rtPercent,
+            render: (v: number) => v > 0
+                ? <span style={{ fontWeight: 600 }}>{v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</span>
+                : <span style={{ color: '#94a3b8' }}>—</span>,
+        },
+        {
+            title: 'RT R$',
+            dataIndex: 'rtValor',
+            key: 'rtValor',
+            width: 140,
+            align: 'right',
+            sorter: (a, b) => a.rtValor - b.rtValor,
+            render: (v: number) => v > 0
+                ? <span style={{ color: '#06b6d4', fontWeight: 600 }}>{formatCurrency(v)}</span>
+                : <span style={{ color: '#94a3b8' }}>—</span>,
+        },
+    ]
+    const rtTotalRT = useMemo(() => commData.reduce((s, r) => s + r.rtValor, 0), [commData])
 
     const handleExportCommissionsExcel = () => {
         if (!commData.length) return
@@ -2035,7 +2077,7 @@ function SalesReport() {
             <div className="pc-card--table">
                 <Tabs
                     activeKey={activeTab}
-                    onChange={(k) => setActiveTab(k as 'RECEIVABLES' | 'COMMISSIONS' | 'PRODUCTS' | 'SERVICES')}
+                    onChange={(k) => setActiveTab(k as 'RECEIVABLES' | 'COMMISSIONS' | 'RT_COMMISSIONS' | 'PRODUCTS' | 'SERVICES')}
                     items={[
                         {
                             key: 'RECEIVABLES',
@@ -2047,6 +2089,12 @@ function SalesReport() {
                             key: 'COMMISSIONS',
                             label: (
                                 <span><TeamOutlined style={{ marginRight: 6 }} />Relatório de Comissões</span>
+                            ),
+                        },
+                        {
+                            key: 'RT_COMMISSIONS',
+                            label: (
+                                <span><TeamOutlined style={{ marginRight: 6 }} />RT Comissões</span>
                             ),
                         },
                         {
@@ -2240,6 +2288,74 @@ function SalesReport() {
                                 ),
                             }}
                             summary={renderCommissionSummary}
+                        />
+                    </div>
+                ) : activeTab === 'RT_COMMISSIONS' ? (
+                    <div>
+                        {/* RT Comissões KPIs */}
+                        <div className="kpi-grid" style={{ marginBottom: 20 }}>
+                            <CardKPI title="Total Vendido" value={formatCurrency(commTotalVendido)} icon={<DollarOutlined />} variant="green" />
+                            <CardKPI title="Total RT" value={formatCurrency(rtTotalRT)} icon={<TeamOutlined />} variant="blue" />
+                            <CardKPI title="Lucro após RT" value={formatCurrency(commTotalLucro - rtTotalRT)} icon={<BarChartOutlined />} variant="orange" />
+                        </div>
+
+                        {/* RT Filters — mesmos filtros/dados de Comissões */}
+                        <div className="filter-bar" style={{ marginBottom: 16, display: 'flex', flexWrap: 'wrap', gap: isMobile ? 8 : 10, alignItems: 'center' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                                <FilterOutlined style={{ color: '#94a3b8' }} />
+                                <span style={{ color: '#94a3b8', fontSize: 13 }}>Filtros:</span>
+                            </div>
+                            <RangePicker
+                                value={commDateRange}
+                                onChange={(dates) => { if (dates && dates[0] && dates[1]) setCommDateRange([dates[0], dates[1]]) }}
+                                format="DD/MM/YYYY"
+                                allowClear={false}
+                                size={isMobile ? 'small' : 'middle'}
+                                style={isMobile ? { width: '100%', minWidth: 0 } : { width: 220 }}
+                            />
+                            <Select
+                                placeholder="Vendedor"
+                                value={commEmployeeFilter}
+                                onChange={setCommEmployeeFilter}
+                                allowClear
+                                size={isMobile ? 'small' : 'middle'}
+                                style={isMobile ? { flex: '1 1 45%', minWidth: 0 } : { width: 150 }}
+                                options={(employees as any[]).map((e: any) => ({ value: e.id, label: e.name }))}
+                            />
+                            <Select
+                                placeholder="Produto"
+                                value={commProductFilter}
+                                onChange={setCommProductFilter}
+                                allowClear
+                                showSearch
+                                optionFilterProp="label"
+                                size={isMobile ? 'small' : 'middle'}
+                                style={isMobile ? { flex: '1 1 45%', minWidth: 0 } : { width: 170 }}
+                                options={allProducts}
+                            />
+                            <div style={{ marginLeft: isMobile ? 0 : 'auto', display: 'flex', gap: 8, flexShrink: 0, width: isMobile ? '100%' : undefined }}>
+                                <Button icon={<ReloadOutlined />} onClick={fetchCommissionsReport} loading={commLoading} size={isMobile ? 'small' : 'middle'} style={isMobile ? { flex: 1 } : undefined}>
+                                    Atualizar
+                                </Button>
+                            </div>
+                        </div>
+
+                        <Table<CommissionReportRow>
+                            columns={rtColumns}
+                            dataSource={commData}
+                            rowKey="saleId"
+                            pagination={{ pageSize: PAGE_SIZE, showTotal: (t) => `${t} pedidos` }}
+                            size={isMobile ? 'small' : 'middle'}
+                            loading={commLoading}
+                            scroll={{ x: isMobile ? 720 : 1100 }}
+                            locale={{
+                                emptyText: (
+                                    <Empty
+                                        image={Empty.PRESENTED_IMAGE_SIMPLE}
+                                        description={<span style={emptyTextStyle}>Nenhuma venda encontrada no período selecionado.</span>}
+                                    />
+                                ),
+                            }}
                         />
                     </div>
                 ) : activeTab === 'PRODUCTS' ? (

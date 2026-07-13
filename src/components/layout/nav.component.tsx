@@ -130,6 +130,7 @@ const Nav = () => {
     { key: 'cashflow', label: 'Controle Financeiro', icon: 'shopping', href: ROUTES.FINANCIAL_CONTROL, section: 'financeiro', module: MODULES.CASH_FLOW },
     { key: 'dfc', label: 'Análise Financeira', icon: 'fund', href: ROUTES.DFC, section: 'financeiro', module: MODULES.DFC },
     { key: 'commission', label: 'Comissão de Vendedor', icon: 'idcard', href: ROUTES.COMMISSION, section: 'financeiro', module: MODULES.COMMISSION },
+    { key: 'rt-commission', label: 'RT Comissões', icon: 'idcard', href: ROUTES.RT_COMMISSION, section: 'financeiro', module: MODULES.COMMISSION },
 
     { key: 'calendar', label: 'Agenda', icon: 'calendar', href: ROUTES.SCHEDULE, section: 'operacional', module: MODULES.AGENDA },
     { key: 'reports', label: 'Relatório Agenda', icon: 'bar-chart', href: ROUTES.REPORTS, section: 'operacional', module: MODULES.REPORTS },

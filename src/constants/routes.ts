@@ -43,6 +43,7 @@ export enum ROUTES {
   FINANCIAL_CONTROL = '/controle-financeiro',
   DFC = '/dfc',
   COMMISSION = '/comissao-vendedor',
+  RT_COMMISSION = '/rt-comissoes',
 
   // ── Phase 5: Operacional ──
   SCHEDULE = '/agenda',

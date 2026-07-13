@@ -120,6 +120,8 @@ export const ProductPrice: FC<Props> = ({
   const commissionVal = productPriceInfo.salesCommissionPrice
   const profitPct = productPriceInfo.productProfitPercent
   const profitVal = productPriceInfo.productProfitPrice
+  // EPIC-RT v8: RT (Comissão Reserva Técnica) — dedução gerencial paralela a comissão/lucro.
+  const rtReservePct = Number(productPriceInfo.rtReservePercent) || 0
 
   const yieldQty = Number(productForm.getFieldValue('quantity')) || 1
   const unit = productForm.getFieldValue('unitType')
@@ -138,8 +140,8 @@ export const ProductPrice: FC<Props> = ({
     : taxPctDisplay
 
   const totalPct = isCalcTypeService
-    ? variablePct + financialPct + taxContribution + commissionPct + profitPct
-    : laborPct + fixedPct + variablePct + financialPct + taxContribution + commissionPct + profitPct
+    ? variablePct + financialPct + rtReservePct + taxContribution + commissionPct + profitPct
+    : laborPct + fixedPct + variablePct + financialPct + rtReservePct + taxContribution + commissionPct + profitPct
   const costTotal = productPriceInfo.productCost
   const taxesTotal = taxValDisplay
 
@@ -163,6 +165,7 @@ export const ProductPrice: FC<Props> = ({
   const financialValDisplay = displayBase * financialPct / 100
   const commissionValDisplay = displayBase * commissionPct / 100
   const profitValDisplay = displayBase * profitPct / 100
+  const rtReserveValDisplay = displayBase * rtReservePct / 100
   const irpjValDisplay = showIrpjCsll ? profitValDisplay * 0.15 : 0
   const csllValDisplay = showIrpjCsll ? profitValDisplay * 0.09 : 0
   const adicionalIrpjValDisplay = (isLucroReal || isLucroPresumed) ? (displayBase * adicionalIrpjPct / 100) : 0
@@ -234,7 +237,7 @@ export const ProductPrice: FC<Props> = ({
     label: string,
     pct: number,
     val: number,
-    editable?: 'salesCommissionPercent' | 'productProfitPercent' | 'customTaxPercent' | 'additionalIrpj' | 'icms' | 'pisCofins',
+    editable?: 'salesCommissionPercent' | 'productProfitPercent' | 'rtReservePercent' | 'customTaxPercent' | 'additionalIrpj' | 'icms' | 'pisCofins',
     tooltipText?: string,
   ) {
     const handleEditableChange = (v: number | null) => {
@@ -327,6 +330,7 @@ export const ProductPrice: FC<Props> = ({
             {pricingRow('Despesas variáveis', variablePct, variableValDisplay)}
             {pricingRow('Despesas financeiras', financialPct, financialValDisplay)}
             {!showIrpjCsll && !isLpRet && !isSimplesHibrido && pricingRow(taxLabel, taxPctDisplay, taxValDisplay, 'customTaxPercent', 'Alíquota efetiva herdada do regime tributário. Edite para ajustar apenas neste produto/serviço.')}
+            {pricingRow('RT — Comissão Reserva Técnica', rtReservePct, rtReserveValDisplay, 'rtReservePercent', 'Reserva Técnica: dedução gerencial paralela à comissão e ao lucro, inserida manualmente por produto. A alíquota efetiva fica congelada na cascata (não varia com o desconto do orçamento) e não entra na base de IRPJ/CSLL. Deixe 0% se não aplicável.')}
             {pricingRow(
               'Comissão total do vendedor',
               commissionPct,

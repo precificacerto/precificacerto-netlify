@@ -85,6 +85,7 @@ const HUB_GROUPS: { group: string; label: string }[] = [
   { group: 'ATIVIDADES_TERCEIRIZADAS',    label: 'Atividades Terceirizadas' },
   { group: 'DESPESA_FINANCEIRA',          label: 'Despesas Financeiras' },
   { group: 'COMISSOES',                   label: 'Comissões' },
+  { group: 'RESERVA_TECNICA',             label: 'RT — Comissão Reserva Técnica' },
   { group: 'LUCRO',                       label: 'Lucro / Investimentos' },
   { group: 'IMPOSTO_LUCRO',              label: 'Impostos sobre o Lucro' },
   { group: 'IMPOSTO_FATURAMENTO_DENTRO', label: 'Impostos sobre o Faturamento (Por dentro)' },
