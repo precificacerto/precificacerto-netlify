@@ -88,8 +88,11 @@ export const ContentService: FC<ContentServiceProps> = ({
   const svcCommVal = productPriceInfo.salesCommissionPrice
   const svcProfitPct = productPriceInfo.productProfitPercent
   const svcProfitVal = productPriceInfo.productProfitPrice
+  // EPIC-RT v8: RT (Comissão Reserva Técnica) — paralelo a comissão/lucro no serviço.
+  const svcRtPct = Number(productPriceInfo.rtReservePercent) || 0
+  const svcRtVal = productPriceInfo.rtReservePrice || 0
   /* MO indireta + Despesa fixa agora contabilizados dentro de MO produtiva */
-  const svcTotalPct = svcVarPct + svcFinPct + svcTaxPct + svcCommPct + svcProfitPct
+  const svcTotalPct = svcVarPct + svcFinPct + svcRtPct + svcTaxPct + svcCommPct + svcProfitPct
   const svcCost = productPriceInfo.productCost
   const svcExpenses = svcLaborVal + svcFixedVal + svcVarVal + svcFinVal
   const svcTaxes = svcTaxVal
@@ -256,6 +259,7 @@ export const ContentService: FC<ContentServiceProps> = ({
               {pricingRow('Despesas variáveis', svcVarPct, svcVarVal)}
               {pricingRow('Despesas financeiras', svcFinPct, svcFinVal)}
               {pricingRow(svcTaxLabel, svcTaxPct, svcTaxVal)}
+              {pricingRow('RT — Comissão Reserva Técnica', svcRtPct, svcRtVal, 'rtReservePercent', 'Reserva Técnica: dedução gerencial paralela à comissão e ao lucro. Alíquota congelada na cascata (não varia com desconto). Deixe 0% se não aplicável.')}
               {pricingRow('Comissão / Mão de obra', svcCommPct, svcCommVal, 'salesCommissionPercent')}
               {pricingRow('Lucro', svcProfitPct, svcProfitVal, 'productProfitPercent')}
             </tbody>
