@@ -158,6 +158,22 @@ export function buildCascadeTrace17(input: BuildCascadeInput): CascadeStep[] {
           ]
         : undefined,
     },
+    // 5.5 (v8 pendências item 2): Consolidação do RT na CONSTRUÇÃO — entre despesas (5) e margens
+    //     (6), simétrica à etapa 15 (RT) da desconstrução. Presente apenas quando há RT. Numeração
+    //     fracionada de propósito: renumerar 6→18 quebraria a lógica step-16/17 da absorption e a
+    //     própria "etapa 15" (que o relatório confirma correta). Base/alíquota efetiva/valor sobre Op. Interna.
+    ...(rt_efetiva > 0
+      ? [{
+          step: 5.5,
+          label: 'Consolidação do RT (Comissão Reserva Técnica)',
+          base: op_interna_pre,
+          rate: null,
+          amount: op_interna_pre * rt_efetiva,
+          formula: 'Op. Interna × alíquota efetiva de RT (congelada)',
+          source: 'ITEMS' as const,
+          effective_rate_pct: rt_efetiva,
+        }]
+      : []),
     // 6. Consolidação margens (Adendo 26-A: AGREGAÇÃO das margens da Etapa 2, sobre a
     //    Operação Interna de cada produto — NÃO recálculo sobre a Venda Consolidada.
     //    Os `amount` usam os campos `*_amount_internal` (base op_interna, sem Op. Externa).

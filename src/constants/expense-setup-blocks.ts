@@ -91,7 +91,7 @@ export const BLOCK_COMISSOES: ExpenseSetupItem[] = [
 
 /** Bloco 6.5 (EPIC-RT v8): RT — Comissão Reserva Técnica (não afeta a precificação) */
 export const BLOCK_RESERVA_TECNICA: ExpenseSetupItem[] = [
-  { key: 'COMISSAO_RESERVA_TECNICA', label: 'Comissão Reserva Técnica', expense_group: 'RESERVA_TECNICA' },
+  { key: 'COMISSAO_RESERVA_TECNICA', label: 'RT - Comissão Reserva Técnica', expense_group: 'RESERVA_TECNICA' },
 ]
 
 /** Bloco 7: Lucro */

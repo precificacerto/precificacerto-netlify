@@ -390,12 +390,9 @@ const BASE_EXPENSE_CATEGORY_OPTIONS = [
     options: BLOCK_DESPESAS_FINANCEIRAS.map(i => ({ label: i.label, value: i.key })),
   },
   {
+    // v8 pendências item 3: RT dentro da seção Comissões, logo abaixo de "Comissões de Venda".
     label: '── Comissões ──',
-    options: BLOCK_COMISSOES.map(i => ({ label: i.label, value: i.key })),
-  },
-  {
-    label: '── RT — Comissão Reserva Técnica ──',
-    options: BLOCK_RESERVA_TECNICA.map(i => ({ label: i.label, value: i.key })),
+    options: [...BLOCK_COMISSOES, ...BLOCK_RESERVA_TECNICA].map(i => ({ label: i.label, value: i.key })),
   },
   {
     label: '── Lucro ──',
@@ -464,7 +461,7 @@ const SN_CATEGORY_GROUP_MAP: { category: string; group: string }[] = [
   { category: 'Distribuição de lucros', group: 'LUCRO' },
   { category: 'Combustíveis', group: 'DESPESA_VARIAVEL' },
   { category: 'Comissões de venda', group: 'COMISSOES' },
-  { category: 'Comissão Reserva Técnica', group: 'RESERVA_TECNICA' },
+  { category: 'RT - Comissão Reserva Técnica', group: 'RESERVA_TECNICA' },
   { category: 'Correios', group: 'DESPESA_VARIAVEL' },
   { category: 'Departamento jurídico', group: 'DESPESA_VARIAVEL' },
   { category: 'Embalagens diversas', group: 'DESPESA_VARIAVEL' },
@@ -520,8 +517,7 @@ const SN_EXPENSE_CATEGORY_OPTIONS = [
   { label: '── Atividades Terceirizadas Operacionais ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'ATIVIDADES_TERCEIRIZADAS').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Regime Tributário ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'REGIME_TRIBUTARIO').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Impostos sobre o Faturamento (Por dentro) ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'IMPOSTO_FATURAMENTO_DENTRO').map(c => ({ label: c.category, value: c.category })) },
-  { label: '── Comissões ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'COMISSOES').map(c => ({ label: c.category, value: c.category })) },
-  { label: '── RT — Comissão Reserva Técnica ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'RESERVA_TECNICA').map(c => ({ label: c.category, value: c.category })) },
+  { label: '── Comissões ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'COMISSOES' || c.group === 'RESERVA_TECNICA').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Lucro ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'LUCRO').map(c => ({ label: c.category, value: c.category })) },
 ]
 

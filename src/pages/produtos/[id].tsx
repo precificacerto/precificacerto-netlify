@@ -181,6 +181,9 @@ const ProductDetails = () => {
                 productProfitPrice: Number(pricing?.val_profit) || 0,
                 productProfitPercentByProduct: 0,
                 productProfitPriceByProduct: 0,
+                // EPIC-RT v8 (BUG-PRODUTO-RT-PERSIST-001): reidrata o RT salvo no produto na edição.
+                rtReservePercent: p?.rt_reserve_percent != null ? Number(p.rt_reserve_percent) : 0,
+                rtReservePrice: 0,
                 indirectLaborForcePrice: Number(pricing?.val_indirect_labor) || 0,
                 feightPrice: 0,
                 packagingPrice: 0,
