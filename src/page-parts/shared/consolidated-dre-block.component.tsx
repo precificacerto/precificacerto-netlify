@@ -382,11 +382,12 @@ export function ConsolidatedDREBlock(props: ConsolidatedDREBlockProps) {
       ? applyTotalACobrarToStep11(cascadeTrace, totalACobrarComDesconto)
       : cascadeTrace
 
-  // Memória cascata: V16 (13 etapas) ou V17 (17 etapas). Sem cascata válida, nada é exibido.
-  if (
-    !cascadeTraceForDisplay ||
-    !(cascadeTraceForDisplay.length === 13 || cascadeTraceForDisplay.length === 17)
-  ) {
+  // REGRA DE INVIOLABILIDADE (doc Cascata RT 14/07, Seção 6): a Memória Cascata deve
+  // renderizar para QUALQUER trace válido (não-vazio), independentemente da contagem de
+  // etapas — 13 (V16 legado), 17 (V17), 18/19 (V17 + RT), etc. O guard anterior travava
+  // em `13 || 17` e sumia silenciosamente quando o RT adicionava etapa(s) (18) — bug
+  // BUG-CASCATA-RT-AUSENTE-001. NUNCA falhar silenciosamente por variação de configuração.
+  if (!cascadeTraceForDisplay || cascadeTraceForDisplay.length === 0) {
     return null
   }
 

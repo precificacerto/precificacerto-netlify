@@ -158,11 +158,12 @@ export function buildCascadeTrace17(input: BuildCascadeInput): CascadeStep[] {
           ]
         : undefined,
     },
-    // 5.5 (v8 pendências item 2): Consolidação do RT na CONSTRUÇÃO — entre despesas (5) e margens
-    //     (6), simétrica à etapa 15 (RT) da desconstrução. Presente apenas quando há RT. Numeração
-    //     fracionada de propósito: renumerar 6→18 quebraria a lógica step-16/17 da absorption e a
-    //     própria "etapa 15" (que o relatório confirma correta). Base/alíquota efetiva/valor sobre Op. Interna.
-    ...(rt_efetiva > 0
+    // 5.5 (Cascata RT 14/07): Consolidação do RT na CONSTRUÇÃO — entre despesas (5) e margens (6).
+    //     Presente quando o orçamento tem RT (retrocompat: sem RT a cascata segue com 17 etapas,
+    //     "exatamente como hoje" — Seção 6). Numeração fracionada de propósito: renumerar quebraria
+    //     a lógica step-16/17 da absorption. A alíquota efetiva apurada aqui é CONGELADA e reaplicada
+    //     na etapa 14.5 (pós-desconto). Base = Op. Interna.
+    ...(rt_efetiva > 1e-9
       ? [{
           step: 5.5,
           label: 'Consolidação do RT (Comissão Reserva Técnica)',
@@ -460,29 +461,35 @@ export function buildCascadeTrace17(input: BuildCascadeInput): CascadeStep[] {
         },
       ],
     },
-    // 15. EPIC-RT v8: com RT, o item 15 (antes redundante com o 16, ambos exibiam o RRO)
-    //     passa a exibir o RT — Âncora × alíquota efetiva CONGELADA — abatido do RRO. Sem
-    //     RT, mantém o RRO (bit-exact com o comportamento anterior).
-    rt_value > 0.005
-      ? {
-          step: 15,
-          label: 'RT (Comissão Reserva Técnica)',
+    // 14.5 (Cascata RT 14/07, Seção 3.4): Consolidação do RT PÓS-desconto — abatido do RRO ANTES da
+    //     redistribuição. A alíquota efetiva CONGELADA (etapa 5.5) incide sobre a Âncora (Op. Interna
+    //     PÓS-desconto), produzindo o RT já reduzido proporcionalmente ao desconto. Presente quando há
+    //     RT (retrocompat: sem RT segue 17 etapas). Fracionado p/ não renumerar a absorption (step 16/17).
+    ...(rt_value > 0.005
+      ? [{
+          step: 14.5,
+          label: 'Consolidação do RT (Comissão Reserva Técnica) — pós-desconto',
           base: motor.ancora,
           rate: rt_efetiva,
           amount: -rt_value,
-          formula: 'Âncora (Op. Interna pós-desconto) × alíquota efetiva RT (congelada)',
-          source: 'ETAPA_14',
+          formula: 'Âncora (Op. Interna pós-desconto) × alíquota efetiva RT (congelada da etapa 5.5)',
+          source: 'ETAPA_14' as const,
           effective_rate_pct: rt_efetiva,
-        }
-      : {
-          step: 15,
-          label: 'Resultado Residual Operacional (RRO)',
-          base: motor.ancora - motor.imp_dentro_total - motor.cp_efetivo - motor.mod - motor.dop,
-          rate: null,
-          amount: motor.rro,
-          formula: 'ancora − imp_dentro − cp_efetivo − mod − dop',
-          source: 'ETAPA_14',
-        },
+        }]
+      : []),
+    // 15. RRO — quando há RT, já LÍQUIDO de RT (abatido na 14.5, dentro de motor.rro). Sem RT: idêntico
+    //     ao comportamento anterior (motor.rro = ancora − imp − cp − mod − dop; rt_value = 0).
+    {
+      step: 15,
+      label: 'Resultado Residual Operacional (RRO)',
+      base: motor.ancora - motor.imp_dentro_total - motor.cp_efetivo - motor.mod - motor.dop - rt_value,
+      rate: null,
+      amount: motor.rro,
+      formula: rt_value > 0.005
+        ? 'ancora − imp_dentro − cp_efetivo − mod − dop − RT (RRO líquido de RT)'
+        : 'ancora − imp_dentro − cp_efetivo − mod − dop',
+      source: 'ETAPA_14',
+    },
     // 16. Redistribuição RRO (placeholder)
     {
       step: 16,

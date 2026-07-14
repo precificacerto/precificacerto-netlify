@@ -275,7 +275,7 @@ export function applyAbsorptionPolicy(input: ApplyAbsorptionInput): ApplyAbsorpt
     V2: true, // ranges válidos
     V3: true, // cascata soma — checado em motor-rro
     V4: Math.abs(motor.rro - (final_commission + final_profit + final_csll + final_irpj)) < 0.01,
-    V5: motor.cascade_trace.length === 17,
+    V5: motor.cascade_trace.length === 17 || motor.cascade_trace.length === 19, // 17 sem RT, 19 com RT
     V6: true, // distribuição = RRO (V4 acima)
     V7: Math.abs(valor_final - (motor.ancora + desp_acessorias + taxes_outside_total)) < 0.01,
   }

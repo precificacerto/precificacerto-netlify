@@ -71,12 +71,14 @@ export function checkI3CascataSoma(motor: MotorOutput): boolean {
 }
 
 export function checkI4IdentidadeRRO(motor: MotorOutput): boolean {
-  const calc = motor.ancora - motor.imp_dentro_total - motor.cp_efetivo - motor.mod - motor.dop
+  // EPIC-RT (Cascata RT 14/07): o RRO é LÍQUIDO de RT — a identidade inclui o RT abatido.
+  const calc = motor.ancora - motor.imp_dentro_total - motor.cp_efetivo - motor.mod - motor.dop - (Number(motor.rt_value) || 0)
   return Math.abs(motor.rro - calc) < EPS
 }
 
 export function checkI5CascadeTrace17(motor: MotorOutput): boolean {
-  return Array.isArray(motor.cascade_trace) && motor.cascade_trace.length === 17
+  // 17 etapas (sem RT) ou 19 (com RT: + Consolidação do RT pré-desconto 5.5 e pós-desconto 14.5).
+  return Array.isArray(motor.cascade_trace) && (motor.cascade_trace.length === 17 || motor.cascade_trace.length === 19)
 }
 
 export function checkI6DistribuicaoSoma(motor: MotorOutput, dist: FinalDistribution): boolean {

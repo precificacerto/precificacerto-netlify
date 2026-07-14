@@ -81,10 +81,30 @@ describe('EPIC-RT v8 — RT no motor RRO', () => {
     expect(comDesc.motor.rt_value).toBeCloseTo(comDesc.motor.ancora * 0.02, 4)
   })
 
-  it('Item 15 da cascata exibe RT quando presente', () => {
+  it('Cascata separa RT pós-desconto (14.5) do RRO líquido (15); RT-pré (5.5) sempre presente', () => {
     const r = calculateMotorV17(makeInput([{ ...baseItem, rt_pct: 0.02 }]))
-    const step15 = r.motor.cascade_trace.find((s) => s.step === 15)
-    expect(step15?.label).toContain('RT')
-    expect(step15?.amount).toBeCloseTo(-r.motor.rt_value!, 4)
+    // RT pós-desconto (etapa 14.5) = âncora × alíquota efetiva congelada
+    const rtPos = r.motor.cascade_trace.find((s) => s.step === 14.5)
+    expect(rtPos?.label).toContain('RT')
+    expect(rtPos?.amount).toBeCloseTo(-r.motor.rt_value!, 4)
+    // RRO (etapa 15) já LÍQUIDO de RT
+    const rro = r.motor.cascade_trace.find((s) => s.step === 15)
+    expect(rro?.label).toContain('RRO')
+    expect(rro?.amount).toBeCloseTo(r.motor.rro, 4)
+    // RT construção (etapa 5.5) presente
+    expect(r.motor.cascade_trace.find((s) => s.step === 5.5)?.label).toContain('RT')
+  })
+
+  it('Retrocompat: SEM RT a cascata mantém 17 etapas (sem 5.5/14.5), RRO na etapa 15', () => {
+    const r = calculateMotorV17(makeInput([baseItem]))
+    expect(r.motor.cascade_trace.length).toBe(17)
+    expect(r.motor.cascade_trace.find((s) => s.step === 5.5)).toBeUndefined()
+    expect(r.motor.cascade_trace.find((s) => s.step === 14.5)).toBeUndefined()
+    expect(r.motor.cascade_trace.find((s) => s.step === 15)?.label).toContain('RRO')
+  })
+
+  it('COM RT a cascata tem 19 etapas (17 + 5.5 pré + 14.5 pós)', () => {
+    const r = calculateMotorV17(makeInput([{ ...baseItem, rt_pct: 0.02 }]))
+    expect(r.motor.cascade_trace.length).toBe(19)
   })
 })
