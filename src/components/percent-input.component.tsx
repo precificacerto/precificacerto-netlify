@@ -1,30 +1,17 @@
-import React, { useEffect, useRef, useState } from 'react'
-import { Input } from 'antd'
-import type { InputRef } from 'antd'
+import React from 'react'
+import { CurrencyPercentInput } from './currency-percent-input.component'
 
 /**
- * Input de ALÍQUOTA estilo calculadora / PDV (Relatório Técnico v1.0 — Item 1).
+ * Input de ALÍQUOTA/percentual.
  *
- * Regras (todas implementadas aqui):
- *  - Regra 1: dígitos entram pela direita, empurrando os anteriores para a esquerda.
- *    A vírgula decimal permanece fixa na posição das casas decimais configuradas.
- *  - Regra 2: padrão universal de 3 casas decimais (entrada e exibição). Parametrizável
- *    via `decimals` para alíquotas que exijam mais precisão (ex.: PIS/COFINS transmutado
- *    com 4 casas — não migrar esses campos sem `decimals={4}`).
- *  - Regra 3: ao focar, o campo fica pronto para receber dígitos — o valor atual é
- *    selecionado, de modo que o primeiro dígito digitado o substitui (equivalente a
- *    "zerar"), mas SAIR sem digitar preserva o valor original (sem perda acidental).
- *  - Regra 4: Backspace remove o último dígito (empurrando os demais de volta).
- *    O valor mínimo é sempre 0 (exibido como 0,000%).
- *  - Regra 5: valores já cadastrados NÃO são truncados/arredondados no banco — a
- *    padronização de casas é apenas visual (ex.: 4,23 → "4,230%"). O número repassado ao
- *    backend via onChange é o número puro (ex.: 9,470% → 9.47).
+ * PC-FEAT-INPUT-MASCARA-GLOBAL-001 (Relatório 15/07/2026, Seção 9): agora é um
+ * wrapper fino do componente único `CurrencyPercentInput` em modo percentual —
+ * digitação NATURAL da esquerda para a direita, casas decimais livres (sem padding),
+ * vírgula manual, até `decimals` casas. SUBSTITUI o antigo padrão "estilo calculadora"
+ * (direita→esquerda), conforme a spec. A API pública permanece compatível, então todos
+ * os call-sites herdam o novo comportamento sem alteração.
  *
- * Implementação dirigida por `onChange` (e não por `keydown`) para funcionar com teclados
- * virtuais (Android/iOS), IME e colar — mesma mecânica comprovada do CurrencyInput.
- *
- * Escala: base percentual 0–100+ (ex.: 9.47 representa 9,470%), igual aos demais inputs de
- * alíquota do sistema (que dividem por 100 só na hora de gravar).
+ * Escala: base percentual 0–100+ (ex.: 9.47 representa 9,47%).
  */
 
 export interface PercentInputProps {
@@ -41,23 +28,30 @@ export interface PercentInputProps {
     addonAfter?: React.ReactNode
     autoFocus?: boolean
     id?: string
-    /** Exibe "%" como sufixo (addonAfter). Default: true. */
+    /** Exibe "%" como sufixo. Default: true. */
     showPercent?: boolean
-    /** Casas decimais fixas (entrada e exibição). Default: 3. */
+    /** Máximo de casas decimais. Default: 3 (alíquotas). Use 4+ para maior precisão. */
     decimals?: number
 }
 
-function formatPct(value: number, decimals: number): string {
-    return (Number(value) || 0).toLocaleString('pt-BR', {
-        minimumFractionDigits: decimals,
-        maximumFractionDigits: decimals,
-    })
+export function PercentInput({ showPercent = true, decimals = 3, ...props }: PercentInputProps) {
+    return (
+        <CurrencyPercentInput
+            mode="percent"
+            decimals={decimals}
+            minDecimals={0}
+            showSymbol={showPercent}
+            {...props}
+        />
+    )
 }
 
 /**
- * Núcleo "calculadora" testável: recebe o conteúdo cru do campo e devolve o valor numérico
- * em base percentual (0–100+). Extrai só os dígitos e reinterpreta como inteiro ÷ 10^decimals.
- * Retorna 0 quando não há dígitos (campo nunca fica "vazio" no domínio).
+ * @deprecated Núcleo "calculadora" (direita→esquerda) da versão anterior do PercentInput.
+ * Mantido apenas para compatibilidade de imports/testes legados — o componente agora usa
+ * a máscara natural de `CurrencyPercentInput`. Para novo código, use `maskNaturalNumber`.
+ *
+ * Extrai apenas os dígitos do texto e reinterpreta como inteiro ÷ 10^decimals (base percentual).
  */
 export function parsePercentInput(
     raw: string,
@@ -72,75 +66,6 @@ export function parsePercentInput(
     if (opts.min !== undefined && v < opts.min) v = opts.min
     if (opts.max !== undefined && v > opts.max) v = opts.max
     return v
-}
-
-export function PercentInput({
-    value,
-    onChange,
-    min,
-    max,
-    disabled,
-    placeholder,
-    style,
-    className,
-    size,
-    addonBefore,
-    addonAfter,
-    autoFocus,
-    id,
-    showPercent = true,
-    decimals = 3,
-}: PercentInputProps) {
-    const numeric = Number(value) || 0
-    const [display, setDisplay] = useState<string>(formatPct(numeric, decimals))
-    const [focused, setFocused] = useState(false)
-    const inputRef = useRef<InputRef>(null)
-
-    useEffect(() => {
-        if (!focused) setDisplay(formatPct(Number(value) || 0, decimals))
-    }, [value, focused, decimals])
-
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        // Calculadora: extrai apenas os dígitos do campo inteiro e reinterpreta como
-        // inteiro ÷ 10^decimals. Cada dígito novo "empurra" a vírgula (Regra 1/4).
-        const hasDigits = /\d/.test(e.target.value)
-        const v = parsePercentInput(e.target.value, { decimals, min, max })
-        setDisplay(hasDigits ? formatPct(v, decimals) : '')
-        onChange?.(v)
-    }
-
-    const handleFocus = (e: React.FocusEvent<HTMLInputElement>) => {
-        // Regra 3: seleciona tudo → o primeiro dígito substitui o valor (estado "pronto"),
-        // mas sair sem digitar preserva o valor original (sem perda acidental — Regra 5).
-        setFocused(true)
-        requestAnimationFrame(() => e.target.select())
-    }
-
-    const handleBlur = () => {
-        setFocused(false)
-        setDisplay(formatPct(Number(value) || 0, decimals))
-    }
-
-    return (
-        <Input
-            ref={inputRef}
-            id={id}
-            value={display}
-            onChange={handleChange}
-            onFocus={handleFocus}
-            onBlur={handleBlur}
-            disabled={disabled}
-            placeholder={placeholder ?? formatPct(0, decimals)}
-            style={style}
-            className={className}
-            size={size}
-            addonBefore={addonBefore}
-            addonAfter={addonAfter ?? (showPercent ? '%' : undefined)}
-            autoFocus={autoFocus}
-            inputMode="decimal"
-            data-input-type="aliquota"
-        />
-    )
 }
 
 export default PercentInput

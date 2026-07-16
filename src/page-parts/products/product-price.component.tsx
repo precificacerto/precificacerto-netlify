@@ -1,5 +1,6 @@
 import { ChangeEvent, FC, ReactNode, useEffect } from 'react'
-import { Card, Divider, InputNumber, Tooltip } from 'antd'
+import { Card, Divider, Tooltip } from 'antd'
+import { CurrencyInput } from '@/components/currency-input.component'
 import { CalculatorOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { PercentInput } from '@/components/percent-input.component'
 import { getMonetaryValue } from '@/utils/get-monetary-value'
@@ -391,25 +392,14 @@ export const ProductPrice: FC<Props> = ({
                   <tr key={label}>
                     <td style={{ fontSize: 13, color: '#cbd5e1', paddingRight: 12 }}>{label}</td>
                     <td style={{ textAlign: 'right' }}>
-                      <InputNumber
+                      <CurrencyInput
                         size="small"
                         min={0}
-                        step={0.01}
-                        precision={2}
                         value={value}
                         onChange={(v) => onChange?.(v ?? 0)}
+                        prefix="R$"
+                        showR$={false}
                         style={{ width: 130 }}
-                        formatter={(v) => {
-                          if (v == null || v === '') return 'R$ 0,00'
-                          const n = typeof v === 'string' ? parseFloat(v.replace(',', '.')) : Number(v)
-                          if (isNaN(n)) return 'R$ 0,00'
-                          return 'R$ ' + n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-                        }}
-                        parser={(v) => {
-                          const raw = (v || '0').replace('R$', '').replace(/\s/g, '').replace(/\./g, '').replace(',', '.').trim()
-                          const n = Number(raw)
-                          return isNaN(n) ? 0 : n
-                        }}
                       />
                     </td>
                   </tr>

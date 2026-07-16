@@ -98,9 +98,15 @@ export function maskNaturalNumber(
 
 /**
  * Formata um número para exibição canônica (usada no blur e ao refletir valor externo).
- * Não preenche com zeros à direita (casas decimais livres, Regra 9.3).
+ * Por padrão não preenche com zeros à direita (casas livres, Regra 9.3). O parâmetro
+ * `minDecimals` permite garantir um mínimo de casas na EXIBIÇÃO (ex.: 2 para moeda,
+ * mantendo "R$ 12,50"), sem afetar a digitação natural.
  */
-export function formatNaturalValue(v: number | null | undefined, maxDecimals = DEFAULT_MAX_DECIMALS): string {
+export function formatNaturalValue(
+    v: number | null | undefined,
+    maxDecimals = DEFAULT_MAX_DECIMALS,
+    minDecimals = 0,
+): string {
     if (v == null || !Number.isFinite(Number(v))) return ''
     const num = Number(v)
     const neg = num < 0
@@ -108,7 +114,8 @@ export function formatNaturalValue(v: number | null | undefined, maxDecimals = D
     const fixed = abs.toFixed(maxDecimals)
     // eslint-disable-next-line prefer-const
     let [intRaw, decRaw] = fixed.split('.')
-    const dec = (decRaw || '').replace(/0+$/, '')
+    let dec = (decRaw || '').replace(/0+$/, '')
+    if (dec.length < minDecimals) dec = dec.padEnd(minDecimals, '0')
     const intFmt = groupThousands(intRaw)
     const body = dec ? `${intFmt},${dec}` : intFmt
     return (neg ? '-' : '') + body
@@ -123,6 +130,9 @@ export interface CurrencyPercentInputProps {
     max?: number
     /** Máximo de casas decimais (Regra 9.3). Default: 5. */
     decimals?: number
+    /** Mínimo de casas decimais na EXIBIÇÃO (blur/valor externo). Default: 0 (sem padding).
+     *  Ex.: 2 para campos monetários manterem "12,50". Não afeta a digitação. */
+    minDecimals?: number
     disabled?: boolean
     placeholder?: string
     style?: React.CSSProperties
@@ -147,6 +157,7 @@ export function CurrencyPercentInput({
     min,
     max,
     decimals = DEFAULT_MAX_DECIMALS,
+    minDecimals = 0,
     disabled,
     placeholder,
     style,
@@ -164,7 +175,7 @@ export function CurrencyPercentInput({
     const renderExternal = (v: number | null | undefined): string => {
         if (emptyWhenZero && (v == null || Number(v) === 0)) return ''
         if (v == null) return ''
-        return formatNaturalValue(v, decimals)
+        return formatNaturalValue(v, decimals, minDecimals)
     }
 
     const [display, setDisplay] = useState<string>(() => renderExternal(value))
@@ -174,7 +185,7 @@ export function CurrencyPercentInput({
     useEffect(() => {
         if (!focused) setDisplay(renderExternal(value))
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [value, focused, decimals, emptyWhenZero])
+    }, [value, focused, decimals, minDecimals, emptyWhenZero])
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const { value: parsed, display: masked } = maskNaturalNumber(e.target.value, { maxDecimals: decimals })

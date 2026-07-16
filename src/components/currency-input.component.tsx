@@ -1,6 +1,5 @@
-import React, { useEffect, useRef, useState } from 'react'
-import { Input } from 'antd'
-import type { InputRef } from 'antd'
+import React from 'react'
+import { CurrencyPercentInput } from './currency-percent-input.component'
 
 interface CurrencyInputProps {
     value?: number | null
@@ -20,98 +19,24 @@ interface CurrencyInputProps {
     showR$?: boolean
 }
 
-function formatBRL(value: number): string {
-    return value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-}
-
 /**
- * Input de valor monetário BRL (padrão "caixa registradora"):
- * - Exibe "0,00" quando vazio/zero
- * - Ao focar, o "0,00" é apagado para facilitar digitação
- * - Usuário digita apenas dígitos (ex: 1245352 → 12.453,52)
- * - Aceita ponto/vírgula no meio — sistema ignora e reformata
- * - Sempre 2 casas decimais, separador BRL (1.234,56)
- * - onChange retorna número puro (12453.52)
+ * Input de valor monetário BRL.
+ *
+ * PC-FEAT-INPUT-MASCARA-GLOBAL-001 (Relatório 15/07/2026, Seção 9): agora é um
+ * wrapper fino do componente único `CurrencyPercentInput` — digitação NATURAL da
+ * esquerda para a direita (substitui o antigo padrão "calculadora"), com separador
+ * de milhar em tempo real. Mantém 2 casas decimais na exibição (minDecimals=2) para
+ * preservar a convenção monetária ("R$ 12,50"). A API pública é 100% compatível com
+ * a versão anterior, então todos os call-sites herdam o novo padrão sem alteração.
  */
-export function CurrencyInput({
-    value,
-    onChange,
-    min,
-    max,
-    disabled,
-    placeholder,
-    style,
-    className,
-    size,
-    addonBefore,
-    addonAfter,
-    prefix,
-    suffix,
-    autoFocus,
-    showR$ = true,
-}: CurrencyInputProps) {
-    const numeric = Number(value) || 0
-    const [display, setDisplay] = useState<string>(formatBRL(numeric))
-    const [focused, setFocused] = useState(false)
-    const inputRef = useRef<InputRef>(null)
-
-    useEffect(() => {
-        if (!focused) setDisplay(formatBRL(Number(value) || 0))
-    }, [value, focused])
-
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const raw = e.target.value
-        const digits = raw.replace(/\D/g, '')
-
-        if (!digits) {
-            setDisplay('')
-            onChange?.(0)
-            return
-        }
-
-        let numericValue = Number(digits) / 100
-        if (min !== undefined && numericValue < min) numericValue = min
-        if (max !== undefined && numericValue > max) numericValue = max
-
-        setDisplay(formatBRL(numericValue))
-        onChange?.(numericValue)
-    }
-
-    const handleFocus = (e: React.FocusEvent<HTMLInputElement>) => {
-        setFocused(true)
-        const current = Number(value) || 0
-        if (current === 0) {
-            setDisplay('')
-        } else {
-            requestAnimationFrame(() => e.target.select())
-        }
-    }
-
-    const handleBlur = () => {
-        setFocused(false)
-        setDisplay(formatBRL(Number(value) || 0))
-    }
-
-    const resolvedAddonBefore = addonBefore ?? (showR$ ? 'R$' : undefined)
-
+export function CurrencyInput({ showR$ = true, ...props }: CurrencyInputProps) {
     return (
-        <Input
-            ref={inputRef}
-            value={display}
-            onChange={handleChange}
-            onFocus={handleFocus}
-            onBlur={handleBlur}
-            disabled={disabled}
-            placeholder={placeholder ?? '0,00'}
-            style={style}
-            className={className}
-            size={size}
-            addonBefore={resolvedAddonBefore}
-            addonAfter={addonAfter}
-            prefix={prefix}
-            suffix={suffix}
-            autoFocus={autoFocus}
-            inputMode="decimal"
+        <CurrencyPercentInput
+            mode="currency"
+            decimals={2}
+            minDecimals={2}
+            showSymbol={showR$}
+            {...props}
         />
     )
 }
