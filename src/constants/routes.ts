@@ -62,6 +62,7 @@ export enum ROUTES {
   SUPER_ADMIN_INVITES = '/super-admin/convites',
   SUPER_ADMIN_CADASTROS = '/super-admin/cadastros',
   SUPER_ADMIN_PLANS_EXPIRING = '/super-admin/planos-expirando',
+  SUPER_ADMIN_NOTIFICATIONS = '/super-admin/notificacoes',
 
   // Cadastro pago (Stripe) — sucesso após pagamento
   CADASTRO_SUCESSO = '/cadastro/sucesso',

@@ -56,6 +56,7 @@ export enum PAGE_TITLES {
   SUPER_ADMIN_INVITES = 'Convites',
   SUPER_ADMIN_CADASTROS = 'Cadastros Pendentes',
   SUPER_ADMIN_PLANS_EXPIRING = 'Planos Expirando',
+  SUPER_ADMIN_NOTIFICATIONS = 'Notificações',
 }
 
 export const APP_TITLE = process.env.NEXT_PUBLIC_APPLICATION_TITLE ?? 'Precifica Certo'

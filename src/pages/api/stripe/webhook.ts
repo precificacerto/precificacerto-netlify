@@ -2,6 +2,7 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 import crypto from 'crypto'
 import Stripe from 'stripe'
 import { supabaseAdmin } from '@/supabase/admin'
+import { notifySalesEvent } from '@/lib/sales-event-notifications'
 
 export const config = { api: { bodyParser: false } }
 
@@ -134,6 +135,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       case 'customer.subscription.deleted':
         await handleSubscriptionDeleted(event.data.object as Stripe.Subscription)
         break
+      case 'checkout.session.expired':
+        await handleCheckoutExpired(event.data.object as Stripe.Checkout.Session)
+        break
+      case 'payment_intent.payment_failed':
+        await handlePaymentIntentFailed(event.data.object as Stripe.PaymentIntent)
+        break
       default:
         if (process.env.NODE_ENV === 'development') console.log(`Stripe webhook: unhandled event type ${event.type}`)
     }
@@ -175,6 +182,34 @@ export async function handleCheckoutCompleted(session: Stripe.Checkout.Session) 
 
   const planStatus = isTrial ? 'TRIAL' : 'ACTIVE'
   const amountTotal = (session.amount_total ?? 0) / 100
+
+  // Notifica a equipe + feed super-admin quando o checkout é concluído (venda
+  // efetivada — trial ou pago, novo cadastro ou upgrade). Best-effort.
+  const notifyCheckoutSuccess = (tid: string) =>
+    notifySalesEvent({
+      kind: 'SALE_SUCCESS',
+      title: existingTenantId
+        ? 'Upgrade de plano efetivado'
+        : isTrial
+          ? 'Novo cadastro (trial) efetivado'
+          : 'Nova venda efetivada',
+      lines: [
+        `Cliente: ${adminName} <${adminEmail}>`,
+        `Plano: ${planSlug || '—'} · Faixa: ${revenueTier || '—'}`,
+        `Status: ${isTrial ? 'TRIAL (sem cobrança imediata)' : 'PAGO'}`,
+        `Tipo: ${existingTenantId ? 'upgrade de plano' : 'novo cadastro'}`,
+      ],
+      tenantId: tid,
+      amount: isTrial ? null : amountTotal,
+      metadata: {
+        session_id: session.id,
+        subscription_id: stripeSubscriptionId,
+        plan_slug: planSlug,
+        revenue_tier: revenueTier,
+        is_trial: isTrial,
+      },
+    })
+
   const rawOrigin = process.env.NEXT_PUBLIC_APP_URL
   const origin =
     rawOrigin && !rawOrigin.includes('localhost')
@@ -226,6 +261,7 @@ export async function handleCheckoutCompleted(session: Stripe.Checkout.Session) 
     if (!isTrial) {
       await insertBillingRecord(existingTenantId, amountTotal, stripeSubscriptionId, stripeCustomerId, session.id)
     }
+    await notifyCheckoutSuccess(existingTenantId)
     if (process.env.NODE_ENV === 'development') console.log(`checkout.session.completed: updated existing tenant to ${planStatus}`)
   } else {
     if (stripeSubscriptionId) {
@@ -289,6 +325,7 @@ export async function handleCheckoutCompleted(session: Stripe.Checkout.Session) 
       if (!isTrial) {
         await insertBillingRecord(tenantId, amountTotal, stripeSubscriptionId, stripeCustomerId, session.id)
       }
+      await notifyCheckoutSuccess(tenantId)
       return
     }
 
@@ -325,6 +362,7 @@ export async function handleCheckoutCompleted(session: Stripe.Checkout.Session) 
     if (!isTrial) {
       await insertBillingRecord(tenantId, amountTotal, stripeSubscriptionId, stripeCustomerId, session.id)
     }
+    await notifyCheckoutSuccess(tenantId)
     if (process.env.NODE_ENV === 'development') console.log(`checkout.session.completed: created tenant (${planStatus})`)
   }
 }
@@ -335,7 +373,7 @@ async function handleInvoicePaid(invoice: Stripe.Invoice) {
 
   const { data: tenants } = await supabaseAdmin
     .from('tenants')
-    .select('id')
+    .select('id, name')
     .eq('stripe_subscription_id', subscriptionId)
     .limit(1)
 
@@ -366,6 +404,19 @@ async function handleInvoicePaid(invoice: Stripe.Invoice) {
   const customerId = typeof invoice.customer === 'string' ? invoice.customer : (invoice.customer as any)?.id
   await insertBillingRecord(tenant.id, amount, subscriptionId, customerId, invoice.id)
 
+  await notifySalesEvent({
+    kind: 'SALE_SUCCESS',
+    title: 'Renovação de assinatura paga',
+    lines: [
+      `Cliente: ${(tenant as any).name || tenant.id}`,
+      `Fatura: ${invoice.id}`,
+      'Status: PAGO (cobrança recorrente confirmada)',
+    ],
+    tenantId: tenant.id,
+    amount,
+    metadata: { invoice_id: invoice.id, subscription_id: subscriptionId },
+  })
+
   if (process.env.NODE_ENV === 'development') console.log('invoice.paid: updated tenant')
 }
 
@@ -375,7 +426,7 @@ async function handleInvoicePaymentFailed(invoice: Stripe.Invoice) {
 
   const { data: tenants } = await supabaseAdmin
     .from('tenants')
-    .select('id')
+    .select('id, name')
     .eq('stripe_subscription_id', subscriptionId)
     .limit(1)
 
@@ -399,6 +450,19 @@ async function handleInvoicePaymentFailed(invoice: Stripe.Invoice) {
     .update({ plan_status: 'SUSPENDED', updated_at: new Date().toISOString() })
     .eq('id', tenant.id)
 
+  await notifySalesEvent({
+    kind: 'PAYMENT_FAILED',
+    title: 'Falha no pagamento da assinatura',
+    lines: [
+      `Cliente: ${(tenant as any).name || tenant.id}`,
+      `Fatura: ${invoice.id}`,
+      'Ação: tenant marcado como OVERDUE / SUSPENDED',
+    ],
+    tenantId: tenant.id,
+    amount,
+    metadata: { invoice_id: invoice.id, subscription_id: subscriptionId },
+  })
+
   if (process.env.NODE_ENV === 'development') console.log('invoice.payment_failed: marked OVERDUE and SUSPENDED')
 }
 
@@ -407,7 +471,7 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
 
   const { data: tenants } = await supabaseAdmin
     .from('tenants')
-    .select('id, stripe_subscription_id')
+    .select('id, name, stripe_subscription_id')
     .eq('stripe_subscription_id', subscriptionId)
     .limit(1)
 
@@ -426,7 +490,62 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
     .eq('id', tenant.id)
     .eq('stripe_subscription_id', subscriptionId)
 
+  await notifySalesEvent({
+    kind: 'SUBSCRIPTION_CANCELLED',
+    title: 'Assinatura cancelada',
+    lines: [
+      `Cliente: ${(tenant as any).name || tenant.id}`,
+      `Assinatura: ${subscriptionId}`,
+      'Ação: tenant marcado como CANCELLED',
+    ],
+    tenantId: tenant.id,
+    metadata: { subscription_id: subscriptionId },
+  })
+
   if (process.env.NODE_ENV === 'development') console.log('customer.subscription.deleted: cancelled tenant')
+}
+
+async function handleCheckoutExpired(session: Stripe.Checkout.Session) {
+  const metadata = session.metadata || {}
+  const email = metadata.admin_email || session.customer_details?.email || session.customer_email || '—'
+  const name = metadata.admin_name || email
+  const amount = (session.amount_total ?? 0) / 100
+
+  await notifySalesEvent({
+    kind: 'CHECKOUT_ABANDONED',
+    title: 'Tentativa de compra não concluída',
+    lines: [
+      `Cliente: ${name} <${email}>`,
+      `Plano: ${metadata.plan_slug || '—'} · Faixa: ${metadata.revenue_tier || '—'}`,
+      'Motivo: sessão de checkout expirou sem pagamento',
+    ],
+    tenantId: metadata.tenant_id || null,
+    amount: amount || null,
+    metadata: { session_id: session.id, plan_slug: metadata.plan_slug, revenue_tier: metadata.revenue_tier },
+  })
+
+  if (process.env.NODE_ENV === 'development') console.log('checkout.session.expired: notified abandoned checkout')
+}
+
+async function handlePaymentIntentFailed(pi: Stripe.PaymentIntent) {
+  const amount = (pi.amount ?? 0) / 100
+  const email = pi.receipt_email || (pi.metadata && pi.metadata.admin_email) || '—'
+  const reason = pi.last_payment_error?.message || 'Pagamento recusado pela operadora'
+
+  await notifySalesEvent({
+    kind: 'PAYMENT_FAILED',
+    title: 'Tentativa de pagamento recusada',
+    lines: [
+      `Cliente: ${email}`,
+      `Motivo: ${reason}`,
+      `PaymentIntent: ${pi.id}`,
+    ],
+    tenantId: (pi.metadata && pi.metadata.tenant_id) || null,
+    amount: amount || null,
+    metadata: { payment_intent_id: pi.id, decline_code: pi.last_payment_error?.decline_code },
+  })
+
+  if (process.env.NODE_ENV === 'development') console.log('payment_intent.payment_failed: notified failed attempt')
 }
 
 async function insertBillingRecord(

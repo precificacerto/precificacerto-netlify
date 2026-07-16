@@ -29,6 +29,7 @@ import {
   MailOutlined,
   ClockCircleOutlined,
   CrownOutlined,
+  BellOutlined,
 } from '@ant-design/icons'
 import { ROUTES } from '@/constants/routes'
 import { useAuth } from '@/hooks/use-auth.hook'
@@ -60,6 +61,7 @@ const iconMap: Record<string, React.ReactNode> = {
   'super-invites': <MailOutlined />,
   'super-cadastros': <ClockCircleOutlined />,
   'super-plans': <ClockCircleOutlined />,
+  'super-notifications': <BellOutlined />,
 }
 
 interface NavItemConfig {
@@ -138,6 +140,7 @@ const Nav = () => {
     { key: 'users', label: 'Usuários', icon: 'team', href: ROUTES.USUARIOS, adminOnly: true, section: 'operacional', hideForSuperAdmin: true },
 
     { key: 'super-admin', label: 'Painel Super Admin', icon: 'super-admin', href: ROUTES.SUPER_ADMIN_PANEL, section: 'superadmin', superAdminOnly: true },
+    { key: 'super-notifications', label: 'Notificações', icon: 'super-notifications', href: ROUTES.SUPER_ADMIN_NOTIFICATIONS, section: 'superadmin', superAdminOnly: true },
     { key: 'super-tenants', label: 'Tenants', icon: 'super-tenants', href: ROUTES.SUPER_ADMIN_TENANTS, section: 'superadmin', superAdminOnly: true },
     { key: 'super-users', label: 'Usuários', icon: 'super-users', href: ROUTES.SUPER_ADMIN_USERS, section: 'superadmin', superAdminOnly: true },
     { key: 'super-billing', label: 'Pagamentos', icon: 'super-billing', href: ROUTES.SUPER_ADMIN_BILLING, section: 'superadmin', superAdminOnly: true },

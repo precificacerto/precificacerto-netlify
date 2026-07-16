@@ -647,6 +647,10 @@ export default function RtCommissionPage() {
   const totalCommission = useMemo(() => filteredData.reduce((s, r) => s + r.commission_value, 0), [filteredData])
   const totalPendingRevenue = useMemo(() => filteredData.reduce((s, r) => s + r.pending_revenue, 0), [filteredData])
   const totalPendingCommission = useMemo(() => filteredData.reduce((s, r) => s + r.pending_commission, 0), [filteredData])
+  // PC-FEAT-RT-LIQUIDACAO-001 (Seção 3): RT Total (Geral) = Liquidada + Aguardando.
+  // "RT Liquidada" (totalCommission) = já disponível p/ repasse (parcela recebida);
+  // "RT Aguardando" (totalPendingCommission) = ainda em aberto (parcela não liquidada).
+  const totalRtGeral = useMemo(() => totalCommission + totalPendingCommission, [totalCommission, totalPendingCommission])
   const detailTotalValue = useMemo(() => allDetailRows.reduce((s, r) => s + r.value, 0), [allDetailRows])
   const detailTotalCommission = useMemo(() => allDetailRows.reduce((s, r) => s + r.commission_amount, 0), [allDetailRows])
   // PC-FEAT-RT-EXPORTACAO-002 (Seção 4): rodapé com 3 totalizadores por status de liquidação.
@@ -919,7 +923,8 @@ export default function RtCommissionPage() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
           <KpiRow icon={<TeamOutlined />} label="Vendedores" value={String(filteredData.length)} accent="#083344" border="#155e75" valueColor="#cffafe" iconColor="#67e8f9" />
           <KpiRow icon={<DollarOutlined />} label="Receita Base" value={formatCurrency(totalBase)} accent="#083344" border="#155e75" valueColor="#cffafe" iconColor="#67e8f9" />
-          <KpiRow icon={<PercentageOutlined />} label="Total RT" value={formatCurrency(totalCommission)} accent="#083344" border="#155e75" valueColor="#22d3ee" iconColor="#67e8f9" />
+          <KpiRow icon={<PercentageOutlined />} label="RT Total (Geral)" value={formatCurrency(totalRtGeral)} accent="#083344" border="#155e75" valueColor="#22d3ee" iconColor="#67e8f9" />
+          <KpiRow icon={<span>✅</span>} label="RT Liquidada" value={formatCurrency(totalCommission)} accent="#042f2e" border="#0f766e" valueColor="#2dd4bf" iconColor="#5eead4" />
           {totalPendingRevenue > 0 && (
             <KpiRow icon={<span>⏳</span>} label="Receita Aguardando" value={formatCurrency(totalPendingRevenue)} accent="#451a03" border="#92400e" valueColor="#fbbf24" iconColor="#fcd34d" />
           )}
@@ -941,8 +946,16 @@ export default function RtCommissionPage() {
           <div style={{ color: '#cffafe', fontSize: 24, fontWeight: 600 }}>{formatCurrency(totalBase)}</div>
         </Card>
         <Card size="small" style={{ background: '#083344', border: '1px solid #155e75' }}>
-          <div style={{ fontSize: 14, color: '#a5f3fc', marginBottom: 4 }}><PercentageOutlined /> Total RT</div>
-          <div style={{ color: '#22d3ee', fontSize: 24, fontWeight: 700 }}>{formatCurrency(totalCommission)}</div>
+          <Tooltip title="RT total do período — liquidada + aguardando">
+            <div style={{ fontSize: 14, color: '#a5f3fc', marginBottom: 4 }}><PercentageOutlined /> RT Total (Geral)</div>
+          </Tooltip>
+          <div style={{ color: '#22d3ee', fontSize: 24, fontWeight: 700 }}>{formatCurrency(totalRtGeral)}</div>
+        </Card>
+        <Card size="small" style={{ background: '#042f2e', border: '1px solid #0f766e' }}>
+          <Tooltip title="RT já disponível para repasse ao vendedor (parcela liquidada no Fluxo de Caixa)">
+            <div style={{ fontSize: 14, color: '#5eead4', marginBottom: 4 }}>✅ RT Liquidada</div>
+          </Tooltip>
+          <div style={{ color: '#2dd4bf', fontSize: 24, fontWeight: 700 }}>{formatCurrency(totalCommission)}</div>
         </Card>
         {totalPendingRevenue > 0 && (
           <Card size="small" style={{ background: '#451a03', border: '1px solid #92400e' }}>

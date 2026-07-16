@@ -22,6 +22,7 @@ import {
   LogoutOutlined,
   CrownOutlined,
   SafetyCertificateOutlined,
+  BellOutlined,
   BankOutlined,
   MailOutlined,
   ClockCircleOutlined,
@@ -105,6 +106,7 @@ const MobileMoreDrawer = ({ open, onClose }: Props) => {
 
     // Super Admin
     { key: 'super-admin', label: 'Painel Super Admin', href: ROUTES.SUPER_ADMIN_PANEL, icon: <SafetyCertificateOutlined />, section: 'Super Admin', superAdminOnly: true },
+    { key: 'super-notifications', label: 'Notificações', href: ROUTES.SUPER_ADMIN_NOTIFICATIONS, icon: <BellOutlined />, section: 'Super Admin', superAdminOnly: true },
     { key: 'super-tenants', label: 'Tenants', href: ROUTES.SUPER_ADMIN_TENANTS, icon: <TeamOutlined />, section: 'Super Admin', superAdminOnly: true },
     { key: 'super-users', label: 'Usuários', href: ROUTES.SUPER_ADMIN_USERS, icon: <UserOutlined />, section: 'Super Admin', superAdminOnly: true },
     { key: 'super-billing', label: 'Pagamentos', href: ROUTES.SUPER_ADMIN_BILLING, icon: <BankOutlined />, section: 'Super Admin', superAdminOnly: true },
