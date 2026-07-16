@@ -649,6 +649,12 @@ export default function RtCommissionPage() {
   const totalPendingCommission = useMemo(() => filteredData.reduce((s, r) => s + r.pending_commission, 0), [filteredData])
   const detailTotalValue = useMemo(() => allDetailRows.reduce((s, r) => s + r.value, 0), [allDetailRows])
   const detailTotalCommission = useMemo(() => allDetailRows.reduce((s, r) => s + r.commission_amount, 0), [allDetailRows])
+  // PC-FEAT-RT-EXPORTACAO-002 (Seção 4): rodapé com 3 totalizadores por status de liquidação.
+  // Liquidado = parcela recebida (não pendente); Aberto = boleto/cheque aguardando no Fluxo de Caixa.
+  const detailLiquidadoValue = useMemo(() => allDetailRows.filter(r => !r.pending).reduce((s, r) => s + r.value, 0), [allDetailRows])
+  const detailLiquidadoCommission = useMemo(() => allDetailRows.filter(r => !r.pending).reduce((s, r) => s + r.commission_amount, 0), [allDetailRows])
+  const detailAbertoValue = useMemo(() => allDetailRows.filter(r => r.pending).reduce((s, r) => s + r.value, 0), [allDetailRows])
+  const detailAbertoCommission = useMemo(() => allDetailRows.filter(r => r.pending).reduce((s, r) => s + r.commission_amount, 0), [allDetailRows])
 
   const detailColumns: ColumnsType<CommissionDetailRow & { employee_name?: string; employee_id?: string }> = [
     {
@@ -720,6 +726,17 @@ export default function RtCommissionPage() {
       align: 'right',
       width: 130,
       render: (v: number) => <strong style={{ color: '#06B6D4' }}>{formatCurrency(v)}</strong>,
+    },
+    {
+      // PC-FEAT-RT-EXPORTACAO-002 (Seção 4): status de liquidação por parcela.
+      title: 'Status',
+      dataIndex: 'pending',
+      key: 'status',
+      width: 110,
+      align: 'center' as const,
+      render: (pending: boolean | undefined) => pending
+        ? <Tag color="orange">Aberto</Tag>
+        : <Tag color="green">Liquidado</Tag>,
     },
   ]
 
@@ -821,8 +838,8 @@ export default function RtCommissionPage() {
       const selectedEmpName = selectedEmployee
         ? employees.find(e => e.id === selectedEmployee)?.name
         : undefined
-      const { exportCommissionToExcel } = await import('@/utils/export-commission-excel')
-      await exportCommissionToExcel(filteredData, month, selectedEmpName)
+      const { exportRtToExcel } = await import('@/utils/export-rt-excel')
+      await exportRtToExcel(filteredData, month, selectedEmpName)
       messageApi.success('Excel exportado com sucesso!')
     } catch (err: any) {
       console.error('Erro ao exportar Excel RT', err)
@@ -839,8 +856,8 @@ export default function RtCommissionPage() {
       const selectedEmpName = selectedEmployee
         ? employees.find(e => e.id === selectedEmployee)?.name
         : undefined
-      const { exportCommissionToPdf } = await import('@/utils/export-commission-pdf')
-      exportCommissionToPdf(filteredData, month.month(), month.year(), selectedEmpName)
+      const { exportRtToPdf } = await import('@/utils/export-rt-pdf')
+      exportRtToPdf(filteredData, month.month(), month.year(), selectedEmpName)
       messageApi.success('PDF exportado com sucesso!')
     } catch (err: any) {
       console.error('Erro ao exportar PDF RT', err)
@@ -961,19 +978,53 @@ export default function RtCommissionPage() {
           loading={loading}
           pagination={{ pageSize: PAGE_SIZE, showSizeChanger: true, showTotal: (t) => `${t} lançamentos` }}
           size="small"
-          scroll={{ x: 1200 }}
+          style={{ width: '100%' }}
+          // PC-UI-RT-LAYOUT-003 — em desktop a tabela ocupa 100% da largura (colunas
+          // flexíveis distribuem o espaço, sem sobra à direita); o scroll horizontal
+          // fica restrito ao mobile, onde as colunas não cabem.
+          scroll={isMobile ? { x: 1200 } : undefined}
           summary={() => (
             <Table.Summary fixed>
+              {/* PC-FEAT-RT-EXPORTACAO-002 (Seção 4): rodapé com 3 totalizadores.
+                  Colunas: 0-3 rótulo · 4 Valor Base · 5 RT % · 6 RT Valor · 7 Status */}
               <Table.Summary.Row style={{ background: '#083344' }}>
-                <Table.Summary.Cell index={0} colSpan={8}>
-                  <strong style={{ color: '#e2e8f0' }}>TOTAL</strong>
+                <Table.Summary.Cell index={0} colSpan={4}>
+                  <strong style={{ color: '#e2e8f0' }}>TOTAL GERAL</strong>
                 </Table.Summary.Cell>
-                <Table.Summary.Cell index={8} align="right">
+                <Table.Summary.Cell index={4} align="right">
                   <strong style={{ color: '#e2e8f0' }}>{formatCurrency(detailTotalValue)}</strong>
                 </Table.Summary.Cell>
-                <Table.Summary.Cell index={9} align="right">
+                <Table.Summary.Cell index={5} />
+                <Table.Summary.Cell index={6} align="right">
                   <strong style={{ color: '#22d3ee' }}>{formatCurrency(detailTotalCommission)}</strong>
                 </Table.Summary.Cell>
+                <Table.Summary.Cell index={7} />
+              </Table.Summary.Row>
+              <Table.Summary.Row style={{ background: '#042f2e' }}>
+                <Table.Summary.Cell index={0} colSpan={4}>
+                  <strong style={{ color: '#5eead4' }}>TOTAL LIQUIDADO</strong>
+                </Table.Summary.Cell>
+                <Table.Summary.Cell index={4} align="right">
+                  <span style={{ color: '#5eead4' }}>{formatCurrency(detailLiquidadoValue)}</span>
+                </Table.Summary.Cell>
+                <Table.Summary.Cell index={5} />
+                <Table.Summary.Cell index={6} align="right">
+                  <strong style={{ color: '#2dd4bf' }}>{formatCurrency(detailLiquidadoCommission)}</strong>
+                </Table.Summary.Cell>
+                <Table.Summary.Cell index={7} />
+              </Table.Summary.Row>
+              <Table.Summary.Row style={{ background: '#451a03' }}>
+                <Table.Summary.Cell index={0} colSpan={4}>
+                  <strong style={{ color: '#fcd34d' }}>TOTAL EM ABERTO</strong>
+                </Table.Summary.Cell>
+                <Table.Summary.Cell index={4} align="right">
+                  <span style={{ color: '#fbbf24' }}>{formatCurrency(detailAbertoValue)}</span>
+                </Table.Summary.Cell>
+                <Table.Summary.Cell index={5} />
+                <Table.Summary.Cell index={6} align="right">
+                  <strong style={{ color: '#fbbf24' }}>{formatCurrency(detailAbertoCommission)}</strong>
+                </Table.Summary.Cell>
+                <Table.Summary.Cell index={7} />
               </Table.Summary.Row>
             </Table.Summary>
           )}

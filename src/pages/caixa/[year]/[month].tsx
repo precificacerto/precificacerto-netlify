@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/router'
-import { Button, Input, Table, message, Alert, Spin } from 'antd'
+import { Button, Table, message, Alert, Spin } from 'antd'
+import { CurrencyPercentInput } from '@/components/currency-percent-input.component'
 import { Select } from '@/components/ui/app-select.component'
 import { Layout } from '@/components/layout/layout.component'
 import { Months } from '@/components/months/months.component'
@@ -13,7 +14,6 @@ import { getMonetaryValue } from '@/utils/get-monetary-value'
 import { ColumnsType } from 'antd/es/table'
 import dayjs from 'dayjs'
 import Link from 'next/link'
-import { currencyMask } from '@/utils/currency-mask'
 import { getCategoryName } from '@/utils/get-category-name.util'
 import { ROUTES } from '@/constants/routes'
 import {
@@ -27,7 +27,7 @@ import {
 } from '@/constants/cashier-category'
 import { supabase } from '@/supabase/client'
 import { getTenantId } from '@/utils/get-tenant-id'
-import { getEffectiveIncomeAmount } from '@/utils/cash-entry-amount'
+import { getEffectiveIncomeAmount, isCashEntryLiquidated } from '@/utils/cash-entry-amount'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import { useAuth } from '@/hooks/use-auth.hook'
 import { useDevice } from '@/contexts/device.context'
@@ -231,8 +231,7 @@ function Cashier() {
       const cashierMonth = monthsRes.data
 
       const incomes: IPaymentRevenueTitleModel[] = entries
-        .filter((e: any) => e.type === 'INCOME' && e.origin_type !== 'PREV_MONTH_BALANCE'
-          && !((e.payment_method === 'BOLETO' || e.payment_method === 'CHEQUE_PRE_DATADO') && !e.paid_date))
+        .filter((e: any) => e.type === 'INCOME' && e.origin_type !== 'PREV_MONTH_BALANCE' && isCashEntryLiquidated(e))
         .map((e: any) => ({
           id: e.id,
           date: e.due_date ? new Date(e.due_date) : new Date(),
@@ -264,7 +263,7 @@ function Cashier() {
       setSaleCodeMap(scMap)
 
       const expenses: IPaymentRevenueTitleModel[] = entries
-        .filter((e: any) => e.type === 'EXPENSE' && e.paid_date != null)
+        .filter((e: any) => e.type === 'EXPENSE' && isCashEntryLiquidated(e))
         .map((e: any) => {
           // description may contain "CATEGORY_KEY — extra info" from recurrent entries
           const rawDesc = e.description || 'DESPESA_GERAL'
@@ -580,14 +579,6 @@ function Cashier() {
     )
   }
 
-  function handleChangeGoalPrice(value: string) {
-    const formattedValue = currencyMask(value)
-    setGoalPrice({
-      value: parseFloat(formattedValue.replace(/\./g, '').replace(',', '.')) || 0,
-      formattedValue,
-    })
-  }
-
   async function handleSetGoal() {
     if (!goalPrice?.value) return
     try {
@@ -669,12 +660,13 @@ function Cashier() {
           <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Definir meta</h3>
         </div>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-          <Input
+          <CurrencyPercentInput
             placeholder="Valor meta"
             prefix="R$"
-            autoComplete="off"
-            value={goalPrice?.formattedValue}
-            onChange={({ target }) => handleChangeGoalPrice(target.value)}
+            showSymbol={false}
+            emptyWhenZero
+            value={goalPrice?.value ?? 0}
+            onChange={(v) => setGoalPrice({ value: v, formattedValue: getMonetaryValue(v) })}
             style={{ maxWidth: 250 }}
           />
           <Button onClick={handleSetGoal} type="primary">

@@ -35,7 +35,7 @@ import {
 } from '@ant-design/icons'
 import { supabase } from '@/supabase/client'
 import { getTenantId } from '@/utils/get-tenant-id'
-import { getEffectiveIncomeAmount } from '@/utils/cash-entry-amount'
+import { getEffectiveIncomeAmount, isCashEntryLiquidated } from '@/utils/cash-entry-amount'
 import { useAuth } from '@/hooks/use-auth.hook'
 import { getDashboardCache, setDashboardCache } from '@/utils/dashboard-cache'
 import { RestitutionSummaryCard } from '@/components/restitution-summary.component'
@@ -280,16 +280,25 @@ function Home() {
   }, [allYearEntries, selectedMonth, currentYear])
 
   const selectedMonthChartData = useMemo<IMonthChartInfo>(() => {
+    // BUG-DASHBOARD-CARDS-LIQUIDACAO-001 — os cards "Total de Entradas/Saídas" e
+    // "Saldo Atual" devem refletir o CAIXA REAL: somam apenas lançamentos
+    // efetivamente liquidados (recebidos/pagos), nunca valores previstos em
+    // aberto. Espelha a mesma regra da tela Caixa (isCashEntryLiquidated) e
+    // exclui saldo carregado do mês anterior (PREV_MONTH_BALANCE).
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const incomes = selectedMonthEntries.filter((e: any) => e.type === 'INCOME').map((e: any) => ({
-      id: e.id, date: e.due_date, price: getEffectiveIncomeAmount(e),
-      category: e.description || 'RECEITA_VENDAS', description: e.description || '',
-    }))
+    const incomes = selectedMonthEntries
+      .filter((e: any) => e.type === 'INCOME' && e.origin_type !== 'PREV_MONTH_BALANCE' && isCashEntryLiquidated(e))
+      .map((e: any) => ({
+        id: e.id, date: e.due_date, price: getEffectiveIncomeAmount(e),
+        category: e.description || 'RECEITA_VENDAS', description: e.description || '',
+      }))
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const expenses = selectedMonthEntries.filter((e: any) => e.type === 'EXPENSE').map((e: any) => ({
-      id: e.id, date: e.due_date, price: Number(e.amount) || 0,
-      category: e.description || 'DESPESA_GERAL', description: e.description || '',
-    }))
+    const expenses = selectedMonthEntries
+      .filter((e: any) => e.type === 'EXPENSE' && isCashEntryLiquidated(e))
+      .map((e: any) => ({
+        id: e.id, date: e.due_date, price: Number(e.amount) || 0,
+        category: e.description || 'DESPESA_GERAL', description: e.description || '',
+      }))
     return { incomes, expenses }
   }, [selectedMonthEntries])
 
