@@ -1687,9 +1687,15 @@ function SalesReport() {
         },
     ]
 
-    const commTotalVendido = useMemo(() => commData.reduce((s, r) => s + r.valorVendido, 0), [commData])
-    const commTotalComissao = useMemo(() => commData.reduce((s, r) => s + r.comissaoPaga, 0), [commData])
-    const commTotalLucro = useMemo(() => commData.reduce((s, r) => s + r.lucroEmpresa, 0), [commData])
+    // BUG-CALC-RELATORIOVENDAS-ARREDONDAMENTO-001: a linha TOTAL deve refletir a soma
+    // EXATA dos valores exibidos (cada um em 2 casas), sem acúmulo de ruído de ponto
+    // flutuante (ex.: 35.000,00 + 270.000,00 = 305.000,00, nunca 304.999,99).
+    const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100
+    const sum2 = (arr: CommissionReportRow[], pick: (r: CommissionReportRow) => number) =>
+      round2(arr.reduce((s, r) => s + round2(pick(r)), 0))
+    const commTotalVendido = useMemo(() => sum2(commData, r => r.valorVendido), [commData])
+    const commTotalComissao = useMemo(() => sum2(commData, r => r.comissaoPaga), [commData])
+    const commTotalLucro = useMemo(() => sum2(commData, r => r.lucroEmpresa), [commData])
 
     // EPIC-RT v8: aba "RT Comissões" — reusa commData/filtros, troca Comissão %/R$ por RT %/R$.
     const rtColumns: ColumnsType<CommissionReportRow> = [
@@ -1717,7 +1723,7 @@ function SalesReport() {
                 : <span style={{ color: '#94a3b8' }}>—</span>,
         },
     ]
-    const rtTotalRT = useMemo(() => commData.reduce((s, r) => s + r.rtValor, 0), [commData])
+    const rtTotalRT = useMemo(() => sum2(commData, r => r.rtValor), [commData])
 
     const handleExportCommissionsExcel = () => {
         if (!commData.length) return

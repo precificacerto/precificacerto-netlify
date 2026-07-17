@@ -153,29 +153,31 @@ export function exportRtToPdf(
   })
 
   // ── Resumo por vendedor (sem filtro de vendedor) ──
+  const sorted = [...rows].sort((a, b) => (b.commission_value + b.pending_commission) - (a.commission_value + a.pending_commission))
   if (!filterEmployee && rows.length > 0) {
     const startY = (doc as any).lastAutoTable.finalY + 10
     doc.setFontSize(12)
     doc.setTextColor(14, 116, 144)
     doc.text('Resumo por Vendedor', 14, startY)
 
-    const sorted = [...rows].sort((a, b) => (b.commission_value + b.pending_commission) - (a.commission_value + a.pending_commission))
+    // BUG-UI-RELATORIORT-COLUNAORDEM-001: ordem RT Total → RT em Aberto → RT Liquidada
+    // (total geral → pendente → efetivamente liquidado / resultado final a receber).
     const summaryData = sorted.map(r => [
       r.name,
-      formatCurrency(r.commission_value),
-      formatCurrency(r.pending_commission),
       formatCurrency(r.commission_value + r.pending_commission),
+      formatCurrency(r.pending_commission),
+      formatCurrency(r.commission_value),
     ])
     summaryData.push([
       'TOTAL',
-      formatCurrency(totalRtLiquidado),
-      formatCurrency(totalRtAberto),
       formatCurrency(totalRtGeral),
+      formatCurrency(totalRtAberto),
+      formatCurrency(totalRtLiquidado),
     ])
 
     ;(doc as any).autoTable({
       startY: startY + 4,
-      head: [['Vendedor', 'RT Liquidada', 'RT em Aberto', 'RT Total']],
+      head: [['Vendedor', 'RT Total', 'RT em Aberto', 'RT Liquidada']],
       body: summaryData,
       theme: 'grid',
       headStyles: { fillColor: [14, 116, 144] },
@@ -189,6 +191,29 @@ export function exportRtToPdf(
         }
       },
     })
+  }
+
+  // FEAT-RELATORIORT-ASSINATURA-001: área de confirmação de recebimento do RT liquidado.
+  // Uma linha de assinatura por vendedor, com data preenchida automaticamente.
+  const today = new Date().toLocaleDateString('pt-BR')
+  const signers = filterEmployee ? rows : sorted
+  if (signers.length > 0) {
+    let sy = (doc as any).lastAutoTable ? (doc as any).lastAutoTable.finalY + 16 : 60
+    doc.setFontSize(11)
+    doc.setTextColor(14, 116, 144)
+    doc.text('Confirmação de recebimento', 14, sy)
+    sy += 12
+    for (const r of signers) {
+      if (sy > 185) { doc.addPage(); sy = 20 }
+      doc.setDrawColor(120)
+      doc.line(14, sy, 110, sy)
+      doc.setFontSize(9)
+      doc.setTextColor(0, 0, 0)
+      doc.text(`${r.name}`, 14, sy + 5)
+      doc.setTextColor(90, 90, 90)
+      doc.text(`RT Liquidada: ${formatCurrency(r.commission_value)}    Data: ${today}`, 14, sy + 11)
+      sy += 26
+    }
   }
 
   doc.save(`RT_Comissoes_${monthName}_${year}.pdf`)

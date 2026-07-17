@@ -274,9 +274,10 @@ export async function exportRtToExcel(
     sc.alignment = { horizontal: 'center', vertical: 'middle' }
     for (let c = 1; c <= colCount; c++) sectionRow.getCell(c).border = { ...THIN_BORDER }
 
-    const sHeader = ws.addRow(['Vendedor', 'RT Liquidada', 'RT em Aberto', 'RT Total'])
+    // BUG-UI-RELATORIORT-COLUNAORDEM-001: ordem RT Total → RT em Aberto → RT Liquidada.
+    const sHeader = ws.addRow(['Vendedor', 'RT Total', 'RT em Aberto', 'RT Liquidada'])
     sHeader.height = 24
-    ws.mergeCells(sHeader.number, 4, sHeader.number, colCount) // "RT Total" ocupa até o fim
+    ws.mergeCells(sHeader.number, 4, sHeader.number, colCount) // última coluna (RT Liquidada) ocupa até o fim
     for (let c = 1; c <= colCount; c++) {
       const cell = sHeader.getCell(c)
       cell.font = { ...FONT_HEADER }
@@ -287,7 +288,7 @@ export async function exportRtToExcel(
 
     const sorted = [...data].sort((a, b) => (b.commission_value + b.pending_commission) - (a.commission_value + a.pending_commission))
     sorted.forEach((r, idx) => {
-      const rowVals = [r.name, r.commission_value, r.pending_commission, r.commission_value + r.pending_commission]
+      const rowVals = [r.name, r.commission_value + r.pending_commission, r.pending_commission, r.commission_value]
       const row = ws.addRow(rowVals)
       row.height = 20
       ws.mergeCells(row.number, 4, row.number, colCount)

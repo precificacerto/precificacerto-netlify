@@ -72,7 +72,7 @@ export function useBudgets() {
     async () => {
       const { data, error } = await supabase
         .from('budgets')
-        .select('*, customer:customers(id, name, phone, whatsapp_phone), employee:employees(id, name)')
+        .select('*, customer:customers(id, name, phone, whatsapp_phone), employee:employees(id, name), budget_items(product_id, service_id, products(name), services(name))')
         .eq('is_active', true)
         .order('created_at', { ascending: false })
       if (error) throw error

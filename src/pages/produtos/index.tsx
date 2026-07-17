@@ -1003,10 +1003,12 @@ function Products() {
             style={{ width: 280 }}
             allowClear
           />
+          {/* BUG-UI-TABELA-LABEL-001: rótulo explícito de que é a tabela de preços/vendedor. */}
+          <span style={{ fontSize: 13, color: '#667085', whiteSpace: 'nowrap' }}>Tabela de preços:</span>
           <Select
             allowClear
-            placeholder="Filtrar por tabela..."
-            style={{ width: 200 }}
+            placeholder="Selecione a tabela"
+            style={{ width: 210 }}
             value={tableFilter}
             onChange={v => setTableFilter(v || null)}
             options={commissionTables.map(t => ({ value: t.id, label: t.name }))}

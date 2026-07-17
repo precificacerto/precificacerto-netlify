@@ -51,6 +51,7 @@ export const CATEGORY_GROUP_MAP: CategoryGroup[] = [
   { category: 'MEI (Microempreendedor Individual)', group: 'DESPESA_FIXA' },
   // Despesas Variáveis
   { category: 'Comissões de Venda', group: 'COMISSOES' },
+  { category: 'RT - Comissão Reserva Técnica', group: 'RESERVA_TECNICA' },
   { category: 'Combustíveis', group: 'DESPESA_VARIAVEL' },
   { category: 'Correios', group: 'DESPESA_VARIAVEL' },
   { category: 'Departamento Jurídico', group: 'DESPESA_VARIAVEL' },
@@ -220,6 +221,7 @@ export const SN_CATEGORY_GROUP_MAP: CategoryGroup[] = [
   { category: 'DAS (imposto sobre vendas)', group: 'IMPOSTO_FATURAMENTO_DENTRO' },
   // Comissões
   { category: 'Comissões de venda', group: 'COMISSOES' },
+  { category: 'RT - Comissão Reserva Técnica', group: 'RESERVA_TECNICA' },
   // Lucro
   { category: 'Investimentos (máquinas, equipamentos, expansão e melhorias)', group: 'LUCRO' },
   { category: 'Distribuição de lucros', group: 'LUCRO' },
@@ -232,7 +234,7 @@ export const EXPENSE_CATEGORY_OPTIONS: CategoryOptionGroup[] = [
   { label: '── Despesas Fixas ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_FIXA').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Despesas Variáveis ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_VARIAVEL').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Despesas Financeiras ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_FINANCEIRA').map(c => ({ label: c.category, value: c.category })) },
-  { label: '── Comissões ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'COMISSOES').map(c => ({ label: c.category, value: c.category })) },
+  { label: '── Comissões ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'COMISSOES' || c.group === 'RESERVA_TECNICA').map(c => ({ label: c.category, value: c.category })) },
 ]
 
 export const LR_EXPENSE_CATEGORY_OPTIONS: CategoryOptionGroup[] = [
@@ -243,7 +245,7 @@ export const LR_EXPENSE_CATEGORY_OPTIONS: CategoryOptionGroup[] = [
   { label: '── Despesas Variáveis ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_VARIAVEL').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Atividades Terceirizadas Operacionais de Entrega ──', options: LR_ATIVIDADES_TERCEIRIZADAS.map(c => ({ label: c.category, value: c.category })) },
   { label: '── Despesas Financeiras ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_FINANCEIRA').map(c => ({ label: c.category, value: c.category })) },
-  { label: '── Comissões ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'COMISSOES').map(c => ({ label: c.category, value: c.category })) },
+  { label: '── Comissões ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'COMISSOES' || c.group === 'RESERVA_TECNICA').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Lucro ──', options: LR_LUCRO.map(c => ({ label: c.category, value: c.category })) },
   { label: '── Impostos sobre o Lucro ──', options: LR_IMPOSTOS_SOBRE_LUCRO.map(c => ({ label: c.category, value: c.category })) },
   { label: '── Impostos sobre o Faturamento (Por dentro) ──', options: LR_IMPOSTOS_FATURAMENTO_DENTRO.map(c => ({ label: c.category, value: c.category })) },
@@ -258,7 +260,7 @@ export const LP_EXPENSE_CATEGORY_OPTIONS: CategoryOptionGroup[] = [
   { label: '── Despesas Variáveis ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_VARIAVEL').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Atividades Terceirizadas Operacionais de Entrega ──', options: LR_ATIVIDADES_TERCEIRIZADAS.map(c => ({ label: c.category, value: c.category })) },
   { label: '── Despesas Financeiras ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_FINANCEIRA').map(c => ({ label: c.category, value: c.category })) },
-  { label: '── Comissões ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'COMISSOES').map(c => ({ label: c.category, value: c.category })) },
+  { label: '── Comissões ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'COMISSOES' || c.group === 'RESERVA_TECNICA').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Lucro ──', options: LR_LUCRO.map(c => ({ label: c.category, value: c.category })) },
   { label: '── Impostos sobre o Lucro ──', options: LP_IMPOSTOS_SOBRE_LUCRO.map(c => ({ label: c.category, value: c.category })) },
   { label: '── Impostos sobre o Faturamento (Por dentro) ──', options: LP_IMPOSTOS_FATURAMENTO_DENTRO.map(c => ({ label: c.category, value: c.category })) },
@@ -275,7 +277,7 @@ export const SN_EXPENSE_CATEGORY_OPTIONS: CategoryOptionGroup[] = [
   { label: '── Atividades Terceirizadas Operacionais de Entrega ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'ATIVIDADES_TERCEIRIZADAS').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Regime Tributário ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'REGIME_TRIBUTARIO').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Impostos sobre o Faturamento (Por dentro) ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'IMPOSTO_FATURAMENTO_DENTRO').map(c => ({ label: c.category, value: c.category })) },
-  { label: '── Comissões ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'COMISSOES').map(c => ({ label: c.category, value: c.category })) },
+  { label: '── Comissões ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'COMISSOES' || c.group === 'RESERVA_TECNICA').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Lucro ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'LUCRO').map(c => ({ label: c.category, value: c.category })) },
 ]
 

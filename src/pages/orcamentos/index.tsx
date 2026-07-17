@@ -172,7 +172,8 @@ function Budgets() {
     const [budgetItems, setBudgetItems] = useState<BudgetItemRow[]>([])
     const [detailItems, setDetailItems] = useState<any[]>([])
     const [searchText, setSearchText] = useState('')
-    const [filterEmployee, setFilterEmployee] = useState<string | null>(null)
+    // FEAT-ORCAMENTO-FILTRO-UNIFICADO-001: intervalo de data (padrão Vendas).
+    const [dateRange, setDateRange] = useState<[Dayjs | null, Dayjs | null]>([null, null])
     const [saving, setSaving] = useState(false)
     const [waConnected, setWaConnected] = useState(false)
     const [waWebhookUrl, setWaWebhookUrl] = useState<string | null>(null)
@@ -268,14 +269,29 @@ function Budgets() {
     const filteredData = useMemo(() => {
         // T12: ocultar pagos — lista mostra apenas Rascunho e Aguardando pagamento (+ SENT/APPROVED em transição)
         let visible = budgets.filter(b => b.status !== 'PAID')
-        // PC-FEAT-ORCAMENTOS-FILTROVENDEDOR-008: filtro por vendedor, combinável com a busca por cliente
-        if (filterEmployee) visible = visible.filter(b => b.employee_id === filterEmployee)
+        // FEAT-ORCAMENTO-FILTRO-UNIFICADO-001: intervalo de data (padrão Vendas).
+        const [start, end] = dateRange
+        if (start && end) {
+            visible = visible.filter(b => {
+                if (!b.created_at) return true
+                const d = dayjs(b.created_at)
+                return !d.isBefore(start, 'day') && !d.isAfter(end, 'day')
+            })
+        }
         if (!searchText) return visible
-        return visible.filter(b =>
-            (b.customer?.name || '').toLowerCase().includes(searchText.toLowerCase()) ||
-            b.id.toLowerCase().includes(searchText.toLowerCase())
-        )
-    }, [budgets, searchText, filterEmployee])
+        // FEAT-ORCAMENTO-FILTRO-UNIFICADO-001: busca única por produto, cliente, vendedor (ou nº).
+        const q = searchText.toLowerCase()
+        return visible.filter(b => {
+            const cust = (b.customer?.name || '').toLowerCase()
+            const emp = (b.employee?.name || '').toLowerCase()
+            const num = `orc-${b.id.substring(0, 4)}`.toLowerCase()
+            const prods = (b.budget_items || [])
+                .map((i: any) => i.products?.name || i.services?.name || '')
+                .join(' ')
+                .toLowerCase()
+            return cust.includes(q) || emp.includes(q) || num.includes(q) || b.id.toLowerCase().includes(q) || prods.includes(q)
+        })
+    }, [budgets, searchText, dateRange])
 
     // ── Fetch data for "Ver produtos em orçamentos" drawer ──
     const openProdBudgetDrawer = async () => {
@@ -2302,7 +2318,8 @@ function Budgets() {
         {
             title: 'Qtd',
             key: 'qty',
-            width: 72,
+            // BUG-UI-ORCAMENTO-PRECOUNIT-LAYOUT-001: largura suficiente para 3 dígitos.
+            width: 88,
             render: (_, record) => (
                 <InputNumber min={1} value={record.quantity} onChange={(v) => handleItemChange(record.key, 'quantity', v || 1)} style={{ width: '100%' }} />
             ),
@@ -2311,11 +2328,15 @@ function Budgets() {
             title: 'Preço un.',
             key: 'price',
             width: 170,
+            // BUG-UI-ORCAMENTO-PRECOUNIT-LAYOUT-001: "R$" como prefixo DENTRO do input
+            // (não em caixa separada), liberando espaço e evitando truncar o valor.
             render: (_, record) => (
                 <CurrencyInput
                     min={0}
                     value={record.unit_price}
                     onChange={(v) => handleItemChange(record.key, 'unit_price', v)}
+                    prefix="R$"
+                    showR$={false}
                     style={{ width: '100%' }}
                 />
             ),
@@ -2414,6 +2435,8 @@ function Budgets() {
                             min={0}
                             value={record.unit_price}
                             onChange={(v) => handleItemChange(record.key, 'unit_price', v)}
+                            prefix="R$"
+                            showR$={false}
                             style={{ width: '100%' }}
                         />
                     </div>
@@ -2484,26 +2507,21 @@ function Budgets() {
             <div className="pc-card--table">
                 <div className="filter-bar">
                     <Input
-                        placeholder="Buscar por cliente..."
+                        placeholder="Buscar por produto, cliente, vendedor..."
                         prefix={<SearchOutlined />}
                         value={searchText}
                         onChange={(e) => handleSearch(e.target.value)}
-                        style={{ maxWidth: 360 }}
+                        style={{ maxWidth: 320 }}
                         allowClear
                     />
-                    <Select
-                        placeholder="Filtrar por vendedor"
-                        style={{ minWidth: 200 }}
-                        value={filterEmployee || undefined}
-                        onChange={(v) => setFilterEmployee(v || null)}
+                    <DatePicker.RangePicker
+                        format="DD/MM/YYYY"
+                        placeholder={['Data início', 'Data fim']}
+                        value={dateRange}
+                        onChange={(vals) => setDateRange(vals ? [vals[0], vals[1]] : [null, null])}
                         allowClear
-                        showSearch
-                        optionFilterProp="children"
-                    >
-                        {(employees as any[]).map((e: any) => (
-                            <Select.Option key={e.id} value={e.id}>{e.name}</Select.Option>
-                        ))}
-                    </Select>
+                        style={{ minWidth: 240 }}
+                    />
                     <div style={{ flex: 1 }} />
                     <Button icon={<UnorderedListOutlined />} onClick={openProdBudgetDrawer}>
                         Ver produtos em orçamentos
