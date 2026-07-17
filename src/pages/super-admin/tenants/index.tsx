@@ -8,6 +8,7 @@ import { ROUTES } from '@/constants/routes'
 import { useAuth } from '@/hooks/use-auth.hook'
 import { useCachedFetch } from '@/hooks/use-cached-fetch.hook'
 import { SearchOutlined, PlusOutlined, CheckCircleOutlined, StopOutlined } from '@ant-design/icons'
+import { maskPhoneBR } from '@/utils/contact-validation'
 
 type TenantRow = {
   id: string
@@ -161,6 +162,14 @@ function SuperAdminTenants() {
           </div>
         </Button>
       ),
+    },
+    {
+      title: 'Telefone',
+      key: 'phone',
+      render: (_, record) => {
+        const p = (record as { phone?: string | null }).phone
+        return p ? maskPhoneBR(p) : '—'
+      },
     },
     {
       title: 'Status',

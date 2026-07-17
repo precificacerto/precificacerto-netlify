@@ -15,6 +15,7 @@ import {
   type PlanOption,
 } from '@/constants/plans'
 import { CheckOutlined, ArrowLeftOutlined, GiftOutlined } from '@ant-design/icons'
+import { maskPhoneBR, isValidBrazilianMobile, phoneDigits } from '@/utils/contact-validation'
 
 const TRIAL_DAYS = Number(process.env.NEXT_PUBLIC_STRIPE_TRIAL_DAYS) || 7
 
@@ -60,7 +61,7 @@ export default function Cadastro() {
     setErrorMessage('')
   }
 
-  const onFinishDados = async (values: { name: string; email: string }) => {
+  const onFinishDados = async (values: { name: string; email: string; phone: string }) => {
     if (!revenueTier || !selectedPlan) return
     setLoading(true)
     setErrorMessage('')
@@ -71,6 +72,7 @@ export default function Cadastro() {
         body: JSON.stringify({
           name: values.name.trim(),
           email: values.email.trim().toLowerCase(),
+          phone: phoneDigits(values.phone),
           revenueTier,
           planSlug: selectedPlan.slug as PlanSlug,
         }),
@@ -289,6 +291,22 @@ export default function Cadastro() {
                   ]}
                 >
                   <Input placeholder="seu@email.com" />
+                </Form.Item>
+                <Form.Item
+                  label="Telefone (WhatsApp)"
+                  name="phone"
+                  getValueFromEvent={(e) => maskPhoneBR(e.target.value)}
+                  rules={[
+                    { required: true, message: 'Informe seu telefone' },
+                    {
+                      validator: (_, v) =>
+                        isValidBrazilianMobile(v || '')
+                          ? Promise.resolve()
+                          : Promise.reject(new Error('Telefone inválido — informe um celular com DDD')),
+                    },
+                  ]}
+                >
+                  <Input placeholder="(11) 91234-5678" inputMode="numeric" maxLength={15} />
                 </Form.Item>
                 {errorMessage && (
                   <Alert

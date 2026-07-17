@@ -158,6 +158,7 @@ export async function handleCheckoutCompleted(session: Stripe.Checkout.Session) 
   const metadata = session.metadata || {}
   const adminEmail = metadata.admin_email
   const adminName = metadata.admin_name || adminEmail
+  const adminPhone = metadata.admin_phone || null
   const revenueTier = metadata.revenue_tier
   const planSlug = metadata.plan_slug
   const existingTenantId = metadata.tenant_id
@@ -297,6 +298,16 @@ export async function handleCheckoutCompleted(session: Stripe.Checkout.Session) 
     const tenantId = (rpcData as { tenant_id?: string })?.tenant_id
     if (!tenantId) {
       throw new Error('create_tenant_from_stripe did not return tenant_id')
+    }
+
+    // Telefone do pré-cadastro: gravado por UPDATE (evita alterar a RPC/assinatura).
+    // Best-effort — falha aqui não impede a criação do tenant.
+    if (adminPhone) {
+      const { error: phoneErr } = await supabaseAdmin
+        .from('tenants')
+        .update({ phone: adminPhone })
+        .eq('id', tenantId)
+      if (phoneErr) console.warn('checkout.session.completed: falha ao gravar telefone:', phoneErr.message)
     }
 
     // Evita e-mail duplicado: se webhook e confirm-checkout-session rodarem em paralelo, só o

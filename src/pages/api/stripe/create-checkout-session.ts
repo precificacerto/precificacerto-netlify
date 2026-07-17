@@ -1,5 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { getCallerContext } from '@/lib/get-caller-tenant'
+import { isValidEmailFormat, isValidBrazilianMobile, phoneDigits } from '@/utils/contact-validation'
+import { verifyEmailDomainHasMx } from '@/utils/verify-email-domain'
 
 /**
  * Cria sessão do Stripe Checkout via API REST (sem pacote 'stripe').
@@ -57,9 +59,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(405).json({ error: 'Method not allowed' })
   }
 
-  const { name, email, revenueTier, planSlug, tenantId } = req.body as {
+  const { name, email, phone, revenueTier, planSlug, tenantId } = req.body as {
     name?: string
     email?: string
+    phone?: string
     revenueTier?: RevenueTier
     planSlug?: PlanSlug
     tenantId?: string
@@ -67,6 +70,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   if (!name?.trim() || !email?.trim()) {
     return res.status(400).json({ error: 'Nome e email são obrigatórios.' })
+  }
+  if (!isValidEmailFormat(email)) {
+    return res.status(400).json({ error: 'Email inválido. Verifique o endereço digitado.' })
   }
   if (!revenueTier || !planSlug) {
     return res.status(400).json({ error: 'Faixa de faturamento e plano são obrigatórios.' })
@@ -105,6 +111,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     effectiveTenantId = caller.tenant_id
   }
 
+  // Pré-cadastro NOVO (sem tenantId): telefone obrigatório (celular BR) + verificação
+  // de que o domínio do e-mail existe/recebe mensagens (registro MX). No upgrade o
+  // contato já é conhecido, então só normaliza o telefone se vier no body.
+  let adminPhone = ''
+  if (!effectiveTenantId) {
+    adminPhone = phoneDigits(phone || '')
+    if (!isValidBrazilianMobile(adminPhone)) {
+      return res.status(400).json({ error: 'Telefone inválido. Informe um celular com DDD, ex.: (11) 91234-5678.' })
+    }
+    const mx = await verifyEmailDomainHasMx(email)
+    if (!mx.ok) {
+      return res.status(400).json({ error: 'O domínio do e-mail não recebe mensagens. Confira o endereço digitado.' })
+    }
+  } else if (phone) {
+    adminPhone = phoneDigits(phone)
+  }
+
   const priceId = getPriceId(revenueTier, planSlug)
   if (!priceId) {
     return res.status(400).json({ error: 'Plano não encontrado. Tente novamente.' })
@@ -134,10 +157,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     cancel_url: cancelUrl,
     'metadata[admin_name]': adminName,
     'metadata[admin_email]': adminEmail,
+    'metadata[admin_phone]': adminPhone,
     'metadata[revenue_tier]': revenueTier,
     'metadata[plan_slug]': planSlug,
     'subscription_data[metadata][admin_name]': adminName,
     'subscription_data[metadata][admin_email]': adminEmail,
+    'subscription_data[metadata][admin_phone]': adminPhone,
     'subscription_data[metadata][revenue_tier]': revenueTier,
     'subscription_data[metadata][plan_slug]': planSlug,
     'subscription_data[trial_period_days]': String(

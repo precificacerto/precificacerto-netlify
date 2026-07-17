@@ -7,6 +7,7 @@ import { PAGE_TITLES } from '@/constants/page-titles'
 import { ROUTES } from '@/constants/routes'
 import { useAuth } from '@/hooks/use-auth.hook'
 import { useCachedFetch } from '@/hooks/use-cached-fetch.hook'
+import { maskPhoneBR } from '@/utils/contact-validation'
 
 type TenantRow = {
   id: string
@@ -65,6 +66,14 @@ function SuperAdminCadastros() {
   const columns: ColumnsType<TenantRow> = [
     { title: 'Nome', dataIndex: 'name', key: 'name' },
     { title: 'Email', dataIndex: 'email', key: 'email' },
+    {
+      title: 'Telefone',
+      key: 'phone',
+      render: (_, record) => {
+        const p = (record as { phone?: string | null }).phone
+        return p ? maskPhoneBR(p) : '—'
+      },
+    },
     {
       title: 'Status',
       dataIndex: 'plan_status',
