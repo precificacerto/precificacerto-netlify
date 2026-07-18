@@ -164,6 +164,7 @@ function SalesReport() {
     const [commSaleFilter, setCommSaleFilter] = useState<string | undefined>(undefined)
     const [commProductFilter, setCommProductFilter] = useState<string | undefined>(undefined)
     const [commExportModalOpen, setCommExportModalOpen] = useState(false)
+    const [rtExportModalOpen, setRtExportModalOpen] = useState(false)
 
     // Product ABC state
     const [abcData, setAbcData] = useState<ABCReportRow[]>([])
@@ -575,7 +576,7 @@ function SalesReport() {
 
             let salesQuery: any = (supabase as any)
                 .from('sales')
-                .select('id, sale_code, sale_date, employee_id, customer_id, final_value, commission_amount, rt_amount, discount_value, description, budget_id')
+                .select('id, sale_code, sale_date, employee_id, customer_id, final_value, commission_amount, profit_amount, rt_amount, discount_value, description, budget_id')
                 .eq('tenant_id', effectiveTenantId)
                 .eq('is_active', true)
                 .gte('sale_date', start)
@@ -592,7 +593,7 @@ function SalesReport() {
                 // Fallback: remove potentially missing columns
                 const { data: salesSimple, error: salesErr2 } = await (supabase as any)
                     .from('sales')
-                    .select('id, sale_code, sale_date, employee_id, customer_id, final_value, commission_amount, rt_amount, description, budget_id')
+                    .select('id, sale_code, sale_date, employee_id, customer_id, final_value, commission_amount, profit_amount, rt_amount, description, budget_id')
                     .eq('tenant_id', effectiveTenantId)
                     .eq('is_active', true)
                     .gte('sale_date', start)
@@ -683,7 +684,14 @@ function SalesReport() {
 
                 const employeeCommissionPct = sale.employee_id ? employeeCommissionMap.get(sale.employee_id) : undefined
                 const { comissaoPaga, percentVendedor, hasData } = computeSaleCommission(sale, saleItems, employeeCommissionPct)
-                const lucroEmpresa = valorVendido - totalCost - comissaoPaga
+                // BUG-RELVENDAS-LUCROEMPRESA-001: o Lucro Empresa soma o Lucro INDIVIDUAL de cada
+                // venda (sales.profit_amount — Lucro apurado na Memória Cascata, já pós-desconto),
+                // não a subtração genérica Total − Custo − Comissão. Fallback para vendas legadas
+                // sem o valor persistido.
+                const saleProfit = Number(sale.profit_amount) || 0
+                const lucroEmpresa = saleProfit > 0
+                    ? saleProfit
+                    : valorVendido - totalCost - comissaoPaga
                 // EPIC-RT v8 (3.9/3.10): prioriza o RT CONGELADO gravado na venda (sales.rt_amount);
                 // fallback on-the-fly (produto vivo) para vendas antigas sem o valor persistido.
                 const rtFrozen = Number(sale.rt_amount) || 0
@@ -1886,21 +1894,206 @@ function SalesReport() {
 
     const renderCommissionSummary = () => {
         if (commData.length === 0) return null
+        // No mobile a coluna "Cód Venda" some (commColumns linha ~1641), então a tabela tem
+        // 6 colunas (não 7). labelSpan/índices dinâmicos evitam que os totais fiquem sob a
+        // coluna errada. Colunas: [0..labelSpan-1 rótulo] · Valor Vendido · Comissão % · Comissão R$.
+        const labelSpan = isMobile ? 3 : 4
         return (
             <Table.Summary fixed>
                 <Table.Summary.Row style={{ fontWeight: 700 }}>
-                    <Table.Summary.Cell index={0} colSpan={4}>TOTAL</Table.Summary.Cell>
-                    <Table.Summary.Cell index={4} align="right">
+                    <Table.Summary.Cell index={0} colSpan={labelSpan}>TOTAL</Table.Summary.Cell>
+                    <Table.Summary.Cell index={labelSpan} align="right">
                         <span style={{ color: '#4ade80' }}>{formatCurrency(commTotalVendido)}</span>
                     </Table.Summary.Cell>
-                    <Table.Summary.Cell index={5} align="right">—</Table.Summary.Cell>
-                    <Table.Summary.Cell index={6} align="right">
+                    <Table.Summary.Cell index={labelSpan + 1} align="right">—</Table.Summary.Cell>
+                    <Table.Summary.Cell index={labelSpan + 2} align="right">
                         <span style={{ color: '#f59e0b' }}>{formatCurrency(commTotalComissao)}</span>
                     </Table.Summary.Cell>
                 </Table.Summary.Row>
             </Table.Summary>
         )
     }
+
+    // BUG-RELVENDAS-RTCOMISSOES-TOTAL-003: linha TOTAL da aba RT Comissões (mesmo padrão da
+    // aba Relatório de Comissões). No mobile "Cód Venda" some → 6 colunas; labelSpan/índices
+    // dinâmicos. Colunas: [0..labelSpan-1 rótulo] · Valor Vendido · RT % · RT R$.
+    const renderRtSummary = () => {
+        if (commData.length === 0) return null
+        const labelSpan = isMobile ? 3 : 4
+        return (
+            <Table.Summary fixed>
+                <Table.Summary.Row style={{ fontWeight: 700 }}>
+                    <Table.Summary.Cell index={0} colSpan={labelSpan}>TOTAL</Table.Summary.Cell>
+                    <Table.Summary.Cell index={labelSpan} align="right">
+                        <span style={{ color: '#4ade80' }}>{formatCurrency(commTotalVendido)}</span>
+                    </Table.Summary.Cell>
+                    <Table.Summary.Cell index={labelSpan + 1} align="right">—</Table.Summary.Cell>
+                    <Table.Summary.Cell index={labelSpan + 2} align="right">
+                        <span style={{ color: '#06b6d4' }}>{formatCurrency(rtTotalRT)}</span>
+                    </Table.Summary.Cell>
+                </Table.Summary.Row>
+            </Table.Summary>
+        )
+    }
+
+    // BUG-RELVENDAS-RTCOMISSOES-EXPORTAR-004: exportação da aba RT Comissões (Excel + PDF),
+    // com colunas RT %/RT R$, linha TOTAL e KPIs padronizados (Total Vendido · Total RT · Lucro Empresa).
+    const handleExportRtExcel = () => {
+        if (!commData.length) return
+        import('exceljs').then(({ Workbook }) => {
+            const wb = new Workbook()
+            const ws = wb.addWorksheet('RT Comissões', { views: [{ state: 'frozen', xSplit: 0, ySplit: 7 }] })
+            const colCount = 7
+            ws.columns = [{ width: 14 }, { width: 18 }, { width: 28 }, { width: 24 }, { width: 18 }, { width: 14 }, { width: 18 }]
+
+            const titleRow = ws.addRow(['RT Comissões'])
+            titleRow.height = 30
+            ws.mergeCells(1, 1, 1, colCount)
+            const tc = titleRow.getCell(1)
+            tc.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FFFFFFFF' } }
+            tc.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0E7490' } }
+            tc.alignment = { horizontal: 'center', vertical: 'middle' }
+
+            const subRow = ws.addRow([`Período: ${commDateRange[0].format('DD/MM/YYYY')} a ${commDateRange[1].format('DD/MM/YYYY')}`])
+            subRow.height = 22
+            ws.mergeCells(2, 1, 2, colCount)
+            const sc = subRow.getCell(1)
+            sc.font = { name: 'Calibri', size: 11, italic: true }
+            sc.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8E8E8' } }
+            sc.alignment = { horizontal: 'center', vertical: 'middle' }
+
+            const kpis = [
+                { label: '💰 Total Vendido', value: commTotalVendido },
+                { label: '🔷 Total RT', value: rtTotalRT },
+                { label: '📊 Lucro Empresa', value: commTotalLucro },
+            ]
+            const kpiLabelRow = ws.addRow([])
+            const kpiValueRow = ws.addRow([])
+            kpiLabelRow.height = 18
+            kpiValueRow.height = 24
+            const cardSpan = Math.floor(colCount / kpis.length)
+            const remainder = colCount - cardSpan * kpis.length
+            let colStart = 1
+            kpis.forEach((kpi, idx) => {
+                const span = cardSpan + (idx < remainder ? 1 : 0)
+                const colEnd = colStart + span - 1
+                ws.mergeCells(3, colStart, 3, colEnd)
+                ws.mergeCells(4, colStart, 4, colEnd)
+                const lc = kpiLabelRow.getCell(colStart)
+                lc.value = kpi.label
+                lc.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FF67E8F9' } }
+                lc.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF083344' } }
+                lc.alignment = { horizontal: 'left', vertical: 'middle', indent: 1 }
+                const vc = kpiValueRow.getCell(colStart)
+                vc.value = kpi.value
+                vc.numFmt = '"R$" #,##0.00'
+                vc.font = { name: 'Calibri', size: 13, bold: true, color: { argb: 'FFCFFAFE' } }
+                vc.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF083344' } }
+                vc.alignment = { horizontal: 'left', vertical: 'middle', indent: 1 }
+                for (let c = colStart; c <= colEnd; c++) {
+                    kpiLabelRow.getCell(c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF083344' } }
+                    kpiValueRow.getCell(c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF083344' } }
+                }
+                colStart = colEnd + 1
+            })
+
+            ws.addRow([])
+
+            const headerRow = ws.addRow(['Data', 'Cód Venda', 'Cliente', 'Vendedor', 'Valor Vendido', 'RT %', 'RT R$'])
+            headerRow.height = 24
+            for (let c = 1; c <= colCount; c++) {
+                const cell = headerRow.getCell(c)
+                cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } }
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0E7490' } }
+                cell.alignment = { horizontal: 'center', vertical: 'middle' }
+            }
+
+            commData.forEach((r, idx) => {
+                const row = ws.addRow([
+                    formatDateSafe(r.saleDate),
+                    r.saleCode,
+                    r.customerName,
+                    r.employeeName,
+                    r.valorVendido,
+                    r.rtValor > 0 ? r.rtPercent : null,
+                    r.rtValor > 0 ? r.rtValor : null,
+                ])
+                row.height = 20
+                const isEven = idx % 2 === 0
+                for (let c = 1; c <= colCount; c++) {
+                    const cell = row.getCell(c)
+                    cell.font = { name: 'Calibri', size: 11 }
+                    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: isEven ? 'FFECFEFF' : 'FFFFFFFF' } }
+                    if (c === 5 || c === 7) {
+                        cell.numFmt = '#,##0.00'
+                        cell.alignment = { horizontal: 'right', vertical: 'middle' }
+                        if (c === 7 && !(r.rtValor > 0)) cell.value = '—'
+                    } else if (c === 6) {
+                        cell.numFmt = '0.00"%"'
+                        cell.alignment = { horizontal: 'right', vertical: 'middle' }
+                        if (!(r.rtValor > 0)) cell.value = '—'
+                    } else if (c === 1 || c === 2) {
+                        cell.alignment = { horizontal: 'center', vertical: 'middle' }
+                    } else {
+                        cell.alignment = { horizontal: 'left', vertical: 'middle' }
+                    }
+                }
+            })
+
+            const totalRow = ws.addRow(['', '', '', 'TOTAL', commTotalVendido, '', rtTotalRT])
+            totalRow.height = 24
+            for (let c = 1; c <= colCount; c++) {
+                const cell = totalRow.getCell(c)
+                cell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FFFFFFFF' } }
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF155E75' } }
+                if (c === 5 || c === 7) {
+                    cell.numFmt = '#,##0.00'
+                    cell.alignment = { horizontal: 'right', vertical: 'middle' }
+                } else if (c === 4) {
+                    cell.alignment = { horizontal: 'right', vertical: 'middle' }
+                }
+            }
+
+            wb.xlsx.writeBuffer().then(buf => {
+                const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+                const url = URL.createObjectURL(blob)
+                const a = document.createElement('a'); a.href = url; a.download = 'rt-comissoes.xlsx'; a.click()
+                URL.revokeObjectURL(url)
+            })
+        }).catch((err: any) => {
+            console.error('Erro ao exportar Excel RT', err)
+            messageApi.error('Erro ao exportar Excel: ' + (err?.message || 'Erro desconhecido'))
+        })
+    }
+
+    const handleExportRtPdf = () => safeExport(async () => {
+        if (!commData.length) return
+        const rows = commData.map(r => [
+            r.saleDate ? dayjs(r.saleDate + 'T00:00:00').format('DD/MM/YYYY') : '—',
+            r.saleCode,
+            r.customerName,
+            r.employeeName,
+            formatCurrency(r.valorVendido),
+            r.rtValor > 0 ? `${r.rtPercent.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%` : '—',
+            r.rtValor > 0 ? formatCurrency(r.rtValor) : '—',
+        ])
+        rows.push(['', '', '', 'TOTAL', formatCurrency(commTotalVendido), '', formatCurrency(rtTotalRT)])
+
+        const { exportTableToPdf } = await import('@/utils/export-generic-pdf')
+        exportTableToPdf({
+            title: 'RT Comissões',
+            subtitle: `Período: ${commDateRange[0].format('DD/MM/YYYY')} a ${commDateRange[1].format('DD/MM/YYYY')}`,
+            headers: ['Data', 'Cód Venda', 'Cliente', 'Vendedor', 'Valor Vendido', 'RT %', 'RT R$'],
+            rows,
+            filename: 'rt-comissoes.pdf',
+            kpis: [
+                { label: 'Total Vendido', value: formatCurrency(commTotalVendido) },
+                { label: 'Total RT', value: formatCurrency(rtTotalRT) },
+                { label: 'Lucro Empresa', value: formatCurrency(commTotalLucro) },
+            ],
+            highlightLastRow: true,
+        })
+    }, messageApi.error, 'Erro ao exportar PDF RT')
 
     // Summary row renderer for products
     const renderProductSummary = () => {
@@ -2299,10 +2492,13 @@ function SalesReport() {
                 ) : activeTab === 'RT_COMMISSIONS' ? (
                     <div>
                         {/* RT Comissões KPIs */}
+                        {/* PC-UI-RELVENDAS-CARDS-PADRAO-002: mesma estrutura da aba Comissões —
+                            Total Vendido · Total RT · Lucro Empresa (último). Lucro Empresa é o
+                            somatório dos lucros da Memória Cascata pós-desconto (commTotalLucro). */}
                         <div className="kpi-grid" style={{ marginBottom: 20 }}>
                             <CardKPI title="Total Vendido" value={formatCurrency(commTotalVendido)} icon={<DollarOutlined />} variant="green" />
                             <CardKPI title="Total RT" value={formatCurrency(rtTotalRT)} icon={<TeamOutlined />} variant="blue" />
-                            <CardKPI title="Lucro após RT" value={formatCurrency(commTotalLucro - rtTotalRT)} icon={<BarChartOutlined />} variant="orange" />
+                            <CardKPI title="Lucro Empresa" value={formatCurrency(commTotalLucro)} icon={<BarChartOutlined />} variant="orange" />
                         </div>
 
                         {/* RT Filters — mesmos filtros/dados de Comissões */}
@@ -2343,8 +2539,28 @@ function SalesReport() {
                                 <Button icon={<ReloadOutlined />} onClick={fetchCommissionsReport} loading={commLoading} size={isMobile ? 'small' : 'middle'} style={isMobile ? { flex: 1 } : undefined}>
                                     Atualizar
                                 </Button>
+                                {/* BUG-RELVENDAS-RTCOMISSOES-EXPORTAR-004: botão Exportar espelhando a aba Comissões. */}
+                                <Button
+                                    icon={<DownloadOutlined />}
+                                    onClick={() => setRtExportModalOpen(true)}
+                                    disabled={!commData.length}
+                                    type="primary"
+                                    size={isMobile ? 'small' : 'middle'}
+                                    style={isMobile ? { flex: 1 } : undefined}
+                                >
+                                    Exportar
+                                </Button>
                             </div>
                         </div>
+
+                        <ExportFormatModal
+                            open={rtExportModalOpen}
+                            onClose={() => setRtExportModalOpen(false)}
+                            onExportExcel={handleExportRtExcel}
+                            onExportPdf={handleExportRtPdf}
+                            title="Exportar RT Comissões"
+                            skipDateRange
+                        />
 
                         <Table<CommissionReportRow>
                             columns={rtColumns}
@@ -2362,6 +2578,7 @@ function SalesReport() {
                                     />
                                 ),
                             }}
+                            summary={renderRtSummary}
                         />
                     </div>
                 ) : activeTab === 'PRODUCTS' ? (

@@ -292,6 +292,7 @@ type AggregatedData = {
   despesaFinanceira: MonthlyValues
   imposto: MonthlyValues
   comissoes: MonthlyValues
+  reservaTecnica: MonthlyValues // BUG-DFC-RTCOMISSOES-AUSENTE-001: RT — Comissão Reserva Técnica (linha própria, após Comissões)
   custoProduto: MonthlyValues // custo líquido (base sem impostos recuperáveis) para CUSTO_PRODUTOS
   impostosRecuperaveisCusto: MonthlyValues // impostos recuperáveis somados de todos os 4 tipos de custo (LR / Simples Híbrido)
   deducaoReceita: MonthlyValues // INSS retido na fonte, ISS retido pelo tomador (LP RET)
@@ -310,6 +311,7 @@ function aggregateEntries(entries: CashEntry[]): AggregatedData {
     despesaFinanceira: { ...EMPTY_MONTHS },
     imposto: { ...EMPTY_MONTHS },
     comissoes: { ...EMPTY_MONTHS },
+    reservaTecnica: { ...EMPTY_MONTHS },
     custoProduto: { ...EMPTY_MONTHS },
     impostosRecuperaveisCusto: { ...EMPTY_MONTHS },
     deducaoReceita: { ...EMPTY_MONTHS },
@@ -345,6 +347,14 @@ function aggregateEntries(entries: CashEntry[]): AggregatedData {
     // Use expense_category first (newer field), fall back to category (legacy)
     const cat = entry.expense_category || entry.category || ''
     const desc = entry.description || ''
+
+    // BUG-DFC-RTCOMISSOES-AUSENTE-001: RT — Comissão Reserva Técnica tem linha própria.
+    // Precisa ser detectada ANTES do check de comissões, senão o fallback textual
+    // `desc.includes('comiss')` (RT = "Comissão Reserva Técnica") a somaria em Comissões.
+    if (group === 'RESERVA_TECNICA') {
+      data.reservaTecnica[monthKey] += entry.amount
+      continue
+    }
 
     // Comissoes check — match by category key first, fallback to description text
     if (COMISSAO_KEYS.has(cat) || desc.toLowerCase().includes('comiss')) {
@@ -496,12 +506,13 @@ function buildDreLucroRealPresumido(
 
   // Despesas Operacionais — MO Indireta/Administrativa (exclui MO Produtiva que já está no CMV)
   const moIndireta = sumMonths(agg.maoDeObraAdministrativa, agg.maoDeObra)
-  const despesasOp = sumMonths(sumMonths(sumMonths(moIndireta, agg.despesaFixa), agg.despesaVariavel), agg.comissoes)
+  const despesasOp = sumMonths(sumMonths(sumMonths(sumMonths(moIndireta, agg.despesaFixa), agg.despesaVariavel), agg.comissoes), agg.reservaTecnica)
   rows.push(buildRow('desp_op_header', '(-) Despesas Operacionais', despesasOp, receitaBrutaBase, { sign: '-' }))
   rows.push(buildRow('desp_mo_indireta', 'Despesa MO Indireta', moIndireta, receitaBrutaBase, { indent: 2 }))
   rows.push(buildRow('desp_fixa', 'Despesa Fixa', agg.despesaFixa, receitaBrutaBase, { indent: 2 }))
   rows.push(buildRow('desp_variavel', 'Despesa Variável', agg.despesaVariavel, receitaBrutaBase, { indent: 2 }))
   rows.push(buildRow('desp_comissoes', 'Comissões', agg.comissoes, receitaBrutaBase, { indent: 2 }))
+  rows.push(buildRow('desp_reserva_tecnica', 'RT — Comissão Reserva Técnica', agg.reservaTecnica, receitaBrutaBase, { indent: 2 }))
 
   // Lucro Operacional (EBITDA/EBIT)
   const lucroOperacional = subtractMonths(lucroBruto, despesasOp)
@@ -550,11 +561,12 @@ function buildDrePresumidoRET(agg: AggregatedData): DreRow[] {
   rows.push(buildRow('resultado_bruto', '(=) Resultado Bruto (Margem Bruta)', resultadoBruto, receitaBruta, { isSubtotal: true, sign: '=' }))
 
   // Despesas Operacionais
-  const despesasOp = sumMonths(sumMonths(agg.despesaFixa, agg.despesaVariavel), agg.comissoes)
+  const despesasOp = sumMonths(sumMonths(sumMonths(agg.despesaFixa, agg.despesaVariavel), agg.comissoes), agg.reservaTecnica)
   rows.push(buildRow('desp_op', '(-) Despesas Operacionais', despesasOp, receitaBruta, { sign: '-' }))
   rows.push(buildRow('desp_fixa', 'Despesas Administrativas e Fixas', agg.despesaFixa, receitaBruta, { indent: 2 }))
   rows.push(buildRow('desp_variavel', 'Despesas Variáveis e Subempreitada', agg.despesaVariavel, receitaBruta, { indent: 2 }))
   rows.push(buildRow('desp_comissoes', 'Comissões', agg.comissoes, receitaBruta, { indent: 2 }))
+  rows.push(buildRow('desp_reserva_tecnica', 'RT — Comissão Reserva Técnica', agg.reservaTecnica, receitaBruta, { indent: 2 }))
 
   const resultadoAntesImposto = subtractMonths(resultadoBruto, despesasOp)
   rows.push(buildRow('resultado_antes_imposto', '(=) Resultado Antes dos Impostos sobre o Lucro', resultadoAntesImposto, receitaBruta, { isSubtotal: true, sign: '=' }))
@@ -595,12 +607,13 @@ function buildDreSimplesNacional(agg: AggregatedData, _calcType: CalcType): DreR
   // Despesas Operacionais — MO Indireta/Administrativa (exclui MO Produtiva que já está no CMV)
   const moIndireta = sumMonths(agg.maoDeObraAdministrativa, agg.maoDeObra)
 
-  const despesasOp = sumMonths(sumMonths(sumMonths(moIndireta, agg.despesaFixa), agg.despesaVariavel), agg.comissoes)
+  const despesasOp = sumMonths(sumMonths(sumMonths(sumMonths(moIndireta, agg.despesaFixa), agg.despesaVariavel), agg.comissoes), agg.reservaTecnica)
   rows.push(buildRow('desp_op', '(-) Despesas Operacionais', despesasOp, receitaBruta, { sign: '-' }))
   rows.push(buildRow('desp_mo_indireta', 'MO Indireta', moIndireta, receitaBruta, { indent: 2 }))
   rows.push(buildRow('desp_fixa', 'Despesa Fixa', agg.despesaFixa, receitaBruta, { indent: 2 }))
   rows.push(buildRow('desp_variavel', 'Despesa Variável', agg.despesaVariavel, receitaBruta, { indent: 2 }))
   rows.push(buildRow('desp_comissoes', 'Comissões', agg.comissoes, receitaBruta, { indent: 2 }))
+  rows.push(buildRow('desp_reserva_tecnica', 'RT — Comissão Reserva Técnica', agg.reservaTecnica, receitaBruta, { indent: 2 }))
 
   const lucroOperacional = subtractMonths(lucroBruto, despesasOp)
   rows.push(buildRow('lucro_operacional', '(=) Lucro Operacional', lucroOperacional, receitaBruta, { isSubtotal: true, sign: '=' }))

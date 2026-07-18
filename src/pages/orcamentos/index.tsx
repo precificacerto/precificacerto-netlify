@@ -2318,8 +2318,9 @@ function Budgets() {
         {
             title: 'Qtd',
             key: 'qty',
-            // BUG-UI-ORCAMENTO-PRECOUNIT-LAYOUT-001: largura suficiente para 3 dígitos.
-            width: 88,
+            // PC-UI-ORCAMENTOS-COLUNAS-ITENS-001: Qtd enxuta libera espaço p/ a coluna
+            // Produto/Serviço/Descrição (flex), sem apertar o InputNumber (setas + até 3 dígitos).
+            width: 72,
             render: (_, record) => (
                 <InputNumber min={1} value={record.quantity} onChange={(v) => handleItemChange(record.key, 'quantity', v || 1)} style={{ width: '100%' }} />
             ),
@@ -2327,7 +2328,7 @@ function Budgets() {
         {
             title: 'Preço un.',
             key: 'price',
-            width: 170,
+            width: 150,
             // BUG-UI-ORCAMENTO-PRECOUNIT-LAYOUT-001: "R$" como prefixo DENTRO do input
             // (não em caixa separada), liberando espaço e evitando truncar o valor.
             render: (_, record) => (
@@ -2344,7 +2345,7 @@ function Budgets() {
         {
             title: 'Total',
             key: 'total',
-            width: 140,
+            width: 120,
             render: (_, record) => <strong>{formatCurrency(getItemTotalWithCommission(record))}</strong>,
         },
         {
@@ -2485,19 +2486,19 @@ function Budgets() {
 
             {/* Indicadores de status */}
             <div className="pc-card" style={{ marginBottom: 16, display: 'flex', gap: 24, flexWrap: 'wrap' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 20px', background: 'var(--color-neutral-50)', borderRadius: 8, minWidth: 140 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 16px', background: 'var(--color-neutral-50)', borderRadius: 8, minWidth: 140 }}>
                     <span style={{ fontSize: 13, color: 'var(--color-neutral-600)' }}>Rascunho</span>
                     <strong style={{ fontSize: 20, color: 'var(--color-neutral-800)' }}>{budgets.filter(b => b.status === 'DRAFT').length}</strong>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 20px', background: 'var(--color-neutral-50)', borderRadius: 8, minWidth: 140 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 16px', background: 'var(--color-neutral-50)', borderRadius: 8, minWidth: 140 }}>
                     <span style={{ fontSize: 13, color: 'var(--color-neutral-600)' }}>Enviado</span>
                     <strong style={{ fontSize: 20, color: '#1890ff' }}>{budgets.filter(b => b.status === 'SENT' || b.status === 'APPROVED').length}</strong>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 20px', background: 'var(--color-neutral-50)', borderRadius: 8, minWidth: 140 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 16px', background: 'var(--color-neutral-50)', borderRadius: 8, minWidth: 140 }}>
                     <span style={{ fontSize: 13, color: 'var(--color-neutral-600)' }}>Aguardando pagamento</span>
                     <strong style={{ fontSize: 20, color: '#fa8c16' }}>{awaitingPaymentCount}</strong>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 20px', background: 'var(--color-neutral-50)', borderRadius: 8, minWidth: 140 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 16px', background: 'var(--color-neutral-50)', borderRadius: 8, minWidth: 140 }}>
                     <span style={{ fontSize: 13, color: 'var(--color-neutral-600)' }}>Pago</span>
                     <strong style={{ fontSize: 20, color: '#52c41a' }}>{budgets.filter(b => b.status === 'PAID').length}</strong>
                 </div>
@@ -2853,7 +2854,9 @@ function Budgets() {
                                 <Select
                                     value={discountMode}
                                     onChange={(v) => setDiscountMode(v as DiscountMode)}
-                                    style={{ width: 230 }}
+                                    // PC-UI-ORCAMENTOS-DROPDOWN-MODO-002: largura suficiente para exibir a
+                                    // opção completa (ex.: "Proporcional (Comissão + Lucro)") sem truncar.
+                                    style={{ width: 300 }}
                                     options={[
                                         { value: 'PROPORTIONAL', label: 'Proporcional (Comissão + Lucro)' },
                                         { value: 'SELLER_REDUCTION', label: 'Congela Lucro (Vendedor absorve)' },
@@ -2881,7 +2884,7 @@ function Budgets() {
                                         formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
                                         parser={(v) => Number((v || '0').replace(',', '.'))}
                                         addonAfter="%"
-                                        style={{ width: 140 }}
+                                        style={{ width: 120 }}
                                     />
                                 ) : (
                                     <CurrencyInput
@@ -2895,7 +2898,7 @@ function Budgets() {
                                             const capped = Math.min(pct, motorMaxDiscountPercent > 0 ? motorMaxDiscountPercent : 100)
                                             setGlobalDiscountPercent(capped)
                                         }}
-                                        style={{ width: 180 }}
+                                        style={{ width: 160 }}
                                     />
                                 )}
                             </div>

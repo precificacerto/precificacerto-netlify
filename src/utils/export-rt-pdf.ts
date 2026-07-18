@@ -70,13 +70,13 @@ export function exportRtToPdf(
   const margin = 14
   const gap = 4
   const cardWidth = (pageWidth - margin * 2 - gap * (kpiCount - 1)) / kpiCount
-  const cardHeight = 22
+  const cardHeight = 26 // PC-UI-RTCOMISSOES-PDF-LABEL-001: comporta rótulos de 2 linhas
 
   const kpis: Array<{ label: string; value: string; fill: [number, number, number]; labelColor: [number, number, number]; valueColor: [number, number, number] }> = [
     { label: 'Vendedores', value: String(rows.length), fill: [8, 51, 68], labelColor: [103, 232, 249], valueColor: [207, 250, 254] },
     { label: 'Receita Base', value: formatCurrency(totalBase), fill: [8, 51, 68], labelColor: [103, 232, 249], valueColor: [207, 250, 254] },
     { label: 'RT Total', value: formatCurrency(totalRtGeral), fill: [8, 51, 68], labelColor: [103, 232, 249], valueColor: [34, 211, 238] },
-    { label: 'RT Liquidada', value: formatCurrency(totalRtLiquidado), fill: [8, 51, 68], labelColor: [103, 232, 249], valueColor: [45, 212, 191] },
+    { label: 'RT Liquidada — Disponível p/ Pagamento', value: formatCurrency(totalRtLiquidado), fill: [8, 51, 68], labelColor: [103, 232, 249], valueColor: [45, 212, 191] },
     { label: 'RT em Aberto', value: formatCurrency(totalRtAberto), fill: [69, 26, 3], labelColor: [252, 211, 77], valueColor: [251, 191, 36] },
   ]
 
@@ -86,10 +86,13 @@ export function exportRtToPdf(
     doc.roundedRect(x, kpiStartY, cardWidth, cardHeight, 2, 2, 'F')
     doc.setFontSize(8)
     doc.setTextColor(...kpi.labelColor)
-    doc.text(kpi.label, x + 4, kpiStartY + 7)
+    // PC-UI-RTCOMISSOES-PDF-LABEL-001: rótulo pode ocupar 2 linhas (ex.: "RT Liquidada
+    // — Disponível p/ Pagamento") sem estourar a largura do card.
+    const labelLines = doc.splitTextToSize(kpi.label, cardWidth - 6)
+    doc.text(labelLines, x + 4, kpiStartY + 6)
     doc.setFontSize(11)
     doc.setTextColor(...kpi.valueColor)
-    doc.text(kpi.value, x + 4, kpiStartY + 17)
+    doc.text(kpi.value, x + 4, kpiStartY + cardHeight - 5)
   })
 
   const tableStartY = kpiStartY + cardHeight + 6
@@ -211,7 +214,7 @@ export function exportRtToPdf(
       doc.setTextColor(0, 0, 0)
       doc.text(`${r.name}`, 14, sy + 5)
       doc.setTextColor(90, 90, 90)
-      doc.text(`RT Liquidada: ${formatCurrency(r.commission_value)}    Data: ${today}`, 14, sy + 11)
+      doc.text(`RT Liquidada — Disponível para Pagamento: ${formatCurrency(r.commission_value)}    Data: ${today}`, 14, sy + 11)
       sy += 26
     }
   }

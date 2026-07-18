@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react'
-import { Table, Tag, DatePicker, Space, message, Button, Statistic, Card, Empty, Tooltip, Drawer } from 'antd'
+import { Table, Tag, DatePicker, message, Button, Card, Empty, Tooltip, Drawer } from 'antd'
 import { Select } from '@/components/ui/app-select.component'
 import type { ColumnsType } from 'antd/es/table'
 import dayjs from 'dayjs'
@@ -13,7 +13,6 @@ import { useDevice } from '@/contexts/device.context'
 import {
   FileExcelOutlined,
   FilePdfOutlined,
-  TeamOutlined,
   DollarOutlined,
   PercentageOutlined,
   DownloadOutlined,
@@ -645,7 +644,6 @@ export default function RtCommissionPage() {
   // Totals (from flat detail rows)
   const totalBase = useMemo(() => filteredData.reduce((s, r) => s + r.base_revenue, 0), [filteredData])
   const totalCommission = useMemo(() => filteredData.reduce((s, r) => s + r.commission_value, 0), [filteredData])
-  const totalPendingRevenue = useMemo(() => filteredData.reduce((s, r) => s + r.pending_revenue, 0), [filteredData])
   const totalPendingCommission = useMemo(() => filteredData.reduce((s, r) => s + r.pending_commission, 0), [filteredData])
   // PC-FEAT-RT-LIQUIDACAO-001 (Seção 3): RT Total (Geral) = Liquidada + Aguardando.
   // "RT Liquidada" (totalCommission) = já disponível p/ repasse (parcela recebida);
@@ -921,26 +919,20 @@ export default function RtCommissionPage() {
       {/* KPI Cards — mobile renders horizontal rows [ícone · label/valor · seta] */}
       {isMobile ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
-          <KpiRow icon={<TeamOutlined />} label="Vendedores" value={String(filteredData.length)} accent="#083344" border="#155e75" valueColor="#cffafe" iconColor="#67e8f9" />
+          {/* PC-UI-RTCOMISSOES-CARDS-002 (mobile): mesma ordem/cards do desktop. */}
           <KpiRow icon={<DollarOutlined />} label="Receita Base" value={formatCurrency(totalBase)} accent="#083344" border="#155e75" valueColor="#cffafe" iconColor="#67e8f9" />
           <KpiRow icon={<PercentageOutlined />} label="RT Total (Geral)" value={formatCurrency(totalRtGeral)} accent="#083344" border="#155e75" valueColor="#22d3ee" iconColor="#67e8f9" />
-          <KpiRow icon={<span>✅</span>} label="RT Liquidada" value={formatCurrency(totalCommission)} accent="#042f2e" border="#0f766e" valueColor="#2dd4bf" iconColor="#5eead4" />
-          {totalPendingRevenue > 0 && (
-            <KpiRow icon={<span>⏳</span>} label="Receita Aguardando" value={formatCurrency(totalPendingRevenue)} accent="#451a03" border="#92400e" valueColor="#fbbf24" iconColor="#fcd34d" />
-          )}
           {totalPendingCommission > 0 && (
-            <KpiRow icon={<span>⏳</span>} label="RT Aguardando" value={formatCurrency(totalPendingCommission)} accent="#451a03" border="#92400e" valueColor="#fbbf24" iconColor="#fcd34d" />
+            <KpiRow icon={<span>⏳</span>} label="RT Aguardando (em aberto)" value={formatCurrency(totalPendingCommission)} accent="#451a03" border="#92400e" valueColor="#fbbf24" iconColor="#fcd34d" />
           )}
+          <KpiRow icon={<span>✅</span>} label="RT Liquidada — Disponível p/ Pagamento" value={formatCurrency(totalCommission)} accent="#042f2e" border="#0f766e" valueColor="#2dd4bf" iconColor="#5eead4" />
         </div>
       ) : (
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginBottom: 24 }}>
-        <Card size="small" style={{ background: '#083344', border: '1px solid #155e75' }}>
-          <Statistic
-            title={<span style={{ color: '#67e8f9' }}><TeamOutlined /> Vendedores</span>}
-            value={filteredData.length}
-            valueStyle={{ color: '#cffafe', fontSize: 24 }}
-          />
-        </Card>
+        {/* PC-UI-RTCOMISSOES-CARDS-002: sem card "Vendedores"/"Receita Aguardando".
+            Ordem fixa: Receita Base -> RT Total (Geral) -> RT Aguardando -> RT Liquidada (último).
+            BUG-RTCOMISSOES-FORMATO-MONETARIO-003: todos os valores via formatCurrency (pt-BR),
+            nunca via Statistic do antd (que renderiza no formato americano, ex.: "R$ 20,219.99"). */}
         <Card size="small" style={{ background: '#083344', border: '1px solid #155e75' }}>
           <div style={{ fontSize: 14, color: '#67e8f9', marginBottom: 4 }}><DollarOutlined /> Receita Base</div>
           <div style={{ color: '#cffafe', fontSize: 24, fontWeight: 600 }}>{formatCurrency(totalBase)}</div>
@@ -951,34 +943,20 @@ export default function RtCommissionPage() {
           </Tooltip>
           <div style={{ color: '#22d3ee', fontSize: 24, fontWeight: 700 }}>{formatCurrency(totalRtGeral)}</div>
         </Card>
+        {totalPendingCommission > 0 && (
+          <Card size="small" style={{ background: '#451a03', border: '1px solid #92400e' }}>
+            <Tooltip title="RT vinculada a boleto/cheque aguardando recebimento">
+              <div style={{ fontSize: 14, color: '#fcd34d', marginBottom: 4 }}>⏳ RT Aguardando (em aberto)</div>
+            </Tooltip>
+            <div style={{ color: '#fbbf24', fontSize: 24, fontWeight: 700 }}>{formatCurrency(totalPendingCommission)}</div>
+          </Card>
+        )}
         <Card size="small" style={{ background: '#042f2e', border: '1px solid #0f766e' }}>
           <Tooltip title="RT já disponível para repasse ao vendedor (parcela liquidada no Fluxo de Caixa)">
-            <div style={{ fontSize: 14, color: '#5eead4', marginBottom: 4 }}>✅ RT Liquidada</div>
+            <div style={{ fontSize: 14, color: '#5eead4', marginBottom: 4 }}>✅ RT Liquidada — Disponível para Pagamento</div>
           </Tooltip>
           <div style={{ color: '#2dd4bf', fontSize: 24, fontWeight: 700 }}>{formatCurrency(totalCommission)}</div>
         </Card>
-        {totalPendingRevenue > 0 && (
-          <Card size="small" style={{ background: '#451a03', border: '1px solid #92400e' }}>
-            <Statistic
-              title={<Tooltip title="Boleto/Cheque aguardando confirmação no fluxo de caixa"><span style={{ color: '#fcd34d' }}>⏳ Receita Aguardando</span></Tooltip>}
-              value={totalPendingRevenue}
-              precision={2}
-              prefix="R$"
-              valueStyle={{ color: '#fbbf24', fontSize: 24 }}
-            />
-          </Card>
-        )}
-        {totalPendingCommission > 0 && (
-          <Card size="small" style={{ background: '#451a03', border: '1px solid #92400e' }}>
-            <Statistic
-              title={<Tooltip title="RT vinculada a boleto/cheque aguardando recebimento"><span style={{ color: '#fcd34d' }}>⏳ RT Aguardando</span></Tooltip>}
-              value={totalPendingCommission}
-              precision={2}
-              prefix="R$"
-              valueStyle={{ color: '#fbbf24', fontSize: 24, fontWeight: 700 }}
-            />
-          </Card>
-        )}
       </div>
       )}
 

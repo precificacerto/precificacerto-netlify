@@ -1380,7 +1380,7 @@ export default function CashFlow() {
             </div>
 
             {/* Drawer: Novo Lançamento (Despesa) */}
-            <Drawer title="Novo Lançamento de Despesa" width={680} open={drawerOpen} onClose={() => { setDrawerOpen(false); setExpPaymentMethod(''); setExpInstallments([{ date: null, amount: 0 }]); setExpInstallmentPreset('customizado'); setSelectedExpenseCategory(''); setLrValorIcms(''); setLrValorPis(''); setLrValorCofins(''); setLrValorIpi(''); setLrValorCbs(''); setLrValorIbs('') }}
+            <Drawer title="Novo Lançamento de Despesa" width={680} open={drawerOpen} destroyOnClose onClose={() => { setDrawerOpen(false); setExpPaymentMethod(''); setExpInstallments([{ date: null, amount: 0 }]); setExpInstallmentPreset('customizado'); setSelectedExpenseCategory(''); setLrValorIcms(''); setLrValorPis(''); setLrValorCofins(''); setLrValorIpi(''); setLrValorCbs(''); setLrValorIbs('') }}
                 extra={<Button type="primary" onClick={handleSaveEntry}>Salvar</Button>}>
                 <Form form={form} layout="vertical">
                     <Form.Item name="expense_category" label="Categoria da Despesa" rules={[{ required: true, message: 'Selecione a categoria' }]}>
@@ -1546,7 +1546,10 @@ export default function CashFlow() {
                                     <InputNumber min={1} max={120} style={{ width: '100%' }} placeholder="1 = à vista" />
                                 </Form.Item>
                                 <Form.Item name="expense_start_date" label="Data de início" rules={[{ required: true, message: 'Informe a data de início' }]}>
-                                    <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" placeholder="DD/MM/AAAA" />
+                                    {/* BUG-FLUXOCAIXA-CALENDARIO-001: o calendário abre no mês ativo do filtro
+                                        (month), não no mês corrente do sistema. A key remonta o picker quando o
+                                        filtro muda, garantindo que o defaultPickerValue seja reavaliado. */}
+                                    <DatePicker key={month.format('YYYY-MM')} defaultPickerValue={month} style={{ width: '100%' }} format="DD/MM/YYYY" placeholder="DD/MM/AAAA" />
                                 </Form.Item>
                             </div>
                             <div style={{ fontSize: 12, color: '#64748b', marginTop: -8 }}>
