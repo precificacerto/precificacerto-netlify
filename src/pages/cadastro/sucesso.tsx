@@ -1,5 +1,6 @@
 import Head from 'next/head'
 import Image from 'next/image'
+import Script from 'next/script'
 import { Button } from 'antd'
 import Link from 'next/link'
 import { useRouter } from 'next/router'
@@ -9,11 +10,35 @@ import { CheckCircleOutlined } from '@ant-design/icons'
 
 const TRIAL_DAYS = Number(process.env.NEXT_PUBLIC_STRIPE_TRIAL_DAYS) || 7
 
+// ID do container do Google Tag Manager (página de obrigado / pós-compra).
+const GTM_ID = 'GTM-5V9FH3Q8'
+
 // Evita chamar confirm mais de uma vez por session_id (mesmo com remount/Strict Mode).
 const confirmedSessionIds = new Set<string>()
 
+// Evita empurrar o evento de conversão mais de uma vez por session_id.
+const trackedSessionIds = new Set<string>()
+
 export default function CadastroSucesso() {
   const router = useRouter()
+
+  // Dispara o evento de conversão no dataLayer do GTM (uma vez por session_id).
+  useEffect(() => {
+    const sessionId = typeof router.query.session_id === 'string' ? router.query.session_id : null
+    if (!sessionId) return
+    if (trackedSessionIds.has(sessionId)) return
+    trackedSessionIds.add(sessionId)
+
+    if (typeof window !== 'undefined') {
+      const w = window as unknown as { dataLayer?: unknown[] }
+      w.dataLayer = w.dataLayer || []
+      w.dataLayer.push({
+        event: 'sign_up',
+        conversion_type: 'trial_started',
+        stripe_session_id: sessionId,
+      })
+    }
+  }, [router.query.session_id])
 
   useEffect(() => {
     const sessionId = typeof router.query.session_id === 'string' ? router.query.session_id : null
@@ -51,6 +76,23 @@ export default function CadastroSucesso() {
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <link rel="icon" href="/favicon.ico" />
       </Head>
+
+      {/* Google Tag Manager — container carregado apenas na página de obrigado */}
+      <Script id="gtm-thankyou" strategy="afterInteractive">
+        {`(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+})(window,document,'script','dataLayer','${GTM_ID}');`}
+      </Script>
+      {/* Google Tag Manager (noscript) — fallback sem JavaScript */}
+      <noscript
+        dangerouslySetInnerHTML={{
+          __html: `<iframe src="https://www.googletagmanager.com/ns.html?id=${GTM_ID}" height="0" width="0" style="display:none;visibility:hidden"></iframe>`,
+        }}
+      />
+      {/* End Google Tag Manager */}
+
       <main
         style={{
           display: 'flex',
