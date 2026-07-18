@@ -84,7 +84,7 @@ export default function Assinar() {
     }
   }
 
-  const maxWidth = step === 2 ? 720 : 420
+  const maxWidth = step === 2 ? 1080 : 420
 
   return (
     <>
@@ -193,18 +193,21 @@ export default function Assinar() {
                   Teste grátis por {TRIAL_DAYS} dias — sem cobrança agora!
                 </span>
               </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, justifyContent: 'center' }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 20, justifyContent: 'center', alignItems: 'stretch' }}>
                 {plans.map((plan) => (
                   <Card
                     key={plan.slug}
                     hoverable
                     onClick={() => handlePlanSelect(plan)}
                     style={{
-                      width: 200,
+                      width: 232,
+                      display: 'flex',
+                      flexDirection: 'column',
                       border: selectedPlan?.slug === plan.slug ? '2px solid #22C55E' : '1px solid rgba(255,255,255,0.06)',
                     }}
+                    styles={{ body: { padding: '24px 22px', display: 'flex', flexDirection: 'column', flex: 1 } }}
                   >
-                    <div style={{ textAlign: 'center' }}>
+                    <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', flex: 1 }}>
                       <div style={{ fontWeight: 700, fontSize: 18, marginBottom: 4 }}>{plan.name}</div>
                       <div style={{ color: '#94a3b8', fontSize: 13, marginBottom: 8 }}>{plan.description}</div>
                       <div style={{ fontSize: 22, fontWeight: 700, color: '#22C55E' }}>
@@ -216,8 +219,11 @@ export default function Assinar() {
                       </div>
                       <div
                         style={{
-                          marginTop: 10,
+                          marginTop: 16,
+                          paddingTop: 14,
+                          borderTop: '1px solid rgba(255,255,255,0.06)',
                           textAlign: 'left',
+                          flex: 1,
                         }}
                       >
                         {plan.features.slice(0, 5).map((feature) => (
@@ -225,14 +231,15 @@ export default function Assinar() {
                             key={feature}
                             style={{
                               display: 'flex',
-                              alignItems: 'center',
-                              gap: 6,
-                              fontSize: 12,
+                              alignItems: 'flex-start',
+                              gap: 8,
+                              fontSize: 13,
+                              lineHeight: 1.5,
                               color: '#9ca3af',
-                              marginBottom: 4,
+                              marginBottom: 11,
                             }}
                           >
-                            <CheckOutlined style={{ color: '#22C55E', fontSize: 10 }} />
+                            <CheckOutlined style={{ color: '#22C55E', fontSize: 11, marginTop: 4, flexShrink: 0 }} />
                             <span>{feature}</span>
                           </div>
                         ))}
@@ -240,7 +247,8 @@ export default function Assinar() {
                       <Button
                         type={selectedPlan?.slug === plan.slug ? 'primary' : 'default'}
                         size="small"
-                        style={{ marginTop: 12 }}
+                        block
+                        style={{ marginTop: 16 }}
                         icon={selectedPlan?.slug === plan.slug ? <CheckOutlined /> : undefined}
                       >
                         {selectedPlan?.slug === plan.slug ? 'Selecionado' : 'Selecionar'}
