@@ -1361,17 +1361,22 @@ export const Content: FC<ContentProps> = ({
     {
       title: 'Ações',
       key: 'action',
-      width: '30%',
+      // Relatório 21/07/2026 (item 5): a coluna de ações ("Atualizar valor item"/"Excluir")
+      // era cortada na borda direita, exigindo scroll horizontal. Fixando à direita com largura
+      // dedicada, as ações ficam SEMPRE integralmente visíveis, independente da resolução.
+      fixed: 'right',
+      width: 220,
+      align: 'right',
       render: (_, { id }: IItemProductModel) => (
-        <Space>
+        <Space size={4} style={{ whiteSpace: 'nowrap' }}>
           {isEditingMode && (
-            <Button onClick={() => handleClickUpdateItemPrice(id)} type="link">
+            <Button onClick={() => handleClickUpdateItemPrice(id)} type="link" style={{ padding: '0 4px' }}>
               Atualizar valor item
             </Button>
           )}
 
           <Popconfirm title="Tem certeza?" onConfirm={() => handleClickRemoveItem(id)}>
-            <Button type="link">Excluir</Button>
+            <Button type="link" style={{ padding: '0 4px' }}>Excluir</Button>
           </Popconfirm>
         </Space>
       ),

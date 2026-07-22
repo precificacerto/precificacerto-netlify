@@ -39,7 +39,11 @@ export function PercentInput({ showPercent = true, decimals = 3, ...props }: Per
         <CurrencyPercentInput
             mode="percent"
             decimals={decimals}
-            minDecimals={0}
+            // Relatório 21/07/2026 (itens 3 e 4): campos de alíquota devem AUTOCOMPLETAR
+            // as casas decimais no blur/confirmação (ex.: "5" → "5,000%", "8,8" → "8,800%"),
+            // padronizando todos os percentuais do sistema. `minDecimals = decimals` garante o
+            // padding só na EXIBIÇÃO — a digitação natural e o valor numérico permanecem intactos.
+            minDecimals={decimals}
             showSymbol={showPercent}
             {...props}
         />

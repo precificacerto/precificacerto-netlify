@@ -84,7 +84,15 @@ export default function Assinar() {
     }
   }
 
-  const maxWidth = step === 2 ? 1080 : 420
+  // Largura do card por plano e espaçamento entre eles.
+  // O container acompanha proporcionalmente o nº de planos, com gutter lateral
+  // generoso para o último card nunca encostar/extrapolar a borda do card de fundo.
+  const PLAN_CARD_WIDTH = 240
+  const PLAN_CARD_GAP = 22
+  const plansRowWidth =
+    plans.length > 0 ? plans.length * PLAN_CARD_WIDTH + (plans.length - 1) * PLAN_CARD_GAP : 0
+  // 64px = padding horizontal da section (32 de cada lado) + 64px de respiro (32 por lado)
+  const maxWidth = step === 2 ? plansRowWidth + 128 : 420
 
   return (
     <>
@@ -193,19 +201,27 @@ export default function Assinar() {
                   Teste grátis por {TRIAL_DAYS} dias — sem cobrança agora!
                 </span>
               </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 20, justifyContent: 'center', alignItems: 'stretch' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: PLAN_CARD_GAP,
+                  justifyContent: 'center',
+                  alignItems: 'stretch',
+                }}
+              >
                 {plans.map((plan) => (
                   <Card
                     key={plan.slug}
                     hoverable
                     onClick={() => handlePlanSelect(plan)}
                     style={{
-                      width: 232,
+                      width: PLAN_CARD_WIDTH,
                       display: 'flex',
                       flexDirection: 'column',
                       border: selectedPlan?.slug === plan.slug ? '2px solid #22C55E' : '1px solid rgba(255,255,255,0.06)',
                     }}
-                    styles={{ body: { padding: '24px 22px', display: 'flex', flexDirection: 'column', flex: 1 } }}
+                    styles={{ body: { padding: '26px 24px', display: 'flex', flexDirection: 'column', flex: 1 } }}
                   >
                     <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', flex: 1 }}>
                       <div style={{ fontWeight: 700, fontSize: 18, marginBottom: 4 }}>{plan.name}</div>
@@ -219,8 +235,8 @@ export default function Assinar() {
                       </div>
                       <div
                         style={{
-                          marginTop: 16,
-                          paddingTop: 14,
+                          marginTop: 18,
+                          paddingTop: 16,
                           borderTop: '1px solid rgba(255,255,255,0.06)',
                           textAlign: 'left',
                           flex: 1,
@@ -232,14 +248,14 @@ export default function Assinar() {
                             style={{
                               display: 'flex',
                               alignItems: 'flex-start',
-                              gap: 8,
+                              gap: 10,
                               fontSize: 13,
-                              lineHeight: 1.5,
+                              lineHeight: 1.6,
                               color: '#9ca3af',
-                              marginBottom: 11,
+                              marginBottom: 14,
                             }}
                           >
-                            <CheckOutlined style={{ color: '#22C55E', fontSize: 11, marginTop: 4, flexShrink: 0 }} />
+                            <CheckOutlined style={{ color: '#22C55E', fontSize: 11, marginTop: 5, flexShrink: 0 }} />
                             <span>{feature}</span>
                           </div>
                         ))}

@@ -154,6 +154,36 @@ interface BudgetItemRow {
     isService?: boolean
 }
 
+/** Relatório 21/07/2026 (item 6): dados de uma opção (produto ou serviço) no seletor do orçamento. */
+interface CodeNameOptionData {
+    value: string
+    label: string
+    code: string
+    name: string
+}
+
+/** Renderiza a opção do dropdown (produto/serviço) em 2 colunas: código (à esquerda) | nome completo. */
+function renderCodeNameOption(data: CodeNameOptionData) {
+    return (
+        <div style={{ display: 'flex', gap: 10, alignItems: 'baseline', width: '100%' }}>
+            {data.code ? (
+                <span
+                    style={{
+                        color: '#94a3b8',
+                        minWidth: 72,
+                        flexShrink: 0,
+                        fontVariantNumeric: 'tabular-nums',
+                        whiteSpace: 'nowrap',
+                    }}
+                >
+                    {data.code}
+                </span>
+            ) : null}
+            <span style={{ flex: 1, whiteSpace: 'normal', wordBreak: 'break-word' }}>{data.name}</span>
+        </div>
+    )
+}
+
 function Budgets() {
     const { modal: modalApi } = AntdApp.useApp()
     const { data: budgets = [], isLoading, mutate: reloadBudgets } = useBudgets()
@@ -699,6 +729,9 @@ function Budgets() {
             valor_op_interna_unit: numOrNull(prod?.valor_precificado_icms_piscofins),
             sale_price_base_unit: numOrNull(prod?.sale_price_base),
             terceirizadas_unit: terceirizadas > 0 ? terceirizadas : null,
+            // Relatório 21/07/2026 (item 2): item manual → custo puro na cascata (fora da
+            // cascata de produtos, resíduo 0, imune a desconto/tributo). Ver legacy-adapter.
+            is_manual_cost: i.isManual === true,
         }
     })
     // Parâmetros de operação para a hierarquia do ICMS Complementar (Etapa 17). ST/DIFAL é
@@ -2290,28 +2323,36 @@ function Budgets() {
                     <Select
                         placeholder="Selecione o serviço"
                         showSearch
-                        optionFilterProp="children"
+                        optionFilterProp="label"
                         style={{ width: '100%' }}
                         value={record.service_id || undefined}
                         onChange={(v) => handleServiceSelect(record.key, v)}
-                    >
-                        {rowSvcs.map((s: any) => (
-                            <Select.Option key={s.id} value={s.id}>{s.name}</Select.Option>
-                        ))}
-                    </Select>
+                        options={rowSvcs.map((s: any) => ({
+                            value: s.id,
+                            label: s.code ? `${s.code} ${s.name}` : s.name,
+                            code: s.code || '',
+                            name: s.name,
+                        }))}
+                        optionRender={(opt) => renderCodeNameOption(opt.data as CodeNameOptionData)}
+                    />
                 ) : (
                     <Select
                         placeholder="Selecione o produto"
                         showSearch
-                        optionFilterProp="children"
+                        // Relatório 21/07/2026 (item 6): busca por código OU nome (label = "código nome"),
+                        // dropdown em 2 colunas (código | nome) e display do selecionado com código primeiro.
+                        optionFilterProp="label"
                         style={{ width: '100%' }}
                         value={record.product_id || undefined}
                         onChange={(v) => handleProductSelect(record.key, v)}
-                    >
-                        {rowProds.map((p: any) => (
-                            <Select.Option key={p.id} value={p.id}>{p.name}</Select.Option>
-                        ))}
-                    </Select>
+                        options={rowProds.map((p: any) => ({
+                            value: p.id,
+                            label: p.code ? `${p.code} ${p.name}` : p.name,
+                            code: p.code || '',
+                            name: p.name,
+                        }))}
+                        optionRender={(opt) => renderCodeNameOption(opt.data as CodeNameOptionData)}
+                    />
                 )
             },
         },
@@ -2331,6 +2372,10 @@ function Budgets() {
             width: 150,
             // BUG-UI-ORCAMENTO-PRECOUNIT-LAYOUT-001: "R$" como prefixo DENTRO do input
             // (não em caixa separada), liberando espaço e evitando truncar o valor.
+            // Relatório 21/07/2026 (item 1): para linhas vindas do cadastro (Produto/Serviço),
+            // o Preço un. é REFERÊNCIA à precificação final do produto e não pode ser sobrescrito
+            // — fica read-only; só o campo Qtd é editável. A edição livre do valor permanece
+            // exclusiva dos itens "Adicionar item manual" (record.isManual).
             render: (_, record) => (
                 <CurrencyInput
                     min={0}
@@ -2338,6 +2383,7 @@ function Budgets() {
                     onChange={(v) => handleItemChange(record.key, 'unit_price', v)}
                     prefix="R$"
                     showR$={false}
+                    disabled={!record.isManual}
                     style={{ width: '100%' }}
                 />
             ),
@@ -2394,28 +2440,34 @@ function Budgets() {
                         <Select
                             placeholder="Selecione o serviço"
                             showSearch
-                            optionFilterProp="children"
+                            optionFilterProp="label"
                             style={{ width: '100%' }}
                             value={record.service_id || undefined}
                             onChange={(v) => handleServiceSelect(record.key, v)}
-                        >
-                            {rowSvcs.map((s: any) => (
-                                <Select.Option key={s.id} value={s.id}>{s.name}</Select.Option>
-                            ))}
-                        </Select>
+                            options={rowSvcs.map((s: any) => ({
+                                value: s.id,
+                                label: s.code ? `${s.code} ${s.name}` : s.name,
+                                code: s.code || '',
+                                name: s.name,
+                            }))}
+                            optionRender={(opt) => renderCodeNameOption(opt.data as CodeNameOptionData)}
+                        />
                     ) : (
                         <Select
                             placeholder="Selecione o produto"
                             showSearch
-                            optionFilterProp="children"
+                            optionFilterProp="label"
                             style={{ width: '100%' }}
                             value={record.product_id || undefined}
                             onChange={(v) => handleProductSelect(record.key, v)}
-                        >
-                            {rowProds.map((p: any) => (
-                                <Select.Option key={p.id} value={p.id}>{p.name}</Select.Option>
-                            ))}
-                        </Select>
+                            options={rowProds.map((p: any) => ({
+                                value: p.id,
+                                label: p.code ? `${p.code} ${p.name}` : p.name,
+                                code: p.code || '',
+                                name: p.name,
+                            }))}
+                            optionRender={(opt) => renderCodeNameOption(opt.data as CodeNameOptionData)}
+                        />
                     )}
                 </div>
 
@@ -2438,6 +2490,7 @@ function Budgets() {
                             onChange={(v) => handleItemChange(record.key, 'unit_price', v)}
                             prefix="R$"
                             showR$={false}
+                            disabled={!record.isManual}
                             style={{ width: '100%' }}
                         />
                     </div>
@@ -2609,7 +2662,9 @@ function Budgets() {
             {/* ── Drawer: Criar / Editar Orçamento ── */}
             <Drawer
                 title={editingBudgetId ? 'Editar Orçamento' : 'Novo Orçamento'}
-                width="50vw"
+                // Relatório 21/07/2026 (item 6): amplia o modal p/ ~75% da tela, dando espaço às
+                // colunas de produtos/serviços (qtd, preço un. e total sem truncar).
+                width="75vw"
                 open={drawerOpen}
                 onClose={() => { setDrawerOpen(false); setEditingBudgetId(null); form.resetFields(); setBudgetItems([]); setGlobalDiscountPercent(0); setDiscountMode('PROPORTIONAL'); setTableSections([{key: 'ts-0', tableId: null}]); setEmpProductTables([]); setEmpServiceTables([]); setBudgetFormInstallmentPreset('customizado'); setBudgetFormCustomInstallments([{ date: null, amount: 0 }]); setBudgetFormWithEntry(false); setBudgetFormBaseDate(undefined) }}
                 extra={

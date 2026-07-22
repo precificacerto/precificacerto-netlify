@@ -21,6 +21,7 @@
 
 import type {
   AbsorptionPolicy,
+  CascadeStep,
   EngineItemV17,
   IcmsComplMotorInput,
   MotorV17Input,
@@ -83,6 +84,14 @@ export interface PageItem {
    * Usado para calcular Op Interna real: `sale_price_base_unit - terceirizadas_unit`.
    */
   terceirizadas_unit?: number | null
+  /**
+   * Relatório 21/07/2026 (item 2): item adicionado manualmente no orçamento
+   * ("Adicionar item manual"). Seu valor integral (qtd × unit_price) é tratado como
+   * CUSTO PURO na "Consolidação dos custos" (Etapa 4) — fora da cascata de produtos:
+   * não recebe DOP/tributo/comissão/lucro/RT, tem resíduo 0 e é IMUNE a desconto
+   * (mesma regra de frete/despesas acessórias fixas). Ver `calculateMotorV17ForPage`.
+   */
+  is_manual_cost?: boolean
 }
 
 export interface PageTenantCtx {
@@ -168,6 +177,135 @@ export type LegacyMotorResult = Pick<
   } | null
 }
 
+// ─────────────────────── Item manual = custo puro (Relatório 21/07/2026, item 2) ───────────────────────
+
+/** Detecta item "Adicionar item manual" (custo puro, fora da cascata de produtos). */
+function isManualCostItem(item: PageItem): boolean {
+  return item.is_manual_cost === true
+}
+
+/**
+ * Soma o valor integral (qtd × unit_price) de um item manual — o custo fixo que ele
+ * injeta na "Consolidação dos custos". Zero/negativo ⇒ 0 (item ignorado).
+ */
+function manualItemCost(item: PageItem): number {
+  const v = (Number(item.unit_price) || 0) * (Number(item.quantity) || 0)
+  return v > 0 ? v : 0
+}
+
+/**
+ * Injeta o custo dos itens manuais no display da Etapa 4 ("Consolidação dos custos"),
+ * como custo puro (child dedicado). NÃO toca as etapas de tributo/desconto/RRO — o
+ * item manual é imune a desconto e não gera resíduo. Retorna um NOVO array (o trace é
+ * compartilhado entre os itens do orçamento, então não pode ser mutado no lugar).
+ */
+function augmentTraceWithManualCost(
+  trace: CascadeStep[] | undefined,
+  manualFixedCost: number,
+): CascadeStep[] | undefined {
+  if (!Array.isArray(trace) || manualFixedCost <= 0) return trace
+  const manualChild: CascadeStep = {
+    step: 4,
+    label: 'Itens manuais (custo puro)',
+    base: null,
+    rate: null,
+    amount: manualFixedCost,
+    formula: 'Σ (qtd × valor) dos itens manuais — custo fixo, imune a desconto e tributo',
+    source: 'ITEMS',
+  }
+  return trace.map((s) =>
+    s.step === 4
+      ? {
+          ...s,
+          amount: (Number(s.amount) || 0) + manualFixedCost,
+          children: [...(s.children ?? []), manualChild],
+        }
+      : s,
+  )
+}
+
+/** Trace compacto para orçamento SÓ com itens manuais (sem produtos): custo = total, RRO = 0. */
+function buildManualOnlyCascadeTrace(manualFixedCost: number): CascadeStep[] {
+  const manualChild: CascadeStep = {
+    step: 4,
+    label: 'Itens manuais (custo puro)',
+    base: null,
+    rate: null,
+    amount: manualFixedCost,
+    formula: 'Σ (qtd × valor) dos itens manuais — custo fixo, imune a desconto e tributo',
+    source: 'ITEMS',
+  }
+  return [
+    {
+      step: 1,
+      label: 'Fragmentação individual',
+      base: null,
+      rate: null,
+      amount: manualFixedCost,
+      formula: 'Σ unit_price × quantity dos itens manuais',
+      source: 'ITEMS',
+    },
+    {
+      step: 4,
+      label: 'Consolidação dos custos',
+      base: null,
+      rate: null,
+      amount: manualFixedCost,
+      formula: 'Itens manuais entram integralmente como custo puro',
+      source: 'ITEMS',
+      children: [manualChild],
+    },
+    {
+      step: 9,
+      label: 'Venda consolidada',
+      base: null,
+      rate: null,
+      amount: manualFixedCost,
+      formula: 'Total dos itens manuais (imune a desconto)',
+      source: 'ITEMS',
+    },
+    {
+      step: 15,
+      label: 'Resultado Residual Operacional (RRO)',
+      base: manualFixedCost,
+      rate: null,
+      amount: 0,
+      formula: 'Itens manuais são custo puro ⇒ resíduo 0 (sem comissão/lucro/RT)',
+      source: 'ETAPA_4',
+    },
+  ]
+}
+
+/** Resultado por item de um item manual: custo puro, resíduo 0, imune a desconto/tributo. */
+function synthesizeManualResult(
+  value: number,
+  trace: CascadeStep[] | undefined,
+  status: LegacyMotorResult['status'],
+): LegacyMotorResult {
+  return {
+    _v17_adapter: true,
+    engine_version: MRM_ENGINE_VERSION_V17,
+    new_commission: 0,
+    new_profit: 0,
+    new_csll: 0,
+    new_irpj: 0,
+    rro: 0,
+    rb: value,
+    desc_value: 0,
+    rv: value,
+    ancora_interna: 0,
+    cp: value,
+    mod: 0,
+    dop: 0,
+    taxes_inside: [],
+    taxes_outside: [],
+    imp_total: 0,
+    cascade_trace: trace ?? [],
+    status,
+    expense_breakdown_v17: null,
+  }
+}
+
 /**
  * Calcula motor V17 para uma página inteira e retorna array compatível V16.
  *
@@ -177,20 +315,42 @@ export type LegacyMotorResult = Pick<
  *   - src/pages/vendas/index.tsx
  *
  * Retorna `null` para items inválidos (preserva contract V16).
+ *
+ * Relatório 21/07/2026 (item 2): itens manuais (`is_manual_cost`) são EXCLUÍDOS da
+ * cascata de produtos (para não distorcer pesos/tributos/desconto) e reinjetados como
+ * custo puro na Etapa 4 + resultado por item com resíduo 0. Orçamento sem itens manuais
+ * é bit-exact idêntico ao comportamento anterior.
  */
 export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResult | null)[] {
   const { items, tenantCtx, globalDiscountPercent } = args
 
-  // ───── Filtra items válidos ─────
+  // ───── Filtra items válidos (itens manuais são separados como custo puro) ─────
   const validItems: { item: PageItem; idx: number }[] = []
+  const manualIndices: number[] = []
+  let manualFixedCost = 0
   items.forEach((item, idx) => {
     const itemBase = (Number(item.unit_price) || 0) * (Number(item.quantity) || 0)
-    if (itemBase > 0) validItems.push({ item, idx })
+    if (itemBase <= 0) return
+    // Relatório 21/07/2026 (item 2): item manual NÃO entra na cascata de produtos.
+    if (isManualCostItem(item)) {
+      manualFixedCost += manualItemCost(item)
+      manualIndices.push(idx)
+      return
+    }
+    validItems.push({ item, idx })
   })
 
-  // ───── Caso vazio → array de nulls ─────
+  // ───── Caso sem produtos ─────
   if (validItems.length === 0) {
-    return items.map(() => null)
+    const results: (LegacyMotorResult | null)[] = items.map((): LegacyMotorResult | null => null)
+    // Orçamento SÓ com itens manuais: custo puro = total, RRO 0 (Cenário A do oráculo).
+    if (manualFixedCost > 0) {
+      const manualTrace = buildManualOnlyCascadeTrace(manualFixedCost)
+      for (const idx of manualIndices) {
+        results[idx] = synthesizeManualResult(manualItemCost(items[idx]), manualTrace, 'VALID')
+      }
+    }
+    return results
   }
 
   // ───── Converte PageItem → EngineItemV17 ─────
@@ -565,7 +725,7 @@ export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResul
 
   // ───── Rateia resultado consolidado proporcional ao RB de cada item ─────
   const rbTotal = v17Result.consolidated.rb_total
-  const results: (LegacyMotorResult | null)[] = items.map(() => null)
+  const results: (LegacyMotorResult | null)[] = items.map((): LegacyMotorResult | null => null)
   const ebTotal = v17Result.consolidated.expense_breakdown_total ?? null
 
   validItems.forEach(({ idx }, validIdx) => {
@@ -621,6 +781,19 @@ export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResul
     }
   })
 
+  // Relatório 21/07/2026 (item 2): injeta o custo dos itens manuais no display da
+  // Etapa 4 (compartilhado por todos os itens) e sintetiza o resultado por item de
+  // cada manual (custo puro, resíduo 0). A cascata dos produtos permanece intacta.
+  if (manualFixedCost > 0) {
+    const augmentedTrace = augmentTraceWithManualCost(v17Result.motor.cascade_trace, manualFixedCost)
+    for (const r of results) {
+      if (r) r.cascade_trace = augmentedTrace ?? r.cascade_trace
+    }
+    for (const idx of manualIndices) {
+      results[idx] = synthesizeManualResult(manualItemCost(items[idx]), augmentedTrace, v17Result.status)
+    }
+  }
+
   return results
 }
 
@@ -647,9 +820,15 @@ export function calculateMotorV17ForPageFull(args: PageBuildArgs): {
 } {
   const per_item = calculateMotorV17ForPage(args)
 
+  // Relatório 21/07/2026 (item 2): itens manuais ficam fora da cascata de produtos.
+  const manualFixedCostFull = args.items.reduce(
+    (s, item) => s + (isManualCostItem(item) ? manualItemCost(item) : 0),
+    0,
+  )
+
   // Recalcula consolidado (caro, mas correto para callers que precisam dos dois)
   const validItems = args.items.filter(
-    item => (Number(item.unit_price) || 0) * (Number(item.quantity) || 0) > 0,
+    item => !isManualCostItem(item) && (Number(item.unit_price) || 0) * (Number(item.quantity) || 0) > 0,
   )
 
   if (validItems.length === 0) {
@@ -700,6 +879,11 @@ export function calculateMotorV17ForPageFull(args: PageBuildArgs): {
       status: 'PENDING',
       error_code: null,
       messages: [],
+    }
+    // Orçamento só com itens manuais: reflete o custo puro no consolidado (Cenário A).
+    if (manualFixedCostFull > 0) {
+      emptyResult.consolidated.cp_total = manualFixedCostFull
+      emptyResult.motor.cascade_trace = buildManualOnlyCascadeTrace(manualFixedCostFull)
     }
     return { per_item, consolidated: emptyResult }
   }
@@ -813,6 +997,13 @@ export function calculateMotorV17ForPageFull(args: PageBuildArgs): {
     icms_compl: args.icmsCompl,
     outside_items: outsideItemsFull,
   })
+
+  // Relatório 21/07/2026 (item 2): custo dos itens manuais no display da Etapa 4.
+  if (manualFixedCostFull > 0) {
+    consolidated.motor.cascade_trace =
+      augmentTraceWithManualCost(consolidated.motor.cascade_trace, manualFixedCostFull)
+      ?? consolidated.motor.cascade_trace
+  }
 
   return { per_item, consolidated }
 }

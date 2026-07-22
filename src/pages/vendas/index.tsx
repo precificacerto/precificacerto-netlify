@@ -951,7 +951,11 @@ function Sales() {
         const d = new Date(s.saleDate)
         return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
     })
-    const totalRevenue = monthSales.reduce((sum, s) => sum + s.finalValue, 0)
+    // Relatório 21/07/2026 (item 7): o card "Receita no Mês" divergia em centavos da soma
+    // das vendas exibidas na tabela por acúmulo de ponto flutuante ao somar `finalValue`.
+    // Somamos em CENTAVOS INTEIROS (cada venda arredondada a 2 casas, como exibido na linha)
+    // e dividimos por 100 ao final — o total passa a bater exatamente com a soma da tabela.
+    const totalRevenue = monthSales.reduce((sum, s) => sum + Math.round(s.finalValue * 100), 0) / 100
     const avgTicket = monthSales.length > 0 ? totalRevenue / monthSales.length : 0
     const fromBudget = monthSales.filter(s => s.saleType === 'FROM_BUDGET').length
 

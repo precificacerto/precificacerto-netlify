@@ -2411,7 +2411,9 @@ function SalesReport() {
                                 format="DD/MM/YYYY"
                                 allowClear={false}
                                 size={isMobile ? 'small' : 'middle'}
-                                style={isMobile ? { width: '100%', minWidth: 0 } : { width: 220 }}
+                                // Relatório 21/07/2026 (item 8): filtros distribuídos por toda a largura;
+                                // datas recebem o maior peso (flex-grow 2) e minWidth maior p/ legibilidade.
+                                style={isMobile ? { width: '100%', minWidth: 0 } : { flex: '2 1 260px', minWidth: 240 }}
                             />
                             <Select
                                 placeholder="Vendedor"
@@ -2419,7 +2421,7 @@ function SalesReport() {
                                 onChange={setCommEmployeeFilter}
                                 allowClear
                                 size={isMobile ? 'small' : 'middle'}
-                                style={isMobile ? { flex: '1 1 45%', minWidth: 0 } : { width: 150 }}
+                                style={isMobile ? { flex: '1 1 45%', minWidth: 0 } : { flex: '1.6 1 200px', minWidth: 180 }}
                                 options={(employees as any[]).map((e: any) => ({ value: e.id, label: e.name }))}
                             />
                             <Select
@@ -2430,7 +2432,7 @@ function SalesReport() {
                                 showSearch
                                 optionFilterProp="label"
                                 size={isMobile ? 'small' : 'middle'}
-                                style={isMobile ? { flex: '1 1 45%', minWidth: 0 } : { width: 150 }}
+                                style={isMobile ? { flex: '1 1 45%', minWidth: 0 } : { flex: '1 1 150px', minWidth: 140 }}
                                 options={commData.map(r => ({ value: r.saleId, label: r.saleCode }))}
                             />
                             <Select
@@ -2441,7 +2443,7 @@ function SalesReport() {
                                 showSearch
                                 optionFilterProp="label"
                                 size={isMobile ? 'small' : 'middle'}
-                                style={isMobile ? { flex: '1 1 45%', minWidth: 0 } : { width: 170 }}
+                                style={isMobile ? { flex: '1 1 45%', minWidth: 0 } : { flex: '1.2 1 180px', minWidth: 160 }}
                                 options={allProducts}
                             />
                             <div style={{ marginLeft: isMobile ? 0 : 'auto', display: 'flex', gap: 8, flexShrink: 0, width: isMobile ? '100%' : undefined }}>
@@ -2513,7 +2515,9 @@ function SalesReport() {
                                 format="DD/MM/YYYY"
                                 allowClear={false}
                                 size={isMobile ? 'small' : 'middle'}
-                                style={isMobile ? { width: '100%', minWidth: 0 } : { width: 220 }}
+                                // Relatório 21/07/2026 (item 8): filtros distribuídos por toda a largura;
+                                // datas recebem o maior peso (flex-grow 2) e minWidth maior p/ legibilidade.
+                                style={isMobile ? { width: '100%', minWidth: 0 } : { flex: '2 1 260px', minWidth: 240 }}
                             />
                             <Select
                                 placeholder="Vendedor"
@@ -2521,7 +2525,7 @@ function SalesReport() {
                                 onChange={setCommEmployeeFilter}
                                 allowClear
                                 size={isMobile ? 'small' : 'middle'}
-                                style={isMobile ? { flex: '1 1 45%', minWidth: 0 } : { width: 150 }}
+                                style={isMobile ? { flex: '1 1 45%', minWidth: 0 } : { flex: '1.6 1 200px', minWidth: 180 }}
                                 options={(employees as any[]).map((e: any) => ({ value: e.id, label: e.name }))}
                             />
                             <Select
@@ -2532,7 +2536,7 @@ function SalesReport() {
                                 showSearch
                                 optionFilterProp="label"
                                 size={isMobile ? 'small' : 'middle'}
-                                style={isMobile ? { flex: '1 1 45%', minWidth: 0 } : { width: 170 }}
+                                style={isMobile ? { flex: '1 1 45%', minWidth: 0 } : { flex: '1.2 1 180px', minWidth: 160 }}
                                 options={allProducts}
                             />
                             <div style={{ marginLeft: isMobile ? 0 : 'auto', display: 'flex', gap: 8, flexShrink: 0, width: isMobile ? '100%' : undefined }}>
@@ -2606,7 +2610,9 @@ function SalesReport() {
                                 format="DD/MM/YYYY"
                                 allowClear={false}
                                 size={isMobile ? 'small' : 'middle'}
-                                style={isMobile ? { width: '100%', minWidth: 0 } : { width: 220 }}
+                                // Relatório 21/07/2026 (item 8): filtros distribuídos por toda a largura;
+                                // datas recebem o maior peso (flex-grow 2) e minWidth maior p/ legibilidade.
+                                style={isMobile ? { width: '100%', minWidth: 0 } : { flex: '2 1 260px', minWidth: 240 }}
                             />
                             <Select
                                 placeholder="Vendedor"
@@ -2712,7 +2718,9 @@ function SalesReport() {
                                 format="DD/MM/YYYY"
                                 allowClear={false}
                                 size={isMobile ? 'small' : 'middle'}
-                                style={isMobile ? { width: '100%', minWidth: 0 } : { width: 220 }}
+                                // Relatório 21/07/2026 (item 8): filtros distribuídos por toda a largura;
+                                // datas recebem o maior peso (flex-grow 2) e minWidth maior p/ legibilidade.
+                                style={isMobile ? { width: '100%', minWidth: 0 } : { flex: '2 1 260px', minWidth: 240 }}
                             />
                             <Select
                                 placeholder="Vendedor"
