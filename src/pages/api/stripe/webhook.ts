@@ -3,6 +3,7 @@ import crypto from 'crypto'
 import Stripe from 'stripe'
 import { supabaseAdmin } from '@/supabase/admin'
 import { notifySalesEvent } from '@/lib/sales-event-notifications'
+import { sendContractEmail } from '@/lib/send-contract-email'
 
 export const config = { api: { bodyParser: false } }
 
@@ -384,7 +385,7 @@ async function handleInvoicePaid(invoice: Stripe.Invoice) {
 
   const { data: tenants } = await supabaseAdmin
     .from('tenants')
-    .select('id, name')
+    .select('id, name, email, phone, cnpj_cpf, contract_sent_at')
     .eq('stripe_subscription_id', subscriptionId)
     .limit(1)
 
@@ -428,7 +429,64 @@ async function handleInvoicePaid(invoice: Stripe.Invoice) {
     metadata: { invoice_id: invoice.id, subscription_id: subscriptionId },
   })
 
+  // FEAT-CONTRACT-EMAIL: envia o Contrato de Licença de Uso ao cliente no PRIMEIRO
+  // pagamento confirmado. Guarda de idempotência via tenants.contract_sent_at —
+  // nunca reenvia em renovações. Best-effort: falha aqui não afeta o webhook.
+  await maybeSendContractOnFirstPayment(invoice, tenant)
+
   if (process.env.NODE_ENV === 'development') console.log('invoice.paid: updated tenant')
+}
+
+/**
+ * Envia o contrato ao cliente uma única vez, no 1º pagamento (invoice.paid).
+ * Dados: snapshot da invoice do Stripe (nome/e-mail/telefone/CPF-CNPJ) com fallback
+ * para o cadastro do tenant. Marca `contract_sent_at` só se o e-mail foi realmente
+ * enviado, para permitir nova tentativa no próximo evento caso o SMTP esteja fora.
+ */
+async function maybeSendContractOnFirstPayment(
+  invoice: Stripe.Invoice,
+  tenant: { id: string; name?: string | null; email?: string | null; phone?: string | null; cnpj_cpf?: string | null; contract_sent_at?: string | null }
+) {
+  try {
+    if (tenant.contract_sent_at) return // já enviado antes — idempotente
+
+    const inv = invoice as any
+    const taxIdFromStripe: string | null =
+      Array.isArray(inv.customer_tax_ids) && inv.customer_tax_ids.length > 0
+        ? (inv.customer_tax_ids[0]?.value ?? null)
+        : null
+
+    const name = inv.customer_name || tenant.name || ''
+    const email = inv.customer_email || tenant.email || ''
+    const phone = inv.customer_phone || tenant.phone || ''
+    const cpfCnpj = taxIdFromStripe || tenant.cnpj_cpf || ''
+
+    if (!email) {
+      console.warn('invoice.paid: contrato não enviado — cliente sem e-mail')
+      return
+    }
+
+    const { sent } = await sendContractEmail({
+      name,
+      email,
+      phone,
+      cpfCnpj,
+      signatureDate: new Date(),
+    })
+
+    if (!sent) return // SMTP indisponível — tenta de novo no próximo evento
+
+    const patch: Record<string, unknown> = { contract_sent_at: new Date().toISOString() }
+    // Aproveita o CPF/CNPJ coletado no Stripe para completar o cadastro do tenant.
+    if (taxIdFromStripe && !tenant.cnpj_cpf) patch.cnpj_cpf = taxIdFromStripe
+
+    await supabaseAdmin.from('tenants').update(patch).eq('id', tenant.id)
+
+    if (process.env.NODE_ENV === 'development') console.log('invoice.paid: contrato enviado ao cliente')
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'unknown'
+    console.warn('invoice.paid: falha ao enviar contrato:', msg)
+  }
 }
 
 async function handleInvoicePaymentFailed(invoice: Stripe.Invoice) {

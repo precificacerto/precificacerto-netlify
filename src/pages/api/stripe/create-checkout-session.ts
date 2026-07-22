@@ -168,6 +168,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     'subscription_data[trial_period_days]': String(
       Number(process.env.STRIPE_TRIAL_DAYS) || 7
     ),
+    // FEAT-CONTRACT-EMAIL: coleta o CPF/CNPJ do cliente no checkout do Stripe para
+    // preencher o contrato enviado após o 1º pagamento. Fica salvo no customer e no
+    // snapshot da invoice (invoice.customer_tax_ids). Se o cliente não informar, o
+    // contrato sai com o campo em branco para preenchimento manual.
+    'tax_id_collection[enabled]': 'true',
   })
 
   if (effectiveTenantId) {
