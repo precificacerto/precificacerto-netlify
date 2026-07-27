@@ -2,7 +2,7 @@ import { ChangeEvent, FC, useCallback, useEffect, useMemo, useRef, useState } fr
 import { AutoComplete, Button, Card, Form, Input, InputNumber, Popconfirm, Space, Alert, Radio, Divider, Tooltip, Spin, Switch, Modal, Tag, Segmented } from 'antd'
 import { Select } from '@/components/ui/app-select.component'
 import { PercentInput } from '@/components/percent-input.component'
-import { InfoCircleOutlined, PlusOutlined, SearchOutlined, SyncOutlined } from '@ant-design/icons'
+import { InfoCircleOutlined, PlusOutlined, SearchOutlined, SyncOutlined, DeleteOutlined } from '@ant-design/icons'
 import { PAGE_TITLES } from '@/constants/page-titles'
 import { IItemModel } from '@/server/model/item'
 import { IItemProductModel, itemProductSchema } from '@/server/model/item-product-item'
@@ -1361,22 +1361,29 @@ export const Content: FC<ContentProps> = ({
     {
       title: 'Ações',
       key: 'action',
-      // Relatório 21/07/2026 (item 5): a coluna de ações ("Atualizar valor item"/"Excluir")
-      // era cortada na borda direita, exigindo scroll horizontal. Fixando à direita com largura
-      // dedicada, as ações ficam SEMPRE integralmente visíveis, independente da resolução.
+      // Item 1 (Relatório 24/07): ações exibidas apenas como ÍCONES (com tooltip no
+      // hover), reduzindo a largura da coluna e eliminando o scroll horizontal. Fixada
+      // à direita para permanecer sempre visível.
       fixed: 'right',
-      width: 220,
+      width: 90,
       align: 'right',
       render: (_, { id }: IItemProductModel) => (
         <Space size={4} style={{ whiteSpace: 'nowrap' }}>
           {isEditingMode && (
-            <Button onClick={() => handleClickUpdateItemPrice(id)} type="link" style={{ padding: '0 4px' }}>
-              Atualizar valor item
-            </Button>
+            <Tooltip title="Atualizar valor item">
+              <Button
+                onClick={() => handleClickUpdateItemPrice(id)}
+                type="text"
+                icon={<SyncOutlined />}
+                aria-label="Atualizar valor item"
+              />
+            </Tooltip>
           )}
 
           <Popconfirm title="Tem certeza?" onConfirm={() => handleClickRemoveItem(id)}>
-            <Button type="link" style={{ padding: '0 4px' }}>Excluir</Button>
+            <Tooltip title="Excluir">
+              <Button type="text" danger icon={<DeleteOutlined />} aria-label="Excluir" />
+            </Tooltip>
           </Popconfirm>
         </Space>
       ),

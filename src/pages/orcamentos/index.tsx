@@ -2833,18 +2833,20 @@ function Budgets() {
                                                         style={{ marginBottom: 8 }}
                                                     />
                                                 )}
-                                                <Space style={{ marginTop: 4 }}>
+                                                {/* Item 3 (Relatório 24/07): botão verde (área comercial) e
+                                                    largura total do popup; rótulo alterna Produto/Serviço. */}
+                                                <div style={{ marginTop: 4 }}>
                                                     {isProduct && (
-                                                        <Button size="small" type="dashed" icon={<PlusOutlined />} onClick={() => handleAddProduct(section.tableId!)}>
+                                                        <Button block type="primary" icon={<PlusOutlined />} onClick={() => handleAddProduct(section.tableId!)} style={{ background: '#16a34a', borderColor: '#16a34a' }}>
                                                             Adicionar Produto
                                                         </Button>
                                                     )}
                                                     {isService && (
-                                                        <Button size="small" type="dashed" icon={<ToolOutlined />} onClick={() => handleAddService(section.tableId!)}>
+                                                        <Button block type="primary" icon={<ToolOutlined />} onClick={() => handleAddService(section.tableId!)} style={{ background: '#16a34a', borderColor: '#16a34a' }}>
                                                             Adicionar Serviço
                                                         </Button>
                                                     )}
-                                                </Space>
+                                                </div>
                                             </>
                                         )}
                                     </div>

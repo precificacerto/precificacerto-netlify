@@ -323,9 +323,6 @@ function Home() {
   const pontoEquilibrio = breakevenResult.isValid && breakevenResult.breakeven != null
     ? breakevenResult.breakeven
     : 0
-  const peAtingidoPct = pontoEquilibrio > 0
-    ? Number(((totalEntradas / pontoEquilibrio) * 100).toFixed(0))
-    : 0
   const peAtingido = totalEntradas >= pontoEquilibrio && pontoEquilibrio > 0
 
   const monthInfo = useMemo<IMonthInfo>(() => {
@@ -650,7 +647,6 @@ function Home() {
           value={formatCurrency(totalEntradas)}
           icon={<WalletOutlined />}
           variant="green"
-          trend={metaMensal > 0 ? { value: Number(((totalEntradas / metaMensal) * 100).toFixed(0)), label: 'da meta' } : undefined}
         />
         <CardKPI
           title="Total de Saídas"
@@ -663,7 +659,6 @@ function Home() {
           value={formatCurrency(saldoAtual)}
           icon={<DollarOutlined />}
           variant={saldoAtual >= 0 ? 'blue' : 'red'}
-          trend={saldoAtual !== 0 ? { value: totalEntradas > 0 ? Number(((saldoAtual / totalEntradas) * 100).toFixed(0)) : 0, label: 'margem' } : undefined}
         />
         <CardKPI
           title="Meta Mensal"
@@ -685,7 +680,6 @@ function Home() {
                 : '—'}
               icon={<AimOutlined />}
               variant={peAtingido ? 'green' : 'red'}
-              trend={pontoEquilibrio > 0 ? { value: peAtingidoPct, label: 'atingido' } : undefined}
             />
           </div>
         </AntTooltip>

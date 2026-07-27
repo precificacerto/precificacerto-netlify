@@ -243,8 +243,8 @@ export async function exportRtToExcel(
   // ── Rodapé: 3 totalizadores ──
   const totalRows: Array<{ label: string; base: number; rt: number; fill: ExcelJS.FillPattern }> = [
     { label: 'TOTAL GERAL', base: totalValorGeral, rt: totalRtGeral, fill: FILL_TOTAL },
-    { label: 'TOTAL LIQUIDADO', base: totalValorLiquidado, rt: totalRtLiquidado, fill: FILL_TOTAL_LIQ },
-    { label: 'TOTAL EM ABERTO', base: totalValorAberto, rt: totalRtAberto, fill: FILL_TOTAL_ABERTO },
+    { label: 'TOTAL LIQUIDADO — Disponível para o pagamento', base: totalValorLiquidado, rt: totalRtLiquidado, fill: FILL_TOTAL_LIQ },
+    { label: 'TOTAL EM ABERTO — Ainda não disponível', base: totalValorAberto, rt: totalRtAberto, fill: FILL_TOTAL_ABERTO },
   ]
   totalRows.forEach(tr => {
     const row = ws.addRow([tr.label, '', '', '', '', tr.base, '', tr.rt, ''])

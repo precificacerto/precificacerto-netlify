@@ -993,7 +993,7 @@ export default function RtCommissionPage() {
               </Table.Summary.Row>
               <Table.Summary.Row style={{ background: '#042f2e' }}>
                 <Table.Summary.Cell index={0} colSpan={4}>
-                  <strong style={{ color: '#5eead4' }}>TOTAL LIQUIDADO</strong>
+                  <strong style={{ color: '#5eead4' }}>TOTAL LIQUIDADO — Disponível para o pagamento</strong>
                 </Table.Summary.Cell>
                 <Table.Summary.Cell index={4} align="right">
                   <span style={{ color: '#5eead4' }}>{formatCurrency(detailLiquidadoValue)}</span>
@@ -1006,7 +1006,7 @@ export default function RtCommissionPage() {
               </Table.Summary.Row>
               <Table.Summary.Row style={{ background: '#451a03' }}>
                 <Table.Summary.Cell index={0} colSpan={4}>
-                  <strong style={{ color: '#fcd34d' }}>TOTAL EM ABERTO</strong>
+                  <strong style={{ color: '#fcd34d' }}>TOTAL EM ABERTO — Ainda não disponível</strong>
                 </Table.Summary.Cell>
                 <Table.Summary.Cell index={4} align="right">
                   <span style={{ color: '#fbbf24' }}>{formatCurrency(detailAbertoValue)}</span>

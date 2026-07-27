@@ -112,8 +112,8 @@ export function exportRtToPdf(
 
   // 3 totalizadores no rodapé do corpo
   tableData.push(['TOTAL GERAL', '', '', '', '', formatCurrency(totalValorGeral), '', formatCurrency(totalRtGeral), ''])
-  tableData.push(['TOTAL LIQUIDADO', '', '', '', '', formatCurrency(totalValorLiquidado), '', formatCurrency(totalRtLiquidado), ''])
-  tableData.push(['TOTAL EM ABERTO', '', '', '', '', formatCurrency(totalValorAberto), '', formatCurrency(totalRtAberto), ''])
+  tableData.push(['TOTAL LIQUIDADO — Disponível para o pagamento', '', '', '', '', formatCurrency(totalValorLiquidado), '', formatCurrency(totalRtLiquidado), ''])
+  tableData.push(['TOTAL EM ABERTO — Ainda não disponível', '', '', '', '', formatCurrency(totalValorAberto), '', formatCurrency(totalRtAberto), ''])
   const totalRowsStart = tableData.length - 3
 
   ;(doc as any).autoTable({

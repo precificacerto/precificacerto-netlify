@@ -1,10 +1,8 @@
 import React, { useEffect, useState, useMemo } from 'react'
-import { Table, Button, Spin, Empty, message } from 'antd'
+import { Table, Spin, Empty, message } from 'antd'
 import { Select } from '@/components/ui/app-select.component'
-import { SyncOutlined } from '@ant-design/icons'
 import { calculateHubData } from '@/utils/hub-engine'
 import type { HubData } from '@/utils/hub-engine'
-import { mergeExpenseConfig } from '@/utils/recalc-expense-config'
 import { getExpenseGroupColor } from '@/constants/cashier-category'
 import { formatBRL } from '@/utils/formatters'
 
@@ -68,7 +66,6 @@ function getClosedMonths(months: string[], periodType: PeriodType): string[] {
 export function HubTab({ tenantId, refreshToken }: HubTabProps) {
     const [hubData, setHubData] = useState<HubData | null>(null)
     const [loadingData, setLoadingData] = useState(true)
-    const [syncing, setSyncing] = useState(false)
     const [periodType, setPeriodType] = useState<PeriodType>('MONTHLY')
     const [messageApi, contextHolder] = message.useMessage()
 
@@ -80,20 +77,6 @@ export function HubTab({ tenantId, refreshToken }: HubTabProps) {
             .catch(() => messageApi.error('Erro ao carregar dados do Hub'))
             .finally(() => setLoadingData(false))
     }, [tenantId, refreshToken])
-
-    const handleSync = async () => {
-        setSyncing(true)
-        try {
-            await mergeExpenseConfig(tenantId)
-            messageApi.success('Precificação atualizada com sucesso!')
-            const updated = await calculateHubData(tenantId)
-            setHubData(updated)
-        } catch {
-            messageApi.error('Erro ao atualizar precificação')
-        } finally {
-            setSyncing(false)
-        }
-    }
 
     const filteredMonths = useMemo(
         () => hubData ? getClosedMonths(hubData.months, periodType) : [],
@@ -322,15 +305,6 @@ export function HubTab({ tenantId, refreshToken }: HubTabProps) {
                             { value: 'ANNUAL', label: 'Anual' },
                         ]}
                     />
-                    <Button
-                        type="primary"
-                        icon={<SyncOutlined spin={syncing} />}
-                        loading={syncing}
-                        onClick={handleSync}
-                        style={{ background: '#6366F1', borderColor: '#6366F1' }}
-                    >
-                        Atualizar Precificação
-                    </Button>
                 </div>
             </div>
 
