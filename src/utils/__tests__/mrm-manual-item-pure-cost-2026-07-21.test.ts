@@ -1,18 +1,28 @@
 /**
- * Relatório de Correções 21/07/2026 — Item 2
- * "Classificação obrigatória de itens manuais como custo puro na cascata"
+ * Item 7 — BUG-CASCATA-001 + BUG-CASCATA-002 (Relatório de Correções 24/07/2026)
+ * "Produto manual = categoria INDEPENDENTE na Memória Cascata"
  *
- * Regra do PO (Cristiano): o valor integral (qtd × unit_price) de um item adicionado via
- * "Adicionar item manual" deve ser classificado na "Consolidação dos custos" (Etapa 4) como
- * CUSTO PURO — NÃO distribuído em Comissão/Lucro/RT, sem DOP nem tributo, resíduo 0 e IMUNE a
- * desconto comercial (mesma regra de frete/despesas acessórias fixas).
+ * REVOGA a regra do Relatório 21/07 (commit 0d4c37c), que classificava o item manual
+ * como "custo puro" dentro da Etapa 4 ("Consolidação dos custos"). Regra nova do PO
+ * (Cristiano):
+ *   - BUG-CASCATA-002: o produto manual NÃO aparece mais na Etapa 4. A Etapa 4 exibe
+ *     apenas o custo puro dos produtos cadastrados.
+ *   - BUG-CASCATA-001: o produto manual é uma CATEGORIA INDEPENDENTE — repasse puro,
+ *     somado ao TOTAL do orçamento (passo final da cascata), imune a desconto, sem
+ *     custo/tributo/comissão/lucro/RT. Não distorce pesos/percentuais.
  *
- * Oráculo travado com o PO (sessão 21/07/2026):
- *   Cenário A — só item manual (R$ 1.000): custo 1.000 · DOP/tributo/comissão/lucro/RT = 0 ·
- *               RRO = 0 · com desconto 10% permanece 1.000 (imune).
- *   Cenário B — produto + item manual: a cascata do produto é IDÊNTICA ao caso só-produto
- *               (o manual não interfere em pesos/tributos/RRO); o manual soma seu valor no
- *               custo (Etapa 4) com resíduo 0.
+ * Invariantes preservados (o manual é excluído do motor, então pesos/tributos/RRO da
+ * cascata de produtos permanecem bit-exact):
+ *   Cenário A — só produto manual (R$ 1.000): repasse 1.000 · DOP/tributo/comissão/
+ *               lucro/RT = 0 · RRO = 0 · com desconto 10% permanece 1.000 (imune).
+ *   Cenário B — produto + manual: a cascata do produto é IDÊNTICA ao caso só-produto;
+ *               a Etapa 4 NÃO muda (manual fora dela); o valor do manual soma no PASSO
+ *               FINAL do display, como categoria independente (resíduo 0).
+ *
+ * NOTA: a coreografia visual exata do relatório ("somar no autossoma pré-desconto e
+ * reabater pós-desconto") depende da planilha-oráculo `Cascata_com_produto_manual.xlsx`.
+ * O resultado numérico (total, pesos, RRO) é independente dessa escolha e está travado
+ * aqui: manual imune a desconto e somado integralmente ao total.
  */
 
 import {
@@ -36,7 +46,7 @@ function rate(tax_type: TaxRatePeriod['tax_type'], rate_pct: number): TaxRatePer
   }
 }
 
-// Tenant com DOP > 0 e tributos: prova que o item manual é IMUNE a todos eles.
+// Tenant com DOP > 0 e tributos: prova que o produto manual é IMUNE a todos eles.
 const tenantCtx: PageTenantCtx = {
   regime: 'LUCRO_REAL',
   rates: [rate('ICMS', 0.17), rate('PIS', 0.0165), rate('COFINS', 0.076)],
@@ -48,16 +58,22 @@ const tenantCtx: PageTenantCtx = {
 
 type MotorResult = NonNullable<ReturnType<typeof calculateMotorV17ForPage>[number]>
 const step4Of = (r: MotorResult) => r.cascade_trace.find((s) => s.step === 4)
+const finalStepOf = (r: MotorResult) => {
+  const max = Math.max(...r.cascade_trace.map((s) => Number(s.step)))
+  return r.cascade_trace.find((s) => Number(s.step) === max)
+}
+const hasManualChild = (s: { children?: { label: string }[] } | undefined) =>
+  (s?.children ?? []).some((c) => c.label.includes('Produto manual'))
 
-describe('Item 2 — item manual = custo puro (Relatório 21/07/2026)', () => {
-  describe('Cenário A — só item manual', () => {
+describe('Item 7 — produto manual = categoria independente (Relatório 24/07/2026)', () => {
+  describe('Cenário A — só produto manual', () => {
     const argsSemDesconto: PageBuildArgs = {
       items: [{ unit_price: 1000, quantity: 1, is_manual_cost: true }],
       tenantCtx,
       globalDiscountPercent: 0,
     }
 
-    it('valor integral vira CUSTO PURO (cp = 1.000), sem DOP/tributo/resíduo', () => {
+    it('repasse puro sem DOP/tributo/resíduo (RRO 0)', () => {
       const [m] = calculateMotorV17ForPage(argsSemDesconto)
       expect(m).not.toBeNull()
       expect(m!.cp).toBeCloseTo(1000, 2)
@@ -71,15 +87,17 @@ describe('Item 2 — item manual = custo puro (Relatório 21/07/2026)', () => {
       expect(m!.rro).toBe(0)
     })
 
-    it('aparece na Etapa 4 "Consolidação dos custos" com child dedicado', () => {
+    it('BUG-CASCATA-002: NÃO aparece na Etapa 4; aparece como categoria independente', () => {
       const [m] = calculateMotorV17ForPage(argsSemDesconto)
-      const step4 = step4Of(m!)
-      expect(step4).toBeDefined()
-      expect(step4!.amount).toBeCloseTo(1000, 2)
-      expect(step4!.children?.some((c) => c.label.includes('Itens manuais'))).toBe(true)
+      // Não há Etapa 4 de custos no orçamento só-manual (não é custo).
+      expect(step4Of(m!)).toBeUndefined()
+      // Existe uma etapa rotulada como repasse do produto manual.
+      const passthrough = m!.cascade_trace.find((s) => s.label.includes('Produto manual'))
+      expect(passthrough).toBeDefined()
+      expect(passthrough!.amount).toBeCloseTo(1000, 2)
     })
 
-    it('é IMUNE a desconto: com 10% o custo e a receita permanecem 1.000, RRO 0', () => {
+    it('é IMUNE a desconto: com 10% o repasse e a receita permanecem 1.000, RRO 0', () => {
       const [m] = calculateMotorV17ForPage({ ...argsSemDesconto, globalDiscountPercent: 10 })
       expect(m!.cp).toBeCloseTo(1000, 2)
       expect(m!.rv).toBeCloseTo(1000, 2)
@@ -88,7 +106,7 @@ describe('Item 2 — item manual = custo puro (Relatório 21/07/2026)', () => {
     })
   })
 
-  describe('Cenário B — produto + item manual', () => {
+  describe('Cenário B — produto + produto manual', () => {
     const produto = {
       unit_price: 10000,
       quantity: 1,
@@ -108,7 +126,7 @@ describe('Item 2 — item manual = custo puro (Relatório 21/07/2026)', () => {
       globalDiscountPercent: 10,
     }
 
-    it('a cascata do PRODUTO é bit-exact idêntica com e sem o item manual', () => {
+    it('a cascata do PRODUTO é bit-exact idêntica com e sem o produto manual', () => {
       const [soProduto] = calculateMotorV17ForPage(argsSoProduto)
       const [produtoNoMisto] = calculateMotorV17ForPage(argsMisto)
       expect(produtoNoMisto!.new_commission).toBeCloseTo(soProduto!.new_commission, 6)
@@ -119,7 +137,7 @@ describe('Item 2 — item manual = custo puro (Relatório 21/07/2026)', () => {
       expect(produtoNoMisto!.cp).toBeCloseTo(soProduto!.cp, 6)
     })
 
-    it('o item manual é custo puro com resíduo 0', () => {
+    it('o produto manual é repasse puro com resíduo 0', () => {
       const result = calculateMotorV17ForPage(argsMisto)
       const manual = result[1]
       expect(manual!.cp).toBeCloseTo(1000, 2)
@@ -128,12 +146,22 @@ describe('Item 2 — item manual = custo puro (Relatório 21/07/2026)', () => {
       expect(manual!.rro).toBe(0)
     })
 
-    it('a Etapa 4 soma o custo do produto + 1.000 (manual) e mantém 17 etapas', () => {
+    it('BUG-CASCATA-002: a Etapa 4 NÃO muda (manual fora dela)', () => {
       const [soProduto] = calculateMotorV17ForPage(argsSoProduto)
       const [produtoNoMisto] = calculateMotorV17ForPage(argsMisto)
       const step4Prod = step4Of(soProduto!)!
       const step4Mix = step4Of(produtoNoMisto!)!
-      expect(step4Mix.amount).toBeCloseTo(step4Prod.amount + 1000, 2)
+      expect(step4Mix.amount).toBeCloseTo(step4Prod.amount, 2)
+      expect(hasManualChild(step4Mix)).toBe(false)
+    })
+
+    it('BUG-CASCATA-001: o valor do manual soma no PASSO FINAL como categoria independente', () => {
+      const [soProduto] = calculateMotorV17ForPage(argsSoProduto)
+      const [produtoNoMisto] = calculateMotorV17ForPage(argsMisto)
+      const finalProd = finalStepOf(soProduto!)!
+      const finalMix = finalStepOf(produtoNoMisto!)!
+      expect(finalMix.amount).toBeCloseTo(finalProd.amount + 1000, 2)
+      expect(hasManualChild(finalMix)).toBe(true)
       expect(produtoNoMisto!.cascade_trace).toHaveLength(17)
     })
   })

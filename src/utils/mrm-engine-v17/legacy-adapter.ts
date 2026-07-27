@@ -194,45 +194,78 @@ function manualItemCost(item: PageItem): number {
 }
 
 /**
- * Injeta o custo dos itens manuais no display da Etapa 4 ("Consolidação dos custos"),
- * como custo puro (child dedicado). NÃO toca as etapas de tributo/desconto/RRO — o
- * item manual é imune a desconto e não gera resíduo. Retorna um NOVO array (o trace é
- * compartilhado entre os itens do orçamento, então não pode ser mutado no lugar).
+ * Item 7 / BUG-CASCATA-001+002 (Relatório 24/07/2026): o produto/item manual é uma
+ * CATEGORIA INDEPENDENTE — repasse puro. NÃO pertence à "Consolidação dos custos"
+ * (Etapa 4), nem à Operação Interna/Externa, nem aos pesos de Comissão/Lucro/RT. Seu
+ * valor é somado ao TOTAL do orçamento como repasse (imune a desconto, sem custo/
+ * tributo/comissão/lucro/RT — o mesmo tratamento de frete/despesa acessória fixa).
+ *
+ * No display da Memória Cascata, injetamos o valor como child independente NO PASSO
+ * FINAL (autossoma / valor a cobrar), somando seu valor integral ao total exibido —
+ * refletindo o mesmo valor que o item manual já contribui, como linha própria, ao
+ * total do orçamento. NÃO toca a Etapa 4 nem qualquer etapa de peso/tributo/RRO.
+ *
+ * REVOGA a modelagem do Relatório 21/07 (commit 0d4c37c), que injetava o valor na
+ * Etapa 4 como "custo puro" — o que era conceitualmente errado (não é custo) e podia
+ * distorcer a leitura dos pesos exibidos.
+ *
+ * NOTA (planilha-oráculo `Cascata_com_produto_manual.xlsx` pendente): a coreografia
+ * VISUAL exata descrita no relatório ("somar no autossoma pré-desconto e reabater
+ * pós-desconto") deve ser conferida contra a planilha. O resultado NUMÉRICO (total,
+ * pesos, RRO) é independente dessa escolha e já está correto: o manual é imune a
+ * desconto e soma integralmente ao total. Trocar a coreografia é uma mudança de
+ * exibição localizada nesta função, sem impacto no motor.
+ *
+ * Retorna um NOVO array (o trace é compartilhado entre os itens do orçamento, então
+ * não pode ser mutado no lugar).
  */
-function augmentTraceWithManualCost(
+function augmentTraceWithManualPassthrough(
   trace: CascadeStep[] | undefined,
-  manualFixedCost: number,
+  manualValue: number,
 ): CascadeStep[] | undefined {
-  if (!Array.isArray(trace) || manualFixedCost <= 0) return trace
+  if (!Array.isArray(trace) || trace.length === 0 || manualValue <= 0) return trace
+  // Passo final = maior número de etapa presente (17 sem RT, 17 também com RT — as
+  // etapas 5.5/14.5 do RT não superam a 17). É a etapa do valor final/total a cobrar.
+  let finalStep = -Infinity
+  for (const s of trace) {
+    const n = Number(s.step)
+    if (Number.isFinite(n) && n > finalStep) finalStep = n
+  }
+  if (!Number.isFinite(finalStep)) return trace
   const manualChild: CascadeStep = {
-    step: 4,
-    label: 'Itens manuais (custo puro)',
+    step: finalStep,
+    label: 'Produto manual (repasse puro)',
     base: null,
     rate: null,
-    amount: manualFixedCost,
-    formula: 'Σ (qtd × valor) dos itens manuais — custo fixo, imune a desconto e tributo',
+    amount: manualValue,
+    formula:
+      'Σ (qtd × valor) dos produtos manuais — categoria independente, somada ao total e imune a desconto/tributo',
     source: 'ITEMS',
   }
   return trace.map((s) =>
-    s.step === 4
+    Number(s.step) === finalStep
       ? {
           ...s,
-          amount: (Number(s.amount) || 0) + manualFixedCost,
+          amount: (Number(s.amount) || 0) + manualValue,
           children: [...(s.children ?? []), manualChild],
         }
       : s,
   )
 }
 
-/** Trace compacto para orçamento SÓ com itens manuais (sem produtos): custo = total, RRO = 0. */
+/**
+ * Trace compacto para orçamento SÓ com produtos manuais (sem produtos cadastrados).
+ * Item 7 (Relatório 24/07): o produto manual é um REPASSE PURO (categoria independente),
+ * não um custo — total = Σ manuais, RRO = 0, imune a desconto. Não usa a Etapa 4.
+ */
 function buildManualOnlyCascadeTrace(manualFixedCost: number): CascadeStep[] {
   const manualChild: CascadeStep = {
-    step: 4,
-    label: 'Itens manuais (custo puro)',
+    step: 9,
+    label: 'Produto manual (repasse puro)',
     base: null,
     rate: null,
     amount: manualFixedCost,
-    formula: 'Σ (qtd × valor) dos itens manuais — custo fixo, imune a desconto e tributo',
+    formula: 'Σ (qtd × valor) dos produtos manuais — repasse fixo, imune a desconto e tributo',
     source: 'ITEMS',
   }
   return [
@@ -242,16 +275,16 @@ function buildManualOnlyCascadeTrace(manualFixedCost: number): CascadeStep[] {
       base: null,
       rate: null,
       amount: manualFixedCost,
-      formula: 'Σ unit_price × quantity dos itens manuais',
+      formula: 'Σ unit_price × quantity dos produtos manuais',
       source: 'ITEMS',
     },
     {
-      step: 4,
-      label: 'Consolidação dos custos',
+      step: 9,
+      label: 'Produto manual (repasse puro)',
       base: null,
       rate: null,
       amount: manualFixedCost,
-      formula: 'Itens manuais entram integralmente como custo puro',
+      formula: 'Produto manual entra integralmente como repasse — categoria independente (não é custo)',
       source: 'ITEMS',
       children: [manualChild],
     },
@@ -270,7 +303,7 @@ function buildManualOnlyCascadeTrace(manualFixedCost: number): CascadeStep[] {
       base: manualFixedCost,
       rate: null,
       amount: 0,
-      formula: 'Itens manuais são custo puro ⇒ resíduo 0 (sem comissão/lucro/RT)',
+      formula: 'Produto manual é repasse puro ⇒ resíduo 0 (sem comissão/lucro/RT)',
       source: 'ETAPA_4',
     },
   ]
@@ -316,10 +349,11 @@ function synthesizeManualResult(
  *
  * Retorna `null` para items inválidos (preserva contract V16).
  *
- * Relatório 21/07/2026 (item 2): itens manuais (`is_manual_cost`) são EXCLUÍDOS da
- * cascata de produtos (para não distorcer pesos/tributos/desconto) e reinjetados como
- * custo puro na Etapa 4 + resultado por item com resíduo 0. Orçamento sem itens manuais
- * é bit-exact idêntico ao comportamento anterior.
+ * Item 7 (Relatório 24/07/2026, revoga 21/07): itens/produtos manuais (`is_manual_cost`)
+ * são EXCLUÍDOS da cascata de produtos (para não distorcer pesos/tributos/desconto) e
+ * reinjetados como CATEGORIA INDEPENDENTE (repasse puro) somada ao PASSO FINAL do display
+ * + resultado por item com resíduo 0. NÃO entram mais na Etapa 4. Orçamento sem itens
+ * manuais é bit-exact idêntico ao comportamento anterior.
  */
 export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResult | null)[] {
   const { items, tenantCtx, globalDiscountPercent } = args
@@ -781,11 +815,12 @@ export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResul
     }
   })
 
-  // Relatório 21/07/2026 (item 2): injeta o custo dos itens manuais no display da
-  // Etapa 4 (compartilhado por todos os itens) e sintetiza o resultado por item de
-  // cada manual (custo puro, resíduo 0). A cascata dos produtos permanece intacta.
+  // Item 7 / BUG-CASCATA-001+002 (Relatório 24/07/2026): injeta o produto manual como
+  // categoria INDEPENDENTE no PASSO FINAL do display (não mais na Etapa 4) e sintetiza
+  // o resultado por item de cada manual (repasse puro, resíduo 0). A cascata dos
+  // produtos permanece intacta (pesos/tributos/RRO). Revoga a modelagem de 21/07.
   if (manualFixedCost > 0) {
-    const augmentedTrace = augmentTraceWithManualCost(v17Result.motor.cascade_trace, manualFixedCost)
+    const augmentedTrace = augmentTraceWithManualPassthrough(v17Result.motor.cascade_trace, manualFixedCost)
     for (const r of results) {
       if (r) r.cascade_trace = augmentedTrace ?? r.cascade_trace
     }
@@ -998,10 +1033,11 @@ export function calculateMotorV17ForPageFull(args: PageBuildArgs): {
     outside_items: outsideItemsFull,
   })
 
-  // Relatório 21/07/2026 (item 2): custo dos itens manuais no display da Etapa 4.
+  // Item 7 (Relatório 24/07): produto manual como categoria independente no passo final
+  // do display (não mais na Etapa 4). Ver augmentTraceWithManualPassthrough.
   if (manualFixedCostFull > 0) {
     consolidated.motor.cascade_trace =
-      augmentTraceWithManualCost(consolidated.motor.cascade_trace, manualFixedCostFull)
+      augmentTraceWithManualPassthrough(consolidated.motor.cascade_trace, manualFixedCostFull)
       ?? consolidated.motor.cascade_trace
   }
 
