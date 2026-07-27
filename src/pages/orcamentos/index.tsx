@@ -2891,12 +2891,14 @@ function Budgets() {
 
                     {/* Resumo do orçamento (ACIMA do campo de desconto): base, tributos por fora e total a cobrar.
                         Sem desconto: total a cobrar = base + tributos. Com desconto: ver bloco abaixo do campo. */}
+                    {/* ORC-EDIT-013 (Relatório 24/07): código de cores cronológico do fluxo —
+                        Total do Orçamento (valor bruto/1ª etapa) = AZUL. */}
                     <div style={{
-                        marginTop: 16, padding: '12px 16px', background: 'rgba(34, 197, 94, 0.12)', border: '1px solid rgba(34, 197, 94, 0.3)', borderRadius: 8,
+                        marginTop: 16, padding: '12px 16px', background: 'rgba(59, 130, 246, 0.12)', border: '1px solid rgba(59, 130, 246, 0.3)', borderRadius: 8,
                     }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 16, color: '#f1f5f9' }}>
                             <strong>Total do Orçamento:</strong>
-                            <strong style={{ color: '#12B76A', fontSize: 20 }}>{formatCurrency(budgetTotal)}</strong>
+                            <strong style={{ color: '#3b82f6', fontSize: 20 }}>{formatCurrency(budgetTotal)}</strong>
                         </div>
                         {totalPorForaExtraFull > 0 && (
                             <>
@@ -2912,8 +2914,8 @@ function Budgets() {
                         )}
                     </div>
 
-                    {/* Desconto Global */}
-                    <div style={{ marginTop: 8, padding: '12px 16px', background: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.2)', borderRadius: 8 }}>
+                    {/* Desconto Global — ORC-EDIT-013: card "Modo" (define o desconto) = VERMELHO (redução). */}
+                    <div style={{ marginTop: 8, padding: '12px 16px', background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.2)', borderRadius: 8 }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                                 <span style={{ fontSize: 14, color: '#94a3b8', whiteSpace: 'nowrap' }}>Modo</span>
@@ -2975,7 +2977,8 @@ function Budgets() {
                         mostra o total a cobrar já com o desconto aplicado.
                         EPIC-POR-FORA-V2 R1: total a cobrar inclui tributos por fora (doc v4 Tab. 30/36). */}
                     {globalDiscountPercent > 0 && (
-                        <div style={{ marginTop: 8, padding: '12px 16px', background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: 8 }}>
+                        /* ORC-EDIT-013: "Total a cobrar" (valor final pós-desconto) = VERDE. */
+                        <div style={{ marginTop: 8, padding: '12px 16px', background: 'rgba(34, 197, 94, 0.12)', border: '1px solid rgba(34, 197, 94, 0.3)', borderRadius: 8 }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <strong style={{ color: '#f1f5f9', fontSize: 14 }}>Total a cobrar:</strong>
                                 <strong style={{ color: '#4ade80', fontSize: 20 }}>{formatCurrency(budgetTotalACobrar)}</strong>
