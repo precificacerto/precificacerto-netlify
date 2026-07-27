@@ -416,7 +416,6 @@ function Budgets() {
     const totalBudgets = budgets.length
     const pendingBudgets = budgets.filter(b => ['SENT', 'APPROVED', 'AWAITING_PAYMENT'].includes(b.status)).length
     const paidBudgets = budgets.filter(b => ['PAID', 'SENT_TO_ORDER'].includes(b.status)).length
-    const awaitingPaymentCount = budgets.filter(b => b.status === 'AWAITING_PAYMENT').length
     const totalValue = budgets.filter(b => !['REJECTED', 'EXPIRED'].includes(b.status)).reduce((s, b) => s + Number(b.total_value || 0), 0)
 
     // ── Adicionar item ao orçamento ──
@@ -2537,25 +2536,9 @@ function Budgets() {
                 <CardKPI title="Valor Pipeline" value={formatCurrency(totalValue)} icon={<DollarOutlined />} variant="green" />
             </div>
 
-            {/* Indicadores de status */}
-            <div className="pc-card" style={{ marginBottom: 16, display: 'flex', gap: 24, flexWrap: 'wrap' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 16px', background: 'var(--color-neutral-50)', borderRadius: 8, minWidth: 140 }}>
-                    <span style={{ fontSize: 13, color: 'var(--color-neutral-600)' }}>Rascunho</span>
-                    <strong style={{ fontSize: 20, color: 'var(--color-neutral-800)' }}>{budgets.filter(b => b.status === 'DRAFT').length}</strong>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 16px', background: 'var(--color-neutral-50)', borderRadius: 8, minWidth: 140 }}>
-                    <span style={{ fontSize: 13, color: 'var(--color-neutral-600)' }}>Enviado</span>
-                    <strong style={{ fontSize: 20, color: '#1890ff' }}>{budgets.filter(b => b.status === 'SENT' || b.status === 'APPROVED').length}</strong>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 16px', background: 'var(--color-neutral-50)', borderRadius: 8, minWidth: 140 }}>
-                    <span style={{ fontSize: 13, color: 'var(--color-neutral-600)' }}>Aguardando pagamento</span>
-                    <strong style={{ fontSize: 20, color: '#fa8c16' }}>{awaitingPaymentCount}</strong>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 16px', background: 'var(--color-neutral-50)', borderRadius: 8, minWidth: 140 }}>
-                    <span style={{ fontSize: 13, color: 'var(--color-neutral-600)' }}>Pago</span>
-                    <strong style={{ fontSize: 20, color: '#52c41a' }}>{budgets.filter(b => b.status === 'PAID').length}</strong>
-                </div>
-            </div>
+            {/* ORC-004 (Relatório 24/07): bloco de indicadores de status (Rascunho/Enviado/
+                Aguardando pagamento/Pago) ocultado em mobile e desktop — redundante com os
+                cards de topo e os filtros. Também revoga o item 5 (Parte A). */}
 
             {/* Tabela */}
             <div className="pc-card--table">

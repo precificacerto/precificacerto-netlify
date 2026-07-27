@@ -2394,7 +2394,7 @@ function SalesReport() {
                         <div className="kpi-grid" style={{ marginBottom: 20 }}>
                             <CardKPI title="Total Vendido" value={formatCurrency(commTotalVendido)} icon={<DollarOutlined />} variant="green" />
                             <CardKPI title="Total Comissão" value={formatCurrency(commTotalComissao)} icon={<TeamOutlined />} variant="orange" />
-                            <CardKPI title="Lucro Empresa" value={formatCurrency(commTotalLucro)} icon={<BarChartOutlined />} variant="blue" />
+                            {/* REL-050 (Relatório 24/07): 'Lucro Empresa' ocultado na tela de Comissões. */}
                         </div>
 
                         {/* Commissions Filters */}
@@ -2500,7 +2500,7 @@ function SalesReport() {
                         <div className="kpi-grid" style={{ marginBottom: 20 }}>
                             <CardKPI title="Total Vendido" value={formatCurrency(commTotalVendido)} icon={<DollarOutlined />} variant="green" />
                             <CardKPI title="Total RT" value={formatCurrency(rtTotalRT)} icon={<TeamOutlined />} variant="blue" />
-                            <CardKPI title="Lucro Empresa" value={formatCurrency(commTotalLucro)} icon={<BarChartOutlined />} variant="orange" />
+                            {/* REL-050 (Relatório 24/07): 'Lucro Empresa' ocultado na tela de Comissões RT. */}
                         </div>
 
                         {/* RT Filters — mesmos filtros/dados de Comissões */}
