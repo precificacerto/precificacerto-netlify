@@ -2583,7 +2583,7 @@ function Budgets() {
                         Ver produtos em orçamentos
                     </Button>
                     {canEdit(MODULES.BUDGETS) && (
-                        <Button type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setBudgetItems([]); setGlobalDiscountPercent(0); setDiscountMode('PROPORTIONAL'); setEditingBudgetId(null); setBudgetFormInstallmentPreset('customizado'); setBudgetFormCustomInstallments([{ date: null, amount: 0 }]); setBudgetFormWithEntry(false); setBudgetFormBaseDate(undefined); setDrawerOpen(true) }}>
+                        <Button type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); form.setFieldsValue({ employee_id: currentUser?.employee_id ?? undefined }); setBudgetItems([]); setGlobalDiscountPercent(0); setDiscountMode('PROPORTIONAL'); setEditingBudgetId(null); setBudgetFormInstallmentPreset('customizado'); setBudgetFormCustomInstallments([{ date: null, amount: 0 }]); setBudgetFormWithEntry(false); setBudgetFormBaseDate(undefined); setDrawerOpen(true) }}>
                             Novo Orçamento
                         </Button>
                     )}
@@ -2692,9 +2692,9 @@ function Budgets() {
                 }
             >
                 <Form form={form} layout="vertical">
-                    <Divider orientation="left" style={{ fontSize: 12, color: '#94a3b8', marginTop: 0 }}>Vendedor</Divider>
-
-                    <Form.Item name="employee_id" label="Funcionário responsável" rules={[{ required: true, message: 'Selecione o funcionário responsável' }]}>
+                    {/* ORC-EDIT-016 (Relatório 24/07): rótulo direto "Vendedor" (com asterisco de
+                        obrigatório), sem o Divider redundante nem o texto "Funcionário responsável". */}
+                    <Form.Item name="employee_id" label="Vendedor" rules={[{ required: true, message: 'Selecione o vendedor' }]}>
                         <Select placeholder="Selecione o funcionário" showSearch optionFilterProp="children">
                             {employees.map((emp: any) => (<Select.Option key={emp.id} value={emp.id}>{emp.name}</Select.Option>))}
                         </Select>
@@ -2705,9 +2705,9 @@ function Budgets() {
                             Este funcionário não possui tabelas de comissão vinculadas. Apenas lançamento manual está disponível.
                         </div>
                     )}
-                    <Divider orientation="left" style={{ fontSize: 12, color: '#94a3b8' }}>Cliente</Divider>
-
-                    <Form.Item label="Origem do cliente" style={{ marginBottom: 8 }}>
+                    {/* ORC-EDIT-017 (Relatório 24/07): mesma simplificação da seção Vendedor —
+                        rótulo "Cliente" direto no seletor de origem, sem Divider redundante. */}
+                    <Form.Item label="Cliente" style={{ marginBottom: 8 }}>
                         <Select
                             value={customerMode}
                             onChange={(v: 'existing' | 'manual') => {
