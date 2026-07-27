@@ -412,11 +412,16 @@ function Budgets() {
         return <Layout title={PAGE_TITLES.BUDGETS}><div style={{ padding: 40, textAlign: 'center' }}>Você não tem acesso a este módulo.</div></Layout>
     }
 
-    // KPIs
-    const totalBudgets = budgets.length
-    const pendingBudgets = budgets.filter(b => ['SENT', 'APPROVED', 'AWAITING_PAYMENT'].includes(b.status)).length
-    const paidBudgets = budgets.filter(b => ['PAID', 'SENT_TO_ORDER'].includes(b.status)).length
-    const totalValue = budgets.filter(b => !['REJECTED', 'EXPIRED'].includes(b.status)).reduce((s, b) => s + Number(b.total_value || 0), 0)
+    // ORC-006/007 (Relatório 24/07): os indicadores do topo refletem o MÊS filtrado
+    // (não o total histórico). Filtro próprio, independente da busca da listagem abaixo.
+    const [indicatorMonth, setIndicatorMonth] = useState<Dayjs>(dayjs())
+    const budgetsForMonth = budgets.filter(b => b.created_at && dayjs(b.created_at).isSame(indicatorMonth, 'month'))
+
+    // KPIs (sobre o mês filtrado)
+    const totalBudgets = budgetsForMonth.length
+    const pendingBudgets = budgetsForMonth.filter(b => ['SENT', 'APPROVED', 'AWAITING_PAYMENT'].includes(b.status)).length
+    const paidBudgets = budgetsForMonth.filter(b => ['PAID', 'SENT_TO_ORDER'].includes(b.status)).length
+    const totalValue = budgetsForMonth.filter(b => !['REJECTED', 'EXPIRED'].includes(b.status)).reduce((s, b) => s + Number(b.total_value || 0), 0)
 
     // ── Adicionar item ao orçamento ──
     const handleAddProduct = (tableId: string) => {
@@ -2528,6 +2533,20 @@ function Budgets() {
                 onContinue={() => pendingMrmConfirmRef.current?.(true)}
                 onCancel={() => pendingMrmConfirmRef.current?.(false)}
             />
+
+            {/* ORC-007 (Relatório 24/07): filtro rápido de mês para a seção de indicadores,
+                permitindo consultar o pipeline de meses anteriores. A listagem detalhada
+                abaixo mantém o filtro próprio e independente. */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+                <DatePicker
+                    picker="month"
+                    value={indicatorMonth}
+                    onChange={(d) => d && setIndicatorMonth(d)}
+                    allowClear={false}
+                    format="MMMM/YYYY"
+                    style={{ minWidth: 160 }}
+                />
+            </div>
 
             <div className="kpi-grid">
                 <CardKPI title="Total Orçamentos" value={totalBudgets} icon={<FileTextOutlined />} variant="blue" />
