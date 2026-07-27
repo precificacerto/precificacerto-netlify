@@ -1249,11 +1249,40 @@ export const Content: FC<ContentProps> = ({
 
   const handleClickUpdateItemPrice = async (id: string) => {
     try {
-      const updatedItem = items.find((item) => id === item.id)
-      if (!updatedItem) return
+      // Item 2 (Relatório 24/07): relê o VALOR DE COMPRA do item direto do cadastro
+      // (itemsFromApi = fonte de verdade), respeitando Bruto vs Líquido POR ITEM. Antes
+      // buscava em `items` (pool que perde os itens já adicionados) e usava só
+      // cost_per_base_unit, ignorando a regra de imposto recuperável no item — o que
+      // corrompia o valor. A lógica aqui espelha exatamente a do handleSelectItem (add).
+      const apiItem =
+        (itemsFromApi as any[])?.find((i) => i.id === id) ??
+        (items as any[]).find((i) => i.id === id)
+      if (!apiItem) {
+        messageApi.open({ type: 'error', content: 'Item de referência não encontrado no cadastro.' })
+        return
+      }
 
-      const costPerUnit = Number((updatedItem as any).cost_per_base_unit) || Number(updatedItem.price) || 0
-      const refPrice = Math.max(0.01, costPerUnit)
+      const regimeCtx = currentUser?.taxableRegime
+      const hasItemTaxesCtx =
+        regimeCtx === 'LUCRO_REAL' || regimeCtx === 'LUCRO_PRESUMIDO' || regimeCtx === 'SIMPLES_HIBRIDO'
+      const itemCostNet = Number(apiItem.cost_net) || 0
+      const itemCostGross = Number(apiItem.cost_gross) || 0
+      const itemCostPrice = Number(apiItem.cost_price) || 0
+      const itemMeasureQty = Number(apiItem.measure_quantity) || 1
+      // Valor de COMPRA por unidade base, item a item:
+      //  - regimes com imposto no item (LR/LP/SH): usa o LÍQUIDO (cost_net ÷ measure_qty);
+      //  - demais regimes: usa cost_per_base_unit. Fallback: price/cost_price.
+      const costPerUnitRaw =
+        hasItemTaxesCtx && itemCostNet > 0
+          ? itemCostNet / itemMeasureQty
+          : Number(apiItem.cost_per_base_unit) || Number(apiItem.price) || 0
+      const refPrice = Math.max(0.01, costPerUnitRaw)
+      // BRUTO por unidade (só regimes com imposto no item; fallback = líquido).
+      const grossPerUnit = hasItemTaxesCtx
+        ? itemCostGross > 0
+          ? itemCostGross / itemMeasureQty
+          : refPrice
+        : refPrice
 
       const updatedItemsData = productItemsData.map((item) => {
         if (item.id === id) {
@@ -1263,6 +1292,10 @@ export const Content: FC<ContentProps> = ({
             referencePrice: refPrice,
             referenceQuantity: 1,
             price: Math.max(0.01, qty * refPrice),
+            grossPerUnit,
+            hasItemTaxes: hasItemTaxesCtx,
+            unitGross: itemCostGross > 0 ? itemCostGross : Number(apiItem.price) || itemCostPrice || 0,
+            unitNet: hasItemTaxesCtx && itemCostNet > 0 ? itemCostNet : undefined,
           }
         }
 
