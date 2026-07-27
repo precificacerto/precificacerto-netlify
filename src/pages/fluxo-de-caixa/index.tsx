@@ -4,6 +4,7 @@ import {
     Form, Input, InputNumber, Drawer, Modal, Table, Tag, Radio, Popconfirm,
 } from 'antd'
 import { Select } from '@/components/ui/app-select.component'
+import { CurrencyInput } from '@/components/currency-input.component'
 import dayjs from 'dayjs'
 import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
@@ -163,7 +164,10 @@ export default function CashFlow() {
     const [selectedDay, setSelectedDay] = useState<number | null>(null)
     const [loadingPrevBalance, setLoadingPrevBalance] = useState(false)
     const [prevBalanceModalOpen, setPrevBalanceModalOpen] = useState(false)
+    // Item 10 (Relatório 24/07): `prevBalanceInput` guarda a MAGNITUDE (>= 0); o sinal
+    // fica em `prevBalanceNegative`, pois a máscara monetária padrão não digita "−".
     const [prevBalanceInput, setPrevBalanceInput] = useState<number>(0)
+    const [prevBalanceNegative, setPrevBalanceNegative] = useState<boolean>(false)
     const [expPaymentMethod, setExpPaymentMethod] = useState<string>('')
     const [expInstallments, setExpInstallments] = useState<{ date: any; amount: number }[]>([{ date: null, amount: 0 }])
     const [expInstallmentPreset, setExpInstallmentPreset] = useState<'customizado' | '30' | '30_60' | '30_60_90' | '30_60_90_120' | '30_60_90_120_150'>('customizado')
@@ -641,8 +645,12 @@ export default function CashFlow() {
     }, [pivotByDay, saldoDiaAnterior])
 
     // ── Saldo do Mês Anterior (Item 11) — usuário insere valor manualmente ──
+    // Pré-preenche com o valor já lançado (se houver), permitindo correção ou
+    // exclusão (zerar → o save remove o lançamento). Usado tanto pelo botão da
+    // toolbar quanto pelo clique na linha "Saldo Mês Anterior" da tabela.
     const handlePrevMonthBalance = () => {
-        setPrevBalanceInput(0)
+        setPrevBalanceInput(Math.abs(prevMonthBalanceValue))
+        setPrevBalanceNegative(prevMonthBalanceValue < 0)
         setPrevBalanceModalOpen(true)
     }
 
@@ -652,7 +660,7 @@ export default function CashFlow() {
             const tenant_id = await getTenantId()
             if (!tenant_id) { messageApi.warning('Sessão inválida.'); return }
 
-            const value = prevBalanceInput
+            const value = prevBalanceNegative ? -Math.abs(prevBalanceInput) : Math.abs(prevBalanceInput)
             const absValue = Math.abs(value)
             const currentMonthStr = month.format('YYYY-MM')
             const due_date = `${currentMonthStr}-01`
@@ -893,11 +901,27 @@ export default function CashFlow() {
                                     </td>
                                     {Array.from({ length: pivotByDay.daysInMonth }, (_, i) => i + 1).map(day => (
                                         <td key={day} style={{ padding: '5px 4px', textAlign: 'right', color: '#fbbf24', fontWeight: 600, fontVariantNumeric: 'tabular-nums', borderRight: '1px solid rgba(255,255,255,0.04)', fontSize: 11 }}>
-                                            {day === 1 ? formatCurrency(prevMonthBalanceValue) : ''}
+                                            {day === 1 ? (
+                                                /* Item 11 (Relatório 24/07): valor clicável → abre o modal
+                                                   de correção/exclusão do Saldo do Mês Anterior. */
+                                                <span
+                                                    onClick={handlePrevMonthBalance}
+                                                    style={{ cursor: 'pointer', borderBottom: '1px dashed rgba(251,191,36,0.6)' }}
+                                                    title="Clique para corrigir ou excluir o saldo do mês anterior"
+                                                >
+                                                    {formatCurrency(prevMonthBalanceValue)}
+                                                </span>
+                                            ) : ''}
                                         </td>
                                     ))}
                                     <td style={{ padding: '5px 12px', textAlign: 'right', color: prevMonthBalanceValue >= 0 ? '#4ade80' : '#f87171', fontWeight: 700, fontVariantNumeric: 'tabular-nums', borderLeft: '1px solid rgba(255,255,255,0.1)' }}>
-                                        {formatCurrency(prevMonthBalanceValue)}
+                                        <span
+                                            onClick={handlePrevMonthBalance}
+                                            style={{ cursor: 'pointer', borderBottom: '1px dashed rgba(255,255,255,0.3)' }}
+                                            title="Clique para corrigir ou excluir o saldo do mês anterior"
+                                        >
+                                            {formatCurrency(prevMonthBalanceValue)}
+                                        </span>
                                     </td>
                                 </tr>
                             )}
@@ -1819,23 +1843,30 @@ export default function CashFlow() {
                 cancelText="Cancelar"
             >
                 <div style={{ marginBottom: 12, color: '#94a3b8', fontSize: 13 }}>
-                    Informe o saldo do mês anterior. Use valores negativos para saldo negativo.
+                    Informe o saldo do mês anterior. Escolha o sinal (positivo/negativo) e digite o valor.
                     <br />Mês atual: <strong>{month.format('MMMM/YYYY')}</strong>
                 </div>
-                <InputNumber
+                {/* Item 10/11 (Relatório 24/07): campo segue a máscara monetária padrão
+                    do sistema (CurrencyInput). Como a máscara não digita "−", o sinal fica
+                    num seletor dedicado, preservando o suporte a saldo negativo. */}
+                <Radio.Group
+                    value={prevBalanceNegative ? 'neg' : 'pos'}
+                    onChange={(e) => setPrevBalanceNegative(e.target.value === 'neg')}
+                    style={{ marginBottom: 8 }}
+                >
+                    <Radio.Button value="pos">Positivo (+)</Radio.Button>
+                    <Radio.Button value="neg">Negativo (−)</Radio.Button>
+                </Radio.Group>
+                <CurrencyInput
                     style={{ width: '100%' }}
                     size="large"
-                    step={0.01}
-                    precision={2}
                     value={prevBalanceInput}
-                    onChange={(v) => setPrevBalanceInput(Number(v) || 0)}
-                    formatter={(v) => `R$ ${v}`.replace('.', ',')}
-                    parser={(v) => Number((v || '0').replace('R$ ', '').replace(',', '.')) as any}
-                    placeholder="Ex: 5000 ou -1500"
+                    onChange={(v) => setPrevBalanceInput(Math.abs(Number(v) || 0))}
+                    placeholder="Ex: 5.000,00"
                 />
                 {prevBalanceInput !== 0 && (
-                    <div style={{ marginTop: 8, fontSize: 13, color: prevBalanceInput >= 0 ? '#4ade80' : '#f87171' }}>
-                        {prevBalanceInput >= 0 ? '✅ Saldo positivo' : '⚠️ Saldo negativo'}: {formatCurrency(Math.abs(prevBalanceInput))}
+                    <div style={{ marginTop: 8, fontSize: 13, color: prevBalanceNegative ? '#f87171' : '#4ade80' }}>
+                        {prevBalanceNegative ? '⚠️ Saldo negativo' : '✅ Saldo positivo'}: {formatCurrency(Math.abs(prevBalanceInput))}
                     </div>
                 )}
             </Modal>

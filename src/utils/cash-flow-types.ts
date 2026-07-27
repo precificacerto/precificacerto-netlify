@@ -146,6 +146,16 @@ export const EXPENSE_SECTIONS: ExpenseSection[] = [
         ],
     },
     {
+        // Item 8 (Relatório 24/07): categoria RT — Comissão Reserva Técnica aparecia
+        // na tela do Fluxo de Caixa (via grupo RESERVA_TECNICA) mas era omitida na
+        // exportação Excel, pois não havia seção correspondente aqui (as despesas RT
+        // caíam em "não classificadas"). Padrões cobrem variações de acento/prefixo.
+        header: 'Reserva Técnica',
+        items: [
+            { descMatch: ['Reserva Técnica', 'Reserva Tecnica', 'Comissão Reserva', 'Comissao Reserva'], label: 'RT - COMISSAO RESERVA TECNICA' },
+        ],
+    },
+    {
         header: 'Lucro',
         items: [
             { descMatch: ['Investimentos'], label: 'INVESTIMENTOS' },

@@ -443,7 +443,7 @@ export const ProductPrice: FC<Props> = ({
                     return (
                     <tr key={label}>
                       <td style={{ fontSize: 13, color: '#cbd5e1', paddingRight: 12, paddingTop: 4, paddingBottom: 4 }}>{label}</td>
-                      <td style={{ textAlign: 'right', whiteSpace: 'nowrap' as const }}>
+                      <td style={{ textAlign: 'right', whiteSpace: 'normal' as const }}>
                         <PercentInput
                           size="small" min={0} max={100}
                           value={value}
@@ -484,7 +484,7 @@ export const ProductPrice: FC<Props> = ({
                   {isIpiRows.map(({ label, value, onChange, taxValue }) => (
                     <tr key={label}>
                       <td style={{ fontSize: 13, color: '#cbd5e1', paddingRight: 12, paddingTop: 4, paddingBottom: 4 }}>{label}</td>
-                      <td style={{ textAlign: 'right', whiteSpace: 'nowrap' as const }}>
+                      <td style={{ textAlign: 'right', whiteSpace: 'normal' as const }}>
                         <PercentInput
                           size="small" min={0} max={100}
                           value={value}
