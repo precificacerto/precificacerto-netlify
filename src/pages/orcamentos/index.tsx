@@ -2591,7 +2591,10 @@ function Budgets() {
                                     kebabItems.push({ key: 'wa', label: 'Enviar via WhatsApp', disabled: waThrottleSecondsLeft > 0, onClick: () => { if (waThrottleSecondsLeft <= 0) handleSendWhatsApp(r) } })
                                 }
                                 if (isDraft) {
-                                    kebabItems.push({ key: 'order', label: 'Enviar para Pedido', onClick: () => handleSendToOrder(r) })
+                                    // ORC-002 (Relatório 24/07): a ação de avançar para o fluxo de venda
+                                    // (aguardando pagamento) é "Enviar para Venda" (handleSendToSales).
+                                    // "Enviar para Pedido" (handleSendToOrder) vira o botão visível azul.
+                                    kebabItems.push({ key: 'sale', label: 'Enviar para Venda', onClick: () => handleSendToSales(r) })
                                 }
                                 if (canDelete) {
                                     kebabItems.push({ key: 'del', label: 'Excluir', danger: true, onClick: () => confirmDeleteBudget(r) })
@@ -2613,14 +2616,18 @@ function Budgets() {
                                         </div>
                                         {showActions && (
                                             <div className="pc-row-compact__actions" onClick={(e) => e.stopPropagation()}>
+                                                {/* ORC-003 (Relatório 24/07): botão visível primário = "Enviar para
+                                                    Pedido" AZUL (handleSendToOrder); "Excluir" vira "Editar" (neutro).
+                                                    Verde fica reservado ao "Enviar para vendas" (agora no kebab como
+                                                    "Enviar para Venda"). Excluir permanece disponível no kebab. */}
                                                 {isDraft && (
-                                                    <Button size="small" type="primary" onClick={(e) => { e.stopPropagation(); handleSendToSales(r) }}>Enviar para vendas</Button>
+                                                    <Button size="small" type="primary" style={{ background: '#2563eb', borderColor: '#2563eb' }} onClick={(e) => { e.stopPropagation(); handleSendToOrder(r) }}>Enviar para Pedido</Button>
                                                 )}
                                                 {isPayable && (
                                                     <Button size="small" type="primary" onClick={(e) => { e.stopPropagation(); handleOpenPayment(r) }}>Finalizar</Button>
                                                 )}
-                                                {canDelete && (
-                                                    <Button size="small" danger onClick={(e) => { e.stopPropagation(); confirmDeleteBudget(r) }}>Excluir</Button>
+                                                {isDraft && (
+                                                    <Button size="small" onClick={(e) => { e.stopPropagation(); handleEdit(r) }}>Editar</Button>
                                                 )}
                                             </div>
                                         )}
