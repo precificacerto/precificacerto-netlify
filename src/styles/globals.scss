@@ -821,12 +821,21 @@ body {
 }
 
 @media (max-width: 480px) {
+  /* Doc 28/07 — Padrão global de cards informativos: 2 cards por linha (50% cada)
+     em todas as seções, EXCETO o Dashboard. Antes empilhava 1 por linha em telas
+     estreitas; agora aproveita a largura horizontal. */
   .kpi-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  /* Exceção confirmada (Doc item 55): o Dashboard mantém os cards como estão —
+     um card por linha. Aplicado via modificador .kpi-grid--stack-mobile. */
+  .kpi-grid.kpi-grid--stack-mobile {
     grid-template-columns: 1fr;
   }
 
   .kpi-card-value {
-    font-size: 24px;
+    font-size: 20px;
   }
 
   .doughnut-grid {
@@ -2201,10 +2210,14 @@ body {
     font-size: 15px !important;
   }
 
-  /* --- KPI cards: 1 coluna em celular real --- */
+  /* --- KPI cards (Doc 28/07 — Padrão global): 2 cards por linha em celular real,
+         exceto o Dashboard (.kpi-grid--stack-mobile), que mantém 1 por linha. --- */
   .kpi-grid {
-    grid-template-columns: 1fr !important;
+    grid-template-columns: repeat(2, 1fr) !important;
     gap: 10px !important;
+  }
+  .kpi-grid.kpi-grid--stack-mobile {
+    grid-template-columns: 1fr !important;
   }
 
   /* --- Cartões / containers --- */

@@ -97,6 +97,8 @@ const MobileMoreDrawer = ({ open, onClose }: Props) => {
     { key: 'financial', label: 'Controle Financeiro', href: ROUTES.FINANCIAL_CONTROL, icon: <ShoppingOutlined />, section: 'Financeiro', module: MODULES.CASH_FLOW },
     { key: 'dfc', label: 'Análise Financeira', href: ROUTES.DFC, icon: <FundOutlined />, section: 'Financeiro', module: MODULES.DFC },
     { key: 'commission', label: 'Comissão de Vendedor', href: ROUTES.COMMISSION, icon: <IdcardOutlined />, section: 'Financeiro', module: MODULES.COMMISSION },
+    // Doc 28/07: menu mobile FINANCEIRO deve ter as mesmas seções do desktop — faltava "RT Comissões".
+    { key: 'rt-commission', label: 'RT Comissões', href: ROUTES.RT_COMMISSION, icon: <IdcardOutlined />, section: 'Financeiro', module: MODULES.COMMISSION },
 
     // Operacional
     { key: 'schedule', label: 'Agenda', href: ROUTES.SCHEDULE, icon: <CalendarOutlined />, section: 'Operacional', module: MODULES.AGENDA },

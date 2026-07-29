@@ -17,7 +17,7 @@ import { useBudgets, useCustomers, useProducts, useEmployees, useServices } from
 import {
     FileTextOutlined, ClockCircleOutlined, CheckCircleOutlined,
     DollarOutlined, SearchOutlined, PlusOutlined, DeleteOutlined,
-    CreditCardOutlined, WhatsAppOutlined, SendOutlined, EditOutlined,
+    WhatsAppOutlined, SendOutlined, EditOutlined,
     PaperClipOutlined, UploadOutlined, ShoppingCartOutlined, ToolOutlined,
     UnorderedListOutlined, FilePdfOutlined, MoreOutlined,
 } from '@ant-design/icons'
@@ -1528,40 +1528,6 @@ function Budgets() {
     }
 
     // ── Avançar status ──
-    const handleAdvanceStatus = async (budget: any) => {
-        const nextStatus: Record<string, string> = {
-            DRAFT: 'SENT',
-            SENT: 'APPROVED',
-        }
-        const next = nextStatus[budget.status]
-        if (!next) return
-
-        const { error } = await supabase.from('budgets')
-            .update({ status: next, updated_at: new Date().toISOString() })
-            .eq('id', budget.id)
-
-        if (error) { messageApi.error('Erro ao atualizar.'); return }
-
-        if (next === 'SENT' && budget.customer_id) {
-            const tid = tenantId ?? currentUser?.tenant_id
-            const createdBy = currentUser?.uid ?? await getCurrentUserId()
-            if (tid && createdBy) {
-                await supabase.from('customer_service_history').insert({
-                    tenant_id: tid,
-                    customer_id: budget.customer_id,
-                    budget_id: budget.id,
-                    history_type: 'BUDGET_SENT',
-                    service_observation: `Orçamento ORC-${budget.id.substring(0, 4).toUpperCase()} enviado — ${formatCurrency(Number(budget.total_value))}`,
-                    created_by: createdBy,
-                })
-            }
-        }
-
-        messageApi.success(`Status atualizado para: ${statusConfig[next]?.label}`)
-        await reloadBudgets()
-        setDetailDrawerOpen(false)
-    }
-
     // ── Enviar para vendas (rascunho → aguardando pagamento, sem enviar ao cliente) ──
     const handleSendToSales = async (budget: any) => {
         const { error } = await supabase.from('budgets')
@@ -2500,14 +2466,9 @@ function Budgets() {
                     </div>
                 </div>
 
-                {/* Linha 3: Total (verde/bold) e Excluir produto (vermelho à direita) */}
+                {/* Linha 3 (Doc 28/07 — pendência 22/07): "Excluir produto" (vermelho) à ESQUERDA
+                    e valor Total (verde/bold) à DIREITA. */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div>
-                        <span style={labelStyle}>Total</span>
-                        <strong style={{ color: '#12B76A', fontSize: 16 }}>
-                            {formatCurrency(getItemTotalWithCommission(record))}
-                        </strong>
-                    </div>
                     <Button
                         type="text"
                         danger
@@ -2517,6 +2478,12 @@ function Budgets() {
                     >
                         Excluir produto
                     </Button>
+                    <div style={{ textAlign: 'right' }}>
+                        <span style={labelStyle}>Total</span>
+                        <strong style={{ color: '#12B76A', fontSize: 16 }}>
+                            {formatCurrency(getItemTotalWithCommission(record))}
+                        </strong>
+                    </div>
                 </div>
             </div>
         )
@@ -2570,14 +2537,40 @@ function Budgets() {
                         style={{ maxWidth: 320 }}
                         allowClear
                     />
-                    <DatePicker.RangePicker
-                        format="DD/MM/YYYY"
-                        placeholder={['Data início', 'Data fim']}
-                        value={dateRange}
-                        onChange={(vals) => setDateRange(vals ? [vals[0], vals[1]] : [null, null])}
-                        allowClear
-                        style={{ minWidth: 240 }}
-                    />
+                    {/* Doc 28/07: no mobile o RangePicker (2 painéis) fica cortado e não é clicável.
+                        Substituído por dois seletores de data independentes (fluxo de dois passos:
+                        escolhe Data início, depois Data fim). Desktop mantém o RangePicker. */}
+                    {isMobile ? (
+                        <div style={{ display: 'flex', gap: 8, width: '100%' }}>
+                            <DatePicker
+                                format="DD/MM/YYYY"
+                                placeholder="Data início"
+                                value={dateRange[0]}
+                                onChange={(v) => setDateRange([v, dateRange[1]])}
+                                allowClear
+                                inputReadOnly
+                                style={{ flex: 1 }}
+                            />
+                            <DatePicker
+                                format="DD/MM/YYYY"
+                                placeholder="Data fim"
+                                value={dateRange[1]}
+                                onChange={(v) => setDateRange([dateRange[0], v])}
+                                allowClear
+                                inputReadOnly
+                                style={{ flex: 1 }}
+                            />
+                        </div>
+                    ) : (
+                        <DatePicker.RangePicker
+                            format="DD/MM/YYYY"
+                            placeholder={['Data início', 'Data fim']}
+                            value={dateRange}
+                            onChange={(vals) => setDateRange(vals ? [vals[0], vals[1]] : [null, null])}
+                            allowClear
+                            style={{ minWidth: 240 }}
+                        />
+                    )}
                     <div style={{ flex: 1 }} />
                     <Button icon={<UnorderedListOutlined />} onClick={openProdBudgetDrawer}>
                         Ver produtos em orçamentos
@@ -2599,11 +2592,13 @@ function Budgets() {
                                 const orcCode = `ORC-${r.id.substring(0, 4).toUpperCase()}`
                                 const hasPhone = !!(r.customer?.whatsapp_phone || r.customer?.phone)
                                 const isDraft = r.status === 'DRAFT'
-                                const isPayable = r.status === 'APPROVED' || r.status === 'AWAITING_PAYMENT'
                                 const canDelete = r.status !== 'CANCELLED'
-                                const showActions = isDraft || isPayable || canDelete
+                                // Doc 28/07: uma vez enviado para Pedido, o card NÃO exibe mais nenhuma ação.
+                                // Só o rascunho mostra a linha de ações (Enviar para Pedido + Editar).
+                                const showActions = isDraft
+                                // Doc 28/07: o menu ⋮ mantém apenas Ver, WhatsApp, Enviar para Venda e Excluir.
+                                // "Editar" removido daqui (redundante com o botão fixo do card no rascunho).
                                 const kebabItems: any[] = [
-                                    { key: 'edit', label: 'Editar', onClick: () => handleEdit(r) },
                                     { key: 'view', label: 'Ver', onClick: () => handleViewDetail(r) },
                                 ]
                                 if (hasPhone) {
@@ -2639,11 +2634,11 @@ function Budgets() {
                                                     Pedido" AZUL (handleSendToOrder); "Excluir" vira "Editar" (neutro).
                                                     Verde fica reservado ao "Enviar para vendas" (agora no kebab como
                                                     "Enviar para Venda"). Excluir permanece disponível no kebab. */}
+                                                {/* Doc 28/07: o botão "Finalizar" NÃO pode existir na tela de
+                                                    Orçamentos (confirmação de recebimento é responsabilidade de
+                                                    Vendas). Rascunho exibe apenas Enviar para Pedido + Editar. */}
                                                 {isDraft && (
                                                     <Button size="small" type="primary" style={{ background: '#2563eb', borderColor: '#2563eb' }} onClick={(e) => { e.stopPropagation(); handleSendToOrder(r) }}>Enviar para Pedido</Button>
-                                                )}
-                                                {isPayable && (
-                                                    <Button size="small" type="primary" onClick={(e) => { e.stopPropagation(); handleOpenPayment(r) }}>Finalizar</Button>
                                                 )}
                                                 {isDraft && (
                                                     <Button size="small" onClick={(e) => { e.stopPropagation(); handleEdit(r) }}>Editar</Button>
@@ -2932,6 +2927,9 @@ function Budgets() {
                                     ]}
                                 />
                                 <span style={{ fontSize: 14, color: '#94a3b8', whiteSpace: 'nowrap' }}>Desconto</span>
+                                {/* Doc 28/07 (pendência 22/07): o campo de digitação do desconto fica SEMPRE
+                                    ao lado do seletor %/R$ na mesma linha (nowrap evita a quebra no mobile). */}
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'nowrap' }}>
                                 <Segmented
                                     size="small"
                                     value={discountInputMode}
@@ -2969,6 +2967,7 @@ function Budgets() {
                                         style={{ width: 160 }}
                                     />
                                 )}
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -3066,6 +3065,28 @@ function Budgets() {
                     <Form.Item name="notes" label="Observação">
                         <Input.TextArea rows={3} placeholder="Condições, prazos de entrega..." />
                     </Form.Item>
+
+                    {/* Doc 28/07: botão "Enviar para Vendas" ao FINAL do formulário (após Observação),
+                        permitindo pular etapas e enviar direto para a confirmação de Vendas. Os botões
+                        "Salvar alterações"/"Cancelar" do topo permanecem como estão. O registro cai na
+                        seção de confirmação de Vendas (status "Aguardando pagamento") — só vira venda de
+                        fato após a efetivação do recebimento pelo Financeiro. */}
+                    {editingBudgetId && (
+                        <Popconfirm
+                            title="Enviar para Vendas?"
+                            description="O orçamento vai direto para a confirmação de Vendas (Aguardando pagamento), pendente da efetivação do recebimento pelo Financeiro."
+                            okText="Enviar"
+                            cancelText="Cancelar"
+                            onConfirm={async () => {
+                                await handleSendToSales({ id: editingBudgetId })
+                                setDrawerOpen(false); setEditingBudgetId(null); form.resetFields(); setBudgetItems([])
+                            }}
+                        >
+                            <Button block type="primary" icon={<ShoppingCartOutlined />} style={{ background: '#12B76A', borderColor: '#12B76A', marginTop: 8 }}>
+                                Enviar para Vendas
+                            </Button>
+                        </Popconfirm>
+                    )}
                 </Form>
             </Drawer>
 
@@ -3187,37 +3208,12 @@ function Budgets() {
                             </div>
                         )}
 
-                        <Space wrap>
-                            {selectedBudget.status === 'DRAFT' && (
-                                <Popconfirm
-                                    title="Enviar para vendas?"
-                                    description="O orçamento irá para 'Aguardando pagamento' sem notificar o cliente."
-                                    okText="Enviar"
-                                    cancelText="Cancelar"
-                                    onConfirm={() => handleSendToSales(selectedBudget)}
-                                >
-                                    <Button type="default" icon={<ShoppingCartOutlined />}>
-                                        Enviar para vendas
-                                    </Button>
-                                </Popconfirm>
-                            )}
-                            {(selectedBudget.status === 'DRAFT' || selectedBudget.status === 'SENT') && (
-                                <Button type="primary" onClick={() => handleAdvanceStatus(selectedBudget)}>Avançar Etapa</Button>
-                            )}
-                            {(selectedBudget.status === 'APPROVED' || selectedBudget.status === 'AWAITING_PAYMENT') && (
-                                <Button type="primary" style={{ background: '#12B76A' }} icon={<CreditCardOutlined />}
-                                    onClick={() => { setDetailDrawerOpen(false); handleOpenPayment(selectedBudget) }}>
-                                    💰 Finalizar Pagamento
-                                </Button>
-                            )}
-                            <Popconfirm title="Recusar orçamento?" onConfirm={async () => {
-                                await supabase.from('budgets').update({ status: 'REJECTED' }).eq('id', selectedBudget.id)
-                                messageApi.info('Orçamento recusado.')
-                                await reloadBudgets(); setDetailDrawerOpen(false)
-                            }}>
-                                <Button danger>Recusar</Button>
-                            </Popconfirm>
-                        </Space>
+                        {/* Doc 28/07: este popup de detalhe serve APENAS para visualizar o
+                            orçamento e enviá-lo (ex.: WhatsApp, botão acima). Removidos os botões
+                            "Finalizar Pagamento" (recebimento é responsabilidade de Vendas) e
+                            "Recusar" (o X no topo já permite sair da tela), além de "Enviar para
+                            vendas"/"Avançar Etapa" — o avanço de etapa acontece pelos botões do
+                            card e pelo formulário de Editar Orçamento. */}
                     </div>
                 )}
             </Drawer>

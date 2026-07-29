@@ -1,5 +1,5 @@
 import { FC, useState } from 'react'
-import { Button, Drawer, Empty, Input, Popconfirm, Space } from 'antd'
+import { Button, Drawer, Empty, Input, Popconfirm } from 'antd'
 import { MoreOutlined } from '@ant-design/icons'
 import { Dropdown } from 'antd'
 import { IItemProductModel } from '@/server/model/item-product-item'
@@ -127,11 +127,13 @@ export const ProductItemsMobileList: FC<ProductItemsMobileListProps> = ({
               )}
             </div>
 
-            <div>
-              <label style={{ fontSize: 12, color: '#94a3b8', display: 'block', marginBottom: 4 }}>
+            {/* Doc 28/07 (item 39): campo numérico da unidade na MESMA linha do rótulo
+                "Qtd. por unidade" (rótulo à esquerda, input à direita). */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+              <label style={{ fontSize: 12, color: '#94a3b8' }}>
                 Qtd. por unidade
               </label>
-              {renderQuantityInput(selected)}
+              <div style={{ flexShrink: 0 }}>{renderQuantityInput(selected)}</div>
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
@@ -161,12 +163,9 @@ export const ProductItemsMobileList: FC<ProductItemsMobileListProps> = ({
               <span style={{ fontWeight: 600 }}>R$ {getMonetaryValue(selected.price)}</span>
             </div>
 
-            <Space style={{ marginTop: 8 }}>
-              {isEditingMode && (
-                <Button type="primary" onClick={() => handleClickUpdateItemPrice(selected.id)}>
-                  Atualizar valor item
-                </Button>
-              )}
+            {/* Doc 28/07 (item 39): "Atualizar valor item" no canto inferior DIREITO;
+                "Excluir" à esquerda. */}
+            <div style={{ marginTop: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
               <Popconfirm
                 title="Tem certeza?"
                 onConfirm={() => {
@@ -176,7 +175,12 @@ export const ProductItemsMobileList: FC<ProductItemsMobileListProps> = ({
               >
                 <Button danger>Excluir</Button>
               </Popconfirm>
-            </Space>
+              {isEditingMode && (
+                <Button type="primary" onClick={() => handleClickUpdateItemPrice(selected.id)}>
+                  Atualizar valor item
+                </Button>
+              )}
+            </div>
           </div>
         )}
       </Drawer>

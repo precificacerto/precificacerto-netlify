@@ -11,7 +11,6 @@ import { useAuth } from '@/hooks/use-auth.hook'
 import {
     DollarOutlined,
     ShoppingOutlined,
-    BarChartOutlined,
     FilterOutlined,
     ReloadOutlined,
     CustomerServiceOutlined,
@@ -1406,17 +1405,10 @@ function SalesReport() {
     // ─── KPIs ───
     const abcTotalRevenue = useMemo(() => abcData.reduce((sum, r) => sum + r.totalRevenue, 0), [abcData])
     const abcTotalProducts = abcData.length
-    const abcAvgMargin = useMemo(() => {
-        if (abcData.length === 0) return 0
-        return abcData.reduce((sum, r) => sum + r.marginPercent, 0) / abcData.length
-    }, [abcData])
+    // Doc 28/07: card "Margem Média" removido da Curva ABC — abcAvgMargin/svcAvgMargin não são mais usados.
 
     const svcTotalRevenue = useMemo(() => svcData.reduce((sum, r) => sum + r.totalRevenue, 0), [svcData])
     const svcTotalServices = svcData.length
-    const svcAvgMargin = useMemo(() => {
-        if (svcData.length === 0) return 0
-        return svcData.reduce((sum, r) => sum + r.marginPercent, 0) / svcData.length
-    }, [svcData])
 
     // ─── Product columns ───
     const abcColumns: ColumnsType<ABCReportRow> = [
@@ -2340,7 +2332,7 @@ function SalesReport() {
                                 onChange={setRecEmployeeFilter}
                                 allowClear
                                 size={isMobile ? 'small' : 'middle'}
-                                style={isMobile ? { flex: '1 1 45%', minWidth: 0 } : { minWidth: 200 }}
+                                style={isMobile ? { flex: '1 1 100%', minWidth: 0 } : { minWidth: 200 }}
                                 options={(employees as any[]).map((e: any) => ({ value: e.id, label: e.name }))}
                             />
                             <Select
@@ -2351,11 +2343,11 @@ function SalesReport() {
                                 showSearch
                                 optionFilterProp="label"
                                 size={isMobile ? 'small' : 'middle'}
-                                style={isMobile ? { flex: '1 1 45%', minWidth: 0 } : { minWidth: 200 }}
+                                style={isMobile ? { flex: '1 1 100%', minWidth: 0 } : { minWidth: 200 }}
                                 options={allCustomers}
                             />
                             <Button icon={<ReloadOutlined />} onClick={fetchReceivables} loading={recLoading} size={isMobile ? 'small' : 'middle'} style={isMobile ? { flex: '1 1 100%' } : undefined}>
-                                Atualizar
+                                Pesquisar
                             </Button>
                         </div>
 
@@ -2421,7 +2413,7 @@ function SalesReport() {
                                 onChange={setCommEmployeeFilter}
                                 allowClear
                                 size={isMobile ? 'small' : 'middle'}
-                                style={isMobile ? { flex: '1 1 45%', minWidth: 0 } : { flex: '1.6 1 200px', minWidth: 180 }}
+                                style={isMobile ? { flex: '1 1 100%', minWidth: 0 } : { flex: '1.6 1 200px', minWidth: 180 }}
                                 options={(employees as any[]).map((e: any) => ({ value: e.id, label: e.name }))}
                             />
                             <Select
@@ -2432,7 +2424,7 @@ function SalesReport() {
                                 showSearch
                                 optionFilterProp="label"
                                 size={isMobile ? 'small' : 'middle'}
-                                style={isMobile ? { flex: '1 1 45%', minWidth: 0 } : { flex: '1 1 150px', minWidth: 140 }}
+                                style={isMobile ? { flex: '1 1 100%', minWidth: 0 } : { flex: '1 1 150px', minWidth: 140 }}
                                 options={commData.map(r => ({ value: r.saleId, label: r.saleCode }))}
                             />
                             <Select
@@ -2443,12 +2435,12 @@ function SalesReport() {
                                 showSearch
                                 optionFilterProp="label"
                                 size={isMobile ? 'small' : 'middle'}
-                                style={isMobile ? { flex: '1 1 45%', minWidth: 0 } : { flex: '1.2 1 180px', minWidth: 160 }}
+                                style={isMobile ? { flex: '1 1 100%', minWidth: 0 } : { flex: '1.2 1 180px', minWidth: 160 }}
                                 options={allProducts}
                             />
                             <div style={{ marginLeft: isMobile ? 0 : 'auto', display: 'flex', gap: 8, flexShrink: 0, width: isMobile ? '100%' : undefined }}>
                                 <Button icon={<ReloadOutlined />} onClick={fetchCommissionsReport} loading={commLoading} size={isMobile ? 'small' : 'middle'} style={isMobile ? { flex: 1 } : undefined}>
-                                    Atualizar
+                                    Pesquisar
                                 </Button>
                                 <Button
                                     icon={<DownloadOutlined />}
@@ -2525,7 +2517,7 @@ function SalesReport() {
                                 onChange={setCommEmployeeFilter}
                                 allowClear
                                 size={isMobile ? 'small' : 'middle'}
-                                style={isMobile ? { flex: '1 1 45%', minWidth: 0 } : { flex: '1.6 1 200px', minWidth: 180 }}
+                                style={isMobile ? { flex: '1 1 100%', minWidth: 0 } : { flex: '1.6 1 200px', minWidth: 180 }}
                                 options={(employees as any[]).map((e: any) => ({ value: e.id, label: e.name }))}
                             />
                             <Select
@@ -2536,12 +2528,12 @@ function SalesReport() {
                                 showSearch
                                 optionFilterProp="label"
                                 size={isMobile ? 'small' : 'middle'}
-                                style={isMobile ? { flex: '1 1 45%', minWidth: 0 } : { flex: '1.2 1 180px', minWidth: 160 }}
+                                style={isMobile ? { flex: '1 1 100%', minWidth: 0 } : { flex: '1.2 1 180px', minWidth: 160 }}
                                 options={allProducts}
                             />
                             <div style={{ marginLeft: isMobile ? 0 : 'auto', display: 'flex', gap: 8, flexShrink: 0, width: isMobile ? '100%' : undefined }}>
                                 <Button icon={<ReloadOutlined />} onClick={fetchCommissionsReport} loading={commLoading} size={isMobile ? 'small' : 'middle'} style={isMobile ? { flex: 1 } : undefined}>
-                                    Atualizar
+                                    Pesquisar
                                 </Button>
                                 {/* BUG-RELVENDAS-RTCOMISSOES-EXPORTAR-004: botão Exportar espelhando a aba Comissões. */}
                                 <Button
@@ -2591,7 +2583,7 @@ function SalesReport() {
                         <div className="kpi-grid" style={{ marginBottom: 20 }}>
                             <CardKPI title="Receita Total" value={formatCurrency(abcTotalRevenue)} icon={<DollarOutlined />} variant="green" />
                             <CardKPI title="Total Produtos" value={abcTotalProducts} icon={<ShoppingOutlined />} variant="blue" />
-                            <CardKPI title="Margem Média" value={`${abcAvgMargin.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%`} icon={<BarChartOutlined />} variant="orange" />
+                            {/* Doc 28/07: card "Margem Média" removido da Curva ABC (mantém só os 2 primeiros). */}
                         </div>
 
                         {/* Product Filters */}
@@ -2620,7 +2612,7 @@ function SalesReport() {
                                 onChange={setAbcEmployeeFilter}
                                 allowClear
                                 size={isMobile ? 'small' : 'middle'}
-                                style={isMobile ? { flex: '1 1 45%', minWidth: 0 } : { width: 160 }}
+                                style={isMobile ? { flex: '1 1 100%', minWidth: 0 } : { width: 160 }}
                                 options={[
                                     ...(employees as any[]).map((e: any) => ({ value: e.id, label: e.name })),
                                 ]}
@@ -2633,7 +2625,7 @@ function SalesReport() {
                                 showSearch
                                 optionFilterProp="label"
                                 size={isMobile ? 'small' : 'middle'}
-                                style={isMobile ? { flex: '1 1 45%', minWidth: 0 } : { width: 170 }}
+                                style={isMobile ? { flex: '1 1 100%', minWidth: 0 } : { width: 170 }}
                                 options={allProducts}
                             />
                             <Select
@@ -2644,12 +2636,12 @@ function SalesReport() {
                                 showSearch
                                 optionFilterProp="label"
                                 size={isMobile ? 'small' : 'middle'}
-                                style={isMobile ? { flex: '1 1 45%', minWidth: 0 } : { width: 170 }}
+                                style={isMobile ? { flex: '1 1 100%', minWidth: 0 } : { width: 170 }}
                                 options={allCustomers}
                             />
                             <div style={{ marginLeft: isMobile ? 0 : 'auto', display: 'flex', gap: 8, flexShrink: 0, width: isMobile ? '100%' : undefined }}>
                                 <Button icon={<ReloadOutlined />} onClick={fetchAbcReport} loading={abcLoading} size={isMobile ? 'small' : 'middle'} style={isMobile ? { flex: 1 } : undefined}>
-                                    Atualizar
+                                    Pesquisar
                                 </Button>
                                 <Button
                                     icon={<DownloadOutlined />}
@@ -2699,7 +2691,7 @@ function SalesReport() {
                         <div className="kpi-grid" style={{ marginBottom: 20 }}>
                             <CardKPI title="Receita Total" value={formatCurrency(svcTotalRevenue)} icon={<DollarOutlined />} variant="green" />
                             <CardKPI title="Total Serviços" value={svcTotalServices} icon={<CustomerServiceOutlined />} variant="blue" />
-                            <CardKPI title="Margem Média" value={`${svcAvgMargin.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%`} icon={<BarChartOutlined />} variant="orange" />
+                            {/* Doc 28/07: card "Margem Média" removido da Curva ABC (mantém só os 2 primeiros). */}
                         </div>
 
                         {/* Service Filters */}
@@ -2728,7 +2720,7 @@ function SalesReport() {
                                 onChange={setSvcEmployeeFilter}
                                 allowClear
                                 size={isMobile ? 'small' : 'middle'}
-                                style={isMobile ? { flex: '1 1 45%', minWidth: 0 } : { width: 170 }}
+                                style={isMobile ? { flex: '1 1 100%', minWidth: 0 } : { width: 170 }}
                                 options={[
                                     ...(employees as any[]).map((e: any) => ({ value: e.id, label: e.name })),
                                 ]}
@@ -2741,12 +2733,12 @@ function SalesReport() {
                                 showSearch
                                 optionFilterProp="label"
                                 size={isMobile ? 'small' : 'middle'}
-                                style={isMobile ? { flex: '1 1 45%', minWidth: 0 } : { width: 170 }}
+                                style={isMobile ? { flex: '1 1 100%', minWidth: 0 } : { width: 170 }}
                                 options={allCustomers}
                             />
                             <div style={{ marginLeft: isMobile ? 0 : 'auto', display: 'flex', gap: 8, flexShrink: 0, width: isMobile ? '100%' : undefined }}>
                                 <Button icon={<ReloadOutlined />} onClick={fetchSvcReport} loading={svcLoading} size={isMobile ? 'small' : 'middle'} style={isMobile ? { flex: 1 } : undefined}>
-                                    Atualizar
+                                    Pesquisar
                                 </Button>
                                 <Button
                                     icon={<DownloadOutlined />}

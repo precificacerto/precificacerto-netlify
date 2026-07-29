@@ -330,7 +330,9 @@ function OrdersPage() {
     const [filterCustomer, setFilterCustomer] = useState<string | null>(null)
     const [filterEmployee, setFilterEmployee] = useState<string | null>(null)
     const [filterProduct, setFilterProduct] = useState<string | null>(null)
-    const [filterBudgetId, setFilterBudgetId] = useState<string>('')
+    // Doc 28/07: filtro "Filtrar por orçamento" removido (redundante com "Buscar código ou cliente").
+    // Adicionado filtro de período (Data início / Data fim).
+    const [dateRange, setDateRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null]>([null, null])
     const [searchText, setSearchText] = useState('')
 
     const canViewOrders = canView(MODULES.ORDERS)
@@ -1029,12 +1031,13 @@ function OrdersPage() {
         return orders.filter((o) => {
             if (filterCustomer && o.customer_id !== filterCustomer) return false
             if (filterEmployee && o.employee_id !== filterEmployee) return false
-            if (filterBudgetId.trim() && !o.budget_code?.toLowerCase().includes(filterBudgetId.toLowerCase())) return false
+            if (dateRange[0] && dayjs(o.created_at).isBefore(dateRange[0], 'day')) return false
+            if (dateRange[1] && dayjs(o.created_at).isAfter(dateRange[1], 'day')) return false
             if (searchText.trim() && !o.order_code.toLowerCase().includes(searchText.toLowerCase())
                 && !o.customer_name?.toLowerCase().includes(searchText.toLowerCase())) return false
             return true
         })
-    }, [orders, filterCustomer, filterEmployee, filterBudgetId, searchText])
+    }, [orders, filterCustomer, filterEmployee, dateRange, searchText])
 
     const totalOpenValue = useMemo(
         () => filteredOrders.reduce((s, o) => s + (o.total_value || 0), 0),
@@ -1176,27 +1179,78 @@ function OrdersPage() {
                 onCancel={() => pendingMrmConfirmRef.current?.(false)}
             />
 
-            {/* KPIs */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16, marginBottom: 16 }}>
-                <CardKPI icon={<FileTextOutlined />} title="Pedidos em aberto" value={String(filteredOrders.length)} />
-                <CardKPI icon={<ClockCircleOutlined />} title="Rascunho" value={String(draftCount)} />
-                <CardKPI icon={<CheckCircleOutlined />} title="Aguardando pagamento" value={String(awaitingCount)} />
-                <CardKPI icon={<DollarOutlined />} title="Valor total" value={formatCurrency(totalOpenValue)} />
-            </div>
+            {/* KPIs — Doc 28/07: cards do topo ocultados no mobile. */}
+            {!isMobile && (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16, marginBottom: 16 }}>
+                    <CardKPI icon={<FileTextOutlined />} title="Pedidos em aberto" value={String(filteredOrders.length)} />
+                    <CardKPI icon={<ClockCircleOutlined />} title="Rascunho" value={String(draftCount)} />
+                    <CardKPI icon={<CheckCircleOutlined />} title="Aguardando pagamento" value={String(awaitingCount)} />
+                    <CardKPI icon={<DollarOutlined />} title="Valor total" value={formatCurrency(totalOpenValue)} />
+                </div>
+            )}
 
-            {/* Filtros */}
-            <Space wrap style={{ marginBottom: 16 }}>
+            {/* Filtros — Doc 28/07: padrão mobile de 1 filtro por linha, na ordem Busca → Data →
+                Vendedor → Cliente. Filtro "Filtrar por orçamento" removido (redundante com a busca). */}
+            <Space
+                direction={isMobile ? 'vertical' : 'horizontal'}
+                wrap={!isMobile}
+                style={{ marginBottom: 16, width: isMobile ? '100%' : undefined }}
+            >
                 <Input
                     placeholder="Buscar código ou cliente"
                     prefix={<SearchOutlined />}
                     value={searchText}
                     onChange={(e) => setSearchText(e.target.value)}
-                    style={{ width: 240 }}
+                    style={{ width: isMobile ? '100%' : 240 }}
                     allowClear
                 />
+                {isMobile ? (
+                    <div style={{ display: 'flex', gap: 8, width: '100%' }}>
+                        <DatePicker
+                            format="DD/MM/YYYY"
+                            placeholder="Data início"
+                            value={dateRange[0]}
+                            onChange={(v) => setDateRange([v, dateRange[1]])}
+                            allowClear
+                            inputReadOnly
+                            style={{ flex: 1 }}
+                        />
+                        <DatePicker
+                            format="DD/MM/YYYY"
+                            placeholder="Data fim"
+                            value={dateRange[1]}
+                            onChange={(v) => setDateRange([dateRange[0], v])}
+                            allowClear
+                            inputReadOnly
+                            style={{ flex: 1 }}
+                        />
+                    </div>
+                ) : (
+                    <DatePicker.RangePicker
+                        format="DD/MM/YYYY"
+                        placeholder={['Data início', 'Data fim']}
+                        value={dateRange}
+                        onChange={(vals) => setDateRange(vals ? [vals[0], vals[1]] : [null, null])}
+                        allowClear
+                        style={{ minWidth: 240 }}
+                    />
+                )}
+                <Select
+                    placeholder="Filtrar por vendedor"
+                    style={{ width: isMobile ? '100%' : 200 }}
+                    value={filterEmployee || undefined}
+                    onChange={(v) => setFilterEmployee(v || null)}
+                    allowClear
+                    showSearch
+                    optionFilterProp="children"
+                >
+                    {(employees as any[]).map((e: any) => (
+                        <Select.Option key={e.user_id || e.id} value={e.user_id || e.id}>{e.name}</Select.Option>
+                    ))}
+                </Select>
                 <Select
                     placeholder="Filtrar por cliente"
-                    style={{ width: 220 }}
+                    style={{ width: isMobile ? '100%' : 220 }}
                     value={filterCustomer || undefined}
                     onChange={(v) => setFilterCustomer(v || null)}
                     allowClear
@@ -1208,28 +1262,8 @@ function OrdersPage() {
                     ))}
                 </Select>
                 <Select
-                    placeholder="Filtrar por vendedor"
-                    style={{ width: 200 }}
-                    value={filterEmployee || undefined}
-                    onChange={(v) => setFilterEmployee(v || null)}
-                    allowClear
-                    showSearch
-                    optionFilterProp="children"
-                >
-                    {(employees as any[]).map((e: any) => (
-                        <Select.Option key={e.user_id || e.id} value={e.user_id || e.id}>{e.name}</Select.Option>
-                    ))}
-                </Select>
-                <Input
-                    placeholder="Filtrar por orçamento (ex: ORC-ABC...)"
-                    value={filterBudgetId}
-                    onChange={(e) => setFilterBudgetId(e.target.value)}
-                    style={{ width: 220 }}
-                    allowClear
-                />
-                <Select
                     placeholder="Produto (compilação)"
-                    style={{ width: 200 }}
+                    style={{ width: isMobile ? '100%' : 200 }}
                     value={filterProduct || undefined}
                     onChange={(v) => setFilterProduct(v || null)}
                     allowClear
@@ -1240,7 +1274,7 @@ function OrdersPage() {
                         <Select.Option key={p.id} value={p.id}>{p.name}</Select.Option>
                     ))}
                 </Select>
-                <Button icon={<UnorderedListOutlined />} onClick={handleOpenCompiled}>
+                <Button icon={<UnorderedListOutlined />} onClick={handleOpenCompiled} block={isMobile}>
                     Ver quantidade de produtos
                 </Button>
             </Space>
@@ -1497,6 +1531,23 @@ function OrdersPage() {
                         pesoOpInterna={orderEpicV5DisplayData.pesoOpInterna}
                         ancoraInterna={orderEpicV5DisplayData.ancoraInterna}
                     />
+                )}
+
+                {/* Doc 28/07: botão "Enviar para Vendas" ao final do formulário de edição do pedido,
+                    permitindo enviar direto para a confirmação de Vendas. NOTA: hoje reutiliza o fluxo
+                    existente "Enviar para Aprovação". A seção dedicada de CONFIRMAÇÃO no topo de Vendas
+                    (pendente de efetivação pelo Financeiro) é uma feature nova a ser construída à parte. */}
+                {editingOrder && (editingOrder.status === 'DRAFT' || editingOrder.status === 'AWAITING_PAYMENT') && (
+                    <Button
+                        block
+                        type="primary"
+                        icon={<ShoppingCartOutlined />}
+                        disabled={!canEditOrders}
+                        style={{ background: '#12B76A', borderColor: '#12B76A', marginTop: 16 }}
+                        onClick={() => { const o = editingOrder; setEditDrawerOpen(false); handleOpenSendToSale(o) }}
+                    >
+                        Enviar para Vendas
+                    </Button>
                 )}
             </Drawer>
 

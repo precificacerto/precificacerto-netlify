@@ -1182,10 +1182,13 @@ function Items() {
             allowClear
           />
           <div style={{ flex: 1 }} />
-          <Space size="middle">
+          {/* Doc 28/07 (item 37): no mobile, "Adicionar item" ocupa a largura total (chega à
+              borda direita). Space full-width com botão block. */}
+          <Space size="middle" style={isMobile ? { width: '100%' } : undefined} direction={isMobile ? 'vertical' : 'horizontal'}>
             {canEdit(MODULES.ITEMS) && (
               <>
                 <Button
+                  block={isMobile}
                   onClick={openRenewDrawer}
                   style={{
                     background: '#FEF08A',
@@ -1195,7 +1198,7 @@ function Items() {
                 >
                   + Renovar quantidade
                 </Button>
-                <Button type="primary" icon={<PlusOutlined />} onClick={handleAddItem}>
+                <Button block={isMobile} type="primary" icon={<PlusOutlined />} onClick={handleAddItem}>
                   Adicionar item
                 </Button>
               </>

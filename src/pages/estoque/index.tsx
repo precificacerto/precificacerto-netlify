@@ -21,6 +21,7 @@ import {
     CustomerServiceOutlined,
     DeleteOutlined,
     MoreOutlined,
+    PlusOutlined,
 } from '@ant-design/icons'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import { useDevice } from '@/contexts/device.context'
@@ -101,6 +102,7 @@ function StockMobileList({
     loading,
     onDeleteQty,
     onSoftDelete,
+    onAddQty,
 }: {
     rows: StockRow[]
     type: 'ITEM' | 'PRODUCT'
@@ -109,6 +111,7 @@ function StockMobileList({
     loading: boolean
     onDeleteQty: (record: StockRow) => void
     onSoftDelete: (record: StockRow) => void
+    onAddQty: (record: StockRow) => void
 }) {
     const [detail, setDetail] = useState<StockRow | null>(null)
 
@@ -191,23 +194,24 @@ function StockMobileList({
                             value={<span style={{ color: statusColor(detail.status), fontWeight: 600 }}>{detail.currentQty} {detail.unit}</span>}
                         />
                         {canEditStock && (
-                            <div className="pc-row-compact__actions" style={{ marginTop: 16, borderRadius: 10 }}>
+                            /* Doc 28/07: rodapé do popup — "Excluir qtd" (esquerda, VERMELHO) e, no lugar
+                               do antigo "Excluir", o botão "Adicionar quantidade" (direita, VERDE). A
+                               exclusão do item permanece disponível no menu ⋮ da listagem. */
+                            <div className="pc-row-compact__actions" style={{ marginTop: 16, borderRadius: 10, display: 'flex', justifyContent: 'space-between', gap: 8 }}>
                                 <Button
                                     danger
                                     onClick={() => { const r = detail; setDetail(null); onDeleteQty(r) }}
                                 >
                                     Excluir qtd
                                 </Button>
-                                <Popconfirm
-                                    title={type === 'PRODUCT' ? 'Excluir produto' : 'Excluir item'}
-                                    description={`Tem certeza que deseja excluir "${detail.name}" do estoque?`}
-                                    okText="Excluir"
-                                    cancelText="Cancelar"
-                                    okButtonProps={{ danger: true }}
-                                    onConfirm={() => { const r = detail; setDetail(null); onSoftDelete(r) }}
+                                <Button
+                                    type="primary"
+                                    icon={<PlusOutlined />}
+                                    style={{ background: '#12B76A', borderColor: '#12B76A' }}
+                                    onClick={() => { const r = detail; setDetail(null); onAddQty(r) }}
                                 >
-                                    <Button danger type="primary" icon={<DeleteOutlined />}>Excluir</Button>
-                                </Popconfirm>
+                                    Adicionar quantidade
+                                </Button>
                             </div>
                         )}
                     </div>
@@ -1019,6 +1023,7 @@ function Stock() {
                         loading={isLoading}
                         onDeleteQty={handleOpenDeleteQty}
                         onSoftDelete={handleSoftDeleteStockRow}
+                        onAddQty={handleMovement}
                     />
                 ) : (
                     <Table

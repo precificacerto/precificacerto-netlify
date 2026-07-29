@@ -516,7 +516,7 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                                         <PercentInput
                                             min={0} max={100}
                                             style={{ width: '100%' }}
-                                            onChange={(v) => setIbsReferencePct(v ?? null)}
+                                            decimals={2} onChange={(v) => setIbsReferencePct(v ?? null)}
                                         />
                                     </Form.Item>
                                     <Form.Item
@@ -527,7 +527,7 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                                         <PercentInput
                                             min={0} max={100}
                                             style={{ width: '100%' }}
-                                            onChange={(v) => setCbsReferencePct(v ?? null)}
+                                            decimals={2} onChange={(v) => setCbsReferencePct(v ?? null)}
                                         />
                                     </Form.Item>
                                 </div>
@@ -600,10 +600,10 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                                     </div>
                                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
                                         <Form.Item name="ibs_reference_pct" label="IBS — Imposto sobre Bens e Serviços" style={{ marginBottom: 0 }}>
-                                            <PercentInput min={0} max={100} style={{ width: '100%' }} onChange={(v) => setIbsReferencePct(v ?? null)} />
+                                            <PercentInput min={0} max={100} style={{ width: '100%' }} decimals={2} onChange={(v) => setIbsReferencePct(v ?? null)} />
                                         </Form.Item>
                                         <Form.Item name="cbs_reference_pct" label="CBS — Contribuição sobre Bens e Serviços" style={{ marginBottom: 0 }}>
-                                            <PercentInput min={0} max={100} style={{ width: '100%' }} onChange={(v) => setCbsReferencePct(v ?? null)} />
+                                            <PercentInput min={0} max={100} style={{ width: '100%' }} decimals={2} onChange={(v) => setCbsReferencePct(v ?? null)} />
                                         </Form.Item>
                                     </div>
                                 </div>
@@ -657,7 +657,7 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                                             <PercentInput
                                                 min={0} max={100}
                                                 style={{ width: '100%' }}
-                                                onChange={(v) => setIbsReferencePct(v ?? null)}
+                                                decimals={2} onChange={(v) => setIbsReferencePct(v ?? null)}
                                             />
                                         </Form.Item>
                                         <Form.Item
@@ -668,7 +668,7 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                                             <PercentInput
                                                 min={0} max={100}
                                                 style={{ width: '100%' }}
-                                                onChange={(v) => setCbsReferencePct(v ?? null)}
+                                                decimals={2} onChange={(v) => setCbsReferencePct(v ?? null)}
                                             />
                                         </Form.Item>
                                     </div>

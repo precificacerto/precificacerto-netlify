@@ -641,7 +641,8 @@ function Home() {
         </div>
       </div>
 
-      <div className="kpi-grid">
+      {/* Doc 28/07 item 55: Dashboard é a exceção — mantém 1 card por linha no mobile. */}
+      <div className="kpi-grid kpi-grid--stack-mobile">
         <CardKPI
           title="Total de Entradas"
           value={formatCurrency(totalEntradas)}

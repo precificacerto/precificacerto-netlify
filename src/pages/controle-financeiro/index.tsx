@@ -13,6 +13,7 @@ import { supabase } from '@/supabase/client'
 import { getTenantId } from '@/utils/get-tenant-id'
 import { getEffectiveIncomeAmount } from '@/utils/cash-entry-amount'
 import { mergeExpenseConfig } from '@/utils/recalc-expense-config'
+import { calculateBreakeven, buildBreakevenInputFromConfig } from '@/utils/breakeven-calculator'
 import { CurrencyInput } from '@/components/currency-input.component'
 import {
     DollarOutlined, ArrowUpOutlined, ArrowDownOutlined,
@@ -243,6 +244,34 @@ export default function ControleFinanceiro() {
         getTenantId().then((id) => { if (id) setTenantId(id) })
     }, [])
 
+    // Doc 28/07 (item 48): o card "Despesas Fixas" passa a ser "Ponto de Equilíbrio", exibindo
+    // o MESMO valor do card equivalente no Dashboard. Reusa exatamente a mesma fonte/fórmula:
+    // tenant_expense_config → buildBreakevenInputFromConfig → calculateBreakeven.
+    const [pontoEquilibrio, setPontoEquilibrio] = useState<number | null>(null)
+    useEffect(() => {
+        if (!tenantId) return
+        let cancelled = false
+        ;(async () => {
+            try {
+                await mergeExpenseConfig(tenantId)
+                const { data: cfg } = await supabase
+                    .from('tenant_expense_config')
+                    .select('*')
+                    .eq('tenant_id', tenantId)
+                    .single()
+                if (cancelled) return
+                const regime = taxRegime ?? currentUser?.taxableRegime ?? undefined
+                const result = calculateBreakeven(
+                    buildBreakevenInputFromConfig(cfg, regime),
+                )
+                setPontoEquilibrio(result.isValid && result.breakeven != null ? result.breakeven : null)
+            } catch {
+                if (!cancelled) setPontoEquilibrio(null)
+            }
+        })()
+        return () => { cancelled = true }
+    }, [tenantId, taxRegime, currentUser?.taxableRegime])
+
     const filteredData = useMemo(() => {
         if (typeFilter === 'ALL') return data
         return data.filter(d => d.type === typeFilter)
@@ -251,7 +280,6 @@ export default function ControleFinanceiro() {
     const totalIncome = useMemo(() => data.filter(d => d.type === 'INCOME').reduce((s, d) => s + getEffectiveIncomeAmount(d), 0), [data])
     const totalExpense = useMemo(() => data.filter(d => d.type === 'EXPENSE').reduce((s, d) => s + Number(d.amount || 0), 0), [data])
     const balance = totalIncome - totalExpense
-    const totalFixed = useMemo(() => data.filter(d => d.origin_type === 'FIXED_EXPENSE' || d.origin_type === 'SALARY').reduce((s, d) => s + Number(d.amount || 0), 0), [data])
 
     // ── Regime: categorias regime-aware (todos os regimes suportados) ──
     const effectiveRegime = taxRegime ?? currentUser?.taxableRegime ?? null
@@ -800,7 +828,8 @@ export default function ControleFinanceiro() {
                 <CardKPI title="Receitas" value={formatCurrency(totalIncome)} icon={<ArrowUpOutlined />} variant="green" />
                 <CardKPI title="Despesas" value={formatCurrency(totalExpense)} icon={<ArrowDownOutlined />} variant="red" />
                 <CardKPI title="Saldo do Mês" value={formatCurrency(balance)} icon={<DollarOutlined />} variant={balance >= 0 ? 'green' : 'red'} />
-                <CardKPI title="Despesas Fixas" value={formatCurrency(totalFixed)} icon={<BankOutlined />} variant="orange" />
+                {/* Doc 28/07 (item 48): "Despesas Fixas" → "Ponto de Equilíbrio" (mesmo valor do Dashboard). */}
+                <CardKPI title="Ponto de Equilíbrio" value={pontoEquilibrio != null ? formatCurrency(pontoEquilibrio) : '—'} icon={<BankOutlined />} variant="orange" />
             </div>
 
             {/* Item 12: Overdue alert banners */}

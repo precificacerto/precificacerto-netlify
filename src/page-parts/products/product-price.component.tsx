@@ -259,11 +259,14 @@ export const ProductPrice: FC<Props> = ({
       <tr key={label}>
         <td style={{ width: isMobile ? 92 : 140, padding: '6px 0' }}>
           {editable ? (
+            // Doc 28/07 (item 42): campos manuais (RT, Comissão, Lucro…) sem o ícone "%"
+            // (o cabeçalho da coluna já indica "Alíquotas") e na mesma fonte menor dos demais.
             <PercentInput
               size="small" min={0} max={100}
+              showPercent={false}
               value={pct}
               onChange={(v) => handleEditableChange(v)}
-              style={{ width: isMobile ? 96 : 120 }}
+              style={{ width: isMobile ? 88 : 110, fontSize: isMobile ? 12 : 13 }}
             />
           ) : (
             <Tooltip title={tooltipText || 'Calculado automaticamente a partir do fluxo de caixa. Altere em Configurações > Custos.'}>
@@ -434,36 +437,36 @@ export const ProductPrice: FC<Props> = ({
               <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' as const, letterSpacing: 0.6, marginBottom: 10 }}>
                 Impostos (IBS / CBS)
               </div>
-              <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0 4px' }}>
-                <tbody>
-                  {ibsCbsRows.map(({ label, value, onChange, taxValue }) => {
-                    const effective = hasReductionFactor && value > 0
-                      ? (resolveIvaDualEffectiveRate(value, ivaDualReductionFactor) || 0)
-                      : null
-                    return (
-                    <tr key={label}>
-                      <td style={{ fontSize: 13, color: '#cbd5e1', paddingRight: 12, paddingTop: 4, paddingBottom: 4 }}>{label}</td>
-                      <td style={{ textAlign: 'right', whiteSpace: 'normal' as const }}>
-                        <PercentInput
-                          size="small" min={0} max={100}
-                          value={value}
-                          onChange={(v) => onChange?.(v ?? 0)}
-                          style={{ width: 120 }}
-                        />
-                        <span style={{ marginLeft: 10, fontSize: 12, color: taxValue > 0 ? '#4ade80' : '#64748b', minWidth: 80, display: 'inline-block', textAlign: 'right' }}>
-                          {fmt(taxValue)}
+              {/* Doc 28/07 (item 43): layout em 3 linhas por tributo (espelha a Operação por Dentro):
+                  L1 = título; L2 = alíquota a inserir (esq., campo menor 3 casas, sem "%") +
+                  cheia→efetiva com fator (dir.); L3 = valor R$ gerado pela alíquota efetiva (dir.). */}
+              {ibsCbsRows.map(({ label, value, onChange, taxValue }) => {
+                const effective = hasReductionFactor && value > 0
+                  ? (resolveIvaDualEffectiveRate(value, ivaDualReductionFactor) || 0)
+                  : null
+                return (
+                  <div key={label} style={{ padding: '6px 0', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                    <div style={{ fontSize: 13, color: '#cbd5e1', marginBottom: 4 }}>{label}</div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <PercentInput
+                        size="small" min={0} max={100}
+                        showPercent={false}
+                        value={value}
+                        onChange={(v) => onChange?.(v ?? 0)}
+                        style={{ width: 100, fontSize: 12 }}
+                      />
+                      {effective != null && (
+                        <span style={{ fontSize: 11, color: '#94a3b8', textAlign: 'right' as const }}>
+                          cheia {fmtPct(value)} → <span style={{ color: '#4ade80', fontWeight: 600 }}>efetiva {fmtPct(effective)}</span> (fator {Number(ivaDualReductionFactor)}%)
                         </span>
-                        {effective != null && (
-                          <div style={{ marginTop: 2, fontSize: 11, color: '#94a3b8', textAlign: 'right' as const }}>
-                            cheia {fmtPct(value)} → <span style={{ color: '#4ade80', fontWeight: 600 }}>efetiva {fmtPct(effective)}</span> (fator {Number(ivaDualReductionFactor)}%)
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
+                      )}
+                    </div>
+                    <div style={{ textAlign: 'right' as const, fontSize: 12, fontWeight: 600, color: taxValue > 0 ? '#4ade80' : '#64748b', marginTop: 4 }}>
+                      {fmt(taxValue)}
+                    </div>
+                  </div>
+                )
+              })}
             </div>
           )
         })()}
@@ -479,26 +482,25 @@ export const ProductPrice: FC<Props> = ({
               <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' as const, letterSpacing: 0.6, marginBottom: 10 }}>
                 Impostos (IS / IPI)
               </div>
-              <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0 4px' }}>
-                <tbody>
-                  {isIpiRows.map(({ label, value, onChange, taxValue }) => (
-                    <tr key={label}>
-                      <td style={{ fontSize: 13, color: '#cbd5e1', paddingRight: 12, paddingTop: 4, paddingBottom: 4 }}>{label}</td>
-                      <td style={{ textAlign: 'right', whiteSpace: 'normal' as const }}>
-                        <PercentInput
-                          size="small" min={0} max={100}
-                          value={value}
-                          onChange={(v) => onChange?.(v ?? 0)}
-                          style={{ width: 120 }}
-                        />
-                        <span style={{ marginLeft: 10, fontSize: 12, color: taxValue > 0 ? '#4ade80' : '#64748b', minWidth: 80, display: 'inline-block', textAlign: 'right' }}>
-                          {fmt(taxValue)}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              {/* Doc 28/07 (item 43): mesmo layout de 3 linhas (L1 título, L2 alíquota menor sem "%",
+                  L3 valor R$). IS/IPI não sofrem fator de redução, então sem linha cheia→efetiva. */}
+              {isIpiRows.map(({ label, value, onChange, taxValue }) => (
+                <div key={label} style={{ padding: '6px 0', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                  <div style={{ fontSize: 13, color: '#cbd5e1', marginBottom: 4 }}>{label}</div>
+                  <div style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'center', gap: 8 }}>
+                    <PercentInput
+                      size="small" min={0} max={100}
+                      showPercent={false}
+                      value={value}
+                      onChange={(v) => onChange?.(v ?? 0)}
+                      style={{ width: 100, fontSize: 12 }}
+                    />
+                  </div>
+                  <div style={{ textAlign: 'right' as const, fontSize: 12, fontWeight: 600, color: taxValue > 0 ? '#4ade80' : '#64748b', marginTop: 4 }}>
+                    {fmt(taxValue)}
+                  </div>
+                </div>
+              ))}
             </div>
           )
         })()}
@@ -506,10 +508,24 @@ export const ProductPrice: FC<Props> = ({
         {/* Breakdown total de impostos — apenas quando há valores */}
         {hasInlineTaxes && (
           <div style={{ background: '#1a1a2e', padding: 12, borderRadius: 8, fontSize: 12, marginTop: 10 }}>
+            {/* Doc 28/07 (item 44): resumo desmembrado — Operação Interna → valor com Despesas
+                Acessórias → cada tributo individualmente → Preço Final com Impostos. */}
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-              <span style={{ color: '#94a3b8' }}>Preço base</span>
-              <span>{fmt(finalSalePrice)}</span>
+              <span style={{ color: '#94a3b8' }}>Total Operação Interna</span>
+              <span>{fmt(baseForSalePrice)}</span>
             </div>
+            {terceirizadasTotal > 0 && (
+              <>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                  <span style={{ color: '#94a3b8' }}>+ Despesas Acessórias</span>
+                  <span>{fmt(terceirizadasTotal)}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontWeight: 600 }}>
+                  <span style={{ color: '#cbd5e1' }}>Valor com Despesas Acessórias</span>
+                  <span>{fmt(finalSalePrice)}</span>
+                </div>
+              </>
+            )}
             {taxIsValue > 0 && (
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                 <span style={{ color: '#94a3b8' }}>+ IS</span>
@@ -553,19 +569,23 @@ export const ProductPrice: FC<Props> = ({
           background: finalPriceWithTaxes > 0 ? '#ECFDF5' : '#FEF2F2',
           border: `1px solid ${finalPriceWithTaxes > 0 ? '#6CE9A6' : '#FDA29B'}`,
         }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <div style={{ fontSize: 11, color: '#94a3b8' }}>Lucro líquido</div>
-              <div style={{ fontSize: 20, fontWeight: 700, color: profitValDisplay >= 0 ? '#027A48' : '#B42318' }}>
-                {fmt(profitValDisplay)}
-              </div>
-              {finalSalePrice > 0 && (
-                <div style={{ fontSize: 11, color: '#94a3b8' }}>
-                  Margem: {profitPct.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%
+          <div style={{ display: 'flex', justifyContent: isMobile ? 'center' : 'space-between', alignItems: 'center' }}>
+            {/* Doc 28/07 (item 45): no mobile, oculta "Lucro líquido" e a margem %, deixando em
+                destaque apenas o "Preço de venda por unidade". */}
+            {!isMobile && (
+              <div>
+                <div style={{ fontSize: 11, color: '#94a3b8' }}>Lucro líquido</div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: profitValDisplay >= 0 ? '#027A48' : '#B42318' }}>
+                  {fmt(profitValDisplay)}
                 </div>
-              )}
-            </div>
-            <div style={{ textAlign: 'right' }}>
+                {finalSalePrice > 0 && (
+                  <div style={{ fontSize: 11, color: '#94a3b8' }}>
+                    Margem: {profitPct.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%
+                  </div>
+                )}
+              </div>
+            )}
+            <div style={{ textAlign: isMobile ? 'center' : 'right' }}>
               <Tooltip title="Valor do produto precificado (com ICMS/PIS/COFINS) + Atividades Terceirizadas + Impostos IBS/CBS + Impostos IS/IPI.">
                 <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 2, textTransform: 'uppercase' as const, letterSpacing: 0.5, cursor: 'help' }}>
                   Preço de Venda por Unidade

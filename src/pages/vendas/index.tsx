@@ -2459,13 +2459,17 @@ function Sales() {
                             const isAwaitingOrder = r.status === 'AWAITING_PAYMENT' && r.saleType === 'FROM_ORDER'
                             const statusLabel = isAwaitingOrder ? 'Aguardando pagamento' : 'Concluído'
                             const codigo = r.sale_code || '—'
-                            // Kebab: Ver (ações de transição vão na faixa inferior — DM1)
+                            // Doc 28/07: o menu ⋮ contém apenas "Ver" e "Cancelar venda". O botão
+                            // "Cancelar" solto no card foi removido — a ação vive só no kebab.
                             const kebabItems: any[] = [
                                 { key: 'view', label: 'Ver', onClick: () => handleViewDetail(r) },
+                                { key: 'cancel', label: 'Cancelar venda', danger: true, onClick: () => confirmCancelSale(r) },
                             ]
+                            // A faixa inferior de ações só aparece p/ vendas aguardando pagamento
+                            // (botão "Lançar pagamento"). Vendas concluídas não exibem ações no card.
                             return (
                                 <React.Fragment key={r.id}>
-                                    <div className="pc-row-compact pc-row-compact--has-actions" onClick={() => handleViewDetail(r)}>
+                                    <div className={isAwaitingOrder ? 'pc-row-compact pc-row-compact--has-actions' : 'pc-row-compact'} onClick={() => handleViewDetail(r)}>
                                         <div className="pc-row-compact__main">
                                             <span className="pc-row-compact__title">{r.customerName || 'Sem cliente'}</span>
                                             <span className="pc-row-compact__sub">{codigo} · {dateLabel} · {statusLabel}</span>
@@ -2475,12 +2479,11 @@ function Sales() {
                                             <span className="pc-row-compact__kebab" onClick={(e) => e.stopPropagation()}><MoreOutlined /></span>
                                         </Dropdown>
                                     </div>
-                                    <div className="pc-row-compact__actions" onClick={(e) => e.stopPropagation()}>
-                                        {isAwaitingOrder && (
+                                    {isAwaitingOrder && (
+                                        <div className="pc-row-compact__actions" onClick={(e) => e.stopPropagation()}>
                                             <Button size="small" type="primary" onClick={(e) => { e.stopPropagation(); handleOpenOrderPaymentModal(r) }}>Lançar pagamento</Button>
-                                        )}
-                                        <Button size="small" danger onClick={(e) => { e.stopPropagation(); confirmCancelSale(r) }}>Cancelar</Button>
-                                    </div>
+                                        </div>
+                                    )}
                                 </React.Fragment>
                             )
                         })}

@@ -438,12 +438,12 @@ function Cashier() {
             {incomeAcc.map(({ label, accPrice }) => (
               <li className="flex justify-between w-full py-1 border-t-0 border-l-0 border-r-0 border-b border-dotted" key={label}>
                 <span>{label}</span>
-                <span className="text-sm rounded-md px-1">{`R$ ${getMonetaryValue(accPrice)}`}</span>
+                <span className="text-sm rounded-md px-1" style={{ whiteSpace: 'nowrap', textAlign: 'right', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{`R$ ${getMonetaryValue(accPrice)}`}</span>
               </li>
             ))}
             <li className="flex justify-between w-full py-1 font-bold mt-1">
               <span>Total</span>
-              <span style={{ fontSize: 12, backgroundColor: 'rgba(34, 197, 94, 0.18)', color: '#f1f5f9', borderRadius: 4, padding: '2px 6px' }}>{`R$ ${getMonetaryValue(total)}`}</span>
+              <span style={{ fontSize: 16, fontWeight: 700, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', backgroundColor: 'rgba(34, 197, 94, 0.18)', color: '#f1f5f9', borderRadius: 4, padding: '2px 8px' }}>{`R$ ${getMonetaryValue(total)}`}</span>
             </li>
           </ul>
         </>
@@ -488,13 +488,13 @@ function Cashier() {
                     <span style={{ fontSize: 11, color: '#94a3b8', marginLeft: 6 }}>— {groupLabel}</span>
                   )}
                 </span>
-                <span className="text-sm rounded-md px-1">{`R$ ${getMonetaryValue(accPrice)}`}</span>
+                <span className="text-sm rounded-md px-1" style={{ whiteSpace: 'nowrap', textAlign: 'right', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{`R$ ${getMonetaryValue(accPrice)}`}</span>
               </li>
             )
           })}
           <li className="flex justify-between w-full py-1 font-bold mt-1">
             <span>Total</span>
-            <span style={{ fontSize: 12, backgroundColor: 'rgba(34, 197, 94, 0.18)', color: '#f1f5f9', borderRadius: 4, padding: '2px 6px' }}>{`R$ ${getMonetaryValue(total)}`}</span>
+            <span style={{ fontSize: 16, fontWeight: 700, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', backgroundColor: 'rgba(34, 197, 94, 0.18)', color: '#f1f5f9', borderRadius: 4, padding: '2px 8px' }}>{`R$ ${getMonetaryValue(total)}`}</span>
           </li>
         </ul>
       </>
@@ -660,11 +660,15 @@ function Cashier() {
           <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Definir meta</h3>
         </div>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+          {/* Doc 28/07 (item 32): máscara monetária padrão do sistema — 2 casas decimais
+              (vírgula + centavos, ex.: "1.000,00"). */}
           <CurrencyPercentInput
             placeholder="Valor meta"
             prefix="R$"
             showSymbol={false}
             emptyWhenZero
+            decimals={2}
+            minDecimals={2}
             value={goalPrice?.value ?? 0}
             onChange={(v) => setGoalPrice({ value: v, formattedValue: getMonetaryValue(v) })}
             style={{ maxWidth: 250 }}

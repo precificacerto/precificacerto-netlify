@@ -199,26 +199,28 @@ export const ContentService: FC<ContentServiceProps> = ({
         <div className="flex items-center justify-between">
           <h1 className="text-2xl">Prestação de serviço</h1>
         </div>
-        <section className="flex items-center p-1 ps-row-flex">
-          <div className="w-[36%] p-4">Mão de obra produtiva</div>
-          <div className="w-[20%] p-1">
+        {/* Doc 28/07 (item 38): campo de minutos (esquerda) e valor R$ (direita) sempre na
+            MESMA linha; rótulo e ajuda podem quebrar para linhas próprias em telas estreitas. */}
+        <section className="flex flex-wrap items-center gap-2 p-1 ps-row-flex">
+          <div className="p-2" style={{ flex: '1 1 140px', fontWeight: 500 }}>Mão de obra produtiva</div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, flex: '1 1 220px' }}>
             <Input
               name="productWorkloadInMinutes"
               placeholder="Inserir manualmente"
               autoComplete="off"
               suffix={getUnitMeasure()}
-              style={{ width: '100%' }}
+              style={{ maxWidth: 170 }}
               type="number"
               min={1}
               minLength={1}
               onChange={handleChangePrecificationInputs}
               value={productPriceInfo.productWorkloadInMinutes}
             />
+            <span style={{ whiteSpace: 'nowrap', fontWeight: 600 }}>
+              R$ {getMonetaryValue(combinedLaborPrice)}
+            </span>
           </div>
-          <div className="w-[15%] p-1">
-            R$ {getMonetaryValue(combinedLaborPrice)}
-          </div>
-          <div className="w-[29%] p-1" style={{ fontSize: 11, color: '#94a3b8' }}>
+          <div className="w-full p-1" style={{ fontSize: 11, color: '#94a3b8' }}>
             MO direta + administrativa + desp. fixas
           </div>
         </section>

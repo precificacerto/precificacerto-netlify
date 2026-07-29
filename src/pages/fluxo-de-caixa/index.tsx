@@ -13,7 +13,6 @@ import { getTenantId } from '@/utils/get-tenant-id'
 import { getEffectiveIncomeAmount } from '@/utils/cash-entry-amount'
 import { mergeExpenseConfig } from '@/utils/recalc-expense-config'
 import {
-    PlusOutlined, SyncOutlined,
     CalendarOutlined, FileExcelOutlined,
 } from '@ant-design/icons'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
@@ -819,22 +818,24 @@ export default function CashFlow() {
             {contextHolder}
 
             <div className="pc-card cashflow-toolbar" style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+                {/* Doc 28/07 (item 35): "Atualizar" removido (dados carregam automaticamente).
+                    Linha 1 = seletor de mês (reduzido) + "Novo Lançamento" (sem o ícone "+" redundante
+                    com o texto). Linha 2 = "Saldo Mês Ant." + "Exportar". */}
                 <Space wrap>
                     <CalendarOutlined style={{ fontSize: 18, color: '#94a3b8' }} />
                     <DatePicker picker="month" value={month} onChange={(d) => d && setMonth(d)} allowClear={false} format="MMMM YYYY" />
-                    <Button icon={<SyncOutlined />} onClick={() => fetchData()}>Atualizar</Button>
+                    {canEdit(MODULES.CASH_FLOW) && (
+                        <Button type="primary" onClick={() => { form.resetFields(); setExpenseAmount(''); setExpPaymentMethod(''); setExpInstallments([{ date: null, amount: 0 }]); setExpInstallmentPreset('customizado'); setSelectedExpenseCategory(''); setLrValorIcms(''); setLrValorPis(''); setLrValorCofins(''); setLrValorIpi(''); setLrValorCbs(''); setLrValorIbs(''); setDrawerOpen(true) }}>
+                            + Novo Lançamento
+                        </Button>
+                    )}
                 </Space>
                 <Space wrap>
                     {canEdit(MODULES.CASH_FLOW) && (
-                        <>
-                            <Button loading={loadingPrevBalance} onClick={handlePrevMonthBalance}>
-                                <span className="cashflow-btn-label-full">Saldo do Mês Anterior</span>
-                                <span className="cashflow-btn-label-short">Saldo Mês Ant.</span>
-                            </Button>
-                            <Button type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setExpenseAmount(''); setExpPaymentMethod(''); setExpInstallments([{ date: null, amount: 0 }]); setExpInstallmentPreset('customizado'); setSelectedExpenseCategory(''); setLrValorIcms(''); setLrValorPis(''); setLrValorCofins(''); setLrValorIpi(''); setLrValorCbs(''); setLrValorIbs(''); setDrawerOpen(true) }}>
-                                + Novo Lançamento
-                            </Button>
-                        </>
+                        <Button loading={loadingPrevBalance} onClick={handlePrevMonthBalance}>
+                            <span className="cashflow-btn-label-full">Saldo do Mês Anterior</span>
+                            <span className="cashflow-btn-label-short">Saldo Mês Ant.</span>
+                        </Button>
                     )}
                     <Button
                         icon={<FileExcelOutlined />}

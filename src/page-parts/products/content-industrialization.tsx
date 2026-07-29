@@ -137,26 +137,28 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
         ) : (
           <Table pagination={false} columns={columns} dataSource={productItemsData} scroll={{ x: 'max-content' }} />
         )}
-        <section className="flex items-center p-1 mt-3 ps-row-flex">
-          <div className="w-[36%] p-4">Mão de obra produtiva</div>
-          <div className="w-[20%] p-1">
+        {/* Doc 28/07 (item 38): campo de minutos (esquerda) e valor R$ (direita) sempre na
+            MESMA linha. O rótulo pode quebrar para a linha de cima em telas estreitas, mas o
+            par minutos+valor permanece junto. */}
+        <section className="flex flex-wrap items-center gap-2 p-1 mt-3 ps-row-flex">
+          <div className="p-2" style={{ flex: '1 1 140px', fontWeight: 500 }}>Mão de obra produtiva</div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, flex: '1 1 220px' }}>
             <Input
               name="productWorkloadInMinutes"
               placeholder="Inserir manualmente"
               autoComplete="off"
               suffix="Minuto(s)"
-              style={{ width: '100%' }}
+              style={{ maxWidth: 170 }}
               type="number"
               min={1}
               minLength={1}
               onChange={handleChangePrecificationInputs}
               value={productPriceInfo.productWorkloadInMinutes}
             />
+            <span style={{ whiteSpace: 'nowrap', fontWeight: 600 }}>
+              R$ {getMonetaryValue(productPriceInfo.productWorkloadInMinutesPrice)}
+            </span>
           </div>
-          <div className="w-[15%] p-1">
-            R$ {getMonetaryValue(productPriceInfo.productWorkloadInMinutesPrice)}
-          </div>
-          <div className="w-[29%]"></div>
         </section>
       </Card>
 
