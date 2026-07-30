@@ -1,0 +1,591 @@
+ ⚠ Warning: Next.js inferred your workspace root, but it may not be correct.
+ We detected multiple lockfiles and selected the directory of C:\Users\mathe\package-lock.json as the root directory.
+ To silence this warning, set `outputFileTracingRoot` in your Next.js config, or consider removing one of the lockfiles if it's not needed.
+   See https://nextjs.org/docs/app/api-reference/config/next-config-js/output#caveats for more information.
+ Detected additional lockfiles: 
+   * C:\Users\mathe\OneDrive\Área de Trabalho\precificacerto-netlify\package-lock.json
+
+FAIL .cursor/.aios-core/workflow-intelligence/__tests__/workflow-registry.test.js
+  ● WorkflowRegistry › loadWorkflows() › should return 10 workflows
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: 10
+    Received: 12
+
+    [0m [90m 52 |[39m       [36mconst[39m workflows [33m=[39m registry[33m.[39mloadWorkflows()[33m;[39m
+     [90m 53 |[39m       [36mconst[39m names [33m=[39m [33mObject[39m[33m.[39mkeys(workflows)[33m;[39m
+    [31m[1m>[22m[39m[90m 54 |[39m       expect(names[33m.[39mlength)[33m.[39mtoBe([35m10[39m)[33m;[39m
+     [90m    |[39m                            [31m[1m^[22m[39m
+     [90m 55 |[39m     })[33m;[39m
+     [90m 56 |[39m
+     [90m 57 |[39m     it([32m'should include story_development workflow'[39m[33m,[39m () [33m=>[39m {[0m
+
+      at Object.toBe (.cursor/.aios-core/workflow-intelligence/__tests__/workflow-registry.test.js:54:28)
+
+  ● WorkflowRegistry › getWorkflowNames() › should return array of workflow names
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: 10
+    Received: 12
+
+    [0m [90m 100 |[39m       [36mconst[39m names [33m=[39m registry[33m.[39mgetWorkflowNames()[33m;[39m
+     [90m 101 |[39m       expect([33mArray[39m[33m.[39misArray(names))[33m.[39mtoBe([36mtrue[39m)[33m;[39m
+    [31m[1m>[22m[39m[90m 102 |[39m       expect(names[33m.[39mlength)[33m.[39mtoBe([35m10[39m)[33m;[39m
+     [90m     |[39m                            [31m[1m^[22m[39m
+     [90m 103 |[39m     })[33m;[39m
+     [90m 104 |[39m
+     [90m 105 |[39m     it([32m'should include expected workflows'[39m[33m,[39m () [33m=>[39m {[0m
+
+      at Object.toBe (.cursor/.aios-core/workflow-intelligence/__tests__/workflow-registry.test.js:102:28)
+
+  ● WorkflowRegistry › getStats() › should return registry statistics
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: 10
+    Received: 12
+
+    [0m [90m 269 |[39m       [36mconst[39m stats [33m=[39m registry[33m.[39mgetStats()[33m;[39m
+     [90m 270 |[39m
+    [31m[1m>[22m[39m[90m 271 |[39m       expect(stats[33m.[39mtotalWorkflows)[33m.[39mtoBe([35m10[39m)[33m;[39m
+     [90m     |[39m                                    [31m[1m^[22m[39m
+     [90m 272 |[39m       expect(stats[33m.[39mworkflowsWithTransitions)[33m.[39mtoBe([35m10[39m)[33m;[39m
+     [90m 273 |[39m       expect(stats[33m.[39mtotalTransitions)[33m.[39mtoBeGreaterThan([35m0[39m)[33m;[39m
+     [90m 274 |[39m     })[33m;[39m[0m
+
+      at Object.toBe (.cursor/.aios-core/workflow-intelligence/__tests__/workflow-registry.test.js:271:36)
+
+PASS .aios-core/core/permissions/__tests__/permission-mode.test.js
+FAIL .aios-core/workflow-intelligence/__tests__/workflow-registry.test.js
+  ● WorkflowRegistry › loadWorkflows() › should return 10 workflows
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: 10
+    Received: 12
+
+    [0m [90m 52 |[39m       [36mconst[39m workflows [33m=[39m registry[33m.[39mloadWorkflows()[33m;[39m
+     [90m 53 |[39m       [36mconst[39m names [33m=[39m [33mObject[39m[33m.[39mkeys(workflows)[33m;[39m
+    [31m[1m>[22m[39m[90m 54 |[39m       expect(names[33m.[39mlength)[33m.[39mtoBe([35m10[39m)[33m;[39m
+     [90m    |[39m                            [31m[1m^[22m[39m
+     [90m 55 |[39m     })[33m;[39m
+     [90m 56 |[39m
+     [90m 57 |[39m     it([32m'should include story_development workflow'[39m[33m,[39m () [33m=>[39m {[0m
+
+      at Object.toBe (.aios-core/workflow-intelligence/__tests__/workflow-registry.test.js:54:28)
+
+  ● WorkflowRegistry › getWorkflowNames() › should return array of workflow names
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: 10
+    Received: 12
+
+    [0m [90m 100 |[39m       [36mconst[39m names [33m=[39m registry[33m.[39mgetWorkflowNames()[33m;[39m
+     [90m 101 |[39m       expect([33mArray[39m[33m.[39misArray(names))[33m.[39mtoBe([36mtrue[39m)[33m;[39m
+    [31m[1m>[22m[39m[90m 102 |[39m       expect(names[33m.[39mlength)[33m.[39mtoBe([35m10[39m)[33m;[39m
+     [90m     |[39m                            [31m[1m^[22m[39m
+     [90m 103 |[39m     })[33m;[39m
+     [90m 104 |[39m
+     [90m 105 |[39m     it([32m'should include expected workflows'[39m[33m,[39m () [33m=>[39m {[0m
+
+      at Object.toBe (.aios-core/workflow-intelligence/__tests__/workflow-registry.test.js:102:28)
+
+  ● WorkflowRegistry › getStats() › should return registry statistics
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: 10
+    Received: 12
+
+    [0m [90m 269 |[39m       [36mconst[39m stats [33m=[39m registry[33m.[39mgetStats()[33m;[39m
+     [90m 270 |[39m
+    [31m[1m>[22m[39m[90m 271 |[39m       expect(stats[33m.[39mtotalWorkflows)[33m.[39mtoBe([35m10[39m)[33m;[39m
+     [90m     |[39m                                    [31m[1m^[22m[39m
+     [90m 272 |[39m       expect(stats[33m.[39mworkflowsWithTransitions)[33m.[39mtoBe([35m10[39m)[33m;[39m
+     [90m 273 |[39m       expect(stats[33m.[39mtotalTransitions)[33m.[39mtoBeGreaterThan([35m0[39m)[33m;[39m
+     [90m 274 |[39m     })[33m;[39m[0m
+
+      at Object.toBe (.aios-core/workflow-intelligence/__tests__/workflow-registry.test.js:271:36)
+
+FAIL .cursor/.aios-core/workflow-intelligence/__tests__/integration.test.js
+  ● Workflow Intelligence System Integration › Public API completeness › should expose getWorkflowNames function
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: 10
+    Received: 12
+
+    [0m [90m 222 |[39m     it([32m'should expose getWorkflowNames function'[39m[33m,[39m () [33m=>[39m {
+     [90m 223 |[39m       [36mconst[39m names [33m=[39m wis[33m.[39mgetWorkflowNames()[33m;[39m
+    [31m[1m>[22m[39m[90m 224 |[39m       expect(names[33m.[39mlength)[33m.[39mtoBe([35m10[39m)[33m;[39m
+     [90m     |[39m                            [31m[1m^[22m[39m
+     [90m 225 |[39m     })[33m;[39m
+     [90m 226 |[39m
+     [90m 227 |[39m     it([32m'should expose getWorkflowsByAgent function'[39m[33m,[39m () [33m=>[39m {[0m
+
+      at Object.toBe (.cursor/.aios-core/workflow-intelligence/__tests__/integration.test.js:224:28)
+
+  ● Workflow Intelligence System Integration › Public API completeness › should expose getStats function
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: 10
+    Received: 12
+
+    [0m [90m 237 |[39m     it([32m'should expose getStats function'[39m[33m,[39m () [33m=>[39m {
+     [90m 238 |[39m       [36mconst[39m stats [33m=[39m wis[33m.[39mgetStats()[33m;[39m
+    [31m[1m>[22m[39m[90m 239 |[39m       expect(stats[33m.[39mtotalWorkflows)[33m.[39mtoBe([35m10[39m)[33m;[39m
+     [90m     |[39m                                    [31m[1m^[22m[39m
+     [90m 240 |[39m       expect(stats[33m.[39mworkflowsWithTransitions)[33m.[39mtoBe([35m10[39m)[33m;[39m
+     [90m 241 |[39m     })[33m;[39m
+     [90m 242 |[39m[0m
+
+      at Object.toBe (.cursor/.aios-core/workflow-intelligence/__tests__/integration.test.js:239:36)
+
+FAIL .aios-core/workflow-intelligence/__tests__/integration.test.js
+  ● Workflow Intelligence System Integration › Public API completeness › should expose getWorkflowNames function
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: 10
+    Received: 12
+
+    [0m [90m 222 |[39m     it([32m'should expose getWorkflowNames function'[39m[33m,[39m () [33m=>[39m {
+     [90m 223 |[39m       [36mconst[39m names [33m=[39m wis[33m.[39mgetWorkflowNames()[33m;[39m
+    [31m[1m>[22m[39m[90m 224 |[39m       expect(names[33m.[39mlength)[33m.[39mtoBe([35m10[39m)[33m;[39m
+     [90m     |[39m                            [31m[1m^[22m[39m
+     [90m 225 |[39m     })[33m;[39m
+     [90m 226 |[39m
+     [90m 227 |[39m     it([32m'should expose getWorkflowsByAgent function'[39m[33m,[39m () [33m=>[39m {[0m
+
+      at Object.toBe (.aios-core/workflow-intelligence/__tests__/integration.test.js:224:28)
+
+  ● Workflow Intelligence System Integration › Public API completeness › should expose getStats function
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: 10
+    Received: 12
+
+    [0m [90m 237 |[39m     it([32m'should expose getStats function'[39m[33m,[39m () [33m=>[39m {
+     [90m 238 |[39m       [36mconst[39m stats [33m=[39m wis[33m.[39mgetStats()[33m;[39m
+    [31m[1m>[22m[39m[90m 239 |[39m       expect(stats[33m.[39mtotalWorkflows)[33m.[39mtoBe([35m10[39m)[33m;[39m
+     [90m     |[39m                                    [31m[1m^[22m[39m
+     [90m 240 |[39m       expect(stats[33m.[39mworkflowsWithTransitions)[33m.[39mtoBe([35m10[39m)[33m;[39m
+     [90m 241 |[39m     })[33m;[39m
+     [90m 242 |[39m[0m
+
+      at Object.toBe (.aios-core/workflow-intelligence/__tests__/integration.test.js:239:36)
+
+PASS src/utils/__tests__/margin-reapuration-v13-financial-snapshot.test.ts
+PASS src/lib/__tests__/contract-pdf.test.ts
+PASS src/utils/__tests__/mrm-orchestrator.test.ts
+PASS .cursor/.aios-core/workflow-intelligence/__tests__/suggestion-engine.test.js
+PASS src/utils/__tests__/margin-reapuration-v10-children.test.ts
+PASS src/utils/__tests__/repro-cascata-rt-ausente.test.ts
+PASS src/utils/__tests__/margin-reapuration-v9-cascade-sequential.test.ts
+PASS src/utils/__tests__/margin-reapuration.test.ts
+PASS src/utils/__tests__/margin-reapuration-v14-expense-snapshot.test.ts
+PASS .aios-core/workflow-intelligence/__tests__/confidence-scorer.test.js
+PASS src/utils/__tests__/mrm-shadow.test.ts
+PASS src/utils/__tests__/margin-reapuration-v2.1.test.ts
+PASS .aios-core/workflow-intelligence/__tests__/suggestion-engine.test.js
+PASS .cursor/.aios-core/core/permissions/__tests__/permission-mode.test.js
+PASS src/utils/__tests__/mrm-engine-v17.test.ts
+PASS src/utils/__tests__/consolidated-dre.test.ts
+PASS .aios-core/workflow-intelligence/__tests__/wave-analyzer.test.js
+PASS .cursor/.aios-core/workflow-intelligence/__tests__/wave-analyzer.test.js
+PASS src/utils/__tests__/residual-distribution.test.ts
+PASS src/utils/__tests__/mrm-adendo-31a-mo-admin.test.ts
+PASS src/utils/__tests__/iva-dual-outside.test.ts
+PASS src/utils/__tests__/mrm-etapa6-consolidacao-margens.test.ts
+PASS src/__tests__/utils/get-monetary-value.test.ts
+PASS src/utils/__tests__/mrm-policies.test.ts
+PASS src/utils/__tests__/motor-rro-1106-oracle.test.ts
+PASS src/utils/__tests__/mrm-engine-v17-legacy-adapter.test.ts
+PASS src/utils/__tests__/mrm-display-extractor-v15-multi-product-sum.test.ts
+PASS src/utils/__tests__/mrm-v17-rro-fix-relatorio-v1.test.ts
+PASS src/utils/__tests__/adendo-28a-card-etapa16-coerencia.test.ts
+PASS src/utils/__tests__/pricing-engine.test.ts
+PASS src/utils/__tests__/dre-v7-adjustments.test.ts
+PASS src/utils/__tests__/item-tax-rates.test.ts
+PASS .cursor/.aios-core/workflow-intelligence/__tests__/confidence-scorer.test.js
+PASS src/utils/__tests__/mrm-rt-reserva-tecnica.test.ts
+PASS src/utils/__tests__/mrm-v17-stage17-acessorias.test.ts
+PASS src/utils/__tests__/mrm-peso-desp-contamination.test.ts
+PASS src/utils/__tests__/mrm-adendo-rro-structural-weights.test.ts
+PASS src/utils/__tests__/margin-reapuration-v16-labor-multi-source.test.ts
+PASS src/utils/__tests__/mrm-adendo-25a-multiproduto-ipi.test.ts
+PASS src/utils/__tests__/items-snapshot-contract.test.ts
+PASS src/utils/__tests__/margin-reapuration-v12-pis-cofins-apuracao.test.ts
+PASS src/utils/__tests__/icms-st-difal.test.ts
+PASS src/utils/__tests__/discount-engine-integration.test.ts
+PASS src/utils/__tests__/mrm-rates-loader.test.ts
+PASS src/utils/__tests__/residual-distribution-v7.test.ts
+PASS src/utils/__tests__/mrm-dossie-julho-correcoes.test.ts
+PASS src/utils/__tests__/contact-validation.test.ts
+PASS src/utils/__tests__/margin-reapuration-v6-discount-modes.test.ts
+PASS src/utils/__tests__/margin-reapuration-v16-1-cost-total-defensive.test.ts
+PASS src/utils/__tests__/breakeven-calculator.test.ts
+PASS src/utils/__tests__/budget-discount-precision.test.ts
+PASS src/utils/__tests__/iva-dual-equivalence.test.ts
+PASS src/__tests__/lib/default-route-by-role.test.ts
+PASS src/utils/__tests__/margin-reapuration-v16-3-expense-immutable-discount.test.ts
+PASS src/utils/__tests__/mrm-manual-item-pure-cost-2026-07-21.test.ts
+PASS src/utils/__tests__/produto-rt-persist.test.ts
+PASS src/utils/__tests__/residual-distribution-cards-rro.test.ts
+FAIL .cursor/.aios-core/development/templates/squad-template/tests/example-agent.test.js
+  ● Test suite failed to run
+
+    Cannot find module '@aios/testing' from '.cursor/.aios-core/development/templates/squad-template/tests/example-agent.test.js'
+
+    [0m [90m  6 |[39m [36mimport[39m { loadAgent[33m,[39m executeCommand } [36mfrom[39m [32m'@aios/testing'[39m[33m;[39m
+     [90m  7 |[39m
+    [31m[1m>[22m[39m[90m  8 |[39m describe([32m'example-agent'[39m[33m,[39m () [33m=>[39m {
+     [90m    |[39m                  [31m[1m^[22m[39m
+     [90m  9 |[39m   [36mlet[39m agent[33m;[39m
+     [90m 10 |[39m
+     [90m 11 |[39m   beforeAll([36masync[39m () [33m=>[39m {[0m
+
+      at Resolver._throwModNotFoundError (node_modules/jest-resolve/build/resolver.js:427:11)
+      at Object.<anonymous> (.cursor/.aios-core/development/templates/squad-template/tests/example-agent.test.js:8:18)
+
+PASS src/utils/__tests__/cascata-tributaria-diagnostico.test.ts
+FAIL .aios-core/development/templates/squad-template/tests/example-agent.test.js
+  ● Test suite failed to run
+
+    Cannot find module '@aios/testing' from '.aios-core/development/templates/squad-template/tests/example-agent.test.js'
+
+    [0m [90m  6 |[39m [36mimport[39m { loadAgent[33m,[39m executeCommand } [36mfrom[39m [32m'@aios/testing'[39m[33m;[39m
+     [90m  7 |[39m
+    [31m[1m>[22m[39m[90m  8 |[39m describe([32m'example-agent'[39m[33m,[39m () [33m=>[39m {
+     [90m    |[39m                  [31m[1m^[22m[39m
+     [90m  9 |[39m   [36mlet[39m agent[33m;[39m
+     [90m 10 |[39m
+     [90m 11 |[39m   beforeAll([36masync[39m () [33m=>[39m {[0m
+
+      at Resolver._throwModNotFoundError (node_modules/jest-resolve/build/resolver.js:427:11)
+      at Object.<anonymous> (.aios-core/development/templates/squad-template/tests/example-agent.test.js:8:18)
+
+  ●  process.exit called with "1"
+
+    [0m [90m 251 |[39m
+     [90m 252 |[39m [90m// Exit with error code if tests failed[39m
+    [31m[1m>[22m[39m[90m 253 |[39m process[33m.[39mexit(testResults[33m.[39mfailed [33m>[39m [35m0[39m [33m?[39m [35m1[39m [33m:[39m [35m0[39m)[33m;[39m
+     [90m     |[39m         [31m[1m^[22m[39m
+     [90m 254 |[39m[0m
+
+      at Object.exit (.cursor/.aios-core/core/memory/__tests__/active-modules.verify.js:253:9)
+  ●  process.exit called with "1"
+
+    [0m [90m 251 |[39m
+     [90m 252 |[39m [90m// Exit with error code if tests failed[39m
+    [31m[1m>[22m[39m[90m 253 |[39m process[33m.[39mexit(testResults[33m.[39mfailed [33m>[39m [35m0[39m [33m?[39m [35m1[39m [33m:[39m [35m0[39m)[33m;[39m
+     [90m     |[39m         [31m[1m^[22m[39m
+     [90m 254 |[39m[0m
+
+      at Object.exit (.aios-core/core/memory/__tests__/active-modules.verify.js:253:9)
+PASS src/components/__tests__/percent-input.test.ts
+PASS src/components/__tests__/currency-percent-input.test.ts
+PASS .aios-core/infrastructure/tests/project-status-loader.test.js (6.988 s)
+PASS .cursor/.aios-core/infrastructure/tests/project-status-loader.test.js (6.905 s)
+  ●  process.exit called with "1"
+
+    [0m [90m 251 |[39m
+     [90m 252 |[39m [90m// Exit with error code if tests failed[39m
+    [31m[1m>[22m[39m[90m 253 |[39m process[33m.[39mexit(testResults[33m.[39mfailed [33m>[39m [35m0[39m [33m?[39m [35m1[39m [33m:[39m [35m0[39m)[33m;[39m
+     [90m     |[39m         [31m[1m^[22m[39m
+     [90m 254 |[39m[0m
+
+      at Object.exit (.cursor/.aios-core/core/memory/__tests__/active-modules.verify.js:253:9)
+  ●  process.exit called with "1"
+
+    [0m [90m 251 |[39m
+     [90m 252 |[39m [90m// Exit with error code if tests failed[39m
+    [31m[1m>[22m[39m[90m 253 |[39m process[33m.[39mexit(testResults[33m.[39mfailed [33m>[39m [35m0[39m [33m?[39m [35m1[39m [33m:[39m [35m0[39m)[33m;[39m
+     [90m     |[39m         [31m[1m^[22m[39m
+     [90m 254 |[39m[0m
+
+      at Object.exit (.aios-core/core/memory/__tests__/active-modules.verify.js:253:9)
+  ●  process.exit called with "1"
+
+    [0m [90m 251 |[39m
+     [90m 252 |[39m [90m// Exit with error code if tests failed[39m
+    [31m[1m>[22m[39m[90m 253 |[39m process[33m.[39mexit(testResults[33m.[39mfailed [33m>[39m [35m0[39m [33m?[39m [35m1[39m [33m:[39m [35m0[39m)[33m;[39m
+     [90m     |[39m         [31m[1m^[22m[39m
+     [90m 254 |[39m[0m
+
+      at Object.exit (.cursor/.aios-core/core/memory/__tests__/active-modules.verify.js:253:9)
+  ●  process.exit called with "1"
+
+    [0m [90m 251 |[39m
+     [90m 252 |[39m [90m// Exit with error code if tests failed[39m
+    [31m[1m>[22m[39m[90m 253 |[39m process[33m.[39mexit(testResults[33m.[39mfailed [33m>[39m [35m0[39m [33m?[39m [35m1[39m [33m:[39m [35m0[39m)[33m;[39m
+     [90m     |[39m         [31m[1m^[22m[39m
+     [90m 254 |[39m[0m
+
+      at Object.exit (.aios-core/core/memory/__tests__/active-modules.verify.js:253:9)
+  ●  process.exit called with "1"
+
+    [0m [90m 251 |[39m
+     [90m 252 |[39m [90m// Exit with error code if tests failed[39m
+    [31m[1m>[22m[39m[90m 253 |[39m process[33m.[39mexit(testResults[33m.[39mfailed [33m>[39m [35m0[39m [33m?[39m [35m1[39m [33m:[39m [35m0[39m)[33m;[39m
+     [90m     |[39m         [31m[1m^[22m[39m
+     [90m 254 |[39m[0m
+
+      at Object.exit (.cursor/.aios-core/core/memory/__tests__/active-modules.verify.js:253:9)
+  ●  process.exit called with "1"
+
+    [0m [90m 251 |[39m
+     [90m 252 |[39m [90m// Exit with error code if tests failed[39m
+    [31m[1m>[22m[39m[90m 253 |[39m process[33m.[39mexit(testResults[33m.[39mfailed [33m>[39m [35m0[39m [33m?[39m [35m1[39m [33m:[39m [35m0[39m)[33m;[39m
+     [90m     |[39m         [31m[1m^[22m[39m
+     [90m 254 |[39m[0m
+
+      at Object.exit (.aios-core/core/memory/__tests__/active-modules.verify.js:253:9)
+FAIL .aios-core/core/memory/__tests__/active-modules.verify.js
+  ● Test suite failed to run
+
+    Jest worker encountered 4 child process exceptions, exceeding retry limit
+
+      at ChildProcessWorker.initialize (node_modules/jest-worker/build/workers/ChildProcessWorker.js:181:21)
+
+FAIL .cursor/.aios-core/core/memory/__tests__/active-modules.verify.js
+  ● Test suite failed to run
+
+    Jest worker encountered 4 child process exceptions, exceeding retry limit
+
+      at ChildProcessWorker.initialize (node_modules/jest-worker/build/workers/ChildProcessWorker.js:181:21)
+
+PASS .aios-core/infrastructure/tests/worktree-manager.test.js (23.504 s)
+PASS .cursor/.aios-core/infrastructure/tests/worktree-manager.test.js (23.53 s)
+
+Summary of all failing tests
+FAIL .cursor/.aios-core/workflow-intelligence/__tests__/workflow-registry.test.js
+  ● WorkflowRegistry › loadWorkflows() › should return 10 workflows
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: 10
+    Received: 12
+
+    [0m [90m 52 |[39m       [36mconst[39m workflows [33m=[39m registry[33m.[39mloadWorkflows()[33m;[39m
+     [90m 53 |[39m       [36mconst[39m names [33m=[39m [33mObject[39m[33m.[39mkeys(workflows)[33m;[39m
+    [31m[1m>[22m[39m[90m 54 |[39m       expect(names[33m.[39mlength)[33m.[39mtoBe([35m10[39m)[33m;[39m
+     [90m    |[39m                            [31m[1m^[22m[39m
+     [90m 55 |[39m     })[33m;[39m
+     [90m 56 |[39m
+     [90m 57 |[39m     it([32m'should include story_development workflow'[39m[33m,[39m () [33m=>[39m {[0m
+
+      at Object.toBe (.cursor/.aios-core/workflow-intelligence/__tests__/workflow-registry.test.js:54:28)
+
+  ● WorkflowRegistry › getWorkflowNames() › should return array of workflow names
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: 10
+    Received: 12
+
+    [0m [90m 100 |[39m       [36mconst[39m names [33m=[39m registry[33m.[39mgetWorkflowNames()[33m;[39m
+     [90m 101 |[39m       expect([33mArray[39m[33m.[39misArray(names))[33m.[39mtoBe([36mtrue[39m)[33m;[39m
+    [31m[1m>[22m[39m[90m 102 |[39m       expect(names[33m.[39mlength)[33m.[39mtoBe([35m10[39m)[33m;[39m
+     [90m     |[39m                            [31m[1m^[22m[39m
+     [90m 103 |[39m     })[33m;[39m
+     [90m 104 |[39m
+     [90m 105 |[39m     it([32m'should include expected workflows'[39m[33m,[39m () [33m=>[39m {[0m
+
+      at Object.toBe (.cursor/.aios-core/workflow-intelligence/__tests__/workflow-registry.test.js:102:28)
+
+  ● WorkflowRegistry › getStats() › should return registry statistics
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: 10
+    Received: 12
+
+    [0m [90m 269 |[39m       [36mconst[39m stats [33m=[39m registry[33m.[39mgetStats()[33m;[39m
+     [90m 270 |[39m
+    [31m[1m>[22m[39m[90m 271 |[39m       expect(stats[33m.[39mtotalWorkflows)[33m.[39mtoBe([35m10[39m)[33m;[39m
+     [90m     |[39m                                    [31m[1m^[22m[39m
+     [90m 272 |[39m       expect(stats[33m.[39mworkflowsWithTransitions)[33m.[39mtoBe([35m10[39m)[33m;[39m
+     [90m 273 |[39m       expect(stats[33m.[39mtotalTransitions)[33m.[39mtoBeGreaterThan([35m0[39m)[33m;[39m
+     [90m 274 |[39m     })[33m;[39m[0m
+
+      at Object.toBe (.cursor/.aios-core/workflow-intelligence/__tests__/workflow-registry.test.js:271:36)
+
+FAIL .aios-core/workflow-intelligence/__tests__/workflow-registry.test.js
+  ● WorkflowRegistry › loadWorkflows() › should return 10 workflows
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: 10
+    Received: 12
+
+    [0m [90m 52 |[39m       [36mconst[39m workflows [33m=[39m registry[33m.[39mloadWorkflows()[33m;[39m
+     [90m 53 |[39m       [36mconst[39m names [33m=[39m [33mObject[39m[33m.[39mkeys(workflows)[33m;[39m
+    [31m[1m>[22m[39m[90m 54 |[39m       expect(names[33m.[39mlength)[33m.[39mtoBe([35m10[39m)[33m;[39m
+     [90m    |[39m                            [31m[1m^[22m[39m
+     [90m 55 |[39m     })[33m;[39m
+     [90m 56 |[39m
+     [90m 57 |[39m     it([32m'should include story_development workflow'[39m[33m,[39m () [33m=>[39m {[0m
+
+      at Object.toBe (.aios-core/workflow-intelligence/__tests__/workflow-registry.test.js:54:28)
+
+  ● WorkflowRegistry › getWorkflowNames() › should return array of workflow names
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: 10
+    Received: 12
+
+    [0m [90m 100 |[39m       [36mconst[39m names [33m=[39m registry[33m.[39mgetWorkflowNames()[33m;[39m
+     [90m 101 |[39m       expect([33mArray[39m[33m.[39misArray(names))[33m.[39mtoBe([36mtrue[39m)[33m;[39m
+    [31m[1m>[22m[39m[90m 102 |[39m       expect(names[33m.[39mlength)[33m.[39mtoBe([35m10[39m)[33m;[39m
+     [90m     |[39m                            [31m[1m^[22m[39m
+     [90m 103 |[39m     })[33m;[39m
+     [90m 104 |[39m
+     [90m 105 |[39m     it([32m'should include expected workflows'[39m[33m,[39m () [33m=>[39m {[0m
+
+      at Object.toBe (.aios-core/workflow-intelligence/__tests__/workflow-registry.test.js:102:28)
+
+  ● WorkflowRegistry › getStats() › should return registry statistics
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: 10
+    Received: 12
+
+    [0m [90m 269 |[39m       [36mconst[39m stats [33m=[39m registry[33m.[39mgetStats()[33m;[39m
+     [90m 270 |[39m
+    [31m[1m>[22m[39m[90m 271 |[39m       expect(stats[33m.[39mtotalWorkflows)[33m.[39mtoBe([35m10[39m)[33m;[39m
+     [90m     |[39m                                    [31m[1m^[22m[39m
+     [90m 272 |[39m       expect(stats[33m.[39mworkflowsWithTransitions)[33m.[39mtoBe([35m10[39m)[33m;[39m
+     [90m 273 |[39m       expect(stats[33m.[39mtotalTransitions)[33m.[39mtoBeGreaterThan([35m0[39m)[33m;[39m
+     [90m 274 |[39m     })[33m;[39m[0m
+
+      at Object.toBe (.aios-core/workflow-intelligence/__tests__/workflow-registry.test.js:271:36)
+
+FAIL .cursor/.aios-core/workflow-intelligence/__tests__/integration.test.js
+  ● Workflow Intelligence System Integration › Public API completeness › should expose getWorkflowNames function
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: 10
+    Received: 12
+
+    [0m [90m 222 |[39m     it([32m'should expose getWorkflowNames function'[39m[33m,[39m () [33m=>[39m {
+     [90m 223 |[39m       [36mconst[39m names [33m=[39m wis[33m.[39mgetWorkflowNames()[33m;[39m
+    [31m[1m>[22m[39m[90m 224 |[39m       expect(names[33m.[39mlength)[33m.[39mtoBe([35m10[39m)[33m;[39m
+     [90m     |[39m                            [31m[1m^[22m[39m
+     [90m 225 |[39m     })[33m;[39m
+     [90m 226 |[39m
+     [90m 227 |[39m     it([32m'should expose getWorkflowsByAgent function'[39m[33m,[39m () [33m=>[39m {[0m
+
+      at Object.toBe (.cursor/.aios-core/workflow-intelligence/__tests__/integration.test.js:224:28)
+
+  ● Workflow Intelligence System Integration › Public API completeness › should expose getStats function
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: 10
+    Received: 12
+
+    [0m [90m 237 |[39m     it([32m'should expose getStats function'[39m[33m,[39m () [33m=>[39m {
+     [90m 238 |[39m       [36mconst[39m stats [33m=[39m wis[33m.[39mgetStats()[33m;[39m
+    [31m[1m>[22m[39m[90m 239 |[39m       expect(stats[33m.[39mtotalWorkflows)[33m.[39mtoBe([35m10[39m)[33m;[39m
+     [90m     |[39m                                    [31m[1m^[22m[39m
+     [90m 240 |[39m       expect(stats[33m.[39mworkflowsWithTransitions)[33m.[39mtoBe([35m10[39m)[33m;[39m
+     [90m 241 |[39m     })[33m;[39m
+     [90m 242 |[39m[0m
+
+      at Object.toBe (.cursor/.aios-core/workflow-intelligence/__tests__/integration.test.js:239:36)
+
+FAIL .aios-core/workflow-intelligence/__tests__/integration.test.js
+  ● Workflow Intelligence System Integration › Public API completeness › should expose getWorkflowNames function
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: 10
+    Received: 12
+
+    [0m [90m 222 |[39m     it([32m'should expose getWorkflowNames function'[39m[33m,[39m () [33m=>[39m {
+     [90m 223 |[39m       [36mconst[39m names [33m=[39m wis[33m.[39mgetWorkflowNames()[33m;[39m
+    [31m[1m>[22m[39m[90m 224 |[39m       expect(names[33m.[39mlength)[33m.[39mtoBe([35m10[39m)[33m;[39m
+     [90m     |[39m                            [31m[1m^[22m[39m
+     [90m 225 |[39m     })[33m;[39m
+     [90m 226 |[39m
+     [90m 227 |[39m     it([32m'should expose getWorkflowsByAgent function'[39m[33m,[39m () [33m=>[39m {[0m
+
+      at Object.toBe (.aios-core/workflow-intelligence/__tests__/integration.test.js:224:28)
+
+  ● Workflow Intelligence System Integration › Public API completeness › should expose getStats function
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: 10
+    Received: 12
+
+    [0m [90m 237 |[39m     it([32m'should expose getStats function'[39m[33m,[39m () [33m=>[39m {
+     [90m 238 |[39m       [36mconst[39m stats [33m=[39m wis[33m.[39mgetStats()[33m;[39m
+    [31m[1m>[22m[39m[90m 239 |[39m       expect(stats[33m.[39mtotalWorkflows)[33m.[39mtoBe([35m10[39m)[33m;[39m
+     [90m     |[39m                                    [31m[1m^[22m[39m
+     [90m 240 |[39m       expect(stats[33m.[39mworkflowsWithTransitions)[33m.[39mtoBe([35m10[39m)[33m;[39m
+     [90m 241 |[39m     })[33m;[39m
+     [90m 242 |[39m[0m
+
+      at Object.toBe (.aios-core/workflow-intelligence/__tests__/integration.test.js:239:36)
+
+FAIL .cursor/.aios-core/development/templates/squad-template/tests/example-agent.test.js
+  ● Test suite failed to run
+
+    Cannot find module '@aios/testing' from '.cursor/.aios-core/development/templates/squad-template/tests/example-agent.test.js'
+
+    [0m [90m  6 |[39m [36mimport[39m { loadAgent[33m,[39m executeCommand } [36mfrom[39m [32m'@aios/testing'[39m[33m;[39m
+     [90m  7 |[39m
+    [31m[1m>[22m[39m[90m  8 |[39m describe([32m'example-agent'[39m[33m,[39m () [33m=>[39m {
+     [90m    |[39m                  [31m[1m^[22m[39m
+     [90m  9 |[39m   [36mlet[39m agent[33m;[39m
+     [90m 10 |[39m
+     [90m 11 |[39m   beforeAll([36masync[39m () [33m=>[39m {[0m
+
+      at Resolver._throwModNotFoundError (node_modules/jest-resolve/build/resolver.js:427:11)
+      at Object.<anonymous> (.cursor/.aios-core/development/templates/squad-template/tests/example-agent.test.js:8:18)
+
+FAIL .aios-core/development/templates/squad-template/tests/example-agent.test.js
+  ● Test suite failed to run
+
+    Cannot find module '@aios/testing' from '.aios-core/development/templates/squad-template/tests/example-agent.test.js'
+
+    [0m [90m  6 |[39m [36mimport[39m { loadAgent[33m,[39m executeCommand } [36mfrom[39m [32m'@aios/testing'[39m[33m;[39m
+     [90m  7 |[39m
+    [31m[1m>[22m[39m[90m  8 |[39m describe([32m'example-agent'[39m[33m,[39m () [33m=>[39m {
+     [90m    |[39m                  [31m[1m^[22m[39m
+     [90m  9 |[39m   [36mlet[39m agent[33m;[39m
+     [90m 10 |[39m
+     [90m 11 |[39m   beforeAll([36masync[39m () [33m=>[39m {[0m
+
+      at Resolver._throwModNotFoundError (node_modules/jest-resolve/build/resolver.js:427:11)
+      at Object.<anonymous> (.aios-core/development/templates/squad-template/tests/example-agent.test.js:8:18)
+
+FAIL .aios-core/core/memory/__tests__/active-modules.verify.js
+  ● Test suite failed to run
+
+    Jest worker encountered 4 child process exceptions, exceeding retry limit
+
+      at ChildProcessWorker.initialize (node_modules/jest-worker/build/workers/ChildProcessWorker.js:181:21)
+
+FAIL .cursor/.aios-core/core/memory/__tests__/active-modules.verify.js
+  ● Test suite failed to run
+
+    Jest worker encountered 4 child process exceptions, exceeding retry limit
+
+      at ChildProcessWorker.initialize (node_modules/jest-worker/build/workers/ChildProcessWorker.js:181:21)
+
+
+Test Suites: 8 failed, 65 passed, 73 total
+Tests:       10 failed, 1376 passed, 1386 total
+Snapshots:   0 total
+Time:        24.345 s
