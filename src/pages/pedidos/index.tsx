@@ -496,6 +496,8 @@ function OrdersPage() {
                 payment_method: order.payment_method,
                 installments: order.installments || 1,
                 discount_percent: Number(order.discount_percent) || 0,
+                // Doc 29/07 (§3.1): modo de desconto herdado/normalizado (default PROPORTIONAL).
+                discount_mode: normalizeDiscountModeForDisplay((order as any).discount_mode) || 'PROPORTIONAL',
                 notes: order.notes || '',
             })
         }, 0)
@@ -698,6 +700,8 @@ function OrdersPage() {
                     notes: values.notes || null,
                     discount_percent: discountPct,
                     discount_value: grossSum - totalValue,
+                    // Doc 29/07 (§3.1): persiste o modo de absorção do desconto.
+                    discount_mode: values.discount_mode || 'PROPORTIONAL',
                     total_value: totalValue,
                     updated_at: new Date().toISOString(),
                     // MRM S2.3: persistir flag para listing badge
@@ -1504,6 +1508,15 @@ function OrdersPage() {
                     </Form.Item>
                     <Form.Item name="installments" label="Parcelas" initialValue={1}>
                         <InputNumber min={1} max={36} style={{ width: '100%' }} />
+                    </Form.Item>
+                    {/* Doc 29/07 (§3.1): modo de absorção do desconto (paridade com Orçamentos).
+                        Persistido em orders.discount_mode e consumido pelo bloco de distribuição. */}
+                    <Form.Item name="discount_mode" label="Modo do desconto" initialValue="PROPORTIONAL">
+                        <Select>
+                            <Select.Option value="PROPORTIONAL">Proporcional (Comissão + Lucro)</Select.Option>
+                            <Select.Option value="SELLER_REDUCTION">Congela Lucro (Vendedor absorve)</Select.Option>
+                            <Select.Option value="PROFIT_REDUCTION">Congela Comissão (Empresa absorve)</Select.Option>
+                        </Select>
                     </Form.Item>
                     <Form.Item
                         name="discount_percent"
