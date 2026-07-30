@@ -171,7 +171,10 @@ function OrderTotalsSummary({ form, items }: { form: any; items: OrderItemRow[] 
     const discountPct = Form.useWatch('discount_percent', form) ?? 0
     const subtotal = items.reduce((s, it) => s + (it.total_price || 0), 0)
     const pct = Math.max(0, Math.min(100, Number(discountPct) || 0))
-    const discountAmount = subtotal * (pct / 100)
+    // Doc 29/07 (§3.1/§3.2): item manual é repasse puro — imune ao desconto (QA risco #2).
+    const isManualRow = (it: OrderItemRow) => it.isManual === true || (!it.product_id && !it.service_id && !!it.manual_description)
+    const manualSum = items.filter(isManualRow).reduce((s, it) => s + (it.total_price || 0), 0)
+    const discountAmount = (subtotal - manualSum) * (pct / 100)
     const finalTotal = subtotal - discountAmount
     return (
         <div style={{ marginTop: 16, padding: 12, background: '#FAFAFA', borderRadius: 6, fontSize: 14 }}>
@@ -179,6 +182,12 @@ function OrderTotalsSummary({ form, items }: { form: any; items: OrderItemRow[] 
                 <span style={{ color: '#667085' }}>Subtotal</span>
                 <span>{formatCurrency(subtotal)}</span>
             </div>
+            {manualSum > 0 && pct > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, color: '#667085', fontSize: 12 }}>
+                    <span>Itens manuais (imunes ao desconto)</span>
+                    <span>{formatCurrency(manualSum)}</span>
+                </div>
+            )}
             {pct > 0 && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, color: '#EF4444' }}>
                     <span>Desconto ({pct.toLocaleString('pt-BR')}%)</span>
@@ -621,7 +630,12 @@ function OrdersPage() {
             // O desconto % é aplicado em cima para chegar no total_value persistido.
             const grossSum = orderItems.reduce((s, it) => s + (it.total_price || 0), 0)
             const discountPct = Math.max(0, Math.min(100, Number(values.discount_percent) || 0))
-            const totalValue = grossSum * (1 - discountPct / 100)
+            // Doc 29/07 (§3.1/§3.2): item manual é REPASSE PURO — imune ao desconto. O desconto
+            // incide só sobre os itens não-manuais; o manual soma integral ao total (QA risco #2).
+            const isManualRow = (it: OrderItemRow) => it.isManual === true || (!it.product_id && !it.service_id && !!it.manual_description)
+            const manualSum = orderItems.filter(isManualRow).reduce((s, it) => s + (it.total_price || 0), 0)
+            const discountableSum = grossSum - manualSum
+            const totalValue = discountableSum * (1 - discountPct / 100) + manualSum
 
             // S1.2 MRM: hidrata snapshot fiscal nos order_items.
             // Item 2.3 (Relatório v2.0): HERDAR commission/profit/tax_breakdown do item do
