@@ -333,6 +333,9 @@ function OrdersPage() {
     const [detailItems, setDetailItems] = useState<OrderItemRow[]>([])
     // Doc 29/07 (item 1.1.6): o menu ⋮ deve fechar automaticamente ao rolar a lista.
     const [openKebabId, setOpenKebabId] = useState<string | null>(null)
+    // Doc 29/07 (§3.1): seleção de tabela de preços do vendedor (paridade com Orçamentos).
+    const [empTables, setEmpTables] = useState<{ id: string; name: string; type: string; commission_percent: number }[]>([])
+    const [selectedTableId, setSelectedTableId] = useState<string | null>(null)
 
     // Filters
     const [filterCustomer, setFilterCustomer] = useState<string | null>(null)
@@ -396,6 +399,25 @@ function OrdersPage() {
         window.addEventListener('scroll', close, true)
         return () => window.removeEventListener('scroll', close, true)
     }, [openKebabId])
+
+    // Doc 29/07 (§3.1): ao selecionar o vendedor, carrega suas tabelas de preços/comissão
+    // (paridade com Orçamentos). A tabela filtra os produtos e fornece a comissão (fallback).
+    const watchedEmployeeId = Form.useWatch('employee_id', editForm)
+    useEffect(() => {
+        if (!watchedEmployeeId) { setEmpTables([]); setSelectedTableId(null); return }
+        let cancelled = false
+        ;(async () => {
+            const { data } = await (supabase as any)
+                .from('employee_commission_tables')
+                .select('commission_tables(id, name, type, commission_percent)')
+                .eq('employee_id', watchedEmployeeId)
+            if (cancelled) return
+            const tables = (data || []).map((r: any) => r.commission_tables).filter(Boolean)
+            setEmpTables(tables)
+            setSelectedTableId((prev) => prev && tables.some((t: any) => t.id === prev) ? prev : (tables[0]?.id || null))
+        })()
+        return () => { cancelled = true }
+    }, [watchedEmployeeId, editForm])
 
     useEffect(() => {
         if (tenantId) {
@@ -520,6 +542,12 @@ function OrdersPage() {
     const handleItemProductChange = (key: string, productId: string) => {
         const product = (products as any[]).find((p: any) => p.id === productId)
         if (!product) return
+        // Doc 29/07 (§3.1): comissão vem do produto; se ausente, cai para a da tabela selecionada.
+        const table = empTables.find((t) => t.id === selectedTableId)
+        const commissionPercent = (product.commission_percent != null && Number(product.commission_percent) > 0)
+            ? Number(product.commission_percent)
+            : Number(table?.commission_percent || 0)
+        const price = Number(product.sale_price || product.final_price || 0)
         setOrderItems((prev) =>
             prev.map((it) =>
                 it.key === key
@@ -527,8 +555,10 @@ function OrdersPage() {
                           ...it,
                           product_id: productId,
                           product_name: product.name,
-                          unit_price: Number(product.sale_price || product.final_price || 0),
-                          total_price: Number(product.sale_price || product.final_price || 0) * it.quantity,
+                          unit_price: price,
+                          total_price: price * it.quantity,
+                          commission_percent: commissionPercent,
+                          isManual: false,
                       }
                     : it,
             ),
@@ -558,6 +588,14 @@ function OrdersPage() {
     const handleItemRemove = (key: string) => {
         setOrderItems((prev) => prev.filter((it) => it.key !== key))
     }
+
+    // Doc 29/07 (§3.1): produtos filtrados pela tabela selecionada (fallback: todos, se a tabela vazia).
+    const filteredProducts = useMemo(() => {
+        const all = products as any[]
+        if (!selectedTableId) return all
+        const inTable = all.filter((p: any) => p.commission_table_id === selectedTableId)
+        return inTable.length > 0 ? inTable : all
+    }, [products, selectedTableId])
 
     const handleSaveEdit = async () => {
         if (!editingOrder) return
@@ -1499,6 +1537,25 @@ function OrdersPage() {
                     Adicione apenas produtos vinculados ao vendedor deste pedido.
                 </Text>
 
+                {/* Doc 29/07 (§3.1): seleção de tabela de preços do vendedor (paridade com Orçamentos).
+                    A tabela filtra os produtos do seletor e fornece a comissão quando o produto não a define. */}
+                {empTables.length > 0 && (
+                    <div style={{ marginBottom: 10 }}>
+                        <span style={{ fontSize: 12, color: '#94a3b8', display: 'block', marginBottom: 4 }}>Tabela de preços</span>
+                        <Select
+                            value={selectedTableId || undefined}
+                            onChange={(v) => setSelectedTableId(v)}
+                            placeholder="Selecione a tabela"
+                            style={{ width: '100%', maxWidth: 360 }}
+                            allowClear
+                        >
+                            {empTables.map((t) => (
+                                <Select.Option key={t.id} value={t.id}>{t.name}{t.type === 'SERVICE' ? ' (serviço)' : ''}</Select.Option>
+                            ))}
+                        </Select>
+                    </div>
+                )}
+
                 {/* Doc 29/07 (item 1.1.1): no mobile, cada item do pedido vira um CARD (a Table
                     de largura fixa cortava o PRODUTO e quebrava o TOTAL em duas linhas). */}
                 {isMobile && (
@@ -1525,7 +1582,7 @@ function OrdersPage() {
                                     onChange={(v) => handleItemProductChange(row.key, v)}
                                     style={{ width: '100%' }}
                                 >
-                                    {(products as any[]).map((p: any) => (
+                                    {filteredProducts.map((p: any) => (
                                         <Select.Option key={p.id} value={p.id}>{p.name}</Select.Option>
                                     ))}
                                 </Select>
@@ -1575,7 +1632,7 @@ function OrdersPage() {
                                     onChange={(v) => handleItemProductChange(row.key, v)}
                                     style={{ width: 220 }}
                                 >
-                                    {(products as any[]).map((p: any) => (
+                                    {filteredProducts.map((p: any) => (
                                         <Select.Option key={p.id} value={p.id}>{p.name}</Select.Option>
                                     ))}
                                 </Select>
