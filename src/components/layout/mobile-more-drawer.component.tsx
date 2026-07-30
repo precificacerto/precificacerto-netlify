@@ -91,14 +91,16 @@ const MobileMoreDrawer = ({ open, onClose }: Props) => {
     // Doc 29/07 (item 1.2.11): "Orçamentos" ocultado do menu Mais — já acessível na barra de navegação inferior (redundante).
     { key: 'orders', label: 'Pedidos', href: ROUTES.ORDERS, icon: <ShoppingOutlined />, section: 'Comercial', module: MODULES.ORDERS },
     { key: 'sales-report', label: 'Relatório de Vendas', href: ROUTES.SALES_REPORT, icon: <BarChartOutlined />, section: 'Comercial', module: MODULES.SALES_REPORT },
+    // Doc 29/07 (item 3.3): "Relatório de Comissões" e "RT Comissões" viram sessões próprias no menu COMERCIAL.
+    { key: 'commissions-report', label: 'Relatório de Comissões', href: '/relatorio-vendas?tab=COMMISSIONS', icon: <IdcardOutlined />, section: 'Comercial', module: MODULES.SALES_REPORT },
+    { key: 'rt-commission', label: 'RT Comissões', href: ROUTES.RT_COMMISSION, icon: <IdcardOutlined />, section: 'Comercial', module: MODULES.COMMISSION },
     { key: 'recurrence', label: 'Recorrência', href: ROUTES.RECURRENCE, icon: <CalendarOutlined />, section: 'Comercial', module: MODULES.RECURRENCE },
 
     // Financeiro
     { key: 'financial', label: 'Controle Financeiro', href: ROUTES.FINANCIAL_CONTROL, icon: <ShoppingOutlined />, section: 'Financeiro', module: MODULES.CASH_FLOW },
     { key: 'dfc', label: 'Análise Financeira', href: ROUTES.DFC, icon: <FundOutlined />, section: 'Financeiro', module: MODULES.DFC },
     { key: 'commission', label: 'Comissão de Vendedor', href: ROUTES.COMMISSION, icon: <IdcardOutlined />, section: 'Financeiro', module: MODULES.COMMISSION },
-    // Doc 28/07: menu mobile FINANCEIRO deve ter as mesmas seções do desktop — faltava "RT Comissões".
-    { key: 'rt-commission', label: 'RT Comissões', href: ROUTES.RT_COMMISSION, icon: <IdcardOutlined />, section: 'Financeiro', module: MODULES.COMMISSION },
+    // Doc 29/07 (item 3.3): "RT Comissões" movido para a seção COMERCIAL (acima).
 
     // Operacional
     { key: 'schedule', label: 'Agenda', href: ROUTES.SCHEDULE, icon: <CalendarOutlined />, section: 'Operacional', module: MODULES.AGENDA },

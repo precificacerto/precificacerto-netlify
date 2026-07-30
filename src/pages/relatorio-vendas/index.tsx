@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react'
+import { useRouter } from 'next/router'
 import { Button, Table, Tag, Tabs, message, Empty, DatePicker, Modal, Form } from 'antd'
 import { Select } from '@/components/ui/app-select.component'
 import type { ColumnsType } from 'antd/es/table'
@@ -151,6 +152,16 @@ function SalesReport() {
     const canRegisterPayment = isAdmin || canEdit(MODULES.SALES_REPORT)
 
     const [activeTab, setActiveTab] = useState<'RECEIVABLES' | 'COMMISSIONS' | 'RT_COMMISSIONS' | 'PRODUCTS' | 'SERVICES'>('RECEIVABLES')
+
+    // Doc 29/07 (item 3.3): "Relatório de Comissões" é acessível como sessão própria no menu
+    // COMERCIAL, abrindo esta tela diretamente na aba correta via ?tab=COMMISSIONS.
+    const router = useRouter()
+    useEffect(() => {
+        const t = String(router.query.tab || '').toUpperCase()
+        if (['RECEIVABLES', 'COMMISSIONS', 'RT_COMMISSIONS', 'PRODUCTS', 'SERVICES'].includes(t)) {
+            setActiveTab(t as any)
+        }
+    }, [router.query.tab])
 
     // Commissions report state
     const [commData, setCommData] = useState<CommissionReportRow[]>([])

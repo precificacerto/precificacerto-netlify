@@ -117,6 +117,9 @@ const Nav = () => {
     { key: 'orders', label: 'Pedidos', icon: 'shopping', href: ROUTES.ORDERS, section: 'comercial', module: MODULES.ORDERS },
     { key: 'sales', label: 'Vendas', icon: 'shopping', href: ROUTES.SALES, section: 'comercial', module: MODULES.SALES },
     { key: 'sales-report', label: 'Relatório de Vendas', icon: 'bar-chart', href: ROUTES.SALES_REPORT, section: 'comercial', module: MODULES.SALES_REPORT },
+    // Doc 29/07 (item 3.3): "Relatório de Comissões" e "RT Comissões" viram sessões próprias no menu COMERCIAL.
+    { key: 'commissions-report', label: 'Relatório de Comissões', icon: 'idcard', href: '/relatorio-vendas?tab=COMMISSIONS', section: 'comercial', module: MODULES.SALES_REPORT },
+    { key: 'rt-commission', label: 'RT Comissões', icon: 'idcard', href: ROUTES.RT_COMMISSION, section: 'comercial', module: MODULES.COMMISSION },
     { key: 'recurrence', label: 'Recorrência', icon: 'calendar', href: ROUTES.RECURRENCE, section: 'comercial', module: MODULES.RECURRENCE },
 
     { key: 'cashflow-overview', label: 'Fluxo de Caixa', icon: 'fund', href: ROUTES.CASH_FLOW, section: 'financeiro', hideForRepresentative: true, module: MODULES.CASH_FLOW },
@@ -132,7 +135,6 @@ const Nav = () => {
     { key: 'cashflow', label: 'Controle Financeiro', icon: 'shopping', href: ROUTES.FINANCIAL_CONTROL, section: 'financeiro', module: MODULES.CASH_FLOW },
     { key: 'dfc', label: 'Análise Financeira', icon: 'fund', href: ROUTES.DFC, section: 'financeiro', module: MODULES.DFC },
     { key: 'commission', label: 'Comissão de Vendedor', icon: 'idcard', href: ROUTES.COMMISSION, section: 'financeiro', module: MODULES.COMMISSION },
-    { key: 'rt-commission', label: 'RT Comissões', icon: 'idcard', href: ROUTES.RT_COMMISSION, section: 'financeiro', module: MODULES.COMMISSION },
 
     { key: 'calendar', label: 'Agenda', icon: 'calendar', href: ROUTES.SCHEDULE, section: 'operacional', module: MODULES.AGENDA },
     { key: 'reports', label: 'Relatório Agenda', icon: 'bar-chart', href: ROUTES.REPORTS, section: 'operacional', module: MODULES.REPORTS },
