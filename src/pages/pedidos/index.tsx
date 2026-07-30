@@ -75,6 +75,8 @@ interface OrderItemRow {
     unit_price: number
     total_price: number
     manual_description?: string | null
+    // Doc 29/07 (§3.1): item manual (repasse puro) — paridade com Orçamentos.
+    isManual?: boolean
     // EPIC-RR-DISPLAY S4: snapshot fiscal persistido em order_items
     commission_percent?: number | null
     profit_percent?: number | null
@@ -431,6 +433,8 @@ function OrdersPage() {
             unit_price: Number(it.unit_price || 0),
             total_price: Number(it.total_price || 0),
             manual_description: it.manual_description || null,
+            // Item manual = sem product/service, só descrição (repasse puro).
+            isManual: !it.product_id && !it.service_id && !!it.manual_description,
             // Schema: NUMERIC decimal (0.05). UI/hook: base 100 (5). Multiplicar.
             commission_percent: it.commission_pct != null ? Number(it.commission_pct) * 100 : null,
             profit_percent: it.profit_pct != null ? Number(it.profit_pct) * 100 : null,
@@ -487,6 +491,30 @@ function OrdersPage() {
                 total_price: 0,
             },
         ])
+    }
+
+    // Doc 29/07 (§3.1): adiciona item manual (repasse puro) — paridade com Orçamentos.
+    const handleAddManualItem = () => {
+        setOrderItems((prev) => [
+            ...prev,
+            {
+                key: `man-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                product_id: null,
+                service_id: null,
+                product_name: '',
+                manual_description: '',
+                quantity: 1,
+                unit_price: 0,
+                total_price: 0,
+                isManual: true,
+            },
+        ])
+    }
+
+    const handleManualDescriptionChange = (key: string, desc: string) => {
+        setOrderItems((prev) =>
+            prev.map((it) => (it.key === key ? { ...it, manual_description: desc, product_name: desc } : it)),
+        )
     }
 
     const handleItemProductChange = (key: string, productId: string) => {
@@ -572,6 +600,12 @@ function OrdersPage() {
             // Story MRM-V2-S3.1: shadow context para rastrear divergências.
             const orderShadowCtx = { tenant_id: tenantId, document_id: editingOrder.id, document_type: 'order' as const }
             const hydratedOrderItems = validOrderItems.map((it) => {
+                // Doc 29/07 (§3.1 + §3.2): item manual é REPASSE PURO — sem comissão/lucro/tributo.
+                // Grava pesos 0 e tax_breakdown null (categoria independente, imune ao motor).
+                const isManualItem = it.isManual === true || (!it.product_id && !it.service_id && !!it.manual_description)
+                if (isManualItem) {
+                    return { src: it, snap: null as any, inheritedCommPct: 0, inheritedProfitPct: 0, preservedTaxBreakdown: null as TaxBreakdown | null }
+                }
                 // commission_percent/profit_percent vêm em base 100 do load (it.commission_pct × 100);
                 // o motor/DB usa decimal. Convertemos de volta para preservar a herança.
                 const inheritedCommPct = it.commission_percent != null ? Number(it.commission_percent) / 100 : 0
@@ -1472,9 +1506,17 @@ function OrdersPage() {
                         {orderItems.map((row) => (
                             <div key={row.key} style={{ border: '1px solid rgba(148,163,184,0.2)', borderRadius: 8, padding: 10, marginBottom: 8 }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                                    <span style={{ fontSize: 12, color: '#94a3b8' }}>Produto</span>
+                                    <span style={{ fontSize: 12, color: '#94a3b8' }}>{row.isManual ? 'Item manual' : 'Produto'}</span>
                                     <Button type="text" danger size="small" onClick={() => handleItemRemove(row.key)}>✕</Button>
                                 </div>
+                                {row.isManual ? (
+                                    <Input
+                                        placeholder="Descrição do item manual"
+                                        value={row.manual_description || ''}
+                                        onChange={(e) => handleManualDescriptionChange(row.key, e.target.value)}
+                                        style={{ width: '100%' }}
+                                    />
+                                ) : (
                                 <Select
                                     showSearch
                                     optionFilterProp="children"
@@ -1487,6 +1529,7 @@ function OrdersPage() {
                                         <Select.Option key={p.id} value={p.id}>{p.name}</Select.Option>
                                     ))}
                                 </Select>
+                                )}
                                 <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                                     <div style={{ flex: 1, minWidth: 0 }}>
                                         <span style={{ fontSize: 12, color: '#94a3b8', display: 'block', marginBottom: 2 }}>Qtd</span>
@@ -1516,6 +1559,14 @@ function OrdersPage() {
                             title: 'Produto',
                             key: 'product',
                             render: (_, row) => (
+                                row.isManual ? (
+                                    <Input
+                                        placeholder="Descrição do item manual"
+                                        value={row.manual_description || ''}
+                                        onChange={(e) => handleManualDescriptionChange(row.key, e.target.value)}
+                                        style={{ width: 220 }}
+                                    />
+                                ) : (
                                 <Select
                                     showSearch
                                     optionFilterProp="children"
@@ -1524,17 +1575,11 @@ function OrdersPage() {
                                     onChange={(v) => handleItemProductChange(row.key, v)}
                                     style={{ width: 220 }}
                                 >
-                                    {(products as any[])
-                                        .filter((p: any) => {
-                                            const empId = editForm.getFieldValue('employee_id')
-                                            if (!empId) return true
-                                            // Se produto tem commission_table vinculada ao vendedor, permitir; senão também permitir se não há restrição
-                                            return true
-                                        })
-                                        .map((p: any) => (
-                                            <Select.Option key={p.id} value={p.id}>{p.name}</Select.Option>
-                                        ))}
+                                    {(products as any[]).map((p: any) => (
+                                        <Select.Option key={p.id} value={p.id}>{p.name}</Select.Option>
+                                    ))}
                                 </Select>
+                                )
                             ),
                         },
                         {
@@ -1585,14 +1630,25 @@ function OrdersPage() {
                 />
                 )}
 
-                <Button
-                    type="dashed"
-                    icon={<PlusOutlined />}
-                    onClick={handleAddProductToOrder}
-                    style={{ marginTop: 12, width: '100%' }}
-                >
-                    Adicionar produto
-                </Button>
+                {/* Doc 29/07 (§3.1): paridade com Orçamentos — adicionar produto cadastrado ou item manual (repasse). */}
+                <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+                    <Button
+                        type="dashed"
+                        icon={<PlusOutlined />}
+                        onClick={handleAddProductToOrder}
+                        style={{ flex: '1 1 200px' }}
+                    >
+                        Adicionar produto
+                    </Button>
+                    <Button
+                        type="dashed"
+                        icon={<PlusOutlined />}
+                        onClick={handleAddManualItem}
+                        style={{ flex: '1 1 200px' }}
+                    >
+                        Adicionar item manual
+                    </Button>
+                </div>
 
                 <OrderTotalsSummary form={editForm} items={orderItems} />
 
