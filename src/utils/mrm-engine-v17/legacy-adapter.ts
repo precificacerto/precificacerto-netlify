@@ -222,35 +222,60 @@ function manualItemCost(item: PageItem): number {
 function augmentTraceWithManualPassthrough(
   trace: CascadeStep[] | undefined,
   manualValue: number,
+  manualCount: number = 0,
 ): CascadeStep[] | undefined {
   if (!Array.isArray(trace) || trace.length === 0 || manualValue <= 0) return trace
-  // Passo final = maior número de etapa presente (17 sem RT, 17 também com RT — as
-  // etapas 5.5/14.5 do RT não superam a 17). É a etapa do valor final/total a cobrar.
-  let finalStep = -Infinity
-  for (const s of trace) {
-    const n = Number(s.step)
-    if (Number.isFinite(n) && n > finalStep) finalStep = n
-  }
-  if (!Number.isFinite(finalStep)) return trace
-  const manualChild: CascadeStep = {
-    step: finalStep,
+  // Doc 29/07 (item 3.2) — conferido contra a planilha-oráculo `Cascata com produto manual.xlsx`:
+  // o produto manual é categoria INDEPENDENTE. Coreografia canônica da planilha:
+  //   • Etapa 1 (Fragmentação): CONTA os itens manuais (2 manuais → contagem +2).
+  //   • Etapa 9 (Venda consolidada): SOMA o manual ao total do orçamento, junto de Desp. Acessórias.
+  //   • Etapa 11 (Aplicação do desconto): manual aparece abaixo de Desp. Acessórias, IMUNE ao desconto.
+  //   • Etapa 17 (Consolidação final): manual NÃO aparece (essa etapa é só tributos por fora IBS/CBS/IS/IPI).
+  // Revoga a injeção anterior no "passo final" (17), que misturava o manual com os tributos por fora.
+  const manualChildFor = (step: number, formula: string): CascadeStep => ({
+    step,
     label: 'Produto manual (repasse puro)',
     base: null,
     rate: null,
     amount: manualValue,
-    formula:
-      'Σ (qtd × valor) dos produtos manuais — categoria independente, somada ao total e imune a desconto/tributo',
+    formula,
     source: 'ITEMS',
-  }
-  return trace.map((s) =>
-    Number(s.step) === finalStep
-      ? {
-          ...s,
-          amount: (Number(s.amount) || 0) + manualValue,
-          children: [...(s.children ?? []), manualChild],
-        }
-      : s,
-  )
+  })
+  return trace.map((s) => {
+    const n = Number(s.step)
+    if (n === 1) {
+      // Fragmentação: soma a contagem dos manuais (display_kind 'count').
+      const total = (Number(s.amount) || 0) + (manualCount || 0)
+      return {
+        ...s,
+        amount: total,
+        formula: manualCount > 0 ? `${total} item(s) — inclui ${manualCount} manual(is)` : s.formula,
+      }
+    }
+    if (n === 9) {
+      // Venda consolidada: soma o manual (categoria independente) ao total, como child.
+      return {
+        ...s,
+        amount: (Number(s.amount) || 0) + manualValue,
+        children: [
+          ...(s.children ?? []),
+          manualChildFor(9, 'Σ (qtd × valor) dos produtos manuais — categoria independente, somada ao total do orçamento (imune a desconto/tributo)'),
+        ],
+      }
+    }
+    if (n === 11) {
+      // Aplicação do desconto: manual aparece abaixo de Desp. Acessórias, imune ao desconto
+      // (não altera o amount do desconto — o desconto incide só sobre a operação por dentro).
+      return {
+        ...s,
+        children: [
+          ...(s.children ?? []),
+          manualChildFor(11, 'Produto manual — imune ao desconto (repasse puro), somado ao total após o desconto'),
+        ],
+      }
+    }
+    return s
+  })
 }
 
 /**
@@ -815,12 +840,13 @@ export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResul
     }
   })
 
-  // Item 7 / BUG-CASCATA-001+002 (Relatório 24/07/2026): injeta o produto manual como
-  // categoria INDEPENDENTE no PASSO FINAL do display (não mais na Etapa 4) e sintetiza
-  // o resultado por item de cada manual (repasse puro, resíduo 0). A cascata dos
-  // produtos permanece intacta (pesos/tributos/RRO). Revoga a modelagem de 21/07.
+  // Doc 29/07 (item 3.2) / BUG-CASCATA-001+002: injeta o produto manual como categoria
+  // INDEPENDENTE no display da cascata — Etapa 1 (conta), Etapa 9 (soma), Etapa 11 (imune),
+  // FORA da Etapa 17 — conforme a planilha-oráculo `Cascata com produto manual.xlsx`.
+  // A cascata dos produtos permanece intacta (pesos/tributos/RRO). Cada manual vira um
+  // result próprio (repasse puro, resíduo 0), então o TOTAL do orçamento já o inclui.
   if (manualFixedCost > 0) {
-    const augmentedTrace = augmentTraceWithManualPassthrough(v17Result.motor.cascade_trace, manualFixedCost)
+    const augmentedTrace = augmentTraceWithManualPassthrough(v17Result.motor.cascade_trace, manualFixedCost, manualIndices.length)
     for (const r of results) {
       if (r) r.cascade_trace = augmentedTrace ?? r.cascade_trace
     }

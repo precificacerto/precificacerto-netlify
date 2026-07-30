@@ -58,6 +58,8 @@ const tenantCtx: PageTenantCtx = {
 
 type MotorResult = NonNullable<ReturnType<typeof calculateMotorV17ForPage>[number]>
 const step4Of = (r: MotorResult) => r.cascade_trace.find((s) => s.step === 4)
+const step1Of = (r: MotorResult) => r.cascade_trace.find((s) => Number(s.step) === 1)
+const step9Of = (r: MotorResult) => r.cascade_trace.find((s) => Number(s.step) === 9)
 const finalStepOf = (r: MotorResult) => {
   const max = Math.max(...r.cascade_trace.map((s) => Number(s.step)))
   return r.cascade_trace.find((s) => Number(s.step) === max)
@@ -155,13 +157,29 @@ describe('Item 7 — produto manual = categoria independente (Relatório 24/07/2
       expect(hasManualChild(step4Mix)).toBe(false)
     })
 
-    it('BUG-CASCATA-001: o valor do manual soma no PASSO FINAL como categoria independente', () => {
+    it('Doc 29/07 (3.2): manual conta na Etapa 1, soma na Etapa 9 e fica FORA da Etapa 17', () => {
+      // Coreografia canônica da planilha `Cascata com produto manual.xlsx`:
+      // o manual é contado na Fragmentação, somado à Venda consolidada (junto de Desp.
+      // Acessórias) e NÃO aparece na Consolidação final (só tributos por fora).
       const [soProduto] = calculateMotorV17ForPage(argsSoProduto)
       const [produtoNoMisto] = calculateMotorV17ForPage(argsMisto)
-      const finalProd = finalStepOf(soProduto!)!
+
+      // Etapa 9 — Venda consolidada: soma o manual e o expõe como child independente.
+      const step9Prod = step9Of(soProduto!)!
+      const step9Mix = step9Of(produtoNoMisto!)!
+      expect(step9Mix.amount).toBeCloseTo((Number(step9Prod.amount) || 0) + 1000, 2)
+      expect(hasManualChild(step9Mix)).toBe(true)
+
+      // Etapa 1 — Fragmentação: contabiliza o manual (contagem +1).
+      const step1Prod = step1Of(soProduto!)!
+      const step1Mix = step1Of(produtoNoMisto!)!
+      expect(Number(step1Mix.amount)).toBeCloseTo((Number(step1Prod.amount) || 0) + 1, 2)
+
+      // Etapa 17 — Consolidação final: NÃO contém o manual (é só IBS/CBS/IS/IPI).
       const finalMix = finalStepOf(produtoNoMisto!)!
-      expect(finalMix.amount).toBeCloseTo(finalProd.amount + 1000, 2)
-      expect(hasManualChild(finalMix)).toBe(true)
+      expect(Number(finalMix.step)).toBe(17)
+      expect(hasManualChild(finalMix)).toBe(false)
+
       expect(produtoNoMisto!.cascade_trace).toHaveLength(17)
     })
   })
