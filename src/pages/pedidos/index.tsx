@@ -10,7 +10,7 @@ import type { ColumnsType } from 'antd/es/table'
 import {
     ShoppingCartOutlined, EditOutlined, DeleteOutlined, PlusOutlined,
     SendOutlined, UnorderedListOutlined, SearchOutlined, DollarOutlined,
-    FileTextOutlined, ClockCircleOutlined, CheckCircleOutlined, FilePdfOutlined, MoreOutlined,
+    FileTextOutlined, ClockCircleOutlined, CheckCircleOutlined, FilePdfOutlined, MoreOutlined, EyeOutlined,
 } from '@ant-design/icons'
 import { useDevice } from '@/contexts/device.context'
 import { Layout } from '@/components/layout/layout.component'
@@ -325,6 +325,10 @@ function OrdersPage() {
     // Products compilation drawer
     const [compiledDrawerOpen, setCompiledDrawerOpen] = useState(false)
     const [purchaseTracking, setPurchaseTracking] = useState<Record<string, boolean>>({})
+    // Doc 29/07 (itens 1.2.7 / 2.1.2): "Ver" abre detalhe completo (cliente, produtos, valor, desconto, status).
+    const [detailDrawerOpen, setDetailDrawerOpen] = useState(false)
+    const [viewingOrder, setViewingOrder] = useState<Order | null>(null)
+    const [detailItems, setDetailItems] = useState<OrderItemRow[]>([])
 
     // Filters
     const [filterCustomer, setFilterCustomer] = useState<string | null>(null)
@@ -422,6 +426,15 @@ function OrdersPage() {
             profit_percent: it.profit_pct != null ? Number(it.profit_pct) * 100 : null,
             tax_breakdown: it.tax_breakdown ?? null,
         }))
+    }
+
+    // Doc 29/07 (itens 1.2.7 / 2.1.2): abre o detalhe somente-leitura do pedido.
+    const handleViewOrder = async (order: Order) => {
+        setViewingOrder(order)
+        setDetailItems([])
+        setDetailDrawerOpen(true)
+        const items = await fetchOrderItems(order.id)
+        setDetailItems(items)
     }
 
     const handleEdit = async (order: Order) => {
@@ -746,6 +759,9 @@ function OrdersPage() {
                     engine_version: mrmConfig.enabled ? MRM_ENGINE_VERSION : 'legacy',
                     installment_preset: (sendingOrder.payment_method === 'BOLETO' || sendingOrder.payment_method === 'CHEQUE_PRE_DATADO') ? 'customizado' : null,
                     notes: `Originado do pedido ${sendingOrder.order_code}${orderNotes}`,
+                    // Doc 29/07 (itens 1.2.8 / 2.1.3): marca este budget como orçamento-espelho do pedido,
+                    // para ocultá-lo de /Orçamentos e rotulá-lo como "Pedido" na fila de Vendas.
+                    source_order_id: sendingOrder.id,
                 })
                 .select('id')
                 .single()
@@ -846,7 +862,7 @@ function OrdersPage() {
                 return
             }
 
-            messageApi.success('Pedido enviado para aprovação! Acesse a aba Orçamentos para finalizar o pagamento.')
+            messageApi.success('Pedido enviado para Vendas! Lá o responsável lança o recebimento para efetivar a venda.')
             setSendToSaleOpen(false)
             setSendingOrder(null)
             await fetchOrders()
@@ -1118,6 +1134,15 @@ function OrdersPage() {
                 // quando o orçamento espelho foi rejeitado/expirado/cancelado.
                 const budgetBlocked = record.budget_status && ['REJECTED', 'EXPIRED', 'CANCELLED'].includes(record.budget_status)
                 const canModify = record.status !== 'SENT_TO_SALE' || budgetBlocked
+                // Doc 29/07 (item 2.1.2): registro já evoluído (aguardando aprovação sem bloqueio, ou pago) → só "Ver".
+                const isEvolved = (record.status === 'SENT_TO_SALE' && !budgetBlocked) || record.status === 'PAID'
+                if (isEvolved) {
+                    return (
+                        <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => handleViewOrder(record)}>
+                            Ver
+                        </Button>
+                    )
+                }
                 return (
                 <Space direction="vertical" size={2}>
                     <Button
@@ -1142,6 +1167,7 @@ function OrdersPage() {
                         </Button>
                     )}
                     {record.status !== 'CANCELLED' && (
+                        // Doc 29/07 (item 1.2.1): "Excluir" → "Cancelar pedido" (volta a Orçamento).
                         <Button
                             type="link"
                             size="small"
@@ -1150,7 +1176,7 @@ function OrdersPage() {
                             disabled={!canEditOrders}
                             onClick={() => confirmDeleteOrder(record)}
                         >
-                            Excluir
+                            Cancelar pedido
                         </Button>
                     )}
                 </Space>
@@ -1292,14 +1318,18 @@ function OrdersPage() {
                                 const canModify = r.status !== 'SENT_TO_SALE' || !!budgetBlocked
                                 const canSendApproval = r.status === 'DRAFT' || r.status === 'AWAITING_PAYMENT' || (r.status === 'SENT_TO_SALE' && !!budgetBlocked)
                                 const canDelete = r.status !== 'CANCELLED'
-                                const showActions = canSendApproval || canDelete
+                                // Doc 29/07 (itens 1.2.4 / 1.2.7): pedido já evoluído (aguardando aprovação sem bloqueio, ou pago) só permite "Ver".
+                                const isEvolved = (r.status === 'SENT_TO_SALE' && !budgetBlocked) || r.status === 'PAID'
+                                const canCancel = canDelete && !isEvolved
+                                const showActions = !isEvolved && (canSendApproval || canModify)
+                                // ⋮: "Ver" sempre; "Cancelar pedido" (excluir renomeado, volta a Orçamento) só quando não evoluído. Item 1.2.1.
                                 const kebabItems: any[] = [
-                                    { key: 'edit', label: 'Editar', disabled: !canEditOrders || !canModify, onClick: () => { if (canEditOrders && canModify) handleEdit(r) } },
+                                    { key: 'view', label: 'Ver', onClick: () => handleViewOrder(r) },
                                 ]
-                                if (canDelete) {
-                                    kebabItems.push({ key: 'del', label: 'Excluir', danger: true, disabled: !canEditOrders, onClick: () => { if (canEditOrders) confirmDeleteOrder(r) } })
+                                if (canCancel) {
+                                    kebabItems.push({ key: 'cancel', label: 'Cancelar pedido', danger: true, disabled: !canEditOrders, onClick: () => { if (canEditOrders) confirmDeleteOrder(r) } })
                                 }
-                                const openRow = () => { if (canEditOrders && canModify) handleEdit(r) }
+                                const openRow = () => { if (isEvolved) { handleViewOrder(r) } else if (canEditOrders && canModify) { handleEdit(r) } }
                                 return (
                                     <React.Fragment key={r.id}>
                                         <div
@@ -1317,11 +1347,12 @@ function OrdersPage() {
                                         </div>
                                         {showActions && (
                                             <div className="pc-row-compact__actions" onClick={(e) => e.stopPropagation()}>
+                                                {/* Doc 29/07 (item 1.2.1): card mostra "Editar"; excluir foi p/ o ⋮ como "Cancelar pedido". */}
+                                                {canModify && (
+                                                    <Button size="small" disabled={!canEditOrders} onClick={(e) => { e.stopPropagation(); handleEdit(r) }}>Editar</Button>
+                                                )}
                                                 {canSendApproval && (
                                                     <Button size="small" type="primary" disabled={!canEditOrders} onClick={(e) => { e.stopPropagation(); handleOpenSendToSale(r) }}>Enviar para Aprovação</Button>
-                                                )}
-                                                {canDelete && (
-                                                    <Button size="small" danger disabled={!canEditOrders} onClick={(e) => { e.stopPropagation(); confirmDeleteOrder(r) }}>Excluir</Button>
                                                 )}
                                             </div>
                                         )}
@@ -1576,11 +1607,51 @@ function OrdersPage() {
                             <li><strong>Valor total:</strong> {formatCurrency(sendingOrder.total_value)}</li>
                         </ul>
                         <Text type="secondary">
-                            Um orçamento será criado em <strong>Orçamentos</strong> com todas as condições do pedido (método de pagamento, parcelas, desconto). A venda só é finalizada quando você clicar em "Finalizar Pagamento" lá — aí o valor cai no fluxo de caixa.
+                            O pedido será enviado para <strong>Vendas</strong> com todas as condições (método de pagamento, parcelas, desconto). A venda só é efetivada quando o responsável lançar o recebimento em Vendas — aí o valor cai no fluxo de caixa.
                         </Text>
                     </div>
                 )}
             </Modal>
+
+            {/* ── Drawer: Detalhes do Pedido (somente leitura) — Doc 29/07 itens 1.2.7 / 2.1.2 ── */}
+            <Drawer
+                title={`Pedido ${viewingOrder?.order_code || ''}`}
+                width={500}
+                open={detailDrawerOpen}
+                onClose={() => setDetailDrawerOpen(false)}
+            >
+                {viewingOrder && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                        <div style={{ padding: 16, background: 'var(--color-neutral-50)', borderRadius: 8 }}>
+                            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>Dados do pedido</div>
+                            <div style={{ display: 'grid', gap: 8, fontSize: 13 }}>
+                                <div><span style={{ color: 'var(--color-neutral-500)' }}>Cliente:</span> <strong>{viewingOrder.customer_name || 'Sem cliente'}</strong></div>
+                                <div><span style={{ color: 'var(--color-neutral-500)' }}>Data:</span> {new Date(viewingOrder.created_at).toLocaleDateString('pt-BR')}</div>
+                                {Number(viewingOrder.discount_percent) > 0 && (
+                                    <div><span style={{ color: 'var(--color-neutral-500)' }}>Desconto:</span> {Number(viewingOrder.discount_percent)}%</div>
+                                )}
+                                <div><span style={{ color: 'var(--color-neutral-500)' }}>Valor total:</span> <strong style={{ fontSize: 18, color: '#12B76A' }}>{formatCurrency(Number(viewingOrder.total_value || 0))}</strong></div>
+                                {viewingOrder.payment_method && (
+                                    <div><span style={{ color: 'var(--color-neutral-500)' }}>Pagamento:</span> <Tag color="green">{PAYMENT_METHODS.find(p => p.value === viewingOrder.payment_method)?.label || viewingOrder.payment_method}</Tag>
+                                        {Number(viewingOrder.installments) > 1 && <Tag>{viewingOrder.installments}x</Tag>}
+                                    </div>
+                                )}
+                                <div><span style={{ color: 'var(--color-neutral-500)' }}>Status:</span> <Tag color={(STATUS_CONFIG[viewingOrder.status] || {}).color as any}>{(STATUS_CONFIG[viewingOrder.status] || { label: viewingOrder.status }).label}</Tag></div>
+                            </div>
+                        </div>
+
+                        <div style={{ padding: 16, background: 'var(--color-neutral-50)', borderRadius: 8 }}>
+                            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>Produtos</div>
+                            {detailItems.length > 0 ? detailItems.map((item, idx) => (
+                                <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid rgba(255,255,255,0.06)', fontSize: 13 }}>
+                                    <span>{item.product_name} × {item.quantity}</span>
+                                    <strong>{formatCurrency(item.unit_price * item.quantity)}</strong>
+                                </div>
+                            )) : <span style={{ fontSize: 13, color: '#64748b' }}>Nenhum item no pedido</span>}
+                        </div>
+                    </div>
+                )}
+            </Drawer>
 
             {/* Compiled Products Drawer */}
             <Drawer

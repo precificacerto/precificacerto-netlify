@@ -161,6 +161,10 @@ interface PendingBudget {
     installment_preset?: string | null
     discount_mode?: string | null
     global_discount_percent?: number
+    // Doc 29/07 (itens 1.2.8 / 2.1.3): quando o pendente é um orçamento-espelho de pedido,
+    // exibimos o código do pedido (PED-xxxx) em vez de tratá-lo como orçamento.
+    source_order_id?: string | null
+    order_code?: string | null
 }
 
 function Sales() {
@@ -488,10 +492,21 @@ function Sales() {
     const fetchPendingBudgets = async () => {
         const { data } = await supabase
             .from('budgets')
-            .select('id, total_value, created_at, status, sale_id, payment_method, installments, commission_amount, profit_amount, icms_compl_value, icms_st_value, difal_value, fcp_value, installment_preset, discount_mode, global_discount_percent, customer_id, employee_id, customer:customers(name)')
+            .select('id, total_value, created_at, status, sale_id, payment_method, installments, commission_amount, profit_amount, icms_compl_value, icms_st_value, difal_value, fcp_value, installment_preset, discount_mode, global_discount_percent, customer_id, employee_id, source_order_id, customer:customers(name)')
             .in('status', ['APPROVED', 'SENT', 'AWAITING_PAYMENT'])
             .is('sale_id', null)
             .order('created_at', { ascending: false })
+        // Doc 29/07 (itens 1.2.8 / 2.1.3): para os pendentes que são orçamentos-espelho de pedido,
+        // buscamos o código do pedido de origem para rotular a fila como "Pedido PED-xxxx".
+        const orderIds = Array.from(new Set((data || []).map((b: any) => b.source_order_id).filter(Boolean)))
+        const orderCodeById: Record<string, string> = {}
+        if (orderIds.length > 0) {
+            const { data: ordersData } = await (supabase as any)
+                .from('orders')
+                .select('id, order_code')
+                .in('id', orderIds)
+            for (const o of (ordersData || [])) orderCodeById[o.id] = o.order_code
+        }
         setPendingBudgets((data || []).map((b: any) => ({
             id: b.id,
             customer_name: b.customer?.name || 'Sem cliente',
@@ -511,7 +526,37 @@ function Sales() {
             installment_preset: b.installment_preset || null,
             discount_mode: b.discount_mode || null,
             global_discount_percent: Number(b.global_discount_percent) || 0,
+            source_order_id: b.source_order_id || null,
+            order_code: b.source_order_id ? (orderCodeById[b.source_order_id] || null) : null,
         })))
+    }
+
+    // Doc 29/07 (itens 1.2.9 / 1.2.10 / 2.1.3 / 2.1.4): cancelar um pendente devolve o registro
+    // à sua origem verdadeira e mantém o usuário em Vendas.
+    //  - Espelho de pedido → reabre o Pedido (DRAFT), redireciona para o orçamento original e
+    //    descarta o espelho (evita orçamento-fantasma órfão).
+    //  - Orçamento direto → volta o orçamento para rascunho.
+    const cancelPendingToOrigin = async (r: PendingBudget) => {
+        const nowIso = new Date().toISOString()
+        try {
+            if (r.source_order_id) {
+                const { data: ord } = await (supabase as any)
+                    .from('orders')
+                    .select('id, original_budget_id')
+                    .eq('id', r.source_order_id)
+                    .single()
+                await (supabase as any).from('budgets').update({ status: 'CANCELLED', is_active: false, updated_at: nowIso }).eq('id', r.id)
+                await (supabase as any).from('orders').update({ status: 'DRAFT', budget_id: ord?.original_budget_id ?? null, updated_at: nowIso }).eq('id', r.source_order_id)
+                messageApi.success('Pedido devolvido para edição em Pedidos.')
+            } else {
+                const { error } = await supabase.from('budgets').update({ status: 'DRAFT', updated_at: nowIso }).eq('id', r.id)
+                if (error) { messageApi.error('Erro ao cancelar.'); return }
+                messageApi.success('Orçamento voltou para rascunho.')
+            }
+            await fetchPendingBudgets()
+        } catch (e: any) {
+            messageApi.error('Erro ao cancelar: ' + (e?.message || 'desconhecido'))
+        }
     }
 
     const handleOpenRegisterSale = async (budget: PendingBudget) => {
@@ -2053,7 +2098,8 @@ function Sales() {
             const pm = PAYMENT_METHODS.find(p => p.value === r.paymentMethod)
             const statusLabel = r.status === 'AWAITING_PAYMENT' && r.saleType === 'FROM_ORDER'
                 ? '⏳ Aguardando pagamento'
-                : '✅ Concluído'
+                // Doc 29/07 (item 1.4.2): "Concluído" → "Lançado".
+                : '✅ Lançado'
             const paymentLabel = `${pm?.label || r.paymentMethod}${r.installments > 1 ? ` (${r.installments}x)` : ''}`
             const sellerLabel = (r.sellerName && r.sellerName !== '-') ? r.sellerName : 'Sem vendedor'
             const customerLabel = (r.customerName && r.customerName !== '-') ? r.customerName : 'Sem cliente'
@@ -2129,7 +2175,8 @@ function Sales() {
             const pm = PAYMENT_METHODS.find(p => p.value === r.paymentMethod)
             const statusLabel = r.status === 'AWAITING_PAYMENT' && r.saleType === 'FROM_ORDER'
                 ? 'Aguardando pagamento'
-                : 'Concluído'
+                // Doc 29/07 (item 1.4.2): "Concluído" → "Lançado".
+                : 'Lançado'
             const sellerLabel = (r.sellerName && r.sellerName !== '-') ? r.sellerName : 'Sem vendedor'
             const customerLabel = (r.customerName && r.customerName !== '-') ? r.customerName : 'Sem cliente'
             return [
@@ -2218,7 +2265,8 @@ function Sales() {
             render: (_, r) => {
                 const statusTag = (r.status === 'AWAITING_PAYMENT' && r.saleType === 'FROM_ORDER')
                     ? <Tag color="orange">⏳ Aguardando pagamento</Tag>
-                    : <Tag color="green">✅ Concluído</Tag>
+                    // Doc 29/07 (item 1.4.2): "Concluído" → "Lançado".
+                    : <Tag color="green">✅ Lançado</Tag>
                 return (
                     <span>
                         {statusTag}
@@ -2345,30 +2393,31 @@ function Sales() {
                                 const statusLabel = r.status === 'APPROVED' ? 'Aprovado'
                                     : r.status === 'AWAITING_PAYMENT' ? 'Aguardando pagamento'
                                     : 'Enviado'
-                                const codigo = `ORC-${r.id.substring(0, 4).toUpperCase()}`
+                                // Doc 29/07 (itens 1.2.8 / 2.1.3): espelho de pedido → exibe PED-xxxx (não trata como orçamento).
+                                const codigo = r.order_code || `ORC-${r.id.substring(0, 4).toUpperCase()}`
+                                const originLabel = r.order_code ? 'Pedido' : 'Orçamento'
                                 const dataFmt = new Date(r.created_at).toLocaleDateString('pt-BR')
-                                const cancelToDraft = async () => {
-                                    const { error } = await supabase.from('budgets').update({ status: 'DRAFT', updated_at: new Date().toISOString() }).eq('id', r.id)
-                                    if (error) messageApi.error('Erro ao cancelar.')
-                                    else { messageApi.success('Orçamento voltou para rascunho.'); await fetchPendingBudgets() }
-                                }
+                                const cancelToDraft = () => cancelPendingToOrigin(r)
                                 return (
                                     <React.Fragment key={r.id}>
                                         <div className="pc-row-compact pc-row-compact--has-actions" onClick={() => handleOpenRegisterSale(r)}>
                                             <div className="pc-row-compact__main">
                                                 <span className="pc-row-compact__title">{r.customer_name || 'Sem cliente'}</span>
-                                                <span className="pc-row-compact__sub">{codigo} · {dataFmt} · {statusLabel}</span>
+                                                <span className="pc-row-compact__sub">{originLabel} {codigo} · {dataFmt} · {statusLabel}</span>
                                             </div>
                                             <span className="pc-row-compact__value">{formatCurrency(r.total_value)}</span>
                                         </div>
+                                        {/* Doc 29/07 (item 1.2.5): Cancelar à esquerda, "Lançar recebimento" (verde) à direita. */}
                                         <div className="pc-row-compact__actions" onClick={(e) => e.stopPropagation()}>
-                                            <Button size="small" type="primary" onClick={(e) => { e.stopPropagation(); handleOpenRegisterSale(r) }}>Lançar recebimento</Button>
                                             <Popconfirm
-                                                title="Voltar orçamento para rascunho? Ele sairá da lista de pendentes e poderá ser editado em Orçamentos."
+                                                title={r.order_code
+                                                    ? 'Cancelar? O pedido sairá da lista de pendentes e voltará para edição em Pedidos.'
+                                                    : 'Voltar orçamento para rascunho? Ele sairá da lista de pendentes e poderá ser editado em Orçamentos.'}
                                                 onConfirm={cancelToDraft}
                                             >
                                                 <Button size="small" danger onClick={(e) => e.stopPropagation()}>Cancelar</Button>
                                             </Popconfirm>
+                                            <Button size="small" type="primary" style={{ background: '#12B76A', borderColor: '#12B76A' }} onClick={(e) => { e.stopPropagation(); handleOpenRegisterSale(r) }}>Lançar recebimento</Button>
                                         </div>
                                     </React.Fragment>
                                 )
@@ -2382,6 +2431,14 @@ function Sales() {
                         pagination={false}
                         columns={[
                             { title: 'Cliente', dataIndex: 'customer_name', key: 'customer' },
+                            // Doc 29/07 (itens 1.2.8 / 2.1.3): identifica se o pendente é Pedido (espelho) ou Orçamento.
+                            {
+                                title: 'Documento',
+                                key: 'doc',
+                                render: (_, r) => r.order_code
+                                    ? <Tag color="geekblue">Pedido {r.order_code}</Tag>
+                                    : <Tag>Orçamento ORC-{r.id.substring(0, 4).toUpperCase()}</Tag>,
+                            },
                             { title: 'Valor', key: 'value', render: (_, r) => <strong style={{ color: '#12B76A' }}>{formatCurrency(r.total_value)}</strong> },
                             {
                                 title: 'Status',
@@ -2398,18 +2455,17 @@ function Sales() {
                                 title: 'Ações',
                                 key: 'action',
                                 render: (_, r) => (
+                                    // Doc 29/07 (item 1.2.5): Cancelar à esquerda, "Lançar recebimento" (verde) à direita.
                                     <Space size="small">
-                                        <Button type="primary" size="small" onClick={() => handleOpenRegisterSale(r)}>Lançar recebimento</Button>
                                         <Popconfirm
-                                            title="Voltar orçamento para rascunho? Ele sairá da lista de pendentes e poderá ser editado em Orçamentos."
-                                            onConfirm={async () => {
-                                                const { error } = await supabase.from('budgets').update({ status: 'DRAFT', updated_at: new Date().toISOString() }).eq('id', r.id)
-                                                if (error) messageApi.error('Erro ao cancelar.')
-                                                else { messageApi.success('Orçamento voltou para rascunho.'); await fetchPendingBudgets() }
-                                            }}
+                                            title={r.order_code
+                                                ? 'Cancelar? O pedido sairá da lista de pendentes e voltará para edição em Pedidos.'
+                                                : 'Voltar orçamento para rascunho? Ele sairá da lista de pendentes e poderá ser editado em Orçamentos.'}
+                                            onConfirm={() => cancelPendingToOrigin(r)}
                                         >
                                             <Button type="link" size="small" danger>Cancelar</Button>
                                         </Popconfirm>
+                                        <Button type="primary" size="small" style={{ background: '#12B76A', borderColor: '#12B76A' }} onClick={() => handleOpenRegisterSale(r)}>Lançar recebimento</Button>
                                     </Space>
                                 ),
                             },
@@ -2457,7 +2513,7 @@ function Sales() {
                         {!loading && filteredSales.map((r: SaleRow) => {
                             const dateLabel = r.saleDate ? new Date(r.saleDate).toLocaleDateString('pt-BR') : '—'
                             const isAwaitingOrder = r.status === 'AWAITING_PAYMENT' && r.saleType === 'FROM_ORDER'
-                            const statusLabel = isAwaitingOrder ? 'Aguardando pagamento' : 'Concluído'
+                            const statusLabel = isAwaitingOrder ? 'Aguardando pagamento' : 'Lançado'
                             const codigo = r.sale_code || '—'
                             // Doc 28/07: o menu ⋮ contém apenas "Ver" e "Cancelar venda". O botão
                             // "Cancelar" solto no card foi removido — a ação vive só no kebab.

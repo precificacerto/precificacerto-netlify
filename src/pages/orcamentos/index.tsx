@@ -298,7 +298,9 @@ function Budgets() {
 
     const filteredData = useMemo(() => {
         // T12: ocultar pagos — lista mostra apenas Rascunho e Aguardando pagamento (+ SENT/APPROVED em transição)
-        let visible = budgets.filter(b => b.status !== 'PAID')
+        // Doc 29/07 (itens 1.2.8 / 2.1.3): ocultar orçamentos-espelho (source_order_id != null) — são
+        // registros-ponte de pedidos enviados para aprovação, não orçamentos criados manualmente.
+        let visible = budgets.filter(b => b.status !== 'PAID' && !(b as any).source_order_id)
         // FEAT-ORCAMENTO-FILTRO-UNIFICADO-001: intervalo de data (padrão Vendas).
         const [start, end] = dateRange
         if (start && end) {
@@ -1530,8 +1532,11 @@ function Budgets() {
     // ── Avançar status ──
     // ── Enviar para vendas (rascunho → aguardando pagamento, sem enviar ao cliente) ──
     const handleSendToSales = async (budget: any) => {
+        // Doc 29/07 (item 2.1.1 — caso ORC-617A): ao (re)enviar para Vendas, zera sale_id.
+        // Sem isso, um orçamento cujo sale_id ficou órfão (venda cancelada) fica "Aguardando
+        // pagamento" em Orçamentos mas NÃO aparece na fila de Vendas (que filtra sale_id IS NULL).
         const { error } = await supabase.from('budgets')
-            .update({ status: 'AWAITING_PAYMENT', updated_at: new Date().toISOString() })
+            .update({ status: 'AWAITING_PAYMENT', sale_id: null, updated_at: new Date().toISOString() })
             .eq('id', budget.id)
         if (error) {
             messageApi.error('Erro ao enviar para vendas.')
@@ -2197,7 +2202,18 @@ function Budgets() {
                 if (value === 'delete') return record.status !== 'CANCELLED'
                 return false
             },
-            render: (_, record) => (
+            render: (_, record) => {
+                // Doc 29/07 (itens 1.2.7 / 2.1.2 — caso ORC-617A): registro já evoluído de etapa
+                // (enviado para vendas/pedido ou pago) só permite "Ver" — abre o detalhe completo.
+                const isEvolved = ['AWAITING_PAYMENT', 'SENT', 'APPROVED', 'SENT_TO_ORDER', 'PAID'].includes(record.status)
+                if (isEvolved) {
+                    return (
+                        <Space wrap>
+                            <Button type="link" size="small" onClick={() => handleViewDetail(record)}>Ver</Button>
+                        </Space>
+                    )
+                }
+                return (
                 <Space wrap>
                     <Button type="link" size="small" icon={<EditOutlined />} onClick={() => handleEdit(record)}>Editar</Button>
                     <Button type="link" size="small" onClick={() => handleViewDetail(record)}>Ver</Button>
@@ -2266,7 +2282,8 @@ function Budgets() {
                         </Button>
                     )}
                 </Space>
-            ),
+                )
+            },
         },
     ]
 
@@ -2593,15 +2610,17 @@ function Budgets() {
                                 const hasPhone = !!(r.customer?.whatsapp_phone || r.customer?.phone)
                                 const isDraft = r.status === 'DRAFT'
                                 const canDelete = r.status !== 'CANCELLED'
+                                // Doc 29/07 (itens 1.2.7 / 2.1.2 — ORC-617A): registro já evoluído de etapa
+                                // (enviado para vendas/pedido ou pago) só permite "Ver" no ⋮.
+                                const isEvolved = ['AWAITING_PAYMENT', 'SENT', 'APPROVED', 'SENT_TO_ORDER', 'PAID'].includes(r.status)
                                 // Doc 28/07: uma vez enviado para Pedido, o card NÃO exibe mais nenhuma ação.
                                 // Só o rascunho mostra a linha de ações (Enviar para Pedido + Editar).
                                 const showActions = isDraft
-                                // Doc 28/07: o menu ⋮ mantém apenas Ver, WhatsApp, Enviar para Venda e Excluir.
-                                // "Editar" removido daqui (redundante com o botão fixo do card no rascunho).
+                                // Doc 29/07: ⋮ = apenas "Ver" quando evoluído; no rascunho/estados finais mantém WhatsApp/Enviar/Excluir.
                                 const kebabItems: any[] = [
                                     { key: 'view', label: 'Ver', onClick: () => handleViewDetail(r) },
                                 ]
-                                if (hasPhone) {
+                                if (hasPhone && !isEvolved) {
                                     kebabItems.push({ key: 'wa', label: 'Enviar via WhatsApp', disabled: waThrottleSecondsLeft > 0, onClick: () => { if (waThrottleSecondsLeft <= 0) handleSendWhatsApp(r) } })
                                 }
                                 if (isDraft) {
@@ -2610,7 +2629,7 @@ function Budgets() {
                                     // "Enviar para Pedido" (handleSendToOrder) vira o botão visível azul.
                                     kebabItems.push({ key: 'sale', label: 'Enviar para Venda', onClick: () => handleSendToSales(r) })
                                 }
-                                if (canDelete) {
+                                if (canDelete && !isEvolved) {
                                     kebabItems.push({ key: 'del', label: 'Excluir', danger: true, onClick: () => confirmDeleteBudget(r) })
                                 }
                                 return (
@@ -3177,7 +3196,8 @@ function Budgets() {
                                 items={[
                                     { title: 'Rascunho', description: 'Orçamento criado' },
                                     { title: 'Enviado', description: 'Enviado ao cliente' },
-                                    { title: 'Pago', description: 'Pagamento recebido' },
+                                    // Doc 29/07 (item 1.2.6): "Pago" → "Lançado" (registro apenas lançado, aguardando recebimento).
+                                    { title: 'Lançado', description: 'Lançado em Vendas' },
                                 ]}
                             />
                         </div>

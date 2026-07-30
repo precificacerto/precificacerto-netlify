@@ -88,7 +88,7 @@ const MobileMoreDrawer = ({ open, onClose }: Props) => {
     { key: 'employees', label: 'Funcionários', href: ROUTES.EMPLOYEES, icon: <IdcardOutlined />, section: 'Cadastros', adminOnly: true, module: MODULES.EMPLOYEES },
 
     // Comercial
-    { key: 'budgets', label: 'Orçamentos', href: ROUTES.BUDGETS, icon: <FileTextOutlined />, section: 'Comercial', module: MODULES.BUDGETS },
+    // Doc 29/07 (item 1.2.11): "Orçamentos" ocultado do menu Mais — já acessível na barra de navegação inferior (redundante).
     { key: 'orders', label: 'Pedidos', href: ROUTES.ORDERS, icon: <ShoppingOutlined />, section: 'Comercial', module: MODULES.ORDERS },
     { key: 'sales-report', label: 'Relatório de Vendas', href: ROUTES.SALES_REPORT, icon: <BarChartOutlined />, section: 'Comercial', module: MODULES.SALES_REPORT },
     { key: 'recurrence', label: 'Recorrência', href: ROUTES.RECURRENCE, icon: <CalendarOutlined />, section: 'Comercial', module: MODULES.RECURRENCE },
