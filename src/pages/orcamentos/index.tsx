@@ -200,6 +200,8 @@ function Budgets() {
     const [paymentModalOpen, setPaymentModalOpen] = useState(false)
     const [selectedBudget, setSelectedBudget] = useState<any>(null)
     const [budgetItems, setBudgetItems] = useState<BudgetItemRow[]>([])
+    // Doc 29/07 (item 1.1.6): o menu ⋮ deve fechar automaticamente ao rolar a lista.
+    const [openKebabId, setOpenKebabId] = useState<string | null>(null)
     const [detailItems, setDetailItems] = useState<any[]>([])
     const [searchText, setSearchText] = useState('')
     // FEAT-ORCAMENTO-FILTRO-UNIFICADO-001: intervalo de data (padrão Vendas).
@@ -295,6 +297,15 @@ function Budgets() {
         const t = setInterval(() => setWaThrottleSecondsLeft((s) => (s <= 1 ? 0 : s - 1)), 1000)
         return () => clearInterval(t)
     }, [waThrottleSecondsLeft])
+
+    // Doc 29/07 (item 1.1.6): fecha o ⋮ aberto ao rolar qualquer container (fase de captura
+    // pega o scroll da lista mobile, que tem overflow próprio e não borbulha).
+    useEffect(() => {
+        if (openKebabId == null) return
+        const close = () => setOpenKebabId(null)
+        window.addEventListener('scroll', close, true)
+        return () => window.removeEventListener('scroll', close, true)
+    }, [openKebabId])
 
     const filteredData = useMemo(() => {
         // T12: ocultar pagos — lista mostra apenas Rascunho e Aguardando pagamento (+ SENT/APPROVED em transição)
@@ -2643,7 +2654,7 @@ function Budgets() {
                                                 <span className="pc-row-compact__sub">{orcCode} · {dataFmt} · {cfg.label}</span>
                                             </div>
                                             <span className="pc-row-compact__value">{formatCurrency(Number(r.total_value || 0))}</span>
-                                            <Dropdown menu={{ items: kebabItems }} trigger={['click']} placement="bottomRight">
+                                            <Dropdown menu={{ items: kebabItems }} trigger={['click']} placement="bottomRight" open={openKebabId === r.id} onOpenChange={(o) => setOpenKebabId(o ? r.id : null)}>
                                                 <span className="pc-row-compact__kebab" onClick={(e) => e.stopPropagation()}><MoreOutlined /></span>
                                             </Dropdown>
                                         </div>
@@ -2948,11 +2959,14 @@ function Budgets() {
                                 <span style={{ fontSize: 14, color: '#94a3b8', whiteSpace: 'nowrap' }}>Desconto</span>
                                 {/* Doc 28/07 (pendência 22/07): o campo de digitação do desconto fica SEMPRE
                                     ao lado do seletor %/R$ na mesma linha (nowrap evita a quebra no mobile). */}
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'nowrap' }}>
+                                {/* Doc 29/07 (item 1.3.1): o campo de digitação ocupa no máx. ~55% da linha
+                                    (flex-basis + maxWidth), dando espaço ao seletor %/R$ para aparecer por completo. */}
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'nowrap', width: '100%' }}>
                                 <Segmented
                                     size="small"
                                     value={discountInputMode}
                                     onChange={(v) => setDiscountInputMode(v as 'PERCENT' | 'AMOUNT')}
+                                    style={{ flex: '0 0 auto' }}
                                     options={[
                                         { label: '%', value: 'PERCENT' },
                                         { label: 'R$', value: 'AMOUNT' },
@@ -2969,7 +2983,7 @@ function Budgets() {
                                         formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
                                         parser={(v) => Number((v || '0').replace(',', '.'))}
                                         addonAfter="%"
-                                        style={{ width: 120 }}
+                                        style={{ flex: '1 1 55%', width: '100%', maxWidth: 160, minWidth: 0 }}
                                     />
                                 ) : (
                                     <CurrencyInput
@@ -2983,7 +2997,7 @@ function Budgets() {
                                             const capped = Math.min(pct, motorMaxDiscountPercent > 0 ? motorMaxDiscountPercent : 100)
                                             setGlobalDiscountPercent(capped)
                                         }}
-                                        style={{ width: 160 }}
+                                        style={{ flex: '1 1 55%', width: '100%', maxWidth: 180, minWidth: 0 }}
                                     />
                                 )}
                                 </div>

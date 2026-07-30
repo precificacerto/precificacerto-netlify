@@ -186,6 +186,8 @@ function Sales() {
     const [form] = Form.useForm()
     const [messageApi, contextHolder] = message.useMessage()
     const [pendingBudgets, setPendingBudgets] = useState<PendingBudget[]>([])
+    // Doc 29/07 (item 1.1.6): o menu ⋮ deve fechar automaticamente ao rolar a lista.
+    const [openKebabId, setOpenKebabId] = useState<string | null>(null)
     const [registerModalOpen, setRegisterModalOpen] = useState(false)
     const [selectedBudget, setSelectedBudget] = useState<PendingBudget | null>(null)
     const [registerForm] = Form.useForm()
@@ -989,6 +991,14 @@ function Sales() {
     }
 
     useEffect(() => { fetchData(); fetchPendingBudgets() }, [])
+
+    // Doc 29/07 (item 1.1.6): fecha o ⋮ aberto ao rolar (fase de captura pega o scroll da lista mobile).
+    useEffect(() => {
+        if (openKebabId == null) return
+        const close = () => setOpenKebabId(null)
+        window.addEventListener('scroll', close, true)
+        return () => window.removeEventListener('scroll', close, true)
+    }, [openKebabId])
 
     // KPIs
     const now = new Date()
@@ -2531,7 +2541,7 @@ function Sales() {
                                             <span className="pc-row-compact__sub">{codigo} · {dateLabel} · {statusLabel}</span>
                                         </div>
                                         <span className="pc-row-compact__value pc-row-compact__value--in">{formatCurrency(r.finalValue)}</span>
-                                        <Dropdown menu={{ items: kebabItems }} trigger={['click']} placement="bottomRight">
+                                        <Dropdown menu={{ items: kebabItems }} trigger={['click']} placement="bottomRight" open={openKebabId === r.id} onOpenChange={(o) => setOpenKebabId(o ? r.id : null)}>
                                             <span className="pc-row-compact__kebab" onClick={(e) => e.stopPropagation()}><MoreOutlined /></span>
                                         </Dropdown>
                                     </div>

@@ -2159,6 +2159,10 @@ function SalesReport() {
         {
             title: 'Data',
             dataIndex: 'launchDate',
+            // Doc 29/07 (item 1.1.4): largura fixa + nowrap evitam a data quebrar letra-a-letra no mobile
+            // (a regra global .ant-table-cell { word-break: break-word } quebrava a coluna estreita).
+            width: 110,
+            onCell: () => ({ style: { whiteSpace: 'nowrap' } }),
             render: (v: string) => dayjs(v + 'T00:00:00').format('DD/MM/YYYY'),
             sorter: (a, b) => a.launchDate.localeCompare(b.launchDate),
         },

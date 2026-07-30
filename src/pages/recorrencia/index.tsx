@@ -282,6 +282,9 @@ export default function RecurrencePage() {
             title: 'Data Venda',
             dataIndex: 'saleDate',
             key: 'saleDate',
+            // Doc 29/07 (item 1.1.5): largura + nowrap evitam a data quebrar letra-a-letra no mobile.
+            width: 110,
+            onCell: () => ({ style: { whiteSpace: 'nowrap' } }),
             render: (d) => d ? dayjs(d).format('DD/MM/YYYY') : '-',
             sorter: (a, b) => new Date(a.saleDate).getTime() - new Date(b.saleDate).getTime(),
         },
@@ -289,6 +292,9 @@ export default function RecurrencePage() {
             title: 'Data Disparo',
             dataIndex: 'dispatchDate',
             key: 'dispatchDate',
+            // Doc 29/07 (item 1.1.5): largura + nowrap evitam a data quebrar letra-a-letra no mobile.
+            width: 110,
+            onCell: () => ({ style: { whiteSpace: 'nowrap' } }),
             render: (d) => d ? dayjs(d).format('DD/MM/YYYY') : '-',
             sorter: (a, b) => new Date(a.dispatchDate).getTime() - new Date(b.dispatchDate).getTime(),
         },
@@ -423,6 +429,8 @@ export default function RecurrencePage() {
                     dataSource={filteredRecords}
                     rowKey="id"
                     loading={loading}
+                    // Doc 29/07 (item 1.1.5): rola horizontalmente no mobile em vez de espremer as colunas.
+                    scroll={{ x: 760 }}
                     pagination={{ pageSize: PAGE_SIZE, showTotal: (t) => `${t} recorrências` }}
                     locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Nenhuma recorrência registrada. Vendas com produtos/serviços que possuem tempo de recorrência aparecem aqui." /> }}
                 />

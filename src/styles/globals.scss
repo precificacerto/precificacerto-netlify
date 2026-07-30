@@ -2365,7 +2365,10 @@ body {
 
   /* --- Statistic do AntD (cards com números grandes) --- */
   .ant-statistic-content {
-    font-size: 20px !important;
+    /* Doc 29/07 (itens 1.1.2/1.1.3 — RT Comissões etc.): número inteiro visível,
+       fonte fluida (encolhe com a largura) e sem quebrar em 2 linhas. */
+    font-size: clamp(13px, 4.4vw, 20px) !important;
+    white-space: nowrap;
   }
   .ant-statistic-title {
     font-size: 11px !important;
@@ -2936,11 +2939,14 @@ body {
     gap: 2px !important;
   }
   .kpi-card-value {
-    font-size: 20px !important;
+    /* Doc 29/07 (itens 1.1.2/1.1.3): o valor inteiro deve aparecer sempre. Em cards de
+       2 colunas (estreitos) o valor era cortado com ellipsis — agora a fonte encolhe
+       proporcionalmente à largura da tela (clamp por vw) e o valor fica visível por completo. */
+    font-size: clamp(13px, 4.4vw, 20px) !important;
     line-height: 1.2 !important;
     white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    overflow: visible;
+    text-overflow: clip;
   }
   .kpi-card-label {
     font-size: 11px !important;

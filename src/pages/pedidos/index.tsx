@@ -329,6 +329,8 @@ function OrdersPage() {
     const [detailDrawerOpen, setDetailDrawerOpen] = useState(false)
     const [viewingOrder, setViewingOrder] = useState<Order | null>(null)
     const [detailItems, setDetailItems] = useState<OrderItemRow[]>([])
+    // Doc 29/07 (item 1.1.6): o menu ⋮ deve fechar automaticamente ao rolar a lista.
+    const [openKebabId, setOpenKebabId] = useState<string | null>(null)
 
     // Filters
     const [filterCustomer, setFilterCustomer] = useState<string | null>(null)
@@ -384,6 +386,14 @@ function OrdersPage() {
             setLoading(false)
         }
     }, [tenantId, employees, messageApi])
+
+    // Doc 29/07 (item 1.1.6): fecha o ⋮ aberto ao rolar (fase de captura pega o scroll da lista mobile).
+    useEffect(() => {
+        if (openKebabId == null) return
+        const close = () => setOpenKebabId(null)
+        window.addEventListener('scroll', close, true)
+        return () => window.removeEventListener('scroll', close, true)
+    }, [openKebabId])
 
     useEffect(() => {
         if (tenantId) {
@@ -990,7 +1000,8 @@ function OrdersPage() {
                 }
             })
 
-            const result = Array.from(productMap.values()).sort((a, b) => b.total_qty - a.total_qty)
+            // Doc 29/07 (item 1.4.3): listagem e PDF em ordem alfabética por nome do produto.
+            const result = Array.from(productMap.values()).sort((a, b) => a.product_name.localeCompare(b.product_name, 'pt-BR'))
             setCompiledData(result)
 
             // load existing purchase tracking
@@ -1341,7 +1352,7 @@ function OrdersPage() {
                                                 <span className="pc-row-compact__sub">{r.order_code} · {dataFmt} · {cfg.label}</span>
                                             </div>
                                             <span className="pc-row-compact__value">{formatCurrency(Number(r.total_value || 0))}</span>
-                                            <Dropdown menu={{ items: kebabItems }} trigger={['click']} placement="bottomRight">
+                                            <Dropdown menu={{ items: kebabItems }} trigger={['click']} placement="bottomRight" open={openKebabId === r.id} onOpenChange={(o) => setOpenKebabId(o ? r.id : null)}>
                                                 <span className="pc-row-compact__kebab" onClick={(e) => e.stopPropagation()}><MoreOutlined /></span>
                                             </Dropdown>
                                         </div>
@@ -1454,6 +1465,47 @@ function OrdersPage() {
                     Adicione apenas produtos vinculados ao vendedor deste pedido.
                 </Text>
 
+                {/* Doc 29/07 (item 1.1.1): no mobile, cada item do pedido vira um CARD (a Table
+                    de largura fixa cortava o PRODUTO e quebrava o TOTAL em duas linhas). */}
+                {isMobile && (
+                    <div>
+                        {orderItems.map((row) => (
+                            <div key={row.key} style={{ border: '1px solid rgba(148,163,184,0.2)', borderRadius: 8, padding: 10, marginBottom: 8 }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                                    <span style={{ fontSize: 12, color: '#94a3b8' }}>Produto</span>
+                                    <Button type="text" danger size="small" onClick={() => handleItemRemove(row.key)}>✕</Button>
+                                </div>
+                                <Select
+                                    showSearch
+                                    optionFilterProp="children"
+                                    placeholder="Selecione o produto"
+                                    value={row.product_id || undefined}
+                                    onChange={(v) => handleItemProductChange(row.key, v)}
+                                    style={{ width: '100%' }}
+                                >
+                                    {(products as any[]).map((p: any) => (
+                                        <Select.Option key={p.id} value={p.id}>{p.name}</Select.Option>
+                                    ))}
+                                </Select>
+                                <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                        <span style={{ fontSize: 12, color: '#94a3b8', display: 'block', marginBottom: 2 }}>Qtd</span>
+                                        <InputNumber min={0} value={row.quantity} onChange={(v) => handleItemQtyChange(row.key, Number(v || 0))} style={{ width: '100%' }} />
+                                    </div>
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                        <span style={{ fontSize: 12, color: '#94a3b8', display: 'block', marginBottom: 2 }}>Valor unit.</span>
+                                        <InputNumber min={0} step={0.01} precision={2} value={row.unit_price} onChange={(v) => handleItemPriceChange(row.key, Number(v || 0))} addonBefore="R$" style={{ width: '100%' }} />
+                                    </div>
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(148,163,184,0.15)' }}>
+                                    <span style={{ fontSize: 12, color: '#94a3b8' }}>Total</span>
+                                    <strong style={{ whiteSpace: 'nowrap' }}>{formatCurrency(row.total_price)}</strong>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+                {!isMobile && (
                 <Table
                     rowKey="key"
                     size="small"
@@ -1531,6 +1583,7 @@ function OrdersPage() {
                         },
                     ]}
                 />
+                )}
 
                 <Button
                     type="dashed"
@@ -1701,51 +1754,41 @@ function OrdersPage() {
                     Marque "Comprado" para controlar o que já foi adquirido. Pedidos pagos somem automaticamente.
                 </Text>
 
-                <Table
-                    rowKey="product_id"
-                    size="small"
-                    loading={compiledLoading}
-                    dataSource={compiledData}
-                    pagination={false}
-                    columns={[
-                        {
-                            title: 'Comprado',
-                            key: 'purchased',
-                            width: 80,
-                            render: (_, row) => (
+                {/* Doc 29/07 (item 1.4.3): layout em card — linha 1 = nome (esq) + qtd total (borda dir);
+                    linha 2 = "Pedidos" com os códigos; checkbox "Comprado" fica FORA dessas 2 linhas. */}
+                {compiledLoading ? (
+                    <Empty description="Carregando..." />
+                ) : compiledData.length === 0 ? (
+                    <Empty description="Nenhum produto compilado" />
+                ) : (
+                    <div>
+                        {compiledData.map((row) => (
+                            <div
+                                key={row.product_id}
+                                style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '10px 0', borderBottom: '1px solid rgba(148,163,184,0.15)' }}
+                            >
                                 <Checkbox
                                     checked={!!purchaseTracking[row.product_id]}
                                     onChange={(e) => handleTogglePurchased(row.product_id, e.target.checked)}
+                                    style={{ marginTop: 2 }}
                                 />
-                            ),
-                        },
-                        {
-                            title: 'Produto',
-                            dataIndex: 'product_name',
-                            key: 'product_name',
-                        },
-                        {
-                            title: 'Qtd total',
-                            dataIndex: 'total_qty',
-                            key: 'total_qty',
-                            width: 90,
-                            align: 'right',
-                            render: (v: number) => <strong>{v}</strong>,
-                        },
-                        {
-                            title: 'Pedidos',
-                            dataIndex: 'orders',
-                            key: 'orders',
-                            render: (arr: string[]) => (
-                                <Space wrap size={4}>
-                                    {arr.slice(0, 5).map((c) => <Tag key={c} color="blue">{c}</Tag>)}
-                                    {arr.length > 5 && <Text type="secondary">+{arr.length - 5}</Text>}
-                                </Space>
-                            ),
-                        },
-                    ]}
-                    locale={{ emptyText: 'Nenhum produto compilado' }}
-                />
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
+                                        <span style={{ fontWeight: 600, wordBreak: 'break-word' }}>{row.product_name}</span>
+                                        <strong style={{ whiteSpace: 'nowrap' }}>{row.total_qty}</strong>
+                                    </div>
+                                    <div style={{ marginTop: 4, fontSize: 12 }}>
+                                        <span style={{ color: '#94a3b8', marginRight: 4 }}>Pedidos:</span>
+                                        <Space wrap size={4}>
+                                            {row.orders.slice(0, 8).map((c) => <Tag key={c} color="blue" style={{ margin: 0 }}>{c}</Tag>)}
+                                            {row.orders.length > 8 && <Text type="secondary">+{row.orders.length - 8}</Text>}
+                                        </Space>
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
             </Drawer>
         </Layout>
     )

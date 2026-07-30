@@ -64,13 +64,21 @@ export function exportTableToPdf(config: PdfExportConfig) {
       }
       doc.text(kpi.label, x + 4, cursorY + 7)
 
-      doc.setFontSize(12)
       if (kpi.pending) {
         doc.setTextColor(251, 191, 36)
       } else {
         doc.setTextColor(224, 231, 255)
       }
+      // Doc 29/07 (item 1.4.1): valor inteiro sempre visível (ex.: R$ 323.999,99).
+      // Reduz a fonte proporcionalmente quando o valor não cabe na largura do card.
+      const valueMaxW = cardWidth - 8
+      doc.setFontSize(12)
+      const valueW = doc.getTextWidth(kpi.value)
+      if (valueW > valueMaxW) {
+        doc.setFontSize(Math.max(7, Math.floor(12 * (valueMaxW / valueW))))
+      }
       doc.text(kpi.value, x + 4, cursorY + 17)
+      doc.setFontSize(12)
     })
 
     cursorY += cardHeight + 6
