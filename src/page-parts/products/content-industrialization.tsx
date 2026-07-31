@@ -103,9 +103,18 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
         </div>
 
         <div className="flex flex-col column mb-5">
-          <Form form={itemsForm} layout="inline" style={{ display: 'flex', gap: 8, alignItems: 'center', width: '100%' }} onFinish={handleClickAddItem}>
+          {/* Relatório 30/07 (mobile #2): campo "Buscar item" e botão "Incluir" alinhados.
+              Mobile (≤639) empilha em coluna (Select 100% + botão 100% maior, mesma largura).
+              Desktop mantém inline (Select flex:1 + botão à direita). */}
+          <Form
+            form={itemsForm}
+            layout={isMobile ? 'vertical' : 'inline'}
+            className="ps-additem-form"
+            style={{ display: 'flex', gap: 8, alignItems: isMobile ? 'stretch' : 'flex-end', width: '100%', flexDirection: isMobile ? 'column' : 'row' }}
+            onFinish={handleClickAddItem}
+          >
             <Form.Item
-              style={{ flex: 1, marginBottom: 0 }}
+              style={{ flex: 1, marginBottom: 0, width: isMobile ? '100%' : undefined }}
               label="Buscar item"
               name="item"
               rules={[{ required: true }]}
@@ -127,7 +136,13 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
               </Select>
             </Form.Item>
 
-            <Button htmlType="submit" type="primary" className="ml-2">
+            <Button
+              htmlType="submit"
+              type="primary"
+              className={isMobile ? '' : 'ml-2'}
+              block={isMobile}
+              size={isMobile ? 'large' : 'middle'}
+            >
               Incluir
             </Button>
           </Form>
@@ -137,29 +152,62 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
         ) : (
           <Table pagination={false} columns={columns} dataSource={productItemsData} scroll={{ x: 'max-content' }} />
         )}
-        {/* Doc 28/07 (item 38): campo de minutos (esquerda) e valor R$ (direita) sempre na
-            MESMA linha. O rótulo pode quebrar para a linha de cima em telas estreitas, mas o
-            par minutos+valor permanece junto. */}
-        <section className="flex flex-wrap items-center gap-2 p-1 mt-3 ps-row-flex">
-          <div className="p-2" style={{ flex: '1 1 140px', fontWeight: 500 }}>Mão de obra produtiva</div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, flex: '1 1 220px' }}>
-            <Input
-              name="productWorkloadInMinutes"
-              placeholder="Inserir manualmente"
-              autoComplete="off"
-              suffix="Minuto(s)"
-              style={{ maxWidth: 170 }}
-              type="number"
-              min={1}
-              minLength={1}
-              onChange={handleChangePrecificationInputs}
-              value={productPriceInfo.productWorkloadInMinutes}
-            />
-            <span style={{ whiteSpace: 'nowrap', fontWeight: 600 }}>
+        {/* Relatório 30/07 (item 4 desktop): a linha "Mão de obra produtiva" ALINHA com as colunas
+            da tabela "Itens do produto" — minutos sob "QTD. POR UNIDADE", valor sob "LÍQUIDO".
+            Relatório 30/07 (mobile #2): no celular a linha vira 2 colunas na MESMA linha —
+            minutos à ESQUERDA, valor em R$ à DIREITA — abaixo do rótulo. */}
+        {isMobile ? (
+          <section className="p-1 mt-3">
+            <div style={{ fontWeight: 500, marginBottom: 6 }}>Mão de obra produtiva</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ flex: '1 1 auto', minWidth: 0 }}>
+                <Input
+                  name="productWorkloadInMinutes"
+                  placeholder="Inserir manualmente"
+                  autoComplete="off"
+                  suffix="Minuto(s)"
+                  style={{ width: '100%' }}
+                  type="number"
+                  min={1}
+                  minLength={1}
+                  onChange={handleChangePrecificationInputs}
+                  value={productPriceInfo.productWorkloadInMinutes}
+                />
+              </div>
+              <div style={{ flex: '0 0 auto', textAlign: 'right', whiteSpace: 'nowrap', fontWeight: 600 }}>
+                R$ {getMonetaryValue(productPriceInfo.productWorkloadInMinutesPrice)}
+              </div>
+            </div>
+          </section>
+        ) : (
+          <section className="flex items-center p-1 mt-3 ps-row-flex">
+            {/* Coluna Nome (22%) — rótulo */}
+            <div className="p-2" style={{ width: '22%', fontWeight: 500 }}>Mão de obra produtiva</div>
+            {/* Coluna Qtd. por unidade (16%) — campo de minutos */}
+            <div style={{ width: '16%', padding: '0 4px' }}>
+              <Input
+                name="productWorkloadInMinutes"
+                placeholder="Inserir manualmente"
+                autoComplete="off"
+                suffix="Minuto(s)"
+                style={{ width: '100%' }}
+                type="number"
+                min={1}
+                minLength={1}
+                onChange={handleChangePrecificationInputs}
+                value={productPriceInfo.productWorkloadInMinutes}
+              />
+            </div>
+            {/* Colunas Qtd. Total (14%) + Bruto (12%) — espaçadores para manter o alinhamento */}
+            <div style={{ width: '26%' }} />
+            {/* Coluna Líquido (12%) — valor em R$ */}
+            <div style={{ width: '12%', textAlign: 'left', whiteSpace: 'nowrap', fontWeight: 600 }}>
               R$ {getMonetaryValue(productPriceInfo.productWorkloadInMinutesPrice)}
-            </span>
-          </div>
-        </section>
+            </div>
+            {/* Coluna Ações (resto) — espaçador */}
+            <div style={{ flex: 1 }} />
+          </section>
+        )}
       </Card>
 
       <ProductPrice

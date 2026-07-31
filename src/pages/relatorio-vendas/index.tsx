@@ -2291,18 +2291,8 @@ function SalesReport() {
                                 <span><ClockCircleOutlined style={{ marginRight: 6 }} />Recebimento / Lançamentos Futuros</span>
                             ),
                         },
-                        {
-                            key: 'COMMISSIONS',
-                            label: (
-                                <span><TeamOutlined style={{ marginRight: 6 }} />Relatório de Comissões</span>
-                            ),
-                        },
-                        {
-                            key: 'RT_COMMISSIONS',
-                            label: (
-                                <span><TeamOutlined style={{ marginRight: 6 }} />RT Comissões</span>
-                            ),
-                        },
+                        // Abas "Relatório de Comissões" e "RT Comissões" removidas (Rel. 30/07 desktop #3):
+                        // já possuem cards/sessões próprias no menu Comercial — redundantes aqui.
                         {
                             key: 'PRODUCTS',
                             label: (

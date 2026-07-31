@@ -453,7 +453,7 @@ export const ProductPrice: FC<Props> = ({
                         showPercent={false}
                         value={value}
                         onChange={(v) => onChange?.(v ?? 0)}
-                        style={{ width: 100, fontSize: 12 }}
+                        style={{ width: isMobile ? 88 : 110, fontSize: isMobile ? 12 : 13 }}
                       />
                       {effective != null && (
                         <span style={{ fontSize: 11, color: '#94a3b8', textAlign: 'right' as const }}>
@@ -493,7 +493,7 @@ export const ProductPrice: FC<Props> = ({
                       showPercent={false}
                       value={value}
                       onChange={(v) => onChange?.(v ?? 0)}
-                      style={{ width: 100, fontSize: 12 }}
+                      style={{ width: isMobile ? 88 : 110, fontSize: isMobile ? 12 : 13 }}
                     />
                   </div>
                   <div style={{ textAlign: 'right' as const, fontSize: 12, fontWeight: 600, color: taxValue > 0 ? '#4ade80' : '#64748b', marginTop: 4 }}>

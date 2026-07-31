@@ -438,14 +438,16 @@ function Stock() {
         let list = filteredByTabAndSearch as StockRow[]
         if (stockFilter === 'below') list = list.filter(i => i.status === 'Baixo' || i.status === 'Crítico')
         if (activeTab === 'PRODUCT' && selectedSection) list = list.filter(row => row.section_id === selectedSection)
-        return list
+        // Ordenação alfabética por nome (pt-BR, case-insensitive) — ordem inicial exibida já é alfabética
+        return [...list].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR', { sensitivity: 'base' }))
     }, [activeTab, stockFilter, selectedSection, filteredByTabAndSearch])
 
     const filteredServiceData = useMemo(() => {
         if (activeTab !== 'SERVICE') return []
         let list = servicesList.filter(svc => svc.name.toLowerCase().includes(searchText.toLowerCase()))
         if (stockFilter === 'below') list = list.filter(svc => svc.stockStatus === 'Baixo' || svc.stockStatus === 'Crítico')
-        return list
+        // Ordenação alfabética por nome (pt-BR, case-insensitive)
+        return [...list].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR', { sensitivity: 'base' }))
     }, [activeTab, searchText, stockFilter, servicesList])
 
     // KPIs (total e baixo estoque da aba atual)

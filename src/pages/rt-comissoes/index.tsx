@@ -80,7 +80,7 @@ function KpiRow({ icon, label, value, accent, border, valueColor, iconColor }: {
       <span style={{ fontSize: 18, color: iconColor, display: 'inline-flex', flexShrink: 0 }}>{icon}</span>
       <div style={{ flex: '1 1 auto', minWidth: 0 }}>
         <div style={{ fontSize: 12, color: iconColor, lineHeight: 1.2 }}>{label}</div>
-        <div style={{ fontSize: 18, fontWeight: 700, color: valueColor, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{value}</div>
+        <div style={{ fontSize: 'clamp(13px, 4.4vw, 18px)', fontWeight: 700, color: valueColor, whiteSpace: 'normal', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{value}</div>
       </div>
       <RightOutlined style={{ fontSize: 12, color: iconColor, flexShrink: 0 }} />
     </div>

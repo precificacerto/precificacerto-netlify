@@ -2365,10 +2365,14 @@ body {
 
   /* --- Statistic do AntD (cards com números grandes) --- */
   .ant-statistic-content {
-    /* Doc 29/07 (itens 1.1.2/1.1.3 — RT Comissões etc.): número inteiro visível,
-       fonte fluida (encolhe com a largura) e sem quebrar em 2 linhas. */
-    font-size: clamp(13px, 4.4vw, 20px) !important;
-    white-space: nowrap;
+    /* Relatório 30/07 (mobile #1 — RT Comissões, Controle Financeiro, Recorrência):
+       número inteiro SEMPRE visível. Fonte fluida (min 11px) e, como rede de segurança,
+       permite quebra em vez de recortar — nunca ellipsis/overflow escondido. */
+    font-size: clamp(11px, 4.2vw, 20px) !important;
+    white-space: normal !important;
+    overflow: visible !important;
+    overflow-wrap: anywhere !important;
+    word-break: break-word !important;
   }
   .ant-statistic-title {
     font-size: 11px !important;
@@ -2553,6 +2557,32 @@ body {
     flex: 1 1 100% !important;
     width: 100% !important;
   }
+  /* Relatório 30/07 (mobile #2 — "Mão de obra produtiva" em Serviços):
+     no celular, minutos (campo) à ESQUERDA e valor R$ à DIREITA na MESMA linha.
+     Rótulo e ajuda ocupam linhas próprias (largura total). */
+  .ps-labor-row.ps-row-flex {
+    align-items: stretch !important;
+  }
+  .ps-labor-row .ps-labor-fields {
+    flex: 1 1 auto !important;
+    width: auto !important;
+    order: 2;
+  }
+  .ps-labor-row .ps-labor-value {
+    flex: 0 0 auto !important;
+    width: auto !important;
+    order: 3;
+    text-align: right !important;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+  }
+  .ps-labor-row .ps-labor-label {
+    order: 1;
+  }
+  .ps-labor-row .ps-labor-help {
+    order: 4;
+  }
   .ps-table-row {
     display: flex !important;
     flex-direction: column !important;
@@ -2664,6 +2694,37 @@ body {
   }
   .cashflow-toolbar .ant-picker {
     min-width: 150px;
+  }
+
+  /* Relatório 30/07 (mobile #6): cada grupo do toolbar ocupa a linha inteira.
+     Grupo 1 (mês + "Novo Lançamento"): mês à esquerda, botão empurrado à borda direita.
+     Grupo 2 (Saldo Mês Ant. + Exportar): distribuído na 2ª linha. */
+  .cashflow-toolbar .cashflow-toolbar-group.ant-space {
+    display: flex !important;
+    width: 100% !important;
+    flex-wrap: nowrap !important;
+    align-items: center !important;
+  }
+  .cashflow-toolbar-group--primary .ant-space-item:last-child {
+    margin-inline-start: auto !important;
+    margin-inline-end: 0 !important;
+  }
+  .cashflow-toolbar-group--primary .ant-space-item:has(.ant-picker) {
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+  }
+  .cashflow-toolbar-group--primary .ant-picker {
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+  .cashflow-toolbar-group--secondary {
+    justify-content: space-between !important;
+  }
+  .cashflow-toolbar-group--secondary .ant-space-item {
+    flex: 1 1 0 !important;
+  }
+  .cashflow-toolbar-group--secondary .ant-btn {
+    width: 100% !important;
   }
 
   .cashflow-section-header {
@@ -2918,6 +2979,9 @@ body {
     gap: 12px !important;
     padding: 12px 14px !important;
     min-height: 64px;
+    /* Relatório 30/07 (mobile #1): não recortar o valor quando ele quebrar/encolher. */
+    overflow: visible !important;
+    height: auto !important;
   }
   /* Header deixa de ser linha cheia; vira só o ícone à esquerda.
      O trend (quando existir) flui junto ao value, sem ocupar espaço de topo. */
@@ -2939,14 +3003,18 @@ body {
     gap: 2px !important;
   }
   .kpi-card-value {
-    /* Doc 29/07 (itens 1.1.2/1.1.3): o valor inteiro deve aparecer sempre. Em cards de
-       2 colunas (estreitos) o valor era cortado com ellipsis — agora a fonte encolhe
-       proporcionalmente à largura da tela (clamp por vw) e o valor fica visível por completo. */
-    font-size: clamp(13px, 4.4vw, 20px) !important;
+    /* Relatório 30/07 (mobile #1 — abolir truncamentos): o valor inteiro deve aparecer
+       SEMPRE, em qualquer tela. Em cards de 2 colunas (estreitos) valores longos como
+       "−R$ 22.404,13" ainda eram cortados pelo overflow:hidden do card. Correção:
+       (1) fonte encolhe mais (min 11px por clamp/vw) para caber por completo;
+       (2) como rede de segurança, permite quebra em vez de esconder — nunca ellipsis. */
+    font-size: clamp(11px, 4.2vw, 20px) !important;
     line-height: 1.2 !important;
-    white-space: nowrap;
-    overflow: visible;
-    text-overflow: clip;
+    white-space: normal !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    overflow-wrap: anywhere !important;
+    word-break: break-word !important;
   }
   .kpi-card-label {
     font-size: 11px !important;

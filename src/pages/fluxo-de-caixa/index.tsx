@@ -821,7 +821,9 @@ export default function CashFlow() {
                 {/* Doc 28/07 (item 35): "Atualizar" removido (dados carregam automaticamente).
                     Linha 1 = seletor de mês (reduzido) + "Novo Lançamento" (sem o ícone "+" redundante
                     com o texto). Linha 2 = "Saldo Mês Ant." + "Exportar". */}
-                <Space wrap>
+                {/* Relatório 30/07 (mobile #6): no celular, Linha 1 = mês (esq.) + "Novo Lançamento"
+                    na borda direita da MESMA linha; Linha 2 = "Saldo Mês Ant." + "Exportar". */}
+                <Space wrap className="cashflow-toolbar-group cashflow-toolbar-group--primary">
                     <CalendarOutlined style={{ fontSize: 18, color: '#94a3b8' }} />
                     <DatePicker picker="month" value={month} onChange={(d) => d && setMonth(d)} allowClear={false} format="MMMM YYYY" />
                     {canEdit(MODULES.CASH_FLOW) && (
@@ -830,7 +832,7 @@ export default function CashFlow() {
                         </Button>
                     )}
                 </Space>
-                <Space wrap>
+                <Space wrap className="cashflow-toolbar-group cashflow-toolbar-group--secondary">
                     {canEdit(MODULES.CASH_FLOW) && (
                         <Button loading={loadingPrevBalance} onClick={handlePrevMonthBalance}>
                             <span className="cashflow-btn-label-full">Saldo do Mês Anterior</span>

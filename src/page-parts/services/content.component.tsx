@@ -680,7 +680,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                                 if (editable === 'additionalIrpj') setAdditionalIrpjPercent(v ?? 0)
                                 if (editable === 'pisCofins') setPisCofinsLRPct(v ?? 0)
                             }}
-                            style={{ width: 120 }}
+                            style={{ width: 120, fontSize: 13 }}
                         />
                     ) : (
                         <span style={{
@@ -917,9 +917,12 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                         </Tooltip>
                     </div>
                 )}
-                <div className="ps-row-flex" style={{ display: 'flex', alignItems: 'center' }}>
-                    <div style={{ width: '36%', padding: '8px 16px', fontSize: 14 }}>Mão de obra produtiva</div>
-                    <div style={{ width: '20%', padding: '4px 8px' }}>
+                {/* Relatório 30/07 (mobile #2): no celular a linha empilha —
+                    rótulo, depois minutos à ESQUERDA e valor R$ à DIREITA na MESMA linha
+                    (grupo `.ps-labor-fields`), e por fim o texto de ajuda. Desktop inalterado. */}
+                <div className="ps-row-flex ps-labor-row" style={{ display: 'flex', alignItems: 'center' }}>
+                    <div className="ps-labor-label" style={{ width: '36%', padding: '8px 16px', fontSize: 14 }}>Mão de obra produtiva</div>
+                    <div className="ps-labor-fields" style={{ width: '20%', padding: '4px 8px' }}>
                         <Form form={form}>
                             <Form.Item name="estimated_duration_minutes" noStyle initialValue={60}>
                                 <InputNumber
@@ -933,10 +936,10 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                             </Form.Item>
                         </Form>
                     </div>
-                    <div style={{ width: '15%', padding: '4px 8px', fontWeight: 700, fontSize: 15, color: '#B42318' }}>
+                    <div className="ps-labor-value" style={{ width: '15%', padding: '4px 8px', fontWeight: 700, fontSize: 15, color: '#B42318' }}>
                         {fmt(pricing.laborCost)}
                     </div>
-                    <div style={{ width: '29%', padding: '4px 8px', fontSize: 11, color: '#94a3b8' }}>
+                    <div className="ps-labor-help" style={{ width: '29%', padding: '4px 8px', fontSize: 11, color: '#94a3b8' }}>
                         {pricing.costPerMinute > 0
                             ? `${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 4, maximumFractionDigits: 4 }).format(pricing.costPerMinute)}/min × ${watchedDurationMinutes ?? form.getFieldValue('estimated_duration_minutes') ?? 60} min (${pricing.totalEmployees} func.)`
                             : 'MO direta + administrativa + desp. fixas'}
@@ -1101,7 +1104,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                                         size="small" min={0} max={100}
                                         value={value}
                                         onChange={(v) => setter(v ?? 0)}
-                                        style={{ width: 120 }}
+                                        style={{ width: 120, fontSize: 13 }}
                                     />
                                     <span style={{ marginLeft: 10, fontSize: 12, color: taxValue > 0 ? '#4ade80' : '#64748b', minWidth: 80, display: 'inline-block', textAlign: 'right' }}>
                                         {fmt(taxValue)}

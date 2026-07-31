@@ -145,18 +145,30 @@ function Clients() {
                 .from('budgets')
                 .select('id, total_value, status, payment_method, paid_date, sale_id, created_at, budget_items(product_id, quantity, unit_price, products(name), manual_description)')
                 .eq('customer_id', customerId)
-                .in('status', ['DRAFT', 'SENT', 'APPROVED', 'PAID', 'AWAITING_PAYMENT', 'REJECTED', 'EXPIRED'])
+                // Regra emergencial (30/07): não exibir rascunhos (DRAFT) nem orçamentos
+                // cancelados/rejeitados (REJECTED/CANCELLED) no histórico. Mantém orçamentos
+                // enviados/aprovados/aguardando/pagos/expirados. Vendas efetivadas oriundas de
+                // orçamento (sale_id preenchido) aparecem na seção SALE.
+                .in('status', ['SENT', 'APPROVED', 'PAID', 'AWAITING_PAYMENT', 'EXPIRED'])
                 .order('created_at', { ascending: false }),
             (supabase as any)
                 .from('sales')
                 .select('id, final_value, payment_method, installments, sale_date, created_at, employee_id, description, status, sale_type, budget_id')
                 .eq('customer_id', customerId)
                 .eq('is_active', true)
+                // Regra emergencial (30/07 desktop #7 / mobile #4): Histórico exibe SOMENTE vendas
+                // efetivadas. Vendas canceladas usam is_active=false + status='CANCELLED'
+                // (cancel_sale_cascade). O filtro por status protege registros legados em que
+                // apenas o status foi marcado como CANCELLED sem baixar is_active.
+                .neq('status', 'CANCELLED')
                 .order('created_at', { ascending: false }),
             (supabase as any)
                 .from('orders')
                 .select('id, order_code, total_value, status, created_at, order_items(id)')
                 .eq('customer_id', customerId)
+                // Regra emergencial (30/07): não exibir pedidos em Rascunho (DRAFT) nem
+                // Cancelados (CANCELLED) no histórico. Mantém aguardando/efetivado/pago.
+                .not('status', 'in', '("DRAFT","CANCELLED")')
                 .order('created_at', { ascending: false }),
         ])
         if (signal?.cancelled) return
@@ -170,6 +182,8 @@ function Clients() {
                 .select('id, final_value, payment_method, installments, sale_date, created_at, employee_id, description, status, sale_type, budget_id')
                 .in('budget_id', allBudgetIds)
                 .eq('is_active', true)
+                // Mesmo filtro da query por customer_id: excluir vendas canceladas do histórico.
+                .neq('status', 'CANCELLED')
             fromBudgetSalesData = fbSales || []
         }
         // Merge and deduplicate sales (prefer entries from customer-based query)

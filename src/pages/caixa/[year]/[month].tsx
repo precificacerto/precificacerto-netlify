@@ -333,6 +333,16 @@ function Cashier() {
     router.push(`${ROUTES.CASHIER}/${selectedYear}/${monthParam}`)
   }
 
+  // Relatório 30/07 (mobile #5): seletor de MÊS ao lado do seletor de ANO, permitindo
+  // navegar para qualquer mês (inclusive fora da lista fixa do componente <Months>).
+  function handleChangeMonthSelect(shortMonth: string) {
+    router.push(`${ROUTES.CASHIER}/${year}/${shortMonth}`)
+  }
+
+  const currentMonthShort =
+    Object.values(monthObjects).find((m) => m.short.toUpperCase() === monthEnum)?.short ??
+    monthObjects[Month.JAN].short
+
   function renderTable(type: PAYMENT_REVENUE_TITLE_TYPE) {
     const title = type === PAYMENT_REVENUE_TITLE_TYPE.INCOME ? 'Entradas' : 'Saídas'
     const data = type === PAYMENT_REVENUE_TITLE_TYPE.INCOME ? incomeData : expenseData
@@ -634,11 +644,20 @@ function Cashier() {
           <div>
             <h1>Caixa de <strong>{monthParam}/{year}</strong></h1>
           </div>
-          <Select defaultValue={year} onChange={handleChangeYearSelect} style={{ width: 120 }}>
-            <Select.Option value={previousYear}>{previousYear}</Select.Option>
-            <Select.Option value={currentYear}>{currentYear}</Select.Option>
-            <Select.Option value={nextYear}>{nextYear}</Select.Option>
-          </Select>
+          {/* Relatório 30/07 (mobile #5): ANO (ano vigente pré-preenchido) e, na MESMA linha à
+              direita, seletor de MÊS — permite ir a meses fora da lista fixa. */}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flex: isMobile ? '1 1 100%' : '0 0 auto' }}>
+            <Select value={year} onChange={handleChangeYearSelect} style={{ width: isMobile ? undefined : 120, flex: isMobile ? '1 1 0' : undefined, minWidth: 96 }}>
+              <Select.Option value={previousYear}>{previousYear}</Select.Option>
+              <Select.Option value={currentYear}>{currentYear}</Select.Option>
+              <Select.Option value={nextYear}>{nextYear}</Select.Option>
+            </Select>
+            <Select value={currentMonthShort} onChange={handleChangeMonthSelect} style={{ width: isMobile ? undefined : 150, flex: isMobile ? '1 1 0' : undefined, minWidth: 110 }}>
+              {Object.values(monthObjects).map((m) => (
+                <Select.Option key={m.short} value={m.short}>{m.full}</Select.Option>
+              ))}
+            </Select>
+          </div>
         </div>
 
         <Months currentMonth={monthEnum} onChangeMonth={handleChangeMonth} />

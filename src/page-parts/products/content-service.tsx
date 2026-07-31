@@ -324,8 +324,15 @@ export const ContentService: FC<ContentServiceProps> = ({
           <h1 className="text-2xl">Itens do produto</h1>
         </div>
         <div className="flex flex-col column mb-5">
-          <Form form={itemsForm} layout="inline" style={{ display: 'flex', gap: 8, alignItems: 'center', width: '100%' }} onFinish={handleClickAddItem}>
-            <Form.Item style={{ flex: 1, marginBottom: 0 }} label="Buscar item" name="item" rules={[{ required: true }]}>
+          {/* Relatório 30/07 (mobile #2): "Buscar item" + "Incluir" alinhados.
+              Mobile empilha (Select 100% + botão 100% maior); desktop mantém inline. */}
+          <Form
+            form={itemsForm}
+            layout={isMobile ? 'vertical' : 'inline'}
+            style={{ display: 'flex', gap: 8, alignItems: isMobile ? 'stretch' : 'flex-end', width: '100%', flexDirection: isMobile ? 'column' : 'row' }}
+            onFinish={handleClickAddItem}
+          >
+            <Form.Item style={{ flex: 1, marginBottom: 0, width: isMobile ? '100%' : undefined }} label="Buscar item" name="item" rules={[{ required: true }]}>
               <Select showSearch filterOption={filterOption}
                 notFoundContent={
                   <div className="p-3 text-center text-neutral-500">Não há itens, cadastre-os antes de criar um produto</div>
@@ -335,7 +342,7 @@ export const ContentService: FC<ContentServiceProps> = ({
                 ))}
               </Select>
             </Form.Item>
-            <Button htmlType="submit" type="primary" className="ml-2">Incluir</Button>
+            <Button htmlType="submit" type="primary" className={isMobile ? '' : 'ml-2'} block={isMobile} size={isMobile ? 'large' : 'middle'}>Incluir</Button>
           </Form>
         </div>
         {isMobile && mobileItemsList ? (

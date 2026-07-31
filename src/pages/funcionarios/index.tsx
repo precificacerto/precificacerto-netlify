@@ -69,6 +69,7 @@ const PERMISSION_SECTIONS: { title: string; modules: { key: string; label: strin
         title: 'Comercial',
         modules: [
             { key: 'budgets', label: 'Orçamentos' },
+            { key: 'orders', label: 'Pedidos' },
             { key: 'sales', label: 'Vendas' },
             { key: 'sales_report', label: 'Relatório de Vendas' },
             { key: 'recurrence', label: 'Recorrência' },
@@ -177,6 +178,40 @@ function Employees() {
                     return
                 }
                 throw new Error(result.error)
+            }
+            // Fallback: e-mail não enviado, mas temos o link — mostra para envio manual.
+            if (result.emailSent === false && result.inviteLink) {
+                Modal.info({
+                    title: 'Convite criado — envie o link manualmente',
+                    width: 520,
+                    content: (
+                        <div>
+                            <p style={{ marginBottom: 8 }}>
+                                Não foi possível enviar o e-mail automaticamente. Copie o link
+                                abaixo e envie para <strong>{record.name || record.email}</strong>:
+                            </p>
+                            <Input.TextArea
+                                readOnly
+                                value={result.inviteLink}
+                                autoSize={{ minRows: 2, maxRows: 4 }}
+                                onFocus={(e) => e.target.select()}
+                            />
+                            <Button
+                                type="primary"
+                                size="small"
+                                style={{ marginTop: 10 }}
+                                onClick={() => {
+                                    navigator.clipboard?.writeText(result.inviteLink)
+                                    messageApi.success('Link copiado!')
+                                }}
+                            >
+                                Copiar link
+                            </Button>
+                        </div>
+                    ),
+                })
+                reloadEmployees()
+                return
             }
             messageApi.success(result.message || `Convite enviado para ${record.name}!`)
             reloadEmployees()
