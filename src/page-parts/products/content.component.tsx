@@ -342,6 +342,8 @@ export const Content: FC<ContentProps> = ({
   // Product sections
   const [sections, setSections] = useState<{ id: string; name: string }[]>([])
   const [loadingSections, setLoadingSections] = useState(false)
+  // BUG-PRODUCT-ITEMS-DUP: trava anti double-submit do save do produto.
+  const [savingProduct, setSavingProduct] = useState(false)
   const [newSectionModalOpen, setNewSectionModalOpen] = useState(false)
   const [newSectionName, setNewSectionName] = useState('')
   const [savingNewSection, setSavingNewSection] = useState(false)
@@ -866,7 +868,11 @@ export const Content: FC<ContentProps> = ({
   }
 
   const handleSaveProduct = async () => {
+    // Guard anti double-submit (BUG-PRODUCT-ITEMS-DUP): saves concorrentes duplicavam os
+    // product_items (dobrando o CMV). Reforçado por upsert + UNIQUE(product_id,item_id).
+    if (savingProduct) return
     doProductCalc()
+    setSavingProduct(true)
 
     try {
       const validateProductItemsError = validateProductItems()
@@ -1080,10 +1086,25 @@ export const Content: FC<ContentProps> = ({
         if (extraErr) console.warn('Could not save recurrence/custom_tax_percent fields:', extraErr.message)
       }
 
-      await supabase.from('product_items').delete().eq('product_id', productId)
+      // BUG-PRODUCT-ITEMS-DUP (31/07/2026, tenant Fernandes): ao editar um produto os itens
+      // duplicavam (dobrando o CMV e o preço). Causa: o delete não era verificado e não havia
+      // trava de unicidade — em double-submit (ou delete falho) os itens eram re-inseridos.
+      // Correção em camadas: (1) checar o erro do delete; (2) deduplicar por item_id antes do
+      // insert; (3) UNIQUE(product_id, item_id) no banco (migration 20260731000001).
+      const { error: delItemsErr } = await supabase.from('product_items').delete().eq('product_id', productId)
+      if (delItemsErr) throw delItemsErr
 
       if (productItemsData.length > 0) {
-        const itemIdsForCost = productItemsData.map(i => i.id)
+        // Dedup defensivo por item_id: garante no máximo 1 linha por item (evita CMV dobrado
+        // mesmo se o estado do formulário vier com itens repetidos).
+        const seenItemIds = new Set<string>()
+        const uniqueItemsData = productItemsData.filter((i) => {
+          if (!i.id || seenItemIds.has(i.id)) return false
+          seenItemIds.add(i.id)
+          return true
+        })
+
+        const itemIdsForCost = uniqueItemsData.map(i => i.id)
         const { data: itemsCostData } = await supabase
           .from('items')
           .select('id, cost_per_base_unit')
@@ -1093,7 +1114,7 @@ export const Content: FC<ContentProps> = ({
           costByItemId[ic.id] = Number(ic.cost_per_base_unit) || 0
         }
 
-        const productItems = productItemsData.map((item) => ({
+        const productItems = uniqueItemsData.map((item) => ({
           product_id: productId,
           item_id: item.id,
           quantity_needed: item.quantity,
@@ -1102,7 +1123,11 @@ export const Content: FC<ContentProps> = ({
           cost_per_base_unit: costByItemId[item.id] || 0,
         }))
 
-        const { error: piError } = await supabase.from('product_items').insert(productItems)
+        // upsert com onConflict: se o delete não removeu (RLS/concorrência), atualiza a linha
+        // existente em vez de duplicar — a UNIQUE(product_id,item_id) do banco garante a trava.
+        const { error: piError } = await supabase
+          .from('product_items')
+          .upsert(productItems, { onConflict: 'product_id,item_id' })
         if (piError) throw piError
       }
 
@@ -1238,6 +1263,8 @@ export const Content: FC<ContentProps> = ({
         type: 'error',
         content: ex?.message || 'Preencha todos os campos corretamente para salvar o produto.',
       })
+    } finally {
+      setSavingProduct(false)
     }
   }
 
@@ -2261,7 +2288,7 @@ export const Content: FC<ContentProps> = ({
       )}
 
       <footer className="flex flex-row-reverse mt-5 mr-4">
-        <Button onClick={handleSaveProduct} type="primary" className="ml-2">
+        <Button onClick={handleSaveProduct} type="primary" className="ml-2" loading={savingProduct}>
           {product ? 'Salvar alterações' : 'Salvar'}
         </Button>
         <Button onClick={goBack}>Cancelar</Button>
