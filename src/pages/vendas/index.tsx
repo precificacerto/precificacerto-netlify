@@ -1239,6 +1239,22 @@ function Sales() {
     // Total a cobrar com desconto = total a cobrar cheio × (1−d).
     const balcaoTotalACobrar = saleTotalWithDiscount + balcaoTotalPorForaExtra
 
+    // Spec Felipe 31/07 (DISPLAY): dedução da Etapa 11 da Memória Cascata em DUAS linhas separadas
+    // (Produtos manuais / Despesas acessórias). Mesma base do orçamento — congelados, imunes ao desconto.
+    const balcaoManualTotal = saleItems.reduce(
+        (s, i) => (i.is_manual ? s + (Number(i.unit_price) || 0) * (Number(i.quantity) || 0) : s),
+        0,
+    )
+    const balcaoDespAcessoriasTotal = saleItems.reduce((s, i) => {
+        const p = i.product_id ? (products as any[]).find((x) => x.id === i.product_id) : null
+        if (!p) return s
+        const tercUnit =
+            (Number(p.freight_value) || 0) +
+            (Number(p.insurance_value) || 0) +
+            (Number(p.accessory_expenses_value) || 0)
+        return s + tercUnit * (Number(i.quantity) || 0)
+    }, 0)
+
     const balcaoResidualItems: ResidualItemInput[] = useMemo(
         () => saleItems.map((item, idx) => {
             const motor = balcaoMotorResultsByItem[idx]
@@ -2842,6 +2858,8 @@ function Sales() {
                             pesoOpInterna={balcaoEpicV5DisplayData.pesoOpInterna}
                             ancoraInterna={balcaoEpicV5DisplayData.ancoraInterna}
                             totalACobrarComDesconto={globalDiscountPercentV > 0 ? balcaoTotalACobrar : null}
+                            manualTotal={balcaoManualTotal}
+                            despAcessoriasTotal={balcaoDespAcessoriasTotal}
                         />
                     )}
 

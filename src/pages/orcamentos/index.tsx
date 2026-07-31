@@ -882,6 +882,28 @@ function Budgets() {
         icms_compl_value: icmsComplAmount,
     })
 
+    // Spec Felipe 31/07 (DISPLAY): a dedução da Etapa 11 da Memória Cascata deve virar DUAS
+    // linhas SEPARADAS — "Produtos inseridos manualmente" e "Despesas acessórias" — em vez de
+    // uma linha agregada. Ambos são valores congelados (imunes ao desconto). Somamos aqui os
+    // dois componentes na mesma base do motor:
+    //   - manualTotal        = Σ (unit_price × quantity) dos itens manuais (repasse puro, is_manual_cost)
+    //   - despAcessoriasTotal = Σ terceirizadas (frete + seguro + despesas acessórias) × quantity
+    //     dos produtos cadastrados — mesmo cálculo que alimenta `desp_acessorias` no legacy-adapter.
+    // Os TRIBUTOS POR FORA (IBS/CBS/IS/IPI) NÃO entram nessas linhas (pertencem às Etapas 13/17).
+    const manualTotal = budgetItems.reduce(
+        (s, i) => (i.isManual ? s + (Number(i.unit_price) || 0) * (Number(i.quantity) || 0) : s),
+        0,
+    )
+    const despAcessoriasTotal = budgetItems.reduce((s, i) => {
+        const p = findProd(i.product_id)
+        if (!p) return s
+        const terceirizadasUnit =
+            (Number(p.freight_value) || 0) +
+            (Number(p.insurance_value) || 0) +
+            (Number(p.accessory_expenses_value) || 0)
+        return s + terceirizadasUnit * (Number(i.quantity) || 0)
+    }, 0)
+
     // ── EPIC-RR-DISPLAY: distribuição semântica (PDF GPT + DOCX Claude, 20/05/2026) ──
     // Aria S2 review: memoizar array de items antes de passar ao hook (evita
     // recálculo a cada render). budgetItems é stable enquanto não há edição.
@@ -3046,6 +3068,8 @@ function Budgets() {
                             pesoOpInterna={epicV5DisplayData.pesoOpInterna}
                             ancoraInterna={epicV5DisplayData.ancoraInterna}
                             totalACobrarComDesconto={globalDiscountPercent > 0 ? budgetTotalACobrar : null}
+                            manualTotal={manualTotal}
+                            despAcessoriasTotal={despAcessoriasTotal}
                             pdfMeta={{
                                 budgetId: editingBudgetId,
                                 customerName: selectedCustomer?.name ?? null,

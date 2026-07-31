@@ -200,7 +200,12 @@ function CascadeMobileItem({
  * Acessória fixa + arredondamento cascata↔lateral) é isolada numa linha de dedução
  * agregada, para a sub-árvore fechar exatamente: TotalACobrar − dedução = Restante.
  */
-function applyTotalACobrarToStep11(trace: CascadeStep[], totalACobrar: number): CascadeStep[] {
+function applyTotalACobrarToStep11(
+  trace: CascadeStep[],
+  totalACobrar: number,
+  manualTotal?: number,
+  despAcessoriasTotal?: number,
+): CascadeStep[] {
   if (!(totalACobrar > 0)) return trace
   return trace.map((step) => {
     if (step.step !== 11 || !step.children?.length) return step
@@ -208,18 +213,64 @@ function applyTotalACobrarToStep11(trace: CascadeStep[], totalACobrar: number): 
     if (!restChild) return step
     const restante = restChild.amount
     const naoDistribuivel = totalACobrar - restante
+
+    const vendaConsolidadaRow: CascadeStep = {
+      step: 11,
+      label: 'Venda Consolidada pós-desconto (Total a cobrar)',
+      base: null,
+      rate: null,
+      amount: totalACobrar,
+      formula: 'Total a cobrar do cliente pós-desconto (inclui tributos por fora)',
+      source: 'TOTAL_A_COBRAR',
+    }
+
+    // Spec Felipe (31/07/2026): duas linhas SEPARADAS quando pelo menos um total é fornecido.
+    // Os tributos por fora (IBS/CBS/IS/IPI) NUNCA entram aqui — pertencem às Etapas 13/17.
+    const manual = Number(manualTotal) || 0
+    const desp = Number(despAcessoriasTotal) || 0
+    const hasSeparate = manual > 0 || desp > 0
+    if (hasSeparate) {
+      // Fechamento: manual + desp deve == naoDistribuivel (validado no motor). Diferença de
+      // arredondamento (<R$ 1) é absorvida na última linha exibida; divergência grande → fallback.
+      const diff = naoDistribuivel - (manual + desp)
+      if (Math.abs(diff) < 1) {
+        let manualAdj = manual
+        let despAdj = desp
+        if (desp > 0) despAdj = desp + diff
+        else manualAdj = manual + diff
+        const deductionRows: CascadeStep[] = []
+        if (manual > 0) {
+          deductionRows.push({
+            step: 11,
+            label: '(−) Produtos inseridos manualmente',
+            base: null,
+            rate: null,
+            amount: -manualAdj,
+            formula: 'Produtos inseridos manualmente (repasse puro, imunes ao desconto)',
+            source: 'TOTAL_A_COBRAR',
+          })
+        }
+        if (desp > 0) {
+          deductionRows.push({
+            step: 11,
+            label: '(−) Despesas acessórias',
+            base: null,
+            rate: null,
+            amount: -despAdj,
+            formula: 'Despesas acessórias fixas (frete + seguro + acessórias, imunes ao desconto)',
+            source: 'TOTAL_A_COBRAR',
+          })
+        }
+        return { ...step, children: [vendaConsolidadaRow, ...deductionRows, restChild] }
+      }
+      // Divergência grande → não inventar: cai no fallback agregado abaixo.
+    }
+
+    // Fallback agregado (nenhum total fornecido OU divergência > R$ 1): comportamento anterior.
     return {
       ...step,
       children: [
-        {
-          step: 11,
-          label: 'Venda Consolidada pós-desconto (Total a cobrar)',
-          base: null,
-          rate: null,
-          amount: totalACobrar,
-          formula: 'Total a cobrar do cliente pós-desconto (inclui tributos por fora)',
-          source: 'TOTAL_A_COBRAR',
-        },
+        vendaConsolidadaRow,
         {
           step: 11,
           // Rel. 30/07 desktop #8: nomenclatura corrigida. Esta dedução agregada representa
@@ -364,6 +415,19 @@ export interface ConsolidatedDREBlockProps {
    */
   totalACobrarComDesconto?: number | null
   /**
+   * Spec Felipe (31/07/2026): total dos PRODUTOS INSERIDOS MANUALMENTE (repasse puro,
+   * imune ao desconto). Quando fornecido (junto com `totalACobrarComDesconto`), a dedução da
+   * Etapa 11 é exibida em linha própria "(−) Produtos inseridos manualmente". Fiação lateral
+   * da página (Σ unit_price × quantity dos itens manuais). Default undefined → linha agregada.
+   */
+  manualTotal?: number
+  /**
+   * Spec Felipe (31/07/2026): total das DESPESAS ACESSÓRIAS fixas (frete + seguro + acessórias),
+   * imunes ao desconto. Quando fornecido, a dedução da Etapa 11 exibe linha própria
+   * "(−) Despesas acessórias". Fiação lateral da página. Default undefined → linha agregada.
+   */
+  despAcessoriasTotal?: number
+  /**
    * PC-FEAT-CASCADE-PDF-001: metadados do orçamento para o botão "Gerar PDF" no rodapé da
    * cascata. Quando presente, exibe o botão (após a Etapa 17). Opcional — pedido/venda podem
    * omitir e o botão não aparece.
@@ -376,13 +440,15 @@ export interface ConsolidatedDREBlockProps {
  * aceitos para retrocompatibilidade dos call sites, mas não têm efeito visual.
  */
 export function ConsolidatedDREBlock(props: ConsolidatedDREBlockProps) {
-  const { cascadeTrace = null, totalACobrarComDesconto = null, marginTop = 8, pdfMeta } = props
+  const { cascadeTrace = null, totalACobrarComDesconto = null, manualTotal, despAcessoriasTotal, marginTop = 8, pdfMeta } = props
 
   // Display (19/06/2026): ajusta a linha "Venda Consolidada pós-desconto" (Etapa 11)
   // para refletir o Total a cobrar pós-desconto. Puramente visual — não altera o motor.
+  // Spec Felipe (31/07/2026): quando manual/desp acessórias são fornecidos, a dedução vira
+  // DUAS linhas separadas (senão mantém a linha agregada — fallback).
   const cascadeTraceForDisplay =
     cascadeTrace && totalACobrarComDesconto != null && totalACobrarComDesconto > 0
-      ? applyTotalACobrarToStep11(cascadeTrace, totalACobrarComDesconto)
+      ? applyTotalACobrarToStep11(cascadeTrace, totalACobrarComDesconto, manualTotal, despAcessoriasTotal)
       : cascadeTrace
 
   // REGRA DE INVIOLABILIDADE (doc Cascata RT 14/07, Seção 6): a Memória Cascata deve
