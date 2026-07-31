@@ -182,5 +182,20 @@ describe('Item 7 — produto manual = categoria independente (Relatório 24/07/2
 
       expect(produtoNoMisto!.cascade_trace).toHaveLength(17)
     })
+
+    it('Rel. 31/07: a Base da Etapa 11 NÃO é inflada pelo produto manual (repasse fora do RRO)', () => {
+      // Spec Felipe 31/07: o produto manual é repasse puro e não entra na base do desconto
+      // nem na base distribuível do RRO. A Base da Etapa 11 do cenário misto deve ser
+      // idêntica à do cenário só-produto (o manual não infla essa base); ele aparece apenas
+      // como linha própria de dedução no display, sem alterar o cálculo.
+      const step11Of = (r: MotorResult) => r.cascade_trace.find((s) => Number(s.step) === 11)
+      const [soProduto] = calculateMotorV17ForPage(argsSoProduto)
+      const [produtoNoMisto] = calculateMotorV17ForPage(argsMisto)
+
+      const step11Prod = step11Of(soProduto!)!
+      const step11Mix = step11Of(produtoNoMisto!)!
+      expect(step11Mix.base).toBeCloseTo(Number(step11Prod.base) || 0, 2)
+      expect(hasManualChild(step11Mix)).toBe(true)
+    })
   })
 })

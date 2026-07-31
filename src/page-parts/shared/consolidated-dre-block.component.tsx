@@ -222,7 +222,10 @@ function applyTotalACobrarToStep11(trace: CascadeStep[], totalACobrar: number): 
         },
         {
           step: 11,
-          label: '(−) Tributos por fora + Desp. Acessórias (não distribuíveis)',
+          // Rel. 30/07 desktop #8: nomenclatura corrigida. Esta dedução agregada representa
+          // os produtos inseridos manualmente (repasse puro, imunes ao desconto) somados às
+          // Desp. Acessórias fixas — ambos valores estáticos, não distribuíveis.
+          label: '(−) Produtos inseridos manualmente + Desp. Acessórias (não distribuíveis)',
           base: null,
           rate: null,
           amount: -naoDistribuivel,

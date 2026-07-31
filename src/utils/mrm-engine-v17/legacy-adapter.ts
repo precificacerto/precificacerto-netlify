@@ -266,6 +266,10 @@ function augmentTraceWithManualPassthrough(
     if (n === 11) {
       // Aplicação do desconto: manual aparece abaixo de Desp. Acessórias, imune ao desconto
       // (não altera o amount do desconto — o desconto incide só sobre a operação por dentro).
+      // NÃO somamos manualValue ao `base` do step: o manual é repasse puro e já está FORA
+      // da base do RRO (filtrado antes do motor). A separação/auditoria do manual e das
+      // despesas acessórias é feita em duas linhas próprias no display da Etapa 11
+      // (consolidated-dre-block), conforme spec Felipe 31/07 — não inflando esta base.
       return {
         ...s,
         children: [
