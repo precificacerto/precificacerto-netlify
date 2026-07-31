@@ -739,7 +739,13 @@ export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResul
   // ───── Chama motor V17 ─────
   const v17Input: MotorV17Input = {
     items: engineItems,
-    discount: { pct: Math.max(0, Math.min(1, (globalDiscountPercent || 0) / 100)) },
+    discount: {
+      pct: Math.max(0, Math.min(1, (globalDiscountPercent || 0) / 100)),
+      // Doc 31/07/2026 (oráculo "Aluminio"): produto manual (repasse puro) + Desp. Acessórias
+      // são imunes ao desconto — pagos cheios pelo cliente. O desconto que incidiria sobre eles
+      // é absorvido pela base distribuível. Ver consolidate.ts Etapa 9.
+      discount_immune_base: manualFixedCost + despAcessoriasTotal,
+    },
     policy: tenantCtx.absorption_policy ?? 'RRO_PROPORTIONAL',
     regime: tenantCtx.regime,
     rates: mergedRates,
@@ -1049,15 +1055,22 @@ export function calculateMotorV17ForPageFull(args: PageBuildArgs): {
       }))
     : undefined
 
+  const despAcessoriasTotalFull = outsideItemsFull
+    ? outsideProfilesFull.reduce((s, p) => s + p.desp, 0)
+    : 0
   const consolidated = calculateMotorV17({
     items: engineItems,
-    discount: { pct: Math.max(0, Math.min(1, (args.globalDiscountPercent || 0) / 100)) },
+    discount: {
+      pct: Math.max(0, Math.min(1, (args.globalDiscountPercent || 0) / 100)),
+      // Doc 31/07/2026 (oráculo "Aluminio"): manual + Desp. Acessórias imunes ao desconto.
+      discount_immune_base: manualFixedCostFull + despAcessoriasTotalFull,
+    },
     policy: args.tenantCtx.absorption_policy ?? 'RRO_PROPORTIONAL',
     regime: args.tenantCtx.regime,
     rates: args.tenantCtx.rates ?? [],
     effective_date: args.effectiveDate ?? new Date().toISOString().slice(0, 10),
     use_snapshot_rates: args.tenantCtx.useSnapshotRates ?? false,
-    desp_acessorias: outsideItemsFull ? outsideProfilesFull.reduce((s, p) => s + p.desp, 0) : undefined,
+    desp_acessorias: outsideItemsFull ? despAcessoriasTotalFull : undefined,
     icms_compl_applies: args.icmsComplApplies ?? false,
     icms_compl: args.icmsCompl,
     outside_items: outsideItemsFull,

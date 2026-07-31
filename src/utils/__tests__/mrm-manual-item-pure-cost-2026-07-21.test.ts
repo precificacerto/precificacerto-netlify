@@ -128,15 +128,34 @@ describe('Item 7 — produto manual = categoria independente (Relatório 24/07/2
       globalDiscountPercent: 10,
     }
 
-    it('a cascata do PRODUTO é bit-exact idêntica com e sem o produto manual', () => {
+    // MUDANÇA DE REGRA (Doc 31/07/2026 — oráculo "Aluminio"): o desconto do produto manual
+    // (repasse imune) passa a ser ABSORVIDO pela base distribuível do produto. Antes deste fix
+    // a cascata do produto era bit-exact idêntica com/sem o manual (o desconto só incidia sobre
+    // a operação por dentro). Agora, com desconto 10% e manual R$ 1.000:
+    //   desc_value_produto = 10% × (rb + manual) → +100 em desc (Δdesc = d × manual = 100),
+    //   rv e RRO do produto caem exatamente 100. CP (imune) permanece igual.
+    // Ver src/utils/mrm-engine-v17/consolidate.ts (discount_immune_base) e o oráculo Aluminio.
+    it('o produto ABSORVE o desconto do manual (nova regra): rv/RRO caem d × manual; CP intacto', () => {
       const [soProduto] = calculateMotorV17ForPage(argsSoProduto)
       const [produtoNoMisto] = calculateMotorV17ForPage(argsMisto)
-      expect(produtoNoMisto!.new_commission).toBeCloseTo(soProduto!.new_commission, 6)
-      expect(produtoNoMisto!.new_profit).toBeCloseTo(soProduto!.new_profit, 6)
-      expect(produtoNoMisto!.new_csll).toBeCloseTo(soProduto!.new_csll, 6)
-      expect(produtoNoMisto!.new_irpj).toBeCloseTo(soProduto!.new_irpj, 6)
-      expect(produtoNoMisto!.rro).toBeCloseTo(soProduto!.rro, 6)
+      const d = 0.1
+      const manual = 1000
+      const absorbido = d * manual // 100
+
+      // CP é imune a desconto → idêntico.
       expect(produtoNoMisto!.cp).toBeCloseTo(soProduto!.cp, 6)
+      // Base distribuível bruta (rv) e o desconto do produto mudam EXATAMENTE pelo desconto
+      // absorvido do manual (d × manual = 100): +100 em desc, −100 em rv. Prova direta da absorção.
+      expect(produtoNoMisto!.desc_value).toBeCloseTo(soProduto!.desc_value + absorbido, 6)
+      expect(produtoNoMisto!.rv).toBeCloseTo(soProduto!.rv - absorbido, 6)
+      // RRO cai (âncora menor por peso × absorbido); a queda é positiva e ≤ absorbido bruto
+      // (peso_op_interna ≤ 1). Antes do fix era IDÊNTICO (queda 0).
+      const quedaRro = soProduto!.rro - produtoNoMisto!.rro
+      expect(quedaRro).toBeGreaterThan(0)
+      expect(quedaRro).toBeLessThanOrEqual(absorbido + 1e-6)
+      // Comissão/lucro do produto encolhem (RRO menor redistribuído) — não mais idênticos.
+      expect(produtoNoMisto!.new_commission).toBeLessThan(soProduto!.new_commission)
+      expect(produtoNoMisto!.new_profit).toBeLessThan(soProduto!.new_profit)
     })
 
     it('o produto manual é repasse puro com resíduo 0', () => {

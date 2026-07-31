@@ -156,7 +156,14 @@ export function consolidateItems(
   const peso_op_interna_ponderado = rb_total > 0 ? peso_op_interna_num / rb_total : 1
 
   // ───── PDF Etapa 9: venda consolidada + desconto + Op Interna ─────
-  const desc_value = rb_total * discountFactor
+  // Doc 31/07/2026 (oráculo "Aluminio"): o desconto comercial incide sobre o VALOR TOTAL do
+  // orçamento (produto distribuível + manual + Desp. Acessórias), mas manual e desp são
+  // repasses IMUNES (pagos cheios pelo cliente). O desconto que incidiria sobre eles é
+  // integralmente absorvido pela base distribuível `rb_total`:
+  //   desc_value = d × (rb_total + discount_immune_base); rv_total = rb_total − desc_value.
+  // Quando discount_immune_base = 0 ⇒ desc_value = d × rb_total (BIT-EXACT ao anterior).
+  const discount_immune_base = Math.max(0, safeNum(discount.discount_immune_base))
+  const desc_value = discountFactor * (rb_total + discount_immune_base)
   const rv_total = rb_total - desc_value
   const ancora_interna = rv_total * peso_op_interna_ponderado
 

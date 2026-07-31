@@ -542,6 +542,18 @@ export type AbsorptionPolicy = 'RRO_PROPORTIONAL' | 'COMMISSION_PROTECTED' | 'PR
 export interface DiscountV17 {
   /** Decimal 0..1 (e.g. 0.10 = 10%). */
   pct: number
+  /**
+   * Base IMUNE ao desconto (R$): produtos manuais (repasse puro) + Desp. Acessórias
+   * (frete/seguro contratuais). Doc 31/07/2026 (oráculo "Aluminio"): o desconto comercial
+   * incide sobre o VALOR TOTAL do orçamento (produto + manual + desp), mas manual e desp são
+   * repasses pagos CHEIOS pelo cliente. Logo o desconto que incidiria sobre eles é
+   * INTEGRALMENTE absorvido pela parte distribuível:
+   *   desc_value = pct × (rb_total + discount_immune_base)
+   *   rv_total   = rb_total − desc_value
+   * Quando 0 (sem manual e sem desp) ⇒ desc_value = pct × rb_total (BIT-EXACT ao anterior).
+   * Default 0.
+   */
+  discount_immune_base?: number
 }
 
 /**

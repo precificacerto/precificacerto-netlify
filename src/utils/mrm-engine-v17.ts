@@ -70,7 +70,17 @@ export function calculateMotorV17(input: MotorV17Input): MotorV17Result {
   const despAcess = Math.max(0, Number(input.desp_acessorias) || 0)
   const icmsRate = resolveRateAgg(input.rates, 'ICMS')
   const complFreightInBase = icmsComplHasFreightInBase(input.icms_compl, input.icms_compl_applies)
-  const desp_pool_adjustment = despAcess * d * (1 + (complFreightInBase ? icmsRate : 0))
+  // Doc 31/07/2026 (oráculo "Aluminio"): a absorção do desconto da Desp. Acessória migrou
+  // para `discount.discount_immune_base` na Etapa 9 (consolidate) — a desp entra no valor
+  // imune e o termo base `desp × d` já reduz `rv_total`/âncora ali. Para NÃO dupla-contar,
+  // `desp_pool_adjustment` retém APENAS o excesso do ICMS Complementar (`desp × d × icms`),
+  // que a âncora não capta via rv. Quando a desp está no valor imune, o termo base (o `1×`)
+  // é omitido. Fallback (sem valor imune) preserva o comportamento clássico (Gargalo 3).
+  const despInImmuneBase =
+    Math.max(0, Number(input.discount?.discount_immune_base) || 0) >= despAcess && despAcess > 0
+  const desp_pool_base_term = despInImmuneBase ? 0 : 1
+  const desp_pool_adjustment =
+    despAcess * d * (desp_pool_base_term + (complFreightInBase ? icmsRate : 0))
 
   // ───── Etapa 2: Motor RRO ─────
   const motorResult = applyMotorRRO({
