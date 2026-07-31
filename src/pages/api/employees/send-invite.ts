@@ -2,6 +2,7 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 import { supabaseAdmin } from '@/supabase/admin'
 import { getCallerContext } from '@/lib/get-caller-tenant'
 import { getUserLimitForPlan, type PlanSlug, type RevenueTier } from '@/constants/plans'
+import { sendInviteEmail } from '@/lib/send-invite-email'
 
 const getAppOrigin = () => {
     if (process.env.NEXT_PUBLIC_APP_URL) return process.env.NEXT_PUBLIC_APP_URL
@@ -61,10 +62,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const redirectTo = `${getAppOrigin()}${INVITE_REDIRECT_PATH}`
 
     try {
-        // inviteUserByEmail envia email de CONVITE (não redefinição de senha); link leva para /aceitar-convite
-        const { data: inviteData, error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(
-            email.trim().toLowerCase(),
-            {
+        // Gera o LINK de convite sem depender do e-mail do Supabase Auth (que tem
+        // rate limit de poucos envios/hora e por isso não vinha entregando). O envio
+        // do e-mail é feito logo abaixo pela nossa infra SMTP própria (nodemailer),
+        // a mesma que já entrega contrato e notificações de venda.
+        const { data: inviteData, error: inviteError } = await supabaseAdmin.auth.admin.generateLink({
+            type: 'invite',
+            email: email.trim().toLowerCase(),
+            options: {
                 data: {
                     tenant_id: caller.tenant_id,
                     from_admin_invite: 'true',
@@ -72,8 +77,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                     name: name || '',
                 },
                 redirectTo,
-            }
-        )
+            },
+        })
 
         if (inviteError) {
             const msg = (inviteError.message || '').toLowerCase()
@@ -85,6 +90,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             throw inviteError
         }
 
+        const inviteLink = inviteData?.properties?.action_link || ''
         const userId = inviteData?.user?.id
         if (userId) {
             const normalizedEmail = email.trim().toLowerCase()
@@ -158,9 +164,39 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             }
         }
 
+        // Envia o e-mail de convite pela nossa infra SMTP própria (nodemailer).
+        let emailSent = false
+        if (inviteLink) {
+            const { data: tenantRow } = await supabaseAdmin
+                .from('tenants')
+                .select('name')
+                .eq('id', caller.tenant_id)
+                .single()
+
+            const result = await sendInviteEmail({
+                to: email.trim().toLowerCase(),
+                name: name || '',
+                inviteLink,
+                tenantName: (tenantRow as any)?.name || undefined,
+            })
+            emailSent = result.sent
+        }
+
+        if (emailSent) {
+            return res.status(200).json({
+                success: true,
+                emailSent: true,
+                message: `Convite enviado para ${name || email}. Verifique a caixa de entrada (e o spam).`,
+            })
+        }
+
+        // Fallback: o e-mail não pôde ser enviado (SMTP indisponível ou falha pontual).
+        // Devolve o link do convite para o admin encaminhar manualmente (WhatsApp etc.).
         return res.status(200).json({
             success: true,
-            message: `Convite enviado para ${name || email}. Verifique a caixa de entrada (e o spam).`,
+            emailSent: false,
+            inviteLink,
+            message: 'Cadastro criado, mas não foi possível enviar o e-mail automaticamente. Copie o link de convite abaixo e envie ao funcionário.',
         })
     } catch (error: any) {
         console.error('Send invite error:', error?.message || 'Unknown error')
