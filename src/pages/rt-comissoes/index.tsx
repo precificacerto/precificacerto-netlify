@@ -80,7 +80,10 @@ function KpiRow({ icon, label, value, accent, border, valueColor, iconColor }: {
       <span style={{ fontSize: 18, color: iconColor, display: 'inline-flex', flexShrink: 0 }}>{icon}</span>
       <div style={{ flex: '1 1 auto', minWidth: 0 }}>
         <div style={{ fontSize: 12, color: iconColor, lineHeight: 1.2 }}>{label}</div>
-        <div style={{ fontSize: 'clamp(13px, 4.4vw, 18px)', fontWeight: 700, color: valueColor, whiteSpace: 'normal', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{value}</div>
+        {/* Revisão 03/08 (#8/#11): valor inteiro em UMA linha, sem quebrar no meio do
+            número. Fonte reduz o quanto for preciso (min 9px) e nowrap garante a linha
+            única — a quebra anterior (word-break/overflow-wrap) cortava "R$ 130.220,\n00". */}
+        <div style={{ fontSize: 'clamp(9px, 3.4vw, 18px)', fontWeight: 700, color: valueColor, whiteSpace: 'nowrap', overflow: 'visible', overflowWrap: 'normal', wordBreak: 'keep-all' }}>{value}</div>
       </div>
       <RightOutlined style={{ fontSize: 12, color: iconColor, flexShrink: 0 }} />
     </div>

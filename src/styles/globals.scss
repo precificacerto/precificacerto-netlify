@@ -993,18 +993,24 @@ body {
   color: var(--color-text-primary, #f8fafc);
   margin: 0;
   line-height: 1.25;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  /* Revisão 03/08 (#10 — RT Comissões / Recorrência): título NÃO trunca.
+     Antes: overflow:hidden + ellipsis + nowrap cortava "RT Comissões".
+     Agora quebra em linha natural (sem cortar) e mantém a visibilidade total. */
+  overflow: visible;
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-break: normal;
 }
 .pc-mobile-header-subtitle {
   font-size: 12px;
   color: var(--color-text-secondary, #94a3b8);
   margin: 2px 0 0;
   line-height: 1.3;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  /* Revisão 03/08 (#10): subtítulo quebra em várias linhas em vez de truncar. */
+  overflow: visible;
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-break: normal;
 }
 .pc-mobile-header-actions {
   display: flex;
@@ -2348,10 +2354,17 @@ body {
     gap: 10px !important;
   }
 
-  /* --- KPI card valores: encolhe --- */
+  /* --- KPI card valores: encolhe SEM quebrar no meio do número ---
+     Regra INVIOLÁVEL: o valor monetário aparece INTEIRO em UMA linha.
+     A fonte reduz o quanto for preciso (min 9px) para caber; white-space:nowrap
+     impede a quebra feia no meio dos dígitos (ex.: "R$ 130.220,\n00"). */
   .kpi-card-value,
   [class*="value"][class*="card-kpi"] {
-    font-size: 22px !important;
+    font-size: clamp(9px, 3.4vw, 22px) !important;
+    white-space: nowrap !important;
+    overflow: visible !important;
+    overflow-wrap: normal !important;
+    word-break: keep-all !important;
   }
 
   /* --- Tabs: scroll horizontal --- */
@@ -2364,15 +2377,18 @@ body {
   }
 
   /* --- Statistic do AntD (cards com números grandes) --- */
-  .ant-statistic-content {
-    /* Relatório 30/07 (mobile #1 — RT Comissões, Controle Financeiro, Recorrência):
-       número inteiro SEMPRE visível. Fonte fluida (min 11px) e, como rede de segurança,
-       permite quebra em vez de recortar — nunca ellipsis/overflow escondido. */
-    font-size: clamp(11px, 4.2vw, 20px) !important;
-    white-space: normal !important;
+  .ant-statistic-content,
+  .ant-statistic-content-value {
+    /* Relatório 30/07 → revisão 03/08 (mobile #8/#11 — RT Comissões, Controle
+       Financeiro, Recorrência): número inteiro SEMPRE visível, em UMA linha, sem
+       quebrar no meio dos dígitos. A quebra anterior (word-break/overflow-wrap)
+       cortava "R$ 130.220,\n00" — o cliente considera isso truncamento. Correção:
+       fonte fluida com mínimo bem baixo (9px) + white-space:nowrap para caber inteiro. */
+    font-size: clamp(9px, 3.4vw, 20px) !important;
+    white-space: nowrap !important;
     overflow: visible !important;
-    overflow-wrap: anywhere !important;
-    word-break: break-word !important;
+    overflow-wrap: normal !important;
+    word-break: keep-all !important;
   }
   .ant-statistic-title {
     font-size: 11px !important;
@@ -2563,14 +2579,17 @@ body {
   .ps-labor-row.ps-row-flex {
     align-items: stretch !important;
   }
+  /* Relatório mobile #3: o campo de MINUTOS ocupa no MÁXIMO 50% da largura; o valor (R$)
+     ocupa os outros 50%, alinhado à borda DIREITA (padrão de valores do sistema). */
   .ps-labor-row .ps-labor-fields {
-    flex: 1 1 auto !important;
-    width: auto !important;
+    flex: 0 0 50% !important;
+    max-width: 50% !important;
+    width: 50% !important;
     order: 2;
   }
   .ps-labor-row .ps-labor-value {
-    flex: 0 0 auto !important;
-    width: auto !important;
+    flex: 1 1 50% !important;
+    width: 50% !important;
     order: 3;
     text-align: right !important;
     display: flex;
@@ -2881,6 +2900,23 @@ body {
       overflow-wrap: anywhere !important;
       text-align: center !important;
     }
+
+    /* Revisão 03/08 (#10 — Recorrência / abas "Serviços (Enviados)" e
+       "Produtos (Enviados)"): quando a tabela usa scroll={{ x: N }}, o AntD aplica
+       min-width inline (ex.: 760px) no <table> interno. No estado VAZIO isso obrigava
+       o texto do Empty ("Nenhuma recorrência registrada…") a caber em 760px, gerando
+       SCROLL HORIZONTAL só para ler um bloco de texto. Correção: quando a tabela só
+       contém o placeholder (sem linhas de dados reais), zeramos o min-width para o
+       texto quebrar em várias linhas naturalmente, sem overflow-x. Grades de dados
+       (com linhas) mantêm o scroll horizontal normal. */
+    .ant-table:has(.ant-table-placeholder) .ant-table-content,
+    .ant-table:has(.ant-table-placeholder) .ant-table-body {
+      overflow-x: hidden !important;
+    }
+    .ant-table:has(.ant-table-placeholder) table {
+      min-width: 0 !important;
+      width: 100% !important;
+    }
   }
 
   /* ───────────────────────────────────────────────────────────────────────
@@ -2892,6 +2928,13 @@ body {
   .ant-table-placeholder .ant-empty-description {
     word-break: normal !important;
     overflow-wrap: anywhere !important;
+    /* Revisão 03/08 (#10): garante quebra em múltiplas linhas do texto do Empty
+       (sem herdar nowrap do wrapper de scroll da tabela). */
+    white-space: normal !important;
+  }
+  .ant-table-placeholder .ant-empty,
+  .ant-table-placeholder .ant-empty-normal {
+    max-width: 100% !important;
   }
 }
 
@@ -3003,18 +3046,20 @@ body {
     gap: 2px !important;
   }
   .kpi-card-value {
-    /* Relatório 30/07 (mobile #1 — abolir truncamentos): o valor inteiro deve aparecer
-       SEMPRE, em qualquer tela. Em cards de 2 colunas (estreitos) valores longos como
-       "−R$ 22.404,13" ainda eram cortados pelo overflow:hidden do card. Correção:
-       (1) fonte encolhe mais (min 11px por clamp/vw) para caber por completo;
-       (2) como rede de segurança, permite quebra em vez de esconder — nunca ellipsis. */
-    font-size: clamp(11px, 4.2vw, 20px) !important;
+    /* Relatório 30/07 → revisão 03/08 (mobile #8/#11 — abolir truncamentos E quebras
+       no meio do número): o valor inteiro deve aparecer SEMPRE, em UMA linha.
+       A correção anterior (word-break/overflow-wrap:anywhere) quebrava os dígitos
+       ("R$ 130.220,\n00", "R$ 59.755,0\n0") — o cliente considera isso truncamento.
+       Correção definitiva: fonte encolhe o suficiente (min 9px via clamp/vw) para caber
+       por completo e white-space:nowrap garante linha única. Nunca quebrar no meio.
+       Teste mental "R$ 305.134,28" em card de 2 colunas: cabe reduzindo a fonte. */
+    font-size: clamp(9px, 3.4vw, 20px) !important;
     line-height: 1.2 !important;
-    white-space: normal !important;
+    white-space: nowrap !important;
     overflow: visible !important;
     text-overflow: clip !important;
-    overflow-wrap: anywhere !important;
-    word-break: break-word !important;
+    overflow-wrap: normal !important;
+    word-break: keep-all !important;
   }
   .kpi-card-label {
     font-size: 11px !important;

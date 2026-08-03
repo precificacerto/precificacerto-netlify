@@ -4,8 +4,7 @@ import { Button, Table, message, Alert, Spin } from 'antd'
 import { CurrencyPercentInput } from '@/components/currency-percent-input.component'
 import { Select } from '@/components/ui/app-select.component'
 import { Layout } from '@/components/layout/layout.component'
-import { Months } from '@/components/months/months.component'
-import { Month, MonthObjectType, monthObjects } from '@/constants/month'
+import { Month, monthObjects } from '@/constants/month'
 import { PAGE_TITLES } from '@/constants/page-titles'
 import { PAYMENT_REVENUE_TITLE_TYPE } from '@/constants/payment-revenue-title'
 import { IPaymentRevenueTitleModel } from '@/server/model/payment-revenue-title'
@@ -325,10 +324,6 @@ function Cashier() {
 
   }, [incomeData, expenseData, monthEnum, year])
 
-  function handleChangeMonth(m: MonthObjectType) {
-    router.push(`${ROUTES.CASHIER}/${year}/${m.short}`)
-  }
-
   function handleChangeYearSelect(selectedYear: number) {
     router.push(`${ROUTES.CASHIER}/${selectedYear}/${monthParam}`)
   }
@@ -644,15 +639,15 @@ function Cashier() {
           <div>
             <h1>Caixa de <strong>{monthParam}/{year}</strong></h1>
           </div>
-          {/* Relatório 30/07 (mobile #5): ANO (ano vigente pré-preenchido) e, na MESMA linha à
-              direita, seletor de MÊS — permite ir a meses fora da lista fixa. */}
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flex: isMobile ? '1 1 100%' : '0 0 auto' }}>
-            <Select value={year} onChange={handleChangeYearSelect} style={{ width: isMobile ? undefined : 120, flex: isMobile ? '1 1 0' : undefined, minWidth: 96 }}>
+          {/* Relatório 30/07 (mobile #5) + relatório mobile #1: no mobile, ANO ocupa 50% e
+              MÊS 50% da largura da linha (lado a lado). No desktop mantém larguras fixas. */}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flex: isMobile ? '1 1 100%' : '0 0 auto', width: isMobile ? '100%' : undefined }}>
+            <Select value={year} onChange={handleChangeYearSelect} style={{ width: isMobile ? undefined : 120, flex: isMobile ? '1 1 0' : undefined, minWidth: 0 }}>
               <Select.Option value={previousYear}>{previousYear}</Select.Option>
               <Select.Option value={currentYear}>{currentYear}</Select.Option>
               <Select.Option value={nextYear}>{nextYear}</Select.Option>
             </Select>
-            <Select value={currentMonthShort} onChange={handleChangeMonthSelect} style={{ width: isMobile ? undefined : 150, flex: isMobile ? '1 1 0' : undefined, minWidth: 110 }}>
+            <Select value={currentMonthShort} onChange={handleChangeMonthSelect} style={{ width: isMobile ? undefined : 150, flex: isMobile ? '1 1 0' : undefined, minWidth: 0 }}>
               {Object.values(monthObjects).map((m) => (
                 <Select.Option key={m.short} value={m.short}>{m.full}</Select.Option>
               ))}
@@ -660,7 +655,6 @@ function Cashier() {
           </div>
         </div>
 
-        <Months currentMonth={monthEnum} onChangeMonth={handleChangeMonth} />
         <div style={{ marginTop: 8, padding: '8px 12px', background: 'rgba(96,165,250,0.08)', border: '1px solid rgba(96,165,250,0.2)', borderRadius: 6, fontSize: 12, color: '#93c5fd', textAlign: 'center' }}>
           Qualquer alteração nos lançamentos precisa ser feita dentro do Fluxo de caixa.
         </div>

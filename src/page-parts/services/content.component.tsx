@@ -663,15 +663,16 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
     ]
 
     function pricingRow(label: string, pct: number, val: number, editable?: 'commission' | 'profit' | 'tax' | 'additionalIrpj' | 'pisCofins', tooltipText?: string) {
+        // Relatório mobile #7: estrutura alinhada à de Produtos (referência):
+        // ordem de colunas % | Despesa | Valor, com o MESMO tamanho/fonte de campo em
+        // TODAS as linhas (editável = PercentInput; read-only = span de mesma largura).
         return (
             <tr key={label}>
-                <td style={{ padding: '6px 12px 6px 0', fontSize: 13 }}>
-                    {tooltipText ? <Tooltip title={tooltipText}><span style={{ cursor: 'help' }}>{label}</span></Tooltip> : label}
-                </td>
-                <td style={{ width: 140, padding: '6px 0', textAlign: 'right' }}>
+                <td style={{ width: 140, padding: '6px 0', textAlign: 'left' }}>
                     {editable ? (
                         <PercentInput
                             size="small" min={0} max={100}
+                            showPercent={false}
                             value={pct}
                             onChange={(v) => {
                                 if (editable === 'commission') setCommissionPercent(v ?? 0)
@@ -680,18 +681,22 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                                 if (editable === 'additionalIrpj') setAdditionalIrpjPercent(v ?? 0)
                                 if (editable === 'pisCofins') setPisCofinsLRPct(v ?? 0)
                             }}
-                            style={{ width: 120, fontSize: 13 }}
+                            style={{ width: 110, fontSize: 13 }}
                         />
                     ) : (
                         <span style={{
-                            display: 'inline-block', padding: '4px 12px', background: 'rgba(255,255,255,0.06)',
-                            borderRadius: 4, fontSize: 13, minWidth: 80, textAlign: 'right',
+                            display: 'inline-block', boxSizing: 'border-box', padding: '4px 12px',
+                            background: 'rgba(255,255,255,0.06)', borderRadius: 4, fontSize: 13,
+                            width: 110, textAlign: 'right',
                         }}>
                             {pct.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%
                         </span>
                     )}
                 </td>
-                <td style={{ padding: '6px 0 6px 12px', textAlign: 'right', fontSize: 13, fontWeight: 500 }}>
+                <td style={{ padding: '6px 12px', fontSize: 13 }}>
+                    {tooltipText ? <Tooltip title={tooltipText}><span style={{ cursor: 'help' }}>{label}</span></Tooltip> : label}
+                </td>
+                <td style={{ padding: '6px 0', textAlign: 'right', fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap' }}>
                     R$ {getMonetaryValue(val)}
                 </td>
             </tr>
@@ -977,10 +982,11 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                 <div style={{ background: '#0a1628', borderRadius: 8, padding: 16, border: '1px solid rgba(255,255,255,0.06)' }}>
                     <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0 2px' }}>
                         <thead>
+                            {/* Relatório mobile #7: cabeçalho na ordem de Produtos — Alíquotas | Despesa | Valor */}
                             <tr style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase' as const }}>
-                                <th style={{ textAlign: 'left', padding: '0 12px 8px 0' }}>Despesa</th>
-                                <th style={{ textAlign: 'right', padding: '0 0 8px', width: 140 }}>%</th>
-                                <th style={{ textAlign: 'right', padding: '0 0 8px 12px' }}>Valor (R$)</th>
+                                <th style={{ textAlign: 'left', padding: '0 0 8px', width: 140 }}>Alíquotas</th>
+                                <th style={{ textAlign: 'left', padding: '0 12px 8px' }}>Despesa</th>
+                                <th style={{ textAlign: 'right', padding: '0 0 8px', whiteSpace: 'nowrap' }}>Valor (R$)</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -1027,16 +1033,24 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
 
                     <Divider style={{ margin: '12px 0' }} />
 
-                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 13 }}>
-                        <span style={{ color: '#94a3b8' }}>Margem de contribuição total aplicada</span>
-                        <span style={{ fontWeight: 600 }}>{(100 - pricing.totalPct).toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%</span>
+                    {/* Relatório mobile #5/#7: estrutura alinhada à de Produtos (referência).
+                        Rótulo + % na MESMA linha; linha seguinte "Valor do produto precificado"
+                        com valor à direita; abaixo, a nota "(operação por dentro...)". */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', fontSize: 13 }}>
+                        <span style={{ color: '#94a3b8' }}>Margem de contribuição aplicada</span>
+                        <span style={{ fontWeight: 600, textAlign: 'right', whiteSpace: 'nowrap' }}>{(100 - pricing.totalPct).toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%</span>
                     </div>
 
                     {(isLucroRealDisplay || isLucroPresumidoDisplay) && (
-                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 12, marginTop: 4 }}>
-                            <span style={{ color: '#64748b' }}>Valor do produto precificado com ICMS, PIS/COFINS</span>
-                            <span style={{ fontWeight: 600, color: '#e2e8f0' }}>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 }).format(pricing.valorPrecificado)}</span>
-                        </div>
+                        <>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', fontSize: 13, marginTop: 4 }}>
+                                <span style={{ color: '#94a3b8' }}>Valor do produto precificado</span>
+                                <span style={{ fontWeight: 600, color: '#e2e8f0', textAlign: 'right', whiteSpace: 'nowrap' }}>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 }).format(pricing.valorPrecificado)}</span>
+                            </div>
+                            <div style={{ fontSize: 11, color: '#64748b', padding: '0 0 4px' }}>
+                                (operação por dentro, com ICMS, PIS e Cofins)
+                            </div>
+                        </>
                     )}
 
                     {/* Fator de redução IVA DUAL */}
@@ -1096,31 +1110,55 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                             { label: 'IS — Imposto Seletivo (%)', value: isPct, setter: setIsPct, taxValue: _isVal },
                             { label: 'IPI (%)', value: ipiPct, setter: setIpiPct, taxValue: _ipiVal },
                         ] as { label: string; value: number; setter: (v: number) => void; taxValue: number }[]
-                        const renderRow = ({ label, value, setter, taxValue }: { label: string; value: number; setter: (v: number) => void; taxValue: number }) => (
-                            <tr key={label}>
-                                <td style={{ fontSize: 13, color: '#cbd5e1', paddingRight: 12, paddingTop: 4, paddingBottom: 4 }}>{label}</td>
-                                <td style={{ textAlign: 'right', whiteSpace: 'nowrap' as const }}>
-                                    <PercentInput
-                                        size="small" min={0} max={100}
-                                        value={value}
-                                        onChange={(v) => setter(v ?? 0)}
-                                        style={{ width: 120, fontSize: 13 }}
-                                    />
-                                    <span style={{ marginLeft: 10, fontSize: 12, color: taxValue > 0 ? '#4ade80' : '#64748b', minWidth: 80, display: 'inline-block', textAlign: 'right' }}>
+                        // Relatório mobile #6/#7: layout de 2 LINHAS por imposto, igual a Produtos.
+                        // L1 = campo de % (esq., largura fixa 110) [+ fator (centro) + efetiva (dir.)
+                        //      apenas em IBS/CBS]; L2 = valor R$ resultante (borda direita).
+                        const fmtPct = (n: number) =>
+                            n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 3 }) + '%'
+                        const hasReductionFactor =
+                            ivaDualReductionFactor != null && Number(ivaDualReductionFactor) > 0
+                        const renderRow = (
+                            { label, value, setter, taxValue }: { label: string; value: number; setter: (v: number) => void; taxValue: number },
+                            withFactor: boolean,
+                        ) => {
+                            const effective = withFactor && hasReductionFactor && value > 0
+                                ? (resolveIvaDualEffectiveRate(value, ivaDualReductionFactor) || 0)
+                                : null
+                            return (
+                                <div key={label} style={{ padding: '6px 0', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                                    <div style={{ fontSize: 13, color: '#cbd5e1', marginBottom: 4 }}>{label}</div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                                        <PercentInput
+                                            size="small" min={0} max={100}
+                                            showPercent={false}
+                                            value={value}
+                                            onChange={(v) => setter(v ?? 0)}
+                                            style={{ width: 110, fontSize: 13, flex: '0 0 auto' }}
+                                        />
+                                        {effective != null && (
+                                            <>
+                                                <span style={{ fontSize: 11, color: '#94a3b8', textAlign: 'center' as const, flex: '1 1 auto' }}>
+                                                    fator {Number(ivaDualReductionFactor)}%
+                                                </span>
+                                                <span style={{ fontSize: 11, color: '#4ade80', fontWeight: 600, textAlign: 'right' as const, whiteSpace: 'nowrap', flex: '0 0 auto' }}>
+                                                    efetiva {fmtPct(effective)}
+                                                </span>
+                                            </>
+                                        )}
+                                    </div>
+                                    <div style={{ textAlign: 'right' as const, fontSize: 12, fontWeight: 600, color: taxValue > 0 ? '#4ade80' : '#64748b', marginTop: 4 }}>
                                         {fmt(taxValue)}
-                                    </span>
-                                </td>
-                            </tr>
-                        )
+                                    </div>
+                                </div>
+                            )
+                        }
                         return (
                             <>
                                 <div style={{ marginTop: 14, background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '12px 14px', border: '1px solid rgba(255,255,255,0.07)' }}>
                                     <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' as const, letterSpacing: 0.6, marginBottom: 10 }}>
                                         Impostos (IBS / CBS)
                                     </div>
-                                    <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0 4px' }}>
-                                        <tbody>{ibsCbsRows.map(renderRow)}</tbody>
-                                    </table>
+                                    {ibsCbsRows.map((r) => renderRow(r, true))}
                                 </div>
 
                                 {!isSHDisplay && (
@@ -1128,9 +1166,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                                     <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' as const, letterSpacing: 0.6, marginBottom: 10 }}>
                                         Impostos (IS / IPI)
                                     </div>
-                                    <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0 4px' }}>
-                                        <tbody>{isIpiRows.map(renderRow)}</tbody>
-                                    </table>
+                                    {isIpiRows.map((r) => renderRow(r, false))}
                                 </div>
                                 )}
 

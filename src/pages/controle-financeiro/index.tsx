@@ -806,22 +806,19 @@ export default function ControleFinanceiro() {
         <Layout title={PAGE_TITLES.FINANCIAL_CONTROL} subtitle="Gestão de lançamentos financeiros">
             {contextHolder}
 
-            <div className="pc-card" style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            {/* Relatório #11: removido botão "Atualizar" e o botão "Gerar Contas do Mês"
+                do cabeçalho. O filtro Todos/Receitas/Despesas fica na MESMA linha do seletor
+                de mês, encostado na borda direita (marginLeft: auto). */}
+            <div className="pc-card" style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 <Space>
                     <CalendarOutlined style={{ fontSize: 18, color: '#94a3b8' }} />
                     <DatePicker picker="month" value={month} onChange={(d) => d && setMonth(d)} allowClear={false} format="MMMM YYYY" />
-                    <Button icon={<SyncOutlined />} onClick={() => fetchData()}>Atualizar</Button>
-                    <Radio.Group value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} optionType="button" buttonStyle="solid" size="small">
-                        <Radio.Button value="ALL">Todos</Radio.Button>
-                        <Radio.Button value="INCOME">Receitas</Radio.Button>
-                        <Radio.Button value="EXPENSE">Despesas</Radio.Button>
-                    </Radio.Group>
                 </Space>
-                <Space>
-                    {canEdit(MODULES.CASH_FLOW) && (
-                        <Button icon={<SyncOutlined />} onClick={handleGenerateRecurring}>Gerar Contas do Mês (Fixas/Salários)</Button>
-                    )}
-                </Space>
+                <Radio.Group value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} optionType="button" buttonStyle="solid" size="small" style={{ marginLeft: 'auto' }}>
+                    <Radio.Button value="ALL">Todos</Radio.Button>
+                    <Radio.Button value="INCOME">Receitas</Radio.Button>
+                    <Radio.Button value="EXPENSE">Despesas</Radio.Button>
+                </Radio.Group>
             </div>
 
             <div className="kpi-grid">

@@ -1013,20 +1013,44 @@ function Products() {
             onChange={v => setTableFilter(v || null)}
             options={commissionTables.map(t => ({ value: t.id, label: t.name }))}
           />
-          {tableFilter && commissionTables.find(t => t.id === tableFilter) && (
-            <Tooltip title="Editar nome da tabela">
-              <Button
-                icon={<EditOutlined />}
-                size="small"
-                onClick={() => {
-                  const t = commissionTables.find(x => x.id === tableFilter)
-                  if (t) handleOpenEditTable(t.id, t.name)
-                }}
-              />
-            </Tooltip>
+          {canEdit(MODULES.PRODUCTS) && (
+            <Dropdown
+              trigger={['click']}
+              menu={{
+                items: [
+                  {
+                    key: 'edit',
+                    label: 'Editar',
+                    icon: <EditOutlined />,
+                    disabled: !(tableFilter && commissionTables.find(t => t.id === tableFilter)),
+                    onClick: () => {
+                      const t = commissionTables.find(x => x.id === tableFilter)
+                      if (t) handleOpenEditTable(t.id, t.name)
+                    },
+                  },
+                  {
+                    key: 'create',
+                    label: 'Criar',
+                    icon: <PlusOutlined />,
+                    onClick: () => setTableModalOpen(true),
+                  },
+                ],
+              }}
+            >
+              <Button icon={<MoreOutlined />} size="small" />
+            </Dropdown>
           )}
         </div>
-        <Space>
+        {/* Relatório mobile #2: no mobile, "Criar Tabela", "Criar Seção" e "Adicionar produto"
+            ficam TODOS na mesma linha, com "Adicionar produto" encostado na borda direita. */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            ...(isMobile ? { width: '100%', flexWrap: 'nowrap' as const } : {}),
+          }}
+        >
           {canEdit(MODULES.PRODUCTS) && (
             <>
               {data.some(p => p.needs_cost_update) && (
@@ -1057,6 +1081,7 @@ function Products() {
               <Button
                 type="primary"
                 icon={<PlusOutlined />}
+                style={isMobile ? { marginLeft: 'auto' } : undefined}
                 onClick={() => {
                   if (commissionTablesLoaded && commissionTables.length === 0) {
                     message.warning('Crie uma Tabela de Comissão antes de adicionar produtos.')
@@ -1069,7 +1094,7 @@ function Products() {
               </Button>
             </>
           )}
-        </Space>
+        </div>
       </div>
 
       {/* Sections Modal */}

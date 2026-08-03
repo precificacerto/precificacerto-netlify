@@ -159,8 +159,10 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
         {isMobile ? (
           <section className="p-1 mt-3">
             <div style={{ fontWeight: 500, marginBottom: 6 }}>Mão de obra produtiva</div>
+            {/* Relatório mobile #3: o campo de MINUTOS ocupa no MÁXIMO 50% da largura; o valor
+                (R$) ocupa os outros 50%, alinhado à borda DIREITA (padrão de valores do sistema). */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div style={{ flex: '1 1 auto', minWidth: 0 }}>
+              <div style={{ flex: '0 0 50%', maxWidth: '50%', minWidth: 0 }}>
                 <Input
                   name="productWorkloadInMinutes"
                   placeholder="Inserir manualmente"
@@ -174,7 +176,7 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
                   value={productPriceInfo.productWorkloadInMinutes}
                 />
               </div>
-              <div style={{ flex: '0 0 auto', textAlign: 'right', whiteSpace: 'nowrap', fontWeight: 600 }}>
+              <div style={{ flex: '1 1 50%', textAlign: 'right', whiteSpace: 'nowrap', fontWeight: 600 }}>
                 R$ {getMonetaryValue(productPriceInfo.productWorkloadInMinutesPrice)}
               </div>
             </div>
