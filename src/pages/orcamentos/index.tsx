@@ -3067,7 +3067,9 @@ function Budgets() {
                             cascadeTrace={epicV5DisplayData.cascadeTrace}
                             pesoOpInterna={epicV5DisplayData.pesoOpInterna}
                             ancoraInterna={epicV5DisplayData.ancoraInterna}
-                            totalACobrarComDesconto={globalDiscountPercent > 0 ? budgetTotalACobrar : null}
+                            /* Doc PO 31/07 (item 15): a hierarquia da Etapa 11 (abater produto manual →
+                               despesas acessórias → Restante distribuível) vale SEMPRE, com ou sem desconto. */
+                            totalACobrarComDesconto={budgetTotalACobrar > 0 ? budgetTotalACobrar : null}
                             manualTotal={manualTotal}
                             despAcessoriasTotal={despAcessoriasTotal}
                             pdfMeta={{

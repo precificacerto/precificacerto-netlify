@@ -2284,28 +2284,47 @@ function SalesReport() {
                 <Tabs
                     activeKey={activeTab}
                     onChange={(k) => setActiveTab(k as 'RECEIVABLES' | 'COMMISSIONS' | 'RT_COMMISSIONS' | 'PRODUCTS' | 'SERVICES')}
-                    items={[
-                        {
-                            key: 'RECEIVABLES',
-                            label: (
-                                <span><ClockCircleOutlined style={{ marginRight: 6 }} />Recebimento / Lançamentos Futuros</span>
-                            ),
-                        },
-                        // Abas "Relatório de Comissões" e "RT Comissões" removidas (Rel. 30/07 desktop #3):
-                        // já possuem cards/sessões próprias no menu Comercial — redundantes aqui.
-                        {
-                            key: 'PRODUCTS',
-                            label: (
-                                <span><ShoppingOutlined style={{ marginRight: 6 }} />Curva ABC - Produtos</span>
-                            ),
-                        },
-                        ...(!isRevenda ? [{
-                            key: 'SERVICES',
-                            label: (
-                                <span><CustomerServiceOutlined style={{ marginRight: 6 }} />Curva ABC - Serviços</span>
-                            ),
-                        }] : []),
-                    ]}
+                    items={
+                        // Doc PO 31/07 (item 14): quando aberto via menu "Relatório de Comissões"
+                        // (?tab=COMMISSIONS/RT_COMMISSIONS), esta tela funciona como Relatório de
+                        // Comissões — exibe as abas de comissão. No acesso normal (Relatório de
+                        // Vendas) mantém só as abas de vendas (Rel. 30/07 #3, sem comissões).
+                        (activeTab === 'COMMISSIONS' || activeTab === 'RT_COMMISSIONS')
+                            ? [
+                                {
+                                    key: 'COMMISSIONS',
+                                    label: (
+                                        <span><TeamOutlined style={{ marginRight: 6 }} />Relatório de Comissões</span>
+                                    ),
+                                },
+                                {
+                                    key: 'RT_COMMISSIONS',
+                                    label: (
+                                        <span><TeamOutlined style={{ marginRight: 6 }} />RT Comissões</span>
+                                    ),
+                                },
+                            ]
+                            : [
+                                {
+                                    key: 'RECEIVABLES',
+                                    label: (
+                                        <span><ClockCircleOutlined style={{ marginRight: 6 }} />Recebimento / Lançamentos Futuros</span>
+                                    ),
+                                },
+                                {
+                                    key: 'PRODUCTS',
+                                    label: (
+                                        <span><ShoppingOutlined style={{ marginRight: 6 }} />Curva ABC - Produtos</span>
+                                    ),
+                                },
+                                ...(!isRevenda ? [{
+                                    key: 'SERVICES',
+                                    label: (
+                                        <span><CustomerServiceOutlined style={{ marginRight: 6 }} />Curva ABC - Serviços</span>
+                                    ),
+                                }] : []),
+                            ]
+                    }
                 />
 
                 {activeTab === 'RECEIVABLES' ? (

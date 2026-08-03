@@ -2857,7 +2857,8 @@ function Sales() {
                             cascadeTrace={balcaoEpicV5DisplayData.cascadeTrace}
                             pesoOpInterna={balcaoEpicV5DisplayData.pesoOpInterna}
                             ancoraInterna={balcaoEpicV5DisplayData.ancoraInterna}
-                            totalACobrarComDesconto={globalDiscountPercentV > 0 ? balcaoTotalACobrar : null}
+                            /* Doc PO 31/07 (item 15): hierarquia da Etapa 11 vale SEMPRE (com/sem desconto). */
+                            totalACobrarComDesconto={balcaoTotalACobrar > 0 ? balcaoTotalACobrar : null}
                             manualTotal={balcaoManualTotal}
                             despAcessoriasTotal={balcaoDespAcessoriasTotal}
                         />
