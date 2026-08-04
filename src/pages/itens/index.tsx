@@ -370,6 +370,36 @@ function Items() {
     setRenewDrawerOpen(true)
   }
 
+  // Relatório de quantidades: nome, quantidade (estoque), custo bruto e custo líquido por item.
+  // Reutiliza o utilitário genérico de exportação (jsPDF) usado nas demais telas de relatório.
+  const handleExportQuantityReport = async () => {
+    if (filteredData.length === 0) {
+      messageApi.warning('Nenhum item para gerar o relatório.')
+      return
+    }
+    const generatedAt = new Date().toLocaleString('pt-BR')
+    const rows = filteredData.map((item) => {
+      const qty = stockMap[item.id]
+      return [
+        item.name,
+        qty !== undefined ? `${qty} ${qty === 1 ? 'unidade' : 'unidades'}` : '—',
+        `R$ ${getMonetaryValue(item.cost_gross)}`,
+        `R$ ${getMonetaryValue(item.cost_net)}`,
+      ]
+    })
+    const { exportTableToPdf } = await import('@/utils/export-generic-pdf')
+    exportTableToPdf({
+      title: 'Relatório de quantidades',
+      subtitle: `${filteredData.length} itens — Gerado em ${generatedAt}`,
+      headers: ['Item', 'Quantidade', 'Custo bruto', 'Custo líquido'],
+      rows,
+      filename: `relatorio-quantidades-${new Date().toISOString().slice(0, 10)}.pdf`,
+      orientation: 'portrait',
+      columnStyles: { 1: { halign: 'center' }, 2: { halign: 'right' }, 3: { halign: 'right' } },
+    })
+    messageApi.success('Relatório de quantidades gerado!')
+  }
+
   const closeRenewDrawer = () => {
     setRenewDrawerOpen(false)
     renewForm.resetFields()
@@ -1173,38 +1203,50 @@ function Items() {
       {contextHolder}
 
       <div className="pc-card--table">
-        <div className="filter-bar">
-          <Input
-            placeholder="Buscar item pelo nome..."
-            prefix={<SearchOutlined />}
-            onChange={e => handleSearch(e.target.value)}
-            style={{ maxWidth: 320 }}
-            allowClear
-          />
-          <div style={{ flex: 1 }} />
-          {/* Doc 28/07 (item 37): no mobile, "Adicionar item" ocupa a largura total (chega à
-              borda direita). Space full-width com botão block. */}
-          <Space size="middle" style={isMobile ? { width: '100%' } : undefined} direction={isMobile ? 'vertical' : 'horizontal'}>
-            {canEdit(MODULES.ITEMS) && (
-              <>
-                <Button
-                  block={isMobile}
-                  onClick={openRenewDrawer}
-                  style={{
-                    background: '#FEF08A',
-                    borderColor: '#FDE047',
-                    color: '#854D0E',
-                  }}
-                >
-                  + Renovar quantidade
-                </Button>
-                <Button block={isMobile} type="primary" icon={<PlusOutlined />} onClick={handleAddItem}>
-                  Adicionar item
-                </Button>
-              </>
-            )}
-          </Space>
-        </div>
+        {/* Botão VERDE "Adicionar item" no topo, acima do campo de busca (desktop e mobile). */}
+        {canEdit(MODULES.ITEMS) && (
+          <div style={{ marginBottom: 12 }}>
+            <Button
+              block
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={handleAddItem}
+              style={{ background: '#16A34A', borderColor: '#15803D' }}
+            >
+              Adicionar item
+            </Button>
+          </div>
+        )}
+
+        <Input
+          placeholder="Buscar item pelo nome..."
+          prefix={<SearchOutlined />}
+          onChange={e => handleSearch(e.target.value)}
+          style={{ marginBottom: 12 }}
+          allowClear
+        />
+
+        {/* Abaixo da busca: "Renovar quantidade" (esq.) e "Relatório de quantidades" (dir.),
+            cada um com 50% da largura, tanto no desktop quanto no mobile. */}
+        {canEdit(MODULES.ITEMS) && (
+          <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
+            <Button
+              block
+              onClick={openRenewDrawer}
+              style={{
+                flex: 1,
+                background: '#FEF08A',
+                borderColor: '#FDE047',
+                color: '#854D0E',
+              }}
+            >
+              + Renovar quantidade
+            </Button>
+            <Button block onClick={handleExportQuantityReport} style={{ flex: 1 }}>
+              Relatório de quantidades
+            </Button>
+          </div>
+        )}
 
         {isLoading ? (
           <div style={{ textAlign: 'center', padding: 60 }}><Spin size="large" /></div>

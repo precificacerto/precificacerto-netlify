@@ -59,6 +59,11 @@ interface Props {
   advancedTaxesSection?: ReactNode
   /* EPIC-POR-FORA-V3: parâmetros ICMS-ST/DIFAL/FCP para somar (apenas EXIBIÇÃO) ao preço final ao cliente. */
   advancedTaxParams?: AdvancedTaxParams
+  /* ITEM 1.5: quando TRUE (produto PRODUZIDO/receita), o "Preço de Venda por Unidade", o
+     lucro líquido e o valor gravado como sale_price são FRACIONADOS pela Quantidade de
+     produção (ex.: R$ 150,00 ÷ 2,5 = R$ 60,00/kg). Para produtos de REVENDA (onde a
+     quantidade é estoque, não rendimento) fica FALSE — o valor não é dividido. */
+  fractionByYield?: boolean
 }
 
 export const ProductPrice: FC<Props> = ({
@@ -93,6 +98,7 @@ export const ProductPrice: FC<Props> = ({
   advancedTaxesSection,
   advancedTaxParams,
   ivaDualReductionFactor = null,
+  fractionByYield = false,
 }: Props) => {
   const { isMobile } = useDevice()
   const isCalcTypeResale = currentUser?.calcType === CALC_TYPE_ENUM.RESALE
@@ -126,6 +132,9 @@ export const ProductPrice: FC<Props> = ({
 
   const yieldQty = Number(productForm.getFieldValue('quantity')) || 1
   const unit = productForm.getFieldValue('unitType')
+  // ITEM 1.5: divisor de fracionamento pela Quantidade de produção. Só quando o produto é
+  // PRODUZIDO (fractionByYield). Se quantidade = 1 (ou revenda), divisor = 1 (1:1).
+  const yieldDivisor = fractionByYield && yieldQty > 0 ? yieldQty : 1
   const pricePerUnit = totalPrice
   const priceRecipeTotal = totalPrice * yieldQty
 
@@ -223,9 +232,20 @@ export const ProductPrice: FC<Props> = ({
   const advancedOutsideTotal = _adv.total
   const finalPriceToCustomer = finalPriceWithTaxes + advancedOutsideTotal
 
+  // ITEM 1.5: valores FRACIONADOS pela Quantidade de produção (÷ yieldDivisor). São o que a
+  // tela exibe como "Preço de Venda por Unidade" e o que é emitido para gravar em sale_price.
+  const finalPriceWithTaxesPerUnit = finalPriceWithTaxes / yieldDivisor
+  const finalSalePricePerUnit = finalSalePrice / yieldDivisor
+  const finalPriceToCustomerPerUnit = finalPriceToCustomer / yieldDivisor
+  const advancedOutsidePerUnit = advancedOutsideTotal / yieldDivisor
+  const profitValPerUnit = profitValDisplay / yieldDivisor
+  const unitSuffix = unit ? `/${unit}` : ''
+
   useEffect(() => {
-    if (finalPriceWithTaxes > 0) onFinalPriceWithTaxesChange?.({ finalPrice: finalPriceWithTaxes, basePrice: finalSalePrice })
-  }, [finalPriceWithTaxes, finalSalePrice, onFinalPriceWithTaxesChange])
+    // Emite os valores JÁ fracionados por unidade: sale_price e as bases dos snapshots
+    // (IBS/CBS/IS/IPI) no content.component derivam desses valores por unidade.
+    if (finalPriceWithTaxesPerUnit > 0) onFinalPriceWithTaxesChange?.({ finalPrice: finalPriceWithTaxesPerUnit, basePrice: finalSalePricePerUnit })
+  }, [finalPriceWithTaxesPerUnit, finalSalePricePerUnit, onFinalPriceWithTaxesChange])
 
   const fireChange = (name: string, value: number) => {
     handleChangePrecificationInputs({
@@ -270,14 +290,17 @@ export const ProductPrice: FC<Props> = ({
             />
           ) : (
             <Tooltip title={tooltipText || 'Calculado automaticamente a partir do fluxo de caixa. Altere em Configurações > Custos.'}>
-              {/* Relatório mobile #4: padronização de fonte/tamanho dos campos de %. O span
-                  read-only usa a MESMA largura e fonte do PercentInput editável (88px mobile /
-                  110px desktop, fonte 12/13), para que TODAS as linhas fiquem idênticas. */}
+              {/* Relatório mobile #4 + ITEM 2.5: padronização de fonte/tamanho/alinhamento dos
+                  campos de %. O span read-only usa a MESMA largura e fonte do PercentInput
+                  editável (88px mobile / 110px desktop, fonte 12/13) E o MESMO alinhamento à
+                  ESQUERDA (borda esquerda) — os PercentInput são left-aligned por padrão — para
+                  que TODAS as alíquotas (MO admin, despesas, RT, comissão, lucro, IRPJ, CSLL,
+                  adicional, ICMS, PIS/Cofins) fiquem visualmente idênticas. Até 3 casas decimais. */}
               <span style={{
                 display: 'inline-block', boxSizing: 'border-box',
                 padding: isMobile ? '4px 6px' : '4px 12px', background: 'rgba(255,255,255,0.04)',
                 borderRadius: 4, fontSize: isMobile ? 12 : 13,
-                width: isMobile ? 88 : 110, textAlign: 'right',
+                width: isMobile ? 88 : 110, textAlign: 'left',
                 cursor: 'help',
               }}>
                 {pct.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%
@@ -597,9 +620,10 @@ export const ProductPrice: FC<Props> = ({
                 destaque apenas o "Preço de venda por unidade". */}
             {!isMobile && (
               <div>
-                <div style={{ fontSize: 11, color: '#94a3b8' }}>Lucro líquido</div>
-                <div style={{ fontSize: 20, fontWeight: 700, color: profitValDisplay >= 0 ? '#027A48' : '#B42318' }}>
-                  {fmt(profitValDisplay)}
+                {/* ITEM 1.5: lucro líquido reflete o valor JÁ dividido por unidade de produção. */}
+                <div style={{ fontSize: 11, color: '#94a3b8' }}>Lucro líquido{yieldDivisor > 1 ? ` (por ${unit || 'un'})` : ''}</div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: profitValPerUnit >= 0 ? '#027A48' : '#B42318' }}>
+                  {fmt(profitValPerUnit)}
                 </div>
                 {finalSalePrice > 0 && (
                   <div style={{ fontSize: 11, color: '#94a3b8' }}>
@@ -609,23 +633,24 @@ export const ProductPrice: FC<Props> = ({
               </div>
             )}
             <div style={{ textAlign: isMobile ? 'center' : 'right' }}>
-              <Tooltip title="Valor do produto precificado (com ICMS/PIS/COFINS) + Atividades Terceirizadas + Impostos IBS/CBS + Impostos IS/IPI.">
+              <Tooltip title="Valor do produto precificado (com ICMS/PIS/COFINS) + Atividades Terceirizadas + Impostos IBS/CBS + Impostos IS/IPI, dividido pela Quantidade de produção.">
                 <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 2, textTransform: 'uppercase' as const, letterSpacing: 0.5, cursor: 'help' }}>
                   Preço de Venda por Unidade
                 </div>
               </Tooltip>
-              <div style={{ fontSize: 28, fontWeight: 800, color: finalPriceWithTaxes > 0 ? '#027A48' : '#B42318' }}>
-                {fmt(finalPriceWithTaxes)}
+              {/* ITEM 1.5: valor fracionado pela Quantidade de produção, com sufixo da Unidade de Medida (ex.: R$ 60,00/kg). */}
+              <div style={{ fontSize: 28, fontWeight: 800, color: finalPriceWithTaxesPerUnit > 0 ? '#027A48' : '#B42318' }}>
+                {fmt(finalPriceWithTaxesPerUnit)}{unitSuffix}
               </div>
               {/* EPIC-POR-FORA-V3: ICMS-ST/DIFAL/FCP somados ao preço final ao cliente (exibição) */}
               {advancedOutsideTotal > 0 && (
                 <div style={{ marginTop: 4, paddingTop: 4, borderTop: '1px dashed #6CE9A6' }}>
                   <div style={{ fontSize: 11, color: '#94a3b8' }}>
-                    + Tributos adicionais (ICMS-ST/DIFAL/FCP): {fmt(advancedOutsideTotal)}
+                    + Tributos adicionais (ICMS-ST/DIFAL/FCP): {fmt(advancedOutsidePerUnit)}{unitSuffix}
                   </div>
                   <Tooltip title="Tributos 'por fora' (ICMS-ST/DIFAL/FCP) somados ao preço de venda. Não alteram o cálculo de lucro/desconto/comissão — são cobrados adicionalmente do cliente.">
                     <div style={{ fontSize: 15, fontWeight: 800, color: '#027A48', cursor: 'help' }}>
-                      Preço final ao cliente: {fmt(finalPriceToCustomer)}
+                      Preço final ao cliente: {fmt(finalPriceToCustomerPerUnit)}{unitSuffix}
                     </div>
                   </Tooltip>
                 </div>
@@ -637,7 +662,8 @@ export const ProductPrice: FC<Props> = ({
               )}
               {yieldQty > 1 && (
                 <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>
-                  Total receita ({yieldQty} {unit || 'UN'}): {fmt(finalPriceWithTaxes * yieldQty)}
+                  {/* ITEM 1.5: total da produção = preço por unidade × quantidade de produção. */}
+                  Total receita ({yieldQty} {unit || 'UN'}): {fmt(finalPriceWithTaxesPerUnit * yieldQty)}
                 </div>
               )}
             </div>

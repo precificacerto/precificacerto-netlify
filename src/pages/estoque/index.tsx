@@ -631,6 +631,33 @@ function Stock() {
     // Use appropriate columns based on active tab
     const columns = activeTab === 'PRODUCT' ? productColumns : itemColumns
 
+    // Relatório de produtos (aba Produtos Acabados): nome, valor unitário, quantidade e valor total.
+    // Reutiliza o utilitário genérico de exportação (jsPDF) usado nas demais telas de relatório.
+    const handleExportProductsReport = async () => {
+        if (filteredData.length === 0) {
+            messageApi.warning('Nenhum produto para gerar o relatório.')
+            return
+        }
+        const generatedAt = new Date().toLocaleString('pt-BR')
+        const rows = filteredData.map((p) => [
+            p.name,
+            formatCurrency(p.salePrice),
+            `${p.currentQty} ${p.unit}`,
+            formatCurrency(p.salePrice * p.currentQty),
+        ])
+        const { exportTableToPdf } = await import('@/utils/export-generic-pdf')
+        exportTableToPdf({
+            title: 'Relatório de produtos',
+            subtitle: `${filteredData.length} produtos — Gerado em ${generatedAt}`,
+            headers: ['Produto', 'Valor unitário', 'Quantidade', 'Valor total'],
+            rows,
+            filename: `relatorio-produtos-${new Date().toISOString().slice(0, 10)}.pdf`,
+            orientation: 'portrait',
+            columnStyles: { 1: { halign: 'right' }, 2: { halign: 'center' }, 3: { halign: 'right' } },
+        })
+        messageApi.success('Relatório de produtos gerado!')
+    }
+
     function handleMovement(record: StockRow) {
         setSelectedItem(record)
         movementForm.resetFields()
@@ -912,18 +939,37 @@ function Stock() {
                             prefix={<SearchOutlined />}
                             value={searchText}
                             onChange={(e) => setSearchText(e.target.value)}
-                            style={{ maxWidth: 360 }}
+                            style={{ maxWidth: 360, flex: '1 1 100%' }}
                             allowClear
                         />
-                        <Select
-                            value={stockFilter}
-                            onChange={setStockFilter}
-                            style={{ minWidth: 180 }}
-                            options={[
-                                { value: 'all', label: 'Todos' },
-                                { value: 'below', label: 'Apenas abaixo do estoque' },
-                            ]}
-                        />
+                        {activeTab === 'PRODUCT' ? (
+                            /* Item 2.7: seletor "Todos" ocupa 50% (esquerda) e, na mesma linha,
+                               botão "Relatório de produtos" ocupa 50% (direita). */
+                            <div style={{ display: 'flex', gap: 12, width: '100%' }}>
+                                <Select
+                                    value={stockFilter}
+                                    onChange={setStockFilter}
+                                    style={{ flex: 1 }}
+                                    options={[
+                                        { value: 'all', label: 'Todos' },
+                                        { value: 'below', label: 'Apenas abaixo do estoque' },
+                                    ]}
+                                />
+                                <Button style={{ flex: 1 }} onClick={handleExportProductsReport}>
+                                    Relatório de produtos
+                                </Button>
+                            </div>
+                        ) : (
+                            <Select
+                                value={stockFilter}
+                                onChange={setStockFilter}
+                                style={{ minWidth: 180 }}
+                                options={[
+                                    { value: 'all', label: 'Todos' },
+                                    { value: 'below', label: 'Apenas abaixo do estoque' },
+                                ]}
+                            />
+                        )}
                         {activeTab === 'PRODUCT' && sections.length > 0 && (
                             <Select
                                 value={selectedSection}

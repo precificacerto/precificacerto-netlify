@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, cloneElement, type ReactElement } from 'react'
 import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
 import { Button, Dropdown, Empty, Form, Input, InputNumber, message, Modal, Radio, Space, Table, Tag, Tooltip, Drawer, Spin } from 'antd'
@@ -1013,33 +1013,6 @@ function Products() {
             onChange={v => setTableFilter(v || null)}
             options={commissionTables.map(t => ({ value: t.id, label: t.name }))}
           />
-          {canEdit(MODULES.PRODUCTS) && (
-            <Dropdown
-              trigger={['click']}
-              menu={{
-                items: [
-                  {
-                    key: 'edit',
-                    label: 'Editar',
-                    icon: <EditOutlined />,
-                    disabled: !(tableFilter && commissionTables.find(t => t.id === tableFilter)),
-                    onClick: () => {
-                      const t = commissionTables.find(x => x.id === tableFilter)
-                      if (t) handleOpenEditTable(t.id, t.name)
-                    },
-                  },
-                  {
-                    key: 'create',
-                    label: 'Criar',
-                    icon: <PlusOutlined />,
-                    onClick: () => setTableModalOpen(true),
-                  },
-                ],
-              }}
-            >
-              <Button icon={<MoreOutlined />} size="small" />
-            </Dropdown>
-          )}
         </div>
         {/* Relatório mobile #2: no mobile, "Criar Tabela", "Criar Seção" e "Adicionar produto"
             ficam TODOS na mesma linha, com "Adicionar produto" encostado na borda direita. */}
@@ -1063,15 +1036,47 @@ function Products() {
                   Atualizar todos os produtos
                 </Button>
               )}
-              <Button
+              {/* Menu ⋮ (Adicionar/Editar tabela) incorporado ao próprio botão "Criar Tabela"
+                  via Dropdown.Button — elimina a linha separada do ⋮. */}
+              <Dropdown.Button
+                trigger={['click']}
                 onClick={() => setTableModalOpen(true)}
-                style={commissionTablesLoaded && commissionTables.length === 0 ? {
-                  background: '#16a34a', borderColor: '#16a34a', color: 'white',
-                  animation: 'pulse-green 1.5s infinite',
-                } : {}}
+                buttonsRender={([left, right]) => {
+                  const highlight = commissionTablesLoaded && commissionTables.length === 0
+                  const style = highlight
+                    ? {
+                        background: '#16a34a', borderColor: '#16a34a', color: 'white',
+                        animation: 'pulse-green 1.5s infinite',
+                      }
+                    : {}
+                  return [
+                    cloneElement(left as ReactElement, { style }),
+                    cloneElement(right as ReactElement, { style }),
+                  ]
+                }}
+                menu={{
+                  items: [
+                    {
+                      key: 'create',
+                      label: 'Adicionar tabela',
+                      icon: <PlusOutlined />,
+                      onClick: () => setTableModalOpen(true),
+                    },
+                    {
+                      key: 'edit',
+                      label: 'Editar tabela',
+                      icon: <EditOutlined />,
+                      disabled: !(tableFilter && commissionTables.find(t => t.id === tableFilter)),
+                      onClick: () => {
+                        const t = commissionTables.find(x => x.id === tableFilter)
+                        if (t) handleOpenEditTable(t.id, t.name)
+                      },
+                    },
+                  ],
+                }}
               >
                 Criar Tabela
-              </Button>
+              </Dropdown.Button>
               <Button
                 icon={<AppstoreAddOutlined />}
                 onClick={() => { setSectionModalOpen(true); loadSections() }}

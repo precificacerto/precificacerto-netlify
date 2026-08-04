@@ -116,11 +116,14 @@ const { RangePicker } = DatePicker
 const formatCurrency = formatBRL
 
 // Frente 4 (mobile): em containers estreitos o AntD Empty quebra o texto letra-a-letra.
-// Forçamos quebra por palavra. Estilo inline (sem tocar globals.scss).
+// CAUSA-RAIZ (revisão 03/08 — 4ª reincidência): `overflowWrap: 'anywhere'` é justamente
+// o que permite a quebra POR CARACTERE quando o container é apertado. Para frases (com
+// espaços) o correto é quebrar SÓ entre palavras. `break-word` só quebra no meio de uma
+// palavra como último recurso (palavra única maior que o container) — nunca em frases.
 const emptyTextStyle: React.CSSProperties = {
     display: 'block',
     wordBreak: 'normal',
-    overflowWrap: 'anywhere',
+    overflowWrap: 'break-word',
     whiteSpace: 'normal',
     maxWidth: 320,
     margin: '0 auto',
@@ -155,13 +158,21 @@ function SalesReport() {
 
     // Doc 29/07 (item 3.3): "Relatório de Comissões" é acessível como sessão própria no menu
     // COMERCIAL, abrindo esta tela diretamente na aba correta via ?tab=COMMISSIONS.
+    // Item 1.4 (Relatório 03/08 — REINCIDÊNCIA): no primeiro render o `router.query` vem
+    // vazio (antes da hidratação do Next.js), então a aba default sobrescrevia o parâmetro.
+    // Só aplicamos o `?tab=` DEPOIS de `router.isReady`, e lemos o valor de forma tolerante
+    // a array (ex.: ?tab=X&tab=Y). Depende de `isReady` para disparar de forma confiável.
     const router = useRouter()
+    const VALID_TABS = ['RECEIVABLES', 'COMMISSIONS', 'RT_COMMISSIONS', 'PRODUCTS', 'SERVICES']
     useEffect(() => {
-        const t = String(router.query.tab || '').toUpperCase()
-        if (['RECEIVABLES', 'COMMISSIONS', 'RT_COMMISSIONS', 'PRODUCTS', 'SERVICES'].includes(t)) {
+        if (!router.isReady) return
+        const raw = Array.isArray(router.query.tab) ? router.query.tab[0] : router.query.tab
+        const t = String(raw || '').toUpperCase()
+        if (VALID_TABS.includes(t)) {
             setActiveTab(t as any)
         }
-    }, [router.query.tab])
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [router.isReady, router.query.tab])
 
     // Commissions report state
     const [commData, setCommData] = useState<CommissionReportRow[]>([])

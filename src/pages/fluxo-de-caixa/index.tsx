@@ -174,8 +174,10 @@ export default function CashFlow() {
     // Lucro Real / Simples Híbrido — detalhamento de impostos no custo dos produtos
     const [selectedExpenseCategory, setSelectedExpenseCategory] = useState('')
     const [lrValorIcms, setLrValorIcms] = useState<string>('')
-    const [lrValorPis, setLrValorPis] = useState<string>('')
-    const [lrValorCofins, setLrValorCofins] = useState<string>('')
+    // Item 1.2 (Relatório 03/08): PIS e COFINS unificados em um único campo na UI.
+    // Ao salvar, o valor TOTAL vai para `valor_pis` e `valor_cofins` recebe 0 (mantém
+    // compatibilidade com relatórios que somam as duas colunas).
+    const [lrValorPisCofins, setLrValorPisCofins] = useState<string>('')
     const [lrValorIpi, setLrValorIpi] = useState<string>('')
     const [lrValorCbs, setLrValorCbs] = useState<string>('')
     const [lrValorIbs, setLrValorIbs] = useState<string>('')
@@ -742,8 +744,8 @@ export default function CashFlow() {
                             payment_method: paymentMethod,
                             ...(isLrCustoProdutos ? {
                                 valor_icms: Math.round(parseCurrencyFn(lrValorIcms) * ratio * 100) / 100,
-                                valor_pis: Math.round(parseCurrencyFn(lrValorPis) * ratio * 100) / 100,
-                                valor_cofins: Math.round(parseCurrencyFn(lrValorCofins) * ratio * 100) / 100,
+                                valor_pis: Math.round(parseCurrencyFn(lrValorPisCofins) * ratio * 100) / 100,
+                                valor_cofins: 0,
                                 valor_ipi: Math.round(parseCurrencyFn(lrValorIpi) * ratio * 100) / 100,
                                 valor_cbs: Math.round(parseCurrencyFn(lrValorCbs) * ratio * 100) / 100,
                                 valor_ibs: Math.round(parseCurrencyFn(lrValorIbs) * ratio * 100) / 100,
@@ -772,8 +774,8 @@ export default function CashFlow() {
                             ...(autoPaidDate ? { paid_date: autoPaidDate } : {}),
                             ...(isLrCustoProdutos ? {
                                 valor_icms: Math.round(parseCurrencyFn(lrValorIcms) / parcelas * 100) / 100,
-                                valor_pis: Math.round(parseCurrencyFn(lrValorPis) / parcelas * 100) / 100,
-                                valor_cofins: Math.round(parseCurrencyFn(lrValorCofins) / parcelas * 100) / 100,
+                                valor_pis: Math.round(parseCurrencyFn(lrValorPisCofins) / parcelas * 100) / 100,
+                                valor_cofins: 0,
                                 valor_ipi: Math.round(parseCurrencyFn(lrValorIpi) / parcelas * 100) / 100,
                                 valor_cbs: Math.round(parseCurrencyFn(lrValorCbs) / parcelas * 100) / 100,
                                 valor_ibs: Math.round(parseCurrencyFn(lrValorIbs) / parcelas * 100) / 100,
@@ -796,8 +798,7 @@ export default function CashFlow() {
             setExpPaymentMethod('')
             setSelectedExpenseCategory('')
             setLrValorIcms('')
-            setLrValorPis('')
-            setLrValorCofins('')
+            setLrValorPisCofins('')
             setLrValorIpi('')
             setLrValorCbs('')
             setLrValorIbs('')
@@ -827,7 +828,7 @@ export default function CashFlow() {
                     <CalendarOutlined style={{ fontSize: 18, color: '#94a3b8' }} />
                     <DatePicker picker="month" value={month} onChange={(d) => d && setMonth(d)} allowClear={false} format="MMMM YYYY" />
                     {canEdit(MODULES.CASH_FLOW) && (
-                        <Button type="primary" onClick={() => { form.resetFields(); setExpenseAmount(''); setExpPaymentMethod(''); setExpInstallments([{ date: null, amount: 0 }]); setExpInstallmentPreset('customizado'); setSelectedExpenseCategory(''); setLrValorIcms(''); setLrValorPis(''); setLrValorCofins(''); setLrValorIpi(''); setLrValorCbs(''); setLrValorIbs(''); setDrawerOpen(true) }}>
+                        <Button type="primary" onClick={() => { form.resetFields(); setExpenseAmount(''); setExpPaymentMethod(''); setExpInstallments([{ date: null, amount: 0 }]); setExpInstallmentPreset('customizado'); setSelectedExpenseCategory(''); setLrValorIcms(''); setLrValorPisCofins(''); setLrValorIpi(''); setLrValorCbs(''); setLrValorIbs(''); setDrawerOpen(true) }}>
                             + Novo Lançamento
                         </Button>
                     )}
@@ -1407,7 +1408,7 @@ export default function CashFlow() {
             </div>
 
             {/* Drawer: Novo Lançamento (Despesa) */}
-            <Drawer title="Novo Lançamento de Despesa" width={680} open={drawerOpen} destroyOnClose onClose={() => { setDrawerOpen(false); setExpPaymentMethod(''); setExpInstallments([{ date: null, amount: 0 }]); setExpInstallmentPreset('customizado'); setSelectedExpenseCategory(''); setLrValorIcms(''); setLrValorPis(''); setLrValorCofins(''); setLrValorIpi(''); setLrValorCbs(''); setLrValorIbs('') }}
+            <Drawer title="Novo Lançamento de Despesa" width={680} open={drawerOpen} destroyOnClose onClose={() => { setDrawerOpen(false); setExpPaymentMethod(''); setExpInstallments([{ date: null, amount: 0 }]); setExpInstallmentPreset('customizado'); setSelectedExpenseCategory(''); setLrValorIcms(''); setLrValorPisCofins(''); setLrValorIpi(''); setLrValorCbs(''); setLrValorIbs('') }}
                 extra={<Button type="primary" onClick={handleSaveEntry}>Salvar</Button>}>
                 <Form form={form} layout="vertical">
                     <Form.Item name="expense_category" label="Categoria da Despesa" rules={[{ required: true, message: 'Selecione a categoria' }]}>
@@ -1419,8 +1420,7 @@ export default function CashFlow() {
                             onChange={(v: string) => {
                                 setSelectedExpenseCategory(v || '')
                                 setLrValorIcms('')
-                                setLrValorPis('')
-                                setLrValorCofins('')
+                                setLrValorPisCofins('')
                                 setLrValorIpi('')
                                 setLrValorCbs('')
                                 setLrValorIbs('')
@@ -1461,21 +1461,12 @@ export default function CashFlow() {
                                     />
                                 </div>
                                 <div>
-                                    <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Valor PIS</div>
+                                    <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Valor PIS/COFINS</div>
                                     <Input
                                         prefix="R$"
                                         placeholder="0,00"
-                                        value={lrValorPis}
-                                        onChange={(e) => setLrValorPis(currencyMaskFn(e.target.value))}
-                                    />
-                                </div>
-                                <div>
-                                    <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Valor COFINS</div>
-                                    <Input
-                                        prefix="R$"
-                                        placeholder="0,00"
-                                        value={lrValorCofins}
-                                        onChange={(e) => setLrValorCofins(currencyMaskFn(e.target.value))}
+                                        value={lrValorPisCofins}
+                                        onChange={(e) => setLrValorPisCofins(currencyMaskFn(e.target.value))}
                                     />
                                 </div>
                                 <div>

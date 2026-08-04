@@ -1,5 +1,5 @@
 import { FC, useState } from 'react'
-import { Button, Drawer, Empty, Input, Popconfirm } from 'antd'
+import { Button, Drawer, Empty, Input } from 'antd'
 import { MoreOutlined } from '@ant-design/icons'
 import { Dropdown } from 'antd'
 import { IItemProductModel } from '@/server/model/item-product-item'
@@ -127,13 +127,14 @@ export const ProductItemsMobileList: FC<ProductItemsMobileListProps> = ({
               )}
             </div>
 
-            {/* Doc 28/07 (item 39): campo numérico da unidade na MESMA linha do rótulo
-                "Qtd. por unidade" (rótulo à esquerda, input à direita). */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
-              <label style={{ fontSize: 12, color: '#94a3b8' }}>
+            {/* ITEM 2.4(a): rótulo "Qtd. por unidade" à ESQUERDA (compacto) e o campo ocupando
+                o RESTANTE da linha (flex:1). Antes o input ficava com largura fixa à direita,
+                dando a impressão de duas linhas em telas estreitas. */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <label style={{ fontSize: 12, color: '#94a3b8', flexShrink: 0, whiteSpace: 'nowrap' }}>
                 Qtd. por unidade
               </label>
-              <div style={{ flexShrink: 0 }}>{renderQuantityInput(selected)}</div>
+              <div style={{ flex: 1, minWidth: 0 }}>{renderQuantityInput(selected)}</div>
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
@@ -163,24 +164,16 @@ export const ProductItemsMobileList: FC<ProductItemsMobileListProps> = ({
               <span style={{ fontWeight: 600 }}>R$ {getMonetaryValue(selected.price)}</span>
             </div>
 
-            {/* Doc 28/07 (item 39): "Atualizar valor item" no canto inferior DIREITO;
-                "Excluir" à esquerda. */}
-            <div style={{ marginTop: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-              <Popconfirm
-                title="Tem certeza?"
-                onConfirm={() => {
-                  handleClickRemoveItem(selected.id)
-                  setOpenId(null)
-                }}
-              >
-                <Button danger>Excluir</Button>
-              </Popconfirm>
-              {isEditingMode && (
+            {/* ITEM 2.4(b): botão "Excluir" REMOVIDO do rodapé (redundante — a exclusão já está
+                disponível no menu de ações "⋮" da lista, item "Excluir"). Mantém só "Atualizar
+                valor item" alinhado à direita. */}
+            {isEditingMode && (
+              <div style={{ marginTop: 8, display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8 }}>
                 <Button type="primary" onClick={() => handleClickUpdateItemPrice(selected.id)}>
                   Atualizar valor item
                 </Button>
-              )}
-            </div>
+              </div>
+            )}
           </div>
         )}
       </Drawer>

@@ -2830,10 +2830,13 @@ body {
       padding: 8px 0 !important;
       text-align: left !important;
       white-space: normal !important;
-      /* EPIC-POR-FORA-V3 / M3: quebra SÓ em limites naturais — nunca letra-a-letra.
-         Corrige o bug de strings sem espaço (datas "01/04/2026", frases longas) em telas estreitas. */
+      /* CAUSA-RAIZ truncamento letra-a-letra (revisão 03/08 — 4ª reincidência):
+         `overflow-wrap: anywhere` PERMITE quebra por CARACTERE quando o container é
+         estreito. O correto p/ frases (com espaços) é quebrar SÓ entre palavras.
+         `break-word` só quebra no meio de uma palavra como ÚLTIMO recurso (palavra única
+         maior que o container, ex.: URL/e-mail) — em frases nunca quebra por caractere. */
       word-break: normal !important;
-      overflow-wrap: anywhere !important;
+      overflow-wrap: break-word !important;
     }
 
     .ant-table-tbody > tr > td:last-child {
@@ -2895,9 +2898,11 @@ body {
     .ant-table-expanded-row > td {
       display: block !important;
       width: 100% !important;
-      /* EPIC-POR-FORA-V3 / M9: placeholder ("Selecione uma tabela…") nunca quebra char-a-char */
+      /* M9 + revisão 03/08: placeholder ("Selecione uma tabela…", "Nenhuma venda…") nunca
+         quebra char-a-char. `anywhere` era a fonte da quebra por caractere; `break-word`
+         quebra só entre palavras (frases têm espaços). */
       word-break: normal !important;
-      overflow-wrap: anywhere !important;
+      overflow-wrap: break-word !important;
       text-align: center !important;
     }
 
@@ -2927,7 +2932,12 @@ body {
   .ant-empty-description,
   .ant-table-placeholder .ant-empty-description {
     word-break: normal !important;
-    overflow-wrap: anywhere !important;
+    /* CAUSA-RAIZ (revisão 03/08 — 4ª reincidência): o texto do AntD Empty
+       ("Nenhuma venda encontrada", "Nenhum lançamento…") empilhava letra-a-letra porque
+       `overflow-wrap: anywhere` autoriza quebra por caractere em container estreito.
+       `break-word` quebra SÓ entre palavras; como são frases (têm espaços), nunca
+       quebra no meio de uma palavra. */
+    overflow-wrap: break-word !important;
     /* Revisão 03/08 (#10): garante quebra em múltiplas linhas do texto do Empty
        (sem herdar nowrap do wrapper de scroll da tabela). */
     white-space: normal !important;
@@ -2935,6 +2945,31 @@ body {
   .ant-table-placeholder .ant-empty,
   .ant-table-placeholder .ant-empty-normal {
     max-width: 100% !important;
+  }
+
+  /* ───────────────────────────────────────────────────────────────────────
+     CAUSA-RAIZ SISTÊMICA — truncamento letra-a-letra (revisão 03/08, 4ª reincidência)
+     ───────────────────────────────────────────────────────────────────────
+     O texto quebrava POR CARACTERE ("N/e/n/h/u/m…") em containers estreitos porque
+     algum ancestral aplicava `overflow-wrap: anywhere` / `word-break: break-all`, que
+     autorizam quebra em QUALQUER ponto. A regra abaixo é o piso de segurança para
+     TODOS os textos-frase de estado vazio / alerta / rótulo de card no mobile: quebra
+     SÓ entre palavras (`overflow-wrap: break-word` + `word-break: normal`). `break-word`
+     só divide uma palavra como último recurso (token único maior que o container,
+     ex.: URL/e-mail) — frases (com espaços) nunca quebram no meio de uma palavra.
+
+     NÃO afeta os KPIs/Statistic: `.kpi-card-value` e `.ant-statistic-content` têm
+     `white-space: nowrap` + `word-break: keep-all !important` com maior especificidade,
+     que vencem esta regra e mantêm o número inteiro em uma linha (padrão inviolável). */
+  .ant-empty-description,
+  .ant-alert-message,
+  .ant-alert-description,
+  .ant-list-empty-text,
+  .ant-select-item-empty {
+    word-break: normal !important;
+    overflow-wrap: break-word !important;
+    white-space: normal !important;
+    hyphens: none !important;
   }
 }
 

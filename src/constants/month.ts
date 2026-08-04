@@ -35,7 +35,7 @@ export const monthObjects = {
   [Month.APR]: { number: 3, short: 'Abr', full: 'Abril' },
   [Month.MAY]: { number: 4, short: 'Mai', full: 'Maio' },
   [Month.JUN]: { number: 5, short: 'Jun', full: 'Junho' },
-  [Month.JUL]: { number: 6, short: 'Jul', full: 'Jullo' },
+  [Month.JUL]: { number: 6, short: 'Jul', full: 'Julho' },
   [Month.AGO]: { number: 7, short: 'Ago', full: 'Agosto' },
   [Month.SEP]: { number: 8, short: 'Set', full: 'Setembro' },
   [Month.OCT]: { number: 9, short: 'Out', full: 'Outubro' },

@@ -244,6 +244,9 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
         onFinalPriceWithTaxesChange={onFinalPriceWithTaxesChange}
         advancedTaxesSection={advancedTaxesSection}
         advancedTaxParams={advancedTaxParams}
+        /* ITEM 1.5: produto PRODUZIDO (receita) — fraciona o preço de venda pela Quantidade
+           de produção. Só nesta tela (industrialização); a revenda não fraciona. */
+        fractionByYield
       />
     </>
   )

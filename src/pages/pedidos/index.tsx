@@ -991,7 +991,7 @@ function OrdersPage() {
             }
             if (!res.ok) throw new Error(result.error || 'Erro ao excluir')
             const aff = result.affected || {}
-            const parts = ['Pedido excluído.']
+            const parts = ['Pedido cancelado.']
             if (aff.sale_cancelled) parts.push('Venda cancelada (estoque/caixa estornados).')
             if (aff.original_budget_reopened) parts.push('Orçamento original reaberto para edição.')
             messageApi.success(parts.join(' '))
@@ -1022,7 +1022,7 @@ function OrdersPage() {
             }
             cascadeMsg.push('Orçamento original voltará para edição (rascunho).')
             modalApi.confirm({
-                title: saleInfo ? 'Excluir pedido (cancela venda)' : 'Excluir pedido?',
+                title: saleInfo ? 'Cancelar pedido (cancela venda)?' : 'Cancelar pedido?',
                 content: (
                     <div>
                         <ul style={{ paddingLeft: 20, marginTop: 8 }}>
@@ -1033,8 +1033,8 @@ function OrdersPage() {
                         </p>
                     </div>
                 ),
-                okText: 'Sim, excluir',
-                cancelText: 'Cancelar',
+                okText: 'Sim, cancelar',
+                cancelText: 'Voltar',
                 okButtonProps: { danger: true },
                 width: 480,
                 onOk: () => handleDelete(record.id),
@@ -1425,10 +1425,13 @@ function OrdersPage() {
                                 const showActions = !isEvolved && (canSendApproval || canModify)
                                 // ⋮: "Ver" sempre; "Cancelar pedido" (excluir renomeado, volta a Orçamento) só quando não evoluído. Item 1.2.1.
                                 const kebabItems: any[] = [
-                                    { key: 'view', label: 'Ver', onClick: () => handleViewOrder(r) },
+                                    { key: 'view', label: 'Ver', onClick: (info: any) => { info?.domEvent?.stopPropagation?.(); handleViewOrder(r) } },
                                 ]
                                 if (canCancel) {
-                                    kebabItems.push({ key: 'cancel', label: 'Cancelar pedido', danger: true, disabled: !canEditOrders, onClick: () => { if (canEditOrders) confirmDeleteOrder(r) } })
+                                    // Item 1.3 (Relatório 03/08): "Cancelar pedido" abre o popup de confirmação
+                                    // DIRETO sobre a lista. stopPropagation evita que o clique borbulhe para
+                                    // `openRow` e abra o drawer de edição por trás do modal.
+                                    kebabItems.push({ key: 'cancel', label: 'Cancelar pedido', danger: true, disabled: !canEditOrders, onClick: (info: any) => { info?.domEvent?.stopPropagation?.(); if (canEditOrders) confirmDeleteOrder(r) } })
                                 }
                                 const openRow = () => { if (isEvolved) { handleViewOrder(r) } else if (canEditOrders && canModify) { handleEdit(r) } }
                                 return (

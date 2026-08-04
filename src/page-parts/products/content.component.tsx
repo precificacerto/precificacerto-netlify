@@ -901,10 +901,16 @@ export const Content: FC<ContentProps> = ({
       const isLucroPresumidoSave = currentUser?.taxableRegime === 'LUCRO_PRESUMIDO'
       const isSHSave = currentUser?.taxableRegime === 'SIMPLES_HIBRIDO'
       const isLRorLPSave = isLucroRealSave || isLucroPresumidoSave || isSHSave
+      // ITEM 1.5: produto PRODUZIDO (receita) fraciona o preço pela Quantidade de produção
+      // (ex.: R$ 150,00 ÷ 2,5 = R$ 60,00/kg). Revenda NÃO fraciona (quantity = estoque).
+      // Divisor = 1 quando revenda ou quantidade ≤ 1 (1:1). O ProductPrice já emite o preço
+      // por unidade via ref (finalPriceWithTaxesRef / salePriceBaseRef); aqui alinhamos os
+      // fallbacks e o snapshot do valor precificado ao MESMO divisor.
+      const yieldDivisorSave = (productType === 'PRODUZIDO' && yieldQty > 0) ? yieldQty : 1
       const terceirizadasSum = isLRorLPSave
         ? (freightValue || 0) + (insuranceValue || 0) + (accessoryExpensesValue || 0)
         : 0
-      const salePriceToSave = (Number(productPriceInfo.totalProductPrice) || 0) + terceirizadasSum
+      const salePriceToSave = ((Number(productPriceInfo.totalProductPrice) || 0) + terceirizadasSum) / yieldDivisorSave
       const costTotalToSave = Number(productPriceInfo.productCost) || 0
 
       // Usa o valor calculado em tempo real pelo ProductPrice (via ref) — inclui valorPrecificado
@@ -1028,7 +1034,8 @@ export const Content: FC<ContentProps> = ({
         extraFields.ipi_value = _iva2.ipiValue
         extraFields.sale_price_base = _saleBase
         extraFields.sale_price_after_taxes = finalSalePriceForSave
-        extraFields.valor_precificado_icms_piscofins = Number(productPriceInfo.totalProductPrice) || 0
+        // ITEM 1.5: snapshot do valor precificado também por unidade de produção (mesmo divisor).
+        extraFields.valor_precificado_icms_piscofins = (Number(productPriceInfo.totalProductPrice) || 0) / yieldDivisorSave
 
         // EPIC-POR-FORA-V2: ICMS-ST / DIFAL avançados (fonte única icms-st-difal.ts).
         // Bases incluem frete+seguro (terceirizadas) e o IPI(R$) apurado acima. Sem desconto aqui

@@ -99,6 +99,9 @@ export function calculateMotorV17(input: MotorV17Input): MotorV17Result {
     policy: input.policy,
     rates: input.rates,
     desp_acessorias: input.desp_acessorias,
+    // Correção Item 1.1 (Ago/2026): base imune (manual + Desp.) para a linha-título da
+    // Etapa 11 exibir a base TOTAL do orçamento e o % REAL do desconto. DISPLAY-only.
+    discount_immune_base: input.discount?.discount_immune_base,
     icms_compl_applies: input.icms_compl_applies,
     icms_compl: input.icms_compl,
     effective_date: input.effective_date,

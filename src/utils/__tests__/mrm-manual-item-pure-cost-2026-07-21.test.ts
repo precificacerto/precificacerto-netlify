@@ -202,18 +202,28 @@ describe('Item 7 — produto manual = categoria independente (Relatório 24/07/2
       expect(produtoNoMisto!.cascade_trace).toHaveLength(17)
     })
 
-    it('Rel. 31/07: a Base da Etapa 11 NÃO é inflada pelo produto manual (repasse fora do RRO)', () => {
-      // Spec Felipe 31/07: o produto manual é repasse puro e não entra na base do desconto
-      // nem na base distribuível do RRO. A Base da Etapa 11 do cenário misto deve ser
-      // idêntica à do cenário só-produto (o manual não infla essa base); ele aparece apenas
-      // como linha própria de dedução no display, sem alterar o cálculo.
+    it('Correção 1.1 (Ago/26): a linha-título da Etapa 11 exibe a base TOTAL (incl. manual) e o % REAL', () => {
+      // Correção Item 1.1 (Ago/2026) — REVOGA a regra do Rel. 31/07 quanto ao DISPLAY da
+      // linha-título. O produto manual é repasse puro (imune ao desconto) e continua FORA da
+      // base distribuível do RRO — o cálculo (rv/RRO/oráculos) não muda. Porém a LINHA-TÍTULO
+      // da Etapa 11 deve exibir a base TOTAL do orçamento (produto do sistema + manual) e o
+      // percentual REAL digitado (10%), nunca uma taxa fictícia derivada de uma base parcial.
       const step11Of = (r: MotorResult) => r.cascade_trace.find((s) => Number(s.step) === 11)
       const [soProduto] = calculateMotorV17ForPage(argsSoProduto)
       const [produtoNoMisto] = calculateMotorV17ForPage(argsMisto)
 
       const step11Prod = step11Of(soProduto!)!
       const step11Mix = step11Of(produtoNoMisto!)!
-      expect(step11Mix.base).toBeCloseTo(Number(step11Prod.base) || 0, 2)
+
+      // A base-título do misto = base do só-produto + valor do manual (R$ 1.000).
+      expect(step11Mix.base).toBeCloseTo((Number(step11Prod.base) || 0) + 1000, 2)
+      // O percentual exibido é o REAL digitado (10%), não a taxa fictícia sobre base parcial.
+      expect(step11Mix.rate).toBeCloseTo(0.1, 4)
+      // O AMOUNT do desconto (real) é imutável: base-título × % real.
+      expect(Math.abs(Number(step11Mix.amount))).toBeCloseTo(
+        (Number(step11Mix.base) || 0) * 0.1,
+        2,
+      )
       expect(hasManualChild(step11Mix)).toBe(true)
     })
   })

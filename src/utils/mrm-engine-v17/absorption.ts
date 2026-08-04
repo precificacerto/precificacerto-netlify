@@ -40,6 +40,14 @@ interface ApplyAbsorptionInput {
   rates: TaxRatePeriod[]
   /** Despesas Acessórias consolidadas (frete + seguro + despesas acessórias, R$). */
   desp_acessorias?: number
+  /**
+   * Base IMUNE ao desconto (R$) — produto manual (repasse puro) + Desp. Acessórias
+   * (frete/seguro). Espelha `discount.discount_immune_base` (consolidate.ts Etapa 9).
+   * Usado SÓ no DISPLAY da Etapa 11: a linha-título do desconto exibe a base TOTAL do
+   * orçamento (rb_total + imune) e o percentual REAL digitado — nunca uma taxa fictícia
+   * derivada de uma base parcial. NÃO altera cálculo/RRO/oráculos.
+   */
+  discount_immune_base?: number
   /** Ativa ICMS Complementar (LEGADO binário — usado só quando `icms_compl` ausente). */
   icms_compl_applies?: boolean
   /** Hierarquia completa do ICMS Complementar (substitui o binário quando presente). */
@@ -333,7 +341,20 @@ export function applyAbsorptionPolicy(input: ApplyAbsorptionInput): ApplyAbsorpt
   const op_externa_pos = Math.max(0, restante_distribuivel - motor.ancora) // restante × (1 − peso)
   const pos_desconto_display = restante_distribuivel + desp_acessorias
   const desc_full_display = Math.max(0, vc_base_desconto - pos_desconto_display)
-  const dpct_display = vc_base_desconto > 0 ? desc_full_display / vc_base_desconto : 0
+  // ───── DISPLAY da linha-título da Etapa 11 (Correção Item 1.1, Ago/2026) ─────
+  // O desconto real incide sobre o VALOR TOTAL do orçamento: produto do sistema + produto
+  // MANUAL (repasse puro) + Desp. Acessórias. O produto manual/desp são imunes (pagos cheios)
+  // e o desconto que incidiria sobre eles é absorvido pela base distribuível `rb_total` — ver
+  // consolidate.ts Etapa 9 (`desc_value = d × (rb_total + discount_immune_base)`). O AMOUNT do
+  // desconto (`desc_full_display`) já é o valor REAL (== view.desc_value) e NÃO muda. O bug era
+  // exibir a base/percentual sobre `rb_total + desp` (SEM o manual), gerando um % efetivo
+  // fictício. Aqui a linha-título passa a exibir a base TOTAL (incl. manual) e o percentual
+  // REAL digitado. DISPLAY-only: RRO, âncora, restante distribuível e oráculos intactos.
+  const discount_immune_base = Math.max(0, input.discount_immune_base ?? 0)
+  const manual_immune = Math.max(0, discount_immune_base - desp_acessorias) // só o produto manual
+  const vc_base_desconto_display = vc_base_desconto + manual_immune // rb_total + manual + desp = total
+  const dpct_display =
+    vc_base_desconto_display > 0 ? desc_full_display / vc_base_desconto_display : 0
 
   // ───── Atualiza cascade_trace etapas 9, 11, 12, 16 e 17 ─────
   const updated_cascade_trace = motor.cascade_trace.map((step) => {
@@ -378,13 +399,15 @@ export function applyAbsorptionPolicy(input: ApplyAbsorptionInput): ApplyAbsorpt
       }
     }
     if (step.step === 11) {
-      // Desconto sobre a VENDA CONSOLIDADA total (Op.Int + Op.Ext + Desp.), não só rb_total.
+      // Desconto sobre o VALOR TOTAL do orçamento (Op.Int + Op.Ext + Desp. + produto manual).
+      // A base-título inclui o manual imune para que o percentual exibido seja o REAL digitado
+      // (não a taxa fictícia derivada de uma base parcial). O amount é o desconto REAL (imutável).
       return {
         ...step,
-        base: vc_base_desconto,
+        base: vc_base_desconto_display,
         rate: dpct_display,
         amount: -desc_full_display,
-        formula: 'Venda Consolidada (Op.Int + Op.Ext + Desp.) × desconto_pct',
+        formula: 'Valor total do orçamento (Op.Int + Op.Ext + Desp. + Produto manual) × desconto_pct',
         children: [
           {
             step: 11,
