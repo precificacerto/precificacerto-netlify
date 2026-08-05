@@ -3,7 +3,7 @@ import { useRouter } from 'next/router'
 import App, { AppContext, AppProps } from 'next/app'
 import { SWRConfig } from 'swr'
 import { AuthProvider } from '@/contexts/auth.context'
-import { DeviceProvider, DeviceType } from '@/contexts/device.context'
+import { DeviceProvider, DeviceType, useDevice } from '@/contexts/device.context'
 import { useAuth } from '@/hooks/use-auth.hook'
 import '../styles/globals.scss'
 import { App as AntdApp, ConfigProvider, Spin } from 'antd'
@@ -20,6 +20,21 @@ const ONBOARDING_ROUTE = '/onboarding'
 const BILLING_ROUTE = '/assinar'
 const PLANS_ROUTE = '/planos'
 const SUPER_ADMIN_PREFIX = '/super-admin'
+
+// Shell interno ao DeviceProvider: aplica `data-device` de forma REATIVA (o CSS
+// `[data-device='mobile']` oculta a sidebar). Consome `useDevice()`, que no cliente
+// reflete a largura real da viewport — antes o atributo vinha só do user-agent (SSR)
+// e podia ficar preso em 'tablet'/'desktop' num aparelho estreito. No 1º paint o
+// contexto ainda vale `initialDevice` (SSR), então não há hydration mismatch.
+function AppShell({ loading, children }: { loading: boolean; children: ReactNode }) {
+  const { device } = useDevice()
+  return (
+    <div className={inter.variable} data-device={device} style={{ fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" }}>
+      {loading && <Loader />}
+      <AuthGuard>{children}</AuthGuard>
+    </div>
+  )
+}
 
 function AuthGuard({ children }: { children: ReactNode }) {
   const { currentUser, loading } = useAuth()
@@ -205,12 +220,9 @@ function PcApp({ Component, pageProps, initialDevice }: PcAppProps) {
         locale={ptBR}
       >
         <AntdApp>
-          <div className={inter.variable} data-device={initialDevice} style={{ fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" }}>
-            {loading && <Loader />}
-            <AuthGuard>
-              <Component {...pageProps} />
-            </AuthGuard>
-          </div>
+          <AppShell loading={loading}>
+            <Component {...pageProps} />
+          </AppShell>
         </AntdApp>
       </ConfigProvider>
     </AuthProvider>
