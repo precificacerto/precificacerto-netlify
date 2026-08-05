@@ -16,12 +16,6 @@ const DeviceContext = createContext<DeviceContextValue>({
   isDesktop: true,
 })
 
-const readCookieDevice = (): DeviceType | null => {
-  if (typeof document === 'undefined') return null
-  const match = document.cookie.match(/(?:^|;\s*)pc-device=(mobile|tablet|desktop)/)
-  return (match?.[1] as DeviceType) ?? null
-}
-
 const readWidthDevice = (): DeviceType => {
   if (typeof window === 'undefined') return 'desktop'
   const w = window.innerWidth
@@ -34,19 +28,22 @@ export function DeviceProvider({ initialDevice, children }: { initialDevice: Dev
   const [device, setDevice] = useState<DeviceType>(initialDevice)
 
   useEffect(() => {
-    const cookie = readCookieDevice()
-    const width = readWidthDevice()
-    const resolved: DeviceType = cookie === 'desktop' && width !== 'desktop' ? width : (cookie ?? width)
-    if (resolved !== device) setDevice(resolved)
-
-    const onResize = () => {
-      const next = readWidthDevice()
-      const c = readCookieDevice()
-      if (c && c !== 'desktop') return
-      setDevice(next)
+    // Fonte de verdade no CLIENTE = largura real da viewport (mobile-first). O
+    // `initialDevice` (SSR, derivado do user-agent no middleware) serve apenas para o
+    // primeiro paint e evita flash de layout; a partir da hidratacao a LARGURA manda.
+    // Antes, o cookie/user-agent podia TRAVAR a tela em 'tablet'/'desktop' mesmo num
+    // aparelho estreito — Relatorio PO 05/08 (item 1): navegadores in-app Android sem
+    // "Mobile" no UA (WhatsApp/Instagram/WebView) eram classificados como 'tablet', e
+    // so a tela de Produtos renderizava a <Table> desktop truncada em vez da lista
+    // compacta de "Itens do produto". Alinha useDevice com o resto do app mobile.
+    const apply = () => setDevice(readWidthDevice())
+    apply()
+    window.addEventListener('resize', apply)
+    window.addEventListener('orientationchange', apply)
+    return () => {
+      window.removeEventListener('resize', apply)
+      window.removeEventListener('orientationchange', apply)
     }
-    window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
   }, [])
 
   const value: DeviceContextValue = {
