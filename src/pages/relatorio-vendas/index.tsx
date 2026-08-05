@@ -170,6 +170,16 @@ function SalesReport() {
         const t = String(raw || '').toUpperCase()
         if (VALID_TABS.includes(t)) {
             setActiveTab(t as any)
+        } else {
+            // Item 1.4 (Relatório PO 05/08 — REINCIDÊNCIA): sem `?tab=` válido na URL (acesso
+            // pelo menu "Relatório de Vendas"), o estado ANTES ficava "preso" na última aba
+            // visitada nesta sessão SPA (ex.: COMMISSIONS). Como o conjunto de abas é escolhido
+            // por `activeTab`, o Relatório de Vendas passava a exibir as abas de comissão
+            // (bug do dono: "Relatório de Vendas não apresenta abas: lançamentos a receber /
+            // produtos vendidos / serviços realizados" + "Relatório de Comissões abre Relatório
+            // de Vendas"). Resetar para a aba padrão de vendas torna a seleção 100% derivada da
+            // URL e idempotente, independente da ordem de navegação.
+            setActiveTab('RECEIVABLES')
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [router.isReady, router.query.tab])
