@@ -2893,34 +2893,51 @@ body {
       padding: 4px 0 !important;
     }
 
+    /* Linha do placeholder/expansão (`<tr>`) também precisa virar bloco — só
+       `.ant-table-row` recebia `display:block`, deixando o `<tr>` do Empty como
+       table-row e o `<td>` interno com layout inconsistente entre browsers. */
+    .ant-table-placeholder,
+    .ant-table-expanded-row {
+      display: block !important;
+      width: 100% !important;
+    }
+
     /* Seletor de colspan em linhas "não-row" (expansão/empty) */
     .ant-table-placeholder > td,
     .ant-table-expanded-row > td {
       display: block !important;
       width: 100% !important;
+      min-width: 0 !important;
+      max-width: 100% !important;
       /* M9 + revisão 03/08: placeholder ("Selecione uma tabela…", "Nenhuma venda…") nunca
          quebra char-a-char. `anywhere` era a fonte da quebra por caractere; `break-word`
          quebra só entre palavras (frases têm espaços). */
       word-break: normal !important;
       overflow-wrap: break-word !important;
+      white-space: normal !important;
       text-align: center !important;
     }
 
-    /* Revisão 03/08 (#10 — Recorrência / abas "Serviços (Enviados)" e
-       "Produtos (Enviados)"): quando a tabela usa scroll={{ x: N }}, o AntD aplica
-       min-width inline (ex.: 760px) no <table> interno. No estado VAZIO isso obrigava
-       o texto do Empty ("Nenhuma recorrência registrada…") a caber em 760px, gerando
-       SCROLL HORIZONTAL só para ler um bloco de texto. Correção: quando a tabela só
-       contém o placeholder (sem linhas de dados reais), zeramos o min-width para o
-       texto quebrar em várias linhas naturalmente, sem overflow-x. Grades de dados
-       (com linhas) mantêm o scroll horizontal normal. */
-    .ant-table:has(.ant-table-placeholder) .ant-table-content,
-    .ant-table:has(.ant-table-placeholder) .ant-table-body {
-      overflow-x: hidden !important;
-    }
-    .ant-table:has(.ant-table-placeholder) table {
+    /* Revisão 11/08 (4ª reincidência — telas Comissões/Curva ABC no WebView Android):
+       quando a tabela usa scroll={{ x: N }}, o AntD aplica min-width inline (ex.: 900px)
+       no <table>. No estado VAZIO isso forçava o texto do Empty ("Nenhuma venda
+       encontrada") a caber em ~1 caractere, empilhando letra-a-letra.
+       A correção anterior usava `:has(.ant-table-placeholder)`, que NÃO é suportado
+       pelos navegadores in-app/WebView Android que o cliente usa — por isso reincidia.
+       Agora zeramos o min-width para TODA tabela do card-view (o stack empilha tudo em
+       blocos, então a largura da <table> é irrelevante aqui) — sem depender de :has().
+       Tabelas com `.no-mobile-stack` (pivots) ficam fora deste seletor e mantêm o scroll. */
+    .ant-table table {
       min-width: 0 !important;
       width: 100% !important;
+    }
+    .ant-table-content,
+    .ant-table-body {
+      overflow-x: hidden !important;
+    }
+    .ant-empty {
+      width: 100% !important;
+      max-width: 100% !important;
     }
   }
 

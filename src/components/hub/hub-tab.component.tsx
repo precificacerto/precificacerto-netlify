@@ -323,6 +323,10 @@ export function HubTab({ tenantId, refreshToken }: HubTabProps) {
                 pagination={false}
                 scroll={{ x: 'max-content' }}
                 size="small"
+                /* Pivot (meses × categorias) NÃO deve virar card-view no mobile — isso
+                   espremia as colunas e truncava "DESPESA / TIPO" letra-a-letra. Mantém
+                   o scroll horizontal, como o pivot do Fluxo de Caixa. */
+                className="no-mobile-stack"
                 style={{ borderRadius: 8 }}
                 rowClassName={(record: TableRow) => {
                     if (record.kind === 'income') return 'hub-row--income'
