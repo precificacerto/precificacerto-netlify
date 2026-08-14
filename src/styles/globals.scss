@@ -2802,10 +2802,22 @@ body {
    ============================================================ */
 @media (max-width: 1023px) {
   .ant-table-wrapper:not(.no-mobile-stack) {
+    /* Relatório PO 14/08 (ajuste fino): o card ocupava só ~metade da largura no tablet
+       porque o <table> continua `display:table` e faz shrink-to-fit quando o conteúdo é
+       curto (no celular estreito enchia a tela por falta de espaço; no tablet sobra e
+       encolhe). Forçamos a cadeia INTEIRA (wrapper→table→tbody) a `display:block; width:100%`
+       para o card sempre esticar 100% da largura disponível. */
+    width: 100% !important;
+
     .ant-table,
     .ant-table-container,
     .ant-table-content,
-    .ant-table-body {
+    .ant-table-body,
+    .ant-table table,
+    .ant-table-tbody {
+      display: block !important;
+      width: 100% !important;
+      max-width: 100% !important;
       overflow: visible !important;
     }
 
