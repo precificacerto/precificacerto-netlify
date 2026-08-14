@@ -2789,14 +2789,18 @@ body {
 
 /* ============================================================
    Mobile Card View para tabelas AntD — sistêmico
-   Em ≤ 640px, cada linha vira um card vertical com o rótulo da
-   coluna acima do valor. Remove a necessidade de scroll horizontal.
+   Em ≤ 1023px (mobile E tablet), cada linha vira um card vertical com o
+   rótulo da coluna acima do valor. Remove a necessidade de scroll horizontal.
    Labels são injetados em runtime por src/lib/mobile-table-labels.ts.
    Opt-out: adicionar classe .no-mobile-stack no .ant-table-wrapper.
-   EPIC-POR-FORA-V3 / M13: 639px (não 640) para casar com useDevice().isMobile (≤639) —
-   evita empilhar a tabela do tablet em 640px exatos (DM2).
+   Relatório PO 14/08 (5ª reincidência do truncamento): o breakpoint era 639px, casando
+   com useDevice().isMobile (≤639). Mas o cliente usa o app em WebView Android / janela
+   flutuante / split-screen, cuja largura cai na faixa "tablet" (640–1023px) — onde NENHUMA
+   tabela virava card e todas vazavam a coluna "AÇÕES" pra fora. Estendido para 1023px
+   (= useDevice().isCompact) para casar com o interruptor único de layout compacto. Pivots
+   largos (Hub de Despesas) seguem com .no-mobile-stack e mantêm o scroll horizontal.
    ============================================================ */
-@media (max-width: 639px) {
+@media (max-width: 1023px) {
   .ant-table-wrapper:not(.no-mobile-stack) {
     .ant-table,
     .ant-table-container,
@@ -2987,6 +2991,27 @@ body {
     overflow-wrap: break-word !important;
     white-space: normal !important;
     hyphens: none !important;
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   Abas AntD (Relatório de Vendas/Comissões, etc.) — faixa compacta ≤1023px
+   ════════════════════════════════════════════════════════════════════════
+   Relatório PO 14/08 (5ª reincidência): as abas (Recebíveis / Comissões / RT /
+   Produtos / Serviços) comprimiam e cortavam o rótulo na faixa tablet (640–1023px),
+   pois o scroll horizontal das tabs só existia em ≤640px. Estendido para 1023px
+   (= useDevice().isCompact) junto com o card-view de tabelas. */
+@media (max-width: 1023px) {
+  .ant-tabs-nav {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+  .ant-tabs-nav-wrap {
+    overflow: visible !important;
+  }
+  .ant-tabs-tab {
+    padding: 8px 10px !important;
+    font-size: 13px !important;
   }
 }
 
