@@ -301,6 +301,10 @@ export async function handleCheckoutCompleted(session: Stripe.Checkout.Session) 
       throw new Error('create_tenant_from_stripe did not return tenant_id')
     }
 
+    // Roteiro v4/v5 §8: avisa a planilha do funil que este lead pagou (best-effort).
+    // Fica após a criação do tenant e NUNCA quebra o webhook.
+    await notifySheetLeadPaid(adminEmail)
+
     // Telefone do pré-cadastro: gravado por UPDATE (evita alterar a RPC/assinatura).
     // Best-effort — falha aqui não impede a criação do tenant.
     if (adminPhone) {
@@ -633,4 +637,48 @@ async function insertBillingRecord(
     stripe_customer_id: customerId,
     external_id: externalId,
   })
+}
+
+/**
+ * Best-effort: avisa a planilha do funil que este e-mail pagou (roteiro v4/v5 §8).
+ * O Apps Script acha a linha pelo e-mail e marca Status=pagou + a data.
+ *
+ * NUNCA lança: pagamento e criação de conta têm prioridade absoluta sobre a planilha.
+ * Planilha fora do ar → registra o erro e segue. Timeout curto (2500ms) para não somar
+ * demais à resposta do webhook (a Stripe reenvia o evento se demorar). Variáveis ausentes
+ * só geram um aviso no log.
+ *
+ * Respostas esperadas do Apps Script: 'marcado como pago' (ok),
+ * 'lead nao encontrado' (e-mail do Stripe difere do da planilha),
+ * 'nao autorizado' (token divergente entre os projetos). Qualquer coisa fora de
+ * 'marcado como pago' é registrada para o diagnóstico não se perder.
+ */
+async function notifySheetLeadPaid(email: string): Promise<void> {
+  const url = process.env.SHEETS_WEBHOOK_URL
+  const token = process.env.SHEETS_WEBHOOK_TOKEN
+  if (!url || !token) {
+    console.warn('[sheets] SHEETS_WEBHOOK_URL/TOKEN ausentes — aviso de pagamento não enviado')
+    return
+  }
+  const cleanEmail = (email || '').trim().toLowerCase()
+  if (!cleanEmail) return
+
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 2500)
+  try {
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, evento: 'pagou', email: cleanEmail }),
+      signal: controller.signal,
+    })
+    const texto = (await resp.text()).trim()
+    if (texto !== 'marcado como pago') {
+      console.warn('[sheets] resposta inesperada ao marcar pagamento:', texto, '| email:', cleanEmail)
+    }
+  } catch (err: unknown) {
+    console.warn('[sheets] falha ao avisar pagamento à planilha (ignorado):', err instanceof Error ? err.message : 'unknown')
+  } finally {
+    clearTimeout(timer)
+  }
 }
