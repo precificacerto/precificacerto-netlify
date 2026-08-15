@@ -360,7 +360,7 @@ async function fetchUserProfile(userId: string): Promise<LoggedUser | null> {
     modulePermissions,
     itemAccess,
     cashflowSetupDone: settings?.cashflow_setup_done ?? false,
-    planStatus: (tenant?.plan_status as 'TRIAL' | 'ACTIVE' | 'SUSPENDED' | 'CANCELLED' | 'PENDING_PAYMENT') ?? 'TRIAL',
+    planStatus: (tenant?.plan_status as 'TRIAL' | 'ACTIVE' | 'SUSPENDED' | 'CANCELLED') ?? 'TRIAL',
     trialEndsAt: (tenant as any)?.trial_ends_at ?? undefined,
     planEndsAt: (tenant as any)?.plan_ends_at ?? undefined,
     planSlug: (tenant as any)?.plan_slug ?? undefined,
