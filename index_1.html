@@ -1,0 +1,1222 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Precifica Certo — Suas vendas com lucro de verdade</title>
+<meta name="description" content="Todo produto tem um limite exato de desconto. Saiba como negociar sem afetar a sua margem. 7 dias de uso gratuito.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#070B14; --surface:#0E1524; --surface-2:#141D30;
+  --line:#1E2942; --line-soft:#182238;
+  --ink:#F2F6FC; --muted:#8CA0BF; --muted-2:#5D708F;
+  --green:#16C784; --green-deep:#0C8F5C; --green-glow:rgba(22,199,132,.13);
+  --red:#F0616D; --red-glow:rgba(240,97,109,.09);
+  --amber:#F0A742; --amber-glow:rgba(240,167,66,.10);
+  --blue:#5B8DEF;
+  --font:'Inter',system-ui,-apple-system,sans-serif;
+  --mono:'JetBrains Mono',ui-monospace,monospace;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:96px}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{animation:none!important;transition:none!important}}
+body{background:var(--bg);color:var(--ink);font-family:var(--font);font-size:16px;line-height:1.55;-webkit-font-smoothing:antialiased}
+.wrap{width:100%;max-width:680px;margin:0 auto;padding:0 22px}
+
+.kicker{font-family:var(--mono);font-size:11px;font-weight:500;letter-spacing:.16em;text-transform:uppercase;color:var(--muted-2);margin-bottom:14px}
+h1{font-size:clamp(38px,10.5vw,52px);font-weight:800;line-height:1.02;letter-spacing:-.035em;max-width:none}
+h2{font-size:28px;font-weight:600;line-height:1.14;letter-spacing:-.025em;max-width:22ch}
+.h2-sm{font-size:24px;font-weight:600;letter-spacing:-.015em}
+p{color:var(--muted);max-width:46ch}
+.lead{font-size:17px;color:var(--muted)}
+strong{color:var(--ink);font-weight:600}
+.sec{padding:40px 0;border-top:1px solid var(--line-soft)}
+.sec > .wrap > * + *{margin-top:20px}
+.blk{font-size:19px;font-weight:600;letter-spacing:-.015em;line-height:1.3;max-width:32ch;margin-top:40px!important}
+.sec > .wrap > .blk:first-child{margin-top:0!important}
+.blk-lg{font-size:28px;font-weight:600;line-height:1.16;letter-spacing:-.025em;max-width:26ch}
+.blk-s{font-size:15px;color:var(--muted);max-width:44ch;margin-top:10px!important}
+
+.topbar{background:linear-gradient(90deg,rgba(240,167,66,.06),rgba(240,167,66,.12),rgba(240,167,66,.06));border-bottom:1px solid rgba(240,167,66,.17);padding:11px 22px;text-align:center;font-size:12.5px;color:var(--amber);font-weight:500}
+.nav{border-bottom:1px solid var(--line-soft);background:rgba(7,11,20,.92);backdrop-filter:blur(10px);position:sticky;top:0;z-index:20}
+.nav-in{max-width:680px;margin:0 auto;padding:16px 22px;display:flex;flex-direction:column;align-items:center;gap:14px}
+.nav-brand{text-align:center}
+.nav-links{display:flex;flex-wrap:wrap;justify-content:center;gap:6px 20px}
+.nav-links a{font-size:13px;color:var(--muted);text-decoration:none;transition:color .16s}
+.nav-links a:hover{color:var(--green)}
+.nav-links a:focus-visible{outline:2px solid var(--green);outline-offset:3px;border-radius:4px}
+.brand{display:inline-flex;align-items:center;gap:9px;font-weight:700;font-size:15px;letter-spacing:-.02em}
+.mark{width:23px;height:23px;border-radius:7px;background:var(--green);display:grid;place-items:center;color:#04140D;font-size:13px;font-weight:800}
+.brand em{font-style:normal;color:var(--green)}
+.descriptor{font-size:10px;color:var(--muted-2);margin-top:4px;max-width:none}
+
+/* 01 head */
+.hero{padding:0}
+.hero-in{min-height:calc(100svh - 96px);display:flex;flex-direction:column;justify-content:center;gap:0;padding:0}
+.hero-top{flex:1;display:flex;flex-direction:column;justify-content:center}
+.hero-sub-wrap{flex:1;display:flex;flex-direction:column;justify-content:center}
+.sig{font-size:13.5px;font-weight:600;color:var(--green);margin:0 auto 22px;text-align:center;max-width:none}
+.hero h1{margin-bottom:0}
+.quote-src{font-size:10px;color:var(--muted-2);text-align:right;max-width:min(480px,86vw);margin:14px auto 0;white-space:nowrap;padding-right:.3em}
+.hero-sub{font-size:17px;color:var(--muted);max-width:42ch;line-height:1.6;margin:0 auto}
+.hero-sub b{color:var(--ink);font-weight:600}
+
+/* 02 */
+.thesis{font-size:21px;font-weight:600;color:var(--ink);line-height:1.35;max-width:28ch;letter-spacing:-.015em}
+.thesis-lg{font-size:28px;font-weight:600;line-height:1.14;letter-spacing:-.025em;max-width:none}
+.hl-red{color:var(--red)}
+.hl-green{color:var(--green)}
+.thesis b{color:var(--green);font-weight:600}
+.qs{margin-top:34px;display:flex;flex-direction:column}
+.q{display:grid;grid-template-columns:34px 1fr;gap:14px;padding:22px 0;border-bottom:1px solid var(--line-soft)}
+.q:first-child{border-top:1px solid var(--line-soft)}
+.q-n{font-family:var(--mono);font-size:12px;color:var(--green-deep);font-weight:700;padding-top:3px}
+.q-t{font-size:17px;color:var(--ink);font-weight:500;line-height:1.4}
+.stair{margin-top:34px;display:flex;flex-direction:column;gap:9px}
+.stair p{font-size:16.5px;color:var(--ink);max-width:42ch}
+.stair p:last-child{color:var(--green);font-weight:600}
+
+/* 03 */
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:15px;padding:24px 20px;margin-top:22px}
+.panel-bad{border-color:rgba(240,97,109,.26);background:linear-gradient(180deg,var(--red-glow),transparent 42%),var(--surface)}
+.panel-good{border-color:rgba(22,199,132,.29);background:linear-gradient(180deg,var(--green-glow),transparent 42%),var(--surface)}
+.badge{display:inline-flex;gap:7px;font-family:var(--mono);font-size:10.5px;letter-spacing:.11em;text-transform:uppercase;font-weight:700;margin-bottom:20px}
+.badge-bad{color:var(--red)}.badge-good{color:var(--green)}
+.formula{font-family:var(--mono);font-size:12.5px;color:var(--muted);text-align:center;margin:0 auto 18px;padding:10px 14px;background:var(--surface-2);border-radius:8px;max-width:none;letter-spacing:.01em}
+.note b{color:var(--ink);font-weight:600}
+.rows{display:flex;flex-direction:column;gap:1px;background:var(--line-soft);border-radius:10px;overflow:hidden}
+.row{background:var(--surface-2);padding:15px 16px;display:flex;align-items:baseline;justify-content:space-between;gap:14px;flex-wrap:wrap}
+.row-k{font-size:13.5px;color:var(--muted)}
+.row-v{font-family:var(--mono);font-size:15px;font-weight:700;color:var(--ink)}
+.delta{font-family:var(--mono);font-size:11.5px;color:var(--muted-2);width:100%}
+.delta em{font-style:normal;color:var(--muted)}
+.v-red{color:var(--red)}.v-green{color:var(--green)}
+.note{font-size:15px;color:var(--muted);margin-top:20px;max-width:44ch}
+.panel .note{text-align:center;margin-left:auto;margin-right:auto}
+.punch{margin-top:16px;padding:16px 18px;background:var(--surface-2);border-radius:11px;border-left:2px solid var(--line);font-size:15.5px;color:var(--ink);font-weight:500}
+.punch-bad{border-left-color:var(--red)}.punch-good{border-left-color:var(--green)}
+.frame{font-size:14.5px;color:var(--muted);margin-top:16px;max-width:42ch;text-align:center;margin-left:auto;margin-right:auto}
+.scale{margin-top:34px;display:flex;flex-direction:column;gap:1px;background:var(--line-soft);border-radius:12px;overflow:hidden}
+.scale-i{background:var(--surface);padding:18px;text-align:center}
+.scale-i b{display:block;font-family:var(--mono);font-size:24px;font-weight:700;color:var(--ink);letter-spacing:-.02em}
+.scale-i span{display:block;font-size:13px;color:var(--muted);margin-top:5px}
+.scale-hot{background:linear-gradient(180deg,var(--red-glow),transparent),var(--surface)}
+.scale-hot b{color:var(--red);font-size:30px}
+.scale-hot span{margin-top:2px}
+.reveal{margin-top:30px;font-size:17px;color:var(--muted);max-width:46ch;text-align:center;margin-left:auto;margin-right:auto;line-height:1.55}
+.reveal b{color:var(--ink);font-weight:700}
+.caption{font-family:var(--mono);font-size:11.5px;color:var(--muted-2);line-height:1.6;margin-top:26px;max-width:52ch}
+.bridge{margin-top:34px;padding-top:26px;border-top:1px solid var(--line-soft);font-size:19px;font-weight:600;color:var(--ink);max-width:32ch;line-height:1.35;letter-spacing:-.015em}
+.turnpoint{margin-top:52px!important}
+.turnpoint h3{font-size:28px;font-weight:600;letter-spacing:-.025em;line-height:1.14;max-width:22ch}
+.turnpoint p{margin-top:12px;font-size:15.5px}
+
+/* 04 qualificação */
+.segs{margin-top:24px;display:flex;flex-direction:column;gap:1px;background:var(--line-soft);border-radius:12px;overflow:hidden}
+.seg{background:var(--surface);padding:22px 20px;display:flex;flex-direction:column;gap:4px}
+.seg-p{font-size:14.5px;color:var(--muted);margin-top:12px;max-width:none}
+.seg-g{margin-top:16px}
+.seg-gl{font-family:var(--mono);font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:var(--muted-2);display:block;margin-bottom:9px}
+.seg-r{font-size:13px;color:var(--muted-2);margin-top:18px;padding-top:14px;border-top:1px solid var(--line-soft);max-width:none}
+.seg-r b{color:var(--muted);font-weight:600}
+.seg-t{font-size:15px;font-weight:600;color:var(--ink)}
+.seg-d{font-size:13.5px;color:var(--muted)}
+.nope{margin-top:24px;padding:20px;border:1px solid rgba(240,97,109,.30);border-radius:12px;background:linear-gradient(180deg,var(--red-glow),transparent 60%),var(--surface)}
+.nope-l li::before{color:var(--red)!important}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chips span{font-family:var(--mono);font-size:10.5px;letter-spacing:.04em;padding:5px 10px;border-radius:6px;background:var(--surface-2);border:1px solid var(--line);color:var(--muted)}
+.nope > span{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--red);display:block;margin-bottom:11px;font-weight:700}
+.nope p{font-size:14px;max-width:none}
+.nope-l{list-style:none;display:flex;flex-direction:column;gap:9px}
+.nope-l li{font-size:14.5px;color:var(--muted);padding-left:20px;position:relative}
+.nope-l li::before{content:'✕';position:absolute;left:0;color:var(--muted-2);font-size:11px;top:2px}
+
+/* 05 método */
+.define{margin-top:26px;padding:22px 20px;background:var(--surface);border:1px solid var(--line);border-radius:14px}
+.define-h{font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--green);font-weight:700;margin-bottom:13px}
+.define p{font-size:15.5px;line-height:1.6;max-width:none}
+.ladder{margin-top:30px;border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.rung{display:grid;grid-template-columns:120px 1fr;gap:14px;padding:16px 18px;border-bottom:1px solid var(--line-soft);align-items:baseline;background:var(--surface)}
+.rung:last-child{border-bottom:none}
+.rung-v{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.09em}
+.rung-t{font-size:15px;color:var(--ink)}
+.rung-t em{font-style:normal;display:block;font-size:13.5px;color:var(--muted);margin-top:4px}
+.r0{background:linear-gradient(90deg,rgba(91,141,239,.10),transparent)}.r0 .rung-v{color:var(--blue)}
+.r1{background:linear-gradient(90deg,var(--green-glow),transparent)}.r1 .rung-v{color:var(--green)}
+.r2{background:linear-gradient(90deg,var(--amber-glow),transparent)}.r2 .rung-v{color:var(--amber)}
+.r4{background:linear-gradient(90deg,var(--red-glow),transparent)}.r4 .rung-v{color:var(--red)}
+.parts{margin-top:26px;display:flex;flex-direction:column;gap:1px;background:var(--line-soft);border-radius:12px;overflow:hidden}
+.part{background:var(--surface);padding:19px 18px}
+.part-h{display:flex;align-items:center;gap:10px;margin-bottom:7px}
+.part-n{font-family:var(--mono);font-size:11px;color:var(--muted-2)}
+.part-t{font-size:16px;font-weight:600;color:var(--ink)}
+.part p{font-size:14.5px;max-width:none}
+.modes{margin-top:26px;display:flex;flex-wrap:wrap;gap:8px;justify-content:center}
+.mode{font-family:var(--mono);font-size:11.5px;padding:9px 13px;border-radius:8px;border:1px solid var(--line);color:var(--muted)}
+.mode-on{border-color:var(--green-deep);color:var(--green);background:var(--green-glow)}
+.rev{margin-top:22px;padding:22px 20px;background:var(--surface);border-left:2px solid var(--green-deep);border-radius:0 12px 12px 0}
+.rev p{font-size:15px;max-width:none}
+.rev p + p{margin-top:12px}
+.relief{margin-top:16px;font-size:16px;color:var(--muted);max-width:42ch;line-height:1.5}
+
+/* 06 telas */
+.rail{margin-top:30px;overflow:hidden;position:relative;-webkit-mask-image:linear-gradient(90deg,transparent,#000 8%,#000 92%,transparent);mask-image:linear-gradient(90deg,transparent,#000 8%,#000 92%,transparent)}
+.rail-track{display:flex;gap:14px;width:max-content;animation:slide 46s linear infinite}
+@keyframes slide{from{transform:translateX(0)}to{transform:translateX(calc(-50% - 7px))}}
+.rail-track{animation-duration:52s}
+@media (prefers-reduced-motion:reduce){.rail-track{animation:none}.rail{overflow-x:auto}}
+.shot{flex:0 0 336px;background:var(--surface);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.shot-img{aspect-ratio:16/9;background:var(--surface-2);overflow:hidden}
+.shot-img img{width:100%;height:100%;object-fit:cover;object-position:top left;display:block}
+.shot-cap{padding:14px 16px}
+.shot-cap b{display:block;font-size:14.5px;font-weight:600;color:var(--ink);margin-bottom:4px}
+.shot-cap span{font-size:13px;color:var(--muted)}
+
+/* 07 sistema */
+.bens{margin-top:26px;display:flex;flex-direction:column;gap:1px;background:var(--line-soft);border-radius:12px;overflow:hidden}
+.ben{background:var(--surface);padding:18px}
+.ben b{display:block;font-size:15.5px;font-weight:600;color:var(--ink);margin-bottom:5px}
+.ben span{font-size:14px;color:var(--muted)}
+.cycle{margin-top:26px;padding:18px 6px;background:var(--surface);border:1px solid var(--line);border-radius:15px}
+.cycle svg{width:100%;height:auto;display:block}
+.cy-box{fill:#141D30;stroke:#1E2942}
+.cy-hot{fill:rgba(22,199,132,.09);stroke:#0C8F5C}
+.cy-t{fill:#F2F6FC;font:700 15px 'Inter',sans-serif}
+.cy-s{fill:#5D708F;font:400 11px 'JetBrains Mono',monospace}
+.cy-c{fill:#16C784;font:700 14px 'Inter',sans-serif}
+.cy-a{stroke:#5D708F;stroke-width:1.3;fill:none}
+.dna{margin-top:26px;padding:22px 20px;background:var(--surface);border-left:2px solid var(--green-deep);border-radius:0 12px 12px 0}
+.dna p{font-size:15px;max-width:none}
+.dna p + p{margin-top:12px}
+.obj{margin-top:34px;padding:24px 20px;background:var(--surface-2);border:1px solid var(--line);border-radius:14px}
+.obj h3{font-size:18px;font-weight:600;margin-bottom:12px;letter-spacing:-.015em}
+.obj p{font-size:15px;max-width:none}
+.obj .kick{margin-top:14px;color:var(--green);font-weight:600;font-size:15.5px}
+
+/* 08 cascata */
+.casc{margin-top:28px;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--surface)}
+.casc-h{display:grid;grid-template-columns:28px 1fr auto;gap:12px;padding:12px 16px;background:var(--surface-2);font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted-2);border-bottom:1px solid var(--line)}
+.casc-r{display:grid;grid-template-columns:28px 1fr auto;gap:12px;padding:11px 16px;border-bottom:1px solid var(--line-soft);align-items:baseline}
+.casc-n{font-family:var(--mono);font-size:11px;color:var(--muted-2)}
+.casc-l{font-size:13.5px;color:var(--muted)}
+.casc-v{font-family:var(--mono);font-size:12.5px;color:var(--ink);white-space:nowrap}
+.casc-r.fx{background:rgba(91,141,239,.055)}
+.casc-r.fx .casc-l{color:var(--ink)}
+.casc-r.fx .casc-v{color:var(--blue);font-weight:700}
+.casc-r.cut .casc-v{color:var(--red)}
+.casc-r.rest{background:var(--green-glow)}
+.casc-r.rest .casc-l{color:var(--ink);font-weight:600}
+.casc-r.rest .casc-v{color:var(--green);font-weight:700}
+.casc-foot{padding:15px 16px;background:var(--surface-2);font-size:13.5px;color:var(--muted)}
+.casc-foot b{color:var(--blue)}
+.counts{margin-top:26px;display:flex;flex-direction:column;gap:9px;align-items:center}
+.count{display:flex;align-items:baseline;gap:13px;justify-content:center}
+.count-n{font-family:var(--mono);font-size:22px;font-weight:700;color:var(--green);min-width:34px}
+.count-l{font-size:14px;color:var(--muted)}
+
+/* botões */
+.cta{display:flex;align-items:center;justify-content:center;text-align:center;background:var(--green);color:#04140D;font-size:15.5px;font-weight:700;padding:16px 24px;border-radius:11px;text-decoration:none;width:100%;max-width:400px;line-height:1.3;transition:background .16s,transform .16s}
+.cta:hover{background:#1BDC93;transform:translateY(-1px)}
+.cta:focus-visible{outline:2px solid var(--green);outline-offset:3px}
+.cta-note{font-family:var(--mono);font-size:11.5px;color:var(--muted-2);text-align:center;margin-top:11px}
+.cta-block{margin-top:34px}
+
+/* 09 off */
+.off{margin-top:22px;padding:22px 20px;border:1px dashed var(--line);border-radius:14px;background:repeating-linear-gradient(45deg,transparent,transparent 9px,rgba(255,255,255,.011) 9px,rgba(255,255,255,.011) 18px)}
+.off-h{font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted-2);margin-bottom:10px}
+.off p{font-size:14px;max-width:none}
+
+/* 10 oferta */
+.anchor{margin-top:24px;padding:22px 20px;background:var(--surface);border:1px solid var(--line);border-radius:14px}
+.anchor p{font-size:15.5px;max-width:none}
+.anchor .big{font-family:var(--mono);font-size:26px;font-weight:700;color:var(--green);display:block;margin-top:14px}
+.access{margin-top:22px;font-size:15.5px;color:var(--muted);max-width:44ch}
+.more{font-size:13.5px;color:var(--muted-2);margin-top:16px;text-align:center;max-width:none}
+.risk{margin-top:30px;display:flex;flex-direction:column;gap:1px;background:var(--line-soft);border-radius:12px;overflow:hidden;max-width:420px;margin-left:auto;margin-right:auto}
+.risk-i{background:var(--surface);padding:14px 18px;display:flex;align-items:center;gap:12px;font-size:14.5px;color:var(--muted)}
+.risk-i i{color:var(--green);font-style:normal;font-size:13px}
+.faq{margin-top:30px;border-top:1px solid var(--line-soft)}
+details{border-bottom:1px solid var(--line-soft)}
+summary{padding:18px 0;cursor:pointer;font-size:15.5px;font-weight:500;color:var(--ink);list-style:none;display:flex;justify-content:space-between;gap:14px;align-items:center}
+summary::-webkit-details-marker{display:none}
+summary::after{content:'+';color:var(--green);font-family:var(--mono);font-size:17px;flex-shrink:0}
+details[open] summary::after{content:'−'}
+details p{padding:0 0 18px;font-size:14.5px;max-width:none}
+summary:focus-visible{outline:2px solid var(--green);outline-offset:3px;border-radius:5px}
+
+/* 11 */
+.tl{margin-top:26px;display:flex;flex-direction:column;gap:1px;background:var(--line-soft);border-radius:12px;overflow:hidden}
+.tl-i{background:var(--surface);padding:17px 18px;display:grid;grid-template-columns:78px 1fr;gap:14px;align-items:baseline}
+.tl-y{font-family:var(--mono);font-size:13px;font-weight:700;color:var(--green)}
+.tl-t{font-size:14.5px;color:var(--muted)}
+.tl-i.now{background:var(--surface-2)}.tl-i.now .tl-y{color:var(--muted-2)}
+.war{margin-top:34px;padding:24px 20px;background:var(--surface-2);border-radius:14px}
+.war p{font-size:15px;max-width:none}
+.war .hit{margin-top:14px;font-size:16.5px;color:var(--ink);font-weight:600}
+.close{padding:64px 0 56px;text-align:center;border-top:1px solid var(--line-soft)}
+.close h2{margin:0 auto;max-width:none}
+.close .body{margin:24px auto 0;max-width:40ch}
+.turn{margin:30px auto 0;max-width:34ch;display:flex;flex-direction:column;gap:6px}
+.turn p{font-size:16.5px;color:var(--ink);margin:0 auto}
+.close-sig{margin:32px auto 0;font-size:15px;font-weight:700;color:var(--green);text-align:center}
+.close .cta-block{max-width:400px;margin:34px auto 0}
+footer{padding:36px 0 54px;border-top:1px solid var(--line-soft);text-align:center}
+footer p{font-size:12.5px;color:var(--muted-2);margin:0 auto;max-width:none}
+
+
+/* ---------- alinhamento centralizado de títulos e textos de seção ---------- */
+.sec > .wrap > h2,
+.sec > .wrap > .lead,
+.sec > .wrap > .thesis,
+.sec > .wrap > .thesis-lg,
+.sec > .wrap > .note,
+.sec > .wrap > .blk,
+.sec > .wrap > .blk-lg,
+.sec > .wrap > .blk-s,
+.sec > .wrap > .relief,
+.sec > .wrap > .caption,
+.sec > .wrap > .bridge,
+.sec > .wrap > .access,
+.sec > .wrap > .more,
+.hero h1,
+.hero .hero-sub,
+.turnpoint,
+.stair{text-align:center}
+
+.sec > .wrap > h2,
+.sec > .wrap > .lead,
+.sec > .wrap > .thesis,
+.sec > .wrap > .thesis-lg,
+.sec > .wrap > .note,
+.sec > .wrap > .blk,
+.sec > .wrap > .blk-lg,
+.sec > .wrap > .blk-s,
+.sec > .wrap > .relief,
+.sec > .wrap > .caption,
+.sec > .wrap > .bridge,
+.sec > .wrap > .access,
+.hero h1,
+.hero .hero-sub,
+.turnpoint h3,
+.turnpoint p,
+.stair p{margin-left:auto;margin-right:auto}
+
+.sec > .wrap > .bridge{border-top:none;position:relative;padding-top:34px}
+.sec > .wrap > .bridge::before{content:'';position:absolute;top:0;left:50%;transform:translateX(-50%);width:56px;height:1px;background:var(--line)}
+
+.sec > .wrap > .qs{text-align:left}
+.cta-block{display:flex;flex-direction:column;align-items:center}
+.cta-block .cta{width:100%;max-width:400px}
+.cta-note{text-align:center}
+
+
+/* ---------- abas das etapas ---------- */
+.tabs{margin-top:26px}
+.tab-panels{text-align:left}
+.tabs > input{position:absolute;opacity:0;pointer-events:none}
+.tab-labels{display:flex;flex-direction:column;gap:8px;margin-bottom:22px}
+.tab-labels label{display:block;font-size:14px;color:var(--muted);padding:12px 16px;border:1px solid var(--line);border-radius:10px;cursor:pointer;transition:color .16s,border-color .16s,background .16s}
+.tab-labels label:hover{color:var(--ink)}
+.tab-p{display:none}
+#t1:checked ~ .tab-labels label[for="t1"],
+#t2:checked ~ .tab-labels label[for="t2"],
+#t3:checked ~ .tab-labels label[for="t3"],
+#t4:checked ~ .tab-labels label[for="t4"],
+#t5:checked ~ .tab-labels label[for="t5"]{color:var(--ink);border-color:var(--green-deep);background:var(--green-glow)}
+#t1:checked ~ .tab-panels .p1,
+#t2:checked ~ .tab-panels .p2,
+#t3:checked ~ .tab-panels .p3,
+#t4:checked ~ .tab-panels .p4,
+#t5:checked ~ .tab-panels .p5{display:block}
+.tab-txt h4{font-size:19px;font-weight:600;letter-spacing:-.015em;margin-bottom:14px}
+.tab-txt ul{list-style:none;display:flex;flex-direction:column;gap:10px}
+.tab-txt li{font-size:14.5px;color:var(--muted);padding-left:21px;position:relative;line-height:1.45;text-align:left}
+.tab-txt li::before{content:'✓';position:absolute;left:0;top:0;color:var(--green);font-size:12px}
+.tab-img{display:none}
+
+
+/* ---------- card interativo ---------- */
+.calc{margin-top:26px;padding:24px 20px;background:var(--surface);border:1px solid var(--line);border-radius:15px;text-align:left}
+.calc-h{font-family:var(--font);font-size:16px;letter-spacing:-.01em;color:var(--green);text-align:center;font-weight:600;margin-bottom:18px;max-width:none}
+.calc-row{margin-bottom:16px}
+.calc-row label{display:flex;justify-content:space-between;align-items:baseline;gap:12px;font-size:14px;color:var(--muted);margin-bottom:8px}
+.calc-row label b{font-family:var(--mono);font-size:13.5px;color:var(--ink);font-weight:700}
+.calc-hot label b{color:var(--green)}
+.calc-in{display:flex;align-items:center;gap:8px;background:var(--surface-2);border:1px solid var(--line);border-radius:9px;padding:10px 13px}
+.calc-in span{font-family:var(--mono);font-size:13px;color:var(--muted-2)}
+.calc-in input{background:none;border:none;color:var(--ink);font-family:var(--mono);font-size:15px;font-weight:700;width:100%;outline:none}
+.calc-row input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:4px;border-radius:4px;background:var(--line);outline:none}
+.calc-row input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--ink);cursor:pointer;border:none}
+.calc-hot input[type=range]::-webkit-slider-thumb{background:var(--green)}
+.calc-row input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--ink);cursor:pointer;border:none}
+.calc-hot input[type=range]::-moz-range-thumb{background:var(--green)}
+.calc-row input[type=range]:focus-visible{outline:2px solid var(--green);outline-offset:4px}
+.calc-out{margin-top:24px;padding:18px;background:var(--surface-2);border-radius:11px;text-align:center}
+.calc-lb{display:block;font-size:12.5px;color:var(--muted-2);letter-spacing:.04em}
+.calc-px{display:block;font-family:var(--mono);font-size:32px;font-weight:700;color:var(--green);letter-spacing:-.02em;margin-top:5px}
+.calc-cf{display:block;font-family:var(--mono);font-size:11.5px;color:var(--muted-2);margin-top:6px}
+.calc-cf b{color:var(--muted);font-weight:700}
+.calc-bar{display:flex;height:10px;border-radius:5px;overflow:hidden;margin-top:20px;background:var(--line)}
+.calc-bar i{display:block;height:100%}
+.calc-brk{margin-top:16px;display:flex;flex-direction:column;gap:1px;background:var(--line-soft);border-radius:9px;overflow:hidden}
+.calc-brk div{background:var(--surface-2);padding:11px 14px;display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:13.5px}
+.calc-brk .k{color:var(--muted);display:flex;align-items:center;gap:9px}
+.calc-brk .k i{width:8px;height:8px;border-radius:2px;flex-shrink:0}
+.calc-brk .v{font-family:var(--mono);font-size:13px;color:var(--ink);white-space:nowrap}
+.calc-brk .tot{background:var(--surface)}
+.calc-brk .tot .k,.calc-brk .tot .v{color:var(--green);font-weight:700}
+.calc-chk{font-size:13.5px;color:var(--muted);margin-top:16px;text-align:center;max-width:none;line-height:1.5}
+.calc-chk b{color:var(--green);font-weight:700}
+.calc-warn{color:var(--red)!important}
+
+
+/* ---------- planos ---------- */
+.plans{margin-top:26px;display:flex;flex-direction:column;gap:14px}
+.plans-one{max-width:420px;margin-left:auto;margin-right:auto}
+.plan{background:var(--surface);border:1px solid var(--line);border-radius:15px;padding:26px 22px;display:flex;flex-direction:column;text-align:center;position:relative}
+.plan-best{border-color:var(--green-deep);background:linear-gradient(180deg,var(--green-glow),transparent 45%),var(--surface)}
+.plan-tag{position:absolute;top:-11px;left:22px;font-family:var(--mono);font-size:9.5px;letter-spacing:.11em;text-transform:uppercase;color:#04140D;background:var(--green);padding:5px 11px;border-radius:6px;font-weight:700}
+.plan-trial{font-size:clamp(24px,6vw,30px);font-weight:800;letter-spacing:-.025em;line-height:1.12;color:var(--green)}
+.plan-cancel{font-size:13.5px;color:var(--muted);margin-top:10px;max-width:none}
+.plan-k2{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted-2);margin-top:22px;padding-top:20px;border-top:1px solid var(--line-soft);max-width:none}
+.plan-k{font-family:var(--mono);font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:var(--muted-2);margin-bottom:10px}
+.plan-n{font-size:22px;font-weight:600;letter-spacing:-.02em;color:var(--ink)}
+.plan-price{display:flex;align-items:baseline;justify-content:center;gap:4px;margin-top:12px;max-width:none}
+.plan-price i{font-style:normal;font-size:14px;color:var(--muted)}
+.plan-price b{font-size:38px;font-weight:800;letter-spacing:-.035em;color:var(--ink);line-height:1}
+.plan-u{font-size:13.5px;color:var(--green);margin-top:10px;max-width:none}
+.plan-l{list-style:none;margin-top:16px;display:flex;flex-direction:column;gap:12px;flex:1;text-align:left;width:fit-content;margin-left:auto;margin-right:auto}
+.plan-l li{font-size:14px;color:var(--muted);padding-left:22px;position:relative;line-height:1.45}
+.plan-l li::before{content:'✓';position:absolute;left:0;top:0;color:var(--green);font-size:12px}
+.plan-cta{display:flex;align-items:center;justify-content:center;margin-top:24px;padding:14px 18px;border:1px solid var(--line);border-radius:10px;font-size:14.5px;font-weight:700;color:var(--ink);text-decoration:none;transition:border-color .16s,background .16s}
+.plan-cta:hover{border-color:var(--green-deep);background:var(--green-glow)}
+.plan-cta-on{background:var(--green);color:#04140D;border-color:var(--green)}
+.plan-cta-on:hover{background:#1BDC93;border-color:#1BDC93}
+.plan-cta:focus-visible{outline:2px solid var(--green);outline-offset:3px}
+
+/* --- Ajustes MOBILE (≤599px) --- */
+@media (max-width:599px){
+  /* mais respiro nas bordas de toda a página */
+  .wrap{padding:0 26px}
+
+  /* faixa amarela e marca mais discretas / minimalistas */
+  .topbar{font-size:11px;padding:7px 18px}
+  .nav-in{padding:9px 22px;gap:4px}
+  .brand{font-size:10.5px;letter-spacing:0;gap:6px}
+  .mark{width:14px;height:14px;font-size:8px;border-radius:4px}
+  .descriptor{font-size:8px;margin-top:1px}
+
+  /* HERO: título em destaque, centralizado na tela (mesma distância acima/abaixo),
+     um pouco mais pra cima; "saiba mais" no rodapé */
+  .hero-in{min-height:calc(100svh - 100px);justify-content:flex-start;gap:0;padding:0 30px}
+  .hero-top{flex:1}                              /* "Não perco venda…" centralizado entre o topo e o "Saiba" */
+  .hero-sub-wrap{flex:none;padding-bottom:50px}  /* respiro de 50px abaixo do "Saiba" */
+  .hero h1{max-width:none;font-size:clamp(24px,6.6vw,32px)}  /* é a maior fonte da página */
+  .hero-sub{font-size:13.5px;padding:0 4px}
+  .hs-line{display:block}
+  .hs-line + .hs-line{margin-top:6px}
+  /* títulos dos cards "O sistema" numa linha só */
+  .ben{padding:15px 14px}
+  .ben b{font-size:12px;white-space:nowrap}
+
+  /* nenhuma fonte pode passar do título do hero */
+  h2, .thesis-lg, .turnpoint h3, .close h2, .blk-lg{font-size:clamp(22px,5.6vw,28px)}
+  .thesis{font-size:17px}
+  .plan-price b{font-size:30px}
+
+  /* perguntas menores (caberem em ~2 linhas) */
+  .q{gap:12px;padding:16px 0}
+  .q-t{font-size:12.5px;line-height:1.3}       /* mesma fonte p/ todas; cabem em 2 linhas */
+  .q-n{font-size:10.5px}
+  .stair p{font-size:11px;white-space:nowrap}  /* cada frase numa linha só (não quebrar) */
+
+  /* PANORAMAS: coluna da direita mais próxima dos rótulos + texto menor */
+  .rung{grid-template-columns:96px 1fr;gap:11px;padding:14px 14px}
+  .rung-v{font-size:9.5px}
+  .rung-t{font-size:13.5px}
+  .rung-t em{font-size:12px}
+
+  /* todos os textos explicativos = tamanho do "Saiba como negociar" (13,5px) */
+  .lead,.note,.reveal,.frame,.caption,.relief,.bridge,.blk-s,
+  .seg-p,.seg-d,.seg-r,.part p,.define p,.rev p,.dna p,.obj p,
+  .anchor p,.access,.more,.off p,.war p,.ben span,.plan-l li,.plan-u,
+  .tab-txt li,.risk-i,.nope p,.nope-l li,details p,.calc-chk{font-size:13.5px}
+
+  /* perguntas frequentes numa linha só */
+  summary{font-size:12px;white-space:nowrap;gap:8px}
+
+  /* frases-resumo (punch) menores p/ caber em 2 linhas */
+  .panel{padding:18px 14px}
+  .punch{padding:11px 13px;font-size:11.5px}
+
+  /* fechamento: título com a mesma lógica do hero; texto de apoio menor */
+  .close h2{font-size:clamp(24px,6.6vw,32px);font-weight:600;max-width:none}
+  .close .body{font-size:13.5px}
+  .turnpoint p{font-size:13.5px}
+  .h2-sm{font-size:clamp(18px,4.6vw,22px)}
+}
+
+@media (min-width:600px){
+  .wrap{padding:0 32px}
+  .sec{padding:56px 0}
+  .cta{width:400px}
+  .plans{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}
+  .plans-one{grid-template-columns:1fr;max-width:420px;margin-left:auto;margin-right:auto}
+  /* Ciclo: etapas em coluna à esquerda, tópicos à direita (sem imagem) */
+  .tabs{display:flex;gap:36px;align-items:stretch}
+  .tab-labels{flex:0 0 240px;justify-content:space-between;margin-bottom:0}
+  .tab-panels{flex:1;display:flex;flex-direction:column;justify-content:center}
+  /* títulos da seção da calculadora em 28px no desktop */
+  .blk{font-size:28px}
+  .calc-h{font-size:28px}
+  /* última frase do subtítulo do hero numa linha só (desktop) */
+  .hero-sub{max-width:54ch}
+  .nw-desk{white-space:nowrap}
+  .row{flex-wrap:nowrap}
+  .delta{width:auto;text-align:left;order:2}
+  .row-v{order:3}
+}
+</style>
+</head>
+<body>
+
+<div class="topbar">Em 2027, a nova reforma tributária entra em vigor. Você está preparado para esse impacto?</div>
+
+<nav class="nav">
+  <div class="nav-in">
+    <div class="nav-brand">
+      <div class="brand"><span class="mark">✓</span>PRECIFICA<em>CERTO</em></div>
+      <p class="descriptor">suas vendas com lucro de verdade</p>
+    </div>
+  </div>
+</nav>
+
+<!-- ═══ 01 · HEAD ═══ -->
+<header class="hero">
+  <div class="wrap hero-in">
+    <div class="hero-top">
+      <h1>&ldquo;Não perco <span class="hl-green">venda</span>.<br>E não perco <span class="hl-green">dinheiro</span>.&rdquo;</h1>
+      <p class="quote-src">(Revela um consumidor)</p>
+    </div>
+    <div class="hero-sub-wrap">
+      <p class="hero-sub"><span class="hs-line">Saiba como negociar, sem prejudicar sua margem.</span> <span class="hs-line"><b class="nw-desk">Todo produto tem um limite exato de desconto.</b></span> <span class="hs-line nw-desk">É ele que permite vender mais protegendo o lucro.</span></p>
+    </div>
+  </div>
+</header>
+
+<!-- ═══ 02 · IDENTIFICAÇÃO ═══ -->
+<section class="sec">
+  <div class="wrap">
+    <p class="kicker">Responda rápido</p>
+    <p class="thesis">O problema não é vender. É <span class="hl-red">perder venda</span> por desconhecer o limite.</p>
+    <div class="qs">
+      <div class="q"><span class="q-n">01</span><span class="q-t">Se o cliente pedir 10% de desconto agora, você pode conceder?</span></div>
+      <div class="q"><span class="q-n">02</span><span class="q-t">Cada produto tem uma margem diferente. Você sabe o desconto que cada um suporta?</span></div>
+      <div class="q"><span class="q-n">03</span><span class="q-t">Você fecharia o negócio com mais firmeza se soubesse exatamente até onde pode ir?</span></div>
+    </div>
+    <div class="stair">
+      <p>Quem hesita não tem o número.</p>
+      <p>Quem não tem o número desconta no escuro.</p>
+      <p>E desconto no escuro não reduz preço: reduz caixa.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ 03 · OS 4 PANORAMAS ═══ -->
+<section class="sec">
+  <div class="wrap">
+    <p class="kicker">Panoramas</p>
+    <h2 class="h2-sm">Em qual panorama sua empresa se encontra hoje?</h2>
+
+    <div class="ladder">
+      <div class="rung r0"><span class="rung-v">SUPERESTIMADO</span><span class="rung-t">Opera com margem cheia.<em>Não concede desconto nenhum.</em></span></div>
+      <div class="rung r1"><span class="rung-v">CONFORTÁVEL</span><span class="rung-t">Opera com boa margem de lucro.<em>Concede o desconto previsto.</em></span></div>
+      <div class="rung r2"><span class="rung-v">DESAFIADOR</span><span class="rung-t">Opera com a margem mínima aceitável.<em>Assume risco calculado e ainda sustenta todas as despesas.</em></span></div>
+      <div class="rung r4"><span class="rung-v">INSUSTENTÁVEL</span><span class="rung-t">Opera com déficit financeiro.<em>Fecha por emergência e sem controle, e perde fluxo de caixa ao longo dos meses.</em></span></div>
+    </div>
+
+    <p class="note">Conforme o desconto sobe, a negociação muda de cenário. Saber isso antes de fechar muda a negociação inteira.</p>
+  </div>
+</section>
+
+<!-- ═══ 04 · PREJUÍZO OCULTO ═══ -->
+<section class="sec">
+  <div class="wrap">
+    <p class="kicker">A conta que ninguém faz de cabeça</p>
+    <h2>O preço parecia certo. Mas escondeu um <span class="hl-red">prejuízo oculto de R$ 25 mil</span> ao longo do ano.</h2>
+    <p class="lead">É o que acontece com 9 em cada 10 empresas — e ninguém percebe. Veja um dos produtos analisados:</p>
+
+    <div class="panel panel-bad">
+      <span class="badge badge-bad">✕ Precificação comum</span>
+      <p class="formula">Custo + 50% = preço de venda</p>
+      <div class="rows">
+        <div class="row"><span class="row-k">Custo do produto</span><span class="row-v">R$ 100,00</span></div>
+        <div class="row"><span class="row-k">Despesas e impostos</span><span class="row-v">R$ 38,46</span></div>
+        <div class="row"><span class="row-k">Lucro</span><span class="row-v v-red">R$ 11,54</span><span class="delta">acreditava ter 10,00% <em>→</em> tinha 7,69%</span></div>
+        <div class="row"><span class="row-k">Preço praticado</span><span class="row-v">R$ 150,00</span></div>
+      </div>
+      <p class="note">Ela acreditava estar lucrando 10% em cada venda. Na prática, eram 7,69%. Aplicar um percentual sobre o custo não mostra o que sobra da venda: <b>não é método, é estimativa com nome de conta.</b></p>
+    </div>
+
+    <div class="panel panel-good">
+      <span class="badge badge-good">✓ Precificação correta</span>
+      <p class="formula">Custo ÷ coeficiente da empresa = preço de venda</p>
+      <div class="rows">
+        <div class="row"><span class="row-k">Custo do produto</span><span class="row-v">R$ 100,00</span></div>
+        <div class="row"><span class="row-k">Despesas e impostos</span><span class="row-v">R$ 38,46</span></div>
+        <div class="row"><span class="row-k">Lucro</span><span class="row-v v-green">R$ 15,38</span><span class="delta">10,00% <em>→</em> exatamente o definido</span></div>
+        <div class="row"><span class="row-k">Preço correto</span><span class="row-v">R$ 153,85</span></div>
+      </div>
+      <p class="note">Mesmo produto, mesmo custo. O Precifica Certo recalculou o preço a partir da estrutura da empresa e entregou os 10% que ela tinha definido.</p>
+    </div>
+
+    <div class="scale">
+      <div class="scale-i"><b>2,5024%</b><span>de correção na margem de contribuição</span></div>
+      <div class="scale-i scale-hot"><span style="display:block;font-family:var(--mono);font-size:14px;letter-spacing:.09em;text-transform:uppercase;color:var(--red);font-weight:700;margin-bottom:2px">Prejuízo Oculto</span><b>R$ 25.667,00</b><span>em R$ 1 milhão faturado no ano</span></div>
+    </div>
+
+    <p class="reveal">Prejuízo oculto não é dinheiro que saiu do caixa. É <b>lucro que nunca chegou</b> — e não aparece em relatório nenhum, porque a venda foi feita e o pedido foi entregue.</p>
+  </div>
+</section>
+
+<!-- ═══ PROVA SOCIAL ═══ -->
+<section class="sec">
+  <div class="wrap">
+    <div class="off">
+      <p class="off-h">Container · prova social · desativado</p>
+      <p>Reservado para depoimentos em vídeo. Ativar apenas com caso real gravado — prioridade para a indústria de esquadrias que descobriu ter lucro menor que a comissão do vendedor. A frase a captar não é elogio ao sistema: <strong>“eu não sabia até onde podia descontar.”</strong></p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ 05 · COMPARAÇÃO ═══ -->
+<section class="sec">
+  <div class="wrap">
+    <p class="kicker">Na hora de negociar</p>
+    <h2>O vendedor <span class="hl-red">levou mais que a empresa</span>. Na mesma venda.</h2>
+    <p class="lead">O desconto não sai do preço. Sai do lucro.</p>
+
+    <div class="panel panel-bad">
+      <span class="badge badge-bad">✕ O jeito comum</span>
+      <div class="rows">
+        <div class="row"><span class="row-k">Orçamento</span><span class="row-v">R$ 86.630,80</span></div>
+        <div class="row"><span class="row-k">Desconto</span><span class="row-v">12%</span></div>
+        <div class="row"><span class="row-k">Comissão do vendedor</span><span class="row-v">R$ 3.811,76</span><span class="delta">5,000% <em>→</em> 5,000%</span></div>
+        <div class="row"><span class="row-k">Lucro da empresa</span><span class="row-v v-red">R$ 3.485,07</span><span class="delta">10,000% <em>→</em> 4,571%</span></div>
+      </div>
+      <p class="note">A comissão continuou em 5,000%. O lucro saiu de 10,000% para 4,571%. Um ficou parado. O outro absorveu o desconto inteiro.</p>
+      <div class="punch punch-bad">Nessa venda o vendedor levou R$ 3.811,76. A empresa ficou com R$ 3.485,07.</div>
+      <p class="frame">Não é o vendedor tirando vantagem. É o modelo de desconto entregando isso sem ninguém perceber.</p>
+    </div>
+
+    <div class="turnpoint">
+      <h3>Com o jeito certo, todo mundo negocia <span class="hl-green">sabendo o que ganha</span>.</h3>
+      <p>O desconto continua na mão de quem negocia. O que muda é que ele passa a ser dividido — e não retirado de um lado só.</p>
+    </div>
+
+    <div class="panel panel-good">
+      <span class="badge badge-good">✓ O jeito certo</span>
+      <div class="rows">
+        <div class="row"><span class="row-k">Orçamento</span><span class="row-v">R$ 86.630,80</span></div>
+        <div class="row"><span class="row-k">Desconto</span><span class="row-v">12%</span></div>
+        <div class="row"><span class="row-k">Comissão do vendedor</span><span class="row-v">R$ 2.337,14</span><span class="delta">5,000% <em>→</em> 3,066%</span></div>
+        <div class="row"><span class="row-k">Lucro da empresa</span><span class="row-v v-green">R$ 4.674,28</span><span class="delta">10,000% <em>→</em> 6,131%</span></div>
+      </div>
+      <p class="note">A comissão saiu de 5,000% para 3,066%. O lucro, de 10,000% para 6,131%. A relação entre os dois não mudou.</p>
+      <div class="punch punch-good">A empresa ficou com R$ 4.674,28 — R$ 1.189,21 a mais na mesma venda, com o mesmo desconto.</div>
+    </div>
+
+
+    <p class="bridge">Desconto deixa de ser um chute quando você conhece o seu limite.</p>
+  </div>
+</section>
+
+<!-- ═══ 06 · PRA QUEM É ═══ -->
+<section class="sec">
+  <div class="wrap">
+    <p class="kicker">Pra quem é</p>
+    <h2>Se existe um preço a ser definido, existe uma <span class="hl-green" style="white-space:nowrap">conta a ser feita</span>.</h2>
+    <p class="lead">O que importa não é o segmento — é ter custo variável e negociar preço. O sistema calcula nas três estruturas, e cada uma forma o preço de um jeito:</p>
+
+    <div class="segs">
+
+      <div class="seg">
+        <span class="seg-t">Industrialização</span>
+        <span class="seg-d">Itens + mão de obra produtiva / Margem de contribuição</span>
+        <p class="seg-p">Para quem atua no beneficiamento de matéria-prima somado à mão de obra.</p>
+
+        <div class="seg-g">
+          <span class="seg-gl">Produções personalizadas</span>
+          <div class="chips"><span>Esquadrias</span><span>Móveis planejados</span><span>Marcenarias</span><span>Marmorarias</span><span>Serralherias</span><span>Vidraçarias</span></div>
+        </div>
+
+        <div class="seg-g">
+          <span class="seg-gl">Produções em série</span>
+          <div class="chips"><span>Confecções</span><span>Restaurantes</span><span>Gráficas</span><span>Confeitarias</span><span>Pizzarias</span><span>Lancherias</span></div>
+        </div>
+
+        <p class="seg-r"><b>Regimes:</b> Simples Nacional · Lucro Real · MEI</p>
+      </div>
+
+      <div class="seg">
+        <span class="seg-t">Revenda</span>
+        <span class="seg-d">CMV / Margem de contribuição</span>
+        <p class="seg-p">Para quem atua no repasse de produtos.</p>
+
+        <div class="seg-g">
+          <div class="chips"><span>Lojas de roupas</span><span>Cosméticos</span><span>Lojas de calçados</span><span>Autopeças</span></div>
+        </div>
+
+        <p class="seg-r"><b>Regimes:</b> Simples Nacional · Lucro Real · MEI</p>
+      </div>
+
+      <div class="seg">
+        <span class="seg-t">Prestação de serviços</span>
+        <span class="seg-d">Custo por hora técnica + Desp. fixas / Margem de contribuição</span>
+        <p class="seg-p">Para quem atua na venda da hora trabalhada.</p>
+
+        <div class="seg-g">
+          <span class="seg-gl">Serviço puro</span>
+          <div class="chips"><span>Clínicas odontológicas</span><span>Estéticas</span><span>Salões de beleza</span><span>Barbearias</span></div>
+        </div>
+
+        <div class="seg-g">
+          <span class="seg-gl">Serviço com ganho sobre produtos</span>
+          <div class="chips"><span>Oficinas mecânicas</span><span>Assistências técnicas</span><span>Elétrica e hidráulica</span></div>
+        </div>
+
+        <p class="seg-r"><b>Regimes:</b> Simples Nacional · MEI</p>
+      </div>
+
+    </div>
+
+    <p class="note">Faz mais diferença para quem já tem faturamento relevante, equipe, vendedor comissionado e negocia com desconto. Tipicamente quem está saindo do Simples ou entrando no Lucro Real.</p>
+    <p class="note">Assessorias, consultorias e mentorias também usam o sistema para estruturar o cálculo dos próprios clientes.</p>
+
+    <div class="nope">
+      <span>Não é para você que</span>
+      <ul class="nope-l">
+        <li>Quer continuar precificando por markup</li>
+        <li>Não tem interesse em conhecer a margem de cada produto</li>
+        <li>Não precisa de controle empresarial</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ BASE DE CÁLCULO (calculadora) ═══ -->
+<section class="sec">
+  <div class="wrap">
+    <h3 class="blk">A base de cálculo é o DNA da sua empresa.</h3>
+    <p class="blk-s">Onde todas as vendas contribuem para o pagamento das despesas.</p>
+
+    <div class="calc">
+      <p class="calc-h">Monte o preço a partir da sua estrutura</p>
+
+      <div class="calc-row">
+        <label for="c-custo">Custo do produto</label>
+        <div class="calc-in"><span>R$</span><input type="number" id="c-custo" value="100" min="1" step="1"></div>
+      </div>
+
+      <div class="calc-row">
+        <label for="c-desp">Despesas operacionais <b id="v-desp">20,0%</b></label>
+        <input type="range" id="c-desp" min="0" max="40" step="0.5" value="20">
+      </div>
+
+      <div class="calc-row">
+        <label for="c-imp">Impostos <b id="v-imp">10,0%</b></label>
+        <input type="range" id="c-imp" min="0" max="25" step="0.5" value="10">
+      </div>
+
+      <div class="calc-row">
+        <label for="c-com">Comissão <b id="v-com">5,0%</b></label>
+        <input type="range" id="c-com" min="0" max="15" step="0.5" value="5">
+      </div>
+
+      <div class="calc-row calc-hot">
+        <label for="c-luc">Lucro desejado <b id="v-luc">12,0%</b></label>
+        <input type="range" id="c-luc" min="1" max="30" step="0.5" value="12">
+      </div>
+
+      <div class="calc-out">
+        <span class="calc-lb">Preço de venda</span>
+        <span class="calc-px" id="v-preco">R$ 188,68</span>
+        <span class="calc-cf">coeficiente <b id="v-coef">0,530</b></span>
+      </div>
+
+      <div class="calc-bar" id="v-bar" role="img" aria-label="Composição do preço de venda"></div>
+
+      <div class="calc-brk" id="v-brk"></div>
+
+      <p class="calc-chk" id="v-chk"></p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ 07 · MÉTODO KLIN ═══ -->
+<section class="sec" id="metodo">
+  <div class="wrap">
+    <p class="kicker">O método</p>
+    <p class="thesis thesis-lg">O ponto-chave não é precificar.<br>É mostrar o <b>lucro real de cada venda</b>,<br>inclusive quando ele não existe.</p>
+
+    <div class="define">
+      <p class="define-h">Método KLIN</p>
+      <p>O caminho entre custos, despesas, impostos, comissões e o lucro da operação. São 17 etapas, calculadas no instante em que você monta o orçamento. Você vê o resultado exato de cada venda antes de mandar a proposta.</p>
+    </div>
+
+    <h3 class="blk">Os 3 fundamentos do método</h3>
+    <div class="parts">
+      <div class="part">
+        <div class="part-h"><span class="part-n">01</span><span class="part-t">Consolidação Orçamentária</span></div>
+        <p>Cada produto entra com o próprio coeficiente, calculado sobre a sua estrutura de custo. O sistema apura o resultado do conjunto — não é uma lista de itens com preço somado.</p>
+      </div>
+      <div class="part">
+        <div class="part-h"><span class="part-n">02</span><span class="part-t">Distribuição do Desconto</span></div>
+        <p>Você escolhe quem absorve o desconto antes de concedê-lo: lucro e comissão juntos, ou um dos dois protegido. A distribuição aparece na tela enquanto você digita o percentual.</p>
+      </div>
+      <div class="part">
+        <div class="part-h"><span class="part-n">03</span><span class="part-t">Cascata RRO</span></div>
+        <p>As 17 etapas até o Resultado Residual Operacional — o que sobra de cada venda depois de custos, despesas, impostos e comissões. Aberto linha a linha, dá para conferir se a conta bate.</p>
+      </div>
+    </div>
+
+    <div class="modes">
+      <span class="mode mode-on">Proporcional (Comissão + Lucro)</span>
+      <span class="mode">Congela Lucro</span>
+      <span class="mode">Congela Comissão</span>
+    </div>
+
+    <p class="note">Na sua empresa, compra tem cotação, contratação tem aprovação, pagamento tem prazo. O desconto é a única decisão financeira sem nenhuma regra.</p>
+
+
+
+    <h3 class="blk blk-lg">Fechar sem lucro pode ser <span class="hl-green" style="white-space:nowrap">decisão estratégica</span>.<br>Não ter esse controle é <span class="hl-red" style="white-space:nowrap">motivo de falência</span>.</h3>
+    <p class="relief">Tem venda que vale por ocupação de fábrica, por cliente novo, por relacionamento. Isso é estratégia, e a decisão é da empresa e do vendedor — juntos, com o número na tela.</p>
+    <p class="relief">O problema é outro: fechar achando que tem lucro e descobrir no fim do mês, quando o dinheiro não aparece e já não dá para corrigir.</p>
+    <p class="relief">E quando a venda não fecha, você fica tranquilo: a partir dali era prejuízo. Quem levou o negócio levou junto o problema.</p>
+  </div>
+</section>
+
+<!-- ═══ 08 · TELAS DO SISTEMA ═══ -->
+<section class="sec">
+  <div class="wrap">
+    <p class="kicker">Por dentro</p>
+    <h2>Controle sua empresa, em poucos cliques.</h2>
+    <p class="lead">O sistema integra todas as seções. Você registra as despesas e, no mesmo movimento, enxerga o caixa, o que tem a receber, o que tem a pagar — e os coeficientes que precificam cada produto já saem atualizados.</p>
+  </div>
+
+  <div class="rail">
+    <div class="rail-track">
+      <div class="shot">
+        <div class="shot-img"><img src="img/01-fluxo-de-caixa.png" alt="Tela de fluxo de caixa do Precifica Certo" loading="lazy"></div>
+        <div class="shot-cap"><b>Fluxo de caixa</b><span>Previsão de recebimentos e pagamentos, dia a dia</span></div>
+      </div>
+      <div class="shot">
+        <div class="shot-img"><img src="img/02-precificacao.png" alt="Tela de precificação do Precifica Certo" loading="lazy"></div>
+        <div class="shot-cap"><b>Precificação</b><span>Cada despesa vira percentual no preço do produto</span></div>
+      </div>
+      <div class="shot">
+        <div class="shot-img"><img src="img/03-orcamentos.png" alt="Tela de orçamentos do Precifica Certo" loading="lazy"></div>
+        <div class="shot-cap"><b>Orçamentos</b><span>Modo de desconto e distribuição do resultado</span></div>
+      </div>
+      <div class="shot">
+        <div class="shot-img"><img src="img/04-vendas.png" alt="Tela de vendas do Precifica Certo" loading="lazy"></div>
+        <div class="shot-cap"><b>Vendas</b><span>Histórico, recebimentos e comissões por vendedor</span></div>
+      </div>
+      <div class="shot">
+        <div class="shot-img"><img src="img/05-analise-financeira.png" alt="Tela de análise financeira do Precifica Certo" loading="lazy"></div>
+        <div class="shot-cap"><b>Análise financeira</b><span>DRE do período, com margem sobre a receita</span></div>
+      </div>
+      <div class="shot" aria-hidden="true">
+        <div class="shot-img"><img src="img/01-fluxo-de-caixa.png" alt="" loading="lazy"></div>
+        <div class="shot-cap"><b>Fluxo de caixa</b><span>Previsão de recebimentos e pagamentos, dia a dia</span></div>
+      </div>
+      <div class="shot" aria-hidden="true">
+        <div class="shot-img"><img src="img/02-precificacao.png" alt="" loading="lazy"></div>
+        <div class="shot-cap"><b>Precificação</b><span>Cada despesa vira percentual no preço do produto</span></div>
+      </div>
+      <div class="shot" aria-hidden="true">
+        <div class="shot-img"><img src="img/03-orcamentos.png" alt="" loading="lazy"></div>
+        <div class="shot-cap"><b>Orçamentos</b><span>Modo de desconto e distribuição do resultado</span></div>
+      </div>
+      <div class="shot" aria-hidden="true">
+        <div class="shot-img"><img src="img/04-vendas.png" alt="" loading="lazy"></div>
+        <div class="shot-cap"><b>Vendas</b><span>Histórico, recebimentos e comissões por vendedor</span></div>
+      </div>
+      <div class="shot" aria-hidden="true">
+        <div class="shot-img"><img src="img/05-analise-financeira.png" alt="" loading="lazy"></div>
+        <div class="shot-cap"><b>Análise financeira</b><span>DRE do período, com margem sobre a receita</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="wrap">
+    <p class="note">Nenhuma planilha para montar, nenhuma fórmula para manter. Cada produto recebe o próprio coeficiente, calculado sobre a realidade da sua operação.</p>
+  </div>
+</section>
+
+<!-- ═══ 09 · O SISTEMA ═══ -->
+<section class="sec" id="sistema">
+  <div class="wrap">
+    <p class="kicker">O sistema</p>
+    <h2>Gestão não é descobrir depois. <span class="hl-green">É saber antes.</span></h2>
+    <p class="lead">O Precifica Certo dá a estrutura e o fundamento que uma boa gestão exige: o que cada venda deixa, quais produtos sustentam o resultado e até onde a negociação pode ir — antes de a proposta sair.</p>
+
+    <div class="bens">
+      <div class="ben"><b>Sem esperar fechamento</b><span>O número aparece na hora em que você monta a proposta, não no relatório do mês seguinte.</span></div>
+      <div class="ben"><b>De qualquer lugar</b><span>Abre no navegador do celular. Dá para negociar dentro do cliente, com o limite na tela.</span></div>
+      <div class="ben"><b>Feito para quem não é da área</b><span>Nenhuma fórmula para montar, nenhum termo contábil para aprender. Você lança, o sistema calcula.</span></div>
+      <div class="ben"><b>O diagnóstico que uma assessoria levantaria</b><span>Despesas agrupadas, margem por produto e resultado por venda — organizados sozinhos.</span></div>
+    </div>
+
+    <h3 class="blk">Cada etapa da estrutura</h3>
+    <p class="blk-s">Uma parte depende da outra. O que você registra hoje corrige o preço de amanhã.</p>
+
+    <div class="cycle">
+      <svg viewBox="-9 40 619 479" role="img" aria-label="Ciclo Precifica Certo: fluxo de caixa, controle financeiro, precificação, orçamentos e vendas, em circuito fechado">
+        <defs>
+          <marker id="ar" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M2 1L8 5L2 9" fill="none" stroke="#5D708F" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+          </marker>
+        </defs>
+
+        <path class="cy-a" d="M323.2 206.9 A96 96 0 0 1 381.4 249.1" marker-end="url(#ar)"/>
+        <path class="cy-a" d="M395.8 293.3 A96 96 0 0 1 373.5 361.7" marker-end="url(#ar)"/>
+        <path class="cy-a" d="M336.0 389.0 A96 96 0 0 1 264.0 389.0" marker-end="url(#ar)"/>
+        <path class="cy-a" d="M226.5 361.7 A96 96 0 0 1 204.2 293.3" marker-end="url(#ar)"/>
+        <path class="cy-a" d="M218.6 249.1 A96 96 0 0 1 276.8 206.9" marker-end="url(#ar)"/>
+
+        <rect class="cy-box" x="205.0" y="50.0" width="190" height="70" rx="12"/>
+        <text class="cy-t" x="300.0" y="74.0" text-anchor="middle">Fluxo de caixa</text>
+        <text class="cy-s" x="300.0" y="92.0" text-anchor="middle">previsão de</text>
+        <text class="cy-s" x="300.0" y="107.0" text-anchor="middle">recebimentos</text>
+
+        <rect class="cy-box" x="409.5" y="198.6" width="190" height="70" rx="12"/>
+        <text class="cy-t" x="504.5" y="222.6" text-anchor="middle">Controle financeiro</text>
+        <text class="cy-s" x="504.5" y="240.6" text-anchor="middle">margem de</text>
+        <text class="cy-s" x="504.5" y="255.6" text-anchor="middle">contribuição</text>
+
+        <rect class="cy-box" x="331.4" y="438.9" width="190" height="70" rx="12"/>
+        <text class="cy-t" x="426.4" y="462.9" text-anchor="middle">Precificação</text>
+        <text class="cy-s" x="426.4" y="480.9" text-anchor="middle">personalizada</text>
+        <text class="cy-s" x="426.4" y="495.9" text-anchor="middle">por produto</text>
+
+        <rect class="cy-hot" x="78.6" y="438.9" width="190" height="70" rx="12"/>
+        <text class="cy-t" x="173.6" y="462.9" text-anchor="middle">Orçamentos</text>
+        <text class="cy-s" x="173.6" y="480.9" text-anchor="middle">ativação do</text>
+        <text class="cy-s" x="173.6" y="495.9" text-anchor="middle">Método KLIN</text>
+
+        <rect class="cy-box" x="0.5" y="198.6" width="190" height="70" rx="12"/>
+        <text class="cy-t" x="95.5" y="222.6" text-anchor="middle">Vendas</text>
+        <text class="cy-s" x="95.5" y="240.6" text-anchor="middle">comissões e</text>
+        <text class="cy-s" x="95.5" y="255.6" text-anchor="middle">recebimentos</text>
+
+        <text class="cy-c" x="300" y="294" text-anchor="middle">Precifica Certo</text>
+        <text class="cy-s" x="300" y="316" text-anchor="middle">o ciclo completo</text>
+      </svg>
+    </div>
+
+
+    <h3 class="blk">Cada etapa por dentro.</h3>
+    <p class="blk-s">As cinco áreas do ciclo, na ordem em que se alimentam.</p>
+
+    <div class="tabs">
+      <input type="radio" name="etapa" id="t1" checked>
+      <input type="radio" name="etapa" id="t2">
+      <input type="radio" name="etapa" id="t3">
+      <input type="radio" name="etapa" id="t4">
+      <input type="radio" name="etapa" id="t5">
+
+      <div class="tab-labels">
+        <label for="t1">Fluxo de caixa</label>
+        <label for="t2">Controle financeiro</label>
+        <label for="t3">Precificação</label>
+        <label for="t4">Orçamentos</label>
+        <label for="t5">Vendas</label>
+      </div>
+
+      <div class="tab-panels">
+        <div class="tab-p p1">
+          <div class="tab-txt">
+            <h4>Fluxo de caixa</h4>
+            <ul>
+              <li>Previsão diária de recebimentos e pagamentos</li>
+              <li>Lançamento de despesas com parcelamento automático</li>
+              <li>Saldo projetado antes de o mês fechar</li>
+              <li>Baixa de recebimentos e pagamentos em um clique</li>
+            </ul>
+          </div>
+          <div class="tab-img"><img src="img/01-fluxo-de-caixa.png" alt="Tela de fluxo de caixa do Precifica Certo" loading="lazy"></div>
+        </div>
+
+        <div class="tab-p p2">
+          <div class="tab-txt">
+            <h4>Controle financeiro</h4>
+            <ul>
+              <li>Despesas agrupadas por categoria automaticamente</li>
+              <li>Médias que viram os percentuais da precificação</li>
+              <li>DRE do período com margem sobre a receita</li>
+              <li>Análise horizontal e vertical do resultado</li>
+            </ul>
+          </div>
+          <div class="tab-img"><img src="img/05-analise-financeira.png" alt="Tela de análise financeira do Precifica Certo" loading="lazy"></div>
+        </div>
+
+        <div class="tab-p p3">
+          <div class="tab-txt">
+            <h4>Precificação</h4>
+            <ul>
+              <li>Margem de contribuição nas três segmentações</li>
+              <li>Coeficiente individual por produto</li>
+              <li>Impostos por dentro e por fora no mesmo cálculo</li>
+              <li>Histórico de cálculos por produto</li>
+            </ul>
+          </div>
+          <div class="tab-img"><img src="img/02-precificacao.png" alt="Tela de precificação do Precifica Certo" loading="lazy"></div>
+        </div>
+
+        <div class="tab-p p4">
+          <div class="tab-txt">
+            <h4>Orçamentos</h4>
+            <ul>
+              <li>Vários produtos no mesmo orçamento, com tributações diferentes</li>
+              <li>Três modos de desconto, com o resultado na tela</li>
+              <li>Cascata de 17 etapas aberta linha a linha</li>
+              <li>PDF com a memória de cálculo junto da proposta</li>
+            </ul>
+          </div>
+          <div class="tab-img"><img src="img/03-orcamentos.png" alt="Tela de orçamentos do Precifica Certo" loading="lazy"></div>
+        </div>
+
+        <div class="tab-p p5">
+          <div class="tab-txt">
+            <h4>Vendas</h4>
+            <ul>
+              <li>Histórico de vendas de balcão e de orçamento</li>
+              <li>Comissão por vendedor calculada sobre o resultado</li>
+              <li>Condições de pagamento lançadas direto no caixa</li>
+              <li>Ticket médio e receita do período</li>
+            </ul>
+          </div>
+          <div class="tab-img"><img src="img/04-vendas.png" alt="Tela de vendas do Precifica Certo" loading="lazy"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="obj">
+      <h3>Sim, o sistema precisa dos seus números.</h3>
+      <p>Não existe cálculo de lucro sem saber o que entra e o que sai. Por isso a primeira etapa é uma só: lançar as despesas do mês. O sistema agrupa por categoria sozinho e transforma em percentual.</p>
+      <p>Daí em diante não há trabalho novo. Os recebimentos e pagamentos que você já registra no caixa mantêm o cálculo atualizado — e o preço acompanha.</p>
+      <p class="kick">Uma única negociação corrigida paga o sistema por meses.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ 10 · CASCATA / DNA ═══ -->
+<section class="sec">
+  <div class="wrap">
+    <p class="kicker">Sem caixa-preta</p>
+    <h2>Em cada venda, o DNA da sua empresa.</h2>
+    <p class="lead">A operação inteira fragmentada: todo custo, toda despesa e todo imposto que entraram na formação daquele preço, na ordem em que foram considerados.</p>
+
+    <div class="casc">
+      <div class="casc-h"><span>#</span><span>Etapa</span><span>Valor</span></div>
+      <div class="casc-r"><span class="casc-n">01</span><span class="casc-l">Cada produto separado</span><span class="casc-v">1 produto</span></div>
+      <div class="casc-r"><span class="casc-n">02</span><span class="casc-l">Cálculo produto a produto</span><span class="casc-v">86.630,80</span></div>
+      <div class="casc-r"><span class="casc-n">03</span><span class="casc-l">Agrupamento por categoria</span><span class="casc-v">86.630,80</span></div>
+      <div class="casc-r fx"><span class="casc-n">04</span><span class="casc-l">Custos consolidados</span><span class="casc-v">35.163,44</span></div>
+      <div class="casc-r fx"><span class="casc-n">05</span><span class="casc-l">Despesas operacionais</span><span class="casc-v">21.259,20</span></div>
+      <div class="casc-r"><span class="casc-n">06</span><span class="casc-l">Margens: comissão, lucro, IRPJ e CSLL</span><span class="casc-v">15.073,76</span></div>
+      <div class="casc-r"><span class="casc-n">07</span><span class="casc-l">Operação interna</span><span class="casc-v">86.630,80</span></div>
+      <div class="casc-r"><span class="casc-n">08</span><span class="casc-l">Operação externa</span><span class="casc-v">0,00</span></div>
+      <div class="casc-r"><span class="casc-n">09</span><span class="casc-l">Venda consolidada</span><span class="casc-v">86.630,80</span></div>
+      <div class="casc-r"><span class="casc-n">10</span><span class="casc-l">Pesos da estrutura</span><span class="casc-v">peso 1,000</span></div>
+      <div class="casc-r cut"><span class="casc-n">11</span><span class="casc-l">Desconto aplicado — 12%</span><span class="casc-v">−10.395,70</span></div>
+      <div class="casc-r"><span class="casc-n">12</span><span class="casc-l">Base após o desconto</span><span class="casc-v">76.235,10</span></div>
+      <div class="casc-r cut"><span class="casc-n">13</span><span class="casc-l">Impostos sobre a venda</span><span class="casc-v">−10.916,87</span></div>
+      <div class="casc-r fx cut"><span class="casc-n">14</span><span class="casc-l">Custos e despesas deduzidos</span><span class="casc-v">−56.422,64</span></div>
+      <div class="casc-r rest"><span class="casc-n">15</span><span class="casc-l">O que sobrou da operação</span><span class="casc-v">8.133,24</span></div>
+      <div class="casc-r"><span class="casc-n">16</span><span class="casc-l">Divisão entre comissão e lucro</span><span class="casc-v">8.133,24</span></div>
+      <div class="casc-r"><span class="casc-n">17</span><span class="casc-l">Conferência final</span><span class="casc-v">0,00</span></div>
+    </div>
+
+    <p class="caption">A linha 17 fecha em zero: tudo foi distribuído nas etapas anteriores. É a prova de que a conta bate. A Cascata inteira sai em PDF junto com o orçamento.</p>
+
+    <div class="counts">
+      <div class="count"><span class="count-n">3</span><span class="count-l">modos de aplicar desconto</span></div>
+      <div class="count"><span class="count-n">17</span><span class="count-l">etapas de Cascata em cada orçamento</span></div>
+      <div class="count"><span class="count-n">∞</span><span class="count-l">todos os regimes tributários</span></div>
+    </div>
+  </div>
+</section>
+
+
+<!-- ═══ 12 · OFERTA ═══ -->
+<section class="sec" id="oferta">
+  <div class="wrap">
+    <p class="kicker">Preço</p>
+    <h2>Menos que o desconto de um único pedido.</h2>
+
+
+    <p class="access">É o mesmo modelo de precificação que grandes empresas como Tramontina, Cacau Show e Cimed aplicam. Agora ao seu alcance, sem precisar contratar especialistas caros.</p>
+
+    <div class="plans plans-one">
+      <div class="plan">
+        <h3 class="plan-trial">Teste grátis por 7 dias</h3>
+        <p class="plan-cancel">Após R$ 99,90/mês — cancele quando quiser</p>
+        <p class="plan-k2">Plano Individual</p>
+        <ul class="plan-l">
+          <li>Caixa e fluxo de caixa</li>
+          <li>Controle financeiro</li>
+          <li>Precificação personalizada</li>
+          <li>Orçamentos — Método KLIN</li>
+          <li>Vendas</li>
+          <li>Suporte humano por WhatsApp</li>
+        </ul>
+      </div>
+    </div>
+
+    <p class="more">Pagamento recorrente mensal. Cancele quando quiser.</p>
+
+    <div class="cta-block">
+      <a href="cadastro.html" class="cta js-next">Começar grátis agora</a>
+      <p class="cta-note">7 dias de uso gratuito</p>
+    </div>
+
+    <div class="risk">
+      <div class="risk-i"><i>✓</i>Acesso imediato por e-mail</div>
+      <div class="risk-i"><i>✓</i>Sem fidelidade ou multa de cancelamento</div>
+      <div class="risk-i"><i>✓</i>Suporte humano por WhatsApp</div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ═══ 13 · URGÊNCIA + FECHAMENTO ═══ -->
+<section class="sec">
+  <div class="wrap">
+    <p class="kicker">O que vem pela frente</p>
+    <h2 class="h2-sm">IBS e CBS<br><span style="white-space:nowrap">na formação do preço de venda.</span></h2>
+    <p class="lead">2026 foi o ano de testes. <span style="white-space:nowrap">2027 mexe no seu preço.</span></p>
+
+    <div class="tl">
+      <div class="tl-i now"><span class="tl-y">2026</span><span class="tl-t">Ano de testes. Alíquota simbólica de 1%, sem impacto financeiro</span></div>
+      <div class="tl-i"><span class="tl-y">2027</span><span class="tl-t">PIS e Cofins acabam. A CBS entra com alíquota cheia, cobrada por fora</span></div>
+      <div class="tl-i"><span class="tl-y">2029–2032</span><span class="tl-t">ICMS e ISS caem gradualmente. O IBS sobe no mesmo ritmo</span></div>
+    </div>
+
+    <p class="note">Seu preço hoje foi formado com PIS e Cofins por dentro. A partir de 2027 essa base deixa de existir — e cada ano da transição muda os percentuais de novo.</p>
+    <p class="note"><strong>O Precifica Certo já calcula nos dois formatos.</strong> Você não precisa refazer a conta a cada mudança: o Hub atualiza os percentuais e a Cascata mostra o novo preço.</p>
+
+  </div>
+</section>
+
+<!-- ═══ 14 · PERGUNTAS FREQUENTES ═══ -->
+<section class="sec" id="duvidas">
+  <div class="wrap">
+    <p class="kicker">Dúvidas</p>
+    <h2>Perguntas frequentes</h2>
+    <div class="faq">
+      <details><summary>Preciso de conhecimento financeiro para usar?</summary><p>Não. Você lança as despesas e o Hub faz o agrupamento. Os percentuais saem dos seus próprios números.</p></details>
+      <details><summary>Quanto trabalho dá lançar os dados?</summary><p>A carga é na entrada: as despesas do mês, uma vez. Depois disso, os lançamentos de caixa que você já faria mantêm o cálculo atualizado sozinho.</p></details>
+      <details><summary>Em quanto tempo faço a primeira precificação?</summary><p>Cerca de 2 minutos depois de lançar as despesas. O primeiro orçamento sai no mesmo dia.</p></details>
+      <details><summary>Funciona para MEI, Simples, Presumido e Real?</summary><p>Sim. O cálculo se ajusta ao regime da empresa, inclusive na convivência com CBS e IBS durante a transição.</p></details>
+      <details><summary>Qual a base de cálculo do sistema?</summary><p>Margem de contribuição — ganho sobre a venda, não sobre o custo. É o que permite calcular o limite de desconto por engenharia reversa.</p></details>
+      <details><summary>É um ERP? Substitui meu contador?</summary><p>Não e não. É um sistema de precificação e resultado por venda. Seu contador continua cuidando da apuração fiscal.</p></details>
+      <details><summary>Consigo usar pelo celular?</summary><p>Sim. Orçamento, desconto e Cascata funcionam no navegador do celular.</p></details>
+      <details><summary>Como funciona o suporte?</summary><p>WhatsApp com atendimento humano, sem robô e sem fila de e-mail.</p></details>
+    </div>
+
+  </div>
+</section>
+
+<section class="close">
+  <div class="wrap">
+    <h2>&ldquo;Não perco <span class="hl-green">venda</span>.<br>E não perco <span class="hl-green">dinheiro</span>.&rdquo;</h2>
+    <p class="body">Não é postura. É a confiança de conhecer os números antes de concretizar a venda — e negociar sabendo o limite é diferente de negociar com dúvida.</p>
+    <div class="turn">
+      <p>O que era achismo vira número.</p>
+      <p>O que era torcida vira decisão.</p>
+    </div>
+    <p class="close-sig">Venda com lucro. Negocie com tranquilidade.</p>
+    <div class="cta-block">
+      <a href="cadastro.html" class="cta js-next">Começar grátis agora</a>
+      <p class="cta-note">7 dias de uso gratuito</p>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p>Precifica Certo — suas vendas com lucro de verdade</p>
+  </div>
+</footer>
+
+
+<script>
+(function(){
+  var f=function(n){return 'R$ '+n.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});};
+  var p=function(n){return n.toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1})+'%';};
+  var ids=['c-custo','c-desp','c-imp','c-com','c-luc'];
+  var el={};ids.forEach(function(i){el[i]=document.getElementById(i);});
+  if(!el['c-custo'])return;
+  var cores={custo:'#5B8DEF',desp:'#8CA0BF',imp:'#F0A742',com:'#A78BFA',luc:'#16C784'};
+
+  function calc(){
+    var custo=parseFloat(el['c-custo'].value)||0;
+    var desp=parseFloat(el['c-desp'].value);
+    var imp=parseFloat(el['c-imp'].value);
+    var com=parseFloat(el['c-com'].value);
+    var luc=parseFloat(el['c-luc'].value);
+    document.getElementById('v-desp').textContent=p(desp);
+    document.getElementById('v-imp').textContent=p(imp);
+    document.getElementById('v-com').textContent=p(com);
+    document.getElementById('v-luc').textContent=p(luc);
+
+    var soma=desp+imp+com+luc;
+    var chk=document.getElementById('v-chk');
+    if(soma>=95){
+      chk.className='calc-chk calc-warn';
+      chk.textContent='A soma dos percentuais passou de 95% da venda. Não existe preço que feche essa conta.';
+      return;
+    }
+    var coef=(100-soma)/100;
+    var preco=custo/coef;
+    document.getElementById('v-preco').textContent=f(preco);
+    document.getElementById('v-coef').textContent=coef.toLocaleString('pt-BR',{minimumFractionDigits:3,maximumFractionDigits:3});
+
+    var linhas=[
+      ['Custo do produto',custo,custo/preco*100,cores.custo],
+      ['Despesas operacionais',preco*desp/100,desp,cores.desp],
+      ['Impostos',preco*imp/100,imp,cores.imp],
+      ['Comissão',preco*com/100,com,cores.com]
+    ];
+    var lucroR=preco*luc/100;
+
+    var bar='';
+    linhas.forEach(function(l){bar+='<i style="width:'+l[2]+'%;background:'+l[3]+'"></i>';});
+    bar+='<i style="width:'+luc+'%;background:'+cores.luc+'"></i>';
+    document.getElementById('v-bar').innerHTML=bar;
+
+    var brk='';
+    linhas.forEach(function(l){
+      brk+='<div><span class="k"><i style="background:'+l[3]+'"></i>'+l[0]+'</span><span class="v">'+f(l[1])+' · '+p(l[2])+'</span></div>';
+    });
+    brk+='<div class="tot"><span class="k"><i style="background:'+cores.luc+'"></i>Lucro que sobra</span><span class="v">'+f(lucroR)+' · '+p(luc)+'</span></div>';
+    document.getElementById('v-brk').innerHTML=brk;
+
+    chk.className='calc-chk';
+    chk.innerHTML='Some tudo: '+f(custo+preco*(desp+imp+com)/100+lucroR)+'. É exatamente o preço de venda — e o lucro chegou nos <b>'+p(luc)+'</b> que você pediu.';
+  }
+  ids.forEach(function(i){el[i].addEventListener('input',calc);});
+  calc();
+})();
+</script>
+<script>
+document.querySelectorAll('.shot-img img,.tab-img img').forEach(function(im){im.addEventListener('error',function(){im.style.display='none';});});
+</script>
+</body>
+</html>

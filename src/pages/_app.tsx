@@ -107,7 +107,7 @@ function AuthGuard({ children }: { children: ReactNode }) {
       // exceto quando já estamos na tela de bloqueio ou de billing.
       setAuthorized(false)
       router.replace(BILLING_ROUTE)
-    } else if (currentUser && !currentUser.onboardingCompleted && !isOnboardingRoute && router.pathname !== ROUTES.RESET_PASSWORD && router.pathname !== BILLING_ROUTE && router.pathname !== '/criar-senha') {
+    } else if (currentUser && !currentUser.onboardingCompleted && !isOnboardingRoute && !isPublicRoute && router.pathname !== ROUTES.RESET_PASSWORD && router.pathname !== BILLING_ROUTE && router.pathname !== '/criar-senha') {
       setAuthorized(false)
       router.replace(ONBOARDING_ROUTE)
     } else if (currentUser && currentUser.onboardingCompleted && isOnboardingRoute) {

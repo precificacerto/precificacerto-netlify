@@ -2,6 +2,14 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 import { getCallerContext } from '@/lib/get-caller-tenant'
 import { isValidEmailFormat, isValidBrazilianMobile, phoneDigits } from '@/utils/contact-validation'
 import { verifyEmailDomainHasMx } from '@/utils/verify-email-domain'
+import { supabaseAdmin } from '@/supabase/admin'
+import {
+  getSignupPlanByUsers,
+  getSignupPriceId,
+  clampSignupUsers,
+  MIN_SIGNUP_USERS,
+  MAX_SIGNUP_USERS,
+} from '@/constants/signup-plans'
 
 /**
  * Cria sessão do Stripe Checkout via API REST (sem pacote 'stripe').
@@ -54,9 +62,24 @@ function getPriceId(revenueTier: RevenueTier, planSlug: PlanSlug): string | null
   return id && id.startsWith('price_') ? id : null
 }
 
+/** Origem canônica da app (evita localhost em produção). */
+function resolveOrigin(): string {
+  const rawOrigin = process.env.NEXT_PUBLIC_APP_URL
+  return rawOrigin && !rawOrigin.includes('localhost')
+    ? rawOrigin
+    : 'https://app.precificacerto.com'
+}
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' })
+  }
+
+  // Novo fluxo de cadastro (Etapa 2): seleção por quantidade de usuários, com o
+  // tenant já criado na Etapa 1 (PENDING_PAYMENT) e autenticado por sessão.
+  // Detectado pela presença de `qtd_usuarios` no body.
+  if (req.body?.qtd_usuarios != null) {
+    return handleSignupCheckout(req, res)
   }
 
   const { name, email, phone, revenueTier, planSlug, tenantId } = req.body as {
@@ -206,6 +229,115 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(200).json({ url: data.url })
   } catch (err: unknown) {
     console.error('Stripe create-checkout-session:', err instanceof Error ? err.message : 'Unknown')
+    const message = err instanceof Error ? err.message : 'Erro ao criar sessão de pagamento.'
+    return res.status(500).json({ error: message })
+  }
+}
+
+/**
+ * Novo fluxo de cadastro — Etapa 2 (Escopo 13/08/2026).
+ *
+ * O tenant já foi criado na Etapa 1 (PENDING_PAYMENT) e o usuário está autenticado.
+ * Aqui a seleção é por QUANTIDADE de usuários (1..30): o plano/price é derivado da
+ * tabela única (sem segmentação por faturamento). O tenant é sempre o da sessão
+ * (nunca vem do body) — elimina o risco de cross-tenant.
+ *
+ * Metadata é gravado no formato que o webhook atual já entende (admin_email,
+ * admin_name, plan_slug, tenant_id): ao concluir o checkout, o webhook atualiza o
+ * tenant existente para TRIAL. `qtd_usuarios` também vai no metadata para a fase
+ * seguinte (persistir tenants.qtd_usuarios no webhook — item 6 do escopo).
+ */
+async function handleSignupCheckout(req: NextApiRequest, res: NextApiResponse) {
+  const rawQtd = Number((req.body as { qtd_usuarios?: unknown }).qtd_usuarios)
+  if (!Number.isFinite(rawQtd) || !Number.isInteger(rawQtd) || rawQtd < MIN_SIGNUP_USERS || rawQtd > MAX_SIGNUP_USERS) {
+    return res.status(400).json({ error: `Quantidade de usuários inválida (${MIN_SIGNUP_USERS}–${MAX_SIGNUP_USERS}).` })
+  }
+  const qtd = clampSignupUsers(rawQtd)
+
+  // Autenticação obrigatória: tenant vem da sessão, nunca do body.
+  const caller = await getCallerContext(req, res)
+  if (!caller) return // getCallerContext já respondeu 401/403
+  const tenantId = caller.tenant_id
+
+  const { data: tenant, error: tenantErr } = await supabaseAdmin
+    .from('tenants')
+    .select('id, name, email, plan_status, stripe_subscription_id')
+    .eq('id', tenantId)
+    .single()
+
+  if (tenantErr || !tenant) {
+    return res.status(404).json({ error: 'Conta não encontrada.' })
+  }
+
+  // Esta etapa é só para contas aguardando pagamento. Conta já ativa/trial não
+  // deve iniciar uma nova assinatura por aqui.
+  if ((tenant as { plan_status?: string }).plan_status !== 'PENDING_PAYMENT') {
+    return res.status(409).json({ error: 'Esta conta já iniciou uma assinatura.' })
+  }
+
+  const adminEmail = String((tenant as { email?: string }).email || '').trim().toLowerCase()
+  const adminName = String((tenant as { name?: string }).name || '').trim() || adminEmail
+  if (!adminEmail) {
+    return res.status(400).json({ error: 'Conta sem e-mail — não é possível iniciar o checkout.' })
+  }
+
+  const plan = getSignupPlanByUsers(qtd)
+  const priceId = getSignupPriceId(plan)
+  if (!priceId || !priceId.startsWith('price_')) {
+    return res.status(400).json({ error: 'Plano não encontrado. Tente novamente.' })
+  }
+
+  const key = process.env.STRIPE_SECRET_KEY
+  if (!key) {
+    return res.status(500).json({ error: 'Stripe não configurado (STRIPE_SECRET_KEY).' })
+  }
+
+  const origin = resolveOrigin()
+
+  const params = new URLSearchParams({
+    mode: 'subscription',
+    'line_items[0][price]': priceId,
+    'line_items[0][quantity]': '1',
+    customer_email: adminEmail,
+    client_reference_id: tenantId,
+    success_url: `${origin}/cadastro/sucesso?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${origin}/cadastro/usuarios`,
+    'metadata[admin_name]': adminName,
+    'metadata[admin_email]': adminEmail,
+    'metadata[plan_slug]': plan.slug,
+    'metadata[qtd_usuarios]': String(qtd),
+    'metadata[tenant_id]': tenantId,
+    'subscription_data[metadata][admin_name]': adminName,
+    'subscription_data[metadata][admin_email]': adminEmail,
+    'subscription_data[metadata][plan_slug]': plan.slug,
+    'subscription_data[metadata][qtd_usuarios]': String(qtd),
+    'subscription_data[metadata][tenant_id]': tenantId,
+    'subscription_data[trial_period_days]': String(Number(process.env.STRIPE_TRIAL_DAYS) || 7),
+    'tax_id_collection[enabled]': 'true',
+  })
+
+  try {
+    const response = await fetch('https://api.stripe.com/v1/checkout/sessions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${key}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: params.toString(),
+    })
+
+    const data = await response.json()
+
+    if (data.error) {
+      console.error('Stripe API error (signup checkout):', data.error?.type || 'Unknown')
+      return res.status(500).json({ error: data.error.message || 'Erro ao criar sessão de pagamento.' })
+    }
+    if (!data.url) {
+      return res.status(500).json({ error: 'Stripe não retornou URL de checkout.' })
+    }
+    return res.status(200).json({ url: data.url })
+  } catch (err: unknown) {
+    console.error('Stripe signup checkout:', err instanceof Error ? err.message : 'Unknown')
     const message = err instanceof Error ? err.message : 'Erro ao criar sessão de pagamento.'
     return res.status(500).json({ error: message })
   }

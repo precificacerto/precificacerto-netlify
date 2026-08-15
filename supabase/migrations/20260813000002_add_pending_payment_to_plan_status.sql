@@ -1,0 +1,25 @@
+-- =============================================================================
+-- Novo estado de assinatura: PENDING_PAYMENT (Escopo: fluxo de entrada do novo
+-- usuário, 13/08/2026)
+-- =============================================================================
+-- Os 4 valores existentes de plan_status já cobrem 4 dos 5 estados do escopo:
+--   TRIAL      = trialing     (cartão cadastrado, dentro dos 7 dias)
+--   ACTIVE     = ativo        (assinatura paga em dia)
+--   SUSPENDED  = bloqueado    (pagamento recusado — já usado por
+--                              handleInvoicePaymentFailed no webhook)
+--   CANCELLED  = cancelado    (já usado por handleSubscriptionDeleted)
+-- Falta apenas: aguardando_pagamento = PENDING_PAYMENT (cadastrou credenciais
+-- na Etapa 1, ainda não concluiu o Stripe Checkout).
+--
+-- Como a coluna plan_status já existe e já está populada para todo tenant
+-- real, esta migration NÃO precisa do truque "default protege a base atual"
+-- usado no restante do escopo — só estamos adicionando um valor possível ao
+-- enum, nenhum tenant existente é afetado.
+--
+-- CUIDADO: ALTER TYPE ... ADD VALUE não pode ser referenciado na mesma
+-- transação em que foi criado (limitação do Postgres). Por isso esta migration
+-- fica isolada, em arquivo próprio, sem nenhum INSERT/UPDATE que use o valor
+-- novo. Só deve ser consumida por código/migrations que rodem DEPOIS que esta
+-- migration tiver sido aplicada e commitada.
+
+alter type public.plan_status add value if not exists 'PENDING_PAYMENT';

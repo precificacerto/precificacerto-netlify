@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Criar conta | Precifica Certo</title>
+<style>
+  :root{
+    --bg-0:#060A12;
+    --bg-1:#0B1220;
+    --card:#101A2B;
+    --line:#1E2C42;
+    --line-soft:#172337;
+    --mint:#2BD98A;
+    --mint-hi:#3DEB9B;
+    --txt:#F1F5F9;
+    --muted:#8899AE;
+    --err:#F87171;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    min-height:100vh;
+    font-family:"Segoe UI",Inter,system-ui,-apple-system,sans-serif;
+    color:var(--txt);
+    background:linear-gradient(165deg,var(--bg-1) 0%,var(--bg-0) 100%);
+    display:flex;align-items:center;justify-content:center;padding:44px 22px;
+  }
+  .col{width:100%;max-width:452px}
+
+  /* ---------- cabeçalho ---------- */
+  .head{text-align:center;margin-bottom:30px}
+  .logo{display:inline-flex;align-items:center;gap:9px;margin-bottom:7px}
+  .mark{width:26px;height:26px;border-radius:7px;background:var(--mint);
+    display:grid;place-items:center;flex:none}
+  .mark svg{width:15px;height:15px}
+  .name{font-size:20px;font-weight:700;letter-spacing:.01em}
+  .name em{font-style:normal;color:var(--mint);margin-left:9px}
+  .tag{font-size:13px;color:var(--muted)}
+
+  /* ---------- cartão ---------- */
+  .card{background:var(--card);border:1px solid var(--line);border-radius:15px;padding:32px 30px 28px}
+  .card h1{font-size:22px;font-weight:700;margin-bottom:24px}
+
+  .steps{display:flex;gap:7px;margin-bottom:9px}
+  .step{flex:1;height:3px;border-radius:2px;background:var(--line)}
+  .step.on{background:var(--mint)}
+  .steps-lbl{display:flex;justify-content:space-between;font-size:11px;
+    letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin-bottom:26px}
+  .steps-lbl b{color:var(--txt);font-weight:600}
+
+  .field{margin-bottom:16px}
+  label{display:block;font-size:13.5px;font-weight:500;margin-bottom:7px}
+  label i{color:var(--err);font-style:normal;margin-right:3px}
+  input[type=text],input[type=email],input[type=password],input[type=tel]{
+    width:100%;background:#0A1220;border:1px solid var(--line);border-radius:9px;
+    padding:12px 14px;color:var(--txt);font-size:15px;font-family:inherit;transition:border-color .15s}
+  input::placeholder{color:#4F6076}
+  input:focus{outline:none;border-color:var(--mint)}
+  input.bad{border-color:var(--err)}
+  .pw{position:relative}
+  .pw button{position:absolute;right:11px;top:50%;transform:translateY(-50%);background:none;
+    border:0;color:var(--muted);cursor:pointer;font-size:12px;padding:4px}
+  .hint{font-size:12px;color:var(--muted);margin-top:6px}
+  .msg{font-size:12.5px;color:var(--err);margin-top:6px;display:none}
+  .msg.show{display:block}
+
+  .consent{display:flex;gap:11px;align-items:flex-start;margin:20px 0 18px;
+    border-top:1px solid var(--line-soft);padding-top:19px}
+  .consent input{width:17px;height:17px;margin-top:2px;flex:none;accent-color:var(--mint);cursor:pointer}
+  .consent label{font-size:13px;line-height:1.55;color:var(--muted);font-weight:400;margin:0;cursor:pointer}
+
+  .cta{width:100%;background:var(--mint);color:#04140C;border:0;border-radius:9px;
+    padding:14px;font-size:15.5px;font-weight:700;font-family:inherit;cursor:pointer;transition:background .15s}
+  .cta:hover:not(:disabled){background:var(--mint-hi)}
+  .cta:disabled{background:#1B2A3D;color:#5A6C82;cursor:not-allowed}
+  .after{text-align:center;font-size:12.5px;color:var(--muted);margin-top:13px;line-height:1.55}
+  .foot{text-align:center;font-size:13px;color:var(--muted);margin-top:20px;
+    border-top:1px solid var(--line-soft);padding-top:18px}
+  .foot a{color:var(--mint);text-decoration:none;font-weight:600}
+
+  :focus-visible{outline:2px solid var(--mint-hi);outline-offset:2px}
+  @media(max-width:520px){ .card{padding:26px 20px 24px} .name{font-size:18px} }
+</style>
+</head>
+<body>
+<div class="col">
+
+  <div class="head">
+    <div class="logo">
+      <span class="mark">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M4.5 12.5l5 5 10-11" fill="none" stroke="#04140C" stroke-width="3.4"
+                stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </span>
+      <span class="name">PRECIFICA<em>CERTO</em></span>
+    </div>
+    <p class="tag">suas vendas com lucro de verdade</p>
+  </div>
+
+  <div class="card">
+    <h1>Criar sua conta</h1>
+
+    <div class="steps">
+      <div class="step on"></div><div class="step"></div><div class="step"></div>
+    </div>
+    <div class="steps-lbl"><b>1. Seus dados</b><span>2. Usuários</span><span>3. Acesso</span></div>
+
+    <form id="form" novalidate>
+      <input type="hidden" name="utm_source"   id="utm_source">
+      <input type="hidden" name="utm_medium"   id="utm_medium">
+      <input type="hidden" name="utm_campaign" id="utm_campaign">
+      <input type="hidden" name="utm_content"  id="utm_content">
+
+      <div class="field">
+        <label for="nome"><i>*</i>Nome completo</label>
+        <input type="text" id="nome" name="nome" placeholder="Como podemos te chamar" autocomplete="name">
+        <div class="msg" id="e-nome"></div>
+      </div>
+
+      <div class="field">
+        <label for="email"><i>*</i>E-mail</label>
+        <input type="email" id="email" name="email" placeholder="seu@email.com" autocomplete="email">
+        <div class="msg" id="e-email"></div>
+      </div>
+
+      <div class="field">
+        <label for="whatsapp"><i>*</i>WhatsApp</label>
+        <input type="tel" id="whatsapp" name="whatsapp" placeholder="(00) 00000-0000"
+               inputmode="numeric" maxlength="15" autocomplete="tel">
+        <div class="hint">Precisa ser um celular — é por onde enviamos o acesso.</div>
+        <div class="msg" id="e-whatsapp"></div>
+      </div>
+
+      <div class="field">
+        <label for="empresa"><i>*</i>Empresa</label>
+        <input type="text" id="empresa" name="empresa" placeholder="Nome da sua empresa"
+               autocomplete="organization">
+        <div class="msg" id="e-empresa"></div>
+      </div>
+
+      <div class="field">
+        <label for="senha"><i>*</i>Senha</label>
+        <div class="pw">
+          <input type="password" id="senha" name="senha" placeholder="Mínimo 8 caracteres"
+                 autocomplete="new-password">
+          <button type="button" id="ver" aria-label="Mostrar senha">mostrar</button>
+        </div>
+        <div class="msg" id="e-senha"></div>
+      </div>
+
+      <div class="consent">
+        <input type="checkbox" id="consent" name="consent">
+        <label for="consent">Autorizo o contato por e-mail e WhatsApp sobre minha conta
+          e novidades da plataforma.</label>
+      </div>
+
+      <button type="submit" class="cta" id="cta" disabled>Continuar</button>
+      <p class="after">Você define os usuários na próxima etapa.</p>
+    </form>
+
+    <p class="foot">Já tem uma conta? <a href="/login">Entrar</a></p>
+  </div>
+</div>
+
+<script>
+/* ---------- UTMs vindas da landing ---------- */
+(function(){
+  const q = new URLSearchParams(location.search);
+  ['utm_source','utm_medium','utm_campaign','utm_content'].forEach(k=>{
+    const el = document.getElementById(k);
+    if (el) el.value = q.get(k) || '';
+  });
+})();
+
+/* ---------- máscara do WhatsApp ---------- */
+const zap = document.getElementById('whatsapp');
+zap.addEventListener('input', e=>{
+  let v = e.target.value.replace(/\D/g,'').slice(0,11);
+  if (v.length > 6)      v = `(${v.slice(0,2)}) ${v.slice(2,7)}-${v.slice(7)}`;
+  else if (v.length > 2) v = `(${v.slice(0,2)}) ${v.slice(2)}`;
+  else if (v.length > 0) v = `(${v}`;
+  e.target.value = v;
+});
+
+/* ---------- validações ---------- */
+const DDD = /^(1[1-9]|2[12478]|3[1-8]|4[1-9]|5[13-5]|6[1-9]|7[134579]|8[1-9]|9[1-9])$/;
+
+function erro(id, texto){
+  const campo = document.getElementById(id);
+  const box   = document.getElementById('e-'+id);
+  campo.classList.toggle('bad', !!texto);
+  box.textContent = texto || '';
+  box.classList.toggle('show', !!texto);
+  return !texto;
+}
+
+const checa = {
+  nome:  v => v.trim().length >= 3 ? '' : 'Informe seu nome completo.',
+  email: v => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v.trim()) ? '' : 'E-mail inválido.',
+  empresa: v => v.trim().length >= 2 ? '' : 'Informe o nome da empresa.',
+  senha: v => v.length >= 8 ? '' : 'A senha precisa de pelo menos 8 caracteres.',
+  whatsapp: v => {
+    const d = v.replace(/\D/g,'');
+    if (d.length !== 11)         return 'Informe DDD + 9 dígitos.';
+    if (!DDD.test(d.slice(0,2))) return 'DDD inválido.';
+    if (d[2] !== '9')            return 'Precisa ser um celular, não um fixo.';
+    return '';
+  }
+};
+
+Object.keys(checa).forEach(id=>{
+  const el = document.getElementById(id);
+  el.addEventListener('blur',  ()=> erro(id, checa[id](el.value)));
+  el.addEventListener('input', ()=> { if (el.classList.contains('bad')) erro(id, checa[id](el.value)); });
+});
+
+/* ---------- mostrar/ocultar senha ---------- */
+const senha = document.getElementById('senha'), ver = document.getElementById('ver');
+ver.addEventListener('click', ()=>{
+  const oculto = senha.type === 'password';
+  senha.type = oculto ? 'text' : 'password';
+  ver.textContent = oculto ? 'ocultar' : 'mostrar';
+});
+
+/* ---------- consentimento libera o botão ---------- */
+const consent = document.getElementById('consent'), cta = document.getElementById('cta');
+consent.addEventListener('change', ()=> cta.disabled = !consent.checked);
+
+/* ---------- envio ---------- */
+document.getElementById('form').addEventListener('submit', ev=>{
+  ev.preventDefault();
+  let ok = true;
+  Object.keys(checa).forEach(id=>{
+    const el = document.getElementById(id);
+    if (!erro(id, checa[id](el.value))) ok = false;
+  });
+  if (!ok) return;
+
+  const payload = {
+    nome:     document.getElementById('nome').value.trim(),
+    email:    document.getElementById('email').value.trim().toLowerCase(),
+    whatsapp: '55' + zap.value.replace(/\D/g,''),        // 5551999999999
+    empresa:  document.getElementById('empresa').value.trim(),
+    senha:    senha.value,                               // hash no servidor, nunca em leads
+    consentimento_em: new Date().toISOString(),
+    consentimento_versao: 'v1-2026-08',
+    utm_source:   document.getElementById('utm_source').value,
+    utm_medium:   document.getElementById('utm_medium').value,
+    utm_campaign: document.getElementById('utm_campaign').value,
+    utm_content:  document.getElementById('utm_content').value
+  };
+
+  /* Backend (mesma transação):
+     1. upsert em leads por email  -> status_lead = 'cadastrado'
+     2. insert em usuarios         -> status_assinatura = 'aguardando_pagamento', lead_id
+     3. abre sessão e redireciona para o Stripe Checkout            */
+  console.log('payload →', payload);
+  cta.disabled = true;
+  cta.textContent = 'Criando sua conta...';
+});
+</script>
+</body>
+</html>

@@ -26,7 +26,7 @@ export type LoggedUser = {
   modulePermissions: Record<string, { can_view: boolean; can_edit: boolean }>
   itemAccess: { all: boolean; itemIds: string[] }
   cashflowSetupDone?: boolean
-  planStatus?: 'TRIAL' | 'ACTIVE' | 'SUSPENDED' | 'CANCELLED'
+  planStatus?: 'TRIAL' | 'ACTIVE' | 'SUSPENDED' | 'CANCELLED' | 'PENDING_PAYMENT'
   trialEndsAt?: string
   planEndsAt?: string
   planSlug?: string
