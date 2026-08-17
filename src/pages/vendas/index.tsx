@@ -38,7 +38,7 @@ import { distributeDiscountToItems } from '@/utils/distribute-discount'
 import { useTenantTaxContext } from '@/hooks/use-tenant-tax-context'
 import { MRM_ERROR_RRO_NON_POSITIVE, MRM_ENGINE_VERSION, type TaxBreakdown } from '@/types/mrm'
 import { useResidualDistribution } from '@/hooks/use-residual-distribution'
-import { detectConfigWarning, type ResidualItemInput } from '@/utils/residual-distribution'
+import { buildBaselineFromSnapshots, detectConfigWarning, type ResidualItemInput } from '@/utils/residual-distribution'
 import { PAGE_SIZE } from '@/constants/pagination'
 import { ResidualDistributionBlock } from '@/page-parts/shared/residual-distribution-block.component'
 import {
@@ -255,6 +255,12 @@ function Sales() {
         (s, it) => s + (Number(it.tax_breakdown?.ancora_interna) || 0),
         0,
     )
+    // Correção Card Percentual (Ago/2026): baseline pré-desconto do snapshot persistido
+    // (tax_breakdown.baseline_*). Ausente em vendas antigas → legado. Sem rodar o motor aqui.
+    const saleResidualBaseline = useMemo(
+        () => buildBaselineFromSnapshots(saleResidualItems, saleSubtotal),
+        [saleResidualItems, saleSubtotal],
+    )
     const saleResidualDistribution = useResidualDistribution(
         saleResidualItems,
         saleSubtotal,
@@ -266,6 +272,7 @@ function Sales() {
             ? selectedSale.discount_mode
             : 'PROPORTIONAL',
         saleAncoraGerencial,
+        saleResidualBaseline,
     )
     // S14 — DRE Consolidada para vendas (lê snapshot persistido em sale_items.tax_breakdown)
     const saleConsolidatedDRE = useMemo(() => {
@@ -1186,7 +1193,7 @@ function Sales() {
             terceirizadas_unit: terc > 0 ? terc : null,
         }
     })
-    const balcaoV17Results = calculateMotorV17ForPage({
+    const runBalcaoMotorAtDiscount = (discountPct: number) => calculateMotorV17ForPage({
         items: balcaoEnrichedItems,
         tenantCtx: {
             regime: mrmConfig.regime,
@@ -1199,22 +1206,27 @@ function Sales() {
             expense_breakdown: mrmConfig.expense_breakdown,
             absorption_policy: discountModeToAbsorptionPolicy(discountModeV), // Item 2: modo do dropdown
         },
-        globalDiscountPercent: globalDiscountPercentV,
+        globalDiscountPercent: discountPct,
         effectiveDate: balcaoReapurationDate,
         icmsComplApplies: icmsComplAppliesV,
         icmsCompl: buildIcmsComplParams(selectedCustomerIdV),
     })
-    const balcaoMotorResultsByItem = saleItems.map((i, idx) => {
+    const balcaoV17Results = runBalcaoMotorAtDiscount(globalDiscountPercentV)
+    // Correção Card Percentual (Ago/2026): baseline pré-desconto (motor desconto=0) para o
+    // "% original" do card no balcão (venda ao vivo). Invariante ao desconto digitado (I3).
+    const balcaoBaselineResults = runBalcaoMotorAtDiscount(0)
+    const distribuivelMaskBalcao = (i: (typeof saleItems)[number]): boolean => {
         const itemBase = (Number(i.unit_price) || 0) * (Number(i.quantity) || 0)
-        if (itemBase <= 0) return null
+        if (itemBase <= 0) return false
         const commPctDecimal = (i.commission_percent ?? 0) / 100
         const profPctDecimal = (i.profit_percent ?? 0) / 100
         const itemCsll = resolveItemCsllPct(i.item_tax_rates ?? null, mrmConfig.csll_pct)
         const itemIrpj = resolveItemIrpjPct(i.item_tax_rates ?? null, mrmConfig.irpj_pct)
         const totalPctDistribuivel = commPctDecimal + profPctDecimal + (Number(itemCsll) || 0) + (Number(itemIrpj) || 0)
-        if (totalPctDistribuivel === 0) return null
-        return balcaoV17Results[idx]
-    })
+        return totalPctDistribuivel !== 0
+    }
+    const balcaoMotorResultsByItem = saleItems.map((i, idx) => distribuivelMaskBalcao(i) ? balcaoV17Results[idx] : null)
+    const balcaoMotorResultsByItemBaseline = saleItems.map((i, idx) => distribuivelMaskBalcao(i) ? balcaoBaselineResults[idx] : null)
 
     // Tributos por fora consolidados (render) — paridade com orçamentos (EPIC-POR-FORA-V2 R1).
     // Derivados; não contaminam total_value/RRO. Só diferem do total quando há ST/DIFAL/FCP/Compl > 0.
@@ -1281,6 +1293,32 @@ function Sales() {
         (s, r) => s + (Number((r as { ancora_interna?: number } | null)?.ancora_interna) || 0),
         0,
     )
+    // Correção Card Percentual (Ago/2026): baseline pré-desconto do balcão para o "% original".
+    const balcaoAncoraGerencialBaseline = balcaoMotorResultsByItemBaseline.reduce(
+        (s, r) => s + (Number((r as { ancora_interna?: number } | null)?.ancora_interna) || 0),
+        0,
+    )
+    const balcaoResidualItemsBaseline: ResidualItemInput[] = useMemo(
+        () => saleItems.map((item, idx) => {
+            const motor = balcaoMotorResultsByItemBaseline[idx]
+            return {
+                unit_price: item.unit_price,
+                quantity: item.quantity,
+                commission_percent: item.commission_percent,
+                profit_percent: item.profit_percent,
+                tax_breakdown: null as null,
+                motor_new_commission: motor?.new_commission,
+                motor_new_profit: motor?.new_profit,
+                motor_new_csll: motor?.new_csll,
+                motor_new_irpj: motor?.new_irpj,
+            }
+        }),
+        [saleItems, balcaoMotorResultsByItemBaseline],
+    )
+    const balcaoResidualBaseline = useMemo(
+        () => ({ items: balcaoResidualItemsBaseline, ancoraGerencial: balcaoAncoraGerencialBaseline, totalGross: saleTotal }),
+        [balcaoResidualItemsBaseline, balcaoAncoraGerencialBaseline, saleTotal],
+    )
     // Epic MRM-V7 / ADR-010: caminho display-first com discountPct + discountMode
     const balcaoResidualDistribution = useResidualDistribution(
         balcaoResidualItems,
@@ -1291,6 +1329,7 @@ function Sales() {
         globalDiscountPercentV,
         discountModeV,
         balcaoAncoraGerencial,
+        balcaoResidualBaseline,
     )
     const balcaoTotalCostBase = useMemo(
         () => saleItems.reduce(

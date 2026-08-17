@@ -22,6 +22,11 @@ export const MODULES = {
   USERS_MANAGEMENT: 'users_management',
   SALES_REPORT:     'sales_report',
   RECURRENCE:       'recurrence',
+  // Correções de Menu V9 (itens 2/6): módulos próprios, restringíveis isoladamente.
+  // "Relatório de Comissões" (Comercial) e "RT Comissões" (Financeiro) deixam de
+  // reaproveitar sales_report/commission para poderem ser bloqueados por funcionário.
+  COMMISSIONS_REPORT: 'commissions_report',
+  RT_COMMISSION:      'rt_commission',
 } as const
 
 export type ModuleKey = typeof MODULES[keyof typeof MODULES]

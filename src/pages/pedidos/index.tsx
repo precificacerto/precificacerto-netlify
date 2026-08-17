@@ -28,7 +28,7 @@ import { useTenantTaxContext } from '@/hooks/use-tenant-tax-context'
 import { hydrateItemSnapshot, type TenantSnapshotContext } from '@/lib/items-snapshot'
 import { MRM_ENGINE_VERSION, type TaxBreakdown } from '@/types/mrm'
 import { useResidualDistribution } from '@/hooks/use-residual-distribution'
-import type { ResidualItemInput } from '@/utils/residual-distribution'
+import { buildBaselineFromSnapshots, type ResidualItemInput } from '@/utils/residual-distribution'
 import { ResidualDistributionBlock } from '@/page-parts/shared/residual-distribution-block.component'
 import { computeConsolidatedDRE, type DREItemInput } from '@/utils/consolidated-dre'
 import { ConsolidatedDREBlock } from '@/page-parts/shared/consolidated-dre-block.component'
@@ -266,6 +266,13 @@ function OrdersPage() {
         (s, it) => s + (Number(it.tax_breakdown?.ancora_interna) || 0),
         0,
     )
+    // Correção Card Percentual (Ago/2026): baseline pré-desconto lido do snapshot persistido
+    // (tax_breakdown.baseline_*, gravado no save do orçamento e copiado ao pedido). Ausente em
+    // pedidos antigos → cai no legado. Corrige o "% original" do card sem rodar o motor aqui.
+    const orderResidualBaseline = useMemo(
+        () => buildBaselineFromSnapshots(orderResidualItems, orderSubtotal),
+        [orderResidualItems, orderSubtotal],
+    )
     const orderResidualDistribution = useResidualDistribution(
         orderResidualItems,
         orderSubtotal,
@@ -275,6 +282,7 @@ function OrdersPage() {
         orderDiscountPct,
         orderDiscountMode,
         orderAncoraGerencial,
+        orderResidualBaseline,
     )
     // S14 — DRE Consolidada para pedidos (lê snapshot persistido em tax_breakdown)
     const orderConsolidatedDRE = useMemo(() => {

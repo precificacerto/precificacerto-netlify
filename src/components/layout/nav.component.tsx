@@ -118,7 +118,8 @@ const Nav = () => {
     { key: 'sales', label: 'Vendas', icon: 'shopping', href: ROUTES.SALES, section: 'comercial', module: MODULES.SALES },
     { key: 'sales-report', label: 'Relatório de Vendas', icon: 'bar-chart', href: ROUTES.SALES_REPORT, section: 'comercial', module: MODULES.SALES_REPORT },
     // Doc 29/07 (item 3.3): "Relatório de Comissões" vira sessão própria no menu COMERCIAL.
-    { key: 'commissions-report', label: 'Relatório de Comissões', icon: 'idcard', href: '/relatorio-vendas?tab=COMMISSIONS', section: 'comercial', module: MODULES.SALES_REPORT },
+    // Correções de Menu V9 (item 2): usa módulo próprio para ser restringível por funcionário.
+    { key: 'commissions-report', label: 'Relatório de Comissões', icon: 'idcard', href: '/relatorio-vendas?tab=COMMISSIONS', section: 'comercial', module: MODULES.COMMISSIONS_REPORT },
     { key: 'recurrence', label: 'Recorrência', icon: 'calendar', href: ROUTES.RECURRENCE, section: 'comercial', module: MODULES.RECURRENCE },
 
     { key: 'cashflow-overview', label: 'Fluxo de Caixa', icon: 'fund', href: ROUTES.CASH_FLOW, section: 'financeiro', hideForRepresentative: true, module: MODULES.CASH_FLOW },
@@ -135,7 +136,8 @@ const Nav = () => {
     { key: 'dfc', label: 'Análise Financeira', icon: 'fund', href: ROUTES.DFC, section: 'financeiro', module: MODULES.DFC },
     { key: 'commission', label: 'Comissão de Vendedor', icon: 'idcard', href: ROUTES.COMMISSION, section: 'financeiro', module: MODULES.COMMISSION },
     // Doc PO 31/07 (item 12): "RT Comissões" pertence à seção FINANCEIRO (movido do COMERCIAL).
-    { key: 'rt-commission', label: 'RT Comissões', icon: 'idcard', href: ROUTES.RT_COMMISSION, section: 'financeiro', module: MODULES.COMMISSION },
+    // Correções de Menu V9 (item 2): usa módulo próprio para ser restringível por funcionário.
+    { key: 'rt-commission', label: 'RT Comissões', icon: 'idcard', href: ROUTES.RT_COMMISSION, section: 'financeiro', module: MODULES.RT_COMMISSION },
 
     { key: 'calendar', label: 'Agenda', icon: 'calendar', href: ROUTES.SCHEDULE, section: 'operacional', module: MODULES.AGENDA },
     { key: 'reports', label: 'Relatório Agenda', icon: 'bar-chart', href: ROUTES.REPORTS, section: 'operacional', module: MODULES.REPORTS },
@@ -271,7 +273,12 @@ const Nav = () => {
       </div>
 
       <div className="app-sidebar-footer">
-        {currentUser && (
+        {/*
+          Correções de Menu V9 (item 3): "Minha Conta" (definições da conta) é acesso de
+          admin/dono. Para funcionário comum, mantemos o nome/e-mail visível como rótulo,
+          mas SEM link para /minha-conta (a rota também recusa acesso no back-end).
+        */}
+        {currentUser && (isAdmin || isSuperAdmin) && (
           <Link
             href={ROUTES.MY_ACCOUNT}
             className={`app-nav-item ${router.pathname === '/minha-conta' ? 'active' : ''}`}
@@ -291,6 +298,26 @@ const Nav = () => {
               </span>
             </Tooltip>
           </Link>
+        )}
+        {currentUser && !isAdmin && !isSuperAdmin && (
+          <div
+            className="app-nav-item"
+            id="nav-my-account-label"
+            style={{ marginBottom: '4px', cursor: 'default' }}
+          >
+            <span className="nav-icon"><UserOutlined /></span>
+            <Tooltip title={currentUser.email}>
+              <span style={{
+                fontSize: '13px',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                maxWidth: '140px',
+              }}>
+                {currentUser.name?.trim() || currentUser.email}
+              </span>
+            </Tooltip>
+          </div>
         )}
 
         {isAdmin && !isSuperAdmin && (

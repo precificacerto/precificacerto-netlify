@@ -91,19 +91,20 @@ const MobileMoreDrawer = ({ open, onClose }: Props) => {
     // Doc 29/07 (item 1.2.11): "Orçamentos" ocultado do menu Mais — já acessível na barra de navegação inferior (redundante).
     { key: 'orders', label: 'Pedidos', href: ROUTES.ORDERS, icon: <ShoppingOutlined />, section: 'Comercial', module: MODULES.ORDERS },
     { key: 'sales-report', label: 'Relatório de Vendas', href: ROUTES.SALES_REPORT, icon: <BarChartOutlined />, section: 'Comercial', module: MODULES.SALES_REPORT },
-    // Doc 29/07 (item 3.3): "Relatório de Comissões" e "RT Comissões" viram sessões próprias no menu COMERCIAL.
-    { key: 'commissions-report', label: 'Relatório de Comissões', href: '/relatorio-vendas?tab=COMMISSIONS', icon: <IdcardOutlined />, section: 'Comercial', module: MODULES.SALES_REPORT },
-    { key: 'rt-commission', label: 'RT Comissões', href: ROUTES.RT_COMMISSION, icon: <IdcardOutlined />, section: 'Comercial', module: MODULES.COMMISSION },
+    // Correções de Menu V9 (item 2): "Relatório de Comissões" usa módulo próprio (restringível).
+    { key: 'commissions-report', label: 'Relatório de Comissões', href: '/relatorio-vendas?tab=COMMISSIONS', icon: <IdcardOutlined />, section: 'Comercial', module: MODULES.COMMISSIONS_REPORT },
     { key: 'recurrence', label: 'Recorrência', href: ROUTES.RECURRENCE, icon: <CalendarOutlined />, section: 'Comercial', module: MODULES.RECURRENCE },
 
     // Financeiro
     { key: 'financial', label: 'Controle Financeiro', href: ROUTES.FINANCIAL_CONTROL, icon: <ShoppingOutlined />, section: 'Financeiro', module: MODULES.CASH_FLOW },
     { key: 'dfc', label: 'Análise Financeira', href: ROUTES.DFC, icon: <FundOutlined />, section: 'Financeiro', module: MODULES.DFC },
     { key: 'commission', label: 'Comissão de Vendedor', href: ROUTES.COMMISSION, icon: <IdcardOutlined />, section: 'Financeiro', module: MODULES.COMMISSION },
-    // Doc 29/07 (item 3.3): "RT Comissões" movido para a seção COMERCIAL (acima).
+    // Correções de Menu V9 (item 6): "RT Comissões" pertence ao FINANCEIRO (alinhado ao desktop),
+    // com módulo próprio (item 2).
+    { key: 'rt-commission', label: 'RT Comissões', href: ROUTES.RT_COMMISSION, icon: <IdcardOutlined />, section: 'Financeiro', module: MODULES.RT_COMMISSION },
 
     // Operacional
-    { key: 'schedule', label: 'Agenda', href: ROUTES.SCHEDULE, icon: <CalendarOutlined />, section: 'Operacional', module: MODULES.AGENDA },
+    // Correções de Menu V9 (item 7): "Agenda" removida daqui — já fica na barra inferior (sem duplicar).
     { key: 'reports', label: 'Relatório Agenda', href: ROUTES.REPORTS, icon: <BarChartOutlined />, section: 'Operacional', module: MODULES.REPORTS },
     { key: 'connectivity', label: 'Conectividade', href: ROUTES.CONNECTIVITY, icon: <SettingOutlined />, section: 'Operacional', module: MODULES.CONNECTIVITY },
     { key: 'users', label: 'Usuários', href: ROUTES.USUARIOS, icon: <TeamOutlined />, section: 'Operacional', adminOnly: true, hideForSuperAdmin: true },
@@ -119,7 +120,8 @@ const MobileMoreDrawer = ({ open, onClose }: Props) => {
     { key: 'super-plans', label: 'Planos Expirando', href: ROUTES.SUPER_ADMIN_PLANS_EXPIRING, icon: <ClockCircleOutlined />, section: 'Super Admin', superAdminOnly: true },
 
     // Conta
-    { key: 'my-account', label: 'Minha Conta', href: ROUTES.MY_ACCOUNT, icon: <UserOutlined />, section: 'Conta' },
+    // Correções de Menu V9 (item 3): "Minha Conta" (definições da conta) é acesso de admin/dono.
+    { key: 'my-account', label: 'Minha Conta', href: ROUTES.MY_ACCOUNT, icon: <UserOutlined />, section: 'Conta', adminOnly: true, hideForSuperAdmin: true },
     { key: 'settings', label: 'Configurações', href: ROUTES.SETTINGS, icon: <SettingOutlined />, section: 'Conta', adminOnly: true, hideForSuperAdmin: true },
     { key: 'plans', label: 'Planos', href: ROUTES.PLANS, icon: <CrownOutlined />, section: 'Conta', adminOnly: true, hideForSuperAdmin: true },
     { key: 'support', label: 'Suporte', icon: <CustomerServiceOutlined />, section: 'Conta', hideForSuperAdmin: true, onClick: handleSupport },

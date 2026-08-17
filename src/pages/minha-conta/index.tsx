@@ -4,12 +4,15 @@ import { UserOutlined, SaveOutlined, LockOutlined, MailOutlined, PhoneOutlined }
 import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
 import { useAuth } from '@/hooks/use-auth.hook'
+import { useRequireAccountAdmin } from '@/hooks/use-require-account-admin.hook'
 import { supabase } from '@/supabase/client'
 
 function MyAccount() {
     const [messageApi, contextHolder] = message.useMessage()
     const [profileForm] = Form.useForm()
     const { currentUser, setCurrentUser, tenantId } = useAuth()
+    // Correções de Menu V9 (item 3): "Minha Conta" (definições da conta) — só admin/dono acessa.
+    const { allowed } = useRequireAccountAdmin()
 
     const [loadingProfile, setLoadingProfile] = useState(false)
     const [savingProfile, setSavingProfile] = useState(false)
@@ -98,6 +101,8 @@ function MyAccount() {
             setSendingReset(false)
         }
     }
+
+    if (!allowed) return null
 
     return (
         <Layout title={PAGE_TITLES.MY_ACCOUNT} subtitle="Gerencie seus dados pessoais">

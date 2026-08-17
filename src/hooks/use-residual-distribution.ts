@@ -26,6 +26,7 @@ import { useMemo } from 'react'
 
 import {
   computeResidualDistribution,
+  type ResidualBaselineInput,
   type ResidualDistribution,
   type ResidualItemInput,
   type TenantOriginalTaxRates,
@@ -45,9 +46,15 @@ export function useResidualDistribution(
    * correto das alíquotas efetivas. Ausente → fallback para `totalNet` (retrocompat).
    */
   ancoraGerencial?: number,
+  /**
+   * Correção Card Percentual (Ago/2026): rodada baseline (motor com desconto=0) para o
+   * `% original` dos cards. Deve ser memoizado pelo caller por itens/custos/parâmetros
+   * (NÃO pelo desconto) — digitar desconto não pode alterar o baseline.
+   */
+  baseline?: ResidualBaselineInput,
 ): ResidualDistribution {
   return useMemo(
-    () => computeResidualDistribution(items, totalGross, totalNet, regime, tenantTaxRates, discountPct, discountMode, ancoraGerencial),
-    [items, totalGross, totalNet, regime, tenantTaxRates, discountPct, discountMode, ancoraGerencial],
+    () => computeResidualDistribution(items, totalGross, totalNet, regime, tenantTaxRates, discountPct, discountMode, ancoraGerencial, baseline),
+    [items, totalGross, totalNet, regime, tenantTaxRates, discountPct, discountMode, ancoraGerencial, baseline],
   )
 }

@@ -367,6 +367,20 @@ export interface TaxBreakdown {
 
   new_commission: number
   new_profit: number
+
+  /**
+   * Correção Card Percentual (Ago/2026) — baseline PRÉ-desconto (motor com desconto=0).
+   *
+   * Persistidos no save do orçamento para que superfícies que leem apenas o snapshot
+   * pós-desconto (PDF, Pedidos, Vendas) exibam o `% original` correto do card
+   * "Distribuição do resultado" — par fechado pré/pré (linha 16 baseline ÷ âncora baseline),
+   * em vez da alíquota de cadastro. Ausentes em snapshots antigos → downstream cai no
+   * comportamento legado (`weightedOriginalPct`). NÃO afetam nenhum valor em R$.
+   */
+  baseline_new_commission?: number | null
+  baseline_new_profit?: number | null
+  baseline_ancora_interna?: number | null
+
   /**
    * Valor de CSLL após redistribuição proporcional sobre RRO.
    * Sempre 0 para regimes MEI e SIMPLES_NACIONAL (guard Q5 — Story S1.1).

@@ -3,6 +3,7 @@ import { useRouter } from 'next/router'
 import { Button, Card, Tag, Alert, Spin, message } from 'antd'
 import { Layout } from '@/components/layout/layout.component'
 import { useAuth } from '@/hooks/use-auth.hook'
+import { useRequireAccountAdmin } from '@/hooks/use-require-account-admin.hook'
 import {
   CrownOutlined,
   CheckCircleOutlined,
@@ -38,13 +39,15 @@ function formatDate(iso?: string): string {
 
 export default function PlanosPage() {
   const { currentUser } = useAuth()
+  // Correções de Menu V9 (item 3): "Planos" é definição da conta — só admin/dono acessa.
+  const { allowed } = useRequireAccountAdmin()
   const router = useRouter()
   const [loadingSlug, setLoadingSlug] = useState<string | null>(null)
   const [messageApi, contextHolder] = message.useMessage()
 
   const upgradeSuccess = router.query.upgrade === 'success'
 
-  if (!currentUser) {
+  if (!currentUser || !allowed) {
     return (
       <Layout title="Planos" subtitle="Gerencie seu plano de assinatura">
         <div style={{ display: 'flex', justifyContent: 'center', padding: 80 }}>

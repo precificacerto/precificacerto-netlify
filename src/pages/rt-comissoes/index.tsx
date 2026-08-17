@@ -870,7 +870,9 @@ export default function RtCommissionPage() {
     }
   }
 
-  if (!canView(MODULES.COMMISSION)) {
+  // Correções de Menu V9 (item 2): "RT Comissões" tem módulo próprio (rt_commission),
+  // restringível isoladamente. Antes compartilhava `commission` com "Comissão de Vendedor".
+  if (!canView(MODULES.RT_COMMISSION)) {
     return (
       <Layout title="RT Comissões">
         <div style={{ padding: 40, textAlign: 'center' }}>Você não tem acesso a este módulo.</div>

@@ -72,6 +72,7 @@ const PERMISSION_SECTIONS: { title: string; modules: { key: string; label: strin
             { key: 'orders', label: 'Pedidos' },
             { key: 'sales', label: 'Vendas' },
             { key: 'sales_report', label: 'Relatório de Vendas' },
+            { key: 'commissions_report', label: 'Relatório de Comissões' },
             { key: 'recurrence', label: 'Recorrência' },
         ],
     },
@@ -82,13 +83,14 @@ const PERMISSION_SECTIONS: { title: string; modules: { key: string; label: strin
             { key: 'cashier', label: 'Caixa' },
             { key: 'dfc', label: 'Análise Financeira' },
             { key: 'commission', label: 'Comissão de Vendedor' },
+            { key: 'rt_commission', label: 'RT Comissões' },
         ],
     },
     {
         title: 'Operacional',
         modules: [
             { key: 'agenda', label: 'Agenda' },
-            { key: 'reports', label: 'Relatórios' },
+            { key: 'reports', label: 'Relatório Agenda' },
             { key: 'connectivity', label: 'Conectividade' },
         ],
     },
