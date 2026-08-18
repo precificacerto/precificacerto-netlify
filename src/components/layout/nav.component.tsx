@@ -178,9 +178,14 @@ const Nav = () => {
 
   const isRouteActive = useCallback((href: string): boolean => {
     if (href === '/') return router.pathname === '/'
-    const basePath = href.split('/')[1]
-    return basePath ? router.pathname.startsWith(`/${basePath}`) : false
-  }, [router.pathname])
+    const [path, query = ''] = href.split('?')
+    const basePath = path.split('/')[1]
+    if (!basePath) return false
+    if (!router.pathname.startsWith(`/${basePath}`)) return false
+    const itemTab = new URLSearchParams(query).get('tab') ?? null
+    const rawTab = Array.isArray(router.query.tab) ? router.query.tab[0] : router.query.tab
+    return itemTab === (rawTab ?? null)
+  }, [router.pathname, router.query.tab])
 
   const sectionHasActiveItem = useCallback((sectionKey: string): boolean => {
     return visibleItems
