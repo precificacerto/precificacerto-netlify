@@ -16,6 +16,7 @@ import {
     SettingOutlined,
 } from '@ant-design/icons'
 import { useAuth } from '@/hooks/use-auth.hook'
+import { useRequireAccountAdmin } from '@/hooks/use-require-account-admin.hook'
 import { useDevice } from '@/contexts/device.context'
 import { CALC_TYPE_ENUM } from '@/shared/enums/calc-type'
 import { UNIT_MEASURE_ENUM } from '@/shared/enums/unit-measure-type'
@@ -697,6 +698,8 @@ function Settings() {
     const [taxForm] = Form.useForm()
     const [calcForm] = Form.useForm()
     const { currentUser, setCurrentUser, refreshUser } = useAuth()
+    // Correções de Menu V9 (item 3): "Configurações" (definições da conta) — só admin/dono acessa.
+    const { allowed } = useRequireAccountAdmin()
     const { isMobile } = useDevice()
     const [activeTab, setActiveTab] = useState('business')
     const [loading, setLoading] = useState(false)
@@ -972,6 +975,8 @@ function Settings() {
     const isIndustrialization = calcTypeValue === CALC_TYPE_ENUM.INDUSTRIALIZATION
     const isResale = calcTypeValue === CALC_TYPE_ENUM.RESALE
     const isService = calcTypeValue === CALC_TYPE_ENUM.SERVICE
+
+    if (!allowed) return null
 
     return (
         <Layout title={PAGE_TITLES.SETTINGS} subtitle="Configure sua empresa, impostos, equipe e integrações">

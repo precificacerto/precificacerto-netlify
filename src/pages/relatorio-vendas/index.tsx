@@ -154,6 +154,13 @@ function SalesReport() {
     const { isMobile } = useDeviceInfo()
     const canRegisterPayment = isAdmin || canEdit(MODULES.SALES_REPORT)
 
+    // Correções de Menu V9 (itens 1/2): tela COMPARTILHADA — Relatório de Vendas (módulo
+    // sales_report) e Relatório de Comissões (módulo commissions_report). O acesso à página e a
+    // aba inicial respeitam qual dos dois o usuário pode ver; as abas de comissão exigem
+    // commissions_report (impede vazar comissões a quem só tem sales_report).
+    const canSalesReport = canView(MODULES.SALES_REPORT)
+    const canCommReport = canView(MODULES.COMMISSIONS_REPORT)
+
     const [activeTab, setActiveTab] = useState<'RECEIVABLES' | 'COMMISSIONS' | 'RT_COMMISSIONS' | 'PRODUCTS' | 'SERVICES'>('RECEIVABLES')
 
     // Doc 29/07 (item 3.3): "Relatório de Comissões" é acessível como sessão própria no menu
@@ -168,21 +175,30 @@ function SalesReport() {
         if (!router.isReady) return
         const raw = Array.isArray(router.query.tab) ? router.query.tab[0] : router.query.tab
         const t = String(raw || '').toUpperCase()
-        if (VALID_TABS.includes(t)) {
-            setActiveTab(t as any)
-        } else {
-            // Item 1.4 (Relatório PO 05/08 — REINCIDÊNCIA): sem `?tab=` válido na URL (acesso
-            // pelo menu "Relatório de Vendas"), o estado ANTES ficava "preso" na última aba
-            // visitada nesta sessão SPA (ex.: COMMISSIONS). Como o conjunto de abas é escolhido
-            // por `activeTab`, o Relatório de Vendas passava a exibir as abas de comissão
-            // (bug do dono: "Relatório de Vendas não apresenta abas: lançamentos a receber /
-            // produtos vendidos / serviços realizados" + "Relatório de Comissões abre Relatório
-            // de Vendas"). Resetar para a aba padrão de vendas torna a seleção 100% derivada da
-            // URL e idempotente, independente da ordem de navegação.
-            setActiveTab('RECEIVABLES')
+        const COMM_TABS = ['COMMISSIONS', 'RT_COMMISSIONS']
+        const SALES_TABS = ['RECEIVABLES', 'PRODUCTS', 'SERVICES']
+        // Aba default conforme o que o usuário pode ver (Correções de Menu V9 item 2): quem só
+        // tem commissions_report cai direto na aba de comissões; quem tem vendas, em recebíveis.
+        const defaultTab = canSalesReport ? 'RECEIVABLES' : 'COMMISSIONS'
+        if (!VALID_TABS.includes(t)) {
+            // Item 1.4 (Relatório PO 05/08 — REINCIDÊNCIA): sem `?tab=` válido na URL, resetar para
+            // a aba padrão torna a seleção 100% derivada da URL e idempotente.
+            setActiveTab(defaultTab as any)
+            return
         }
+        // Enforcement por módulo (item 2): abas de comissão exigem commissions_report; abas de
+        // vendas exigem sales_report. Impede acessar conteúdo sensível trocando o ?tab= na URL.
+        if (COMM_TABS.includes(t) && !canCommReport) {
+            setActiveTab((canSalesReport ? 'RECEIVABLES' : 'COMMISSIONS') as any)
+            return
+        }
+        if (SALES_TABS.includes(t) && !canSalesReport) {
+            setActiveTab((canCommReport ? 'COMMISSIONS' : 'RECEIVABLES') as any)
+            return
+        }
+        setActiveTab(t as any)
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [router.isReady, router.query.tab])
+    }, [router.isReady, router.query.tab, canSalesReport, canCommReport])
 
     // Commissions report state
     const [commData, setCommData] = useState<CommissionReportRow[]>([])
@@ -2177,7 +2193,7 @@ function SalesReport() {
         )
     }
 
-    if (!canView(MODULES.SALES_REPORT)) {
+    if (!canSalesReport && !canCommReport) {
         return (
             <Layout title={PAGE_TITLES.SALES_REPORT}>
                 <div style={{ padding: 40, textAlign: 'center' }}>Você não tem acesso a este módulo.</div>
@@ -2240,8 +2256,17 @@ function SalesReport() {
         },
     ]
 
+    // Correções de Menu V9 (item 4): esta tela é compartilhada (Relatório de Vendas e
+    // Relatório de Comissões). O cabeçalho DEVE refletir a aba ativa — antes ficava fixo em
+    // "Relatório de Vendas" mesmo ao abrir via ?tab=COMMISSIONS (título errado no mobile).
+    const isCommissionsView = activeTab === 'COMMISSIONS' || activeTab === 'RT_COMMISSIONS'
+    const pageTitle = isCommissionsView ? 'Relatório de Comissões' : PAGE_TITLES.SALES_REPORT
+    const pageSubtitle = isCommissionsView
+        ? 'Comissões de vendedores e RT'
+        : 'Curva ABC de produtos e serviços vendidos'
+
     return (
-        <Layout title={PAGE_TITLES.SALES_REPORT} subtitle="Curva ABC de produtos e serviços vendidos">
+        <Layout title={pageTitle} subtitle={pageSubtitle}>
             {contextHolder}
 
             {/* Modal para registrar pagamento de lançamento a receber */}

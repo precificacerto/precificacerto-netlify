@@ -6,6 +6,7 @@ import { sendWuzapiDocument, sendWuzapiText } from '@/lib/wuzapi-send'
 import { formatBRL } from '@/utils/formatters'
 import { extractEffectiveTaxComponents } from '@/utils/tax-sync'
 import {
+  buildBaselineFromSnapshots,
   computeResidualDistribution,
   formatResidualLine,
   type ResidualItemInput,
@@ -211,6 +212,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         (s, it) => s + (Number(it.tax_breakdown?.ancora_interna) || 0),
         0,
       )
+      // Correção Card Percentual (Ago/2026): baseline pré-desconto do snapshot persistido
+      // (tax_breakdown.baseline_*) para o "% original" do PDF/WhatsApp. Ausente em orçamentos
+      // antigos → cai no legado.
+      const residualBaseline = buildBaselineFromSnapshots(residualItems, subtotal)
       residualDist = computeResidualDistribution(
         residualItems,
         subtotal,
@@ -220,6 +225,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         undefined,
         undefined,
         ancoraGerencial,
+        residualBaseline,
       )
       // Resumo textual no WhatsApp (4 ou 2 linhas conforme regime)
       if (residualDist.total.amount > 0) {

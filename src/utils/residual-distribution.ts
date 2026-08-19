@@ -156,6 +156,12 @@ function extractItemValues(item: ResidualItemInput): {
  * Cálculo do `% original` ponderado para comissão e lucro a partir dos pesos
  * de cada item. Para IRPJ/CSLL o `% original` vem do tenant (tax-sync) e é
  * independente dos itens.
+ *
+ * ⚠️ LEGADO (Correção Card Percentual, Ago/2026): esta função lê a ALÍQUOTA DE
+ * CADASTRO (`commission_percent`/`profit_percent`) — fonte ERRADA para o `% original`
+ * do card "Distribuição do resultado". Só é usada quando o call site NÃO fornece
+ * `baseline` (retrocompat: WhatsApp e chamadas ainda não migradas). Quando `baseline`
+ * é passado, o `% original` vem da Etapa 16 do motor rodado com desconto=0 (par fechado).
  */
 function weightedOriginalPct(
   items: ResidualItemInput[],
@@ -169,6 +175,80 @@ function weightedOriginalPct(
     return sum + (itemSubtotal * pct) / 100
   }, 0)
   return (weighted / totalGross) * 100
+}
+
+/**
+ * Correção Card Percentual (Ago/2026) — baseline pré-desconto para o `% original`.
+ *
+ * O card exibe "X% original → Y% sobre a operação interna". Ambos os percentuais devem
+ * ser PARES FECHADOS do MESMO motor (numerador e denominador da mesma rodada):
+ *   - `X% original` = motor(itens, custos, desconto = 0)  → linha 16 ÷ âncora baseline
+ *   - `Y% efetivo`  = motor(itens, custos, desconto = D)  → linha 16 ÷ âncora atual
+ *
+ * `items` aqui são os itens com `motor_new_*` (ou snapshot) da rodada BASELINE (desconto=0);
+ * `ancoraGerencial` é a Âncora Gerencial dessa mesma rodada baseline. `totalGross` (V₀) é o
+ * fallback de denominador quando a âncora não é fornecida.
+ *
+ * NUNCA cruzar rodadas (ex.: baseline.rubrica / atual.totalACobrar).
+ */
+export interface ResidualBaselineInput {
+  /** Itens da rodada baseline (desconto=0) — `motor_new_*` ou `tax_breakdown.new_*`. */
+  items: ResidualItemInput[]
+  /** Âncora Gerencial da rodada baseline (Op. Interna, desconto=0). Fallback → totalGross. */
+  ancoraGerencial?: number
+  /** V₀ — valor bruto total (denominador de fallback quando a âncora ausente). */
+  totalGross: number
+}
+
+/**
+ * Agrega Comissão e Lucro da Etapa 16 (motor) de um conjunto de itens, priorizando
+ * snapshot persistido sobre fallback runtime (mesma regra de `extractItemValues`).
+ * Usado para derivar o `% original` a partir da rodada baseline (desconto=0).
+ */
+function aggregateMotorAmounts(items: ResidualItemInput[]): { commission: number; profit: number } {
+  let commission = 0
+  let profit = 0
+  for (const item of items) {
+    const v = extractItemValues(item)
+    if (v.hasSource) {
+      commission += v.commission
+      profit += v.profit
+    }
+  }
+  return { commission, profit }
+}
+
+/**
+ * Correção Card Percentual (Ago/2026) — monta o `baseline` a partir dos campos PERSISTIDOS
+ * no snapshot (`tax_breakdown.baseline_*`), gravados no save do orçamento e copiados
+ * verbatim para pedido/venda. Usado pelas superfícies que NÃO rodam o motor ao vivo
+ * (PDF, Pedidos, Vendas salvas).
+ *
+ * Retorna `undefined` quando NENHUM item tem baseline persistido (snapshots antigos) —
+ * nesse caso o caller cai no comportamento legado (`weightedOriginalPct`).
+ */
+export function buildBaselineFromSnapshots(
+  items: ResidualItemInput[],
+  totalGross: number,
+): ResidualBaselineInput | undefined {
+  let hasAny = false
+  let ancoraGerencial = 0
+  const baselineItems: ResidualItemInput[] = items.map((it) => {
+    const tb = it.tax_breakdown
+    const bc = tb?.baseline_new_commission
+    const bp = tb?.baseline_new_profit
+    const ba = tb?.baseline_ancora_interna
+    if (bc != null || bp != null || ba != null) hasAny = true
+    ancoraGerencial += Number(ba) || 0
+    return {
+      unit_price: Number(it.unit_price) || 0,
+      quantity: Number(it.quantity) || 0,
+      motor_new_commission: bc != null ? Number(bc) : undefined,
+      motor_new_profit: bp != null ? Number(bp) : undefined,
+    }
+  })
+  if (!hasAny) return undefined
+  return { items: baselineItems, ancoraGerencial, totalGross }
 }
 
 /**
@@ -204,6 +284,10 @@ function weightedOriginalPct(
  *                        pós-desconto), denominador CORRETO das alíquotas efetivas. Quando
  *                        ausente/≤0, faz fallback para `totalNet` (retrocompat). NÃO afeta
  *                        nenhum valor monetário — só o `effectivePct` exibido.
+ * @param baseline Correção Card Percentual (Ago/2026): rodada baseline do motor com desconto=0.
+ *                 Quando fornecida, o `% original` de Comissão/Lucro vem da Etapa 16 dessa
+ *                 rodada (par fechado pré/pré), corrigindo o bug de ler a alíquota de cadastro.
+ *                 Quando ausente, mantém o comportamento legado (`weightedOriginalPct`).
  */
 export function computeResidualDistribution(
   items: ResidualItemInput[],
@@ -214,6 +298,7 @@ export function computeResidualDistribution(
   discountPct?: number,
   discountMode?: DiscountMode,
   ancoraGerencial?: number,
+  baseline?: ResidualBaselineInput,
 ): ResidualDistribution {
   const hidesProfitTaxes = isHiddenRegime(regime)
   const hasDiscount = totalGross > totalNet && totalNet > 0
@@ -332,9 +417,31 @@ export function computeResidualDistribution(
     (itemsWithoutSource > 0 && itemsWithoutSource === items.length) ||
     (usedMotorSource && usedDisplayFirstFallback)
 
-  // % originais
-  const commOriginalPct = weightedOriginalPct(items, totalGross, 'commission_percent')
-  const profitOriginalPct = weightedOriginalPct(items, totalGross, 'profit_percent')
+  // % originais (Comissão/Lucro)
+  // Correção Card Percentual (Ago/2026): quando o call site fornece a rodada baseline
+  // (motor com desconto=0), o `% original` é um PAR FECHADO pré/pré — linha 16 do baseline
+  // ÷ âncora do baseline —, NÃO a alíquota de cadastro. Isola o bug em que dar desconto
+  // fazia a "margem de lucro" parecer SUBIR (lia % do cadastro contra R$ pós-desconto).
+  // Sem baseline: mantém o legado ponderado sobre o cadastro (retrocompat).
+  let commOriginalPct: number
+  let profitOriginalPct: number
+  if (baseline) {
+    const b = aggregateMotorAmounts(baseline.items)
+    const bDenominator =
+      baseline.ancoraGerencial != null && baseline.ancoraGerencial > 0
+        ? baseline.ancoraGerencial
+        : baseline.totalGross
+    if (bDenominator > 0) {
+      commOriginalPct = (b.commission / bDenominator) * 100
+      profitOriginalPct = (b.profit / bDenominator) * 100
+    } else {
+      commOriginalPct = 0
+      profitOriginalPct = 0
+    }
+  } else {
+    commOriginalPct = weightedOriginalPct(items, totalGross, 'commission_percent')
+    profitOriginalPct = weightedOriginalPct(items, totalGross, 'profit_percent')
+  }
   const irpjOriginalPct = hidesProfitTaxes ? 0 : (Number(tenantTaxRates?.irpj) || 0) * 100
   const csllOriginalPct = hidesProfitTaxes ? 0 : (Number(tenantTaxRates?.csll) || 0) * 100
 

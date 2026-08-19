@@ -935,6 +935,52 @@ function Budgets() {
         (s, r) => s + (Number((r as { ancora_interna?: number } | null)?.ancora_interna) || 0),
         0,
     )
+
+    // ── Correção Card Percentual (Ago/2026): baseline pré-desconto para o "% original" ──
+    // O card exibe "X% original → Y% sobre a operação interna". O X% (original) deve vir do
+    // MOTOR rodado com desconto=0 (par fechado pré/pré: linha 16 ÷ âncora baseline), NÃO da
+    // alíquota de cadastro. Antes, dar desconto fazia a "margem de lucro" APARENTAR subir
+    // (lia % do cadastro contra R$ pós-desconto). Rodamos o motor uma 2ª vez em desconto=0.
+    // O valor é invariante ao desconto digitado (runMotorAtDiscount(0) ignora
+    // globalDiscountPercent), logo o pctOriginal fica IMÓVEL ao digitar desconto (invariante I3).
+    const baselineResults = runMotorAtDiscount(0)
+    const motorResultsByItemBaseline = budgetItems.map((i, idx) => {
+        const itemBase = i.unit_price * i.quantity
+        if (itemBase <= 0) return null
+        const commPctDecimal = (i.commission_percent ?? 0) / 100
+        const profPctDecimal = (i.profit_percent ?? 0) / 100
+        const itemCsll = resolveItemCsllPct(i.item_tax_rates ?? null, mrmConfig.csll_pct)
+        const itemIrpj = resolveItemIrpjPct(i.item_tax_rates ?? null, mrmConfig.irpj_pct)
+        const totalPctDistribuivel = commPctDecimal + profPctDecimal + (Number(itemCsll) || 0) + (Number(itemIrpj) || 0)
+        if (totalPctDistribuivel === 0) return null
+        return baselineResults[idx]
+    })
+    const ancoraGerencialBaseline = motorResultsByItemBaseline.reduce(
+        (s, r) => s + (Number((r as { ancora_interna?: number } | null)?.ancora_interna) || 0),
+        0,
+    )
+    const residualItemsBaseline: ResidualItemInput[] = useMemo(
+        () => budgetItems.map((item, idx) => {
+            const motor = motorResultsByItemBaseline[idx]
+            return {
+                unit_price: item.unit_price,
+                quantity: item.quantity,
+                commission_percent: item.commission_percent,
+                profit_percent: item.profit_percent,
+                tax_breakdown: null as null,
+                motor_new_commission: motor?.new_commission,
+                motor_new_profit: motor?.new_profit,
+                motor_new_csll: motor?.new_csll,
+                motor_new_irpj: motor?.new_irpj,
+            }
+        }),
+        [budgetItems, motorResultsByItemBaseline],
+    )
+    const residualBaseline = useMemo(
+        () => ({ items: residualItemsBaseline, ancoraGerencial: ancoraGerencialBaseline, totalGross: budgetTotal }),
+        [residualItemsBaseline, ancoraGerencialBaseline, budgetTotal],
+    )
+
     // Epic MRM-V7 / ADR-010: passa discountPct + discountMode para usar caminho display-first
     const residualDistribution = useResidualDistribution(
         residualItems,
@@ -945,6 +991,7 @@ function Budgets() {
         globalDiscountPercent,
         discountMode,
         ancoraGerencial,
+        residualBaseline,
     )
     // Ajuste 2A (Relatório v1.0, 24/06/2026): o aviso "Cadastre o custo dos produtos…"
     // (detectConfigWarning) foi REMOVIDO da tela de Editar Orçamento — pertence ao
@@ -1119,20 +1166,36 @@ function Budgets() {
             // discount_value real para que o tax_breakdown persistido reflita
             // o desconto aplicado (alinha snapshot com UI).
             const discountPctSnapshot = globalDiscountPercent
-            const hydratedItems = validItemsForInsert.map(i => ({
-                src: i,
-                snap: hydrateItemSnapshot(
-                    {
-                        unit_price: i.unit_price,
-                        quantity: i.quantity,
-                        discount_value: i.unit_price * i.quantity * (discountPctSnapshot / 100),
-                        commission_pct: (i.commission_percent ?? 0) / 100,
-                        profit_pct: (i.profit_percent ?? 0) / 100,
-                    },
+            const hydratedItems = validItemsForInsert.map(i => {
+                const baseSnapInput = {
+                    unit_price: i.unit_price,
+                    quantity: i.quantity,
+                    commission_pct: (i.commission_percent ?? 0) / 100,
+                    profit_pct: (i.profit_percent ?? 0) / 100,
+                }
+                const snap = hydrateItemSnapshot(
+                    { ...baseSnapInput, discount_value: i.unit_price * i.quantity * (discountPctSnapshot / 100) },
                     snapshotCtx,
                     shadowCtxInsert,
-                ),
-            }))
+                )
+                // Correção Card Percentual (Ago/2026): baseline pré-desconto (MESMA via de hydrate,
+                // desconto=0) persistido no snapshot p/ o "% original" dos cards em superfícies que
+                // leem só o snapshot (PDF/Pedidos/Vendas). Não afeta nenhum valor em R$ persistido.
+                const snapBaseline = hydrateItemSnapshot(
+                    { ...baseSnapInput, discount_value: 0 },
+                    snapshotCtx,
+                    shadowCtxInsert,
+                )
+                if (snap.tax_breakdown && snapBaseline.tax_breakdown) {
+                    snap.tax_breakdown = {
+                        ...snap.tax_breakdown,
+                        baseline_new_commission: snapBaseline.tax_breakdown.new_commission ?? null,
+                        baseline_new_profit: snapBaseline.tax_breakdown.new_profit ?? null,
+                        baseline_ancora_interna: snapBaseline.tax_breakdown.ancora_interna ?? null,
+                    }
+                }
+                return { src: i, snap }
+            })
 
             // MRM S2.3 / V3-S5 — Camada de policy aplica regras de bloqueio/aviso (ADR-004).
             // Só consulta quando o motor V2 está ativo (mrmConfig.enabled) — fora disso,
@@ -1301,20 +1364,34 @@ function Budgets() {
             const shadowCtxEdit = { tenant_id: tenantId, document_id: editingBudgetId, document_type: 'budget' as const }
             // P0 — captura imutável do desconto (mesmo padrão do insert).
             const discountPctSnapshotEdit = globalDiscountPercent
-            const hydratedItemsEdit = validItems.map(i => ({
-                src: i,
-                snap: hydrateItemSnapshot(
-                    {
-                        unit_price: i.unit_price,
-                        quantity: i.quantity,
-                        discount_value: i.unit_price * i.quantity * (discountPctSnapshotEdit / 100),
-                        commission_pct: (i.commission_percent ?? 0) / 100,
-                        profit_pct: (i.profit_percent ?? 0) / 100,
-                    },
+            const hydratedItemsEdit = validItems.map(i => {
+                const baseSnapInput = {
+                    unit_price: i.unit_price,
+                    quantity: i.quantity,
+                    commission_pct: (i.commission_percent ?? 0) / 100,
+                    profit_pct: (i.profit_percent ?? 0) / 100,
+                }
+                const snap = hydrateItemSnapshot(
+                    { ...baseSnapInput, discount_value: i.unit_price * i.quantity * (discountPctSnapshotEdit / 100) },
                     snapshotCtxEdit,
                     shadowCtxEdit,
-                ),
-            }))
+                )
+                // Correção Card Percentual (Ago/2026): baseline pré-desconto persistido (ver insert).
+                const snapBaseline = hydrateItemSnapshot(
+                    { ...baseSnapInput, discount_value: 0 },
+                    snapshotCtxEdit,
+                    shadowCtxEdit,
+                )
+                if (snap.tax_breakdown && snapBaseline.tax_breakdown) {
+                    snap.tax_breakdown = {
+                        ...snap.tax_breakdown,
+                        baseline_new_commission: snapBaseline.tax_breakdown.new_commission ?? null,
+                        baseline_new_profit: snapBaseline.tax_breakdown.new_profit ?? null,
+                        baseline_ancora_interna: snapBaseline.tax_breakdown.ancora_interna ?? null,
+                    }
+                }
+                return { src: i, snap }
+            })
 
             // MRM S2.3 — policy gate (ADR-004).
             let requiresReviewUpd = false

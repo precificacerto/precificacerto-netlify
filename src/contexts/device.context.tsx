@@ -7,6 +7,14 @@ export interface DeviceContextValue {
   isMobile: boolean
   isTablet: boolean
   isDesktop: boolean
+  /**
+   * Layout "compacto": qualquer viewport que NÃO seja desktop (≤ 1023px, i.e. mobile OU tablet).
+   * Interruptor ÚNICO para decidir card-view vs tabela. As tabelas densas do app não cabem na
+   * faixa tablet (640–1023px) — WebView Android / janela flutuante / split-screen caem aqui —,
+   * então tablet deve renderizar card-view igual ao mobile. Relatório PO 14/08 (5ª reincidência
+   * do truncamento): telas usavam `isMobile` (≤639) e travavam a tabela desktop no tablet.
+   */
+  isCompact: boolean
 }
 
 const DeviceContext = createContext<DeviceContextValue>({
@@ -14,6 +22,7 @@ const DeviceContext = createContext<DeviceContextValue>({
   isMobile: false,
   isTablet: false,
   isDesktop: true,
+  isCompact: false,
 })
 
 const readWidthDevice = (): DeviceType => {
@@ -51,6 +60,7 @@ export function DeviceProvider({ initialDevice, children }: { initialDevice: Dev
     isMobile: device === 'mobile',
     isTablet: device === 'tablet',
     isDesktop: device === 'desktop',
+    isCompact: device !== 'desktop',
   }
 
   return <DeviceContext.Provider value={value}>{children}</DeviceContext.Provider>
