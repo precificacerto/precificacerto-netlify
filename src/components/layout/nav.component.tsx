@@ -178,16 +178,66 @@ const Nav = () => {
     { key: 'superadmin', label: 'Super Admin', collapsible: true },
   ]
 
-  const isRouteActive = useCallback((href: string): boolean => {
-    if (href === '/') return router.pathname === '/'
-    const [path, query = ''] = href.split('?')
-    const basePath = path.split('/')[1]
-    if (!basePath) return false
-    if (!router.pathname.startsWith(`/${basePath}`)) return false
-    const itemTab = new URLSearchParams(query).get('tab') ?? null
-    const rawTab = Array.isArray(router.query.tab) ? router.query.tab[0] : router.query.tab
-    return itemTab === (rawTab ?? null)
-  }, [router.pathname, router.query.tab])
+  // Todos os endereços do menu (itens + rodapé). Usado para saber quais
+  // parâmetros os "irmãos" de um mesmo caminho declaram.
+  const allHrefs = useMemo(
+    () => [
+      ...visibleItems.map((item) => item.href),
+      ROUTES.SETTINGS,
+      ROUTES.PLANS,
+      ROUTES.MY_ACCOUNT,
+    ],
+    [visibleItems]
+  )
+
+  /**
+   * Decide qual item do menu fica ativo.
+   *
+   * O casamento do CAMINHO permanece como sempre foi (prefixo do primeiro
+   * segmento) — não mexemos nisso de propósito.
+   *
+   * A diferenciação por PARÂMETRO é que foi generalizada, para telas
+   * compartilhadas como '/relatorio-vendas' e '/relatorio-vendas?tab=COMMISSIONS':
+   *
+   * 1. Todo parâmetro declarado no href precisa bater com a URL. Vale para
+   *    qualquer nome de parâmetro, não apenas 'tab' — uma tela futura que use
+   *    '?visao=', '?filtro=' ou outro nome já funciona sem tocar neste arquivo.
+   *
+   * 2. Um item sem parâmetro não fica ativo quando a URL traz um parâmetro que
+   *    um item irmão (mesmo caminho) declara. Sem isso, 'Relatório de Vendas'
+   *    acenderia em '?tab=RT_COMMISSIONS', que não pertence a ele.
+   */
+  const isRouteActive = useCallback(
+    (href: string): boolean => {
+      if (href === '/') return router.pathname === '/'
+      const [path, query = ''] = href.split('?')
+      const basePath = path.split('/')[1]
+      if (!basePath) return false
+      if (!router.pathname.startsWith(`/${basePath}`)) return false
+
+      const declaredParams = new URLSearchParams(query)
+
+      for (const [key, value] of declaredParams) {
+        const raw = router.query[key]
+        const current = Array.isArray(raw) ? raw[0] : raw
+        if (value !== (current ?? null)) return false
+      }
+
+      if ([...declaredParams].length === 0) {
+        const siblings = allHrefs.filter(
+          (other) => other !== href && other.split('?')[0] === path && other.includes('?')
+        )
+        for (const sibling of siblings) {
+          for (const [key] of new URLSearchParams(sibling.split('?')[1])) {
+            if (router.query[key] != null) return false
+          }
+        }
+      }
+
+      return true
+    },
+    [router.pathname, router.query, allHrefs]
+  )
 
   const sectionHasActiveItem = useCallback((sectionKey: string): boolean => {
     return visibleItems
