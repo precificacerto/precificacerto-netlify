@@ -664,11 +664,18 @@ export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResul
     const issPctItem = normalizePct(itemRatesForTaxes?.iss_pct)
     const pisPctItem = normalizePct(itemRatesForTaxes?.pis_pct)
     const cofinsPctItem = normalizePct(itemRatesForTaxes?.cofins_pct)
+    // EPIC-DAS: alíquota consolidada gravada no cadastro (products.custom_tax_percent /
+    // services.taxable_regime_percent). `das_pct == null` ⇒ item sem DAS (undefined, não 0),
+    // preservando a distinção entre "não informado" e "MEI com alíquota zero".
+    const dasPctRaw = itemRatesForTaxes?.das_pct
+    const dasPctItem = dasPctRaw == null ? null : normalizePct(dasPctRaw)
     const taxes_inside_amounts = (itemRatesForTaxes && opInternaTotal > 0)
       ? {
           icms: opInternaTotal * icmsPctItem,
           iss: opInternaTotal * issPctItem,
           pis_cofins: opInternaTotal * (pisPctItem + cofinsPctItem),
+          // Sempre presente quando a coluna existe — inclusive `0` no MEI.
+          ...(dasPctItem == null ? {} : { das: opInternaTotal * dasPctItem }),
         }
       : undefined
 
@@ -777,13 +784,28 @@ export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResul
 
   // ADR-016 (2026-05-29): base canônica do PIS/COFINS = Âncora − ICMS − ISS.
   const basePisCofins = v17Result.motor.ancora - v17Result.motor.icms - v17Result.motor.iss
-  const taxesInsideTotal: TaxLine[] = [
-    { type: 'ICMS' as const, rate_pct: icmsRate, base: v17Result.motor.ancora, amount: v17Result.motor.icms },
-    { type: 'ISS' as const, rate_pct: issRate, base: v17Result.motor.ancora - v17Result.motor.icms, amount: v17Result.motor.iss },
-    // ADR-016: PIS/COFINS sobre (Âncora − ICMS − ISS); amount já vem canônico do motor.
-    { type: 'PIS' as const, rate_pct: pisRate, base: basePisCofins, amount: pisAmount },
-    { type: 'COFINS' as const, rate_pct: cofinsRate, base: basePisCofins, amount: cofinsAmount },
-  ].filter(t => t.amount > 0 || t.rate_pct > 0)
+  // EPIC-DAS: em SN/MEI o grupo por dentro é UMA linha DAS que SUBSTITUI as três — nunca
+  // convivem. A linha do MEI tem amount e rate zerados e por isso NÃO pode passar pelo
+  // filtro `amount > 0 || rate_pct > 0` (que a apagaria); o ramo do DAS é montado sem filtro,
+  // garantindo "linha presente, valor zero". Fora de SN/MEI o array e o filtro são os de hoje.
+  const isSimplesOuMei = tenantCtx.regime === 'SIMPLES_NACIONAL' || tenantCtx.regime === 'MEI'
+  const dasAmount = Number(v17Result.motor.das) || 0
+  const taxesInsideTotal: TaxLine[] = isSimplesOuMei
+    ? [
+        {
+          type: 'DAS' as const,
+          rate_pct: v17Result.motor.ancora > 0 ? dasAmount / v17Result.motor.ancora : 0,
+          base: v17Result.motor.ancora,
+          amount: dasAmount,
+        },
+      ]
+    : [
+        { type: 'ICMS' as const, rate_pct: icmsRate, base: v17Result.motor.ancora, amount: v17Result.motor.icms },
+        { type: 'ISS' as const, rate_pct: issRate, base: v17Result.motor.ancora - v17Result.motor.icms, amount: v17Result.motor.iss },
+        // ADR-016: PIS/COFINS sobre (Âncora − ICMS − ISS); amount já vem canônico do motor.
+        { type: 'PIS' as const, rate_pct: pisRate, base: basePisCofins, amount: pisAmount },
+        { type: 'COFINS' as const, rate_pct: cofinsRate, base: basePisCofins, amount: cofinsAmount },
+      ].filter(t => t.amount > 0 || t.rate_pct > 0)
 
   const taxesOutsideTotal: TaxLine[] = v17Result.distribution.taxes_outside.map(t => ({
     type: t.type,

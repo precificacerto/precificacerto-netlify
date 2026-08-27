@@ -87,6 +87,8 @@ export function calculateMotorV17(input: MotorV17Input): MotorV17Result {
     view,
     discount: input.discount,
     rates: input.rates,
+    // EPIC-DAS: o regime decide se o grupo por dentro é ICMS/ISS/PIS-COFINS ou o DAS.
+    regime: input.regime,
     tax_credits_recoverable_total,
     desp_pool_adjustment,
   })

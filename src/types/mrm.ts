@@ -65,8 +65,14 @@ export type TaxType =
   | 'IBS'
   | 'CBS'
   | 'ISS_RETIDO'
+  // EPIC-DAS (Simples Nacional / MEI): alíquota consolidada do DAS. SUBSTITUI o grupo
+  // ICMS+ISS+PIS/COFINS por dentro — nunca soma a eles. Fora de SN/MEI o valor é 0.
+  | 'DAS'
 
-export const TAXES_INSIDE: readonly TaxType[] = ['ICMS', 'PIS', 'COFINS', 'ISS'] as const
+// EPIC-DAS: 'DAS' integra o grupo por dentro porque OCUPA O LUGAR dos outros três em
+// SN/MEI. Em LR/LP/RET/Híbrido nunca há alíquota DAS nos `rates`, logo somar o grupo
+// continua bit-exact.
+export const TAXES_INSIDE: readonly TaxType[] = ['ICMS', 'PIS', 'COFINS', 'ISS', 'DAS'] as const
 // Tributos destacados da Reforma Tributária (IVA Dual) + legados "por fora".
 // Ordem segue a hierarquia do PDF: IS → IBS → CBS → IPI → ICMS Complementar (Reforma);
 // demais legados. ICMS_COMPL (LC 87/1996, art. 13, §1º, II) é condicional ao destinatário
@@ -632,6 +638,12 @@ export interface EngineItemV17 {
     icms: number
     iss: number
     pis_cofins: number
+    /**
+     * EPIC-DAS: DAS consolidado do item (R$ pré-desconto). Presente apenas em SN/MEI —
+     * nesses regimes SUBSTITUI icms/iss/pis_cofins (que ficam 0 no motor). MEI legítimo
+     * com alíquota 0 grava `das: 0` (a linha existe, o valor é zero).
+     */
+    das?: number
   }
   /** Créditos tributários do item (V5-004). */
   tax_credits?: { recoverable: number; non_recoverable: number }
@@ -706,6 +718,8 @@ export interface ConsolidatedView {
     icms: number
     iss: number
     pis_cofins: number
+    /** EPIC-DAS: Σ DAS por dentro (R$ pré-desconto). Só alimenta o motor em SN/MEI. */
+    das?: number
   } | null
   /** Soma agregada dos 4 buckets de despesa (quando snapshots V14 presentes). */
   expense_breakdown_total?: {
@@ -751,6 +765,12 @@ export interface MotorOutput {
    * EXATAMENTE o valor do PIS/COFINS da precificação. Exibida na cascata 13B.
    */
   pis_cofins_aliquota_efetiva?: number
+  /**
+   * EPIC-DAS (Simples Nacional / MEI): DAS por dentro em R$ — SUBSTITUI icms/iss/pis_cofins,
+   * que ficam 0 nesses regimes. Fora de SN/MEI é sempre 0 e o resultado é bit-exact ao
+   * comportamento anterior. Incide DIRETO sobre a Âncora (sem cascata de bases).
+   */
+  das?: number
   imp_dentro_total: number
   /** CMV efetivo = cp_total − tax_credits.recoverable. */
   cp_efetivo: number

@@ -10,12 +10,18 @@
  *   docs/architecture/cascade-mapping-13-to-17.md
  */
 
-import type { CascadeStep, ConsolidatedView, MotorOutput } from '@/types/mrm'
+import type { CascadeStep, ConsolidatedView, MotorOutput, TaxRegime } from '@/types/mrm'
 
 interface BuildCascadeInput {
   view: ConsolidatedView
   motor: Omit<MotorOutput, 'cascade_trace'>
   rates: { icms: number; iss: number; pis_cofins: number }
+  /**
+   * EPIC-DAS: regime resolvido. Em SIMPLES_NACIONAL/MEI as etapas 7 e 13 exibem UMA
+   * linha DAS no lugar das três (ICMS/ISS/PIS-COFINS). Nos demais regimes o conteúdo
+   * é exatamente o de hoje, na mesma ordem. Ausente ⇒ ramo clássico.
+   */
+  regime?: TaxRegime
 }
 
 /**
@@ -42,6 +48,8 @@ interface BuildCascadeInput {
  */
 export function buildCascadeTrace17(input: BuildCascadeInput): CascadeStep[] {
   const { view, motor } = input
+  // EPIC-DAS: chave da renderização condicional das etapas 7 e 13.
+  const isSimplesOuMei = input.regime === 'SIMPLES_NACIONAL' || input.regime === 'MEI'
   const peso_externo = 1 - view.peso_op_interna_ponderado
   // Dossiê Julho 2026 (Correções 2 e 3): base da Operação Interna PRÉ-desconto — usada como
   // denominador das alíquotas efetivas exibidas na fase de construção (Etapas 5, 6 e 7).
@@ -263,7 +271,23 @@ export function buildCascadeTrace17(input: BuildCascadeInput): CascadeStep[] {
       formula: 'rb_total × peso_op_interna_ponderado (Custos + Despesas + Margens + Trib. Internos)',
       source: 'CONSOLIDADO',
       children: view.taxes_inside_total
-        ? [
+        ? (isSimplesOuMei
+          // EPIC-DAS — Simples Nacional / MEI: UMA linha no lugar das três. A alíquota
+          // consolidada do DAS já engloba ICMS, ISS e PIS/COFINS; exibi-los ao lado dela
+          // seria dupla contagem visual. MEI com alíquota 0 mantém a linha (valor zero).
+          ? [
+            {
+              step: 7,
+              label: 'Tributos Internos · DAS',
+              base: op_interna_pre,
+              rate: null,
+              amount: view.taxes_inside_total.das ?? 0,
+              formula: 'Σ DAS por dentro (alíquota consolidada gravada no cadastro do item)',
+              source: 'ITEMS',
+              effective_rate_pct: effRateInterna(view.taxes_inside_total.das ?? 0),
+            },
+          ]
+          : [
             {
               step: 7,
               label: 'Tributos Internos · ICMS',
@@ -294,7 +318,7 @@ export function buildCascadeTrace17(input: BuildCascadeInput): CascadeStep[] {
               source: 'ITEMS',
               effective_rate_pct: effRateInterna(view.taxes_inside_total.pis_cofins),
             },
-          ]
+          ])
         : undefined,
     },
     // 8. Formação Op Externa (informacional)
@@ -373,13 +397,33 @@ export function buildCascadeTrace17(input: BuildCascadeInput): CascadeStep[] {
     //     sobre faturamento: ICMS + ISS) e 13B (PIS/COFINS sobre o resultado de 13A).
     {
       step: 13,
-      label: 'Cascata tributária (13A Faturamento → 13B PIS/COFINS)',
+      label: isSimplesOuMei
+        ? 'Cascata tributária (13A DAS sobre faturamento)'
+        : 'Cascata tributária (13A Faturamento → 13B PIS/COFINS)',
       base: motor.ancora,
       rate: null,
       amount: -motor.imp_dentro_total,
-      formula: '13A: ICMS+ISS sobre faturamento; 13B: PIS/COFINS sobre (Âncora − ICMS − ISS)',
+      formula: isSimplesOuMei
+        ? '13A: DAS sobre o faturamento (incidência única — substitui ICMS/ISS/PIS-COFINS)'
+        : '13A: ICMS+ISS sobre faturamento; 13B: PIS/COFINS sobre (Âncora − ICMS − ISS)',
       source: 'ETAPA_12',
-      children: [
+      children: isSimplesOuMei
+        // EPIC-DAS — Simples Nacional / MEI: incidência ÚNICA sobre a Âncora. Não existe
+        // segunda incidência, logo a linha "Resultado após ICMS e ISS" (base do 13B) não
+        // tem significado aqui e é OMITIDA — não há nada depois do DAS para basear.
+        ? [
+        {
+          step: 13,
+          label: '13A · DAS',
+          base: motor.ancora,
+          // Alíquota efetiva consolidada = das / âncora.
+          rate: motor.ancora > 0 ? (Number(motor.das) || 0) / motor.ancora : null,
+          amount: -(Number(motor.das) || 0),
+          formula: 'ancora × das_efetiva (alíquota consolidada dos itens)',
+          source: 'ETAPA_12',
+        },
+      ]
+        : [
         {
           step: 13,
           label: '13A · ICMS',

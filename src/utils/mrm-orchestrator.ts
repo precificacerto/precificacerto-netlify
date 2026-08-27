@@ -453,6 +453,12 @@ export function resolvePesoOpInterna(args: {
  * Extrai alíquotas de um TaxBreakdown anterior (snapshot reuse).
  * Reconstitui apenas o necessário: tax_type + rate_pct.
  * tenant_id e demais campos são placeholders — o motor só lê rate_pct e tax_type.
+ *
+ * EPIC-DAS: com 'DAS' na união `TaxType`, um orçamento de SN/MEI salvo com a linha DAS
+ * reidrata sem quebrar neste cast. A alíquota volta como um `TaxRatePeriod` de tipo DAS,
+ * que é exatamente o que o fallback de `applyMotorRRO` consome quando o consolidado por
+ * item não está disponível (`ancora × das_rate`). Sem o DAS na união, reabrir um orçamento
+ * do Simples estouraria aqui.
  */
 function snapshotToRates(prev: TaxBreakdown): TaxRatePeriod[] {
   const allLines = [...prev.taxes_inside, ...prev.taxes_outside]

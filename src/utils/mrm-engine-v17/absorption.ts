@@ -153,7 +153,10 @@ export function applyAbsorptionPolicy(input: ApplyAbsorptionInput): ApplyAbsorpt
   //   IPI         = (Âncora + Desp. Acessórias) × alíq.IPI              (RIPI; não deduz ICMS)
   //   ICMS Compl. = (IPI + Desp. Acessórias) × alíq.ICMS                (só não contribuinte)
   const desp_acessorias = Math.max(0, Number(input.desp_acessorias) || 0)
-  const base_iva = Math.max(0, motor.ancora - motor.icms - motor.iss - motor.pis_cofins)
+  // EPIC-DAS: subtrair o total por dentro (em vez dos três tributos pelo nome) é BIT-EXACT
+  // hoje — fora de SN/MEI `imp_dentro_total === icms + iss + pis_cofins` — e passa a ser
+  // correto no Simples, onde o grupo por dentro é o DAS e os três nominais são 0.
+  const base_iva = Math.max(0, motor.ancora - motor.imp_dentro_total)
   const ipi_base = motor.ancora + desp_acessorias
 
   // Alíquotas do motor são DECIMAIS (0,009 = 0,9%); o núcleo IVA Dual usa base 100 (× 100).

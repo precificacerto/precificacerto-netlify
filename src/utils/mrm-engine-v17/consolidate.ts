@@ -76,6 +76,10 @@ export function consolidateItems(
   let tax_icms_amount = 0
   let tax_iss_amount = 0
   let tax_pis_cofins_amount = 0
+  // EPIC-DAS: acumulador do DAS por dentro (SN/MEI). `has_any_das` distingue "nenhum item
+  // trouxe DAS" de "todos trouxeram DAS zero" (MEI) — no segundo caso a linha deve existir.
+  let tax_das_amount = 0
+  let has_any_das = false
   let has_any_tax_inside_amounts = false
 
   const items_breakdown: ItemConsolidatedSnapshot[] = []
@@ -140,6 +144,10 @@ export function consolidateItems(
       tax_icms_amount += safeNum(item.taxes_inside_amounts.icms)
       tax_iss_amount += safeNum(item.taxes_inside_amounts.iss)
       tax_pis_cofins_amount += safeNum(item.taxes_inside_amounts.pis_cofins)
+      if (item.taxes_inside_amounts.das != null) {
+        has_any_das = true
+        tax_das_amount += safeNum(item.taxes_inside_amounts.das)
+      }
     }
 
     items_breakdown.push({
@@ -213,6 +221,8 @@ export function consolidateItems(
         icms: tax_icms_amount,
         iss: tax_iss_amount,
         pis_cofins: tax_pis_cofins_amount,
+        // Omitido quando nenhum item trouxe DAS ⇒ objeto idêntico ao de hoje fora de SN/MEI.
+        ...(has_any_das ? { das: tax_das_amount } : {}),
       }
     : null
 
