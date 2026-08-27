@@ -706,6 +706,9 @@ function Budgets() {
     // O campo valor_precificado_icms_piscofins do banco está stale/errado (validado via SQL).
     const enrichedItems = budgetItems.map(i => {
         const prod = i.product_id ? (products as any[]).find(p => p.id === i.product_id) : null
+        // EPIC-RT (serviços): o RT também é cadastrado em `services.rt_reserve_percent`.
+        // Sem esta resolução, item de serviço com RT entrava na cascata como 0%.
+        const svc = i.service_id ? (services as any[]).find(sv => sv.id === i.service_id) : null
         const numOrNull = (v: unknown) =>
             v != null && Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : null
         const terceirizadas = prod
@@ -741,8 +744,8 @@ function Budgets() {
         return {
             ...i,
             ...costFields,
-            // EPIC-RT v8: RT do item (congelado) ou fallback ao cadastro vivo do produto.
-            rt_reserve_percent: Number((i as any).rt_reserve_percent ?? prod?.rt_reserve_percent) || 0,
+            // EPIC-RT v8: RT do item (congelado) ou fallback ao cadastro vivo do produto/serviço.
+            rt_reserve_percent: Number((i as any).rt_reserve_percent ?? prod?.rt_reserve_percent ?? svc?.rt_reserve_percent) || 0,
             valor_op_interna_unit: numOrNull(prod?.valor_precificado_icms_piscofins),
             sale_price_base_unit: numOrNull(prod?.sale_price_base),
             terceirizadas_unit: terceirizadas > 0 ? terceirizadas : null,
@@ -840,7 +843,8 @@ function Budgets() {
     const rtAmount = (() => {
         const w = budgetItems.reduce((s, i) => {
             const prod = i.product_id ? (products as any[]).find(p => p.id === i.product_id) : null
-            const rtPct = Number((i as any).rt_reserve_percent ?? prod?.rt_reserve_percent) || 0
+            const svc = i.service_id ? (services as any[]).find(sv => sv.id === i.service_id) : null
+            const rtPct = Number((i as any).rt_reserve_percent ?? prod?.rt_reserve_percent ?? svc?.rt_reserve_percent) || 0
             return s + i.unit_price * i.quantity * rtPct / 100
         }, 0)
         const t = budgetItems.reduce((s, i) => s + i.unit_price * i.quantity, 0)

@@ -8,6 +8,14 @@ const createJestConfig = nextJest({
 // Add any custom config to be passed to Jest
 const customJestConfig = {
   setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
+  // Fora do app Next: framework AIOS (.aios-core/, .cursor/) e cópia legada (web-app/)
+  // trazem suítes próprias que não pertencem a esta aplicação e quebram o run de CI.
+  testPathIgnorePatterns: [
+    '<rootDir>/node_modules/',
+    '<rootDir>/.aios-core/',
+    '<rootDir>/.cursor/',
+    '<rootDir>/web-app/',
+  ],
   testEnvironment: 'jest-environment-jsdom',
   moduleNameMapper: {
     // Alinha `@/*` (tsconfig path) à resolução de `jest.mock(...)`,

@@ -75,6 +75,9 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
     const [taxableRegimePercent, setTaxableRegimePercent] = useState(0)
     const [commissionPercent, setCommissionPercent] = useState(0)
     const [profitPercent, setProfitPercent] = useState(0)
+    // EPIC-RT v8: RT (Comissão Reserva Técnica) — paridade com Produtos. Dedução gerencial
+    // paralela a comissão/lucro, aplicável em qualquer regime (sem condicional de segmentação).
+    const [rtReservePercent, setRtReservePercent] = useState(0)
     const [additionalIrpjPercent, setAdditionalIrpjPercent] = useState<number>(
         serviceData?.additional_irpj_percent != null ? Number(serviceData.additional_irpj_percent) : 0
     )
@@ -239,6 +242,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
             setTaxableRegimePercent(serviceData.taxable_regime_percent || taxPreview?.taxableRegimePercent || currentUser?.taxableRegimeValue || 0)
             setCommissionPercent(serviceData.commission_percent || 0)
             setProfitPercent(serviceData.profit_percent || 0)
+            setRtReservePercent(Number(serviceData.rt_reserve_percent) || 0)
             if (serviceData.additional_irpj_percent != null) {
                 setAdditionalIrpjPercent(Number(serviceData.additional_irpj_percent))
             }
@@ -328,6 +332,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
             taxPct,
             commissionPct: commissionPercent / 100,
             profitPct: profitPercent / 100,
+            rtReservePct: rtReservePercent / 100,
         })
 
         const priceUnit = result.isValid ? result.priceUnit : 0
@@ -346,6 +351,8 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
         const taxRegimeVal = Number((priceUnit * taxableRegimePercent / 100).toFixed(2))
         const commissionVal = result.commissionValue
         const profitVal = result.profitValue
+        // EPIC-RT v8: RT em R$ sobre o preço unitário formado (mesma base de comissão/lucro).
+        const rtReserveVal = Number((priceUnit * rtReservePercent / 100).toFixed(2))
 
         // LUCRO_REAL: IRPJ/CSLL derivados do lucro
         const irpjPctLR = isLucroRealSvc ? profitPercent * 0.15 : 0
@@ -361,10 +368,10 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
 
         // MO administrativa e Despesas fixas incorporadas no custo por minuto
         const totalPct = isLucroRealSvc
-            ? variablePct + financialPct + irpjPctLR + csllPctLR + additionalIrpjPercent + commissionPercent + profitPercent
+            ? variablePct + financialPct + irpjPctLR + csllPctLR + additionalIrpjPercent + rtReservePercent + commissionPercent + profitPercent
             : isLucroPresumidoSvc
-              ? variablePct + financialPct + taxesPct + irpjPctLP + csllPctLP + additionalIrpjPercent + commissionPercent + profitPercent
-              : variablePct + financialPct + taxesPct + taxableRegimePercent + commissionPercent + profitPercent
+              ? variablePct + financialPct + taxesPct + irpjPctLP + csllPctLP + additionalIrpjPercent + rtReservePercent + commissionPercent + profitPercent
+              : variablePct + financialPct + taxesPct + taxableRegimePercent + rtReservePercent + commissionPercent + profitPercent
         const isValid = result.isValid
 
         // Valor precificado final com ICMS/PIS/COFINS embutidos = Custo / MC%
@@ -383,10 +390,11 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
             irpjPctLP, csllPctLP, irpjValLP, csllValLP,
             commissionVal,
             profitVal,
+            rtReserveVal,
             totalPct, isValid,
             valorPrecificado,
         }
-    }, [materialCost, expenseConfig, currentUser, taxableRegimePercent, commissionPercent, profitPercent, taxPreview, form, additionalIrpjPercent, watchedDurationMinutes])
+    }, [materialCost, expenseConfig, currentUser, taxableRegimePercent, commissionPercent, profitPercent, rtReservePercent, taxPreview, form, additionalIrpjPercent, watchedDurationMinutes])
 
     function handleAddItem() {
         if (!addItemId) return
@@ -493,6 +501,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                 labor_cost: pricing.laborCost,
                 commission_percent: commissionPercent,
                 profit_percent: profitPercent,
+                rt_reserve_percent: Number(rtReservePercent) || 0,
                 taxable_regime_percent: taxableRegimePercent,
                 additional_irpj_percent: additionalIrpjPercent || 0,
                 pis_cofins_pct: (isLucroRealSvcComp || isLucroPresumidoSvcComp || isSHSvcComp) ? (pisCofinsLRPct || 0) : 0,
@@ -662,7 +671,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
         },
     ]
 
-    function pricingRow(label: string, pct: number, val: number, editable?: 'commission' | 'profit' | 'tax' | 'additionalIrpj' | 'pisCofins', tooltipText?: string) {
+    function pricingRow(label: string, pct: number, val: number, editable?: 'commission' | 'profit' | 'tax' | 'additionalIrpj' | 'pisCofins' | 'rtReserve', tooltipText?: string) {
         // Relatório mobile #7: estrutura alinhada à de Produtos (referência):
         // ordem de colunas % | Despesa | Valor, com o MESMO tamanho/fonte de campo em
         // TODAS as linhas (editável = PercentInput; read-only = span de mesma largura).
@@ -680,6 +689,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                                 if (editable === 'tax') setTaxableRegimePercent(v ?? 0)
                                 if (editable === 'additionalIrpj') setAdditionalIrpjPercent(v ?? 0)
                                 if (editable === 'pisCofins') setPisCofinsLRPct(v ?? 0)
+                                if (editable === 'rtReserve') setRtReservePercent(v ?? 0)
                             }}
                             style={{ width: 110, fontSize: 13 }}
                         />
@@ -1000,6 +1010,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                                 `Impostos${taxPreview?.regimeLabel ? ` (${taxPreview.regimeLabel})` : ''}`,
                                 taxableRegimePercent, pricing.taxRegimeVal, 'tax'
                             )}
+                            {pricingRow('RT — Comissão Reserva Técnica', rtReservePercent, pricing.rtReserveVal, 'rtReserve', 'Reserva Técnica: dedução gerencial paralela à comissão e ao lucro, inserida manualmente por serviço. A alíquota efetiva fica congelada na cascata (não varia com o desconto do orçamento) e não entra na base de IRPJ/CSLL. Deixe 0% se não aplicável.')}
                             {pricingRow('Comissão', commissionPercent, pricing.commissionVal, 'commission')}
                             {pricingRow('Lucro', profitPercent, pricing.profitVal, 'profit')}
                             {isLpRetDisplay && pricingRow('RET – Tributação unificada', taxableRegimePercent, pricing.taxRegimeVal, 'tax', 'Alíquota RET consolidada (IRPJ 1,71% + CSLL 0,51% + PIS 0,37% + COFINS 1,41%). Puxada das configurações, editável por serviço.')}
