@@ -321,7 +321,13 @@ describe('runShadowComparison — TC4: timeout', () => {
     expect(row.divergence_type).toBe('edge_unavailable')
     expect(row.error_reason).toBe('timeout')
     expect(row.edge_output).toBeNull()
-    expect(row.shadow_duration_ms).toBeGreaterThanOrEqual(50)
+    // `shadow_duration_ms` é medido com Date.now(), que trunca frações de milissegundo:
+    // um setTimeout(50) pode ser medido como 49ms quando o início e o fim caem em lados
+    // opostos de um truncamento (~0,75% das execuções aqui; mais frequente sob carga, como
+    // no runner de CI). Toleramos 1ms para não tornar o teste um cara-ou-coroa. A intenção
+    // original é preservada: o que se prova é que houve espera pelo timeout, e não retorno
+    // imediato — uma duração ~0 continua reprovando.
+    expect(row.shadow_duration_ms).toBeGreaterThanOrEqual(49)
   })
 })
 
