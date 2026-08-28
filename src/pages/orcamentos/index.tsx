@@ -744,6 +744,10 @@ function Budgets() {
         return {
             ...i,
             ...costFields,
+            // FIX-CUSTO-SN: tipo e yield do cadastro vivo — o adapter usa os dois para saber
+            // se `yield_quantity` significa rendimento (PRODUZIDO) ou estoque (REVENDA).
+            product_type: prod?.product_type ?? null,
+            yield_quantity: prod?.yield_quantity ?? null,
             // EPIC-RT v8: RT do item (congelado) ou fallback ao cadastro vivo do produto/serviço.
             rt_reserve_percent: Number((i as any).rt_reserve_percent ?? prod?.rt_reserve_percent ?? svc?.rt_reserve_percent) || 0,
             valor_op_interna_unit: numOrNull(prod?.valor_precificado_icms_piscofins),
@@ -1504,7 +1508,7 @@ function Budgets() {
         setCustomerMode(record.customer_id ? 'existing' : 'manual')
 
         const [itemsResult, tablesResult] = await Promise.all([
-            supabase.from('budget_items').select('*, products(id, name, code, max_discount_percent, commission_table_id, commission_percent, profit_percent, sale_price, cost_total, icms_pct, pis_cofins_pct, pis_pct, cofins_pct, iss_pct, ipi_pct, icms_st_pct, difal_pct, fcp_pct, icms_st_active, difal_active, ibs_pct, cbs_pct, ibs_reference_pct, cbs_reference_pct, iva_dual_reduction_factor, iss_retido_pct, irpj_pct, csll_pct, custom_tax_percent), services(id, name, commission_table_id, commission_percent, profit_percent, base_price, cost_total, icms_pct, pis_cofins_pct, pis_pct, cofins_pct, iss_pct, ipi_pct, icms_st_pct, difal_pct, fcp_pct, ibs_pct, cbs_pct, ibs_reference_pct, cbs_reference_pct, iva_dual_reduction_factor, iss_retido_pct, irpj_pct, csll_pct, taxable_regime_percent), manual_description').eq('budget_id', record.id),
+            supabase.from('budget_items').select('*, products(id, name, code, max_discount_percent, commission_table_id, commission_percent, profit_percent, sale_price, cost_total, icms_pct, pis_cofins_pct, pis_pct, cofins_pct, iss_pct, ipi_pct, icms_st_pct, difal_pct, fcp_pct, icms_st_active, difal_active, ibs_pct, cbs_pct, ibs_reference_pct, cbs_reference_pct, iva_dual_reduction_factor, iss_retido_pct, irpj_pct, csll_pct, custom_tax_percent, product_type, yield_quantity), services(id, name, commission_table_id, commission_percent, profit_percent, base_price, cost_total, icms_pct, pis_cofins_pct, pis_pct, cofins_pct, iss_pct, ipi_pct, icms_st_pct, difal_pct, fcp_pct, ibs_pct, cbs_pct, ibs_reference_pct, cbs_reference_pct, iva_dual_reduction_factor, iss_retido_pct, irpj_pct, csll_pct, taxable_regime_percent), manual_description').eq('budget_id', record.id),
             record.employee_id
                 ? (supabase as any).from('employee_commission_tables').select('commission_tables(id, name, type, commission_percent)').eq('employee_id', record.employee_id)
                 : Promise.resolve({ data: [] }),
