@@ -403,8 +403,15 @@ export async function calculateHubDataPrevMonth(tenantId: string): Promise<HubDa
  *
  * @param customBase - Denominador alternativo (ex: receitaBrutaBase para LR/Híbrido).
  *   Se não informado, usa totalIncome (comportamento padrão).
+ * @param segment - Segmentação do tenant (`tenant_settings.calc_type`). Em REVENDA a MO
+ *   PRODUTIVA é AGRUPADA na mão de obra indireta e devolvida zerada — ver nota abaixo.
+ *   Fora de REVENDA (e quando não informada) o retorno é BIT-EXACT ao anterior.
  */
-export function extractStructurePercents(hubData: HubData, customBase?: number): {
+export function extractStructurePercents(
+  hubData: HubData,
+  customBase?: number,
+  segment?: 'INDUSTRIALIZACAO' | 'REVENDA' | 'SERVICO' | null,
+): {
   indirect_labor_percent: number
   fixed_expense_percent: number
   variable_expense_percent: number
@@ -433,8 +440,22 @@ export function extractStructurePercents(hubData: HubData, customBase?: number):
     return row.averagePct / 100 // converte % para decimal (usa totalIncome como base)
   }
 
-  // MO Administrativa/Indireta (grupos que vão para o coeficiente)
-  const moAdmin = findPct('MAO_DE_OBRA_ADMINISTRATIVA') + findPct('MAO_DE_OBRA')
+  // MO Administrativa/Indireta (grupos que vão para o coeficiente).
+  //
+  // REVENDA: não existe mão de obra PRODUTIVA — quem revende não produz. A tela de
+  // precificação já zera a MO produtiva nesse segmento (content.component.tsx:715,
+  // `laborCostMonthly`/`productWorkloadMinutes` = 0 quando o calcType efetivo é REVENDA),
+  // mas zerava SEM REALOCAR. Como a cascata do Motor RRO só tem QUATRO baldes de despesa
+  // (MO indireta, fixa, variável, financeira), o custo lançado no Hub como MO produtiva
+  // simplesmente SUMIA — não aparecia na precificação nem na cascata. Aqui ele é agrupado
+  // na MO indireta, que é justamente o balde que sobrevive em REVENDA.
+  //
+  // Fora de REVENDA (INDUSTRIALIZACAO, SERVICO ou segmento não informado) a expressão é
+  // literalmente a de antes: nada é somado e a MO produtiva volta pelo seu próprio campo.
+  const isRevenda = segment === 'REVENDA'
+  const moProdutiva = findPct('MAO_DE_OBRA_PRODUTIVA')
+  const moAdminBase = findPct('MAO_DE_OBRA_ADMINISTRATIVA') + findPct('MAO_DE_OBRA')
+  const moAdmin = isRevenda ? moAdminBase + moProdutiva : moAdminBase
 
   // IPD — Impostos POR DENTRO (entram na MC).
   // IMPOSTO_FATURAMENTO_DENTRO = ICMS próprio, PIS, COFINS, ISS operacional, FCP_ICMS_PROPRIO.
@@ -458,7 +479,9 @@ export function extractStructurePercents(hubData: HubData, customBase?: number):
     fixed_expense_percent:  Math.round(findPct('DESPESA_FIXA') * 10000) / 10000,
     variable_expense_percent: Math.round(findPct('DESPESA_VARIAVEL') * 10000) / 10000,
     financial_expense_percent: Math.round(findPct('DESPESA_FINANCEIRA') * 10000) / 10000,
-    production_labor_cost_percent: Math.round(findPct('MAO_DE_OBRA_PRODUTIVA') * 10000) / 10000,
+    // REVENDA: já contabilizada dentro de `indirect_labor_percent` — devolver aqui de novo
+    // seria dupla contagem.
+    production_labor_cost_percent: isRevenda ? 0 : Math.round(moProdutiva * 10000) / 10000,
     tax_on_revenue_percent: Math.round(taxesInside * 10000) / 10000,
     external_taxes_percent: Math.round(taxesOutside * 10000) / 10000,
     outsourced_activities_percent: Math.round(outsourcedActivities * 10000) / 10000,

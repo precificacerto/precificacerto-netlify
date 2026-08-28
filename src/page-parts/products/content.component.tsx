@@ -987,7 +987,18 @@ export const Content: FC<ContentProps> = ({
       // finalSalePriceForSave já calculado antes do insert (inclui IBS/CBS/IS/IPI para LR/LP/SH)
 
       const extraFields: Record<string, any> = {}
+      // MOTOR 2 (Simples Nacional / MEI): `products.custom_tax_percent` é a ÚNICA fonte de
+      // onde o Motor RRO lê a alíquota do DAS para montar as Etapas 7 e 13. Sem override
+      // manual a tela exibe a alíquota AUTOMÁTICA do Anexo (`calcBase.taxPct`, a mesma que
+      // product-price.component.tsx usa em `taxPctDisplay` e que doProductCalc usa em
+      // `effectiveTaxPct`) — mas ela nunca era persistida: a coluna ficava `null` e a
+      // cascata mostrava o DAS zerado. Aqui a efetiva é GRAVADA: override manual quando
+      // houver, senão a automática do Anexo (0 no MEI, que mantém a linha presente e zerada).
+      // Demais regimes: comportamento idêntico ao anterior (só grava se houver override).
+      const isSimplesOuMeiSave =
+        currentUser.taxableRegime === 'SIMPLES_NACIONAL' || currentUser.taxableRegime === 'MEI'
       if (customTaxPercent != null) extraFields.custom_tax_percent = customTaxPercent
+      else if (isSimplesOuMeiSave) extraFields.custom_tax_percent = Number(calcBase.taxPct) || 0
       else extraFields.custom_tax_percent = null
       extraFields.additional_irpj_percent = additionalIrpjPercent || 0
       extraFields.freight_value = freightValue || 0

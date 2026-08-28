@@ -51,7 +51,7 @@ export async function recalcExpenseConfigFromCashflow(
   const [hubDataPrev, hubDataAll, tsResult] = await Promise.all([
     calculateHubDataPrevMonth(tenantId),
     calculateHubData(tenantId),
-    supabase.from('tenant_settings').select('tax_regime').eq('tenant_id', tenantId).maybeSingle(),
+    supabase.from('tenant_settings').select('tax_regime, calc_type').eq('tenant_id', tenantId).maybeSingle(),
   ])
 
   // Usa o histórico completo como fonte primária dos percentuais.
@@ -64,6 +64,16 @@ export async function recalcExpenseConfigFromCashflow(
   const taxRegime = (tsResult.data as any)?.tax_regime ?? null
   const isLrOrHibrido = taxRegime === 'LUCRO_REAL' || taxRegime === 'SIMPLES_HIBRIDO'
 
+  // Segmentação do tenant — em REVENDA a MO produtiva é agrupada na indireta pelo
+  // extractStructurePercents (não existe mão de obra produtiva em revenda). Fora de
+  // REVENDA o percentual devolvido é o mesmo de antes.
+  const calcType =
+    ((tsResult.data as unknown as { calc_type?: string | null } | null)?.calc_type ?? null) as
+      | 'INDUSTRIALIZACAO'
+      | 'REVENDA'
+      | 'SERVICO'
+      | null
+
   // Para LR/Híbrido usa receitaBrutaBase como denominador (= FT - impostos por fora - terceirizados)
   // Isso alinha os % de estrutura com a base 100% do DRE, onde impostos por fora reduzem a receita.
   let customBase: number | undefined
@@ -74,7 +84,7 @@ export async function recalcExpenseConfigFromCashflow(
     customBase = base > 0 ? base : hubData.totalIncome // fallback: se base <= 0, usa totalIncome
   }
 
-  const percents = extractStructurePercents(hubData, customBase)
+  const percents = extractStructurePercents(hubData, customBase, calcType)
 
   // MO Produtiva: buscamos o custo absoluto médio mensal (R$/mês) da tabela,
   // pois é usado pelo motor como custo monetário (não percentual)
