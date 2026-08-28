@@ -67,7 +67,11 @@ export function checkI2Ranges(view: ConsolidatedView): boolean {
 }
 
 export function checkI3CascataSoma(motor: MotorOutput): boolean {
-  return Math.abs(motor.imp_dentro_total - (motor.icms + motor.iss + motor.pis_cofins)) < EPS
+  // EPIC-DAS: o total por dentro passa a somar QUATRO parcelas. Em qualquer regime três
+  // delas são zero por construção (SN/MEI ⇒ só DAS; demais ⇒ DAS = 0), então a soma
+  // continua batendo e o invariante segue válido nos dois ramos.
+  const soma = motor.icms + motor.iss + motor.pis_cofins + (Number(motor.das) || 0)
+  return Math.abs(motor.imp_dentro_total - soma) < EPS
 }
 
 export function checkI4IdentidadeRRO(motor: MotorOutput): boolean {

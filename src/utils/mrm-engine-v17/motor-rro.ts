@@ -21,6 +21,7 @@ import type {
   MotorOutput,
   ReapurationStatus,
   TaxRatePeriod,
+  TaxRegime,
   TaxType,
 } from '@/types/mrm'
 import {
@@ -33,6 +34,12 @@ interface ApplyMotorRROInput {
   view: ConsolidatedView
   discount: DiscountV17
   rates: TaxRatePeriod[]
+  /**
+   * EPIC-DAS: regime resolvido do tenant. Só SIMPLES_NACIONAL e MEI ativam o ramo do DAS.
+   * RET e Simples Híbrido chegam aqui como LUCRO_PRESUMIDO (ver `mapToMotorRegime`), logo
+   * não entram no ramo. Ausente ⇒ comportamento clássico (bit-exact).
+   */
+  regime?: TaxRegime
   tax_credits_recoverable_total: number
   /**
    * Gargalo 3 (planilha "Motor RRO 11.06"): ajuste do pool por Desp. Acessória FIXA no desconto.
@@ -89,12 +96,38 @@ export function applyMotorRRO(input: ApplyMotorRROInput): ApplyMotorRROResult {
     ? ancora / op_interna_consolidada
     : (rb_total > 0 ? rv_total / rb_total : 1)
 
+  // ───── EPIC-DAS: Simples Nacional / MEI ─────
+  // O DAS SUBSTITUI o grupo ICMS+ISS+PIS/COFINS por dentro — nunca soma a ele. Nesses
+  // regimes não há cascata de bases (não existe segunda incidência): o DAS incide DIRETO
+  // sobre a Âncora. Fora de SN/MEI `das` é 0 e todo o cálculo abaixo é bit-exact ao anterior.
+  // RET e Simples Híbrido são mapeados para LUCRO_PRESUMIDO antes de chegar aqui, logo
+  // reusam a coluna `custom_tax_percent` sem nunca entrar neste ramo.
+  const isSimplesOuMei = input.regime === 'SIMPLES_NACIONAL' || input.regime === 'MEI'
+  const das_rate = resolveRate(input.rates, 'DAS')
+
   let icms: number
   let iss: number
   let pis_cofins: number
   let pis_cofins_aliquota_efetiva: number
+  let das = 0
 
-  if (tit) {
+  if (isSimplesOuMei) {
+    // Substituição: os três zeram e o DAS ocupa o lugar deles.
+    icms = 0
+    iss = 0
+    pis_cofins = 0
+    pis_cofins_aliquota_efetiva = 0
+    // `das != null` cobre inclusive o MEI legítimo com alíquota 0 (linha presente, valor zero).
+    // ATENÇÃO OPERACIONAL: quando NENHUM item traz a coluna preenchida e não há alíquota DAS
+    // nos `rates`, o grupo por dentro fica zerado — os três nominais já foram zerados pela
+    // substituição e não há DAS para pôr no lugar. É o comportamento correto pela regra (no
+    // Simples não se cobra ICMS/ISS/PIS-COFINS em separado), mas pressupõe o cadastro
+    // preenchido: tenant do Simples sem `custom_tax_percent`/`taxable_regime_percent` volta a
+    // ter RRO inflado. A correção é de DADO (preencher o cadastro), não de motor.
+    das = tit?.das != null
+      ? tit.das * ancoraFactor          // consolidado por item (alíquota gravada no cadastro)
+      : ancora * das_rate               // fallback: alíquota uniforme via rates (ex.: snapshot)
+  } else if (tit) {
     // Consolidação por produto (R$ pré-desconto × desconto)
     icms = tit.icms * ancoraFactor
     iss = tit.iss * ancoraFactor
@@ -118,7 +151,9 @@ export function applyMotorRRO(input: ApplyMotorRROInput): ApplyMotorRROResult {
     pis_cofins_aliquota_efetiva = base_13a > 0 ? pis_cofins / base_13a : pis_cofins_rate
   }
 
-  const imp_dentro_total = icms + iss + pis_cofins
+  // EPIC-DAS: os quatro somam, mas em qualquer regime três deles são zero por construção —
+  // fora de SN/MEI o DAS é 0; em SN/MEI ICMS/ISS/PIS-COFINS são 0. Nunca há dupla contagem.
+  const imp_dentro_total = icms + iss + pis_cofins + das
 
   // ───── PDF Etapa 14: cascata custos e despesas ─────
   // V16.3 princípio: estes valores são IMUTÁVEIS a desconto.
@@ -149,7 +184,11 @@ export function applyMotorRRO(input: ApplyMotorRROInput): ApplyMotorRROResult {
   }
 
   // ───── Limite mínimo operacional (Seção 4.5 Relatório Consolidado) ─────
-  const soma_rates_internos = icms_rate + iss_rate + pis_cofins_rate
+  // EPIC-DAS: em SN/MEI o único tributo por dentro é o DAS — usar a alíquota EFETIVA
+  // (das/âncora) mantém o limite coerente com a substituição; `das_rate` cobre o fallback.
+  const soma_rates_internos = isSimplesOuMei
+    ? (ancora > 0 ? das / ancora : das_rate)
+    : icms_rate + iss_rate + pis_cofins_rate
   const denom_lim = 1 - soma_rates_internos
   const limite_minimo = denom_lim > 0 ? (cp_efetivo + mod + dop) / denom_lim : null
 
@@ -163,6 +202,7 @@ export function applyMotorRRO(input: ApplyMotorRROInput): ApplyMotorRROResult {
     iss,
     pis_cofins,
     pis_cofins_aliquota_efetiva,
+    das,
     imp_dentro_total,
     cp_efetivo,
     mod,
@@ -180,6 +220,9 @@ export function applyMotorRRO(input: ApplyMotorRROInput): ApplyMotorRROResult {
     // ADR-016: passa a alíquota TRANSMUTADA do PIS/COFINS (alíq_precif/(1−ICMS%−ISS%)),
     // para a cascata 13B exibir a % coerente com o valor preservado da precificação.
     rates: { icms: icms_rate, iss: iss_rate, pis_cofins: pis_cofins_aliquota_efetiva },
+    // EPIC-DAS: o trace renderiza as etapas 7 e 13 a partir de uma COLEÇÃO cujo conteúdo
+    // depende do regime — uma linha DAS em SN/MEI, os nós de sempre nos demais.
+    regime: input.regime,
   })
 
   const motor: MotorOutput = { ...motorPartial, cascade_trace }

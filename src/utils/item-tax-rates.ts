@@ -36,6 +36,19 @@ export interface ItemTaxRates {
   ibs_pct?: number | null
   cbs_pct?: number | null
   iss_retido_pct?: number | null
+  /**
+   * EPIC-DAS — alíquota consolidada do DAS (Simples Nacional / MEI), gravada no cadastro:
+   * `products.custom_tax_percent` ou `services.taxable_regime_percent`. SUBSTITUI o grupo
+   * ICMS+ISS+PIS/COFINS por dentro — o motor NUNCA a recalcula pelo anexo.
+   *
+   * DELIBERADAMENTE FORA de `ITEM_RATE_BY_TAX_TYPE`: o DAS não é um `TaxRatePeriod` do
+   * tenant e não deve vazar para os arrays de `rates` via `mergeItemAndTenantRates` — o
+   * motor o consome direto do item. Regimes RET e Simples Híbrido reusam a MESMA coluna
+   * `custom_tax_percent` para outra finalidade; a segregação é feita no motor, que só
+   * aplica o DAS quando o regime resolvido é SIMPLES_NACIONAL ou MEI (RET e Híbrido são
+   * mapeados para LUCRO_PRESUMIDO em `mapToMotorRegime`, portanto nunca entram no ramo).
+   */
+  das_pct?: number | null
   // Rateio RR
   irpj_pct?: number | null
   csll_pct?: number | null
@@ -612,9 +625,27 @@ export function buildItemTaxRatesFromProduct(prod: any): ItemTaxRates {
     ibs_pct: resolveIvaDualEffectiveRate(prod?.ibs_pct, prod?.iva_dual_reduction_factor),
     cbs_pct: resolveIvaDualEffectiveRate(prod?.cbs_pct, prod?.iva_dual_reduction_factor),
     iss_retido_pct: prod?.iss_retido_pct ?? null,
+    // EPIC-DAS: produto grava em `custom_tax_percent`; serviço em `taxable_regime_percent`.
+    // O helper serve aos dois cadastros, então aceita qualquer uma das colunas.
+    das_pct: resolveDasPct(prod),
     irpj_pct: prod?.irpj_pct ?? null,
     csll_pct: prod?.csll_pct ?? null,
   }
+}
+
+/**
+ * EPIC-DAS — alíquota do DAS gravada no cadastro do item.
+ *
+ * Produto usa `custom_tax_percent`; serviço usa `taxable_regime_percent`. Retorna `null`
+ * quando nenhuma das colunas traz número finito — o motor então trata como "sem DAS".
+ * Zero é um valor LEGÍTIMO (MEI): retorna 0, não null, para que a linha exista com valor
+ * zero em vez de desaparecer.
+ */
+function resolveDasPct(prod: any): number | null {
+  const raw = prod?.custom_tax_percent ?? prod?.taxable_regime_percent
+  if (raw == null) return null
+  const n = Number(raw)
+  return Number.isFinite(n) && n >= 0 ? n : null
 }
 
 /**

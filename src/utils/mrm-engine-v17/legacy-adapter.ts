@@ -92,6 +92,74 @@ export interface PageItem {
    * (mesma regra de frete/despesas acessórias fixas). Ver `calculateMotorV17ForPage`.
    */
   is_manual_cost?: boolean
+  /**
+   * FIX-CUSTO-SN (Simples/MEI): `products.yield_quantity` tem DOIS significados — em
+   * PRODUZIDO é rendimento (fraciona o custo), em REVENDA é ESTOQUE (não fraciona). O
+   * label da UI muda junto ("Quantidade de produção" vs "Adicionar quantidade no estoque").
+   * `resolveProductCostTotal` divide SEMPRE, então o custo de um item de revenda chega
+   * aqui já dividido pelo estoque. Estes dois campos permitem desfazer essa divisão.
+   */
+  product_type?: string | null
+  yield_quantity?: number | null
+}
+
+/**
+ * FIX-CUSTO-SN — fator para DESFAZER a divisão indevida por `yield_quantity`.
+ *
+ * `resolveProductCostTotal` divide o custo por `yield_quantity` sem olhar o tipo do
+ * produto. Em REVENDA/ESTOQUE esse campo é quantidade em estoque, não rendimento: o
+ * produto "Cerveja" (revenda, 99 em estoque, composição R$ 4,50) chegava à cascata como
+ * R$ 0,05 (4,50 ÷ 99), enquanto a precificação mostra R$ 4,50. A tela já respeita a
+ * distinção (`yieldDivisorSave` só fraciona quando PRODUZIDO); a cascata não respeitava.
+ *
+ * Escopo TRAVADO em SIMPLES_NACIONAL/MEI por decisão do dono: Lucro Real é intocável.
+ * Fora desse escopo retorna 1 ⇒ bit-exact ao comportamento atual.
+ *
+ * Correção feita AQUI, no adapter, e não em `resolveProductCostTotal`: aquele helper é
+ * global e mexer nele quebraria fixtures e oráculos de Lucro Real.
+ */
+function resolveYieldUndoFactor(item: PageItem, regime: TaxRegime | null | undefined): number {
+  const isSimplesOuMei = regime === 'SIMPLES_NACIONAL' || regime === 'MEI'
+  if (!isSimplesOuMei) return 1
+  if (item.product_type === 'PRODUZIDO') return 1  // rendimento real: fracionar é correto
+  const y = Number(item.yield_quantity) || 0
+  return y > 1 ? y : 1
+}
+
+/**
+ * FIX-DESPESA-SN — rates de despesa (4 baldes) do PRODUTO quando houver, senão do tenant.
+ *
+ * O adapter montava os 4 baldes exclusivamente de `tenantCtx.expense_breakdown`, sem
+ * condição. A despesa POR PRODUTO já chegava em `item.expense_breakdown_unit`, mas só
+ * alimentava exibição secundária. Resultado: produto de revenda recebia MO Administrativa
+ * 8,60% + Despesa Fixa 6,45% que a precificação dele não tem (R$ 1,50/unidade a mais).
+ *
+ * Escopo TRAVADO em SIMPLES_NACIONAL/MEI. Fora dele, ou quando o produto não traz nenhum
+ * rate > 0, usa o tenant exatamente como hoje ⇒ bit-exact.
+ */
+function resolveDopRates(
+  item: PageItem,
+  regime: TaxRegime | null | undefined,
+  eb: PageTenantCtx['expense_breakdown'],
+): { admin: number; fixed: number; variable: number; financial: number; fromProduct: boolean } {
+  const isSimplesOuMei = regime === 'SIMPLES_NACIONAL' || regime === 'MEI'
+  const ebU = item.expense_breakdown_unit
+  if (isSimplesOuMei && ebU) {
+    const admin = Number(ebU.mo_admin?.rate) || 0
+    const fixed = Number(ebU.fixa?.rate) || 0
+    const variable = Number(ebU.variavel?.rate) || 0
+    const financial = Number(ebU.financeira?.rate) || 0
+    if (admin > 0 || fixed > 0 || variable > 0 || financial > 0) {
+      return { admin, fixed, variable, financial, fromProduct: true }
+    }
+  }
+  return {
+    admin: eb ? (Number(eb.administrative_pct) || 0) : 0,
+    fixed: eb ? (Number(eb.fixed_pct) || 0) : 0,
+    variable: eb ? (Number(eb.variable_pct) || 0) : 0,
+    financial: eb ? (Number(eb.financial_pct) || 0) : 0,
+    fromProduct: false,
+  }
 }
 
 export interface PageTenantCtx {
@@ -453,18 +521,23 @@ export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResul
     // "Custo produto" não existir (produto sem custo cadastrado). Antes o snapshot tinha
     // prioridade e, quando stale/divergente, inflava o Item 4 (ex.: 150.319,70 vs 141.172,85
     // corretos — base intermediária divergente). Ver ADR-020.
+    // FIX-CUSTO-SN (C1): desfaz a divisão por yield_quantity quando ela não significa
+    // rendimento (revenda/estoque). Fator 1 fora de SN/MEI ⇒ bit-exact.
+    const yieldUndo = resolveYieldUndoFactor(item, tenantCtx.regime)
     const custoProduto =
-      ((Number(item.cost_total) || 0) + (Number(item.productive_labor_unit) || 0)) * qty
+      ((Number(item.cost_total) || 0) + (Number(item.productive_labor_unit) || 0)) * qty * yieldUndo
     const snapshotCmv = Number(item.expense_breakdown_unit?.cmv_unit) || 0
     const cmvUsed = custoProduto > 0 ? custoProduto : snapshotCmv * qty
 
-    // DOP agregado (4 buckets do tenant)
+    // DOP agregado — 4 baldes. FIX-DESPESA-SN (C2): em SN/MEI usa os rates do PRODUTO
+    // quando ele os traz; senão (e sempre fora de SN/MEI) usa os do tenant, como hoje.
     const eb = tenantCtx.expense_breakdown ?? null
-    const dopAdminNominal = eb ? (Number(eb.administrative_pct) || 0) : 0
-    const dopFixedNominal = eb ? (Number(eb.fixed_pct) || 0) : 0
-    const dopVariableNominal = eb ? (Number(eb.variable_pct) || 0) : 0
-    const dopFinancialNominal = eb ? (Number(eb.financial_pct) || 0) : 0
-    const dop_pct_nominal = eb
+    const dopRates = resolveDopRates(item, tenantCtx.regime, eb)
+    const dopAdminNominal = dopRates.admin
+    const dopFixedNominal = dopRates.fixed
+    const dopVariableNominal = dopRates.variable
+    const dopFinancialNominal = dopRates.financial
+    const dop_pct_nominal = (eb || dopRates.fromProduct)
       ? dopAdminNominal + dopFixedNominal + dopVariableNominal + dopFinancialNominal
       : (Number(tenantCtx.dop_pct) || 0)
 
@@ -485,7 +558,7 @@ export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResul
     // (nominal × peso). Σ == dop_pct. Alimenta a Etapa 5 discriminada de forma que
     // reconcilie com o total e some a MO Administrativa (tenant) de todos os produtos.
     // Só disponível quando o tenant tem o breakdown por bucket (eb); senão null (fallback).
-    const dop_components = eb
+    const dop_components = (eb || dopRates.fromProduct)
       ? {
           mo_admin: dopAdminNominal * pesoOpInternaTemp,
           fixa: dopFixedNominal * pesoOpInternaTemp,
@@ -664,11 +737,18 @@ export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResul
     const issPctItem = normalizePct(itemRatesForTaxes?.iss_pct)
     const pisPctItem = normalizePct(itemRatesForTaxes?.pis_pct)
     const cofinsPctItem = normalizePct(itemRatesForTaxes?.cofins_pct)
+    // EPIC-DAS: alíquota consolidada gravada no cadastro (products.custom_tax_percent /
+    // services.taxable_regime_percent). `das_pct == null` ⇒ item sem DAS (undefined, não 0),
+    // preservando a distinção entre "não informado" e "MEI com alíquota zero".
+    const dasPctRaw = itemRatesForTaxes?.das_pct
+    const dasPctItem = dasPctRaw == null ? null : normalizePct(dasPctRaw)
     const taxes_inside_amounts = (itemRatesForTaxes && opInternaTotal > 0)
       ? {
           icms: opInternaTotal * icmsPctItem,
           iss: opInternaTotal * issPctItem,
           pis_cofins: opInternaTotal * (pisPctItem + cofinsPctItem),
+          // Sempre presente quando a coluna existe — inclusive `0` no MEI.
+          ...(dasPctItem == null ? {} : { das: opInternaTotal * dasPctItem }),
         }
       : undefined
 
@@ -777,13 +857,28 @@ export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResul
 
   // ADR-016 (2026-05-29): base canônica do PIS/COFINS = Âncora − ICMS − ISS.
   const basePisCofins = v17Result.motor.ancora - v17Result.motor.icms - v17Result.motor.iss
-  const taxesInsideTotal: TaxLine[] = [
-    { type: 'ICMS' as const, rate_pct: icmsRate, base: v17Result.motor.ancora, amount: v17Result.motor.icms },
-    { type: 'ISS' as const, rate_pct: issRate, base: v17Result.motor.ancora - v17Result.motor.icms, amount: v17Result.motor.iss },
-    // ADR-016: PIS/COFINS sobre (Âncora − ICMS − ISS); amount já vem canônico do motor.
-    { type: 'PIS' as const, rate_pct: pisRate, base: basePisCofins, amount: pisAmount },
-    { type: 'COFINS' as const, rate_pct: cofinsRate, base: basePisCofins, amount: cofinsAmount },
-  ].filter(t => t.amount > 0 || t.rate_pct > 0)
+  // EPIC-DAS: em SN/MEI o grupo por dentro é UMA linha DAS que SUBSTITUI as três — nunca
+  // convivem. A linha do MEI tem amount e rate zerados e por isso NÃO pode passar pelo
+  // filtro `amount > 0 || rate_pct > 0` (que a apagaria); o ramo do DAS é montado sem filtro,
+  // garantindo "linha presente, valor zero". Fora de SN/MEI o array e o filtro são os de hoje.
+  const isSimplesOuMei = tenantCtx.regime === 'SIMPLES_NACIONAL' || tenantCtx.regime === 'MEI'
+  const dasAmount = Number(v17Result.motor.das) || 0
+  const taxesInsideTotal: TaxLine[] = isSimplesOuMei
+    ? [
+        {
+          type: 'DAS' as const,
+          rate_pct: v17Result.motor.ancora > 0 ? dasAmount / v17Result.motor.ancora : 0,
+          base: v17Result.motor.ancora,
+          amount: dasAmount,
+        },
+      ]
+    : [
+        { type: 'ICMS' as const, rate_pct: icmsRate, base: v17Result.motor.ancora, amount: v17Result.motor.icms },
+        { type: 'ISS' as const, rate_pct: issRate, base: v17Result.motor.ancora - v17Result.motor.icms, amount: v17Result.motor.iss },
+        // ADR-016: PIS/COFINS sobre (Âncora − ICMS − ISS); amount já vem canônico do motor.
+        { type: 'PIS' as const, rate_pct: pisRate, base: basePisCofins, amount: pisAmount },
+        { type: 'COFINS' as const, rate_pct: cofinsRate, base: basePisCofins, amount: cofinsAmount },
+      ].filter(t => t.amount > 0 || t.rate_pct > 0)
 
   const taxesOutsideTotal: TaxLine[] = v17Result.distribution.taxes_outside.map(t => ({
     type: t.type,
@@ -976,20 +1071,25 @@ export function calculateMotorV17ForPageFull(args: PageBuildArgs): {
     // (cost_total + productive_labor_unit) é a fonte PRIMÁRIA; snapshot V14 vira fallback.
     // Caminho ForPageFull/.consolidated — NÃO há reverse-markup aqui (cp = cmvUsed direto),
     // portanto a precedência precisa ser idêntica à do caminho ForPage acima. Ver ADR-020.
+    // FIX-CUSTO-SN (C1) — mesmo tratamento do caminho ForPage. ATENÇÃO: aqui o contexto é
+    // `args.tenantCtx`; usar `tenantCtx` solto dá ReferenceError (não existe neste escopo).
+    const yieldUndoFull = resolveYieldUndoFactor(item, args.tenantCtx.regime)
     const custoProduto =
-      ((Number(item.cost_total) || 0) + (Number(item.productive_labor_unit) || 0)) * qty
+      ((Number(item.cost_total) || 0) + (Number(item.productive_labor_unit) || 0)) * qty * yieldUndoFull
     const snapshotCmv = Number(item.expense_breakdown_unit?.cmv_unit) || 0
     const cmvUsed = custoProduto > 0 ? custoProduto : snapshotCmv * qty
+    // FIX-DESPESA-SN (C2) — idem, via args.tenantCtx.
     const eb = args.tenantCtx.expense_breakdown ?? null
-    const dopAdminNominalFull = eb ? (Number(eb.administrative_pct) || 0) : 0
-    const dopFixedNominalFull = eb ? (Number(eb.fixed_pct) || 0) : 0
-    const dopVariableNominalFull = eb ? (Number(eb.variable_pct) || 0) : 0
-    const dopFinancialNominalFull = eb ? (Number(eb.financial_pct) || 0) : 0
-    const dop_pct = eb
+    const dopRatesFull = resolveDopRates(item, args.tenantCtx.regime, eb)
+    const dopAdminNominalFull = dopRatesFull.admin
+    const dopFixedNominalFull = dopRatesFull.fixed
+    const dopVariableNominalFull = dopRatesFull.variable
+    const dopFinancialNominalFull = dopRatesFull.financial
+    const dop_pct = (eb || dopRatesFull.fromProduct)
       ? dopAdminNominalFull + dopFixedNominalFull + dopVariableNominalFull + dopFinancialNominalFull
       : (Number(args.tenantCtx.dop_pct) || 0)
     // Adendo Seção 31-A (itens 1-2): peso_op_interna é 1 neste caminho ⇒ componentes efetivos = nominais.
-    const dop_components = eb
+    const dop_components = (eb || dopRatesFull.fromProduct)
       ? {
           mo_admin: dopAdminNominalFull,
           fixa: dopFixedNominalFull,
