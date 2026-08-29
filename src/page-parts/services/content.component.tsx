@@ -11,6 +11,7 @@ import {
     PlusOutlined, DeleteOutlined, CalculatorOutlined, InfoCircleOutlined, SaveOutlined, SyncOutlined,
 } from '@ant-design/icons'
 import { useAuth } from '@/hooks/use-auth.hook'
+import { useDevice } from '@/contexts/device.context'
 import { getMonetaryValue } from '@/utils/get-monetary-value'
 import { PercentInput } from '@/components/percent-input.component'
 import { calculateItemPrice } from '@/utils/calculate-item-price'
@@ -61,6 +62,9 @@ export interface ServiceContentProps {
 
 export function ServiceContent({ isEditing, serviceData, items, expenseConfig, taxPreview }: ServiceContentProps) {
     const { currentUser } = useAuth()
+    // Card de resultado: mesma regra de responsividade do card de Produto —
+    // no mobile a coluna de lucro é ocultada e o preço fica centralizado.
+    const { isMobile } = useDevice()
     const router = useRouter()
     const [form] = Form.useForm()
     const [msgApi, ctx] = message.useMessage()
@@ -1238,34 +1242,36 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                         background: pricing.isValid && pricing.sellingPrice > 0 ? '#ECFDF5' : '#FEF2F2',
                         border: `1px solid ${pricing.isValid && pricing.sellingPrice > 0 ? '#6CE9A6' : '#FDA29B'}`,
                     }}>
-                        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center' }}>
-                            <div style={{ textAlign: 'right' }}>
-                                <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 2, textTransform: 'uppercase' as const, letterSpacing: 0.5 }}>
-                                    Preço de Venda Sugerido
+                        {/* Card de resultado: mesmo molde do card de Produto
+                            (product-price.component.tsx) — lucro líquido como coluna
+                            secundária à esquerda e preço como número principal à direita,
+                            na mesma linha. Os rótulos e os campos exibidos continuam sendo
+                            os do Serviço: "Preço de Venda Sugerido", sem unidade de medida,
+                            sem total de receita e sem tributos por fora. */}
+                        <div style={{ display: 'flex', justifyContent: isMobile ? 'center' : 'space-between', alignItems: 'center' }}>
+                            {!isMobile && (
+                                <div>
+                                    <div style={{ fontSize: 11, color: '#94a3b8' }}>Lucro líquido</div>
+                                    <div style={{ fontSize: 20, fontWeight: 700, color: pricing.profitVal >= 0 ? '#027A48' : '#B42318' }}>
+                                        {fmt(pricing.profitVal)}
+                                    </div>
+                                    {pricing.sellingPrice > 0 && (
+                                        <div style={{ fontSize: 11, color: '#94a3b8' }}>
+                                            Margem: {profitPercent.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%
+                                        </div>
+                                    )}
                                 </div>
+                            )}
+                            <div style={{ textAlign: isMobile ? 'center' : 'right' }}>
+                                <Tooltip title="Custo do serviço + despesas variáveis e financeiras + impostos + comissão + lucro. É o valor sugerido de venda para atingir a margem definida.">
+                                    <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 2, textTransform: 'uppercase' as const, letterSpacing: 0.5, cursor: 'help' }}>
+                                        Preço de Venda Sugerido
+                                    </div>
+                                </Tooltip>
                                 <div style={{ fontSize: 28, fontWeight: 800, color: pricing.isValid ? '#027A48' : '#B42318' }}>
                                     {fmt(pricing.sellingPrice)}
                                 </div>
                             </div>
-                        </div>
-                        <div style={{
-                            marginTop: 12,
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: 10,
-                            padding: '8px 14px',
-                            borderRadius: 6,
-                            background: pricing.profitVal >= 0 ? '#12B76A' : '#B42318',
-                            color: '#fff',
-                            fontWeight: 700,
-                        }}>
-                            <span style={{ fontSize: 11, textTransform: 'uppercase' as const, letterSpacing: 0.5, opacity: 0.9 }}>Lucro Líquido</span>
-                            <span style={{ fontSize: 16 }}>{fmt(pricing.profitVal)}</span>
-                            {pricing.sellingPrice > 0 && (
-                                <span style={{ fontSize: 11, opacity: 0.9 }}>
-                                    ({profitPercent.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%)
-                                </span>
-                            )}
                         </div>
                     </div>
 
