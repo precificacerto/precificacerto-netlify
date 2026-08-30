@@ -26,6 +26,7 @@ import { ExportFormatModal } from '@/components/ui/export-format-modal.component
 // Onda 3 / CRÍT-perf: exportTableToPdf (jsPDF ~100KB) via dynamic import no handler abaixo.
 import { calculateDiscountedPrice, discountModeToAbsorptionPolicy, DiscountMode } from '@/utils/calculate-discount'
 import { formatBRL } from '@/utils/formatters'
+import { getEffectiveCommissionPercent } from '@/utils/get-effective-commission'
 import {
     PaymentWithInstallments,
     buildInstallmentsByPreset,
@@ -434,12 +435,12 @@ function Sales() {
             // ADR-022: alíquotas tributárias por item — necessárias para o motor derivar IBS/CBS
             // efetivo (referência × (1 − fator)) na venda balcão. Sem isto, IBS/CBS caíam no tenant.
             const taxCols = 'icms_pct, pis_cofins_pct, pis_pct, cofins_pct, iss_pct, is_pct, ipi_pct, ibs_pct, cbs_pct, ibs_reference_pct, cbs_reference_pct, iva_dual_reduction_factor, icms_st_pct, difal_pct, fcp_pct, iss_retido_pct, irpj_pct, csll_pct'
-            const { data: prodsFull, error: prodsErr } = await supabase.from('products').select(`id, name, sale_price, cost_total, profit_percent, commission_table_id, recurrence_days, ${v17Cols}, ${taxCols}`).order('name')
+            const { data: prodsFull, error: prodsErr } = await supabase.from('products').select(`id, name, sale_price, cost_total, commission_percent, profit_percent, commission_table_id, recurrence_days, ${v17Cols}, ${taxCols}`).order('name')
             if (!prodsErr) {
                 prods = prodsFull
             } else {
                 console.warn('Products query failed, falling back:', prodsErr.message)
-                const { data: prodsSimple } = await supabase.from('products').select('id, name, sale_price, cost_total, profit_percent, commission_table_id').order('name')
+                const { data: prodsSimple } = await supabase.from('products').select('id, name, sale_price, cost_total, commission_percent, profit_percent, commission_table_id').order('name')
                 prods = prodsSimple
             }
 
@@ -1100,9 +1101,9 @@ function Sales() {
             const { costTotal, productiveLaborUnit } = resolveProductCostAndLabor(svc, laborTenantCtxV)
             const financialExpenseUnit = resolveProductFinancialExpense(svc)
             const expenseBreakdownUnit = resolveProductExpenseBreakdown(svc)
-            const allTables = [...empProductTablesV, ...empServiceTablesV]
-            const commTable = allTables.find(t => t.id === item.commission_table_id)
-            const commPct = Number(commTable?.commission_percent || svc?.commission_percent || 0)
+            // Origem única da comissão (mesma regra do Orçamento): o cadastro do serviço.
+            // A tabela de comissão do vendedor não tem prioridade sobre ele.
+            const commPct = getEffectiveCommissionPercent(null, svc?.commission_percent)
             const profitPct = Number(svc?.profit_percent || 0)
             // V7+ (2026-05-24): helper centralizado, também lê pis_cofins_pct agregado
             const svcTaxRates: ItemTaxRates = buildItemTaxRatesFromProduct(svc)
@@ -1132,9 +1133,10 @@ function Sales() {
             const { costTotal, productiveLaborUnit } = resolveProductCostAndLabor(prod, laborTenantCtxP)
             const financialExpenseUnit = resolveProductFinancialExpense(prod)
             const expenseBreakdownUnit = resolveProductExpenseBreakdown(prod)
-            const allTables = [...empProductTablesV, ...empServiceTablesV]
-            const commTable = allTables.find(t => t.id === item.commission_table_id)
-            const commPct = Number(commTable?.commission_percent || 0)
+            // Origem única da comissão (mesma regra do Orçamento): o cadastro do produto.
+            // Antes lia só a tabela de comissão e o cadastro nem era consultado — a comissão
+            // do produto chegava zerada ao motor da cascata.
+            const commPct = getEffectiveCommissionPercent(null, prod?.commission_percent)
             const profitPct = Number(prod?.profit_percent || 0)
             // V7+ (2026-05-24): helper centralizado, também lê pis_cofins_pct agregado
             const prodTaxRates: ItemTaxRates = buildItemTaxRatesFromProduct(prod)
