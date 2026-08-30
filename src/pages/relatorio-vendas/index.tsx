@@ -660,15 +660,21 @@ function SalesReport() {
 
             const saleIds = sales.map((s: any) => s.id)
 
-            const { data: items } = await (supabase as any)
+            // BUG-RELCOMISSOES-SALEITEMS-001: o select antigo pedia colunas inexistentes
+            // (total, cost, commission_percent, profit_percent) → HTTP 400 e `items` virava null
+            // em silêncio. Aqui pedimos apenas as colunas reais de sale_items.
+            const { data: items, error: itemsErr } = await (supabase as any)
                 .from('sale_items')
-                .select('sale_id, product_id, quantity, unit_price, discount, total, cost, commission_percent, profit_percent, product:products(id, name, cost_total, rt_reserve_percent)')
+                .select('sale_id, product_id, quantity, unit_price, discount, commission_pct, profit_pct, product:products(id, name, cost_total, rt_reserve_percent)')
                 .in('sale_id', saleIds)
+            if (itemsErr) console.warn('[relatorio-vendas] sale_items falhou:', itemsErr.message)
 
             const itemsBySale = new Map<string, any[]>()
             for (const it of items || []) {
                 const list = itemsBySale.get(it.sale_id) || []
-                list.push(it)
+                // sale_items.commission_pct está em DECIMAL (0..1); computeSaleCommission
+                // espera commission_percent em 0..100.
+                list.push({ ...it, commission_percent: (Number(it.commission_pct) || 0) * 100 })
                 itemsBySale.set(it.sale_id, list)
             }
 
@@ -702,6 +708,21 @@ function SalesReport() {
                 }
             }
 
+            // EPIC-RT v8: o RT é apurado UMA ÚNICA VEZ na cascata do orçamento (peso consolidado
+            // sobre o total) e viaja congelado ORÇAMENTO → PEDIDO → VENDA. Para vendas antigas sem
+            // sales.rt_amount persistido, lemos o valor congelado do orçamento de origem — nunca
+            // reapuramos RT pelo cadastro do produto.
+            const budgetIds: string[] = [...new Set(sales.map((s: any) => s.budget_id).filter(Boolean) as string[])]
+            const budgetRtMap = new Map<string, number>()
+            if (budgetIds.length > 0) {
+                const { data: bRows, error: bErr } = await (supabase as any)
+                    .from('budgets')
+                    .select('id, rt_amount')
+                    .in('id', budgetIds)
+                if (bErr) console.warn('[relatorio-vendas] budgets.rt_amount falhou:', bErr.message)
+                for (const b of bRows || []) budgetRtMap.set(b.id, Number(b.rt_amount) || 0)
+            }
+
             const rows: CommissionReportRow[] = []
             for (const sale of sales) {
                 const saleItems = itemsBySale.get(sale.id) || []
@@ -710,15 +731,13 @@ function SalesReport() {
 
                 let valorPreciso = 0
                 let totalCost = 0
-                let rtWeighted = 0 // EPIC-RT v8: Σ(qty × unit_price × rt_pct) — base da efetiva de RT
                 const productIds: string[] = []
                 const productNames: string[] = []
                 for (const it of saleItems) {
                     const qty = Number(it.quantity) || 0
                     const unitPrice = Number(it.unit_price) || 0
                     valorPreciso += qty * unitPrice
-                    rtWeighted += qty * unitPrice * (Number(it.product?.rt_reserve_percent) || 0) / 100
-                    const itemCost = it.cost != null ? Number(it.cost) : Number(it.product?.cost_total) || 0
+                    const itemCost = Number(it.product?.cost_total) || 0
                     totalCost += qty * itemCost
                     if (it.product_id && !productIds.includes(it.product_id)) {
                         productIds.push(it.product_id)
@@ -740,11 +759,9 @@ function SalesReport() {
                     ? saleProfit
                     : valorVendido - totalCost - comissaoPaga
                 // EPIC-RT v8 (3.9/3.10): prioriza o RT CONGELADO gravado na venda (sales.rt_amount);
-                // fallback on-the-fly (produto vivo) para vendas antigas sem o valor persistido.
+                // fallback para o RT congelado do orçamento de origem (nunca reapurado por produto).
                 const rtFrozen = Number(sale.rt_amount) || 0
-                const rtValor = rtFrozen > 0
-                    ? rtFrozen
-                    : (valorPreciso > 0 ? (rtWeighted / valorPreciso) * valorVendido : 0)
+                const rtValor = rtFrozen > 0 ? rtFrozen : (sale.budget_id ? (budgetRtMap.get(sale.budget_id) || 0) : 0)
                 const rtPercent = valorVendido > 0 ? (rtValor / valorVendido) * 100 : 0
 
                 rows.push({

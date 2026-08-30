@@ -154,6 +154,7 @@ interface PendingBudget {
     installments?: number
     commission_amount?: number
     profit_amount?: number
+    rt_amount?: number
     icms_compl_value?: number
     icms_st_value?: number
     difal_value?: number
@@ -501,7 +502,7 @@ function Sales() {
     const fetchPendingBudgets = async () => {
         const { data } = await supabase
             .from('budgets')
-            .select('id, total_value, created_at, status, sale_id, payment_method, installments, commission_amount, profit_amount, icms_compl_value, icms_st_value, difal_value, fcp_value, installment_preset, discount_mode, global_discount_percent, customer_id, employee_id, source_order_id, customer:customers(name)')
+            .select('id, total_value, created_at, status, sale_id, payment_method, installments, commission_amount, profit_amount, rt_amount, icms_compl_value, icms_st_value, difal_value, fcp_value, installment_preset, discount_mode, global_discount_percent, customer_id, employee_id, source_order_id, customer:customers(name)')
             .in('status', ['APPROVED', 'SENT', 'AWAITING_PAYMENT'])
             .is('sale_id', null)
             .order('created_at', { ascending: false })
@@ -528,6 +529,7 @@ function Sales() {
             installments: Number(b.installments) || 1,
             commission_amount: Number(b.commission_amount) || 0,
             profit_amount: Number(b.profit_amount) || 0,
+            rt_amount: Number(b.rt_amount) || 0,
             icms_compl_value: Number(b.icms_compl_value) || 0,
             icms_st_value: Number(b.icms_st_value) || 0,
             difal_value: Number(b.difal_value) || 0,
@@ -571,7 +573,7 @@ function Sales() {
     const handleOpenRegisterSale = async (budget: PendingBudget) => {
         const { data: fresh } = await (supabase as any)
             .from('budgets')
-            .select('id, status, total_value, created_at, payment_method, installments, commission_amount, profit_amount, icms_compl_value, icms_st_value, difal_value, fcp_value, installment_preset, discount_mode, global_discount_percent, customer_id, employee_id, customer:customers(name)')
+            .select('id, status, total_value, created_at, payment_method, installments, commission_amount, profit_amount, rt_amount, icms_compl_value, icms_st_value, difal_value, fcp_value, installment_preset, discount_mode, global_discount_percent, customer_id, employee_id, customer:customers(name)')
             .eq('id', budget.id)
             .single()
         if (fresh?.status === 'PAID') {
@@ -591,6 +593,7 @@ function Sales() {
             installments: Number((fresh as any).installments) || 1,
             commission_amount: Number((fresh as any).commission_amount) || 0,
             profit_amount: Number((fresh as any).profit_amount) || 0,
+            rt_amount: Number((fresh as any).rt_amount) || 0,
             icms_compl_value: Number((fresh as any).icms_compl_value) || 0,
             icms_st_value: Number((fresh as any).icms_st_value) || 0,
             difal_value: Number((fresh as any).difal_value) || 0,
@@ -690,6 +693,7 @@ function Sales() {
                 status: 'COMPLETED',
                 commission_amount: selectedBudget.commission_amount || 0,
                 profit_amount: selectedBudget.profit_amount || 0,
+                rt_amount: selectedBudget.rt_amount || 0,
                 icms_compl_value: selectedBudget.icms_compl_value || 0,
                 icms_st_value: (selectedBudget as any).icms_st_value || 0,
                 difal_value: (selectedBudget as any).difal_value || 0,
