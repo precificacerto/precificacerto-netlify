@@ -430,17 +430,25 @@ function Sales() {
 
             // Products: try with recurrence_days, fall back without
             let prods: any[] | null = null
-            // V17 (2026-05-28): inclui campos para motor V17 (terceirizadas, sale_price_base, valor_precificado)
-            const v17Cols = 'freight_value, insurance_value, accessory_expenses_value, sale_price_base, valor_precificado_icms_piscofins, ipi_value, icms_st_active, difal_active, st_difal_interestadual, difal_base_dupla, mva_original_pct, icms_alq_interna_destino_pct, icms_alq_interestadual_origem_pct, icms_interna_origem_pct, fcp_alq_pct'
-            // ADR-022: alíquotas tributárias por item — necessárias para o motor derivar IBS/CBS
-            // efetivo (referência × (1 − fator)) na venda balcão. Sem isto, IBS/CBS caíam no tenant.
-            const taxCols = 'icms_pct, pis_cofins_pct, pis_pct, cofins_pct, iss_pct, is_pct, ipi_pct, ibs_pct, cbs_pct, ibs_reference_pct, cbs_reference_pct, iva_dual_reduction_factor, icms_st_pct, difal_pct, fcp_pct, iss_retido_pct, irpj_pct, csll_pct'
-            const { data: prodsFull, error: prodsErr } = await supabase.from('products').select(`id, name, sale_price, cost_total, commission_percent, profit_percent, commission_table_id, recurrence_days, ${v17Cols}, ${taxCols}`).order('name')
+            // Paridade com o Orçamento (princípio raiz: orçamento, pedido e venda partem da
+            // MESMA origem). Este select é IDÊNTICO ao de useProducts em use-data.hooks.ts.
+            // A lista manual de colunas que existia aqui trazia menos dados que o Orçamento:
+            //  - sem o embed pricing_calculations, resolveProductExpenseBreakdown retornava null
+            //    (item-tax-rates.ts: "if (pricingArr.length === 0) return null") e o motor caía no
+            //    percentual de despesa do tenant — a MO Administrativa divergia entre as telas;
+            //  - sem rt_reserve_percent, o RT do produto chegava undefined: as etapas 5.5 e 14.5
+            //    sumiam da Memória Cascata e sales.rt_amount era gravado sempre zerado.
+            // O '*' cobre rt_reserve_percent, product_type, yield_quantity, sale_price_base,
+            // valor_precificado_icms_piscofins e todas as alíquotas listadas antes à mão.
+            const { data: prodsFull, error: prodsErr } = await supabase
+                .from('products')
+                .select('*, pricing_calculations(*), product_items(item_id, item_cost_net, item_cost_gross, quantity_needed, items(item_type)), labor_costs(*)')
+                .order('name')
             if (!prodsErr) {
                 prods = prodsFull
             } else {
                 console.warn('Products query failed, falling back:', prodsErr.message)
-                const { data: prodsSimple } = await supabase.from('products').select('id, name, sale_price, cost_total, commission_percent, profit_percent, commission_table_id').order('name')
+                const { data: prodsSimple } = await supabase.from('products').select('id, name, sale_price, cost_total, commission_percent, profit_percent, commission_table_id, rt_reserve_percent, product_type, yield_quantity').order('name')
                 prods = prodsSimple
             }
 
@@ -448,12 +456,12 @@ function Sales() {
             let svcs: any[] | null = null
             const svb = supabase as any
             const svcTaxCols = 'icms_pct, pis_cofins_pct, pis_pct, cofins_pct, iss_pct, is_pct, ipi_pct, ibs_pct, cbs_pct, ibs_reference_pct, cbs_reference_pct, iva_dual_reduction_factor, iss_retido_pct, irpj_pct, csll_pct, sale_price_base, freight_value, insurance_value, accessory_expenses_value'
-            const { data: svcsFull, error: svcsErr } = await svb.from('services').select(`id, name, base_price, commission_percent, profit_percent, commission_table_id, recurrence_days, ${svcTaxCols}`).eq('status', 'ACTIVE').order('name')
+            const { data: svcsFull, error: svcsErr } = await svb.from('services').select(`id, name, base_price, commission_percent, profit_percent, rt_reserve_percent, commission_table_id, recurrence_days, ${svcTaxCols}`).eq('status', 'ACTIVE').order('name')
             if (!svcsErr) {
                 svcs = svcsFull
             } else {
                 console.warn('Services query failed, falling back:', svcsErr.message)
-                const { data: svcsSimple } = await svb.from('services').select('id, name, base_price, commission_percent, profit_percent, commission_table_id').eq('status', 'ACTIVE').order('name')
+                const { data: svcsSimple } = await svb.from('services').select('id, name, base_price, commission_percent, profit_percent, rt_reserve_percent, commission_table_id').eq('status', 'ACTIVE').order('name')
                 svcs = svcsSimple
             }
 
