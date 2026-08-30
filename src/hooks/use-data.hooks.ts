@@ -104,11 +104,19 @@ export function useServices() {
   return useSWR(
     tenantId ? `services-${tenantId}` : null,
     async () => {
-      // V8 (2026-05-24, ADR-011): serviços também ganham product_items para fallback de custo
-      // (alguns serviços usam materiais via product_items). Inclui alíquotas + pricing.
+      // ATENÇÃO: não incluir `pricing_calculations`, `product_items` nem `labor_costs`
+      // neste select. Essas três tabelas se relacionam apenas com PRODUTOS — possuem
+      // somente `product_id`, sem `service_id` nem chave estrangeira para `services`.
+      // O PostgREST não consegue resolver esses embeds a partir de `services` e falha a
+      // consulta INTEIRA, fazendo a lista chegar vazia (a tela de Orçamentos então exibe
+      // "Não há dados", como se não houvesse serviço cadastrado).
+      //
+      // O custo do serviço não depende desses embeds: a cadeia de
+      // `resolveProductCostTotal` cai no nível `cost_total`, que é coluna da própria
+      // tabela `services` e já vem no `select *`.
       const { data, error } = await supabase
         .from('services')
-        .select('*, pricing_calculations(*), product_items(item_id, item_cost_net, item_cost_gross, quantity_needed), labor_costs(*)')
+        .select('*')
         .eq('status', 'ACTIVE')
         .order('name')
       if (error) throw error
