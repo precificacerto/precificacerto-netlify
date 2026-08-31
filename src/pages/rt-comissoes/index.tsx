@@ -6,6 +6,7 @@ import dayjs from 'dayjs'
 import { Layout } from '@/components/layout/layout.component'
 import { supabase } from '@/supabase/client'
 import { getTenantId } from '@/utils/get-tenant-id'
+import { shouldSplitCommissionByInstallments } from '@/utils/commission-calc'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import { useDevice } from '@/contexts/device.context'
 // Exports pesados carregados via dynamic import nos handlers (padrão da tela
@@ -367,9 +368,10 @@ export default function RtCommissionPage() {
             const description = productNames.length > 0 ? productNames.join(', ') : 'Venda'
             const clientId = budgetClientRefMap.get(sale.budget_id)
             const clientName = clientId ? (clientNameMap.get(clientId) || '-') : '-'
-            const saleInstallments = Number(sale.installments) || 1
-            // Usa distribuição por parcelas se: (1) funcionário configurado como INSTALLMENT, OU (2) venda foi registrada como parcelada
-            const useInstallment = emp.payment_mode === 'INSTALLMENT' || saleInstallments > 1
+            // D7: a distribuição por parcelas é decidida SÓ pelo cadastro do funcionário.
+            // O parcelamento do cliente (`sales.installments`) não entra: quem é FULL recebe
+            // integral na data da venda, mesmo que o cliente tenha dividido a compra.
+            const useInstallment = shouldSplitCommissionByInstallments(emp.payment_mode)
 
             // Alíquota efetiva de RT (storedRt ÷ valor final). A RT por parcela é
             // proporcional ao valor da parcela e a soma fecha com a RT total da venda.
@@ -512,9 +514,10 @@ export default function RtCommissionPage() {
             const description = productNames.length > 0 ? productNames.join(', ') : 'Venda Direta'
             const clientId = saleClientRefMap.get(sale.id)
             const clientName = clientId ? (clientNameMap.get(clientId) || '-') : '-'
-            const saleInstallments = Number(sale.installments) || 1
-            // Usa distribuição por parcelas se: (1) funcionário configurado como INSTALLMENT, OU (2) venda foi registrada como parcelada
-            const useInstallment = emp.payment_mode === 'INSTALLMENT' || saleInstallments > 1
+            // D7: a distribuição por parcelas é decidida SÓ pelo cadastro do funcionário.
+            // O parcelamento do cliente (`sales.installments`) não entra: quem é FULL recebe
+            // integral na data da venda, mesmo que o cliente tenha dividido a compra.
+            const useInstallment = shouldSplitCommissionByInstallments(emp.payment_mode)
 
             // EPIC-RT v8 (3.9): prioriza o RT CONGELADO gravado na venda; fallback on-the-fly (produto vivo).
             const storedRt = Number((sale as any).rt_amount) > 0 ? Number((sale as any).rt_amount) : computeStoredRt(sale.id, finalValue)

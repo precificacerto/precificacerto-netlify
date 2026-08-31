@@ -16,6 +16,35 @@ export interface SaleForCommission {
   final_value?: number | string | null
 }
 
+/**
+ * Como o funcionário recebe a comissão (`employees.commission_payment_mode`).
+ *  - FULL: valor total no mês da venda.
+ *  - INSTALLMENT: acompanha o parcelamento do cliente.
+ */
+export type CommissionPaymentMode = 'FULL' | 'INSTALLMENT'
+
+/**
+ * A comissão deste funcionário se distribui pelas parcelas do CLIENTE?
+ *
+ * D7 — regra do dono do produto: quem é FULL recebe integral na data da venda,
+ * INDEPENDENTEMENTE de o cliente ter parcelado. Só quem é INSTALLMENT acompanha o
+ * parcelamento do cliente.
+ *
+ * A decisão é do CADASTRO DO FUNCIONÁRIO, e só dele. O defeito corrigido era um
+ * `|| saleInstallments > 1` que deixava o parcelamento do cliente sequestrar o modo do
+ * funcionário: bastava o cliente dividir em 2x para um funcionário FULL passar a receber
+ * fatiado. `sales.installments` descreve como o CLIENTE paga a empresa; não tem relação
+ * com o acordo entre a empresa e o vendedor.
+ *
+ * Qualquer valor que não seja INSTALLMENT (inclusive nulo) é FULL — mesmo default do
+ * cadastro (`commission_payment_mode || 'FULL'`).
+ */
+export function shouldSplitCommissionByInstallments(
+  paymentMode: CommissionPaymentMode | string | null | undefined,
+): boolean {
+  return String(paymentMode ?? '').trim().toUpperCase() === 'INSTALLMENT'
+}
+
 export interface CommissionBreakdown {
   comissaoPaga: number
   percentVendedor: number
