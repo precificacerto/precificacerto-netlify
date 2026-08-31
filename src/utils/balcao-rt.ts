@@ -87,9 +87,15 @@ export function resolveItemRtPctDecimal(
  * são o segundo caso. Preferir a origem só quando ela é positiva faz o histórico legado
  * se curar pelo cadastro em vez de propagar zero para sempre.
  *
- * Limite consciente: um item cujo RT fosse deliberadamente 0 com cadastro > 0 seria
- * reescrito pelo cadastro. Isso não é alcançável hoje — não existe editor de RT por item
- * em orçamento/pedido/venda; o RT sempre vem do cadastro no momento da seleção.
+ * ⚠️ CONDIÇÃO DE VALIDADE DESTA REGRA (aceita pelo dono do produto em 2026-08-31):
+ * ela só é segura ENQUANTO não existir editor de RT por item em orçamento, pedido ou
+ * venda. Hoje não existe — o RT sempre vem do cadastro no momento da seleção, então um
+ * item com RT 0 e cadastro > 0 é sempre uma linha legada, nunca uma escolha do usuário.
+ *
+ * SE ESSE EDITOR FOR CRIADO, esta regra TEM QUE MUDAR JUNTO: um RT deliberadamente
+ * zerado pelo usuário passaria a ser sobrescrito pelo cadastro, silenciosamente. A saída
+ * nesse cenário é distinguir "zero digitado" de "nunca gravado" — tornando a coluna
+ * nullable ou marcando a origem do valor —, e não continuar preferindo o positivo.
  */
 export function resolveInheritedRtPctDecimal(
     sourceRtPct: unknown,

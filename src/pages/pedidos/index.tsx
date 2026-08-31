@@ -28,7 +28,8 @@ import { useTenantTaxContext } from '@/hooks/use-tenant-tax-context'
 import { hydrateItemSnapshot, type TenantSnapshotContext } from '@/lib/items-snapshot'
 import { MRM_ENGINE_VERSION, type TaxBreakdown } from '@/types/mrm'
 import { useResidualDistribution } from '@/hooks/use-residual-distribution'
-import { buildBaselineFromSnapshots, type ResidualItemInput } from '@/utils/residual-distribution'
+import { buildBaselineFromSnapshots, computeResidualDistribution, type ResidualItemInput } from '@/utils/residual-distribution'
+import { computeConsolidatedAmounts } from '@/utils/document-consolidated-amounts'
 import { resolveInheritedRtPctDecimal } from '@/utils/balcao-rt'
 import { ResidualDistributionBlock } from '@/page-parts/shared/residual-distribution-block.component'
 import { computeConsolidatedDRE, type DREItemInput } from '@/utils/consolidated-dre'
@@ -98,6 +99,11 @@ interface Order {
     sale_id?: string | null
     status: string
     total_value: number
+    // D5: consolidados do pedido (espelham budgets/sales). `rt_amount` é a alíquota
+    // efetiva de RT congelada em R$ sobre o total pós-desconto (EPIC-RT v8).
+    commission_amount?: number | null
+    profit_amount?: number | null
+    rt_amount?: number | null
     discount_mode?: string | null
     discount_value?: number | null
     discount_percent?: number | null
@@ -379,7 +385,8 @@ function OrdersPage() {
                 .from('orders')
                 .select(`
                     id, tenant_id, order_code, customer_id, employee_id, budget_id, sale_id, status,
-                    total_value, icms_compl_value, icms_st_value, difal_value, fcp_value, discount_mode, discount_value, discount_percent,
+                    total_value, commission_amount, profit_amount, rt_amount,
+                    icms_compl_value, icms_st_value, difal_value, fcp_value, discount_mode, discount_value, discount_percent,
                     payment_method, installments, entry_value, notes,
                     created_at, updated_at, requires_review,
                     customers ( name ),
@@ -725,6 +732,47 @@ function OrdersPage() {
                 }
             }
 
+            // D5 — consolidados do pedido, recalculados a cada save.
+            //
+            // O pedido aceita item novo e é afetado por desconto, então comissão/lucro/RT
+            // têm que acompanhar o próprio conteúdo — senão o pedido exibe número que não
+            // corresponde aos seus itens, e o orçamento-espelho leva esse número à venda.
+            //
+            // A fonte é a MESMA distribuição residual que a tela renderiza
+            // (`computeResidualDistribution` sobre os snapshots), sobre os itens já
+            // hidratados acima — o que inclui os adicionados nesta edição. Grava-se o que
+            // é exibido; o motor RRO é apenas consumido, nunca alterado.
+            const consolidatedResidualItems: ResidualItemInput[] = hydratedOrderItems.map(({ src: it, preservedTaxBreakdown }) => ({
+                unit_price: it.unit_price || 0,
+                quantity: it.quantity || 0,
+                commission_percent: it.commission_percent,
+                profit_percent: it.profit_percent,
+                tax_breakdown: preservedTaxBreakdown,
+            }))
+            const consolidatedAncora = consolidatedResidualItems.reduce(
+                (s, it) => s + (Number(it.tax_breakdown?.ancora_interna) || 0),
+                0,
+            )
+            const savedDiscountMode = (values.discount_mode === 'SELLER_REDUCTION' || values.discount_mode === 'PROFIT_REDUCTION')
+                ? values.discount_mode
+                : 'PROPORTIONAL'
+            const consolidated = computeConsolidatedAmounts({
+                distribution: computeResidualDistribution(
+                    consolidatedResidualItems,
+                    grossSum,
+                    totalValue,
+                    mrmConfig.regime ?? null,
+                    orderTenantTaxRates,
+                    discountPct,
+                    savedDiscountMode,
+                    consolidatedAncora,
+                ),
+                // RT: alíquota efetiva CONGELADA da origem, reaplicada sobre o total atual.
+                sourceRtAmount: Number(editingOrder.rt_amount) || 0,
+                sourceTotal: Number(editingOrder.total_value) || 0,
+                currentTotal: totalValue,
+            })
+
             const { error: upErr } = await (supabase as any)
                 .from('orders')
                 .update({
@@ -738,6 +786,9 @@ function OrdersPage() {
                     // Doc 29/07 (§3.1): persiste o modo de absorção do desconto.
                     discount_mode: values.discount_mode || 'PROPORTIONAL',
                     total_value: totalValue,
+                    commission_amount: consolidated.commissionAmount,
+                    profit_amount: consolidated.profitAmount,
+                    rt_amount: consolidated.rtAmount,
                     updated_at: new Date().toISOString(),
                     // MRM S2.3: persistir flag para listing badge
                     requires_review: requiresReview,
@@ -864,6 +915,12 @@ function OrdersPage() {
                     employee_id: sendingOrder.employee_id || null,
                     status: 'APPROVED',
                     total_value: totalValue,
+                    // D5: consolidados espelham o pedido. Vendas lê estes campos do
+                    // orçamento (`sales.commission_amount = selectedBudget.commission_amount`),
+                    // nunca de `orders` — sem esta cópia a venda nasce com comissão zerada.
+                    commission_amount: Number(sendingOrder.commission_amount) || 0,
+                    profit_amount: Number(sendingOrder.profit_amount) || 0,
+                    rt_amount: Number(sendingOrder.rt_amount) || 0,
                     // ICMS Complementar — espelha o valor do pedido (que veio do orçamento original).
                     icms_compl_value: (sendingOrder as any).icms_compl_value || 0,
                     // ICMS Complementar — parâmetros de operação da hierarquia (linhagem pedido→orçamento espelho).

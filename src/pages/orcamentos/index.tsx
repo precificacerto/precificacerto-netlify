@@ -1704,6 +1704,12 @@ function Budgets() {
                 original_budget_id: b.id,
                 status: 'DRAFT',
                 total_value: b.total_value || 0,
+                // D5: consolidados de comissão, lucro e RT espelham o orçamento de origem.
+                // Sem isto o pedido nasce zerado e o orçamento-espelho criado no envio para
+                // Vendas propaga o zero até `sales.commission_amount`.
+                commission_amount: b.commission_amount || 0,
+                profit_amount: b.profit_amount || 0,
+                rt_amount: b.rt_amount || 0,
                 // ICMS Complementar — espelha o valor consolidado do orçamento de origem.
                 icms_compl_value: (b as any).icms_compl_value || 0,
                 // ICMS Complementar — parâmetros de operação da hierarquia (linhagem orçamento→pedido).
