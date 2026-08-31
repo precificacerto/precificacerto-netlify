@@ -50,6 +50,67 @@ export function resolveItemRtPercent(
     return toPct(svc?.rt_reserve_percent)
 }
 
+/** Casas decimais de `*_items.rt_pct` — a coluna é NUMERIC(8,5). */
+const RT_PCT_DECIMALS = 5
+
+/** Converte % base-100 para o decimal persistido em `rt_pct` (1 ⇒ 0.01). */
+export function toRtPctDecimal(percentBase100: unknown): number {
+    const n = Number(percentBase100)
+    if (!Number.isFinite(n) || n === 0) return 0
+    const factor = 10 ** RT_PCT_DECIMALS
+    return Math.round((n / 100) * factor) / factor
+}
+
+/**
+ * Alíquota de RT do item pronta para PERSISTIR em `*_items.rt_pct` (decimal).
+ *
+ * D8: a migração `20260713000003_add_rt_persistence_pipeline` criou as três colunas
+ * (`budget_items`, `order_items`, `sale_items`) para congelar o RT por item, espelhando
+ * `commission_pct`. O schema foi entregue; a gravação nunca foi escrita, e as três
+ * ficaram zeradas em 100% das linhas. Este helper é o lado que faltava.
+ */
+export function resolveItemRtPctDecimal(
+    item: RtSaleItemLike,
+    products: readonly RtCatalogEntry[] = [],
+    services: readonly RtCatalogEntry[] = [],
+): number {
+    return toRtPctDecimal(resolveItemRtPercent(item, products, services))
+}
+
+/**
+ * RT a persistir quando o item NASCE de outro documento (orçamento → pedido → venda).
+ *
+ * Precedência: `rt_pct` já congelado na origem → RT do próprio item → cadastro → 0.
+ *
+ * Por que "> 0" e não "!= null": a coluna é `NOT NULL DEFAULT 0`, então um zero pode
+ * significar tanto "RT é zero mesmo" quanto "nunca foi gravado" — e hoje TODAS as linhas
+ * são o segundo caso. Preferir a origem só quando ela é positiva faz o histórico legado
+ * se curar pelo cadastro em vez de propagar zero para sempre.
+ *
+ * ⚠️ CONDIÇÃO DE VALIDADE DESTA REGRA (aceita pelo dono do produto em 2026-08-31):
+ * ela só é segura ENQUANTO não existir editor de RT por item em orçamento, pedido ou
+ * venda. Hoje não existe — o RT sempre vem do cadastro no momento da seleção, então um
+ * item com RT 0 e cadastro > 0 é sempre uma linha legada, nunca uma escolha do usuário.
+ *
+ * SE ESSE EDITOR FOR CRIADO, esta regra TEM QUE MUDAR JUNTO: um RT deliberadamente
+ * zerado pelo usuário passaria a ser sobrescrito pelo cadastro, silenciosamente. A saída
+ * nesse cenário é distinguir "zero digitado" de "nunca gravado" — tornando a coluna
+ * nullable ou marcando a origem do valor —, e não continuar preferindo o positivo.
+ */
+export function resolveInheritedRtPctDecimal(
+    sourceRtPct: unknown,
+    item: RtSaleItemLike,
+    products: readonly RtCatalogEntry[] = [],
+    services: readonly RtCatalogEntry[] = [],
+): number {
+    const frozen = Number(sourceRtPct)
+    if (Number.isFinite(frozen) && frozen > 0) {
+        const factor = 10 ** RT_PCT_DECIMALS
+        return Math.round(frozen * factor) / factor
+    }
+    return resolveItemRtPctDecimal(item, products, services)
+}
+
 /**
  * RT consolidado da venda (R$), persistido em `sales.rt_amount`.
  *

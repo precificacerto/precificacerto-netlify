@@ -30,6 +30,7 @@ import { MRM_ENGINE_VERSION, type TaxBreakdown } from '@/types/mrm'
 import { useResidualDistribution } from '@/hooks/use-residual-distribution'
 import { buildBaselineFromSnapshots, computeResidualDistribution, type ResidualItemInput } from '@/utils/residual-distribution'
 import { computeConsolidatedAmounts } from '@/utils/document-consolidated-amounts'
+import { resolveInheritedRtPctDecimal } from '@/utils/balcao-rt'
 import { ResidualDistributionBlock } from '@/page-parts/shared/residual-distribution-block.component'
 import { computeConsolidatedDRE, type DREItemInput } from '@/utils/consolidated-dre'
 import { ConsolidatedDREBlock } from '@/page-parts/shared/consolidated-dre-block.component'
@@ -81,6 +82,10 @@ interface OrderItemRow {
     // EPIC-RR-DISPLAY S4: snapshot fiscal persistido em order_items
     commission_percent?: number | null
     profit_percent?: number | null
+    // D8: RT congelado do item. `rt_pct` é o decimal persistido em order_items;
+    // `rt_reserve_percent` é a base-100 vinda do cadastro na seleção do produto.
+    rt_pct?: number | null
+    rt_reserve_percent?: number | null
     tax_breakdown?: TaxBreakdown | null
 }
 
@@ -458,9 +463,9 @@ function OrdersPage() {
             .from('order_items')
             .select(`
                 id, product_id, service_id, quantity, unit_price, total_price, manual_description,
-                commission_pct, profit_pct, tax_breakdown,
-                products ( name ),
-                services ( name )
+                commission_pct, profit_pct, rt_pct, tax_breakdown,
+                products ( name, rt_reserve_percent ),
+                services ( name, rt_reserve_percent )
             `)
             .eq('order_id', orderId)
             .order('created_at', { ascending: true })
@@ -484,6 +489,10 @@ function OrdersPage() {
             // Schema: NUMERIC decimal (0.05). UI/hook: base 100 (5). Multiplicar.
             commission_percent: it.commission_pct != null ? Number(it.commission_pct) * 100 : null,
             profit_percent: it.profit_pct != null ? Number(it.profit_pct) * 100 : null,
+            // D8: RT congelado do item; o cadastro (via join) cobre a linha legada,
+            // que hoje tem rt_pct = 0 porque a gravação nunca existiu.
+            rt_pct: it.rt_pct != null ? Number(it.rt_pct) : null,
+            rt_reserve_percent: it.products?.rt_reserve_percent ?? it.services?.rt_reserve_percent ?? null,
             tax_breakdown: it.tax_breakdown ?? null,
         }))
     }
@@ -584,6 +593,10 @@ function OrdersPage() {
                           unit_price: price,
                           total_price: price * it.quantity,
                           commission_percent: commissionPercent,
+                          // D8: congela o RT do cadastro na seleção, como já é feito
+                          // com a comissão — item novo no pedido nasce com RT.
+                          rt_reserve_percent: Number(product.rt_reserve_percent) || 0,
+                          rt_pct: null as number | null,
                           isManual: false,
                       }
                     : it,
@@ -799,6 +812,8 @@ function OrdersPage() {
                     // Item 2.3: preserva a herança fiscal do orçamento em vez de zerar.
                     commission_pct: inheritedCommPct,
                     profit_pct: inheritedProfitPct,
+                    // D8: preserva o RT congelado; item novo resolve pelo cadastro.
+                    rt_pct: resolveInheritedRtPctDecimal(it.rt_pct, it, products),
                     tax_breakdown: preservedTaxBreakdown,
                 }))
                 if (toInsert.length > 0) {
@@ -976,6 +991,8 @@ function OrdersPage() {
                         discount: 0,
                         commission_pct: inheritedCommPct,
                         profit_pct: inheritedProfitPct,
+                        // D8: o espelho carrega o RT congelado do item do pedido.
+                        rt_pct: resolveInheritedRtPctDecimal(it.rt_pct, it, products),
                         tax_breakdown: it.tax_breakdown ?? snap.tax_breakdown,
                     }
                 })

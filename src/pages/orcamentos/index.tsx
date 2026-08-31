@@ -37,6 +37,7 @@ import dayjs, { type Dayjs } from 'dayjs'
 import { formatBRL } from '@/utils/formatters'
 import { syncCustomerRecurrenceOnSale } from '@/lib/customer-recurrence'
 import { distributeDiscountToItems } from '@/utils/distribute-discount'
+import { resolveItemRtPctDecimal, resolveInheritedRtPctDecimal, type RtCatalogEntry } from '@/utils/balcao-rt'
 import { useTenantTaxContext } from '@/hooks/use-tenant-tax-context'
 import { MRM_ERROR_RRO_NON_POSITIVE, MRM_ENGINE_VERSION } from '@/types/mrm'
 import { PAGE_SIZE } from '@/constants/pagination'
@@ -1274,6 +1275,8 @@ function Budgets() {
                 discount: 0,
                 commission_pct: snap.commission_pct,
                 profit_pct: snap.profit_pct,
+                // D8: congela o RT do item, espelhando commission_pct/profit_pct.
+                rt_pct: resolveItemRtPctDecimal(i, products as RtCatalogEntry[], services as RtCatalogEntry[]),
                 tax_breakdown: snap.tax_breakdown,
             }))
 
@@ -1465,6 +1468,8 @@ function Budgets() {
                 discount: 0,
                 commission_pct: snap.commission_pct,
                 profit_pct: snap.profit_pct,
+                // D8: congela o RT do item, espelhando commission_pct/profit_pct.
+                rt_pct: resolveItemRtPctDecimal(i, products as RtCatalogEntry[], services as RtCatalogEntry[]),
                 tax_breakdown: snap.tax_breakdown,
             }))
             if (items.length > 0) {
@@ -1736,7 +1741,7 @@ function Budgets() {
                 // nulos e o motor degradava ("Atualizando para nova versão do motor").
                 const { data: budgetItems } = await (supabase as any)
                     .from('budget_items')
-                    .select('product_id, service_id, quantity, unit_price, manual_description, commission_pct, profit_pct, tax_breakdown')
+                    .select('product_id, service_id, quantity, unit_price, manual_description, commission_pct, profit_pct, rt_pct, tax_breakdown')
                     .eq('budget_id', b.id)
 
                 if (budgetItems && budgetItems.length > 0) {
@@ -1755,6 +1760,9 @@ function Budgets() {
                         // Herança fiscal orçamento→pedido (fonte de verdade — Q2: não recalcula)
                         commission_pct: bi.commission_pct ?? null,
                         profit_pct: bi.profit_pct ?? null,
+                        // D8: herda o RT congelado do orçamento; cai no cadastro se a
+                        // linha for legada (rt_pct nunca gravado, portanto 0).
+                        rt_pct: resolveInheritedRtPctDecimal(bi.rt_pct, bi, products as RtCatalogEntry[], services as RtCatalogEntry[]),
                         tax_breakdown: bi.tax_breakdown ?? null,
                     }))
                     await (supabase as any).from('order_items').insert(toInsert)
@@ -1898,6 +1906,8 @@ function Budgets() {
                     quantity: bi.quantity,
                     unit_price: bi.unit_price,
                     discount: bi.discount || 0,
+                    // D8: RT congelado do item do orçamento.
+                    rt_pct: resolveInheritedRtPctDecimal(bi.rt_pct, bi, products as RtCatalogEntry[], services as RtCatalogEntry[]),
                 }))
                 // Distribui o desconto global do orçamento proporcionalmente entre os itens
                 const saleItems = distributeDiscountToItems(rawSaleItems, Number(selectedBudget.total_value))
