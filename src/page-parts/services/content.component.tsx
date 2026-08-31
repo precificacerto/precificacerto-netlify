@@ -22,6 +22,12 @@ import { ROUTES } from '@/constants/routes'
 import { calculatePricing } from '@/utils/pricing-engine'
 import { computeIvaDualOutside } from '@/utils/iva-dual-outside'
 import { resolveIvaDualEffectiveRate } from '@/utils/item-tax-rates'
+import {
+    composeServiceMarkup,
+    firstConfiguredPercent,
+    readRegisteredPercent,
+    resolveServiceTaxableRegimePercent,
+} from '@/utils/service-tax-composition'
 
 const UNIT_LABELS: Record<string, string> = {
     G: 'g', KG: 'kg', ML: 'ml', L: 'l', MM: 'mm', CM: 'cm',
@@ -115,6 +121,10 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
     const [csllItemPctSvc, setCsllItemPctSvc] = useState<number>(
         (serviceData as any)?.csll_pct != null ? Number((serviceData as any).csll_pct) * 100 : 0
     )
+    // MEI: o DAS é fixo e independe do faturamento — imposto NUNCA entra na formação do
+    // preço. `taxPreview.isMei` é a fonte canônica; `currentUser.taxableRegime` cobre o
+    // intervalo em que o preview ainda não chegou.
+    const isMeiSvcComp = taxPreview?.isMei === true || currentUser?.taxableRegime === 'MEI'
     const isLucroRealSvcComp = currentUser?.taxableRegime === 'LUCRO_REAL'
     const isLucroPresumidoSvcComp = currentUser?.taxableRegime === 'LUCRO_PRESUMIDO'
     const isLpRetSvcComp = currentUser?.taxableRegime === 'LUCRO_PRESUMIDO_RET'
@@ -243,10 +253,22 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
             })
             setTempItems(existingItems)
 
-            setTaxableRegimePercent(serviceData.taxable_regime_percent || taxPreview?.taxableRegimePercent || currentUser?.taxableRegimeValue || 0)
-            setCommissionPercent(serviceData.commission_percent || 0)
-            setProfitPercent(serviceData.profit_percent || 0)
-            setRtReservePercent(Number(serviceData.rt_reserve_percent) || 0)
+            // `??`/verificação de nulo, NUNCA `||`: com `||` um zero digitado conta como
+            // campo vazio e o usuário perde o valor ao reabrir a tela (no Simples, 0% de
+            // imposto voltava a ser a alíquota do tenant). Zero gravado é zero.
+            setTaxableRegimePercent(resolveServiceTaxableRegimePercent(
+                firstConfiguredPercent(
+                    serviceData.taxable_regime_percent,
+                    taxPreview?.taxableRegimePercent,
+                    currentUser?.taxableRegimeValue,
+                ),
+                { isMei: isMeiSvcComp },
+            ))
+            // Lucro, comissão e RT são ENTRADA do cadastro: lidos como gravados, sem
+            // derivação de preço, de custo ou de qualquer outro percentual.
+            setCommissionPercent(readRegisteredPercent(serviceData.commission_percent))
+            setProfitPercent(readRegisteredPercent(serviceData.profit_percent))
+            setRtReservePercent(readRegisteredPercent(serviceData.rt_reserve_percent))
             if (serviceData.additional_irpj_percent != null) {
                 setAdditionalIrpjPercent(Number(serviceData.additional_irpj_percent))
             }
@@ -259,7 +281,10 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
             if (serviceData.ipi_pct != null) setIpiPct(Number(serviceData.ipi_pct))
             if (serviceData.iva_dual_reduction_factor != null) setIvaDualReductionFactor(Number(serviceData.iva_dual_reduction_factor))
         } else {
-            setTaxableRegimePercent(taxPreview?.taxableRegimePercent ?? currentUser?.taxableRegimeValue ?? 0)
+            setTaxableRegimePercent(resolveServiceTaxableRegimePercent(
+                taxPreview?.taxableRegimePercent ?? currentUser?.taxableRegimeValue ?? 0,
+                { isMei: isMeiSvcComp },
+            ))
         }
     }, [isEditing, serviceData])
 
@@ -299,6 +324,22 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
         const isLucroPresumidoSvc = currentUser?.taxableRegime === 'LUCRO_PRESUMIDO'
         const isSHSvc = currentUser?.taxableRegime === 'SIMPLES_HIBRIDO'
         const isLRorLPSvc = isLucroRealSvc || isLucroPresumidoSvc
+        // Composição do markup dos regimes sem tratamento tributário próprio na tela
+        // (MEI, Simples Nacional e demais). Fonte única de `taxPct` e `totalPct` nesse
+        // ramo: garante que a soma das linhas EXIBIDAS feche com o preço. Em MEI o
+        // imposto do regime é zerado aqui — dado legado gravado no serviço não entra.
+        const markup = composeServiceMarkup({
+            isMei: isMeiSvcComp,
+            taxesPct,
+            taxableRegimePercent,
+            variablePct,
+            financialPct,
+            rtReservePercent,
+            commissionPercent,
+            profitPercent,
+        })
+        const effectiveTaxableRegimePercent = markup.taxableRegimePct
+
         let taxPct: number
         if (isLucroRealSvc) {
             const irpjPct = profitPercent * 0.15
@@ -308,7 +349,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
             // LP: taxableRegimePercent já encapsula IRPJ+CSLL via presunção; adicional IRPJ separado
             taxPct = (taxesPct + taxableRegimePercent + additionalIrpjPercent) / 100
         } else {
-            taxPct = (taxesPct + taxableRegimePercent) / 100
+            taxPct = markup.taxPct
         }
 
         // Minutos de duração do serviço (productWorkloadMinutes para o motor)
@@ -355,7 +396,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
         const variableVal = Number((priceUnit * variablePct / 100).toFixed(2))
         const financialVal = Number((priceUnit * financialPct / 100).toFixed(2))
         const taxesVal = Number((priceUnit * taxesPct / 100).toFixed(2))
-        const taxRegimeVal = Number((priceUnit * taxableRegimePercent / 100).toFixed(2))
+        const taxRegimeVal = Number((priceUnit * effectiveTaxableRegimePercent / 100).toFixed(2))
         const commissionVal = result.commissionValue
         const profitVal = result.profitValue
         // EPIC-RT v8: RT em R$ sobre o preço unitário formado (mesma base de comissão/lucro).
@@ -378,7 +419,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
             ? variablePct + financialPct + irpjPctLR + csllPctLR + additionalIrpjPercent + rtReservePercent + commissionPercent + profitPercent
             : isLucroPresumidoSvc
               ? variablePct + financialPct + taxesPct + irpjPctLP + csllPctLP + additionalIrpjPercent + rtReservePercent + commissionPercent + profitPercent
-              : variablePct + financialPct + taxesPct + taxableRegimePercent + rtReservePercent + commissionPercent + profitPercent
+              : markup.totalPct
         const isValid = result.isValid
 
         // Valor precificado final com ICMS/PIS/COFINS embutidos = Custo / MC%
@@ -402,7 +443,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
             totalPct, isValid,
             valorPrecificado,
         }
-    }, [materialCost, expenseConfig, currentUser, taxableRegimePercent, commissionPercent, profitPercent, rtReservePercent, taxPreview, form, additionalIrpjPercent, watchedDurationMinutes])
+    }, [materialCost, expenseConfig, currentUser, isMeiSvcComp, taxableRegimePercent, commissionPercent, profitPercent, rtReservePercent, taxPreview, form, additionalIrpjPercent, watchedDurationMinutes])
 
     function handleAddItem() {
         if (!addItemId) return
@@ -519,7 +560,10 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                 commission_percent: commissionPercent,
                 profit_percent: profitPercent,
                 rt_reserve_percent: Number(rtReservePercent) || 0,
-                taxable_regime_percent: taxableRegimePercent,
+                // MEI grava sempre 0: a alíquota do regime não existe nesse regime, então
+                // uma gravação legítima normaliza o resíduo herdado sem exigir correção
+                // manual pela interface.
+                taxable_regime_percent: resolveServiceTaxableRegimePercent(taxableRegimePercent, { isMei: isMeiSvcComp }),
                 additional_irpj_percent: additionalIrpjPercent || 0,
                 pis_cofins_pct: (isLucroRealSvcComp || isLucroPresumidoSvcComp || isSHSvcComp) ? (pisCofinsLRPct || 0) : 0,
                 commission_table_id: commissionTableId || null,
