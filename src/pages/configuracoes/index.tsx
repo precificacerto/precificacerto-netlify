@@ -712,6 +712,23 @@ function Settings() {
     const [regimeChangeAlertOpen, setRegimeChangeAlertOpen] = useState(false)
     const [regimeChangeSummary, setRegimeChangeSummary] = useState<{ from: string; to: string } | null>(null)
 
+    // A tabela abaixo espelha exatamente a conversão feita pelo motor de precificação
+    // em src/page-parts/services/content.component.tsx e src/page-parts/products/content.component.tsx:
+    // HOURS -> valor cru (já em horas), DAYS -> x8, demais unidades (MINUTES/ACTIVITIES) -> /60.
+    const workloadToHours = (raw: number, unit?: string | null): number => {
+        const u = String(unit || '').toUpperCase()
+        if (u === 'HOURS') return raw
+        if (u === 'DAYS') return raw * 8
+        return raw / 60
+    }
+    const hoursToWorkload = (hours: number, unit?: string | null): number => {
+        const u = String(unit || '').toUpperCase()
+        if (u === 'HOURS') return hours
+        if (u === 'DAYS') return hours / 8
+        return hours * 60
+    }
+    const round2 = (n: number) => Math.round(n * 100) / 100
+
     const [teamProductive, setTeamProductive] = useState(0)
     const [teamAdministrative, setTeamAdministrative] = useState(0)
     const [hoursPerDay, setHoursPerDay] = useState(8)
@@ -751,11 +768,17 @@ function Settings() {
                 const s = settingsRes.data
                 setTeamProductive(s.num_productive_employees ?? 0)
                 setTeamAdministrative(s.num_administrative_employees ?? 0)
-                setHoursPerDay(s.monthly_workload ? Math.round(Number(s.monthly_workload) / 22) : 8)
-                setDaysPerMonth(22)
+                // Dias por mês agora é persistido; NULL = registro legado -> assume 22.
+                const prodDays = Number((s as any).productive_days_per_month) || 22
+                const prodHoursMonth = workloadToHours(Number(s.monthly_workload) || 0, (s as any).workload_unit)
+                setDaysPerMonth(prodDays)
+                setHoursPerDay(prodHoursMonth > 0 ? round2(prodHoursMonth / prodDays) : 8)
+
+                // administrative_monthly_workload é sempre em horas — só handleSaveTeam escreve nela.
+                const adminDays = Number((s as any).administrative_days_per_month) || 22
                 const adminWorkload = Number((s as any).administrative_monthly_workload) || 176
-                setAdminHoursPerDay(Math.round(adminWorkload / 22))
-                setAdminDaysPerMonth(22)
+                setAdminDaysPerMonth(adminDays)
+                setAdminHoursPerDay(round2(adminWorkload / adminDays))
             }
 
             if (statesRes.data) setBrazilianStates(statesRes.data)
@@ -874,19 +897,50 @@ function Settings() {
         }
     }
 
+    const TEAM_FIELD_LABELS: Record<string, string> = {
+        num_productive_employees: 'Produtiva — Quantidade de pessoas',
+        num_administrative_employees: 'Administrativa — Quantidade de pessoas',
+        monthly_workload: 'Produtiva — Total mensal',
+        productive_days_per_month: 'Produtiva — Dias por mês',
+        administrative_monthly_workload: 'Administrativa — Total mensal',
+        administrative_days_per_month: 'Administrativa — Dias por mês',
+    }
+
     async function handleSaveTeam() {
         try {
             if (!tenantSettings) return
-            const { error } = await supabase.from('tenant_settings').update({
+            // monthly_workload é gravada na unidade do tenant (mesma coluna que a aba "Cálculo" usa).
+            const unit = (tenantSettings as any).workload_unit
+            const payload: Record<string, any> = {
                 num_productive_employees: teamProductive,
                 num_commercial_employees: 0,
                 num_administrative_employees: teamAdministrative,
-                monthly_workload: hoursPerDay * daysPerMonth,
+                monthly_workload: hoursToWorkload(hoursPerDay * daysPerMonth, unit),
+                productive_days_per_month: daysPerMonth,
                 administrative_monthly_workload: adminHoursPerDay * adminDaysPerMonth,
+                administrative_days_per_month: adminDaysPerMonth,
                 updated_at: new Date().toISOString(),
-            }).eq('id', tenantSettings.id)
+            }
+            const { data, error } = await supabase
+                .from('tenant_settings')
+                .update(payload as any)
+                .eq('id', tenantSettings.id)
+                .select('num_productive_employees, num_administrative_employees, monthly_workload, productive_days_per_month, administrative_monthly_workload, administrative_days_per_month')
+                .single()
             if (error) throw error
+
+            // Só confirma sucesso após conferir campo a campo o que o banco devolveu.
+            const divergentes = Object.keys(TEAM_FIELD_LABELS).filter(
+                k => Math.abs(Number((data as any)?.[k] ?? NaN) - Number(payload[k])) > 0.005,
+            )
+            if (divergentes.length > 0) {
+                messageApi.error('A gravação não foi confirmada em: ' + divergentes.map(k => TEAM_FIELD_LABELS[k]).join(', '))
+                await fetchAll()
+                return
+            }
+
             messageApi.success('Equipe atualizada!')
+            await fetchAll()
             await refreshUser()
         } catch (error: any) {
             messageApi.error('Erro ao salvar: ' + (error.message || 'Erro'))

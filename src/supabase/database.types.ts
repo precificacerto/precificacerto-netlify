@@ -2589,6 +2589,8 @@ export type Database = {
           monthly_workload: number | null
           n8n_webhook_url: string | null
           administrative_monthly_workload: number | null
+          productive_days_per_month: number | null
+          administrative_days_per_month: number | null
           num_administrative_employees: number | null
           num_commercial_employees: number | null
           num_productive_employees: number | null
@@ -2629,6 +2631,8 @@ export type Database = {
           monthly_workload?: number | null
           n8n_webhook_url?: string | null
           administrative_monthly_workload?: number | null
+          productive_days_per_month?: number | null
+          administrative_days_per_month?: number | null
           num_administrative_employees?: number | null
           num_commercial_employees?: number | null
           num_productive_employees?: number | null
@@ -2669,6 +2673,8 @@ export type Database = {
           monthly_workload?: number | null
           n8n_webhook_url?: string | null
           administrative_monthly_workload?: number | null
+          productive_days_per_month?: number | null
+          administrative_days_per_month?: number | null
           num_administrative_employees?: number | null
           num_commercial_employees?: number | null
           num_productive_employees?: number | null
