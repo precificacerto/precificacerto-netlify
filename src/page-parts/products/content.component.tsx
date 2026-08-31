@@ -718,8 +718,16 @@ export const Content: FC<ContentProps> = ({
     // Total productive minutes available per month (company-wide)
     const monthlyWorkloadMinutes = workload.monthlyWorkloadMinutes
 
-    // Estrutura para o motor: fixo + variável + financeiro + MO administrativa (%)
-    // SERVICE + REVENDA: excluir MO administrativa e despesas fixas do coeficiente
+    // REGRA (segmentação SERVIÇO): produto de revenda NÃO recebe MO Administrativa
+    // nem Despesa Fixa. Elas já estão embutidas no custo POR MINUTO da prestação de
+    // serviço (services/content.component.tsx: combinedLaborCostMonthly =
+    // MO Produtiva + MO Administrativa + Despesas Fixas). Somá-las de novo aqui,
+    // como percentual no coeficiente, seria dupla contagem: o mesmo dinheiro
+    // cobrado duas vezes, uma no minuto e outra no markup.
+    // Por isso, quando o tenant é SERVIÇO, o coeficiente leva apenas despesa
+    // variável + financeira. Nos demais segmentos (industrialização/revenda pura),
+    // onde não existe custo por minuto diluindo estrutura, o coeficiente carrega
+    // fixo + variável + financeiro + MO administrativa.
     const structurePctForEngine = isCalcService
       ? (calcBase.variableExpensePct + calcBase.financialExpensePct) / 100
       : (calcBase.structurePct + (Number(calcBase.indirectLaborPct) || 0)) / 100
