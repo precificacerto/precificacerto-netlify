@@ -38,6 +38,7 @@ import { formatBRL } from '@/utils/formatters'
 import { syncCustomerRecurrenceOnSale } from '@/lib/customer-recurrence'
 import { distributeDiscountToItems } from '@/utils/distribute-discount'
 import { resolveItemRtPctDecimal, resolveInheritedRtPctDecimal, type RtCatalogEntry } from '@/utils/balcao-rt'
+import { mapBudgetItemsToSaleItems } from '@/utils/budget-item-to-sale-item'
 import { useTenantTaxContext } from '@/hooks/use-tenant-tax-context'
 import { MRM_ERROR_RRO_NON_POSITIVE, MRM_ENGINE_VERSION } from '@/types/mrm'
 import { PAGE_SIZE } from '@/constants/pagination'
@@ -1900,15 +1901,25 @@ function Budgets() {
                 .eq('budget_id', selectedBudget.id)
 
             if (bItems && bItems.length > 0) {
-                const rawSaleItems = bItems.map((bi: any) => ({
-                    sale_id: sale.id,
-                    product_id: bi.product_id,
-                    quantity: bi.quantity,
-                    unit_price: bi.unit_price,
-                    discount: bi.discount || 0,
-                    // D8: RT congelado do item do orçamento.
-                    rt_pct: resolveInheritedRtPctDecimal(bi.rt_pct, bi, products as RtCatalogEntry[], services as RtCatalogEntry[]),
-                }))
+                // Paridade com a rota irmã (`vendas/index.tsx`), que já copiava tudo: esta
+                // aqui levava só product_id/quantity/unit_price/discount. Item de SERVIÇO
+                // chegava sem `service_id` — linha sem produto e sem serviço —, e a herança
+                // fiscal (comissão, lucro, snapshot) e a descrição do item manual se perdiam.
+                // O mapeamento agora vive em um módulo só, para as duas rotas não voltarem
+                // a divergir por omissão.
+                const rawSaleItems = mapBudgetItemsToSaleItems(bItems, {
+                    saleId: sale.id,
+                    snapshotCtx: {
+                        regime: mrmConfig.regime,
+                        rates: mrmConfig.rates,
+                        csll_pct: mrmConfig.csll_pct,
+                        irpj_pct: mrmConfig.irpj_pct,
+                        use_snapshot_rates: mrmConfig.useSnapshotRates,
+                    },
+                    shadowCtx: { tenant_id, document_id: sale.id, document_type: 'sale' },
+                    products: products as RtCatalogEntry[],
+                    services: services as RtCatalogEntry[],
+                })
                 // Distribui o desconto global do orçamento proporcionalmente entre os itens
                 const saleItems = distributeDiscountToItems(rawSaleItems, Number(selectedBudget.total_value))
                 await supabase.from('sale_items').insert(saleItems)
