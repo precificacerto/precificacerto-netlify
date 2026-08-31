@@ -134,50 +134,80 @@ describe('D17 · MEI — imposto fora da formação do preço', () => {
 })
 
 // ── Michele Campos (Simples Nacional, Anexo IV) — tenant faec9ea2-…-4f2775839d67 ──
-// Oráculo de não-regressão: os 7 serviços em produção. `variável + financeira` valia
-// 1,14% quando foram gravados (a config do tenant mudou depois; os registros, não).
-// Tolerância de R$ 0,02 porque `profit_percent` é persistido com 3 casas decimais.
+//
+// BASELINE CONGELADO. Estes 7 serviços são o gabarito que prova que a correção do MEI
+// não vazou para o regime errado. Os valores abaixo são cópia literal das colunas
+// `cost_total`, `base_price` e `taxable_regime_percent` em produção — conferidos por
+// SELECT, sem nenhum UPDATE. Enquanto ninguém os regravar, eles são a referência.
+//
+// A regravação desses registros pela regra nova é trabalho SEPARADO e POSTERIOR: se
+// acontecer antes, o baseline deixa de existir e este teste passa a comparar contra
+// dado já alterado, provando nada. Se algum dia forem regravados, este bloco tem que
+// ser reescrito de propósito, não "ajustado" até passar.
+//
+// `variável + financeira` valia 1,14% quando foram gravados (a config do tenant mudou
+// em 19/07/2026; os registros, não). Tolerância de R$ 0,02 na reprodução do preço
+// porque `profit_percent` é persistido com 3 casas decimais.
 const MICHELE_VAR_MAIS_FIN = 1.14
 const MICHELE_SERVICOS = [
-    { nome: 'Aparelho', minutos: 20, custo: 55.79, preco: 130.0, imposto: 7.095, lucro: 48.85 },
-    { nome: 'Clareamento', minutos: 60, custo: 165.78, preco: 390.0, imposto: 7.095, lucro: 49.257 },
-    { nome: 'Harmonização Facial', minutos: 30, custo: 279.19, preco: 1000.0, imposto: 2.1, lucro: 68.841 },
-    { nome: 'Lentes em resina', minutos: 30, custo: 81.89, preco: 390.01, imposto: 2.1, lucro: 75.763 },
-    { nome: 'Ortodontia', minutos: 20, custo: 54.39, preco: 130.0, imposto: 2.1, lucro: 54.92 },
-    { nome: 'Restauração', minutos: 30, custo: 81.79, preco: 220.0, imposto: 2.1, lucro: 59.583 },
-    { nome: 'Toxina Butolínica', minutos: 20, custo: 334.09, preco: 890.0, imposto: 2.1, lucro: 59.222 },
+    { nome: 'Aparelho', costTotal: 55.79, basePrice: 130.0, taxableRegimePercent: 7.095, profitPercent: 48.85 },
+    { nome: 'Clareamento', costTotal: 165.78, basePrice: 390.0, taxableRegimePercent: 7.095, profitPercent: 49.257 },
+    { nome: 'Harmonização Facial', costTotal: 279.19, basePrice: 1000.0, taxableRegimePercent: 2.1, profitPercent: 68.841 },
+    { nome: 'Lentes em resina', costTotal: 81.89, basePrice: 390.01, taxableRegimePercent: 2.1, profitPercent: 75.763 },
+    { nome: 'Ortodontia', costTotal: 54.39, basePrice: 130.0, taxableRegimePercent: 2.1, profitPercent: 54.92 },
+    { nome: 'Restauração', costTotal: 81.79, basePrice: 220.0, taxableRegimePercent: 2.1, profitPercent: 59.583 },
+    { nome: 'Toxina Butolínica', costTotal: 334.09, basePrice: 890.0, taxableRegimePercent: 2.1, profitPercent: 59.222 },
 ]
 
 describe('D17 · Simples Nacional — comportamento intocado', () => {
     it.each(MICHELE_SERVICOS)(
-        '$nome: preço permanece R$ $preco',
-        ({ custo, preco, imposto, lucro }) => {
-            const { markup, price } = priceFromMarkup({
-                materialCost: custo, // custo já consolidado; MO fora para isolar o markup
+        '$nome: cost_total, base_price e taxable_regime_percent inalterados',
+        ({ costTotal, basePrice, taxableRegimePercent, profitPercent }) => {
+            const { markup, price, cost } = priceFromMarkup({
+                materialCost: costTotal, // custo já consolidado; MO fora para isolar o markup
                 laborCostMonthly: 0,
                 monthlyWorkloadMinutes: 0,
                 serviceMinutes: 0,
                 isMei: false,
                 taxesPct: 0, // Simples Nacional ⇒ taxPreview.taxesPercent = 0
-                taxableRegimePercent: imposto,
+                taxableRegimePercent,
                 variablePct: MICHELE_VAR_MAIS_FIN,
                 financialPct: 0,
                 rtReservePercent: 0,
                 commissionPercent: 0,
-                profitPercent: lucro,
+                profitPercent,
             })
 
-            // A alíquota do Simples entra inteira no denominador.
-            expect(markup.taxableRegimePct).toBe(imposto)
-            expect(markup.taxPct).toBeCloseTo(imposto / 100, 10)
-            expect(price).toBeCloseTo(preco, 1)
-            expect(Math.abs(price - preco)).toBeLessThanOrEqual(0.02)
+            // `taxable_regime_percent`: atravessa intacto. A regra do MEI NÃO se aplica —
+            // é exatamente aqui que a correção vazaria para o regime errado.
+            expect(markup.taxableRegimePct).toBe(taxableRegimePercent)
+            expect(markup.taxPct).toBeCloseTo(taxableRegimePercent / 100, 10)
+
+            // `cost_total`: consumido como está, sem reinterpretação.
+            expect(cost).toBe(costTotal)
+
+            // `base_price`: reproduzido a partir do lucro gravado como ENTRADA.
+            expect(Math.abs(price - basePrice)).toBeLessThanOrEqual(0.02)
+
+            // E a composição continua sendo a fórmula legada, termo a termo.
+            expect(markup.totalPct).toBeCloseTo(
+                MICHELE_VAR_MAIS_FIN + 0 + 0 + taxableRegimePercent + 0 + 0 + profitPercent,
+                10,
+            )
         },
     )
 
+    it('a regra do MEI não alcança o Simples nem com alíquota idêntica', () => {
+        // Mesma alíquota, mesmo custo: em MEI some do denominador, no Simples permanece.
+        const emMei = resolveServiceTaxableRegimePercent(7.095, { isMei: true })
+        const noSimples = resolveServiceTaxableRegimePercent(7.095, { isMei: false })
+        expect(emMei).toBe(0)
+        expect(noSimples).toBe(7.095)
+    })
+
     it('a alíquota do Simples é editável por serviço e move o preço', () => {
         const base = {
-            materialCost: 55.79,
+            materialCost: MICHELE_SERVICOS[0].costTotal,
             laborCostMonthly: 0,
             monthlyWorkloadMinutes: 0,
             serviceMinutes: 0,
