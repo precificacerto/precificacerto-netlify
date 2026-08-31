@@ -5,7 +5,7 @@
 
 import { calculatePricing } from '@/utils/pricing-engine'
 import type { TaxPreviewResult } from '@/utils/calc-tax-preview'
-import { UNIT_MEASURE_ENUM } from '@/shared/enums/unit-measure-type'
+import { resolveMonthlyWorkload } from '@/utils/resolve-monthly-workload'
 
 export interface ServicePriceInput {
   /** Custo total (materiais/insumos) do serviço em R$. */
@@ -54,19 +54,18 @@ export function computeServiceSellingPrice(input: ServicePriceInput): ServicePri
   const cfg = input.expenseConfig || {}
   const laborCostMonthly = Number(cfg.production_labor_cost) || 0
 
-  const totalEmployees =
-    (input.currentUser?.numProductiveSectorEmployee ?? 0) || 1
-
-  const rawWorkload = input.currentUser?.monthlyWorkloadInMinutes || 0
-  const unitMeasure = input.currentUser?.unitMeasure || ''
-  const hoursPerMonth =
-    unitMeasure === UNIT_MEASURE_ENUM.HOURS
-      ? rawWorkload
-      : unitMeasure === UNIT_MEASURE_ENUM.DAYS
-        ? rawWorkload * 8
-        : rawWorkload / 60
-  const hoursPerMonthSafe = hoursPerMonth > 0 ? hoursPerMonth : 176
-  const monthlyWorkloadMinutes = totalEmployees * hoursPerMonthSafe * 60
+  // Carga horária resolvida pela fonte única (`resolve-monthly-workload`). Quando o
+  // tenant não configurou, `monthlyWorkloadMinutes` é 0 — sem o antigo default de
+  // 176h/mês, que precificava sobre um número inventado. O motor já trata divisor 0
+  // (custo por minuto vira 0), e o bloqueio da UI acontece na origem do preço
+  // (cadastro de Produto e de Serviço).
+  const workload = resolveMonthlyWorkload(
+    input.currentUser?.monthlyWorkloadInMinutes,
+    input.currentUser?.unitMeasure,
+    input.currentUser?.numProductiveSectorEmployee,
+  )
+  const totalEmployees = workload.totalEmployees
+  const monthlyWorkloadMinutes = workload.monthlyWorkloadMinutes
 
   const fixedPct = Number(cfg.fixed_expense_percent) || 0
   const variablePct = Number(cfg.variable_expense_percent) || 0
