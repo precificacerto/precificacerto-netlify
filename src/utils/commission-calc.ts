@@ -45,6 +45,44 @@ export function shouldSplitCommissionByInstallments(
   return String(paymentMode ?? '').trim().toUpperCase() === 'INSTALLMENT'
 }
 
+/**
+ * Onde a comissão de uma venda entra em Financeiro > Comissões.
+ *  - AVAILABLE: disponível — já pode ser paga ao vendedor.
+ *  - OPEN: em aberto — aguardando o recebimento ser efetivado no Fluxo de Caixa.
+ */
+export type CommissionBucket = 'AVAILABLE' | 'OPEN'
+
+export interface CommissionBucketInput {
+  /**
+   * O funcionário acompanha o parcelamento do cliente
+   * (`commission_payment_mode = 'INSTALLMENT'`), isto é, a comissão dele é
+   * condicionada ao pagamento do cliente.
+   */
+  splitByInstallments: boolean
+  /** A venda tem parcelas lançadas no Fluxo de Caixa. */
+  hasCashEntries: boolean
+}
+
+/**
+ * Balde da comissão de uma venda SEM parcelas lançadas no Fluxo de Caixa.
+ *
+ * D11 — regra do dono do produto: no modo condicionado ao pagamento do cliente, a
+ * comissão só vira DISPONÍVEL quando o recebimento é efetivado no fluxo de caixa. Até
+ * lá ela fica EM ABERTO. Antes, uma venda sem nenhuma parcela lançada creditava a
+ * comissão integral como disponível já na data da venda — dinheiro contado como
+ * liberado sem nenhuma confirmação de que o cliente pagou.
+ *
+ * Quem NÃO é condicionado ao pagamento (modo FULL) recebe integral na data da venda:
+ * para ele o fluxo de caixa não é condição, e o balde é sempre disponível.
+ *
+ * Quando existem parcelas lançadas, o balde é decidido parcela a parcela (confirmada
+ * vs. pendente) e não passa por aqui.
+ */
+export function resolveCommissionBucket(input: CommissionBucketInput): CommissionBucket {
+  if (!input.splitByInstallments) return 'AVAILABLE'
+  return input.hasCashEntries ? 'AVAILABLE' : 'OPEN'
+}
+
 export interface CommissionBreakdown {
   comissaoPaga: number
   percentVendedor: number
