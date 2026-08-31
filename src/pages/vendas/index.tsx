@@ -27,7 +27,7 @@ import { ExportFormatModal } from '@/components/ui/export-format-modal.component
 import { calculateDiscountedPrice, discountModeToAbsorptionPolicy, DiscountMode } from '@/utils/calculate-discount'
 import { formatBRL } from '@/utils/formatters'
 import { getEffectiveCommissionPercent } from '@/utils/get-effective-commission'
-import { resolveItemRtPercent, computeSaleRtAmount } from '@/utils/balcao-rt'
+import { resolveItemRtPercent, computeSaleRtAmount, resolveItemRtPctDecimal, resolveInheritedRtPctDecimal } from '@/utils/balcao-rt'
 import {
     PaymentWithInstallments,
     buildInstallmentsByPreset,
@@ -789,6 +789,8 @@ function Sales() {
                         description: bi.manual_description || null,
                         commission_pct: snap.commission_pct,
                         profit_pct: snap.profit_pct,
+                        // D8: herda o RT congelado do item do orçamento.
+                        rt_pct: resolveInheritedRtPctDecimal(bi.rt_pct, bi, products, services),
                         tax_breakdown: snap.tax_breakdown,
                     }
                 })
@@ -1675,6 +1677,8 @@ function Sales() {
                     discount: i.discount ?? 0,
                     commission_pct: snap.commission_pct,
                     profit_pct: snap.profit_pct,
+                    // D8: RT congelado do item de PRODUTO.
+                    rt_pct: resolveItemRtPctDecimal(i, products, services),
                     tax_breakdown: snap.tax_breakdown,
                 }
             })
@@ -1691,6 +1695,8 @@ function Sales() {
                     description: (i.product_name || '').trim(),
                     commission_pct: snap.commission_pct,
                     profit_pct: snap.profit_pct,
+                    // D8: RT congelado do item de SERVIÇO — o buraco do D15/VD-51B0E2.
+                    rt_pct: resolveItemRtPctDecimal(i, products, services),
                     tax_breakdown: snap.tax_breakdown,
                 }
             })
@@ -1706,6 +1712,8 @@ function Sales() {
                     description: (i.product_name || '').trim(),
                     commission_pct: snap.commission_pct,
                     profit_pct: snap.profit_pct,
+                    // D8: item manual é repasse puro — sem produto/serviço, RT é 0.
+                    rt_pct: 0,
                     tax_breakdown: snap.tax_breakdown,
                 }
             })
