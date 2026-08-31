@@ -16,6 +16,7 @@ import { ROUTES } from '@/constants/routes'
 import { getMonetaryValue } from '@/utils/get-monetary-value'
 import { CalcBaseType } from '@/types/calc-base.type'
 import { calculatePricing } from '@/utils/pricing-engine'
+import { resolveMonthlyWorkload } from '@/utils/resolve-monthly-workload'
 import { computeIvaDualOutside } from '@/utils/iva-dual-outside'
 import { resolveIvaDualEffectiveRate } from '@/utils/item-tax-rates'
 import { computeIcmsSt, computeDifal, computeIcmsComplementar, mvaAjustada } from '@/utils/icms-st-difal'
@@ -640,22 +641,82 @@ export const Content: FC<ContentProps> = ({
   }, [prefill, isEditingMode])
 
 
+  // --- Bloqueio por carga horária não configurada ----------------------------
+  // O preço só depende do divisor de carga horária quando o produto consome tempo de
+  // mão de obra produtiva. Por isso o bloqueio é condicional, e NÃO vale para revenda:
+  //   - REVENDA: o motor recebe laborCostMonthly 0 e productWorkloadMinutes 0, então o
+  //     divisor é irrelevante — produto de revenda continua salvando normalmente.
+  //   - Sem tempo de MO cadastrado: idem, nada é dividido pela carga horária.
+  // Só quando os dois pesam (tempo de MO > 0 e calcType ≠ REVENDA) a ausência de carga
+  // horária tornaria o preço um número formado sobre MO produtiva zerada.
+  const isWorkloadBlocking = useMemo(() => {
+    const workload = resolveMonthlyWorkload(
+      currentUser?.monthlyWorkloadInMinutes,
+      currentUser?.unitMeasure,
+      currentUser?.numProductiveSectorEmployee,
+    )
+    if (!workload.isUnset) return false
+
+    const effectiveCalcType = productType === 'REVENDA'
+      ? 'REVENDA'
+      : currentUser?.calcType === CALC_TYPE_ENUM.INDUSTRIALIZATION ? 'INDUSTRIALIZACAO'
+        : currentUser?.calcType === CALC_TYPE_ENUM.RESALE ? 'REVENDA'
+          : 'SERVICO'
+    if (effectiveCalcType === 'REVENDA') return false
+
+    return (productPriceInfo?.productWorkloadInMinutes || 0) > 0
+  }, [
+    currentUser?.monthlyWorkloadInMinutes,
+    currentUser?.unitMeasure,
+    currentUser?.numProductiveSectorEmployee,
+    currentUser?.calcType,
+    productType,
+    productPriceInfo?.productWorkloadInMinutes,
+  ])
+
+  // O alerta INFORMA e para por aí: nada aqui navega. Esta tela não tem persistência
+  // de rascunho, então qualquer navegação disparada daqui desmontaria o formulário e
+  // descartaria o que o usuário já digitou (num cadastro novo: nome, insumos, minutos,
+  // percentuais). O usuário vai a Configurações quando quiser; ao voltar, o componente
+  // monta de novo, `currentUser` já vem atualizado pelo refreshUser do handleSaveTeam,
+  // e o bloqueio cai sozinho.
+  const workloadAlert = isWorkloadBlocking ? (
+    <Alert
+      type="warning"
+      showIcon
+      style={{ marginTop: 12, marginBottom: 12 }}
+      message="Carga horária da equipe não configurada"
+      description={
+        <p style={{ margin: 0 }}>
+          Este produto consome tempo de mão de obra produtiva, e o custo desse tempo vem
+          do <strong>custo por minuto</strong> da equipe (mão de obra mensal dividida pelas
+          horas trabalhadas no mês). Sem a carga horária cadastrada não existe esse
+          divisor, então o preço não pode ser calculado — e o produto não pode ser salvo.
+          Configure a carga horária da equipe produtiva
+          em <strong>Configurações &gt; Equipe</strong> e volte a esta tela.
+        </p>
+      }
+    />
+  ) : null
+
   // --- Pricing Engine (V2) ---------------------------------------------------
   const doProductCalc = useCallback(() => {
     const yieldQty = Number(productForm.getFieldValue('quantity')) || 1
     const isCalcService = currentUser.calcType === CALC_TYPE_ENUM.SERVICE
 
-    const totalEmployees =
-      (currentUser.numProductiveSectorEmployee ?? 0) || 1
-    const hoursPerMonth =
-      currentUser.unitMeasure === 'HOURS'
-        ? (currentUser.monthlyWorkloadInMinutes || 0)
-        : currentUser.unitMeasure === 'DAYS'
-          ? (currentUser.monthlyWorkloadInMinutes || 0) * 8
-          : (currentUser.monthlyWorkloadInMinutes || 0) / 60
-    const hoursPerMonthSafe = hoursPerMonth > 0 ? hoursPerMonth : 176
+    // Carga horária resolvida pela fonte única (`resolve-monthly-workload`). Sem
+    // configuração, `monthlyWorkloadMinutes` é 0 — sem o antigo default silencioso de
+    // 176h. O motor trata divisor 0 (MO produtiva vira 0); o bloqueio de save e o
+    // alerta na UI ficam em `workloadBlock`, que só dispara quando o divisor de fato
+    // importa (produto com tempo de MO e calcType diferente de REVENDA).
+    const workload = resolveMonthlyWorkload(
+      currentUser.monthlyWorkloadInMinutes,
+      currentUser.unitMeasure,
+      currentUser.numProductiveSectorEmployee,
+    )
+    const totalEmployees = workload.totalEmployees
     // Total productive minutes available per month (company-wide)
-    const monthlyWorkloadMinutes = totalEmployees * hoursPerMonthSafe * 60
+    const monthlyWorkloadMinutes = workload.monthlyWorkloadMinutes
 
     // REGRA (segmentação SERVIÇO): produto de revenda NÃO recebe MO Administrativa
     // nem Despesa Fixa. Elas já estão embutidas no custo POR MINUTO da prestação de
@@ -879,6 +940,17 @@ export const Content: FC<ContentProps> = ({
     // Guard anti double-submit (BUG-PRODUCT-ITEMS-DUP): saves concorrentes duplicavam os
     // product_items (dobrando o CMV). Reforçado por upsert + UNIQUE(product_id,item_id).
     if (savingProduct) return
+
+    // O custo da mão de obra produtiva deste produto vem do custo POR MINUTO da equipe.
+    // Sem carga horária configurada esse divisor não existe, e salvar gravaria um preço
+    // formado sobre MO produtiva zerada. Bloqueia na origem — orçamento, pedido e venda
+    // só consomem preço já gravado. Produto de revenda (ou sem tempo de MO) não é
+    // afetado: `isWorkloadBlocking` já é false nesses casos.
+    if (isWorkloadBlocking) {
+      messageApi.error('Configure a carga horária da equipe produtiva em Configurações → Equipe antes de salvar o produto.')
+      return
+    }
+
     doProductCalc()
     setSavingProduct(true)
 
@@ -2195,6 +2267,7 @@ export const Content: FC<ContentProps> = ({
           advancedTaxesSection={advancedTaxesSection}
           advancedTaxParams={advancedTaxParams}
           mobileItemsList={productItemsMobileList}
+          workloadAlert={workloadAlert}
         />
       )}
       {productType === 'REVENDA' && isCalcTypeService && (

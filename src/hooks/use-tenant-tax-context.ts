@@ -22,6 +22,7 @@ import { useAuth } from './use-auth.hook'
 import { isMrmEnabled } from '@/utils/mrm-feature-flag'
 import { loadTenantTaxComponents, type TaxComponents } from '@/utils/tax-sync'
 import { loadTaxRates } from '@/utils/mrm-rates-loader'
+import { resolveMonthlyWorkload } from '@/utils/resolve-monthly-workload'
 import type { RroPolicy } from '@/utils/mrm-policies'
 import type { TaxRatePeriod, TaxRegime } from '@/types/mrm'
 
@@ -231,20 +232,24 @@ export function useTenantTaxContext(options: HookOptions = {}): TenantTaxContext
         num_productive_employees?: number | null
         workload_unit?: string | null
       } | null | undefined
-      const rawWorkload = Number(tenantSettings?.monthly_workload) || 0
-      const workloadUnit = String(tenantSettings?.workload_unit || '').toUpperCase()
-      const hoursPerMonth =
-        workloadUnit === 'HOURS' ? rawWorkload
-          : workloadUnit === 'DAYS' ? rawWorkload * 8
-          : workloadUnit === 'MINUTES' ? rawWorkload / 60
-          : 0
-      const totalEmployees = Math.max(1, Number(tenantSettings?.num_productive_employees) || 1)
-      // V16.2 (Founder 2026-05-27): fallback 176h/mês quando `monthly_workload=0` —
-      // alinha com `content.component.tsx:641` que aplica esse mesmo default na UI de
-      // cadastro do produto. Sem isso, motor RR recebe `monthly_workload_minutes=0`,
-      // V8.6 não ativa, e step 9 "Redução de custos" perde MO produtiva.
-      const hoursPerMonthSafe = hoursPerMonth > 0 ? hoursPerMonth : 176
-      const monthly_workload_minutes = totalEmployees * hoursPerMonthSafe * 60
+      // Carga horária resolvida pela fonte única (`resolve-monthly-workload`), a mesma
+      // usada no cadastro de Produto, de Serviço e em `compute-service-price`.
+      //
+      // Duas mudanças em relação ao código anterior deste ponto:
+      // 1. O fallback de 176h/mês (V16.2) foi REMOVIDO. Ele trocava dado real por um
+      //    número inventado sem avisar ninguém; o minuto define lucro e preço, então
+      //    o sistema não pode precificar sobre carga horária que o tenant não informou.
+      //    Com `monthly_workload=0`, `monthly_workload_minutes` agora é 0 e o bloqueio
+      //    acontece na ORIGEM do preço (cadastro de Produto e de Serviço).
+      // 2. Unidades fora de HOURS/DAYS/MINUTES caíam aqui em `0` — divergindo dos outros
+      //    três call sites, que tratavam o default como MINUTES (`/60`). O helper unifica
+      //    no comportamento dos três.
+      const workload = resolveMonthlyWorkload(
+        tenantSettings?.monthly_workload,
+        tenantSettings?.workload_unit,
+        tenantSettings?.num_productive_employees,
+      )
+      const monthly_workload_minutes = workload.monthlyWorkloadMinutes
       // V16.2: prefere `production_labor_cost_hub` (custo MO mensal consolidado do
       // módulo HUB) antes do `production_labor_cost` legado — alinha com
       // `build-calc-base.ts:15` que já tem essa precedência.

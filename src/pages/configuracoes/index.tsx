@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react'
+import { useRouter } from 'next/router'
 import { Button, Card, Form, Input, InputNumber, Radio, Tabs, message, Alert, Spin, Divider, Modal } from 'antd'
 import { Select } from '@/components/ui/app-select.component'
 import { PercentInput } from '@/components/percent-input.component'
@@ -21,6 +22,8 @@ import { useDevice } from '@/contexts/device.context'
 import { CALC_TYPE_ENUM } from '@/shared/enums/calc-type'
 import { UNIT_MEASURE_ENUM } from '@/shared/enums/unit-measure-type'
 import { CurrencyInput } from '@/components/currency-input.component'
+
+const VALID_SETTINGS_TABS = ['business', 'tax', 'team', 'calc']
 
 // Alíquotas de presunção padrão por tipo de atividade LP (espelho de lucro_presumido_rates)
 // Usadas como sugestão ao selecionar atividade; o tenant pode sobrescrever manualmente.
@@ -701,6 +704,7 @@ function Settings() {
     // Correções de Menu V9 (item 3): "Configurações" (definições da conta) — só admin/dono acessa.
     const { allowed } = useRequireAccountAdmin()
     const { isMobile } = useDevice()
+    const router = useRouter()
     const [activeTab, setActiveTab] = useState('business')
     const [loading, setLoading] = useState(false)
     const [savingCalc, setSavingCalc] = useState(false)
@@ -791,6 +795,14 @@ function Settings() {
     }
 
     useEffect(() => { fetchAll() }, [])
+
+    // Abre a aba pedida via query (?tab=team). O bloqueio de carga horária no cadastro
+    // de Produto e de Serviço leva direto para a aba Equipe.
+    useEffect(() => {
+        if (!router.isReady) return
+        const requested = String(router.query.tab || '')
+        if (VALID_SETTINGS_TABS.includes(requested)) setActiveTab(requested)
+    }, [router.isReady, router.query.tab])
 
     useEffect(() => {
         if (!tenantSettings) return

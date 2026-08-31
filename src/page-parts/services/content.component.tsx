@@ -15,7 +15,7 @@ import { useDevice } from '@/contexts/device.context'
 import { getMonetaryValue } from '@/utils/get-monetary-value'
 import { PercentInput } from '@/components/percent-input.component'
 import { calculateItemPrice } from '@/utils/calculate-item-price'
-import { UNIT_MEASURE_ENUM } from '@/shared/enums/unit-measure-type'
+import { resolveMonthlyWorkload } from '@/utils/resolve-monthly-workload'
 import type { TaxPreviewResult } from '@/utils/calc-tax-preview'
 import { useRouter } from 'next/router'
 import { ROUTES } from '@/constants/routes'
@@ -272,16 +272,19 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
         const cfg = expenseConfig || {}
         // Usa custo Hub (média de meses encerrados); fallback para valor manual se Hub ainda não tem dados
         const laborCostMonthly = Number(cfg.production_labor_cost_hub) || Number(cfg.production_labor_cost) || 0
-        const totalEmployees =
-            (currentUser?.numProductiveSectorEmployee ?? 0) || 1
-        const hoursPerMonth =
-            currentUser?.unitMeasure === UNIT_MEASURE_ENUM.HOURS
-                ? (currentUser?.monthlyWorkloadInMinutes || 0)
-                : currentUser?.unitMeasure === UNIT_MEASURE_ENUM.DAYS
-                    ? (currentUser?.monthlyWorkloadInMinutes || 0) * 8
-                    : (currentUser?.monthlyWorkloadInMinutes || 0) / 60
-        const hoursPerMonthSafe = hoursPerMonth > 0 ? hoursPerMonth : 176
-        const monthlyWorkloadMinutes = totalEmployees * hoursPerMonthSafe * 60
+        // Carga horária resolvida pela fonte única (`resolve-monthly-workload`).
+        // Quando o tenant não configurou, `isWorkloadUnset` é true e
+        // `monthlyWorkloadMinutes` é 0 — sem o antigo default silencioso de 176h.
+        // O serviço é precificado POR MINUTO: sem carga horária não existe custo por
+        // minuto, então o save é bloqueado e a UI exibe o alerta em vez do resultado.
+        const workload = resolveMonthlyWorkload(
+            currentUser?.monthlyWorkloadInMinutes,
+            currentUser?.unitMeasure,
+            currentUser?.numProductiveSectorEmployee,
+        )
+        const totalEmployees = workload.totalEmployees
+        const monthlyWorkloadMinutes = workload.monthlyWorkloadMinutes
+        const isWorkloadUnset = workload.isUnset
 
         const fixedPct = Number(cfg.fixed_expense_percent) || 0
         const variablePct = Number(cfg.variable_expense_percent) || 0
@@ -385,6 +388,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
 
         return {
             laborCost, totalCost, sellingPrice, costPerMinute, totalEmployees,
+            isWorkloadUnset,
             variablePct, financialPct, taxesPct,
             variableVal,
             financialVal,
@@ -458,6 +462,15 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
             const v = await form.validateFields()
             const tid = await getTenantId()
             if (!tid) { msgApi.error('Sessão expirada.'); return }
+
+            // O preço do serviço nasce do custo POR MINUTO. Sem carga horária da equipe
+            // não existe divisor, e salvar aqui gravaria um preço formado sobre custo de
+            // MO zero. Bloqueia na origem — orçamento/pedido/venda só consomem preço já
+            // gravado, então este é o ponto certo para barrar.
+            if (pricing.isWorkloadUnset) {
+                msgApi.error('Configure a carga horária da equipe produtiva em Configurações → Equipe antes de salvar o serviço.')
+                return
+            }
 
             if (!pricing.isValid) {
                 msgApi.error('A soma das porcentagens de markup não pode ser ≥ 100%.')
@@ -1237,6 +1250,35 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                         </div>
                     </details>
 
+                    {/* Sem carga horária da equipe não há custo por minuto — e sem custo por
+                        minuto o preço do serviço não pode ser formado. Em vez de exibir um
+                        resultado calculado sobre um default inventado, informa o que falta.
+
+                        O alerta INFORMA e para por aí: nada aqui navega. Esta tela não tem
+                        persistência de rascunho, então qualquer navegação disparada daqui
+                        desmontaria o formulário e descartaria o que o usuário já digitou
+                        (num cadastro novo: nome, insumos, minutos, percentuais). O usuário
+                        vai a Configurações quando quiser; ao voltar, o componente monta de
+                        novo, `currentUser` já vem atualizado pelo refreshUser do
+                        handleSaveTeam, e o bloqueio cai sozinho. */}
+                    {pricing.isWorkloadUnset ? (
+                        <Alert
+                            type="warning"
+                            showIcon
+                            style={{ marginTop: 12 }}
+                            message="Carga horária da equipe não configurada"
+                            description={
+                                <p style={{ margin: 0 }}>
+                                    O preço do serviço é formado a partir do <strong>custo por minuto</strong> da
+                                    equipe produtiva (mão de obra produtiva + administrativa + despesas fixas
+                                    divididas pelas horas trabalhadas no mês). Sem a carga horária cadastrada não
+                                    existe esse divisor, então o preço não pode ser calculado — e o serviço não
+                                    pode ser salvo. Configure a carga horária da equipe produtiva
+                                    em <strong>Configurações &gt; Equipe</strong> e volte a esta tela.
+                                </p>
+                            }
+                        />
+                    ) : (
                     <div style={{
                         padding: '16px 20px', borderRadius: 8, marginTop: 12,
                         background: pricing.isValid && pricing.sellingPrice > 0 ? '#ECFDF5' : '#FEF2F2',
@@ -1274,8 +1316,9 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                             </div>
                         </div>
                     </div>
+                    )}
 
-                    {pricing.sellingPrice > 0 && (
+                    {!pricing.isWorkloadUnset && pricing.sellingPrice > 0 && (
                         <div style={{ marginTop: 12 }}>
                             <div style={{ fontSize: 11, color: '#64748b', marginBottom: 4 }}>Composição do preço</div>
                             <div style={{ display: 'flex', height: 8, borderRadius: 4, overflow: 'hidden' }}>

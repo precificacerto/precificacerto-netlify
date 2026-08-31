@@ -49,6 +49,12 @@ interface ContentIndustrializationProps {
   onIpiPctChange?: (value: number) => void
   onFinalPriceWithTaxesChange?: (data: { finalPrice: number; basePrice: number }) => void
   advancedTaxesSection?: ReactNode
+  /**
+   * Alerta de carga horária não configurada. Quando presente, SUBSTITUI o card de
+   * resultado (`ProductPrice`): sem carga horária o custo por minuto da mão de obra
+   * produtiva não existe, então não há preço a exibir — só o caminho para resolver.
+   */
+  workloadAlert?: ReactNode
   advancedTaxParams?: AdvancedTaxParams
   /** Frente 2: lista compacta dos itens renderizada SÓ no mobile (≤639). */
   mobileItemsList?: ReactNode
@@ -91,6 +97,7 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
   onIpiPctChange,
   onFinalPriceWithTaxesChange,
   advancedTaxesSection,
+  workloadAlert,
   advancedTaxParams,
   mobileItemsList,
 }: ContentIndustrializationProps) => {
@@ -212,6 +219,7 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
         )}
       </Card>
 
+      {workloadAlert ?? (
       <ProductPrice
         calcBase={calcBase}
         productPriceInfo={productPriceInfo}
@@ -248,6 +256,7 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
            de produção. Só nesta tela (industrialização); a revenda não fraciona. */
         fractionByYield
       />
+      )}
     </>
   )
 }
