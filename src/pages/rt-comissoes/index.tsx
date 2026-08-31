@@ -6,7 +6,7 @@ import dayjs from 'dayjs'
 import { Layout } from '@/components/layout/layout.component'
 import { supabase } from '@/supabase/client'
 import { getTenantId } from '@/utils/get-tenant-id'
-import { shouldSplitCommissionByInstallments } from '@/utils/commission-calc'
+import { resolveCommissionBucket, shouldSplitCommissionByInstallments } from '@/utils/commission-calc'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import { useDevice } from '@/contexts/device.context'
 // Exports pesados carregados via dynamic import nos handlers (padrão da tela
@@ -390,11 +390,26 @@ export default function RtCommissionPage() {
                 const entries = cashEntriesBySale.get(sale.id)
                 if (!entries || entries.length === 0) {
                   if (saleDate >= start && saleDate <= end) {
-                    emp.base_revenue += finalValue
-                    emp.commission_value += storedRt
-                    emp.sum_weighted_pct += effPct * finalValue
-                    emp.sum_value += finalValue
-                    emp.detail_rows.push({ key: sale.id, type: 'VENDA', description, client_name: clientName, date: saleDate, value: finalValue, commission_percent: effPct, commission_amount: storedRt, sale_code: saleCodeMap.get(sale.id) })
+                    // D11: sem NENHUMA parcela lançada no Fluxo de Caixa, quem é
+                    // condicionado ao pagamento do cliente fica EM ABERTO — só vira
+                    // disponível quando o recebimento for efetivado. Antes creditava
+                    // integral como disponível já na data da venda.
+                    const isOpen = resolveCommissionBucket({
+                      splitByInstallments: useInstallment,
+                      hasCashEntries: false,
+                    }) === 'OPEN'
+                    if (isOpen) {
+                      // `sum_weighted_pct` / `sum_value` ficam de fora, como no ramo
+                      // pendente abaixo: a média de alíquota só conta o que foi creditado.
+                      emp.pending_revenue += finalValue
+                      emp.pending_commission += storedRt
+                    } else {
+                      emp.base_revenue += finalValue
+                      emp.commission_value += storedRt
+                      emp.sum_weighted_pct += effPct * finalValue
+                      emp.sum_value += finalValue
+                    }
+                    emp.detail_rows.push({ key: sale.id, type: 'VENDA', description, client_name: clientName, date: saleDate, value: finalValue, commission_percent: effPct, commission_amount: storedRt, pending: isOpen, sale_code: saleCodeMap.get(sale.id) })
                   }
                 } else {
                   const totalAmt = entries.reduce((s, e) => s + e.amount, 0)
@@ -536,11 +551,26 @@ export default function RtCommissionPage() {
                 const entries = cashEntriesBySale.get(sale.id)
                 if (!entries || entries.length === 0) {
                   if (saleDate >= start && saleDate <= end) {
-                    emp.base_revenue += finalValue
-                    emp.commission_value += storedRt
-                    emp.sum_weighted_pct += effPct * finalValue
-                    emp.sum_value += finalValue
-                    emp.detail_rows.push({ key: sale.id, type: 'VENDA', description, client_name: clientName, date: saleDate, value: finalValue, commission_percent: effPct, commission_amount: storedRt, sale_code: saleCodeMap.get(sale.id) })
+                    // D11: sem NENHUMA parcela lançada no Fluxo de Caixa, quem é
+                    // condicionado ao pagamento do cliente fica EM ABERTO — só vira
+                    // disponível quando o recebimento for efetivado. Antes creditava
+                    // integral como disponível já na data da venda.
+                    const isOpen = resolveCommissionBucket({
+                      splitByInstallments: useInstallment,
+                      hasCashEntries: false,
+                    }) === 'OPEN'
+                    if (isOpen) {
+                      // `sum_weighted_pct` / `sum_value` ficam de fora, como no ramo
+                      // pendente abaixo: a média de alíquota só conta o que foi creditado.
+                      emp.pending_revenue += finalValue
+                      emp.pending_commission += storedRt
+                    } else {
+                      emp.base_revenue += finalValue
+                      emp.commission_value += storedRt
+                      emp.sum_weighted_pct += effPct * finalValue
+                      emp.sum_value += finalValue
+                    }
+                    emp.detail_rows.push({ key: sale.id, type: 'VENDA', description, client_name: clientName, date: saleDate, value: finalValue, commission_percent: effPct, commission_amount: storedRt, pending: isOpen, sale_code: saleCodeMap.get(sale.id) })
                   }
                 } else {
                   const totalAmt = entries.reduce((s, e) => s + e.amount, 0)
