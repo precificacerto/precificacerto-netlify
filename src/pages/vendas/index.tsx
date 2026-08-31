@@ -27,6 +27,7 @@ import { ExportFormatModal } from '@/components/ui/export-format-modal.component
 import { calculateDiscountedPrice, discountModeToAbsorptionPolicy, DiscountMode } from '@/utils/calculate-discount'
 import { formatBRL } from '@/utils/formatters'
 import { getEffectiveCommissionPercent } from '@/utils/get-effective-commission'
+import { resolveItemRtPercent, computeSaleRtAmount } from '@/utils/balcao-rt'
 import {
     PaymentWithInstallments,
     buildInstallmentsByPreset,
@@ -1113,9 +1114,14 @@ function Sales() {
             // A tabela de comissão do vendedor não tem prioridade sobre ele.
             const commPct = getEffectiveCommissionPercent(null, svc?.commission_percent)
             const profitPct = Number(svc?.profit_percent || 0)
+            // EPIC-RT v8 (D15): RT congelado no item, na seleção — mesmo padrão de comissão/lucro.
+            // Orçamento, pedido e venda partem da MESMA origem (o cadastro), e é o item que o
+            // motor consome; sem copiar aqui, o RT do SERVIÇO chegava zerado à cascata e à venda
+            // (VD-51B0E2), porque o fallback resolvia só por product_id — nulo em item de serviço.
+            const rtPct = Number(svc?.rt_reserve_percent) || 0
             // V7+ (2026-05-24): helper centralizado, também lê pis_cofins_pct agregado
             const svcTaxRates: ItemTaxRates = buildItemTaxRatesFromProduct(svc)
-            return { ...item, service_id: serviceId, product_name: svc?.name || '', unit_price: price, discount: 0, commission_percent: commPct, profit_percent: profitPct, cost_total: costTotal, productive_labor_unit: productiveLaborUnit, financial_expense_unit: financialExpenseUnit, expense_breakdown_unit: expenseBreakdownUnit, item_tax_rates: svcTaxRates, total: price * item.quantity }
+            return { ...item, service_id: serviceId, product_name: svc?.name || '', unit_price: price, discount: 0, commission_percent: commPct, profit_percent: profitPct, rt_reserve_percent: rtPct, cost_total: costTotal, productive_labor_unit: productiveLaborUnit, financial_expense_unit: financialExpenseUnit, expense_breakdown_unit: expenseBreakdownUnit, item_tax_rates: svcTaxRates, total: price * item.quantity }
         }))
     }
 
@@ -1146,9 +1152,13 @@ function Sales() {
             // do produto chegava zerada ao motor da cascata.
             const commPct = getEffectiveCommissionPercent(null, prod?.commission_percent)
             const profitPct = Number(prod?.profit_percent || 0)
+            // EPIC-RT v8 (D15): RT congelado no item também no PRODUTO. Funcionava por acidente,
+            // via fallback ao cadastro vivo — o fallback é rede de segurança para itens legados,
+            // não a fonte primária.
+            const rtPct = Number(prod?.rt_reserve_percent) || 0
             // V7+ (2026-05-24): helper centralizado, também lê pis_cofins_pct agregado
             const prodTaxRates: ItemTaxRates = buildItemTaxRatesFromProduct(prod)
-            return { ...item, product_id: productId, product_name: prod?.name || '', unit_price: price, discount: 0, commission_percent: commPct, profit_percent: profitPct, cost_total: costTotal, productive_labor_unit: productiveLaborUnit, financial_expense_unit: financialExpenseUnit, expense_breakdown_unit: expenseBreakdownUnit, item_tax_rates: prodTaxRates, total: price * item.quantity }
+            return { ...item, product_id: productId, product_name: prod?.name || '', unit_price: price, discount: 0, commission_percent: commPct, profit_percent: profitPct, rt_reserve_percent: rtPct, cost_total: costTotal, productive_labor_unit: productiveLaborUnit, financial_expense_unit: financialExpenseUnit, expense_breakdown_unit: expenseBreakdownUnit, item_tax_rates: prodTaxRates, total: price * item.quantity }
         }))
     }
 
@@ -1200,8 +1210,9 @@ function Sales() {
             : 0
         return {
             ...i,
-            // EPIC-RT v8: RT do item (congelado) ou fallback ao cadastro vivo do produto.
-            rt_reserve_percent: Number((i as any).rt_reserve_percent ?? prod?.rt_reserve_percent) || 0,
+            // EPIC-RT v8 (D15): fonte primária = o item (RT congelado na seleção). O fallback
+            // ao cadastro vivo cobre produto E serviço, e existe só para itens legados.
+            rt_reserve_percent: resolveItemRtPercent(i, products, services),
             valor_op_interna_unit: numOrNull(prod?.valor_precificado_icms_piscofins),
             sale_price_base_unit: numOrNull(prod?.sale_price_base),
             terceirizadas_unit: terc > 0 ? terc : null,
@@ -1605,15 +1616,8 @@ function Sales() {
             }
 
             // EPIC-RT v8 (3.9): RT consolidado congelado da venda (persistido em sales.rt_amount, lido pelos relatórios RT).
-            const rtAmountSale = (() => {
-                const w = saleItems.reduce((s, i) => {
-                    const prod = i.product_id ? (products as any[]).find(p => p.id === i.product_id) : null
-                    const rtPct = Number((i as any).rt_reserve_percent ?? prod?.rt_reserve_percent) || 0
-                    return s + i.unit_price * i.quantity * rtPct / 100
-                }, 0)
-                const t = saleItems.reduce((s, i) => s + i.unit_price * i.quantity, 0)
-                return t > 0 ? (w / t) * saleTotalWithDiscount : 0
-            })()
+            // D15: mesma resolução do motor (item congelado → produto → serviço), fonte única.
+            const rtAmountSale = computeSaleRtAmount(saleItems, products, services, saleTotalWithDiscount)
             // 1) Criar venda (employee_id saved separately to handle missing column)
             const { data: sale, error: saleErr } = await supabase.from('sales').insert({
                 tenant_id: tenantId,
