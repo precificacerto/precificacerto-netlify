@@ -1252,8 +1252,15 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
 
                     {/* Sem carga horária da equipe não há custo por minuto — e sem custo por
                         minuto o preço do serviço não pode ser formado. Em vez de exibir um
-                        resultado calculado sobre um default inventado, mostra o caminho para
-                        resolver. O save também está bloqueado (ver handleSave). */}
+                        resultado calculado sobre um default inventado, informa o que falta.
+
+                        O alerta INFORMA e para por aí: nada aqui navega. Esta tela não tem
+                        persistência de rascunho, então qualquer navegação disparada daqui
+                        desmontaria o formulário e descartaria o que o usuário já digitou
+                        (num cadastro novo: nome, insumos, minutos, percentuais). O usuário
+                        vai a Configurações quando quiser; ao voltar, o componente monta de
+                        novo, `currentUser` já vem atualizado pelo refreshUser do
+                        handleSaveTeam, e o bloqueio cai sozinho. */}
                     {pricing.isWorkloadUnset ? (
                         <Alert
                             type="warning"
@@ -1261,22 +1268,14 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                             style={{ marginTop: 12 }}
                             message="Carga horária da equipe não configurada"
                             description={
-                                <div>
-                                    <p style={{ marginBottom: 8 }}>
-                                        O preço do serviço é formado a partir do <strong>custo por minuto</strong> da
-                                        equipe produtiva (mão de obra produtiva + administrativa + despesas fixas
-                                        divididas pelas horas trabalhadas no mês). Sem a carga horária cadastrada não
-                                        existe esse divisor, então o preço não pode ser calculado — e o serviço não
-                                        pode ser salvo.
-                                    </p>
-                                    <Button
-                                        type="primary"
-                                        size="small"
-                                        onClick={() => router.push(`${ROUTES.SETTINGS}?tab=team`)}
-                                    >
-                                        Configurar carga horária da equipe
-                                    </Button>
-                                </div>
+                                <p style={{ margin: 0 }}>
+                                    O preço do serviço é formado a partir do <strong>custo por minuto</strong> da
+                                    equipe produtiva (mão de obra produtiva + administrativa + despesas fixas
+                                    divididas pelas horas trabalhadas no mês). Sem a carga horária cadastrada não
+                                    existe esse divisor, então o preço não pode ser calculado — e o serviço não
+                                    pode ser salvo. Configure a carga horária da equipe produtiva
+                                    em <strong>Configurações &gt; Equipe</strong> e volte a esta tela.
+                                </p>
                             }
                         />
                     ) : (

@@ -674,6 +674,12 @@ export const Content: FC<ContentProps> = ({
     productPriceInfo?.productWorkloadInMinutes,
   ])
 
+  // O alerta INFORMA e para por aí: nada aqui navega. Esta tela não tem persistência
+  // de rascunho, então qualquer navegação disparada daqui desmontaria o formulário e
+  // descartaria o que o usuário já digitou (num cadastro novo: nome, insumos, minutos,
+  // percentuais). O usuário vai a Configurações quando quiser; ao voltar, o componente
+  // monta de novo, `currentUser` já vem atualizado pelo refreshUser do handleSaveTeam,
+  // e o bloqueio cai sozinho.
   const workloadAlert = isWorkloadBlocking ? (
     <Alert
       type="warning"
@@ -681,21 +687,14 @@ export const Content: FC<ContentProps> = ({
       style={{ marginTop: 12, marginBottom: 12 }}
       message="Carga horária da equipe não configurada"
       description={
-        <div>
-          <p style={{ marginBottom: 8 }}>
-            Este produto consome tempo de mão de obra produtiva, e o custo desse tempo vem
-            do <strong>custo por minuto</strong> da equipe (mão de obra mensal dividida pelas
-            horas trabalhadas no mês). Sem a carga horária cadastrada não existe esse
-            divisor, então o preço não pode ser calculado — e o produto não pode ser salvo.
-          </p>
-          <Button
-            type="primary"
-            size="small"
-            onClick={() => router.push(`${ROUTES.SETTINGS}?tab=team`)}
-          >
-            Configurar carga horária da equipe
-          </Button>
-        </div>
+        <p style={{ margin: 0 }}>
+          Este produto consome tempo de mão de obra produtiva, e o custo desse tempo vem
+          do <strong>custo por minuto</strong> da equipe (mão de obra mensal dividida pelas
+          horas trabalhadas no mês). Sem a carga horária cadastrada não existe esse
+          divisor, então o preço não pode ser calculado — e o produto não pode ser salvo.
+          Configure a carga horária da equipe produtiva
+          em <strong>Configurações &gt; Equipe</strong> e volte a esta tela.
+        </p>
       }
     />
   ) : null
