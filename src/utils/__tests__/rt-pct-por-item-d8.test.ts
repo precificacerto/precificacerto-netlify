@@ -14,6 +14,7 @@
  * dois zeraram — foi exatamente o buraco que deixou o #12 passar pela metade.
  */
 
+import type { RtSaleItemLike } from '@/utils/balcao-rt'
 import {
     resolveItemRtPercent,
     resolveItemRtPctDecimal,
@@ -26,8 +27,8 @@ import {
 const PRODUTOS = [{ id: 'prod-1', rt_reserve_percent: 1 }]
 const SERVICOS = [{ id: 'svc-1', rt_reserve_percent: 1 }]
 
-const ITEM_PRODUTO = { product_id: 'prod-1', service_id: null, unit_price: 100, quantity: 1 }
-const ITEM_SERVICO = { product_id: null, service_id: 'svc-1', unit_price: 110.5, quantity: 1 }
+const ITEM_PRODUTO: RtSaleItemLike = { product_id: 'prod-1', service_id: null, unit_price: 100, quantity: 1 }
+const ITEM_SERVICO: RtSaleItemLike = { product_id: null, service_id: 'svc-1', unit_price: 110.5, quantity: 1 }
 
 describe('D8 · conversão para o decimal persistido', () => {
     it('base-100 vira decimal com 5 casas', () => {
