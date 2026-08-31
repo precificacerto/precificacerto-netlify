@@ -64,6 +64,8 @@ export interface TenantSettings {
     num_commercial_employees?: number | null
     num_administrative_employees?: number | null
     administrative_monthly_workload?: number | null
+    productive_days_per_month?: number | null
+    administrative_days_per_month?: number | null
     simples_anexo?: string | null
     simples_revenue_12m?: number | null
     /** Número de meses do período do faturamento (média mensal = simples_revenue_12m / revenue_period_months). */
