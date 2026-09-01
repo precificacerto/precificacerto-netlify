@@ -4,6 +4,7 @@ import { CurrencyInput } from '@/components/currency-input.component'
 import { CalculatorOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { PercentInput } from '@/components/percent-input.component'
 import { getMonetaryValue } from '@/utils/get-monetary-value'
+import { resolveProductTaxPercent } from '@/utils/product-tax-percent'
 import { computeIvaDualOutside } from '@/utils/iva-dual-outside'
 import { resolveIvaDualEffectiveRate } from '@/utils/item-tax-rates'
 import { computeAdvancedOutsideTaxes, type AdvancedOutsideParams } from '@/utils/icms-st-difal'
@@ -116,8 +117,14 @@ export const ProductPrice: FC<Props> = ({
   const variablePct = calcBase.variableExpensePct
   const financialPct = calcBase.financialExpensePct
 
-  const taxPctBase = calcBase.taxPct
-  const taxPctDisplay = customTaxPercent != null ? customTaxPercent : taxPctBase
+  // MESMA função que `doProductCalc` usa em `effectiveTaxPct`: exibição e cálculo saem
+  // de um ponto só, então a soma das linhas exibidas fecha com o preço por construção.
+  // Em MEI devolve 0 — o DAS é fixo mensal e não incide por item.
+  const taxPctDisplay = resolveProductTaxPercent({
+    isMei,
+    customTaxPercent,
+    autoTaxPercent: calcBase.taxPct,
+  })
   const taxValDisplay = productPriceInfo.taxesPrice
   const taxLabel = calcBase.taxLabel
     ? `Impostos (${calcBase.taxLabel})`
@@ -361,7 +368,18 @@ export const ProductPrice: FC<Props> = ({
             {!isCalcTypeService && pricingRow('Despesas fixas', fixedPct, fixedValDisplay)}
             {pricingRow('Despesas variáveis', variablePct, variableValDisplay)}
             {pricingRow('Despesas financeiras', financialPct, financialValDisplay)}
-            {!showIrpjCsll && !isLpRet && !isSimplesHibrido && pricingRow(taxLabel, taxPctDisplay, taxValDisplay, 'customTaxPercent', 'Alíquota efetiva herdada do regime tributário. Edite para ajustar apenas neste produto/serviço.')}
+            {/* Em MEI a linha aparece zerada e NÃO é editável: o DAS é fixo mensal e não
+                incide por item, então não há alíquota a ajustar — coerente com o alerta
+                que esta mesma tela exibe logo acima. Nos demais regimes segue editável. */}
+            {!showIrpjCsll && !isLpRet && !isSimplesHibrido && pricingRow(
+              taxLabel,
+              taxPctDisplay,
+              taxValDisplay,
+              isMei ? undefined : 'customTaxPercent',
+              isMei
+                ? 'MEI: o DAS é fixo mensal e não incide por item, então o imposto não entra na formação do preço.'
+                : 'Alíquota efetiva herdada do regime tributário. Edite para ajustar apenas neste produto/serviço.',
+            )}
             {pricingRow('RT — Comissão Reserva Técnica', rtReservePct, rtReserveValDisplay, 'rtReservePercent', 'Reserva Técnica: dedução gerencial paralela à comissão e ao lucro, inserida manualmente por produto. A alíquota efetiva fica congelada na cascata (não varia com o desconto do orçamento) e não entra na base de IRPJ/CSLL. Deixe 0% se não aplicável.')}
             {pricingRow(
               'Comissão total do vendedor',

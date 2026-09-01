@@ -9,6 +9,7 @@ import { IItemProductModel, itemProductSchema } from '@/server/model/item-produc
 import { ColumnsType } from 'antd/es/table'
 import { UNIT_TYPE } from '@/constants/item-unit-types'
 import { calculateItemPrice } from '@/utils/calculate-item-price'
+import { resolveProductTaxPercent, resolveProductTaxPercentToPersist } from '@/utils/product-tax-percent'
 import { MessageInstance } from 'antd/es/message/interface'
 import { useRouter } from 'next/router'
 import { IProductModel } from '@/server/model/product'
@@ -741,7 +742,14 @@ export const Content: FC<ContentProps> = ({
       const adicionalPct = isLRorLP ? (additionalIrpjPercent || 0) : 0
       effectiveTaxPct = nonRegimeTaxPct + irpjPct + csllPct + adicionalPct
     } else {
-      effectiveTaxPct = customTaxPercent != null ? customTaxPercent : calcBase.taxPct
+      // MEI: DAS é fixo mensal e NÃO incide por item — imposto zero, sempre. Um
+      // `custom_tax_percent` gravado (dado legado) é ignorado aqui, e a linha da tela
+      // usa a MESMA função, então exibição e cálculo continuam batendo.
+      effectiveTaxPct = resolveProductTaxPercent({
+        isMei: !!calcBase.isMei,
+        customTaxPercent,
+        autoTaxPercent: calcBase.taxPct,
+      })
     }
     const taxPctDecimal = effectiveTaxPct / 100
 
@@ -819,6 +827,7 @@ export const Content: FC<ContentProps> = ({
     calcBase.laborCostMonthly,
     calcBase.structurePct,
     calcBase.taxPct,
+    calcBase.isMei,
     calcBase.indirectLaborPct,
     calcBase.fixedExpensePct,
     calcBase.variableExpensePct,
@@ -1075,11 +1084,12 @@ export const Content: FC<ContentProps> = ({
       // cascata mostrava o DAS zerado. Aqui a efetiva é GRAVADA: override manual quando
       // houver, senão a automática do Anexo (0 no MEI, que mantém a linha presente e zerada).
       // Demais regimes: comportamento idêntico ao anterior (só grava se houver override).
-      const isSimplesOuMeiSave =
-        currentUser.taxableRegime === 'SIMPLES_NACIONAL' || currentUser.taxableRegime === 'MEI'
-      if (customTaxPercent != null) extraFields.custom_tax_percent = customTaxPercent
-      else if (isSimplesOuMeiSave) extraFields.custom_tax_percent = Number(calcBase.taxPct) || 0
-      else extraFields.custom_tax_percent = null
+      extraFields.custom_tax_percent = resolveProductTaxPercentToPersist({
+        isMei: !!calcBase.isMei,
+        isSimples: currentUser.taxableRegime === 'SIMPLES_NACIONAL',
+        customTaxPercent,
+        autoTaxPercent: calcBase.taxPct,
+      })
       extraFields.additional_irpj_percent = additionalIrpjPercent || 0
       extraFields.freight_value = freightValue || 0
       extraFields.insurance_value = insuranceValue || 0
