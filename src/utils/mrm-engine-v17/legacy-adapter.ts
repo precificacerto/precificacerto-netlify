@@ -42,6 +42,7 @@ import {
   resolveStructuralProfitTaxes,
   type ItemTaxRates,
 } from '../item-tax-rates'
+import { resolveItemDopComponents } from '../expense-destination'
 
 /**
  * Item esperado pelas páginas (subset do BudgetItemRow / OrderItemRow / SaleItemRow).
@@ -101,6 +102,15 @@ export interface PageItem {
    */
   product_type?: string | null
   yield_quantity?: number | null
+  /**
+   * ETAPA 5 — item de serviço (`budget_items.service_id` / `sale_items.service_id`).
+   *
+   * A construção do item decide o DESTINO de cada categoria de despesa (custo ou margem de
+   * contribuição), e prestação de serviço é a única construção em que MO Indireta e Despesa
+   * Fixa vão para o CUSTO — elas já estão dentro do custo por minuto. Ver
+   * `expense-destination.ts`.
+   */
+  service_id?: string | null
 }
 
 /**
@@ -171,6 +181,15 @@ export interface PageTenantCtx {
   irpj_pct?: number | null
   useSnapshotRates?: boolean
   absorption_policy?: AbsorptionPolicy | null
+  /**
+   * Segmentação do tenant (`tenant_settings.calc_type`).
+   *
+   * NÃO decide o destino das categorias — quem decide é a construção de cada item. É lido
+   * apenas para a EXCEÇÃO declarada: em tenant SERVIÇO, produto de revenda não recebe MO
+   * Administrativa nem Despesa Fixa (já estão no custo por minuto da prestação).
+   * Ausente ⇒ nenhuma exceção aplicada.
+   */
+  calc_type?: string | null
   expense_breakdown?: {
     fixed_pct?: number | null
     variable_pct?: number | null
@@ -533,10 +552,27 @@ export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResul
     // quando ele os traz; senão (e sempre fora de SN/MEI) usa os do tenant, como hoje.
     const eb = tenantCtx.expense_breakdown ?? null
     const dopRates = resolveDopRates(item, tenantCtx.regime, eb)
-    const dopAdminNominal = dopRates.admin
-    const dopFixedNominal = dopRates.fixed
-    const dopVariableNominal = dopRates.variable
-    const dopFinancialNominal = dopRates.financial
+    // ETAPA 5 — DESTINO POR ITEM (regra canônica): cada categoria tem, PARA ESTE ITEM, um
+    // único destino — CUSTO ou margem de contribuição. O item cuja categoria vai para CUSTO
+    // contribui com ZERO nesta linha da MC: não com o percentual médio, não com o do tenant.
+    // É o que transforma a Etapa 5 numa SOMA DE VALORES POR ITEM. Ver `expense-destination.ts`.
+    const dopNominal = resolveItemDopComponents({
+      item,
+      tenantCalcType: tenantCtx.calc_type,
+      components: {
+        mo_admin: dopRates.admin,
+        fixa: dopRates.fixed,
+        variavel: dopRates.variable,
+        financeira: dopRates.financial,
+      },
+    }).components
+    const dopAdminNominal = dopNominal.mo_admin
+    const dopFixedNominal = dopNominal.fixa
+    const dopVariableNominal = dopNominal.variavel
+    const dopFinancialNominal = dopNominal.financeira
+    // Fallback sem breakdown por balde (`tenantCtx.dop_pct` agregado): não há como separar
+    // as categorias, logo não há destino a aplicar — permanece bit-exact ao comportamento
+    // anterior. Os três call sites de produção sempre enviam `expense_breakdown`.
     const dop_pct_nominal = (eb || dopRates.fromProduct)
       ? dopAdminNominal + dopFixedNominal + dopVariableNominal + dopFinancialNominal
       : (Number(tenantCtx.dop_pct) || 0)
@@ -1081,10 +1117,21 @@ export function calculateMotorV17ForPageFull(args: PageBuildArgs): {
     // FIX-DESPESA-SN (C2) — idem, via args.tenantCtx.
     const eb = args.tenantCtx.expense_breakdown ?? null
     const dopRatesFull = resolveDopRates(item, args.tenantCtx.regime, eb)
-    const dopAdminNominalFull = dopRatesFull.admin
-    const dopFixedNominalFull = dopRatesFull.fixed
-    const dopVariableNominalFull = dopRatesFull.variable
-    const dopFinancialNominalFull = dopRatesFull.financial
+    // ETAPA 5 — destino por item, idêntico ao caminho ForPage acima.
+    const dopNominalFull = resolveItemDopComponents({
+      item,
+      tenantCalcType: args.tenantCtx.calc_type,
+      components: {
+        mo_admin: dopRatesFull.admin,
+        fixa: dopRatesFull.fixed,
+        variavel: dopRatesFull.variable,
+        financeira: dopRatesFull.financial,
+      },
+    }).components
+    const dopAdminNominalFull = dopNominalFull.mo_admin
+    const dopFixedNominalFull = dopNominalFull.fixa
+    const dopVariableNominalFull = dopNominalFull.variavel
+    const dopFinancialNominalFull = dopNominalFull.financeira
     const dop_pct = (eb || dopRatesFull.fromProduct)
       ? dopAdminNominalFull + dopFixedNominalFull + dopVariableNominalFull + dopFinancialNominalFull
       : (Number(args.tenantCtx.dop_pct) || 0)
