@@ -61,6 +61,14 @@ export interface TenantTaxContext {
     financial_pct: number
     administrative_pct: number
   }
+  /**
+   * Segmentação do tenant (`tenant_settings.calc_type`): INDUSTRIALIZACAO | REVENDA | SERVICO.
+   *
+   * Não decide o destino das categorias de despesa na cascata — isso é propriedade da
+   * construção de CADA ITEM. É lido só para a exceção declarada do produto de revenda em
+   * tenant SERVIÇO. Ver `expense-destination.ts`.
+   */
+  calc_type: string | null
   /** Override de policy (strict/permissive). NULL = defaults ADR-004. */
   rro_policy: RroPolicy | null
   /** Componentes tributários completos (para diagnóstico/UI). */
@@ -93,6 +101,7 @@ const DEFAULT_CONTEXT: TenantTaxContext = {
   dop_pct: 0,
   mod_pct: 0,
   expense_breakdown: { fixed_pct: 0, variable_pct: 0, financial_pct: 0, administrative_pct: 0 },
+  calc_type: null,
   rro_policy: null,
   components: null,
   rates: [],
@@ -158,7 +167,7 @@ export function useTenantTaxContext(options: HookOptions = {}): TenantTaxContext
       // V8.7: workload do tenant está em tenant_settings (NÃO em tenants — schema correto)
       const { data: tenantSettingsRow } = await supabase
         .from('tenant_settings')
-        .select('monthly_workload, num_productive_employees, workload_unit')
+        .select('monthly_workload, num_productive_employees, workload_unit, calc_type')
         .eq('tenant_id', tenantId as string)
         .maybeSingle()
 
@@ -231,6 +240,7 @@ export function useTenantTaxContext(options: HookOptions = {}): TenantTaxContext
         monthly_workload?: number | null
         num_productive_employees?: number | null
         workload_unit?: string | null
+        calc_type?: string | null
       } | null | undefined
       // Carga horária resolvida pela fonte única (`resolve-monthly-workload`), a mesma
       // usada no cadastro de Produto, de Serviço e em `compute-service-price`.
@@ -313,6 +323,7 @@ export function useTenantTaxContext(options: HookOptions = {}): TenantTaxContext
           financial_pct: financialPct,
           administrative_pct: moiPct,
         },
+        calc_type: tenantSettings?.calc_type ?? null,
         rro_policy,
         components,
         rates,

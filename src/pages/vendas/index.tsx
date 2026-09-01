@@ -1215,6 +1215,9 @@ function Sales() {
             // EPIC-RT v8 (D15): fonte primária = o item (RT congelado na seleção). O fallback
             // ao cadastro vivo cobre produto E serviço, e existe só para itens legados.
             rt_reserve_percent: resolveItemRtPercent(i, products, services),
+            // Etapa 5: construção do item (ver `expense-destination.ts`). `service_id` já vem
+            // em `...i`; o tipo do produto vem do cadastro vivo.
+            product_type: prod?.product_type ?? null,
             valor_op_interna_unit: numOrNull(prod?.valor_precificado_icms_piscofins),
             sale_price_base_unit: numOrNull(prod?.sale_price_base),
             terceirizadas_unit: terc > 0 ? terc : null,
@@ -1231,6 +1234,8 @@ function Sales() {
             irpj_pct: mrmConfig.irpj_pct,
             useSnapshotRates: mrmConfig.useSnapshotRates,
             expense_breakdown: mrmConfig.expense_breakdown,
+            // Etapa 5: só para a exceção do produto de revenda em tenant SERVIÇO.
+            calc_type: mrmConfig.calc_type,
             absorption_policy: discountModeToAbsorptionPolicy(discountModeV), // Item 2: modo do dropdown
         },
         globalDiscountPercent: discountPct,
@@ -1468,6 +1473,9 @@ function Sales() {
                         : 0
                     return {
                         ...i,
+                        // Etapa 5: a construção do item decide o destino das despesas.
+                        // `service_id` já vem em `...i`; o tipo do produto vem do cadastro vivo.
+                        product_type: prod?.product_type ?? null,
                         valor_op_interna_unit: numOrNull(prod?.valor_precificado_icms_piscofins),
                         sale_price_base_unit: numOrNull(prod?.sale_price_base),
                         terceirizadas_unit: terc > 0 ? terc : null,
@@ -1484,6 +1492,7 @@ function Sales() {
                         irpj_pct: mrmConfig.irpj_pct,
                         useSnapshotRates: mrmConfig.useSnapshotRates,
                         expense_breakdown: mrmConfig.expense_breakdown,
+                        calc_type: mrmConfig.calc_type,
                         absorption_policy: discountModeToAbsorptionPolicy(discountModeV), // Item 2: modo do dropdown
                     },
                     globalDiscountPercent: globalDiscountPercentV,
@@ -1528,6 +1537,8 @@ function Sales() {
                     : 0
                 return {
                     ...i,
+                    // Etapa 5: construção do item (ver `expense-destination.ts`).
+                    product_type: prod?.product_type ?? null,
                     valor_op_interna_unit: numOrNull(prod?.valor_precificado_icms_piscofins),
                     sale_price_base_unit: numOrNull(prod?.sale_price_base),
                     terceirizadas_unit: terc > 0 ? terc : null,
@@ -1544,6 +1555,7 @@ function Sales() {
                     irpj_pct: mrmConfig.irpj_pct,
                     useSnapshotRates: mrmConfig.useSnapshotRates,
                     expense_breakdown: mrmConfig.expense_breakdown,
+                    calc_type: mrmConfig.calc_type,
                     absorption_policy: discountModeToAbsorptionPolicy(discountModeV), // Item 2: modo do dropdown
                 },
                 globalDiscountPercent: globalDiscountPercentV,

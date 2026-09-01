@@ -793,6 +793,8 @@ function Budgets() {
             irpj_pct: mrmConfig.irpj_pct,
             useSnapshotRates: mrmConfig.useSnapshotRates,
             expense_breakdown: mrmConfig.expense_breakdown,
+            // Etapa 5: só para a exceção do produto de revenda em tenant SERVIÇO.
+            calc_type: mrmConfig.calc_type,
             absorption_policy: discountModeToAbsorptionPolicy(discountMode), // Item 2: modo do dropdown
         },
         globalDiscountPercent: discountPct,
