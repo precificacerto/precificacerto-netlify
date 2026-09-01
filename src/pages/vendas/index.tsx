@@ -27,7 +27,8 @@ import { ExportFormatModal } from '@/components/ui/export-format-modal.component
 import { calculateDiscountedPrice, discountModeToAbsorptionPolicy, DiscountMode } from '@/utils/calculate-discount'
 import { formatBRL } from '@/utils/formatters'
 import { getEffectiveCommissionPercent } from '@/utils/get-effective-commission'
-import { resolveItemRtPercent, computeSaleRtAmount, resolveItemRtPctDecimal, resolveInheritedRtPctDecimal } from '@/utils/balcao-rt'
+import { resolveItemRtPercent, computeSaleRtAmount, resolveItemRtPctDecimal, type RtCatalogEntry } from '@/utils/balcao-rt'
+import { mapBudgetItemsToSaleItems } from '@/utils/budget-item-to-sale-item'
 import { resolveServiceExpenseBreakdownUnit } from '@/utils/service-expense-snapshot'
 import {
     PaymentWithInstallments,
@@ -751,50 +752,46 @@ function Sales() {
             // profit_pct, tax_breakdown) garantindo imutabilidade do snapshot.
             const { data: budgetItems } = await (supabase as any)
                 .from('budget_items')
+                // ⚠️ DEFEITO CONHECIDO, DELIBERADAMENTE FORA DESTE PR (um PR por defeito):
+                // `rt_pct` NÃO está nesta lista. `resolveInheritedRtPctDecimal` recebe
+                // `undefined` e cai sempre no cadastro vivo, ignorando o RT CONGELADO no item
+                // do orçamento (D8). A rota irmã (`orcamentos/index.tsx`) lê a coluna — usa
+                // `select('*')`. Mesma assinatura do D12: o documento derivado deixa de
+                // herdar o valor congelado e volta a consultar o cadastro.
+                //
+                // ESTADO: ARMADO, NÃO MATERIALIZADO. As 154 linhas de `budget_items` em
+                // produção têm `rt_pct = 0` — todas anteriores ao D8 —, e a regra do D8
+                // prefere a origem só quando ela é positiva, então hoje o resultado é o
+                // mesmo. Do primeiro orçamento salvo com RT > 0 em diante, esta rota passa a
+                // entregar a alíquota atual do cadastro no lugar da congelada.
+                //
+                // Este PR é REFATORAÇÃO SEM MUDANÇA DE COMPORTAMENTO: a lista fica como
+                // está, e a correção vem no seu próprio PR.
                 .select('product_id, service_id, quantity, unit_price, discount, manual_description, commission_pct, profit_pct, tax_breakdown')
                 .eq('budget_id', selectedBudget.id)
 
             if (budgetItems && budgetItems.length > 0) {
-                // Criar sale_items a partir dos budget_items, distribuindo o desconto
-                // global proporcionalmente para que a soma dos itens bata com total_value.
-                const saleSnapshotCtx: TenantSnapshotContext = {
-                    regime: mrmConfig.regime,
-                    rates: mrmConfig.rates,
-                    csll_pct: mrmConfig.csll_pct,
-                    irpj_pct: mrmConfig.irpj_pct,
-                    use_snapshot_rates: mrmConfig.useSnapshotRates,
-                }
-                // Story MRM-V2-S3.1: shadow context (sale).
-                const saleShadowCtx = { tenant_id: tenantId, document_id: sale.id, document_type: 'sale' as const }
-                const rawSaleItems = budgetItems.map((bi: any) => {
-                    // hydrateItemSnapshot é idempotente: se bi.tax_breakdown já existe e
-                    // use_snapshot_rates=true, ele é PRESERVADO (AC3 — imutabilidade).
-                    const snap = hydrateItemSnapshot(
-                        {
-                            unit_price: bi.unit_price,
-                            quantity: bi.quantity,
-                            commission_pct: Number(bi.commission_pct ?? 0),
-                            profit_pct: Number(bi.profit_pct ?? 0),
-                            prev_breakdown: bi.tax_breakdown ?? null,
-                        },
-                        saleSnapshotCtx,
-                        saleShadowCtx,
-                    )
-                    return {
-                        sale_id: sale.id,
-                        product_id: bi.product_id || null,
-                        service_id: bi.service_id || null,
-                        quantity: bi.quantity,
-                        unit_price: bi.unit_price,
-                        discount: bi.discount || 0,
-                        description: bi.manual_description || null,
-                        commission_pct: snap.commission_pct,
-                        profit_pct: snap.profit_pct,
-                        // D8: herda o RT congelado do item do orçamento.
-                        rt_pct: resolveInheritedRtPctDecimal(bi.rt_pct, bi, products, services),
-                        tax_breakdown: snap.tax_breakdown,
-                    }
+                // Mapeamento em módulo único (`budget-item-to-sale-item.ts`), o mesmo que a
+                // rota de Orçamentos usa. Havia duas cópias deste bloco, uma em cada tela, e
+                // elas já tinham divergido uma vez — foi assim que o item de serviço passou a
+                // nascer sem `service_id` na outra rota. Com um lugar só, acrescentar um campo
+                // vale para as duas, e a divergência deixa de ser possível por omissão.
+                const rawSaleItems = mapBudgetItemsToSaleItems(budgetItems, {
+                    saleId: sale.id,
+                    snapshotCtx: {
+                        regime: mrmConfig.regime,
+                        rates: mrmConfig.rates,
+                        csll_pct: mrmConfig.csll_pct,
+                        irpj_pct: mrmConfig.irpj_pct,
+                        use_snapshot_rates: mrmConfig.useSnapshotRates,
+                    },
+                    // Story MRM-V2-S3.1: shadow context (sale).
+                    shadowCtx: { tenant_id: tenantId, document_id: sale.id, document_type: 'sale' },
+                    products: products as RtCatalogEntry[],
+                    services: services as RtCatalogEntry[],
                 })
+                // Distribui o desconto global proporcionalmente para que a soma dos itens
+                // bata com total_value.
                 const saleItemsToInsert = distributeDiscountToItems(rawSaleItems, Number(selectedBudget.total_value))
                 await (supabase as any).from('sale_items').insert(saleItemsToInsert)
 
