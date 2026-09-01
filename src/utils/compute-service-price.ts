@@ -19,6 +19,13 @@ export interface ServicePriceInput {
   /** Config de despesas do tenant. */
   expenseConfig: {
     production_labor_cost?: number
+    /** Média Hub da MO produtiva — tem precedência sobre o valor manual. */
+    production_labor_cost_hub?: number
+    admin_salary_total?: number
+    admin_fgts_total?: number
+    admin_other_costs?: number
+    /** Despesas fixas em R$/mês — entram no custo por minuto, não no coeficiente. */
+    fixed_expense_monthly?: number
     fixed_expense_percent?: number
     variable_expense_percent?: number
     financial_expense_percent?: number
@@ -34,8 +41,11 @@ export interface ServicePriceInput {
     monthlyWorkloadInMinutes?: number
   } | null
   /**
-   * Minutos de duração deste serviço (estimated_duration_minutes).
-   * Opcional: se omitido, labor não entra no CMV (productiveLaborCost = 0).
+   * Minutos de duração deste serviço (`services.estimated_duration_minutes`).
+   *
+   * OBRIGATÓRIO na prática: o serviço é precificado POR MINUTO, então omitir zera a
+   * mão de obra e, com ela, o CMV. Era exatamente esse o defeito — os dois chamadores
+   * não passavam o campo e gravavam `labor_cost = 0`.
    */
   serviceWorkloadMinutes?: number
 }
@@ -43,6 +53,12 @@ export interface ServicePriceInput {
 export interface ServicePriceResult {
   sellingPrice: number
   laborCost: number
+  /**
+   * CMV unitário = materiais + MO produtiva. É o que a tela de cadastro grava em
+   * `services.cost_total`; sem devolvê-lo, o "Atualizar serviço" gravava só os
+   * materiais e as duas rotas discordavam sobre o que a coluna significa.
+   */
+  totalCost: number
 }
 
 /**
@@ -52,7 +68,17 @@ export interface ServicePriceResult {
  */
 export function computeServiceSellingPrice(input: ServicePriceInput): ServicePriceResult {
   const cfg = input.expenseConfig || {}
-  const laborCostMonthly = Number(cfg.production_labor_cost) || 0
+  // Mesma composição da tela de cadastro (`ServiceContent`): o custo por minuto do
+  // serviço é MO produtiva + MO administrativa + despesas fixas. Usar só
+  // `production_labor_cost` zerava a mão de obra em qualquer tenant que tenha o custo
+  // no Hub ou na folha administrativa — que é o caso dos dois tenants em produção.
+  const laborCostMonthly = Number(cfg.production_labor_cost_hub) || Number(cfg.production_labor_cost) || 0
+  const adminMonthlyTotal =
+    (Number(cfg.admin_salary_total) || 0) +
+    (Number(cfg.admin_fgts_total) || 0) +
+    (Number(cfg.admin_other_costs) || 0)
+  const fixedMonthlyTotal = Number(cfg.fixed_expense_monthly) || 0
+  const combinedLaborCostMonthly = laborCostMonthly + adminMonthlyTotal + fixedMonthlyTotal
 
   // Carga horária resolvida pela fonte única (`resolve-monthly-workload`). Quando o
   // tenant não configurou, `monthlyWorkloadMinutes` é 0 — sem o antigo default de
@@ -67,10 +93,12 @@ export function computeServiceSellingPrice(input: ServicePriceInput): ServicePri
   const totalEmployees = workload.totalEmployees
   const monthlyWorkloadMinutes = workload.monthlyWorkloadMinutes
 
-  const fixedPct = Number(cfg.fixed_expense_percent) || 0
   const variablePct = Number(cfg.variable_expense_percent) || 0
   const financialPct = Number(cfg.financial_expense_percent) || 0
-  const structurePct = (fixedPct + variablePct + financialPct) / 100
+  // Só variável + financeira, como na tela de cadastro. As despesas FIXAS já estão
+  // dentro do custo por minuto (`fixedMonthlyTotal`): somá-las também no coeficiente
+  // seria cobrar o mesmo dinheiro duas vezes.
+  const structurePct = (variablePct + financialPct) / 100
 
   const taxesPct = input.taxPreview?.taxesPercent ?? 0
   const taxPct = (taxesPct + input.taxableRegimePercent) / 100
@@ -79,7 +107,7 @@ export function computeServiceSellingPrice(input: ServicePriceInput): ServicePri
     calcType: 'SERVICO',
     totalItemsCost: input.materialCost,
     yieldQuantity: 1,
-    laborCostMonthly,
+    laborCostMonthly: combinedLaborCostMonthly,
     numProductiveEmployees: totalEmployees,
     monthlyWorkloadMinutes,
     productWorkloadMinutes: input.serviceWorkloadMinutes ?? 0,
@@ -92,5 +120,6 @@ export function computeServiceSellingPrice(input: ServicePriceInput): ServicePri
   return {
     sellingPrice: result.isValid ? result.priceUnit : 0,
     laborCost: result.productiveLaborCost,
+    totalCost: result.cmvUnit,
   }
 }

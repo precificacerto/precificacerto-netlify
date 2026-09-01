@@ -206,20 +206,24 @@ function ServicesPage() {
             ])
             const expenseConfig = cfgRes.data || null
 
-            const { sellingPrice, laborCost } = computeServiceSellingPrice({
+            const { sellingPrice, laborCost, totalCost } = computeServiceSellingPrice({
                 materialCost: costTotal,
                 commissionPercent: Number(svc.commission_percent) || 0,
                 profitPercent: Number(svc.profit_percent) || 0,
                 taxableRegimePercent: Number(svc.taxable_regime_percent) || 0,
                 expenseConfig,
                 taxPreview: taxPreview || null,
-                currentUser: null,
+                // Sem `currentUser` não há carga horária, e sem ela o custo por minuto é 0.
+                currentUser,
+                // O serviço é precificado POR MINUTO: omitir a duração zerava a MO.
+                serviceWorkloadMinutes: Number(svc.estimated_duration_minutes) || 0,
             })
 
             await supabase
                 .from('services')
                 .update({
-                    cost_total: costTotal,
+                    // CMV = materiais + MO produtiva, como a tela de cadastro grava.
+                    cost_total: totalCost,
                     base_price: sellingPrice,
                     labor_cost: laborCost,
                     needs_cost_update: false,

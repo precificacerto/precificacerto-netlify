@@ -773,12 +773,12 @@ function Items() {
 
         const { data: svc } = await supabase
           .from('services')
-          .select('id, commission_percent, profit_percent, taxable_regime_percent')
+          .select('id, commission_percent, profit_percent, taxable_regime_percent, estimated_duration_minutes')
           .eq('id', serviceId)
           .single()
         if (!svc) continue
 
-        const { sellingPrice, laborCost } = computeServiceSellingPrice({
+        const { sellingPrice, laborCost, totalCost } = computeServiceSellingPrice({
           materialCost: costTotal,
           commissionPercent: Number(svc.commission_percent) || 0,
           profitPercent: Number(svc.profit_percent) || 0,
@@ -786,12 +786,17 @@ function Items() {
           expenseConfig,
           taxPreview: taxPreview || null,
           currentUser: currentUserForService,
+          // O serviço é precificado POR MINUTO: omitir a duração zerava a MO.
+          // Cast tipado (não `any`): o client tipado não resolve a tabela deste select e
+          // devolve `SelectQueryError`, o que já produz TS2339 nos demais campos lidos aqui.
+          serviceWorkloadMinutes: Number((svc as { estimated_duration_minutes?: number | null }).estimated_duration_minutes) || 0,
         })
 
         await supabase
           .from('services')
           .update({
-            cost_total: costTotal,
+            // CMV = materiais + MO produtiva, como a tela de cadastro grava.
+            cost_total: totalCost,
             base_price: sellingPrice,
             labor_cost: laborCost,
             updated_at: new Date().toISOString(),
