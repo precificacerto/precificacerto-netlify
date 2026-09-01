@@ -52,6 +52,36 @@ que o repositório declara com o que o banco tem.
 
 Enquanto isso for verdade, **a verificação é manual e é obrigatória**.
 
+## PENDENTE POR PADRÃO
+
+Formulação do dono do produto, registrada como está:
+
+> Não é bug de código, é **ausência de gate**. Enquanto o repositório e o banco não estiverem
+> ligados, **toda migração fica PENDENTE POR PADRÃO** — a verificação manual não é contorno
+> temporário, é o **único mecanismo existente**.
+
+O que isso quer dizer na prática, e é a razão de estar escrito aqui:
+
+**Migração mergeada NÃO está aplicada.** Ninguém deve presumir o contrário — nem por o PR
+estar verde, nem por ele estar em `main`, nem por o arquivo existir em `supabase/migrations/`,
+nem por outra migração da mesma leva ter funcionado. O estado de qualquer migração é
+**pendente** até que alguém consulte o schema e veja a coluna lá.
+
+O default é pendente, não aplicado. Quem quiser afirmar o contrário precisa da consulta.
+
+Foi exatamente essa presunção que quebrou produção em 01/09/2026: o PR #26 estava mergeado, o
+build estava verde, e a coluna não existia. E a do PR #18 já estava pendente havia dias sem
+ninguém notar, porque nada olhou.
+
+### Item de INFRAESTRUTURA — rodada futura, não agora
+
+Ligar o repositório ao banco (um gate que compare os arquivos declarados com o schema real, ou
+adotar de fato o caminho que a tabela `schema_migrations` pressupõe) é trabalho de
+infraestrutura, com escopo e rodada próprios. Não faz parte de nenhuma correção de defeito e
+não deve ser puxado no meio de uma.
+
+Até lá, a regra desta página é o mecanismo — não um paliativo à espera dele.
+
 ## Como verificar
 
 Depois de aplicar, consultar o schema — não confiar no retorno do comando de aplicação:
