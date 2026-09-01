@@ -20,6 +20,7 @@ import type { TaxPreviewResult } from '@/utils/calc-tax-preview'
 import { useRouter } from 'next/router'
 import { ROUTES } from '@/constants/routes'
 import { calculatePricing } from '@/utils/pricing-engine'
+import { buildServiceExpenseSnapshot } from '@/utils/service-expense-snapshot'
 import { computeIvaDualOutside } from '@/utils/iva-dual-outside'
 import { resolveIvaDualEffectiveRate } from '@/utils/item-tax-rates'
 import {
@@ -430,6 +431,15 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
         return {
             laborCost, totalCost, sellingPrice, costPerMinute, totalEmployees,
             isWorkloadUnset,
+            // Alíquotas e custo por minuto que formaram ESTE preço — gravados junto com ele
+            // em `services.expense_snapshot`, para que a decomposição do preço não dependa
+            // do `tenant_expense_config` de amanhã. Ver `service-expense-snapshot.ts`.
+            expenseSnapshot: buildServiceExpenseSnapshot({
+                variavelPct: variablePct,
+                financeiraPct: financialPct,
+                custoPorMinuto: costPerMinute,
+                cargaHorariaMinutos: monthlyWorkloadMinutes,
+            }),
             variablePct, financialPct, taxesPct,
             variableVal,
             financialVal,
@@ -557,6 +567,9 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                 cost_total: pricing.totalCost,
                 labor_minutes: v.estimated_duration_minutes || 60,
                 labor_cost: pricing.laborCost,
+                // Congelado junto com o preço: sem isto, editar as despesas do tenant fazia
+                // o preço já gravado deixar de ser reproduzível.
+                expense_snapshot: pricing.expenseSnapshot,
                 commission_percent: commissionPercent,
                 profit_percent: profitPercent,
                 rt_reserve_percent: Number(rtReservePercent) || 0,

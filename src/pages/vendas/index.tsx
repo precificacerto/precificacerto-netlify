@@ -28,6 +28,7 @@ import { calculateDiscountedPrice, discountModeToAbsorptionPolicy, DiscountMode 
 import { formatBRL } from '@/utils/formatters'
 import { getEffectiveCommissionPercent } from '@/utils/get-effective-commission'
 import { resolveItemRtPercent, computeSaleRtAmount, resolveItemRtPctDecimal, resolveInheritedRtPctDecimal } from '@/utils/balcao-rt'
+import { resolveServiceExpenseBreakdownUnit } from '@/utils/service-expense-snapshot'
 import {
     PaymentWithInstallments,
     buildInstallmentsByPreset,
@@ -1205,6 +1206,7 @@ function Sales() {
     // valor_op_interna_unit do produto (campo products.valor_precificado_icms_piscofins).
     const balcaoEnrichedItems = saleItems.map(i => {
         const prod = i.product_id ? (products as any[]).find(p => p.id === i.product_id) : null
+        const svc = i.service_id ? (services as any[]).find(sv => sv.id === i.service_id) : null
         const numOrNull = (v: unknown) =>
             v != null && Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : null
         const terc = prod
@@ -1212,6 +1214,12 @@ function Sales() {
             : 0
         return {
             ...i,
+            // Snapshot das alíquotas de despesa do SERVIÇO — mesmo campo que o produto
+            // já usa. `null` (serviço legado) mantém o fallback ao tenant.
+            ...(svc
+                ? { expense_breakdown_unit: resolveServiceExpenseBreakdownUnit(svc, Number(i.unit_price) || 0) }
+                : {}),
+
             // EPIC-RT v8 (D15): fonte primária = o item (RT congelado na seleção). O fallback
             // ao cadastro vivo cobre produto E serviço, e existe só para itens legados.
             rt_reserve_percent: resolveItemRtPercent(i, products, services),
@@ -1466,6 +1474,7 @@ function Sales() {
                 const reapDate = new Date().toISOString().slice(0, 10)
                 const validationEnrichedItems = saleItems.map(i => {
                     const prod = i.product_id ? (products as any[]).find(p => p.id === i.product_id) : null
+                    const svc = i.service_id ? (services as any[]).find(sv => sv.id === i.service_id) : null
                     const numOrNull = (v: unknown) =>
                         v != null && Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : null
                     const terc = prod
@@ -1473,6 +1482,9 @@ function Sales() {
                         : 0
                     return {
                         ...i,
+                        ...(svc
+                            ? { expense_breakdown_unit: resolveServiceExpenseBreakdownUnit(svc, Number(i.unit_price) || 0) }
+                            : {}),
                         // Etapa 5: a construção do item decide o destino das despesas.
                         // `service_id` já vem em `...i`; o tipo do produto vem do cadastro vivo.
                         product_type: prod?.product_type ?? null,
@@ -1530,6 +1542,7 @@ function Sales() {
             const reapurationEffectiveDateSale = new Date().toISOString().slice(0, 10)
             const saveEnrichedItems = saleItems.map(i => {
                 const prod = i.product_id ? (products as any[]).find(p => p.id === i.product_id) : null
+                const svc = i.service_id ? (services as any[]).find(sv => sv.id === i.service_id) : null
                 const numOrNull = (v: unknown) =>
                     v != null && Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : null
                 const terc = prod
@@ -1537,6 +1550,9 @@ function Sales() {
                     : 0
                 return {
                     ...i,
+                    ...(svc
+                        ? { expense_breakdown_unit: resolveServiceExpenseBreakdownUnit(svc, Number(i.unit_price) || 0) }
+                        : {}),
                     // Etapa 5: construção do item (ver `expense-destination.ts`).
                     product_type: prod?.product_type ?? null,
                     valor_op_interna_unit: numOrNull(prod?.valor_precificado_icms_piscofins),

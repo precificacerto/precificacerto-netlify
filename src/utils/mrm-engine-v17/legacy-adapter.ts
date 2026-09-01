@@ -146,21 +146,42 @@ function resolveYieldUndoFactor(item: PageItem, regime: TaxRegime | null | undef
  *
  * Escopo TRAVADO em SIMPLES_NACIONAL/MEI. Fora dele, ou quando o produto não traz nenhum
  * rate > 0, usa o tenant exatamente como hoje ⇒ bit-exact.
+ *
+ * SERVIÇO tem ramo próprio, acima do de produto e válido em QUALQUER regime: o snapshot de
+ * serviço (`services.expense_snapshot`) é a construção daquele preço. Ver
+ * `service-expense-snapshot.ts`.
  */
 function resolveDopRates(
   item: PageItem,
   regime: TaxRegime | null | undefined,
   eb: PageTenantCtx['expense_breakdown'],
-): { admin: number; fixed: number; variable: number; financial: number; fromProduct: boolean } {
+): { admin: number; fixed: number; variable: number; financial: number; fromItemSnapshot: boolean } {
   const isSimplesOuMei = regime === 'SIMPLES_NACIONAL' || regime === 'MEI'
   const ebU = item.expense_breakdown_unit
+  // SNAPSHOT DE SERVIÇO (`services.expense_snapshot`): quando existe, ele É a construção
+  // daquele preço, em qualquer regime — sem a condição `> 0` usada abaixo, porque a
+  // PRESENÇA do snapshot já é a afirmação. Serviço nunca teve `expense_breakdown_unit`
+  // antes desta coluna, então enquanto nenhum serviço tiver sido regravado este ramo não
+  // dispara e o comportamento é bit-exact.
+  //
+  // Sem isto, o preço gravado do serviço deixava de ser reproduzível: bastava o tenant
+  // editar as despesas para a cascata decompor com alíquotas que não formaram aquele preço.
+  if (item.service_id && ebU) {
+    return {
+      admin: Number(ebU.mo_admin?.rate) || 0,
+      fixed: Number(ebU.fixa?.rate) || 0,
+      variable: Number(ebU.variavel?.rate) || 0,
+      financial: Number(ebU.financeira?.rate) || 0,
+      fromItemSnapshot: true,
+    }
+  }
   if (isSimplesOuMei && ebU) {
     const admin = Number(ebU.mo_admin?.rate) || 0
     const fixed = Number(ebU.fixa?.rate) || 0
     const variable = Number(ebU.variavel?.rate) || 0
     const financial = Number(ebU.financeira?.rate) || 0
     if (admin > 0 || fixed > 0 || variable > 0 || financial > 0) {
-      return { admin, fixed, variable, financial, fromProduct: true }
+      return { admin, fixed, variable, financial, fromItemSnapshot: true }
     }
   }
   return {
@@ -168,7 +189,7 @@ function resolveDopRates(
     fixed: eb ? (Number(eb.fixed_pct) || 0) : 0,
     variable: eb ? (Number(eb.variable_pct) || 0) : 0,
     financial: eb ? (Number(eb.financial_pct) || 0) : 0,
-    fromProduct: false,
+    fromItemSnapshot: false,
   }
 }
 
@@ -573,7 +594,7 @@ export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResul
     // Fallback sem breakdown por balde (`tenantCtx.dop_pct` agregado): não há como separar
     // as categorias, logo não há destino a aplicar — permanece bit-exact ao comportamento
     // anterior. Os três call sites de produção sempre enviam `expense_breakdown`.
-    const dop_pct_nominal = (eb || dopRates.fromProduct)
+    const dop_pct_nominal = (eb || dopRates.fromItemSnapshot)
       ? dopAdminNominal + dopFixedNominal + dopVariableNominal + dopFinancialNominal
       : (Number(tenantCtx.dop_pct) || 0)
 
@@ -594,7 +615,7 @@ export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResul
     // (nominal × peso). Σ == dop_pct. Alimenta a Etapa 5 discriminada de forma que
     // reconcilie com o total e some a MO Administrativa (tenant) de todos os produtos.
     // Só disponível quando o tenant tem o breakdown por bucket (eb); senão null (fallback).
-    const dop_components = (eb || dopRates.fromProduct)
+    const dop_components = (eb || dopRates.fromItemSnapshot)
       ? {
           mo_admin: dopAdminNominal * pesoOpInternaTemp,
           fixa: dopFixedNominal * pesoOpInternaTemp,
@@ -1132,11 +1153,11 @@ export function calculateMotorV17ForPageFull(args: PageBuildArgs): {
     const dopFixedNominalFull = dopNominalFull.fixa
     const dopVariableNominalFull = dopNominalFull.variavel
     const dopFinancialNominalFull = dopNominalFull.financeira
-    const dop_pct = (eb || dopRatesFull.fromProduct)
+    const dop_pct = (eb || dopRatesFull.fromItemSnapshot)
       ? dopAdminNominalFull + dopFixedNominalFull + dopVariableNominalFull + dopFinancialNominalFull
       : (Number(args.tenantCtx.dop_pct) || 0)
     // Adendo Seção 31-A (itens 1-2): peso_op_interna é 1 neste caminho ⇒ componentes efetivos = nominais.
-    const dop_components = (eb || dopRatesFull.fromProduct)
+    const dop_components = (eb || dopRatesFull.fromItemSnapshot)
       ? {
           mo_admin: dopAdminNominalFull,
           fixa: dopFixedNominalFull,

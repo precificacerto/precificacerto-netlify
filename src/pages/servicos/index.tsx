@@ -206,7 +206,7 @@ function ServicesPage() {
             ])
             const expenseConfig = cfgRes.data || null
 
-            const { sellingPrice, laborCost, totalCost } = computeServiceSellingPrice({
+            const { sellingPrice, laborCost, totalCost, expenseSnapshot } = computeServiceSellingPrice({
                 materialCost: costTotal,
                 commissionPercent: Number(svc.commission_percent) || 0,
                 profitPercent: Number(svc.profit_percent) || 0,
@@ -226,6 +226,10 @@ function ServicesPage() {
                     cost_total: totalCost,
                     base_price: sellingPrice,
                     labor_cost: laborCost,
+                    // Preço novo, snapshot novo: as alíquotas que ACABARAM de formar este
+                    // preço. Gravar o preço sem gravar isto deixaria o serviço com um
+                    // snapshot descrevendo um preço que não existe mais.
+                    expense_snapshot: expenseSnapshot,
                     needs_cost_update: false,
                     updated_at: new Date().toISOString(),
                 })
