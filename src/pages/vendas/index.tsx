@@ -28,7 +28,7 @@ import { calculateDiscountedPrice, discountModeToAbsorptionPolicy, DiscountMode 
 import { formatBRL } from '@/utils/formatters'
 import { getEffectiveCommissionPercent } from '@/utils/get-effective-commission'
 import { resolveItemRtPercent, computeSaleRtAmount, resolveItemRtPctDecimal, type RtCatalogEntry } from '@/utils/balcao-rt'
-import { mapBudgetItemsToSaleItems } from '@/utils/budget-item-to-sale-item'
+import { mapBudgetItemsToSaleItems, BUDGET_ITEM_SELECT_FOR_SALE } from '@/utils/budget-item-to-sale-item'
 import { resolveServiceExpenseBreakdownUnit } from '@/utils/service-expense-snapshot'
 import {
     PaymentWithInstallments,
@@ -752,22 +752,11 @@ function Sales() {
             // profit_pct, tax_breakdown) garantindo imutabilidade do snapshot.
             const { data: budgetItems } = await (supabase as any)
                 .from('budget_items')
-                // ⚠️ DEFEITO CONHECIDO, DELIBERADAMENTE FORA DESTE PR (um PR por defeito):
-                // `rt_pct` NÃO está nesta lista. `resolveInheritedRtPctDecimal` recebe
-                // `undefined` e cai sempre no cadastro vivo, ignorando o RT CONGELADO no item
-                // do orçamento (D8). A rota irmã (`orcamentos/index.tsx`) lê a coluna — usa
-                // `select('*')`. Mesma assinatura do D12: o documento derivado deixa de
-                // herdar o valor congelado e volta a consultar o cadastro.
-                //
-                // ESTADO: ARMADO, NÃO MATERIALIZADO. As 154 linhas de `budget_items` em
-                // produção têm `rt_pct = 0` — todas anteriores ao D8 —, e a regra do D8
-                // prefere a origem só quando ela é positiva, então hoje o resultado é o
-                // mesmo. Do primeiro orçamento salvo com RT > 0 em diante, esta rota passa a
-                // entregar a alíquota atual do cadastro no lugar da congelada.
-                //
-                // Este PR é REFATORAÇÃO SEM MUDANÇA DE COMPORTAMENTO: a lista fica como
-                // está, e a correção vem no seu próprio PR.
-                .select('product_id, service_id, quantity, unit_price, discount, manual_description, commission_pct, profit_pct, tax_breakdown')
+                // A lista de colunas vem do mesmo módulo que faz o mapeamento. Escrita à mão
+                // aqui, ela omitia `rt_pct`: o mapeador recebia `undefined` e caía no cadastro
+                // vivo, ignorando o RT CONGELADO no item do orçamento (D8). Nada falhava — o
+                // campo só chegava vazio.
+                .select(BUDGET_ITEM_SELECT_FOR_SALE)
                 .eq('budget_id', selectedBudget.id)
 
             if (budgetItems && budgetItems.length > 0) {

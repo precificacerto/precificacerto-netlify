@@ -25,7 +25,43 @@ import {
 } from '@/utils/balcao-rt'
 import type { TaxBreakdown } from '@/types/mrm'
 
-/** Linha de `budget_items` no que interessa à travessia para a venda. */
+/**
+ * As colunas de `budget_items` que `mapBudgetItemsToSaleItems` LÊ.
+ *
+ * Existe porque a lista de colunas do `select` é a outra metade do mapeamento, e ela
+ * divergiu sozinha: a rota de Vendas não pedia `rt_pct`, então `resolveInheritedRtPctDecimal`
+ * recebia `undefined` e caía no cadastro vivo, ignorando o RT CONGELADO no item do orçamento
+ * (D8). Um `select` que não pede o que o mapeador lê é um defeito silencioso — nada falha,
+ * o campo só chega vazio.
+ *
+ * Com a lista aqui, ela deixa de ser possível por omissão: o teste afirma que toda
+ * propriedade de `BudgetItemForSale` está nesta lista, então acrescentar um campo ao
+ * mapeamento sem acrescentá-lo ao `select` quebra o build.
+ *
+ * A rota de Orçamentos usa `select('*')` — superconjunto trivialmente correto, mantido
+ * como está.
+ */
+export const BUDGET_ITEM_COLUMNS_FOR_SALE = [
+    'product_id',
+    'service_id',
+    'quantity',
+    'unit_price',
+    'discount',
+    'manual_description',
+    'commission_pct',
+    'profit_pct',
+    'rt_pct',
+    'tax_breakdown',
+] as const
+
+/** A mesma lista no formato que o `.select()` do Supabase espera. */
+export const BUDGET_ITEM_SELECT_FOR_SALE = BUDGET_ITEM_COLUMNS_FOR_SALE.join(', ')
+
+/**
+ * Linha de `budget_items` no que interessa à travessia para a venda.
+ *
+ * Toda propriedade daqui TEM que estar em `BUDGET_ITEM_COLUMNS_FOR_SALE` — há teste.
+ */
 export interface BudgetItemForSale {
     product_id?: string | null
     service_id?: string | null

@@ -13,12 +13,11 @@
  * duas implementações produzem a mesma linha, campo a campo, e é isso que os testes abaixo
  * fixam — a cópia removida está reproduzida aqui como oráculo.
  *
- * ⚠️ DEFEITO CONHECIDO, FORA DESTE PR: o `select` de `budget_items` da rota de Vendas não
- * pede `rt_pct`, então `resolveInheritedRtPctDecimal` recebe `undefined` e cai sempre no
- * cadastro vivo, ignorando o RT congelado do D8. Mesma assinatura do D12. ARMADO, NÃO
- * MATERIALIZADO: as 154 linhas em produção têm `rt_pct = 0`, todas anteriores ao D8, e a
- * regra do D8 prefere a origem só quando positiva — hoje o resultado é o mesmo. Corrigir
- * aqui mudaria comportamento e misturaria dois defeitos num PR; vai no seu próprio.
+ * O defeito adjacente registrado aqui — o `select` de `budget_items` da rota de Vendas não
+ * pedia `rt_pct`, ignorando o RT congelado do D8 — foi corrigido no seu próprio PR. Os testes
+ * dele estão em `rt-congelado-select-vendas.test.ts`. O oráculo abaixo continua reproduzindo
+ * a cópia removida COMO ELA ERA, `rt_pct` ausente incluído: ele fixa a refatoração, não o
+ * estado atual do `select`.
  *
  * REGRA FIXA: toda correção na Venda no Balcão testa PRODUTO e SERVIÇO, sempre.
  */
@@ -222,36 +221,26 @@ describe('O que a rota única garante daqui em diante', () => {
     })
 })
 
-describe('Defeito registrado, NÃO corrigido aqui · rt_pct fora do select', () => {
+describe('O defeito adjacente do rt_pct — corrigido no seu próprio PR', () => {
     /**
-     * O RT congelado no item do orçamento (D8) não chega à rota de Vendas porque a coluna
-     * não é pedida no `select`. Estes testes documentam o estado ATUAL — se um deles
-     * quebrar, é porque a correção entrou, e ela tem PR próprio.
+     * O `select` desta rota não pedia `rt_pct`, então o RT congelado no item do orçamento
+     * (D8) não chegava e o cadastro vivo entrava no lugar. Mesma assinatura do D12. Estava
+     * ARMADO, NÃO MATERIALIZADO: as 154 linhas em produção têm `rt_pct = 0`, todas
+     * anteriores ao D8, e a regra do D8 prefere a origem só quando positiva.
+     *
+     * A cobertura completa está em `rt-congelado-select-vendas.test.ts`. O que fica aqui é
+     * só o que este arquivo precisa afirmar: o mapeamento sempre soube usar a coluna — quem
+     * não a entregava era o `select`.
      */
-    const RT_CONGELADO_PRODUTO = 0.01   // cadastro vivo está em 3%
-    const RT_CONGELADO_SERVICO = 0.02   // cadastro vivo está em 4%
-
-    it('com a coluna ausente (estado atual), vale o cadastro vivo — PRODUTO e SERVIÇO', () => {
-        // É o que o Supabase devolve hoje: o campo simplesmente não vem.
-        const [p] = mapear([PRODUTO])
-        const [s] = mapear([SERVICO])
-        expect(p.rt_pct).toBe(0.03)
-        expect(s.rt_pct).toBe(0.04)
+    it('o módulo honra o rt_pct congelado quando ele chega — PRODUTO e SERVIÇO', () => {
+        const [p] = mapear([{ ...PRODUTO, rt_pct: 0.01 }])
+        const [s] = mapear([{ ...SERVICO, rt_pct: 0.02 }])
+        expect(p.rt_pct).toBe(0.01)
+        expect(s.rt_pct).toBe(0.02)
     })
 
-    it('com a coluna presente, o congelado venceria — a correção é só trazer o campo', () => {
-        const [p] = mapear([{ ...PRODUTO, rt_pct: RT_CONGELADO_PRODUTO }])
-        const [s] = mapear([{ ...SERVICO, rt_pct: RT_CONGELADO_SERVICO }])
-        expect(p.rt_pct).toBe(RT_CONGELADO_PRODUTO)
-        expect(s.rt_pct).toBe(RT_CONGELADO_SERVICO)
-    })
-
-    it('ARMADO, NÃO MATERIALIZADO: com rt_pct = 0 os dois caminhos dão o mesmo', () => {
-        // Estado das 154 linhas em produção, todas anteriores ao D8. A regra do D8 prefere
-        // a origem só quando positiva, então zero e ausente se comportam igual — é por isso
-        // que o defeito não é visível hoje.
-        const zerados = [{ ...PRODUTO, rt_pct: 0 }, { ...SERVICO, rt_pct: 0 }]
-        const ausentes = [PRODUTO, SERVICO]
-        expect(mapear(zerados)).toEqual(mapear(ausentes))
+    it('sem a coluna, cai no cadastro vivo — o efeito que o select causava', () => {
+        expect(mapear([PRODUTO])[0].rt_pct).toBe(0.03)
+        expect(mapear([SERVICO])[0].rt_pct).toBe(0.04)
     })
 })
