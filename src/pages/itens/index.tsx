@@ -778,7 +778,7 @@ function Items() {
           .single()
         if (!svc) continue
 
-        const { sellingPrice, laborCost, totalCost } = computeServiceSellingPrice({
+        const { sellingPrice, laborCost, totalCost, expenseSnapshot } = computeServiceSellingPrice({
           materialCost: costTotal,
           commissionPercent: Number(svc.commission_percent) || 0,
           profitPercent: Number(svc.profit_percent) || 0,
@@ -799,6 +799,8 @@ function Items() {
             cost_total: totalCost,
             base_price: sellingPrice,
             labor_cost: laborCost,
+            // Mesma regra dos outros dois gravadores: preço novo, snapshot novo.
+            expense_snapshot: expenseSnapshot,
             updated_at: new Date().toISOString(),
           })
           .eq('id', serviceId)

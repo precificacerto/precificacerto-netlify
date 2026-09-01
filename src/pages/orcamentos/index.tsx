@@ -39,6 +39,7 @@ import { syncCustomerRecurrenceOnSale } from '@/lib/customer-recurrence'
 import { distributeDiscountToItems } from '@/utils/distribute-discount'
 import { resolveItemRtPctDecimal, resolveInheritedRtPctDecimal, type RtCatalogEntry } from '@/utils/balcao-rt'
 import { mapBudgetItemsToSaleItems } from '@/utils/budget-item-to-sale-item'
+import { resolveServiceExpenseBreakdownUnit } from '@/utils/service-expense-snapshot'
 import { useTenantTaxContext } from '@/hooks/use-tenant-tax-context'
 import { MRM_ERROR_RRO_NON_POSITIVE, MRM_ENGINE_VERSION } from '@/types/mrm'
 import { PAGE_SIZE } from '@/constants/pagination'
@@ -750,6 +751,16 @@ function Budgets() {
             // se `yield_quantity` significa rendimento (PRODUZIDO) ou estoque (REVENDA).
             product_type: prod?.product_type ?? null,
             yield_quantity: prod?.yield_quantity ?? null,
+            // Snapshot das alíquotas de despesa do SERVIÇO (`services.expense_snapshot`),
+            // no mesmo campo que o produto já usa. Sem ele a cascata decompunha o preço do
+            // serviço com o `tenant_expense_config` de hoje, e não com o que o formou.
+            // `null` (serviço legado) mantém o fallback ao tenant, como sempre foi.
+            ...(svc
+                ? {
+                    expense_breakdown_unit:
+                        resolveServiceExpenseBreakdownUnit(svc, Number(i.unit_price) || 0),
+                }
+                : {}),
             // EPIC-RT v8: RT do item (congelado) ou fallback ao cadastro vivo do produto/serviço.
             rt_reserve_percent: Number((i as any).rt_reserve_percent ?? prod?.rt_reserve_percent ?? svc?.rt_reserve_percent) || 0,
             valor_op_interna_unit: numOrNull(prod?.valor_precificado_icms_piscofins),

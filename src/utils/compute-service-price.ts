@@ -4,6 +4,10 @@
  */
 
 import { calculatePricing } from '@/utils/pricing-engine'
+import {
+  buildServiceExpenseSnapshot,
+  type ServiceExpenseSnapshot,
+} from '@/utils/service-expense-snapshot'
 import type { TaxPreviewResult } from '@/utils/calc-tax-preview'
 import { resolveMonthlyWorkload } from '@/utils/resolve-monthly-workload'
 
@@ -59,6 +63,14 @@ export interface ServicePriceResult {
    * materiais e as duas rotas discordavam sobre o que a coluna significa.
    */
   totalCost: number
+  /**
+   * Alíquotas de despesa e custo por minuto que formaram ESTE preço, para gravar em
+   * `services.expense_snapshot`.
+   *
+   * Quem grava `base_price` tem que gravar isto junto: um snapshot velho descrevendo um
+   * preço novo é pior do que snapshot nenhum. Ver `service-expense-snapshot.ts`.
+   */
+  expenseSnapshot: ServiceExpenseSnapshot
 }
 
 /**
@@ -121,5 +133,13 @@ export function computeServiceSellingPrice(input: ServicePriceInput): ServicePri
     sellingPrice: result.isValid ? result.priceUnit : 0,
     laborCost: result.productiveLaborCost,
     totalCost: result.cmvUnit,
+    expenseSnapshot: buildServiceExpenseSnapshot({
+      variavelPct: variablePct,
+      financeiraPct: financialPct,
+      custoPorMinuto: monthlyWorkloadMinutes > 0
+        ? combinedLaborCostMonthly / monthlyWorkloadMinutes
+        : 0,
+      cargaHorariaMinutos: monthlyWorkloadMinutes,
+    }),
   }
 }
