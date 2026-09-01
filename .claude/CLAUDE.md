@@ -313,6 +313,7 @@ O AIOS carrega regras contextuais de `.claude/rules/` automaticamente. Regras co
 | `agent-authority.md` | Agent delegation matrix and exclusive operations |
 | `agent-handoff.md` | Agent switch compaction protocol for context optimization |
 | `agent-memory-imports.md` | Agent memory lifecycle and CLAUDE.md ownership |
+| `baseline-measurement.md` | Baseline measurement procedure for validating a PR against main |
 | `coderabbit-integration.md` | Automated code review integration rules |
 | `ids-principles.md` | Incremental Development System principles |
 | `mcp-usage.md` | MCP server usage rules and tool selection priority |
