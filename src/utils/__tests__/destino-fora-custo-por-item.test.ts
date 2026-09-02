@@ -543,7 +543,33 @@ describe('Oráculo canônico · decomposição com DESCONTO ZERO — os quatro i
         expect((soma / TOTAL) * 100).toBeCloseTo(100, 6)
     })
 
-    it('INVARIANTE 2 · espelho EXATO com desconto zero: RRO 170,463708 dos dois lados', () => {
+    /**
+     * INVARIANTE 2 — O QUE ELE AFIRMA, E O QUE NÃO AFIRMA.
+     *
+     * Formulação do dono do produto, registrada como está:
+     *
+     *   > Com desconto zero, Etapa 6 e Etapa 16 coincidem NO VALOR; o percentual efetivo pode
+     *   > divergir na quarta casa por arredondamento em cadeia. O INVARIANTE 2 VALE PARA O
+     *   > VALOR.
+     *
+     * LIMITAÇÃO CONHECIDA, NÃO DEFEITO ABERTO. Observado em produção (ORC-2356, 02/09,
+     * desconto 0%): a Etapa 6 exibe comissão efetiva 50,00% e a Etapa 16 exibe 49,9998%,
+     * enquanto o VALOR é R$ 175,00 nos dois lados. A Etapa 6 aplica o percentual direto sobre
+     * a âncora; a Etapa 16 chega ao mesmo número por subtração e redistribuição, e o resíduo
+     * fracionário da cadeia aparece na quarta casa do percentual — nunca no valor, que
+     * arredonda para o mesmo centavo.
+     *
+     * POR QUE NÃO É CORRIGIDO: derivar o percentual da Etapa 16 do valor já arredondado
+     * mexeria também no lucro da Etapa 6 e TROCARIA A DIVERGÊNCIA DE LADO em vez de eliminá-la
+     * — o resíduo não desaparece, muda de casa. O fechamento em 100,0029% em vez de
+     * 100,0000% é ESTA MESMA LIMITAÇÃO VISTA DE OUTRO LUGAR, e não item de correção próprio.
+     *
+     * TOLERÂNCIA DECLARADA. A asserção FORTE é o valor, à sexta casa. O percentual é asserido
+     * com tolerância de 1e-3 ponto percentual, e a tolerância está escrita aqui com a sua
+     * origem — arredondamento em cadeia na decomposição — para que ninguém a leia depois como
+     * um epsilon solto de procedência esquecida.
+     */
+    it('INVARIANTE 2 · o VALOR é o que fecha: RRO 170,463708 dos dois lados', () => {
         // Construção: comissão + lucro apurados item a item. Decomposição: o que sobra depois
         // de imposto, custo, despesas e RT. Com desconto zero os dois lados coincidem.
         const construcao = sobreTotal(O.comissao) + sobreTotal(O.lucro)
@@ -551,6 +577,22 @@ describe('Oráculo canônico · decomposição com DESCONTO ZERO — os quatro i
         expect(construcao).toBeCloseTo(170.463708, 6)
         expect(decomposicao).toBeCloseTo(170.463708, 5)
         expect(construcao).toBeCloseTo(decomposicao, 5)
+    })
+
+    it('INVARIANTE 2 · o PERCENTUAL vale com tolerância declarada de 1e-3 p.p.', () => {
+        // Origem da tolerância: arredondamento em cadeia na decomposição. A Etapa 6 divide um
+        // valor construído; a Etapa 16 divide um valor obtido por subtrações sucessivas. Os
+        // dois descrevem o mesmo dinheiro e podem diferir na quarta casa do percentual.
+        const TOLERANCIA_PP = 1e-3
+        const pctConstrucao = ((sobreTotal(O.comissao) + sobreTotal(O.lucro)) / TOTAL) * 100
+        const pctDecomposicao = ((TOTAL - IMPOSTO - CMV_CONSOLIDADO - DESPESAS - RT_VALOR) / TOTAL) * 100
+        expect(Math.abs(pctConstrucao - pctDecomposicao)).toBeLessThanOrEqual(TOLERANCIA_PP)
+
+        // E o valor, que é a asserção forte, continua fechando muito além dessa tolerância.
+        expect(Math.abs(
+            (sobreTotal(O.comissao) + sobreTotal(O.lucro))
+            - (TOTAL - IMPOSTO - CMV_CONSOLIDADO - DESPESAS - RT_VALOR),
+        )).toBeLessThan(0.00001)
     })
 
     it('INVARIANTE 3 · pesos 1/3 e 2/3 preservados na divisão do RRO', () => {
