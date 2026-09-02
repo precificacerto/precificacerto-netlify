@@ -139,6 +139,7 @@ export const ContentResale: FC<ContentResaleProps> = ({
       </Card>
 
       <ProductPrice
+        isResaleProduct
         calcBase={calcBase}
         productPriceInfo={productPriceInfo}
         handleChangePrecificationInputs={handleChangePrecificationInputs}

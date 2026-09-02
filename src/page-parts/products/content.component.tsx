@@ -10,6 +10,7 @@ import { ColumnsType } from 'antd/es/table'
 import { UNIT_TYPE } from '@/constants/item-unit-types'
 import { calculateItemPrice } from '@/utils/calculate-item-price'
 import { resolveProductTaxPercent, resolveProductTaxPercentToPersist } from '@/utils/product-tax-percent'
+import { resolveIndirectLaborPct } from '@/utils/indirect-labor-grouping'
 import { MessageInstance } from 'antd/es/message/interface'
 import { useRouter } from 'next/router'
 import { IProductModel } from '@/server/model/product'
@@ -729,9 +730,26 @@ export const Content: FC<ContentProps> = ({
     // variável + financeira. Nos demais segmentos (industrialização/revenda pura),
     // onde não existe custo por minuto diluindo estrutura, o coeficiente carrega
     // fixo + variável + financeiro + MO administrativa.
+    // Segmentação que decide o AGRUPAMENTO. A matriz cobre o item do MESMO TIPO da
+    // segmentação (core business), então o agrupamento vale para o item de revenda de um
+    // tenant de revenda. Item produzido em tenant de revenda é combinação ainda não definida
+    // pela regra: fica como está, sem agrupar.
+    const tenantSegmentForGrouping =
+      currentUser.calcType === CALC_TYPE_ENUM.RESALE && productType === 'REVENDA'
+        ? 'REVENDA'
+        : null
+
+    // Em segmentação REVENDA a MO Produtiva é MC agrupada com a Indireta: sem tempo de
+    // produção não há minuto sobre o qual ratear, então ela só pode entrar como percentual.
+    // Fora de REVENDA devolve a Indireta intacta. Ver `indirect-labor-grouping.ts`.
+    const indirectLaborPctForEngine = resolveIndirectLaborPct({
+      tenantCalcType: tenantSegmentForGrouping,
+      indirectLaborPct: calcBase.indirectLaborPct,
+      productiveLaborPct: calcBase.laborPercent,
+    })
     const structurePctForEngine = isCalcService
       ? (calcBase.variableExpensePct + calcBase.financialExpensePct) / 100
-      : (calcBase.structurePct + (Number(calcBase.indirectLaborPct) || 0)) / 100
+      : (calcBase.structurePct + indirectLaborPctForEngine) / 100
     const isLucroRealProd = currentUser.taxableRegime === 'LUCRO_REAL'
     const isLucroPresumidoProd = currentUser.taxableRegime === 'LUCRO_PRESUMIDO' || currentUser.taxableRegime === 'LUCRO_PRESUMIDO_RET'
     let effectiveTaxPct: number
@@ -826,6 +844,9 @@ export const Content: FC<ContentProps> = ({
     currentUser,
     calcBase.laborCostMonthly,
     calcBase.structurePct,
+    // Sem esta dependência o `doProductCalc` memoizado não recalcularia ao mudar a MO
+    // Produtiva do tenant — o preço de revenda ficaria preso ao valor da renderização anterior.
+    calcBase.laborPercent,
     calcBase.taxPct,
     calcBase.isMei,
     calcBase.indirectLaborPct,

@@ -43,6 +43,7 @@ import {
   type ItemTaxRates,
 } from '../item-tax-rates'
 import { resolveItemDopComponents } from '../expense-destination'
+import { resolveIndirectLaborPct } from '../indirect-labor-grouping'
 
 /**
  * Item esperado pelas páginas (subset do BudgetItemRow / OrderItemRow / SaleItemRow).
@@ -155,6 +156,8 @@ function resolveDopRates(
   item: PageItem,
   regime: TaxRegime | null | undefined,
   eb: PageTenantCtx['expense_breakdown'],
+  tenantCalcType?: string | null,
+  productiveLaborPct = 0,
 ): { admin: number; fixed: number; variable: number; financial: number; fromItemSnapshot: boolean } {
   const isSimplesOuMei = regime === 'SIMPLES_NACIONAL' || regime === 'MEI'
   const ebU = item.expense_breakdown_unit
@@ -184,13 +187,33 @@ function resolveDopRates(
       return { admin, fixed, variable, financial, fromItemSnapshot: true }
     }
   }
+  // AGRUPAMENTO EM REVENDA: em segmentação REVENDA a MO Produtiva é MC agrupada com a MO
+  // Indireta, numa categoria só. O preço formado pela tela já embute as duas somadas; se a
+  // cascata decompusesse só com a Indireta, a soma das categorias não fecharia com o preço.
+  // Fora de REVENDA `resolveIndirectLaborPct` devolve a Indireta intacta ⇒ bit-exact.
+  const admin = eb ? (Number(eb.administrative_pct) || 0) : 0
   return {
-    admin: eb ? (Number(eb.administrative_pct) || 0) : 0,
+    admin: resolveIndirectLaborPct({
+      tenantCalcType: isResaleItemInResaleTenant(item, tenantCalcType) ? 'REVENDA' : null,
+      indirectLaborPct: admin,
+      productiveLaborPct: productiveLaborPct,
+    }),
     fixed: eb ? (Number(eb.fixed_pct) || 0) : 0,
     variable: eb ? (Number(eb.variable_pct) || 0) : 0,
     financial: eb ? (Number(eb.financial_pct) || 0) : 0,
     fromItemSnapshot: false,
   }
+}
+
+/**
+ * O agrupamento da matriz vale para o item do MESMO TIPO da segmentação (core business):
+ * item de revenda num tenant de revenda. Item produzido em tenant de revenda é combinação
+ * ainda não definida pela regra — fica como está.
+ */
+function isResaleItemInResaleTenant(item: PageItem, tenantCalcType?: string | null): boolean {
+  if (String(tenantCalcType ?? '').trim().toUpperCase() !== 'REVENDA') return false
+  if (item.service_id) return false
+  return String(item.product_type ?? '').trim().toUpperCase() !== 'PRODUZIDO'
 }
 
 export interface PageTenantCtx {
@@ -211,6 +234,12 @@ export interface PageTenantCtx {
    * Ausente ⇒ nenhuma exceção aplicada.
    */
   calc_type?: string | null
+  /**
+   * MO Produtiva do tenant em DECIMAL (`production_labor_percent`). Só é lida em segmentação
+   * REVENDA, onde a matriz manda agrupá-la com a MO Indireta numa categoria só. Ausente ⇒ 0
+   * ⇒ nenhum agrupamento acontece. Ver `indirect-labor-grouping.ts`.
+   */
+  mo_produtiva_pct?: number | null
   expense_breakdown?: {
     fixed_pct?: number | null
     variable_pct?: number | null
@@ -572,7 +601,7 @@ export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResul
     // DOP agregado — 4 baldes. FIX-DESPESA-SN (C2): em SN/MEI usa os rates do PRODUTO
     // quando ele os traz; senão (e sempre fora de SN/MEI) usa os do tenant, como hoje.
     const eb = tenantCtx.expense_breakdown ?? null
-    const dopRates = resolveDopRates(item, tenantCtx.regime, eb)
+    const dopRates = resolveDopRates(item, tenantCtx.regime, eb, tenantCtx.calc_type, tenantCtx.mo_produtiva_pct)
     // ETAPA 5 — DESTINO POR ITEM (regra canônica): cada categoria tem, PARA ESTE ITEM, um
     // único destino — CUSTO ou margem de contribuição. O item cuja categoria vai para CUSTO
     // contribui com ZERO nesta linha da MC: não com o percentual médio, não com o do tenant.
@@ -1137,7 +1166,7 @@ export function calculateMotorV17ForPageFull(args: PageBuildArgs): {
     const cmvUsed = custoProduto > 0 ? custoProduto : snapshotCmv * qty
     // FIX-DESPESA-SN (C2) — idem, via args.tenantCtx.
     const eb = args.tenantCtx.expense_breakdown ?? null
-    const dopRatesFull = resolveDopRates(item, args.tenantCtx.regime, eb)
+    const dopRatesFull = resolveDopRates(item, args.tenantCtx.regime, eb, args.tenantCtx.calc_type, args.tenantCtx.mo_produtiva_pct)
     // ETAPA 5 — destino por item, idêntico ao caminho ForPage acima.
     const dopNominalFull = resolveItemDopComponents({
       item,

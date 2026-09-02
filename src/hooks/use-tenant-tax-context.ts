@@ -62,6 +62,12 @@ export interface TenantTaxContext {
     administrative_pct: number
   }
   /**
+   * MO Produtiva do tenant em decimal (`production_labor_percent`). Mesmo número de
+   * `mod_pct`, com nome próprio porque o uso é outro: em segmentação REVENDA ela é agrupada
+   * com a MO Indireta na margem de contribuição. Ver `indirect-labor-grouping.ts`.
+   */
+  mo_produtiva_pct: number
+  /**
    * Segmentação do tenant (`tenant_settings.calc_type`): INDUSTRIALIZACAO | REVENDA | SERVICO.
    *
    * Não decide o destino das categorias de despesa na cascata — isso é propriedade da
@@ -101,6 +107,7 @@ const DEFAULT_CONTEXT: TenantTaxContext = {
   dop_pct: 0,
   mod_pct: 0,
   expense_breakdown: { fixed_pct: 0, variable_pct: 0, financial_pct: 0, administrative_pct: 0 },
+  mo_produtiva_pct: 0,
   calc_type: null,
   rro_policy: null,
   components: null,
@@ -323,6 +330,7 @@ export function useTenantTaxContext(options: HookOptions = {}): TenantTaxContext
           financial_pct: financialPct,
           administrative_pct: moiPct,
         },
+        mo_produtiva_pct: mod_pct,
         calc_type: tenantSettings?.calc_type ?? null,
         rro_policy,
         components,

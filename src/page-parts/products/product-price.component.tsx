@@ -5,6 +5,7 @@ import { CalculatorOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { PercentInput } from '@/components/percent-input.component'
 import { getMonetaryValue } from '@/utils/get-monetary-value'
 import { resolveProductTaxPercent } from '@/utils/product-tax-percent'
+import { resolveIndirectLaborPct } from '@/utils/indirect-labor-grouping'
 import { computeIvaDualOutside } from '@/utils/iva-dual-outside'
 import { resolveIvaDualEffectiveRate } from '@/utils/item-tax-rates'
 import { computeAdvancedOutsideTaxes, type AdvancedOutsideParams } from '@/utils/icms-st-difal'
@@ -65,6 +66,10 @@ interface Props {
      produção (ex.: R$ 150,00 ÷ 2,5 = R$ 60,00/kg). Para produtos de REVENDA (onde a
      quantidade é estoque, não rendimento) fica FALSE — o valor não é dividido. */
   fractionByYield?: boolean
+  /* Produto de REVENDA. Em tenant de segmentação REVENDA (core business), MO Produtiva e MO
+     Indireta são MC agrupadas numa linha só — ver `indirect-labor-grouping.ts`. Renderizado
+     por `content-resale.tsx`; `content-industrialization.tsx` não passa. */
+  isResaleProduct?: boolean
 }
 
 export const ProductPrice: FC<Props> = ({
@@ -100,6 +105,7 @@ export const ProductPrice: FC<Props> = ({
   advancedTaxParams,
   ivaDualReductionFactor = null,
   fractionByYield = false,
+  isResaleProduct = false,
 }: Props) => {
   const { isMobile } = useDevice()
   const isCalcTypeResale = currentUser?.calcType === CALC_TYPE_ENUM.RESALE
@@ -112,7 +118,14 @@ export const ProductPrice: FC<Props> = ({
   const showIrpjCsll = isLucroReal || isLucroPresumed
 
   const totalPrice = productPriceInfo.totalProductPrice
-  const laborPct = Number(calcBase.indirectLaborPct) || 0
+  // MESMA expressão do cálculo (`doProductCalc`): em segmentação REVENDA a MO Produtiva é
+  // somada aqui e as duas aparecem numa linha só. Exibição e cálculo saindo de um ponto só é
+  // o que faz a soma das linhas fechar com o preço por construção — invariante do #17/#23.
+  const laborPct = resolveIndirectLaborPct({
+    tenantCalcType: isCalcTypeResale && isResaleProduct ? 'REVENDA' : null,
+    indirectLaborPct: calcBase.indirectLaborPct,
+    productiveLaborPct: calcBase.laborPercent,
+  })
   const fixedPct = calcBase.fixedExpensePct
   const variablePct = calcBase.variableExpensePct
   const financialPct = calcBase.financialExpensePct
