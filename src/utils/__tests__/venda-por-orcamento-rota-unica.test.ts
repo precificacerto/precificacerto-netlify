@@ -87,7 +87,9 @@ const SALE_ID = 'sale-1'
  * `undefined` porque o `select` não pedia a coluna. É o oráculo: a refatoração é correta
  * exatamente na medida em que o módulo produz isto.
  */
-function mapeamentoAntigoDeVendas(budgetItems: BudgetItemForSale[]): SaleItemRow[] {
+type LinhaAntiga = Omit<SaleItemRow, 'destination_snapshot'>
+
+function mapeamentoAntigoDeVendas(budgetItems: BudgetItemForSale[]): LinhaAntiga[] {
     return budgetItems.map((bi) => {
         const snap = hydrateItemSnapshot(
             {
@@ -115,6 +117,23 @@ function mapeamentoAntigoDeVendas(budgetItems: BudgetItemForSale[]): SaleItemRow
     })
 }
 
+/**
+ * O oráculo reproduz a cópia REMOVIDA, que é anterior ao D-A e não conhecia
+ * `destination_snapshot`. A igualdade campo a campo é feita sem ele; que o campo atravessa
+ * está asserido no seu próprio bloco, ao final.
+ */
+function omitir(linhas: readonly object[], chaves: readonly string[]) {
+    return linhas.map((l) => {
+        const copia = { ...l } as Record<string, unknown>
+        for (const k of chaves) delete copia[k]
+        return copia
+    })
+}
+
+function semSnapshotDeDestino(linhas: SaleItemRow[]) {
+    return omitir(linhas, ['destination_snapshot'])
+}
+
 function mapear(items: BudgetItemForSale[]): SaleItemRow[] {
     return mapBudgetItemsToSaleItems(items, {
         saleId: SALE_ID,
@@ -126,19 +145,19 @@ function mapear(items: BudgetItemForSale[]): SaleItemRow[] {
 
 describe('Refatoração sem mudança de comportamento', () => {
     it('PRODUTO: o módulo produz a MESMA linha que a cópia removida', () => {
-        expect(mapear([PRODUTO])).toEqual(mapeamentoAntigoDeVendas([PRODUTO]))
+        expect(semSnapshotDeDestino(mapear([PRODUTO]))).toEqual(mapeamentoAntigoDeVendas([PRODUTO]))
     })
 
     it('SERVIÇO: idem — campo a campo', () => {
-        expect(mapear([SERVICO])).toEqual(mapeamentoAntigoDeVendas([SERVICO]))
+        expect(semSnapshotDeDestino(mapear([SERVICO]))).toEqual(mapeamentoAntigoDeVendas([SERVICO]))
     })
 
     it('item manual: idem', () => {
-        expect(mapear([MANUAL])).toEqual(mapeamentoAntigoDeVendas([MANUAL]))
+        expect(semSnapshotDeDestino(mapear([MANUAL]))).toEqual(mapeamentoAntigoDeVendas([MANUAL]))
     })
 
     it('os três juntos, na ordem, sem interferência entre linhas', () => {
-        expect(mapear(TODOS)).toEqual(mapeamentoAntigoDeVendas(TODOS))
+        expect(semSnapshotDeDestino(mapear(TODOS))).toEqual(mapeamentoAntigoDeVendas(TODOS))
     })
 
     it('a única divergência é no caso degenerado — e o módulo é o lado correto', () => {
@@ -160,8 +179,8 @@ describe('Refatoração sem mudança de comportamento', () => {
         expect(novo[0].unit_price).toBe(0)
 
         // Fora desses dois campos, tudo o mais é idêntico.
-        const semNumericos = (linhas: SaleItemRow[]) =>
-            linhas.map(({ quantity: _q, unit_price: _u, ...resto }) => resto)
+        const semNumericos = (linhas: readonly object[]) =>
+            omitir(linhas, ['quantity', 'unit_price', 'destination_snapshot'])
         expect(semNumericos(novo)).toEqual(semNumericos(antigo))
 
         // E nenhuma linha do módulo sai com undefined ou NaN.
@@ -179,7 +198,7 @@ describe('Refatoração sem mudança de comportamento', () => {
             { service_id: 'svc-1', quantity: 3, unit_price: 99.9 },
             { quantity: 1, unit_price: 10, manual_description: 'x' },
         ]
-        expect(mapear(reais)).toEqual(mapeamentoAntigoDeVendas(reais))
+        expect(semSnapshotDeDestino(mapear(reais))).toEqual(mapeamentoAntigoDeVendas(reais))
     })
 })
 
@@ -204,6 +223,7 @@ describe('O que a rota única garante daqui em diante', () => {
         const contrato = [
             'sale_id', 'product_id', 'service_id', 'quantity', 'unit_price', 'discount',
             'description', 'commission_pct', 'profit_pct', 'rt_pct', 'tax_breakdown',
+            'destination_snapshot',
         ].sort()
         for (const linha of mapear(TODOS)) {
             expect(Object.keys(linha).sort()).toEqual(contrato)
@@ -242,5 +262,38 @@ describe('O defeito adjacente do rt_pct — corrigido no seu próprio PR', () =>
     it('sem a coluna, cai no cadastro vivo — o efeito que o select causava', () => {
         expect(mapear([PRODUTO])[0].rt_pct).toBe(0.03)
         expect(mapear([SERVICO])[0].rt_pct).toBe(0.04)
+    })
+})
+
+describe('D-A · o snapshot de destino atravessa para a venda', () => {
+    /**
+     * A venda NÃO reresolve o destino: o item do orçamento já responde por ele. Copiar em vez
+     * de recalcular é o que faz reprecificar o produto depois não alterar a venda gerada de
+     * um orçamento antigo.
+     */
+    const SNAP = {
+        v: 1,
+        destino: {
+            mo_produtiva: 'FORA', mo_indireta: 'FORA', despesa_fixa: 'FORA',
+            despesa_variavel: 'MARGEM', despesa_financeira: 'MARGEM',
+        },
+        construcao: 'REVENDA',
+        segmentacao: 'SERVICO',
+        gravado_em: '2026-08-01T10:00:00.000Z',
+    }
+
+    it('PRODUTO e SERVIÇO: o snapshot chega intacto', () => {
+        const [p] = mapear([{ ...PRODUTO, destination_snapshot: SNAP }])
+        const [s] = mapear([{ ...SERVICO, destination_snapshot: SNAP }])
+        expect(p.destination_snapshot).toEqual(SNAP)
+        expect(s.destination_snapshot).toEqual(SNAP)
+    })
+
+    it('item legado sem snapshot vira NULL — e null não é FORA', () => {
+        // A venda de um orçamento anterior à coluna nasce sem snapshot e cai na matriz pelo
+        // `calc_type` atual, como sempre foi. Gravar um objeto no lugar afirmaria uma
+        // classificação que ninguém fez.
+        expect(mapear([PRODUTO])[0].destination_snapshot).toBeNull()
+        expect(mapear([MANUAL])[0].destination_snapshot).toBeNull()
     })
 })

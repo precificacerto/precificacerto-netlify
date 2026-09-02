@@ -106,8 +106,27 @@ export interface ItemConstructionInput {
     product_type?: string | null
 }
 
+/**
+ * DOIS VOCABULÁRIOS PARA A MESMA SEGMENTAÇÃO. O banco grava `tenant_settings.calc_type` como
+ * INDUSTRIALIZACAO / SERVICO / REVENDA; a UI carrega o mesmo dado como
+ * INDUSTRIALIZATION / SERVICE / RESALE (`CALC_TYPE_ENUM`). Aceitar os dois é obrigatório e
+ * não é conveniência: um valor não reconhecido cai no ramo "sem segmentação" e as exceções da
+ * matriz simplesmente não se aplicam — sem erro, sem aviso, com o destino errado.
+ */
+const SEGMENTO_ALIASES: Record<string, string> = {
+    INDUSTRIALIZATION: 'INDUSTRIALIZACAO',
+    SERVICE: 'SERVICO',
+    RESALE: 'REVENDA',
+}
+
 function normalize(v: unknown): string {
-    return String(v ?? '').trim().toUpperCase()
+    const up = String(v ?? '').trim().toUpperCase()
+    return SEGMENTO_ALIASES[up] ?? up
+}
+
+/** A segmentação no vocabulário do banco, aceitando também o da UI. */
+export function normalizeTenantSegment(v: unknown): string {
+    return normalize(v)
 }
 
 /**

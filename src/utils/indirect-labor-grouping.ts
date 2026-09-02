@@ -42,8 +42,10 @@
 /** Segmentação do tenant (`tenant_settings.calc_type`). */
 export type TenantSegment = 'REVENDA' | 'INDUSTRIALIZACAO' | 'SERVICO'
 
+/** Mesmo motivo de `expense-destination.ts`: banco grava REVENDA, a UI carrega RESALE. */
 function normalize(v: unknown): string {
-    return String(v ?? '').trim().toUpperCase()
+    const up = String(v ?? '').trim().toUpperCase()
+    return up === 'RESALE' ? 'REVENDA' : up
 }
 
 /** A segmentação agrupa MO Produtiva com MO Indireta? Só REVENDA. */

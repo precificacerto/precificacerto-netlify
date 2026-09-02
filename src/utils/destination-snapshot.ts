@@ -37,6 +37,7 @@ import {
     applyCostDestination,
     applyDopDestinations,
     dopSliceOf,
+    normalizeTenantSegment,
     resolveCategoryDestinations,
     resolveItemConstruction,
     type CategoryDestinations,
@@ -88,7 +89,9 @@ export function buildDestinationSnapshot(input: {
         v: DESTINATION_SNAPSHOT_VERSION,
         destino: resolveCategoryDestinations(input.construction, input.tenantCalcType),
         construcao: input.construction,
-        segmentacao: String(input.tenantCalcType ?? '').trim().toUpperCase(),
+        // Gravado no vocabulário do banco, qualquer que seja o da entrada — ver
+        // `SEGMENTO_ALIASES` em `expense-destination.ts`.
+        segmentacao: normalizeTenantSegment(input.tenantCalcType),
         gravado_em: input.gravadoEm ?? new Date().toISOString(),
     }
 }
@@ -246,6 +249,6 @@ export function resolveItemLaborGrouping(args: {
     const construcao = snap ? snap.construcao : resolveItemConstruction(args.item)
     const segmentacao = snap
         ? snap.segmentacao
-        : String(args.tenantCalcType ?? '').trim().toUpperCase()
+        : normalizeTenantSegment(args.tenantCalcType)
     return construcao === 'REVENDA' && segmentacao === 'REVENDA' ? 'REVENDA' : null
 }

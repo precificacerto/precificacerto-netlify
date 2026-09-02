@@ -464,6 +464,7 @@ function OrdersPage() {
             .select(`
                 id, product_id, service_id, quantity, unit_price, total_price, manual_description,
                 commission_pct, profit_pct, rt_pct, tax_breakdown,
+                destination_snapshot,
                 products ( name, rt_reserve_percent ),
                 services ( name, rt_reserve_percent )
             `)
