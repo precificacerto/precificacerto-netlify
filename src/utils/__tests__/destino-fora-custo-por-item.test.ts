@@ -32,9 +32,9 @@ import {
     conversionCostEntersCmv,
     resolveCategoryDestinations,
     resolveDopDestinations,
-    resolveItemCostUnit,
     type ItemConstruction,
 } from '@/utils/expense-destination'
+import { resolveItemCostUnit } from '@/utils/destination-snapshot'
 import { resolveIndirectLaborPct } from '@/utils/indirect-labor-grouping'
 import {
     calculateMotorV17ForPage,

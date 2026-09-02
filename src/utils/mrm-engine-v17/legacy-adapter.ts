@@ -42,7 +42,11 @@ import {
   resolveStructuralProfitTaxes,
   type ItemTaxRates,
 } from '../item-tax-rates'
-import { resolveItemCostUnit, resolveItemDopComponents } from '../expense-destination'
+import {
+  resolveItemCostUnit,
+  resolveItemDopComponents,
+  resolveItemLaborGrouping,
+} from '../destination-snapshot'
 import { resolveIndirectLaborPct } from '../indirect-labor-grouping'
 
 /**
@@ -112,6 +116,15 @@ export interface PageItem {
    * `expense-destination.ts`.
    */
   service_id?: string | null
+  /**
+   * SEÇÃO 4 — snapshot de destino do item (`destination_snapshot`), conteúdo bruto do jsonb.
+   *
+   * Quando presente, ELE decide o destino de cada categoria, e o `calc_type` atual do tenant
+   * não é consultado para este item. `null`/ausente significa ITEM LEGADO — cai na matriz
+   * pelo `calc_type` atual, como sempre foi. **Nunca significa destino FORA.** Ver
+   * `destination-snapshot.ts`.
+   */
+  destination_snapshot?: unknown
 }
 
 /**
@@ -211,9 +224,14 @@ function resolveDopRates(
  * ainda não definida pela regra — fica como está.
  */
 function isResaleItemInResaleTenant(item: PageItem, tenantCalcType?: string | null): boolean {
-  if (String(tenantCalcType ?? '').trim().toUpperCase() !== 'REVENDA') return false
-  if (item.service_id) return false
-  return String(item.product_type ?? '').trim().toUpperCase() !== 'PRODUZIDO'
+  // SEÇÃO 4: com snapshot, quem responde é a segmentação GRAVADA — o preço foi formado com as
+  // duas somadas ou não foi, e mudar o `calc_type` depois não muda o que aconteceu. Sem
+  // snapshot, a condição é a de hoje ⇒ bit-exact para todo item legado.
+  return resolveItemLaborGrouping({
+    item,
+    snapshot: item.destination_snapshot,
+    tenantCalcType,
+  }) === 'REVENDA'
 }
 
 export interface PageTenantCtx {
@@ -599,6 +617,7 @@ export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResul
     // outro item", e somá-la aqui de novo seria dupla incidência. Ver `expense-destination`.
     const custoUnit = resolveItemCostUnit({
       item,
+      snapshot: item.destination_snapshot,
       tenantCalcType: tenantCtx.calc_type,
       itemCost: Number(item.cost_total) || 0,
       conversionCost: Number(item.productive_labor_unit) || 0,
@@ -617,6 +636,7 @@ export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResul
     // É o que transforma a Etapa 5 numa SOMA DE VALORES POR ITEM. Ver `expense-destination.ts`.
     const dopNominal = resolveItemDopComponents({
       item,
+      snapshot: item.destination_snapshot,
       tenantCalcType: tenantCtx.calc_type,
       components: {
         mo_admin: dopRates.admin,
@@ -1175,6 +1195,7 @@ export function calculateMotorV17ForPageFull(args: PageBuildArgs): {
     // outro item", e somá-la aqui de novo seria dupla incidência. Ver `expense-destination`.
     const custoUnitFull = resolveItemCostUnit({
       item,
+      snapshot: item.destination_snapshot,
       tenantCalcType: args.tenantCtx.calc_type,
       itemCost: Number(item.cost_total) || 0,
       conversionCost: Number(item.productive_labor_unit) || 0,
@@ -1188,6 +1209,7 @@ export function calculateMotorV17ForPageFull(args: PageBuildArgs): {
     // ETAPA 5 — destino por item, idêntico ao caminho ForPage acima.
     const dopNominalFull = resolveItemDopComponents({
       item,
+      snapshot: item.destination_snapshot,
       tenantCalcType: args.tenantCtx.calc_type,
       components: {
         mo_admin: dopRatesFull.admin,
