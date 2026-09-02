@@ -357,7 +357,31 @@ describe('Item único · PRODUTO e SERVIÇO, cada um sozinho', () => {
  * Estes são os 89 dos 91 orçamentos com itens em produção (Esquadrias De Paula, 86; TAMARA
  * DRESCH, 3). Nas colunas Industrialização e Revenda da tabela de destinos, MO Indireta e
  * Despesa Fixa são MARGEM — e a exceção do produto de revenda só existe em tenant SERVIÇO.
- * Logo nada nestes tenants pode se mover, com um item ou com vários.
+ * Logo nada nestes tenants podia se mover na MC, com um item ou com vários. **A MC continua
+ * intacta: Etapa 5 = 21.700 e Etapa 6 = 28.464, iguais aos medidos aqui desde o PR #25.**
+ *
+ * O QUE MUDOU, E POR QUÊ — regra nova (Cascata do Simples Nacional), tabela do item de
+ * REVENDA em tenant de OUTRA segmentação: em tenant de INDUSTRIALIZAÇÃO o destino da MO
+ * Produtiva é **FORA**, porque ela já está dentro do custo por tempo dos itens produzidos.
+ * Quando este bloco foi escrito só existiam dois destinos e essa célula não estava prevista:
+ * `REVENDIDO` tem `productive_labor_unit: 900` × qtd 2 = **R$ 1.800**, que vinham entrando no
+ * CMV do item de revenda — dupla incidência. Saem agora, e o RRO sobe exatamente esses 1.800:
+ *
+ *   Etapa 4 (custo consolidado, multi) ... 36.300 → 34.500   (−1.800)
+ *   RRO, revenda sozinha ................. 47.800 → 49.600   (+1.800)
+ *   RRO, multi sem desconto .............. 82.000 → 83.800   (+1.800)
+ *   RRO, multi com 10% ................... 68.000 → 69.800   (+1.800)
+ *   Comissão (16), multi ................. 15.556,4924 → 15.897,9764
+ *   Lucro (16), multi .................... 53.583,4739 → 54.759,6965
+ *
+ * Comissão e lucro se movem por REDISTRIBUIÇÃO do RRO pelos pesos estruturais, não por regra
+ * própria. Em produção nada disso se materializa: nenhum produto de revenda tem MO Produtiva
+ * por qualquer fonte (`productive_labor_total`, `labor_costs`, `pricing_calculations`), em
+ * nenhuma das três segmentações — 29 itens em tenants de industrialização, 18 em serviço, 28
+ * em revenda, todos zero. É ARMADO, NÃO MATERIALIZADO.
+ *
+ * O que continua sendo "não pode mudar", e é o que este bloco guarda: a MC destes tenants, e
+ * o tenant REVENDA inteiro, onde nada se moveu.
  */
 const TENANT_INDUSTRIA: PageTenantCtx = {
     regime: 'LUCRO_REAL',
@@ -398,21 +422,25 @@ describe('Não pode mudar · tenant INDUSTRIALIZAÇÃO', () => {
         const c = cascade([REVENDIDO], TENANT_INDUSTRIA, 0)
         expect(child(c, 5, 'MO Administrativa')).toBeCloseTo(80000 * 0.08, 6)
         expect(child(c, 5, 'Despesa Fixa')).toBeCloseTo(80000 * 0.06, 6)
-        expect(stepAmount(c, 15)).toBeCloseTo(47800, 6)
+        // 47.800 antes: os 1.800 de MO Produtiva saíram do CMV (destino FORA) e viraram RRO.
+        expect(stepAmount(c, 15)).toBeCloseTo(49600, 6)
     })
 
     it('multi-item, com e sem desconto: valores idênticos aos medidos antes da correção', () => {
         const c = cascade([PRODUZIDO, REVENDIDO], TENANT_INDUSTRIA, 0)
+        // A MC não se moveu — é o que este teste guarda desde o PR #25.
         expect(stepAmount(c, 5)).toBeCloseTo(21700, 6)
         expect(stepAmount(c, 6)).toBeCloseTo(28464, 6)
-        expect(stepAmount(c, 15)).toBeCloseTo(82000, 6)
-        expect(child(c, 16, 'Comissão')).toBeCloseTo(15556.492411, 4)
-        expect(child(c, 16, 'Lucro')).toBeCloseTo(53583.473862, 4)
+        // 82.000 antes; +1.800 de MO Produtiva do item de revenda que deixou o CMV.
+        expect(stepAmount(c, 15)).toBeCloseTo(83800, 6)
+        expect(child(c, 16, 'Comissão')).toBeCloseTo(15897.976391, 4)
+        expect(child(c, 16, 'Lucro')).toBeCloseTo(54759.696459, 4)
 
         const d = cascade([PRODUZIDO, REVENDIDO], TENANT_INDUSTRIA, 10)
         expect(stepAmount(d, 5)).toBeCloseTo(21700, 6)
-        expect(stepAmount(d, 15)).toBeCloseTo(68000, 6)
-        expect(child(d, 16, 'Comissão')).toBeCloseTo(12900.505902, 4)
+        // 68.000 antes; mesmos 1.800, o desconto não os toca (custo é imune a desconto).
+        expect(stepAmount(d, 15)).toBeCloseTo(69800, 6)
+        expect(child(d, 16, 'Comissão')).toBeCloseTo(13241.989882, 4)
     })
 })
 
@@ -424,11 +452,18 @@ describe('Não pode mudar · tenant REVENDA e tenant sem calc_type', () => {
         expect(stepAmount(c, 15)).toBeCloseTo(47800, 6)
     })
 
-    it('calc_type ausente: nenhuma exceção é aplicada — bit-exact ao comportamento anterior', () => {
+    it('calc_type ausente: nenhuma exceção é aplicada — nem na MC, nem no custo', () => {
         const semTipo = cascade([PRODUZIDO, REVENDIDO], { ...TENANT_INDUSTRIA, calc_type: undefined }, 0)
         const comTipo = cascade([PRODUZIDO, REVENDIDO], TENANT_INDUSTRIA, 0)
+        // A MC é idêntica nos dois: sem segmentação não há exceção a aplicar.
         expect(stepAmount(semTipo, 5)).toBe(stepAmount(comTipo, 5))
-        expect(stepAmount(semTipo, 15)).toBe(stepAmount(comTipo, 15))
+        // O CUSTO diverge, e é a divergência que este PR introduz: sem `calc_type` a MO
+        // Produtiva do item de revenda continua no CMV (nenhum destino FORA foi resolvido);
+        // com `calc_type = INDUSTRIALIZACAO` ela sai. 82.000 contra 83.800.
+        expect(stepAmount(semTipo, 4)).toBeCloseTo(36300, 6)
+        expect(stepAmount(comTipo, 4)).toBeCloseTo(34500, 6)
+        expect(stepAmount(semTipo, 15)).toBeCloseTo(82000, 6)
+        expect(stepAmount(comTipo, 15)).toBeCloseTo(83800, 6)
     })
 
     it('serviço em tenant de indústria também tem MO adm e fixa no custo — é a construção que manda', () => {
@@ -474,12 +509,16 @@ describe('Tabela de destinos', () => {
         }
     })
 
-    it('Revenda: margem — exceto em tenant SERVIÇO, onde as duas vão para o custo', () => {
+    it('Revenda: margem — exceto em tenant SERVIÇO, onde as duas ficam FORA', () => {
+        // ATUALIZADO PELA REGRA NOVA (Cascata do Simples Nacional): o destino aqui era escrito
+        // 'CUSTO' quando só existiam dois destinos. Não é custo do item de revenda: as duas já
+        // estão dentro do custo por minuto da prestação, e o nome disso é FORA. O efeito na MC
+        // é o mesmo — zero nas duas linhas — e nenhum número deste arquivo muda por esta linha.
         expect(resolveDopDestinations('REVENDA', 'INDUSTRIALIZACAO')).toMatchObject({ mo_admin: 'MARGEM', fixa: 'MARGEM' })
         expect(resolveDopDestinations('REVENDA', 'REVENDA')).toMatchObject({ mo_admin: 'MARGEM', fixa: 'MARGEM' })
         expect(resolveDopDestinations('REVENDA', null)).toMatchObject({ mo_admin: 'MARGEM', fixa: 'MARGEM' })
-        expect(resolveDopDestinations('REVENDA', 'SERVICO')).toMatchObject({ mo_admin: 'CUSTO', fixa: 'CUSTO' })
-        expect(resolveDopDestinations('REVENDA', ' servico ')).toMatchObject({ mo_admin: 'CUSTO', fixa: 'CUSTO' })
+        expect(resolveDopDestinations('REVENDA', 'SERVICO')).toMatchObject({ mo_admin: 'FORA', fixa: 'FORA' })
+        expect(resolveDopDestinations('REVENDA', ' servico ')).toMatchObject({ mo_admin: 'FORA', fixa: 'FORA' })
     })
 
     it('destino CUSTO zera o balde — não reduz, não faz média: zera', () => {
