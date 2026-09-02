@@ -315,6 +315,7 @@ O AIOS carrega regras contextuais de `.claude/rules/` automaticamente. Regras co
 | `agent-memory-imports.md` | Agent memory lifecycle and CLAUDE.md ownership |
 | `baseline-measurement.md` | Baseline measurement procedure for validating a PR against main |
 | `coderabbit-integration.md` | Automated code review integration rules |
+| `fato-vs-referencia.md` | Valor gravado é fato histórico ou referência viva — classe com 5 aparições |
 | `ids-principles.md` | Incremental Development System principles |
 | `migration-delivery.md` | PR com migração só está entregue com a migração aplicada e verificada |
 | `mcp-usage.md` | MCP server usage rules and tool selection priority |
