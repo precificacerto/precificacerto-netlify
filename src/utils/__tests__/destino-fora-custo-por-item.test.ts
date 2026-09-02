@@ -559,10 +559,36 @@ describe('Oráculo canônico · decomposição com DESCONTO ZERO — os quatro i
      * fracionário da cadeia aparece na quarta casa do percentual — nunca no valor, que
      * arredonda para o mesmo centavo.
      *
-     * POR QUE NÃO É CORRIGIDO: derivar o percentual da Etapa 16 do valor já arredondado
-     * mexeria também no lucro da Etapa 6 e TROCARIA A DIVERGÊNCIA DE LADO em vez de eliminá-la
-     * — o resíduo não desaparece, muda de casa. O fechamento em 100,0029% em vez de
-     * 100,0000% é ESTA MESMA LIMITAÇÃO VISTA DE OUTRO LUGAR, e não item de correção próprio.
+     * A CAUSA, IDENTIFICADA E MEDIDA — não é vaga, tem origem exata: o `round2` DO PREÇO DE
+     * VENDA. O preço é formado por `CMV ÷ coeficiente` e depois arredondado para centavos,
+     * mas o CMV continua sendo o exato. No item de R$ 4,62 do ORC-2356, com custo R$ 0,85 e
+     * coeficiente 18,39%:
+     *
+     *   preço exato    = 0,85 ÷ 0,1839 = R$ 4,622077…   ← o que a construção produziu
+     *   preço exibido  = round2(4,622077) = R$ 4,62      ← o que a cascata recebe
+     *   custo implícito em 4,62 = 4,62 × 0,1839 = R$ 0,849618
+     *   RESÍDUO = 0,850000 − 0,849618 = R$ 0,000382
+     *
+     * Esses R$ 0,000382 de custo NÃO CABEM NO PREÇO ARREDONDADO. Como custo e despesas são
+     * subtraídos e o RRO é o que sobra, o resíduo entra no RRO e desloca os percentuais
+     * efetivos — na quarta casa, e independentemente de quanta precisão a redistribuição use.
+     *
+     * TRÊS CENÁRIOS MEDIDOS, que é o que separa as hipóteses:
+     *
+     *   1. hoje, com os arredondados ......... RRO 3,690000 → comissão 4,9919%, lucro 74,8782%
+     *   2. RRO exato, a partir de R$ 4,62 .... RRO 3,695585 → comissão 4,9994%, lucro 74,9916%
+     *   3. tudo exato, de R$ 4,622077 ........ RRO 3,697662 → comissão 5,0000%, lucro 75,0000%
+     *
+     * POR QUE NÃO É CORRIGIDO: redistribuir o RRO com precisão total leva ao CENÁRIO 2, não
+     * ao 3 — melhora a quarta casa e NÃO CRAVA, porque o erro está A MONTANTE, no preço. E o
+     * motor já redistribui em precisão plena: não há `Math.round` monetário em `absorption.ts`,
+     * `motor-rro.ts`, `consolidate.ts` nem `cascade-trace.ts`. Cravar em 5,0000% exigiria a
+     * cascata operar sobre o preço NÃO arredondado — e o preço de venda tem que ser em
+     * centavos. Derivar o percentual da Etapa 16 do valor já arredondado, por sua vez, mexeria
+     * no lucro da Etapa 6 e TROCARIA A DIVERGÊNCIA DE LADO em vez de eliminá-la.
+     *
+     * O fechamento em 100,0029% em vez de 100,0000% é ESTA MESMA LIMITAÇÃO VISTA DE OUTRO
+     * LUGAR, e não item de correção próprio.
      *
      * TOLERÂNCIA DECLARADA. A asserção FORTE é o valor, à sexta casa. O percentual é asserido
      * com tolerância de 1e-3 ponto percentual, e a tolerância está escrita aqui com a sua
