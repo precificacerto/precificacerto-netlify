@@ -31,6 +31,8 @@ import {
     applyDopDestinations,
     resolveDopDestinations,
     resolveItemConstruction,
+    type DopComponents,
+    type DopDestinations,
 } from '@/utils/expense-destination'
 import type { CascadeStep } from '@/types/mrm'
 
@@ -360,12 +362,25 @@ describe('Item único · PRODUTO e SERVIÇO, cada um sozinho', () => {
  * Logo nada nestes tenants podia se mover na MC, com um item ou com vários. **A MC continua
  * intacta: Etapa 5 = 21.700 e Etapa 6 = 28.464, iguais aos medidos aqui desde o PR #25.**
  *
- * O QUE MUDOU, E POR QUÊ — regra nova (Cascata do Simples Nacional), tabela do item de
- * REVENDA em tenant de OUTRA segmentação: em tenant de INDUSTRIALIZAÇÃO o destino da MO
- * Produtiva é **FORA**, porque ela já está dentro do custo por tempo dos itens produzidos.
- * Quando este bloco foi escrito só existiam dois destinos e essa célula não estava prevista:
- * `REVENDIDO` tem `productive_labor_unit: 900` × qtd 2 = **R$ 1.800**, que vinham entrando no
- * CMV do item de revenda — dupla incidência. Saem agora, e o RRO sobe exatamente esses 1.800:
+ * ATUALIZADO POR MUDANÇA DE REGRA — NÃO É TESTE AFROUXADO PARA PASSAR.
+ *
+ * Os valores antigos foram escritos sob a matriz de DOIS destinos do PR #25. A matriz canônica
+ * de TRÊS destinos os torna OBSOLETOS: na tabela do item de REVENDA em tenant de OUTRA
+ * segmentação, em tenant de INDUSTRIALIZAÇÃO o destino da MO Produtiva é **FORA**, porque ela
+ * já está dentro do custo por tempo dos itens produzidos. Quando este bloco foi escrito essa
+ * célula não existia. `REVENDIDO` tem `productive_labor_unit: 900` × qtd 2 = **R$ 1.800**, que
+ * vinham entrando no CMV do item de revenda — dupla incidência.
+ *
+ * A PROVA de que a mudança é correta e não vazamento, e ela está asserida abaixo, não apenas
+ * afirmada aqui:
+ *
+ *   1. A MC NÃO SE MOVEU — Etapa 5 em 21.700 e Etapa 6 em 28.464, intactas.
+ *   2. O RRO SOBE EXATAMENTE O QUE O CUSTO DESCE — 1.800 em cada um dos três casos, com e
+ *      sem desconto (custo é imune a desconto, então o delta não varia com ele).
+ *   3. Comissão e lucro se movem por REDISTRIBUIÇÃO do RRO pelos pesos estruturais, não por
+ *      regra própria: nenhum percentual de comissão ou de lucro foi tocado.
+ *
+ * É esse o comportamento que a regra manda. Valores antigos e novos lado a lado:
  *
  *   Etapa 4 (custo consolidado, multi) ... 36.300 → 34.500   (−1.800)
  *   RRO, revenda sozinha ................. 47.800 → 49.600   (+1.800)
@@ -374,8 +389,7 @@ describe('Item único · PRODUTO e SERVIÇO, cada um sozinho', () => {
  *   Comissão (16), multi ................. 15.556,4924 → 15.897,9764
  *   Lucro (16), multi .................... 53.583,4739 → 54.759,6965
  *
- * Comissão e lucro se movem por REDISTRIBUIÇÃO do RRO pelos pesos estruturais, não por regra
- * própria. Em produção nada disso se materializa: nenhum produto de revenda tem MO Produtiva
+ * Em produção nada disso se materializa: nenhum produto de revenda tem MO Produtiva
  * por qualquer fonte (`productive_labor_total`, `labor_costs`, `pricing_calculations`), em
  * nenhuma das três segmentações — 29 itens em tenants de industrialização, 18 em serviço, 28
  * em revenda, todos zero. É ARMADO, NÃO MATERIALIZADO.
@@ -428,9 +442,13 @@ describe('Não pode mudar · tenant INDUSTRIALIZAÇÃO', () => {
 
     it('multi-item, com e sem desconto: valores idênticos aos medidos antes da correção', () => {
         const c = cascade([PRODUZIDO, REVENDIDO], TENANT_INDUSTRIA, 0)
-        // A MC não se moveu — é o que este teste guarda desde o PR #25.
+        // PROVA 1 — a MC não se moveu: é o que este teste guarda desde o PR #25.
         expect(stepAmount(c, 5)).toBeCloseTo(21700, 6)
         expect(stepAmount(c, 6)).toBeCloseTo(28464, 6)
+        // PROVA 2 — o RRO sobe EXATAMENTE o que o custo desce, asserido como identidade e não
+        // como dois números soltos: 36.300 − 34.500 = 83.800 − 82.000 = 1.800.
+        expect(stepAmount(c, 4)).toBeCloseTo(34500, 6)
+        expect(36300 - stepAmount(c, 4)).toBeCloseTo(stepAmount(c, 15) - 82000, 6)
         // 82.000 antes; +1.800 de MO Produtiva do item de revenda que deixou o CMV.
         expect(stepAmount(c, 15)).toBeCloseTo(83800, 6)
         expect(child(c, 16, 'Comissão')).toBeCloseTo(15897.976391, 4)
@@ -510,15 +528,54 @@ describe('Tabela de destinos', () => {
     })
 
     it('Revenda: margem — exceto em tenant SERVIÇO, onde as duas ficam FORA', () => {
-        // ATUALIZADO PELA REGRA NOVA (Cascata do Simples Nacional): o destino aqui era escrito
-        // 'CUSTO' quando só existiam dois destinos. Não é custo do item de revenda: as duas já
-        // estão dentro do custo por minuto da prestação, e o nome disso é FORA. O efeito na MC
-        // é o mesmo — zero nas duas linhas — e nenhum número deste arquivo muda por esta linha.
+        // ATUALIZAÇÃO POR MUDANÇA DE REGRA: o destino aqui era escrito 'CUSTO' quando a matriz
+        // tinha DOIS destinos. Não é custo do item de revenda — as duas já estão dentro do
+        // custo por minuto da prestação, e o nome disso é FORA. A troca é DE VOCABULÁRIO, e o
+        // teste abaixo prova que é, em vez de afirmar que é.
         expect(resolveDopDestinations('REVENDA', 'INDUSTRIALIZACAO')).toMatchObject({ mo_admin: 'MARGEM', fixa: 'MARGEM' })
         expect(resolveDopDestinations('REVENDA', 'REVENDA')).toMatchObject({ mo_admin: 'MARGEM', fixa: 'MARGEM' })
         expect(resolveDopDestinations('REVENDA', null)).toMatchObject({ mo_admin: 'MARGEM', fixa: 'MARGEM' })
         expect(resolveDopDestinations('REVENDA', 'SERVICO')).toMatchObject({ mo_admin: 'FORA', fixa: 'FORA' })
         expect(resolveDopDestinations('REVENDA', ' servico ')).toMatchObject({ mo_admin: 'FORA', fixa: 'FORA' })
+    })
+
+    it('PROVA de que a troca CUSTO → FORA é só vocabulário: a MC dá NÚMEROS IDÊNTICOS', () => {
+        // Não basta trocar o esperado de CUSTO para FORA. Se os números da MC divergissem, não
+        // seria vocabulário — seria defeito. Aqui a igualdade é asserida, não presumida.
+        const custo: DopDestinations = { mo_admin: 'CUSTO', fixa: 'CUSTO', variavel: 'MARGEM', financeira: 'MARGEM' }
+        const fora: DopDestinations = { mo_admin: 'FORA', fixa: 'FORA', variavel: 'MARGEM', financeira: 'MARGEM' }
+        const casos: DopComponents[] = [
+            { mo_admin: 0.0831, fixa: 0.0623, variavel: 0.0125, financeira: 0.0036 },
+            { mo_admin: 0.08, fixa: 0.06, variavel: 0.01, financeira: 0.005 },
+            { mo_admin: 0, fixa: 0, variavel: 0, financeira: 0 },
+            { mo_admin: 1, fixa: 1, variavel: 1, financeira: 1 },
+        ]
+        for (const c of casos) {
+            expect(applyDopDestinations(c, fora)).toEqual(applyDopDestinations(c, custo))
+        }
+    })
+
+    it('PROVA na cascata: a conversão do item de revenda não vaza para a MC, em nenhum valor', () => {
+        // O que distingue FORA de CUSTO está no lado do CUSTO. Do lado da MC os dois zeram
+        // igual — e é isto que se vê aqui: variando a MO Produtiva do item de revenda de 0 a
+        // 900 num tenant de SERVIÇO, as Etapas 5 e 6 não se movem um centavo.
+        const revenda = (mod: number): PageItem => ({
+            unit_price: 200, quantity: 1, cost_total: 80, productive_labor_unit: mod,
+            product_type: 'REVENDA', yield_quantity: 1,
+            commission_percent: 10, profit_percent: 15, item_tax_rates: { das_pct: 6 },
+        })
+        const base = cascade([revenda(0)], TENANT_SERVICO, 0)
+        for (const mod of [20, 900]) {
+            const c = cascade([revenda(mod)], TENANT_SERVICO, 0)
+            expect(stepAmount(c, 5)).toBe(stepAmount(base, 5))
+            expect(stepAmount(c, 6)).toBe(stepAmount(base, 6))
+            expect(child(c, 5, 'MO Administrativa')).toBe(0)
+            expect(child(c, 5, 'Despesa Fixa')).toBe(0)
+            expect(child(c, 5, 'Despesa Variável')).toBe(child(base, 5, 'Despesa Variável'))
+            expect(child(c, 5, 'Despesa Financeira')).toBe(child(base, 5, 'Despesa Financeira'))
+            // E o custo também não se move: FORA tira a conversão inteira, qualquer que seja.
+            expect(stepAmount(c, 4)).toBe(stepAmount(base, 4))
+        }
     })
 
     it('destino CUSTO zera o balde — não reduz, não faz média: zera', () => {
