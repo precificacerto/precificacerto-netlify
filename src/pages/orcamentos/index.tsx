@@ -806,6 +806,7 @@ function Budgets() {
             expense_breakdown: mrmConfig.expense_breakdown,
             // Etapa 5: só para a exceção do produto de revenda em tenant SERVIÇO.
             calc_type: mrmConfig.calc_type,
+            mo_produtiva_pct: mrmConfig.mo_produtiva_pct,
             absorption_policy: discountModeToAbsorptionPolicy(discountMode), // Item 2: modo do dropdown
         },
         globalDiscountPercent: discountPct,
