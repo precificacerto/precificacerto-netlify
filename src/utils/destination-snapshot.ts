@@ -252,3 +252,15 @@ export function resolveItemLaborGrouping(args: {
         : normalizeTenantSegment(args.tenantCalcType)
     return construcao === 'REVENDA' && segmentacao === 'REVENDA' ? 'REVENDA' : null
 }
+
+/**
+ * Lê `destination_snapshot` de uma linha de cadastro ou de documento.
+ *
+ * Existe para não espalhar `as any` pelas telas: os tipos gerados do Supabase
+ * (`database.types`) ainda não conhecem a coluna, e regenerá-los é escopo próprio. Devolve
+ * `null` para linha sem o campo — que é ITEM LEGADO, e nunca destino FORA.
+ */
+export function readSnapshotColumn(row: unknown): unknown {
+    if (row == null || typeof row !== 'object') return null
+    return (row as { destination_snapshot?: unknown }).destination_snapshot ?? null
+}

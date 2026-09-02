@@ -21,6 +21,7 @@ import { useAuth } from '@/hooks/use-auth.hook'
 import { useCustomers, useProducts, useEmployees } from '@/hooks/use-data.hooks'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import { formatBRL } from '@/utils/formatters'
+import { readSnapshotColumn } from '@/utils/destination-snapshot'
 // Onda 3 / CRÍT-perf: exportTableToPdf (jsPDF ~100KB) via dynamic import no callback.
 import { getCurrentUserId } from '@/utils/get-tenant-id'
 import dayjs from 'dayjs'
@@ -816,6 +817,10 @@ function OrdersPage() {
                     // D8: preserva o RT congelado; item novo resolve pelo cadastro.
                     rt_pct: resolveInheritedRtPctDecimal(it.rt_pct, it, products),
                     tax_breakdown: preservedTaxBreakdown,
+                    // D-A: preserva o destino congelado do item; item novo desta edição
+                    // entra sem snapshot e cai na matriz, como todo item recém-inserido
+                    // sem cadastro precificado depois da coluna.
+                    destination_snapshot: readSnapshotColumn(it),
                 }))
                 if (toInsert.length > 0) {
                     const { error: insErr } = await (supabase as any).from('order_items').insert(toInsert)

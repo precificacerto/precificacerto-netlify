@@ -10,6 +10,7 @@ import { PAGE_TITLES } from '@/constants/page-titles'
 import { ROUTES } from '@/constants/routes'
 import { supabase } from '@/supabase/client'
 import { getTenantId, getCurrentUserId } from '@/utils/get-tenant-id'
+import { buildDestinationSnapshot } from '@/utils/destination-snapshot'
 import type { Service } from '@/supabase/types'
 import {
     PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined, MinusCircleOutlined, ReloadOutlined, MoreOutlined,
@@ -230,6 +231,11 @@ function ServicesPage() {
                     // preço. Gravar o preço sem gravar isto deixaria o serviço com um
                     // snapshot descrevendo um preço que não existe mais.
                     expense_snapshot: expenseSnapshot,
+                    // D-A: preço novo, destino novo — mesma regra do snapshot de despesas.
+                    destination_snapshot: buildDestinationSnapshot({
+                        construction: 'SERVICO',
+                        tenantCalcType: currentUser?.calcType,
+                    }),
                     needs_cost_update: false,
                     updated_at: new Date().toISOString(),
                 })

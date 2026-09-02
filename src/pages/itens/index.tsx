@@ -8,6 +8,7 @@ import { RenewQuantityForm, type ItemOption } from '@/page-parts/items/renew-qua
 import { PAGE_TITLES } from '@/constants/page-titles'
 import { UNIT_TYPE } from '@/constants/item-unit-types'
 import { getMonetaryValue } from '@/utils/get-monetary-value'
+import { buildDestinationSnapshot } from '@/utils/destination-snapshot'
 import { getCurrentUserId } from '@/utils/get-tenant-id'
 import { supabase } from '@/supabase/client'
 import { PlusOutlined, SearchOutlined, ReloadOutlined, MoreOutlined } from '@ant-design/icons'
@@ -801,6 +802,11 @@ function Items() {
             labor_cost: laborCost,
             // Mesma regra dos outros dois gravadores: preço novo, snapshot novo.
             expense_snapshot: expenseSnapshot,
+            // D-A: mesma regra dos outros dois gravadores — preço novo, destino novo.
+            destination_snapshot: buildDestinationSnapshot({
+              construction: 'SERVICO',
+              tenantCalcType: currentUser?.calcType,
+            }),
             updated_at: new Date().toISOString(),
           })
           .eq('id', serviceId)

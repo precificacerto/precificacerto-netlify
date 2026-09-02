@@ -348,3 +348,58 @@ describe('De onde veio o destino · SNAPSHOT ou MATRIZ, sempre dito', () => {
         }
     })
 })
+
+// ─────────── 6. Os dois vocabulários da segmentação ───────────
+
+describe('VOCABULÁRIO · o banco diz SERVICO, a UI diz SERVICE', () => {
+    /**
+     * DEFEITO SILENCIOSO DE GRAVAÇÃO PERMANENTE, encontrado antes de nascer.
+     *
+     * `tenant_settings.calc_type` guarda INDUSTRIALIZACAO / SERVICO / REVENDA. A UI carrega o
+     * MESMO dado como INDUSTRIALIZATION / SERVICE / RESALE (`CALC_TYPE_ENUM`), e as telas de
+     * cadastro — que são exatamente onde o snapshot é GRAVADO — só têm o vocabulário da UI.
+     *
+     * Passar `'SERVICE'` para a matriz cairia no ramo "sem segmentação": nenhuma exceção
+     * aplicada, nenhum erro, nenhum aviso, e o destino ERRADO gravado PARA SEMPRE — num campo
+     * que existe justamente para ser imutável. Não haveria como descobrir depois: o snapshot
+     * é a fonte de verdade, e uma vez gravado errado ninguém tem contra o que conferir.
+     */
+    const PARES: [string, string][] = [
+        ['SERVICE', 'SERVICO'],
+        ['RESALE', 'REVENDA'],
+        ['INDUSTRIALIZATION', 'INDUSTRIALIZACAO'],
+    ]
+
+    it.each(PARES)('%s produz o MESMO destino que %s', (ui, banco) => {
+        for (const c of ['INDUSTRIALIZACAO', 'REVENDA', 'SERVICO'] as const) {
+            expect(resolveCategoryDestinations(c, ui)).toEqual(resolveCategoryDestinations(c, banco))
+        }
+    })
+
+    it('a exceção da revenda dispara com o vocabulário da UI — era o que sumiria', () => {
+        // Sem o alias, `'SERVICE'` não casaria com `'SERVICO'`, a exceção não se aplicaria, e
+        // o produto de revenda de um salão nasceria com MO Produtiva em MARGEM em vez de FORA.
+        expect(resolveCategoryDestinations('REVENDA', 'SERVICE').mo_produtiva).toBe('FORA')
+        expect(resolveCategoryDestinations('REVENDA', 'INDUSTRIALIZATION').mo_produtiva).toBe('FORA')
+        expect(resolveCategoryDestinations('REVENDA', 'RESALE').mo_produtiva).toBe('MARGEM')
+    })
+
+    it('o snapshot grava sempre no vocabulário do BANCO, venha do que vier', () => {
+        for (const [ui, banco] of PARES) {
+            expect(buildDestinationSnapshot({ construction: 'SERVICO', tenantCalcType: ui }).segmentacao).toBe(banco)
+        }
+    })
+
+    it('o agrupamento de revenda também aceita os dois', () => {
+        const item = { product_type: 'REVENDA' }
+        expect(resolveItemLaborGrouping({ item, tenantCalcType: 'RESALE' })).toBe('REVENDA')
+        expect(resolveItemLaborGrouping({ item, tenantCalcType: 'REVENDA' })).toBe('REVENDA')
+        expect(resolveItemLaborGrouping({ item, tenantCalcType: 'SERVICE' })).toBeNull()
+    })
+
+    it('valor desconhecido continua caindo em "sem segmentação" — o alias não inventa', () => {
+        expect(resolveCategoryDestinations('REVENDA', 'QUALQUER').mo_produtiva).toBe('MARGEM')
+        expect(buildDestinationSnapshot({ construction: 'REVENDA', tenantCalcType: 'QUALQUER' }).segmentacao)
+            .toBe('QUALQUER')
+    })
+})
