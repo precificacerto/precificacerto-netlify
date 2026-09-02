@@ -361,6 +361,12 @@ describe('Sem colateral · o que não tem MO Produtiva não muda', () => {
  * o da Seção 8 (3 itens), que era menor. É AGREGAÇÃO PURA: cada construção está no seu
  * próprio tenant e é correta ali; os itens são somados, não combinados numa matriz.
  *
+ * DOIS CASOS DE DECOMPOSIÇÃO, sobre a MESMA construção — os 5 itens, os custos, as MCs, os
+ * preços e o total 1.136,424719 são idênticos nos dois:
+ *   · DESCONTO ZERO ... o invariante do espelho, que só é exato aqui.
+ *   · DESCONTO 5% .... a absorção da Seção 6.3: imposto 10%, RT 1%, RRO 89%, custo e
+ *                      despesas ZERO, porque são valores congelados e não encolhem.
+ *
  * ESTRUTURA CERTIFICADA: Simples e MEI compartilham a MESMA cascata — mesmas categorias,
  * mesmo agrupamento por segmentação, mesma decomposição. O regime altera APENAS a alíquota
  * da linha de Impostos: no Simples vem do onboarding e é editável; no MEI é zero, sempre.
@@ -522,7 +528,7 @@ describe('Oráculo canônico · bloco MC — coeficientes e preços', () => {
     })
 })
 
-describe('Oráculo canônico · decomposição com desconto zero — os quatro invariantes', () => {
+describe('Oráculo canônico · decomposição com DESCONTO ZERO — os quatro invariantes', () => {
     const IMPOSTO = sobreTotal(O.impostos)
     const DESPESAS = 137.388956 + 89.015606 + 56.821236 + 22.728494
     const RT_VALOR = sobreTotal(O.rt)
@@ -563,17 +569,138 @@ describe('Oráculo canônico · decomposição com desconto zero — os quatro i
         expect(RT_VALOR).not.toBeCloseTo((TOTAL - IMPOSTO - CMV_CONSOLIDADO) * 0.01, 4)
     })
 
-    it('ARMADILHA DA PLANILHA · 1.022,782247 e 487,782247 são ENCADEAMENTO, não base', () => {
-        // A coluna "Valor efetivo base de cálculo" exibe esses dois saldos nas linhas de Custo
-        // e de Despesas. São o resultado corrente da SUBTRAÇÃO, não base de cálculo: custo e
-        // despesas são valores CONGELADOS em R$ e não têm base percentual. Ler como base
-        // produziria percentuais que não existem em lugar nenhum da cascata.
+    it('CUSTO E DESPESAS NÃO TÊM BASE PERCENTUAL — são congelados', () => {
+        // A versão anterior da planilha exibia os saldos do encadeamento (1.022,782247 na
+        // linha do Custo, 487,782247 na de Despesas) na mesma coluna que as bases de cálculo,
+        // e era fácil lê-los como base. A versão corrigida separa quatro colunas — Percentual
+        // efetivo, Valor base, Valor efetivo base de cálculo e Resultado — e deixa o
+        // PERCENTUAL EFETIVO VAZIO nas linhas de Custo e Despesas, tornando explícito o que
+        // aqui é asserido: elas não derivam de percentual nenhum.
         expect(TOTAL - IMPOSTO).toBeCloseTo(1022.782247, 5)
         expect(TOTAL - IMPOSTO - CMV_CONSOLIDADO).toBeCloseTo(487.782247, 5)
-        // A prova de que não é base: o custo não é um percentual de 1.022,782247 — é 535,
-        // fixo, e continuaria 535 se o total fosse outro.
+        // A prova de que não é base: o custo é 535 fixo, e continuaria 535 se o total fosse
+        // outro — é o que o teste de desconto abaixo demonstra, com o total mudando e ele não.
         expect(CMV_CONSOLIDADO).toBe(535)
         expect(CMV_CONSOLIDADO / (TOTAL - IMPOSTO)).not.toBeCloseTo(0.10, 2)
+    })
+})
+
+// ──────────────────── Decomposição com DESCONTO DE 5% — a absorção ────────────────────
+
+/**
+ * Segundo caso do oráculo canônico, MESMA CONSTRUÇÃO: os 5 itens, os custos, as MCs, os
+ * preços e o total 1.136,424719 são idênticos aos do caso de desconto zero, e o consolidado
+ * também. O que muda é só a decomposição.
+ *
+ * É a Seção 6.3 da regra reproduzida com outro conjunto de dados: o desconto NÃO é rateado
+ * por igual entre as linhas. Custo e despesas são valores CONGELADOS em R$ — não encolhem
+ * com o desconto, absorvem ZERO dele. Quem absorve são as linhas percentuais, e o RRO,
+ * sendo o resíduo, absorve quase tudo: 89%.
+ */
+describe('Oráculo canônico · decomposição com DESCONTO DE 5% — a absorção', () => {
+    const DESCONTO = sobreTotal(5)
+    const BASE_POS = TOTAL - DESCONTO
+    const IMPOSTO_D = BASE_POS * (O.impostos / 100)
+    const RT_D = BASE_POS * (O.rt / 100)
+    const DESPESAS_CONGELADAS = 305.954292
+    const RRO_D = BASE_POS - IMPOSTO_D - CMV_CONSOLIDADO - DESPESAS_CONGELADAS - RT_D
+
+    it('desconto 56,821236 e base pós-desconto 1.079,603483', () => {
+        expect(DESCONTO).toBeCloseTo(56.821236, 6)
+        expect(BASE_POS).toBeCloseTo(1079.603483, 6)
+    })
+
+    it('as linhas percentuais recalculam sobre a base pós-desconto', () => {
+        expect(IMPOSTO_D).toBeCloseTo(107.960348, 6)
+        expect(RT_D).toBeCloseTo(10.796035, 6)
+    })
+
+    it('custo e despesas NÃO se movem com o desconto — são congelados', () => {
+        // O total caiu 5% e estes dois continuam exatamente onde estavam. É a diferença entre
+        // valor congelado e referência viva, escrita em número.
+        expect(CMV_CONSOLIDADO).toBe(535)
+        expect(DESPESAS_CONGELADAS).toBeCloseTo(305.954292, 6)
+    })
+
+    it('RRO 119,892808, dividido em 39,964269 e 79,928539 — pesos 1/3 e 2/3 preservados', () => {
+        expect(RRO_D).toBeCloseTo(119.892808, 5)
+        expect(RRO_D / 3).toBeCloseTo(39.964269, 5)
+        expect((RRO_D * 2) / 3).toBeCloseTo(79.928539, 5)
+    })
+
+    it('soma vertical com desconto: desconto + imposto + custo + despesas + RT + RRO = total', () => {
+        const soma = DESCONTO + IMPOSTO_D + CMV_CONSOLIDADO + DESPESAS_CONGELADAS + RT_D + RRO_D
+        expect(soma).toBeCloseTo(1136.424719, 5)
+    })
+
+    it('ABSORÇÃO · imposto 10%, RT 1%, RRO 89%, custo ZERO, despesas ZERO', () => {
+        // Seção 6.3. As três parcelas absorvidas somam o desconto inteiro, e as duas
+        // congeladas não participam. 89% é a assinatura do RRO como resíduo.
+        const pct = (antes: number, depois: number) => ((antes - depois) / DESCONTO) * 100
+        expect(pct(sobreTotal(O.impostos), IMPOSTO_D)).toBeCloseTo(10, 4)
+        expect(pct(sobreTotal(O.rt), RT_D)).toBeCloseTo(1, 4)
+        expect(pct(170.463708, RRO_D)).toBeCloseTo(89, 4)
+        expect(pct(CMV_CONSOLIDADO, CMV_CONSOLIDADO)).toBe(0)
+        expect(pct(DESPESAS_CONGELADAS, DESPESAS_CONGELADAS)).toBe(0)
+
+        // Em R$, e fechando no desconto inteiro: nada some, nada sobra.
+        const absorvido = (sobreTotal(O.impostos) - IMPOSTO_D)
+            + (sobreTotal(O.rt) - RT_D)
+            + (170.463708 - RRO_D)
+        expect(sobreTotal(O.impostos) - IMPOSTO_D).toBeCloseTo(5.682124, 5)
+        expect(sobreTotal(O.rt) - RT_D).toBeCloseTo(0.568212, 5)
+        expect(170.463708 - RRO_D).toBeCloseTo(50.570900, 5)
+        expect(absorvido).toBeCloseTo(DESCONTO, 5)
+    })
+
+    it('DUAS MEDIDAS, NÃO DUAS VERSÕES · 5% e 10% planejados; 3,7018% e 7,4035% restantes', () => {
+        // Os dois pares NÃO são versões concorrentes do mesmo dado, e a divergência não é
+        // defeito. 5% e 10% são o DETERMINADO NA CONSTRUÇÃO. 3,7018% e 7,4035% são o
+        // EFETIVAMENTE RESTANTE APÓS O DESCONTO NEGOCIADO, calculados sobre o valor
+        // recalculado. A comparação entre as duas pontas É A INFORMAÇÃO ÚTIL: mostra quanto a
+        // negociação custou em margem. Não normalizar, não escolher uma das duas.
+        const efetivo = (v: number) => (v / BASE_POS) * 100
+        expect(efetivo(RRO_D / 3)).toBeCloseTo(3.7018, 4)
+        expect(efetivo((RRO_D * 2) / 3)).toBeCloseTo(7.4035, 4)
+        expect(O.comissao).toBe(5)
+        expect(O.lucro).toBe(10)
+
+        // A PROPORCIONALIDADE atravessa: 1 para 2 na construção, 1 para 2 no que restou.
+        expect(efetivo((RRO_D * 2) / 3) / efetivo(RRO_D / 3)).toBeCloseTo(2, 6)
+        expect(O.lucro / O.comissao).toBe(2)
+    })
+
+    it('o que a negociação custou em margem é exatamente o que o RRO absorveu', () => {
+        // Fecha o círculo entre as duas medidas e a absorção: a diferença entre o planejado e
+        // o restante, em R$, é os 89% do desconto que o RRO absorveu — 16,856967 de comissão
+        // mais 33,713933 de lucro dão os 50,570900.
+        const custouComissao = sobreTotal(O.comissao) - RRO_D / 3
+        const custouLucro = sobreTotal(O.lucro) - (RRO_D * 2) / 3
+        expect(custouComissao).toBeCloseTo(16.856967, 5)
+        expect(custouLucro).toBeCloseTo(33.713933, 5)
+        expect(custouComissao + custouLucro).toBeCloseTo(50.570900, 5)
+        expect(custouComissao + custouLucro).toBeCloseTo(DESCONTO * 0.89, 5)
+    })
+
+    it('a coluna Resultado é ENCADEAMENTO e termina em ZERO', () => {
+        // 1.079,603483 → 971,643135 → 436,643135 → 130,688843 → 119,892808 → 0. Cada valor é
+        // o anterior menos a linha; o zero final é o Total Final da Apuração, com CSLL e IRPJ
+        // zerados. Encadeamento, não base de cálculo — as linhas de Custo e Despesas entram
+        // aqui com Percentual efetivo VAZIO.
+        const cadeia = [
+            BASE_POS,
+            BASE_POS - IMPOSTO_D,
+            BASE_POS - IMPOSTO_D - CMV_CONSOLIDADO,
+            BASE_POS - IMPOSTO_D - CMV_CONSOLIDADO - DESPESAS_CONGELADAS,
+            BASE_POS - IMPOSTO_D - CMV_CONSOLIDADO - DESPESAS_CONGELADAS - RT_D,
+            BASE_POS - IMPOSTO_D - CMV_CONSOLIDADO - DESPESAS_CONGELADAS - RT_D - RRO_D,
+        ]
+        const esperado = [1079.603483, 971.643135, 436.643135, 130.688843, 119.892808, 0]
+        cadeia.forEach((v, i) => expect(v).toBeCloseTo(esperado[i], 5))
+    })
+
+    it('CSLL e IRPJ zerados: o resíduo é exatamente comissão + lucro', () => {
+        expect(RRO_D - RRO_D / 3 - (RRO_D * 2) / 3).toBeCloseTo(0, 10)
     })
 })
 
