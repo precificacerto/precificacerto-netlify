@@ -42,7 +42,7 @@ import {
   resolveStructuralProfitTaxes,
   type ItemTaxRates,
 } from '../item-tax-rates'
-import { resolveItemDopComponents } from '../expense-destination'
+import { resolveItemCostUnit, resolveItemDopComponents } from '../expense-destination'
 import { resolveIndirectLaborPct } from '../indirect-labor-grouping'
 
 /**
@@ -593,8 +593,17 @@ export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResul
     // FIX-CUSTO-SN (C1): desfaz a divisão por yield_quantity quando ela não significa
     // rendimento (revenda/estoque). Fator 1 fora de SN/MEI ⇒ bit-exact.
     const yieldUndo = resolveYieldUndoFactor(item, tenantCtx.regime)
-    const custoProduto =
-      ((Number(item.cost_total) || 0) + (Number(item.productive_labor_unit) || 0)) * qty * yieldUndo
+    // ETAPA 4 — DESTINO FORA: a parcela de CONVERSÃO (MO Produtiva; num item de serviço, as
+    // três categorias já agregadas no custo por minuto) só entra no CMV quando o destino
+    // dela, PARA ESTE ITEM, não é FORA. FORA não é zero por acaso — é "já absorvida por
+    // outro item", e somá-la aqui de novo seria dupla incidência. Ver `expense-destination`.
+    const custoUnit = resolveItemCostUnit({
+      item,
+      tenantCalcType: tenantCtx.calc_type,
+      itemCost: Number(item.cost_total) || 0,
+      conversionCost: Number(item.productive_labor_unit) || 0,
+    }).costUnit
+    const custoProduto = custoUnit * qty * yieldUndo
     const snapshotCmv = Number(item.expense_breakdown_unit?.cmv_unit) || 0
     const cmvUsed = custoProduto > 0 ? custoProduto : snapshotCmv * qty
 
@@ -1160,8 +1169,17 @@ export function calculateMotorV17ForPageFull(args: PageBuildArgs): {
     // FIX-CUSTO-SN (C1) — mesmo tratamento do caminho ForPage. ATENÇÃO: aqui o contexto é
     // `args.tenantCtx`; usar `tenantCtx` solto dá ReferenceError (não existe neste escopo).
     const yieldUndoFull = resolveYieldUndoFactor(item, args.tenantCtx.regime)
-    const custoProduto =
-      ((Number(item.cost_total) || 0) + (Number(item.productive_labor_unit) || 0)) * qty * yieldUndoFull
+    // ETAPA 4 — DESTINO FORA: a parcela de CONVERSÃO (MO Produtiva; num item de serviço, as
+    // três categorias já agregadas no custo por minuto) só entra no CMV quando o destino
+    // dela, PARA ESTE ITEM, não é FORA. FORA não é zero por acaso — é "já absorvida por
+    // outro item", e somá-la aqui de novo seria dupla incidência. Ver `expense-destination`.
+    const custoUnitFull = resolveItemCostUnit({
+      item,
+      tenantCalcType: args.tenantCtx.calc_type,
+      itemCost: Number(item.cost_total) || 0,
+      conversionCost: Number(item.productive_labor_unit) || 0,
+    }).costUnit
+    const custoProduto = custoUnitFull * qty * yieldUndoFull
     const snapshotCmv = Number(item.expense_breakdown_unit?.cmv_unit) || 0
     const cmvUsed = custoProduto > 0 ? custoProduto : snapshotCmv * qty
     // FIX-DESPESA-SN (C2) — idem, via args.tenantCtx.
