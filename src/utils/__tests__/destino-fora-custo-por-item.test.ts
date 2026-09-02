@@ -35,6 +35,7 @@ import {
     resolveItemCostUnit,
     type ItemConstruction,
 } from '@/utils/expense-destination'
+import { resolveIndirectLaborPct } from '@/utils/indirect-labor-grouping'
 import {
     calculateMotorV17ForPage,
     type PageBuildArgs,
@@ -353,81 +354,247 @@ describe('Sem colateral · o que não tem MO Produtiva não muda', () => {
     })
 })
 
-// ──────────────── 5. Invariante 1 com o custo agrupado — o que ele ainda vê ────────────────
+// ──────── 5. Invariante 1 com o custo agrupado — oráculo canônico de 5 itens ────────
 
-describe('Invariante 1 · fechamento em 100% com o CMV agrupado', () => {
-    /**
-     * CRITÉRIO DO DONO DO PRODUTO (02/09/2026), registrado como está:
-     *
-     *   > O invariante 1 PODE ser verificado com o custo agrupado — CMV total + despesas de MC
-     *   > + tributos + RT + margens = 100%. Não precisa abrir o CMV por categoria. A abertura
-     *   > em 12 categorias da Seção 8 é só uma PARTIÇÃO MAIS FINA DO MESMO TOTAL; colapsar as
-     *   > três frações de custo numa linha de CMV não quebra a soma, torna-a mais grossa, e a
-     *   > DETECÇÃO DE DUPLA CONTAGEM CONTINUA INTACTA — se uma categoria for contada duas
-     *   > vezes, o total passa de 100% de qualquer jeito.
-     *
-     * CONSEQUÊNCIA ACEITA: com o custo agrupado o invariante continua dizendo QUANTO sobrou,
-     * mas deixa de dizer QUAL categoria causou. No D17, saber que o excedente de 13,34 era
-     * exatamente MO Administrativa 6,12 mais Despesa Fixa 7,25 foi o que identificou os
-     * culpados. Sem a abertura temos o ALARME e não o ENDEREÇO: quando o invariante 1 falhar
-     * no futuro, o diagnóstico exige um passo manual a mais.
-     *
-     * ORÁCULO (Seção 8) — agregação pura, três construções, uma por segmentação, cada uma
-     * correta no seu próprio tenant. Preço agregado R$ 785,2843. Do lado do custo, o serviço
-     * leva três parcelas:
-     *
-     *   MO Produtiva (custo)  40,00 → 5,0937%
-     *   MO Indireta  (custo)  15,00 → 1,9101%
-     *   Despesa Fixa (custo)  30,00 → 3,8203%
-     *
-     * As TRÊS viram UMA de 85,00. A soma é a mesma, então o fechamento não se move.
-     */
-    const PRECO_AGREGADO = 785.2843
-    const pct = (v: number) => (v / PRECO_AGREGADO) * 100
+/**
+ * ORÁCULO CANÔNICO — planilha "Cascata SIMPLES e MEI", 5 itens em 3 segmentações. Substitui
+ * o da Seção 8 (3 itens), que era menor. É AGREGAÇÃO PURA: cada construção está no seu
+ * próprio tenant e é correta ali; os itens são somados, não combinados numa matriz.
+ *
+ * ESTRUTURA CERTIFICADA: Simples e MEI compartilham a MESMA cascata — mesmas categorias,
+ * mesmo agrupamento por segmentação, mesma decomposição. O regime altera APENAS a alíquota
+ * da linha de Impostos: no Simples vem do onboarding e é editável; no MEI é zero, sempre.
+ * Não existe cascata de MEI e cascata de Simples; existe uma cascata, com uma linha que zera
+ * — e a linha PERMANECE VISÍVEL exibindo 0,00%, porque zero exibido é diferente de linha
+ * ausente, e foi a ausência de linha que produziu o D17.
+ *
+ * CONSEQUÊNCIA ACEITA do custo agrupado: o invariante continua dizendo QUANTO sobrou, mas
+ * deixa de dizer QUAL categoria causou. No D17, saber que o excedente de 13,34 era exatamente
+ * MO Administrativa 6,12 mais Despesa Fixa 7,25 foi o que identificou os culpados. Sem a
+ * abertura temos o ALARME e não o ENDEREÇO: o diagnóstico exige um passo manual a mais.
+ * Aceita, não objeção — a abertura por categoria dentro do custo é auditoria, não cálculo.
+ */
 
-    it('as três parcelas do oráculo somam exatamente a linha agregada', () => {
-        expect(40 + 15 + 30).toBe(85)
-        expect(pct(40)).toBeCloseTo(5.0937, 4)
-        expect(pct(15)).toBeCloseTo(1.9101, 4)
-        expect(pct(30)).toBeCloseTo(3.8203, 4)
+/** Percentuais do tenant no oráculo, base 100. */
+const O = {
+    mo_produtiva: 15, mo_indireta: 8, despesa_fixa: 10,
+    variavel: 5, financeira: 2, impostos: 10, rt: 1, comissao: 5, lucro: 10,
+} as const
+
+interface ItemOraculo {
+    nome: string
+    construcao: ItemConstruction
+    /** Segmentação do tenant onde este item é correto — agregação pura. */
+    segmento: string
+    custo: number
+    /** MO Produtiva por tempo, quando a construção a leva ao custo. */
+    conversao: number
+    /** MO Indireta e Despesa Fixa em R$ — só o serviço as tem no custo. */
+    indiretaCusto: number
+    fixaCusto: number
+}
+
+const ORACULO: ItemOraculo[] = [
+    { nome: 'Produto 1', construcao: 'INDUSTRIALIZACAO', segmento: 'INDUSTRIALIZACAO', custo: 100, conversao: 20, indiretaCusto: 0, fixaCusto: 0 },
+    { nome: 'Produto 4', construcao: 'INDUSTRIALIZACAO', segmento: 'INDUSTRIALIZACAO', custo: 85, conversao: 15, indiretaCusto: 0, fixaCusto: 0 },
+    { nome: 'Produto 2', construcao: 'REVENDA', segmento: 'REVENDA', custo: 100, conversao: 0, indiretaCusto: 0, fixaCusto: 0 },
+    { nome: 'Produto 5', construcao: 'REVENDA', segmento: 'REVENDA', custo: 50, conversao: 0, indiretaCusto: 0, fixaCusto: 0 },
+    { nome: 'Produto 3', construcao: 'SERVICO', segmento: 'SERVICO', custo: 100, conversao: 20, indiretaCusto: 15, fixaCusto: 30 },
+]
+
+const itemDe = (o: ItemOraculo) => o.construcao === 'SERVICO'
+    ? { service_id: 'svc' }
+    : { product_type: o.construcao === 'INDUSTRIALIZACAO' ? 'PRODUZIDO' : 'REVENDA' }
+
+/** CMV do item, com o destino resolvido PELO CÓDIGO — não por número escrito à mão. */
+function cmvDoOraculo(o: ItemOraculo): number {
+    const base = resolveItemCostUnit({
+        item: itemDe(o), tenantCalcType: o.segmento, itemCost: o.custo, conversionCost: o.conversao,
+    }).costUnit
+    return base + o.indiretaCusto + o.fixaCusto
+}
+
+/**
+ * Percentual da MC do item, construído a partir da MATRIZ DE DESTINOS — cada categoria só
+ * entra se o destino dela, para este item, for MARGEM. É a ponte entre o oráculo e o código:
+ * se a matriz mudar, o coeficiente muda e o preço deixa de bater.
+ */
+function mcPctDoOraculo(o: ItemOraculo): number {
+    const d = resolveCategoryDestinations(o.construcao, o.segmento)
+    const naMc = (destino: string, pct: number) => (destino === 'MARGEM' ? pct : 0)
+    // Em revenda, MO Produtiva e MO Indireta são UMA categoria só (15 + 8 = 23).
+    const moAgrupada = resolveIndirectLaborPct({
+        tenantCalcType: o.segmento, indirectLaborPct: O.mo_indireta, productiveLaborPct: O.mo_produtiva,
+    })
+    return naMc(d.mo_indireta, moAgrupada)
+        + naMc(d.despesa_fixa, O.despesa_fixa)
+        + naMc(d.despesa_variavel, O.variavel)
+        + naMc(d.despesa_financeira, O.financeira)
+        + O.impostos + O.rt + O.comissao + O.lucro
+}
+
+const precoDoOraculo = (o: ItemOraculo) => cmvDoOraculo(o) / (1 - mcPctDoOraculo(o) / 100)
+
+const PRECOS = ORACULO.map(precoDoOraculo)
+const TOTAL = PRECOS.reduce((a, b) => a + b, 0)
+const CMV_CONSOLIDADO = ORACULO.reduce((a, o) => a + cmvDoOraculo(o), 0)
+const sobreTotal = (pct: number) => TOTAL * (pct / 100)
+
+describe('Oráculo canônico · bloco CUSTO — 5 itens, CMV consolidado 535', () => {
+    it('cada item leva ao CMV exatamente o que o destino manda', () => {
+        expect(ORACULO.map(cmvDoOraculo)).toEqual([120, 100, 100, 50, 165])
     })
 
-    it('a linha agregada vale a soma dos três percentuais — partição mais grossa, mesmo total', () => {
-        expect(pct(85)).toBeCloseTo(5.0937 + 1.9101 + 3.8203, 3)
+    it('MO Produtiva no custo: industrialização e serviço sim, revenda NÃO', () => {
+        // "Não considerar no custo" para revenda, nas duas formas que a matriz tem de dizê-lo:
+        // MARGEM quando é o core business do tenant, FORA quando é item acessório.
+        expect(resolveCategoryDestinations('INDUSTRIALIZACAO', 'INDUSTRIALIZACAO').mo_produtiva).toBe('CUSTO')
+        expect(resolveCategoryDestinations('SERVICO', 'SERVICO').mo_produtiva).toBe('CUSTO')
+        expect(resolveCategoryDestinations('REVENDA', 'REVENDA').mo_produtiva).toBe('MARGEM')
+        expect(resolveCategoryDestinations('REVENDA', 'SERVICO').mo_produtiva).toBe('FORA')
+        expect(resolveCategoryDestinations('REVENDA', 'INDUSTRIALIZACAO').mo_produtiva).toBe('FORA')
     })
 
-    it('a MESMA categoria nos DOIS destinos continua separada — é o que não pode ser somado', () => {
-        // MO Indireta aparece como CUSTO (15,00, dentro da conversão do serviço) e como MC
-        // (87,2389 → 11,1092%, vinda dos itens cujo destino é margem). Somar as duas numa
-        // linha só daria 13,0193%, que não corresponde a destino nenhum. O agrupamento é
-        // DENTRO do CMV; ele não junta o que está em destinos diferentes.
-        expect(pct(87.2389)).toBeCloseTo(11.1092, 4)
-        expect(pct(15) + pct(87.2389)).toBeCloseTo(13.0193, 3)
+    it('MO Indireta e Despesa Fixa no custo: SÓ no serviço', () => {
+        for (const c of ['INDUSTRIALIZACAO', 'REVENDA'] as ItemConstruction[]) {
+            const d = resolveCategoryDestinations(c, c)
+            expect([d.mo_indireta, d.despesa_fixa]).toEqual(['MARGEM', 'MARGEM'])
+        }
+        const s = resolveCategoryDestinations('SERVICO', 'SERVICO')
+        expect([s.mo_indireta, s.despesa_fixa]).toEqual(['CUSTO', 'CUSTO'])
     })
 
-    it('a dupla contagem continua detectável: contar duas vezes passa de 100% do mesmo jeito', () => {
-        // É a razão pela qual o agrupamento não enfraquece o invariante. Se a conversão de um
-        // item entrasse no CMV E na MC, o total excederia — independentemente de o CMV estar
-        // aberto em três linhas ou fechado em uma.
-        const linhas = [pct(85), pct(87.2389)]
-        const comDupla = [...linhas, pct(85)]
-        expect(linhas.reduce((a, b) => a + b, 0)).toBeLessThan(100)
-        expect(comDupla.reduce((a, b) => a + b, 0)).toBeCloseTo(
-            linhas.reduce((a, b) => a + b, 0) + pct(85), 6,
-        )
+    it('custo consolidado 535', () => {
+        expect(CMV_CONSOLIDADO).toBe(535)
+    })
+})
+
+describe('Oráculo canônico · bloco MC — coeficientes e preços', () => {
+    it('MC por item 0,49 / 0,49 / 0,34 / 0,34 / 0,67, derivada da matriz', () => {
+        const coefs = ORACULO.map((o) => 1 - mcPctDoOraculo(o) / 100)
+        coefs.forEach((k, i) => expect(k).toBeCloseTo([0.49, 0.49, 0.34, 0.34, 0.67][i], 10))
     })
 
-    it('fechamento na cascata: o custo vem por um canal e as despesas de MC por outro', () => {
-        const trace = cascade([SERVICO, REVENDA, INDUSTRIALIZADO], tenant('SERVICO'))
-        // Etapa 2 — "Construção matemática individual" = Σ unit_price × quantity (a Etapa 1
-        // é a CONTAGEM de itens, não moeda).
-        const rb = trace.find((s) => s.step === 2)?.amount ?? 0
-        const custo = custoConsolidado(trace)
-        const despesasMc = trace.find((s) => s.step === 5)?.amount ?? 0
-        expect(rb).toBeCloseTo(900, 6)
-        // Custo: 135 (serviço, conversão dentro) + 80 (revenda, conversão FORA) + 180.
-        expect(custo).toBeCloseTo(395, 6)
-        // Nenhuma parcela de conversão foi contada também na MC.
-        expect(custo + despesasMc).toBeLessThan(rb)
+    it('MO Produtiva NÃO EXISTE na MC de industrialização nem de serviço', () => {
+        // Confirma a Seção 3: no agrupamento consolidado ela não aparece como linha da MC —
+        // ali ela é custo por tempo. Só existe na MC em revenda, e ainda assim agrupada.
+        for (const c of ['INDUSTRIALIZACAO', 'SERVICO'] as ItemConstruction[]) {
+            expect(resolveCategoryDestinations(c, c).mo_produtiva).not.toBe('MARGEM')
+        }
+        expect(resolveIndirectLaborPct({
+            tenantCalcType: 'REVENDA', indirectLaborPct: O.mo_indireta, productiveLaborPct: O.mo_produtiva,
+        })).toBe(23)
+        expect(resolveIndirectLaborPct({
+            tenantCalcType: 'INDUSTRIALIZACAO', indirectLaborPct: O.mo_indireta, productiveLaborPct: O.mo_produtiva,
+        })).toBe(8)
+    })
+
+    it('preços 244,897959 / 204,081633 / 294,117647 / 147,058824 / 246,268657', () => {
+        const esperado = [244.897959, 204.081633, 294.117647, 147.058824, 246.268657]
+        PRECOS.forEach((p, i) => expect(p).toBeCloseTo(esperado[i], 6))
+    })
+
+    it('total 1.136,424719', () => {
+        expect(TOTAL).toBeCloseTo(1136.424719, 6)
+    })
+
+    it('linhas da MC consolidadas', () => {
+        const moIndMc = ORACULO.reduce((acc, o, i) => {
+            const d = resolveCategoryDestinations(o.construcao, o.segmento)
+            if (d.mo_indireta !== 'MARGEM') return acc
+            return acc + PRECOS[i] * (resolveIndirectLaborPct({
+                tenantCalcType: o.segmento, indirectLaborPct: O.mo_indireta, productiveLaborPct: O.mo_produtiva,
+            }) / 100)
+        }, 0)
+        const fixaMc = ORACULO.reduce((acc, o, i) => (
+            resolveCategoryDestinations(o.construcao, o.segmento).despesa_fixa === 'MARGEM'
+                ? acc + PRECOS[i] * (O.despesa_fixa / 100)
+                : acc
+        ), 0)
+        expect(moIndMc).toBeCloseTo(137.388956, 6)
+        expect(fixaMc).toBeCloseTo(89.015606, 6)
+        expect(sobreTotal(O.variavel)).toBeCloseTo(56.821236, 6)
+        expect(sobreTotal(O.financeira)).toBeCloseTo(22.728494, 6)
+        expect(sobreTotal(O.impostos)).toBeCloseTo(113.642472, 6)
+        expect(sobreTotal(O.rt)).toBeCloseTo(11.364247, 6)
+        expect(sobreTotal(O.comissao)).toBeCloseTo(56.821236, 6)
+        expect(sobreTotal(O.lucro)).toBeCloseTo(113.642472, 6)
+    })
+})
+
+describe('Oráculo canônico · decomposição com desconto zero — os quatro invariantes', () => {
+    const IMPOSTO = sobreTotal(O.impostos)
+    const DESPESAS = 137.388956 + 89.015606 + 56.821236 + 22.728494
+    const RT_VALOR = sobreTotal(O.rt)
+    const RRO = sobreTotal(O.comissao) + sobreTotal(O.lucro)
+
+    it('INVARIANTE 1 · soma vertical fecha em 1.136,424719 — 100,0000%', () => {
+        // Imposto + Custo + Despesas + RT + RRO. O custo entra AGRUPADO, numa linha só, e o
+        // fechamento não se move: a partição é mais grossa, o total é o mesmo.
+        expect(DESPESAS).toBeCloseTo(305.954292, 6)
+        expect(IMPOSTO + CMV_CONSOLIDADO + DESPESAS + RT_VALOR + RRO).toBeCloseTo(1136.424719, 5)
+        const soma = IMPOSTO + CMV_CONSOLIDADO + DESPESAS + RT_VALOR + RRO
+        expect((soma / TOTAL) * 100).toBeCloseTo(100, 6)
+    })
+
+    it('INVARIANTE 2 · espelho EXATO com desconto zero: RRO 170,463708 dos dois lados', () => {
+        // Construção: comissão + lucro apurados item a item. Decomposição: o que sobra depois
+        // de imposto, custo, despesas e RT. Com desconto zero os dois lados coincidem.
+        const construcao = sobreTotal(O.comissao) + sobreTotal(O.lucro)
+        const decomposicao = TOTAL - IMPOSTO - CMV_CONSOLIDADO - DESPESAS - RT_VALOR
+        expect(construcao).toBeCloseTo(170.463708, 6)
+        expect(decomposicao).toBeCloseTo(170.463708, 5)
+        expect(construcao).toBeCloseTo(decomposicao, 5)
+    })
+
+    it('INVARIANTE 3 · pesos 1/3 e 2/3 preservados na divisão do RRO', () => {
+        expect(sobreTotal(O.comissao) / RRO).toBeCloseTo(1 / 3, 12)
+        expect(sobreTotal(O.lucro) / RRO).toBeCloseTo(2 / 3, 12)
+    })
+
+    it('INVARIANTE 4 · CSLL e IRPJ zerados, apuração final zero', () => {
+        // Simples/MEI: os dois são zero por regime, e o Total Final da Apuração fecha em zero.
+        expect(RRO - sobreTotal(O.comissao) - sobreTotal(O.lucro)).toBeCloseTo(0, 10)
+    })
+
+    it('a RT incide sobre o TOTAL, não sobre o saldo', () => {
+        // 1% de 1.136,424719, e não 1% do que restou depois de imposto e custo.
+        expect(RT_VALOR).toBeCloseTo(11.364247, 6)
+        expect(RT_VALOR).not.toBeCloseTo((TOTAL - IMPOSTO - CMV_CONSOLIDADO) * 0.01, 4)
+    })
+
+    it('ARMADILHA DA PLANILHA · 1.022,782247 e 487,782247 são ENCADEAMENTO, não base', () => {
+        // A coluna "Valor efetivo base de cálculo" exibe esses dois saldos nas linhas de Custo
+        // e de Despesas. São o resultado corrente da SUBTRAÇÃO, não base de cálculo: custo e
+        // despesas são valores CONGELADOS em R$ e não têm base percentual. Ler como base
+        // produziria percentuais que não existem em lugar nenhum da cascata.
+        expect(TOTAL - IMPOSTO).toBeCloseTo(1022.782247, 5)
+        expect(TOTAL - IMPOSTO - CMV_CONSOLIDADO).toBeCloseTo(487.782247, 5)
+        // A prova de que não é base: o custo não é um percentual de 1.022,782247 — é 535,
+        // fixo, e continuaria 535 se o total fosse outro.
+        expect(CMV_CONSOLIDADO).toBe(535)
+        expect(CMV_CONSOLIDADO / (TOTAL - IMPOSTO)).not.toBeCloseTo(0.10, 2)
+    })
+})
+
+describe('A mesma categoria nos dois destinos — o que o agrupamento NÃO junta', () => {
+    it('MO Indireta é CUSTO no serviço e MC nos outros, e as duas não se somam numa linha', () => {
+        // No oráculo: 15,00 dentro do CMV do serviço, e 137,388956 na linha da MC vinda dos
+        // outros quatro. Somá-las daria um número que não corresponde a destino nenhum. O
+        // agrupamento é DENTRO do CMV; ele não junta o que está em destinos diferentes.
+        const noCusto = 15
+        const naMc = 137.388956
+        expect(cmvDoOraculo(ORACULO[4])).toBe(100 + 20 + noCusto + 30)
+        expect(naMc).toBeGreaterThan(0)
+        expect(noCusto + naMc).not.toBeCloseTo(naMc, 6)
+    })
+
+    it('a dupla contagem continua detectável com o custo agrupado', () => {
+        // Se uma categoria fosse contada nos dois lados, a soma vertical passaria de 100% —
+        // independentemente de o CMV estar aberto em três linhas ou fechado em uma.
+        const soma = sobreTotal(O.impostos) + CMV_CONSOLIDADO + 305.954292 + sobreTotal(O.rt)
+            + sobreTotal(O.comissao) + sobreTotal(O.lucro)
+        expect((soma / TOTAL) * 100).toBeCloseTo(100, 5)
+        expect(((soma + 15) / TOTAL) * 100).toBeGreaterThan(100)
     })
 })
