@@ -52,6 +52,9 @@ export const BUDGET_ITEM_COLUMNS_FOR_SALE = [
     'profit_pct',
     'rt_pct',
     'tax_breakdown',
+    // D-A: o destino congelado do item do orçamento. Fora desta lista ele chegaria
+    // `undefined` e a venda cairia na matriz pelo `calc_type` atual — o D12 outra vez.
+    'destination_snapshot',
 ] as const
 
 /** A mesma lista no formato que o `.select()` do Supabase espera. */
@@ -73,6 +76,8 @@ export interface BudgetItemForSale {
     profit_pct?: number | null
     rt_pct?: number | null
     tax_breakdown?: TaxBreakdown | null
+    /** D-A: snapshot de destino congelado na inserção do item no orçamento. */
+    destination_snapshot?: unknown
 }
 
 /**
@@ -94,6 +99,8 @@ export type SaleItemRow = {
     profit_pct: number
     rt_pct: number
     tax_breakdown: TaxBreakdown | null
+    /** D-A: atravessa intacto — a venda lê o destino que formou o preço do orçamento. */
+    destination_snapshot: unknown
 }
 
 export interface MapBudgetItemsOptions {
@@ -141,6 +148,10 @@ export function mapBudgetItemsToSaleItems(
             profit_pct: snap.profit_pct,
             rt_pct: resolveInheritedRtPctDecimal(bi.rt_pct, bi, opts.products, opts.services),
             tax_breakdown: snap.tax_breakdown,
+            // D-A: cópia literal. A venda NÃO reresolve o destino pelo cadastro nem pelo
+            // `calc_type` de hoje — o item do orçamento já responde por ele. `null`/ausente
+            // segue significando item legado, e nunca destino FORA.
+            destination_snapshot: bi.destination_snapshot ?? null,
         }
     })
 }

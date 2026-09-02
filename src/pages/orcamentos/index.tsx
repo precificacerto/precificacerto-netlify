@@ -12,6 +12,7 @@ import { CardKPI } from '@/components/ui/card-kpi.component'
 import { supabase } from '@/supabase/client'
 import type { BudgetStatus } from '@/supabase/types'
 import { getCurrentUserId } from '@/utils/get-tenant-id'
+import { readSnapshotColumn } from '@/utils/destination-snapshot'
 import { useAuth } from '@/hooks/use-auth.hook'
 import { useBudgets, useCustomers, useProducts, useEmployees, useServices } from '@/hooks/use-data.hooks'
 import {
@@ -520,6 +521,10 @@ function Budgets() {
                 financial_expense_unit: financialExpenseUnit,
                 expense_breakdown_unit: expenseBreakdownUnit,
                 item_tax_rates: svcTaxRates,
+                // D-A: cópia do destino do cadastro NO MOMENTO DA INSERÇÃO. Daqui em diante
+                // o item do orçamento responde por ele; reprecificar o serviço depois não
+                // altera este orçamento.
+                destination_snapshot: readSnapshotColumn(svc),
                 total: basePrice * item.quantity,
                 isService: true,
             }
@@ -567,6 +572,8 @@ function Budgets() {
                 financial_expense_unit: financialExpenseUnit,
                 expense_breakdown_unit: expenseBreakdownUnit,
                 item_tax_rates: prodTaxRates,
+                // D-A: idem — o destino do cadastro é congelado na inserção.
+                destination_snapshot: readSnapshotColumn(prod),
                 total: salePrice * item.quantity,
                 isManual: false,
             }
@@ -1293,6 +1300,10 @@ function Budgets() {
                 // D8: congela o RT do item, espelhando commission_pct/profit_pct.
                 rt_pct: resolveItemRtPctDecimal(i, products as RtCatalogEntry[], services as RtCatalogEntry[]),
                 tax_breakdown: snap.tax_breakdown,
+                // D-A: o item carrega o seu próprio destino — do cadastro se acabou de ser
+                // inserido, o preservado se já estava no orçamento. `null` = item manual ou
+                // legado, e nunca destino FORA.
+                destination_snapshot: readSnapshotColumn(i),
             }))
 
             if (items.length > 0) {
@@ -1486,6 +1497,10 @@ function Budgets() {
                 // D8: congela o RT do item, espelhando commission_pct/profit_pct.
                 rt_pct: resolveItemRtPctDecimal(i, products as RtCatalogEntry[], services as RtCatalogEntry[]),
                 tax_breakdown: snap.tax_breakdown,
+                // D-A: o item carrega o seu próprio destino — do cadastro se acabou de ser
+                // inserido, o preservado se já estava no orçamento. `null` = item manual ou
+                // legado, e nunca destino FORA.
+                destination_snapshot: readSnapshotColumn(i),
             }))
             if (items.length > 0) {
                 const { error: itemsErr } = await supabase.from('budget_items').insert(items)
@@ -1624,6 +1639,11 @@ function Budgets() {
                 profit_percent: profitPercent,
                 cost_total: itemCostTotal,
                 item_tax_rates: itemTaxRates,
+                // D-A: o destino congelado DESTE item, não o do cadastro de hoje. É o que
+                // faz reabrir e salvar um orçamento antigo não reprecificar o destino; item
+                // acrescentado nesta edição entra por `handleProductSelect`/`handleServiceSelect`
+                // e recebe o do cadastro, porque é inserção nova.
+                destination_snapshot: it.destination_snapshot ?? null,
             }
         })
         setBudgetItems(rows)
@@ -1779,6 +1799,9 @@ function Budgets() {
                         // linha for legada (rt_pct nunca gravado, portanto 0).
                         rt_pct: resolveInheritedRtPctDecimal(bi.rt_pct, bi, products as RtCatalogEntry[], services as RtCatalogEntry[]),
                         tax_breakdown: bi.tax_breakdown ?? null,
+                        // D-A: o pedido herda o destino congelado do orçamento, não o do
+                        // cadastro — o item do orçamento já respondeu por ele.
+                        destination_snapshot: bi.destination_snapshot ?? null,
                     }))
                     await (supabase as any).from('order_items').insert(toInsert)
                 }

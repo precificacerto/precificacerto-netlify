@@ -12,6 +12,7 @@ import { PAGE_TITLES } from '@/constants/page-titles'
 import { CardKPI } from '@/components/ui/card-kpi.component'
 import { supabase } from '@/supabase/client'
 import { getTenantId, getCurrentUserId } from '@/utils/get-tenant-id'
+import { readSnapshotColumn } from '@/utils/destination-snapshot'
 import {
     ShoppingCartOutlined, DollarOutlined, RiseOutlined, PlusOutlined,
     SearchOutlined, CheckCircleOutlined, DeleteOutlined, CreditCardOutlined,
@@ -451,7 +452,7 @@ function Sales() {
                 prods = prodsFull
             } else {
                 console.warn('Products query failed, falling back:', prodsErr.message)
-                const { data: prodsSimple } = await supabase.from('products').select('id, name, sale_price, cost_total, commission_percent, profit_percent, commission_table_id, rt_reserve_percent, product_type, yield_quantity').order('name')
+                const { data: prodsSimple } = await supabase.from('products').select('id, name, sale_price, cost_total, commission_percent, profit_percent, commission_table_id, rt_reserve_percent, product_type, yield_quantity, destination_snapshot').order('name')
                 prods = prodsSimple
             }
 
@@ -459,12 +460,12 @@ function Sales() {
             let svcs: any[] | null = null
             const svb = supabase as any
             const svcTaxCols = 'icms_pct, pis_cofins_pct, pis_pct, cofins_pct, iss_pct, is_pct, ipi_pct, ibs_pct, cbs_pct, ibs_reference_pct, cbs_reference_pct, iva_dual_reduction_factor, iss_retido_pct, irpj_pct, csll_pct, sale_price_base, freight_value, insurance_value, accessory_expenses_value'
-            const { data: svcsFull, error: svcsErr } = await svb.from('services').select(`id, name, base_price, commission_percent, profit_percent, rt_reserve_percent, commission_table_id, recurrence_days, ${svcTaxCols}`).eq('status', 'ACTIVE').order('name')
+            const { data: svcsFull, error: svcsErr } = await svb.from('services').select(`id, name, base_price, commission_percent, profit_percent, rt_reserve_percent, commission_table_id, recurrence_days, destination_snapshot, ${svcTaxCols}`).eq('status', 'ACTIVE').order('name')
             if (!svcsErr) {
                 svcs = svcsFull
             } else {
                 console.warn('Services query failed, falling back:', svcsErr.message)
-                const { data: svcsSimple } = await svb.from('services').select('id, name, base_price, commission_percent, profit_percent, rt_reserve_percent, commission_table_id').eq('status', 'ACTIVE').order('name')
+                const { data: svcsSimple } = await svb.from('services').select('id, name, base_price, commission_percent, profit_percent, rt_reserve_percent, commission_table_id, destination_snapshot').eq('status', 'ACTIVE').order('name')
                 svcs = svcsSimple
             }
 
@@ -1110,7 +1111,7 @@ function Sales() {
             const rtPct = Number(svc?.rt_reserve_percent) || 0
             // V7+ (2026-05-24): helper centralizado, também lê pis_cofins_pct agregado
             const svcTaxRates: ItemTaxRates = buildItemTaxRatesFromProduct(svc)
-            return { ...item, service_id: serviceId, product_name: svc?.name || '', unit_price: price, discount: 0, commission_percent: commPct, profit_percent: profitPct, rt_reserve_percent: rtPct, cost_total: costTotal, productive_labor_unit: productiveLaborUnit, financial_expense_unit: financialExpenseUnit, expense_breakdown_unit: expenseBreakdownUnit, item_tax_rates: svcTaxRates, total: price * item.quantity }
+            return { ...item, service_id: serviceId, destination_snapshot: readSnapshotColumn(svc), product_name: svc?.name || '', unit_price: price, discount: 0, commission_percent: commPct, profit_percent: profitPct, rt_reserve_percent: rtPct, cost_total: costTotal, productive_labor_unit: productiveLaborUnit, financial_expense_unit: financialExpenseUnit, expense_breakdown_unit: expenseBreakdownUnit, item_tax_rates: svcTaxRates, total: price * item.quantity }
         }))
     }
 
@@ -1147,7 +1148,7 @@ function Sales() {
             const rtPct = Number(prod?.rt_reserve_percent) || 0
             // V7+ (2026-05-24): helper centralizado, também lê pis_cofins_pct agregado
             const prodTaxRates: ItemTaxRates = buildItemTaxRatesFromProduct(prod)
-            return { ...item, product_id: productId, product_name: prod?.name || '', unit_price: price, discount: 0, commission_percent: commPct, profit_percent: profitPct, rt_reserve_percent: rtPct, cost_total: costTotal, productive_labor_unit: productiveLaborUnit, financial_expense_unit: financialExpenseUnit, expense_breakdown_unit: expenseBreakdownUnit, item_tax_rates: prodTaxRates, total: price * item.quantity }
+            return { ...item, product_id: productId, destination_snapshot: readSnapshotColumn(prod), product_name: prod?.name || '', unit_price: price, discount: 0, commission_percent: commPct, profit_percent: profitPct, rt_reserve_percent: rtPct, cost_total: costTotal, productive_labor_unit: productiveLaborUnit, financial_expense_unit: financialExpenseUnit, expense_breakdown_unit: expenseBreakdownUnit, item_tax_rates: prodTaxRates, total: price * item.quantity }
         }))
     }
 
@@ -1697,6 +1698,9 @@ function Sales() {
                     // D8: RT congelado do item de PRODUTO.
                     rt_pct: resolveItemRtPctDecimal(i, products, services),
                     tax_breakdown: snap.tax_breakdown,
+                    // D-A: venda no balcão é inserção nova — o destino vem do cadastro,
+                    // congelado no item na seleção.
+                    destination_snapshot: readSnapshotColumn(i),
                 }
             })
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1715,6 +1719,9 @@ function Sales() {
                     // D8: RT congelado do item de SERVIÇO — o buraco do D15/VD-51B0E2.
                     rt_pct: resolveItemRtPctDecimal(i, products, services),
                     tax_breakdown: snap.tax_breakdown,
+                    // D-A: venda no balcão é inserção nova — o destino vem do cadastro,
+                    // congelado no item na seleção.
+                    destination_snapshot: readSnapshotColumn(i),
                 }
             })
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1732,6 +1739,10 @@ function Sales() {
                     // D8: item manual é repasse puro — sem produto/serviço, RT é 0.
                     rt_pct: 0,
                     tax_breakdown: snap.tax_breakdown,
+                    // D-A: item manual não tem cadastro de origem e não passa pela matriz de
+                    // destinos — é custo puro, fora da cascata de produtos. NULL é a
+                    // afirmação correta, e não significa FORA.
+                    destination_snapshot: null,
                 }
             })
             const allItems = [...catalogItems, ...serviceItems, ...manualItems]

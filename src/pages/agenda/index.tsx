@@ -12,6 +12,7 @@ import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
 import { supabase } from '@/supabase/client'
 import { getTenantId, getCurrentUserId } from '@/utils/get-tenant-id'
+import { readSnapshotColumn } from '@/utils/destination-snapshot'
 import type { CalendarEvent, Customer, EventStatus, Employee } from '@/supabase/types'
 import {
     PlusOutlined, LeftOutlined, RightOutlined, UserOutlined, ArrowLeftOutlined,
@@ -202,8 +203,8 @@ function Schedule() {
                 sb.from('customers').select('id, name').eq('is_active', true).order('name'),
                 sb.from('employees').select('id, name, position, status, commission_percent').eq('status', 'ACTIVE').eq('is_active', true).order('name'),
                 sb.from('schedule_employees').select('employee_id').eq('tenant_id', tid),
-                sb.from('services').select('id, name, base_price, estimated_duration_minutes, commission_percent, profit_percent, rt_reserve_percent, cost_total, recurrence_days, commission_table_id').eq('status', 'ACTIVE').order('name'),
-                sb.from('products').select('id, name, sale_price, cost_total, commission_percent, profit_percent, rt_reserve_percent, recurrence_days, commission_table_id').eq('status', 'ACTIVE').order('name'),
+                sb.from('services').select('id, name, base_price, estimated_duration_minutes, commission_percent, profit_percent, rt_reserve_percent, cost_total, recurrence_days, commission_table_id, destination_snapshot').eq('status', 'ACTIVE').order('name'),
+                sb.from('products').select('id, name, sale_price, cost_total, commission_percent, profit_percent, rt_reserve_percent, recurrence_days, commission_table_id, destination_snapshot').eq('status', 'ACTIVE').order('name'),
             ])
             const loadedEvents: any[] = evR.data || []
             setEvents(loadedEvents)
@@ -945,6 +946,11 @@ function Schedule() {
                         availProds,
                         regServices,
                     ),
+                    // D-A: a venda da agenda nasce agora — o destino vem do cadastro do
+                    // serviço agendado, congelado nesta inserção.
+                    destination_snapshot: readSnapshotColumn(
+                        regServices.find((sv) => sv.id === payEvt.service_id),
+                    ),
                 }]
                 for (const ep of extraProds) {
                     agendaSaleItems.push({
@@ -957,6 +963,12 @@ function Schedule() {
                         description: ep.product_name,
                         // D8: RT congelado do item extra — produto OU serviço.
                         rt_pct: resolveItemRtPctDecimal(ep, availProds, regServices),
+                        // D-A: idem para o item extra — cadastro de produto ou de serviço.
+                        destination_snapshot:
+                            readSnapshotColumn(
+                            availProds.find((pr) => pr.id === ep.product_id)
+                            ?? regServices.find((sv) => sv.id === ep.service_id),
+                        ),
                     })
                 }
                 await sbp.from('sale_items').insert(agendaSaleItems)

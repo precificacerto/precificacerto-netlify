@@ -106,8 +106,27 @@ export interface ItemConstructionInput {
     product_type?: string | null
 }
 
+/**
+ * DOIS VOCABULÁRIOS PARA A MESMA SEGMENTAÇÃO. O banco grava `tenant_settings.calc_type` como
+ * INDUSTRIALIZACAO / SERVICO / REVENDA; a UI carrega o mesmo dado como
+ * INDUSTRIALIZATION / SERVICE / RESALE (`CALC_TYPE_ENUM`). Aceitar os dois é obrigatório e
+ * não é conveniência: um valor não reconhecido cai no ramo "sem segmentação" e as exceções da
+ * matriz simplesmente não se aplicam — sem erro, sem aviso, com o destino errado.
+ */
+const SEGMENTO_ALIASES: Record<string, string> = {
+    INDUSTRIALIZATION: 'INDUSTRIALIZACAO',
+    SERVICE: 'SERVICO',
+    RESALE: 'REVENDA',
+}
+
 function normalize(v: unknown): string {
-    return String(v ?? '').trim().toUpperCase()
+    const up = String(v ?? '').trim().toUpperCase()
+    return SEGMENTO_ALIASES[up] ?? up
+}
+
+/** A segmentação no vocabulário do banco, aceitando também o da UI. */
+export function normalizeTenantSegment(v: unknown): string {
+    return normalize(v)
 }
 
 /**
@@ -165,18 +184,28 @@ export function resolveCategoryDestinations(
     return { mo_produtiva: 'MARGEM', mo_indireta: 'MARGEM', despesa_fixa: 'MARGEM', ...mcSempre }
 }
 
-/** Recorte de `resolveCategoryDestinations` para os quatro baldes da Etapa 5. */
-export function resolveDopDestinations(
-    construction: ItemConstruction,
-    tenantCalcType?: string | null,
-): DopDestinations {
-    const d = resolveCategoryDestinations(construction, tenantCalcType)
+/** Recorte PURO de `CategoryDestinations` para os quatro baldes da Etapa 5. */
+export function dopSliceOf(d: CategoryDestinations): DopDestinations {
     return {
         mo_admin: d.mo_indireta,
         fixa: d.despesa_fixa,
         variavel: d.despesa_variavel,
         financeira: d.despesa_financeira,
     }
+}
+
+/**
+ * Recorte da matriz para os quatro baldes.
+ *
+ * ATENÇÃO: resolve pela SEGMENTAÇÃO PASSADA. Quando o item tem snapshot de destino, o
+ * caminho correto é `resolveItemDestinations` (em `destination-snapshot.ts`) seguido de
+ * `dopSliceOf` — ler o `calc_type` atual para decompor um preço antigo reescreve o passado.
+ */
+export function resolveDopDestinations(
+    construction: ItemConstruction,
+    tenantCalcType?: string | null,
+): DopDestinations {
+    return dopSliceOf(resolveCategoryDestinations(construction, tenantCalcType))
 }
 
 /**
@@ -197,21 +226,6 @@ export function applyDopDestinations(
         fixa: keep(components.fixa, destinations.fixa),
         variavel: keep(components.variavel, destinations.variavel),
         financeira: keep(components.financeira, destinations.financeira),
-    }
-}
-
-/** Atalho: resolve a construção, resolve os destinos e aplica, em uma chamada. */
-export function resolveItemDopComponents(args: {
-    item: ItemConstructionInput
-    components: DopComponents
-    tenantCalcType?: string | null
-}): { components: DopComponents; construction: ItemConstruction; destinations: DopDestinations } {
-    const construction = resolveItemConstruction(args.item)
-    const destinations = resolveDopDestinations(construction, args.tenantCalcType)
-    return {
-        components: applyDopDestinations(args.components, destinations),
-        construction,
-        destinations,
     }
 }
 
@@ -266,17 +280,17 @@ export function conversionCostEntersCmv(destinations: CategoryDestinations): boo
  *
  * O custo do item (`cost_total`) é CUSTO nas três construções e nos dois papéis — nunca é
  * filtrado. É a conversão que varia.
+ *
+ * Recebe DESTINOS JÁ RESOLVIDOS, e não a segmentação do tenant: quem resolve é
+ * `resolveItemDestinations` (`destination-snapshot.ts`), que prefere o snapshot do item.
+ * Esta função não tem como ler o `calc_type` atual, e é assim de propósito.
  */
-export function resolveItemCostUnit(args: {
-    item: ItemConstructionInput
+export function applyCostDestination(args: {
+    destinations: CategoryDestinations
     /** `cost_total` — insumos / mercadoria. */
     itemCost: number
     /** `productive_labor_unit` — a parcela de conversão, agregada. */
     conversionCost: number
-    tenantCalcType?: string | null
-}): { costUnit: number; construction: ItemConstruction; destinations: CategoryDestinations } {
-    const construction = resolveItemConstruction(args.item)
-    const destinations = resolveCategoryDestinations(construction, args.tenantCalcType)
-    const conversao = conversionCostEntersCmv(destinations) ? args.conversionCost : 0
-    return { costUnit: args.itemCost + conversao, construction, destinations }
+}): number {
+    return args.itemCost + (conversionCostEntersCmv(args.destinations) ? args.conversionCost : 0)
 }

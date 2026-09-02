@@ -98,6 +98,9 @@ describe('A causa · o select deixou de ser escrito à mão', () => {
         const contratoDoMapeamento: Array<keyof BudgetItemForSale> = [
             'product_id', 'service_id', 'quantity', 'unit_price', 'discount',
             'manual_description', 'commission_pct', 'profit_pct', 'rt_pct', 'tax_breakdown',
+            // D-A: o destino congelado do item do orçamento entrou no contrato, e esta
+            // asserção é o que garante que ele entre também no `select`.
+            'destination_snapshot',
         ]
         for (const campo of contratoDoMapeamento) {
             expect(BUDGET_ITEM_COLUMNS_FOR_SALE).toContain(campo)
@@ -112,7 +115,7 @@ describe('A causa · o select deixou de ser escrito à mão', () => {
 
     it('a string do select tem o formato que o Supabase espera', () => {
         expect(BUDGET_ITEM_SELECT_FOR_SALE).toBe(
-            'product_id, service_id, quantity, unit_price, discount, manual_description, commission_pct, profit_pct, rt_pct, tax_breakdown',
+            'product_id, service_id, quantity, unit_price, discount, manual_description, commission_pct, profit_pct, rt_pct, tax_breakdown, destination_snapshot',
         )
     })
 })

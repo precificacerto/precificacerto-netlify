@@ -11,6 +11,7 @@ import { UNIT_TYPE } from '@/constants/item-unit-types'
 import { calculateItemPrice } from '@/utils/calculate-item-price'
 import { resolveProductTaxPercent, resolveProductTaxPercentToPersist } from '@/utils/product-tax-percent'
 import { resolveIndirectLaborPct } from '@/utils/indirect-labor-grouping'
+import { buildDestinationSnapshot } from '@/utils/destination-snapshot'
 import { MessageInstance } from 'antd/es/message/interface'
 import { useRouter } from 'next/router'
 import { IProductModel } from '@/server/model/product'
@@ -1360,6 +1361,20 @@ export const Content: FC<ContentProps> = ({
       if (finalSalePriceForSave > 0) {
         await supabase.from('products').update({ sale_price: finalSalePriceForSave }).eq('id', productId)
       }
+
+      // D-A: o destino de cada categoria, congelado junto com o preço. A construção vem do
+      // tipo do produto e a segmentação do tenant NESTE INSTANTE — depois disso o valor é
+      // fato, e mudar o `calc_type` não reescreve a decomposição deste preço.
+      // `as any`: os tipos gerados do Supabase (`database.types`) ainda não conhecem a
+      // coluna, e regenerá-los aqui misturaria escopos. A coluna existe — verificada por
+      // consulta ao `information_schema` na aplicação da migração.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (supabase as any).from('products').update({
+        destination_snapshot: buildDestinationSnapshot({
+          construction: productType === 'REVENDA' ? 'REVENDA' : 'INDUSTRIALIZACAO',
+          tenantCalcType: currentUser?.calcType,
+        }),
+      }).eq('id', productId)
 
       const calcFailed = !!calcError || !calcResult?.success
       if (calcFailed) {

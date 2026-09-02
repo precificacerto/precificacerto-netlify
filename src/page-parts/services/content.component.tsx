@@ -7,6 +7,7 @@ import { Select } from '@/components/ui/app-select.component'
 import type { ColumnsType } from 'antd/es/table'
 import { supabase } from '@/supabase/client'
 import { getTenantId } from '@/utils/get-tenant-id'
+import { buildDestinationSnapshot } from '@/utils/destination-snapshot'
 import {
     PlusOutlined, DeleteOutlined, CalculatorOutlined, InfoCircleOutlined, SaveOutlined, SyncOutlined,
 } from '@ant-design/icons'
@@ -570,6 +571,13 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                 // Congelado junto com o preço: sem isto, editar as despesas do tenant fazia
                 // o preço já gravado deixar de ser reproduzível.
                 expense_snapshot: pricing.expenseSnapshot,
+                // D-A: o destino de cada categoria, congelado junto com o preço. Serviço é
+                // sempre construção SERVICO; a segmentação vem do tenant NESTE INSTANTE, e é
+                // por isso que ela é gravada em vez de relida depois.
+                destination_snapshot: buildDestinationSnapshot({
+                    construction: 'SERVICO',
+                    tenantCalcType: currentUser?.calcType,
+                }),
                 commission_percent: commissionPercent,
                 profit_percent: profitPercent,
                 rt_reserve_percent: Number(rtReservePercent) || 0,
