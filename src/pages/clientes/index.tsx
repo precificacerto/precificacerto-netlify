@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react'
+import { buildSaleHistoryDetail, type SaleHistoryDetail } from '@/utils/sale-history-detail'
 import { Button, Drawer, Dropdown, Form, Input, InputNumber, Modal, Space, Switch, Table, Tag, message, Popconfirm, Spin, Tooltip } from 'antd'
 import { Select } from '@/components/ui/app-select.component'
 import type { ColumnsType } from 'antd/es/table'
@@ -56,6 +57,35 @@ const statusLabels: Record<CustomerStatus, { label: string; color: string }> = {
     INACTIVE: { label: 'Inativo', color: 'default' },
 }
 
+/**
+ * Linhas que o histórico lê. Declaradas aqui porque os tipos gerados do Supabase não
+ * expressam o embed `products(id, name)` / `services(id, name)` — e um `any` solto aqui
+ * apagaria justamente os campos cuja presença o painel depende.
+ */
+interface SaleItemForHistory {
+    sale_id: string
+    product_id: string | null
+    service_id: string | null
+    quantity: number | null
+    unit_price: number | null
+    description: string | null
+    products: { id: string; name: string | null } | null
+    services: { id: string; name: string | null } | null
+}
+
+interface CashEntryForHistory {
+    origin_id: string
+    paid_date: string | null
+    amount: number | null
+    due_date: string | null
+}
+
+const naoNulo = <T,>(v: T | null | undefined): v is T => v != null
+
+/** Moeda em pt-BR — o painel exibe valor unitário, subtotal, total e parcela. */
+const brl = (v: number) =>
+    new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(v) || 0)
+
 interface TimelineEntry {
     id: string
     date: string
@@ -75,6 +105,8 @@ interface TimelineEntry {
     fileSize?: number
     employeeName?: string
     attachments?: { url: string; name: string; size?: number }[]
+    /** Detalhe da venda (itens, subtotal, total, pagamento, parcelas). Só em `type: 'SALE'`. */
+    saleDetail?: SaleHistoryDetail
 }
 
 function Clients() {
@@ -194,23 +226,41 @@ function Clients() {
         if (signal?.cancelled) return
 
         // Fetch cash_entries for BOLETO/CHEQUE budgets and sales to check if all parcelas were paid
+        // O filtro que limitava esta busca a BOLETO/CHEQUE saiu: o histórico passa a exibir o
+        // parcelamento de TODA venda que tenha lançamento, e à vista é uma parcela como
+        // qualquer outra. `amount` e `due_date` entraram no select porque o painel agora
+        // mostra valor e vencimento de cada parcela, não só se todas foram pagas.
         const boletoBudgetIds = (budgetRes.data || [])
             .filter((b: any) => !(b as any).sale_id && ((b as any).payment_method === 'BOLETO' || (b as any).payment_method === 'CHEQUE_PRE_DATADO'))
             .map((b: any) => b.id)
-        const boletoSaleIds = allSales
-            .filter((s: any) => s.payment_method === 'BOLETO' || s.payment_method === 'CHEQUE_PRE_DATADO')
-            .map((s: any) => s.id)
-        const allBoletoOriginIds = [...boletoBudgetIds, ...boletoSaleIds]
-        const cashEntriesByOrigin: Record<string, { paid_date: string | null }[]> = {}
-        if (allBoletoOriginIds.length > 0) {
+        const allSaleIds = allSales.map((s: any) => s.id)
+        const allOriginIds = [...boletoBudgetIds, ...allSaleIds]
+        const cashEntriesByOrigin: Record<string, { paid_date: string | null; amount: number | null; due_date: string | null }[]> = {}
+        if (allOriginIds.length > 0) {
             const { data: ceData } = await supabase
                 .from('cash_entries')
-                .select('origin_id, paid_date')
-                .in('origin_id', allBoletoOriginIds)
+                .select('origin_id, paid_date, amount, due_date')
+                .in('origin_id', allOriginIds)
                 .eq('is_active', true)
-            for (const ce of ceData || []) {
+            for (const ce of (ceData || []) as CashEntryForHistory[]) {
                 if (!cashEntriesByOrigin[ce.origin_id]) cashEntriesByOrigin[ce.origin_id] = []
-                cashEntriesByOrigin[ce.origin_id].push({ paid_date: ce.paid_date })
+                cashEntriesByOrigin[ce.origin_id].push({ paid_date: ce.paid_date, amount: ce.amount, due_date: ce.due_date })
+            }
+        }
+
+        // ITENS DA VENDA — `sale_items`, a fonte ESTRUTURADA. O detalhamento em texto de
+        // `cash_entries.description` não serve: as 14 linhas que o têm apontam `origin_id`
+        // para `calendar_events`, não para `sales` (cobertura ZERO nas vendas ativas), e ler
+        // dali seria parsing de string que quebra em silêncio.
+        const saleItemsBySale: Record<string, SaleItemForHistory[]> = {}
+        if (allSaleIds.length > 0) {
+            const { data: siData } = await supabase
+                .from('sale_items')
+                .select('sale_id, product_id, service_id, quantity, unit_price, description, products(id, name), services(id, name)')
+                .in('sale_id', allSaleIds)
+            for (const si of (siData || []) as unknown as SaleItemForHistory[]) {
+                if (!saleItemsBySale[si.sale_id]) saleItemsBySale[si.sale_id] = []
+                saleItemsBySale[si.sale_id].push(si)
             }
         }
         if (signal?.cancelled) return
@@ -367,6 +417,16 @@ function Clients() {
                 amount: Number(s.final_value || 0),
                 employeeName: empName,
                 attachments: saleAtts,
+                // SEGMENTADO POR VENDA: o detalhe é montado com as linhas DESTA venda. Um
+                // cliente tem várias, cada uma com condição própria — consolidar produziria
+                // um número que não corresponde a venda nenhuma.
+                saleDetail: buildSaleHistoryDetail({
+                    sale: { final_value: s.final_value, payment_method: s.payment_method },
+                    items: saleItemsBySale[s.id] || [],
+                    cashEntries: cashEntriesByOrigin[s.id] || [],
+                    products: (saleItemsBySale[s.id] || []).map((si) => si.products).filter(naoNulo),
+                    services: (saleItemsBySale[s.id] || []).map((si) => si.services).filter(naoNulo),
+                }),
             })
         }
 
@@ -811,6 +871,68 @@ function Clients() {
                                                         {entry.budgetStatus && (
                                                             <div style={{ marginBottom: 6 }}>
                                                                 <strong>Status:</strong> <Tag>{entry.budgetStatus}</Tag>
+                                                            </div>
+                                                        )}
+                                                        {entry.saleDetail && entry.saleDetail.itens.length > 0 && (
+                                                            <div style={{ marginBottom: 6 }}>
+                                                                <strong>Itens:</strong>
+                                                                <div style={{ marginTop: 4 }}>
+                                                                    {entry.saleDetail.itens.map((it, i) => (
+                                                                        <div key={`${entry.id}-item-${i}`} style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                                                                            <span>
+                                                                                {it.nome} × {it.quantidade}
+                                                                                <span style={{ opacity: 0.7 }}> ({brl(it.valorUnitario)} un.)</span>
+                                                                            </span>
+                                                                            <span>{brl(it.total)}</span>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginTop: 4 }}>
+                                                                    <span style={{ opacity: 0.7 }}>Subtotal</span>
+                                                                    <span style={{ opacity: 0.7 }}>{brl(entry.saleDetail.subtotal)}</span>
+                                                                </div>
+                                                                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                                                                    <strong>Total</strong>
+                                                                    <strong>{brl(entry.saleDetail.total)}</strong>
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                        {entry.saleDetail?.formaPagamento && (
+                                                            <div style={{ marginBottom: 6 }}>
+                                                                <strong>Pagamento:</strong> {entry.saleDetail.formaPagamento}
+                                                            </div>
+                                                        )}
+                                                        {/* Parcelamento AUSENTE é omitido, não exibido vazio: sete das vendas
+                                                            ativas não têm lançamento nenhum, e "não conhecido" não é "zero
+                                                            parcelas". Não estimar, não inferir. */}
+                                                        {entry.saleDetail?.parcelamento && (
+                                                            <div style={{ marginBottom: 6 }}>
+                                                                <strong>Parcelamento:</strong>{' '}
+                                                                {entry.saleDetail.parcelamento.total}{' '}
+                                                                {entry.saleDetail.parcelamento.total === 1 ? 'parcela' : 'parcelas'}
+                                                                {' — '}{entry.saleDetail.parcelamento.liquidadas} liquidada
+                                                                {entry.saleDetail.parcelamento.liquidadas === 1 ? '' : 's'}
+                                                                {entry.saleDetail.parcelamento.emAberto > 0 && (
+                                                                    <>, {entry.saleDetail.parcelamento.emAberto} em aberto</>
+                                                                )}
+                                                                <div style={{ marginTop: 4 }}>
+                                                                    {entry.saleDetail.parcelamento.parcelas.map((p) => (
+                                                                        <div key={`${entry.id}-parc-${p.numero}`} style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                                                                            <span>
+                                                                                {p.numero}/{p.de}
+                                                                                {p.vencimento && (
+                                                                                    <span style={{ opacity: 0.7 }}> · venc. {new Date(`${p.vencimento}T00:00:00`).toLocaleDateString('pt-BR')}</span>
+                                                                                )}
+                                                                            </span>
+                                                                            <span>
+                                                                                {brl(p.valor)}{' '}
+                                                                                <Tag color={p.liquidada ? 'green' : 'orange'}>
+                                                                                    {p.liquidada ? 'Liquidada' : 'Em aberto'}
+                                                                                </Tag>
+                                                                            </span>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
                                                             </div>
                                                         )}
                                                         <div style={{ marginBottom: 6 }}>
