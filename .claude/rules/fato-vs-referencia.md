@@ -40,8 +40,57 @@ Todas com a mesma estrutura: valor gravado lido contra parâmetro atual.
 | 3 | **Desconto reaberto** | Orçamento gravado dentro do teto que fica fora dele quando o teto muda; a reabertura carrega o desconto salvo **sem revalidar**. **O orçamento se torna inválido sem ninguém agir.** | **ABERTO** |
 | 4 | `\|\|` no cadastro de serviço | Zero digitado pelo usuário sobrescrito pela alíquota do tenant | Corrigido — PR #17 (`firstConfiguredPercent`) |
 | 5 | `rt_pct` | RT congelado ignorado: o `select` não pedia a coluna e caía no cadastro vivo | Corrigido — PR #28 |
+| 6 | **Custo do item** | O preço é congelado em `unit_price`; o CUSTO é relido do cadastro vivo a cada abertura. **ABERTO** | Ver abaixo |
 
 Quatro foram corrigidas uma a uma, cada uma parecendo um defeito isolado. **Não eram.**
+
+## A sexta é de outra natureza: foi DECISÃO, não omissão
+
+Nas cinco anteriores a releitura era **OMISSÃO** — ninguém decidiu congelar, o default silencioso
+produziu o defeito. Na sexta houve **DECISÃO EXPLÍCITA**, com rastro no comentário do código,
+data e autor (`item-tax-rates.ts:180-187`):
+
+> ★ PC-BUG-CMV-ETAPA4-004 (PO Cristiano, 2026-06-30) — REVERTE a precedência V8.8: A Etapa 4
+> **DEVE somar o CMV ATUAL, recalculado do cadastro VIVO** de cada produto, **NUNCA o snapshot
+> serializado** `pricing_calculations.cmv`. Motivo: o snapshot fica STALE após o ciclo
+> save/reopen do produto/orçamento.
+
+**É a primeira aparição em que corrigir significa REVERTER UMA ESCOLHA CONSCIENTE, e não
+preencher uma lacuna.** E a razão de junho era boa: o snapshot ficava obsoleto no ciclo
+save/reopen — que é o defeito do orçamento que não preserva os quatro campos, registrado no
+PR #34. Trocou-se de fonte para tratar o sintoma, e a troca criou esta aparição.
+
+Os dois princípios estão em conflito, e o conflito está escrito no mesmo arquivo: em junho
+decidiu-se ler o vivo porque o snapshot ficava obsoleto; em setembro estabeleceu-se que ler o
+vivo reescreve o passado.
+
+### Onde ela aparece
+
+`budget_items`, `sale_items` e `order_items` guardam preço, quantidade, desconto, comissão,
+lucro, RT, `tax_breakdown` e o destino (D-A). **Nenhuma das três tem coluna de custo** — o
+custo, insumo mais básico do preço, é o único que nunca foi congelado. A cascata o resolve em
+tempo de leitura por `resolveProductCostAndLabor` → `resolveProductCostTotal`, sempre do
+cadastro.
+
+Caso medido: produto "Agua mineral" no ORC-2356. Orçamento de 01/09; produto e
+`pricing_calculations` atualizados em 02/09. Custo que formou o preço R$ 4,62: **R$ 0,849618**.
+Custo que a cascata usa hoje: **R$ 1,00**. Diferença **R$ 0,150382 — 17,7%**, com efeito medido
+na comissão efetiva (4,7966% contra 5,0000%).
+
+### Duas ressalvas de método na medição
+
+Medido em 03/09/2026 sobre 272 itens de documento com cadastro vinculado: **109** com preço
+divergente do cadastro atual, **174 (64%)** pertencentes a documentos anteriores à última
+alteração do cadastro.
+
+1. **Não há histórico de custo.** `products.cost_total` não tem versionamento, então a data em
+   que o custo divergiu **não é recuperável**. O `updated_at` do cadastro é o melhor proxy
+   disponível, e é **global** — qualquer edição do produto o move, não só a do custo.
+2. **"Preço ≠ cadastro" é LIMITE INFERIOR.** Mede só o subconjunto em que a mudança chegou ao
+   preço. **Produto cujo custo subiu sem repasse não aparece ali** — e é justamente o caso em
+   que a margem apurada mente sem que nada denuncie.
+
+MATERIALIZADO, não armado.
 
 ## O que NÃO é o remédio
 
