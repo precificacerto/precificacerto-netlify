@@ -51,6 +51,31 @@ pista estava na formulação do próprio dono do produto, que já citava `NULL` 
 ou seja, **a frase dele já apontava para mais de um caso**, antes de qualquer busca. Mérito
 dividido: a forma é de quem escreveu, a pista é de quem formulou.
 
+### O LIMITE — e o método só vale com ele
+
+Formulação do dono do produto, registrada como está:
+
+> **Se a busca por precedentes não encontrar nada, registre a ocorrência isolada como caso
+> único.** Não force duas ocorrências diferentes a caber num padrão — **anedota honesta é
+> melhor que padrão inventado**.
+
+**A regra é IR ATRÁS de precedentes, não é ENCONTRÁ-LOS.** A tabela com uma linha não é
+proibida; o que é proibido é não ter procurado. Quem procurou e não achou tem na linha única o
+registro correto — e acrescenta a nota de que a busca foi feita, que é o que distingue "só
+aconteceu uma vez" de "ninguém olhou".
+
+Sem este limite a regra se auto-sabota: **quem sabe que precisa de quatro linhas acaba achando
+quatro**, e o arquivo vira coleção de semelhanças forçadas em vez de critério. Um padrão
+inventado é pior que nenhum, porque carrega a autoridade de uma classe sem ter a evidência de
+uma — e a próxima pessoa vai aplicá-lo a um caso que não é aquele.
+
+### Por que este método é regra, e "procure padrões" não seria
+
+Porque ele é **acionável**. "Procure padrões" não é instrução — não diz o que fazer nem quando
+parar. "Recuse escrever tabela com uma linha só, vá atrás de precedentes, e se não achar
+registre o caso único com nota da busca" é instrução: tem gatilho, tem ação e tem critério de
+término.
+
 ### O corolário aplicável ANTES do defeito existir
 
 Todo registro de classe deve conter, quando houver, a regra que se aplica **antes** de a
@@ -69,7 +94,9 @@ nenhuma delas precisasse falhar primeiro.
 
 1. **A formulação do critério**, literal, de quem o formulou.
 2. **Por que a distinção é difícil de ver** — sem isso o leitor acha óbvio e não aplica.
-3. **A tabela de aparições**, com onde, o que o defeito afirmava e o estado de cada uma.
+3. **A tabela de aparições**, com onde, o que o defeito afirmava e o estado de cada uma — ou
+   a ocorrência única com a NOTA DE QUE A BUSCA POR PRECEDENTES FOI FEITA, quando não houver
+   mais nada.
 4. **O corolário aplicável antes**, quando existir.
 5. **As ressalvas de método da medição** — o que o número NÃO mede. Sem elas o número é lido
    além do que diz.
