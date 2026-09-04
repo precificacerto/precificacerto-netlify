@@ -27,6 +27,7 @@ import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import { useDevice } from '@/contexts/device.context'
 import { formatBRL } from '@/utils/formatters'
 import { PAGE_SIZE } from '@/constants/pagination'
+import { ACTIVE_OR_NULL_FILTER } from '@/utils/active-record-filter'
 
 interface StockRow {
     id: string
@@ -241,7 +242,7 @@ function DetailRow({ label, value }: { label: string; value: React.ReactNode }) 
 
 function Stock() {
     const { data: rawStock, isLoading, mutate: reloadStock } = useStock()
-    const { data: rawProducts } = useProducts()
+    const { data: rawProducts, mutate: reloadProducts } = useProducts()
     const { mutate: reloadItems } = useItems()
     const { tenantId, currentUser } = useAuth()
     const { isMobile } = useDevice()
@@ -289,6 +290,16 @@ function Stock() {
     }, [effectiveTenantId])
 
     // Garantir que todo produto cadastrado tenha registro em Produtos acabados (stock PRODUCT)
+    //
+    // A GUARDA ABAIXO É O QUE IMPEDE A RESSURREIÇÃO DA LINHA EXCLUÍDA. Este efeito roda
+    // quando `rawStock` muda — e o `reloadStock()` da própria exclusão o dispara. `rawProducts`
+    // vem do SWR com `revalidateOnFocus: false` e `dedupingInterval: 60_000`, então o cache
+    // AINDA CONTÉM o produto recém-excluído, com `is_active: true` (o valor de antes). O
+    // efeito via um produto sem estoque ativo e criava uma linha NOVA, ativa: medido na conta
+    // Salão Eliane, as sete linhas órfãs nasceram de 0,53 s a 1,77 s depois da exclusão.
+    //
+    // Conferir `product.is_active` do cache NÃO resolveria — o cache está velho justamente
+    // nesse campo. Por isso a verificação é no banco, uma consulta só para todos os ids.
     useEffect(() => {
         if (!effectiveTenantId || !rawStock || !rawProducts) return
         const productIdsWithStock = new Set(
@@ -298,7 +309,17 @@ function Stock() {
         if (productsWithoutStock.length === 0) return
         let created = false
         ;(async () => {
+            const { data: stillActive } = await supabase
+                .from('products')
+                .select('id')
+                .in('id', (productsWithoutStock as { id: string }[]).map((p) => p.id))
+                .or(ACTIVE_OR_NULL_FILTER)
+            // Consulta falhou (`stillActive` nulo) é AUSÊNCIA DE RESPOSTA, não licença para
+            // criar: sem saber quais continuam ativos, não se cria nenhum.
+            if (!stillActive) return
+            const stillActiveIds = new Set((stillActive as { id: string }[]).map((p) => p.id))
             for (const product of productsWithoutStock) {
+                if (!stillActiveIds.has(product.id)) continue
                 let qty = Number(product.yield_quantity) || 0
                 if (product.base_item_id) {
                     const { data: item } = await supabase
@@ -328,6 +349,7 @@ function Stock() {
             const svcRes: any = await (supabase as any)
                 .from('services')
                 .select('id, name, description, estimated_duration_minutes, cost_total, base_price, status, min_quantity, profit_percent, service_items(*, item:items(id, quantity))')
+                .or(ACTIVE_OR_NULL_FILTER)
                 .order('name')
             if (svcRes.error) return
             setServicesList((svcRes.data || []).map((s: any) => {
@@ -700,6 +722,10 @@ function Stock() {
                 .eq(record.type === 'PRODUCT' ? 'product_id' : 'item_id', targetId)
 
             messageApi.success(`${record.type === 'PRODUCT' ? 'Produto' : 'Item'} excluído.`)
+            // Ordem importa: o cache de produtos primeiro. `reloadStock()` dispara o efeito
+            // de auto-cura, e ele não pode rodar sobre uma lista que ainda contém o excluído.
+            await reloadProducts()
+            await reloadItems()
             await reloadStock()
         } catch (err: any) {
             messageApi.error('Erro ao excluir: ' + (err.message || err))
@@ -709,9 +735,13 @@ function Stock() {
     async function handleSoftDeleteService(record: ServiceRow) {
         try {
             const nowIso = new Date().toISOString()
+            // `status: 'INACTIVE'` junto com `is_active: false`: os dois campos existem e
+            // significam coisas diferentes, mas deixar o serviço EXCLUÍDO com `status`
+            // 'ACTIVE' é afirmar que ele segue sendo oferecido. Era essa assimetria que
+            // deixava o serviço excluído visível em toda tela que filtra só por `status`.
             const { error } = await (supabase as any)
                 .from('services')
-                .update({ is_active: false, deleted_at: nowIso, updated_at: nowIso })
+                .update({ is_active: false, status: 'INACTIVE', deleted_at: nowIso, updated_at: nowIso })
                 .eq('id', record.id)
             if (error) throw error
             messageApi.success('Serviço excluído.')

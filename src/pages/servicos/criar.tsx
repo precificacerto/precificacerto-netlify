@@ -9,6 +9,7 @@ import { fetchTaxPreview, TaxPreviewResult } from '@/utils/calc-tax-preview'
 import { mergeExpenseConfig } from '@/utils/recalc-expense-config'
 import { ServiceContent } from '@/page-parts/services/content.component'
 import { useRevalidateOnFocus } from '@/hooks/use-revalidate-on-focus'
+import { ACTIVE_OR_NULL_FILTER } from '@/utils/active-record-filter'
 
 interface RawItem {
     id: string; name: string; unit: string; cost_price: number; quantity: number; item_type?: string; measure_quantity?: number; cost_net?: number; cost_gross?: number
@@ -42,7 +43,7 @@ export default function NewServicePage() {
                 await mergeExpenseConfig(tid)
 
                 const [itemsRes, cfgRes, tp] = await Promise.all([
-                    supabase.from('items').select('id, name, unit, cost_price, quantity, item_type, measure_quantity, cost_net, cost_gross').order('name'),
+                    supabase.from('items').select('id, name, unit, cost_price, quantity, item_type, measure_quantity, cost_net, cost_gross').or(ACTIVE_OR_NULL_FILTER).order('name'),
                     supabase.from('tenant_expense_config').select('*').eq('tenant_id', tid).single(),
                     fetchTaxPreview(tid),
                 ])

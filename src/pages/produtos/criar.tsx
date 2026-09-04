@@ -14,6 +14,7 @@ import { fetchTaxPreview } from '@/utils/calc-tax-preview'
 import { mergeExpenseConfig } from '@/utils/recalc-expense-config'
 import { buildCalcBase } from '@/utils/build-calc-base'
 import { useRevalidateOnFocus } from '@/hooks/use-revalidate-on-focus'
+import { ACTIVE_OR_NULL_FILTER } from '@/utils/active-record-filter'
 
 const NewProduct = () => {
   const [messageApi, contextHolder] = message.useMessage()
@@ -47,7 +48,7 @@ const NewProduct = () => {
         await mergeExpenseConfig(tenantId)
 
         const [itemsRes, stockRes, expenseRes, taxPreview] = await Promise.all([
-          supabase.from('items').select('*').eq('tenant_id', tenantId).order('name'),
+          supabase.from('items').select('*').eq('tenant_id', tenantId).or(ACTIVE_OR_NULL_FILTER).order('name'),
           supabase.from('stock').select('item_id, quantity_current, unit').eq('stock_type', 'ITEM'),
           supabase.from('tenant_expense_config').select('*').eq('tenant_id', tenantId).single(),
           fetchTaxPreview(tenantId),

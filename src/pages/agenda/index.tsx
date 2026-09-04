@@ -36,6 +36,7 @@ import { syncCustomerRecurrenceOnSale } from '@/lib/customer-recurrence'
 import { mergeExpenseConfig } from '@/utils/recalc-expense-config'
 import { resolveItemRtPctDecimal } from '@/utils/balcao-rt'
 import { CurrencyInput } from '@/components/currency-input.component'
+import { ACTIVE_OR_NULL_FILTER } from '@/utils/active-record-filter'
 
 dayjs.extend(isoWeek)
 dayjs.locale('pt-br')
@@ -203,8 +204,8 @@ function Schedule() {
                 sb.from('customers').select('id, name').eq('is_active', true).order('name'),
                 sb.from('employees').select('id, name, position, status, commission_percent').eq('status', 'ACTIVE').eq('is_active', true).order('name'),
                 sb.from('schedule_employees').select('employee_id').eq('tenant_id', tid),
-                sb.from('services').select('id, name, base_price, estimated_duration_minutes, commission_percent, profit_percent, rt_reserve_percent, cost_total, recurrence_days, commission_table_id, destination_snapshot').eq('status', 'ACTIVE').order('name'),
-                sb.from('products').select('id, name, sale_price, cost_total, commission_percent, profit_percent, rt_reserve_percent, recurrence_days, commission_table_id, destination_snapshot').eq('status', 'ACTIVE').order('name'),
+                sb.from('services').select('id, name, base_price, estimated_duration_minutes, commission_percent, profit_percent, rt_reserve_percent, cost_total, recurrence_days, commission_table_id, destination_snapshot').eq('status', 'ACTIVE').or(ACTIVE_OR_NULL_FILTER).order('name'),
+                sb.from('products').select('id, name, sale_price, cost_total, commission_percent, profit_percent, rt_reserve_percent, recurrence_days, commission_table_id, destination_snapshot').eq('status', 'ACTIVE').or(ACTIVE_OR_NULL_FILTER).order('name'),
             ])
             const loadedEvents: any[] = evR.data || []
             setEvents(loadedEvents)

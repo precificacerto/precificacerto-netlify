@@ -22,6 +22,7 @@ import { calculateItemPrice } from '@/utils/calculate-item-price'
 import { computeServiceSellingPrice } from '@/utils/compute-service-price'
 import { fetchTaxPreview } from '@/utils/calc-tax-preview'
 import { PAGE_SIZE } from '@/constants/pagination'
+import { ACTIVE_OR_NULL_FILTER } from '@/utils/active-record-filter'
 import { useRouter } from 'next/router'
 
 function fmt(v: number) {
@@ -150,8 +151,11 @@ function ServicesPage() {
             const tenantId = await getTenantId()
             const sb = supabase as any
             const [svcRes, stockRes] = await Promise.all([
+                // Sem `status` aqui de propósito: a tela EXIBE serviço inativo com a tag
+                // "Inativo". O que ela não pode exibir é serviço EXCLUÍDO — daí o `is_active`.
                 sb.from('services')
                     .select('*, service_items(*, item:items(id, name, unit, cost_price, quantity, measure_quantity))')
+                    .or(ACTIVE_OR_NULL_FILTER)
                     .order('name'),
                 tenantId ? sb.from('stock').select('service_id, quantity_current').eq('stock_type', 'SERVICE') : Promise.resolve({ data: [] }),
             ])
