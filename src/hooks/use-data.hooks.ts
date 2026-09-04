@@ -1,5 +1,6 @@
 import useSWR from 'swr'
 import { supabase } from '@/supabase/client'
+import { ACTIVE_OR_NULL_FILTER, filterActiveStockRows } from '@/utils/active-record-filter'
 import { useAuth } from './use-auth.hook'
 
 const SWR_CONFIG = {
@@ -114,10 +115,15 @@ export function useServices() {
       // O custo do serviço não depende desses embeds: a cadeia de
       // `resolveProductCostTotal` cai no nível `cost_total`, que é coluna da própria
       // tabela `services` e já vem no `select *`.
+      // `status` e `is_active` são campos DIFERENTES: `status` é o ciclo de vida comercial
+      // (o serviço está sendo oferecido?), `is_active` é a exclusão lógica. Filtrar só o
+      // primeiro deixava serviço EXCLUÍDO aparecendo na seleção, porque a exclusão não
+      // mexe em `status`.
       const { data, error } = await supabase
         .from('services')
         .select('*')
         .eq('status', 'ACTIVE')
+        .or(ACTIVE_OR_NULL_FILTER)
         .order('name')
       if (error) throw error
       return data
@@ -131,12 +137,16 @@ export function useStock() {
   return useSWR(
     tenantId ? `stock-${tenantId}` : null,
     async () => {
+      // O `is_active` dos embeds vem junto para que a listagem possa descartar a linha
+      // cujo DONO foi excluído. Filtrar só `stock.is_active` não bastava: a auto-cura da
+      // tela de Estoque recria uma linha ativa logo após a exclusão, e era essa cópia que
+      // reaparecia (ver `filterActiveStockRows`).
       const { data, error } = await supabase
         .from('stock')
-        .select('*, items(name, unit, quantity, cost_price, cost_per_base_unit), products(name, unit, cost_total, profit_percent, sale_price, section_id, code)')
+        .select('*, items(name, unit, quantity, cost_price, cost_per_base_unit, is_active), products(name, unit, cost_total, profit_percent, sale_price, section_id, code, is_active)')
         .eq('is_active', true)
       if (error) throw error
-      return data
+      return filterActiveStockRows(data)
     },
     SWR_CONFIG
   )

@@ -69,6 +69,7 @@ void calculateMarginReapuration; void buildMotorInput;
 import { coerceLegacyDiscountMode, normalizeDiscountModeForDisplay } from '@/config/feature-flags'
 import { decideMrmAction } from '@/utils/mrm-policies'
 import { aggregateMotorResults } from '@/utils/mrm-aggregate'
+import { ACTIVE_OR_NULL_FILTER } from '@/utils/active-record-filter'
 import { RequiresReviewBadge } from '@/components/mrm/RequiresReviewBadge'
 
 const PAYMENT_METHODS = [
@@ -447,12 +448,13 @@ function Sales() {
             const { data: prodsFull, error: prodsErr } = await supabase
                 .from('products')
                 .select('*, pricing_calculations(*), product_items(item_id, item_cost_net, item_cost_gross, quantity_needed, items(item_type)), labor_costs(*)')
+                .or(ACTIVE_OR_NULL_FILTER)
                 .order('name')
             if (!prodsErr) {
                 prods = prodsFull
             } else {
                 console.warn('Products query failed, falling back:', prodsErr.message)
-                const { data: prodsSimple } = await supabase.from('products').select('id, name, sale_price, cost_total, commission_percent, profit_percent, commission_table_id, rt_reserve_percent, product_type, yield_quantity, destination_snapshot').order('name')
+                const { data: prodsSimple } = await supabase.from('products').select('id, name, sale_price, cost_total, commission_percent, profit_percent, commission_table_id, rt_reserve_percent, product_type, yield_quantity, destination_snapshot').or(ACTIVE_OR_NULL_FILTER).order('name')
                 prods = prodsSimple
             }
 
@@ -460,12 +462,12 @@ function Sales() {
             let svcs: any[] | null = null
             const svb = supabase as any
             const svcTaxCols = 'icms_pct, pis_cofins_pct, pis_pct, cofins_pct, iss_pct, is_pct, ipi_pct, ibs_pct, cbs_pct, ibs_reference_pct, cbs_reference_pct, iva_dual_reduction_factor, iss_retido_pct, irpj_pct, csll_pct, sale_price_base, freight_value, insurance_value, accessory_expenses_value'
-            const { data: svcsFull, error: svcsErr } = await svb.from('services').select(`id, name, base_price, commission_percent, profit_percent, rt_reserve_percent, commission_table_id, recurrence_days, destination_snapshot, ${svcTaxCols}`).eq('status', 'ACTIVE').order('name')
+            const { data: svcsFull, error: svcsErr } = await svb.from('services').select(`id, name, base_price, commission_percent, profit_percent, rt_reserve_percent, commission_table_id, recurrence_days, destination_snapshot, ${svcTaxCols}`).eq('status', 'ACTIVE').or(ACTIVE_OR_NULL_FILTER).order('name')
             if (!svcsErr) {
                 svcs = svcsFull
             } else {
                 console.warn('Services query failed, falling back:', svcsErr.message)
-                const { data: svcsSimple } = await svb.from('services').select('id, name, base_price, commission_percent, profit_percent, rt_reserve_percent, commission_table_id, destination_snapshot').eq('status', 'ACTIVE').order('name')
+                const { data: svcsSimple } = await svb.from('services').select('id, name, base_price, commission_percent, profit_percent, rt_reserve_percent, commission_table_id, destination_snapshot').eq('status', 'ACTIVE').or(ACTIVE_OR_NULL_FILTER).order('name')
                 svcs = svcsSimple
             }
 

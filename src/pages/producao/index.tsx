@@ -6,6 +6,7 @@ import { PAGE_TITLES } from '@/constants/page-titles'
 import { supabase } from '@/supabase/client'
 import { useAuth } from '@/hooks/use-auth.hook'
 import { getTenantId, getCurrentUserId } from '@/utils/get-tenant-id'
+import { ACTIVE_OR_NULL_FILTER } from '@/utils/active-record-filter'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import { ToolOutlined } from '@ant-design/icons'
 
@@ -56,6 +57,7 @@ export default function ProducaoPage() {
           `)
           .eq('tenant_id', tenantId)
           .eq('product_type', 'PRODUZIDO')
+          .or(ACTIVE_OR_NULL_FILTER)
 
         if (error) throw error
         const withItems = (data || []).filter(
