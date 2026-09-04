@@ -319,6 +319,7 @@ O AIOS carrega regras contextuais de `.claude/rules/` automaticamente. Regras co
 | `fato-vs-referencia.md` | Valor gravado é fato histórico ou referência viva — classe com 5 aparições |
 | `ids-principles.md` | Incremental Development System principles |
 | `migration-delivery.md` | PR com migração só está entregue com a migração aplicada e verificada |
+| `registro-de-classe.md` | Onde o registro vive e como se escreve — uma ocorrência é anedota, quatro é critério |
 | `mcp-usage.md` | MCP server usage rules and tool selection priority |
 | `story-lifecycle.md` | Story status transitions and quality gates |
 | `workflow-execution.md` | 4 primary workflows (SDC, QA Loop, Spec Pipeline, Brownfield) |
