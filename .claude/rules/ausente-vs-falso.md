@@ -1,5 +1,12 @@
 # Dado Ausente ou Dado Falso
 
+> **Esta regra é independente da funcionalidade que a originou.** Ela nasceu junto com o
+> Histórico do Cliente (PR #36) porque foi ali que o critério precisou ser aplicado, mas
+> **não depende dele**: vale para qualquer campo sem dado, em qualquer tela. Reverter aquela
+> feature não deve levar esta página junto — regra e feature têm ciclos de vida diferentes.
+> O commit próprio deste arquivo existe para que um revert daquele PR produza CONFLITO aqui,
+> e não remoção silenciosa.
+
 ## O critério
 
 Formulação do dono do produto, registrada como está:
