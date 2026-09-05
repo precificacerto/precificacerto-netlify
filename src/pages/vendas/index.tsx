@@ -1621,16 +1621,13 @@ function Sales() {
                     globalDiscountPercent: discountPctSnapshotSale,
                     discountMode: 'PROPORTIONAL',
                 })
+                // Input do motor INTEIRO — inclui as alíquotas do item, que o gravador não
+                // levava. Ver o comentário gêmeo em `orcamentos/index.tsx`.
                 return hydrateItemSnapshot(
                     {
-                        unit_price: i.unit_price,
-                        quantity: i.quantity,
-                        discount_value: i.total * (discountPctSnapshotSale / 100),
                         commission_pct: (i.commission_percent ?? 0) / 100,
                         profit_pct: (i.profit_percent ?? 0) / 100,
-                        cp: motorIn.cp,
-                        mod: motorIn.mod,
-                        dop: motorIn.dop,
+                        motorInput: motorIn,
                     },
                     directSaleSnapshotCtx,
                     directSaleShadowCtx,

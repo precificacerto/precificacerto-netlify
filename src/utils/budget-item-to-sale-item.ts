@@ -19,6 +19,7 @@
  */
 
 import { hydrateItemSnapshot, type TenantSnapshotContext } from '@/lib/items-snapshot'
+import { buildMotorInput } from '@/utils/mrm-orchestrator'
 import {
     resolveInheritedRtPctDecimal,
     type RtCatalogEntry,
@@ -125,19 +126,33 @@ export function mapBudgetItemsToSaleItems(
         // Idempotente: snapshot válido do orçamento é PRESERVADO (AC3 — imutabilidade).
         const snap = hydrateItemSnapshot(
             {
-                unit_price: Number(bi.unit_price) || 0,
-                quantity: Number(bi.quantity) || 0,
                 commission_pct: Number(bi.commission_pct ?? 0),
                 profit_pct: Number(bi.profit_pct ?? 0),
                 prev_breakdown: bi.tax_breakdown ?? null,
             // `budget_items` NÃO TEM COLUNA DE CUSTO — é a 6ª aparição de
-            // `fato-vs-referencia.md`. Aqui não há de onde derivar cp/mod/dop, e ir buscar no
-            // cadastro seria reler referência viva, que é o que o D-A proíbe. Os zeros só
-            // valem quando `prev_breakdown` é nulo (item legado sem snapshot); com snapshot,
-            // `hydrateItemSnapshot` o preserva e nada disto é usado.
-            cp: 0,
-            mod: 0,
-            dop: 0,
+            // `fato-vs-referencia.md`. Aqui não há de onde derivar custo nem alíquotas, e ir
+            // buscar no cadastro seria reler referência viva, que é o que o D-A proíbe. Ainda
+            // assim a entrada passa pelo construtor ÚNICO, para não existir uma segunda rota:
+            // sem esses dados ele devolve zeros, e eles só chegam a valer quando
+            // `prev_breakdown` é nulo (item legado). Com snapshot, `hydrateItemSnapshot` o
+            // preserva e nada disto é usado.
+            motorInput: buildMotorInput({
+                item: {
+                    unit_price: Number(bi.unit_price) || 0,
+                    quantity: Number(bi.quantity) || 0,
+                    commission_percent: Number(bi.commission_pct ?? 0) * 100,
+                    profit_percent: Number(bi.profit_pct ?? 0) * 100,
+                },
+                tenantCtx: {
+                    regime: opts.snapshotCtx.regime,
+                    rates: opts.snapshotCtx.rates,
+                    csll_pct: opts.snapshotCtx.csll_pct,
+                    irpj_pct: opts.snapshotCtx.irpj_pct,
+                    useSnapshotRates: opts.snapshotCtx.use_snapshot_rates,
+                },
+                globalDiscountPercent: 0,
+                discountMode: 'PROPORTIONAL',
+            }),
             },
             opts.snapshotCtx,
             opts.shadowCtx,

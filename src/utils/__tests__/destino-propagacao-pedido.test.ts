@@ -175,6 +175,8 @@ describe('Vazamento 3 · o espelho pedido → orçamento', () => {
         const arquivo = read('pages/pedidos/index.tsx')
         const i = arquivo.indexOf('const budgetItems = items.map((it)')
         expect(i).toBeGreaterThanOrEqual(0)
-        expect(arquivo.slice(i, i + 3200)).toContain('destination_snapshot: readSnapshotColumn(it)')
+        // Janela ampliada: o PR da cobertura acrescentou o `motorInput` entre a âncora e esta
+        // linha. A asserção é a mesma — o espelho continua copiando o destino do item.
+        expect(arquivo.slice(i, i + 4200)).toContain('destination_snapshot: readSnapshotColumn(it)')
     })
 })
