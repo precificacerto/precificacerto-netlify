@@ -18,7 +18,7 @@ import { PAGE_TITLES } from '@/constants/page-titles'
 import { CardKPI } from '@/components/ui/card-kpi.component'
 import { supabase } from '@/supabase/client'
 import { useAuth } from '@/hooks/use-auth.hook'
-import { useCustomers, useProducts, useEmployees } from '@/hooks/use-data.hooks'
+import { useCustomers, useProducts, useServices, useEmployees } from '@/hooks/use-data.hooks'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import { formatBRL } from '@/utils/formatters'
 import { readSnapshotColumn } from '@/utils/destination-snapshot'
@@ -28,6 +28,7 @@ import dayjs from 'dayjs'
 import { useTenantTaxContext } from '@/hooks/use-tenant-tax-context'
 import { hydrateItemSnapshot, type TenantSnapshotContext } from '@/lib/items-snapshot'
 import { buildMotorInput } from '@/utils/mrm-orchestrator'
+import { formatPercentWithDigits } from '@/utils/formatters'
 import { MRM_ENGINE_VERSION, type TaxBreakdown } from '@/types/mrm'
 import { useResidualDistribution } from '@/hooks/use-residual-distribution'
 import { buildBaselineFromSnapshots, computeResidualDistribution, type ResidualItemInput } from '@/utils/residual-distribution'
@@ -182,10 +183,29 @@ function OrderInstallmentsEditor({
     )
 }
 
+/** Rótulos dos modos de absorção — os mesmos do Orçamento. */
+/** Serviço do catálogo, no que a seleção do pedido consome. */
+interface CatalogService {
+    id: string
+    name: string
+    base_price?: number | null
+    commission_percent?: number | null
+    profit_percent?: number | null
+    rt_reserve_percent?: number | null
+    commission_table_id?: string | null
+}
+
+const DISCOUNT_MODE_LABEL: Record<string, string> = {
+    PROPORTIONAL: 'Proporcional',
+    SELLER_REDUCTION: 'Reduz a comissão',
+    PROFIT_REDUCTION: 'Reduz o lucro',
+}
+
 // Resumo de totais do drawer de edição — observa o `discount_percent` no form em tempo real
 // e mostra Subtotal (bruto), Desconto e Total final (= subtotal × (1 - desc/100)).
 function OrderTotalsSummary({ form, items }: { form: any; items: OrderItemRow[] }) {
     const discountPct = Form.useWatch('discount_percent', form) ?? 0
+    const discountMode = Form.useWatch('discount_mode', form) ?? 'PROPORTIONAL'
     const subtotal = items.reduce((s, it) => s + (it.total_price || 0), 0)
     const pct = Math.max(0, Math.min(100, Number(discountPct) || 0))
     // Doc 29/07 (§3.1/§3.2): item manual é repasse puro — imune ao desconto (QA risco #2).
@@ -195,8 +215,10 @@ function OrderTotalsSummary({ form, items }: { form: any; items: OrderItemRow[] 
     const finalTotal = subtotal - discountAmount
     return (
         <div style={{ marginTop: 16, padding: 12, background: '#FAFAFA', borderRadius: 6, fontSize: 14 }}>
+            {/* Nomenclatura ALINHADA ao Orçamento: o pedido é o mesmo documento noutro momento,
+                e os dois totais têm de se chamar igual nos dois lugares. */}
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                <span style={{ color: '#667085' }}>Subtotal</span>
+                <span style={{ color: '#667085' }}>Total do Orçamento</span>
                 <span>{formatCurrency(subtotal)}</span>
             </div>
             {manualSum > 0 && pct > 0 && (
@@ -207,12 +229,20 @@ function OrderTotalsSummary({ form, items }: { form: any; items: OrderItemRow[] 
             )}
             {pct > 0 && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, color: '#EF4444' }}>
-                    <span>Desconto ({pct.toLocaleString('pt-BR')}%)</span>
+                    {/* O desconto aparece em % E em R$, como no Orçamento — o valor absoluto é
+                        o que o cliente enxerga, e faltava na tela do pedido. */}
+                    <span>Desconto ({formatPercentWithDigits(pct)})</span>
                     <span>− {formatCurrency(discountAmount)}</span>
                 </div>
             )}
+            {pct > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, color: '#667085', fontSize: 12 }}>
+                    <span>Modo de absorção</span>
+                    <span>{DISCOUNT_MODE_LABEL[String(discountMode)] ?? 'Proporcional'}</span>
+                </div>
+            )}
             <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 8, borderTop: '1px solid #E4E7EC', fontWeight: 700, fontSize: 16 }}>
-                <span>Total</span>
+                <span>Total a cobrar</span>
                 <span style={{ color: '#12B76A' }}>{formatCurrency(finalTotal)}</span>
             </div>
         </div>
@@ -229,6 +259,9 @@ function OrdersPage() {
     const { canView, canEdit } = usePermissions()
     const { data: customers = [] } = useCustomers()
     const { data: products = [] } = useProducts()
+    // O pedido não carregava catálogo de SERVIÇOS — era essa a razão de a linha de serviço
+    // cair no placeholder "Selecione o produto": não havia opções para oferecer.
+    const { data: services = [] } = useServices()
     // Contexto do tenant para o construtor único — mesma fonte do orçamento e da venda.
     const orderMotorTenantCtx = {
         regime: mrmConfig.regime,
@@ -265,6 +298,14 @@ function OrdersPage() {
             profit_percent: item.profit_percent,
             tax_breakdown: item.tax_breakdown ?? null,
         })),
+        [orderItems],
+    )
+    // Itens manuais são repasse puro e imunes ao desconto — a Etapa 11 da cascata os abate
+    // antes de distribuir o restante, e é para isso que a prop `manualTotal` existe.
+    const orderManualTotal = useMemo(
+        () => orderItems
+            .filter((it) => it.isManual === true || (!it.product_id && !it.service_id && !!it.manual_description))
+            .reduce((s, it) => s + (it.total_price || 0), 0),
         [orderItems],
     )
     const orderSubtotal = useMemo(
@@ -623,6 +664,37 @@ function OrdersPage() {
         )
     }
 
+    // Espelho de `handleItemProductChange` — mesma resolução, do outro lado do catálogo.
+    // Item novo é inserção nova: pega as referências do cadastro ATUAL, como no orçamento.
+    const handleItemServiceChange = (key: string, serviceId: string) => {
+        const service = (services as CatalogService[]).find((sv) => sv.id === serviceId)
+        if (!service) return
+        const table = empTables.find((t) => t.id === selectedTableId)
+        const commissionPercent = (service.commission_percent != null && Number(service.commission_percent) > 0)
+            ? Number(service.commission_percent)
+            : Number(table?.commission_percent || 0)
+        const price = Number(service.base_price || 0)
+        setOrderItems((prev) =>
+            prev.map((it) =>
+                it.key === key
+                    ? {
+                          ...it,
+                          service_id: serviceId,
+                          product_id: null as string | null,
+                          product_name: service.name,
+                          unit_price: price,
+                          total_price: price * it.quantity,
+                          commission_percent: commissionPercent,
+                          profit_percent: Number(service.profit_percent) || it.profit_percent || null,
+                          rt_reserve_percent: Number(service.rt_reserve_percent) || 0,
+                          rt_pct: null as number | null,
+                          isManual: false,
+                      }
+                    : it,
+            ),
+        )
+    }
+
     const handleItemQtyChange = (key: string, qty: number) => {
         setOrderItems((prev) =>
             prev.map((it) =>
@@ -654,6 +726,13 @@ function OrdersPage() {
         const inTable = all.filter((p: any) => p.commission_table_id === selectedTableId)
         return inTable.length > 0 ? inTable : all
     }, [products, selectedTableId])
+
+    const filteredServices = useMemo(() => {
+        const all = services as CatalogService[]
+        if (!selectedTableId) return all
+        const inTable = all.filter((sv) => sv.commission_table_id === selectedTableId)
+        return inTable.length > 0 ? inTable : all
+    }, [services, selectedTableId])
 
     const handleSaveEdit = async () => {
         if (!editingOrder) return
@@ -1670,6 +1749,24 @@ function OrdersPage() {
                             <Select.Option value="PROFIT_REDUCTION">Congela Comissão (Empresa absorve)</Select.Option>
                         </Select>
                     </Form.Item>
+                    {/* Modo de desconto — ENTRA AGORA porque o #48 fez o `discount_mode` chegar
+                        ao snapshot. Antes seria controle inerte: os itens do pedido caem na
+                        Prioridade 1 e liam `new_commission` já gravado, então mudar o modo aqui
+                        não moveria número nenhum. Era a única razão do adiamento, e caiu. */}
+                    <Form.Item
+                        name="discount_mode"
+                        label="Modo de desconto"
+                        initialValue="PROPORTIONAL"
+                        tooltip="De onde o desconto sai: rateado entre as categorias, só da comissão do vendedor, ou só do lucro da empresa. Mesma semântica do Orçamento."
+                    >
+                        <Select
+                            options={[
+                                { value: 'PROPORTIONAL', label: DISCOUNT_MODE_LABEL.PROPORTIONAL },
+                                { value: 'SELLER_REDUCTION', label: DISCOUNT_MODE_LABEL.SELLER_REDUCTION },
+                                { value: 'PROFIT_REDUCTION', label: DISCOUNT_MODE_LABEL.PROFIT_REDUCTION },
+                            ]}
+                        />
+                    </Form.Item>
                     <Form.Item
                         name="discount_percent"
                         label="Desconto (%)"
@@ -1728,7 +1825,7 @@ function OrdersPage() {
                         {orderItems.map((row) => (
                             <div key={row.key} style={{ border: '1px solid rgba(148,163,184,0.2)', borderRadius: 8, padding: 10, marginBottom: 8 }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                                    <span style={{ fontSize: 12, color: '#94a3b8' }}>{row.isManual ? 'Item manual' : 'Produto'}</span>
+                                    <span style={{ fontSize: 12, color: '#94a3b8' }}>{row.isManual ? 'Item manual' : row.service_id ? 'Serviço' : 'Produto'}</span>
                                     <Button type="text" danger size="small" onClick={() => handleItemRemove(row.key)}>✕</Button>
                                 </div>
                                 {row.isManual ? (
@@ -1738,6 +1835,20 @@ function OrdersPage() {
                                         onChange={(e) => handleManualDescriptionChange(row.key, e.target.value)}
                                         style={{ width: '100%' }}
                                     />
+                                ) : (
+                                row.service_id ? (
+                                <Select
+                                    showSearch
+                                    optionFilterProp="children"
+                                    placeholder="Selecione o serviço"
+                                    value={row.service_id || undefined}
+                                    onChange={(v) => handleItemServiceChange(row.key, v)}
+                                    style={{ width: '100%' }}
+                                >
+                                    {filteredServices.map((sv) => (
+                                        <Select.Option key={sv.id} value={sv.id}>{sv.name}</Select.Option>
+                                    ))}
+                                </Select>
                                 ) : (
                                 <Select
                                     showSearch
@@ -1751,6 +1862,7 @@ function OrdersPage() {
                                         <Select.Option key={p.id} value={p.id}>{p.name}</Select.Option>
                                     ))}
                                 </Select>
+                                )
                                 )}
                                 <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                                     <div style={{ flex: 1, minWidth: 0 }}>
@@ -1789,6 +1901,20 @@ function OrdersPage() {
                                         style={{ width: 220 }}
                                     />
                                 ) : (
+                                row.service_id ? (
+                                <Select
+                                    showSearch
+                                    optionFilterProp="children"
+                                    placeholder="Selecione o serviço"
+                                    value={row.service_id || undefined}
+                                    onChange={(v) => handleItemServiceChange(row.key, v)}
+                                    style={{ width: 220 }}
+                                >
+                                    {filteredServices.map((sv) => (
+                                        <Select.Option key={sv.id} value={sv.id}>{sv.name}</Select.Option>
+                                    ))}
+                                </Select>
+                                ) : (
                                 <Select
                                     showSearch
                                     optionFilterProp="children"
@@ -1801,6 +1927,7 @@ function OrdersPage() {
                                         <Select.Option key={p.id} value={p.id}>{p.name}</Select.Option>
                                     ))}
                                 </Select>
+                                )
                                 )
                             ),
                         },
@@ -1892,6 +2019,24 @@ function OrdersPage() {
                         cascadeTrace={orderEpicV5DisplayData.cascadeTrace}
                         pesoOpInterna={orderEpicV5DisplayData.pesoOpInterna}
                         ancoraInterna={orderEpicV5DisplayData.ancoraInterna}
+                        /* As três props que o Orçamento passava e o Pedido não: sem elas a
+                           Memória Cascata do pedido não fazia a dedução da Etapa 11 e não
+                           oferecia o PDF. O bloco já estava aqui — faltava alimentá-lo. */
+                        totalACobrarComDesconto={orderFinalTotal > 0 ? orderFinalTotal : null}
+                        manualTotal={orderManualTotal}
+                        despAcessoriasTotal={0}
+                        pdfMeta={{
+                            /* IDENTIDADE: o PDF é do PEDIDO, e leva o order_code. O
+                               `budget_id` de origem vai no cabeçalho — são coisas diferentes
+                               no documento e ambas aparecem, cada uma no seu lugar. */
+                            budgetId: editingOrder?.budget_id ?? null,
+                            orderCode: editingOrder?.order_code ?? null,
+                            customerName: editingOrder?.customer_name ?? null,
+                            totalValue: orderSubtotal,
+                            totalACobrar: orderFinalTotal,
+                            discountPercent: orderDiscountPct,
+                            discountMode: orderDiscountMode,
+                        }}
                     />
                 )}
 
