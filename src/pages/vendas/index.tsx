@@ -1601,17 +1601,41 @@ function Sales() {
             const directSaleShadowCtx = { tenant_id: tenantId, document_type: 'sale' as const }
             // P0 — captura imutável do desconto no save (alinha snapshot com UI).
             const discountPctSnapshotSale = globalDiscountPercentV
-            const hydrateRow = (i: typeof saleItems[number]) => hydrateItemSnapshot(
-                {
-                    unit_price: i.unit_price,
-                    quantity: i.quantity,
-                    discount_value: i.total * (discountPctSnapshotSale / 100),
-                    commission_pct: (i.commission_percent ?? 0) / 100,
-                    profit_pct: (i.profit_percent ?? 0) / 100,
-                },
-                directSaleSnapshotCtx,
-                directSaleShadowCtx,
-            )
+            // Custo, MO e despesa pelo MESMO construtor de entrada do motor — ver o comentário
+            // gêmeo em `orcamentos/index.tsx`. Sem isto o snapshot da venda de balcão nascia
+            // com cp/mod/dop zerados e o RRO virava o preço inteiro.
+            const balcaoMotorTenantCtx = {
+                regime: mrmConfig.regime,
+                rates: mrmConfig.rates,
+                mod_pct: mrmConfig.mod_pct,
+                dop_pct: mrmConfig.dop_pct,
+                csll_pct: mrmConfig.csll_pct,
+                irpj_pct: mrmConfig.irpj_pct,
+                useSnapshotRates: mrmConfig.useSnapshotRates,
+                expense_breakdown: mrmConfig.expense_breakdown,
+            }
+            const hydrateRow = (i: typeof saleItems[number]) => {
+                const motorIn = buildMotorInput({
+                    item: i,
+                    tenantCtx: balcaoMotorTenantCtx,
+                    globalDiscountPercent: discountPctSnapshotSale,
+                    discountMode: 'PROPORTIONAL',
+                })
+                return hydrateItemSnapshot(
+                    {
+                        unit_price: i.unit_price,
+                        quantity: i.quantity,
+                        discount_value: i.total * (discountPctSnapshotSale / 100),
+                        commission_pct: (i.commission_percent ?? 0) / 100,
+                        profit_pct: (i.profit_percent ?? 0) / 100,
+                        cp: motorIn.cp,
+                        mod: motorIn.mod,
+                        dop: motorIn.dop,
+                    },
+                    directSaleSnapshotCtx,
+                    directSaleShadowCtx,
+                )
+            }
             const allSnaps = saleItems.map(hydrateRow)
             if (mrmConfig.enabled) {
                 const aggregate = aggregateMotorResults(allSnaps.map(s => s.tax_breakdown))

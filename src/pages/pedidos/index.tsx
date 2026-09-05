@@ -700,6 +700,16 @@ function OrdersPage() {
                         quantity: it.quantity || 0,
                         commission_pct: inheritedCommPct,
                         profit_pct: inheritedProfitPct,
+                        // PENDENTE — item novo criado direto aqui ainda não busca as
+                        // referências do cadastro (custo, despesas, comissão, RT, lucro) pelo
+                        // caminho que o orçamento usa. Está na fila como item próprio. Enquanto
+                        // isso, este snapshot recomputado NÃO é usado para o item importado,
+                        // que é o caso normal: `it.tax_breakdown` tem precedência logo abaixo.
+                        // Os zeros são explícitos para que o pendente fique visível ao grep, não
+                        // escondido atrás de um default.
+                        cp: 0,
+                        mod: 0,
+                        dop: 0,
                     },
                     orderSnapshotCtx,
                     orderShadowCtx,
@@ -982,6 +992,16 @@ function OrdersPage() {
                             quantity: it.quantity || 0,
                             commission_pct: inheritedCommPct,
                             profit_pct: inheritedProfitPct,
+                            // PENDENTE — item novo criado direto aqui ainda não busca as
+                            // referências do cadastro (custo, despesas, comissão, RT, lucro) pelo
+                            // caminho que o orçamento usa. Está na fila como item próprio. Enquanto
+                            // isso, este snapshot recomputado NÃO é usado para o item importado,
+                            // que é o caso normal: `it.tax_breakdown` tem precedência logo abaixo.
+                            // Os zeros são explícitos para que o pendente fique visível ao grep, não
+                            // escondido atrás de um default.
+                            cp: 0,
+                            mod: 0,
+                            dop: 0,
                         },
                         mirrorSnapshotCtx,
                         mirrorShadowCtx,

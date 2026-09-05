@@ -98,6 +98,11 @@ function mapeamentoAntigoDeVendas(budgetItems: BudgetItemForSale[]): LinhaAntiga
                 commission_pct: Number(bi.commission_pct ?? 0),
                 profit_pct: Number(bi.profit_pct ?? 0),
                 prev_breakdown: bi.tax_breakdown ?? null,
+                // Este helper reproduz o mapeamento ANTIGO, e o antigo não passava custo —
+                // era esse o defeito. Zeros explícitos preservam o que ele reproduz.
+                cp: 0,
+                mod: 0,
+                dop: 0,
             },
             CTX,
         )
