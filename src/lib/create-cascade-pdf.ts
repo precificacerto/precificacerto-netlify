@@ -11,6 +11,14 @@ import type { CascadeStep } from '@/types/mrm'
 export interface CascadePdfMeta {
   budgetId?: string | null
   budgetCode?: string | null
+  /**
+   * Código do PEDIDO (PED-XXXXXX), quando o PDF é de um pedido.
+   *
+   * O pedido tem identidade PRÓPRIA e é ela que titula o documento; o `budgetId` de origem
+   * continua aparecendo, no cabeçalho, como linhagem. São coisas diferentes e ambas cabem —
+   * cada uma no seu lugar.
+   */
+  orderCode?: string | null
   customerName?: string | null
   documentDate?: string | null
   totalValue?: number | null
@@ -44,11 +52,21 @@ function discountModeLabel(mode: string | null | undefined): string {
   return DISCOUNT_MODE_LABELS[mode] ?? mode
 }
 
-/** Resolve o código do orçamento (ORC-XXXX) a partir do meta ou do id. */
+/**
+ * Resolve o código que TITULA o documento. O pedido tem precedência sobre o orçamento: quando
+ * o PDF é de um pedido, é o `PED-` que o identifica, e o orçamento de origem vira linhagem.
+ */
 export function resolveCascadeCode(meta: CascadePdfMeta): string {
+  if (meta.orderCode) return meta.orderCode
   if (meta.budgetCode) return meta.budgetCode
   if (meta.budgetId) return `ORC-${meta.budgetId.substring(0, 4).toUpperCase()}`
   return 'ORC'
+}
+
+/** Linhagem: o orçamento de ORIGEM de um pedido, para o cabeçalho. Vazio quando não há. */
+export function resolveCascadeOrigem(meta: CascadePdfMeta): string {
+  if (!meta.orderCode || !meta.budgetId) return ''
+  return meta.budgetCode || `ORC-${meta.budgetId.substring(0, 4).toUpperCase()}`
 }
 
 /** Monta o documento jsPDF da cascata (sem disparar download). */
@@ -66,8 +84,13 @@ export function buildCascadeDoc(trace: CascadeStep[], meta: CascadePdfMeta): jsP
   doc.text('Memória Cascata — Motor RRO', margin, 18)
   doc.setFontSize(10)
   doc.setFont('helvetica', 'normal')
-  doc.text(`Orçamento: ${code}`, margin, 26)
-  doc.text(`Cliente: ${meta.customerName || '—'}`, margin, 32)
+  const origem = resolveCascadeOrigem(meta)
+  doc.text(`${meta.orderCode ? 'Pedido' : 'Orçamento'}: ${code}`, margin, 26)
+  doc.text(
+    origem ? `Cliente: ${meta.customerName || '—'}   ·   Origem: ${origem}` : `Cliente: ${meta.customerName || '—'}`,
+    margin,
+    32,
+  )
   doc.text(`Emissão: ${dataEmissao}`, pageWidth - margin, 26, { align: 'right' })
 
   // ─── Totais em destaque ───
