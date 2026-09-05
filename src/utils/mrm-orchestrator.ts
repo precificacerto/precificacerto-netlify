@@ -420,6 +420,10 @@ export function buildMotorInput(args: BuildMotorInputArgs): ReapurationInput {
     profit_pct: (Number(args.item.profit_percent) || 0) / 100,
     csll_pct: resolveItemCsllPct(itemTaxRates, Number(args.tenantCtx.csll_pct) || 0),
     irpj_pct: resolveItemIrpjPct(itemTaxRates, Number(args.tenantCtx.irpj_pct) || 0),
+    // EPIC-DAS: a alíquota consolidada do item. Vai como ESCALAR, fora de `rates` — o DAS não
+    // é um `TaxRatePeriod` do tenant e não pode vazar pelo merge, como o comentário de
+    // `ItemTaxRates.das_pct` determina. O motor só a aplica em SIMPLES/MEI.
+    das_pct: Number(itemTaxRates?.das_pct) || 0,
     discount_mode: args.discountMode,
     effective_date: args.effectiveDate ?? new Date().toISOString().slice(0, 10),
     use_snapshot_rates: args.tenantCtx.useSnapshotRates ?? false,
