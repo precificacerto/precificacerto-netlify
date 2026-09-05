@@ -1,4 +1,5 @@
 import { supabase } from '@/supabase/client'
+import { formatPercentWithDigits } from '@/utils/formatters'
 
 export interface TaxPreviewResult {
   /** Single effective tax rate as decimal 0-1 (e.g. 0.12 = 12%). */
@@ -149,10 +150,10 @@ export async function fetchTaxPreview(tenantId: string): Promise<TaxPreviewResul
     const retIssSeparate = ts.ret_iss_separate !== false // default true
     const issRate = retIssSeparate ? (Number(ts.iss_municipality_rate) || 0) : 0
     const effectiveTaxPct = round4(retRate + issRate)
-    const issLabel = issRate > 0 ? ` + ISS ${(issRate * 100).toFixed(2)}%` : ''
+    const issLabel = issRate > 0 ? ` + ISS ${formatPercentWithDigits(issRate * 100)}` : ''
     return {
       effectiveTaxPct,
-      taxLabel: `Lucro Presumido RET (${(retRate * 100).toFixed(2)}%${issLabel})`,
+      taxLabel: `Lucro Presumido RET (${formatPercentWithDigits(retRate * 100)}${issLabel})`,
       isMei: false,
       taxesPercent: round4((0.0037 + 0.0141 + issRate) * 100), // PIS+COFINS dentro RET + ISS
       taxableRegimePercent: round4((retRate + issRate) * 100),

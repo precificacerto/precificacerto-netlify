@@ -1,6 +1,7 @@
 import jsPDF from 'jspdf'
 import 'jspdf-autotable'
 import { formatBRL } from '@/utils/formatters'
+import { formatPercentWithDigits } from '@/utils/formatters'
 
 interface CommissionPdfRow {
   name: string
@@ -88,7 +89,7 @@ export function exportCommissionToPdf(
   // ── Table data ──
   const tableData = rows.map(r => [
     r.name,
-    `${r.avg_commission_percent.toFixed(2)}%`,
+    formatPercentWithDigits(r.avg_commission_percent),
     r.payment_mode === 'INSTALLMENT' ? 'Parcelado' : 'Mês da Venda',
     r.pending_revenue > 0 ? formatCurrency(r.pending_revenue) : '—',
     r.pending_commission > 0 ? formatCurrency(r.pending_commission) : '—',

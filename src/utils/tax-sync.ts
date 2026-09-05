@@ -23,6 +23,7 @@
  */
 
 import { supabase } from '@/supabase/client'
+import { formatPercentWithDigits } from '@/utils/formatters'
 
 /**
  * Componentes tributários separados, todos em decimal (0.05 = 5%).
@@ -209,7 +210,7 @@ export function extractEffectiveTaxComponents(input: TaxComponentsInput): TaxCom
       csll: csllRet,
       total,
       regime: 'LUCRO_PRESUMIDO_RET',
-      label: `Lucro Presumido RET (${(retRate * 100).toFixed(2)}%)`,
+      label: `Lucro Presumido RET (${formatPercentWithDigits(retRate * 100)})`,
       isMei: false,
     }
   }

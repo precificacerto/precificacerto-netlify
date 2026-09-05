@@ -2,6 +2,7 @@ import jsPDF from 'jspdf'
 import 'jspdf-autotable'
 import dayjs from 'dayjs'
 import { formatBRL } from '@/utils/formatters'
+import { formatPercentWithDigits } from '@/utils/formatters'
 import type { RtExportRow, RtExportDetailRow } from './export-rt-excel'
 
 /**
@@ -105,7 +106,7 @@ export function exportRtToPdf(
     d.sale_code || '—',
     formatDateBR(d.date),
     formatCurrency(d.value),
-    `${(Number(d.commission_percent) || 0).toFixed(2)}%`,
+    formatPercentWithDigits(Number(d.commission_percent) || 0),
     formatCurrency(d.commission_amount),
     isOpen(d) ? 'Aberto' : 'Liquidado',
   ])

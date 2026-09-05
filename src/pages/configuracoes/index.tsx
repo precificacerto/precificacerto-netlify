@@ -22,6 +22,7 @@ import { useDevice } from '@/contexts/device.context'
 import { CALC_TYPE_ENUM } from '@/shared/enums/calc-type'
 import { UNIT_MEASURE_ENUM } from '@/shared/enums/unit-measure-type'
 import { CurrencyInput } from '@/components/currency-input.component'
+import { formatPercentWithDigits } from '@/utils/formatters'
 
 const VALID_SETTINGS_TABS = ['business', 'tax', 'team', 'calc']
 
@@ -358,7 +359,7 @@ function TaxTabContent({ taxForm, brazilianStates, tenantSettings, loading, onSa
                                     <div>CSLL: <strong style={{ color: '#e2e8f0' }}>0,51%</strong></div>
                                     <div>PIS: <strong style={{ color: '#e2e8f0' }}>0,37%</strong></div>
                                     <div>COFINS: <strong style={{ color: '#e2e8f0' }}>1,41%</strong></div>
-                                    <div>ISS: <strong style={{ color: '#F59E0B' }}>{((tenantSettings?.iss_municipality_rate ?? 0.05) * 100).toFixed(2)}%</strong> (municipal)</div>
+                                    <div>ISS: <strong style={{ color: '#F59E0B' }}>{formatPercentWithDigits((tenantSettings?.iss_municipality_rate ?? 0.05) * 100)}</strong> (municipal)</div>
                                 </div>
                             </Card>
                         </div>

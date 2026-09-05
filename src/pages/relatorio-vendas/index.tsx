@@ -28,6 +28,7 @@ import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import { getTenantId, getCurrentUserId } from '@/utils/get-tenant-id'
 import dayjs from 'dayjs'
 import { formatBRL } from '@/utils/formatters'
+import { formatPercentWithDigits } from '@/utils/formatters'
 import { useDeviceInfo } from '@/hooks/use-device-info.hook'
 import { PAGE_SIZE } from '@/constants/pagination'
 
@@ -284,7 +285,7 @@ function SalesReport() {
             const kpis = [
                 { label: '💰 Receita Total', value: totalRev, isCurrency: true },
                 { label: '📦 Total Produtos', value: abcData.length, isCurrency: false },
-                { label: '📊 Margem Média', value: `${avgMargin.toFixed(2)}%`, isCurrency: false },
+                { label: '📊 Margem Média', value: formatPercentWithDigits(avgMargin), isCurrency: false },
                 { label: '% Comissão Total', value: totalComm, isCurrency: true },
             ]
             const kpiLabelRow = ws.addRow([])
@@ -400,7 +401,7 @@ function SalesReport() {
             kpis: [
                 { label: 'Receita Total', value: formatCurrency(totalRev) },
                 { label: 'Total Produtos', value: String(abcData.length) },
-                { label: 'Margem Média', value: `${avgMargin.toFixed(2)}%` },
+                { label: 'Margem Média', value: formatPercentWithDigits(avgMargin) },
                 { label: 'Comissão Total', value: formatCurrency(totalComm) },
             ],
             highlightLastRow: true,
@@ -427,7 +428,7 @@ function SalesReport() {
             kpis: [
                 { label: 'Receita Total', value: formatCurrency(totalRev) },
                 { label: 'Total Serviços', value: String(svcData.length) },
-                { label: 'Margem Média', value: `${avgMargin.toFixed(2)}%` },
+                { label: 'Margem Média', value: formatPercentWithDigits(avgMargin) },
                 { label: 'Comissão Total', value: formatCurrency(totalComm) },
             ],
             highlightLastRow: true,
@@ -466,7 +467,7 @@ function SalesReport() {
             const kpis = [
                 { label: '💰 Receita Total', value: totalRev, isCurrency: true },
                 { label: '🔧 Total Serviços', value: svcData.length, isCurrency: false },
-                { label: '📊 Margem Média', value: `${avgMargin.toFixed(2)}%`, isCurrency: false },
+                { label: '📊 Margem Média', value: formatPercentWithDigits(avgMargin), isCurrency: false },
                 { label: '% Comissão Total', value: totalComm, isCurrency: true },
             ]
             const kpiLabelRow = ws.addRow([])
