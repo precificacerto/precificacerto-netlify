@@ -109,12 +109,27 @@ export interface ItemHydrationInput {
   quantity: number
   /** Valor R$ do desconto aplicado ao item (não percentual). Default 0. */
   discount_value?: number
-  /** Custo por unidade (CP). Default 0. */
-  cp_unit?: number
-  /** MOD por unidade — imune a desconto (R6). Default 0. */
-  mod_unit?: number
-  /** DOP por unidade. Default 0. */
-  dop_unit?: number
+  /**
+   * Custo TOTAL do item (CP), já multiplicado pela quantidade.
+   *
+   * OBRIGATÓRIO de propósito. Era `cp_unit?` com default 0 — e NENHUM chamador do sistema
+   * passava, em lugar nenhum. O motor calcula `rro = ancora − imp_total − cp − mod − dop`:
+   * com os três zerados o RRO virava o PREÇO INTEIRO, e comissão e lucro passavam a consumir
+   * 100% dele. Os 382,28 + 114,68 = 496,96 do ORC-0689 são exatamente isso.
+   *
+   * O campo opcional com default 0 aceitava a omissão em silêncio. Obrigatório, o compilador
+   * recusa o chamador que esquecer — `.claude/rules/ausente-vs-falso.md`, variante "o default
+   * está na assinatura da função".
+   *
+   * DERIVE COM `buildMotorInput`, nunca à mão: ele encapsula as regras canônicas V9
+   * (`cp = (cost_total + productive_labor_unit) × qty`), as mesmas do motor em runtime.
+   * Calcular aqui de outro jeito recria a segunda rota que este PR fecha.
+   */
+  cp: number
+  /** MOD TOTAL do item — imune a desconto (R6). Regra V9 D1: `buildMotorInput` devolve 0. */
+  mod: number
+  /** DOP TOTAL do item — os quatro buckets de despesa, já × quantidade. */
+  dop: number
   /** % comissão do item (decimal 0.05 = 5%). */
   commission_pct: number
   /** % lucro do item (decimal 0.10 = 10%). */
@@ -199,9 +214,9 @@ export function hydrateItemSnapshot(
   const unit_price = item.unit_price ?? 0
   const rb = unit_price * quantity
   const desc_value = item.discount_value ?? 0
-  const cp = (item.cp_unit ?? 0) * quantity
-  const mod = (item.mod_unit ?? 0) * quantity
-  const dop = (item.dop_unit ?? 0) * quantity
+  const cp = Number(item.cp) || 0
+  const mod = Number(item.mod) || 0
+  const dop = Number(item.dop) || 0
   const effective_date = item.effective_date ?? new Date().toISOString().slice(0, 10)
 
   const reapurationInput: ReapurationInput = {

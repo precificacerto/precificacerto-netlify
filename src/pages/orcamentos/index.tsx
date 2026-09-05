@@ -805,6 +805,23 @@ function Budgets() {
     }
     // Adendo Seção 31-A (item 5): fatorado para reuso na busca binária do teto de desconto.
     // Mesma entrada do motor, variando apenas o desconto candidato.
+    // Contexto do tenant para `buildMotorInput` — a MESMA fonte que alimenta o motor em
+    // runtime logo abaixo. Existe para que a GRAVAÇÃO do snapshot derive custo, MO e despesa
+    // pelo construtor canônico, em vez de gravá-los zerados.
+    // Objeto simples, não `useMemo`: só é lido dentro dos handlers de gravação, nunca no
+    // caminho de render — e este componente já tem retorno condicional antes daqui, então um
+    // hook a mais violaria a ordem das hooks.
+    const motorTenantCtx = {
+        regime: mrmConfig.regime,
+        rates: mrmConfig.rates,
+        mod_pct: mrmConfig.mod_pct,
+        dop_pct: mrmConfig.dop_pct,
+        csll_pct: mrmConfig.csll_pct,
+        irpj_pct: mrmConfig.irpj_pct,
+        useSnapshotRates: mrmConfig.useSnapshotRates,
+        expense_breakdown: mrmConfig.expense_breakdown,
+    }
+
     const runMotorAtDiscount = (discountPct: number) => calculateMotorV17ForPage({
         items: enrichedItems,
         tenantCtx: {
@@ -1203,11 +1220,24 @@ function Budgets() {
             // o desconto aplicado (alinha snapshot com UI).
             const discountPctSnapshot = globalDiscountPercent
             const hydratedItems = validItemsForInsert.map(i => {
+                // Custo, MO e despesa vêm de `buildMotorInput` — o MESMO construtor de entrada
+                // do motor em runtime desta tela. Eram duas rotas para o mesmo motor, uma
+                // delas escrita à mão e vazia; o snapshot nascia com cp/mod/dop zerados e o
+                // RRO virava o preço inteiro.
+                const motorIn = buildMotorInput({
+                    item: i,
+                    tenantCtx: motorTenantCtx,
+                    globalDiscountPercent: discountPctSnapshot,
+                    discountMode,
+                })
                 const baseSnapInput = {
                     unit_price: i.unit_price,
                     quantity: i.quantity,
                     commission_pct: (i.commission_percent ?? 0) / 100,
                     profit_pct: (i.profit_percent ?? 0) / 100,
+                    cp: motorIn.cp,
+                    mod: motorIn.mod,
+                    dop: motorIn.dop,
                 }
                 const snap = hydrateItemSnapshot(
                     { ...baseSnapInput, discount_value: i.unit_price * i.quantity * (discountPctSnapshot / 100) },
@@ -1407,11 +1437,24 @@ function Budgets() {
             // P0 — captura imutável do desconto (mesmo padrão do insert).
             const discountPctSnapshotEdit = globalDiscountPercent
             const hydratedItemsEdit = validItems.map(i => {
+                // Custo, MO e despesa vêm de `buildMotorInput` — o MESMO construtor de entrada
+                // do motor em runtime desta tela. Eram duas rotas para o mesmo motor, uma
+                // delas escrita à mão e vazia; o snapshot nascia com cp/mod/dop zerados e o
+                // RRO virava o preço inteiro.
+                const motorInEdit = buildMotorInput({
+                    item: i,
+                    tenantCtx: motorTenantCtx,
+                    globalDiscountPercent: discountPctSnapshotEdit,
+                    discountMode,
+                })
                 const baseSnapInput = {
                     unit_price: i.unit_price,
                     quantity: i.quantity,
                     commission_pct: (i.commission_percent ?? 0) / 100,
                     profit_pct: (i.profit_percent ?? 0) / 100,
+                    cp: motorInEdit.cp,
+                    mod: motorInEdit.mod,
+                    dop: motorInEdit.dop,
                 }
                 const snap = hydrateItemSnapshot(
                     { ...baseSnapInput, discount_value: i.unit_price * i.quantity * (discountPctSnapshotEdit / 100) },

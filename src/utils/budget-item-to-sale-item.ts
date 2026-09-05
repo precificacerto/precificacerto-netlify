@@ -130,6 +130,14 @@ export function mapBudgetItemsToSaleItems(
                 commission_pct: Number(bi.commission_pct ?? 0),
                 profit_pct: Number(bi.profit_pct ?? 0),
                 prev_breakdown: bi.tax_breakdown ?? null,
+            // `budget_items` NÃO TEM COLUNA DE CUSTO — é a 6ª aparição de
+            // `fato-vs-referencia.md`. Aqui não há de onde derivar cp/mod/dop, e ir buscar no
+            // cadastro seria reler referência viva, que é o que o D-A proíbe. Os zeros só
+            // valem quando `prev_breakdown` é nulo (item legado sem snapshot); com snapshot,
+            // `hydrateItemSnapshot` o preserva e nada disto é usado.
+            cp: 0,
+            mod: 0,
+            dop: 0,
             },
             opts.snapshotCtx,
             opts.shadowCtx,
