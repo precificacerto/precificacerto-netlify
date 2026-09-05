@@ -38,8 +38,13 @@ import dayjs, { type Dayjs } from 'dayjs'
 import { formatBRL } from '@/utils/formatters'
 import { syncCustomerRecurrenceOnSale } from '@/lib/customer-recurrence'
 import { distributeDiscountToItems } from '@/utils/distribute-discount'
-import { resolveItemRtPctDecimal, resolveInheritedRtPctDecimal, type RtCatalogEntry } from '@/utils/balcao-rt'
+import { resolveItemRtPctDecimal, type RtCatalogEntry } from '@/utils/balcao-rt'
 import { mapBudgetItemsToSaleItems } from '@/utils/budget-item-to-sale-item'
+import {
+    mapBudgetItemsToOrderItems,
+    BUDGET_ITEM_SELECT_FOR_ORDER,
+    type BudgetItemForOrder,
+} from '@/utils/budget-item-to-order-item'
 import { resolveServiceExpenseBreakdownUnit } from '@/utils/service-expense-snapshot'
 import { useTenantTaxContext } from '@/hooks/use-tenant-tax-context'
 import { MRM_ERROR_RRO_NON_POSITIVE, MRM_ENGINE_VERSION } from '@/types/mrm'
@@ -1771,38 +1776,25 @@ function Budgets() {
                 await (supabase as any).from('orders').update({ order_code: orderCode }).eq('id', order.id)
 
                 // copiar budget_items → order_items
-                // Item 2.3 (Relatório v2.0): copiar TAMBÉM commission_pct, profit_pct e
-                // tax_breakdown do orçamento. Sem isso, o pedido nascia com Comissão/Lucro
-                // nulos e o motor degradava ("Atualizando para nova versão do motor").
+                // A lista de colunas e o mapeamento vivem juntos em
+                // `budget-item-to-order-item.ts`, com teste amarrando um ao outro. Esta lista
+                // era escrita à mão aqui e não pedia `destination_snapshot`: o mapeamento
+                // tinha a linha, a coluna nunca vinha, e o `?? null` gravava NULL em 6 de 6
+                // itens medidos. Mesma assinatura da 5ª aparição de `fato-vs-referencia.md`.
                 const { data: budgetItems } = await (supabase as any)
                     .from('budget_items')
-                    .select('product_id, service_id, quantity, unit_price, manual_description, commission_pct, profit_pct, rt_pct, tax_breakdown')
+                    .select(BUDGET_ITEM_SELECT_FOR_ORDER)
                     .eq('budget_id', b.id)
 
                 if (budgetItems && budgetItems.length > 0) {
-                    // Items mantêm unit_price ORIGINAL — o desconto é preservado em
-                    // orders.discount_percent e aplicado no cálculo de total_value.
-                    // Isto permite que o usuário veja/edite o desconto no pedido sem
-                    // perder a granularidade dos preços originais dos itens.
-                    const toInsert = budgetItems.map((bi: any) => ({
-                        order_id: order.id,
-                        product_id: bi.product_id || null,
-                        service_id: bi.service_id || null,
-                        quantity: bi.quantity || 0,
-                        unit_price: bi.unit_price || 0,
-                        total_price: (bi.quantity || 0) * (bi.unit_price || 0),
-                        manual_description: bi.manual_description || null,
-                        // Herança fiscal orçamento→pedido (fonte de verdade — Q2: não recalcula)
-                        commission_pct: bi.commission_pct ?? null,
-                        profit_pct: bi.profit_pct ?? null,
-                        // D8: herda o RT congelado do orçamento; cai no cadastro se a
-                        // linha for legada (rt_pct nunca gravado, portanto 0).
-                        rt_pct: resolveInheritedRtPctDecimal(bi.rt_pct, bi, products as RtCatalogEntry[], services as RtCatalogEntry[]),
-                        tax_breakdown: bi.tax_breakdown ?? null,
-                        // D-A: o pedido herda o destino congelado do orçamento, não o do
-                        // cadastro — o item do orçamento já respondeu por ele.
-                        destination_snapshot: bi.destination_snapshot ?? null,
-                    }))
+                    const toInsert = mapBudgetItemsToOrderItems(
+                        budgetItems as BudgetItemForOrder[],
+                        order.id,
+                        {
+                            products: products as RtCatalogEntry[],
+                            services: services as RtCatalogEntry[],
+                        },
+                    )
                     await (supabase as any).from('order_items').insert(toInsert)
                 }
 
