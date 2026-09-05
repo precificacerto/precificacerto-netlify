@@ -450,6 +450,25 @@ export interface ReapurationInput {
    */
   irpj_pct?: number
   /**
+   * Alíquota consolidada do DAS do ITEM (decimal: 0.0802 = 8,02%).
+   *
+   * Origem: `products.custom_tax_percent` ou `services.taxable_regime_percent`, resolvida por
+   * `resolveDasPct` e carregada em `ItemTaxRates.das_pct`. Hidratação é responsabilidade da
+   * camada chamadora, como em `csll_pct` e `irpj_pct` — o motor não a busca.
+   *
+   * SUBSTITUI o grupo ICMS + ISS + PIS/COFINS por dentro; não soma a ele. É o que a
+   * documentação de `ItemTaxRates.das_pct` já determinava: *"o DAS não é um `TaxRatePeriod` do
+   * tenant e não deve vazar para os arrays de `rates` via `mergeItemAndTenantRates` — o motor o
+   * consome direto do item"*. A intenção estava escrita; faltava o campo por onde entrar.
+   *
+   * Só se aplica quando o regime resolvido é SIMPLES_NACIONAL ou MEI. RET e Simples Híbrido
+   * reusam a MESMA coluna `custom_tax_percent` para outra finalidade e são mapeados para
+   * LUCRO_PRESUMIDO em `mapToMotorRegime`, portanto nunca entram neste ramo.
+   *
+   * Ausente ou 0 → comportamento anterior, byte a byte.
+   */
+  das_pct?: number
+  /**
    * Peso da Operação Interna (decimal 0..1) — propriedade do produto.
    *
    * Resolvido pelo orchestrator (3 fontes de prioridade: snapshot histórico →

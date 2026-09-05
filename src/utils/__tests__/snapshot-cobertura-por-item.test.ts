@@ -168,9 +168,13 @@ describe('A rota é uma só — a cobertura não pode divergir de novo', () => {
         expect(conteudo).not.toContain('irpj_pct: ctx.irpj_pct')
     })
 
-    it('o `das_pct` continua fora do contrato — é o PR seguinte', () => {
-        // Afirmação deliberada do que AINDA falta: se alguém ligar o campo sem o teste do
-        // oráculo da TAMARA a 8,02%, este teste avisa que o recorte mudou.
-        expect(read('types/mrm.ts')).not.toContain('das_pct')
+    it('o `das_pct` entrou no contrato — e trouxe o seu oráculo junto', () => {
+        // Este caso nasceu no PR anterior afirmando o CONTRÁRIO: que `das_pct` continuava fora
+        // do contrato, para avisar se alguém o ligasse sem o teste do oráculo. Ele cumpriu o
+        // papel — falhou no PR que ligou o campo. Agora afirma o estado novo, e a existência do
+        // oráculo é parte da asserção: o campo não pode entrar sem o caso da TAMARA a 8,02%.
+        expect(read('types/mrm.ts')).toContain('das_pct')
+        expect(read('utils/mrm-orchestrator.ts')).toContain('das_pct: Number(itemTaxRates?.das_pct)')
+        expect(fs.existsSync(path.join(SRC, 'utils/__tests__/das-pct-no-motor.test.ts'))).toBe(true)
     })
 })

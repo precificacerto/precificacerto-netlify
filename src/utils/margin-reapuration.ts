@@ -104,8 +104,21 @@ function computeTaxesInside(
   ancora: number,
   rates: TaxRatePeriod[],
   regime: TaxRegime,
+  dasPct = 0,
 ): { lines: TaxLine[]; total: number } {
   const lines: TaxLine[] = []
+
+  // EPIC-DAS: no Simples e no MEI o imposto por dentro é o DAS do ITEM, e ele SUBSTITUI o
+  // grupo ICMS + ISS + PIS/COFINS — não soma. Sem este ramo a alíquota do item era resolvida
+  // em `item-tax-rates.ts:630`, guardada em `ItemTaxRates.das_pct` e descartada antes do
+  // motor: o snapshot saía com `imp_total: 0` mesmo com o item tendo percentual.
+  const isRegimeDoDas = regime === 'SIMPLES_NACIONAL' || regime === 'MEI'
+  const das = Number(dasPct) || 0
+  if (isRegimeDoDas && das > 0) {
+    const dasAmount = ancora * das
+    lines.push({ type: 'DAS', rate_pct: das, base: ancora, amount: dasAmount })
+    return { lines, total: dasAmount }
+  }
 
   // 1) ICMS e ISS sobre Âncora (V5)
   const icmsRate = findRate(rates, 'ICMS')
@@ -272,6 +285,7 @@ export function calculateMarginReapuration(input: ReapurationInput): TaxBreakdow
     profit_pct,
     csll_pct,
     irpj_pct,
+    das_pct,
     peso_op_interna: peso_input,
     tax_credits,
     discount_mode: discount_mode_input,
@@ -320,7 +334,7 @@ export function calculateMarginReapuration(input: ReapurationInput): TaxBreakdow
 
   // Etapa 5 (V5): impostos por dentro reapurados sobre Âncora (não mais RV).
   // Quando peso=1, ancora=rv → comportamento numérico idêntico ao V4.
-  const inside = computeTaxesInside(ancora_interna, rates, regime)
+  const inside = computeTaxesInside(ancora_interna, rates, regime, das_pct)
   const imp_total = inside.total
 
   // Etapa 5.5 (V5-004): Aplicação de créditos tributários — Story MRM-V5-004 AC1+AC2+AC4.
