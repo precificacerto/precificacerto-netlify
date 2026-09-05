@@ -25,6 +25,28 @@
 import fs from 'fs'
 import path from 'path'
 import { hydrateItemSnapshot, type ItemHydrationInput, type TenantSnapshotContext } from '@/lib/items-snapshot'
+import type { ReapurationInput } from '@/types/mrm'
+
+/**
+ * ATUALIZADO no PR da cobertura: a entrada do motor agora chega PRONTA em `motorInput`, em vez
+ * de ser remontada dentro de `hydrateItemSnapshot`. Os casos abaixo são os mesmos — o que muda
+ * é onde cada campo mora. Omitir `cp`, `mod` ou `dop` continua quebrando o seu par.
+ */
+const motor = (o: Partial<ReapurationInput> & { rb: number }): ReapurationInput => ({
+    desc_value: 0,
+    regime: 'SIMPLES_NACIONAL',
+    rates: [],
+    cp: 0,
+    mod: 0,
+    dop: 0,
+    commission_pct: 0.5,
+    profit_pct: 0.15,
+    csll_pct: 0,
+    irpj_pct: 0,
+    effective_date: '2026-09-05',
+    use_snapshot_rates: true,
+    ...o,
+})
 
 const CTX: TenantSnapshotContext = {
     regime: 'SIMPLES_NACIONAL',
@@ -36,25 +58,28 @@ const CTX: TenantSnapshotContext = {
 
 /** Serviço do ORC-0689 (Salão Eliane): Coloração, 363,24, comissão 50%, lucro 15%. */
 const SERVICO: ItemHydrationInput = {
-    unit_price: 363.24,
-    quantity: 1,
     commission_pct: 0.5,
     profit_pct: 0.15,
-    cp: 120,
-    mod: 30,
-    dop: 20,
+    motorInput: motor({ rb: 363.24, cp: 120, mod: 30, dop: 20 }),
 }
 
 /** Produto do mesmo orçamento: Agua mineral, 2,58 — revenda, tem custo. */
 const PRODUTO: ItemHydrationInput = {
-    unit_price: 2.58,
-    quantity: 1,
     commission_pct: 0.5,
     profit_pct: 0.15,
-    cp: 0.85,
-    mod: 0,
-    dop: 0.2,
+    motorInput: motor({ rb: 2.58, cp: 0.85, mod: 0, dop: 0.2 }),
 }
+
+/** Devolve o mesmo item com UM campo do motor zerado — o "sem a correção". */
+const sem = (base: ItemHydrationInput, campo: 'cp' | 'mod' | 'dop'): ItemHydrationInput => ({
+    ...base,
+    motorInput: { ...base.motorInput, [campo]: 0 },
+})
+
+const semTodos = (base: ItemHydrationInput): ItemHydrationInput => ({
+    ...base,
+    motorInput: { ...base.motorInput, cp: 0, mod: 0, dop: 0 },
+})
 
 const rro = (input: ItemHydrationInput): number =>
     Number(hydrateItemSnapshot(input, CTX).tax_breakdown?.rro) || 0
@@ -64,7 +89,7 @@ const comissao = (input: ItemHydrationInput): number =>
 
 describe('O defeito reproduzido — sem os três campos o RRO vira o preço inteiro', () => {
     it('SERVIÇO: cp/mod/dop zerados ⇒ RRO = preço, e comissão + lucro consomem 100%', () => {
-        const semNada = { ...SERVICO, cp: 0, mod: 0, dop: 0 }
+        const semNada = semTodos(SERVICO)
         const tb = hydrateItemSnapshot(semNada, CTX).tax_breakdown!
 
         expect(tb.rro).toBeCloseTo(363.24, 2)
@@ -75,7 +100,7 @@ describe('O defeito reproduzido — sem os três campos o RRO vira o preço inte
     })
 
     it('PRODUTO: mesma assinatura em escala menor', () => {
-        const semNada = { ...PRODUTO, cp: 0, mod: 0, dop: 0 }
+        const semNada = semTodos(PRODUTO)
         const tb = hydrateItemSnapshot(semNada, CTX).tax_breakdown!
 
         expect(tb.rro).toBeCloseTo(2.58, 2)
@@ -94,46 +119,49 @@ describe('Cada campo falha sozinho — omitir UM já muda o número', () => {
     // exercitando nada e o defeito volta sem ninguém ver.
 
     it('`cp` — omiti-lo infla o RRO pelo custo inteiro, no serviço E no produto', () => {
-        expect(rro({ ...SERVICO, cp: 0 })).toBeCloseTo(rro(SERVICO) + 120, 2)
-        expect(rro({ ...PRODUTO, cp: 0 })).toBeCloseTo(rro(PRODUTO) + 0.85, 2)
+        expect(rro(sem(SERVICO, 'cp'))).toBeCloseTo(rro(SERVICO) + 120, 2)
+        expect(rro(sem(PRODUTO, 'cp'))).toBeCloseTo(rro(PRODUTO) + 0.85, 2)
 
-        expect(rro({ ...SERVICO, cp: 0 })).not.toBeCloseTo(rro(SERVICO), 2)
-        expect(comissao({ ...SERVICO, cp: 0 })).not.toBeCloseTo(comissao(SERVICO), 2)
+        expect(rro(sem(SERVICO, 'cp'))).not.toBeCloseTo(rro(SERVICO), 2)
+        expect(comissao(sem(SERVICO, 'cp'))).not.toBeCloseTo(comissao(SERVICO), 2)
     })
 
     it('`mod` — omiti-lo infla o RRO pela mão de obra', () => {
-        expect(rro({ ...SERVICO, mod: 0 })).toBeCloseTo(rro(SERVICO) + 30, 2)
-        expect(rro({ ...SERVICO, mod: 0 })).not.toBeCloseTo(rro(SERVICO), 2)
-        expect(comissao({ ...SERVICO, mod: 0 })).not.toBeCloseTo(comissao(SERVICO), 2)
+        expect(rro(sem(SERVICO, 'mod'))).toBeCloseTo(rro(SERVICO) + 30, 2)
+        expect(rro(sem(SERVICO, 'mod'))).not.toBeCloseTo(rro(SERVICO), 2)
+        expect(comissao(sem(SERVICO, 'mod'))).not.toBeCloseTo(comissao(SERVICO), 2)
 
         // No produto de revenda a MO é zero DE VERDADE (regra V9 D1) — e é por isso que ele
         // não serve para exercitar este campo. Registrado para ninguém trocar o caso depois.
-        expect(rro({ ...PRODUTO, mod: 0 })).toBeCloseTo(rro(PRODUTO), 2)
+        expect(rro(sem(PRODUTO, 'mod'))).toBeCloseTo(rro(PRODUTO), 2)
     })
 
     it('`dop` — omiti-lo infla o RRO pela despesa, no serviço E no produto', () => {
-        expect(rro({ ...SERVICO, dop: 0 })).toBeCloseTo(rro(SERVICO) + 20, 2)
-        expect(rro({ ...PRODUTO, dop: 0 })).toBeCloseTo(rro(PRODUTO) + 0.2, 2)
+        expect(rro(sem(SERVICO, 'dop'))).toBeCloseTo(rro(SERVICO) + 20, 2)
+        expect(rro(sem(PRODUTO, 'dop'))).toBeCloseTo(rro(PRODUTO) + 0.2, 2)
 
-        expect(comissao({ ...SERVICO, dop: 0 })).not.toBeCloseTo(comissao(SERVICO), 2)
-        expect(comissao({ ...PRODUTO, dop: 0 })).not.toBeCloseTo(comissao(PRODUTO), 2)
+        expect(comissao(sem(SERVICO, 'dop'))).not.toBeCloseTo(comissao(SERVICO), 2)
+        expect(comissao(sem(PRODUTO, 'dop'))).not.toBeCloseTo(comissao(PRODUTO), 2)
     })
 
     it('os três juntos: cada um contribui com a sua parcela, sem sobreposição', () => {
         const completo = rro(SERVICO)
-        const soSemCp = rro({ ...SERVICO, cp: 0 }) - completo
-        const soSemMod = rro({ ...SERVICO, mod: 0 }) - completo
-        const soSemDop = rro({ ...SERVICO, dop: 0 }) - completo
+        const soSemCp = rro(sem(SERVICO, 'cp')) - completo
+        const soSemMod = rro(sem(SERVICO, 'mod')) - completo
+        const soSemDop = rro(sem(SERVICO, 'dop')) - completo
         expect(soSemCp + soSemMod + soSemDop).toBeCloseTo(170, 2)
-        expect(rro({ ...SERVICO, cp: 0, mod: 0, dop: 0 })).toBeCloseTo(completo + 170, 2)
+        expect(rro(semTodos(SERVICO))).toBeCloseTo(completo + 170, 2)
     })
 })
 
 describe('A quantidade multiplica — os campos são TOTAIS, não por unidade', () => {
     // A interface mudou de `cp_unit` (× quantity dentro da função) para `cp` (total). Se
     // alguém reintroduzir a multiplicação interna, este teste quebra.
-    it('duas unidades do serviço com o custo já multiplicado', () => {
-        const duas: ItemHydrationInput = { ...SERVICO, quantity: 2, cp: 240, mod: 60, dop: 40 }
+    it('o `rb` e o custo chegam já multiplicados pela quantidade', () => {
+        const duas: ItemHydrationInput = {
+            ...SERVICO,
+            motorInput: motor({ rb: 363.24 * 2, cp: 240, mod: 60, dop: 40 }),
+        }
         expect(rro(duas)).toBeCloseTo(363.24 * 2 - 240 - 60 - 40, 2)
     })
 })
@@ -142,7 +170,11 @@ describe('A política do snapshot não foi alterada', () => {
     it('snapshot anterior válido continua PRESERVADO — não recalcula com os campos novos', () => {
         const anterior = hydrateItemSnapshot(SERVICO, CTX).tax_breakdown!
         const reidratado = hydrateItemSnapshot(
-            { ...SERVICO, cp: 999, mod: 999, dop: 999, prev_breakdown: anterior },
+            {
+                ...SERVICO,
+                motorInput: { ...SERVICO.motorInput, cp: 999, mod: 999, dop: 999 },
+                prev_breakdown: anterior,
+            },
             CTX,
         )
         expect(reidratado.tax_breakdown).toEqual(anterior)
@@ -161,28 +193,37 @@ describe('A política do snapshot não foi alterada', () => {
     })
 })
 
-describe('Os três gravadores derivam por `buildMotorInput`, não à mão', () => {
+describe('TODOS os gravadores passam pelo construtor único', () => {
     // A duplicação real: `hydrateItemSnapshot` e `buildMotorInput` alimentavam o MESMO motor,
-    // e uma das duas rotas estava vazia. Estas asserções impedem que a rota à mão volte.
+    // e uma das duas rotas cobria menos campos. Agora existe UMA rota — o gravador consome o
+    // `ReapurationInput` pronto, e nenhum chamador remonta a entrada.
     const SRC = path.resolve(__dirname, '../..')
     const read = (rel: string) => fs.readFileSync(path.join(SRC, rel), 'utf8')
 
     it.each([
-        ['Orçamento — inserção e edição', 'pages/orcamentos/index.tsx', 2],
+        ['Orçamento — inserção, edição e os dois baselines', 'pages/orcamentos/index.tsx', 4],
         ['Venda de balcão', 'pages/vendas/index.tsx', 1],
-    ])('%s deriva cp/mod/dop do construtor canônico', (_nome, arquivo, vezes) => {
+        ['Pedido — save e espelho', 'pages/pedidos/index.tsx', 2],
+        ['Mapeador orçamento→venda', 'utils/budget-item-to-sale-item.ts', 1],
+    ])('%s entrega `motorInput` de `buildMotorInput`', (_nome, arquivo, vezes) => {
         const conteudo = read(arquivo as string)
-        const ocorrencias = conteudo.split('buildMotorInput({').length - 1
-        expect(ocorrencias).toBeGreaterThanOrEqual(vezes as number)
-        expect(conteudo).toMatch(/cp: \w+\.cp/)
-        expect(conteudo).toMatch(/mod: \w+\.mod/)
-        expect(conteudo).toMatch(/dop: \w+\.dop/)
+        expect(conteudo.split('buildMotorInput({').length - 1).toBeGreaterThanOrEqual(vezes as number)
+        expect(conteudo).toContain('motorInput:')
     })
 
-    it('os chamadores só-fallback declaram os zeros EXPLICITAMENTE', () => {
-        // Pedido e mapeador orçamento→venda usam o snapshot recomputado apenas quando o item
-        // não tem `tax_breakdown`. Os zeros ficam à vista, e não escondidos num default.
-        expect(read('pages/pedidos/index.tsx')).toContain('cp: 0')
-        expect(read('utils/budget-item-to-sale-item.ts')).toContain('cp: 0')
+    it('nenhum chamador remonta a entrada do motor à mão', () => {
+        // `cp:`, `mod:` e `dop:` soltos num objeto de hidratação eram a rota antiga. Se
+        // voltarem, é sinal de que alguém recriou o segundo construtor.
+        for (const arquivo of [
+            'pages/orcamentos/index.tsx',
+            'pages/vendas/index.tsx',
+            'pages/pedidos/index.tsx',
+            'utils/budget-item-to-sale-item.ts',
+        ]) {
+            const trecho = read(arquivo)
+            const i = trecho.indexOf('hydrateItemSnapshot(')
+            expect(i).toBeGreaterThanOrEqual(0)
+            expect(trecho.slice(i, i + 900)).not.toMatch(/\n\s+cp: (?!0\b)/)
+        }
     })
 })

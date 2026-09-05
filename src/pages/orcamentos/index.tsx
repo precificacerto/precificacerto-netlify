@@ -1230,17 +1230,15 @@ function Budgets() {
                     globalDiscountPercent: discountPctSnapshot,
                     discountMode,
                 })
-                const baseSnapInput = {
-                    unit_price: i.unit_price,
-                    quantity: i.quantity,
+                const pesos = {
                     commission_pct: (i.commission_percent ?? 0) / 100,
                     profit_pct: (i.profit_percent ?? 0) / 100,
-                    cp: motorIn.cp,
-                    mod: motorIn.mod,
-                    dop: motorIn.dop,
                 }
+                // O input do motor vai INTEIRO — `rates` com as alíquotas do item,
+                // `csll_pct`/`irpj_pct` por item e `discount_mode`, além de cp/mod/dop. Antes
+                // o gravador remontava a entrada e cobria menos campos que esta mesma rota.
                 const snap = hydrateItemSnapshot(
-                    { ...baseSnapInput, discount_value: i.unit_price * i.quantity * (discountPctSnapshot / 100) },
+                    { ...pesos, motorInput: motorIn },
                     snapshotCtx,
                     shadowCtxInsert,
                 )
@@ -1248,7 +1246,15 @@ function Budgets() {
                 // desconto=0) persistido no snapshot p/ o "% original" dos cards em superfícies que
                 // leem só o snapshot (PDF/Pedidos/Vendas). Não afeta nenhum valor em R$ persistido.
                 const snapBaseline = hydrateItemSnapshot(
-                    { ...baseSnapInput, discount_value: 0 },
+                    {
+                        ...pesos,
+                        motorInput: buildMotorInput({
+                            item: i,
+                            tenantCtx: motorTenantCtx,
+                            globalDiscountPercent: 0,
+                            discountMode,
+                        }),
+                    },
                     snapshotCtx,
                     shadowCtxInsert,
                 )
@@ -1447,23 +1453,29 @@ function Budgets() {
                     globalDiscountPercent: discountPctSnapshotEdit,
                     discountMode,
                 })
-                const baseSnapInput = {
-                    unit_price: i.unit_price,
-                    quantity: i.quantity,
+                const pesos = {
                     commission_pct: (i.commission_percent ?? 0) / 100,
                     profit_pct: (i.profit_percent ?? 0) / 100,
-                    cp: motorInEdit.cp,
-                    mod: motorInEdit.mod,
-                    dop: motorInEdit.dop,
                 }
+                // O input do motor vai INTEIRO — `rates` com as alíquotas do item,
+                // `csll_pct`/`irpj_pct` por item e `discount_mode`, além de cp/mod/dop. Antes
+                // o gravador remontava a entrada e cobria menos campos que esta mesma rota.
                 const snap = hydrateItemSnapshot(
-                    { ...baseSnapInput, discount_value: i.unit_price * i.quantity * (discountPctSnapshotEdit / 100) },
+                    { ...pesos, motorInput: motorInEdit },
                     snapshotCtxEdit,
                     shadowCtxEdit,
                 )
                 // Correção Card Percentual (Ago/2026): baseline pré-desconto persistido (ver insert).
                 const snapBaseline = hydrateItemSnapshot(
-                    { ...baseSnapInput, discount_value: 0 },
+                    {
+                        ...pesos,
+                        motorInput: buildMotorInput({
+                            item: i,
+                            tenantCtx: motorTenantCtx,
+                            globalDiscountPercent: 0,
+                            discountMode,
+                        }),
+                    },
                     snapshotCtxEdit,
                     shadowCtxEdit,
                 )

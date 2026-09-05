@@ -93,16 +93,25 @@ function mapeamentoAntigoDeVendas(budgetItems: BudgetItemForSale[]): LinhaAntiga
     return budgetItems.map((bi) => {
         const snap = hydrateItemSnapshot(
             {
-                unit_price: bi.unit_price as number,
-                quantity: bi.quantity as number,
                 commission_pct: Number(bi.commission_pct ?? 0),
                 profit_pct: Number(bi.profit_pct ?? 0),
                 prev_breakdown: bi.tax_breakdown ?? null,
-                // Este helper reproduz o mapeamento ANTIGO, e o antigo não passava custo —
-                // era esse o defeito. Zeros explícitos preservam o que ele reproduz.
-                cp: 0,
-                mod: 0,
-                dop: 0,
+                // Este helper reproduz o mapeamento ANTIGO, e o antigo não passava custo nem
+                // alíquotas do item — era esse o defeito. A entrada mínima preserva o que ele
+                // reproduz; o que interessa neste arquivo é `service_id` e a herança fiscal.
+                motorInput: {
+                    rb: (Number(bi.unit_price) || 0) * (Number(bi.quantity) || 0),
+                    desc_value: 0,
+                    regime: CTX.regime,
+                    rates: CTX.rates,
+                    cp: 0,
+                    mod: 0,
+                    dop: 0,
+                    commission_pct: Number(bi.commission_pct ?? 0),
+                    profit_pct: Number(bi.profit_pct ?? 0),
+                    effective_date: '2026-09-05',
+                    use_snapshot_rates: CTX.use_snapshot_rates,
+                },
             },
             CTX,
         )

@@ -103,42 +103,38 @@ export interface TenantSnapshotContext {
  * Input por-item necessário para hidratar o snapshot.
  */
 export interface ItemHydrationInput {
-  /** Preço unitário do item. */
-  unit_price: number
-  /** Quantidade do item. */
-  quantity: number
-  /** Valor R$ do desconto aplicado ao item (não percentual). Default 0. */
-  discount_value?: number
   /**
-   * Custo TOTAL do item (CP), já multiplicado pela quantidade.
+   * O `ReapurationInput` JÁ MONTADO por `buildMotorInput` — fonte única da entrada do motor.
    *
-   * OBRIGATÓRIO de propósito. Era `cp_unit?` com default 0 — e NENHUM chamador do sistema
-   * passava, em lugar nenhum. O motor calcula `rro = ancora − imp_total − cp − mod − dop`:
-   * com os três zerados o RRO virava o PREÇO INTEIRO, e comissão e lucro passavam a consumir
-   * 100% dele. Os 382,28 + 114,68 = 496,96 do ORC-0689 são exatamente isso.
+   * Antes esta interface montava a sua PRÓPRIA entrada, e a cobertura de campos era menor que
+   * a da rota de runtime. Comparadas campo a campo, faltavam QUATRO:
    *
-   * O campo opcional com default 0 aceitava a omissão em silêncio. Obrigatório, o compilador
-   * recusa o chamador que esquecer — `.claude/rules/ausente-vs-falso.md`, variante "o default
-   * está na assinatura da função".
+   *   `rates`        runtime: `mergeItemAndTenantRates(itemTaxRates, tenant)` — alíquotas do ITEM
+   *                  gravador: `ctx.rates` cru — só as do TENANT
+   *   `csll_pct`     runtime: `resolveItemCsllPct(...)` por item · gravador: a do tenant
+   *   `irpj_pct`     runtime: `resolveItemIrpjPct(...)` por item · gravador: a do tenant
+   *   `discount_mode` runtime: o modo escolhido · gravador: ausente, caía no default
    *
-   * DERIVE COM `buildMotorInput`, nunca à mão: ele encapsula as regras canônicas V9
-   * (`cp = (cost_total + productive_labor_unit) × qty`), as mesmas do motor em runtime.
-   * Calcular aqui de outro jeito recria a segunda rota que este PR fecha.
+   * O DEFEITO É USAR O PARÂMETRO ERRADO, NÃO GERAR ZERO. Quando o tenant tem alíquota
+   * cadastrada, o snapshot congelava a DO TENANT no lugar da do item. O zero do ORC-0689 é
+   * caso particular: Simples e MEI não têm alíquota de tenant, então não sobra nada.
+   *
+   * Alcance medido: 77 produtos com ICMS próprio e 68 com PIS/COFINS, contra 21 itens com DAS.
+   *
+   * Consumir o input pronto — em vez de remontá-lo — é o que impede a cobertura de divergir de
+   * novo: passa a existir UM construtor, não dois. Ver `.claude/rules/construtor-empobrecido.md`.
    */
-  cp: number
-  /** MOD TOTAL do item — imune a desconto (R6). Regra V9 D1: `buildMotorInput` devolve 0. */
-  mod: number
-  /** DOP TOTAL do item — os quatro buckets de despesa, já × quantidade. */
-  dop: number
-  /** % comissão do item (decimal 0.05 = 5%). */
-  commission_pct: number
-  /** % lucro do item (decimal 0.10 = 10%). */
-  profit_pct: number
-  /** Data efetiva da operação (YYYY-MM-DD). Default = hoje. */
-  effective_date?: string
+  motorInput: ReapurationInput
   /**
-   * TaxBreakdown anterior do item, quando existir (edição). Usado para
-   * preservar imutabilidade do snapshot (AC3) quando use_snapshot_rates=true.
+   * % de comissão do item (decimal 0.05 = 5%) para a COLUNA `commission_pct`.
+   * Não alimenta o motor — lá o valor vai dentro de `motorInput`.
+   */
+  commission_pct: number
+  /** % de lucro do item (decimal) para a COLUNA `profit_pct`. */
+  profit_pct: number
+  /**
+   * TaxBreakdown anterior do item, quando existir (edição). Usado para preservar a
+   * imutabilidade do snapshot (AC3) quando `use_snapshot_rates=true`.
    */
   prev_breakdown?: TaxBreakdown | null
 }
@@ -209,29 +205,11 @@ export function hydrateItemSnapshot(
     }
   }
 
-  // Sem snapshot anterior + flag true → recalcular e congelar.
-  const quantity = item.quantity ?? 0
-  const unit_price = item.unit_price ?? 0
-  const rb = unit_price * quantity
-  const desc_value = item.discount_value ?? 0
-  const cp = Number(item.cp) || 0
-  const mod = Number(item.mod) || 0
-  const dop = Number(item.dop) || 0
-  const effective_date = item.effective_date ?? new Date().toISOString().slice(0, 10)
-
+  // Sem snapshot anterior + flag true → recalcular e congelar. A entrada vem PRONTA do
+  // `buildMotorInput`; aqui só se afirma a política do snapshot (`use_snapshot_rates`), que é
+  // decisão desta camada e não do construtor.
   const reapurationInput: ReapurationInput = {
-    rb,
-    desc_value,
-    regime: ctx.regime,
-    rates: ctx.rates,
-    cp,
-    mod,
-    dop,
-    commission_pct,
-    profit_pct,
-    csll_pct: ctx.csll_pct,
-    irpj_pct: ctx.irpj_pct,
-    effective_date,
+    ...item.motorInput,
     use_snapshot_rates: true,
   }
 

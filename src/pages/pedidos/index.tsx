@@ -27,6 +27,7 @@ import { getCurrentUserId } from '@/utils/get-tenant-id'
 import dayjs from 'dayjs'
 import { useTenantTaxContext } from '@/hooks/use-tenant-tax-context'
 import { hydrateItemSnapshot, type TenantSnapshotContext } from '@/lib/items-snapshot'
+import { buildMotorInput } from '@/utils/mrm-orchestrator'
 import { MRM_ENGINE_VERSION, type TaxBreakdown } from '@/types/mrm'
 import { useResidualDistribution } from '@/hooks/use-residual-distribution'
 import { buildBaselineFromSnapshots, computeResidualDistribution, type ResidualItemInput } from '@/utils/residual-distribution'
@@ -228,6 +229,17 @@ function OrdersPage() {
     const { canView, canEdit } = usePermissions()
     const { data: customers = [] } = useCustomers()
     const { data: products = [] } = useProducts()
+    // Contexto do tenant para o construtor único — mesma fonte do orçamento e da venda.
+    const orderMotorTenantCtx = {
+        regime: mrmConfig.regime,
+        rates: mrmConfig.rates,
+        mod_pct: mrmConfig.mod_pct,
+        dop_pct: mrmConfig.dop_pct,
+        csll_pct: mrmConfig.csll_pct,
+        irpj_pct: mrmConfig.irpj_pct,
+        useSnapshotRates: mrmConfig.useSnapshotRates,
+        expense_breakdown: mrmConfig.expense_breakdown,
+    }
     const { data: employees = [] } = useEmployees()
     const [messageApi, contextHolder] = message.useMessage()
 
@@ -701,20 +713,22 @@ function OrdersPage() {
                 const inheritedProfitPct = it.profit_percent != null ? Number(it.profit_percent) / 100 : 0
                 const snap = hydrateItemSnapshot(
                     {
-                        unit_price: it.unit_price || 0,
-                        quantity: it.quantity || 0,
+                        // PENDENTE — item novo criado direto no pedido ainda não busca as
+                        // referências do cadastro pelo caminho que o orçamento usa; está na
+                        // fila como item próprio. Mesmo assim a entrada passa pelo construtor
+                        // ÚNICO: aqui o item não carrega custo nem alíquotas, então
+                        // `buildMotorInput` devolve zeros — visíveis, e por uma rota só.
+                        // Para o item IMPORTADO, que é o caso normal, este snapshot nem é
+                        // usado: `it.tax_breakdown` tem precedência logo abaixo.
                         commission_pct: inheritedCommPct,
                         profit_pct: inheritedProfitPct,
-                        // PENDENTE — item novo criado direto aqui ainda não busca as
-                        // referências do cadastro (custo, despesas, comissão, RT, lucro) pelo
-                        // caminho que o orçamento usa. Está na fila como item próprio. Enquanto
-                        // isso, este snapshot recomputado NÃO é usado para o item importado,
-                        // que é o caso normal: `it.tax_breakdown` tem precedência logo abaixo.
-                        // Os zeros são explícitos para que o pendente fique visível ao grep, não
-                        // escondido atrás de um default.
-                        cp: 0,
-                        mod: 0,
-                        dop: 0,
+                        motorInput: buildMotorInput({
+                            item: { unit_price: it.unit_price || 0, quantity: it.quantity || 0,
+                                    commission_percent: (it.commission_percent ?? 0), profit_percent: (it.profit_percent ?? 0) },
+                            tenantCtx: orderMotorTenantCtx,
+                            globalDiscountPercent: 0,
+                            discountMode: 'PROPORTIONAL',
+                        }),
                     },
                     orderSnapshotCtx,
                     orderShadowCtx,
@@ -993,20 +1007,22 @@ function OrdersPage() {
                     const inheritedProfitPct = it.profit_percent != null ? Number(it.profit_percent) / 100 : 0
                     const snap = hydrateItemSnapshot(
                         {
-                            unit_price: it.unit_price || 0,
-                            quantity: it.quantity || 0,
+                            // PENDENTE — item novo criado direto no pedido ainda não busca as
+                            // referências do cadastro pelo caminho que o orçamento usa; está na
+                            // fila como item próprio. Mesmo assim a entrada passa pelo construtor
+                            // ÚNICO: aqui o item não carrega custo nem alíquotas, então
+                            // `buildMotorInput` devolve zeros — visíveis, e por uma rota só.
+                            // Para o item IMPORTADO, que é o caso normal, este snapshot nem é
+                            // usado: `it.tax_breakdown` tem precedência logo abaixo.
                             commission_pct: inheritedCommPct,
                             profit_pct: inheritedProfitPct,
-                            // PENDENTE — item novo criado direto aqui ainda não busca as
-                            // referências do cadastro (custo, despesas, comissão, RT, lucro) pelo
-                            // caminho que o orçamento usa. Está na fila como item próprio. Enquanto
-                            // isso, este snapshot recomputado NÃO é usado para o item importado,
-                            // que é o caso normal: `it.tax_breakdown` tem precedência logo abaixo.
-                            // Os zeros são explícitos para que o pendente fique visível ao grep, não
-                            // escondido atrás de um default.
-                            cp: 0,
-                            mod: 0,
-                            dop: 0,
+                            motorInput: buildMotorInput({
+                                item: { unit_price: it.unit_price || 0, quantity: it.quantity || 0,
+                                        commission_percent: (it.commission_percent ?? 0), profit_percent: (it.profit_percent ?? 0) },
+                                tenantCtx: orderMotorTenantCtx,
+                                globalDiscountPercent: 0,
+                                discountMode: 'PROPORTIONAL',
+                            }),
                         },
                         mirrorSnapshotCtx,
                         mirrorShadowCtx,
