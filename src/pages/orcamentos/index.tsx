@@ -49,9 +49,7 @@ import { resolveServiceExpenseBreakdownUnit } from '@/utils/service-expense-snap
 import { useTenantTaxContext } from '@/hooks/use-tenant-tax-context'
 import { MRM_ERROR_RRO_NON_POSITIVE, MRM_ENGINE_VERSION } from '@/types/mrm'
 import { PAGE_SIZE } from '@/constants/pagination'
-import { hydrateItemSnapshot, type TenantSnapshotContext } from '@/lib/items-snapshot'
-import { calculateMarginReapuration } from '@/utils/margin-reapuration'
-import { buildMotorInput } from '@/utils/mrm-orchestrator'
+import type { TenantSnapshotContext } from '@/lib/items-snapshot'
 import { calculateMotorV17ForPage } from '@/utils/mrm-engine-v17/legacy-adapter'
 import { consolidateStDifalFromItems, computeTotalACobrar } from '@/utils/icms-st-difal'
 import { useResidualDistribution } from '@/hooks/use-residual-distribution'
@@ -70,6 +68,8 @@ import {
 import { computeConsolidatedDRE, type DREItemInput } from '@/utils/consolidated-dre'
 import { ConsolidatedDREBlock } from '@/page-parts/shared/consolidated-dre-block.component'
 import { extractEpicV5DisplayData } from '@/utils/mrm-display-extractor'
+import { enrichItemsForMotor } from '@/utils/motor-item-enrichment'
+import { hydrateDocumentSnapshots } from '@/lib/document-snapshot'
 import { coerceLegacyDiscountMode } from '@/config/feature-flags'
 import { decideMrmAction } from '@/utils/mrm-policies'
 import { aggregateMotorResults } from '@/utils/mrm-aggregate'
@@ -712,76 +712,18 @@ function Budgets() {
     const motorReady = !mrmConfig.enabled || (!mrmConfig.loading && mrmConfig.rates.length > 0)
     const reapurationEffectiveDate = new Date().toISOString().slice(0, 10)
 
-    // V17 Cutover (2026-05-28): motor agora roda UMA VEZ sobre todos os items
-    // (consolida cross-produto antes de aplicar desconto, conforme PDF Etapas 1-9).
-    // Adapter mantém shape V16 (motorResultsByItem) para componentes downstream.
-    // V17 fix (2026-05-28 noite revisão 2): enriquece items com 4 campos do produto
-    // para que adapter calcule Op Interna real via fórmula confiável:
-    //   Op_Interna = sale_price_base - (freight + insurance + accessory_expenses)
-    // O campo valor_precificado_icms_piscofins do banco está stale/errado (validado via SQL).
-    const enrichedItems = budgetItems.map(i => {
-        const prod = i.product_id ? (products as any[]).find(p => p.id === i.product_id) : null
-        // EPIC-RT (serviços): o RT também é cadastrado em `services.rt_reserve_percent`.
-        // Sem esta resolução, item de serviço com RT entrava na cascata como 0%.
-        const svc = i.service_id ? (services as any[]).find(sv => sv.id === i.service_id) : null
-        const numOrNull = (v: unknown) =>
-            v != null && Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : null
-        const terceirizadas = prod
-            ? (Number(prod.freight_value) || 0) +
-              (Number(prod.insurance_value) || 0) +
-              (Number(prod.accessory_expenses_value) || 0)
-            : 0
-        // PC-BUG-CMV-PERSIST-001 (regra inviolável do PO): o CMV Efetivo (Etapa 4) e os custos/
-        // MOD/despesas são SEMPRE recalculados do cadastro VIVO do produto, nunca lidos de campo
-        // serializado. Na reabertura, `budgetItems` carrega `cost_total` cru (sem MOD) e SEM
-        // `productive_labor_unit`/`expense_breakdown_unit` → o motor caía no fallback (snapshot V14
-        // stale ~150k). Aqui recomputamos via os MESMOS helpers do handleProductSelect, garantindo
-        // que a cascata reaberta == primeira abertura (ex.: CMV R$ 141.172,85). Preços de venda e
-        // desconto continuam vindo do registro salvo (não recalculados). Itens manuais preservam.
-        let costFields: Record<string, unknown> = {}
-        if (prod) {
-            const laborTenantCtx = {
-                production_labor_cost: mrmConfig.production_labor_cost,
-                monthly_workload_minutes: mrmConfig.monthly_workload_minutes,
-                productive_value_per_minute: mrmConfig.productive_value_per_minute,
-            }
-            const { costTotal, productiveLaborUnit } = resolveProductCostAndLabor(prod, laborTenantCtx)
-            // Guard: só sobrescreve quando o cadastro vivo tem custo > 0 (produto não deletado).
-            if (costTotal > 0 || productiveLaborUnit > 0) {
-                costFields = {
-                    cost_total: costTotal,
-                    productive_labor_unit: productiveLaborUnit,
-                    financial_expense_unit: resolveProductFinancialExpense(prod),
-                    expense_breakdown_unit: resolveProductExpenseBreakdown(prod),
-                }
-            }
-        }
-        return {
-            ...i,
-            ...costFields,
-            // FIX-CUSTO-SN: tipo e yield do cadastro vivo — o adapter usa os dois para saber
-            // se `yield_quantity` significa rendimento (PRODUZIDO) ou estoque (REVENDA).
-            product_type: prod?.product_type ?? null,
-            yield_quantity: prod?.yield_quantity ?? null,
-            // Snapshot das alíquotas de despesa do SERVIÇO (`services.expense_snapshot`),
-            // no mesmo campo que o produto já usa. Sem ele a cascata decompunha o preço do
-            // serviço com o `tenant_expense_config` de hoje, e não com o que o formou.
-            // `null` (serviço legado) mantém o fallback ao tenant, como sempre foi.
-            ...(svc
-                ? {
-                    expense_breakdown_unit:
-                        resolveServiceExpenseBreakdownUnit(svc, Number(i.unit_price) || 0),
-                }
-                : {}),
-            // EPIC-RT v8: RT do item (congelado) ou fallback ao cadastro vivo do produto/serviço.
-            rt_reserve_percent: Number((i as any).rt_reserve_percent ?? prod?.rt_reserve_percent ?? svc?.rt_reserve_percent) || 0,
-            valor_op_interna_unit: numOrNull(prod?.valor_precificado_icms_piscofins),
-            sale_price_base_unit: numOrNull(prod?.sale_price_base),
-            terceirizadas_unit: terceirizadas > 0 ? terceirizadas : null,
-            // Relatório 21/07/2026 (item 2): item manual → custo puro na cascata (fora da
-            // cascata de produtos, resíduo 0, imune a desconto/tributo). Ver legacy-adapter.
-            is_manual_cost: i.isManual === true,
-        }
+    // V17 Cutover (2026-05-28): motor roda UMA VEZ sobre todos os items (consolida
+    // cross-produto antes de aplicar desconto, conforme PDF Etapas 1-9).
+    //
+    // O enriquecimento com o cadastro vivo saiu daqui para `motor-item-enrichment.ts`. Havia
+    // QUATRO cópias deste bloco — uma aqui e três em `vendas/index.tsx` — e elas já tinham
+    // divergido: as de venda não recompunham custo/MO/despesa, não marcavam `is_manual_cost`
+    // e duas nem resolviam o RT. Com um construtor só, acrescentar um campo vale para as
+    // quatro rotas. Ver `.claude/rules/copia-divergente.md`.
+    const enrichedItems = enrichItemsForMotor(budgetItems, { products, services }, {
+        production_labor_cost: mrmConfig.production_labor_cost,
+        monthly_workload_minutes: mrmConfig.monthly_workload_minutes,
+        productive_value_per_minute: mrmConfig.productive_value_per_minute,
     })
     // Parâmetros de operação para a hierarquia do ICMS Complementar (Etapa 17). ST/DIFAL é
     // por-produto; consolidamos como "algum item ativo" (bloqueio no nível da operação). Frete
@@ -803,15 +745,12 @@ function Budgets() {
         }, 0),
         override: icmsComplOverride,
     }
-    // Adendo Seção 31-A (item 5): fatorado para reuso na busca binária do teto de desconto.
-    // Mesma entrada do motor, variando apenas o desconto candidato.
-    // Contexto do tenant para `buildMotorInput` — a MESMA fonte que alimenta o motor em
-    // runtime logo abaixo. Existe para que a GRAVAÇÃO do snapshot derive custo, MO e despesa
-    // pelo construtor canônico, em vez de gravá-los zerados.
-    // Objeto simples, não `useMemo`: só é lido dentro dos handlers de gravação, nunca no
-    // caminho de render — e este componente já tem retorno condicional antes daqui, então um
-    // hook a mais violaria a ordem das hooks.
-    const motorTenantCtx = {
+    // Contexto do tenant para o motor V17 — UMA instância, lida pelo runtime desta tela E
+    // pelo gravador do snapshot. Enquanto eram dois objetos montados em lugares diferentes, a
+    // gravação podia derivar de um contexto que a tela não usava.
+    // Objeto simples, não `useMemo`: este componente já tem retorno condicional antes daqui,
+    // então um hook a mais violaria a ordem das hooks.
+    const motorTenantCtxV17 = {
         regime: mrmConfig.regime,
         rates: mrmConfig.rates,
         mod_pct: mrmConfig.mod_pct,
@@ -820,24 +759,17 @@ function Budgets() {
         irpj_pct: mrmConfig.irpj_pct,
         useSnapshotRates: mrmConfig.useSnapshotRates,
         expense_breakdown: mrmConfig.expense_breakdown,
+        // Etapa 5: só para a exceção do produto de revenda em tenant SERVIÇO.
+        calc_type: mrmConfig.calc_type,
+        mo_produtiva_pct: mrmConfig.mo_produtiva_pct,
+        absorption_policy: discountModeToAbsorptionPolicy(discountMode), // Item 2: modo do dropdown
     }
 
+    // Adendo Seção 31-A (item 5): fatorado para reuso na busca binária do teto de desconto.
+    // Mesma entrada do motor, variando apenas o desconto candidato.
     const runMotorAtDiscount = (discountPct: number) => calculateMotorV17ForPage({
         items: enrichedItems,
-        tenantCtx: {
-            regime: mrmConfig.regime,
-            rates: mrmConfig.rates,
-            mod_pct: mrmConfig.mod_pct,
-            dop_pct: mrmConfig.dop_pct,
-            csll_pct: mrmConfig.csll_pct,
-            irpj_pct: mrmConfig.irpj_pct,
-            useSnapshotRates: mrmConfig.useSnapshotRates,
-            expense_breakdown: mrmConfig.expense_breakdown,
-            // Etapa 5: só para a exceção do produto de revenda em tenant SERVIÇO.
-            calc_type: mrmConfig.calc_type,
-            mo_produtiva_pct: mrmConfig.mo_produtiva_pct,
-            absorption_policy: discountModeToAbsorptionPolicy(discountMode), // Item 2: modo do dropdown
-        },
+        tenantCtx: motorTenantCtxV17,
         globalDiscountPercent: discountPct,
         effectiveDate: reapurationEffectiveDate,
         icmsComplApplies,
@@ -883,8 +815,6 @@ function Budgets() {
         if (totalPctDistribuivel === 0) return null
         return v17Results[idx]
     })
-    // Mantido por compatibilidade (não usado após cutover V17 — remover em commit futuro):
-    void calculateMarginReapuration; void buildMotorInput;
     const profitAmount = motorResultsByItem.reduce((s, r) => s + (r?.new_profit ?? 0), 0)
     const commissionAmount = motorResultsByItem.reduce((s, r) => s + (r?.new_commission ?? 0), 0)
     // EPIC-RT v8 (3.9): RT consolidado CONGELADO = alíquota efetiva × total pós-desconto.
@@ -1210,64 +1140,37 @@ function Budgets() {
                 irpj_pct: mrmConfig.irpj_pct,
                 use_snapshot_rates: mrmConfig.useSnapshotRates,
             }
-            const validItemsForInsert = budgetItems
-                .filter(i => i.product_id || i.service_id || (i.isManual && i.product_name?.trim()))
-            // Story MRM-V2-S3.1: shadow context tagueia divergências por tenant/documento.
-            const shadowCtxInsert = { tenant_id, document_type: 'budget' as const }
-            // P0 — captura imutável do desconto no momento do save (elimina
-            // race entre UI render e submit). hydrateItemSnapshot recebe
-            // discount_value real para que o tax_breakdown persistido reflita
-            // o desconto aplicado (alinha snapshot com UI).
+            // P0 — captura imutável do desconto no momento do save (elimina race entre UI
+            // render e submit).
             const discountPctSnapshot = globalDiscountPercent
-            const hydratedItems = validItemsForInsert.map(i => {
-                // Custo, MO e despesa vêm de `buildMotorInput` — o MESMO construtor de entrada
-                // do motor em runtime desta tela. Eram duas rotas para o mesmo motor, uma
-                // delas escrita à mão e vazia; o snapshot nascia com cp/mod/dop zerados e o
-                // RRO virava o preço inteiro.
-                const motorIn = buildMotorInput({
-                    item: i,
-                    tenantCtx: motorTenantCtx,
+            // O gravador roda o motor V17 UMA VEZ sobre `enrichedItems` — exatamente o mesmo
+            // array e o mesmo `tenantCtx` que o runtime desta tela usa. Antes ele rodava o V16
+            // por item, e daí saíam duas verdades para o mesmo documento: o cabeçalho (V17)
+            // dizia 150,94 e os itens (V16) diziam 134,21. O invariante do espelho decidiu:
+            // com desconto zero a Etapa 6 fecha com a Etapa 16 sob V17 e é inexprimível sob
+            // V16 — o número certo é o do cabeçalho, e agora há UMA rota só.
+            const documentSnapshots = hydrateDocumentSnapshots(
+                {
+                    items: enrichedItems.map((motorItem, idx) => ({
+                        motorItem,
+                        commission_pct: (budgetItems[idx].commission_percent ?? 0) / 100,
+                        profit_pct: (budgetItems[idx].profit_percent ?? 0) / 100,
+                    })),
+                    tenantCtx: motorTenantCtxV17,
                     globalDiscountPercent: discountPctSnapshot,
                     discountMode,
-                })
-                const pesos = {
-                    commission_pct: (i.commission_percent ?? 0) / 100,
-                    profit_pct: (i.profit_percent ?? 0) / 100,
-                }
-                // O input do motor vai INTEIRO — `rates` com as alíquotas do item,
-                // `csll_pct`/`irpj_pct` por item e `discount_mode`, além de cp/mod/dop. Antes
-                // o gravador remontava a entrada e cobria menos campos que esta mesma rota.
-                const snap = hydrateItemSnapshot(
-                    { ...pesos, motorInput: motorIn },
-                    snapshotCtx,
-                    shadowCtxInsert,
-                )
-                // Correção Card Percentual (Ago/2026): baseline pré-desconto (MESMA via de hydrate,
-                // desconto=0) persistido no snapshot p/ o "% original" dos cards em superfícies que
-                // leem só o snapshot (PDF/Pedidos/Vendas). Não afeta nenhum valor em R$ persistido.
-                const snapBaseline = hydrateItemSnapshot(
-                    {
-                        ...pesos,
-                        motorInput: buildMotorInput({
-                            item: i,
-                            tenantCtx: motorTenantCtx,
-                            globalDiscountPercent: 0,
-                            discountMode,
-                        }),
-                    },
-                    snapshotCtx,
-                    shadowCtxInsert,
-                )
-                if (snap.tax_breakdown && snapBaseline.tax_breakdown) {
-                    snap.tax_breakdown = {
-                        ...snap.tax_breakdown,
-                        baseline_new_commission: snapBaseline.tax_breakdown.new_commission ?? null,
-                        baseline_new_profit: snapBaseline.tax_breakdown.new_profit ?? null,
-                        baseline_ancora_interna: snapBaseline.tax_breakdown.ancora_interna ?? null,
-                    }
-                }
-                return { src: i, snap }
-            })
+                    effectiveDate: reapurationEffectiveDate,
+                    icmsComplApplies,
+                    icmsCompl: icmsComplParams,
+                },
+                snapshotCtx,
+            )
+            // O filtro de itens válidos é aplicado DEPOIS do motor, e não antes: consolidar
+            // sobre um subconjunto diferente do que a tela consolida produziria números
+            // diferentes dos exibidos, que é o defeito que este PR fecha.
+            const hydratedItems = budgetItems
+                .map((src, idx) => ({ src, snap: documentSnapshots[idx] }))
+                .filter(({ src }) => src.product_id || src.service_id || (src.isManual && src.product_name?.trim()))
 
             // MRM S2.3 / V3-S5 — Camada de policy aplica regras de bloqueio/aviso (ADR-004).
             // Só consulta quando o motor V2 está ativo (mrmConfig.enabled) — fora disso,
@@ -1438,57 +1341,29 @@ function Budgets() {
                 irpj_pct: mrmConfig.irpj_pct,
                 use_snapshot_rates: mrmConfig.useSnapshotRates,
             }
-            // Story MRM-V2-S3.1: shadow context na edição inclui document_id.
-            const shadowCtxEdit = { tenant_id: tenantId, document_id: editingBudgetId, document_type: 'budget' as const }
             // P0 — captura imutável do desconto (mesmo padrão do insert).
             const discountPctSnapshotEdit = globalDiscountPercent
-            const hydratedItemsEdit = validItems.map(i => {
-                // Custo, MO e despesa vêm de `buildMotorInput` — o MESMO construtor de entrada
-                // do motor em runtime desta tela. Eram duas rotas para o mesmo motor, uma
-                // delas escrita à mão e vazia; o snapshot nascia com cp/mod/dop zerados e o
-                // RRO virava o preço inteiro.
-                const motorInEdit = buildMotorInput({
-                    item: i,
-                    tenantCtx: motorTenantCtx,
+            // Mesma rota do insert: motor V17 UMA VEZ sobre `enrichedItems`, o array que o
+            // runtime desta tela também consome.
+            const documentSnapshotsEdit = hydrateDocumentSnapshots(
+                {
+                    items: enrichedItems.map((motorItem, idx) => ({
+                        motorItem,
+                        commission_pct: (budgetItems[idx].commission_percent ?? 0) / 100,
+                        profit_pct: (budgetItems[idx].profit_percent ?? 0) / 100,
+                    })),
+                    tenantCtx: motorTenantCtxV17,
                     globalDiscountPercent: discountPctSnapshotEdit,
                     discountMode,
-                })
-                const pesos = {
-                    commission_pct: (i.commission_percent ?? 0) / 100,
-                    profit_pct: (i.profit_percent ?? 0) / 100,
-                }
-                // O input do motor vai INTEIRO — `rates` com as alíquotas do item,
-                // `csll_pct`/`irpj_pct` por item e `discount_mode`, além de cp/mod/dop. Antes
-                // o gravador remontava a entrada e cobria menos campos que esta mesma rota.
-                const snap = hydrateItemSnapshot(
-                    { ...pesos, motorInput: motorInEdit },
-                    snapshotCtxEdit,
-                    shadowCtxEdit,
-                )
-                // Correção Card Percentual (Ago/2026): baseline pré-desconto persistido (ver insert).
-                const snapBaseline = hydrateItemSnapshot(
-                    {
-                        ...pesos,
-                        motorInput: buildMotorInput({
-                            item: i,
-                            tenantCtx: motorTenantCtx,
-                            globalDiscountPercent: 0,
-                            discountMode,
-                        }),
-                    },
-                    snapshotCtxEdit,
-                    shadowCtxEdit,
-                )
-                if (snap.tax_breakdown && snapBaseline.tax_breakdown) {
-                    snap.tax_breakdown = {
-                        ...snap.tax_breakdown,
-                        baseline_new_commission: snapBaseline.tax_breakdown.new_commission ?? null,
-                        baseline_new_profit: snapBaseline.tax_breakdown.new_profit ?? null,
-                        baseline_ancora_interna: snapBaseline.tax_breakdown.ancora_interna ?? null,
-                    }
-                }
-                return { src: i, snap }
-            })
+                    effectiveDate: reapurationEffectiveDate,
+                    icmsComplApplies,
+                    icmsCompl: icmsComplParams,
+                },
+                snapshotCtxEdit,
+            )
+            const hydratedItemsEdit = budgetItems
+                .map((src, idx) => ({ src, snap: documentSnapshotsEdit[idx] }))
+                .filter(({ src }) => src.product_id || src.service_id || (src.isManual && src.product_name?.trim()))
 
             // MRM S2.3 — policy gate (ADR-004).
             let requiresReviewUpd = false
@@ -2000,7 +1875,6 @@ function Budgets() {
                         irpj_pct: mrmConfig.irpj_pct,
                         use_snapshot_rates: mrmConfig.useSnapshotRates,
                     },
-                    shadowCtx: { tenant_id, document_id: sale.id, document_type: 'sale' },
                     products: products as RtCatalogEntry[],
                     services: services as RtCatalogEntry[],
                 })

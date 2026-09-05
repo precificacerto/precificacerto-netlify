@@ -194,36 +194,55 @@ describe('A política do snapshot não foi alterada', () => {
 })
 
 describe('TODOS os gravadores passam pelo construtor único', () => {
-    // A duplicação real: `hydrateItemSnapshot` e `buildMotorInput` alimentavam o MESMO motor,
-    // e uma das duas rotas cobria menos campos. Agora existe UMA rota — o gravador consome o
-    // `ReapurationInput` pronto, e nenhum chamador remonta a entrada.
+    // ESTE BLOCO MUDOU DE ALVO, E ERA O TRABALHO DELE.
+    //
+    // No #47 o construtor único era `buildMotorInput`, porque as duas rotas alimentavam o
+    // MESMO motor V16 e uma delas cobria menos campos. Depois se descobriu que o gravador
+    // rodava V16 enquanto a tela rodava V17 — duas verdades para o mesmo documento — e a
+    // unificação passou a ser no MOTOR inteiro, não na entrada dele.
+    //
+    // O construtor único agora é `enrichItemsForMotor` + `hydrateDocumentSnapshots`, e o
+    // gravador é CONSOLIDADO por documento. As asserções abaixo afirmam esse estado; se
+    // alguém reintroduzir a rota V16 numa tela, elas quebram — que é o mesmo serviço que
+    // prestavam antes, apontado para onde a rota está hoje.
     const SRC = path.resolve(__dirname, '../..')
     const read = (rel: string) => fs.readFileSync(path.join(SRC, rel), 'utf8')
 
     it.each([
-        ['Orçamento — inserção, edição e os dois baselines', 'pages/orcamentos/index.tsx', 4],
+        ['Orçamento — inserção e edição', 'pages/orcamentos/index.tsx', 2],
         ['Venda de balcão', 'pages/vendas/index.tsx', 1],
         ['Pedido — save e espelho', 'pages/pedidos/index.tsx', 2],
         ['Mapeador orçamento→venda', 'utils/budget-item-to-sale-item.ts', 1],
-    ])('%s entrega `motorInput` de `buildMotorInput`', (_nome, arquivo, vezes) => {
+    ])('%s grava por `hydrateDocumentSnapshots`', (_nome, arquivo, vezes) => {
         const conteudo = read(arquivo as string)
-        expect(conteudo.split('buildMotorInput({').length - 1).toBeGreaterThanOrEqual(vezes as number)
-        expect(conteudo).toContain('motorInput:')
+        expect(conteudo.split('hydrateDocumentSnapshots(').length - 1).toBeGreaterThanOrEqual(vezes as number)
+        expect(conteudo).toContain('motorItem')
     })
 
-    it('nenhum chamador remonta a entrada do motor à mão', () => {
-        // `cp:`, `mod:` e `dop:` soltos num objeto de hidratação eram a rota antiga. Se
-        // voltarem, é sinal de que alguém recriou o segundo construtor.
+    it('nenhum chamador volta ao gravador V16', () => {
+        // `hydrateItemSnapshot` e `buildMotorInput` eram a rota antiga. Continuam existindo
+        // (o contract test S1.4 é a paridade V16↔V16 e segue válido lá), mas NENHUMA rota de
+        // gravação pode voltar a usá-los: seria gravar 13 etapas ao lado de 17 no mesmo
+        // documento, e a tela mostraria só o trace do primeiro item.
         for (const arquivo of [
             'pages/orcamentos/index.tsx',
             'pages/vendas/index.tsx',
             'pages/pedidos/index.tsx',
             'utils/budget-item-to-sale-item.ts',
         ]) {
-            const trecho = read(arquivo)
-            const i = trecho.indexOf('hydrateItemSnapshot(')
-            expect(i).toBeGreaterThanOrEqual(0)
-            expect(trecho.slice(i, i + 900)).not.toMatch(/\n\s+cp: (?!0\b)/)
+            const conteudo = read(arquivo)
+            expect(conteudo).not.toContain('hydrateItemSnapshot(')
+            expect(conteudo).not.toContain('buildMotorInput(')
+        }
+    })
+
+    it('o enriquecimento vem do módulo único, não remontado na tela', () => {
+        // Eram QUATRO cópias — 1 em orçamentos, 3 em vendas — e as de venda eram as
+        // empobrecidas. Ver `.claude/rules/copia-divergente.md`.
+        for (const arquivo of ['pages/orcamentos/index.tsx', 'pages/vendas/index.tsx']) {
+            const conteudo = read(arquivo)
+            expect(conteudo).toContain('enrichItemsForMotor(')
+            expect(conteudo).not.toContain('terceirizadas_unit:')
         }
     })
 })

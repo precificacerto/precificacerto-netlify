@@ -14,12 +14,17 @@
  * acrescentar um campo aqui vale para quem usar este módulo.
  *
  * NÃO recalcula nada do motor RRO. O snapshot do orçamento é a fonte de verdade e é
- * PRESERVADO quando existe — `hydrateItemSnapshot` só recompõe quando não há snapshot
- * anterior (item legado).
+ * PRESERVADO quando existe — o gravador só recompõe quando não há snapshot anterior
+ * (item legado).
+ *
+ * ESTE É O ÚNICO CALL SITE DO SISTEMA QUE ALIMENTA O AC3 (`prev_breakdown`). Nenhuma rota do
+ * orçamento o passa — reabrir e salvar um orçamento REGRAVA o snapshot; só a travessia para a
+ * venda o preserva. Por isso a preservação tinha de sobreviver à troca V16 → V17, e sobrevive:
+ * `hydrateDocumentSnapshots` decide o AC3 ANTES de olhar o resultado do motor.
  */
 
-import { hydrateItemSnapshot, type TenantSnapshotContext } from '@/lib/items-snapshot'
-import { buildMotorInput } from '@/utils/mrm-orchestrator'
+import type { TenantSnapshotContext } from '@/lib/items-snapshot'
+import { hydrateDocumentSnapshots } from '@/lib/document-snapshot'
 import {
     resolveInheritedRtPctDecimal,
     type RtCatalogEntry,
@@ -107,7 +112,6 @@ export type SaleItemRow = {
 export interface MapBudgetItemsOptions {
     saleId: string
     snapshotCtx: TenantSnapshotContext
-    shadowCtx?: { tenant_id: string; document_id: string; document_type: 'sale' }
     products?: readonly RtCatalogEntry[]
     services?: readonly RtCatalogEntry[]
 }
@@ -122,41 +126,43 @@ export function mapBudgetItemsToSaleItems(
     budgetItems: readonly BudgetItemForSale[],
     opts: MapBudgetItemsOptions,
 ): SaleItemRow[] {
-    return budgetItems.map((bi) => {
-        // Idempotente: snapshot válido do orçamento é PRESERVADO (AC3 — imutabilidade).
-        const snap = hydrateItemSnapshot(
-            {
-                commission_pct: Number(bi.commission_pct ?? 0),
-                profit_pct: Number(bi.profit_pct ?? 0),
-                prev_breakdown: bi.tax_breakdown ?? null,
-            // `budget_items` NÃO TEM COLUNA DE CUSTO — é a 6ª aparição de
-            // `fato-vs-referencia.md`. Aqui não há de onde derivar custo nem alíquotas, e ir
-            // buscar no cadastro seria reler referência viva, que é o que o D-A proíbe. Ainda
-            // assim a entrada passa pelo construtor ÚNICO, para não existir uma segunda rota:
-            // sem esses dados ele devolve zeros, e eles só chegam a valer quando
-            // `prev_breakdown` é nulo (item legado). Com snapshot, `hydrateItemSnapshot` o
-            // preserva e nada disto é usado.
-            motorInput: buildMotorInput({
-                item: {
+    // O gravador é CONSOLIDADO por documento (o V17 roda uma vez sobre todos os itens), então
+    // a hidratação acontece para a lista inteira, e não item a item.
+    //
+    // `budget_items` NÃO TEM COLUNA DE CUSTO — é a 6ª aparição de `fato-vs-referencia.md`.
+    // Aqui não há de onde derivar custo nem alíquotas, e ir buscar no cadastro seria reler
+    // referência viva, que é o que o D-A proíbe. A entrada passa pelo construtor ÚNICO mesmo
+    // assim, para não existir uma segunda rota: sem esses dados o motor devolve zeros, e eles
+    // só chegam a valer quando `prev_breakdown` é nulo (item legado). Com snapshot, ele é
+    // preservado e nada disto é usado.
+    const snaps = hydrateDocumentSnapshots(
+        {
+            items: budgetItems.map((bi) => ({
+                motorItem: {
                     unit_price: Number(bi.unit_price) || 0,
                     quantity: Number(bi.quantity) || 0,
                     commission_percent: Number(bi.commission_pct ?? 0) * 100,
                     profit_percent: Number(bi.profit_pct ?? 0) * 100,
                 },
-                tenantCtx: {
-                    regime: opts.snapshotCtx.regime,
-                    rates: opts.snapshotCtx.rates,
-                    csll_pct: opts.snapshotCtx.csll_pct,
-                    irpj_pct: opts.snapshotCtx.irpj_pct,
-                    useSnapshotRates: opts.snapshotCtx.use_snapshot_rates,
-                },
-                globalDiscountPercent: 0,
-                discountMode: 'PROPORTIONAL',
-            }),
+                commission_pct: Number(bi.commission_pct ?? 0),
+                profit_pct: Number(bi.profit_pct ?? 0),
+                prev_breakdown: bi.tax_breakdown ?? null,
+            })),
+            tenantCtx: {
+                regime: opts.snapshotCtx.regime,
+                rates: opts.snapshotCtx.rates,
+                csll_pct: opts.snapshotCtx.csll_pct,
+                irpj_pct: opts.snapshotCtx.irpj_pct,
+                useSnapshotRates: opts.snapshotCtx.use_snapshot_rates,
             },
-            opts.snapshotCtx,
-            opts.shadowCtx,
-        )
+            globalDiscountPercent: 0,
+            discountMode: 'PROPORTIONAL',
+        },
+        opts.snapshotCtx,
+    )
+
+    return budgetItems.map((bi, idx) => {
+        const snap = snaps[idx]
         return {
             sale_id: opts.saleId,
             product_id: bi.product_id || null,
