@@ -88,6 +88,10 @@ interface OrderItemRow {
     rt_pct?: number | null
     rt_reserve_percent?: number | null
     tax_breakdown?: TaxBreakdown | null
+    // D-A: o destino congelado do item. O `select` já trazia a coluna e o mapeamento a
+    // descartava — então `readSnapshotColumn(it)` no save lia um objeto que ESTRUTURALMENTE
+    // não tinha o campo, e regravava NULL. Editar um pedido apagava o snapshot.
+    destination_snapshot?: unknown
 }
 
 interface Order {
@@ -496,6 +500,7 @@ function OrdersPage() {
             rt_pct: it.rt_pct != null ? Number(it.rt_pct) : null,
             rt_reserve_percent: it.products?.rt_reserve_percent ?? it.services?.rt_reserve_percent ?? null,
             tax_breakdown: it.tax_breakdown ?? null,
+            destination_snapshot: it.destination_snapshot ?? null,
         }))
     }
 
@@ -1000,6 +1005,12 @@ function OrdersPage() {
                         // D8: o espelho carrega o RT congelado do item do pedido.
                         rt_pct: resolveInheritedRtPctDecimal(it.rt_pct, it, products),
                         tax_breakdown: it.tax_breakdown ?? snap.tax_breakdown,
+                        // D-A: o espelho carrega o destino congelado do item do pedido. O
+                        // campo não existia neste mapeamento — nem como `?? null` —, então a
+                        // venda nascida de pedido perdia o destino mesmo que o pedido o
+                        // tivesse. Caminho ARMADO, não materializado: já foi percorrido duas
+                        // vezes (4 itens de venda), mas nenhum origem carregava snapshot.
+                        destination_snapshot: readSnapshotColumn(it),
                     }
                 })
                 await (supabase as any).from('budget_items').insert(budgetItems)
