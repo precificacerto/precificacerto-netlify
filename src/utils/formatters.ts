@@ -47,6 +47,29 @@ export function formatPercentFromFraction(
 }
 
 /**
+ * Porcentagem com CASAS CONFIGURÁVEIS, sempre em pt-BR — vírgula decimal e ponto de milhar.
+ *
+ * Existe porque `formatPercent` fixa 3 casas, e havia pontos de exibição que precisavam de 2
+ * e por isso caíam em `toFixed(2)` — que produz `12.34`, com PONTO decimal. Nenhum deles
+ * alimenta cálculo: são rótulos, colunas de relatório e células de PDF. O número não muda;
+ * muda o separador.
+ *
+ * @param value já em forma percentual (12.34 → "12,34%"), NÃO multiplica por 100.
+ */
+export function formatPercentWithDigits(
+  value: number | null | undefined,
+  digits = 2,
+): string {
+  const num = Number(value)
+  const formatter = new Intl.NumberFormat('pt-BR', {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  })
+  if (!Number.isFinite(num)) return `${formatter.format(0)}%`
+  return `${formatter.format(num)}%`
+}
+
+/**
  * Parse de string BRL para number (ex: "R$ 1.234,56" → 1234.56)
  */
 export function parseBRL(value: string | null | undefined): number {

@@ -19,6 +19,7 @@ import { Layout } from '@/components/layout/layout.component'
 import { ROUTES } from '@/constants/routes'
 import { useAuth } from '@/hooks/use-auth.hook'
 import { useCachedFetch } from '@/hooks/use-cached-fetch.hook'
+import { formatBRL } from '@/utils/formatters'
 
 const { Text } = Typography
 const { RangePicker } = DatePicker
@@ -157,7 +158,7 @@ function MrmDivergencesPage() {
       width: 110,
       align: 'right',
       render: (v: number | null) =>
-        v == null ? '—' : `R$ ${Number(v).toFixed(2)}`,
+        v == null ? '—' : formatBRL(Number(v)),
       sorter: (a, b) => Number(a.diff_amount ?? 0) - Number(b.diff_amount ?? 0),
     },
     {
@@ -236,7 +237,7 @@ function MrmDivergencesPage() {
       key: 'max_diff_amount',
       width: 130,
       align: 'right',
-      render: (v: number) => `R$ ${Number(v).toFixed(2)}`,
+      render: (v: number) => formatBRL(Number(v)),
     },
   ]
 
