@@ -28,9 +28,8 @@ import { ExportFormatModal } from '@/components/ui/export-format-modal.component
 import { calculateDiscountedPrice, discountModeToAbsorptionPolicy, DiscountMode } from '@/utils/calculate-discount'
 import { formatBRL } from '@/utils/formatters'
 import { getEffectiveCommissionPercent } from '@/utils/get-effective-commission'
-import { resolveItemRtPercent, computeSaleRtAmount, resolveItemRtPctDecimal, type RtCatalogEntry } from '@/utils/balcao-rt'
+import { computeSaleRtAmount, resolveItemRtPctDecimal, type RtCatalogEntry } from '@/utils/balcao-rt'
 import { mapBudgetItemsToSaleItems, BUDGET_ITEM_SELECT_FOR_SALE } from '@/utils/budget-item-to-sale-item'
-import { resolveServiceExpenseBreakdownUnit } from '@/utils/service-expense-snapshot'
 import {
     PaymentWithInstallments,
     buildInstallmentsByPreset,

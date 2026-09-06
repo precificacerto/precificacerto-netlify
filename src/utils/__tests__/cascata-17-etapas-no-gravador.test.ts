@@ -29,7 +29,8 @@ import { calculateMotorV17ForPage } from '@/utils/mrm-engine-v17/legacy-adapter'
 import { applyTotalACobrarToStep11 } from '@/page-parts/shared/consolidated-dre-block.component'
 import { extractEpicV5DisplayData } from '@/utils/mrm-display-extractor'
 import type { TenantSnapshotContext } from '@/lib/items-snapshot'
-import type { CascadeStep, TaxBreakdown } from '@/types/mrm'
+import type { PageItem } from '@/utils/mrm-engine-v17/legacy-adapter'
+import type { CascadeStep, TaxBreakdown, TaxRatePeriod } from '@/types/mrm'
 
 const SRC = path.resolve(__dirname, '../..')
 const read = (rel: string) => fs.readFileSync(path.join(SRC, rel), 'utf8')
@@ -54,8 +55,11 @@ const PRODUTOS = [
 ]
 const SERVICOS = [{ id: 's1', name: 'Corte e Barba', cost_total: 70 }]
 
+/** O item como as telas o passam ao motor: `PageItem` mais a marca de item manual. */
+type ItemDeTeste = PageItem & { product_id?: string | null; isManual?: boolean }
+
 /** Item de PRODUTO: R$ 100, custo R$ 35 (35% = 1 − 50% − 15%). */
-const ITEM_PRODUTO = {
+const ITEM_PRODUTO: ItemDeTeste = {
     product_id: 'p1',
     unit_price: 100,
     quantity: 1,
@@ -63,7 +67,7 @@ const ITEM_PRODUTO = {
     profit_percent: 15,
 }
 /** Item de SERVIÇO: R$ 200, custo R$ 70 — mesma proporção. */
-const ITEM_SERVICO = {
+const ITEM_SERVICO: ItemDeTeste = {
     service_id: 's1',
     unit_price: 200,
     quantity: 1,
@@ -74,7 +78,7 @@ const ITEM_SERVICO = {
 
 const SNAPSHOT_CTX: TenantSnapshotContext = {
     regime: 'MEI',
-    rates: [],
+    rates: [] as TaxRatePeriod[],
     csll_pct: 0,
     irpj_pct: 0,
     use_snapshot_rates: true,
@@ -82,7 +86,7 @@ const SNAPSHOT_CTX: TenantSnapshotContext = {
 
 const MOTOR_TENANT_CTX = {
     regime: 'MEI' as const,
-    rates: [],
+    rates: [] as TaxRatePeriod[],
     mod_pct: 0,
     dop_pct: 0,
     csll_pct: 0,
@@ -92,12 +96,12 @@ const MOTOR_TENANT_CTX = {
     absorption_policy: 'RRO_PROPORTIONAL' as const,
 }
 
-const enriquecer = (itens: Array<Record<string, unknown>>) =>
+const enriquecer = (itens: readonly ItemDeTeste[]) =>
     enrichItemsForMotor(itens, { products: PRODUTOS, services: SERVICOS }, {})
 
 /** A rota do GRAVADOR: enriquece e hidrata o documento inteiro. */
 function gravar(
-    itens: Array<Record<string, unknown>>,
+    itens: readonly ItemDeTeste[],
     opts: { desconto?: number; ctx?: TenantSnapshotContext; prev?: (TaxBreakdown | null)[] } = {},
 ) {
     return hydrateDocumentSnapshots(
@@ -124,7 +128,7 @@ function gravar(
  * entrada por caminhos diferentes, é este teste que quebra — comparar o gravador com uma
  * entrada que ele mesmo montou seria compará-lo consigo mesmo.
  */
-const runtimeDaTela = (itens: Array<Record<string, unknown>>, desconto = 0) =>
+const runtimeDaTela = (itens: readonly ItemDeTeste[], desconto = 0) =>
     calculateMotorV17ForPage({
         items: enriquecer(itens),
         tenantCtx: MOTOR_TENANT_CTX,
