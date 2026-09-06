@@ -26,8 +26,8 @@ import { readSnapshotColumn } from '@/utils/destination-snapshot'
 import { getCurrentUserId } from '@/utils/get-tenant-id'
 import dayjs from 'dayjs'
 import { useTenantTaxContext } from '@/hooks/use-tenant-tax-context'
-import { hydrateItemSnapshot, type TenantSnapshotContext } from '@/lib/items-snapshot'
-import { buildMotorInput } from '@/utils/mrm-orchestrator'
+import type { TenantSnapshotContext } from '@/lib/items-snapshot'
+import { hydrateDocumentSnapshots } from '@/lib/document-snapshot'
 import { formatPercentWithDigits } from '@/utils/formatters'
 import { MRM_ENGINE_VERSION, type TaxBreakdown } from '@/types/mrm'
 import { useResidualDistribution } from '@/hooks/use-residual-distribution'
@@ -777,45 +777,49 @@ function OrdersPage() {
             }
             const validOrderItems = orderItems
                 .filter((it) => it.product_id || it.service_id || it.manual_description)
-            // Story MRM-V2-S3.1: shadow context para rastrear divergências.
-            const orderShadowCtx = { tenant_id: tenantId, document_id: editingOrder.id, document_type: 'order' as const }
-            const hydratedOrderItems = validOrderItems.map((it) => {
+            // O gravador é CONSOLIDADO por documento — uma passada do motor V17 sobre todos
+            // os itens. O pedido tinha DUAS chamadas ao gravador V16 (aqui e no espelho); com
+            // elas, um item criado direto no pedido nasceria com cascata de 13 etapas ao lado
+            // de itens de 17, e o documento passaria a ter dois traces diferentes.
+            //
+            // PENDENTE — item novo criado direto no pedido ainda não busca as referências do
+            // cadastro pelo caminho que o orçamento usa; está na fila como item próprio. Sem
+            // custo nem alíquotas o motor devolve zeros: visíveis, e por uma rota só. Para o
+            // item IMPORTADO, que é o caso normal, este snapshot nem é usado — `it.tax_breakdown`
+            // tem precedência logo abaixo.
+            const orderDocSnapshots = hydrateDocumentSnapshots(
+                {
+                    items: validOrderItems.map((it) => ({
+                        motorItem: {
+                            unit_price: it.unit_price || 0,
+                            quantity: it.quantity || 0,
+                            commission_percent: it.commission_percent ?? 0,
+                            profit_percent: it.profit_percent ?? 0,
+                        },
+                        commission_pct: it.commission_percent != null ? Number(it.commission_percent) / 100 : 0,
+                        profit_pct: it.profit_percent != null ? Number(it.profit_percent) / 100 : 0,
+                    })),
+                    tenantCtx: orderMotorTenantCtx,
+                    globalDiscountPercent: 0,
+                    discountMode: 'PROPORTIONAL',
+                },
+                orderSnapshotCtx,
+            )
+            const hydratedOrderItems = validOrderItems.map((it, idx) => {
                 // Doc 29/07 (§3.1 + §3.2): item manual é REPASSE PURO — sem comissão/lucro/tributo.
                 // Grava pesos 0 e tax_breakdown null (categoria independente, imune ao motor).
                 const isManualItem = it.isManual === true || (!it.product_id && !it.service_id && !!it.manual_description)
                 if (isManualItem) {
-                    return { src: it, snap: null as any, inheritedCommPct: 0, inheritedProfitPct: 0, preservedTaxBreakdown: null as TaxBreakdown | null }
+                    return { src: it, inheritedCommPct: 0, inheritedProfitPct: 0, preservedTaxBreakdown: null as TaxBreakdown | null }
                 }
                 // commission_percent/profit_percent vêm em base 100 do load (it.commission_pct × 100);
                 // o motor/DB usa decimal. Convertemos de volta para preservar a herança.
                 const inheritedCommPct = it.commission_percent != null ? Number(it.commission_percent) / 100 : 0
                 const inheritedProfitPct = it.profit_percent != null ? Number(it.profit_percent) / 100 : 0
-                const snap = hydrateItemSnapshot(
-                    {
-                        // PENDENTE — item novo criado direto no pedido ainda não busca as
-                        // referências do cadastro pelo caminho que o orçamento usa; está na
-                        // fila como item próprio. Mesmo assim a entrada passa pelo construtor
-                        // ÚNICO: aqui o item não carrega custo nem alíquotas, então
-                        // `buildMotorInput` devolve zeros — visíveis, e por uma rota só.
-                        // Para o item IMPORTADO, que é o caso normal, este snapshot nem é
-                        // usado: `it.tax_breakdown` tem precedência logo abaixo.
-                        commission_pct: inheritedCommPct,
-                        profit_pct: inheritedProfitPct,
-                        motorInput: buildMotorInput({
-                            item: { unit_price: it.unit_price || 0, quantity: it.quantity || 0,
-                                    commission_percent: (it.commission_percent ?? 0), profit_percent: (it.profit_percent ?? 0) },
-                            tenantCtx: orderMotorTenantCtx,
-                            globalDiscountPercent: 0,
-                            discountMode: 'PROPORTIONAL',
-                        }),
-                    },
-                    orderSnapshotCtx,
-                    orderShadowCtx,
-                )
                 // Preserva o tax_breakdown herdado do orçamento (fonte de verdade);
                 // só usa o recomputado quando o item não tinha snapshot (item novo/legado).
-                const preservedTaxBreakdown = it.tax_breakdown ?? snap.tax_breakdown
-                return { src: it, snap, inheritedCommPct, inheritedProfitPct, preservedTaxBreakdown }
+                const preservedTaxBreakdown = it.tax_breakdown ?? orderDocSnapshots[idx].tax_breakdown
+                return { src: it, inheritedCommPct, inheritedProfitPct, preservedTaxBreakdown }
             })
 
             // MRM S2.3 — policy gate (ADR-004). Order é WARN-only por default.
@@ -1076,36 +1080,34 @@ function OrdersPage() {
                     irpj_pct: mrmConfig.irpj_pct,
                     use_snapshot_rates: mrmConfig.useSnapshotRates,
                 }
-                // Story MRM-V2-S3.1: shadow context — espelho budget criado a partir do pedido.
-                const mirrorShadowCtx = { tenant_id: tenantId, document_id: newBudget.id, document_type: 'budget' as const }
-                const budgetItems = items.map((it) => {
+                // Mesma rota consolidada do save: uma passada do motor V17 sobre o documento
+                // inteiro. Ver o comentário gêmeo no save — o item importado nem usa este
+                // snapshot, `it.tax_breakdown` tem precedência.
+                const mirrorSnapshots = hydrateDocumentSnapshots(
+                    {
+                        items: items.map((it) => ({
+                            motorItem: {
+                                unit_price: it.unit_price || 0,
+                                quantity: it.quantity || 0,
+                                commission_percent: it.commission_percent ?? 0,
+                                profit_percent: it.profit_percent ?? 0,
+                            },
+                            commission_pct: it.commission_percent != null ? Number(it.commission_percent) / 100 : 0,
+                            profit_pct: it.profit_percent != null ? Number(it.profit_percent) / 100 : 0,
+                        })),
+                        tenantCtx: orderMotorTenantCtx,
+                        globalDiscountPercent: 0,
+                        discountMode: 'PROPORTIONAL',
+                    },
+                    mirrorSnapshotCtx,
+                )
+                const budgetItems = items.map((it, idx) => {
                     // Item 2.3 (Relatório v2.0): herdar commission/profit/tax_breakdown do
                     // pedido em vez de zerar, para o orçamento espelho (e a venda que dele
                     // nasce) preservarem Comissão/Lucro. base 100 (load) → decimal (DB/motor).
                     const inheritedCommPct = it.commission_percent != null ? Number(it.commission_percent) / 100 : 0
                     const inheritedProfitPct = it.profit_percent != null ? Number(it.profit_percent) / 100 : 0
-                    const snap = hydrateItemSnapshot(
-                        {
-                            // PENDENTE — item novo criado direto no pedido ainda não busca as
-                            // referências do cadastro pelo caminho que o orçamento usa; está na
-                            // fila como item próprio. Mesmo assim a entrada passa pelo construtor
-                            // ÚNICO: aqui o item não carrega custo nem alíquotas, então
-                            // `buildMotorInput` devolve zeros — visíveis, e por uma rota só.
-                            // Para o item IMPORTADO, que é o caso normal, este snapshot nem é
-                            // usado: `it.tax_breakdown` tem precedência logo abaixo.
-                            commission_pct: inheritedCommPct,
-                            profit_pct: inheritedProfitPct,
-                            motorInput: buildMotorInput({
-                                item: { unit_price: it.unit_price || 0, quantity: it.quantity || 0,
-                                        commission_percent: (it.commission_percent ?? 0), profit_percent: (it.profit_percent ?? 0) },
-                                tenantCtx: orderMotorTenantCtx,
-                                globalDiscountPercent: 0,
-                                discountMode: 'PROPORTIONAL',
-                            }),
-                        },
-                        mirrorSnapshotCtx,
-                        mirrorShadowCtx,
-                    )
+                    const snap = mirrorSnapshots[idx]
                     return {
                         budget_id: newBudget.id,
                         product_id: it.product_id || null,

@@ -173,10 +173,11 @@ describe('Vazamento 3 · o espelho pedido → orçamento', () => {
     // com origem preenchida. O caminho está em uso; o dano ainda não.
     it('o mapeamento do espelho copia o destino do item do pedido', () => {
         const arquivo = read('pages/pedidos/index.tsx')
-        const i = arquivo.indexOf('const budgetItems = items.map((it)')
+        // A âncora ganhou o índice quando o gravador virou CONSOLIDADO por documento
+        // (`items.map((it, idx)`) — o snapshot de um item passou a depender dos outros.
+        // A asserção é a mesma: o espelho continua copiando o destino do item.
+        const i = arquivo.indexOf('const budgetItems = items.map((it, idx)')
         expect(i).toBeGreaterThanOrEqual(0)
-        // Janela ampliada: o PR da cobertura acrescentou o `motorInput` entre a âncora e esta
-        // linha. A asserção é a mesma — o espelho continua copiando o destino do item.
         expect(arquivo.slice(i, i + 4200)).toContain('destination_snapshot: readSnapshotColumn(it)')
     })
 })

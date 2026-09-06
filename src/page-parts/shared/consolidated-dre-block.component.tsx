@@ -200,7 +200,18 @@ function CascadeMobileItem({
  * Acessória fixa + arredondamento cascata↔lateral) é isolada numa linha de dedução
  * agregada, para a sub-árvore fechar exatamente: TotalACobrar − dedução = Restante.
  */
-function applyTotalACobrarToStep11(
+/**
+ * Insere a hierarquia da Etapa 11 (Venda Consolidada pós-desconto, menos o que não é
+ * distribuível) no trace.
+ *
+ * EXPORTADA PARA TESTE porque ela é INERTE contra um trace de 13 etapas: procura um `step 11`
+ * com filho "Restante distribuível", e esse filho só existe na Camada 2 do V17. Enquanto o
+ * gravador produzia 13 etapas, as props `totalACobrarComDesconto` e `manualTotal` chegavam ao
+ * bloco e não mudavam nada — e o teste que existia afirmava só que elas CHEGAVAM. Afirmar
+ * passagem não é afirmar efeito; o teste agora exerce a função contra o trace que o gravador
+ * de fato produz.
+ */
+export function applyTotalACobrarToStep11(
   trace: CascadeStep[],
   totalACobrar: number,
   manualTotal?: number,

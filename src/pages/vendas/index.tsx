@@ -28,9 +28,8 @@ import { ExportFormatModal } from '@/components/ui/export-format-modal.component
 import { calculateDiscountedPrice, discountModeToAbsorptionPolicy, DiscountMode } from '@/utils/calculate-discount'
 import { formatBRL } from '@/utils/formatters'
 import { getEffectiveCommissionPercent } from '@/utils/get-effective-commission'
-import { resolveItemRtPercent, computeSaleRtAmount, resolveItemRtPctDecimal, type RtCatalogEntry } from '@/utils/balcao-rt'
+import { computeSaleRtAmount, resolveItemRtPctDecimal, type RtCatalogEntry } from '@/utils/balcao-rt'
 import { mapBudgetItemsToSaleItems, BUDGET_ITEM_SELECT_FOR_SALE } from '@/utils/budget-item-to-sale-item'
-import { resolveServiceExpenseBreakdownUnit } from '@/utils/service-expense-snapshot'
 import {
     PaymentWithInstallments,
     buildInstallmentsByPreset,
@@ -59,13 +58,11 @@ import {
 import { computeConsolidatedDRE, type DREItemInput } from '@/utils/consolidated-dre'
 import { ConsolidatedDREBlock } from '@/page-parts/shared/consolidated-dre-block.component'
 import { extractEpicV5DisplayData } from '@/utils/mrm-display-extractor'
-import { hydrateItemSnapshot, type TenantSnapshotContext } from '@/lib/items-snapshot'
-import { calculateMarginReapuration } from '@/utils/margin-reapuration'
-import { buildMotorInput } from '@/utils/mrm-orchestrator'
+import { enrichItemsForMotor } from '@/utils/motor-item-enrichment'
+import { hydrateDocumentSnapshots } from '@/lib/document-snapshot'
+import type { TenantSnapshotContext } from '@/lib/items-snapshot'
 import { calculateMotorV17ForPage } from '@/utils/mrm-engine-v17/legacy-adapter'
 import { consolidateStDifalFromItems } from '@/utils/icms-st-difal'
-// V17 cutover: V16 imports mantidos por compatibilidade (não usados após substituição)
-void calculateMarginReapuration; void buildMotorInput;
 import { coerceLegacyDiscountMode, normalizeDiscountModeForDisplay } from '@/config/feature-flags'
 import { decideMrmAction } from '@/utils/mrm-policies'
 import { aggregateMotorResults } from '@/utils/mrm-aggregate'
@@ -246,6 +243,17 @@ function Sales() {
         [detailItems],
     )
     const saleFinalValue = Number(selectedSale?.finalValue) || saleSubtotal
+    // Etapa 11 abate os itens manuais ANTES de distribuir — repasse puro, resíduo 0. Sai do
+    // documento gravado (item sem `product_id` e sem `service_id`), nunca do cadastro vivo.
+    const saleManualTotal = useMemo(
+        () => (detailItems || []).reduce(
+            (s: number, it: any) => (!it.product_id && !it.service_id
+                ? s + (Number(it.unit_price) || 0) * (Number(it.quantity) || 0)
+                : s),
+            0,
+        ),
+        [detailItems],
+    )
     const saleTenantTaxRates = useMemo(
         () => ({ irpj: mrmConfig.irpj_pct || 0, csll: mrmConfig.csll_pct || 0 }),
         [mrmConfig.irpj_pct, mrmConfig.csll_pct],
@@ -777,8 +785,6 @@ function Sales() {
                         irpj_pct: mrmConfig.irpj_pct,
                         use_snapshot_rates: mrmConfig.useSnapshotRates,
                     },
-                    // Story MRM-V2-S3.1: shadow context (sale).
-                    shadowCtx: { tenant_id: tenantId, document_id: sale.id, document_type: 'sale' },
                     products: products as RtCatalogEntry[],
                     services: services as RtCatalogEntry[],
                 })
@@ -1191,51 +1197,38 @@ function Sales() {
     // consolidando cross-produto antes de aplicar desconto (PDF Etapas 1-9).
     // Adapter mantém shape V16 para componentes downstream (DRE, residual).
     const balcaoReapurationDate = new Date().toISOString().slice(0, 10)
-    // V17 fix peso_op_interna real (2026-05-28 noite): enriquece items com
-    // valor_op_interna_unit do produto (campo products.valor_precificado_icms_piscofins).
-    const balcaoEnrichedItems = saleItems.map(i => {
-        const prod = i.product_id ? (products as any[]).find(p => p.id === i.product_id) : null
-        const svc = i.service_id ? (services as any[]).find(sv => sv.id === i.service_id) : null
-        const numOrNull = (v: unknown) =>
-            v != null && Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : null
-        const terc = prod
-            ? (Number(prod.freight_value) || 0) + (Number(prod.insurance_value) || 0) + (Number(prod.accessory_expenses_value) || 0)
-            : 0
-        return {
-            ...i,
-            // Snapshot das alíquotas de despesa do SERVIÇO — mesmo campo que o produto
-            // já usa. `null` (serviço legado) mantém o fallback ao tenant.
-            ...(svc
-                ? { expense_breakdown_unit: resolveServiceExpenseBreakdownUnit(svc, Number(i.unit_price) || 0) }
-                : {}),
-
-            // EPIC-RT v8 (D15): fonte primária = o item (RT congelado na seleção). O fallback
-            // ao cadastro vivo cobre produto E serviço, e existe só para itens legados.
-            rt_reserve_percent: resolveItemRtPercent(i, products, services),
-            // Etapa 5: construção do item (ver `expense-destination.ts`). `service_id` já vem
-            // em `...i`; o tipo do produto vem do cadastro vivo.
-            product_type: prod?.product_type ?? null,
-            valor_op_interna_unit: numOrNull(prod?.valor_precificado_icms_piscofins),
-            sale_price_base_unit: numOrNull(prod?.sale_price_base),
-            terceirizadas_unit: terc > 0 ? terc : null,
-        }
+    // O enriquecimento com o cadastro vivo saiu daqui para `motor-item-enrichment.ts`.
+    // Esta tela tinha TRÊS cópias dele (balcão, validação pré-save e save) e o orçamento uma
+    // quarta — e as três daqui eram as empobrecidas: não recompunham custo/MO/despesa, não
+    // marcavam `is_manual_cost`, e duas não resolviam o RT. Nada falhava, porque os campos são
+    // opcionais no `PageItem`: o motor só caía no fallback de cada um.
+    // Agora é UMA instância, lida pelo drawer, pela validação e pelo save.
+    // Ver `.claude/rules/copia-divergente.md`.
+    const balcaoEnrichedItems = enrichItemsForMotor(saleItems, { products, services }, {
+        production_labor_cost: mrmConfig.production_labor_cost,
+        monthly_workload_minutes: mrmConfig.monthly_workload_minutes,
+        productive_value_per_minute: mrmConfig.productive_value_per_minute,
     })
+    // Contexto do tenant para o motor V17 — UMA instância, lida pelo drawer, pela validação
+    // pré-save, pelo save e pelo gravador do snapshot.
+    const balcaoMotorTenantCtxV17 = {
+        regime: mrmConfig.regime,
+        rates: mrmConfig.rates,
+        mod_pct: mrmConfig.mod_pct,
+        dop_pct: mrmConfig.dop_pct,
+        csll_pct: mrmConfig.csll_pct,
+        irpj_pct: mrmConfig.irpj_pct,
+        useSnapshotRates: mrmConfig.useSnapshotRates,
+        expense_breakdown: mrmConfig.expense_breakdown,
+        // Etapa 5: só para a exceção do produto de revenda em tenant SERVIÇO.
+        calc_type: mrmConfig.calc_type,
+        mo_produtiva_pct: mrmConfig.mo_produtiva_pct,
+        absorption_policy: discountModeToAbsorptionPolicy(discountModeV), // Item 2: modo do dropdown
+    }
+
     const runBalcaoMotorAtDiscount = (discountPct: number) => calculateMotorV17ForPage({
         items: balcaoEnrichedItems,
-        tenantCtx: {
-            regime: mrmConfig.regime,
-            rates: mrmConfig.rates,
-            mod_pct: mrmConfig.mod_pct,
-            dop_pct: mrmConfig.dop_pct,
-            csll_pct: mrmConfig.csll_pct,
-            irpj_pct: mrmConfig.irpj_pct,
-            useSnapshotRates: mrmConfig.useSnapshotRates,
-            expense_breakdown: mrmConfig.expense_breakdown,
-            // Etapa 5: só para a exceção do produto de revenda em tenant SERVIÇO.
-            calc_type: mrmConfig.calc_type,
-            mo_produtiva_pct: mrmConfig.mo_produtiva_pct,
-            absorption_policy: discountModeToAbsorptionPolicy(discountModeV), // Item 2: modo do dropdown
-        },
+        tenantCtx: balcaoMotorTenantCtxV17,
         globalDiscountPercent: discountPct,
         effectiveDate: balcaoReapurationDate,
         icmsComplApplies: icmsComplAppliesV,
@@ -1462,42 +1455,10 @@ function Sales() {
             // V17 valida RRO CONSOLIDADO da venda inteira (princípio PDF Etapas 1-9).
             if (mrmConfig.enabled) {
                 const reapDate = new Date().toISOString().slice(0, 10)
-                const validationEnrichedItems = saleItems.map(i => {
-                    const prod = i.product_id ? (products as any[]).find(p => p.id === i.product_id) : null
-                    const svc = i.service_id ? (services as any[]).find(sv => sv.id === i.service_id) : null
-                    const numOrNull = (v: unknown) =>
-                        v != null && Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : null
-                    const terc = prod
-                        ? (Number(prod.freight_value) || 0) + (Number(prod.insurance_value) || 0) + (Number(prod.accessory_expenses_value) || 0)
-                        : 0
-                    return {
-                        ...i,
-                        ...(svc
-                            ? { expense_breakdown_unit: resolveServiceExpenseBreakdownUnit(svc, Number(i.unit_price) || 0) }
-                            : {}),
-                        // Etapa 5: a construção do item decide o destino das despesas.
-                        // `service_id` já vem em `...i`; o tipo do produto vem do cadastro vivo.
-                        product_type: prod?.product_type ?? null,
-                        valor_op_interna_unit: numOrNull(prod?.valor_precificado_icms_piscofins),
-                        sale_price_base_unit: numOrNull(prod?.sale_price_base),
-                        terceirizadas_unit: terc > 0 ? terc : null,
-                    }
-                })
+                // Mesma instância enriquecida do drawer — era uma cópia empobrecida.
                 const previewResults = calculateMotorV17ForPage({
-                    items: validationEnrichedItems,
-                    tenantCtx: {
-                        regime: mrmConfig.regime,
-                        rates: mrmConfig.rates,
-                        mod_pct: mrmConfig.mod_pct,
-                        dop_pct: mrmConfig.dop_pct,
-                        csll_pct: mrmConfig.csll_pct,
-                        irpj_pct: mrmConfig.irpj_pct,
-                        useSnapshotRates: mrmConfig.useSnapshotRates,
-                        expense_breakdown: mrmConfig.expense_breakdown,
-                        calc_type: mrmConfig.calc_type,
-            mo_produtiva_pct: mrmConfig.mo_produtiva_pct,
-                        absorption_policy: discountModeToAbsorptionPolicy(discountModeV), // Item 2: modo do dropdown
-                    },
+                    items: balcaoEnrichedItems,
+                    tenantCtx: balcaoMotorTenantCtxV17,
                     globalDiscountPercent: globalDiscountPercentV,
                     effectiveDate: reapDate,
                     icmsComplApplies: resolveIcmsComplApplies(formValues.customer_id),
@@ -1531,65 +1492,6 @@ function Sales() {
             // V17 Cutover (2026-05-28): commission consolidado via motor único.
             // Princípio PDF Seção 23: redistribuição RRO pelos pesos originais.
             const reapurationEffectiveDateSale = new Date().toISOString().slice(0, 10)
-            const saveEnrichedItems = saleItems.map(i => {
-                const prod = i.product_id ? (products as any[]).find(p => p.id === i.product_id) : null
-                const svc = i.service_id ? (services as any[]).find(sv => sv.id === i.service_id) : null
-                const numOrNull = (v: unknown) =>
-                    v != null && Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : null
-                const terc = prod
-                    ? (Number(prod.freight_value) || 0) + (Number(prod.insurance_value) || 0) + (Number(prod.accessory_expenses_value) || 0)
-                    : 0
-                return {
-                    ...i,
-                    ...(svc
-                        ? { expense_breakdown_unit: resolveServiceExpenseBreakdownUnit(svc, Number(i.unit_price) || 0) }
-                        : {}),
-                    // Etapa 5: construção do item (ver `expense-destination.ts`).
-                    product_type: prod?.product_type ?? null,
-                    valor_op_interna_unit: numOrNull(prod?.valor_precificado_icms_piscofins),
-                    sale_price_base_unit: numOrNull(prod?.sale_price_base),
-                    terceirizadas_unit: terc > 0 ? terc : null,
-                }
-            })
-            const saveV17Results = calculateMotorV17ForPage({
-                items: saveEnrichedItems,
-                tenantCtx: {
-                    regime: mrmConfig.regime,
-                    rates: mrmConfig.rates,
-                    mod_pct: mrmConfig.mod_pct,
-                    dop_pct: mrmConfig.dop_pct,
-                    csll_pct: mrmConfig.csll_pct,
-                    irpj_pct: mrmConfig.irpj_pct,
-                    useSnapshotRates: mrmConfig.useSnapshotRates,
-                    expense_breakdown: mrmConfig.expense_breakdown,
-                    calc_type: mrmConfig.calc_type,
-            mo_produtiva_pct: mrmConfig.mo_produtiva_pct,
-                    absorption_policy: discountModeToAbsorptionPolicy(discountModeV), // Item 2: modo do dropdown
-                },
-                globalDiscountPercent: globalDiscountPercentV,
-                effectiveDate: reapurationEffectiveDateSale,
-                icmsComplApplies: resolveIcmsComplApplies(formValues.customer_id),
-                icmsCompl: buildIcmsComplParams(formValues.customer_id),
-            })
-            const commissionAmount = saveV17Results.reduce(
-                (sum, result) => sum + (result?.new_commission ?? 0),
-                0,
-            )
-            // ICMS Complementar consolidado (Etapa 17) — só > 0 p/ destinatário não contribuinte.
-            // Desconto incide sobre o total a cobrar (decisão 16/06/2026): o ICMS Compl também reduz
-            // por (1−d), igual ao ST/DIFAL (que já escalam na consolidação). Persiste o valor com desconto.
-            const icmsComplFull = saveV17Results.reduce(
-                (sum, r) => sum + (r?.taxes_outside?.find((t) => t.type === 'ICMS_COMPL')?.amount ?? 0),
-                0,
-            )
-            const icmsComplAmount = icmsComplFull * (1 - (globalDiscountPercentV || 0) / 100)
-            // EPIC-POR-FORA-V2 (S4a): ICMS-ST / DIFAL / FCP laterais — venda direta (balcão).
-            // Fonte única compartilhada com orçamento (icms-st-difal.ts).
-            const stDifalSale = consolidateStDifalFromItems(saleItems, products as any[], globalDiscountPercentV)
-
-            // MRM S2.3 — Policy gate (ADR-004): venda BLOQUEIA quando RRO ≤ 0.
-            // Pré-computa snapshots para alimentar a agregação. Os mesmos snapshots
-            // são reutilizados no insert dos sale_items abaixo (evita recálculo).
             const directSaleSnapshotCtx: TenantSnapshotContext = {
                 regime: mrmConfig.regime,
                 rates: mrmConfig.rates,
@@ -1597,43 +1499,43 @@ function Sales() {
                 irpj_pct: mrmConfig.irpj_pct,
                 use_snapshot_rates: mrmConfig.useSnapshotRates,
             }
-            // Story MRM-V2-S3.1: shadow context — venda direta (sem sale.id pré-criado).
-            const directSaleShadowCtx = { tenant_id: tenantId, document_type: 'sale' as const }
-            // P0 — captura imutável do desconto no save (alinha snapshot com UI).
-            const discountPctSnapshotSale = globalDiscountPercentV
-            // Custo, MO e despesa pelo MESMO construtor de entrada do motor — ver o comentário
-            // gêmeo em `orcamentos/index.tsx`. Sem isto o snapshot da venda de balcão nascia
-            // com cp/mod/dop zerados e o RRO virava o preço inteiro.
-            const balcaoMotorTenantCtx = {
-                regime: mrmConfig.regime,
-                rates: mrmConfig.rates,
-                mod_pct: mrmConfig.mod_pct,
-                dop_pct: mrmConfig.dop_pct,
-                csll_pct: mrmConfig.csll_pct,
-                irpj_pct: mrmConfig.irpj_pct,
-                useSnapshotRates: mrmConfig.useSnapshotRates,
-                expense_breakdown: mrmConfig.expense_breakdown,
-            }
-            const hydrateRow = (i: typeof saleItems[number]) => {
-                const motorIn = buildMotorInput({
-                    item: i,
-                    tenantCtx: balcaoMotorTenantCtx,
-                    globalDiscountPercent: discountPctSnapshotSale,
-                    discountMode: 'PROPORTIONAL',
-                })
-                // Input do motor INTEIRO — inclui as alíquotas do item, que o gravador não
-                // levava. Ver o comentário gêmeo em `orcamentos/index.tsx`.
-                return hydrateItemSnapshot(
-                    {
-                        commission_pct: (i.commission_percent ?? 0) / 100,
-                        profit_pct: (i.profit_percent ?? 0) / 100,
-                        motorInput: motorIn,
-                    },
-                    directSaleSnapshotCtx,
-                    directSaleShadowCtx,
-                )
-            }
-            const allSnaps = saleItems.map(hydrateRow)
+            // O gravador roda o motor V17 UMA VEZ sobre `balcaoEnrichedItems` — o mesmo array
+            // e o mesmo `tenantCtx` do runtime desta tela. Antes eram DUAS rotas: o
+            // `saveV17Results` (V17) alimentava `sales.commission_amount` e o `hydrateRow`
+            // (V16, e com `discountMode` fixo em PROPORTIONAL) alimentava o `tax_breakdown` dos
+            // itens. Daí saíam dois números para a mesma venda — o mesmo defeito do pedido.
+            // D17: o que é gravado é o que a tela exibe, e agora vem da mesma passada.
+            const allSnaps = hydrateDocumentSnapshots(
+                {
+                    items: balcaoEnrichedItems.map((motorItem, idx) => ({
+                        motorItem,
+                        commission_pct: (saleItems[idx].commission_percent ?? 0) / 100,
+                        profit_pct: (saleItems[idx].profit_percent ?? 0) / 100,
+                    })),
+                    tenantCtx: balcaoMotorTenantCtxV17,
+                    globalDiscountPercent: globalDiscountPercentV,
+                    discountMode: discountModeV,
+                    effectiveDate: reapurationEffectiveDateSale,
+                    icmsComplApplies: resolveIcmsComplApplies(formValues.customer_id),
+                    icmsCompl: buildIcmsComplParams(formValues.customer_id),
+                },
+                directSaleSnapshotCtx,
+            )
+            const commissionAmount = allSnaps.reduce(
+                (sum, s) => sum + (s.tax_breakdown?.new_commission ?? 0),
+                0,
+            )
+            // ICMS Complementar consolidado (Etapa 17) — só > 0 p/ destinatário não contribuinte.
+            // Desconto incide sobre o total a cobrar (decisão 16/06/2026): o ICMS Compl também reduz
+            // por (1−d), igual ao ST/DIFAL (que já escalam na consolidação). Persiste o valor com desconto.
+            const icmsComplFull = allSnaps.reduce(
+                (sum, s) => sum + (s.tax_breakdown?.taxes_outside?.find((t) => t.type === 'ICMS_COMPL')?.amount ?? 0),
+                0,
+            )
+            const icmsComplAmount = icmsComplFull * (1 - (globalDiscountPercentV || 0) / 100)
+            // EPIC-POR-FORA-V2 (S4a): ICMS-ST / DIFAL / FCP laterais — venda direta (balcão).
+            // Fonte única compartilhada com orçamento (icms-st-difal.ts).
+            const stDifalSale = consolidateStDifalFromItems(saleItems, products as any[], globalDiscountPercentV)
             if (mrmConfig.enabled) {
                 const aggregate = aggregateMotorResults(allSnaps.map(s => s.tax_breakdown))
                 const decision = decideMrmAction({
@@ -1706,10 +1608,15 @@ function Sales() {
             // 2) Salvar itens da venda (catálogo + manuais + serviços)
             // S1.2 MRM: hidrata snapshot fiscal por item (venda direta no balcão).
             // Pesos vêm de SaleItemRow.commission_percent/profit_percent (já em %).
-            // NOTA S2.3: `directSaleSnapshotCtx` e `hydrateRow` foram movidos para o início
-            // do handler (antes do gate de policy) e são reaproveitados aqui.
+            // NOTA S2.3: os snapshots são hidratados no início do handler (antes do gate de
+            // policy) e reaproveitados aqui. `allSnaps` é PARALELO a `saleItems` — o motor V17
+            // consolida sobre o documento inteiro, então o snapshot de um item só existe em
+            // relação aos outros. `snapOf` resolve pela identidade do item, que os `filter`
+            // abaixo preservam.
+            const snapByItem = new Map(saleItems.map((i, idx) => [i, allSnaps[idx]]))
+            const snapOf = (i: typeof saleItems[number]) => snapByItem.get(i) ?? { tax_breakdown: null, commission_pct: 0, profit_pct: 0 }
             const catalogItems = saleItems.filter(i => i.product_id && !i.is_service).map(i => {
-                const snap = hydrateRow(i)
+                const snap = snapOf(i)
                 return {
                     sale_id: sale.id,
                     product_id: i.product_id,
@@ -1728,7 +1635,7 @@ function Sales() {
             })
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const serviceItems: any[] = saleItems.filter(i => i.is_service && i.service_id).map((i): any => {
-                const snap = hydrateRow(i)
+                const snap = snapOf(i)
                 return {
                     sale_id: sale.id,
                     product_id: null as string | null,
@@ -1749,7 +1656,7 @@ function Sales() {
             })
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const manualItems: any[] = saleItems.filter(i => i.is_manual && (i.product_name || '').trim()).map((i): any => {
-                const snap = hydrateRow(i)
+                const snap = snapOf(i)
                 return {
                     sale_id: sale.id,
                     product_id: null as string | null,
@@ -3158,6 +3065,18 @@ function Sales() {
                                 cascadeTrace={saleEpicV5DisplayData.cascadeTrace}
                                 pesoOpInterna={saleEpicV5DisplayData.pesoOpInterna}
                                 ancoraInterna={saleEpicV5DisplayData.ancoraInterna}
+                                /* Doc PO 31/07 (item 15): a hierarquia da Etapa 11 vale SEMPRE.
+                                   Estas duas props eram INERTES enquanto o snapshot tinha 13
+                                   etapas — `applyTotalACobrarToStep11` procura o filho "Restante
+                                   distribuível", que só a Camada 2 do V17 cria. Passam a produzir
+                                   efeito junto com a troca de motor, e não antes.
+                                   `despAcessoriasTotal` fica de FORA de propósito: derivá-lo aqui
+                                   exigiria ler frete/seguro/acessórias do cadastro VIVO para
+                                   exibir um documento já gravado — a releitura que
+                                   `fato-vs-referencia.md` proíbe. Está registrado como item
+                                   próprio, junto com o mesmo buraco na tela do Pedido. */
+                                totalACobrarComDesconto={saleFinalValue > 0 ? saleFinalValue : null}
+                                manualTotal={saleManualTotal}
                             />
                         )}
 
