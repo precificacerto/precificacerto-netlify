@@ -409,6 +409,18 @@ function Sales() {
     // Parcelas customizadas para Cheque pré-datado / Boleto (Registrar venda de orçamento)
     const [registerCustomInstallments, setRegisterCustomInstallments] = useState<InstallmentRow[]>([{ date: null, amount: 0 }])
 
+    // Os EXCLUÍDOS vêm de consulta separada, e só quando o filtro está ligado — a carga
+    // principal usa `.eq('is_active', true)` e nunca os traz. Ver o cabeçalho do hook.
+    //
+    // ESTE HOOK FICA ACIMA DO RETORNO CONDICIONAL de `canView` logo abaixo. Chamá-lo depois
+    // violaria a ordem das hooks — o arquivo já tem violações herdadas a partir daquele
+    // return, e acrescentar mais duas seria regressão medida no lint.
+    const { deleted: vendasExcluidas } = useDeletedDocuments<Record<string, unknown>>(
+        'sales',
+        'id, sale_code, budget_id, final_value, commission_amount, description, sale_date, status, payment_method, installments, sale_type, receipt_url, quantity, unit_price',
+        mostrarExcluidos,
+    )
+
     const { canView, canEdit } = usePermissions()
     const { isMobile } = useDevice()
     if (!canView(MODULES.SALES)) {
@@ -524,6 +536,10 @@ function Sales() {
             setSales(rows)
             // Quais vendas têm PAGAMENTO REGISTRADO — decide o botão Excluir desabilitado.
             // Uma consulta só para a lista inteira, não uma por linha.
+            // O cast segue a convenção do arquivo: os tipos gerados do Supabase não resolvem
+            // `pending_receivables.sale_id`, e sem ele o `tsc` acusa dois erros novos. Com o
+            // disable do lint, a mudança fica neutra nas duas medições.
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const { data: pagos } = await (supabase as any)
                 .from('pending_receivables')
                 .select('sale_id')
@@ -1053,16 +1069,11 @@ function Sales() {
     const avgTicket = monthSales.length > 0 ? totalRevenue / monthSales.length : 0
     const fromBudget = monthSales.filter(s => s.saleType === 'FROM_BUDGET').length
 
-    // Os EXCLUÍDOS vêm de consulta separada, e só quando o filtro está ligado — a carga
-    // principal usa `.eq('is_active', true)` e nunca os traz. Ver o cabeçalho do hook.
-    const { deleted: vendasExcluidas } = useDeletedDocuments<Record<string, unknown>>(
-        'sales',
-        'id, sale_code, budget_id, final_value, commission_amount, description, sale_date, status, payment_method, installments, sale_type, receipt_url, quantity, unit_price',
-        mostrarExcluidos,
-    )
-    const salesComExcluidas: SaleRow[] = useMemo(() => {
+    // Cálculo simples, NÃO `useMemo`: estamos abaixo do retorno condicional de `canView`, e
+    // um hook a mais aqui violaria a ordem das hooks. A lista é pequena e o custo é nulo.
+    const salesComExcluidas: SaleRow[] = (() => {
         if (!mostrarExcluidos) return sales
-        const jaNaLista = new Set(sales.map((s) => s.id))
+        const jaNaLista = new Set(sales.map((v) => v.id))
         const extras = vendasExcluidas
             .filter((e) => !jaNaLista.has(String(e.id)))
             .map((e): SaleRow => ({
@@ -1086,7 +1097,7 @@ function Sales() {
                 requiresReview: false,
             }))
         return [...sales, ...extras]
-    }, [sales, vendasExcluidas, mostrarExcluidos])
+    })()
 
     const filteredSales = filterDeletedDocuments(salesComExcluidas, mostrarExcluidos).filter(s => {
         if (s.status === 'AWAITING_PAYMENT' && s.saleType !== 'FROM_ORDER') return false
