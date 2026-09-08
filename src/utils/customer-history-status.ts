@@ -87,24 +87,61 @@ export const LIFECYCLE_STYLE: Record<DocumentLifecycle, LifecycleStyle> = {
 }
 
 /**
+ * A SUSPENSÃO PARCIAL DA REGRA DE 31/07, E A RAZÃO — porque isto revoga uma decisão anterior
+ * ------------------------------------------------------------------------------------------
+ * A regra de 31/07/2026 (commit `d1a4442`) dizia *"Histórico exibe SOMENTE vendas efetivadas"*,
+ * e por ela cadeia morta em documento cancelado não aparecia em lugar nenhum. **Esta rodada
+ * revoga essa parte**, e o motivo precisa ficar escrito com estas palavras:
+ *
+ * > NÃO É DEFEITO DA REGRA ANTIGA NEM DESCUIDO DE QUEM A ESCREVEU — É MUDANÇA DE PROPÓSITO.
+ * > A regra da época cobria um histórico que NÃO TINHA PROPÓSITO DE AUDITORIA. O propósito
+ * > nasceu agora.
+ *
+ * É a família de `.claude/rules/decisao-sob-regra-da-epoca.md`. Sem a suspensão, *"a cadeia
+ * aparece uma vez, no estágio em que morreu"* valeria SÓ PARA AS CADEIAS QUE DERAM CERTO, e o
+ * rastro das que FALHARAM continuaria invisível — o oposto do que a auditoria precisa.
+ *
+ * O QUE **NÃO** FOI REVOGADO: `DRAFT`. Rascunho não é cadeia morta, é cadeia que ainda não
+ * começou, e esconder rascunho era a outra metade da regra de 30/07 — essa continua valendo.
+ */
+
+/**
  * Status de orçamento que o histórico exibe.
  *
- * `EXCLUIDO` entra para o critério ser o mesmo das três seções. RESSALVA MEDIDA: hoje isso não
- * muda nada na tela, porque o único orçamento `EXCLUIDO` da base tem `sale_id` preenchido e é
- * pulado antes (orçamento convertido em venda aparece na seção Vendas, não na de Orçamentos).
- * O acréscimo vale para o orçamento excluído SEM venda — o que `delete_budget_cascade` produz,
- * e o espelho/original de uma cadeia com pedido.
- *
- * DRAFT e CANCELLED continuam fora, como a regra de 30/07 decidiu. Esta rodada não os revisita.
+ * `EXCLUIDO` e `CANCELLED` entram: a cadeia morta aparece no estágio em que morreu. `DRAFT`
+ * fica fora — ver acima. `SENT_TO_ORDER` também entrou, e é correção de lacuna medida: o
+ * status foi criado DEPOIS da regra de 30/07 e ficava escondido sem ninguém ter decidido (2
+ * linhas na base, uma delas o ORC-8520 do Felipe Klein).
  */
 export const BUDGET_STATUSES_NO_HISTORICO: readonly string[] = [
     'SENT',
+    'SENT_TO_ORDER',
     'APPROVED',
     'PAID',
     'AWAITING_PAYMENT',
     'EXPIRED',
+    'CANCELLED',
+    'REJECTED',
     'EXCLUIDO',
 ]
+
+/**
+ * Status de pedido que o histórico NÃO exibe.
+ *
+ * Só `DRAFT`. `CANCELLED` saiu daqui pela suspensão acima — é ele que deixava as cadeias 2 e 4
+ * do Felipe Klein (2 e 3 pedidos cancelados) invisíveis em qualquer seção.
+ */
+export const ORDER_STATUSES_FORA_DO_HISTORICO: readonly string[] = ['DRAFT']
+
+/** `true` quando o status do documento pode aparecer no histórico. */
+export function statusExibivelNoHistorico(
+    stage: 'ORCAMENTO' | 'PEDIDO' | 'VENDA',
+    status?: string | null,
+): boolean {
+    if (stage === 'VENDA') return true
+    if (stage === 'PEDIDO') return !ORDER_STATUSES_FORA_DO_HISTORICO.includes(status || '')
+    return BUDGET_STATUSES_NO_HISTORICO.includes(status || '')
+}
 
 /**
  * Rótulo e cor de cada status de pedido.

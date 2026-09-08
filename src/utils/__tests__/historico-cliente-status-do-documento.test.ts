@@ -47,6 +47,7 @@ import {
     isDeadDocument,
     resolveDocumentLifecycle,
     resolveOrderStatusLabel,
+    statusExibivelNoHistorico,
 } from '@/utils/customer-history-status'
 import { buildSaleHistoryDetail } from '@/utils/sale-history-detail'
 
@@ -93,16 +94,34 @@ describe('a lista branca dos orçamentos', () => {
         expect(BUDGET_STATUSES_NO_HISTORICO).toContain('EXCLUIDO')
     })
 
-    it('não reabre DRAFT nem CANCELLED — esta rodada não revisita a regra de 30/07', () => {
-        expect(BUDGET_STATUSES_NO_HISTORICO).not.toContain('DRAFT')
-        expect(BUDGET_STATUSES_NO_HISTORICO).not.toContain('CANCELLED')
+    it('inclui CANCELLED — a suspensão da regra de 31/07 para cadeias mortas', () => {
+        // ESTE CASO SUBSTITUI UM ANTERIOR que afirmava o contrário, e a troca é deliberada: a
+        // decisão de 08/09 revoga a parte da regra de 31/07 que escondia cadeia morta. Não é
+        // defeito da regra antiga nem descuido de quem a escreveu — é MUDANÇA DE PROPÓSITO: a
+        // regra da época cobria um histórico sem propósito de auditoria, e o propósito nasceu
+        // agora. `.claude/rules/decisao-sob-regra-da-epoca.md`.
+        expect(BUDGET_STATUSES_NO_HISTORICO).toContain('CANCELLED')
+        expect(BUDGET_STATUSES_NO_HISTORICO).toContain('EXCLUIDO')
     })
 
-    it('a página usa a constante, não uma segunda cópia da lista', () => {
-        // Cópia divergente: com a lista literal na página, acrescentar um status ali e não aqui
-        // (ou o contrário) volta a divergir em silêncio. `.claude/rules/copia-divergente.md`.
-        expect(fonte).toContain('BUDGET_STATUSES_NO_HISTORICO')
-        expect(fonte).not.toContain("['SENT', 'APPROVED', 'PAID', 'AWAITING_PAYMENT', 'EXPIRED']")
+    it('NÃO reabre DRAFT — rascunho não é cadeia morta, e essa metade da regra permanece', () => {
+        expect(BUDGET_STATUSES_NO_HISTORICO).not.toContain('DRAFT')
+        expect(statusExibivelNoHistorico('ORCAMENTO', 'DRAFT')).toBe(false)
+        expect(statusExibivelNoHistorico('PEDIDO', 'DRAFT')).toBe(false)
+    })
+
+    it('inclui SENT_TO_ORDER — lacuna medida, status criado DEPOIS da regra de 30/07', () => {
+        // 2 linhas na base, uma delas o ORC-8520 do Felipe Klein: ficava escondido sem ninguém
+        // ter decidido esconder.
+        expect(BUDGET_STATUSES_NO_HISTORICO).toContain('SENT_TO_ORDER')
+    })
+
+    it('o filtro de status saiu das CONSULTAS — a cadeia tem de chegar inteira', () => {
+        // Requisito do cálculo, não preferência: filtrar antes faria `buildChainIndex` concluir
+        // que o topo da cadeia é o estágio anterior. O filtro é aplicado DEPOIS.
+        expect(fonte).not.toContain("BUDGET_STATUSES_NO_HISTORICO as unknown")
+        expect(fonte).not.toContain('\'("DRAFT","CANCELLED")\'')
+        expect(fonte).toContain('statusExibivelNoHistorico')
     })
 })
 

@@ -1,15 +1,16 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import { buildSaleHistoryDetail, type SaleHistoryDetail } from '@/utils/sale-history-detail'
 import {
-    BUDGET_STATUSES_NO_HISTORICO,
     LIFECYCLE_STYLE,
     buildCarimboUltimaAlteracao,
     resolveDocumentLifecycle,
     resolveOrderStatusLabel,
+    statusExibivelNoHistorico,
     type CarimboDeTempo,
     type DocumentLifecycle,
 } from '@/utils/customer-history-status'
 import { buildOriginLines, type OriginLine } from '@/utils/document-origin-link'
+import { buildChainIndex, type SiblingInfo } from '@/utils/customer-history-chain'
 import { Button, Drawer, Dropdown, Form, Input, InputNumber, Modal, Space, Switch, Table, Tag, message, Popconfirm, Spin, Tooltip } from 'antd'
 import { Select } from '@/components/ui/app-select.component'
 import type { ColumnsType } from 'antd/es/table'
@@ -130,6 +131,8 @@ interface TimelineEntry {
      * pedido no Caso B — a etapa não existiu, e exibir vazio afirmaria que não houve pedido.
      */
     origem?: OriginLine[]
+    /** Presente só quando a linha tem irmãos no mesmo estágio da mesma cadeia. */
+    irmaos?: SiblingInfo
 }
 
 function Clients() {
@@ -200,18 +203,10 @@ function Clients() {
                 .from('budgets')
                 .select('id, total_value, status, payment_method, paid_date, sale_id, created_at, updated_at, budget_items(product_id, quantity, unit_price, products(name), manual_description)')
                 .eq('customer_id', customerId)
-                // Regra emergencial (30/07): não exibir rascunhos (DRAFT) nem orçamentos
-                // cancelados/rejeitados (REJECTED/CANCELLED) no histórico. Mantém orçamentos
-                // enviados/aprovados/aguardando/pagos/expirados. Vendas efetivadas oriundas de
-                // orçamento (sale_id preenchido) aparecem na seção SALE.
-                // `EXCLUIDO` entrou na lista para o critério ser o MESMO das três seções — ver
-                // `customer-history-status.ts`, inclusive a ressalva de que hoje isso não muda
-                // nada na tela (o único orçamento EXCLUIDO da base tem `sale_id` e é pulado).
-                // O cast existe porque `database.types.ts` foi gerado ANTES da migração
-                // `20260906000001` e o enum `budget_status` de lá ainda não tem `EXCLUIDO`. A
-                // migração está aplicada e verificada no banco (dez rótulos em `pg_enum`);
-                // regenerar os tipos é rodada própria e não pertence a esta correção.
-                .in('status', BUDGET_STATUSES_NO_HISTORICO as unknown as 'PAID'[])
+                // SEM FILTRO DE STATUS NA CONSULTA — e isto é requisito do cálculo de cadeia,
+                // não preferência. `buildChainIndex` precisa da cadeia COMPLETA: um documento
+                // removido aqui faria a cadeia concluir que o topo é o estágio anterior. O
+                // filtro de status é aplicado DEPOIS, por `statusExibivelNoHistorico`.
                 .order('created_at', { ascending: false }),
             (supabase as any)
                 .from('sales')
@@ -233,9 +228,9 @@ function Clients() {
                 .from('orders')
                 .select('id, order_code, total_value, status, created_at, updated_at, order_items(id)')
                 .eq('customer_id', customerId)
-                // Regra emergencial (30/07): não exibir pedidos em Rascunho (DRAFT) nem
-                // Cancelados (CANCELLED) no histórico. Mantém aguardando/efetivado/pago.
-                .not('status', 'in', '("DRAFT","CANCELLED")')
+                // Sem lista negra na consulta, pela mesma razão da consulta de orçamentos: a
+                // cadeia tem de chegar inteira ao `buildChainIndex`. E `CANCELLED` deixou de ser
+                // barrado — é a suspensão da regra de 31/07 para cadeias mortas.
                 .order('created_at', { ascending: false }),
         ])
         if (signal?.cancelled) return
@@ -257,6 +252,20 @@ function Clients() {
         const salesByCustomer = salesRes.data || []
         const seenSaleIds = new Set<string>(salesByCustomer.map((s: any) => s.id))
         const allSales = [...salesByCustomer, ...fromBudgetSalesData.filter((s: any) => !seenSaleIds.has(s.id))]
+
+        // ÍNDICE DA CADEIA — decide quem aparece. Recebe os documentos COMPLETOS, sem filtro de
+        // status: filtrar antes faria a cadeia concluir que o topo é o estágio anterior.
+        const chainIndex = buildChainIndex({
+            budgets: (budgetRes.data || []) as { id: string; created_at?: string | null }[],
+            orders: (ordersRes?.data || []) as { id: string; created_at?: string | null }[],
+            sales: allSales as { id: string; created_at?: string | null }[],
+        })
+        /** O documento passa se for topo da sua cadeia E se o status dele for exibível. */
+        const apareceNoHistorico = (
+            stage: 'ORCAMENTO' | 'PEDIDO' | 'VENDA',
+            id: string,
+            status?: string | null,
+        ) => chainIndex.visiveis.has(id) && statusExibivelNoHistorico(stage, status)
 
         if (signal?.cancelled) return
 
@@ -367,8 +376,11 @@ function Clients() {
             // Mark budget attachment key as consumed (whether or not we render the budget row)
             consumedAttachKeys.add(`BUDGET:${b.id}`)
 
-            // Budgets converted to sales appear in the SALE section
-            if ((b as any).sale_id) continue
+            // A CADEIA DECIDE, não mais o ponteiro `budgets.sale_id`. O `continue` anterior
+            // dependia de o orçamento apontar a venda de volta — e há 3 vendas cujo orçamento
+            // NÃO aponta (VD-43E865, VD-A9599A, VD-85610B), lacuna que ficava sem tratamento.
+            // A raiz da cadeia cobre as duas situações, e ainda junta o espelho ao original.
+            if (!apareceNoHistorico('ORCAMENTO', b.id, (b as any).status)) continue
 
             const items = (b as any).budget_items || []
             const summary = items.slice(0, 3).map((i: any) => i.products?.name || i.manual_description || 'Item').join(', ')
@@ -424,6 +436,10 @@ function Clients() {
         // Sales (from Vendas Balcão and converted from budgets)
         for (const s of allSales) {
             consumedAttachKeys.add(`SALE:${s.id}`)
+            // Venda é o estágio mais avançado: ela só não aparece se outra venda da mesma cadeia
+            // for o topo — o que a base não tem (zero cadeias com duas vendas), mas o critério
+            // não depende desse zero.
+            if (!apareceNoHistorico('VENDA', s.id, s.status)) continue
             if (s.budget_id) consumedAttachKeys.add(`BUDGET:${s.budget_id}`)
 
             const isBoletoOrCheque = s.payment_method === 'BOLETO' || s.payment_method === 'CHEQUE_PRE_DATADO'
@@ -491,9 +507,14 @@ function Clients() {
         // não tinha entrada para `EXCLUIDO` e caía no fallback, imprimindo a STRING CRUA na
         // tela — a única seção onde um documento excluído já vazava, e sem tradução.
         for (const o of ordersRes?.data || []) {
+            if (!apareceNoHistorico('PEDIDO', o.id, o.status)) continue
             const conf = resolveOrderStatusLabel(o.status)
             const itemCount = Array.isArray(o.order_items) ? o.order_items.length : 0
             const orderLifecycle = resolveDocumentLifecycle(o.status)
+            // IRMÃOS: quando a cadeia morreu no pedido e há vários, TODOS aparecem — são
+            // tentativas distintas que morreram, não uma repetida. A legibilidade se resolve
+            // diferenciando as linhas (código, data e "n de m"), nunca escondendo as outras.
+            const irmaos = chainIndex.irmaosPorDocumento.get(o.id)
             entries.push({
                 id: `order-${o.id}`,
                 lifecycle: orderLifecycle,
@@ -504,6 +525,7 @@ function Clients() {
                 date: o.created_at,
                 type: 'ORDER',
                 title: `Pedido ${o.order_code || o.id.slice(0, 8).toUpperCase()}`,
+                irmaos,
                 description: `${itemCount} ${itemCount === 1 ? 'item' : 'itens'}`,
                 badgeLabel: conf.label,
                 badgeColor: conf.color,
@@ -905,6 +927,14 @@ function Clients() {
                                                     )}
                                                     <Tag color={entry.badgeColor} style={{ margin: 0, fontSize: 10 }}>{entry.badgeLabel}</Tag>
                                                     <span style={{ fontSize: 13, fontWeight: 600, color: '#f1f5f9' }}>{entry.title}</span>
+                                                    {/* IRMÃOS — a cadeia morreu neste estágio e há mais de uma
+                                                        tentativa. As linhas são DIFERENCIADAS, nunca escondidas:
+                                                        são operações distintas, e esconder apaga rastro. */}
+                                                    {entry.irmaos && (
+                                                        <Tag style={{ margin: 0, fontSize: 10 }}>
+                                                            tentativa {entry.irmaos.posicao} de {entry.irmaos.total}
+                                                        </Tag>
+                                                    )}
                                                 </div>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                                     {entry.amount != null && (
