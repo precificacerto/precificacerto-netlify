@@ -406,7 +406,7 @@ function Clients() {
                 lifecycle: budgetLifecycle,
                 carimbo: buildCarimboUltimaAlteracao({
                     lifecycle: budgetLifecycle,
-                    updatedAt: (b as any).updated_at,
+                    updatedAt: (b as { updated_at?: string | null }).updated_at,
                 }) ?? undefined,
                 date: b.created_at,
                 type: 'BUDGET',
