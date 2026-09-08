@@ -1,5 +1,14 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import { buildSaleHistoryDetail, type SaleHistoryDetail } from '@/utils/sale-history-detail'
+import {
+    BUDGET_STATUSES_NO_HISTORICO,
+    LIFECYCLE_STYLE,
+    buildCarimboUltimaAlteracao,
+    resolveDocumentLifecycle,
+    resolveOrderStatusLabel,
+    type CarimboDeTempo,
+    type DocumentLifecycle,
+} from '@/utils/customer-history-status'
 import { Button, Drawer, Dropdown, Form, Input, InputNumber, Modal, Space, Switch, Table, Tag, message, Popconfirm, Spin, Tooltip } from 'antd'
 import { Select } from '@/components/ui/app-select.component'
 import type { ColumnsType } from 'antd/es/table'
@@ -107,6 +116,14 @@ interface TimelineEntry {
     attachments?: { url: string; name: string; size?: number }[]
     /** Detalhe da venda (itens, subtotal, total, pagamento, parcelas). Só em `type: 'SALE'`. */
     saleDetail?: SaleHistoryDetail
+    /**
+     * Estado de vida do documento. Decide o tratamento visual e é INDEPENDENTE do `badgeLabel`,
+     * que é o status de PAGAMENTO — derivado das `cash_entries` ativas, que as cascatas
+     * desativam. Sem este campo o selo sozinho mentiria: a venda excluída sai como "Pago".
+     */
+    lifecycle: DocumentLifecycle
+    /** Carimbo de tempo do documento morto, com a ressalva de que é proxy. `undefined` no vivo. */
+    carimbo?: CarimboDeTempo
 }
 
 function Clients() {
@@ -175,28 +192,40 @@ function Clients() {
                 .order('created_at', { ascending: false }),
             supabase
                 .from('budgets')
-                .select('id, total_value, status, payment_method, paid_date, sale_id, created_at, budget_items(product_id, quantity, unit_price, products(name), manual_description)')
+                .select('id, total_value, status, payment_method, paid_date, sale_id, created_at, updated_at, budget_items(product_id, quantity, unit_price, products(name), manual_description)')
                 .eq('customer_id', customerId)
                 // Regra emergencial (30/07): não exibir rascunhos (DRAFT) nem orçamentos
                 // cancelados/rejeitados (REJECTED/CANCELLED) no histórico. Mantém orçamentos
                 // enviados/aprovados/aguardando/pagos/expirados. Vendas efetivadas oriundas de
                 // orçamento (sale_id preenchido) aparecem na seção SALE.
-                .in('status', ['SENT', 'APPROVED', 'PAID', 'AWAITING_PAYMENT', 'EXPIRED'])
+                // `EXCLUIDO` entrou na lista para o critério ser o MESMO das três seções — ver
+                // `customer-history-status.ts`, inclusive a ressalva de que hoje isso não muda
+                // nada na tela (o único orçamento EXCLUIDO da base tem `sale_id` e é pulado).
+                // O cast existe porque `database.types.ts` foi gerado ANTES da migração
+                // `20260906000001` e o enum `budget_status` de lá ainda não tem `EXCLUIDO`. A
+                // migração está aplicada e verificada no banco (dez rótulos em `pg_enum`);
+                // regenerar os tipos é rodada própria e não pertence a esta correção.
+                .in('status', BUDGET_STATUSES_NO_HISTORICO as unknown as 'PAID'[])
                 .order('created_at', { ascending: false }),
             (supabase as any)
                 .from('sales')
-                .select('id, final_value, payment_method, installments, sale_date, created_at, employee_id, description, status, sale_type, budget_id')
+                .select('id, final_value, payment_method, installments, sale_date, created_at, updated_at, employee_id, description, status, sale_type, budget_id')
                 .eq('customer_id', customerId)
-                .eq('is_active', true)
-                // Regra emergencial (30/07 desktop #7 / mobile #4): Histórico exibe SOMENTE vendas
-                // efetivadas. Vendas canceladas usam is_active=false + status='CANCELLED'
-                // (cancel_sale_cascade). O filtro por status protege registros legados em que
-                // apenas o status foi marcado como CANCELLED sem baixar is_active.
-                .neq('status', 'CANCELLED')
+                // SEM FILTRO DE `is_active` E SEM FILTRO DE STATUS — e a remoção é deliberada.
+                //
+                // Até 08/09/2026 esta consulta trazia `.eq('is_active', true)` e
+                // `.neq('status','CANCELLED')`, escritos em 31/07 (commit `d1a4442`) sob a regra
+                // da época: "Histórico exibe SOMENTE vendas efetivadas". Aquilo cobria o nível
+                // que a regra daquele dia alcançava, e não é descuido de quem construiu.
+                //
+                // O que mudou: `is_active = false` significa TRÊS coisas em `sales` — cancelada,
+                // excluída, e um terceiro estado sem nome (`COMPLETED` com a flag baixada, 3
+                // linhas). Filtrar por ele esconde as três SEM DISTINGUIR. O STATUS SEPARA, e é
+                // ele que decide o tratamento visual em `customer-history-status.ts`.
                 .order('created_at', { ascending: false }),
             (supabase as any)
                 .from('orders')
-                .select('id, order_code, total_value, status, created_at, order_items(id)')
+                .select('id, order_code, total_value, status, created_at, updated_at, order_items(id)')
                 .eq('customer_id', customerId)
                 // Regra emergencial (30/07): não exibir pedidos em Rascunho (DRAFT) nem
                 // Cancelados (CANCELLED) no histórico. Mantém aguardando/efetivado/pago.
@@ -211,11 +240,11 @@ function Clients() {
         if (allBudgetIds.length > 0) {
             const { data: fbSales } = await (supabase as any)
                 .from('sales')
-                .select('id, final_value, payment_method, installments, sale_date, created_at, employee_id, description, status, sale_type, budget_id')
+                .select('id, final_value, payment_method, installments, sale_date, created_at, updated_at, employee_id, description, status, sale_type, budget_id')
                 .in('budget_id', allBudgetIds)
-                .eq('is_active', true)
-                // Mesmo filtro da query por customer_id: excluir vendas canceladas do histórico.
-                .neq('status', 'CANCELLED')
+                // Mesmo critério da consulta por `customer_id`: sem `is_active`, sem filtro de
+                // status. As duas precisam mudar juntas — uma venda alcançada só por este
+                // caminho continuaria escondida se o filtro ficasse aqui.
             fromBudgetSalesData = fbSales || []
         }
         // Merge and deduplicate sales (prefer entries from customer-based query)
@@ -296,6 +325,7 @@ function Clients() {
             if (agendaKey) consumedAttachKeys.add(agendaKey)
             entries.push({
                 id: `svc-${h.id}`,
+                lifecycle: 'ATIVO',
                 date: h.created_at,
                 type: h.history_type === 'BUDGET_SENT' ? 'BUDGET_HIST' : 'SERVICE',
                 title: h.history_type === 'BUDGET_SENT' ? 'Orçamento enviado' : 'Observação de serviço',
@@ -312,6 +342,7 @@ function Clients() {
         for (const a of orphanAttachments) {
             entries.push({
                 id: `att-${a.id}`,
+                lifecycle: 'ATIVO',
                 date: a.created_at,
                 type: 'ATTACHMENT',
                 title: a.file_name,
@@ -363,8 +394,14 @@ function Clients() {
             }
 
             const budgetAtts = attachMap[`BUDGET:${b.id}`]
+            const budgetLifecycle = resolveDocumentLifecycle(bStatus)
             entries.push({
                 id: `bgt-${b.id}`,
+                lifecycle: budgetLifecycle,
+                carimbo: buildCarimboUltimaAlteracao({
+                    lifecycle: budgetLifecycle,
+                    updatedAt: (b as any).updated_at,
+                }) ?? undefined,
                 date: b.created_at,
                 type: 'BUDGET',
                 title: `ORC-${b.id.substring(0, 4).toUpperCase()}`,
@@ -406,8 +443,18 @@ function Clients() {
             const saleAtts = saleAttsArr.length > 0 ? saleAttsArr : undefined
             const empName = s.employee_id ? (employeeMap.get(s.employee_id) || undefined) : undefined
             const cleanDesc = s.description?.replace(/^Venda balcão:\s*/i, '').replace(/^Venda via orçamento\s*—\s*/i, '').split('—')[0].trim() || 'Venda'
+            // O ESTADO DE VIDA É SEPARADO DO SELO. O selo acima é status de PAGAMENTO e sai de
+            // `cash_entries` ATIVAS — que as cascatas desativam. Sem este marcador, VD-96AF84
+            // (PIX, excluída) apareceria com "Pago" verde, e as canceladas BOLETO com
+            // "Aguardando Pagamento" laranja. Os dois convivem; um não substitui o outro.
+            const saleLifecycle = resolveDocumentLifecycle(s.status)
             entries.push({
                 id: `sale-${s.id}`,
+                lifecycle: saleLifecycle,
+                carimbo: buildCarimboUltimaAlteracao({
+                    lifecycle: saleLifecycle,
+                    updatedAt: s.updated_at,
+                }) ?? undefined,
                 date: s.sale_date || s.created_at,
                 type: 'SALE',
                 title: `Venda — ${cleanDesc}`,
@@ -430,19 +477,20 @@ function Clients() {
             })
         }
 
-        // Pedidos
-        const ORDER_STATUS_MAP: Record<string, { label: string; color: string }> = {
-            DRAFT: { label: 'Rascunho', color: 'default' },
-            AWAITING_PAYMENT: { label: 'Aguardando Pagamento', color: 'orange' },
-            SENT_TO_SALE: { label: 'Efetivado', color: 'success' },
-            PAID: { label: 'Pago', color: 'green' },
-            CANCELLED: { label: 'Cancelado', color: 'red' },
-        }
+        // Pedidos. O mapa de rótulos saiu daqui para `customer-history-status.ts`: local, ele
+        // não tinha entrada para `EXCLUIDO` e caía no fallback, imprimindo a STRING CRUA na
+        // tela — a única seção onde um documento excluído já vazava, e sem tradução.
         for (const o of ordersRes?.data || []) {
-            const conf = ORDER_STATUS_MAP[o.status] || { label: o.status, color: 'default' }
+            const conf = resolveOrderStatusLabel(o.status)
             const itemCount = Array.isArray(o.order_items) ? o.order_items.length : 0
+            const orderLifecycle = resolveDocumentLifecycle(o.status)
             entries.push({
                 id: `order-${o.id}`,
+                lifecycle: orderLifecycle,
+                carimbo: buildCarimboUltimaAlteracao({
+                    lifecycle: orderLifecycle,
+                    updatedAt: o.updated_at,
+                }) ?? undefined,
                 date: o.created_at,
                 type: 'ORDER',
                 title: `Pedido ${o.order_code || o.id.slice(0, 8).toUpperCase()}`,
@@ -459,6 +507,7 @@ function Clients() {
             for (const a of raws) {
                 entries.push({
                     id: `att-${a.id}`,
+                    lifecycle: 'ATIVO',
                     date: a.created_at,
                     type: 'ATTACHMENT',
                     title: a.file_name,
@@ -814,6 +863,11 @@ function Clients() {
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                                 {typeEntries.map(entry => {
                                     const isExpanded = expandedEntryId === entry.id
+                                    // TRATAMENTO POR STATUS. O esmaecido é REFORÇO — opacidade só
+                                    // se lê por contraste, e um cliente com uma venda só (a
+                                    // excluída) não tem com o que comparar. O marcador em texto
+                                    // é o que afirma; ele nunca some.
+                                    const estilo = LIFECYCLE_STYLE[entry.lifecycle]
                                     return (
                                         <div
                                             key={entry.id}
@@ -824,17 +878,32 @@ function Clients() {
                                                 border: `1px solid ${isExpanded ? 'rgba(46, 144, 250, 0.3)' : 'rgba(255,255,255,0.06)'}`,
                                                 cursor: 'pointer',
                                                 transition: 'all 0.15s',
+                                                opacity: estilo.opacity,
                                             }}
                                             onClick={() => setExpandedEntryId(isExpanded ? null : entry.id)}
                                         >
                                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                    {/* MARCADOR DE STATUS — elemento próprio, AO LADO do selo de
+                                                        pagamento, nunca no lugar dele. O selo sai das
+                                                        `cash_entries` ativas, que as cascatas desativam: sozinho
+                                                        ele diria "Pago" numa venda excluída. */}
+                                                    {estilo.markerLabel && (
+                                                        <Tag color={estilo.markerColor} style={{ margin: 0, fontSize: 10, fontWeight: 700 }}>
+                                                            {estilo.markerLabel}
+                                                        </Tag>
+                                                    )}
                                                     <Tag color={entry.badgeColor} style={{ margin: 0, fontSize: 10 }}>{entry.badgeLabel}</Tag>
                                                     <span style={{ fontSize: 13, fontWeight: 600, color: '#f1f5f9' }}>{entry.title}</span>
                                                 </div>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                                     {entry.amount != null && (
-                                                        <span style={{ color: '#12B76A', fontWeight: 700, fontSize: 13 }}>
+                                                        <span style={{
+                                                            color: '#12B76A',
+                                                            fontWeight: 700,
+                                                            fontSize: 13,
+                                                            ...(estilo.riscarValor ? { textDecoration: 'line-through' } : {}),
+                                                        }}>
                                                             {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(entry.amount)}
                                                         </span>
                                                     )}
@@ -848,6 +917,21 @@ function Clients() {
                                             {isExpanded && (
                                                 <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
                                                     <div style={{ fontSize: 12, color: '#e2e8f0', lineHeight: 1.6 }}>
+                                                        {/* CARIMBO DE TEMPO DO DOCUMENTO MORTO — e o rótulo diz que
+                                                            é PROXY. `updated_at` é carimbo GLOBAL da linha: no
+                                                            VD-96AF84 ele é a exclusão porque a cascata foi a última
+                                                            escrita, mas qualquer edição posterior o move e nada
+                                                            registra qual escrita foi. Rotular "Excluído em" afirmaria
+                                                            mais do que se sabe — rótulo preciso sobre dado impreciso
+                                                            é afirmação falsa. A ressalva vai na TELA, não só aqui. */}
+                                                        {entry.carimbo && (
+                                                            <div style={{ marginBottom: 6 }}>
+                                                                <strong>{entry.carimbo.rotulo}:</strong> {entry.carimbo.valor}
+                                                                <div style={{ fontSize: 11, color: '#94a3b8', fontStyle: 'italic' }}>
+                                                                    {entry.carimbo.ressalva}
+                                                                </div>
+                                                            </div>
+                                                        )}
                                                         {entry.description && (
                                                             <div style={{ marginBottom: 6 }}>
                                                                 <strong>Detalhes:</strong> {entry.description}
