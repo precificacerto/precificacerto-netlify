@@ -58,6 +58,11 @@ import {
 import { computeConsolidatedDRE, type DREItemInput } from '@/utils/consolidated-dre'
 import { ConsolidatedDREBlock } from '@/page-parts/shared/consolidated-dre-block.component'
 import { extractEpicV5DisplayData } from '@/utils/mrm-display-extractor'
+import {
+    STATUS_EXCLUIDO, canDeleteSale, filterDeletedDocuments,
+    TOOLTIP_CANCELAR, TOOLTIP_EXCLUIR,
+} from '@/utils/document-deleted'
+import { useDeletedDocuments } from '@/hooks/use-deleted-documents.hook'
 import { enrichItemsForMotor } from '@/utils/motor-item-enrichment'
 import { hydrateDocumentSnapshots } from '@/lib/document-snapshot'
 import type { TenantSnapshotContext } from '@/lib/items-snapshot'
@@ -182,6 +187,12 @@ function Sales() {
     const [drawerOpen, setDrawerOpen] = useState(false)
     const [detailDrawerOpen, setDetailDrawerOpen] = useState(false)
     const [selectedSale, setSelectedSale] = useState<any>(null)
+    // Filtro "mostrar excluídos": OCULTOS por padrão. Cancelados continuam listados como
+    // sempre — cancelar não é excluir.
+    const [mostrarExcluidos, setMostrarExcluidos] = useState(false)
+    // Vendas com PAGAMENTO REGISTRADO. O botão Excluir fica desabilitado nelas, com o motivo
+    // no tooltip — botão ativo que falha depois é pior que botão desabilitado que explica.
+    const [vendasComPagamento, setVendasComPagamento] = useState<Set<string>>(new Set())
     const [saleItems, setSaleItems] = useState<SaleItemRow[]>([])
     const [detailItems, setDetailItems] = useState<any[]>([])
     const [saving, setSaving] = useState(false)
@@ -511,6 +522,15 @@ function Sales() {
                 requiresReview: s.requires_review === true,
             }))
             setSales(rows)
+            // Quais vendas têm PAGAMENTO REGISTRADO — decide o botão Excluir desabilitado.
+            // Uma consulta só para a lista inteira, não uma por linha.
+            const { data: pagos } = await (supabase as any)
+                .from('pending_receivables')
+                .select('sale_id')
+                .eq('status', 'PAID')
+                .eq('is_active', true)
+                .not('sale_id', 'is', null)
+            setVendasComPagamento(new Set(((pagos || []) as { sale_id: string }[]).map((p) => p.sale_id)))
             setProducts(prods || [])
             setCustomers(custs || [])
             setEmployees(emps || [])
@@ -1033,7 +1053,42 @@ function Sales() {
     const avgTicket = monthSales.length > 0 ? totalRevenue / monthSales.length : 0
     const fromBudget = monthSales.filter(s => s.saleType === 'FROM_BUDGET').length
 
-    const filteredSales = sales.filter(s => {
+    // Os EXCLUÍDOS vêm de consulta separada, e só quando o filtro está ligado — a carga
+    // principal usa `.eq('is_active', true)` e nunca os traz. Ver o cabeçalho do hook.
+    const { deleted: vendasExcluidas } = useDeletedDocuments<Record<string, unknown>>(
+        'sales',
+        'id, sale_code, budget_id, final_value, commission_amount, description, sale_date, status, payment_method, installments, sale_type, receipt_url, quantity, unit_price',
+        mostrarExcluidos,
+    )
+    const salesComExcluidas: SaleRow[] = useMemo(() => {
+        if (!mostrarExcluidos) return sales
+        const jaNaLista = new Set(sales.map((s) => s.id))
+        const extras = vendasExcluidas
+            .filter((e) => !jaNaLista.has(String(e.id)))
+            .map((e): SaleRow => ({
+                id: String(e.id),
+                sale_code: (e.sale_code as string) || null,
+                budget_id: (e.budget_id as string) || null,
+                productName: (e.description as string) || '-',
+                quantity: Number(e.quantity) || 1,
+                unitPrice: Number(e.unit_price) || 0,
+                finalValue: Number(e.final_value) || 0,
+                commissionAmount: Number(e.commission_amount) || 0,
+                customerName: '-',
+                sellerName: '-',
+                description: (e.description as string) || '',
+                saleDate: e.sale_date as string,
+                status: (e.status as string) || STATUS_EXCLUIDO,
+                paymentMethod: (e.payment_method as string) || '-',
+                installments: Number(e.installments) || 1,
+                saleType: (e.sale_type as string) || 'MANUAL',
+                receiptUrl: (e.receipt_url as string) || null,
+                requiresReview: false,
+            }))
+        return [...sales, ...extras]
+    }, [sales, vendasExcluidas, mostrarExcluidos])
+
+    const filteredSales = filterDeletedDocuments(salesComExcluidas, mostrarExcluidos).filter(s => {
         if (s.status === 'AWAITING_PAYMENT' && s.saleType !== 'FROM_ORDER') return false
         const matchesText =
             s.productName.toLowerCase().includes(searchText.toLowerCase()) ||
@@ -2042,6 +2097,71 @@ function Sales() {
         }
     }
 
+    // ── Excluir (última instância) ──
+    // Separado do Cancelar de propósito: Cancelar volta à etapa anterior e permite retomar;
+    // Excluir mata a cadeia inteira e não tem desfazer.
+    const handleDeletePermanent = async (id: string) => {
+        try {
+            const res = await fetch('/api/delete/sales-permanent', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id }),
+            })
+            const result = await res.json()
+            if (res.status === 409) {
+                modalApi.warning({
+                    title: 'Não é possível excluir',
+                    content: result.error || 'Esta venda possui pagamentos registrados.',
+                })
+                return
+            }
+            if (!res.ok) throw new Error(result.error || 'Erro ao excluir')
+            const aff = result.affected || {}
+            const partes = ['Venda excluída.']
+            if (aff.cash_entries > 0) partes.push(`${aff.cash_entries} lançamento(s) de caixa removido(s).`)
+            if (aff.stock_reversed > 0) partes.push(`Estoque devolvido em ${aff.stock_reversed} produto(s).`)
+            if (aff.pending_receivables > 0) partes.push(`${aff.pending_receivables} parcela(s) pendente(s) removida(s).`)
+            if (aff.orders_deleted > 0) partes.push('Pedido de origem excluído.')
+            if (aff.budgets_deleted > 0) partes.push(`${aff.budgets_deleted} orçamento(s) de origem excluído(s).`)
+            messageApi.success(partes.join(' '))
+            await fetchData()
+        } catch (error: unknown) {
+            messageApi.error(error instanceof Error ? error.message : 'Erro ao excluir venda')
+        }
+    }
+
+    /** Confirmação EXPLÍCITA, listando o que será removido. */
+    const confirmDeleteSale = (record: SaleRow) => {
+        const oQueSai = [
+            'A venda e seus itens.',
+            'Os lançamentos desta venda no fluxo de caixa, incluindo parcelas pendentes.',
+            'A comissão do vendedor e o RT.',
+            'Os produtos VOLTAM ao estoque.',
+        ]
+        if (record.saleType === 'FROM_ORDER') oQueSai.push('O PEDIDO de origem e o ORÇAMENTO dele também são excluídos.')
+        else if (record.saleType === 'FROM_BUDGET') oQueSai.push('O ORÇAMENTO de origem também é excluído.')
+        oQueSai.push('Sai do relatório de vendas, de comissões, de RT e de todo agregado de faturamento.')
+        modalApi.confirm({
+            title: 'Excluir permanentemente?',
+            content: (
+                <div>
+                    <p style={{ marginBottom: 8 }}>Será removido:</p>
+                    <ul style={{ paddingLeft: 20 }}>
+                        {oQueSai.map((m, i) => <li key={i}>{m}</li>)}
+                    </ul>
+                    <p style={{ marginTop: 12, color: '#dc2626', fontWeight: 600 }}>
+                        Irreversível. Não há como desfazer, e nenhum dos três documentos poderá ser editado de novo.
+                    </p>
+                </div>
+            ),
+            okText: 'Sim, excluir permanentemente',
+            cancelText: 'Voltar',
+            okButtonProps: { danger: true },
+            width: 520,
+            onOk: () => handleDeletePermanent(record.id),
+        })
+    }
+
     // ── Export functions ──
     const handleExportExcel = async (startDate?: string, endDate?: string) => {
         try {
@@ -2351,9 +2471,34 @@ function Sales() {
                             Lançar pagamento
                         </Button>
                     )}
-                    <Button type="link" size="small" danger onClick={() => confirmCancelSale(record)}>
-                        Cancelar
-                    </Button>
+                    <Tooltip title={TOOLTIP_CANCELAR}>
+                        <Button type="link" size="small" danger onClick={() => confirmCancelSale(record)}>
+                            Cancelar
+                        </Button>
+                    </Tooltip>
+                    {(() => {
+                        // O motivo do bloqueio fica VISÍVEL no tooltip, e o botão desabilitado.
+                        const { allowed, reason } = canDeleteSale({
+                            status: record.status,
+                            hasPaidReceivable: vendasComPagamento.has(record.id),
+                        })
+                        return (
+                            <Tooltip title={allowed ? TOOLTIP_EXCLUIR : reason}>
+                                {/* `span` porque o Tooltip do antd não dispara sobre botão desabilitado. */}
+                                <span>
+                                    <Button
+                                        type="link"
+                                        size="small"
+                                        danger
+                                        disabled={!allowed}
+                                        onClick={() => confirmDeleteSale(record)}
+                                    >
+                                        Excluir
+                                    </Button>
+                                </span>
+                            </Tooltip>
+                        )
+                    })()}
                 </Space>
             ),
         },
@@ -2543,6 +2688,12 @@ function Sales() {
                         style={{ minWidth: 240 }}
                     />
                     <div style={{ flex: 1 }} />
+                    <Checkbox
+                        checked={mostrarExcluidos}
+                        onChange={(e) => setMostrarExcluidos(e.target.checked)}
+                    >
+                        Mostrar excluídos
+                    </Checkbox>
                     <Button icon={<DownloadOutlined />} onClick={() => setExportModalOpen(true)}>
                         Exportar
                     </Button>
@@ -2570,6 +2721,17 @@ function Sales() {
                                 { key: 'view', label: 'Ver', onClick: () => handleViewDetail(r) },
                                 { key: 'cancel', label: 'Cancelar venda', danger: true, onClick: () => confirmCancelSale(r) },
                             ]
+                            const podeExcluir = canDeleteSale({
+                                status: r.status,
+                                hasPaidReceivable: vendasComPagamento.has(r.id),
+                            })
+                            kebabItems.push({
+                                key: 'delete',
+                                label: podeExcluir.allowed ? 'Excluir permanentemente' : 'Excluir (bloqueado: há pagamento)',
+                                danger: true,
+                                disabled: !podeExcluir.allowed,
+                                onClick: () => confirmDeleteSale(r),
+                            })
                             // A faixa inferior de ações só aparece p/ vendas aguardando pagamento
                             // (botão "Lançar pagamento"). Vendas concluídas não exibem ações no card.
                             return (
