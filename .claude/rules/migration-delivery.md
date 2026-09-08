@@ -82,6 +82,41 @@ não deve ser puxado no meio de uma.
 
 Até lá, a regra desta página é o mecanismo — não um paliativo à espera dele.
 
+## A ORDEM depende do que a migração CRIA
+
+O default continua sendo **pendente** nos dois casos abaixo — merge não aplica nada. O que
+muda é que **"aplicar depois" NÃO é sempre seguro**.
+
+| a migração cria | ordem correta | o que quebra na ordem errada |
+|---|---|---|
+| **COLUNA ou TIPO** que o código novo GRAVA | aplicar **ANTES OU JUNTO** | mergear antes deixa o código gravando em coluna inexistente |
+| **FUNÇÃO** que o código novo CHAMA | aplicar **ANTES DO MERGE** | mergear antes deixa o botão chamando função inexistente |
+
+**Caso real do primeiro:** `expense_snapshot`. O PR foi mergeado, a coluna não existia, e o
+salvar de serviço quebrou em produção em 01/09/2026 — `Could not find the 'expense_snapshot'
+column of 'services' in the schema cache`.
+
+**Caso real do segundo:** `delete_sale_cascade`. Mergear sem aplicar deixaria o botão
+"Excluir" na tela de Vendas chamando uma função que o banco não tem: o clique falha com
+`function public.delete_sale_cascade does not exist`.
+
+**É a mesma classe com a ordem invertida** — lá faltou aplicar DEPOIS do merge, aqui faltaria
+aplicar ANTES. Para função, depois já é tarde.
+
+### Onde a ordem tem de estar escrita
+
+Formulação do dono do produto, registrada como está:
+
+> Corpo de PR protege ESTE merge; a regra versionada protege os FUTUROS.
+
+Escrever a ordem no corpo do PR é necessário — é lá que quem mergeia lê, e por isso ela vai no
+corpo, com destaque, em todo PR com migração. Mas não é suficiente: corpo de PR mergeado fica
+soterrado, que é o diagnóstico já registrado em `registro-de-classe.md`. A diferença é que ali
+o que se perdia era CONHECIMENTO, e aqui é **instrução de OPERAÇÃO** — o custo de perdê-la não
+é repetir uma análise, é derrubar produção.
+
+Por isso os dois: **corpo do PR** para o merge de agora, **esta página** para os próximos.
+
 ## Como verificar
 
 Depois de aplicar, consultar o schema — não confiar no retorno do comando de aplicação:

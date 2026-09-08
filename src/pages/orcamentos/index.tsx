@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
 import {
     App as AntdApp,
-    Button, Drawer, Dropdown, Form, Input, InputNumber, Space, Table, Tag,
+    Button, Checkbox, Drawer, Dropdown, Form, Input, InputNumber, Space, Table, Tag,
     message, DatePicker, Steps, Popconfirm, Divider, Empty, Modal, Upload, Radio, Segmented,
 } from 'antd'
 import { Select } from '@/components/ui/app-select.component'
@@ -68,6 +68,8 @@ import { computeConsolidatedDRE, type DREItemInput } from '@/utils/consolidated-
 import { ConsolidatedDREBlock } from '@/page-parts/shared/consolidated-dre-block.component'
 import { extractEpicV5DisplayData } from '@/utils/mrm-display-extractor'
 import { enrichItemsForMotor } from '@/utils/motor-item-enrichment'
+import { filterDeletedDocuments } from '@/utils/document-deleted'
+import { useDeletedDocuments } from '@/hooks/use-deleted-documents.hook'
 import { hydrateDocumentSnapshots } from '@/lib/document-snapshot'
 import { coerceLegacyDiscountMode } from '@/config/feature-flags'
 import { decideMrmAction } from '@/utils/mrm-policies'
@@ -204,6 +206,8 @@ function Budgets() {
     const mrmConfig = useTenantTaxContext()
     const [drawerOpen, setDrawerOpen] = useState(false)
     const [editingBudgetId, setEditingBudgetId] = useState<string | null>(null)
+    // Filtro "mostrar excluídos": OCULTOS por padrão. Cancelados seguem como sempre.
+    const [mostrarExcluidos, setMostrarExcluidos] = useState(false)
     const [detailDrawerOpen, setDetailDrawerOpen] = useState(false)
     const [paymentModalOpen, setPaymentModalOpen] = useState(false)
     const [selectedBudget, setSelectedBudget] = useState<any>(null)
@@ -315,11 +319,30 @@ function Budgets() {
         return () => window.removeEventListener('scroll', close, true)
     }, [openKebabId])
 
+    // Filtro "mostrar excluídos" — OCULTOS por padrão. Consulta separada, porque `useBudgets`
+    // carrega com `.eq('is_active', true)` e é hook compartilhado: alargá-lo faria os
+    // excluídos vazarem para toda tela que o consome. Ver `use-deleted-documents.hook.ts`.
+    const { deleted: orcamentosExcluidos } = useDeletedDocuments<Record<string, unknown>>(
+        'budgets',
+        'id, status, total_value, created_at, customer_id, employee_id, source_order_id',
+        mostrarExcluidos,
+    )
+    const budgetsComExcluidos = useMemo(
+        () => (mostrarExcluidos
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            ? [...(budgets as any[]), ...(orcamentosExcluidos as any[]).filter(
+                (e) => !(budgets as { id: string }[]).some((b) => b.id === e.id))]
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            : (budgets as any[])),
+        [budgets, orcamentosExcluidos, mostrarExcluidos],
+    )
+
     const filteredData = useMemo(() => {
         // T12: ocultar pagos — lista mostra apenas Rascunho e Aguardando pagamento (+ SENT/APPROVED em transição)
         // Doc 29/07 (itens 1.2.8 / 2.1.3): ocultar orçamentos-espelho (source_order_id != null) — são
         // registros-ponte de pedidos enviados para aprovação, não orçamentos criados manualmente.
-        let visible = budgets.filter(b => b.status !== 'PAID' && !(b as any).source_order_id)
+        let visible = filterDeletedDocuments(budgetsComExcluidos, mostrarExcluidos)
+            .filter(b => b.status !== 'PAID' && !(b as any).source_order_id)
         // FEAT-ORCAMENTO-FILTRO-UNIFICADO-001: intervalo de data (padrão Vendas).
         const [start, end] = dateRange
         if (start && end) {
@@ -342,7 +365,7 @@ function Budgets() {
                 .toLowerCase()
             return cust.includes(q) || emp.includes(q) || num.includes(q) || b.id.toLowerCase().includes(q) || prods.includes(q)
         })
-    }, [budgets, searchText, dateRange])
+    }, [budgetsComExcluidos, mostrarExcluidos, searchText, dateRange])
 
     // ── Fetch data for "Ver produtos em orçamentos" drawer ──
     const openProdBudgetDrawer = async () => {
@@ -2691,6 +2714,12 @@ function Budgets() {
                         />
                     )}
                     <div style={{ flex: 1 }} />
+                    <Checkbox
+                        checked={mostrarExcluidos}
+                        onChange={(e) => setMostrarExcluidos(e.target.checked)}
+                    >
+                        Mostrar excluídos
+                    </Checkbox>
                     <Button icon={<UnorderedListOutlined />} onClick={openProdBudgetDrawer}>
                         Ver produtos em orçamentos
                     </Button>

@@ -1,0 +1,62 @@
+-- Valor 'EXCLUIDO' no enum `budget_status`.
+--
+-- POR QUE UM VALOR DE STATUS, E NÃO `is_active`
+-- ---------------------------------------------
+-- O filtro "mostrar excluídos" nas telas de Orçamentos, Pedidos e Vendas é REQUISITO, e
+-- `is_active` não distingue EXCLUÍDO de CANCELADO: o cancelamento já grava `is_active=false`
+-- (ver `cancel_sale_cascade`, `delete_order_cascade`, `delete_budget_cascade`), então os dois
+-- estados virariam o mesmo booleano e o filtro seria impossível de escrever sem ambiguidade.
+--
+-- Medido em 06/09/2026, `is_active` já carrega dois significados que divergem do status:
+-- 3 budgets DRAFT com is_active=false e 3 sales COMPLETED com is_active=false. Dar-lhe um
+-- terceiro significado agravaria a sobrecarga.
+--
+-- A alternativa `deleted_at` foi descartada: exigiria tocar ~30 pontos de filtro nas telas e
+-- relatórios para entregar um carimbo de tempo que ninguém pediu.
+--
+-- O CONCEITO: Cancelar volta à etapa anterior e permite retomar; Excluir é a última
+-- instância — como se a evolução nunca tivesse chegado àquele ponto. São estados diferentes
+-- e precisam de marcadores diferentes.
+--
+-- ASSIMETRIA CONHECIDA, REGISTRADA E NÃO CORRIGIDA AQUI
+-- -----------------------------------------------------
+-- `budgets.status` é o enum `budget_status`; `orders.status` e `sales.status` são TEXT puro,
+-- sem CHECK (verificado em `pg_constraint`: nenhuma constraint de check sobre essas colunas).
+-- Logo esta migração é necessária SÓ para budgets — pedido e venda aceitam a string direto.
+-- O custo é que as duas aceitam QUALQUER string, inclusive 'EXCLUÍDO' com acento, sem aviso.
+-- Está registrado como item próprio, junto com o enum `order_status` órfão (existe, tem
+-- PENDING/APPROVED/PROCESSING/SHIPPED/DELIVERED/CANCELLED, e `orders.status` não o usa —
+-- grava DRAFT/CANCELLED, valores que nem estão nele). São as duas metades do mesmo problema.
+--
+-- A ARMADILHA DESTA MIGRAÇÃO, E É A RAZÃO DE ELA VIR SOZINHA
+-- ----------------------------------------------------------
+-- Um valor recém-adicionado por `ALTER TYPE ... ADD VALUE` NÃO PODE SER USADO na mesma
+-- transação que o adicionou. Por isso esta migração:
+--   - contém APENAS o `ALTER TYPE`, sem nenhum `UPDATE` que já grave 'EXCLUIDO';
+--   - roda em commit SEPARADO do primeiro uso.
+-- `IF NOT EXISTS` a torna idempotente: reaplicar não falha.
+--
+-- APLICAÇÃO: esta migração é PENDENTE POR PADRÃO (`.claude/rules/migration-delivery.md`).
+-- Merge não é entrega. O PR só está entregue depois de ela ser aplicada E VERIFICADA no
+-- banco por consulta — a consulta de verificação está no fim deste arquivo.
+
+ALTER TYPE public.budget_status ADD VALUE IF NOT EXISTS 'EXCLUIDO';
+
+-- VERIFICAÇÃO (rodar em uma sessão SEPARADA, depois do commit do ALTER TYPE):
+--
+--   select e.enumlabel, e.enumsortorder
+--   from pg_type t
+--   join pg_enum e on e.enumtypid = t.oid
+--   join pg_namespace n on n.oid = t.typnamespace
+--   where n.nspname = 'public'
+--     and t.typname = 'budget_status'
+--   order by e.enumsortorder;
+--
+-- Esperado: DEZ LINHAS, com 'EXCLUIDO' na ÚLTIMA. Contar LINHAS, não conferir o número do
+-- `enumsortorder`: ele é 9, e não 10, porque AWAITING_PAYMENT foi inserido depois entre DRAFT
+-- e SENT (`ADD VALUE BEFORE/AFTER`) e ficou com sortorder 1.5. Dez rótulos, último sortorder 9.
+-- Zero linhas com 'EXCLUIDO' significa NÃO APLICADA, independentemente do que o merge diga.
+--
+-- E recarregar o cache do PostgREST, que é a camada que produziu o erro de 01/09/2026:
+--
+--   NOTIFY pgrst, 'reload schema';

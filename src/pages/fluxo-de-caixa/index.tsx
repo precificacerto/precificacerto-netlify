@@ -337,27 +337,6 @@ export default function CashFlow() {
         }
     }
 
-    const handleDeleteFromPaymentModal = async () => {
-        if (!paymentEntry) {
-            messageApi.error('Nenhum lançamento selecionado para excluir. Reabra o lançamento e tente novamente.')
-            return
-        }
-        try {
-            const res = await fetch('/api/delete/cash-entries', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ id: paymentEntry.id }),
-            })
-            const result = await res.json()
-            if (!res.ok) throw new Error(result.error || 'Erro ao excluir')
-            messageApi.success('Lançamento excluído do fluxo!')
-            setPaymentModalOpen(false)
-            await fetchData()
-        } catch (err: any) {
-            messageApi.error(err.message || 'Erro ao excluir lançamento')
-        }
-    }
-
     const handleExportMultiMonth = async () => {
         setExporting(true)
         try {
@@ -1747,16 +1726,16 @@ export default function CashFlow() {
                             />
                         </div>
                         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                            <Popconfirm
-                                title="Excluir este lançamento?"
-                                description="O valor será removido do fluxo de caixa."
-                                onConfirm={handleDeleteFromPaymentModal}
-                                okText="Excluir"
-                                cancelText="Cancelar"
-                                okButtonProps={{ danger: true }}
-                            >
-                                <Button danger>Excluir</Button>
-                            </Popconfirm>
+                            {/* O botão "Excluir" saiu daqui. Excluir um lançamento de venda pelo
+                                Fluxo de Caixa desfazia o efeito financeiro e deixava a VENDA
+                                intacta — o caixa e o relatório passavam a discordar sobre o mesmo
+                                fato. A exclusão passa a existir SÓ em Comercial > Vendas, onde ela
+                                trata a cadeia inteira: caixa, estoque, pedido e orçamento.
+                                A rota `/api/delete/cash-entries` CONTINUA existindo e em uso por
+                                QUATRO call sites: Agenda, Controle Financeiro (×2) e Relatórios.
+                                Eram cinco no levantamento, e o quinto era este handler — ou seja
+                                a tela do Fluxo de Caixa deixa de chamá-la por completo. A rota
+                                fica pelos outros quatro; o que saiu foi o botão e o handler dele. */}
                             {paymentEntry.paid_date && (
                                 <Popconfirm
                                     title={paymentEntry.type === 'INCOME' ? 'Desfazer confirmação?' : 'Cancelar pagamento?'}

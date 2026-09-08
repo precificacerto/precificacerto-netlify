@@ -38,6 +38,8 @@ import { ResidualDistributionBlock } from '@/page-parts/shared/residual-distribu
 import { computeConsolidatedDRE, type DREItemInput } from '@/utils/consolidated-dre'
 import { ConsolidatedDREBlock } from '@/page-parts/shared/consolidated-dre-block.component'
 import { extractEpicV5DisplayData } from '@/utils/mrm-display-extractor'
+import { filterDeletedDocuments } from '@/utils/document-deleted'
+import { useDeletedDocuments } from '@/hooks/use-deleted-documents.hook'
 // S9: configWarning não aplicado em pedidos — snapshot é imutável (decisão Q3=A)
 import { coerceLegacyDiscountMode, normalizeDiscountModeForDisplay } from '@/config/feature-flags'
 import { decideMrmAction } from '@/utils/mrm-policies'
@@ -419,6 +421,8 @@ function OrdersPage() {
     const [detailItems, setDetailItems] = useState<OrderItemRow[]>([])
     // Doc 29/07 (item 1.1.6): o menu ⋮ deve fechar automaticamente ao rolar a lista.
     const [openKebabId, setOpenKebabId] = useState<string | null>(null)
+    // Filtro "mostrar excluídos": OCULTOS por padrão. Cancelados seguem como sempre.
+    const [mostrarExcluidos, setMostrarExcluidos] = useState(false)
     // Doc 29/07 (§3.1): seleção de tabela de preços do vendedor (paridade com Orçamentos).
     const [empTables, setEmpTables] = useState<{ id: string; name: string; type: string; commission_percent: number }[]>([])
     const [selectedTableId, setSelectedTableId] = useState<string | null>(null)
@@ -1360,8 +1364,21 @@ function OrdersPage() {
         }
     }
 
+    // Consulta separada — a carga de pedidos usa `is_active` e nunca traz os excluídos.
+    const { deleted: pedidosExcluidos } = useDeletedDocuments<Record<string, unknown>>(
+        'orders',
+        'id, order_code, status, total_value, created_at, customer_id, employee_id, budget_id',
+        mostrarExcluidos,
+    )
     const filteredOrders = useMemo(() => {
-        return orders.filter((o) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const base: any[] = mostrarExcluidos
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            ? [...(orders as any[]), ...(pedidosExcluidos as any[]).filter(
+                (e) => !(orders as { id: string }[]).some((o) => o.id === e.id))]
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            : (orders as any[])
+        return filterDeletedDocuments(base, mostrarExcluidos).filter((o) => {
             if (filterCustomer && o.customer_id !== filterCustomer) return false
             if (filterEmployee && o.employee_id !== filterEmployee) return false
             if (dateRange[0] && dayjs(o.created_at).isBefore(dateRange[0], 'day')) return false
@@ -1370,7 +1387,7 @@ function OrdersPage() {
                 && !o.customer_name?.toLowerCase().includes(searchText.toLowerCase())) return false
             return true
         })
-    }, [orders, filterCustomer, filterEmployee, dateRange, searchText])
+    }, [orders, pedidosExcluidos, mostrarExcluidos, filterCustomer, filterEmployee, dateRange, searchText])
 
     const totalOpenValue = useMemo(
         () => filteredOrders.reduce((s, o) => s + (o.total_value || 0), 0),
@@ -1591,6 +1608,12 @@ function OrdersPage() {
                         <Select.Option key={e.user_id || e.id} value={e.user_id || e.id}>{e.name}</Select.Option>
                     ))}
                 </Select>
+                <Checkbox
+                    checked={mostrarExcluidos}
+                    onChange={(e) => setMostrarExcluidos(e.target.checked)}
+                >
+                    Mostrar excluídos
+                </Checkbox>
                 <Select
                     placeholder="Filtrar por cliente"
                     style={{ width: isMobile ? '100%' : 220 }}
