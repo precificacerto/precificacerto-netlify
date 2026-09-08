@@ -52,8 +52,10 @@ ALTER TYPE public.budget_status ADD VALUE IF NOT EXISTS 'EXCLUIDO';
 --     and t.typname = 'budget_status'
 --   order by e.enumsortorder;
 --
--- Esperado: dez linhas, com 'EXCLUIDO' na última posição. Zero linhas com 'EXCLUIDO'
--- significa NÃO APLICADA, independentemente do que o merge diga.
+-- Esperado: DEZ LINHAS, com 'EXCLUIDO' na ÚLTIMA. Contar LINHAS, não conferir o número do
+-- `enumsortorder`: ele é 9, e não 10, porque AWAITING_PAYMENT foi inserido depois entre DRAFT
+-- e SENT (`ADD VALUE BEFORE/AFTER`) e ficou com sortorder 1.5. Dez rótulos, último sortorder 9.
+-- Zero linhas com 'EXCLUIDO' significa NÃO APLICADA, independentemente do que o merge diga.
 --
 -- E recarregar o cache do PostgREST, que é a camada que produziu o erro de 01/09/2026:
 --
