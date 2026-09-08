@@ -9,6 +9,7 @@ import {
     type CarimboDeTempo,
     type DocumentLifecycle,
 } from '@/utils/customer-history-status'
+import { buildOriginLines, type OriginLine } from '@/utils/document-origin-link'
 import { Button, Drawer, Dropdown, Form, Input, InputNumber, Modal, Space, Switch, Table, Tag, message, Popconfirm, Spin, Tooltip } from 'antd'
 import { Select } from '@/components/ui/app-select.component'
 import type { ColumnsType } from 'antd/es/table'
@@ -124,6 +125,11 @@ interface TimelineEntry {
     lifecycle: DocumentLifecycle
     /** Carimbo de tempo do documento morto, com a ressalva de que é proxy. `undefined` no vivo. */
     carimbo?: CarimboDeTempo
+    /**
+     * Orçamento e pedido que originaram a venda. Vazio na venda de balcão; sem a linha do
+     * pedido no Caso B — a etapa não existiu, e exibir vazio afirmaria que não houve pedido.
+     */
+    origem?: OriginLine[]
 }
 
 function Clients() {
@@ -209,7 +215,7 @@ function Clients() {
                 .order('created_at', { ascending: false }),
             (supabase as any)
                 .from('sales')
-                .select('id, final_value, payment_method, installments, sale_date, created_at, updated_at, employee_id, description, status, sale_type, budget_id')
+                .select('id, final_value, payment_method, installments, sale_date, created_at, updated_at, employee_id, description, status, sale_type, budget_id, order_id')
                 .eq('customer_id', customerId)
                 // SEM FILTRO DE `is_active` E SEM FILTRO DE STATUS — e a remoção é deliberada.
                 //
@@ -240,7 +246,7 @@ function Clients() {
         if (allBudgetIds.length > 0) {
             const { data: fbSales } = await (supabase as any)
                 .from('sales')
-                .select('id, final_value, payment_method, installments, sale_date, created_at, updated_at, employee_id, description, status, sale_type, budget_id')
+                .select('id, final_value, payment_method, installments, sale_date, created_at, updated_at, employee_id, description, status, sale_type, budget_id, order_id')
                 .in('budget_id', allBudgetIds)
                 // Mesmo critério da consulta por `customer_id`: sem `is_active`, sem filtro de
                 // status. As duas precisam mudar juntas — uma venda alcançada só por este
@@ -456,6 +462,10 @@ function Clients() {
                     updatedAt: s.updated_at,
                 }) ?? undefined,
                 date: s.sale_date || s.created_at,
+                // VÍNCULO DE ORIGEM — o que torna o registro morto auditável. Sem ele, o
+                // orçamento e a venda ficam em seções diferentes do painel, os dois apagados,
+                // e nada os liga. No Caso B a linha do pedido simplesmente não vem.
+                origem: buildOriginLines({ budgetId: s.budget_id, orderId: s.order_id }),
                 type: 'SALE',
                 title: `Venda — ${cleanDesc}`,
                 description: s.description || '',
@@ -930,6 +940,17 @@ function Clients() {
                                                                 <div style={{ fontSize: 11, color: '#94a3b8', fontStyle: 'italic' }}>
                                                                     {entry.carimbo.ressalva}
                                                                 </div>
+                                                            </div>
+                                                        )}
+                                                        {entry.origem && entry.origem.length > 0 && (
+                                                            <div style={{ marginBottom: 6 }}>
+                                                                <strong>Origem:</strong>{' '}
+                                                                {entry.origem.map((o, i) => (
+                                                                    <span key={o.id}>
+                                                                        {i > 0 && ' · '}
+                                                                        {o.rotulo} <Tag style={{ margin: 0 }}>{o.valor}</Tag>
+                                                                    </span>
+                                                                ))}
                                                             </div>
                                                         )}
                                                         {entry.description && (
