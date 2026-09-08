@@ -103,6 +103,64 @@ column of 'services' in the schema cache`.
 **É a mesma classe com a ordem invertida** — lá faltou aplicar DEPOIS do merge, aqui faltaria
 aplicar ANTES. Para função, depois já é tarde.
 
+### Função exige verificar TAMBÉM as dependências dela
+
+**`plpgsql` NÃO valida referências na criação.** A função é criada COM SUCESSO mesmo que
+chame algo que não existe, e falha só no PRIMEIRO USO. Consequência direta:
+
+> Verificar que a função existe **NÃO BASTA**.
+
+Consultar `pg_proc` e achar a função é uma verificação que **passa verde sem exercitar nada**
+— a mesma família dos casos de `teste-que-nao-exercita.md`. Ela prova que o `CREATE` rodou,
+não que a função funciona.
+
+O protocolo, então, tem três consultas e não uma:
+
+1. **ANTES**: as dependências existem, com a assinatura certa?
+2. **ANTES**: a função nova ainda NÃO existe? (estado inicial correto — se já existir, o que
+   se está aplicando é uma substituição, e isso muda o que a verificação depois significa)
+3. **DEPOIS**: a função existe, com a assinatura esperada?
+
+```sql
+-- (1) dependências, pelo nome E pela assinatura
+select p.proname, pg_get_function_identity_arguments(p.oid) as args
+from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+where n.nspname = 'public'
+  and p.proname in ('<dependência_1>', '<dependência_2>');
+```
+
+Caso real, na aplicação de `delete_sale_cascade`: conferidas antes
+`_sale_has_paid_receivable(p_sale_id uuid)` e
+`_reverse_stock_for_sale(p_sale_id uuid, p_tenant_id uuid)`, e confirmado que
+`delete_sale_cascade` ainda não existia. **É parte do protocolo, não cuidado opcional.**
+
+### Ressalva de método: o `raw` NÃO fecha a cadeia byte a byte
+
+Ler o arquivo em `raw.githubusercontent.com` protege contra a corrupção por tradução — foi o
+que o #26 ensinou, e continua valendo. Mas há um limite que precisa estar dito por extenso:
+
+**A leitura via `raw` NORMALIZA A INDENTAÇÃO.** A aplicação acaba sendo **token a token**, não
+byte a byte, e por isso **o `md5` do arquivo NÃO é reproduzível por esse caminho**. Conferir o
+`md5` depois de aplicar assim vai divergir, e a divergência não significa corrupção.
+
+O que o `md5` prova e o que não prova:
+
+| | |
+|---|---|
+| **prova** | que o CONTEÚDO revisado é o mesmo que está versionado — revisão ANTES de aplicar |
+| **NÃO prova** | que o que chegou ao banco é byte a byte aquele arquivo |
+
+Sem o `md5`, a integridade da aplicação se confirma por **dois sinais indiretos**:
+
+1. **ausência de sinais de corrupção** — nenhuma palavra-chave SQL traduzida, acentos do
+   português preservados;
+2. **verificação estrutural no catálogo** — `pg_proc` / `pg_enum` / `information_schema`
+   mostrando o objeto com a forma esperada.
+
+**Para fechar a cadeia byte a byte, o caminho é a própria sessão aplicar via CLI**, com o
+arquivo do disco. Enquanto a aplicação for manual por cópia, os dois sinais acima são o que
+existe — e é melhor dizer isso do que chamar de "verificado byte a byte" o que não é.
+
 ### Onde a ordem tem de estar escrita
 
 Formulação do dono do produto, registrada como está:
