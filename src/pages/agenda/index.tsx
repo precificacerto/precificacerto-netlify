@@ -37,6 +37,7 @@ import { mergeExpenseConfig } from '@/utils/recalc-expense-config'
 import { resolveItemRtPctDecimal } from '@/utils/balcao-rt'
 import { CurrencyInput } from '@/components/currency-input.component'
 import { ACTIVE_OR_NULL_FILTER } from '@/utils/active-record-filter'
+import { MAX_PHONE_MASKED_LENGTH, phoneMask, phoneRules } from '@/utils/phone-br'
 
 dayjs.extend(isoWeek)
 dayjs.locale('pt-br')
@@ -379,8 +380,15 @@ function Schedule() {
                     msgApi.error('Informe o nome e telefone do cliente para cadastrá-lo.')
                     return
                 }
+                // COLUNA CANÔNICA É `whatsapp_phone`, não `phone` — decisão de 08/09/2026.
+                // Este caminho gravava em `phone`, e a tela de Clientes LÊ `whatsapp_phone`: por
+                // isso o cliente criado aqui aparecia com o telefone EM BRANCO no cadastro.
+                // `whatsapp_phone` é a canônica por ser a que a tela já lê e por ter o dado mais
+                // limpo (zero não-dígitos, 9 a 11 caracteres, contra 63 de 79 inválidos em `phone`).
+                // Os 89 registros com telefone espalhado nas duas colunas FICAM COMO ESTÃO: a
+                // migração de dados é rodada própria. Daqui pra frente grava certo.
                 const { data: newCustomer, error: custErr } = await (supabase as any).from('customers').insert({
-                    tenant_id: tid, name: manualName, phone: manualPhone, customer_type: 'PF', status: 'ACTIVE',
+                    tenant_id: tid, name: manualName, whatsapp_phone: manualPhone, customer_type: 'PF', status: 'ACTIVE',
                 }).select('id').single()
                 if (custErr) throw custErr
                 resolvedCustomerId = newCustomer.id
@@ -2063,8 +2071,12 @@ function Schedule() {
                             <Form.Item name="manual_customer_name" label="Nome do cliente" rules={[{ required: true, message: 'Informe o nome do cliente' }]}>
                                 <Input placeholder="Nome completo do cliente" />
                             </Form.Item>
-                            <Form.Item name="manual_customer_phone" label="Telefone do cliente" rules={[{ required: true, message: 'Informe o telefone do cliente' }]}>
-                                <Input placeholder="(00) 00000-0000" />
+                            <Form.Item name="manual_customer_phone" label="Telefone do cliente" rules={phoneRules('Informe o telefone do cliente')}>
+                                <Input
+                                    placeholder="(00) 00000-0000"
+                                    maxLength={MAX_PHONE_MASKED_LENGTH}
+                                    onChange={(e) => form.setFieldsValue({ manual_customer_phone: phoneMask(e.target.value) })}
+                                />
                             </Form.Item>
                         </>
                     )}
