@@ -59,7 +59,8 @@ import { computeConsolidatedDRE, type DREItemInput } from '@/utils/consolidated-
 import { ConsolidatedDREBlock } from '@/page-parts/shared/consolidated-dre-block.component'
 import { extractEpicV5DisplayData } from '@/utils/mrm-display-extractor'
 import {
-    STATUS_EXCLUIDO, canDeleteSale, filterDeletedDocuments,
+    STATUS_EXCLUIDO, canDeleteSale, calcularImpactoNoCaixa, filterDeletedDocuments,
+    frasePrimeiraLinha, fraseSegundaLinha,
     TOOLTIP_CANCELAR, TOOLTIP_EXCLUIR,
 } from '@/utils/document-deleted'
 import { useDeletedDocuments } from '@/hooks/use-deleted-documents.hook'
@@ -190,9 +191,12 @@ function Sales() {
     // Filtro "mostrar excluídos": OCULTOS por padrão. Cancelados continuam listados como
     // sempre — cancelar não é excluir.
     const [mostrarExcluidos, setMostrarExcluidos] = useState(false)
-    // Vendas com PAGAMENTO REGISTRADO. O botão Excluir fica desabilitado nelas, com o motivo
-    // no tooltip — botão ativo que falha depois é pior que botão desabilitado que explica.
-    const [vendasComPagamento, setVendasComPagamento] = useState<Set<string>>(new Set())
+    // IMPACTO NO CAIXA por venda — os DOIS números que a confirmação exibe.
+    //
+    // Isto substituiu um `Set` de vendas BLOQUEADAS: a pré-condição de parcela paga SAIU
+    // (mudança de decisão de 09/09/2026), então a tela deixou de precisar saber quem está
+    // bloqueado e passou a precisar saber QUANTO SAI. O que era barreira virou aviso.
+    const [impactoPorVenda, setImpactoPorVenda] = useState<Map<string, { caixa: number; pago: number }>>(new Map())
     const [saleItems, setSaleItems] = useState<SaleItemRow[]>([])
     const [detailItems, setDetailItems] = useState<any[]>([])
     const [saving, setSaving] = useState(false)
@@ -534,19 +538,42 @@ function Sales() {
                 requiresReview: s.requires_review === true,
             }))
             setSales(rows)
-            // Quais vendas têm PAGAMENTO REGISTRADO — decide o botão Excluir desabilitado.
-            // Uma consulta só para a lista inteira, não uma por linha.
-            // O cast segue a convenção do arquivo: os tipos gerados do Supabase não resolvem
-            // `pending_receivables.sale_id`, e sem ele o `tsc` acusa dois erros novos. Com o
-            // disable do lint, a mudança fica neutra nas duas medições.
+            // OS DOIS NÚMEROS DO IMPACTO, em duas consultas para a lista inteira — não uma por
+            // linha. `amount_paid` (o que o sistema diz que foi recebido) e a soma das
+            // `cash_entries` ATIVAS (o que sai do saldo de verdade).
+            //
+            // A consulta anterior filtrava `status = 'PAID'` e servia para BLOQUEAR. Ela tinha um
+            // defeito que a mudança de decisão tornou visível: `amount_paid` de recebível
+            // `PENDING` NÃO ERA CONTADO — a VD-9171FE tem R$ 50.000 pagos com status PENDING e
+            // NUNCA foi bloqueada. Agora o filtro de status saiu, e o que conta é o VALOR.
+            // O cast segue a convenção do arquivo: os tipos gerados não resolvem
+            // `pending_receivables.sale_id`.
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const { data: pagos } = await (supabase as any)
                 .from('pending_receivables')
-                .select('sale_id')
-                .eq('status', 'PAID')
+                .select('sale_id, amount_paid')
                 .eq('is_active', true)
                 .not('sale_id', 'is', null)
-            setVendasComPagamento(new Set(((pagos || []) as { sale_id: string }[]).map((p) => p.sale_id)))
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const { data: lancamentos } = await (supabase as any)
+                .from('cash_entries')
+                .select('origin_id, amount')
+                .eq('origin_type', 'SALE')
+                .eq('is_active', true)
+                .not('origin_id', 'is', null)
+            const impacto = new Map<string, { caixa: number; pago: number }>()
+            const acumula = (id: string, campo: 'caixa' | 'pago', valor: number) => {
+                const atual = impacto.get(id) || { caixa: 0, pago: 0 }
+                atual[campo] += Number(valor) || 0
+                impacto.set(id, atual)
+            }
+            for (const p of (pagos || []) as { sale_id: string; amount_paid: number | null }[]) {
+                acumula(p.sale_id, 'pago', Number(p.amount_paid) || 0)
+            }
+            for (const c of (lancamentos || []) as { origin_id: string; amount: number | null }[]) {
+                acumula(c.origin_id, 'caixa', Number(c.amount) || 0)
+            }
+            setImpactoPorVenda(impacto)
             setProducts(prods || [])
             setCustomers(custs || [])
             setEmployees(emps || [])
@@ -2145,13 +2172,23 @@ function Sales() {
     const confirmDeleteSale = (record: SaleRow) => {
         const oQueSai = [
             'A venda e seus itens.',
-            'Os lançamentos desta venda no fluxo de caixa, incluindo parcelas pendentes.',
+            'Os lançamentos desta venda no fluxo de caixa — INCLUSIVE OS JÁ RECEBIDOS, não só as parcelas pendentes.',
             'A comissão do vendedor e o RT.',
             'Os produtos VOLTAM ao estoque.',
         ]
         if (record.saleType === 'FROM_ORDER') oQueSai.push('O PEDIDO de origem e o ORÇAMENTO dele também são excluídos.')
         else if (record.saleType === 'FROM_BUDGET') oQueSai.push('O ORÇAMENTO de origem também é excluído.')
         oQueSai.push('Sai do relatório de vendas, de comissões, de RT e de todo agregado de faturamento.')
+        // OS DOIS NÚMEROS. A primeira linha sempre aparece; a segunda SÓ quando houver
+        // divergência entre o que sai do caixa e o que está registrado como pago. Informar só um
+        // AFIRMARIA IMPLICITAMENTE que não há mais nada — `ausente-vs-falso.md` aplicado à
+        // confirmação, e é a primeira vez que a classe aparece numa mensagem e não num dado.
+        const bruto = impactoPorVenda.get(record.id) || { caixa: 0, pago: 0 }
+        const impacto = calcularImpactoNoCaixa({
+            somaCashEntriesAtivas: bruto.caixa,
+            somaAmountPaid: bruto.pago,
+        })
+        const linhaDivergencia = fraseSegundaLinha(impacto)
         modalApi.confirm({
             title: 'Excluir permanentemente?',
             content: (
@@ -2160,6 +2197,10 @@ function Sales() {
                     <ul style={{ paddingLeft: 20 }}>
                         {oQueSai.map((m, i) => <li key={i}>{m}</li>)}
                     </ul>
+                    <p style={{ marginTop: 12, fontWeight: 600 }}>{frasePrimeiraLinha(impacto)}</p>
+                    {linhaDivergencia && (
+                        <p style={{ marginTop: 8, color: '#d97706', fontWeight: 600 }}>{linhaDivergencia}</p>
+                    )}
                     <p style={{ marginTop: 12, color: '#dc2626', fontWeight: 600 }}>
                         Irreversível. Não há como desfazer, e nenhum dos três documentos poderá ser editado de novo.
                     </p>
@@ -2488,11 +2529,10 @@ function Sales() {
                         </Button>
                     </Tooltip>
                     {(() => {
-                        // O motivo do bloqueio fica VISÍVEL no tooltip, e o botão desabilitado.
-                        const { allowed, reason } = canDeleteSale({
-                            status: record.status,
-                            hasPaidReceivable: vendasComPagamento.has(record.id),
-                        })
+                        // O botão só fica desabilitado quando a venda JÁ foi excluída. A
+                        // pré-condição de pagamento saiu — o tooltip agora AVISA o que vai
+                        // acontecer em vez de anunciar um bloqueio que não existe mais.
+                        const { allowed, reason } = canDeleteSale({ status: record.status })
                         return (
                             <Tooltip title={allowed ? TOOLTIP_EXCLUIR : reason}>
                                 {/* `span` porque o Tooltip do antd não dispara sobre botão desabilitado. */}
@@ -2732,13 +2772,10 @@ function Sales() {
                                 { key: 'view', label: 'Ver', onClick: () => handleViewDetail(r) },
                                 { key: 'cancel', label: 'Cancelar venda', danger: true, onClick: () => confirmCancelSale(r) },
                             ]
-                            const podeExcluir = canDeleteSale({
-                                status: r.status,
-                                hasPaidReceivable: vendasComPagamento.has(r.id),
-                            })
+                            const podeExcluir = canDeleteSale({ status: r.status })
                             kebabItems.push({
                                 key: 'delete',
-                                label: podeExcluir.allowed ? 'Excluir permanentemente' : 'Excluir (bloqueado: há pagamento)',
+                                label: podeExcluir.allowed ? 'Excluir permanentemente' : 'Excluir (já excluída)',
                                 danger: true,
                                 disabled: !podeExcluir.allowed,
                                 onClick: () => confirmDeleteSale(r),

@@ -82,42 +82,62 @@ describe('O filtro "mostrar excluídos" — ocultos por padrão', () => {
     })
 })
 
-describe('A PRÉ-CONDIÇÃO: só exclui venda SEM pagamento registrado', () => {
+describe('O CRITÉRIO, depois que a pré-condição de pagamento saiu', () => {
     it('PRODUTO sem pagamento: permitido', () => {
-        expect(canDeleteSale({ status: VENDA_PRODUTO.status, hasPaidReceivable: false }))
+        expect(canDeleteSale({ status: VENDA_PRODUTO.status }))
             .toEqual({ allowed: true, reason: null })
     })
 
     it('SERVIÇO sem pagamento: permitido', () => {
-        expect(canDeleteSale({ status: VENDA_SERVICO.status, hasPaidReceivable: false }))
+        expect(canDeleteSale({ status: VENDA_SERVICO.status }))
             .toEqual({ allowed: true, reason: null })
     })
 
-    it('PRODUTO COM pagamento: BLOQUEADO, e o motivo é texto para o usuário ler', () => {
-        const veredito = canDeleteSale({ status: VENDA_PRODUTO.status, hasPaidReceivable: true })
-        expect(veredito.allowed).toBe(false)
-        expect(veredito.reason).toContain('pagamentos registrados')
-        expect(veredito.reason).toContain('Lançamentos a Receber')
+    // ═══════════════════════════════════════════════════════════════════════════════════════
+    // OS TRÊS CASOS ABAIXO SUBSTITUEM CASOS QUE AFIRMAVAM O CONTRÁRIO, e a troca é deliberada.
+    //
+    // Eles diziam que venda com pagamento era BLOQUEADA. Aquilo estava CERTO sob a regra da
+    // época; a decisão de 09/09/2026 REVOGOU a pré-condição. Não é correção de teste errado —
+    // é `.claude/rules/decisao-sob-regra-da-epoca.md`, e é a SEGUNDA mudança de decisão da
+    // mesma rodada (a primeira foi o botão voltar ao popup do Fluxo de Caixa).
+    // ═══════════════════════════════════════════════════════════════════════════════════════
+
+    // RESSALVA DE MÉTODO, e ela custou uma medição: a primeira versão destes dois casos
+    // chamava `canDeleteSale({ status })` sem mais nada — e PASSAVA CONTRA O `origin/main`,
+    // porque lá `hasPaidReceivable` ausente vira `undefined`, que é falsy, e o veredito saía
+    // `allowed: true` do mesmo jeito. Era `teste-que-nao-exercita.md` dentro do próprio teste.
+    //
+    // O que discrimina é passar o campo COM `true`: no `main` isso bloqueia, aqui é ignorado.
+    // O alias tipado abaixo é o que permite passá-lo sem quebrar o `tsc` — o campo NÃO existe
+    // mais na assinatura, e é exatamente isso que se está afirmando.
+    const comCampoAntigo = canDeleteSale as (input: {
+        status?: string | null
+        hasPaidReceivable?: boolean
+    }) => { allowed: boolean; reason: string | null }
+
+    it('PRODUTO COM pagamento: AGORA É EXCLUÍVEL — a pré-condição saiu', () => {
+        expect(comCampoAntigo({ status: VENDA_PRODUTO.status, hasPaidReceivable: true }))
+            .toEqual({ allowed: true, reason: null })
     })
 
-    it('SERVIÇO COM pagamento: BLOQUEADO pelo mesmo motivo', () => {
-        const veredito = canDeleteSale({ status: VENDA_SERVICO.status, hasPaidReceivable: true })
-        expect(veredito.allowed).toBe(false)
-        expect(veredito.reason).toContain('pagamentos registrados')
+    it('SERVIÇO COM pagamento: AGORA É EXCLUÍVEL, pela mesma razão', () => {
+        expect(comCampoAntigo({ status: VENDA_SERVICO.status, hasPaidReceivable: true }))
+            .toEqual({ allowed: true, reason: null })
     })
 
-    it('venda JÁ excluída: bloqueada, e por motivo DIFERENTE do pagamento', () => {
-        const veredito = canDeleteSale({ status: STATUS_EXCLUIDO, hasPaidReceivable: false })
+    it('venda JÁ excluída continua bloqueada — é idempotência, não barreira', () => {
+        // A única condição que sobrou. Sem este caso, `canDeleteSale` viraria uma função que
+        // devolve `true` sempre, e o teste acima passaria sem discriminar coisa nenhuma.
+        const veredito = canDeleteSale({ status: STATUS_EXCLUIDO })
         expect(veredito.allowed).toBe(false)
         expect(veredito.reason).toContain('já foi excluída')
         expect(veredito.reason).not.toContain('pagamentos')
     })
 
-    it('o estado com pagamento e o sem pagamento NÃO dão o mesmo veredito', () => {
-        // A asserção que impede o caso de passar sem discriminar nada.
-        const com = canDeleteSale({ status: 'COMPLETED', hasPaidReceivable: true })
-        const sem = canDeleteSale({ status: 'COMPLETED', hasPaidReceivable: false })
-        expect(com.allowed).not.toBe(sem.allowed)
+    it('o veredito ainda DISCRIMINA — excluída e ativa não dão o mesmo resultado', () => {
+        const excluida = canDeleteSale({ status: STATUS_EXCLUIDO })
+        const ativa = canDeleteSale({ status: 'COMPLETED' })
+        expect(excluida.allowed).not.toBe(ativa.allowed)
     })
 })
 
@@ -149,32 +169,50 @@ describe('A tela de Vendas: botão ao lado do Cancelar, desabilitado quando bloq
         expect(conteudo).toContain('confirmDeleteSale')
     })
 
-    it('o botão é DESABILITADO pelo veredito — não é botão ativo que falha depois', () => {
-        // Afirmar que o botão existe não é afirmar que ele bloqueia. O que este caso trava é
-        // o `disabled` estar ligado ao veredito de `canDeleteSale`, e não a um literal.
+    it('o `disabled` continua ligado ao veredito, não a um literal', () => {
         const conteudo = vendas()
-        expect(conteudo).toContain('canDeleteSale({')
-        expect(conteudo).toContain('hasPaidReceivable: vendasComPagamento.has(record.id)')
+        expect(conteudo).toContain('canDeleteSale({ status: record.status })')
         expect(conteudo).toContain('disabled={!allowed}')
         expect(conteudo).not.toContain('disabled={false}')
     })
 
-    it('as vendas com pagamento são carregadas em UMA consulta, não uma por linha', () => {
+    it('a tela NÃO passa mais `hasPaidReceivable` — o campo saiu do critério', () => {
+        // SUBSTITUI o caso que afirmava a consulta de bloqueio. Este fica vermelho se alguém
+        // reintroduzir a pré-condição pela porta da tela.
+        expect(vendas()).not.toContain('hasPaidReceivable')
+    })
+
+    it('os DOIS números são carregados em duas consultas para a lista inteira', () => {
+        // E o filtro `status = 'PAID'` SAIU: ele ignorava `amount_paid` de recebível PENDING,
+        // que é o caso da VD-9171FE — R$ 50.000 pagos que nunca foram contados.
         const conteudo = vendas()
         expect(conteudo).toContain("from('pending_receivables')")
-        expect(conteudo).toContain("eq('status', 'PAID')")
-        expect(conteudo).toContain('setVendasComPagamento')
+        expect(conteudo).toContain('sale_id, amount_paid')
+        expect(conteudo).toContain("eq('origin_type', 'SALE')")
+        expect(conteudo).toContain('setImpactoPorVenda')
+        // O ponto antes do `eq` é necessário: `.neq('status', 'PAID')`, que a tela usa noutro
+        // lugar, CONTÉM a substring `eq('status', 'PAID')` — uma asserção ingênua acusaria
+        // código que não tem nada a ver com o filtro removido.
+        expect(conteudo).not.toContain(".eq('status', 'PAID')")
     })
 
     it('a confirmação LISTA o que será removido antes de executar', () => {
         const conteudo = vendas()
         const i = conteudo.indexOf('const confirmDeleteSale')
         expect(i).toBeGreaterThanOrEqual(0)
-        const trecho = conteudo.slice(i, i + 2000)
+        const trecho = conteudo.slice(i, i + 3000)
         expect(trecho).toContain('Os produtos VOLTAM ao estoque')
         expect(trecho).toContain('fluxo de caixa')
         expect(trecho).toContain('Irreversível')
         expect(trecho).toContain('Excluir permanentemente?')
+    })
+
+    it('a confirmação exibe a PRIMEIRA linha sempre e a SEGUNDA só na divergência', () => {
+        const conteudo = vendas()
+        expect(conteudo).toContain('frasePrimeiraLinha(impacto)')
+        // O `&&` é o que faz a segunda linha ser OMITIDA quando não há divergência. Trocar por
+        // um texto fixo de "sem divergência" afirmaria uma conferência que não se fez.
+        expect(conteudo).toContain('{linhaDivergencia && (')
     })
 
     it('chama a rota SEPARADA, não a do Cancelar', () => {
