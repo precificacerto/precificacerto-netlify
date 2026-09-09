@@ -51,6 +51,7 @@ const RECEITA_BRUTA_DENOMINATOR_KEYS = new Set([
   'receita_bruta',
   'deducoes_trib', 'das',                            // Simples Nacional / MEI
   'deducoes_trib_receita', 'deducoes_trib_compras',  // Lucro Real / Presumido
+  'deducoes_receita', 'deducoes_devolucoes',          // Devoluções e retenções — DEDUCAO_RECEITA
   'receita_liquida',                                  // All variants
 ])
 
@@ -298,6 +299,7 @@ type AggregatedData = {
   deducaoReceita: MonthlyValues // INSS retido na fonte, ISS retido pelo tomador (LP RET)
   atividadesTerceirizadas: MonthlyValues // Atividades terceirizadas operacionais de entrega (LR / Simples Híbrido — seção cabeçalho DRE)
   impostoPorDentro: MonthlyValues // Impostos sobre o faturamento por dentro: ICMS Próprio, PIS, COFINS (LR / Simples Híbrido)
+  amortizacao: MonthlyValues // Pagamento de PRINCIPAL de dívida — não é despesa operacional
 }
 
 function aggregateEntries(entries: CashEntry[]): AggregatedData {
@@ -317,6 +319,7 @@ function aggregateEntries(entries: CashEntry[]): AggregatedData {
     deducaoReceita: { ...EMPTY_MONTHS },
     atividadesTerceirizadas: { ...EMPTY_MONTHS },
     impostoPorDentro: { ...EMPTY_MONTHS },
+    amortizacao: { ...EMPTY_MONTHS },
   }
 
   // Category keys considered as product cost (CMV) — matches CASHIER_CATEGORY.EXPENSE keys
@@ -416,11 +419,25 @@ function aggregateEntries(entries: CashEntry[]): AggregatedData {
         // IRPJ, CSLL — classificados em impostos, não em despesa variável
         data.imposto[monthKey] += entry.amount
         break
+      case 'AMORTIZACAO':
+        // Pagamento de PRINCIPAL de dívida: saída de caixa que NÃO é despesa operacional.
+        // Entra DEPOIS do resultado operacional, nas três variantes de demonstração.
+        data.amortizacao[monthKey] += entry.amount
+        break
       case 'LUCRO':
-        // Distribuição de lucros / Investimentos — não compõem o DRE de estrutura
+        // Distribuição de lucros / Investimentos — não compõem o DRE de estrutura.
+        // REGISTRADO E NÃO CORRIGIDO nesta rodada: isto descarta 15 lançamentos, R$ 125.318,22
+        // confirmados, dos quais R$ 124.754,26 de "INVESTIMENTOS". Pode ser intencional ou
+        // defeito — é levantamento próprio, e `DFC_GROUPS_QUE_SOMAM` registra a exclusão como
+        // DELIBERADA para que o teste do `default` não a confunda com esquecimento.
         break
       default:
-        // Grupos desconhecidos são silenciosamente ignorados para evitar inflação de despesa variável
+        // Grupos desconhecidos são silenciosamente ignorados para evitar inflação de despesa variável.
+        //
+        // ESTA É A ARMADILHA: um grupo NOVO que não ganhe um `case` acima cai aqui e o valor
+        // DESAPARECE da Análise Financeira, sem erro nenhum. Quem proteje disso é o caso de
+        // teste sobre `DFC_GROUPS_QUE_SOMAM` — ele fica vermelho quando um grupo da fonte única
+        // não soma em lugar nenhum, em vez de o dinheiro sumir da demonstração em silêncio.
         break
     }
   }
@@ -486,6 +503,13 @@ function buildDreLucroRealPresumido(
     receitaLiquida = subtractMonths(receitaBrutaBase, agg.imposto)
   }
 
+  // DEVOLUÇÕES E DEDUÇÕES DA RECEITA — reduzem o FATURAMENTO, não são despesa operacional.
+  // A linha existia SÓ na variante Presumido RET: uma devolução lançada por tenant de outro
+  // regime somava em `agg.deducaoReceita` e NÃO APARECIA em lugar nenhum. Mesmo mecanismo do
+  // `default` silencioso — o grupo era agregado e depois descartado por falta de linha.
+  rows.push(buildRow('deducoes_devolucoes', '(-) Devoluções e Deduções da Receita', agg.deducaoReceita, receitaBrutaBase, { sign: '-', indent: 1 }))
+  receitaLiquida = subtractMonths(receitaLiquida, agg.deducaoReceita)
+
   rows.push(buildRow('receita_liquida', '(=) Receita Líquida de Venda Interna', receitaLiquida, receitaBrutaBase, { isSubtotal: true, sign: '=' }))
 
   // CMV — MO Produtiva sempre aparece como linha separada (independente do calcType)
@@ -525,8 +549,15 @@ function buildDreLucroRealPresumido(
   const resultadoFinanceiro = subtractMonths(lucroOperacional, agg.despesaFinanceira)
   rows.push(buildRow('resultado_financeiro', '(=) Resultado Financeiro', resultadoFinanceiro, receitaBrutaBase, { isSubtotal: true, sign: '=' }))
 
+  // AMORTIZAÇÃO — depois do resultado operacional, porque pagamento de PRINCIPAL de dívida NÃO
+  // é despesa operacional. A regra é DO NEGÓCIO, não do regime: a linha existe nas TRÊS
+  // variantes. Omiti-la numa delas faria o mesmo valor sumir só para um regime — que é a
+  // divergência que `copia-divergente.md` descreve.
+  rows.push(buildRow('amortizacao', '(-) Amortização de Dívida (principal)', agg.amortizacao, receitaBrutaBase, { sign: '-' }))
+
   // Lucro Líquido (sem estimativa de IRPJ/CSLL — usa apenas valores reais do HUB)
-  rows.push(buildRow('lucro_liquido', '(=) Lucro Líquido', resultadoFinanceiro, receitaBrutaBase, { isTotal: true, sign: '=' }))
+  const lucroLiquidoLr = subtractMonths(resultadoFinanceiro, agg.amortizacao)
+  rows.push(buildRow('lucro_liquido', '(=) Lucro Líquido', lucroLiquidoLr, receitaBrutaBase, { isTotal: true, sign: '=' }))
 
   return rows
 }
@@ -541,7 +572,9 @@ function buildDrePresumidoRET(agg: AggregatedData): DreRow[] {
 
   // Deduções da Receita Bruta (INSS retido na fonte + ISS retido pelo tomador)
   const deducoesReceita = agg.deducaoReceita
-  rows.push(buildRow('deducoes_receita', '(-) Deduções da Receita Bruta', deducoesReceita, receitaBruta, { sign: '-', indent: 1 }))
+  // Esta variante JÁ tinha a linha — o rótulo passa a nomear as devoluções, que agora entram
+  // aqui pelo mesmo grupo `DEDUCAO_RECEITA` das retenções na fonte.
+  rows.push(buildRow('deducoes_receita', '(-) Devoluções e Deduções da Receita Bruta', deducoesReceita, receitaBruta, { sign: '-', indent: 1 }))
   rows.push(buildRow('inss_retido', '(-) INSS Retido na Fonte (11%)', { ...EMPTY_MONTHS }, receitaBruta, { sign: '-', indent: 2 }))
   rows.push(buildRow('iss_retido', '(-) ISS Retido pelo Tomador', { ...EMPTY_MONTHS }, receitaBruta, { sign: '-', indent: 2 }))
 
@@ -573,7 +606,16 @@ function buildDrePresumidoRET(agg: AggregatedData): DreRow[] {
 
   rows.push(buildRow('desp_financeira', '(-) Despesas Financeiras', agg.despesaFinanceira, receitaBruta, { sign: '-' }))
 
-  const lucroLiquido = subtractMonths(resultadoAntesImposto, agg.despesaFinanceira)
+  // AMORTIZAÇÃO — depois do resultado operacional, porque pagamento de PRINCIPAL de dívida NÃO
+  // é despesa operacional. A regra é DO NEGÓCIO, não do regime: a linha existe nas TRÊS
+  // variantes. Omiti-la numa delas faria o mesmo valor sumir só para um regime — que é a
+  // divergência que `copia-divergente.md` descreve.
+  rows.push(buildRow('amortizacao', '(-) Amortização de Dívida (principal)', agg.amortizacao, receitaBruta, { sign: '-' }))
+
+  const lucroLiquido = subtractMonths(
+    subtractMonths(resultadoAntesImposto, agg.despesaFinanceira),
+    agg.amortizacao,
+  )
   rows.push(buildRow('lucro_liquido', '(=) Lucro/Prejuízo Líquido do Período', lucroLiquido, receitaBruta, { isTotal: true, sign: '=' }))
 
   return rows
@@ -592,7 +634,13 @@ function buildDreSimplesNacional(agg: AggregatedData, _calcType: CalcType): DreR
   rows.push(buildRow('deducoes_trib', '(-) Deduções Tributárias', das, receitaBruta, { sign: '-', indent: 1 }))
   rows.push(buildRow('das', '(-) DAS / Impostos do Regime (pago)', das, receitaBruta, { sign: '-', indent: 2 }))
 
-  const receitaLiquida = subtractMonths(receitaBruta, das)
+  // DEVOLUÇÕES E DEDUÇÕES DA RECEITA — reduzem o FATURAMENTO, não são despesa operacional.
+  // A linha existia SÓ na variante Presumido RET: uma devolução lançada por tenant de outro
+  // regime somava em `agg.deducaoReceita` e NÃO APARECIA em lugar nenhum. Mesmo mecanismo do
+  // `default` silencioso — o grupo era agregado e depois descartado por falta de linha.
+  rows.push(buildRow('deducoes_devolucoes', '(-) Devoluções e Deduções da Receita', agg.deducaoReceita, receitaBruta, { sign: '-', indent: 1 }))
+
+  const receitaLiquida = subtractMonths(subtractMonths(receitaBruta, das), agg.deducaoReceita)
   rows.push(buildRow('receita_liquida', '(=) Receita Líquida', receitaLiquida, receitaBruta, { isSubtotal: true, sign: '=' }))
 
   // CMV — MO Produtiva sempre aparece como linha separada (independente do calcType)
@@ -620,7 +668,16 @@ function buildDreSimplesNacional(agg: AggregatedData, _calcType: CalcType): DreR
 
   rows.push(buildRow('desp_financeira', '(-) Despesas Financeiras', agg.despesaFinanceira, receitaBruta, { sign: '-' }))
 
-  const lucroLiquido = subtractMonths(lucroOperacional, agg.despesaFinanceira)
+  // AMORTIZAÇÃO — depois do resultado operacional, porque pagamento de PRINCIPAL de dívida NÃO
+  // é despesa operacional. A regra é DO NEGÓCIO, não do regime: a linha existe nas TRÊS
+  // variantes. Omiti-la numa delas faria o mesmo valor sumir só para um regime — que é a
+  // divergência que `copia-divergente.md` descreve.
+  rows.push(buildRow('amortizacao', '(-) Amortização de Dívida (principal)', agg.amortizacao, receitaBruta, { sign: '-' }))
+
+  const lucroLiquido = subtractMonths(
+    subtractMonths(lucroOperacional, agg.despesaFinanceira),
+    agg.amortizacao,
+  )
   rows.push(buildRow('lucro_liquido', '(=) Lucro Líquido', lucroLiquido, receitaBruta, { isTotal: true, sign: '=' }))
 
   return rows

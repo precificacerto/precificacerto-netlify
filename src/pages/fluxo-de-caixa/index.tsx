@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import {
     Button, DatePicker, Space, message, Alert,
-    Form, Input, InputNumber, Drawer, Modal, Table, Tag, Radio, Popconfirm,
+    Form, Input, InputNumber, Drawer, Modal, Table, Tag, Radio, Popconfirm, Tooltip,
 } from 'antd'
 import { Select } from '@/components/ui/app-select.component'
 import { CurrencyInput } from '@/components/currency-input.component'
@@ -193,6 +193,7 @@ export default function CashFlow() {
     // Payment modal state
     const [paymentModalOpen, setPaymentModalOpen] = useState(false)
     const [paymentEntry, setPaymentEntry] = useState<any>(null)
+    const [excluindoVenda, setExcluindoVenda] = useState(false)
     const [paymentDate, setPaymentDate] = useState<dayjs.Dayjs | null>(null)
     const [paymentDueDate, setPaymentDueDate] = useState<dayjs.Dayjs | null>(null)
     const [paymentMethodModal, setPaymentMethodModal] = useState<string>('')
@@ -285,6 +286,47 @@ export default function CashFlow() {
         setPaymentMethodModal(entry.payment_method || '')
         setPaymentAmount(Number(entry.amount) || 0)
         setPaymentModalOpen(true)
+    }
+
+    /**
+     * EXCLUIR A VENDA a partir do Fluxo de Caixa.
+     *
+     * NÃO É ROTA NOVA: é a MESMA `/api/delete/sales-permanent` da tela de Vendas, com a mesma
+     * `delete_sale_cascade`, a mesma pré-condição de parcela paga e o mesmo efeito em cadeia.
+     * A ação é uma só, acessível de dois pontos — e é por isso que ela chama a rota existente
+     * em vez de ganhar uma cópia. `.claude/rules/copia-divergente.md`.
+     *
+     * ISTO NÃO É "REVERTER O #52". O botão que aquele PR removeu daqui chamava
+     * `/api/delete/cash-entries` e apagava O LANÇAMENTO; este chama `delete_sale_cascade` e
+     * apaga A CADEIA. Mesmo rótulo, mesmo lugar, AÇÃO DIFERENTE. A decisão da época era que a
+     * exclusão de venda existiria só em Vendas, e ela mudou — é `decisao-sob-regra-da-epoca.md`:
+     * não houve erro no #52, houve mudança de critério.
+     */
+    const handleExcluirVendaDoLancamento = async () => {
+        const saleId = paymentEntry?.origin_id
+        if (!saleId) return
+        setExcluindoVenda(true)
+        try {
+            const res = await fetch('/api/delete/sales-permanent', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: saleId }),
+            })
+            const result = await res.json()
+            if (res.status === 409) {
+                messageApi.warning(result.error || 'Esta venda possui pagamentos registrados.')
+                return
+            }
+            if (!res.ok) throw new Error(result.error || 'Erro ao excluir')
+            messageApi.success('Venda excluída. Os lançamentos dela saíram do caixa.')
+            setPaymentModalOpen(false)
+            setPaymentEntry(null)
+            await fetchData()
+        } catch (error: unknown) {
+            messageApi.error(error instanceof Error ? error.message : 'Erro ao excluir venda')
+        } finally {
+            setExcluindoVenda(false)
+        }
     }
 
     const handleCancelPayment = async () => {
@@ -1736,6 +1778,41 @@ export default function CashFlow() {
                                 Eram cinco no levantamento, e o quinto era este handler — ou seja
                                 a tela do Fluxo de Caixa deixa de chamá-la por completo. A rota
                                 fica pelos outros quatro; o que saiu foi o botão e o handler dele. */}
+                            {/* EXCLUIR A VENDA — só quando o lançamento VEIO de uma venda.
+                                Em lançamento MANUAL não há venda a excluir, e um botão que não
+                                tem o que fazer é pior que botão ausente: ele afirma que a ação
+                                existe ali. `.claude/rules/ausente-vs-falso.md`.
+                                O Popconfirm é o mesmo nos dois tamanhos de tela — esta página
+                                não tem cartão mobile, então a assimetria que o #56 achou em
+                                Clientes não se aplica aqui; há um ponto só, e ele pergunta. */}
+                            {paymentEntry.origin_type === 'SALE' && paymentEntry.origin_id && (
+                                <Popconfirm
+                                    title="Excluir a venda inteira?"
+                                    description={
+                                        <div style={{ maxWidth: 340 }}>
+                                            <p style={{ marginBottom: 6 }}>É a MESMA exclusão da tela de Vendas. Serão removidos:</p>
+                                            <ul style={{ paddingLeft: 18, marginBottom: 6 }}>
+                                                <li>a venda e seus itens;</li>
+                                                <li>todos os lançamentos dela no caixa, inclusive as parcelas pendentes;</li>
+                                                <li>a comissão do vendedor e o RT;</li>
+                                                <li>o pedido e o orçamento de origem, quando houver.</li>
+                                            </ul>
+                                            <p style={{ marginBottom: 0 }}>Os produtos voltam ao estoque.</p>
+                                            <p style={{ marginTop: 6, marginBottom: 0, color: '#dc2626', fontWeight: 600 }}>
+                                                Irreversível. Venda com pagamento registrado é bloqueada.
+                                            </p>
+                                        </div>
+                                    }
+                                    onConfirm={handleExcluirVendaDoLancamento}
+                                    okText="Sim, excluir a venda"
+                                    cancelText="Voltar"
+                                    okButtonProps={{ danger: true }}
+                                >
+                                    <Tooltip title="Exclui a venda de origem e toda a cadeia. Venda com pagamento registrado não pode ser excluída.">
+                                        <Button danger loading={excluindoVenda}>Excluir venda</Button>
+                                    </Tooltip>
+                                </Popconfirm>
+                            )}
                             {paymentEntry.paid_date && (
                                 <Popconfirm
                                     title={paymentEntry.type === 'INCOME' ? 'Desfazer confirmação?' : 'Cancelar pagamento?'}

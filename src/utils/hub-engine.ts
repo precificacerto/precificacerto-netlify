@@ -1,4 +1,5 @@
 import { supabase } from '@/supabase/client'
+import { HUB_GROUPS as HUB_GROUPS_FONTE } from '@/constants/expense-groups'
 import { CASHIER_CATEGORY } from '@/constants/cashier-category'
 
 export interface HubMonthData {
@@ -74,26 +75,10 @@ const CATEGORY_ORDER_MAP: Record<string, number> = Object.fromEntries(
   Object.values(CASHIER_CATEGORY.EXPENSE).map((c: any) => [c.key, c.order ?? 999])
 )
 
-// Ordem e labels dos grupos exibidos no Hub — alinhada com GROUP_ORDER do fluxo de caixa
-const HUB_GROUPS: { group: string; label: string }[] = [
-  { group: 'CUSTO_PRODUTOS',              label: 'Custo dos Produtos' },
-  { group: 'MAO_DE_OBRA_PRODUTIVA',       label: 'MO Produtiva' },
-  { group: 'MAO_DE_OBRA_ADMINISTRATIVA',  label: 'MO Administrativa (Indireta)' },
-  { group: 'MAO_DE_OBRA',                 label: 'MO (Legado)' }, // retrocompat
-  { group: 'DESPESA_FIXA',                label: 'Despesas Fixas' },
-  { group: 'DESPESA_VARIAVEL',            label: 'Despesas Variáveis' },
-  { group: 'ATIVIDADES_TERCEIRIZADAS',    label: 'Atividades Terceirizadas' },
-  { group: 'DESPESA_FINANCEIRA',          label: 'Despesas Financeiras' },
-  { group: 'COMISSOES',                   label: 'Comissões' },
-  { group: 'RESERVA_TECNICA',             label: 'RT — Comissão Reserva Técnica' },
-  { group: 'LUCRO',                       label: 'Lucro / Investimentos' },
-  { group: 'IMPOSTO_LUCRO',              label: 'Impostos sobre o Lucro' },
-  { group: 'IMPOSTO_FATURAMENTO_DENTRO', label: 'Impostos sobre o Faturamento (Por dentro)' },
-  { group: 'IMPOSTO',                     label: 'Impostos sobre o Faturamento (Por fora)' },
-  { group: 'REGIME_TRIBUTARIO',           label: 'Tributos do Regime' },
-  { group: 'DEDUCAO_RECEITA',             label: 'Deduções da Receita' },
-  { group: 'OUTROS',                      label: 'Outros' },
-]
+// Ordem e labels dos grupos exibidos no Hub — DERIVADOS de `expense-groups.ts`, a fonte única.
+// Esta lista era uma das CINCO cópias divergentes, e era a única que tinha `DEDUCAO_RECEITA` e
+// `OUTROS`. `.claude/rules/copia-divergente.md`.
+const HUB_GROUPS = HUB_GROUPS_FONTE
 
 /**
  * Calcula os dados do Hub incluindo o mês atual (até o fim do mês corrente).
