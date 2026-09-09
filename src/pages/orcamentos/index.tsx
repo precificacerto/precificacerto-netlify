@@ -23,6 +23,7 @@ import {
     UnorderedListOutlined, FilePdfOutlined, MoreOutlined,
 } from '@ant-design/icons'
 import { useDevice } from '@/contexts/device.context'
+import { MAX_PHONE_MASKED_LENGTH, phoneMask, phoneRules } from '@/utils/phone-br'
 // Onda 3 / CRÍT-perf: exportTableToPdf (jsPDF ~100KB) via dynamic import no callback.
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import { CurrencyInput } from '@/components/currency-input.component'
@@ -1136,10 +1137,17 @@ function Budgets() {
                     setSaving(false)
                     return
                 }
+                // COLUNA CANÔNICA É `whatsapp_phone`, não `phone` — decisão de 08/09/2026.
+                // Este caminho gravava em `phone`, e a tela de Clientes LÊ `whatsapp_phone`: por
+                // isso o cliente criado aqui aparecia com o telefone EM BRANCO no cadastro.
+                // `whatsapp_phone` é a canônica por ser a que a tela já lê e por ter o dado mais
+                // limpo (zero não-dígitos, 9 a 11 caracteres, contra 63 de 79 inválidos em `phone`).
+                // Os 89 registros com telefone espalhado nas duas colunas FICAM COMO ESTÃO: a
+                // migração de dados é rodada própria. Daqui pra frente grava certo.
                 const { data: newCustomer, error: custErr } = await supabase.from('customers').insert({
                     tenant_id,
                     name: manualName,
-                    phone: manualPhone,
+                    whatsapp_phone: manualPhone,
                     customer_type: 'PF',
                     status: 'ACTIVE',
                 }).select('id').single()
@@ -1340,10 +1348,17 @@ function Budgets() {
                 const manualName = (values.manual_customer_name || '').trim()
                 const manualPhone = (values.manual_customer_phone || '').trim()
                 if (manualName && manualPhone && tenantId) {
+                    // COLUNA CANÔNICA É `whatsapp_phone`, não `phone` — decisão de 08/09/2026.
+                    // Este caminho gravava em `phone`, e a tela de Clientes LÊ `whatsapp_phone`: por
+                    // isso o cliente criado aqui aparecia com o telefone EM BRANCO no cadastro.
+                    // `whatsapp_phone` é a canônica por ser a que a tela já lê e por ter o dado mais
+                    // limpo (zero não-dígitos, 9 a 11 caracteres, contra 63 de 79 inválidos em `phone`).
+                    // Os 89 registros com telefone espalhado nas duas colunas FICAM COMO ESTÃO: a
+                    // migração de dados é rodada própria. Daqui pra frente grava certo.
                     const { data: newCustomer, error: custErr } = await supabase.from('customers').insert({
                         tenant_id: tenantId,
                         name: manualName,
-                        phone: manualPhone,
+                        whatsapp_phone: manualPhone,
                         customer_type: 'PF',
                         status: 'ACTIVE',
                     }).select('id').single()
@@ -2895,9 +2910,13 @@ function Budgets() {
                             <Form.Item
                                 name="manual_customer_phone"
                                 label="Telefone do cliente (manual)"
-                                rules={[{ required: true, message: 'Informe o telefone do cliente' }]}
+                                rules={phoneRules('Informe o telefone do cliente')}
                             >
-                                <Input placeholder="(00) 00000-0000" />
+                                <Input
+                                    placeholder="(00) 00000-0000"
+                                    maxLength={MAX_PHONE_MASKED_LENGTH}
+                                    onChange={(e) => form.setFieldsValue({ manual_customer_phone: phoneMask(e.target.value) })}
+                                />
                             </Form.Item>
                         </>
                     )}

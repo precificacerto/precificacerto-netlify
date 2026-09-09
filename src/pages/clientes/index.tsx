@@ -11,6 +11,7 @@ import {
 } from '@/utils/customer-history-status'
 import { buildOriginLines, type OriginLine } from '@/utils/document-origin-link'
 import { buildChainIndex, type SiblingInfo } from '@/utils/customer-history-chain'
+import { MAX_PHONE_MASKED_LENGTH, phoneMask, phoneRules } from '@/utils/phone-br'
 import { Button, Drawer, Dropdown, Form, Input, InputNumber, Modal, Space, Switch, Table, Tag, message, Popconfirm, Spin, Tooltip } from 'antd'
 import { Select } from '@/components/ui/app-select.component'
 import type { ColumnsType } from 'antd/es/table'
@@ -50,13 +51,6 @@ const segments = ['Alimentício', 'Varejo', 'Tecnologia', 'Serviços', 'Indústr
 
 const capitalizeFirst = (value: string) =>
     value.charAt(0).toUpperCase() + value.slice(1)
-
-const phoneMask = (value: string) => {
-    const digits = value.replace(/\D/g, '').slice(0, 11)
-    if (digits.length <= 2) return `(${digits}`
-    if (digits.length <= 7) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`
-    return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`
-}
 
 const typeLabels: Record<CustomerType, { label: string; color: string }> = {
     PF: { label: 'Pessoa Física', color: 'green' },
@@ -704,9 +698,23 @@ function Clients() {
                                 <Button type="link" size="small" disabled>Editar</Button>
                             </Tooltip>
                         )}
+                        {/* "Desativar" prometia REVERSIBILIDADE QUE NÃO EXISTE: a ação já era soft
+                            delete (`is_active = false`, nunca DELETE físico) e já era irreversível na
+                            prática, porque `useCustomers` filtra `is_active = true` e NÃO HÁ TELA DE
+                            REATIVAÇÃO. Renomear não muda comportamento — TORNA O RÓTULO HONESTO SOBRE O
+                            QUE JÁ ACONTECE. É `ausente-vs-falso.md` visto do lado do RÓTULO: ele afirmava
+                            um estado reversível que o sistema não oferece.
+                            Sinal de que a descrição já estava divergindo: o tooltip do ramo sem permissão
+                            JÁ DIZIA "excluir" enquanto o botão dizia "Desativar". */}
                         {allowed ? (
-                            <Popconfirm title="Desativar cliente?" onConfirm={() => handleDelete(record.id)}>
-                                <Button type="link" size="small" danger>Desativar</Button>
+                            <Popconfirm
+                                title="Excluir cliente?"
+                                description="O cliente sai das listagens e não há como reativá-lo. Os documentos dele permanecem."
+                                okText="Excluir"
+                                cancelText="Cancelar"
+                                onConfirm={() => handleDelete(record.id)}
+                            >
+                                <Button type="link" size="small" danger>Excluir</Button>
                             </Popconfirm>
                         ) : (
                             <Tooltip title="Somente o responsável pode excluir este cliente">
@@ -742,12 +750,12 @@ function Clients() {
                 body: JSON.stringify({ id }),
             })
             const result = await res.json()
-            if (!res.ok) throw new Error(result.error || 'Erro ao desativar')
+            if (!res.ok) throw new Error(result.error || 'Erro ao excluir')
             await reloadCustomers()
-            messageApi.success('Cliente desativado!')
+            messageApi.success('Cliente excluído!')
         } catch (error: any) {
-            console.error('Erro ao desativar:', error)
-            messageApi.error('Erro ao desativar: ' + error.message)
+            console.error('Erro ao excluir:', error)
+            messageApi.error('Erro ao excluir: ' + error.message)
         }
     }
 
@@ -1201,10 +1209,24 @@ function Clients() {
                                     },
                                     {
                                         key: 'del',
-                                        label: 'Desativar',
+                                        label: 'Excluir',
                                         danger: true,
                                         disabled: !allowed,
-                                        onClick: () => { if (allowed) handleDelete(record.id) },
+                                        // O cartão mobile não tem Popconfirm; sem este `Modal.confirm` a
+                                        // exclusão aconteceria SEM CONFIRMAÇÃO NENHUMA — e a ação é
+                                        // irreversível. `copia-divergente.md`: são dois pontos montando a
+                                        // mesma ação, e um deles não pode ficar sem a barreira do outro.
+                                        onClick: () => {
+                                            if (!allowed) return
+                                            Modal.confirm({
+                                                title: 'Excluir cliente?',
+                                                content: 'O cliente sai das listagens e não há como reativá-lo. Os documentos dele permanecem.',
+                                                okText: 'Excluir',
+                                                okButtonProps: { danger: true },
+                                                cancelText: 'Cancelar',
+                                                onOk: () => handleDelete(record.id),
+                                            })
+                                        },
                                     },
                                 ]
                                 return (
@@ -1319,11 +1341,25 @@ function Clients() {
                         <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
                             <WhatsAppOutlined style={{ color: '#25D366' }} /> WhatsApp para Disparos
                         </div>
-                        <Form.Item name="whatsapp_phone" label="Número WhatsApp" style={{ marginBottom: 0 }} rules={[{ required: true, message: 'Informe o WhatsApp para disparos' }]}>
-                            <Input placeholder="(00) 00000-0000" maxLength={15} onChange={(e) => form.setFieldsValue({ whatsapp_phone: phoneMask(e.target.value) })} />
+                        <Form.Item
+                            name="whatsapp_phone"
+                            label="Número WhatsApp"
+                            style={{ marginBottom: 0 }}
+                            rules={phoneRules('Informe o WhatsApp para disparos')}
+                        >
+                            <Input
+                                placeholder="(00) 00000-0000"
+                                maxLength={MAX_PHONE_MASKED_LENGTH}
+                                onChange={(e) => form.setFieldsValue({ whatsapp_phone: phoneMask(e.target.value) })}
+                            />
                         </Form.Item>
                         <div style={{ fontSize: 11, color: 'var(--color-neutral-400)', marginTop: 4 }}>
-                            Formato: DDI + DDD + Número (ex: 5551999990000). Usado para lembretes e envio de orçamentos.
+                            {/* O texto anterior pedia "DDI + DDD + Número (ex: 5551999990000)" e CONTRADIZIA a
+                                máscara, que corta em 11 dígitos. Quem manda é o envio: `normalizePhoneBR`
+                                acrescenta o `55` sozinho quando o número tem até 11 dígitos. Guardar com DDI
+                                faria o número cair no ramo errado da normalização. */}
+                            Formato: DDD + número (ex: (51) 99999-0000). Usado para lembretes e envio de
+                            orçamentos — o código do país é acrescentado no envio.
                         </div>
                     </div>
 
