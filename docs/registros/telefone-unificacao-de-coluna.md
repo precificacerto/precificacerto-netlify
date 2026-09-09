@@ -73,6 +73,42 @@ medição em vez de a um teste.
 - a ressalva do `raw`: ele **normaliza a indentação**, então o `md5` não é reproduzível por esse
   caminho — ele prova o CONTEÚDO revisado, não a aplicação.
 
+## O defeito do DDI: ARMADO E NÃO MATERIALIZADO — zero registros
+
+O texto de ajuda do cadastro pedia "DDI + DDD + Número (ex: 5551999990000)" e contradizia a
+máscara, que corta em 11 dígitos. **Verificado nos 24 `whatsapp_phone` preenchidos: NENHUM
+começa com `55`, e nenhum tem 12 ou 13 dígitos.** Ninguém chegou a digitar o DDI, e o envio,
+que acrescenta o `55` sozinho, funciona para os 11 números reais.
+
+O texto foi corrigido, mas **não houve dado a consertar** — o risco existia e não se
+materializou. Fica o número: **zero**.
+
+## Achado adjacente: 14 dos 24 `whatsapp_phone` NÃO SÃO TELEFONE
+
+Dos 24 preenchidos:
+
+| | |
+|---|---:|
+| **nove dígitos, todos o placeholder `999999999`** | **13** |
+| `51000000000` — outro placeholder, no cliente "Todos" | 1 |
+| onze dígitos plausíveis (DDD + nove) | **10** |
+
+Os treze do `999999999`: `[TESTE] Cliente Diagnostico`, `Alex Sandro F`, `Alexandre Poa`,
+`Carmo`, `Feriado`, `Inova casa`, `Marcelo Marcan`, `Marco Antonio`, `Matheus`, `Mellody`,
+`Nei Schineider`, `Paulo Arq Thiana`, `Sobrados teste`.
+Os plausíveis: `Daniel Gehln 51995730813`, `Felipe Klein 51999114290`,
+`Julio Cadilac 51998569384`, `Mateus T 48984529779`, `Mayder 51998864066`,
+`Michele 51999114290`, `Patrick Bitelo 51996515449`, `Suelen Botelho 51986100304`,
+`Wfjnrjn 51999114290`.
+
+**É mais um caso de DADO FALSO OCUPANDO O LUGAR DE DADO AUSENTE**, e o mais literal deles:
+`999999999` **afirma um telefone que não existe**, enquanto `NULL` não afirmaria nada. O campo
+era obrigatório e sem validação — a saída mais barata para o usuário era inventar um número, e
+foi o que aconteceu em 14 de 24 casos. `.claude/rules/ausente-vs-falso.md`.
+
+Isso reforça as duas decisões da rodada: a máscara (que agora recusa nove dígitos) e a coluna
+canônica.
+
 ## O que este registro NÃO cobre
 
 O `customers.status`, que está `ACTIVE` em **todos os 89** registros e nunca foi usado para
