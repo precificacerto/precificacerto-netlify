@@ -63,30 +63,108 @@ export function filterDeletedDocuments<T extends DocumentWithStatus>(
 /**
  * `true` quando a venda pode ser EXCLUÍDA.
  *
- * A pré-condição é uma só: NENHUM PAGAMENTO REGISTRADO. Havendo qualquer parcela paga, o
- * botão fica DESABILITADO com o motivo visível — botão ativo que falha depois é pior que
- * botão desabilitado que explica. `delete_sale_cascade` repete a checagem no banco, porque
- * uma UI não é uma garantia.
+ * A PRÉ-CONDIÇÃO DE PAGAMENTO SAIU — MUDANÇA DE DECISÃO, NÃO CORREÇÃO
+ * -------------------------------------------------------------------
+ * Até 09/09/2026 havia uma pré-condição: venda com parcela paga não era excluível, e o botão
+ * ficava desabilitado com o motivo no tooltip. **Aquilo estava CERTO sob a regra da época** —
+ * `.claude/rules/decisao-sob-regra-da-epoca.md`. A regra mudou: venda com pagamento registrado
+ * PODE ser excluída, e o dinheiro sai do caixa junto.
+ *
+ * É coerente com o conceito que o #52 fixou: excluir é como se a evolução NUNCA TIVESSE
+ * CHEGADO ALI. Se a venda nunca existiu, o dinheiro dela nunca entrou — o saldo do mês diminui.
+ *
+ * O que sobra é a única condição que continua fazendo sentido: **não excluir o que já está
+ * excluído**. Idempotência, não bloqueio.
  */
 export function canDeleteSale(input: {
     status?: string | null
-    hasPaidReceivable: boolean
 }): { allowed: boolean; reason: string | null } {
     if (isDeletedDocument(input)) {
         return { allowed: false, reason: 'Esta venda já foi excluída.' }
     }
-    if (input.hasPaidReceivable) {
-        return {
-            allowed: false,
-            reason:
-                'Esta venda possui pagamentos registrados e não pode ser excluída. Cancele os recebimentos em Lançamentos a Receber antes.',
-        }
-    }
     return { allowed: true, reason: null }
+}
+
+/**
+ * O IMPACTO NO CAIXA de excluir uma venda — DOIS números, e a razão de serem dois.
+ *
+ * `valorQueSaiDoCaixa` é a soma das `cash_entries` ATIVAS da venda: é o que a exclusão
+ * REALMENTE tira do saldo. `valorRegistradoComoPago` é o `amount_paid` dos recebíveis: é o que
+ * o sistema DIZ que foi recebido.
+ *
+ * QUANDO OS DOIS DIVERGEM, OS DOIS APARECEM — e este é o critério:
+ *
+ * > Um número só estaria CERTO sobre uma coisa e MUDO sobre a outra.
+ *
+ * Medido em 09/09/2026: a venda VD-9171FE tem R$ 50.000,00 de `amount_paid` e ZERO
+ * `cash_entries` ativas. Dizer "R$ 0,00 saem do caixa" é VERDADE e SOA FALSO para quem sabe do
+ * pagamento — informar só isso **afirmaria implicitamente que não há mais nada**.
+ *
+ * É `.claude/rules/ausente-vs-falso.md` aplicado a um DIÁLOGO DE CONFIRMAÇÃO, e é a primeira
+ * vez que a classe aparece numa mensagem em vez de num dado: a omissão do segundo número não
+ * seria neutra, seria uma afirmação sobre o que não foi dito.
+ */
+export interface ImpactoNoCaixa {
+    /** Soma das `cash_entries` ativas — o que sai do saldo de verdade. */
+    valorQueSaiDoCaixa: number
+    /** Soma de `pending_receivables.amount_paid` — o que o sistema diz que foi recebido. */
+    valorRegistradoComoPago: number
+    /** `true` quando os dois divergem: há pagamento registrado sem lançamento correspondente. */
+    haDivergencia: boolean
+    /** A diferença, para a mensagem não obrigar quem lê a fazer a conta. */
+    valorSemLancamento: number
+}
+
+/** Tolerância de centavo: divergência de arredondamento não é divergência de fato. */
+const CENTAVO = 0.005
+
+export function calcularImpactoNoCaixa(input: {
+    somaCashEntriesAtivas: number
+    somaAmountPaid: number
+}): ImpactoNoCaixa {
+    const sai = Number(input.somaCashEntriesAtivas) || 0
+    const pago = Number(input.somaAmountPaid) || 0
+    const diferenca = pago - sai
+    return {
+        valorQueSaiDoCaixa: sai,
+        valorRegistradoComoPago: pago,
+        // Só a divergência PARA MAIS interessa: pagamento registrado que o caixa não tem. O
+        // contrário (caixa maior que o registrado) é outra história e não é o que se afirma aqui.
+        haDivergencia: diferenca > CENTAVO,
+        valorSemLancamento: diferenca > CENTAVO ? diferenca : 0,
+    }
+}
+
+const brl = (v: number) =>
+    new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v)
+
+/** A primeira linha: o que sai do caixa. Sempre presente, mesmo quando for zero. */
+export function frasePrimeiraLinha(impacto: ImpactoNoCaixa): string {
+    return impacto.valorQueSaiDoCaixa > CENTAVO
+        ? `${brl(impacto.valorQueSaiDoCaixa)} SAEM DO CAIXA — o saldo do período diminui nesse valor.`
+        : 'Nenhum lançamento ativo no caixa: o saldo não muda com esta exclusão.'
+}
+
+/**
+ * A segunda linha: só quando houver divergência. `null` quando não houver.
+ *
+ * Devolver `null` em vez de string vazia é deliberado: a tela OMITE o bloco, e omitir não
+ * afirma nada. Uma linha dizendo "sem divergência" afirmaria uma conferência que não se fez.
+ */
+export function fraseSegundaLinha(impacto: ImpactoNoCaixa): string | null {
+    if (!impacto.haDivergencia) return null
+    return (
+        `Atenção: há ${brl(impacto.valorRegistradoComoPago)} registrados como recebidos nesta venda, ` +
+        `mas ${brl(impacto.valorSemLancamento)} disso NÃO TÊM lançamento de caixa correspondente — ` +
+        'esse valor não sairá do saldo porque nunca entrou nele.'
+    )
 }
 
 /** O texto do tooltip que distingue as duas ações na coluna Ações de Vendas. */
 export const TOOLTIP_CANCELAR =
     'Cancelar retorna o documento à etapa anterior e permite retomá-lo.'
+// O tooltip deixou de avisar sobre BLOQUEIO e passou a avisar O QUE VAI ACONTECER — a
+// pré-condição saiu, e o texto que a anunciava seria uma promessa falsa.
 export const TOOLTIP_EXCLUIR =
-    'Excluir remove permanentemente a venda e a cadeia que a originou (pedido e orçamento). Estoque volta, lançamentos do caixa saem. Não há desfazer.'
+    'Excluir remove permanentemente a venda e a cadeia que a originou (pedido e orçamento). ' +
+    'Estoque volta; os lançamentos do caixa saem, INCLUSIVE OS JÁ RECEBIDOS, e o saldo diminui. Não há desfazer.'
