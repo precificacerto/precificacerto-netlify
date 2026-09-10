@@ -19,12 +19,12 @@ type TaxRegime = 'LUCRO_REAL' | 'LUCRO_PRESUMIDO' | 'SIMPLES_NACIONAL' | 'SIMPLE
 
 type CalcType = 'INDUSTRIALIZATION' | 'RESALE' | 'SERVICE' | string
 
-type MonthlyValues = {
+export type MonthlyValues = {
   jan: number; feb: number; mar: number; apr: number; may: number; jun: number
   jul: number; aug: number; sep: number; oct: number; nov: number; dec: number
 }
 
-type DreRow = {
+export type DreRow = {
   key: string
   label: string
   values: MonthlyValues
@@ -282,7 +282,7 @@ async function fetchTenantSettings(tenantId: string): Promise<TenantSettingsResu
 
 // ── Aggregate entries into MonthlyValues by groups ──
 
-type AggregatedData = {
+export type AggregatedData = {
   receitaBruta: MonthlyValues
   // expense groups
   maoDeObraProdutiva: MonthlyValues
@@ -465,7 +465,7 @@ function buildRow(
   }
 }
 
-function buildDreLucroRealPresumido(
+export function buildDreLucroRealPresumido(
   agg: AggregatedData,
   _calcType: CalcType,
   taxRegime: TaxRegime,
@@ -492,23 +492,32 @@ function buildDreLucroRealPresumido(
     : receitaBruta
   rows.push(buildRow('receita_bruta', 'Receita Bruta', receitaBrutaBase, receitaBrutaBase, { isHeader: true, sign: '+' }))
 
+  // (-) DEVOLUÇÕES E DEDUÇÕES DA RECEITA — LINHA PRÓPRIA, LOGO APÓS A RECEITA BRUTA.
+  //
+  // Devolução é ESTORNO DE RECEITA, não tributo: ela reduz o faturamento antes de qualquer
+  // dedução tributária, e NÃO é subitem delas. Por isso vem aqui e SEM `indent`.
+  //
+  // CORREÇÃO DE POSIÇÃO E AGRUPAMENTO, e o descuido é de 09/09/2026 — MEU, do #58, não uma
+  // decisão sob regra da época: a linha nasceu naquele dia e eu a inseri no ponto
+  // SINTATICAMENTE CONVENIENTE (logo antes do subtotal) sem decidir a ordem contábil, e com
+  // `indent: 1`, que a fazia parecer filha do bloco tributário. Não havia critério anterior a
+  // respeitar.
+  //
+  // O MODELO é `buildDrePresumidoRET`, que já estava certo desde o LP-RET-013: lá a linha vem
+  // imediatamente depois da Receita Bruta. Essa variante NÃO É TOCADA aqui.
+  rows.push(buildRow('deducoes_devolucoes', '(-) Devoluções e Deduções da Receita', agg.deducaoReceita, receitaBrutaBase, { sign: '-' }))
+  const receitaAposDevolucoes = subtractMonths(receitaBrutaBase, agg.deducaoReceita)
+
   let receitaLiquida: MonthlyValues
   if (isLrOrHibrido) {
     // (-) Impostos sobre a receita — Por dentro: ICMS Próprio, PIS, COFINS
     rows.push(buildRow('impostos_receita', '(-) Impostos sobre a receita', agg.impostoPorDentro, receitaBrutaBase, { sign: '-', indent: 1 }))
-    receitaLiquida = subtractMonths(receitaBrutaBase, agg.impostoPorDentro)
+    receitaLiquida = subtractMonths(receitaAposDevolucoes, agg.impostoPorDentro)
   } else {
     // Lucro Presumido: mantém comportamento anterior
     rows.push(buildRow('deducoes_trib_receita', '(-) Deduções Tributárias Sobre Receita', agg.imposto, receitaBrutaBase, { sign: '-', indent: 1 }))
-    receitaLiquida = subtractMonths(receitaBrutaBase, agg.imposto)
+    receitaLiquida = subtractMonths(receitaAposDevolucoes, agg.imposto)
   }
-
-  // DEVOLUÇÕES E DEDUÇÕES DA RECEITA — reduzem o FATURAMENTO, não são despesa operacional.
-  // A linha existia SÓ na variante Presumido RET: uma devolução lançada por tenant de outro
-  // regime somava em `agg.deducaoReceita` e NÃO APARECIA em lugar nenhum. Mesmo mecanismo do
-  // `default` silencioso — o grupo era agregado e depois descartado por falta de linha.
-  rows.push(buildRow('deducoes_devolucoes', '(-) Devoluções e Deduções da Receita', agg.deducaoReceita, receitaBrutaBase, { sign: '-', indent: 1 }))
-  receitaLiquida = subtractMonths(receitaLiquida, agg.deducaoReceita)
 
   rows.push(buildRow('receita_liquida', '(=) Receita Líquida de Venda Interna', receitaLiquida, receitaBrutaBase, { isSubtotal: true, sign: '=' }))
 
@@ -562,7 +571,7 @@ function buildDreLucroRealPresumido(
   return rows
 }
 
-function buildDrePresumidoRET(agg: AggregatedData): DreRow[] {
+export function buildDrePresumidoRET(agg: AggregatedData): DreRow[] {
   // LP-RET-009: DRE completa LP RET seguindo NBC TG 26
   // LP-RET-013: Inclui deduções de receita (INSS retido + ISS retido pelo tomador)
   const rows: DreRow[] = []
@@ -621,11 +630,26 @@ function buildDrePresumidoRET(agg: AggregatedData): DreRow[] {
   return rows
 }
 
-function buildDreSimplesNacional(agg: AggregatedData, _calcType: CalcType): DreRow[] {
+export function buildDreSimplesNacional(agg: AggregatedData, _calcType: CalcType): DreRow[] {
   const rows: DreRow[] = []
 
   const receitaBruta = agg.receitaBruta
   rows.push(buildRow('receita_bruta', 'Receita Bruta', receitaBruta, receitaBruta, { isHeader: true, sign: '+' }))
+
+  // (-) DEVOLUÇÕES E DEDUÇÕES DA RECEITA — LINHA PRÓPRIA, LOGO APÓS A RECEITA BRUTA.
+  //
+  // Devolução é ESTORNO DE RECEITA, não tributo: ela reduz o faturamento antes de qualquer
+  // dedução tributária, e NÃO é subitem delas. Por isso vem aqui e SEM `indent`.
+  //
+  // CORREÇÃO DE POSIÇÃO E AGRUPAMENTO, e o descuido é de 09/09/2026 — MEU, do #58, não uma
+  // decisão sob regra da época: a linha nasceu naquele dia e eu a inseri no ponto
+  // SINTATICAMENTE CONVENIENTE (logo antes do subtotal) sem decidir a ordem contábil, e com
+  // `indent: 1`, que a fazia parecer filha do bloco tributário. Não havia critério anterior a
+  // respeitar.
+  //
+  // O MODELO é `buildDrePresumidoRET`, que já estava certo desde o LP-RET-013: lá a linha vem
+  // imediatamente depois da Receita Bruta. Essa variante NÃO É TOCADA aqui.
+  rows.push(buildRow('deducoes_devolucoes', '(-) Devoluções e Deduções da Receita', agg.deducaoReceita, receitaBruta, { sign: '-' }))
 
   // DAS — usa valores reais pagos do HUB (expense_group IMPOSTO / REGIME_TRIBUTARIO)
   const das = { ...agg.imposto }
@@ -633,12 +657,6 @@ function buildDreSimplesNacional(agg: AggregatedData, _calcType: CalcType): DreR
   // Deduções tributárias = DAS (incluído dentro da Receita Bruta)
   rows.push(buildRow('deducoes_trib', '(-) Deduções Tributárias', das, receitaBruta, { sign: '-', indent: 1 }))
   rows.push(buildRow('das', '(-) DAS / Impostos do Regime (pago)', das, receitaBruta, { sign: '-', indent: 2 }))
-
-  // DEVOLUÇÕES E DEDUÇÕES DA RECEITA — reduzem o FATURAMENTO, não são despesa operacional.
-  // A linha existia SÓ na variante Presumido RET: uma devolução lançada por tenant de outro
-  // regime somava em `agg.deducaoReceita` e NÃO APARECIA em lugar nenhum. Mesmo mecanismo do
-  // `default` silencioso — o grupo era agregado e depois descartado por falta de linha.
-  rows.push(buildRow('deducoes_devolucoes', '(-) Devoluções e Deduções da Receita', agg.deducaoReceita, receitaBruta, { sign: '-', indent: 1 }))
 
   const receitaLiquida = subtractMonths(subtractMonths(receitaBruta, das), agg.deducaoReceita)
   rows.push(buildRow('receita_liquida', '(=) Receita Líquida', receitaLiquida, receitaBruta, { isSubtotal: true, sign: '=' }))
