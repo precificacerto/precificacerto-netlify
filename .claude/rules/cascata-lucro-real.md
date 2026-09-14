@@ -50,7 +50,9 @@ erro, e o teste tem de prová-lo, não confiar.
 No serviço, MO indireta e despesa fixa entram no custo em R$ e ficam **fora** da
 margem de contribuição. Nunca nos dois lugares — isso é dupla contagem.
 `structurePctForEngine` já implementa essa exclusão; o comentário dela foi
-corrigido no #14.
+corrigido no #14. Ela é uma constante local em
+`src/page-parts/products/content.component.tsx:751` e alimenta `calculatePricing` —
+**não é o divisor da cascata**. Ver Parte 4.
 
 ### Principal e Secundária
 
@@ -283,14 +285,20 @@ do IRPJ, em qualquer nível de desconto.
 
 | # | Mudança | Onde | Risco |
 |---|---|---|---|
-| 1 | Denominador do % efetivado passa a `(1 − c)` | `structurePctForEngine` e as duas rotas de snapshot | **Médio** |
+| 1 | Denominador do % efetivado passa a `(1 − c)` | `pricing-engine.ts:232` (o divisor) e `document-snapshot.ts` (a gravação) | **Médio** |
 | 2 | Código de base por tributo | DDL aditivo + matriz | Baixo |
 | 3 | Valores do fator de redução | Dado | Muito baixo |
-| 4 | Acréscimos no orçamento | DDL aditivo + `buildMotorInput` | **Médio** |
+| 4 | Acréscimos no orçamento | DDL aditivo + `document-snapshot.ts` | **Médio** |
 | 5 | Decomposição por produto | `budget_items.tax_breakdown` já existe | Baixo |
 | 6 | Renomear Cascata → Decomposição | UI + `permissions` | Baixo |
 
 Nenhuma exige DROP de coluna. Nenhuma reescreve o motor.
+
+**Onde fica o divisor, com precisão.** `src/utils/pricing-engine.ts:232`:
+`coefficient = 1 - (structurePct + taxPct + rtReservePct + commissionPct + profitPct)`,
+e logo abaixo `priceUnit = cmvUnit / coefficient`. É esse `coefficient` que passa a ser
+dividido por `(1 - c)`. Não é `structurePctForEngine`, que só monta um dos cinco
+percentuais que entram nele.
 
 **DDL aditivo necessário**
 
@@ -302,17 +310,31 @@ Nenhuma exige DROP de coluna. Nenhuma reescreve o motor.
 
 Todas com default que preserva o comportamento atual.
 
-### As duas rotas
+### A rota que grava
 
-`hydrateItemSnapshot` e `buildMotorInput` alimentam o **mesmo motor**. O #47
-mediu o custo de esquecer uma delas: `cp_unit`, `mod_unit` e `dop_unit` eram
-opcionais com default 0, nenhum chamador passava, e o RRO virava o preço inteiro
-— no ORC-0689, 382,28 + 114,68 = 496,96, o preço exato do orçamento.
+Medido em 15/09/2026: o caminho vivo é **um só**.
 
-**Todo campo novo desta regra entra nas duas rotas.** A classe já está catalogada
-em `construtor-empobrecido.md` e `copia-divergente.md`, com quatro reincidências
-(#27, #28, #45, #47). Default neutro em contrato de cálculo transforma erro em
-silêncio.
+`hydrateDocumentSnapshots` (`src/lib/document-snapshot.ts`) →
+`calculateMotorV17ForPageFull` (`src/utils/mrm-engine-v17/legacy-adapter.ts`) → V17.
+É por ele que orçamento, pedido e venda gravam `tax_breakdown`.
+
+As duas rotas que este arquivo citava antes **estão mortas em produção**:
+`hydrateItemSnapshot` (`src/lib/items-snapshot.ts:182`) só é chamado de `__tests__`, e
+`buildMotorInput` (`src/utils/mrm-orchestrator.ts:302`) vive num módulo que nenhum
+arquivo de produção importa. `items-snapshot.ts` continua ligado ao 2.6.0 e exporta os
+tipos `ItemSnapshot` e `TenantSnapshotContext`, que cinco arquivos de produção importam
+— por isso ele não pode ser simplesmente apagado.
+
+**A lição do #47 continua valendo; só mudou o alvo.** Lá, `cp_unit`, `mod_unit` e
+`dop_unit` eram opcionais com default 0, nenhum chamador passava, e o RRO virava o preço
+inteiro — no ORC-0689, 382,28 + 114,68 = 496,96, o preço exato do orçamento. O defeito
+não era existirem duas rotas: era **default neutro em contrato de cálculo**, que
+transforma erro em silêncio. Com uma rota só o risco não some — ele se concentra.
+
+**Todo campo novo desta regra entra no contrato do V17 sem default neutro.** Campo de
+cálculo é obrigatório; ausência é erro, não zero. A classe está catalogada em
+`construtor-empobrecido.md`, `ausente-vs-falso.md` e `copia-divergente.md`, com quatro
+reincidências (#27, #28, #45, #47).
 
 ### Renomeação
 
@@ -369,6 +391,33 @@ descoberta tardia.
 | `labor_costs` e `fixed_expenses` vazias | Percentuais vêm de `tenant_expense_config` | Não |
 
 ---
+
+## Estado do motor — medido em 15/09/2026
+
+Três gerações coexistem. A que roda é a V17.
+
+| Geração | Versão | Arquivo | Situação |
+|---|---|---|---|
+| MRM | 2.6.0 | `src/utils/margin-reapuration.ts` | Aposentada. 159 snapshots gravados |
+| V17 | 3.0.0 | `src/utils/mrm-engine-v17/` | **EM PRODUÇÃO.** 17 snapshots |
+| Construção de preço | — | `src/utils/pricing-engine.ts` | Em produção. Divisor na linha 232 |
+
+**DEFEITO ABERTO: `documents.engine_version` mente.** Grava `'legacy'` em 113 de 113
+orçamentos cujos itens foram calculados por 2.6.0 e 3.0.0. O rótulo vem da feature flag
+(`mrm-feature-flag.ts`), que está `false` explícito nos 27 tenants — mas a flag decide o
+rótulo e parte da UI, não se o motor roda. As telas chamam `hydrateDocumentSnapshots` sem
+passar pela flag.
+
+Classe: `ausente-vs-falso` no nível do schema. Qualquer decisão tomada a partir desse
+campo parte de dado falso. Ou passa a gravar a versão real, ou para de ser gravado.
+
+O `mrm_legacy_audit_log` tem 91 registros, todos de 19/05/2026 — 78 `LOCK_LEGACY` e 13
+`MARK_LAZY_RECALC`. Rodada única, nunca repetida. Nada no `src` insere ali.
+
+**DECISÃO:** as correções desta regra entram no **V17**. O 2.6.0 é limpeza legítima em PR
+próprio, depois, e não é pré-requisito de nada. Mover os tipos `ItemSnapshot` e
+`TenantSnapshotContext` para fora de `items-snapshot.ts` é pré-requisito da **remoção**,
+não da correção.
 
 ## Premissas parametrizáveis
 
