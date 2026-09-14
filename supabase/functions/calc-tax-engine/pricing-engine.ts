@@ -89,6 +89,22 @@ export interface PricingInput {
    * e no coeficiente. Opcional; default 0 ⇒ preço idêntico ao anterior.
    */
   rtReservePct?: number
+
+  /**
+   * `c` da R3/R5 (.claude/rules/cascata-lucro-real.md): coeficiente da OPERAÇÃO
+   * POR FORA — quanto IBS, CBS, IS e IPI representam do total geral, como decimal.
+   *
+   * NÃO confundir com `coefficient` do resultado, que é o divisor da margem de
+   * contribuição (~0,69). Este aqui vale ~0,074 num caso típico.
+   *
+   * Converte cada % Original (cadastrado sobre o TOTAL GERAL) em % Efetivada
+   * (aplicada sobre a operação interna P): `% Efetivada = % Original ÷ (1 − c)`.
+   *
+   * Opcional; default 0 ⇒ `1 − c = 1` ⇒ conversão é identidade ⇒ preço IDÊNTICO
+   * ao de antes desta mudança. Hoje é sempre 0: `cbs_active` e `ibs_active` são
+   * false em 109 de 109 cálculos. A resolução de `c` pela R3 é rodada própria.
+   */
+  externalOpsCoefficient?: number
 }
 
 export interface PricingResult {
@@ -209,6 +225,7 @@ export function calculatePricing(input: PricingInput): PricingResult {
     profitPct,
   } = input
   const rtReservePct = input.rtReservePct ?? 0
+  const externalOpsCoefficient = input.externalOpsCoefficient ?? 0
 
   // Step 1 — custo de MO produtiva deste produto (R$)
   const costPerMinute = monthlyWorkloadMinutes > 0
@@ -226,9 +243,30 @@ export function calculatePricing(input: PricingInput): PricingResult {
     : round2(itemsCostPerUnit + productiveLaborCost)
   const cmvTotal = round2(cmvUnit * yieldQuantity)
 
-  // Step 3 — coeficiente (todos os % incidem sobre o preço final, por dentro)
+  // Step 3 — conversão % Original → % Efetivada (R5)
+  // Os percentuais chegam cadastrados sobre o TOTAL GERAL. O divisor abaixo
+  // trabalha sobre a operação interna P, então cada um é convertido por
+  // `% Efetivada = % Original ÷ (1 − c)` antes de entrar na soma.
+  // Com c = 0 — o estado de hoje — `k = 1` e a conversão é identidade.
+  //
+  // As duas exceções da R5 (PIS/COFINS e ISS no serviço) NÃO são tratadas aqui:
+  // `taxPct` chega agregado e o motor não sabe o que dentro dele é cada tributo.
+  // Receber os tributos separados é pré-requisito para c ≠ 0, e é mudança de
+  // contrato, não de linha.
+  if (externalOpsCoefficient < 0 || externalOpsCoefficient >= 1) {
+    return emptyResult(['externalOpsCoefficient fora do intervalo [0, 1)'])
+  }
+  const k = 1 - externalOpsCoefficient
+  const structurePctEff = structurePct / k
+  const taxPctEff = taxPct / k
+  const rtReservePctEff = rtReservePct / k
+  const commissionPctEff = commissionPct / k
+  const profitPctEff = profitPct / k
+
+  // Step 3.1 — coeficiente da margem de contribuição (por dentro de P).
+  // NÃO confundir com `externalOpsCoefficient`: este é o divisor (~0,69).
   // Não aplicar round2 aqui para preservar precisão na divisão.
-  const coefficient = 1 - (structurePct + taxPct + rtReservePct + commissionPct + profitPct)
+  const coefficient = 1 - (structurePctEff + taxPctEff + rtReservePctEff + commissionPctEff + profitPctEff)
 
   // Step 4 — validar coeficiente
   if (coefficient <= 0) {
@@ -239,12 +277,14 @@ export function calculatePricing(input: PricingInput): PricingResult {
   const priceUnit = round2(cmvUnit / coefficient)
   const priceTotal = round2(priceUnit * yieldQuantity)
 
-  // Step 6 — valores absolutos (para exibição no DRE)
-  const structureValue = round2(priceUnit * structurePct)
-  const taxValue       = round2(priceUnit * taxPct)
-  const commissionValue = round2(priceUnit * commissionPct)
-  const profitValue    = round2(priceUnit * profitPct)
-  const rtReserveValue = round2(priceUnit * rtReservePct)
+  // Step 6 — valores absolutos (para exibição no DRE).
+  // R8: `valor do tributo k = P × alíquota efetivada`. Com c = 0 as efetivadas
+  // são iguais às originais e estes valores são idênticos aos de antes.
+  const structureValue = round2(priceUnit * structurePctEff)
+  const taxValue       = round2(priceUnit * taxPctEff)
+  const commissionValue = round2(priceUnit * commissionPctEff)
+  const profitValue    = round2(priceUnit * profitPctEff)
+  const rtReserveValue = round2(priceUnit * rtReservePctEff)
 
   // Para REVENDA: MO é parte da estrutura (já em structureValue); não aparece como linha separada.
   // Para INDUSTRIALIZACAO/SERVICO: MO produtiva já entrou no CMV como productiveLaborCost.
