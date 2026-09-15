@@ -9,6 +9,7 @@ import { resolveIndirectLaborPct } from '@/utils/indirect-labor-grouping'
 import { computeIvaDualOutside } from '@/utils/iva-dual-outside'
 import { resolveIvaDualEffectiveRate } from '@/utils/item-tax-rates'
 import { buildProductConstruction } from '@/utils/product-price-construction'
+import { buildProductPriceRows, type PriceRowInput } from '@/utils/product-price-rows'
 import { toBaseCode } from '@/utils/sale-context'
 import { computeAdvancedOutsideTaxes, type AdvancedOutsideParams } from '@/utils/icms-st-difal'
 import { TaxDecompositionPanel } from './tax-decomposition-panel.component'
@@ -177,15 +178,7 @@ export const ProductPrice: FC<Props> = ({
   const csllPct = showIrpjCsll && pricePerUnit > 0 ? (csllVal / pricePerUnit) * 100 : 0
   const adicionalIrpjPct = (isLucroReal || isLucroPresumed) ? (additionalIrpjPercent || 0) : 0
 
-  const taxContribution = showIrpjCsll
-    ? irpjPct + csllPct + adicionalIrpjPct
-    : taxPctDisplay
-
-  const totalPct = isCalcTypeService
-    ? variablePct + financialPct + rtReservePct + taxContribution + commissionPct + profitPct
-    : laborPct + fixedPct + variablePct + financialPct + rtReservePct + taxContribution + commissionPct + profitPct
   const costTotal = productPriceInfo.productCost
-  const taxesTotal = taxValDisplay
 
   // Atividades Terceirizadas (apenas LUCRO_REAL / LUCRO_PRESUMIDO / SIMPLES_HIBRIDO)
   const terceirizadasTotal = (isLucroReal || isLucroPresumed || isSimplesHibrido)
@@ -240,34 +233,76 @@ export const ProductPrice: FC<Props> = ({
     despAcessorias: terceirizadasTotal,
   })
 
-  // Margem de contribuição e valor precificado com ICMS/PIS/COFINS embutidos
-  const mcPct = (isLucroReal || isLucroPresumed)
-    ? 100 - totalPct - (isCalcTypeService ? 0 : icmsPct) - pisCofinsLRPct
-    : 100 - totalPct
+  // ─── R5 · R8 · Parte 5 teste 2 — as LINHAS, com a % EFETIVA ao lado da ORIGINAL ───
+  //
+  // A tela exibia as % ORIGINAIS e derivava os R$ delas, enquanto o PREÇO já vinha do motor
+  // com as EFETIVADAS. A diferença não aparecia em lugar nenhum: medido num produto de custo
+  // R$ 798,60 com IBS 1,00% + CBS 8,80%, custo + linhas exibidas dava R$ 1.564,74 contra um
+  // preço de R$ 1.609,63 — R$ 44,89 de lacuna, que é o teste 2 do checklist falhando na
+  // APRESENTAÇÃO (ele existia no motor e não aqui).
+  //
+  // As efetivas são LIDAS de `_matriz.resolved`, nunca recalculadas: `÷ (1 − c)` não vale
+  // para PIS/COFINS (exceção 2 da R5, que incide sobre `P − ICMS − ISS`), e reescrever essa
+  // fórmula aqui seria a `copia-divergente.md` entre construção e apresentação.
+  const linhasInput: PriceRowInput[] = [
+    ...(!isCalcTypeService ? [
+      { key: 'labor', originalPct: laborPct },
+      { key: 'fixed', originalPct: fixedPct },
+    ] : []),
+    { key: 'variable', originalPct: variablePct },
+    { key: 'financial', originalPct: financialPct },
+    ...(!showIrpjCsll && !isLpRet && !isSimplesHibrido ? [{ key: 'tax', originalPct: taxPctDisplay }] : []),
+    { key: 'rt', originalPct: rtReservePct },
+    { key: 'commission', originalPct: commissionPct },
+    { key: 'profit', originalPct: profitPct },
+    ...(isLpRet || isSimplesHibrido ? [{ key: 'taxUnificado', originalPct: taxPctDisplay }] : []),
+    ...(showIrpjCsll ? [
+      { key: 'irpj', originalPct: irpjPct },
+      { key: 'csll', originalPct: csllPct },
+    ] : []),
+    ...((isLucroReal || isLucroPresumed) ? [{ key: 'adicionalIrpj', originalPct: adicionalIrpjPct }] : []),
+    ...((isLucroReal || isLucroPresumed) && !isCalcTypeService
+      ? [{ key: 'icms', originalPct: icmsPct, kind: 'ICMS' as const }] : []),
+    ...((isLucroReal || isLucroPresumed)
+      ? [{ key: 'pisCofins', originalPct: pisCofinsLRPct, kind: 'PIS_COFINS' as const }] : []),
+  ]
 
-  // Com a matriz, P é o do motor. Sem ela, é o divisor de sempre. Os dois coincidem quando
-  // `c = 0` — a igualdade é por construção, não por coincidência.
-  const valorPrecificado = _matriz.applied
-    ? _matriz.opInterna
-    : mcPct > 0 ? costTotal / (mcPct / 100) : 0
-  const icmsValDisplay = valorPrecificado * icmsPct / 100
-  const pisCofinsValDisplay = valorPrecificado * pisCofinsLRPct / 100
+  // A base: com a matriz, P é o do motor. Sem ela e em LR/LP, é o divisor de sempre —
+  // `null` manda o módulo derivá-lo de `custo ÷ MC`, que é a fórmula que estava aqui. Fora de
+  // LR/LP a base continua sendo a do motor da tela, sem mudança de comportamento.
+  const _baseInformada = (isLucroReal || isLucroPresumed)
+    ? (_matriz.applied ? _matriz.opInterna : null)
+    : pricePerUnit
+  const linhas = buildProductPriceRows({
+    rows: linhasInput,
+    costTotal,
+    opInterna: _baseInformada,
+    resolved: _matriz.applied ? _matriz.resolved : null,
+  })
+  const linhaPor = (key: string) => linhas.rows.find((r) => r.key === key)
+  const valorDa = (key: string) => linhaPor(key)?.value ?? 0
 
-  // Para LR/LP o preço base real é valorPrecificado (com ICMS/PIS-COFINS embutidos).
-  // commissionVal/profitVal do motor usam priceUnit (sem ICMS/PIS-COFINS) — somente para
-  // alimentar irpjPct/csllPct → taxContribution → mcPct. Os valores exibidos devem usar
-  // valorPrecificado como base.
-  const displayBase = (isLucroReal || isLucroPresumed) ? valorPrecificado : pricePerUnit
-  const laborValDisplay = laborPct > 0 ? displayBase * laborPct / 100 : 0
-  const fixedValDisplay = displayBase * fixedPct / 100
-  const variableValDisplay = displayBase * variablePct / 100
-  const financialValDisplay = displayBase * financialPct / 100
-  const commissionValDisplay = displayBase * commissionPct / 100
-  const profitValDisplay = displayBase * profitPct / 100
-  const rtReserveValDisplay = displayBase * rtReservePct / 100
-  const irpjValDisplay = showIrpjCsll ? profitValDisplay * 0.15 : 0
-  const csllValDisplay = showIrpjCsll ? profitValDisplay * 0.09 : 0
-  const adicionalIrpjValDisplay = (isLucroReal || isLucroPresumed) ? (displayBase * adicionalIrpjPct / 100) : 0
+  // A MC EXIBIDA passa a ser a que PRODUZIU o preço: `100 − Σ efetivas`. Antes era
+  // `100 − Σ originais`, e por isso ela prometia um preço que a tela não mostrava.
+  const mcPct = linhas.mcAplicadaPct
+  const valorPrecificado = linhas.opInterna
+  const icmsValDisplay = valorDa('icms')
+  const pisCofinsValDisplay = valorDa('pisCofins')
+
+  const displayBase = linhas.opInterna
+  const laborValDisplay = valorDa('labor')
+  const fixedValDisplay = valorDa('fixed')
+  const variableValDisplay = valorDa('variable')
+  const financialValDisplay = valorDa('financial')
+  const commissionValDisplay = valorDa('commission')
+  const profitValDisplay = valorDa('profit')
+  const rtReserveValDisplay = valorDa('rt')
+  const irpjValDisplay = valorDa('irpj')
+  const csllValDisplay = valorDa('csll')
+  const adicionalIrpjValDisplay = valorDa('adicionalIrpj')
+  // A linha de imposto agregado (Simples, RET, Simples Híbrido) sai da MESMA fonte: o valor
+  // do motor em `productPriceInfo.taxesPrice` ignorava a efetivação.
+  const taxesTotal = valorDa('tax') + valorDa('taxUnificado')
   const expensesTotalDisplay = isCalcTypeService
     ? variableValDisplay + financialValDisplay
     : laborValDisplay + fixedValDisplay + variableValDisplay + financialValDisplay
@@ -341,13 +376,24 @@ export const ProductPrice: FC<Props> = ({
     } as any)
   }
 
+  /**
+   * Uma linha da precificação. Recebe a CHAVE, não os números: a % original, a % efetiva e o
+   * R$ saem todos de `linhas`, que é a única fonte — passar os três à mão foi o que permitiu
+   * que o R$ viesse da original enquanto o preço vinha da efetivada.
+   */
   function pricingRow(
     label: string,
-    pct: number,
-    val: number,
+    key: string,
     editable?: 'salesCommissionPercent' | 'productProfitPercent' | 'rtReservePercent' | 'customTaxPercent' | 'additionalIrpj' | 'icms' | 'pisCofins',
     tooltipText?: string,
   ) {
+    const linha = linhaPor(key)
+    const pct = linha?.originalPct ?? 0
+    const effPct = linha?.effectivePct ?? 0
+    const val = linha?.value ?? 0
+    // Diverge só quando `c > 0`. A comparação é sobre o número EXIBIDO (3 casas), para não
+    // marcar como diferente o que o usuário lê igual.
+    const divergem = Math.abs(effPct - pct) >= 0.0005
     const handleEditableChange = (v: number | null) => {
       if (editable === 'customTaxPercent' && onCustomTaxPercentChange) {
         onCustomTaxPercentChange(v ?? 0)
@@ -405,6 +451,18 @@ export const ProductPrice: FC<Props> = ({
             label
           )}
         </td>
+        {/* % EFETIVO — R5. Calculada, nunca editável: é a original convertida pelo `c`, e
+            no PIS/COFINS é a exceção 2 lida do que o motor resolveu. Sem ela, a soma das
+            linhas não fecha com o preço e ninguém tem como ver por quê. */}
+        <td style={{ padding: isMobile ? '6px 6px' : '6px 12px', textAlign: 'right', fontSize: isMobile ? 12 : 13, whiteSpace: 'nowrap', color: divergem ? '#F79009' : '#64748b' }}>
+          <Tooltip title={divergem
+            ? `% Efetivada (R5): a original ${pct.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}% convertida pelo coeficiente da operação por fora. É ela que forma o preço e gera o valor em R$.`
+            : 'Sem tributo por fora o coeficiente é zero, e a % efetivada é igual à original.'}>
+            <span style={{ cursor: 'help' }}>
+              {effPct.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%
+            </span>
+          </Tooltip>
+        </td>
         <td style={{ padding: '6px 0', textAlign: 'right', fontSize: isMobile ? 12 : 13, fontWeight: 500, whiteSpace: 'nowrap' }}>
           R$ {getMonetaryValue(val)}
         </td>
@@ -438,49 +496,47 @@ export const ProductPrice: FC<Props> = ({
         <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0 2px' }}>
           <thead>
             <tr style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase' as const }}>
-              <th style={{ textAlign: 'left', padding: '0 0 8px', width: isMobile ? 92 : 140 }}>{isMobile ? 'Alíquotas' : '%'}</th>
+              <th style={{ textAlign: 'left', padding: '0 0 8px', width: isMobile ? 92 : 140 }}>{isMobile ? '% Original' : '% Original'}</th>
               <th style={{ textAlign: 'left', padding: isMobile ? '0 6px 8px' : '0 12px 8px' }}>{isMobile ? 'Tipo despesa' : 'Despesa'}</th>
+              <th style={{ textAlign: 'right', padding: isMobile ? '0 6px 8px' : '0 12px 8px', whiteSpace: 'nowrap' }}>% Efetivo</th>
               <th style={{ textAlign: 'right', padding: '0 0 8px', whiteSpace: 'nowrap' }}>Valor (R$)</th>
             </tr>
           </thead>
           <tbody>
-            {!isCalcTypeService && pricingRow('Mão de obra administrativa', laborPct, laborValDisplay, undefined, 'Despesas de mão de obra administrativa (pró-labore, salários comerciais e administrativos) calculadas a partir do fluxo de caixa. Configure em Configurações > Equipe e Custos.')}
-            {!isCalcTypeService && pricingRow('Despesas fixas', fixedPct, fixedValDisplay)}
-            {pricingRow('Despesas variáveis', variablePct, variableValDisplay)}
-            {pricingRow('Despesas financeiras', financialPct, financialValDisplay)}
+            {!isCalcTypeService && pricingRow('Mão de obra administrativa', 'labor', undefined, 'Despesas de mão de obra administrativa (pró-labore, salários comerciais e administrativos) calculadas a partir do fluxo de caixa. Configure em Configurações > Equipe e Custos.')}
+            {!isCalcTypeService && pricingRow('Despesas fixas', 'fixed')}
+            {pricingRow('Despesas variáveis', 'variable')}
+            {pricingRow('Despesas financeiras', 'financial')}
             {/* Em MEI a linha aparece zerada e NÃO é editável: o DAS é fixo mensal e não
                 incide por item, então não há alíquota a ajustar — coerente com o alerta
                 que esta mesma tela exibe logo acima. Nos demais regimes segue editável. */}
             {!showIrpjCsll && !isLpRet && !isSimplesHibrido && pricingRow(
               taxLabel,
-              taxPctDisplay,
-              taxValDisplay,
+              'tax',
               isMei ? undefined : 'customTaxPercent',
               isMei
                 ? 'MEI: o DAS é fixo mensal e não incide por item, então o imposto não entra na formação do preço.'
                 : 'Alíquota efetiva herdada do regime tributário. Edite para ajustar apenas neste produto/serviço.',
             )}
-            {pricingRow('RT — Comissão Reserva Técnica', rtReservePct, rtReserveValDisplay, 'rtReservePercent', 'Reserva Técnica: dedução gerencial paralela à comissão e ao lucro, inserida manualmente por produto. A alíquota efetiva fica congelada na cascata (não varia com o desconto do orçamento) e não entra na base de IRPJ/CSLL. Deixe 0% se não aplicável.')}
+            {pricingRow('RT — Comissão Reserva Técnica', 'rt', 'rtReservePercent', 'Reserva Técnica: dedução gerencial paralela à comissão e ao lucro, inserida manualmente por produto. A alíquota efetiva fica congelada na cascata (não varia com o desconto do orçamento) e não entra na base de IRPJ/CSLL. Deixe 0% se não aplicável.')}
             {pricingRow(
               'Comissão total do vendedor',
-              commissionPct,
-              commissionValDisplay,
+              'commission',
               'salesCommissionPercent',
               'Se deixar 0%, a comissão cadastrada no funcionário será aplicada automaticamente.'
             )}
-            {pricingRow('Lucro', profitPct, profitValDisplay, 'productProfitPercent')}
-            {isLpRet && pricingRow('RET – Tributação unificada', taxPctDisplay, taxValDisplay, 'customTaxPercent', 'Alíquota RET consolidada (IRPJ 1,71% + CSLL 0,51% + PIS 0,37% + COFINS 1,41%). Puxada das configurações, editável por produto.')}
-            {isSimplesHibrido && pricingRow('Simples Híbrido (%)', taxPctDisplay, taxValDisplay, 'customTaxPercent', 'Alíquota total consolidada do Simples Híbrido (ICMS + PIS + COFINS + ISS + IRPJ + CSLL). Puxada das configurações, editável por produto.')}
-            {showIrpjCsll && pricingRow('IRPJ (15% sobre lucro)', irpjPct, irpjValDisplay, undefined, 'Imposto de Renda Pessoa Jurídica — calculado automaticamente como 15% sobre o valor do lucro. A porcentagem exibida representa quanto esse imposto ocupa no preço de venda.')}
-            {showIrpjCsll && pricingRow('CSLL (9% sobre lucro)', csllPct, csllValDisplay, undefined, 'Contribuição Social sobre o Lucro Líquido — calculada automaticamente como 9% sobre o valor do lucro. A porcentagem exibida representa quanto esse imposto ocupa no preço de venda.')}
-            {(isLucroReal || isLucroPresumed) && pricingRow('Alíq. adicional IRPJ', adicionalIrpjPct, adicionalIrpjValDisplay, 'additionalIrpj', 'Alíquota da parcela adicional do IRPJ. Calculada automaticamente com base no faturamento anual estimado.')}
-            {(isLucroReal || isLucroPresumed) && !isCalcTypeService && pricingRow('ICMS (%)', icmsPct, icmsValDisplay, 'icms', 'ICMS sobre venda — informe manualmente conforme alíquota do seu produto.')}
+            {pricingRow('Lucro', 'profit', 'productProfitPercent')}
+            {isLpRet && pricingRow('RET – Tributação unificada', 'taxUnificado', 'customTaxPercent', 'Alíquota RET consolidada (IRPJ 1,71% + CSLL 0,51% + PIS 0,37% + COFINS 1,41%). Puxada das configurações, editável por produto.')}
+            {isSimplesHibrido && pricingRow('Simples Híbrido (%)', 'taxUnificado', 'customTaxPercent', 'Alíquota total consolidada do Simples Híbrido (ICMS + PIS + COFINS + ISS + IRPJ + CSLL). Puxada das configurações, editável por produto.')}
+            {showIrpjCsll && pricingRow('IRPJ (15% sobre lucro)', 'irpj', undefined, 'Imposto de Renda Pessoa Jurídica — calculado automaticamente como 15% sobre o valor do lucro. A porcentagem exibida representa quanto esse imposto ocupa no preço de venda.')}
+            {showIrpjCsll && pricingRow('CSLL (9% sobre lucro)', 'csll', undefined, 'Contribuição Social sobre o Lucro Líquido — calculada automaticamente como 9% sobre o valor do lucro. A porcentagem exibida representa quanto esse imposto ocupa no preço de venda.')}
+            {(isLucroReal || isLucroPresumed) && pricingRow('Alíq. adicional IRPJ', 'adicionalIrpj', 'additionalIrpj', 'Alíquota da parcela adicional do IRPJ. Calculada automaticamente com base no faturamento anual estimado.')}
+            {(isLucroReal || isLucroPresumed) && !isCalcTypeService && pricingRow('ICMS (%)', 'icms', 'icms', 'ICMS sobre venda — informe manualmente conforme alíquota do seu produto.')}
             {(isLucroReal || isLucroPresumed) && pricingRow(
               isCalcTypeService
                 ? 'PIS/Cofins (%)'
                 : isLucroPresumed ? 'PIS/Cofins Cum. (%)' : 'PIS/Cofins (% NCM)',
-              pisCofinsLRPct,
-              pisCofinsValDisplay,
+              'pisCofins',
               'pisCofins',
               isCalcTypeService
                 ? 'PIS + COFINS — informe manualmente para serviços.'
@@ -497,9 +553,40 @@ export const ProductPrice: FC<Props> = ({
             "Valor do produto precificado" com valor à borda direita; e abaixo a nota entre
             parênteses "(operação por dentro, com ICMS, PIS e Cofins)". */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', fontSize: 13 }}>
-          <span style={{ color: '#94a3b8' }}>Margem de contribuição aplicada</span>
+          <Tooltip title="100% menos a soma das % EFETIVADAS — é esta a margem que dividiu o custo e produziu o preço. Antes a tela mostrava a soma das % originais, e por isso ela prometia um preço diferente do exibido.">
+            <span style={{ color: '#94a3b8', cursor: 'help' }}>Margem de contribuição aplicada</span>
+          </Tooltip>
           <span style={{ fontWeight: 600, textAlign: 'right', whiteSpace: 'nowrap' }}>{mcPct.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%</span>
         </div>
+
+        {/* O `c` AGIA E NÃO APARECIA. Ele encolhe a margem e levanta o preço inteiro (R9), e
+            sem exibi-lo o usuário não tem como explicar por que a MC caiu. Só é exibido
+            quando a matriz governou: fora dela não há `c` apurado, e um "0,000%" afirmaria
+            que foi apurado e deu zero — `.claude/rules/ausente-vs-falso.md`. */}
+        {linhas.externalOpsCoefficientPct != null && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', fontSize: 13 }}>
+            <Tooltip title="Coeficiente da operação por fora (R3): quanto IBS, CBS, IS e IPI ocupam do total geral. É ele que converte cada % Original em % Efetivada e que faz o total geral ser P ÷ (1 − c).">
+              <span style={{ color: '#94a3b8', cursor: 'help' }}>Coeficiente da operação por fora (c)</span>
+            </Tooltip>
+            <span style={{ fontWeight: 600, textAlign: 'right', whiteSpace: 'nowrap', color: linhas.externalOpsCoefficientPct > 0 ? '#F79009' : '#e2e8f0' }}>
+              {linhas.externalOpsCoefficientPct.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}%
+            </span>
+          </div>
+        )}
+
+        {/* A CONFERÊNCIA, na própria tela: Σ linhas + custo = P (Parte 5, teste 2). Com as
+            efetivas certas o residual é zero por construção — o motor define
+            `P = CMV ÷ (1 − Σ efetivas)`. Diferente de zero é DEFEITO, e aparece como alerta
+            em vez de um número discreto ao lado dos outros. */}
+        {Math.abs(linhas.residual) >= 0.01 && (
+          <div style={{
+            marginTop: 8, padding: '8px 12px', borderRadius: 6, fontSize: 12,
+            background: 'rgba(239, 68, 68, 0.12)', border: '1px solid rgba(239, 68, 68, 0.3)', color: '#fca5a5',
+          }}>
+            ⚠ A soma das linhas mais o custo não fecha com o preço: sobram {fmt(Math.abs(linhas.residual))}.
+            Os números desta precificação não podem ser usados.
+          </div>
+        )}
 
         {(isLucroReal || isLucroPresumed) && (
           <>
