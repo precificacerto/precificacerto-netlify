@@ -14,7 +14,7 @@
  */
 
 import { calculatePricing, type CalcType, type PricingInput } from '@/utils/pricing-engine'
-import { calculatePricing as calculatePricingAntes } from './__oraculos__/pricing-engine-antes-da-campanha'
+import { calculatePricing as calculatePricingAntes } from '../__oraculos__/pricing-engine-antes-da-campanha'
 
 /** Os campos que os dois motores têm em comum. Os da campanha ficam de fora por construção. */
 const CAMPOS_COMUNS = [
@@ -209,7 +209,7 @@ describe('REGRESSÃO — o preço de quem não tem IBS/CBS não mudou, nos três
       // Se alguém "sincronizar" o oráculo com o motor atual, a regressão inteira vira
       // tautologia — os dois lados passariam a ser o mesmo código. Este caso pega.
       const fonte = require('fs').readFileSync(
-        require('path').join(__dirname, '__oraculos__', 'pricing-engine-antes-da-campanha.ts'),
+        require('path').join(__dirname, '..', '__oraculos__', 'pricing-engine-antes-da-campanha.ts'),
         'utf-8',
       ) as string
       const corpo = fonte.slice(fonte.indexOf('*/') + 2)

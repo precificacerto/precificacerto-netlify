@@ -16,6 +16,12 @@
  * notar que copiou o valor novo (`.claude/rules/teste-que-nao-exercita.md`). O motor antigo
  * inteiro não tem esse problema — ele foi escrito antes de a mudança existir.
  *
+ * >>> POR QUE ESTA PASTA FICA FORA DE `__tests__/` <<<
+ * O jest trata TODO arquivo sob `__tests__/` como suíte, e um arquivo sem `it` falha com
+ * "Your test suite must contain at least one test". A primeira versão deste oráculo morava
+ * lá e deixava o run vermelho — com 0 casos falhos, o que é pior: a linha "Tests: N passed"
+ * continuava verde e só a de "Test Suites" acusava.
+ *
  * O que ele NÃO tem, e é o ponto: `taxBreakdown`, `externalOpsCoefficient`, `profitTaxPct`,
  * `TAX_MATRIX`. Nenhum dos campos da campanha. Ele só sabe o contrato antigo.
  */
