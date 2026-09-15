@@ -1,31 +1,39 @@
 /**
- * Fator de redução do IVA DUAL — faixa, conversão de unidade e o `c` resultante.
+ * Fator de redução do IVA DUAL — a lista da tela, a faixa do banco, a conversão
+ * de unidade e o `c` resultante.
  *
- * ORÁCULOS DO `c`. Os seis valores abaixo foram obtidos por DOIS caminhos
- * independentes da implementação, em aritmética exata (`fractions.Fraction`):
+ * A DIVISÃO QUE ESTE ARQUIVO AFIRMA. A tela oferece OITO faixas e só essas
+ * (LC 214/2025). A CHECK do banco aceita `[0, 100]`, mais larga de propósito:
+ * lista muda com lei nova, constraint não deveria mudar junto. Logo:
  *
- *   1. forma fechada     c = a × (1 − ICMS) ÷ (1 + a),  a = IBS + CBS×(1 − fator)
- *   2. ponto fixo        arbitra c, recalcula base4 = (1 − c) − ICMS, repete
+ *   - `isOptionPct`   → pergunta da TELA. 45 é FALSO.
+ *   - `isValidReductionFactorPct` e `reductionFactorPctToFraction`
+ *                     → perguntas do DADO. 45 é VÁLIDO, porque pode chegar por
+ *                       importação, por API, ou de linha gravada antes de uma
+ *                       mudança de lista.
  *
- * Os dois convergem no mesmo racional. Dois deles — fator 0 e fator 60 — foram
+ * O caso do 45 é o que mantém as duas perguntas separadas. Se alguém fizer o
+ * conversor recusar o que não está na lista, é ele que fica vermelho.
+ *
+ * ORÁCULOS DO `c`. Os oito valores foram obtidos por DOIS caminhos independentes
+ * da implementação:
+ *
+ *   1. forma fechada em aritmética EXATA (`fractions.Fraction`)
+ *        c = a × (1 − ICMS) ÷ (1 + a),  a = IBS + CBS×(1 − fator)
+ *   2. iteração de ponto fixo em float, 10.000 passos
+ *        c ← a × ((1 − c) − ICMS)
+ *
+ * Os dois concordam dentro de 1e-17. Dois deles — fator 0 e fator 60 — foram
  * conferidos de forma independente pelo dono do produto (7,408015% e 3,589361%),
- * o que valida o modelo com que os outros quatro foram calculados.
+ * o que valida o modelo com que os outros seis foram calculados.
  *
  * Precisão PLENA, não arredondada a seis casas: com tolerância 1e-9 um oráculo
  * arredondado falharia por construção, e afrouxar a tolerância esconderia erro
  * real de fórmula na mesma ordem de grandeza.
- *
- * O FATOR 45 ENTRA DE PROPÓSITO. Ele não está na lista de atalhos e não estava na
- * constraint antiga do banco `(30,40,50,60,70,80,100)`. É o caso que prova que o
- * campo virou livre — se alguém restaurar o seletor fechado ou a constraint
- * antiga, este caso é o que denuncia.
- *
- * Verificado por mutação: conversor sem o `/100`, guarda voltando a `f > 0`, e
- * faixa aceitando negativo — as três deixam casos vermelhos. Se uma mutação
- * passar verde, o teste não afirma nada (`teste-que-nao-exercita.md`).
  */
 import {
-  IVA_DUAL_REDUCTION_SHORTCUTS,
+  IVA_DUAL_REDUCTION_OPTIONS,
+  isOptionPct,
   isValidReductionFactorPct,
   reductionFactorPctToFraction,
 } from '../iva-dual-reduction-factor'
@@ -42,17 +50,88 @@ const BASE: Omit<ExternalOpsInput, 'cbs'> = {
   ibs: { rate: 0.01, baseCode: 4 },
 }
 
-/** [fator em %, c esperado em precisão plena] */
+/** [fator em %, c esperado em precisão plena] — as OITO faixas da lista. */
 const ORACULOS: ReadonlyArray<readonly [number, number]> = [
   [0, 0.07408014571948998],
   [30, 0.05545726017170586],
-  [45, 0.04579743008314437],
+  [40, 0.0490440346255175],
   [50, 0.04252371916508539],
   [60, 0.03589360887868351],
+  [70, 0.0291509069857198],
+  [80, 0.02229272090307513],
   [100, 0.00821782178217822],
 ]
 
-describe('reductionFactorPctToFraction — a única travessia entre as duas unidades', () => {
+const cComFator = (pct: number | null) =>
+  resolveExternalOpsCoefficient({
+    ...BASE,
+    cbs: {
+      rate: 0.088,
+      reductionFactor: reductionFactorPctToFraction(pct).fraction,
+      baseCode: 4,
+    },
+  })
+
+describe('a lista fechada da tela — as oito faixas da LC 214/2025', () => {
+  it('são exatamente oito, nesta ordem', () => {
+    expect(IVA_DUAL_REDUCTION_OPTIONS.map((o) => o.pct)).toEqual([0, 30, 40, 50, 60, 70, 80, 100])
+  })
+
+  it('o 0 existe e é o primeiro — integral, regime regular', () => {
+    expect(IVA_DUAL_REDUCTION_OPTIONS[0].pct).toBe(0)
+    expect(IVA_DUAL_REDUCTION_OPTIONS[0].enquadramento).toContain('Integral')
+    expect(IVA_DUAL_REDUCTION_OPTIONS[0].artigo).toBe('art. 16')
+  })
+
+  it('as sete faixas do Select original continuam lá', () => {
+    const pcts = IVA_DUAL_REDUCTION_OPTIONS.map((o) => o.pct)
+    for (const original of [30, 40, 50, 60, 70, 80, 100]) {
+      expect(pcts).toContain(original)
+    }
+  })
+
+  it('o 40 NÃO inventa enquadramento: artigo nulo e ressalva explícita', () => {
+    const quarenta = IVA_DUAL_REDUCTION_OPTIONS.find((o) => o.pct === 40)!
+    expect(quarenta.artigo).toBeNull()
+    expect(quarenta.nota).toContain('NÃO foi confirmado')
+  })
+
+  it('50, 70 e 80 carregam a divergência entre fontes de 2025 e 2026, sem escolher lado', () => {
+    for (const pct of [50, 70, 80]) {
+      const o = IVA_DUAL_REDUCTION_OPTIONS.find((x) => x.pct === pct)!
+      expect(o.nota).toContain('divergem')
+    }
+  })
+
+  it('toda faixa com artigo confirmado tem enquadramento nomeado', () => {
+    for (const o of IVA_DUAL_REDUCTION_OPTIONS) {
+      if (o.artigo !== null) expect(o.enquadramento.length).toBeGreaterThan(0)
+    }
+  })
+
+  it('toda faixa da lista cabe na faixa que o banco aceita', () => {
+    for (const o of IVA_DUAL_REDUCTION_OPTIONS) {
+      expect(isValidReductionFactorPct(o.pct)).toBe(true)
+    }
+  })
+})
+
+describe('isOptionPct — a pergunta da TELA, e só dela', () => {
+  it.each([0, 30, 40, 50, 60, 70, 80, 100])('%i está na lista', (pct) => {
+    expect(isOptionPct(pct)).toBe(true)
+  })
+
+  it.each([1, 27, 45, 55, 99])('%i NÃO está na lista', (pct) => {
+    expect(isOptionPct(pct)).toBe(false)
+  })
+
+  it('a lista é mais estreita que a faixa — as duas perguntas são diferentes', () => {
+    expect(isOptionPct(45)).toBe(false)
+    expect(isValidReductionFactorPct(45)).toBe(true)
+  })
+})
+
+describe('reductionFactorPctToFraction — trabalha sobre a FAIXA, não sobre a lista', () => {
   it('50 vira 0,5', () => {
     expect(reductionFactorPctToFraction(50)).toEqual({ ausente: false, fraction: 0.5 })
   })
@@ -77,8 +156,11 @@ describe('reductionFactorPctToFraction — a única travessia entre as duas unid
     expect(zero.fraction).toBe(0)
   })
 
-  it('45 vira 0,45 — valor fora da lista de atalhos é conversível', () => {
-    expect(reductionFactorPctToFraction(45).fraction).toBeCloseTo(0.45, 12)
+  it('45 CONVERTE, mesmo fora da lista da tela — pode vir de importação ou API', () => {
+    const r = reductionFactorPctToFraction(45)
+    expect(r.error).toBeUndefined()
+    expect(r.fraction).toBeCloseTo(0.45, 12)
+    expect(isOptionPct(45)).toBe(false)
   })
 
   it('100 vira 1', () => {
@@ -99,7 +181,7 @@ describe('reductionFactorPctToFraction — a única travessia entre as duas unid
   })
 
   it('a fração cabe no que o motor aceita — [0, 1]', () => {
-    for (const pct of [0, 30, 45, 50, 60, 100]) {
+    for (const [pct] of ORACULOS) {
       const f = reductionFactorPctToFraction(pct).fraction as number
       expect(f).toBeGreaterThanOrEqual(0)
       expect(f).toBeLessThanOrEqual(1)
@@ -120,36 +202,17 @@ describe('isValidReductionFactorPct — a faixa é [0, 100] fechada nas duas pon
   )
 })
 
-describe('o `c` com cada fator de redução na CBS', () => {
+describe('o `c` com cada uma das oito faixas na CBS', () => {
   it.each(ORACULOS)('fator %i%% → c esperado', (pct, esperado) => {
     const conv = reductionFactorPctToFraction(pct)
     expect(conv.error).toBeUndefined()
 
-    const r = resolveExternalOpsCoefficient({
-      ...BASE,
-      cbs: { rate: 0.088, reductionFactor: conv.fraction, baseCode: 4 },
-    })
-
+    const r = cComFator(pct)
     expect(r.isValid).toBe(true)
     expect(Math.abs(r.externalOpsCoefficient - esperado)).toBeLessThan(TOL)
   })
 
-  it('o fator 45 é aceito e cai ENTRE o 30 e o 50 — não é valor de lista', () => {
-    const c = (pct: number) =>
-      resolveExternalOpsCoefficient({
-        ...BASE,
-        cbs: {
-          rate: 0.088,
-          reductionFactor: reductionFactorPctToFraction(pct).fraction,
-          baseCode: 4,
-        },
-      }).externalOpsCoefficient
-
-    expect(c(45)).toBeLessThan(c(30))
-    expect(c(45)).toBeGreaterThan(c(50))
-  })
-
-  it('fator maior reduz o `c` — a relação é monotônica', () => {
+  it('fator maior reduz o `c` — a relação é monotônica nas oito faixas', () => {
     const cs = ORACULOS.map(([, esperado]) => esperado)
     for (let k = 1; k < cs.length; k++) {
       expect(cs[k]).toBeLessThan(cs[k - 1])
@@ -158,25 +221,16 @@ describe('o `c` com cada fator de redução na CBS', () => {
 
   it('fator 100 zera a CBS: o `c` passa a ser o do IBS sozinho', () => {
     const soIbs = resolveExternalOpsCoefficient({ ...BASE, cbs: undefined })
-    const cbsZerada = resolveExternalOpsCoefficient({
-      ...BASE,
-      cbs: { rate: 0.088, reductionFactor: 1, baseCode: 4 },
-    })
+    const cbsZerada = cComFator(100)
     expect(Math.abs(cbsZerada.externalOpsCoefficient - soIbs.externalOpsCoefficient)).toBeLessThan(
       TOL,
     )
   })
 
   it('NULO é tratado como não classificado e NÃO quebra a aritmética: mesmo c do fator 0', () => {
-    const conv = reductionFactorPctToFraction(null)
-    expect(conv.ausente).toBe(true)
-
-    const naoClassificado = resolveExternalOpsCoefficient({
-      ...BASE,
-      cbs: { rate: 0.088, reductionFactor: conv.fraction, baseCode: 4 },
-    })
-    expect(naoClassificado.isValid).toBe(true)
-    expect(Math.abs(naoClassificado.externalOpsCoefficient - ORACULOS[0][1])).toBeLessThan(TOL)
+    const r = cComFator(null)
+    expect(r.isValid).toBe(true)
+    expect(Math.abs(r.externalOpsCoefficient - ORACULOS[0][1])).toBeLessThan(TOL)
   })
 
   it('a fração fora de [0, 1] é recusada pelo motor, não silenciada', () => {
@@ -186,6 +240,26 @@ describe('o `c` com cada fator de redução na CBS', () => {
     })
     expect(r.isValid).toBe(false)
     expect(r.validationErrors.join(' ')).toContain('cbs.reductionFactor')
+  })
+})
+
+describe('valor fora da lista: recusado pela TELA, respeitado pelo MOTOR', () => {
+  it('o motor calcula o `c` do fator 45 e o valor cai entre o do 40 e o do 50', () => {
+    const r = cComFator(45)
+    expect(r.isValid).toBe(true)
+    expect(r.externalOpsCoefficient).toBeLessThan(0.0490440346255175) // fator 40
+    expect(r.externalOpsCoefficient).toBeGreaterThan(0.04252371916508539) // fator 50
+  })
+
+  it('a alíquota efetiva do 45 é calculada normalmente', () => {
+    expect(resolveIvaDualEffectiveRate(8.8, 45)).toBeCloseTo(4.84, 12)
+  })
+
+  it('só a tela recusa o 45 — o dado e o cálculo o aceitam', () => {
+    expect(isOptionPct(45)).toBe(false)
+    expect(isValidReductionFactorPct(45)).toBe(true)
+    expect(reductionFactorPctToFraction(45).error).toBeUndefined()
+    expect(cComFator(45).isValid).toBe(true)
   })
 })
 
@@ -203,10 +277,6 @@ describe('resolveIvaDualEffectiveRate — nulo, zero e fora da faixa', () => {
     expect(resolveIvaDualEffectiveRate(8.8, undefined)).toBeCloseTo(8.8, 12)
   })
 
-  it('fator 45 reduz de verdade — valor fora da lista de atalhos', () => {
-    expect(resolveIvaDualEffectiveRate(8.8, 45)).toBeCloseTo(4.84, 12)
-  })
-
   it('fator 100 zera a alíquota', () => {
     expect(resolveIvaDualEffectiveRate(8.8, 100)).toBe(0)
   })
@@ -221,39 +291,5 @@ describe('resolveIvaDualEffectiveRate — nulo, zero e fora da faixa', () => {
     const r = resolveIvaDualEffectiveRate(8.8, -20) as number
     expect(r).toBeLessThanOrEqual(8.8)
     expect(r).toBeCloseTo(8.8, 12)
-  })
-})
-
-describe('atalhos da tela — sugestão, não restrição', () => {
-  it('o 0 existe, e é o primeiro', () => {
-    expect(IVA_DUAL_REDUCTION_SHORTCUTS[0].pct).toBe(0)
-    expect(IVA_DUAL_REDUCTION_SHORTCUTS[0].enquadramento).toContain('Integral')
-  })
-
-  it('as sete opções anteriores continuam lá', () => {
-    const pcts = IVA_DUAL_REDUCTION_SHORTCUTS.map((s) => s.pct)
-    for (const antigo of [30, 40, 50, 60, 70, 80, 100]) {
-      expect(pcts).toContain(antigo)
-    }
-  })
-
-  it('exatamente 0, 30, 60 e 100 são marcados como LC 214, com enquadramento nomeado', () => {
-    const lc = IVA_DUAL_REDUCTION_SHORTCUTS.filter((s) => s.lc214)
-    expect(lc.map((s) => s.pct)).toEqual([0, 30, 60, 100])
-    for (const s of lc) expect(s.enquadramento).toBeTruthy()
-  })
-
-  it('40, 70 e 80 ficam SEM enquadramento nomeado, porque não têm um', () => {
-    for (const pct of [40, 70, 80]) {
-      const s = IVA_DUAL_REDUCTION_SHORTCUTS.find((x) => x.pct === pct)!
-      expect(s.lc214).toBe(false)
-      expect(s.enquadramento).toBeNull()
-    }
-  })
-
-  it('todo atalho cai dentro da faixa aceita pelo banco', () => {
-    for (const s of IVA_DUAL_REDUCTION_SHORTCUTS) {
-      expect(isValidReductionFactorPct(s.pct)).toBe(true)
-    }
   })
 })

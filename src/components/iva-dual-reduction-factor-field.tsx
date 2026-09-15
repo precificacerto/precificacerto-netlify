@@ -1,27 +1,29 @@
 /**
  * iva-dual-reduction-factor-field.tsx — campo do fator de redução do IVA DUAL.
  *
- * CAMPO LIVRE com ATALHO, não seletor fechado. O `InputNumber` aceita qualquer
- * inteiro em [0, 100] — 45 e 27 são válidos — e os chips apenas preenchem valores
- * frequentes. A tela antiga era um `Select` com sete opções fixas, que era o que
- * impediria 45 amanhã, e que não tinha o `0`.
+ * DROP-DOWN FECHADO com as oito faixas da LC 214/2025. Sem opção "Outro", sem
+ * digitação livre. A lista vem de `IVA_DUAL_REDUCTION_OPTIONS`, junto com o
+ * artigo de cada faixa e as ressalvas que precisam aparecer para o usuário.
  *
- * Os quatro atalhos da LC 214/2025 aparecem marcados; 40, 70 e 80 ficam sem
- * enquadramento nomeado, porque não têm um.
+ * A CHECK do banco é mais larga que esta lista, em `[0, 100]`, e isso é
+ * deliberado — a lista muda com lei nova, a constraint não deveria mudar junto.
+ * A TELA RESTRINGE, O BANCO TOLERA. Consequência prática aqui: um produto pode
+ * chegar com fator fora da lista, vindo de importação ou de API, e o
+ * drop-down precisa MOSTRAR esse valor em vez de fingir que o campo está vazio.
+ * É o que `valorForaDaLista` trata.
  *
  * Usado pela tela de produto e pela de serviço. `variant` só muda cor de texto —
  * a tela de serviço é escura, a de produto é clara.
  */
 import React from 'react'
-import { InputNumber, Tooltip } from 'antd'
+import { Select, Tooltip } from 'antd'
 import {
-  IVA_DUAL_REDUCTION_SHORTCUTS,
-  IVA_DUAL_REDUCTION_MAX_PCT,
-  IVA_DUAL_REDUCTION_MIN_PCT,
+  IVA_DUAL_REDUCTION_OPTIONS,
+  isOptionPct,
 } from '@/utils/iva-dual-reduction-factor'
 
 export interface IvaDualReductionFactorFieldProps {
-  /** Percentual inteiro em [0, 100], ou `null` para NÃO CLASSIFICADO. */
+  /** Percentual inteiro da lista, ou `null` para NÃO CLASSIFICADO. */
   value: number | null
   onChange: (value: number | null) => void
   variant?: 'light' | 'dark'
@@ -35,73 +37,68 @@ export default function IvaDualReductionFactorField({
   inputWidth = 220,
 }: IvaDualReductionFactorFieldProps) {
   const muted = variant === 'dark' ? '#94a3b8' : '#64748b'
-  const chipBg = variant === 'dark' ? 'rgba(255,255,255,0.06)' : '#f1f5f9'
-  const chipBgAtivo = variant === 'dark' ? 'rgba(46,144,250,0.28)' : '#dbeafe'
-  const chipBorda = variant === 'dark' ? 'rgba(255,255,255,0.12)' : '#e2e8f0'
-  const chipTexto = variant === 'dark' ? '#e2e8f0' : '#334155'
+
+  // Valor gravado que não está na lista: legítimo (a CHECK aceita [0,100]), raro,
+  // e que NÃO pode sumir da tela só por não ser oferecido para escolha.
+  const valorForaDaLista = value != null && !isOptionPct(value)
+
+  const selecionada = IVA_DUAL_REDUCTION_OPTIONS.find((o) => o.pct === value)
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <InputNumber
-          value={value}
-          onChange={(v) => onChange(v == null ? null : Number(v))}
-          min={IVA_DUAL_REDUCTION_MIN_PCT}
-          max={IVA_DUAL_REDUCTION_MAX_PCT}
-          precision={0}
-          step={1}
-          style={{ width: inputWidth }}
-          placeholder="Fator (%) — vazio = não classificado"
-          addonAfter="%"
-        />
-        {value == null && (
-          <span style={{ fontSize: 11, color: muted }}>
-            Não classificado. Zero é diferente de vazio: <strong>0%</strong> é integral, regime
-            regular.
-          </span>
+      <Select
+        placeholder="Selecione a faixa de redução"
+        value={value}
+        onChange={(val) => onChange(val == null ? null : Number(val))}
+        style={{ width: inputWidth }}
+        allowClear
+        optionLabelProp="label"
+      >
+        {IVA_DUAL_REDUCTION_OPTIONS.map((o) => (
+          <Select.Option key={o.pct} value={o.pct} label={`${o.pct}%`}>
+            <div>
+              <div style={{ fontWeight: 600 }}>{o.label}</div>
+              <div style={{ fontSize: 11, color: muted }}>
+                {o.artigo ?? 'artigo não confirmado'}
+              </div>
+            </div>
+          </Select.Option>
+        ))}
+        {valorForaDaLista && (
+          <Select.Option key="__fora__" value={value as number} label={`${value}%`}>
+            <div>
+              <div style={{ fontWeight: 600 }}>{value}% — fora da lista</div>
+              <div style={{ fontSize: 11, color: muted }}>valor já gravado</div>
+            </div>
+          </Select.Option>
         )}
-      </div>
+      </Select>
 
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
-        {IVA_DUAL_REDUCTION_SHORTCUTS.map((atalho) => {
-          const ativo = value === atalho.pct
-          const chip = (
-            <button
-              key={atalho.pct}
-              type="button"
-              onClick={() => onChange(atalho.pct)}
-              style={{
-                cursor: 'pointer',
-                fontSize: 11,
-                lineHeight: '18px',
-                padding: '1px 9px',
-                borderRadius: 999,
-                border: `1px solid ${ativo ? 'rgba(46,144,250,0.6)' : chipBorda}`,
-                background: ativo ? chipBgAtivo : chipBg,
-                color: chipTexto,
-                fontWeight: ativo ? 700 : 500,
-              }}
-            >
-              {atalho.label}
-              {atalho.lc214 && (
-                <span style={{ marginLeft: 5, fontSize: 9, color: muted }}>LC 214</span>
-              )}
-            </button>
-          )
-          return atalho.enquadramento ? (
-            <Tooltip key={atalho.pct} title={atalho.enquadramento}>
-              {chip}
-            </Tooltip>
-          ) : (
-            <Tooltip key={atalho.pct} title="Sem enquadramento nomeado na LC 214/2025">
-              {chip}
-            </Tooltip>
-          )
-        })}
-      </div>
+      {value == null && (
+        <div style={{ fontSize: 11, color: muted, marginTop: 4 }}>
+          Não classificado. Zero é diferente de vazio: <strong>0%</strong> é integral, regime
+          regular.
+        </div>
+      )}
+
+      {selecionada?.nota && (
+        <div style={{ fontSize: 11, color: muted, marginTop: 4 }}>
+          <Tooltip title={selecionada.enquadramento}>
+            <span>⚠ {selecionada.nota}</span>
+          </Tooltip>
+        </div>
+      )}
+
+      {valorForaDaLista && (
+        <div style={{ fontSize: 11, color: '#b45309', marginTop: 4 }}>
+          Fator <strong>{value}%</strong> não consta nas faixas da LC 214/2025. O banco aceita o
+          valor e o cálculo o respeita; ele não está entre as opções oferecidas.
+        </div>
+      )}
 
       <div style={{ fontSize: 11, color: muted, marginTop: 6 }}>
-        Os atalhos são sugestão, não limite: qualquer inteiro de 0 a 100 é aceito.
+        As reduções <strong>não se acumulam</strong>: havendo mais de um benefício, aplica-se o
+        de maior hierarquia ou maior redução (art. 7º-A da LC 227/2026).
       </div>
     </div>
   )

@@ -129,19 +129,55 @@ Formulação do dono do produto, registrada como está:
 nunca configuração do tenant — e entra **antes** do cálculo de `c`, porque altera
 a base agregada. Não é desconto aplicado no fim.
 
-**O campo é LIVRE em `[0, 100]`, não é lista fechada.** Existem vários
-percentuais de redução além dos da LC 214/2025, e a tela oferece os previstos na
-lei como **atalho**, jamais como restrição. Quatro têm enquadramento nomeado:
+**A tela é LISTA FECHADA. O banco é mais largo. De propósito.**
 
-| Fator | Enquadramento LC 214/2025 |
-|---|---|
-| 0 | Integral — regime regular |
-| 30 | Profissões liberais regulamentadas |
-| 60 | Saúde, educação, dispositivos médicos e de acessibilidade, medicamentos, alimentos, produtos e insumos agropecuários, transporte coletivo, produção cultural e jornalística |
-| 100 | Cesta básica nacional, produtor rural não contribuinte |
+A LC 214/2025 tem **oito faixas** de redução, e a tela oferece essas oito e só
+essas — sem opção "Outro", sem digitação livre:
 
-Os atalhos 40, 70 e 80 continuam na tela por serem anteriores, e ficam **sem
-enquadramento nomeado**, porque não têm um.
+| Fator | Enquadramento | Artigo |
+|---|---|---|
+| 0 | Integral — regime regular | art. 16 |
+| 30 | Profissões intelectuais regulamentadas | art. 127 |
+| 40 | **Faixa prevista; enquadramento NÃO confirmado** | — |
+| 50 | Operações com imóveis — alienação e construção civil | art. 261 |
+| 60 | Treze setores: saúde, educação, medicamentos, alimentos, insumos agropecuários, cultura, transporte coletivo | art. 128 |
+| 70 | Locação de imóveis | art. 261 |
+| 80 | Locação de imóvel reabilitado em zona histórica | art. 158, § único |
+| 100 | Alíquota zero — cesta básica, medicamentos | art. 125 e 143 |
+
+**Duas ressalvas que fazem parte da tabela, não notas de rodapé:**
+
+- **O 40 não tem enquadramento confirmado.** A faixa existe na lei; o setor não
+  foi verificado. O rótulo na tela diz isso, e continua dizendo até alguém
+  confirmar. Inventar o setor seria tratar ausência como valor —
+  `ausente-vs-falso.md` vale para texto de tela também.
+- **50, 70 e 80 tratam de imóveis e locação, e as fontes divergem.** Material de
+  2026 não bate com o de 2025 sobre esses enquadramentos. A divergência está
+  registrada **sem escolha de lado**: quem for decidir precisa saber que há o que
+  decidir.
+
+**A CHECK do banco aceita `[0, 100]`, mais largo que a lista — e fica assim.**
+Motivo, decidido pelo dono do produto: a lista muda com lei nova, e constraint
+enumerada obriga migração a cada mudança. **A tela restringe, o banco tolera.**
+
+A consequência tem de ser honrada no código: um fator fora da lista **pode
+chegar** — por importação, por API, ou de linha gravada antes de uma mudança de
+lista. Por isso as duas perguntas são funções diferentes:
+
+| Pergunta | Função | O 45 é |
+|---|---|---|
+| está na lista que a tela oferece? | `isOptionPct` | **não** |
+| cabe na faixa que o banco aceita? | `isValidReductionFactorPct` | **sim** |
+| converte para o motor? | `reductionFactorPctToFraction` | **sim** |
+
+Fazer o conversor recusar o que não está na lista seria a tela legislando sobre o
+motor, e apagaria dado legítimo já gravado.
+
+**As reduções NÃO se acumulam.** Art. 7º-A da LC 227/2026: quando uma operação se
+enquadra em mais de um benefício, aplica-se o de **maior hierarquia ou maior
+redução**, salvo autorização expressa. O campo é **um** por produto, então a
+estrutura já força isso — está escrito para que ninguém proponha somar dois
+fatores depois.
 
 **`NULL` não é `0`.** `NULL` é *não classificado*; `0` é *integral, regime
 regular* — classificado, e com o mesmo resultado aritmético. A distinção não muda

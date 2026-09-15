@@ -1,6 +1,6 @@
 /**
- * iva-dual-reduction-factor.ts — o fator de redução do IVA DUAL: faixa, atalhos
- * e a conversão para a unidade que o motor usa.
+ * iva-dual-reduction-factor.ts — o fator de redução do IVA DUAL: a lista da lei,
+ * a faixa que o banco tolera, e a conversão para a unidade que o motor usa.
  *
  * SEMÂNTICA (R4 em `.claude/rules/cascata-lucro-real.md`), definida pelo dono do
  * produto: o fator é o percentual de REDUÇÃO aplicado sobre a alíquota original.
@@ -9,11 +9,21 @@
  *
  * Alíquota 10% com fator 50 resulta em efetiva 5%.
  *
- * >>> O CAMPO É LIVRE, NÃO É LISTA FECHADA <<<
- * Existem vários percentuais de redução além dos da LC 214/2025. Os valores de
- * `IVA_DUAL_REDUCTION_SHORTCUTS` são ATALHO de digitação, nunca restrição: 45 e
- * 27 são valores válidos e o banco os aceita desde a migração
- * `20260915000001_iva_dual_reduction_factor_range.sql`.
+ * >>> A TELA É LISTA FECHADA. O BANCO É MAIS LARGO. DE PROPÓSITO. <<<
+ * A LC 214/2025 tem OITO faixas de redução, e são as de
+ * `IVA_DUAL_REDUCTION_OPTIONS`. A tela oferece essas oito e só essas: sem opção
+ * "Outro", sem digitação livre.
+ *
+ * A CHECK do banco, porém, aceita a faixa inteira `[0, 100]`
+ * (`20260915000001_iva_dual_reduction_factor_range.sql`). A diferença é
+ * deliberada: a lista pode mudar com lei nova, e constraint enumerada obrigaria
+ * migração a cada mudança. **A tela restringe, o banco tolera.**
+ *
+ * Consequência que este arquivo tem de honrar: um fator fora da lista PODE
+ * chegar — por importação, por API, por linha gravada antes de uma mudança de
+ * lista. `reductionFactorPctToFraction` e `isValidReductionFactorPct` trabalham
+ * sobre a FAIXA, não sobre a lista. Quem restringe à lista é a tela, com
+ * `isOptionPct`.
  *
  * >>> DUAS UNIDADES, E ELAS NÃO SE MISTURAM <<<
  *   - banco e tela  → percentual INTEIRO em [0, 100]  (50 = 50%)
@@ -27,53 +37,94 @@
  * `null` é NÃO CLASSIFICADO; `0` é "integral, regime regular" — classificado, e
  * com o mesmo resultado aritmético. A distinção não muda conta nenhuma, e é
  * justamente por isso que ela se perde fácil: ver `ausente-vs-falso.md`.
+ *
+ * >>> AS REDUÇÕES NÃO SE ACUMULAM <<<
+ * Art. 7º-A da LC 227/2026: operação que se enquadra em mais de um benefício
+ * aplica o de maior hierarquia ou maior redução, salvo autorização expressa. O
+ * campo é UM por produto, então a estrutura já força isso — mas está escrito
+ * para que ninguém proponha somar dois fatores depois.
  */
 
-/** Um valor de atalho oferecido na tela. Não restringe o que pode ser digitado. */
-export interface IvaDualReductionShortcut {
+/** Uma faixa de redução prevista na LC 214/2025. A tela oferece estas e só estas. */
+export interface IvaDualReductionOption {
   /** Percentual inteiro, como vai para o banco. */
   pct: number
-  /** Rótulo curto do chip. */
+  /** Rótulo do item no drop-down. */
   label: string
-  /** Enquadramento da LC 214/2025, quando existe. `null` = sem enquadramento nomeado. */
-  enquadramento: string | null
-  /** `true` quando o percentual está previsto na LC 214/2025. */
-  lc214: boolean
+  /** Enquadramento setorial. */
+  enquadramento: string
+  /** Artigo da LC 214/2025, quando identificado. `null` quando não confirmado. */
+  artigo: string | null
+  /** Ressalva a exibir junto do rótulo. Ausente quando não há. */
+  nota?: string
 }
 
 /**
- * Atalhos da tela, na ordem em que aparecem.
+ * As OITO faixas da LC 214/2025, na ordem do drop-down.
  *
- * Os quatro da LC 214/2025 (0, 30, 60, 100) vêm com o enquadramento nomeado.
- * 40, 70 e 80 são anteriores a esta rodada e ficam: nenhum produto os usa hoje,
- * mas remover opção é retirar capacidade sem demanda, e quem contasse com elas
- * descobriria quebrado.
+ * Duas ressalvas estão nos dados, não escondidas em comentário, porque a tela
+ * precisa mostrá-las:
+ *
+ *   - O 40 tem faixa prevista na lei e o SETOR não foi confirmado. O rótulo diz
+ *     isso. Não inventar enquadramento é o ponto: `ausente-vs-falso.md` vale para
+ *     texto de tela também.
+ *   - 50, 70 e 80 tratam de imóveis e locação, e fontes de 2026 divergem das de
+ *     2025 sobre o enquadramento. A divergência está registrada SEM escolher
+ *     lado — quem for decidir precisa saber que há o que decidir.
  */
-export const IVA_DUAL_REDUCTION_SHORTCUTS: ReadonlyArray<IvaDualReductionShortcut> = [
-  { pct: 0, label: '0%', enquadramento: 'Integral — regime regular', lc214: true },
+export const IVA_DUAL_REDUCTION_OPTIONS: ReadonlyArray<IvaDualReductionOption> = [
+  {
+    pct: 0,
+    label: '0% — Integral, regime regular',
+    enquadramento: 'Integral — regime regular',
+    artigo: 'art. 16',
+  },
   {
     pct: 30,
-    label: '30%',
-    enquadramento: 'Profissões liberais regulamentadas',
-    lc214: true,
+    label: '30% — Profissões intelectuais regulamentadas',
+    enquadramento: 'Profissões intelectuais regulamentadas',
+    artigo: 'art. 127',
   },
-  { pct: 40, label: '40%', enquadramento: null, lc214: false },
-  { pct: 50, label: '50%', enquadramento: null, lc214: false },
+  {
+    pct: 40,
+    label: '40% — Faixa prevista, enquadramento não confirmado',
+    enquadramento: 'Faixa prevista na LC 214/2025; setor não confirmado',
+    artigo: null,
+    nota: 'A faixa existe na lei. O setor correspondente NÃO foi confirmado — não presuma enquadramento.',
+  },
+  {
+    pct: 50,
+    label: '50% — Operações com imóveis: alienação e construção civil',
+    enquadramento: 'Operações com imóveis — alienação e construção civil',
+    artigo: 'art. 261',
+    nota: 'Fontes de 2026 divergem das de 2025 quanto ao enquadramento de imóveis e locação. Divergência registrada, sem escolha de lado.',
+  },
   {
     pct: 60,
-    label: '60%',
+    label: '60% — Treze setores: saúde, educação, medicamentos, alimentos…',
     enquadramento:
-      'Saúde, educação, dispositivos médicos e de acessibilidade, medicamentos, alimentos, ' +
-      'produtos e insumos agropecuários, transporte coletivo, produção cultural e jornalística',
-    lc214: true,
+      'Treze setores: saúde, educação, medicamentos, alimentos, insumos agropecuários, cultura, transporte coletivo',
+    artigo: 'art. 128',
   },
-  { pct: 70, label: '70%', enquadramento: null, lc214: false },
-  { pct: 80, label: '80%', enquadramento: null, lc214: false },
+  {
+    pct: 70,
+    label: '70% — Locação de imóveis',
+    enquadramento: 'Locação de imóveis',
+    artigo: 'art. 261',
+    nota: 'Fontes de 2026 divergem das de 2025 quanto ao enquadramento de imóveis e locação. Divergência registrada, sem escolha de lado.',
+  },
+  {
+    pct: 80,
+    label: '80% — Locação de imóvel reabilitado em zona histórica',
+    enquadramento: 'Locação de imóvel reabilitado em zona histórica',
+    artigo: 'art. 158, § único',
+    nota: 'Fontes de 2026 divergem das de 2025 quanto ao enquadramento de imóveis e locação. Divergência registrada, sem escolha de lado.',
+  },
   {
     pct: 100,
-    label: '100%',
-    enquadramento: 'Cesta básica nacional, produtor rural não contribuinte',
-    lc214: true,
+    label: '100% — Alíquota zero: cesta básica, medicamentos',
+    enquadramento: 'Alíquota zero — cesta básica, medicamentos',
+    artigo: 'art. 125 e 143',
   },
 ]
 
@@ -81,8 +132,20 @@ export const IVA_DUAL_REDUCTION_MIN_PCT = 0
 export const IVA_DUAL_REDUCTION_MAX_PCT = 100
 
 /**
- * O valor é um percentual de redução aceitável? Inteiro não é exigido aqui — a
- * coluna é `integer` e o arredondamento é do banco, não desta função.
+ * O valor está na LISTA que a tela oferece? É esta a pergunta da TELA — e só
+ * dela. Nenhum caminho de dado deve usar isto para recusar valor vindo do banco:
+ * a CHECK é mais larga de propósito, e um fator fora da lista é dado legítimo.
+ */
+export function isOptionPct(pct: unknown): boolean {
+  const n = Number(pct)
+  return IVA_DUAL_REDUCTION_OPTIONS.some((o) => o.pct === n)
+}
+
+/**
+ * O valor cabe na FAIXA que o banco aceita? É esta a pergunta do DADO: vale para
+ * o que veio de importação, de API ou de linha antiga, e é mais permissiva que
+ * `isOptionPct` de propósito. Inteiro não é exigido aqui — a coluna é `integer` e
+ * o arredondamento é do banco, não desta função.
  */
 export function isValidReductionFactorPct(pct: unknown): boolean {
   const n = Number(pct)
@@ -109,9 +172,14 @@ export interface ReductionFactorConversion {
  *
  *   50   → { ausente: false, fraction: 0.5 }
  *   0    → { ausente: false, fraction: 0 }      ← classificado, não é ausente
+ *   45   → { ausente: false, fraction: 0.45 }   ← fora da lista da tela, e VÁLIDO
  *   null → { ausente: true }                     ← não classificado, sem fração
  *   -1   → { ausente: false, error: … }
  *   101  → { ausente: false, error: … }
+ *
+ * Trabalha sobre a FAIXA, não sobre a lista: o 45 converte porque o banco o
+ * aceita e ele pode chegar por importação ou API. Recusá-lo aqui seria a tela
+ * legislando sobre o motor.
  *
  * Quem chama decide o que fazer com `ausente`: para a ARITMÉTICA do `c`, ausente
  * e zero dão o mesmo número, e é por isso que o motor não recebe a distinção —
