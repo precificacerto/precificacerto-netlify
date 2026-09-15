@@ -1,8 +1,10 @@
 /**
  * decomposition-dre.ts — a DECOMPOSIÇÃO, com COLUNA POR PRODUTO.
  *
- * Regra: `.claude/rules/cascata-lucro-real.md` R15 a R20. Relatório "Motor RRO — Lucro Real",
- * seções 6.1 a 6.3. ORÁCULOS: planilha "Cascata Lucro Real", aba "Orçamento", linhas 62 a 88.
+ * Regra do cálculo: `.claude/rules/cascata-lucro-real.md` R15 a R20.
+ * Regra da apresentação: `.claude/rules/decomposicao-na-tela.md` — inclusive o "% médio", que
+ * `isDerivedAverage` alimenta, e a linha LUCRO DA VENDA, ainda PENDENTE aqui (ver a regra).
+ * ORÁCULOS: planilha "Cascata Lucro Real", aba "Orçamento", linhas 62 a 88.
  *
  * >>> A DECOMPOSIÇÃO NÃO INFERE, ELA LÊ <<<
  * Parte 0: "A construção lê a matriz. A decomposição lê A MESMA matriz." Cada coluna recebe a

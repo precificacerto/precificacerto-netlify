@@ -1,8 +1,14 @@
 /**
  * decomposition-table.component.tsx — a DECOMPOSIÇÃO, com uma coluna por produto.
  *
- * Requisitos de tela: relatório "Motor RRO — Lucro Real", seção 6.4. Regra:
- * `.claude/rules/cascata-lucro-real.md` R15 a R20.
+ * >>> A RAZÃO DE CADA ESCOLHA DESTA TABELA ESTÁ EM `.claude/rules/decomposicao-na-tela.md` <<<
+ * Leia ANTES de mexer. Três coisas aqui parecem estilo e não são: a coluna congelada à
+ * esquerda, o `nowrap` nas células de valor e o rótulo "% médio". A regra diz o que cada uma
+ * impede. Restrição sem razão citada no ponto de declaração não autoriza remoção — autoriza
+ * pergunta (`.claude/rules/razao-longe-da-restricao.md`), e é por isso que a citação está
+ * AQUI e não só lá.
+ *
+ * Regra do cálculo: `.claude/rules/cascata-lucro-real.md` R15 a R20.
  *
  * As colunas, na ordem que a 6.4 fixa:
  *   Demonstrativo   — a linha do DRE, CONGELADA À ESQUERDA
@@ -95,18 +101,17 @@ export function DecompositionTable({ decomposition, itemLabels, marginTop = 16 }
               const alerta = isResidual && residualForaDeZero
               return (
                 <tr key={row.key} style={alerta ? { background: 'rgba(239, 68, 68, 0.12)' } : undefined}>
-                  <td style={stickyCell(row)}>
-                    {row.label}
-                    {/* 6.4 — com produtos heterogêneos o percentual do total é média ponderada
-                        DERIVADA, e precisa dizer isso. Um número derivado exibido como se
-                        fosse alíquota cadastrada é um percentual que a construção nunca usou. */}
+                  <td style={stickyCell(row)}>{row.label}</td>
+                  <td style={{ ...cell('right'), color: '#94a3b8' }}>{row.base != null ? brl(row.base) : '—'}</td>
+                  {/* O rótulo "% médio" vai NESTA coluna, junto do número, e não na descrição
+                      da linha: quem confere alíquota olha a coluna, não a prosa ao lado. Com a
+                      MESMA alíquota em todos os produtos o percentual É a alíquota e NÃO se
+                      rotula — rotular tudo como média ensina o leitor a ignorar o rótulo. */}
+                  <td style={{ ...cell('right'), color: row.isDerivedAverage ? '#fbbf24' : '#94a3b8' }}>
+                    {pct(row.pct)}
                     {row.isDerivedAverage && (
                       <span style={{ color: '#fbbf24', fontSize: 10, marginLeft: 6 }}>% médio</span>
                     )}
-                  </td>
-                  <td style={{ ...cell('right'), color: '#94a3b8' }}>{row.base != null ? brl(row.base) : '—'}</td>
-                  <td style={{ ...cell('right'), color: row.isDerivedAverage ? '#fbbf24' : '#94a3b8' }}>
-                    {pct(row.pct)}
                   </td>
                   {row.perItem.map((v, i) => (
                     <td key={i} style={{ ...cell('right'), color: v < 0 ? '#fca5a5' : '#cbd5e1' }}>
