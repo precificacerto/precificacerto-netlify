@@ -24,8 +24,13 @@ import {
     DOCUMENT_ACCESSORY_COLUMNS,
     INHERITANCE_VERDICT_MESSAGE,
     INHERITANCE_VERDICT_TONE,
+    buildDocumentAccessoriesPayload,
     inheritDocumentAccessories,
+    resolveAccessoriesSource,
     resolveDocumentAccessoriesInheritance,
+    type AccessoriesResult,
+    type AccessoriesSourceDecision,
+    type DocumentQuotation,
 } from '@/utils/budget-accessories'
 import type { TenantSnapshotContext } from '@/lib/items-snapshot'
 
@@ -209,4 +214,134 @@ describe('pendência 1 — a travessia lê e grava', () => {
             expect(src).toContain('freight_allocated_value')
         })
     })
+
+  describe('5. A BASE DO RATEIO é gravada — sem ela, todo documento novo nasce INDETERMINADO', () => {
+    const origem = resolveAccessoriesSource({
+      freightValue: 3000, insuranceValue: 500, accessoryExpensesValue: 0, criteria: 'VALOR',
+    })
+    const rateio = { errors: [], montanteACarregar: 358119.13 } as unknown as AccessoriesResult
+
+    it('o payload traz os CINCO campos, com a base entre eles', () => {
+      const p = buildDocumentAccessoriesPayload(origem, rateio)
+      expect(p.freight_value).toBe(3000)
+      expect(p.insurance_value).toBe(500)
+      expect(p.accessory_expenses_value).toBe(0)
+      expect(p.freight_allocation_criteria).toBe('VALOR')
+      // O campo que faltava. Sem ele a conferência da travessia não tem contra o que comparar.
+      expect(p.freight_allocation_base).toBe(358119.13)
+      expect(Object.keys(p)).toHaveLength(5)
+    })
+
+    it('o EFEITO: com a base gravada o documento derivado sai VÁLIDO; sem ela, INDETERMINADO', () => {
+      // É o ponto da pendência, e o contraste é a asserção. Os dois documentos têm o MESMO
+      // rateio e os MESMOS itens — só um deles gravou a base.
+      const p = buildDocumentAccessoriesPayload(origem, rateio)
+      const itens = [
+        { total_price: 261360.14, freight_allocated_value: 2554.35, accessories_allocated_value: 0 },
+        { total_price: 88758.99, freight_allocated_value: 867.47, accessories_allocated_value: 0 },
+        { total_price: 8000, freight_allocated_value: 78.18, accessories_allocated_value: 0 },
+      ]
+      // As parcelas somam 3.500,00 — o cotado —, então a primeira conferência passa nos dois.
+      expect(resolveDocumentAccessoriesInheritance(p, itens)!.verdict).toBe('VALIDO')
+      expect(resolveDocumentAccessoriesInheritance({ ...p, freight_allocation_base: null }, itens)!.verdict)
+        .toBe('INDETERMINADO')
+    })
+
+    it('rateio com ERRO grava base `null` — cotou, mas não há base apurada a declarar', () => {
+      const comErro = { errors: ['critério PESO escolhido…'], montanteACarregar: 0 } as unknown as AccessoriesResult
+      expect(buildDocumentAccessoriesPayload(origem, comErro).freight_allocation_base).toBeNull()
+      expect(buildDocumentAccessoriesPayload(origem, null).freight_allocation_base).toBeNull()
+    })
+
+    it('documento sem cotação: `{}`, e nenhuma das cinco colunas é mencionada', () => {
+      const semCotacao = resolveAccessoriesSource({ freightValue: null })
+      expect(buildDocumentAccessoriesPayload(semCotacao, rateio)).toEqual({})
+    })
+
+    it('as DUAS rotas de gravação do orçamento usam a função — nenhuma tem literal próprio', () => {
+      // O literal estava escrito duas vezes quando a base precisou entrar. Acrescentar o
+      // campo numa cópia e não na outra é a `copia-divergente`, com a agravante de o campo
+      // esquecido ser justamente o que torna o rateio verificável.
+      const src = ler('pages/orcamentos/index.tsx')
+      expect((src.match(/buildDocumentAccessoriesPayload\(/g) || []).length).toBe(2)
+      expect(src).not.toMatch(/freight_allocation_criteria:\s*accessoriesSource/)
+    })
+  })
+
+  describe('6. O VEREDITO APARECE TAMBÉM NA VENDA', () => {
+    it('a tela de vendas consome a MESMA função, a mensagem e o tom', () => {
+      const src = ler('pages/vendas/index.tsx')
+      expect(src).toContain('resolveDocumentAccessoriesInheritance')
+      expect(src).toContain('INHERITANCE_VERDICT_MESSAGE')
+      expect(src).toContain('INHERITANCE_VERDICT_TONE')
+    })
+
+    it('e lê `detailItems` — a lista que alimenta o DRE do detalhe', () => {
+      // `saleItems` é o formulário da venda no balcão. Olhar a lista errada daria soma zero,
+      // e todo documento com rateio pareceria ter perdido itens. Foi o que a primeira versão
+      // desta correção fez, antes de ser desfeita.
+      const src = ler('pages/vendas/index.tsx')
+      const memo = src.slice(src.indexOf('const saleAccessoriesInheritance'), src.indexOf('const saleAccessoriesInheritance') + 900)
+      expect(memo).toContain('detailItems')
+      expect(memo).not.toMatch(/saleItems\.map/)
+    })
+
+    it('as duas telas NÃO têm implementações próprias da conferência', () => {
+      for (const arquivo of ['pages/pedidos/index.tsx', 'pages/vendas/index.tsx']) {
+        const src = ler(arquivo)
+        // Nenhuma das duas monta o `checkInheritedAllocation` na mão: as duas chamam a
+        // função que já resolve os campos. Duas telas com a mesma pergunta e duas respostas
+        // é a `copia-divergente` esperando divergir.
+        expect(src).not.toContain('checkInheritedAllocation(')
+        expect(src).toContain('resolveDocumentAccessoriesInheritance(')
+      }
+    })
+  })
+
+  describe('7. A GUARDA TEM UMA METADE SÓ — porque o tipo passou a fechar a outra', () => {
+    /**
+     * Este bloco existe por causa de uma mutação que SOBREVIVEU, e o registro é o ponto.
+     *
+     * A mutação trocava `source.source !== 'DOCUMENTO' || !source.document` por
+     * `!source.document`, e os 22 casos continuaram verdes. Não por fraqueza de nenhum deles:
+     * `resolveAccessoriesSource` é a única fábrica do tipo e NUNCA devolve `CADASTRO` com
+     * `document` preenchido, então nenhuma entrada alcançável distingue as duas guardas. O
+     * estado que a primeira metade barrava era permitido só pelo TIPO.
+     *
+     * Escrever um caso construindo `{ source: 'CADASTRO', document: … }` à mão mataria a
+     * mutação e não provaria nada sobre o sistema — seria afirmar um estado impossível. O
+     * remédio é o de `construtor-empobrecido.md`: fechar o contrato. Com a união discriminada,
+     * a segunda metade da guarda deixa de ser necessária, e o estado deixa de existir.
+     *
+     * ALCANCE, declarado: a asserção de TIPO abaixo é vista pelo `tsc`, não pelo jest — o
+     * `next/jest` compila por SWC e apaga tipos. O `next build` também não a vê
+     * (`ignoreBuildErrors: true`). Ela vale na medição manual do `tsc`, e é por isso que a
+     * asserção ESTRUTURAL vem junto: essa o jest alcança. `portao-que-nao-alcanca.md`.
+     */
+    it('o TIPO recusa `CADASTRO` com cotação junto (visível ao tsc, não ao jest)', () => {
+      const cotacao: DocumentQuotation = {
+        freightValue: 1, insuranceValue: 0, accessoryExpensesValue: 0, criteria: 'VALOR',
+      }
+      // @ts-expect-error — a união não permite `document` na variante CADASTRO. Se alguém
+      // voltar a interface com `document?` opcional, este `@ts-expect-error` fica sem erro
+      // para suprimir e o `tsc` acusa TS2578 — o erro aparece, e é o do teste, não do código.
+      const impossivel: AccessoriesSourceDecision = { source: 'CADASTRO', document: cotacao, reason: 'inalcançável' }
+      expect(impossivel.source).toBe('CADASTRO')
+    })
+
+    it('a guarda do payload tem UMA condição — a redundante saiu com o tipo', () => {
+      const src = ler('utils/budget-accessories.ts')
+      const corpo = src.slice(src.indexOf('export function buildDocumentAccessoriesPayload'))
+      expect(corpo).toContain("if (source.source !== 'DOCUMENTO') return {}")
+      expect(corpo).not.toContain('!source.document')
+    })
+
+    it('e o efeito continua o mesmo nos dois lados da decisão', () => {
+      // A guarda encolheu; o comportamento não. Os dois casos que importam, lado a lado.
+      expect(buildDocumentAccessoriesPayload(resolveAccessoriesSource({ freightValue: null }), null)).toEqual({})
+      expect(
+        buildDocumentAccessoriesPayload(resolveAccessoriesSource({ freightValue: 3000 }), null).freight_value,
+      ).toBe(3000)
+    })
+  })
 })

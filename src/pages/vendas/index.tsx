@@ -45,7 +45,13 @@ import { useResidualDistribution } from '@/hooks/use-residual-distribution'
 import { buildBaselineFromSnapshots, detectConfigWarning, type ResidualItemInput } from '@/utils/residual-distribution'
 import { PAGE_SIZE } from '@/constants/pagination'
 import { ResidualDistributionBlock } from '@/page-parts/shared/residual-distribution-block.component'
-import { inheritDocumentAccessories, type DocumentAccessoryHeader } from '@/utils/budget-accessories'
+import {
+    inheritDocumentAccessories,
+    resolveDocumentAccessoriesInheritance,
+    INHERITANCE_VERDICT_MESSAGE,
+    INHERITANCE_VERDICT_TONE,
+    type DocumentAccessoryHeader,
+} from '@/utils/budget-accessories'
 import {
   buildItemTaxRatesFromProduct,
   mergeItemAndTenantRates,
@@ -144,6 +150,9 @@ interface SaleItemRow {
     expense_breakdown_unit?: import('@/utils/item-tax-rates').ProductExpenseBreakdown | null
     /** Alíquotas tributárias específicas do item (Sprint S11). NULL = fallback tenant. */
     item_tax_rates?: ItemTaxRates | null
+    /** R21: as parcelas de acréscimo, CONGELADAS no rateio do documento de origem. */
+    freight_allocated_value?: number | null
+    accessories_allocated_value?: number | null
     /** true = item manual (nome/valor digitados), false = produto do catálogo */
     is_manual?: boolean
     /** true = item de servico do catalogo */
@@ -259,6 +268,29 @@ function Sales() {
         [detailItems],
     )
     const saleFinalValue = Number(selectedSale?.finalValue) || saleSubtotal
+
+    /**
+     * R21 — o rateio de frete herdado ainda descreve ESTA venda?
+     *
+     * A MESMA função da tela de pedidos. Uma segunda implementação aqui seria a
+     * `copia-divergente` entre duas telas que fazem a mesma pergunta — e a venda é onde a
+     * resposta importa mais, porque depois dela não há documento derivado que corrija.
+     */
+    const saleAccessoriesInheritance = useMemo(
+        () => resolveDocumentAccessoriesInheritance(
+            selectedSale as Parameters<typeof resolveDocumentAccessoriesInheritance>[0],
+            // `detailItems`, e NÃO `saleItems`: é a lista que alimenta o DRE do detalhe, ao
+            // lado do qual o veredito aparece. `saleItems` é o formulário da venda no balcão,
+            // e olhar a lista errada daria soma zero — todo documento com rateio pareceria
+            // ter perdido itens.
+            (detailItems || []).map((it: Record<string, unknown>) => ({
+                total_price: (Number(it.unit_price) || 0) * (Number(it.quantity) || 0),
+                freight_allocated_value: it.freight_allocated_value as number | null,
+                accessories_allocated_value: it.accessories_allocated_value as number | null,
+            })),
+        ),
+        [selectedSale, detailItems],
+    )
     // Etapa 11 abate os itens manuais ANTES de distribuir — repasse puro, resíduo 0. Sai do
     // documento gravado (item sem `product_id` e sem `service_id`), nunca do cadastro vivo.
     const saleManualTotal = useMemo(
@@ -3271,6 +3303,29 @@ function Sales() {
                                 regimeGuardActive={saleEpicV5DisplayData.regimeGuardActive}
                                 discountMode={normalizeDiscountModeForDisplay(selectedSale?.discount_mode)}
                             />
+                        )}
+
+                        {/* R21 — o rateio de frete herdado ainda descreve esta venda?
+                            NÃO recalcula: o share tem o conjunto inteiro no denominador, e
+                            recalcular mudaria a parcela de itens que ninguém tocou.
+                            INDETERMINADO aparece com o MESMO destaque de CONJUNTO_MUDOU —
+                            venda anterior à coluna da base não pode parecer conferida. */}
+                        {saleAccessoriesInheritance && saleAccessoriesInheritance.verdict !== 'SEM_RATEIO' && (
+                            <div style={{
+                                marginTop: 12, padding: '10px 14px', borderRadius: 8, fontSize: 12,
+                                background: INHERITANCE_VERDICT_TONE[saleAccessoriesInheritance.verdict] === 'alerta'
+                                    ? 'rgba(239, 68, 68, 0.12)' : 'rgba(34, 197, 94, 0.10)',
+                                border: INHERITANCE_VERDICT_TONE[saleAccessoriesInheritance.verdict] === 'alerta'
+                                    ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid rgba(34, 197, 94, 0.25)',
+                                color: INHERITANCE_VERDICT_TONE[saleAccessoriesInheritance.verdict] === 'alerta'
+                                    ? '#fca5a5' : '#86efac',
+                            }}>
+                                {INHERITANCE_VERDICT_TONE[saleAccessoriesInheritance.verdict] === 'alerta' ? '⚠ ' : '✓ '}
+                                {INHERITANCE_VERDICT_MESSAGE[saleAccessoriesInheritance.verdict]}
+                                <div style={{ color: '#94a3b8', marginTop: 4, fontSize: 11 }}>
+                                    {saleAccessoriesInheritance.reason}
+                                </div>
+                            </div>
                         )}
 
                         {/* S14 — DRE Consolidada (R3=B + R7=B). Snapshot histórico imutável. */}

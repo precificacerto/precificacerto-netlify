@@ -58,6 +58,7 @@ import { ResidualDistributionBlock } from '@/page-parts/shared/residual-distribu
 import { pisCofinsNominalFromEffective } from '@/utils/sale-context'
 import {
     allocateAccessories,
+    buildDocumentAccessoriesPayload,
     inheritDocumentAccessories,
     type DocumentAccessoryHeader,
     resolveAccessoriesSource,
@@ -917,7 +918,7 @@ function Budgets() {
     })
 
     const accessoriesAllocation = useMemo(() => {
-        if (accessoriesSource.source !== 'DOCUMENTO' || !accessoriesSource.document) return null
+        if (accessoriesSource.source !== 'DOCUMENTO') return null
 
         const targets: AllocationTarget[] = budgetItems.map((item, idx) => {
             const totalValue = getItemTotalWithCommission(item)
@@ -1396,15 +1397,12 @@ function Budgets() {
                 // ICMS Complementar — parâmetros de operação da hierarquia (Etapa 17).
                 freight_mode: freightMode,
                 icms_compl_override: icmsComplOverride,
-                // R11 — acréscimos COTADOS NO DOCUMENTO. Só vão quando o usuário de fato
-                // cotou: sem isso, todo orçamento gravaria `0`, e `0` afirma "cotei e não há
-                // frete", que é diferente de "não cotei" (`.claude/rules/ausente-vs-falso.md`).
-                ...(accessoriesSource.source === 'DOCUMENTO' ? {
-                    freight_value: accessoriesSource.document!.freightValue,
-                    insurance_value: accessoriesSource.document!.insuranceValue,
-                    accessory_expenses_value: accessoriesSource.document!.accessoryExpensesValue,
-                    freight_allocation_criteria: accessoriesSource.document!.criteria,
-                } : {}),
+                // R11/R21 — acréscimos COTADOS NO DOCUMENTO, mais o MONTANTE A CARREGAR que o
+                // rateio usou. Só vão quando o usuário de fato cotou: sem isso, todo orçamento
+                // gravaria `0`, e `0` afirma "cotei e não há frete", que é diferente de "não
+                // cotei" (`.claude/rules/ausente-vs-falso.md`). A base é o que torna o rateio
+                // VERIFICÁVEL na travessia — sem ela o pedido nasce `INDETERMINADO`.
+                ...buildDocumentAccessoriesPayload(accessoriesSource, accessoriesAllocation),
                 engine_version: mrmConfig.enabled ? MRM_ENGINE_VERSION : 'legacy',
                 expiration_date: values.expiration_date?.format('YYYY-MM-DD') || null,
                 notes: values.notes || null,
@@ -1606,15 +1604,12 @@ function Budgets() {
                 // ICMS Complementar — parâmetros de operação da hierarquia (Etapa 17).
                 freight_mode: freightMode,
                 icms_compl_override: icmsComplOverride,
-                // R11 — acréscimos COTADOS NO DOCUMENTO. Só vão quando o usuário de fato
-                // cotou: sem isso, todo orçamento gravaria `0`, e `0` afirma "cotei e não há
-                // frete", que é diferente de "não cotei" (`.claude/rules/ausente-vs-falso.md`).
-                ...(accessoriesSource.source === 'DOCUMENTO' ? {
-                    freight_value: accessoriesSource.document!.freightValue,
-                    insurance_value: accessoriesSource.document!.insuranceValue,
-                    accessory_expenses_value: accessoriesSource.document!.accessoryExpensesValue,
-                    freight_allocation_criteria: accessoriesSource.document!.criteria,
-                } : {}),
+                // R11/R21 — acréscimos COTADOS NO DOCUMENTO, mais o MONTANTE A CARREGAR que o
+                // rateio usou. Só vão quando o usuário de fato cotou: sem isso, todo orçamento
+                // gravaria `0`, e `0` afirma "cotei e não há frete", que é diferente de "não
+                // cotei" (`.claude/rules/ausente-vs-falso.md`). A base é o que torna o rateio
+                // VERIFICÁVEL na travessia — sem ela o pedido nasce `INDETERMINADO`.
+                ...buildDocumentAccessoriesPayload(accessoriesSource, accessoriesAllocation),
                 engine_version: mrmConfig.enabled ? MRM_ENGINE_VERSION : 'legacy',
                 expiration_date: values.expiration_date?.format('YYYY-MM-DD') || null,
                 notes: values.notes || null,

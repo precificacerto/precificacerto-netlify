@@ -277,12 +277,34 @@ export interface LegacyItemAccessories {
 
 export type AccessoriesSource = 'DOCUMENTO' | 'CADASTRO'
 
-export interface AccessoriesSourceDecision {
-  source: AccessoriesSource
-  /** Só em `DOCUMENTO`: os valores cotados e o critério resolvido. */
-  document?: { freightValue: number; insuranceValue: number; accessoryExpensesValue: number; criteria: AllocationCriteria }
-  reason: string
+export interface DocumentQuotation {
+  freightValue: number
+  insuranceValue: number
+  accessoryExpensesValue: number
+  criteria: AllocationCriteria
 }
+
+/**
+ * UNIÃO DISCRIMINADA, e a forma é a regra.
+ *
+ * Antes isto era uma interface com `source: AccessoriesSource` e `document?`, e todo consumidor
+ * escrevia a guarda em duas metades — `source.source !== 'DOCUMENTO' || !source.document`. A
+ * segunda metade era MORTA: a única fábrica (`resolveAccessoriesSource`) nunca produz
+ * `CADASTRO` com `document` preenchido, então nenhuma entrada alcançável distingue as duas
+ * versões da guarda. Uma mutação que apagasse a primeira metade sobreviveria a qualquer caso
+ * de teste honesto — não por fraqueza do caso, mas porque o estado que ela barra era
+ * inalcançável na prática e permitido pelo TIPO.
+ *
+ * `teste-que-nao-exercita.md` manda perguntar o que a asserção distingue; quando a resposta é
+ * "nada, porque o estado não existe", o remédio não é inventar o caso — é **fechar o tipo**,
+ * do mesmo jeito que `construtor-empobrecido.md` fecha um contrato tornando o campo
+ * obrigatório. Com a união, `source.source !== 'DOCUMENTO'` já ESTREITA, a segunda metade
+ * deixa de compilar por ser desnecessária, e construir `{ source: 'CADASTRO', document: … }`
+ * passa a ser erro de tipo em vez de estado tolerado.
+ */
+export type AccessoriesSourceDecision =
+  | { source: 'CADASTRO'; document?: undefined; reason: string }
+  | { source: 'DOCUMENTO'; document: DocumentQuotation; reason: string }
 
 /** O critério padrão da R12 quando o documento não escolheu um. */
 export const DEFAULT_ALLOCATION_CRITERIA: AllocationCriteria = 'VALOR'
@@ -623,4 +645,38 @@ export function resolveDocumentAccessoriesInheritance(
     },
     items.map((it) => ({ totalValue: num(it.total_price) })),
   )
+}
+
+/**
+ * R21 — o cabeçalho de acréscimos que o documento de ORIGEM grava.
+ *
+ * Função, e não um objeto literal em cada `insert`: o orçamento tem DUAS rotas de gravação
+ * (criar e editar), e o literal já estava escrito duas vezes quando a base do rateio precisou
+ * entrar. Acrescentar um campo numa cópia e não na outra é a `copia-divergente.md` — aqui,
+ * com a agravante de o campo esquecido ser justamente o que torna o rateio verificável.
+ *
+ * `freight_allocation_base` é o MONTANTE A CARREGAR vigente no rateio. SEM ele, todo documento
+ * novo nasce `INDETERMINADO` na conferência da travessia: o rateio existe e não há como saber
+ * se o conjunto que o produziu é o mesmo. Gravá-lo é o que faz a R21 sair do papel.
+ *
+ * Devolve `{}` quando o documento não cotou nada — as colunas ficam `NULL`, e `NULL` é "não
+ * cotado", nunca "cotado em zero".
+ */
+export function buildDocumentAccessoriesPayload(
+  source: AccessoriesSourceDecision,
+  allocation: AccessoriesResult | null,
+): Partial<DocumentAccessoryHeader> {
+  if (source.source !== 'DOCUMENTO') return {}
+
+  return {
+    freight_value: source.document.freightValue,
+    insurance_value: source.document.insuranceValue,
+    accessory_expenses_value: source.document.accessoryExpensesValue,
+    freight_allocation_criteria: source.document.criteria,
+    // `null` quando o rateio não pôde ser resolvido (erro de critério, item sem ficha): o
+    // documento cotou, mas não há base apurada a declarar. Gravar um número aqui afirmaria
+    // uma conferência que não aconteceu.
+    freight_allocation_base:
+      allocation && allocation.errors.length === 0 ? allocation.montanteACarregar : null,
+  }
 }
