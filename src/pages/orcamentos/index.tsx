@@ -3508,6 +3508,9 @@ function Budgets() {
                     {/* S14 — DRE Consolidada (R3=B: adicional, R7=B: universal) */}
                     {budgetTotal > 0 && (
                         <ConsolidatedDREBlock
+                            /* R19 — a cascata expande da etapa 12 em diante com as linhas da
+                               decomposição: uma por dedução, e a MESMA que o PDF imprime. */
+                            decomposition={decomposition?.result ?? null}
                             dre={consolidatedDRE}
                             cascadeTrace={epicV5DisplayData.cascadeTrace}
                             pesoOpInterna={epicV5DisplayData.pesoOpInterna}

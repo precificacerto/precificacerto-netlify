@@ -164,8 +164,19 @@ export function appendDecompositionPages(doc: jsPDF, input: DecompositionPdfInpu
         0: { cellWidth: 62, fontStyle: 'bold' },
         1: { cellWidth: 30, halign: 'right' },
         2: { cellWidth: 26, halign: 'right' },
+        // NOTA: `columnStyles` vale para corpo E cabeçalho. O `didParseCell` acima roda
+        // DEPOIS e recentra o cabeçalho — é ele que decide, e por isso o alinhamento do
+        // título não é declarado aqui.
       },
       didParseCell: (hook) => {
+        // CABEÇALHO: o rótulo de cada coluna de valor fica CENTRADO sobre os números dela.
+        // Alinhar o título à esquerda e os valores à direita faz o olho perder a coluna no
+        // meio da tabela — e com N produtos lado a lado é onde a leitura se perde. A coluna
+        // Demonstrativo continua à esquerda: ela é o eixo de leitura, não um valor.
+        if (hook.section === 'head') {
+          hook.cell.styles.halign = hook.column.index === 0 ? 'left' : 'center'
+          return
+        }
         if (hook.section !== 'body') return
         const row = decomposition.rows[hook.row.index]
         if (!row) return
