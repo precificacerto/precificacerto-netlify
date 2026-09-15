@@ -3529,6 +3529,11 @@ function Budgets() {
                                 totalACobrar: globalDiscountPercent > 0 ? budgetTotalACobrar : budgetTotal,
                                 discountPercent: globalDiscountPercent,
                                 discountMode,
+                                // A MESMA decomposição que a tela exibe acima — nos dois
+                                // lugares, de uma fonte só.
+                                decomposition: decomposition
+                                    ? { decomposition: decomposition.result, itemLabels: decomposition.labels }
+                                    : null,
                             }}
                         />
                     )}

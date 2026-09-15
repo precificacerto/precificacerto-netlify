@@ -1,6 +1,7 @@
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import type { CascadeStep } from '@/types/mrm'
+import { appendDecompositionPages, type DecompositionPdfInput } from '@/lib/decomposition-pdf'
 
 /**
  * Os textos que o usuário lê no PDF, num lugar só.
@@ -42,6 +43,14 @@ export interface CascadePdfMeta {
   totalACobrar?: number | null
   discountMode?: string | null
   discountPercent?: number | null
+  /**
+   * A DECOMPOSIÇÃO por produto, a MESMA que a tela exibe. Vai ao FINAL do PDF, em páginas
+   * próprias e em paisagem — ver `decomposition-pdf.ts` para a decisão de layout.
+   *
+   * Ausente = o documento não tem produto precificado (só itens manuais), ou a tela que
+   * chamou ainda não a monta. `undefined` é ausência de dado, nunca "decomposição vazia".
+   */
+  decomposition?: DecompositionPdfInput | null
 }
 
 const fmtMoney = (v: number | null | undefined): string =>
@@ -187,6 +196,9 @@ export function buildCascadeDoc(trace: CascadeStep[], meta: CascadePdfMeta): jsP
     margin,
     Math.min(finalY + 8, doc.internal.pageSize.getHeight() - 8),
   )
+
+  // A decomposição por produto, AO FINAL — a mesma tabela da tela, nos dois lugares.
+  if (meta.decomposition) appendDecompositionPages(doc, meta.decomposition)
 
   return doc
 }
