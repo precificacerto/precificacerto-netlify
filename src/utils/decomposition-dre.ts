@@ -57,6 +57,16 @@ export interface DecompositionItem {
   /** R13 — total dos acréscimos deste item, COM tributo. */
   acrescimos: number
   taxes: DecompositionItemTaxes
+  /**
+   * As categorias DESTE item, quando ele tem as suas.
+   *
+   * Comissão, lucro e RT são cadastrados POR PRODUTO — dois itens no mesmo orçamento têm
+   * pesos de RRO diferentes, e distribuir o RRO de um deles pelos pesos do outro devolveria
+   * um percentual que a construção nunca usou (`regime-e-segmento-determinam-a-construcao.md`).
+   * Ausente = usa as do documento, que é o caso de um orçamento homogêneo e o dos testes que
+   * nasceram antes desta distinção.
+   */
+  categories?: DecompositionCategories
 }
 
 /** Os percentuais % ORIGINAIS das categorias, sobre o total geral (R17). Comuns ao documento. */
@@ -214,9 +224,12 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
   )
   const receitaLiquidaPorItem = items.map((_, k) => pPorItem[k] + icmsPorItem[k] + issPorItem[k] + pisCofinsPorItem[k])
 
+  // As categorias DESTE item: as próprias quando ele as tem, as do documento quando não.
+  const catDe = (k: number): DecompositionCategories => items[k].categories ?? cat
+
   const custoPorItem = items.map((i) => -i.custo)
-  const despesasPorItem = receitaProdutosPorItem.map((r) => -r * cat.despesasOperacionaisPct)
-  const rtPorItem = receitaProdutosPorItem.map((r) => -r * cat.rtPct)
+  const despesasPorItem = receitaProdutosPorItem.map((r, k) => -r * catDe(k).despesasOperacionaisPct)
+  const rtPorItem = receitaProdutosPorItem.map((r, k) => -r * catDe(k).rtPct)
   const rroPorItem = items.map(
     (_, k) => receitaLiquidaPorItem[k] + custoPorItem[k] + despesasPorItem[k] + rtPorItem[k],
   )
@@ -224,16 +237,23 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
   // R20 — as quatro categorias caem PROPORCIONALMENTE, sem hierarquia entre elas.
   // NÃO subtrair a comissão primeiro para aplicar IRPJ sobre o resto: isso quebraria a
   // engenharia reversa, e sem desconto o IRPJ voltaria diferente do cadastrado.
-  const somaRRO = cat.comissaoPct + cat.lucroPct + cat.irpjPct + cat.csllPct
-  if (somaRRO <= 0) {
+  //
+  // A soma é POR ITEM: comissão e lucro são cadastrados por produto, e um orçamento com dois
+  // produtos de margens diferentes tem dois conjuntos de pesos. Usar um só devolveria um
+  // percentual que a construção daquele item nunca usou.
+  const somaRROde = (k: number) => {
+    const c = catDe(k)
+    return c.comissaoPct + c.lucroPct + c.irpjPct + c.csllPct
+  }
+  if (items.some((_, k) => somaRROde(k) <= 0)) {
     errors.push('soma das categorias do RRO <= 0: não há como distribuir o resultado residual.')
     return { rows: [], lucroDaVenda: null, residual: { perItem: [], total: 0 }, receitaAposDesconto, errors }
   }
-  const peso = (pct: number) => pct / somaRRO
-  const comissaoPorItem = rroPorItem.map((r) => r * peso(cat.comissaoPct))
-  const lucroPorItem = rroPorItem.map((r) => r * peso(cat.lucroPct))
-  const irpjPorItem = rroPorItem.map((r) => r * peso(cat.irpjPct))
-  const csllPorItem = rroPorItem.map((r) => r * peso(cat.csllPct))
+  const pesoDe = (k: number, pct: number) => pct / somaRROde(k)
+  const comissaoPorItem = rroPorItem.map((r, k) => r * pesoDe(k, catDe(k).comissaoPct))
+  const lucroPorItem = rroPorItem.map((r, k) => r * pesoDe(k, catDe(k).lucroPct))
+  const irpjPorItem = rroPorItem.map((r, k) => r * pesoDe(k, catDe(k).irpjPct))
+  const csllPorItem = rroPorItem.map((r, k) => r * pesoDe(k, catDe(k).csllPct))
 
   const residualPorItem = rroPorItem.map(
     (r, k) => r - comissaoPorItem[k] - lucroPorItem[k] - irpjPorItem[k] - csllPorItem[k],
@@ -295,15 +315,42 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
     }),
     linha('receita_liquida', '► RECEITA LÍQUIDA', receitaLiquidaPorItem, { subtotal: true }),
     linha('custos', '(−) Custos — congelado', custoPorItem),
-    linha('despesas', '(−) Despesas operacionais', despesasPorItem, { base: rp, pct: cat.despesasOperacionaisPct }),
-    linha('rt', '(−) Comissão RT', rtPorItem, { base: rp, pct: cat.rtPct }),
+    linha('despesas', '(−) Despesas operacionais', despesasPorItem, {
+      base: rp,
+      pct: pctDe(soma(despesasPorItem), rp),
+      derived: heterogeneo(items.map((_, k) => catDe(k).despesasOperacionaisPct)),
+    }),
+    linha('rt', '(−) Comissão RT', rtPorItem, {
+      base: rp,
+      pct: pctDe(soma(rtPorItem), rp),
+      derived: heterogeneo(items.map((_, k) => catDe(k).rtPct)),
+    }),
     linha('rro', '► RRO — RESULTADO RESIDUAL OPERACIONAL', rroPorItem, { subtotal: true }),
-    linha('comissao', 'Comissão', comissaoPorItem, { base: soma(rroPorItem), pct: peso(cat.comissaoPct) }),
-    linha('lucro', 'Lucro', lucroPorItem, { base: soma(rroPorItem), pct: peso(cat.lucroPct) }),
+    // R17/R20 — a base é o RRO e o percentual é o PESO. NÃO a alíquota efetivada: efetivada
+    // é da construção, e exibi-la aqui é o que a Memória Cascata antiga fazia (rotulava
+    // "efetiva 6,1883%" na Comissão). Planilha, aba Orçamento, linhas 82 a 85.
+    linha('comissao', 'Comissão', comissaoPorItem, {
+      base: soma(rroPorItem),
+      pct: soma(rroPorItem) !== 0 ? soma(comissaoPorItem) / soma(rroPorItem) : null,
+      derived: heterogeneo(items.map((_, k) => pesoDe(k, catDe(k).comissaoPct))),
+    }),
+    linha('lucro', 'Lucro', lucroPorItem, {
+      base: soma(rroPorItem),
+      pct: soma(rroPorItem) !== 0 ? soma(lucroPorItem) / soma(rroPorItem) : null,
+      derived: heterogeneo(items.map((_, k) => pesoDe(k, catDe(k).lucroPct))),
+    }),
     // A base do IRPJ e da CSLL é o LUCRO distribuído, e o percentual é a alíquota legal —
     // é essa relação que a R20 preserva e que a engenharia reversa confere.
-    linha('irpj', 'IRPJ', irpjPorItem, { base: soma(lucroPorItem), pct: cat.lucroPct > 0 ? cat.irpjPct / cat.lucroPct : null }),
-    linha('csll', 'CSLL', csllPorItem, { base: soma(lucroPorItem), pct: cat.lucroPct > 0 ? cat.csllPct / cat.lucroPct : null }),
+    linha('irpj', 'IRPJ', irpjPorItem, {
+      base: soma(lucroPorItem),
+      pct: soma(lucroPorItem) !== 0 ? soma(irpjPorItem) / soma(lucroPorItem) : null,
+      derived: heterogeneo(items.map((_, k) => (catDe(k).lucroPct > 0 ? catDe(k).irpjPct / catDe(k).lucroPct : 0))),
+    }),
+    linha('csll', 'CSLL', csllPorItem, {
+      base: soma(lucroPorItem),
+      pct: soma(lucroPorItem) !== 0 ? soma(csllPorItem) / soma(lucroPorItem) : null,
+      derived: heterogeneo(items.map((_, k) => (catDe(k).lucroPct > 0 ? catDe(k).csllPct / catDe(k).lucroPct : 0))),
+    }),
     // A ÚLTIMA LINHA DO DRE É O RESIDUAL, e isso é requisito da seção 6.4. O LUCRO DA VENDA
     // NÃO entra aqui: na planilha ele é a linha 88, separado do DRE que termina na 86, e
     // enfiá-lo no fim da tabela tiraria do residual o lugar que a regra lhe dá. Ele sai em
@@ -322,6 +369,9 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
     perItem: lucroPorItem,
     pctApurado,
     pctSobreProdutos,
+    // O cadastrado do DOCUMENTO. Com itens de lucros diferentes ele é uma referência única
+    // que nenhum item tem — por isso a comparação por item fica na coluna, e este número é o
+    // do documento, como a seção 6.2 o publica.
     pctCadastrado: cat.lucroPct,
     // Contra o percentual SOBRE PRODUTOS, não contra o da receita após desconto: só assim a
     // diferença é o desconto. Ver o comentário de `pctApurado`.

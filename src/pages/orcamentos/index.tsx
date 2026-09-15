@@ -55,6 +55,9 @@ import { consolidateStDifalFromItems, computeTotalACobrar } from '@/utils/icms-s
 import { useResidualDistribution } from '@/hooks/use-residual-distribution'
 import { type ResidualItemInput, validateResidualVsCascade } from '@/utils/residual-distribution'
 import { ResidualDistributionBlock } from '@/page-parts/shared/residual-distribution-block.component'
+import { DecompositionTable } from '@/page-parts/shared/decomposition-table.component'
+import { buildDecomposition } from '@/utils/decomposition-dre'
+import { buildBudgetDecompositionInput } from '@/utils/budget-decomposition-input'
 import { pisCofinsNominalFromEffective } from '@/utils/sale-context'
 import {
     allocateAccessories,
@@ -1239,6 +1242,56 @@ function Budgets() {
             irpj_pct: mrmConfig.irpj_pct,
         })
     }, [budgetItems, motorResultsByItem, mrmConfig.regime, mrmConfig.csll_pct, mrmConfig.irpj_pct])
+
+    /**
+     * A DECOMPOSIÇÃO — R15 a R20, com COLUNA POR PRODUTO.
+     *
+     * Substitui a Memória Cascata de 17 etapas neste ponto da tela. A antiga divergia da
+     * regra em três lugares, e a nova já nasceu certa nos três (medido em
+     * `decomposicao-ligada-na-tela.test.ts`):
+     *
+     *   - na distribuição do RRO a base é o RRO e o percentual é o PESO (R17/R20), não a
+     *     alíquota "efetivada" — efetivada é da CONSTRUÇÃO;
+     *   - a base do ICMS é a RECEITA DE PRODUTOS (planilha, linha 72), não a âncora interna;
+     *   - IBS/CBS/IS/IPI vêm logo depois dos repasses e ANTES da operação por dentro (R19),
+     *     porque o RRO tem de ser a última sobra da conta.
+     *
+     * A ficha de cada item sai de `resolveItemFicha`, a MESMA do rateio: a decomposição LÊ o
+     * que a construção usou, nunca redescobre.
+     */
+    const decomposition = useMemo(() => {
+        const params = buildBudgetDecompositionInput({
+            items: budgetItems.map((item) => ({
+                key: item.key,
+                label: item.product_name || 'Item',
+                isManual: item.isManual,
+                isService: item.isService,
+                quantity: Number(item.quantity) || 0,
+                unitPrice: Number(item.unit_price) || 0,
+                costUnit: Number(item.cost_total) || 0,
+                commissionPct: Number(item.commission_percent) || 0,
+                profitPct: Number(item.profit_percent) || 0,
+                rtPct: Number(item.rt_reserve_percent) || 0,
+                rates: item.item_tax_rates ?? null,
+                // R13 — a parcela RATEADA quando o documento cotou; o cadastro quando não.
+                acrescimos: allocatedByKey
+                    ? (allocatedByKey.get(item.key)?.freight ?? 0) + (allocatedByKey.get(item.key)?.accessories ?? 0)
+                    : (() => {
+                        const prod = item.product_id ? (products as any[]).find((p) => p.id === item.product_id) : null
+                        if (!prod) return 0
+                        return ((Number(prod.freight_value) || 0) + (Number(prod.insurance_value) || 0)
+                            + (Number(prod.accessory_expenses_value) || 0)) * (Number(item.quantity) || 0)
+                    })(),
+            })),
+            discountPct: (Number(globalDiscountPercent) || 0) / 100,
+            despesasOperacionaisPct: Number(mrmConfig.dop_pct) || 0,
+            irpjAliquota: Number(mrmConfig.irpj_pct) || 0,
+            csllAliquota: Number(mrmConfig.csll_pct) || 0,
+        })
+        if (params.isEmpty) return null
+        return { result: buildDecomposition(params.input), labels: params.itemLabels }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [budgetItems, allocatedByKey, products, globalDiscountPercent, mrmConfig.dop_pct, mrmConfig.irpj_pct, mrmConfig.csll_pct])
 
     // ── Salvar orçamento ──
     const handleSave = async () => {
@@ -3439,6 +3492,16 @@ function Budgets() {
                         Bloco aparece também SEM desconto (Q7): exibe apenas % original.
                         Em MEI/SN, hidesProfitTaxes oculta IRPJ/CSLL automaticamente.
                         S9: configWarning alerta quando CP+DOP+MOD = 0 (RRO degradado). */}
+                    {/* R15 — a DECOMPOSIÇÃO existe em orçamento, pedido e venda. Aqui ela é a
+                        tabela com uma coluna por produto; a Memória Cascata abaixo continua
+                        como rastro do motor, e não como a decomposição do documento. */}
+                    {budgetTotal > 0 && decomposition && (
+                        <DecompositionTable
+                            decomposition={decomposition.result}
+                            itemLabels={decomposition.labels}
+                        />
+                    )}
+
                     {budgetTotal > 0 && (
                         <ResidualDistributionBlock
                             distribution={residualDistribution}
