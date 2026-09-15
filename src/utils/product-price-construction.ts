@@ -163,3 +163,24 @@ export function buildProductConstruction(
     errors: [],
   }
 }
+
+/**
+ * O `c` a CONGELAR junto com o preço (R3), ou `null` quando não há o que congelar.
+ *
+ * Vive aqui, e não numa expressão dentro do componente, porque a mesma regra precisa ser
+ * afirmada pelo teste: uma cópia no teste e outra na tela seria `copia-divergente.md` entre
+ * o que se grava e o que se verifica — e o campo esquecido seria justamente a distinção
+ * abaixo.
+ *
+ * `0` e `null` NÃO são a mesma coisa: `0` é "a matriz governou e não há tributo por fora",
+ * apurado; `null` é "não há regra escrita para este regime", não apurado
+ * (`.claude/rules/ausente-vs-falso.md`). A coluna é nulável e sem default exatamente para
+ * que a distinção sobreviva à gravação.
+ */
+export function externalOpsCoefficientToFreeze(
+  construction: ProductConstructionResult,
+): number | null {
+  if (!construction.applied || !construction.resolved) return null
+  const c = Number(construction.resolved.externalOpsCoefficient)
+  return Number.isFinite(c) ? c : null
+}

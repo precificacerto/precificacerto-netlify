@@ -52,7 +52,7 @@ interface ContentIndustrializationProps {
   cbsBaseCode?: number | null
   isBaseCode?: number | null
   ipiBaseCode?: number | null
-  onFinalPriceWithTaxesChange?: (data: { finalPrice: number; basePrice: number }) => void
+  onFinalPriceWithTaxesChange?: (data: { finalPrice: number; basePrice: number; externalOpsCoefficient: number | null }) => void
   advancedTaxesSection?: ReactNode
   /**
    * Alerta de carga horária não configurada. Quando presente, SUBSTITUI o card de

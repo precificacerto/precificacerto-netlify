@@ -450,6 +450,34 @@ export const Content: FC<ContentProps> = ({
   const nameDebounceRef = useRef<NodeJS.Timeout | null>(null)
   const finalPriceWithTaxesRef = useRef<number>(0)
   const salePriceBaseRef = useRef<number>(0)
+  /**
+   * R3 — o `c` que ESTA construção usou, para congelar junto com o preço.
+   *
+   * Começa com o que já está gravado no produto, e não com `null`: o `ProductPrice` só emite
+   * quando o preço sai positivo, e um save feito sem novo cálculo não pode APAGAR o
+   * coeficiente de uma construção anterior. `null` aqui significa "nunca apurado", que é o
+   * estado de todo produto anterior a esta coluna — `.claude/rules/ausente-vs-falso.md`.
+   */
+  const externalOpsCoefficientRef = useRef<number | null>(
+    (product as any)?.external_ops_coefficient != null ? Number((product as any).external_ops_coefficient) : null
+  )
+
+  /**
+   * UM handler, e não três.
+   *
+   * Os três `<Content*>` recebiam o MESMO literal escrito à mão, e o campo que precisava
+   * entrar agora é exatamente o tipo de campo que entra em duas cópias e esquece a terceira
+   * — `.claude/rules/copia-divergente.md`. O teste `congelar-o-coeficiente-por-fora` afirma
+   * que existe um só.
+   */
+  const handleFinalPriceWithTaxes = useCallback(
+    (d: { finalPrice: number; basePrice: number; externalOpsCoefficient: number | null }) => {
+      finalPriceWithTaxesRef.current = d.finalPrice
+      salePriceBaseRef.current = d.basePrice
+      externalOpsCoefficientRef.current = d.externalOpsCoefficient
+    },
+    [],
+  )
 
   const searchNcmByName = useCallback(async (name: string) => {
     if (name.length < 2) { setNcmSuggestions([]); return }
@@ -1178,6 +1206,16 @@ export const Content: FC<ContentProps> = ({
         extraFields.cbs_base_code = cbsBaseCode
         extraFields.is_base_code = isBaseCode
         extraFields.ipi_base_code = ipiBaseCode
+        // R3 — o `c` desta construção, CONGELADO com o preço. É FATO HISTÓRICO, não
+        // referência viva (`.claude/rules/fato-vs-referencia.md`): decompor um preço antigo
+        // com o `c` de hoje reescreve o passado, e o `c` muda toda vez que alguém edita
+        // IBS, CBS, IS, IPI ou o fator de redução. A coluna existia desde a migração
+        // `20260915000003` e NADA a gravava — inclusive em produtos cujo preço já tinha sido
+        // formado com `c` ≠ 0.
+        //
+        // `null` quando a matriz não governou: é ausência de regra, nunca "o coeficiente é
+        // zero". A CHECK do banco aceita `NULL` ou `[0, 1)`, e é o que o motor devolve.
+        extraFields.external_ops_coefficient = externalOpsCoefficientRef.current
         extraFields.sale_price_base = _saleBase
         extraFields.sale_price_after_taxes = finalSalePriceForSave
         // ITEM 1.5: snapshot do valor precificado também por unidade de produção (mesmo divisor).
@@ -2331,7 +2369,7 @@ export const Content: FC<ContentProps> = ({
           cbsBaseCode={cbsBaseCode}
           isBaseCode={isBaseCode}
           ipiBaseCode={ipiBaseCode}
-          onFinalPriceWithTaxesChange={(d) => { finalPriceWithTaxesRef.current = d.finalPrice; salePriceBaseRef.current = d.basePrice }}
+          onFinalPriceWithTaxesChange={handleFinalPriceWithTaxes}
           advancedTaxesSection={advancedTaxesSection}
           advancedTaxParams={advancedTaxParams}
           mobileItemsList={productItemsMobileList}
@@ -2380,7 +2418,7 @@ export const Content: FC<ContentProps> = ({
           cbsBaseCode={cbsBaseCode}
           isBaseCode={isBaseCode}
           ipiBaseCode={ipiBaseCode}
-          onFinalPriceWithTaxesChange={(d) => { finalPriceWithTaxesRef.current = d.finalPrice; salePriceBaseRef.current = d.basePrice }}
+          onFinalPriceWithTaxesChange={handleFinalPriceWithTaxes}
           advancedTaxesSection={advancedTaxesSection}
           advancedTaxParams={advancedTaxParams}
           mobileItemsList={productItemsMobileList}
@@ -2427,7 +2465,7 @@ export const Content: FC<ContentProps> = ({
           cbsBaseCode={cbsBaseCode}
           isBaseCode={isBaseCode}
           ipiBaseCode={ipiBaseCode}
-          onFinalPriceWithTaxesChange={(d) => { finalPriceWithTaxesRef.current = d.finalPrice; salePriceBaseRef.current = d.basePrice }}
+          onFinalPriceWithTaxesChange={handleFinalPriceWithTaxes}
           advancedTaxesSection={advancedTaxesSection}
           advancedTaxParams={advancedTaxParams}
           mobileItemsList={productItemsMobileList}

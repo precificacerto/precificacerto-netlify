@@ -8,7 +8,7 @@ import { resolveProductTaxPercent } from '@/utils/product-tax-percent'
 import { resolveIndirectLaborPct } from '@/utils/indirect-labor-grouping'
 import { computeIvaDualOutside } from '@/utils/iva-dual-outside'
 import { resolveIvaDualEffectiveRate } from '@/utils/item-tax-rates'
-import { buildProductConstruction } from '@/utils/product-price-construction'
+import { buildProductConstruction, externalOpsCoefficientToFreeze } from '@/utils/product-price-construction'
 import { buildProductPriceRows, type PriceRowInput } from '@/utils/product-price-rows'
 import { toBaseCode } from '@/utils/sale-context'
 import { computeAdvancedOutsideTaxes, type AdvancedOutsideParams } from '@/utils/icms-st-difal'
@@ -65,7 +65,12 @@ interface Props {
   cbsBaseCode?: number | null
   isBaseCode?: number | null
   ipiBaseCode?: number | null
-  onFinalPriceWithTaxesChange?: (data: { finalPrice: number; basePrice: number }) => void
+  /**
+   * R3 — o `c` vai JUNTO do preço, no mesmo evento, de propósito: os dois saem do mesmo
+   * cálculo, e separá-los abriria a porta para gravar um coeficiente que não é o desta
+   * construção. `null` = a matriz não governou, e não há `c` apurado a congelar.
+   */
+  onFinalPriceWithTaxesChange?: (data: { finalPrice: number; basePrice: number; externalOpsCoefficient: number | null }) => void
   /* EPIC-POR-FORA-V3: seção "Alíquotas tributárias adicionais (avançado)" renderizada ACIMA do card de resultado. */
   advancedTaxesSection?: ReactNode
   /* EPIC-POR-FORA-V3: parâmetros ICMS-ST/DIFAL/FCP para somar (apenas EXIBIÇÃO) ao preço final ao cliente. */
@@ -366,8 +371,13 @@ export const ProductPrice: FC<Props> = ({
   useEffect(() => {
     // Emite os valores JÁ fracionados por unidade: sale_price e as bases dos snapshots
     // (IBS/CBS/IS/IPI) no content.component derivam desses valores por unidade.
-    if (finalPriceWithTaxesPerUnit > 0) onFinalPriceWithTaxesChange?.({ finalPrice: finalPriceWithTaxesPerUnit, basePrice: finalSalePricePerUnit })
-  }, [finalPriceWithTaxesPerUnit, finalSalePricePerUnit, onFinalPriceWithTaxesChange])
+    if (finalPriceWithTaxesPerUnit > 0) onFinalPriceWithTaxesChange?.({
+      finalPrice: finalPriceWithTaxesPerUnit,
+      basePrice: finalSalePricePerUnit,
+      // O `c` NÃO é por unidade: é um coeficiente, não um valor.
+      externalOpsCoefficient: externalOpsCoefficientToFreeze(_matriz),
+    })
+  }, [finalPriceWithTaxesPerUnit, finalSalePricePerUnit, onFinalPriceWithTaxesChange, _matriz])
 
   const fireChange = (name: string, value: number) => {
     handleChangePrecificationInputs({

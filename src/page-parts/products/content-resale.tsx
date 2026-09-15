@@ -51,7 +51,7 @@ interface ContentResaleProps {
   cbsBaseCode?: number | null
   isBaseCode?: number | null
   ipiBaseCode?: number | null
-  onFinalPriceWithTaxesChange?: (data: { finalPrice: number; basePrice: number }) => void
+  onFinalPriceWithTaxesChange?: (data: { finalPrice: number; basePrice: number; externalOpsCoefficient: number | null }) => void
   advancedTaxesSection?: ReactNode
   advancedTaxParams?: AdvancedTaxParams
   /** Frente 2: lista compacta dos itens renderizada SÓ no mobile (≤639). */
