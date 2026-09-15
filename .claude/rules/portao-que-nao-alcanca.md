@@ -43,11 +43,32 @@ que não estava nele.
 | 3 | `npm run test:ci` (gate obrigatório) | que o comportamento está preservado | o jest importa `src/utils/pricing-engine.ts`, a fonte. O espelho de `supabase/functions/` não é importado por teste nenhum — é código que só roda no Deno, em produção. Verde, 1.717 casos, nenhum deles toca o arquivo quebrado |
 | 4 | `npm run typecheck` (`diagnostics`) | é o único que alcança `supabase/functions/` — o `tsconfig.json` inclui `**/*.ts` e exclui só `node_modules` | roda com `continue-on-error: true` e não bloqueia. Ficou vermelho, corretamente, e não impediu nada |
 | 5 | `npm run test:legacy-guard` | a story `mrm-v2-s2.1` marca `[x]` em *"Regra CI (ESLint custom ou teste de regressão) bloqueando reintrodução"* | o script existe e **nunca é executado**: não está no `ci.yml`, não há `.husky/`, não há hook ativo em `.git/hooks/`, e o `jest.config.js` não o chama. Portão declarado que nunca é acionado |
+| 6 | a linha **`Tests: N passed`** do jest, usada como portão de "a suíte está verde" | que nenhum teste falhou | uma suíte que **não carrega** não contribui caso nenhum, então não pode mudar esse número. O run dizia `Test Suites: 1 failed, 107 passed` e `Tests: 1939 passed` ao mesmo tempo; a segunda linha foi conferida, a primeira não, e o commit foi empurrado vermelho |
 
-As cinco têm a mesma assinatura: **o painel fica verde e a proteção declarada não foi
+As seis têm a mesma assinatura: **o indicador fica verde e a proteção declarada não foi
 exercida.** A #5 é variante — lá nada fica vermelho porque nada roda, nas outras nada fica
 vermelho porque o instrumento não alcança. A distinção está registrada em vez de dissolvida,
 conforme o limite de `registro-de-classe.md`.
+
+### A #6 é de outra natureza, e é por isso que ela entra
+
+As cinco primeiras são portões do CI: o instrumento não alcança o arquivo. A sexta é um
+**número de relatório que uma pessoa escolheu conferir** — e o instrumento alcançava, estava
+na tela, uma linha acima.
+
+Entrou porque o MECANISMO é idêntico, e é o mecanismo que `registro-de-classe.md` manda
+verificar: **o indicador escolhido não podia mudar no caso que se queria detectar.** Uma suíte
+que falha ao carregar tem zero casos; zero casos não falham; `Tests: N passed` fica igual.
+Perguntar "o que faz este portão ficar vermelho?" teria respondido, para aquele número, *"nada
+que aconteça a uma suíte que não carrega"* — que é a pergunta que a seção do corolário faz.
+
+O que ela acrescenta é o alcance da página: **a pergunta não vale só para o `ci.yml`.** Vale
+para o número que alguém lê no terminal antes de commitar, e vale com mais força ali, porque
+não há revisão depois.
+
+A autoria é do assistente, e o registro é dele também — ele voltou sem ser mandado. Está
+escrito assim porque suavizar apagaria o que a linha ensina: o erro não foi de atenção, foi de
+**escolha de indicador**, e mais atenção não o teria evitado.
 
 ### A medição de hoje, que é a evidência
 
@@ -70,7 +91,12 @@ exigência de `baseline-measurement.md`.
 Feita conforme `registro-de-classe.md`. As aparições #1 a #4 saíram da leitura do `ci.yml`,
 do `next.config.js` e do `tsconfig.json` no mesmo dia. A #5 veio de procurar por outros portões
 declarados no repositório e conferir, um a um, se alguém os chama — e é a única que não foi
-provocada por esta rodada. Nenhuma sexta foi forçada.
+provocada por aquela rodada.
+
+A #6 é meses posterior e não foi procurada: aconteceu. Ela foi incluída depois de o dono do
+produto pedir que se avaliasse **se cabia em alguma classe, e que não se forçasse se não
+coubesse**. Coube pelo mecanismo; a diferença de natureza está registrada acima em vez de
+dissolvida na tabela. Nenhuma sétima foi forçada.
 
 ### Uma correção de registro, que é minha
 
@@ -94,6 +120,10 @@ Três perguntas, na ordem em que custam menos:
    instrumento do repositório que o enxerga.
 3. **O portão roda, e bloqueia?** São duas perguntas, não uma. `continue-on-error: true` roda e
    não bloqueia. Script fora do `ci.yml` nem roda.
+4. **O NÚMERO que eu estou conferindo pode mudar no caso que eu quero detectar?** É a mesma
+   pergunta 1, aplicada à leitura em vez do CI. `Tests: N passed` não muda quando uma suíte não
+   carrega; `Test Suites: N failed` muda. Conferir as duas linhas custa um segundo, e foi o que
+   faltou na aparição 6.
 
 E o corolário que decide desenho, não post-mortem: **quando um arquivo é mantido por cópia,
 o check da cópia prova igualdade, nunca sanidade.** Igualdade é uma propriedade entre os dois

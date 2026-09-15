@@ -150,10 +150,10 @@ Os dois percentuais aparecem na tela, cada um com a sua base escrita ao lado. O 
 após desconto é o que a seção 6.2 publica; o sobre produtos é o comparável com o cadastrado.
 
 > A suposição de que "sem desconto o apurado volta aos 8%" era minha, e caiu no primeiro caso
-> de teste escrito para confirmá-la. É a forma de
-> `hipotese-derrubada-pela-propria-medicao.md`: a hipótese e a medição que a desmente têm o
-> mesmo autor, com minutos de intervalo, e a hipótese chegou como justificativa de um passo,
-> não como conjectura a testar.
+> de teste escrito para confirmá-la. Ela está registrada como a **quarta aparição** de
+> `hipotese-derrubada-pela-propria-medicao.md` — é lá que a CLASSE mora, e é a quarta que a
+> transforma de padrão em critério. Aqui fica só o que é normativo para a tela: as duas bases
+> e a atribuição da corrosão.
 
 ---
 
@@ -181,5 +181,7 @@ do DRE e a distribuição do RRO. Esta página cobre o que **a tela** acrescenta
 já está lá. `razao-longe-da-restricao.md` é a razão de esta página existir, e o motivo de a
 citação ir também no ponto de declaração. `ausente-vs-falso.md` explica por que o travessão
 não é `R$ 0,00` e por que o percentual sem rótulo afirma o que não foi apurado.
-`portao-que-nao-alcanca.md` é o que o residual em cinza seria. `registro-de-classe.md`
-decidiu que isto mora em arquivo próprio, e por quê.
+`portao-que-nao-alcanca.md` é o que o residual em cinza seria.
+`hipotese-derrubada-pela-propria-medicao.md` guarda a classe da medição que desmentiu as duas
+bases — aqui está o efeito dela, lá está o padrão. `registro-de-classe.md` decidiu que isto
+mora em arquivo próprio, e por quê.
