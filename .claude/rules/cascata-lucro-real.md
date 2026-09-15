@@ -348,6 +348,23 @@ derivada** e deve ser rotulado como tal.
 **R17 · Percentuais aplicados são os % Originais**, com base no total geral.
 Nunca misturar % Original com base P.
 
+**As duas metades da conta usam alíquotas DIFERENTES, e isto não é detalhe:**
+
+| | qual alíquota | sobre que base |
+|---|---|---|
+| **CONSTRUÇÃO** | **EFETIVA** — `% Original ÷ (1 − c)` (R5) | a operação interna **P** |
+| **DECOMPOSIÇÃO** | **ORIGINAL** — a cadastrada, como está na tela | o **total geral** |
+
+A efetivada existe porque o preço precisa ser formado; ela é o instrumento do
+gross-up. **Exibi-la na decomposição afirma que a alíquota cadastrada é outra** —
+um número que o usuário nunca digitou, apresentado como se tivesse digitado.
+
+Vale também para a **distribuição do RRO**: ali a base é o **RRO** e o percentual
+é o **PESO** da R20, nunca a efetivada. Uma tela que rotulasse "efetiva 6,1883%"
+na linha da Comissão estaria exibindo o instrumento da construção no lugar da
+repartição — e foi exatamente o que a Memória Cascata de 17 etapas fazia, porque
+esta regra não dizia isto com todas as letras.
+
 **R18 · Congelados.** Custos, despesas, acréscimos e itens manuais são valores em
 R$ herdados da construção e **não encolhem com o desconto**. É exatamente isso
 que revela a corrosão da margem.
@@ -370,6 +387,26 @@ RECEITA BRUTA (agrupamento)
     Comissão · Lucro · IRPJ · CSLL
 = RESIDUAL (deve ser zero)
 ```
+
+**A ORDEM DAS DEDUÇÕES É ESTA, SEM EXCEÇÃO:**
+
+| # | dedução |
+|---|---|
+| 1º | **produtos manuais e acréscimos** — repasse, sai primeiro |
+| 2º | **operação por fora** — IBS · CBS · IS · IPI |
+| 3º | **operação por dentro** — ICMS · ISS · PIS/COFINS |
+| 4º | **custos, despesas, comissão RT** |
+| 5º | **RRO** — a última sobra |
+
+**O RRO é o resíduo da conta INTEIRA. Qualquer coisa que apareça DEPOIS dele na
+ordem está no lugar errado** — e o "depois" não é de layout, é de conta: um
+tributo deduzido após o RRO não teria participado da formação dele, e o número
+que sobra deixaria de ser o que se reparte na R20.
+
+O caso que obrigou a escrever isto: a Memória Cascata punha IBS e CBS na Etapa
+17, **depois** do RRO. A soma fechava — os dois lados fechavam entre si, que é o
+sintoma de `regime-e-segmento-determinam-a-construcao.md` — e o RRO repartido era
+de uma conta que ainda tinha tributo a deduzir.
 
 **R20 · Distribuição do RRO.** As quatro categorias caem **proporcionalmente,
 sem hierarquia entre elas**.

@@ -55,7 +55,6 @@ import { consolidateStDifalFromItems, computeTotalACobrar } from '@/utils/icms-s
 import { useResidualDistribution } from '@/hooks/use-residual-distribution'
 import { type ResidualItemInput, validateResidualVsCascade } from '@/utils/residual-distribution'
 import { ResidualDistributionBlock } from '@/page-parts/shared/residual-distribution-block.component'
-import { DecompositionTable } from '@/page-parts/shared/decomposition-table.component'
 import { buildDecomposition } from '@/utils/decomposition-dre'
 import { buildBudgetDecompositionInput } from '@/utils/budget-decomposition-input'
 import { pisCofinsNominalFromEffective } from '@/utils/sale-context'
@@ -3492,15 +3491,11 @@ function Budgets() {
                         Bloco aparece também SEM desconto (Q7): exibe apenas % original.
                         Em MEI/SN, hidesProfitTaxes oculta IRPJ/CSLL automaticamente.
                         S9: configWarning alerta quando CP+DOP+MOD = 0 (RRO degradado). */}
-                    {/* R15 — a DECOMPOSIÇÃO existe em orçamento, pedido e venda. Aqui ela é a
-                        tabela com uma coluna por produto; a Memória Cascata abaixo continua
-                        como rastro do motor, e não como a decomposição do documento. */}
-                    {budgetTotal > 0 && decomposition && (
-                        <DecompositionTable
-                            decomposition={decomposition.result}
-                            itemLabels={decomposition.labels}
-                        />
-                    )}
+                    {/* A TABELA POR PRODUTO NÃO FICA NA TELA — ela é o formato do PDF.
+                        A tela mantém a decomposição em ETAPAS, no mesmo lugar e com o mesmo
+                        acionamento de sempre; o `decomposition` montado acima viaja no
+                        `pdfMeta` e é o que o botão imprime. São duas LEITURAS do mesmo
+                        cálculo, e não duas contas — que é o que `copia-divergente.md` proíbe. */}
 
                     {budgetTotal > 0 && (
                         <ResidualDistributionBlock

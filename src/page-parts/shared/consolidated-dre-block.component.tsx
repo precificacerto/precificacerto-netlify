@@ -17,7 +17,8 @@
 import React from 'react'
 
 import { useDevice } from '@/contexts/device.context'
-import { downloadCascadePdf, type CascadePdfMeta } from '@/lib/create-cascade-pdf'
+import { downloadCascadePdf, downloadDecompositionPdf, type CascadePdfMeta } from '@/lib/create-cascade-pdf'
+import { orderCascadeForDisplay } from '@/utils/cascade-display-order'
 import { formatBRL } from '@/utils/formatters'
 import { DECOMPOSITION_LABEL } from '@/constants/decomposition-label'
 import type { DRESection } from '@/utils/consolidated-dre'
@@ -301,8 +302,14 @@ export function applyTotalACobrarToStep11(
   })
 }
 
-function CascadeExpander({ trace, marginTop = 8, pdfMeta }: { trace: CascadeStep[]; marginTop?: number; pdfMeta?: CascadePdfMeta }) {
+function CascadeExpander({ trace: traceBruto, marginTop = 8, pdfMeta }: { trace: CascadeStep[]; marginTop?: number; pdfMeta?: CascadePdfMeta }) {
   const { isMobile } = useDevice()
+
+  // R19 — a ordem das deduções: repasse, POR FORA, por dentro, custos/despesas/RT, RRO. O
+  // detalhamento dos tributos por fora era exibido no FIM, depois do RRO, embora o valor
+  // deles seja apurado na Etapa 12. `orderCascadeForDisplay` o move para junto de onde ele
+  // nasce; nenhum valor muda, porque a CONTA já obedecia à ordem — ver o cabeçalho do módulo.
+  const trace = orderCascadeForDisplay(traceBruto)
 
   if (trace.length === 0) return null
 
@@ -386,7 +393,15 @@ function CascadeExpander({ trace, marginTop = 8, pdfMeta }: { trace: CascadeStep
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
           <button
             type="button"
-            onClick={() => downloadCascadePdf(trace, pdfMeta)}
+            onClick={() => (
+              // O PDF sai em COLUNAS — uma por produto —, que é o formato que a decomposição
+              // pede no papel. A tela fica com as ETAPAS, que é o rastro do motor: são duas
+              // LEITURAS do mesmo cálculo, não dois cálculos. Sem decomposição montada (tela
+              // que ainda não a passa), cai no PDF das etapas em vez de não gerar nada.
+              pdfMeta.decomposition
+                ? downloadDecompositionPdf(pdfMeta)
+                : downloadCascadePdf(trace, pdfMeta)
+            )}
             style={{
               cursor: 'pointer',
               fontSize: 12,

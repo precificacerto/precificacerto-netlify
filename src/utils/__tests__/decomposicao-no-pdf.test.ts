@@ -128,12 +128,16 @@ describe('4. O PDF É UM SÓ, e a fonte da tabela é a MESMA da tela', () => {
   const orc = ler('pages/orcamentos/index.tsx')
   const mod = ler('lib/decomposition-pdf.ts')
 
-  it('a decomposição é anexada ao documento existente, ao FINAL', () => {
+  it('a decomposição é anexada ao documento, nos DOIS construtores de PDF', () => {
+    // `buildDecompositionDoc` — o PDF do botão, só com a decomposição — e `buildCascadeDoc`,
+    // o caminho legado que ainda imprime as etapas (pedido e venda, até serem ligados).
+    expect((pdf.match(/appendDecompositionPages\(doc/g) || []).length).toBe(2)
     expect(pdf).toContain('appendDecompositionPages(doc, meta.decomposition)')
-    // Depois da tabela das etapas e do rodapé: é a última seção, como o pedido diz.
-    // `lastIndexOf`: a constante é DECLARADA no topo do arquivo, e o que importa é a
-    // posição do USO dela dentro de `buildCascadeDoc`.
-    expect(pdf.indexOf('appendDecompositionPages(doc')).toBeGreaterThan(pdf.lastIndexOf('DECOMPOSITION_PDF_FOOTER,'))
+  })
+
+  it('no PDF legado ela vem ao FINAL, depois das etapas e do rodapé', () => {
+    const legado = pdf.slice(pdf.indexOf('export function buildCascadeDoc'))
+    expect(legado.indexOf('appendDecompositionPages(doc')).toBeGreaterThan(legado.indexOf('DECOMPOSITION_PDF_FOOTER,'))
   })
 
   it('a tela passa a MESMA decomposição que exibe — não uma segunda montagem', () => {

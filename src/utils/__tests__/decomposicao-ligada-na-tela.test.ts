@@ -53,20 +53,26 @@ function montar(items: BudgetDecompositionItem[], discountPct = 0) {
 
 const linha = (r: ReturnType<typeof buildDecomposition>, key: string) => r.rows.find((x) => x.key === key)!
 
-describe('1. A TELA CONSOME O MÓDULO — o caso que faltava na correção 7', () => {
+describe('1. O ORÇAMENTO CONSOME O MÓDULO — o caso que faltava na correção 7', () => {
   const src = ler('pages/orcamentos/index.tsx')
 
-  it('o orçamento importa e RENDERIZA a decomposição', () => {
-    expect(src).toContain("from '@/page-parts/shared/decomposition-table.component'")
-    expect(src).toContain('<DecompositionTable')
-    // Renderizar sem montar seria passagem: o componente precisa receber o resultado.
-    expect(src).toContain('decomposition={decomposition.result}')
-    expect(src).toContain('itemLabels={decomposition.labels}')
-  })
-
-  it('e monta a entrada pelo adaptador, não à mão', () => {
+  /**
+   * MUDANÇA DE REQUISITO, registrada em vez de apagada: a primeira versão deste caso afirmava
+   * `<DecompositionTable` na TELA. O dono do produto decidiu depois que a tela fica com a
+   * decomposição em ETAPAS, no mesmo lugar e com o mesmo acionamento, e que o formato de
+   * COLUNAS é do PDF. O caso segue existindo pelo mesmo motivo — a correção 7 montou o módulo
+   * e não o ligou a lugar nenhum —, mas agora afirma o consumo que existe.
+   */
+  it('o orçamento MONTA a decomposição e a entrega ao PDF', () => {
     expect(src).toContain('buildBudgetDecompositionInput')
     expect(src).toContain('buildDecomposition(params.input)')
+    // Montar sem entregar seria a correção 7 de novo: cálculo vivo que ninguém consome.
+    expect(src).toContain('{ decomposition: decomposition.result, itemLabels: decomposition.labels }')
+  })
+
+  it('e a TELA segue com as etapas, não com a tabela por produto', () => {
+    expect(src).toContain('<ConsolidatedDREBlock')
+    expect(src).not.toContain('<DecompositionTable')
   })
 })
 
