@@ -82,6 +82,8 @@ caminho **quando existe efeito mensurável e ele foi deixado de fora**.
 
 ## Relação com as outras regras
 
+`portao-que-nao-alcanca.md` é esta mesma regra no outro instrumento: lá o verde decorativo é o
+do portão do CI, e o ponto cego não é de quem escreveu a asserção, é o alcance do check.
 `hipotese-derrubada-pela-propria-medicao.md` é a vizinha mais próxima e o espelho desta: lá a
 razão para NÃO testar um caso é uma suposição de quem a formula; aqui o caso é testado e a
 suposição está em achar que ele mede alguma coisa. `registro-de-classe.md` decidiu a forma
