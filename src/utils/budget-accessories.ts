@@ -407,3 +407,91 @@ export function resolveItemFicha(input: ItemFichaInput): ItemFichaResult {
     errors: [],
   }
 }
+
+// ---------------------------------------------------------------------------
+// R21 — a travessia: o rateio herdado ainda vale?
+// ---------------------------------------------------------------------------
+
+/** O rateio como foi gravado no documento de origem. */
+export interface InheritedAllocation {
+  /** Soma dos três acréscimos, como cotados na origem. `null` = não cotado. */
+  totalOriginal?: number | null
+  /** O MONTANTE A CARREGAR vigente quando o rateio foi feito. `null` = não gravado. */
+  base?: number | null
+  /** A soma das parcelas herdadas que chegaram a este documento. */
+  allocatedSum: number
+}
+
+export type InheritanceVerdict = 'VALIDO' | 'SEM_RATEIO' | 'CONJUNTO_MUDOU' | 'INDETERMINADO'
+
+export interface InheritanceCheck {
+  verdict: InheritanceVerdict
+  /** Legível, para a tela dizer ao usuário o que aconteceu. */
+  reason: string
+  /** Quanto o documento atual vale, para a decisão de re-ratear. */
+  montanteAtual: number
+}
+
+/** Um centavo. Abaixo disso é arredondamento de rateio, não mudança de conjunto. */
+const TOLERANCIA = 0.01
+
+/**
+ * R21 — decide se a parcela herdada ainda descreve ESTE documento.
+ *
+ * NÃO recalcula, e não é para recalcular: o share de cada item tem o conjunto inteiro no
+ * denominador, então recalcular mudaria a parcela de itens que ninguém tocou. O que esta
+ * função faz é dizer se o congelado continua aplicável — e `CONJUNTO_MUDOU` é um pedido de
+ * decisão ao usuário, não um gatilho de recálculo automático.
+ *
+ * `INDETERMINADO` existe porque `freight_allocation_base` é coluna nova: documento anterior a
+ * ela tem rateio e não tem base. Chamá-lo de `VALIDO` afirmaria uma conferência que não
+ * aconteceu, e de `CONJUNTO_MUDOU` acusaria uma mudança que ninguém viu
+ * (`.claude/rules/ausente-vs-falso.md`).
+ */
+export function checkInheritedAllocation(
+  inherited: InheritedAllocation,
+  targets: Pick<AllocationTarget, 'totalValue'>[],
+): InheritanceCheck {
+  const montanteAtual = targets.reduce((s, t) => s + num(t.totalValue), 0)
+  const cotado = inherited.totalOriginal
+
+  if (cotado == null) {
+    return { verdict: 'SEM_RATEIO', reason: 'o documento de origem não cotou acréscimo', montanteAtual }
+  }
+
+  // Primeiro sinal, e o mais barato: a soma das parcelas não cobre o cotado. Pega item
+  // removido e item acrescentado.
+  if (Math.abs(inherited.allocatedSum - cotado) > TOLERANCIA) {
+    return {
+      verdict: 'CONJUNTO_MUDOU',
+      reason:
+        `as parcelas herdadas somam ${inherited.allocatedSum.toFixed(2)} e o valor cotado é ` +
+        `${cotado.toFixed(2)}: itens foram acrescentados ou removidos desde o rateio.`,
+      montanteAtual,
+    }
+  }
+
+  // Segundo sinal, e o que o primeiro NÃO pega: a soma fecha, mas o documento vale outra
+  // coisa — uma quantidade mudou, e com ela o share correto de cada item.
+  if (inherited.base == null) {
+    return {
+      verdict: 'INDETERMINADO',
+      reason:
+        'o rateio herdado não trouxe o montante a carregar da origem, então não há como ' +
+        'conferir se o conjunto mudou. Rateio anterior a essa coluna.',
+      montanteAtual,
+    }
+  }
+
+  if (Math.abs(inherited.base - montanteAtual) > TOLERANCIA) {
+    return {
+      verdict: 'CONJUNTO_MUDOU',
+      reason:
+        `o rateio foi feito sobre um montante a carregar de ${inherited.base.toFixed(2)} e este ` +
+        `documento vale ${montanteAtual.toFixed(2)}: as quantidades mudaram desde o rateio.`,
+      montanteAtual,
+    }
+  }
+
+  return { verdict: 'VALIDO', reason: 'o conjunto que produziu o rateio é o mesmo', montanteAtual }
+}

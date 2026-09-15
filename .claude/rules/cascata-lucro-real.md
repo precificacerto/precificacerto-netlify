@@ -291,6 +291,47 @@ saem inteiros** — o desconto recai integralmente sobre os produtos. É o
 comportamento que o motor já tem. Consequência a exibir na tela: com repasse no
 orçamento, desconto nominal e desconto efetivo sobre produtos divergem.
 
+**R21 · A travessia dos acréscimos — a venda CONGELA, e sabe quando o congelado
+deixou de valer.**
+
+> A numeração salta porque as regras são identificadas pelo NÚMERO, não pela
+> posição. Esta mora aqui, ao lado da R12 e da R13 que a produzem, e não no fim da
+> Parte 3 — renumerar quebraria toda referência já escrita.
+
+A pergunta que a originou foi binária — a venda congela o rateio do orçamento ou
+recalcula? — e a resposta honesta não é nenhuma das duas, porque **são dois
+valores de naturezas diferentes**:
+
+| O quê | Natureza | Na travessia |
+|---|---|---|
+| **Valor cotado** (`freight_value` e os outros dois) | Fato histórico EXTERNO — veio de uma transportadora, não de uma fórmula | **Congela sempre.** Recalcular não o atualiza; não há o que recalcular |
+| **Parcela por item** (`freight_allocated_value`) | DERIVAÇÃO do cotado sobre um CONJUNTO | **Congela enquanto o conjunto for o mesmo** |
+| **Conjunto mudou** | — | O congelado deixou de ser aplicável: **avisar, nunca recalcular em silêncio** |
+
+**Por que NÃO recalcular.** O share de cada item é `grandeza_k ÷ Σ grandezas`
+(`budget-accessories.ts`). O denominador é o conjunto inteiro, então **remover um
+item muda a parcela de TODOS os outros** — um item que ninguém tocou teria o
+número alterado pelo movimento de outro. É `fato-vs-referencia.md` na forma mais
+direta: o rateio é memória de uma cotação que aconteceu, e relê-lo contra o
+conjunto de hoje reescreve o passado.
+
+**Por que congelar cegamente também não serve.** Se a venda sai com menos itens
+que o orçamento, a soma das parcelas herdadas fica MENOR que o valor cotado. O
+documento cobra menos frete do que foi cotado, a diferença não aparece em lugar
+nenhum, e ninguém vê.
+
+**O terceiro estado é o que a formulação binária não tinha.** Quando o conjunto
+muda, o rateio herdado é **inválido** — e a escolha entre re-cotar e re-ratear o
+mesmo valor é do usuário, no documento, com os dois números à vista.
+
+**Como se sabe que o conjunto mudou.** Gravando o **montante a carregar** vigente
+no rateio (`freight_allocation_base`). Sem ele a divergência é indetectável:
+comparar a soma das parcelas com o cotado pega item removido ou acrescentado, mas
+**não pega troca de quantidade que preserve a soma** — e aí o share correto mudou
+e o congelado continua fechando. Um congelamento que não sabe dizer quando deixou
+de valer afirma "esta parcela é a deste item" quando o certo seria não afirmar
+nada.
+
 ---
 
 ## Parte 3 — Decomposição (R15 a R20)

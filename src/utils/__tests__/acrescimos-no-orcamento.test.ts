@@ -14,6 +14,7 @@ import {
   allocateAccessories,
   legacyAccessoriesTotal,
   resolveAccessoriesSource,
+  checkInheritedAllocation,
   resolveItemFicha,
   roundAllocationsToCents,
   DEFAULT_ALLOCATION_CRITERIA,
@@ -362,6 +363,80 @@ describe('correção 6 — acréscimos no orçamento, com rateio', () => {
       })
       expect(f.ficha).toBeNull()
       expect(f.errors.join(' ')).toContain('ICMS veio com alíquota')
+    })
+  })
+
+  describe('9. R21 — a TRAVESSIA: a venda congela, e sabe quando o congelado deixou de valer', () => {
+    /** Orçamento: dois itens de 300 e 100, frete de R$ 1.000 rateado por valor. */
+    const origem = { totalOriginal: 1000, base: 400, allocatedSum: 1000 }
+
+    it('conjunto IDÊNTICO: o rateio herdado continua válido', () => {
+      const r = checkInheritedAllocation(origem, [{ totalValue: 300 }, { totalValue: 100 }])
+      expect(r.verdict).toBe('VALIDO')
+      expect(r.montanteAtual).toBe(400)
+    })
+
+    it('item REMOVIDO: as parcelas não cobrem o cotado, e isso é dito', () => {
+      // A venda saiu com um item só; a parcela dele era 750.
+      const r = checkInheritedAllocation(
+        { ...origem, allocatedSum: 750 },
+        [{ totalValue: 300 }],
+      )
+      expect(r.verdict).toBe('CONJUNTO_MUDOU')
+      expect(r.reason).toContain('acrescentados ou removidos')
+    })
+
+    it('QUANTIDADE mudou e a soma AINDA FECHA — o caso que só a base pega', () => {
+      // As parcelas continuam somando 1.000, mas o documento passou a valer 500. O share
+      // correto de cada item mudou, e sem `freight_allocation_base` isso passaria por válido.
+      // É este caso que justifica a coluna acrescentada à seção 7.2.
+      const r = checkInheritedAllocation(origem, [{ totalValue: 400 }, { totalValue: 100 }])
+      expect(r.verdict).toBe('CONJUNTO_MUDOU')
+      expect(r.reason).toContain('quantidades mudaram')
+
+      // E o contraste que prova que é a BASE quem o pega, não a soma: sem a base, o mesmo
+      // documento sai INDETERMINADO — nunca VALIDO, que seria afirmar uma conferência que
+      // não aconteceu.
+      const semBase = checkInheritedAllocation({ ...origem, base: null }, [{ totalValue: 400 }, { totalValue: 100 }])
+      expect(semBase.verdict).toBe('INDETERMINADO')
+    })
+
+    it('documento SEM acréscimo cotado na origem: não há rateio a herdar', () => {
+      const r = checkInheritedAllocation({ totalOriginal: null, base: null, allocatedSum: 0 }, [{ totalValue: 300 }])
+      expect(r.verdict).toBe('SEM_RATEIO')
+    })
+
+    it('NÃO recalcula: a função não devolve parcela nenhuma, só o veredito', () => {
+      // O ponto da R21. Recalcular mudaria a parcela de itens que ninguém tocou, porque o
+      // share tem o conjunto inteiro no denominador. Se esta função um dia passar a devolver
+      // parcelas, este caso quebra e manda ler a regra antes.
+      const r = checkInheritedAllocation(origem, [{ totalValue: 300 }, { totalValue: 100 }])
+      expect(Object.keys(r).sort()).toEqual(['montanteAtual', 'reason', 'verdict'])
+    })
+
+    it('o que o recálculo faria, medido — para que a escolha não seja de fé', () => {
+      // Orçamento com três itens; a venda perde o do meio. O item 'a' NÃO foi tocado.
+      const tres = [
+        { id: 'a', totalValue: 300, isManual: false, resolved: p1.taxBreakdownResolved! },
+        { id: 'b', totalValue: 500, isManual: false, resolved: p1.taxBreakdownResolved! },
+        { id: 'c', totalValue: 200, isManual: false, resolved: p1.taxBreakdownResolved! },
+      ]
+      const comum = { freightValue: 1000, insuranceValue: 0, accessoryExpensesValue: 0, criteria: 'VALOR' as const }
+      const noOrcamento = allocateAccessories({ ...comum, targets: tres })
+      const recalculado = allocateAccessories({ ...comum, targets: [tres[0], tres[2]] })
+
+      // Congelado, 'a' mantém 300. Recalculado, 'a' salta para 600 — sem ninguém ter tocado
+      // nele. É o dobro, e é a razão de a R21 não recalcular.
+      expect(noOrcamento.perTarget[0].allocated).toBeCloseTo(300, 6)
+      expect(recalculado.perTarget[0].allocated).toBeCloseTo(600, 6)
+    })
+
+    it('tolerância de um centavo: arredondamento de rateio NÃO é mudança de conjunto', () => {
+      const r = checkInheritedAllocation(
+        { totalOriginal: 1000, base: 400, allocatedSum: 1000.004 },
+        [{ totalValue: 300 }, { totalValue: 100.004 }],
+      )
+      expect(r.verdict).toBe('VALIDO')
     })
   })
 })
