@@ -113,14 +113,46 @@ A LC 214/2025, art. 12, §2º, II, **exclui expressamente o IPI** da base do
 IBS/CBS. O IS não está entre as exclusões e **integra**. Daí o código 4 ser o
 padrão, e não o 5.
 
-**R4 · Fator de redução do IVA DUAL.** `alíquota efetiva = original × (1 −
-fator)`. É **individual de cada produto** (`products.iva_dual_reduction_factor`)
-e entra **antes** do cálculo de `c`, porque altera a base agregada. Não é
-desconto aplicado no fim.
+**R4 · Fator de redução do IVA DUAL.** O fator é o percentual de **redução**
+aplicado sobre a alíquota original do tributo:
 
-> **Pendência de dado:** há produtos com fator `50`. A LC 214 prevê 30, 60 e 100.
-> Ou é valor de teste, ou a semântica do campo é outra. Resolver antes de ligar
-> o seletor.
+```
+alíquota efetiva = alíquota original × (1 − fator/100)
+```
+
+Formulação do dono do produto, registrada como está:
+
+> Alíquota 10% com fator 50 resulta em efetiva 5%.
+
+É **individual de cada produto ou serviço**
+(`products.iva_dual_reduction_factor`, `services.iva_dual_reduction_factor`) —
+nunca configuração do tenant — e entra **antes** do cálculo de `c`, porque altera
+a base agregada. Não é desconto aplicado no fim.
+
+**O campo é LIVRE em `[0, 100]`, não é lista fechada.** Existem vários
+percentuais de redução além dos da LC 214/2025, e a tela oferece os previstos na
+lei como **atalho**, jamais como restrição. Quatro têm enquadramento nomeado:
+
+| Fator | Enquadramento LC 214/2025 |
+|---|---|
+| 0 | Integral — regime regular |
+| 30 | Profissões liberais regulamentadas |
+| 60 | Saúde, educação, dispositivos médicos e de acessibilidade, medicamentos, alimentos, produtos e insumos agropecuários, transporte coletivo, produção cultural e jornalística |
+| 100 | Cesta básica nacional, produtor rural não contribuinte |
+
+Os atalhos 40, 70 e 80 continuam na tela por serem anteriores, e ficam **sem
+enquadramento nomeado**, porque não têm um.
+
+**`NULL` não é `0`.** `NULL` é *não classificado*; `0` é *integral, regime
+regular* — classificado, e com o mesmo resultado aritmético. A distinção não muda
+conta nenhuma, e é justamente por isso que ela se perde fácil
+(`ausente-vs-falso.md`). O motor calcula e **não classifica**: para o `c`, ausente
+e zero dão o mesmo número, e a distinção fica onde é acionável — no dado e na
+tela.
+
+**Duas unidades, e elas não se misturam.** Banco e tela usam percentual inteiro
+em `[0, 100]`; o motor usa fração em `[0, 1]`. `reductionFactorPctToFraction`
+(`src/utils/iva-dual-reduction-factor.ts`) é a única travessia autorizada.
 
 **R5 · Percentual efetivado.** Toda categoria da operação interna é cadastrada
 como **% Original sobre o total geral** e convertida para cálculo:

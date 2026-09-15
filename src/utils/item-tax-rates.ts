@@ -16,6 +16,7 @@
  */
 
 import type { TaxRatePeriod, TaxType, TaxRegime } from '@/types/mrm'
+import { isValidReductionFactorPct } from '@/utils/iva-dual-reduction-factor'
 
 /**
  * Alíquotas tributárias persistidas em `products`/`services` (todas em DECIMAL).
@@ -560,6 +561,17 @@ export function resolveProductLaborTotal(prod: any, tenantCtx?: TenantLaborConte
  * derivada on-read da bruta e NUNCA persistida de volta (o save grava a bruta digitada), então
  * reaplicar a função não reduz duas vezes. Escala PERCENTUAL (mesma de `ibs_pct`/`cbs_pct`,
  * consumida por `mergeItemAndTenantRates` via `alwaysPercent`). Sem fator → retorna a bruta.
+ *
+ * NULO NÃO É ZERO. A guarda era `f > 0`, o que fazia `0` cair no mesmo caminho de
+ * `null` — aritmeticamente igual, semanticamente destrutivo: a função não tinha
+ * como distinguir "não classificado" de "integral, regime regular". Agora `0` é
+ * fator VÁLIDO e explícito, e só `null`/`undefined` significa não classificado.
+ *
+ * FORA DA FAIXA [0, 100] a redução é RECUSADA e a função devolve a BRUTA. Antes,
+ * um fator acima de 100 produzia alíquota efetiva NEGATIVA e um fator negativo
+ * era ignorado em silêncio. A recusa formal, com mensagem, é de
+ * `reductionFactorPctToFraction` — esta função não tem canal de erro e roda em
+ * caminho de render, então a escolha conservadora é não aplicar redução inválida.
  */
 export function resolveIvaDualEffectiveRate(
   brutaPct: number | null | undefined,
@@ -567,12 +579,11 @@ export function resolveIvaDualEffectiveRate(
 ): number | null {
   const bruta = Number(brutaPct)
   if (!Number.isFinite(bruta) || bruta <= 0) return brutaPct == null ? null : Number(brutaPct) || 0
+  if (factor == null) return bruta // não classificado
   const f = Number(factor)
-  if (factor != null && Number.isFinite(f) && f > 0) {
-    // f em (0..100]; fator 100 → efetiva 0 (isenção); fator 0/null → efetiva = bruta.
-    return bruta * (1 - f / 100)
-  }
-  return bruta
+  if (!isValidReductionFactorPct(f)) return bruta // inválido: recusa a redução
+  // f em [0..100]; fator 100 → efetiva 0 (isenção); fator 0 → efetiva = bruta.
+  return bruta * (1 - f / 100)
 }
 
 export function buildItemTaxRatesFromProduct(prod: any): ItemTaxRates {

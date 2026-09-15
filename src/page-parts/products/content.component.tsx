@@ -2,6 +2,7 @@ import { ChangeEvent, FC, useCallback, useEffect, useMemo, useRef, useState } fr
 import { AutoComplete, Button, Card, Form, Input, InputNumber, Popconfirm, Space, Alert, Radio, Divider, Tooltip, Spin, Switch, Modal, Tag, Segmented } from 'antd'
 import { Select } from '@/components/ui/app-select.component'
 import { PercentInput } from '@/components/percent-input.component'
+import IvaDualReductionFactorField from '@/components/iva-dual-reduction-factor-field'
 import { InfoCircleOutlined, PlusOutlined, SearchOutlined, SyncOutlined, DeleteOutlined } from '@ant-design/icons'
 import { PAGE_TITLES } from '@/constants/page-titles'
 import { IItemModel } from '@/server/model/item'
@@ -2235,21 +2236,16 @@ export const Content: FC<ContentProps> = ({
             <div>
               <label style={{ display: 'block', marginBottom: 6, fontWeight: 500, fontSize: 13 }}>
                 Fator de redução da alíquota do IVA DUAL&nbsp;
-                <Tooltip title="Percentual de redução aplicado sobre as alíquotas de referência de IBS e CBS configuradas nas Configurações Fiscais. Ex: 50% reduz IBS de 17% para 8,5%.">
+                <Tooltip title="Percentual de REDUÇÃO aplicado sobre a alíquota original de IBS e CBS: efetiva = original × (1 − fator/100). Ex.: alíquota 10% com fator 50 resulta em efetiva 5%. Campo livre de 0 a 100 — os atalhos são sugestão, não limite.">
                   <InfoCircleOutlined style={{ color: '#64748b' }} />
                 </Tooltip>
               </label>
-              <Select
-                placeholder="Selecione"
+              <IvaDualReductionFactorField
                 value={ivaDualReductionFactor}
                 onChange={(val) => handleIvaDualFactorChange(val)}
-                style={{ width: '100%' }}
-                allowClear
-              >
-                {[30, 40, 50, 60, 70, 80, 100].map(v => (
-                  <Select.Option key={v} value={v}>{v}%</Select.Option>
-                ))}
-              </Select>
+                variant="light"
+                inputWidth="100%"
+              />
               {ivaDualReductionFactor != null && (ibsPct > 0 || cbsPct > 0) && (
                 <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>
                   IBS: {ibsPct.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}% (bruta) → {parseFloat((ibsPct * (1 - ivaDualReductionFactor / 100)).toFixed(4)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}% (efetiva)

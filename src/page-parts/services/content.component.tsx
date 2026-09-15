@@ -15,6 +15,7 @@ import { useAuth } from '@/hooks/use-auth.hook'
 import { useDevice } from '@/contexts/device.context'
 import { getMonetaryValue } from '@/utils/get-monetary-value'
 import { PercentInput } from '@/components/percent-input.component'
+import IvaDualReductionFactorField from '@/components/iva-dual-reduction-factor-field'
 import { calculateItemPrice } from '@/utils/calculate-item-price'
 import { resolveMonthlyWorkload } from '@/utils/resolve-monthly-workload'
 import type { TaxPreviewResult } from '@/utils/calc-tax-preview'
@@ -1152,18 +1153,13 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                             <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 10 }}>
                                 Fator de Redução da Alíquota do IVA DUAL
                             </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                                <Select
-                                    placeholder="Selecione o fator (%)"
+                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
+                                <IvaDualReductionFactorField
                                     value={ivaDualReductionFactor}
                                     onChange={(val) => handleIvaDualFactorChange(val)}
-                                    style={{ width: 220 }}
-                                    allowClear
-                                >
-                                    {[30, 40, 50, 60, 70, 80, 100].map(v => (
-                                        <Select.Option key={v} value={v}>{v}%</Select.Option>
-                                    ))}
-                                </Select>
+                                    variant="dark"
+                                    inputWidth={220}
+                                />
                                 {ivaDualReductionFactor != null && (ibsPct > 0 || cbsPct > 0) && (
                                     <span style={{ fontSize: 12, color: '#64748b' }}>
                                         IBS: {ibsPct.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}% (bruta) → {parseFloat((ibsPct * (1 - ivaDualReductionFactor / 100)).toFixed(4)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}% (efetiva)
