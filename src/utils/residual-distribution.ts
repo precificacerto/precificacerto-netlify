@@ -410,12 +410,26 @@ export function computeResidualDistribution(
 
   // requiresReview: (a) legacy puro — TODOS os itens sem qualquer fonte; OU
   // (b) BUG-CARDS-RRO-001 (Aria P1): fonte MISTA num mesmo documento — parte dos itens
-  // veio da Etapa 16 (motor) e parte caiu no fallback display-first. Numa operação que
-  // deveria ser 100% motor, isso denuncia falha de orquestração (item perdeu o motor) e
-  // os cards estariam misturando Etapa 16 + proporção inflada sem aviso. Sinaliza review.
+  // veio da Etapa 16 (motor) e parte caiu no fallback display-first; OU
+  // (c) QUALQUER uso do fallback, inclusive quando ele responde pelo documento INTEIRO.
+  //
+  // O (c) é o que faltava, e o buraco era estreito de um jeito que importa: com TODOS os
+  // itens no fallback, `usedMotorSource` fica falso — o (b) não dispara — e
+  // `itemsWithoutSource` fica ZERO, porque o item que entra no fallback dá `continue` antes
+  // da contagem, então o (a) também não dispara. O documento inteiro saía calculado por
+  // PROPORÇÃO SOBRE O CADASTRO, sem um aviso sequer.
+  //
+  // E é exatamente a classe que os cards existem para não ter: o card é a representação do
+  // RRO da decomposição logo abaixo, e a Etapa 16 é a fonte dos dois. Quando o card vem da
+  // proporção e a cascata vem da Etapa 16, são DUAS CONTAS do mesmo número — um dia
+  // divergem e ninguém sabe qual está certa (`.claude/rules/copia-divergente.md`).
+  //
+  // O fallback CONTINUA existindo: sem ele o item legado exibiria zero, e zero afirma que
+  // não há comissão (`.claude/rules/ausente-vs-falso.md`). O que muda é que ele deixa de ser
+  // SILENCIOSO.
   const requiresReview =
     (itemsWithoutSource > 0 && itemsWithoutSource === items.length) ||
-    (usedMotorSource && usedDisplayFirstFallback)
+    usedDisplayFirstFallback
 
   // % originais (Comissão/Lucro)
   // Correção Card Percentual (Ago/2026): quando o call site fornece a rodada baseline
