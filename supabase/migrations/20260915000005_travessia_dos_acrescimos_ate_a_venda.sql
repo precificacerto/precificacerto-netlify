@@ -154,6 +154,19 @@ COMMENT ON COLUMN public.budgets.freight_allocation_base IS
 --       or conname like '%_accessory_values_non_negative_check'
 --       or conname like '%_freight_allocation_base_check'
 --    order by conname;
---   -- esperado: 7 (4 novas de orders/sales, 3 de base, mais as 2 de budgets da 0004)
+--   -- esperado: 9. Esta migração CRIA 7 (criteria e accessory em orders e sales, base em
+--   -- budgets, orders e sales), e os três LIKE também casam com as 2 que a `20260915000004`
+--   -- criou em `budgets` — por isso o total devolvido é 9, e não 7.
+--   --
+--   -- As nove, nomeadas, para a conferência não depender de contar:
+--   --   budgets_accessory_values_non_negative_check      (da 0004)
+--   --   budgets_freight_allocation_base_check
+--   --   budgets_freight_allocation_criteria_check        (da 0004)
+--   --   orders_accessory_values_non_negative_check
+--   --   orders_freight_allocation_base_check
+--   --   orders_freight_allocation_criteria_check
+--   --   sales_accessory_values_non_negative_check
+--   --   sales_freight_allocation_base_check
+--   --   sales_freight_allocation_criteria_check
 --
 --   NOTIFY pgrst, 'reload schema';
