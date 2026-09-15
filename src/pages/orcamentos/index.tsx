@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react'
 import {
     App as AntdApp,
     Button, Checkbox, Drawer, Dropdown, Form, Input, InputNumber, Space, Table, Tag,
-    message, DatePicker, Steps, Popconfirm, Divider, Empty, Modal, Upload, Radio, Segmented,
+    message, DatePicker, Steps, Popconfirm, Divider, Empty, Modal, Upload, Radio, Segmented, Tooltip,
 } from 'antd'
 import { Select } from '@/components/ui/app-select.component'
 import type { ColumnsType } from 'antd/es/table'
@@ -20,7 +20,7 @@ import {
     DollarOutlined, SearchOutlined, PlusOutlined, DeleteOutlined,
     WhatsAppOutlined, SendOutlined, EditOutlined,
     PaperClipOutlined, UploadOutlined, ShoppingCartOutlined, ToolOutlined,
-    UnorderedListOutlined, FilePdfOutlined, MoreOutlined,
+    UnorderedListOutlined, FilePdfOutlined, MoreOutlined, InfoCircleOutlined,
 } from '@ant-design/icons'
 import { useDevice } from '@/contexts/device.context'
 import { MAX_PHONE_MASKED_LENGTH, phoneMask, phoneRules } from '@/utils/phone-br'
@@ -55,6 +55,16 @@ import { consolidateStDifalFromItems, computeTotalACobrar } from '@/utils/icms-s
 import { useResidualDistribution } from '@/hooks/use-residual-distribution'
 import { type ResidualItemInput, validateResidualVsCascade } from '@/utils/residual-distribution'
 import { ResidualDistributionBlock } from '@/page-parts/shared/residual-distribution-block.component'
+import { pisCofinsNominalFromEffective } from '@/utils/sale-context'
+import {
+    allocateAccessories,
+    resolveAccessoriesSource,
+    resolveItemFicha,
+    roundAllocationsToCents,
+    DEFAULT_ALLOCATION_CRITERIA,
+    type AllocationCriteria,
+    type AllocationTarget,
+} from '@/utils/budget-accessories'
 import {
   buildItemTaxRatesFromProduct,
   mergeItemAndTenantRates,
@@ -242,6 +252,16 @@ function Budgets() {
     const [empServiceTables, setEmpServiceTables] = useState<{id: string; name: string; type: string; commission_percent?: number}[]>([])
     const [tableSections, setTableSections] = useState<{key: string; tableId: string | null}[]>([{key: 'ts-0', tableId: null}])
     const [globalDiscountPercent, setGlobalDiscountPercent] = useState(0)
+
+    // ── R10 · R11 · R12 — ACRÉSCIMOS DO DOCUMENTO ──
+    // "Um frete atende vários produtos" (R11). Os três valores são COTADOS AQUI, e a NF-e já
+    // obriga o rateio por item (`vFrete` existe no nível do item). `null` é NÃO COTADO, e é o
+    // estado de todo orçamento existente: nele o cadastro do produto continua prevalecendo,
+    // exatamente como hoje, sem migração retroativa.
+    const [docFreightValue, setDocFreightValue] = useState<number | null>(null)
+    const [docInsuranceValue, setDocInsuranceValue] = useState<number | null>(null)
+    const [docAccessoryValue, setDocAccessoryValue] = useState<number | null>(null)
+    const [docAllocationCriteria, setDocAllocationCriteria] = useState<AllocationCriteria>(DEFAULT_ALLOCATION_CRITERIA)
     const [discountInputMode, setDiscountInputMode] = useState<'PERCENT' | 'AMOUNT'>('PERCENT')
     const [discountMode, setDiscountMode] = useState<DiscountMode>('PROPORTIONAL')
     const skipTableAutoSelectRef = useRef(false)
@@ -874,7 +894,118 @@ function Budgets() {
     // CHEIO (pré-desconto, d=0) → exibição ACIMA do campo de desconto.
     const stDifalFull = consolidateStDifalFromItems(budgetItems, products as any[], 0)
     const totalPorForaExtraFull = stDifalFull.st + stDifalFull.difal + stDifalFull.fcp + icmsComplFull
-    const totalACobrarFull = budgetTotal + totalPorForaExtraFull
+    // ══════════════════════════════════════════════════════════════════════════
+    // R10 · R11 · R12 · R13 — ACRÉSCIMOS DO DOCUMENTO, RATEADOS POR ITEM
+    // ══════════════════════════════════════════════════════════════════════════
+    //
+    // A precedência é explícita e não adivinha (`resolveAccessoriesSource`):
+    //   documento cotou algum acréscimo → o rateio manda, o cadastro do produto é ignorado;
+    //   documento não cotou nada        → o cadastro do produto prevalece, como hoje.
+    //
+    // Todo orçamento existente está no segundo caso, e continua com o preço que tinha —
+    // é a R11 dizendo "sem migração retroativa" em código, não em comentário.
+    //
+    // A base do rateio é o MONTANTE A CARREGAR (R10): produtos precificados MAIS itens
+    // manuais. Ela é fixada ANTES do gross-up, e é isso que evita a circularidade.
+    const accessoriesSource = resolveAccessoriesSource({
+        freightValue: docFreightValue,
+        insuranceValue: docInsuranceValue,
+        accessoryExpensesValue: docAccessoryValue,
+        criteria: docAllocationCriteria,
+    })
+
+    const accessoriesAllocation = useMemo(() => {
+        if (accessoriesSource.source !== 'DOCUMENTO' || !accessoriesSource.document) return null
+
+        const targets: AllocationTarget[] = budgetItems.map((item, idx) => {
+            const totalValue = getItemTotalWithCommission(item)
+            if (item.isManual) {
+                return { id: item.key, totalValue, isManual: true }
+            }
+            // R12 — a parcela HERDA as alíquotas do item que a recebeu. A ficha sai de
+            // `resolveItemFicha`, que lê a MESMA matriz da construção: não se inventa
+            // alíquota para o frete, e não se redescobre a que o produto usou.
+            const rates = item.item_tax_rates
+            const ficha = resolveItemFicha({
+                segment: item.isService ? 'SERVICO' : 'INDUSTRIALIZACAO',
+                rates: {
+                    icmsPct: item.isService ? null : (rates?.icms_pct ?? 0),
+                    issPct: item.isService ? (rates?.iss_pct ?? 0) : null,
+                    // O cadastro guarda o PIS/COFINS já com a exclusão do ICMS aplicada; o
+                    // motor pede a nominal. A reconstituição é exata em `c = 0` — ver
+                    // `pisCofinsNominalFromEffective`.
+                    pisCofinsPct: pisCofinsNominalFromEffective(
+                        (rates?.pis_pct ?? 0) + (rates?.cofins_pct ?? 0),
+                        item.isService ? 0 : (rates?.icms_pct ?? 0),
+                        item.isService ? (rates?.iss_pct ?? 0) : 0,
+                    ),
+                    ipiPct: item.isService ? null : (rates?.ipi_pct ?? 0),
+                    isPct: item.isService ? null : (rates?.is_pct ?? 0),
+                    ibsPct: rates?.ibs_pct ?? 0,
+                    cbsPct: rates?.cbs_pct ?? 0,
+                },
+            })
+            const prod = item.product_id ? (products as any[]).find((p) => p.id === item.product_id) : null
+            return {
+                id: item.key,
+                totalValue,
+                isManual: false,
+                resolved: ficha.ficha,
+                // Grandezas dos critérios PESO e VOLUME, quando o cadastro as tem.
+                weight: prod ? Number(prod.weight) || 0 : 0,
+                volume: prod ? Number(prod.volume) || 0 : 0,
+                manualWeight: totalValue,
+            }
+        })
+
+        const r = allocateAccessories({
+            freightValue: accessoriesSource.document.freightValue,
+            insuranceValue: accessoriesSource.document.insuranceValue,
+            accessoryExpensesValue: accessoriesSource.document.accessoryExpensesValue,
+            criteria: accessoriesSource.document.criteria,
+            targets,
+        })
+        if (r.errors.length > 0) return r
+
+        // Arredonda para centavos SEM perder nem inventar dinheiro: é o que vai para o
+        // `freight_allocated_value` de cada item, e a soma tem de fechar com o cotado.
+        const cents = roundAllocationsToCents(r.perTarget.map((t) => t.allocated), r.totalOriginal)
+        const fretes = roundAllocationsToCents(
+            r.perTarget.map((t) => t.allocatedFreight),
+            accessoriesSource.document.freightValue,
+        )
+        const acess = roundAllocationsToCents(
+            r.perTarget.map((t) => t.allocatedAccessories),
+            accessoriesSource.document.insuranceValue + accessoriesSource.document.accessoryExpensesValue,
+        )
+        return {
+            ...r,
+            perTarget: r.perTarget.map((t, i) => ({
+                ...t, allocated: cents[i], allocatedFreight: fretes[i], allocatedAccessories: acess[i],
+            })),
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [accessoriesSource.source, docFreightValue, docInsuranceValue, docAccessoryValue, docAllocationCriteria, budgetItems, products])
+
+    /**
+     * A parcela de cada item, por chave, já em centavos fechados. `null` quando o documento
+     * não cotou nada — e `null` significa NÃO RATEADO, que é diferente de rateado em zero.
+     */
+    const allocatedByKey = useMemo(() => {
+        if (!accessoriesAllocation || accessoriesAllocation.errors.length > 0) return null
+        const m = new Map<string, { freight: number; accessories: number }>()
+        for (const t of accessoriesAllocation.perTarget) {
+            m.set(t.id, { freight: t.allocatedFreight, accessories: t.allocatedAccessories })
+        }
+        return m
+    }, [accessoriesAllocation])
+
+    /** R13 — o total dos acréscimos COM tributo. Zero quando o documento não cotou nada. */
+    const accessoriesTotalComTributos = accessoriesAllocation && accessoriesAllocation.errors.length === 0
+        ? accessoriesAllocation.totalComTributos
+        : 0
+
+    const totalACobrarFull = budgetTotal + totalPorForaExtraFull + accessoriesTotalComTributos
     // COM desconto (base pós-desconto) → exibição ABAIXO do desconto e persistência.
     const stDifalConsolidated = consolidateStDifalFromItems(budgetItems, products as any[], globalDiscountPercent)
     // R1 (doc v4 Tab. 30/36): total a cobrar do cliente inclui os tributos por fora destacados.
@@ -900,15 +1031,20 @@ function Budgets() {
         (s, i) => (i.isManual ? s + (Number(i.unit_price) || 0) * (Number(i.quantity) || 0) : s),
         0,
     )
-    const despAcessoriasTotal = budgetItems.reduce((s, i) => {
-        const p = findProd(i.product_id)
-        if (!p) return s
-        const terceirizadasUnit =
-            (Number(p.freight_value) || 0) +
-            (Number(p.insurance_value) || 0) +
-            (Number(p.accessory_expenses_value) || 0)
-        return s + terceirizadasUnit * (Number(i.quantity) || 0)
-    }, 0)
+    // R11 — o cadastro do produto só alimenta esta linha quando o DOCUMENTO não cotou nada.
+    // Com acréscimo cotado no orçamento, o rateio manda e somar o do cadastro por cima seria
+    // cobrar o mesmo frete duas vezes.
+    const despAcessoriasTotal = accessoriesSource.source === 'DOCUMENTO'
+        ? (accessoriesAllocation && accessoriesAllocation.errors.length === 0 ? accessoriesAllocation.totalAllocated : 0)
+        : budgetItems.reduce((s, i) => {
+            const p = findProd(i.product_id)
+            if (!p) return s
+            const terceirizadasUnit =
+                (Number(p.freight_value) || 0) +
+                (Number(p.insurance_value) || 0) +
+                (Number(p.accessory_expenses_value) || 0)
+            return s + terceirizadasUnit * (Number(i.quantity) || 0)
+        }, 0)
 
     // ── EPIC-RR-DISPLAY: distribuição semântica (PDF GPT + DOCX Claude, 20/05/2026) ──
     // Aria S2 review: memoizar array de items antes de passar ao hook (evita
@@ -1044,9 +1180,20 @@ function Budgets() {
                 motor_new_irpj: motor?.new_irpj,
                 motor_cp_total: motor?.cp,
                 motor_expense_breakdown: motorV17?.expense_breakdown_v17 ?? null,
-                freight_unit: prod ? Number(prod.freight_value) || 0 : 0,
-                insurance_unit: prod ? Number(prod.insurance_value) || 0 : 0,
-                accessory_unit: prod ? Number(prod.accessory_expenses_value) || 0 : 0,
+                // R11 — com acréscimo cotado no documento, o item recebe a PARCELA RATEADA
+                // (já por unidade) e o cadastro do produto é ignorado. Sem cotação, segue o
+                // cadastro, como sempre foi.
+                ...(allocatedByKey
+                    ? {
+                        freight_unit: (allocatedByKey.get(item.key)?.freight ?? 0) / Math.max(1, Number(item.quantity) || 1),
+                        insurance_unit: 0,
+                        accessory_unit: (allocatedByKey.get(item.key)?.accessories ?? 0) / Math.max(1, Number(item.quantity) || 1),
+                    }
+                    : {
+                        freight_unit: prod ? Number(prod.freight_value) || 0 : 0,
+                        insurance_unit: prod ? Number(prod.insurance_value) || 0 : 0,
+                        accessory_unit: prod ? Number(prod.accessory_expenses_value) || 0 : 0,
+                    }),
             }
         })
         // Para DRE: os snapshots de taxes_inside/outside precisam vir do motor
@@ -1247,6 +1394,15 @@ function Budgets() {
                 // ICMS Complementar — parâmetros de operação da hierarquia (Etapa 17).
                 freight_mode: freightMode,
                 icms_compl_override: icmsComplOverride,
+                // R11 — acréscimos COTADOS NO DOCUMENTO. Só vão quando o usuário de fato
+                // cotou: sem isso, todo orçamento gravaria `0`, e `0` afirma "cotei e não há
+                // frete", que é diferente de "não cotei" (`.claude/rules/ausente-vs-falso.md`).
+                ...(accessoriesSource.source === 'DOCUMENTO' ? {
+                    freight_value: accessoriesSource.document!.freightValue,
+                    insurance_value: accessoriesSource.document!.insuranceValue,
+                    accessory_expenses_value: accessoriesSource.document!.accessoryExpensesValue,
+                    freight_allocation_criteria: accessoriesSource.document!.criteria,
+                } : {}),
                 engine_version: mrmConfig.enabled ? MRM_ENGINE_VERSION : 'legacy',
                 expiration_date: values.expiration_date?.format('YYYY-MM-DD') || null,
                 notes: values.notes || null,
@@ -1278,6 +1434,12 @@ function Budgets() {
                 // inserido, o preservado se já estava no orçamento. `null` = item manual ou
                 // legado, e nunca destino FORA.
                 destination_snapshot: readSnapshotColumn(i),
+                // R12/R18 — a parcela de acréscimo deste item, CONGELADA em R$. Só vai quando
+                // o documento cotou: ausente é "não rateado", nunca zero rateado.
+                ...(allocatedByKey ? {
+                    freight_allocated_value: allocatedByKey.get(i.key)?.freight ?? null,
+                    accessories_allocated_value: allocatedByKey.get(i.key)?.accessories ?? null,
+                } : {}),
             }))
 
             if (items.length > 0) {
@@ -1442,6 +1604,15 @@ function Budgets() {
                 // ICMS Complementar — parâmetros de operação da hierarquia (Etapa 17).
                 freight_mode: freightMode,
                 icms_compl_override: icmsComplOverride,
+                // R11 — acréscimos COTADOS NO DOCUMENTO. Só vão quando o usuário de fato
+                // cotou: sem isso, todo orçamento gravaria `0`, e `0` afirma "cotei e não há
+                // frete", que é diferente de "não cotei" (`.claude/rules/ausente-vs-falso.md`).
+                ...(accessoriesSource.source === 'DOCUMENTO' ? {
+                    freight_value: accessoriesSource.document!.freightValue,
+                    insurance_value: accessoriesSource.document!.insuranceValue,
+                    accessory_expenses_value: accessoriesSource.document!.accessoryExpensesValue,
+                    freight_allocation_criteria: accessoriesSource.document!.criteria,
+                } : {}),
                 engine_version: mrmConfig.enabled ? MRM_ENGINE_VERSION : 'legacy',
                 expiration_date: values.expiration_date?.format('YYYY-MM-DD') || null,
                 notes: values.notes || null,
@@ -1473,6 +1644,12 @@ function Budgets() {
                 // inserido, o preservado se já estava no orçamento. `null` = item manual ou
                 // legado, e nunca destino FORA.
                 destination_snapshot: readSnapshotColumn(i),
+                // R12/R18 — a parcela de acréscimo deste item, CONGELADA em R$. Só vai quando
+                // o documento cotou: ausente é "não rateado", nunca zero rateado.
+                ...(allocatedByKey ? {
+                    freight_allocated_value: allocatedByKey.get(i.key)?.freight ?? null,
+                    accessories_allocated_value: allocatedByKey.get(i.key)?.accessories ?? null,
+                } : {}),
             }))
             if (items.length > 0) {
                 const { error: itemsErr } = await supabase.from('budget_items').insert(items)
@@ -1547,6 +1724,16 @@ function Budgets() {
 
         skipTableAutoSelectRef.current = true
         setGlobalDiscountPercent(Number(record.global_discount_percent || 0))
+        // R11 — os acréscimos COTADOS neste documento. `null` (ou coluna ausente, enquanto a
+        // migração não estiver aplicada) é NÃO COTADO: o orçamento reabre no caminho do
+        // cadastro do produto, com o preço que tinha.
+        const recAcc = record as unknown as Record<string, unknown>
+        setDocFreightValue(recAcc.freight_value != null ? Number(recAcc.freight_value) : null)
+        setDocInsuranceValue(recAcc.insurance_value != null ? Number(recAcc.insurance_value) : null)
+        setDocAccessoryValue(recAcc.accessory_expenses_value != null ? Number(recAcc.accessory_expenses_value) : null)
+        setDocAllocationCriteria(
+            (recAcc.freight_allocation_criteria as AllocationCriteria | null) ?? DEFAULT_ALLOCATION_CRITERIA,
+        )
         // MRM D1: ao abrir registro legado com motor ativo, força PROPORTIONAL
         // Epic MRM-V6 (ADR-009): 3 modos disponíveis. Snapshots V5 legacy com
         // discount_mode='MRM' são lidos como PROPORTIONAL (sem recálculo do snapshot).
@@ -3052,6 +3239,83 @@ function Budgets() {
                             Adicionar item manual
                         </Button>
                     </Space.Compact>
+
+                    {/* ══════════════════════════════════════════════════════════════════
+                        R10 — SEÇÃO 3: FRETE, SEGURO E DESPESAS ACESSÓRIAS
+                        A ORDEM É FUNCIONAL, NÃO ESTÉTICA. Esta seção vem DEPOIS dos produtos
+                        e dos itens manuais, e ANTES do total geral: se o bloco de acréscimos
+                        aparecesse antes da operação interna, o usuário entenderia — com razão —
+                        que despesa fixa e financeira incidem sobre o frete. Não incidem.
+                        ══════════════════════════════════════════════════════════════════ */}
+                    <div style={{
+                        marginTop: 16, padding: '12px 16px', background: 'rgba(148, 163, 184, 0.06)',
+                        border: '1px solid rgba(148, 163, 184, 0.18)', borderRadius: 8,
+                    }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13, color: '#cbd5e1', marginBottom: 4 }}>
+                            <strong>Montante a carregar</strong>
+                            <strong>{formatCurrency(budgetTotal)}</strong>
+                        </div>
+                        <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 12 }}>
+                            Produtos precificados + itens manuais. É a base da cotação do frete, e ela é
+                            fixada <strong>antes</strong> do gross-up — o frete não entra na própria base.
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
+                            <div>
+                                <label style={{ display: 'block', marginBottom: 4, fontSize: 12, color: '#94a3b8' }}>Frete</label>
+                                <CurrencyInput min={0} value={docFreightValue ?? 0} onChange={(v) => setDocFreightValue(v ?? 0)} style={{ width: '100%' }} />
+                            </div>
+                            <div>
+                                <label style={{ display: 'block', marginBottom: 4, fontSize: 12, color: '#94a3b8' }}>Seguro</label>
+                                <CurrencyInput min={0} value={docInsuranceValue ?? 0} onChange={(v) => setDocInsuranceValue(v ?? 0)} style={{ width: '100%' }} />
+                            </div>
+                            <div>
+                                <label style={{ display: 'block', marginBottom: 4, fontSize: 12, color: '#94a3b8' }}>Outras despesas acessórias</label>
+                                <CurrencyInput min={0} value={docAccessoryValue ?? 0} onChange={(v) => setDocAccessoryValue(v ?? 0)} style={{ width: '100%' }} />
+                            </div>
+                            <div>
+                                <label style={{ display: 'block', marginBottom: 4, fontSize: 12, color: '#94a3b8' }}>
+                                    Critério de rateio&nbsp;
+                                    <Tooltip title="Como o valor cotado é repartido entre os itens. A parcela de cada item herda as alíquotas DELE — não se inventa alíquota para o frete. A parcela que cai em item manual é repasse puro, sem gross-up.">
+                                        <InfoCircleOutlined style={{ color: '#64748b' }} />
+                                    </Tooltip>
+                                </label>
+                                <Select
+                                    value={docAllocationCriteria}
+                                    onChange={(v) => setDocAllocationCriteria(v as AllocationCriteria)}
+                                    style={{ width: '100%' }}
+                                    options={[
+                                        { value: 'VALOR', label: 'Por valor (padrão)' },
+                                        { value: 'PESO', label: 'Por peso' },
+                                        { value: 'VOLUME', label: 'Por volume' },
+                                        { value: 'MANUAL', label: 'Manual' },
+                                    ]}
+                                />
+                            </div>
+                        </div>
+
+                        {accessoriesAllocation && accessoriesAllocation.errors.length > 0 && (
+                            <div style={{ marginTop: 10, fontSize: 12, color: '#fca5a5' }}>
+                                {accessoriesAllocation.errors.map((e, i) => <div key={i}>⚠ {e}</div>)}
+                            </div>
+                        )}
+
+                        {accessoriesAllocation && accessoriesAllocation.errors.length === 0 && accessoriesAllocation.totalOriginal > 0 && (
+                            <div style={{ marginTop: 12, borderTop: '1px solid rgba(148, 163, 184, 0.18)', paddingTop: 10 }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#94a3b8' }}>
+                                    <span>Parcela rateada (congelada — não encolhe com desconto)</span>
+                                    <span>{formatCurrency(accessoriesAllocation.totalAllocated)}</span>
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#cbd5e1', marginTop: 6 }}>
+                                    <strong>Total dos acréscimos (com tributos)</strong>
+                                    <strong>{formatCurrency(accessoriesAllocation.totalComTributos)}</strong>
+                                </div>
+                                <div style={{ fontSize: 11, color: '#64748b', marginTop: 6 }}>
+                                    A parcela que cai em item manual é repasse puro: entra e sai pelo mesmo valor.
+                                </div>
+                            </div>
+                        )}
+                    </div>
 
                     {/* Resumo do orçamento (ACIMA do campo de desconto): base, tributos por fora e total a cobrar.
                         Sem desconto: total a cobrar = base + tributos. Com desconto: ver bloco abaixo do campo. */}
