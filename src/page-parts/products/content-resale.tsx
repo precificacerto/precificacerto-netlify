@@ -46,6 +46,11 @@ interface ContentResaleProps {
   onIsPctChange?: (value: number) => void
   ipiPct?: number
   onIpiPctChange?: (value: number) => void
+  /* R3 — código de base por tributo por fora. `null` = não classificado (padrão da R3). */
+  ibsBaseCode?: number | null
+  cbsBaseCode?: number | null
+  isBaseCode?: number | null
+  ipiBaseCode?: number | null
   onFinalPriceWithTaxesChange?: (data: { finalPrice: number; basePrice: number }) => void
   advancedTaxesSection?: ReactNode
   advancedTaxParams?: AdvancedTaxParams
@@ -88,6 +93,10 @@ export const ContentResale: FC<ContentResaleProps> = ({
   onIsPctChange,
   ipiPct,
   onIpiPctChange,
+  ibsBaseCode,
+  cbsBaseCode,
+  isBaseCode,
+  ipiBaseCode,
   onFinalPriceWithTaxesChange,
   advancedTaxesSection,
   advancedTaxParams,
@@ -168,6 +177,10 @@ export const ContentResale: FC<ContentResaleProps> = ({
         onIsPctChange={onIsPctChange}
         ipiPct={ipiPct}
         onIpiPctChange={onIpiPctChange}
+        ibsBaseCode={ibsBaseCode}
+        cbsBaseCode={cbsBaseCode}
+        isBaseCode={isBaseCode}
+        ipiBaseCode={ipiBaseCode}
         onFinalPriceWithTaxesChange={onFinalPriceWithTaxesChange}
         advancedTaxesSection={advancedTaxesSection}
         advancedTaxParams={advancedTaxParams}

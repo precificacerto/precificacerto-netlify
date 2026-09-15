@@ -20,7 +20,7 @@
  */
 
 import { calculatePricing, type CalcType, type ResolvedTaxBreakdown } from './pricing-engine'
-import { resolveConstructionTaxInput, type BuyerPurpose, type BuyerTypeEnum, type SaleScope } from './sale-context'
+import { resolveConstructionTaxInput, type BaseCodeOverrides, type BuyerPurpose, type BuyerTypeEnum, type SaleScope } from './sale-context'
 
 export interface ProductConstructionInput {
   taxableRegime: string | null | undefined
@@ -52,6 +52,12 @@ export interface ProductConstructionInput {
     /** FRAÇÃO [0, 1]. */
     ivaDualReductionFactor?: number | null
   }
+
+  /**
+   * Override manual do código de base, por tributo (7.5, item 6). Ausente ou `null` por
+   * tributo = padrão da R3; nunca o código 1 por omissão.
+   */
+  baseCodes?: BaseCodeOverrides | null
 
   /** Frete + seguro + despesas acessórias cobrados do adquirente, em R$. */
   despAcessorias: number
@@ -108,6 +114,7 @@ export function buildProductConstruction(
     saleScope: input.saleScope,
     buyerPurpose: input.buyerPurpose,
     rates: input.rates,
+    baseCodes: input.baseCodes,
     profitTaxPct: input.profitTaxPct,
   })
 

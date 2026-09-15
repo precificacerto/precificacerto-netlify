@@ -150,6 +150,34 @@ export function resolveSaleContext(input: SaleContextInput): SaleContextResult {
 // ---------------------------------------------------------------------------
 
 /** Alíquotas do cadastro, todas DECIMAIS (0,17 = 17%). */
+/**
+ * OVERRIDE MANUAL dos códigos de base (7.5, item 6: "contexto da venda derivando os códigos
+ * de base, COM OVERRIDE MANUAL"; na planilha, `Lucro Real · F38:F41`, célula amarela).
+ *
+ * `undefined` NÃO é o código 1: é NÃO CLASSIFICADO, e cai no padrão da R3. Confundir os dois
+ * transformaria todo produto legado num produto com base `P`, silenciosamente
+ * (`.claude/rules/ausente-vs-falso.md`).
+ */
+export interface BaseCodeOverrides {
+  ibs?: BaseCode | null
+  cbs?: BaseCode | null
+  is?: BaseCode | null
+  ipi?: BaseCode | null
+}
+
+/**
+ * A travessia autorizada entre o número que vem do banco e o `BaseCode` do motor.
+ *
+ * Fora de 1..5 devolve `null` — NÃO CLASSIFICADO, que cai no padrão da R3. Um código
+ * inválido não pode virar o código 1 por conveniência: seria inventar o formato da
+ * construção a partir de dado corrompido.
+ */
+export function toBaseCode(v: number | null | undefined): BaseCode | null {
+  const n = Number(v)
+  if (n === 1 || n === 2 || n === 3 || n === 4 || n === 5) return n
+  return null
+}
+
 export interface TaxRatesInput {
   icmsPct?: number | null
   issPct?: number | null
@@ -166,6 +194,8 @@ export interface TaxRatesInput {
 export interface BuildTaxBreakdownInput extends SaleContextInput {
   segment: Segment
   rates: TaxRatesInput
+  /** Ausente ou `null` por tributo = cai no padrão da R3. Ver `BaseCodeOverrides`. */
+  baseCodes?: BaseCodeOverrides | null
 }
 
 export interface BuildTaxBreakdownResult {
@@ -269,7 +299,20 @@ export function buildTaxBreakdown(input: BuildTaxBreakdownInput): BuildTaxBreakd
     // R4 — o fator de redução do IVA DUAL vale SÓ para IBS e CBS. IPI e IS não o sofrem.
     const reductionFactor =
       tax === 'IBS' || tax === 'CBS' ? positive(rates.ivaDualReductionFactor) : 0
-    return { rate, reductionFactor, baseCode: DEFAULT_BASE_CODE[tax] }
+    // O override vence o padrão; ausente cai no padrão. IS e IPI recusam 4 e 5, que somariam
+    // o próprio tributo e criariam a recursão que a R3 diz não existir.
+    const override = input.baseCodes?.[tax.toLowerCase() as keyof BaseCodeOverrides]
+    let baseCode: BaseCode = DEFAULT_BASE_CODE[tax]
+    if (override != null) {
+      if ((tax === 'IS' || tax === 'IPI') && (override === 4 || override === 5)) {
+        errors.push(
+          `${tax} recebeu código de base ${override}, que não é permitido: os códigos 4 e 5 SOMAM o ${tax} e criariam recursão. Use 1, 2 ou 3.`,
+        )
+      } else {
+        baseCode = override
+      }
+    }
+    return { rate, reductionFactor, baseCode }
   }
 
   const icmsPct = porDentro('ICMS', rates.icmsPct)
@@ -342,6 +385,8 @@ export interface ConstructionTaxInput extends SaleContextInput {
   segment: Segment
   taxableRegime: string | null | undefined
   rates: ConstructionTaxRates
+  /** Override manual do código de base, por tributo. Ausente = padrão da R3. */
+  baseCodes?: BaseCodeOverrides | null
   /** IRPJ + CSLL + adicional, decimal sobre o total geral (R6). */
   profitTaxPct: number
 }
@@ -401,6 +446,7 @@ export function resolveConstructionTaxInput(input: ConstructionTaxInput): Constr
       cbsPct: r.cbsPct,
       ivaDualReductionFactor: r.ivaDualReductionFactor,
     },
+    baseCodes: input.baseCodes,
   })
 
   if (!built.taxBreakdown) {

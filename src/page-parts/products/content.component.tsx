@@ -318,6 +318,22 @@ export const Content: FC<ContentProps> = ({
     (product as any)?.ipi_pct != null ? Number((product as any).ipi_pct) : 0
   )
 
+  // R3 — CÓDIGO DE BASE por tributo por fora (7.5, item 6: derivado do contexto da venda,
+  // COM OVERRIDE MANUAL). `null` é NÃO CLASSIFICADO e cai no padrão (IPI e IS no 1, IBS e
+  // CBS no 4); jamais o código 1 por omissão — `.claude/rules/ausente-vs-falso.md`.
+  //
+  // O produto legado não tem as colunas, então chega `undefined` e vira `null`. Enquanto a
+  // migração `20260915000003` não estiver aplicada, TODO produto está neste estado, e o
+  // motor usa o padrão — que é o comportamento de hoje.
+  const readBaseCode = (campo: string): number | null => {
+    const v = (product as any)?.[campo]
+    return v != null ? Number(v) : null
+  }
+  const [ibsBaseCode, setIbsBaseCode] = useState<number | null>(() => readBaseCode('ibs_base_code'))
+  const [cbsBaseCode, setCbsBaseCode] = useState<number | null>(() => readBaseCode('cbs_base_code'))
+  const [isBaseCode, setIsBaseCode] = useState<number | null>(() => readBaseCode('is_base_code'))
+  const [ipiBaseCode, setIpiBaseCode] = useState<number | null>(() => readBaseCode('ipi_base_code'))
+
   // ───────── EPIC-POR-FORA-V3 / S1 — seção superior dos 7 campos % simples REMOVIDA ─────────
   // Os estados issPct/issRetidoPct/icmsStPct/difalPct/fcpPct/irpjItemPct/csllItemPct foram
   // removidos (decisão D1, 09/06). ICMS-ST/DIFAL/FCP usam o cálculo completo abaixo; ISS/IRPJ/CSLL
@@ -1156,6 +1172,12 @@ export const Content: FC<ContentProps> = ({
         extraFields.cbs_value = _iva2.cbsValue
         extraFields.ipi_pct = ipiPct || 0
         extraFields.ipi_value = _iva2.ipiValue
+        // NULL = não classificado, e é assim que fica quando ninguém escolheu. Gravar o
+        // padrão aqui apagaria a diferença entre "escolhido" e "nunca escolhido".
+        extraFields.ibs_base_code = ibsBaseCode
+        extraFields.cbs_base_code = cbsBaseCode
+        extraFields.is_base_code = isBaseCode
+        extraFields.ipi_base_code = ipiBaseCode
         extraFields.sale_price_base = _saleBase
         extraFields.sale_price_after_taxes = finalSalePriceForSave
         // ITEM 1.5: snapshot do valor precificado também por unidade de produção (mesmo divisor).
@@ -2305,6 +2327,10 @@ export const Content: FC<ContentProps> = ({
           onIsPctChange={setIsPct}
           ipiPct={ipiPct}
           onIpiPctChange={setIpiPct}
+          ibsBaseCode={ibsBaseCode}
+          cbsBaseCode={cbsBaseCode}
+          isBaseCode={isBaseCode}
+          ipiBaseCode={ipiBaseCode}
           onFinalPriceWithTaxesChange={(d) => { finalPriceWithTaxesRef.current = d.finalPrice; salePriceBaseRef.current = d.basePrice }}
           advancedTaxesSection={advancedTaxesSection}
           advancedTaxParams={advancedTaxParams}
@@ -2350,6 +2376,10 @@ export const Content: FC<ContentProps> = ({
           onIsPctChange={setIsPct}
           ipiPct={ipiPct}
           onIpiPctChange={setIpiPct}
+          ibsBaseCode={ibsBaseCode}
+          cbsBaseCode={cbsBaseCode}
+          isBaseCode={isBaseCode}
+          ipiBaseCode={ipiBaseCode}
           onFinalPriceWithTaxesChange={(d) => { finalPriceWithTaxesRef.current = d.finalPrice; salePriceBaseRef.current = d.basePrice }}
           advancedTaxesSection={advancedTaxesSection}
           advancedTaxParams={advancedTaxParams}
@@ -2393,6 +2423,10 @@ export const Content: FC<ContentProps> = ({
           onIsPctChange={setIsPct}
           ipiPct={ipiPct}
           onIpiPctChange={setIpiPct}
+          ibsBaseCode={ibsBaseCode}
+          cbsBaseCode={cbsBaseCode}
+          isBaseCode={isBaseCode}
+          ipiBaseCode={ipiBaseCode}
           onFinalPriceWithTaxesChange={(d) => { finalPriceWithTaxesRef.current = d.finalPrice; salePriceBaseRef.current = d.basePrice }}
           advancedTaxesSection={advancedTaxesSection}
           advancedTaxParams={advancedTaxParams}

@@ -9,6 +9,7 @@ import { resolveIndirectLaborPct } from '@/utils/indirect-labor-grouping'
 import { computeIvaDualOutside } from '@/utils/iva-dual-outside'
 import { resolveIvaDualEffectiveRate } from '@/utils/item-tax-rates'
 import { buildProductConstruction } from '@/utils/product-price-construction'
+import { toBaseCode } from '@/utils/sale-context'
 import { computeAdvancedOutsideTaxes, type AdvancedOutsideParams } from '@/utils/icms-st-difal'
 import { TaxDecompositionPanel } from './tax-decomposition-panel.component'
 import { CALC_TYPE_ENUM } from '@/shared/enums/calc-type'
@@ -57,6 +58,12 @@ interface Props {
   onIsPctChange?: (value: number) => void
   ipiPct?: number
   onIpiPctChange?: (value: number) => void
+  /* R3 — código de base por tributo por fora, gravado no produto. `undefined`/`null` NÃO é o
+     código 1: é não classificado, e cai no padrão (IPI e IS no 1, IBS e CBS no 4). */
+  ibsBaseCode?: number | null
+  cbsBaseCode?: number | null
+  isBaseCode?: number | null
+  ipiBaseCode?: number | null
   onFinalPriceWithTaxesChange?: (data: { finalPrice: number; basePrice: number }) => void
   /* EPIC-POR-FORA-V3: seção "Alíquotas tributárias adicionais (avançado)" renderizada ACIMA do card de resultado. */
   advancedTaxesSection?: ReactNode
@@ -101,6 +108,10 @@ export const ProductPrice: FC<Props> = ({
   onIsPctChange,
   ipiPct = 0,
   onIpiPctChange,
+  ibsBaseCode,
+  cbsBaseCode,
+  isBaseCode,
+  ipiBaseCode,
   onFinalPriceWithTaxesChange,
   advancedTaxesSection,
   advancedTaxParams,
@@ -217,6 +228,14 @@ export const ProductPrice: FC<Props> = ({
       ibsPct: (ibsPct || 0) / 100,
       cbsPct: (cbsPct || 0) / 100,
       ivaDualReductionFactor: ivaDualReductionFactor != null ? ivaDualReductionFactor / 100 : null,
+    },
+    // Override manual do código de base (7.5, item 6). `null` = não classificado, cai no
+    // padrão da R3 — jamais no código 1 por omissão.
+    baseCodes: {
+      ibs: toBaseCode(ibsBaseCode),
+      cbs: toBaseCode(cbsBaseCode),
+      is: toBaseCode(isBaseCode),
+      ipi: toBaseCode(ipiBaseCode),
     },
     despAcessorias: terceirizadasTotal,
   })

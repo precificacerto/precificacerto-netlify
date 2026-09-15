@@ -20,6 +20,7 @@ import {
   resolveBuyerKind,
   resolveSaleContext,
   resolveConstructionTaxInput,
+  toBaseCode,
   DEFAULT_BASE_CODE,
 } from '@/utils/sale-context'
 import { buildProductConstruction } from '@/utils/product-price-construction'
@@ -148,6 +149,62 @@ describe('correção 5 — a matriz e o contexto da venda', () => {
       expect(r.taxBreakdown!.cbs!.reductionFactor).toBe(0.6)
       expect(r.taxBreakdown!.is!.reductionFactor).toBe(0)
       expect(r.taxBreakdown!.ipi!.reductionFactor).toBe(0)
+    })
+
+    it('OVERRIDE MANUAL do código de base vence o padrão — e muda o `c`', () => {
+      const comum = {
+        segment: 'INDUSTRIALIZACAO' as const,
+        buyerType: 'CONSUMIDOR_FINAL' as const,
+        saleScope: 'INTRAESTADUAL' as const,
+        // ICMS e PIS/COFINS NÃO nulos: com os dois zerados, os códigos 3 e 4 dariam a MESMA
+        // base e o caso não distinguiria nada — é a variante 2 de `teste-que-nao-exercita`.
+        rates: { icmsPct: 0.17, pisCofinsPct: 0.0925, ibsPct: 0.088, isPct: 0.02 },
+      }
+      const padrao = buildTaxBreakdown(comum)
+      const override = buildTaxBreakdown({ ...comum, baseCodes: { ibs: 3 } })
+
+      expect(padrao.taxBreakdown!.ibs!.baseCode).toBe(4)
+      expect(override.taxBreakdown!.ibs!.baseCode).toBe(3)
+
+      // E o efeito chega ao número: o código 3 exclui o IS da base, o 4 o inclui.
+      const cPadrao = resolveExternalOpsCoefficient({
+        icmsPct: 0.17, issPct: 0, pisCofinsPct: 0.0925,
+        ibs: padrao.taxBreakdown!.ibs, is: padrao.taxBreakdown!.is,
+      })
+      const cOverride = resolveExternalOpsCoefficient({
+        icmsPct: 0.17, issPct: 0, pisCofinsPct: 0.0925,
+        ibs: override.taxBreakdown!.ibs, is: override.taxBreakdown!.is,
+      })
+      expect(cOverride.externalOpsCoefficient).toBeLessThan(cPadrao.externalOpsCoefficient)
+    })
+
+    it('`null` no override NÃO é o código 1 — é não classificado, e cai no padrão', () => {
+      const r = buildTaxBreakdown({
+        segment: 'INDUSTRIALIZACAO',
+        buyerType: 'CONSUMIDOR_FINAL',
+        saleScope: 'INTRAESTADUAL',
+        rates: { icmsPct: 0.17, pisCofinsPct: 0.0925, ibsPct: 0.088 },
+        baseCodes: { ibs: null, cbs: undefined },
+      })
+      expect(r.taxBreakdown!.ibs!.baseCode).toBe(4)
+      // E `toBaseCode` recusa o que não é 1..5, em vez de rebaixar para 1.
+      expect(toBaseCode(0)).toBeNull()
+      expect(toBaseCode(6)).toBeNull()
+      expect(toBaseCode(null)).toBeNull()
+      expect(toBaseCode(4)).toBe(4)
+    })
+
+    it('IS e IPI RECUSAM os códigos 4 e 5 — eles somam o próprio tributo e criariam recursão', () => {
+      const r = buildTaxBreakdown({
+        segment: 'INDUSTRIALIZACAO',
+        buyerType: 'CONSUMIDOR_FINAL',
+        saleScope: 'INTRAESTADUAL',
+        rates: { icmsPct: 0.17, pisCofinsPct: 0.0925, isPct: 0.02, ipiPct: 0.05 },
+        baseCodes: { is: 4, ipi: 5 },
+      })
+      expect(r.taxBreakdown).toBeNull()
+      expect(r.errors.join(' ')).toContain('IS recebeu código de base 4')
+      expect(r.errors.join(' ')).toContain('IPI recebeu código de base 5')
     })
 
     it('os códigos de base saem do padrão da R3: IBS e CBS no 4, IS e IPI no 1', () => {
