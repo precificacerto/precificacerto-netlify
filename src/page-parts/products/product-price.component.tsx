@@ -1,6 +1,5 @@
 import { ChangeEvent, FC, ReactNode, useEffect } from 'react'
 import { Card, Divider, Tooltip } from 'antd'
-import { CurrencyInput } from '@/components/currency-input.component'
 import { CalculatorOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { PercentInput } from '@/components/percent-input.component'
 import { getMonetaryValue } from '@/utils/get-monetary-value'
@@ -43,11 +42,8 @@ interface Props {
   pisCofinsLRPct?: number
   onPisCofinsLRPctChange?: (value: number) => void
   freightValue?: number
-  onFreightChange?: (value: number) => void
   insuranceValue?: number
-  onInsuranceChange?: (value: number) => void
   accessoryExpensesValue?: number
-  onAccessoryExpensesChange?: (value: number) => void
   ibsPct?: number
   onIbsPctChange?: (value: number) => void
   cbsPct?: number
@@ -101,11 +97,8 @@ export const ProductPrice: FC<Props> = ({
   pisCofinsLRPct = 0,
   onPisCofinsLRPctChange,
   freightValue = 0,
-  onFreightChange,
   insuranceValue = 0,
-  onInsuranceChange,
   accessoryExpensesValue = 0,
-  onAccessoryExpensesChange,
   ibsPct = 0,
   onIbsPctChange,
   cbsPct = 0,
@@ -610,44 +603,34 @@ export const ProductPrice: FC<Props> = ({
           </>
         )}
 
-        {/* Atividades Terceirizadas — LUCRO_REAL / LUCRO_PRESUMIDO */}
-        {(isLucroReal || isLucroPresumed || isSimplesHibrido) && (
-          <div style={{ marginTop: 14, background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '12px 14px', border: '1px solid rgba(255,255,255,0.07)' }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' as const, letterSpacing: 0.6, marginBottom: 10 }}>
-              Atividades Terceirizadas
+        {/* ══════════════════════════════════════════════════════════════════
+            R11 — OS ACRÉSCIMOS SAÍRAM DAQUI. Frete, seguro e despesas acessórias
+            pertencem ao DOCUMENTO, não ao cadastro: "Acréscimos pertencem ao
+            orçamento, não ao produto", com rateio por item (R12). Um frete atende
+            vários produtos, e cobrá-lo no cadastro o replica em cada um deles.
+
+            SEM MIGRAÇÃO RETROATIVA: as colunas continuam no banco, continuam sendo
+            LIDAS (a precedência documento × cadastro de `resolveAccessoriesSource`
+            depende delas), e os produtos que já têm valor seguem exatamente como
+            estavam. O que saiu foi a ENTRADA e a GRAVAÇÃO.
+
+            A nota abaixo existe porque o valor legado AINDA compõe o preço deste
+            produto: escondê-lo por completo deixaria um número no preço final sem
+            origem visível — `.claude/rules/ausente-vs-falso.md` ao contrário, um
+            valor apurado exibido como se não existisse.
+            ══════════════════════════════════════════════════════════════════ */}
+        {(isLucroReal || isLucroPresumed || isSimplesHibrido) && terceirizadasTotal > 0 && (
+          <div style={{
+            marginTop: 14, background: 'rgba(234, 179, 8, 0.08)', borderRadius: 8,
+            padding: '10px 14px', border: '1px solid rgba(234, 179, 8, 0.28)', fontSize: 12, color: '#fde68a',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+              <span style={{ fontWeight: 700 }}>Acréscimos legados no cadastro</span>
+              <span style={{ fontWeight: 700 }}>{fmt(terceirizadasTotal)}</span>
             </div>
-            <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0 4px' }}>
-              <tbody>
-                {[
-                  { label: 'Frete', value: freightValue, onChange: onFreightChange },
-                  { label: 'Seguros', value: insuranceValue, onChange: onInsuranceChange },
-                  { label: 'Despesas Acessórias', value: accessoryExpensesValue, onChange: onAccessoryExpensesChange },
-                ].map(({ label, value, onChange }) => (
-                  <tr key={label}>
-                    {/* Relatório mobile #5: padroniza tamanho de fonte (13) em TODOS os campos
-                        da seção Atividades Terceirizadas (rótulo e input). */}
-                    <td style={{ fontSize: 13, color: '#cbd5e1', paddingRight: 12 }}>{label}</td>
-                    <td style={{ textAlign: 'right' }}>
-                      <CurrencyInput
-                        size="small"
-                        min={0}
-                        value={value}
-                        onChange={(v) => onChange?.(v ?? 0)}
-                        prefix="R$"
-                        showR$={false}
-                        style={{ width: 130, fontSize: 13 }}
-                      />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {terceirizadasTotal > 0 && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.06)', fontSize: 13, color: '#94a3b8' }}>
-                <span>Total terceirizadas</span>
-                <span style={{ fontWeight: 600, color: '#e2e8f0' }}>{fmt(terceirizadasTotal)}</span>
-              </div>
-            )}
+            Frete, seguro e despesas acessórias passaram a ser lançados no ORÇAMENTO, com rateio
+            entre os itens. Este produto tem valores gravados de antes, que continuam compondo o
+            preço dele e não foram alterados. Novos acréscimos devem ser lançados no documento.
           </div>
         )}
 

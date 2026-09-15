@@ -1158,9 +1158,12 @@ export const Content: FC<ContentProps> = ({
         autoTaxPercent: calcBase.taxPct,
       })
       extraFields.additional_irpj_percent = additionalIrpjPercent || 0
-      extraFields.freight_value = freightValue || 0
-      extraFields.insurance_value = insuranceValue || 0
-      extraFields.accessory_expenses_value = accessoryExpensesValue || 0
+      // R11 — os acréscimos NÃO são mais alimentados pelo cadastro. "Acréscimos pertencem ao
+      // orçamento, não ao produto", e os campos do produto "deixam de ser alimentados DAQUI
+      // PARA A FRENTE". As colunas continuam no banco e continuam sendo LIDAS: a precedência
+      // documento × cadastro de `resolveAccessoriesSource` depende delas, e os produtos que
+      // já têm valor permanecem como estão — SEM MIGRAÇÃO RETROATIVA, que é a outra metade
+      // da mesma regra. Gravar `0` aqui seria migração retroativa disfarçada de save.
       if (isLRorLPorSH) {
         extraFields.icms_pct = icmsPct || 0
         extraFields.pis_cofins_pct = pisCofinsLRPct || 0
@@ -2351,11 +2354,8 @@ export const Content: FC<ContentProps> = ({
           pisCofinsLRPct={pisCofinsLRPct}
           onPisCofinsLRPctChange={setPisCofinsLRPct}
           freightValue={freightValue}
-          onFreightChange={setFreightValue}
           insuranceValue={insuranceValue}
-          onInsuranceChange={setInsuranceValue}
           accessoryExpensesValue={accessoryExpensesValue}
-          onAccessoryExpensesChange={setAccessoryExpensesValue}
           ibsPct={ibsPct}
           onIbsPctChange={setIbsPct}
           cbsPct={cbsPct}
@@ -2400,11 +2400,8 @@ export const Content: FC<ContentProps> = ({
           pisCofinsLRPct={pisCofinsLRPct}
           onPisCofinsLRPctChange={setPisCofinsLRPct}
           freightValue={freightValue}
-          onFreightChange={setFreightValue}
           insuranceValue={insuranceValue}
-          onInsuranceChange={setInsuranceValue}
           accessoryExpensesValue={accessoryExpensesValue}
-          onAccessoryExpensesChange={setAccessoryExpensesValue}
           ibsPct={ibsPct}
           onIbsPctChange={setIbsPct}
           cbsPct={cbsPct}
@@ -2447,11 +2444,8 @@ export const Content: FC<ContentProps> = ({
           pisCofinsLRPct={pisCofinsLRPct}
           onPisCofinsLRPctChange={setPisCofinsLRPct}
           freightValue={freightValue}
-          onFreightChange={setFreightValue}
           insuranceValue={insuranceValue}
-          onInsuranceChange={setInsuranceValue}
           accessoryExpensesValue={accessoryExpensesValue}
-          onAccessoryExpensesChange={setAccessoryExpensesValue}
           ibsPct={ibsPct}
           onIbsPctChange={setIbsPct}
           cbsPct={cbsPct}

@@ -32,11 +32,8 @@ interface ContentResaleProps {
   pisCofinsLRPct?: number
   onPisCofinsLRPctChange?: (value: number) => void
   freightValue?: number
-  onFreightChange?: (value: number) => void
   insuranceValue?: number
-  onInsuranceChange?: (value: number) => void
   accessoryExpensesValue?: number
-  onAccessoryExpensesChange?: (value: number) => void
   ibsPct?: number
   onIbsPctChange?: (value: number) => void
   cbsPct?: number
@@ -79,11 +76,8 @@ export const ContentResale: FC<ContentResaleProps> = ({
   pisCofinsLRPct,
   onPisCofinsLRPctChange,
   freightValue,
-  onFreightChange,
   insuranceValue,
-  onInsuranceChange,
   accessoryExpensesValue,
-  onAccessoryExpensesChange,
   ibsPct,
   onIbsPctChange,
   cbsPct,
@@ -163,11 +157,8 @@ export const ContentResale: FC<ContentResaleProps> = ({
         pisCofinsLRPct={pisCofinsLRPct}
         onPisCofinsLRPctChange={onPisCofinsLRPctChange}
         freightValue={freightValue}
-        onFreightChange={onFreightChange}
         insuranceValue={insuranceValue}
-        onInsuranceChange={onInsuranceChange}
         accessoryExpensesValue={accessoryExpensesValue}
-        onAccessoryExpensesChange={onAccessoryExpensesChange}
         ibsPct={ibsPct}
         onIbsPctChange={onIbsPctChange}
         cbsPct={cbsPct}
