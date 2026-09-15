@@ -68,3 +68,7 @@ significando "nunca classificado" e nunca pudesse ser lido como uma classificaç
 para uma configuração viva. Esta trata do que a **ausência** de dado significa, e de quando
 exibi-la é pior que calá-la. As duas se encontram no D-A, onde `NULL` precisa dizer "sem
 snapshot" e jamais "destino FORA".
+
+`razao-longe-da-restricao.md` é esta mesma forma em outro material: lá a ausência é a de uma
+**citação**, e lê-la como ausência de razão é o que autoriza alargar uma restrição que a lei
+impunha. `NULL` lido como `0`, array literal sem comentário lido como escolha arbitrária.
