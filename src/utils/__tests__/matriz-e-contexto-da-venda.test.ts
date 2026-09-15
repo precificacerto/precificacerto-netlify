@@ -420,6 +420,58 @@ describe('correção 5 — a matriz e o contexto da venda', () => {
     })
   })
 
+  describe('8b. ORÁCULOS EXTERNOS — a planilha "Cascata Lucro Real", linhas 101 a 106', () => {
+    /**
+     * Estes números NÃO saem do código: saem da planilha de referência do dono do produto,
+     * aba "Lucro Real", bloco "Parâmetros (não editar)". São a única asserção deste arquivo
+     * cujo valor esperado tem origem FORA do repositório — e por isso a única que pega um
+     * erro sistemático que o motor e o teste cometessem juntos.
+     *
+     * Entrada da planilha: ICMS 17%, ISS 0, PIS/COFINS 0, IBS 1% e CBS 8,8% no código 4,
+     * IS e IPI zerados no código 1.
+     */
+    it('industrialização e revenda: c = 0,07408014571949', () => {
+      const r = resolveExternalOpsCoefficient({
+        icmsPct: 0.17,
+        issPct: 0,
+        pisCofinsPct: 0,
+        ibs: { rate: 0.01, reductionFactor: 0, baseCode: 4 },
+        cbs: { rate: 0.088, reductionFactor: 0, baseCode: 4 },
+        is: { rate: 0, reductionFactor: 0, baseCode: 1 },
+        ipi: { rate: 0, reductionFactor: 0, baseCode: 1 },
+      })
+      expect(r.isValid).toBe(true)
+      expect(r.externalOpsCoefficient).toBeCloseTo(0.07408014571949, 12)
+    })
+
+    it('prestação de serviço: c = 0,0892531876138433 — e o ICMS INEXISTENTE é o que os separa', () => {
+      const r = resolveExternalOpsCoefficient({
+        // Na planilha a célula do ICMS do serviço diz "Não se aplica", e a fórmula do alfa
+        // traz `0` literal no lugar dele. Aqui isso chega como ICMS zero na entrada do
+        // resolvedor — a matriz já barrou a alíquota antes, em `buildTaxBreakdown`.
+        icmsPct: 0,
+        issPct: 0,
+        pisCofinsPct: 0,
+        ibs: { rate: 0.01, reductionFactor: 0, baseCode: 4 },
+        cbs: { rate: 0.088, reductionFactor: 0, baseCode: 4 },
+      })
+      expect(r.isValid).toBe(true)
+      expect(r.externalOpsCoefficient).toBeCloseTo(0.0892531876138433, 12)
+    })
+
+    it('os dois c DIFEREM — e diferem porque o ICMS está numa cadeia e não na outra', () => {
+      const comIcms = resolveExternalOpsCoefficient({
+        icmsPct: 0.17, issPct: 0, pisCofinsPct: 0,
+        ibs: { rate: 0.01, baseCode: 4 }, cbs: { rate: 0.088, baseCode: 4 },
+      })
+      const semIcms = resolveExternalOpsCoefficient({
+        icmsPct: 0, issPct: 0, pisCofinsPct: 0,
+        ibs: { rate: 0.01, baseCode: 4 }, cbs: { rate: 0.088, baseCode: 4 },
+      })
+      expect(semIcms.externalOpsCoefficient - comIcms.externalOpsCoefficient).toBeCloseTo(0.015173, 5)
+    })
+  })
+
   describe('8. a decomposição LÊ o que a construção usou, em vez de redescobrir', () => {
     it('cada tributo por fora volta com a sua base, e a soma das bases fecha com o `c`', () => {
       const r = calculatePricing({
