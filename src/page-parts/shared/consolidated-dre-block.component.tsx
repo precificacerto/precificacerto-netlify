@@ -4,7 +4,7 @@
  * Relatório v2.0 (item 4.1, 23/06/2026): a "DRE Consolidada" (6 seções —
  * Receitas, Custos, Despesas Operacionais, Atividades Terceirizadas, Impostos,
  * Distribuição do RRO) foi REMOVIDA por ser redundante e menos precisa que a
- * cascata. Este componente agora renderiza SOMENTE a "Memória Cascata"
+ * cascata. Este componente agora renderiza SOMENTE a "Decomposição"
  * (apuração em etapas do Motor RR — PDF Seção 10 + Excel oficial), que é a
  * fonte de dados correta e NÃO deve ser alterada.
  *
@@ -19,6 +19,7 @@ import React from 'react'
 import { useDevice } from '@/contexts/device.context'
 import { downloadCascadePdf, type CascadePdfMeta } from '@/lib/create-cascade-pdf'
 import { formatBRL } from '@/utils/formatters'
+import { DECOMPOSITION_LABEL } from '@/constants/decomposition-label'
 import type { DRESection } from '@/utils/consolidated-dre'
 import type { CascadeStep } from '@/types/mrm'
 
@@ -325,10 +326,13 @@ function CascadeExpander({ trace, marginTop = 8, pdfMeta }: { trace: CascadeStep
           letterSpacing: 1,
           padding: '4px 0',
         }}
-        aria-label="Expandir memória cascata"
+        aria-label="Expandir decomposição"
       >
-        {/* Adendo Seção 31-A (item 3): título sem sufixo técnico. Origem: PDF Motor RR Seção 10 + Excel oficial. */}
-        📋 Memória cascata
+        {/* Adendo Seção 31-A (item 3): título sem sufixo técnico. Origem: PDF Motor RR Seção 10 + Excel oficial.
+            RENOMEAÇÃO (relatório, seção 6.5): "Memória Cascata" → "Decomposição". O rótulo sai
+            de `DECOMPOSITION_LABEL`, e não de um literal aqui, porque um rótulo espalhado é o
+            que faz uma renomeação pegar dois dos três lugares. */}
+        📋 {DECOMPOSITION_LABEL}
       </summary>
       {isMobile ? (
         /* DM2 mobile (≤639px): blocos verticais por etapa — grid de 5 colunas vira ilegível */
@@ -393,7 +397,7 @@ function CascadeExpander({ trace, marginTop = 8, pdfMeta }: { trace: CascadeStep
               borderRadius: 6,
               padding: '6px 14px',
             }}
-            aria-label="Gerar PDF da memória cascata"
+            aria-label="Gerar PDF da decomposição"
           >
             📄 Gerar PDF
           </button>
@@ -447,7 +451,7 @@ export interface ConsolidatedDREBlockProps {
 }
 
 /**
- * Renderiza apenas a Memória Cascata (item 4.1). Os demais campos de props são
+ * Renderiza apenas a Decomposição (item 4.1). Os demais campos de props são
  * aceitos para retrocompatibilidade dos call sites, mas não têm efeito visual.
  */
 export function ConsolidatedDREBlock(props: ConsolidatedDREBlockProps) {
@@ -462,7 +466,7 @@ export function ConsolidatedDREBlock(props: ConsolidatedDREBlockProps) {
       ? applyTotalACobrarToStep11(cascadeTrace, totalACobrarComDesconto, manualTotal, despAcessoriasTotal)
       : cascadeTrace
 
-  // REGRA DE INVIOLABILIDADE (doc Cascata RT 14/07, Seção 6): a Memória Cascata deve
+  // REGRA DE INVIOLABILIDADE (doc Cascata RT 14/07, Seção 6): a Decomposição deve
   // renderizar para QUALQUER trace válido (não-vazio), independentemente da contagem de
   // etapas — 13 (V16 legado), 17 (V17), 18/19 (V17 + RT), etc. O guard anterior travava
   // em `13 || 17` e sumia silenciosamente quando o RT adicionava etapa(s) (18) — bug

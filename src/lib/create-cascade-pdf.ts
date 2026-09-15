@@ -3,7 +3,24 @@ import autoTable from 'jspdf-autotable'
 import type { CascadeStep } from '@/types/mrm'
 
 /**
- * PC-FEAT-CASCADE-PDF-001 — PDF auditável da Memória Cascata (Motor RRO).
+ * Os textos que o usuário lê no PDF, num lugar só.
+ *
+ * Exportados porque um rótulo espalhado em três literais é exatamente o que faz uma
+ * renomeação pegar dois dos três — e o teste da seção 6.5 afirma ESTES valores, não a
+ * aparência da string no meio do arquivo.
+ */
+export const DECOMPOSITION_PDF_TITLE = 'Decomposição — Motor RRO'
+export const DECOMPOSITION_PDF_FOOTER = 'Documento gerado pela Decomposição do Motor RRO — Precifica Certo.'
+export const DECOMPOSITION_PDF_FILE_PREFIX = 'Decomposicao'
+
+/**
+ * PC-FEAT-CASCADE-PDF-001 — PDF auditável da DECOMPOSIÇÃO (Motor RRO).
+ *
+ * RENOMEAÇÃO (relatório "Motor RRO — Lucro Real", seção 6.5): "Cascata", "Cascata RRO" e
+ * "Memória Cascata" passam a se chamar DECOMPOSIÇÃO em tudo que o usuário lê. Os
+ * identificadores internos (`cascade_trace`, `CascadeStep`, `buildCascadeDoc`) NÃO mudam:
+ * renomear tipo e coluna de jsonb é refatoração de outra natureza, com risco próprio, e
+ * misturá-la com a troca de rótulo faria o diff da renomeação deixar de ser legível.
  * Reúsa jsPDF + jspdf-autotable (já no projeto). Display puro: lê o `cascade_trace` já
  * calculado, NÃO invoca o motor — paridade total tela ↔ PDF. Hierarquia pai/filho preservada
  * por indentação (└─).
@@ -81,7 +98,7 @@ export function buildCascadeDoc(trace: CascadeStep[], meta: CascadePdfMeta): jsP
   // ─── Cabeçalho ───
   doc.setFontSize(16)
   doc.setFont('helvetica', 'bold')
-  doc.text('Memória Cascata — Motor RRO', margin, 18)
+  doc.text(DECOMPOSITION_PDF_TITLE, margin, 18)
   doc.setFontSize(10)
   doc.setFont('helvetica', 'normal')
   const origem = resolveCascadeOrigem(meta)
@@ -166,7 +183,7 @@ export function buildCascadeDoc(trace: CascadeStep[], meta: CascadePdfMeta): jsP
   doc.setTextColor(120, 120, 120)
   const finalY = (doc as any).lastAutoTable?.finalY ?? y
   doc.text(
-    'Documento gerado pela Memória Cascata do Motor RRO — Precifica Certo.',
+    DECOMPOSITION_PDF_FOOTER,
     margin,
     Math.min(finalY + 8, doc.internal.pageSize.getHeight() - 8),
   )
@@ -174,10 +191,10 @@ export function buildCascadeDoc(trace: CascadeStep[], meta: CascadePdfMeta): jsP
   return doc
 }
 
-/** Gera e dispara o download do PDF da cascata. Nome: Cascata_[code]_[data].pdf */
+/** Gera e dispara o download do PDF da decomposição. Nome: Decomposicao_[code]_[data].pdf */
 export function downloadCascadePdf(trace: CascadeStep[], meta: CascadePdfMeta): void {
   const doc = buildCascadeDoc(trace, meta)
   const code = resolveCascadeCode(meta)
   const dateStamp = (meta.documentDate || new Date().toLocaleDateString('pt-BR')).replace(/\//g, '-')
-  doc.save(`Cascata_${code}_${dateStamp}.pdf`)
+  doc.save(`${DECOMPOSITION_PDF_FILE_PREFIX}_${code}_${dateStamp}.pdf`)
 }
