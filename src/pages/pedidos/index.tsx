@@ -37,6 +37,11 @@ import { resolveInheritedRtPctDecimal } from '@/utils/balcao-rt'
 import { ResidualDistributionBlock } from '@/page-parts/shared/residual-distribution-block.component'
 import { computeConsolidatedDRE, type DREItemInput } from '@/utils/consolidated-dre'
 import { ConsolidatedDREBlock } from '@/page-parts/shared/consolidated-dre-block.component'
+import {
+    resolveDocumentAccessoriesInheritance,
+    INHERITANCE_VERDICT_MESSAGE,
+    INHERITANCE_VERDICT_TONE,
+} from '@/utils/budget-accessories'
 import { extractEpicV5DisplayData } from '@/utils/mrm-display-extractor'
 import { filterDeletedDocuments } from '@/utils/document-deleted'
 import { useDeletedDocuments } from '@/hooks/use-deleted-documents.hook'
@@ -96,6 +101,11 @@ interface OrderItemRow {
     // descartava — então `readSnapshotColumn(it)` no save lia um objeto que ESTRUTURALMENTE
     // não tinha o campo, e regravava NULL. Editar um pedido apagava o snapshot.
     destination_snapshot?: unknown
+    // R21: as parcelas de acréscimo, CONGELADAS no rateio do orçamento. Fora desta interface
+    // o mapeamento as descartaria e o save regravaria NULL — o mesmo mecanismo do
+    // `destination_snapshot` acima, que este arquivo já pagou uma vez.
+    freight_allocated_value?: number | null
+    accessories_allocated_value?: number | null
 }
 
 interface Order {
@@ -318,6 +328,21 @@ function OrdersPage() {
         const pct = Math.max(0, Math.min(100, Number(editingDiscountPct) || 0))
         return orderSubtotal * (1 - pct / 100)
     }, [orderSubtotal, editingDiscountPct])
+
+    /**
+     * R21 — o rateio de frete herdado do orçamento ainda descreve este pedido?
+     *
+     * NÃO recalcula. O share de cada item tem o conjunto inteiro no denominador, então
+     * recalcular mudaria a parcela de itens que ninguém tocou. O que isto faz é dizer se o
+     * congelado continua aplicável — e `CONJUNTO_MUDOU` é um pedido de decisão ao usuário.
+     */
+    const accessoriesInheritance = useMemo(
+        () => resolveDocumentAccessoriesInheritance(
+            editingOrder as unknown as Parameters<typeof resolveDocumentAccessoriesInheritance>[0],
+            orderItems,
+        ),
+        [editingOrder, orderItems],
+    )
     const orderTenantTaxRates = useMemo(
         () => ({ irpj: mrmConfig.irpj_pct || 0, csll: mrmConfig.csll_pct || 0 }),
         [mrmConfig.irpj_pct, mrmConfig.csll_pct],
@@ -558,6 +583,9 @@ function OrdersPage() {
             rt_reserve_percent: it.products?.rt_reserve_percent ?? it.services?.rt_reserve_percent ?? null,
             tax_breakdown: it.tax_breakdown ?? null,
             destination_snapshot: it.destination_snapshot ?? null,
+            // R21: herdadas do orçamento e NÃO recalculadas aqui.
+            freight_allocated_value: it.freight_allocated_value ?? null,
+            accessories_allocated_value: it.accessories_allocated_value ?? null,
         }))
     }
 
@@ -2029,6 +2057,32 @@ function OrdersPage() {
                 {/* EPIC-RR-DISPLAY S4: Distribuição do resultado (mesma semântica que orçamentos).
                     Pedidos usam snapshot persistido em order_items.tax_breakdown — sem
                     recálculo runtime do motor. Em MEI/SN, IRPJ/CSLL ocultos automaticamente. */}
+                {/* ══════════════════════════════════════════════════════════════════
+                    R21 — o rateio de frete herdado ainda descreve ESTE pedido?
+                    O pedido é onde o conjunto pode ter mudado: item removido, quantidade
+                    alterada. A verificação NÃO recalcula — o share tem o conjunto inteiro no
+                    denominador, e recalcular mudaria a parcela de itens que ninguém tocou.
+                    INDETERMINADO aparece com o MESMO destaque de CONJUNTO_MUDOU: documento
+                    anterior à coluna que registra a base do rateio não pode parecer conferido.
+                    ══════════════════════════════════════════════════════════════════ */}
+                {accessoriesInheritance && accessoriesInheritance.verdict !== 'SEM_RATEIO' && (
+                    <div style={{
+                        marginTop: 12, padding: '10px 14px', borderRadius: 8, fontSize: 12,
+                        background: INHERITANCE_VERDICT_TONE[accessoriesInheritance.verdict] === 'alerta'
+                            ? 'rgba(239, 68, 68, 0.12)' : 'rgba(34, 197, 94, 0.10)',
+                        border: INHERITANCE_VERDICT_TONE[accessoriesInheritance.verdict] === 'alerta'
+                            ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid rgba(34, 197, 94, 0.25)',
+                        color: INHERITANCE_VERDICT_TONE[accessoriesInheritance.verdict] === 'alerta'
+                            ? '#fca5a5' : '#86efac',
+                    }}>
+                        {INHERITANCE_VERDICT_TONE[accessoriesInheritance.verdict] === 'alerta' ? '⚠ ' : '✓ '}
+                        {INHERITANCE_VERDICT_MESSAGE[accessoriesInheritance.verdict]}
+                        <div style={{ color: '#94a3b8', marginTop: 4, fontSize: 11 }}>
+                            {accessoriesInheritance.reason}
+                        </div>
+                    </div>
+                )}
+
                 {orderSubtotal > 0 && (
                     <ResidualDistributionBlock
                         distribution={orderResidualDistribution}

@@ -58,6 +58,8 @@ import { ResidualDistributionBlock } from '@/page-parts/shared/residual-distribu
 import { pisCofinsNominalFromEffective } from '@/utils/sale-context'
 import {
     allocateAccessories,
+    inheritDocumentAccessories,
+    type DocumentAccessoryHeader,
     resolveAccessoriesSource,
     resolveItemFicha,
     roundAllocationsToCents,
@@ -1913,6 +1915,11 @@ function Budgets() {
                 icms_st_value: (b as any).icms_st_value || 0,
                 difal_value: (b as any).difal_value || 0,
                 fcp_value: (b as any).fcp_value || 0,
+                // R21: o cabeçalho de acréscimos atravessa por CÓPIA LITERAL. O valor cotado é
+                // fato histórico externo — veio de uma transportadora, não de uma fórmula.
+                // Origem sem cotação devolve `{}` e as colunas ficam NULL: gravar zeros
+                // afirmaria "cotei e não houve frete" num documento em que ninguém cotou.
+                ...inheritDocumentAccessories(b as DocumentAccessoryHeader),
                 // MRM-V2-S2.1: coage modos legacy do budget pai → PROPORTIONAL ao copiar para o pedido.
                 discount_mode: coerceLegacyDiscountMode(b.discount_mode || null, { tenant_id: tenantId, document_id: b.id, surface: 'order' }),
                 discount_value: b.discount_value || null,
@@ -2064,6 +2071,10 @@ function Budgets() {
                 // ICMS Complementar — parâmetros de operação da hierarquia (linhagem orçamento→venda).
                 freight_mode: (selectedBudget as any).freight_mode || 'CIF',
                 icms_compl_override: (selectedBudget as any).icms_compl_override ?? null,
+                // R21: o cabeçalho de acréscimos atravessa por cópia literal — ver a travessia
+                // para o pedido, acima. É a MESMA função nas três rotas, de propósito: um
+                // literal por rota seria a `copia-divergente` esperando a terceira.
+                ...inheritDocumentAccessories(selectedBudget as DocumentAccessoryHeader),
             }).select().single()
 
             if (saleErr) throw saleErr

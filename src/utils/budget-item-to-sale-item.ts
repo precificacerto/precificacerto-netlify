@@ -61,6 +61,9 @@ export const BUDGET_ITEM_COLUMNS_FOR_SALE = [
     // D-A: o destino congelado do item do orçamento. Fora desta lista ele chegaria
     // `undefined` e a venda cairia na matriz pelo `calc_type` atual — o D12 outra vez.
     'destination_snapshot',
+    // R21: a parcela de acréscimo deste item, CONGELADA em R$ no rateio do orçamento.
+    'freight_allocated_value',
+    'accessories_allocated_value',
 ] as const
 
 /** A mesma lista no formato que o `.select()` do Supabase espera. */
@@ -84,6 +87,10 @@ export interface BudgetItemForSale {
     tax_breakdown?: TaxBreakdown | null
     /** D-A: snapshot de destino congelado na inserção do item no orçamento. */
     destination_snapshot?: unknown
+    /** R21: parcela do frete congelada no rateio do orçamento. */
+    freight_allocated_value?: number | null
+    /** R21: parcela de seguro + demais acessórias, congelada no rateio do orçamento. */
+    accessories_allocated_value?: number | null
 }
 
 /**
@@ -107,6 +114,9 @@ export type SaleItemRow = {
     tax_breakdown: TaxBreakdown | null
     /** D-A: atravessa intacto — a venda lê o destino que formou o preço do orçamento. */
     destination_snapshot: unknown
+    /** R21: atravessam intactas. A venda CONGELA o rateio; não o recalcula. */
+    freight_allocated_value: number | null
+    accessories_allocated_value: number | null
 }
 
 export interface MapBudgetItemsOptions {
@@ -181,6 +191,11 @@ export function mapBudgetItemsToSaleItems(
             // `calc_type` de hoje — o item do orçamento já responde por ele. `null`/ausente
             // segue significando item legado, e nunca destino FORA.
             destination_snapshot: bi.destination_snapshot ?? null,
+            // R21: cópia literal, como o destino. Recalcular na venda mudaria a parcela de
+            // itens que ninguém tocou, porque o share tem o conjunto inteiro no denominador.
+            // `null` = não rateado, jamais rateado em zero.
+            freight_allocated_value: bi.freight_allocated_value ?? null,
+            accessories_allocated_value: bi.accessories_allocated_value ?? null,
         }
     })
 }

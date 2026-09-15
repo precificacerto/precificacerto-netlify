@@ -45,6 +45,7 @@ import { useResidualDistribution } from '@/hooks/use-residual-distribution'
 import { buildBaselineFromSnapshots, detectConfigWarning, type ResidualItemInput } from '@/utils/residual-distribution'
 import { PAGE_SIZE } from '@/constants/pagination'
 import { ResidualDistributionBlock } from '@/page-parts/shared/residual-distribution-block.component'
+import { inheritDocumentAccessories, type DocumentAccessoryHeader } from '@/utils/budget-accessories'
 import {
   buildItemTaxRatesFromProduct,
   mergeItemAndTenantRates,
@@ -787,6 +788,10 @@ function Sales() {
                 // ICMS Complementar — parâmetros de operação da hierarquia (linhagem orçamento→venda).
                 freight_mode: (selectedBudget as any).freight_mode || 'CIF',
                 icms_compl_override: (selectedBudget as any).icms_compl_override ?? null,
+                // R21: o cabeçalho de acréscimos atravessa por CÓPIA LITERAL. A MESMA função
+                // das outras duas travessias — um literal por rota seria a `copia-divergente`
+                // esperando a terceira esquecer um campo.
+                ...inheritDocumentAccessories(selectedBudget as DocumentAccessoryHeader),
             }).select().single()
             if (saleErr) throw saleErr
 

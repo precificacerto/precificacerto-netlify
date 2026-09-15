@@ -495,3 +495,132 @@ export function checkInheritedAllocation(
 
   return { verdict: 'VALIDO', reason: 'o conjunto que produziu o rateio é o mesmo', montanteAtual }
 }
+
+/**
+ * As colunas de cabeçalho que a travessia copia do documento de origem para o derivado.
+ *
+ * Uma constante, e não um objeto literal em cada `insert`: são TRÊS travessias (orçamento →
+ * pedido, orçamento → venda, pedido → venda) e um literal por travessia é a `copia-divergente`
+ * esperando acontecer — a terceira esqueceria um campo e o frete morreria ali.
+ */
+export const DOCUMENT_ACCESSORY_COLUMNS = [
+  'freight_value',
+  'insurance_value',
+  'accessory_expenses_value',
+  'freight_allocation_criteria',
+  'freight_allocation_base',
+] as const
+
+export type DocumentAccessoryColumn = typeof DOCUMENT_ACCESSORY_COLUMNS[number]
+
+/** O cabeçalho de acréscimos como ele chega do documento de origem. */
+export interface DocumentAccessoryHeader {
+  freight_value?: number | null
+  insurance_value?: number | null
+  accessory_expenses_value?: number | null
+  freight_allocation_criteria?: string | null
+  freight_allocation_base?: number | null
+}
+
+/**
+ * R21 — copia o cabeçalho de acréscimos da origem para o documento derivado.
+ *
+ * CÓPIA LITERAL, como o `destination_snapshot` do D-A. O valor cotado é fato histórico
+ * externo: veio de uma transportadora, não de uma fórmula, e não há o que recalcular.
+ *
+ * Devolve `{}` quando a origem não cotou nada — e `{}` é diferente de cinco zeros. Gravar
+ * zeros afirmaria "cotei e não houve frete" num documento em que ninguém cotou, e é essa
+ * afirmação que faz o rateio mandar sobre o cadastro do produto (R11). O objeto vazio faz o
+ * `insert` sequer mencionar as colunas, que continuam `NULL`.
+ */
+export function inheritDocumentAccessories(
+  origem: DocumentAccessoryHeader | null | undefined,
+): Partial<DocumentAccessoryHeader> {
+  if (!origem) return {}
+  const algumCotado =
+    origem.freight_value != null ||
+    origem.insurance_value != null ||
+    origem.accessory_expenses_value != null
+  if (!algumCotado) return {}
+
+  return {
+    freight_value: origem.freight_value ?? null,
+    insurance_value: origem.insurance_value ?? null,
+    accessory_expenses_value: origem.accessory_expenses_value ?? null,
+    freight_allocation_criteria: origem.freight_allocation_criteria ?? null,
+    freight_allocation_base: origem.freight_allocation_base ?? null,
+  }
+}
+
+/** A mesma lista no formato que o `.select()` do Supabase espera. */
+export const DOCUMENT_ACCESSORY_SELECT = DOCUMENT_ACCESSORY_COLUMNS.join(', ')
+
+/** Texto de tela para cada veredito da R21. Um lugar só — a mensagem é a regra. */
+export const INHERITANCE_VERDICT_MESSAGE: Readonly<Record<InheritanceVerdict, string>> = {
+  VALIDO: 'O rateio de frete veio do documento de origem e continua válido: o conjunto de itens é o mesmo.',
+  SEM_RATEIO: 'O documento de origem não cotou frete, seguro nem despesas acessórias.',
+  CONJUNTO_MUDOU:
+    'Os itens mudaram desde o rateio de frete, e as parcelas herdadas deixaram de descrever este documento. ' +
+    'Revise o valor cotado ou refaça o rateio antes de fechar.',
+  // NÃO diz "válido". Documento anterior à coluna que registra a base do rateio não pode
+  // parecer conferido — `ausente-vs-falso.md`: o certo é não afirmar nada.
+  INDETERMINADO:
+    'Não foi possível conferir o rateio de frete herdado: o documento de origem é anterior ao registro ' +
+    'da base do rateio. As parcelas foram mantidas como estavam, sem verificação.',
+} as const
+
+/** A cor/severidade que a tela deve dar a cada veredito. INDETERMINADO NÃO é sucesso. */
+export const INHERITANCE_VERDICT_TONE: Readonly<Record<InheritanceVerdict, 'ok' | 'info' | 'alerta'>> = {
+  VALIDO: 'ok',
+  SEM_RATEIO: 'info',
+  CONJUNTO_MUDOU: 'alerta',
+  INDETERMINADO: 'alerta',
+} as const
+
+/** Um item do documento derivado, no que a conferência da R21 lê. */
+export interface InheritedItemRow {
+  total_price?: number | null
+  freight_allocated_value?: number | null
+  accessories_allocated_value?: number | null
+}
+
+/**
+ * A conferência da R21 para um documento DERIVADO (pedido ou venda), pronta para a tela.
+ *
+ * >>> POR QUE ISTO É FUNÇÃO, E NÃO CÓDIGO NO `useMemo` <<<
+ * Uma primeira versão vivia dentro do componente, e o teste afirmava que o nome
+ * `checkInheritedAllocation` aparecia no arquivo. Uma mutação que pusesse `return null`
+ * ANTES da chamada manteve o nome lá e passou verde: a asserção afirmava PASSAGEM, não
+ * EFEITO — a variante 3 de `.claude/rules/teste-que-nao-exercita.md`.
+ *
+ * Com a lógica aqui, o efeito é testável: os quatro vereditos saem de dados, e o que sobra
+ * no componente é uma chamada e um `div`.
+ *
+ * `null` significa "não há documento carregado", e não "está tudo certo".
+ */
+export function resolveDocumentAccessoriesInheritance(
+  documento: DocumentAccessoryHeader | null | undefined,
+  items: InheritedItemRow[],
+): InheritanceCheck | null {
+  if (!documento) return null
+
+  const allocatedSum = items.reduce(
+    (s, it) => s + num(it.freight_allocated_value) + num(it.accessories_allocated_value),
+    0,
+  )
+  const algumCotado =
+    documento.freight_value != null ||
+    documento.insurance_value != null ||
+    documento.accessory_expenses_value != null
+
+  return checkInheritedAllocation(
+    {
+      totalOriginal: algumCotado
+        ? num(documento.freight_value) + num(documento.insurance_value) + num(documento.accessory_expenses_value)
+        : null,
+      base: documento.freight_allocation_base ?? null,
+      allocatedSum,
+    },
+    items.map((it) => ({ totalValue: num(it.total_price) })),
+  )
+}

@@ -87,7 +87,7 @@ const SALE_ID = 'sale-1'
  * `undefined` porque o `select` não pedia a coluna. É o oráculo: a refatoração é correta
  * exatamente na medida em que o módulo produz isto.
  */
-type LinhaAntiga = Omit<SaleItemRow, 'destination_snapshot'>
+type LinhaAntiga = Omit<SaleItemRow, 'destination_snapshot' | 'freight_allocated_value' | 'accessories_allocated_value'>
 
 function mapeamentoAntigoDeVendas(budgetItems: BudgetItemForSale[]): LinhaAntiga[] {
     return budgetItems.map((bi) => {
@@ -132,9 +132,14 @@ function mapeamentoAntigoDeVendas(budgetItems: BudgetItemForSale[]): LinhaAntiga
 }
 
 /**
- * O oráculo reproduz a cópia REMOVIDA, que é anterior ao D-A e não conhecia
- * `destination_snapshot`. A igualdade campo a campo é feita sem ele; que o campo atravessa
- * está asserido no seu próprio bloco, ao final.
+ * O oráculo reproduz a cópia REMOVIDA, que é anterior ao D-A e à R21 e não conhecia
+ * `destination_snapshot` nem as parcelas de acréscimo. A igualdade campo a campo é feita sem
+ * eles; que cada um atravessa está asserido no seu próprio bloco — o do destino ao final
+ * deste arquivo, o das parcelas em `travessia-dos-acrescimos.test.ts`.
+ *
+ * Excluir um campo POSTERIOR à cópia é o que mantém o oráculo sendo o que ele diz ser: a
+ * reprodução da cópia COMO ELA ERA. Acrescentá-lo ao oráculo faria o teste deixar de fixar a
+ * refatoração e passar a fixar o estado atual, que é outra coisa.
  */
 function omitir(linhas: readonly object[], chaves: readonly string[]) {
     return linhas.map((l) => {
@@ -144,8 +149,9 @@ function omitir(linhas: readonly object[], chaves: readonly string[]) {
     })
 }
 
+/** Sem os campos POSTERIORES à cópia removida — ver o comentário de `omitir`. */
 function semSnapshotDeDestino(linhas: SaleItemRow[]) {
-    return omitir(linhas, ['destination_snapshot'])
+    return omitir(linhas, ['destination_snapshot', 'freight_allocated_value', 'accessories_allocated_value'])
 }
 
 function mapear(items: BudgetItemForSale[]): SaleItemRow[] {
@@ -194,7 +200,7 @@ describe('Refatoração sem mudança de comportamento', () => {
 
         // Fora desses dois campos, tudo o mais é idêntico.
         const semNumericos = (linhas: readonly object[]) =>
-            omitir(linhas, ['quantity', 'unit_price', 'destination_snapshot'])
+            omitir(linhas, ['quantity', 'unit_price', 'destination_snapshot', 'freight_allocated_value', 'accessories_allocated_value'])
         expect(semNumericos(novo)).toEqual(semNumericos(antigo))
 
         // E nenhuma linha do módulo sai com undefined ou NaN.
@@ -238,6 +244,8 @@ describe('O que a rota única garante daqui em diante', () => {
             'sale_id', 'product_id', 'service_id', 'quantity', 'unit_price', 'discount',
             'description', 'commission_pct', 'profit_pct', 'rt_pct', 'tax_breakdown',
             'destination_snapshot',
+            // R21 — as parcelas de acréscimo entraram no contrato da linha.
+            'freight_allocated_value', 'accessories_allocated_value',
         ].sort()
         for (const linha of mapear(TODOS)) {
             expect(Object.keys(linha).sort()).toEqual(contrato)
