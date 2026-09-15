@@ -22,6 +22,7 @@ import type { TaxPreviewResult } from '@/utils/calc-tax-preview'
 import { useRouter } from 'next/router'
 import { ROUTES } from '@/constants/routes'
 import { calculatePricing } from '@/utils/pricing-engine'
+import { buildProductConstruction } from '@/utils/product-price-construction'
 import { buildServiceExpenseSnapshot } from '@/utils/service-expense-snapshot'
 import { computeIvaDualOutside } from '@/utils/iva-dual-outside'
 import { resolveIvaDualEffectiveRate } from '@/utils/item-tax-rates'
@@ -386,7 +387,44 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
             rtReservePct: rtReservePercent / 100,
         })
 
-        const priceUnit = result.isValid ? result.priceUnit : 0
+        // ─── R3 · R5 · R8 — a matriz forma o preço do serviço ───
+        //
+        // No serviço a matriz diz: ICMS INEXISTENTE, ISS POR DENTRO, IBS e CBS POR FORA,
+        // IS e IPI INEXISTENTES. Com IBS/CBS cadastrados, eles entram no `c` e encolhem a
+        // margem de contribuição — em vez de serem somados por cima do preço já formado,
+        // que é o que a R9 chama de erro.
+        //
+        // Sem IBS/CBS o `c` é 0 e o preço sai IDÊNTICO ao de antes: a exceção do PIS/COFINS
+        // da R5 reconstitui a nominal a partir da efetivada gravada, e devolve a mesma.
+        const svcMatriz = buildProductConstruction({
+            taxableRegime: currentUser?.taxableRegime,
+            segment: 'SERVICO',
+            buyerType: 'CONSUMIDOR_FINAL',
+            saleScope: 'INTRAESTADUAL',
+            costTotal: result.cmvUnit,
+            structurePct,
+            rtReservePct: rtReservePercent / 100,
+            commissionPct: commissionPercent / 100,
+            profitPct: profitPercent / 100,
+            profitTaxPct: isLucroRealSvc
+                ? (profitPercent * 0.15 + profitPercent * 0.09 + additionalIrpjPercent) / 100
+                : 0,
+            rates: {
+                icmsPct: null,
+                issPct: (taxPreview?.breakdown?.issPct ?? 0),
+                pisCofinsEffectivePct: taxPreview?.breakdown?.pisCofinsEffectivePct ?? 0,
+                ipiPct: null,
+                isPct: null,
+                ibsPct: (ibsPct || 0) / 100,
+                cbsPct: (cbsPct || 0) / 100,
+                ivaDualReductionFactor: ivaDualReductionFactor != null ? ivaDualReductionFactor / 100 : null,
+            },
+            despAcessorias: 0,
+        })
+
+        const priceUnit = svcMatriz.applied
+            ? svcMatriz.opInterna
+            : result.isValid ? result.priceUnit : 0
         const laborCost = result.productiveLaborCost
         const totalCost = result.cmvUnit  // CMV inclui MO produtiva
         const sellingPrice = priceUnit
@@ -433,6 +471,9 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
         return {
             laborCost, totalCost, sellingPrice, costPerMinute, totalEmployees,
             isWorkloadUnset,
+            // O que a matriz resolveu. `applied: false` significa que ela NÃO governou esta
+            // formação — regime sem matriz escrita — e o consumidor mantém o caminho antigo.
+            matriz: svcMatriz,
             // Alíquotas e custo por minuto que formaram ESTE preço — gravados junto com ele
             // em `services.expense_snapshot`, para que a decomposição do preço não dependa
             // do `tenant_expense_config` de amanhã. Ver `service-expense-snapshot.ts`.
@@ -554,11 +595,17 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                     cbsPct: resolveIvaDualEffectiveRate(cbsPct, ivaDualReductionFactor) || 0,
                     ipiPct: ipiPct || 0,
                 })
-                svcIsVal = _iva.isValue
-                svcIbsVal = _iva.ibsValue
-                svcCbsVal = _iva.cbsValue
-                svcIpiVal = _iva.ipiValue
-                if (_iva.totalOutside > 0) svcFinalPrice = _iva.finalPrice
+                // Com a matriz (R8), o total geral é `P ÷ (1 − c)` — não a soma por cima.
+                const _ext = pricing.matriz.applied ? pricing.matriz.resolved?.externalTaxes : undefined
+                svcIsVal = _ext ? (_ext.is?.value ?? 0) : _iva.isValue
+                svcIbsVal = _ext ? (_ext.ibs?.value ?? 0) : _iva.ibsValue
+                svcCbsVal = _ext ? (_ext.cbs?.value ?? 0) : _iva.cbsValue
+                svcIpiVal = _ext ? (_ext.ipi?.value ?? 0) : _iva.ipiValue
+                if (pricing.matriz.applied) {
+                    svcFinalPrice = pricing.matriz.totalGeral
+                } else if (_iva.totalOutside > 0) {
+                    svcFinalPrice = _iva.finalPrice
+                }
             }
 
             const data: Record<string, any> = {
@@ -1185,12 +1232,19 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                             cbsPct: resolveIvaDualEffectiveRate(cbsPct, ivaDualReductionFactor) || 0,
                             ipiPct: ipiPct || 0,
                         })
-                        const _isVal = _ivaDisp.isValue
-                        const _ibsVal = _ivaDisp.ibsValue
-                        const _cbsVal = _ivaDisp.cbsValue
-                        const _ipiVal = _ivaDisp.ipiValue
-                        const _total = _ivaDisp.totalOutside
-                        const _finalPrice = _ivaDisp.finalPrice
+                        // Mesma fonte do save: exibir por um caminho e gravar por outro é a
+                        // cópia divergente que o #27 catalogou.
+                        const _extDisp = pricing.matriz.applied ? pricing.matriz.resolved?.externalTaxes : undefined
+                        const _isVal = _extDisp ? (_extDisp.is?.value ?? 0) : _ivaDisp.isValue
+                        const _ibsVal = _extDisp ? (_extDisp.ibs?.value ?? 0) : _ivaDisp.ibsValue
+                        const _cbsVal = _extDisp ? (_extDisp.cbs?.value ?? 0) : _ivaDisp.cbsValue
+                        const _ipiVal = _extDisp ? (_extDisp.ipi?.value ?? 0) : _ivaDisp.ipiValue
+                        const _total = pricing.matriz.applied
+                            ? (pricing.matriz.resolved?.externalValue ?? 0)
+                            : _ivaDisp.totalOutside
+                        const _finalPrice = pricing.matriz.applied
+                            ? pricing.matriz.totalGeral
+                            : _ivaDisp.finalPrice
                         const ibsCbsRows = [
                             { label: 'IBS — Imposto sobre Bens e Serv. (%)', value: ibsPct, setter: setIbsPct, taxValue: _ibsVal },
                             { label: 'CBS — Contrib. sobre Bens e Serv. (%)', value: cbsPct, setter: setCbsPct, taxValue: _cbsVal },

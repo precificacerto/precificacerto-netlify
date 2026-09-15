@@ -8,6 +8,7 @@ import { resolveProductTaxPercent } from '@/utils/product-tax-percent'
 import { resolveIndirectLaborPct } from '@/utils/indirect-labor-grouping'
 import { computeIvaDualOutside } from '@/utils/iva-dual-outside'
 import { resolveIvaDualEffectiveRate } from '@/utils/item-tax-rates'
+import { buildProductConstruction } from '@/utils/product-price-construction'
 import { computeAdvancedOutsideTaxes, type AdvancedOutsideParams } from '@/utils/icms-st-difal'
 import { TaxDecompositionPanel } from './tax-decomposition-panel.component'
 import { CALC_TYPE_ENUM } from '@/shared/enums/calc-type'
@@ -175,12 +176,61 @@ export const ProductPrice: FC<Props> = ({
   const costTotal = productPriceInfo.productCost
   const taxesTotal = taxValDisplay
 
+  // Atividades Terceirizadas (apenas LUCRO_REAL / LUCRO_PRESUMIDO / SIMPLES_HIBRIDO)
+  const terceirizadasTotal = (isLucroReal || isLucroPresumed || isSimplesHibrido)
+    ? (freightValue || 0) + (insuranceValue || 0) + (accessoryExpensesValue || 0)
+    : 0
+
+  // ─── R3 · R5 · R8 · R9 — a matriz forma o preço; o `c` NÃO é somado por cima ───
+  //
+  // Quando a matriz governa (Lucro Real, sem acréscimos gravados no produto), P e o total
+  // geral vêm do motor: IBS/CBS/IS/IPI entram no `c` da R3, o `c` converte cada % Original
+  // em % Efetivada (R5) e a margem de contribuição encolhe. A R9 diz por quê: "Somar o IPI
+  // por cima do preço sem IPI é erro, não atalho."
+  //
+  // Sem tributo por fora, `c = 0`, as efetivadas são iguais às originais e o número sai BIT
+  // A BIT igual ao de antes — é o teste 1 da Parte 5, o que protege a base instalada.
+  //
+  // Produto é mercadoria: o segmento nunca é SERVICO aqui (a tela força `REVENDA` em tenant
+  // de serviço), e o ISS é INEXISTENTE — `null`, nunca zero.
+  const _matriz = buildProductConstruction({
+    taxableRegime: currentUser?.taxableRegime,
+    segment: (isCalcTypeService || isCalcTypeResale || isResaleProduct) ? 'REVENDA' : 'INDUSTRIALIZACAO',
+    // O cadastro forma a FICHA TRIBUTÁRIA; o contexto da venda de fato é aplicado no
+    // orçamento (R9). Aqui vale a linha geral da tabela, que é o comportamento de hoje.
+    buyerType: 'CONSUMIDOR_FINAL',
+    saleScope: 'INTRAESTADUAL',
+    costTotal,
+    structurePct: (isCalcTypeService
+      ? variablePct + financialPct
+      : laborPct + fixedPct + variablePct + financialPct) / 100,
+    rtReservePct: rtReservePct / 100,
+    commissionPct: commissionPct / 100,
+    profitPct: profitPct / 100,
+    profitTaxPct: (irpjPct + csllPct + adicionalIrpjPct) / 100,
+    rates: {
+      icmsPct: icmsPct / 100,
+      issPct: null,
+      pisCofinsEffectivePct: pisCofinsLRPct / 100,
+      ipiPct: (ipiPct || 0) / 100,
+      isPct: (isPct || 0) / 100,
+      ibsPct: (ibsPct || 0) / 100,
+      cbsPct: (cbsPct || 0) / 100,
+      ivaDualReductionFactor: ivaDualReductionFactor != null ? ivaDualReductionFactor / 100 : null,
+    },
+    despAcessorias: terceirizadasTotal,
+  })
+
   // Margem de contribuição e valor precificado com ICMS/PIS/COFINS embutidos
   const mcPct = (isLucroReal || isLucroPresumed)
     ? 100 - totalPct - (isCalcTypeService ? 0 : icmsPct) - pisCofinsLRPct
     : 100 - totalPct
 
-  const valorPrecificado = mcPct > 0 ? costTotal / (mcPct / 100) : 0
+  // Com a matriz, P é o do motor. Sem ela, é o divisor de sempre. Os dois coincidem quando
+  // `c = 0` — a igualdade é por construção, não por coincidência.
+  const valorPrecificado = _matriz.applied
+    ? _matriz.opInterna
+    : mcPct > 0 ? costTotal / (mcPct / 100) : 0
   const icmsValDisplay = valorPrecificado * icmsPct / 100
   const pisCofinsValDisplay = valorPrecificado * pisCofinsLRPct / 100
 
@@ -202,11 +252,6 @@ export const ProductPrice: FC<Props> = ({
   const expensesTotalDisplay = isCalcTypeService
     ? variableValDisplay + financialValDisplay
     : laborValDisplay + fixedValDisplay + variableValDisplay + financialValDisplay
-
-  // Atividades Terceirizadas (apenas LUCRO_REAL / LUCRO_PRESUMIDO / SIMPLES_HIBRIDO)
-  const terceirizadasTotal = (isLucroReal || isLucroPresumed || isSimplesHibrido)
-    ? (freightValue || 0) + (insuranceValue || 0) + (accessoryExpensesValue || 0)
-    : 0
 
   // Preço base = valorPrecificado (com ICMS/PIS/COFINS embutidos para LR/LP) + terceirizadas
   const baseForSalePrice = (isLucroReal || isLucroPresumed) ? valorPrecificado : pricePerUnit
@@ -234,14 +279,17 @@ export const ProductPrice: FC<Props> = ({
     cbsPct: _cbsEffective,
     ipiPct: ipiPct || 0,
   })
-  const ibsCbsBase = _iva.baseIbsCbs
-  const taxIsValue = _iva.isValue
-  const taxIbsValue = _iva.ibsValue
-  const taxCbsValue = _iva.cbsValue
-  const taxIpiValue = _iva.ipiValue
-  const totalInlineTax = _iva.totalOutside
+
+  const _ext = _matriz.resolved?.externalTaxes
+
+  const ibsCbsBase = _ext?.ibs?.baseValue ?? _ext?.cbs?.baseValue ?? _iva.baseIbsCbs
+  const taxIsValue = _matriz.applied ? (_ext?.is?.value ?? 0) : _iva.isValue
+  const taxIbsValue = _matriz.applied ? (_ext?.ibs?.value ?? 0) : _iva.ibsValue
+  const taxCbsValue = _matriz.applied ? (_ext?.cbs?.value ?? 0) : _iva.cbsValue
+  const taxIpiValue = _matriz.applied ? (_ext?.ipi?.value ?? 0) : _iva.ipiValue
+  const totalInlineTax = _matriz.applied ? (_matriz.resolved?.externalValue ?? 0) : _iva.totalOutside
   // Preço de Venda por Unidade = Operação Interna + Operação Externa (IS+IBS+CBS+IPI)
-  const finalPriceWithTaxes = _iva.finalPrice
+  const finalPriceWithTaxes = _matriz.applied ? _matriz.totalGeral : _iva.finalPrice
   const hasInlineTaxes = (isLucroReal || isLucroPresumed || isSimplesHibrido) && totalInlineTax > 0
 
   // EPIC-POR-FORA-V3: ICMS-ST/DIFAL/FCP "por fora" — APENAS EXIBIÇÃO (preço final ao cliente).

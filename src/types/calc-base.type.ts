@@ -1,4 +1,5 @@
 import { DreListItem } from '@/shared/enums/dre-year-base'
+import type { TaxPreviewBreakdown } from '@/utils/calc-tax-preview'
 
 /**
  * Simplified calc base for the pricing engine (V2).
@@ -19,6 +20,11 @@ export interface CalcBaseType {
   financialExpensePct: number
   /** Single effective tax rate (display %, 0-100). */
   taxPct: number
+  /**
+   * Tributos POR DENTRO discriminados (Parte 0 + R5), em DECIMAL. Presente só nos regimes
+   * cuja matriz está escrita — hoje, Lucro Real. Ausente = sem matriz, nunca alíquota zero.
+   */
+  taxBreakdown?: TaxPreviewBreakdown
   /** Human-readable tax regime label. */
   taxLabel: string
   isMei: boolean

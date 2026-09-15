@@ -41,6 +41,89 @@ export function computeLaborPctCompany(
 
 export type CalcType = 'INDUSTRIALIZACAO' | 'REVENDA' | 'SERVICO'
 
+// ---------------------------------------------------------------------------
+// A MATRIZ da Parte 0 — FONTE ÚNICA
+// ---------------------------------------------------------------------------
+
+/**
+ * Regime e segmento determinam o FORMATO da construção: quais tributos existem e de que
+ * lado da operação cada um fica. A Parte 0 da regra é literal sobre o que isso exige:
+ *
+ *   "A construção lê a matriz. A decomposição lê A MESMA matriz. A decomposição não infere
+ *    de que lado um imposto está — ela lê. Divergência entre as duas é erro, e o teste tem
+ *    de prová-lo, não confiar."
+ *
+ * Por isso a matriz mora AQUI, e não em `sale-context.ts`: este é o arquivo que o espelho
+ * da edge copia e que a validação do motor consulta. Duas listas escritas à mão, uma em
+ * cada lado, são `copia-divergente.md` — e o remédio registrado lá não é conferir as duas,
+ * é apagar uma. `sale-context.ts` re-exporta esta; não tem cópia própria.
+ */
+export type TaxName = 'ICMS' | 'ISS' | 'PIS_COFINS' | 'IPI' | 'IS' | 'IBS' | 'CBS'
+
+/**
+ * Onde o tributo fica naquele formato. Os três são afirmações DISTINTAS:
+ *   POR_DENTRO  — existe e está embutido na operação interna; entra no coeficiente.
+ *   POR_FORA    — existe e é destacado acima da operação interna; compõe o total geral.
+ *   INEXISTENTE — não se aplica àquele formato. E isto NÃO é zero.
+ *
+ * `INEXISTENTE` e uma alíquota de 0% são coisas diferentes: zero afirma "existe e vale
+ * nada"; inexistente afirma "não há o que apurar aqui". Confundi-los é `ausente-vs-falso`
+ * no schema da matriz — é o que deixa uma alíquota de ICMS vazar para um orçamento de
+ * serviço sem que nada falhe.
+ */
+export type Placement = 'POR_DENTRO' | 'POR_FORA' | 'INEXISTENTE'
+
+/**
+ * A matriz da Parte 0, transcrita célula a célula (Lucro Real, três segmentos).
+ *
+ * | Imposto    | Industrialização | Revenda / Varejo | Prestação de serviço |
+ * | ICMS       | POR DENTRO       | POR DENTRO       | INEXISTENTE          |
+ * | ISS        | INEXISTENTE      | INEXISTENTE      | POR DENTRO           |
+ * | PIS/COFINS | POR DENTRO       | POR DENTRO       | POR DENTRO           |
+ * | IPI        | POR FORA         | INEXISTENTE      | INEXISTENTE          |
+ * | IS         | POR FORA         | POR FORA         | INEXISTENTE          |
+ * | IBS        | POR FORA         | POR FORA         | POR FORA             |
+ * | CBS        | POR FORA         | POR FORA         | POR FORA             |
+ *
+ * O QUE ELA NÃO DECIDE: valor. Alíquota, fator de redução e base reduzida continuam vindo
+ * do cadastro do item e do tenant. A matriz responde "este tributo existe aqui, e de que
+ * lado?" — e só.
+ */
+export const TAX_MATRIX: Readonly<Record<CalcType, Readonly<Record<TaxName, Placement>>>> = {
+  INDUSTRIALIZACAO: {
+    ICMS: 'POR_DENTRO',
+    ISS: 'INEXISTENTE',
+    PIS_COFINS: 'POR_DENTRO',
+    IPI: 'POR_FORA',
+    IS: 'POR_FORA',
+    IBS: 'POR_FORA',
+    CBS: 'POR_FORA',
+  },
+  REVENDA: {
+    ICMS: 'POR_DENTRO',
+    ISS: 'INEXISTENTE',
+    PIS_COFINS: 'POR_DENTRO',
+    IPI: 'INEXISTENTE',
+    IS: 'POR_FORA',
+    IBS: 'POR_FORA',
+    CBS: 'POR_FORA',
+  },
+  SERVICO: {
+    ICMS: 'INEXISTENTE',
+    ISS: 'POR_DENTRO',
+    PIS_COFINS: 'POR_DENTRO',
+    IPI: 'INEXISTENTE',
+    IS: 'INEXISTENTE',
+    IBS: 'POR_FORA',
+    CBS: 'POR_FORA',
+  },
+}
+
+/** A célula. É por aqui que os dois lados leem — nunca por um `if` de segmento inline. */
+export function placementOf(segment: CalcType, tax: TaxName): Placement {
+  return TAX_MATRIX[segment][tax]
+}
+
 export interface PricingInput {
   calcType: CalcType
 
@@ -77,6 +160,23 @@ export interface PricingInput {
   // -- Tax (read-only) --
   /** Single effective tax rate as decimal (combined DAS / ICMS+PIS+COFINS / etc). */
   taxPct: number
+
+  /**
+   * IRPJ + CSLL + adicional de IRPJ, como decimal sobre o TOTAL GERAL (R6).
+   *
+   * POR QUE CAMPO PRÓPRIO, e não somado em `taxPct`: com `taxBreakdown` presente o
+   * `taxPct` é IGNORADO no cálculo e conferido contra a soma dos tributos POR DENTRO
+   * da matriz (ICMS + ISS + PIS/COFINS). IRPJ e CSLL não são tributos da matriz — a
+   * R19 os lista dentro do RRO, ao lado de comissão e lucro, e a R6 diz que a base
+   * deles é o VALOR DO LUCRO. Somá-los em `taxPct` faria a conferência acusar
+   * divergência; omiti-los faria sumir do coeficiente e baratear o preço em silêncio.
+   *
+   * Conversão PADRÃO da R5: `% Efetivada = % Original ÷ (1 − c)`.
+   * Opcional; default 0 ⇒ coeficiente idêntico ao de antes deste campo existir. No
+   * caminho SEM `taxBreakdown` as telas seguem somando tudo em `taxPct`, e passar os
+   * dois seria contar duas vezes — por isso a validação recusa a combinação.
+   */
+  profitTaxPct?: number
 
   // -- Editable per product --
   /** Sales commission as decimal. */
@@ -139,12 +239,30 @@ export interface TaxBreakdownInput {
   cbs?: ExternalTax
   is?: ExternalTax
   ipi?: ExternalTax
+  /**
+   * R9 — contexto da venda. `true` (default) = o IPI INTEGRA a base do ICMS, que é o
+   * que a tabela da R9 manda para consumidor final e para contribuinte que compra para
+   * uso, consumo ou ativo. `false` = contribuinte comprando para REVENDA ou
+   * INDUSTRIALIZAÇÃO, único caso em que o IPI fica fora da base.
+   *
+   * Sem IPI declarado os dois valores dão o mesmo número — a bandeira só tem efeito
+   * quando existe IPI a excluir.
+   */
+  ipiIntegraBaseIcms?: boolean
 }
 
 /** O que o motor resolveu a partir do `taxBreakdown`. Ausente no caminho antigo. */
 export interface ResolvedTaxBreakdown {
   /** O `c` da R3, resolvido em forma fechada. */
   externalOpsCoefficient: number
+  /**
+   * ICMS como fração do TOTAL GERAL depois da R9 — é o que a CONSTRUÇÃO de fato usou.
+   * Igual ao `icmsPct` de entrada quando o IPI integra a base; menor quando não integra.
+   * A decomposição LÊ este número em vez de reinferir de que lado o IPI ficou.
+   */
+  icmsPctOverTotalGeral: number
+  /** R9 — o IPI integrou a base do ICMS nesta construção. */
+  ipiIntegraBaseIcms: boolean
   /** ICMS: conversão padrão, `% Original ÷ (1 − c)`. */
   icmsPctEffective: number
   /** ISS: exceção da R5 — NÃO sofre gross-up, efetiva = original. */
@@ -158,6 +276,28 @@ export interface ResolvedTaxBreakdown {
   externalValue: number
   /** Total geral = P ÷ (1 − c). */
   totalGeral: number
+  /**
+   * Cada tributo por fora em R$, com a BASE que a construção usou. Ausente = INEXISTENTE
+   * ou não declarado. A soma dos `value` é `externalValue`.
+   */
+  externalTaxes: {
+    ibs?: ResolvedExternalTaxValue
+    cbs?: ResolvedExternalTaxValue
+    is?: ResolvedExternalTaxValue
+    ipi?: ResolvedExternalTaxValue
+  }
+}
+
+/** Um tributo por fora em R$, com a base que o produziu. */
+export interface ResolvedExternalTaxValue {
+  /** Alíquota EFETIVA = original × (1 − fator de redução) (R4). */
+  effectiveRate: number
+  /** Código de base usado (R3). */
+  baseCode: BaseCode
+  /** Base de cálculo em R$. */
+  baseValue: number
+  /** Valor do tributo em R$ = base × alíquota efetiva. */
+  value: number
 }
 
 export interface PricingResult {
@@ -183,6 +323,8 @@ export interface PricingResult {
   profitPct: number
   /** RT (Comissão Reserva Técnica) as decimal, echoed back. */
   rtReservePct: number
+  /** IRPJ + CSLL + adicional (R6) como decimal, echoed back. Zero no caminho antigo. */
+  profitTaxPct: number
 
   /** Productive labor cost in R$ for this product (productWorkloadMinutes × costPerMinute). */
   productiveLaborCost: number
@@ -203,6 +345,8 @@ export interface PricingResult {
   // Breakdown (absolute R$ values derived from priceUnit × each %)
   structureValue: number
   taxValue: number
+  /** IRPJ + CSLL + adicional em R$ = priceUnit × profitTaxPct efetivado (R6). */
+  profitTaxValue: number
   commissionValue: number
   profitValue: number
 }
@@ -224,6 +368,7 @@ function emptyResult(errors: string[]): PricingResult {
     laborPctShown: 0,
     structurePct: 0,
     taxPct: 0,
+    profitTaxPct: 0,
     commissionPct: 0,
     profitPct: 0,
     rtReservePct: 0,
@@ -233,6 +378,7 @@ function emptyResult(errors: string[]): PricingResult {
     priceTotal: 0,
     structureValue: 0,
     taxValue: 0,
+    profitTaxValue: 0,
     commissionValue: 0,
     profitValue: 0,
   }
@@ -262,36 +408,43 @@ function validateTaxBreakdown(
     )
   }
 
-  // Matriz regime × segmento (Parte 0): no serviço o ICMS é INEXISTENTE; em
-  // industrialização e revenda o ISS é INEXISTENTE. `undefined` é a única forma
-  // de dizer "não existe"; `0` afirma que existe e está zerado.
-  if (calcType === 'SERVICO') {
-    if (tb.icmsPct !== undefined) {
+  // Matriz regime × segmento (Parte 0). A conferência LÊ `TAX_MATRIX` — não repete a
+  // regra num `if`. Um `if` aqui seria a segunda cópia que a Parte 0 proíbe: bastaria
+  // acrescentar um tributo à matriz e esquecer o `if` para o formato divergir em silêncio.
+  //
+  // `undefined` é a única forma de dizer "não existe"; `0` afirma que existe e está zerado.
+  // O rótulo é o NOME DO CAMPO do contrato, não o do tributo na matriz: quem lê o erro
+  // está olhando o objeto que montou, e é esse nome que ele vai corrigir.
+  const porDentro: ReadonlyArray<readonly [TaxName, string, number | undefined]> = [
+    ['ICMS', 'icmsPct', tb.icmsPct],
+    ['ISS', 'issPct', tb.issPct],
+    ['PIS_COFINS', 'pisCofinsPct', tb.pisCofinsPct],
+  ]
+  for (const [nome, campo, valor] of porDentro) {
+    const place = placementOf(calcType, nome)
+    if (place === 'POR_DENTRO' && valor === undefined) {
       errors.push(
-        `icmsPct veio como ${tb.icmsPct} (alíquota declarada) em SERVICO, onde a matriz diz INEXISTENTE. Use undefined.`,
+        `${campo} veio INEXISTENTE (undefined) em ${calcType}, onde a matriz diz POR DENTRO. Use 0 se a alíquota é zero.`,
       )
     }
-    if (tb.issPct === undefined) {
+    if (place !== 'POR_DENTRO' && valor !== undefined) {
       errors.push(
-        'issPct veio INEXISTENTE (undefined) em SERVICO, onde a matriz diz POR DENTRO. Use 0 se a alíquota é zero.',
-      )
-    }
-  } else {
-    if (tb.icmsPct === undefined) {
-      errors.push(
-        `icmsPct veio INEXISTENTE (undefined) em ${calcType}, onde a matriz diz POR DENTRO. Use 0 se a alíquota é zero.`,
-      )
-    }
-    if (tb.issPct !== undefined) {
-      errors.push(
-        `issPct veio como ${tb.issPct} (alíquota declarada) em ${calcType}, onde a matriz diz INEXISTENTE. Use undefined.`,
+        `${campo} veio como ${valor} (alíquota declarada) em ${calcType}, onde a matriz diz INEXISTENTE. Use undefined.`,
       )
     }
   }
 
-  // IPI só existe em industrialização (Parte 0).
-  if (tb.ipi && calcType !== 'INDUSTRIALIZACAO') {
-    errors.push(`ipi declarado em ${calcType}, onde a matriz diz INEXISTENTE.`)
+  const porFora: ReadonlyArray<readonly [TaxName, string, ExternalTax | undefined]> = [
+    ['IPI', 'ipi', tb.ipi],
+    ['IS', 'is', tb.is],
+    ['IBS', 'ibs', tb.ibs],
+    ['CBS', 'cbs', tb.cbs],
+  ]
+  for (const [nome, campo, tax] of porFora) {
+    const place = placementOf(calcType, nome)
+    if (tax && place !== 'POR_FORA') {
+      errors.push(`${campo} declarado em ${calcType}, onde a matriz diz INEXISTENTE.`)
+    }
   }
 
   // `taxPct` é ignorado no cálculo, mas não pode divergir em silêncio.
@@ -358,6 +511,7 @@ export function calculatePricing(input: PricingInput): PricingResult {
     profitPct,
   } = input
   const rtReservePct = input.rtReservePct ?? 0
+  const profitTaxPct = input.profitTaxPct ?? 0
   const externalOpsCoefficient = input.externalOpsCoefficient ?? 0
 
   // Step 1 — custo de MO produtiva deste produto (R$)
@@ -388,10 +542,19 @@ export function calculatePricing(input: PricingInput): PricingResult {
   let k: number
   let taxPctEff: number
   let resolved: ResolvedTaxBreakdown | undefined
+  let resolvedExternal: ExternalOpsResult['externalTaxes'] = {}
 
   if (!tb) {
     if (externalOpsCoefficient < 0 || externalOpsCoefficient >= 1) {
       return emptyResult(['externalOpsCoefficient fora do intervalo [0, 1)'])
+    }
+    // Sem `taxBreakdown` a tela soma IRPJ e CSLL dentro de `taxPct` — é o contrato
+    // antigo. Aceitar `profitTaxPct` aqui contaria os dois DUAS VEZES, em silêncio, que
+    // é a classe do #47: default neutro em contrato de cálculo transforma erro em zero.
+    if (input.profitTaxPct !== undefined) {
+      return emptyResult([
+        'profitTaxPct exige taxBreakdown: sem ele o taxPct agregado já carrega IRPJ e CSLL, e somar os dois conta duas vezes.',
+      ])
     }
     k = 1 - externalOpsCoefficient
     taxPctEff = taxPct / k
@@ -410,6 +573,7 @@ export function calculatePricing(input: PricingInput): PricingResult {
       cbs: tb.cbs,
       is: tb.is,
       ipi: tb.ipi,
+      ipiIntegraBaseIcms: tb.ipiIntegraBaseIcms,
     })
     if (!cResult.isValid) {
       return emptyResult(cResult.validationErrors.map((e) => `operação por fora: ${e}`))
@@ -417,8 +581,9 @@ export function calculatePricing(input: PricingInput): PricingResult {
 
     k = 1 - cResult.externalOpsCoefficient
 
-    // ICMS: conversão PADRÃO — cadastrado sobre o total geral.
-    const icmsEff = icms / k
+    // ICMS: conversão PADRÃO — mas sobre o que a R9 deixou na base, não sobre o
+    // `icmsPct` cru. Os dois coincidem quando o IPI integra a base (o padrão).
+    const icmsEff = cResult.icmsPctOverTotalGeral / k
     // Exceção 1 da R5 — ISS no serviço NÃO sofre gross-up. A base do IBS/CBS
     // exclui o ISS, mas o IBS/CBS não entra na base do ISS.
     const issEff = iss
@@ -429,6 +594,8 @@ export function calculatePricing(input: PricingInput): PricingResult {
     taxPctEff = icmsEff + issEff + pisCofinsEff
     resolved = {
       externalOpsCoefficient: cResult.externalOpsCoefficient,
+      icmsPctOverTotalGeral: cResult.icmsPctOverTotalGeral,
+      ipiIntegraBaseIcms: tb.ipiIntegraBaseIcms !== false,
       icmsPctEffective: icmsEff,
       issPctEffective: issEff,
       pisCofinsPctEffective: pisCofinsEff,
@@ -438,18 +605,23 @@ export function calculatePricing(input: PricingInput): PricingResult {
       pisCofinsValue: 0,
       externalValue: 0,
       totalGeral: 0,
+      externalTaxes: {},
     }
+    resolvedExternal = cResult.externalTaxes
   }
 
   const structurePctEff = structurePct / k
   const rtReservePctEff = rtReservePct / k
   const commissionPctEff = commissionPct / k
   const profitPctEff = profitPct / k
+  // R6 — IRPJ e CSLL têm o valor do lucro como base, e chegam já cadastrados sobre o
+  // total geral. Conversão PADRÃO da R5, como qualquer categoria da operação interna.
+  const profitTaxPctEff = profitTaxPct / k
 
   // Step 3.1 — coeficiente da margem de contribuição (por dentro de P).
   // NÃO confundir com `externalOpsCoefficient`: este é o divisor (~0,69).
   // Não aplicar round2 aqui para preservar precisão na divisão.
-  const coefficient = 1 - (structurePctEff + taxPctEff + rtReservePctEff + commissionPctEff + profitPctEff)
+  const coefficient = 1 - (structurePctEff + taxPctEff + profitTaxPctEff + rtReservePctEff + commissionPctEff + profitPctEff)
 
   // Step 4 — validar coeficiente
   if (coefficient <= 0) {
@@ -465,6 +637,7 @@ export function calculatePricing(input: PricingInput): PricingResult {
   // são iguais às originais e estes valores são idênticos aos de antes.
   const structureValue = round2(priceUnit * structurePctEff)
   const taxValue       = round2(priceUnit * taxPctEff)
+  const profitTaxValue = round2(priceUnit * profitTaxPctEff)
   const commissionValue = round2(priceUnit * commissionPctEff)
   const profitValue    = round2(priceUnit * profitPctEff)
   const rtReserveValue = round2(priceUnit * rtReservePctEff)
@@ -476,6 +649,16 @@ export function calculatePricing(input: PricingInput): PricingResult {
     resolved.pisCofinsValue = round2(priceUnit * resolved.pisCofinsPctEffective)
     resolved.externalValue = round2(totalGeral * resolved.externalOpsCoefficient)
     resolved.totalGeral = totalGeral
+    for (const nome of ['ibs', 'cbs', 'is', 'ipi'] as const) {
+      const t = resolvedExternal[nome]
+      if (!t) continue
+      resolved.externalTaxes[nome] = {
+        effectiveRate: t.effectiveRate,
+        baseCode: t.baseCode,
+        baseValue: round2(totalGeral * t.basePctOfTotal),
+        value: round2(totalGeral * t.valuePctOfTotal),
+      }
+    }
   }
 
   // Para REVENDA: MO é parte da estrutura (já em structureValue); não aparece como linha separada.
@@ -497,6 +680,7 @@ export function calculatePricing(input: PricingInput): PricingResult {
     laborPctShown,
     structurePct,
     taxPct,
+    profitTaxPct,
     commissionPct,
     profitPct,
     rtReservePct,
@@ -507,6 +691,7 @@ export function calculatePricing(input: PricingInput): PricingResult {
     priceTotal,
     structureValue,
     taxValue,
+    profitTaxValue,
     commissionValue,
     profitValue,
   }
@@ -594,6 +779,27 @@ export interface ExternalOpsInput {
   cbs?: ExternalTax
   is?: ExternalTax
   ipi?: ExternalTax
+  /**
+   * R9 — o IPI integra a base do ICMS? Default `true`, que é o comportamento de
+   * sempre e o que a tabela da R9 manda em duas das três linhas. Ver
+   * `TaxBreakdownInput.ipiIntegraBaseIcms`.
+   */
+  ipiIntegraBaseIcms?: boolean
+}
+
+/**
+ * Um tributo POR FORA, resolvido. Tudo como FRAÇÃO DO TOTAL GERAL, para que o chamador
+ * multiplique pelo total e tenha o R$ sem refazer conta nenhuma.
+ */
+export interface ResolvedExternalTax {
+  /** Alíquota EFETIVA = original × (1 − fator de redução) (R4). */
+  effectiveRate: number
+  /** Código de base usado (R3). */
+  baseCode: BaseCode
+  /** A base do tributo como fração do total geral, já avaliada em `c`. */
+  basePctOfTotal: number
+  /** O valor do tributo como fração do total geral = `effectiveRate × basePctOfTotal`. */
+  valuePctOfTotal: number
 }
 
 export interface ExternalOpsResult {
@@ -601,6 +807,28 @@ export interface ExternalOpsResult {
   validationErrors: string[]
   /** O `c` da R3. Zero quando não há tributo por fora. */
   externalOpsCoefficient: number
+  /**
+   * Cada tributo por fora, um a um. Ausente = INEXISTENTE ou não declarado — nunca um
+   * zero afirmado (`.claude/rules/ausente-vs-falso.md`).
+   *
+   * Existe para que a DECOMPOSIÇÃO leia a base que a CONSTRUÇÃO usou, em vez de
+   * redescobri-la por divisão. É a exigência da Parte 0: os dois lados leem a mesma coisa.
+   */
+  externalTaxes: {
+    ibs?: ResolvedExternalTax
+    cbs?: ResolvedExternalTax
+    is?: ResolvedExternalTax
+    ipi?: ResolvedExternalTax
+  }
+  /**
+   * ICMS como fração do TOTAL GERAL, DEPOIS da R9.
+   *
+   * Igual a `icmsPct` quando o IPI integra a base (o padrão). Quando não integra, é
+   * `icmsPct × (1 − IPI/total geral)` — o ICMS incide sobre o total geral menos o IPI.
+   * Quem calcula preço deve usar ESTE valor, não o `icmsPct` de entrada: eles só
+   * coincidem no caso padrão, e confundi-los devolve o ICMS da linha errada da R9.
+   */
+  icmsPctOverTotalGeral: number
 }
 
 /** Par (alfa, beta) de `base_k = alfa_k + beta_k × c`, como fração do total geral. */
@@ -613,6 +841,8 @@ const ZERO_RESULT = (errors: string[]): ExternalOpsResult => ({
   isValid: false,
   validationErrors: errors,
   externalOpsCoefficient: 0,
+  icmsPctOverTotalGeral: 0,
+  externalTaxes: {},
 })
 
 /** Alíquota efetiva = rate × (1 − reductionFactor). Tributo ausente vale zero, não erro. */
@@ -664,10 +894,36 @@ export function resolveExternalOpsCoefficient(input: ExternalOpsInput): External
 
   if (errors.length > 0) return ZERO_RESULT(errors)
 
-  // --- Bases que não dependem de ninguém (códigos 1 a 3) ---
+  // --- R9: o IPI integra a base do ICMS? ---
+  //
+  // O `icmsPct` chega cadastrado sobre o TOTAL GERAL, e o total geral INCLUI o IPI —
+  // por isso o caso padrão (`true`) é simplesmente `i`, sem termo nenhum. Quando o IPI
+  // NÃO integra (contribuinte comprando para revenda ou industrialização), o ICMS passa
+  // a incidir sobre `total geral − IPI`:
+  //
+  //   ICMS/T = i × (1 − IPI/T)   e   IPI/T = a_IPI × (alfa_IPI + beta_IPI × c)
+  //
+  // que continua LINEAR em `c` — a R3 diz que não há referência circular nem iteração, e
+  // esta extensão preserva isso: o que muda é o par (alfa, beta) do ICMS, não o método.
   const base1: BaseTerms = { alfa: 1, beta: -1 }
-  const base2: BaseTerms = { alfa: (1 - s) - i, beta: -(1 - s) }
-  const base3: BaseTerms = { alfa: (1 - p) * ((1 - s) - i), beta: -(1 - p) * (1 - s) }
+  const aIPIParaIcms = effectiveRate(input.ipi)
+  const termsIPIParaIcms = input.ipi
+    ? (input.ipi.baseCode === 2
+        ? { alfa: (1 - s) - i, beta: -(1 - s) }
+        : input.ipi.baseCode === 3
+          ? { alfa: (1 - p) * ((1 - s) - i), beta: -(1 - p) * (1 - s) }
+          : base1)
+    : base1
+  const ipiForaDaBaseIcms = input.ipiIntegraBaseIcms === false && aIPIParaIcms > 0
+  // ICMS como fração do total geral: `icmsAlfa + icmsBeta × c`.
+  const icmsAlfa = ipiForaDaBaseIcms ? i * (1 - aIPIParaIcms * termsIPIParaIcms.alfa) : i
+  const icmsBeta = ipiForaDaBaseIcms ? -i * aIPIParaIcms * termsIPIParaIcms.beta : 0
+
+  // --- Bases que não dependem de ninguém (códigos 1 a 3) ---
+  // `base2/T = P/T − ICMS/T − ISS/T = (1−s)(1−c) − (icmsAlfa + icmsBeta·c)`.
+  // No caso padrão `icmsAlfa = i` e `icmsBeta = 0`, e os pares voltam a ser os da R3.
+  const base2: BaseTerms = { alfa: (1 - s) - icmsAlfa, beta: -(1 - s) - icmsBeta }
+  const base3: BaseTerms = { alfa: (1 - p) * base2.alfa, beta: (1 - p) * base2.beta }
 
   const termsFor = (code: BaseCode, base4: BaseTerms, base5: BaseTerms): BaseTerms => {
     switch (code) {
@@ -718,5 +974,28 @@ export function resolveExternalOpsCoefficient(input: ExternalOpsInput): External
     return ZERO_RESULT([`Coeficiente da operação por fora fora do intervalo [0, 1): ${c}`])
   }
 
-  return { isValid: true, validationErrors: [], externalOpsCoefficient: c }
+  // --- Passo 4: cada tributo por fora, com a base AVALIADA em `c` ---
+  // Não é conta nova: é o mesmo par (alfa, beta) do passo 3, agora resolvido. A soma dos
+  // `valuePctOfTotal` é exatamente `c` — invariante que o teste afirma.
+  const externalTaxes: ExternalOpsResult['externalTaxes'] = {}
+  for (const [nome, tax] of declarados) {
+    if (!tax) continue
+    const effectiveRateOf = effectiveRate(tax)
+    const t = termsFor(tax.baseCode, base4, base5)
+    const basePctOfTotal = t.alfa + t.beta * c
+    externalTaxes[nome] = {
+      effectiveRate: effectiveRateOf,
+      baseCode: tax.baseCode,
+      basePctOfTotal,
+      valuePctOfTotal: effectiveRateOf * basePctOfTotal,
+    }
+  }
+
+  return {
+    isValid: true,
+    validationErrors: [],
+    externalOpsCoefficient: c,
+    icmsPctOverTotalGeral: icmsAlfa + icmsBeta * c,
+    externalTaxes,
+  }
 }

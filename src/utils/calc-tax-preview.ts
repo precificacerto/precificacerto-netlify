@@ -1,9 +1,39 @@
 import { supabase } from '@/supabase/client'
 import { formatPercentWithDigits } from '@/utils/formatters'
 
+/**
+ * Os tributos POR DENTRO, DISCRIMINADOS (Parte 0 + R5).
+ *
+ * Os três já eram calculados aqui, um a um, e depois somados em `taxesPercent` — a soma
+ * apagava a distinção. Expor cada um é LER o que a construção usou, que é o que a Parte 0
+ * exige dos dois lados: "A construção lê a matriz. A decomposição lê A MESMA matriz."
+ *
+ * `undefined` significa INEXISTENTE naquele segmento, nunca zero. ICMS em serviço e ISS em
+ * industrialização/revenda não têm linha — não é alíquota nula, é tributo que não se aplica.
+ */
+export interface TaxPreviewBreakdown {
+  /** ICMS como decimal sobre o total geral. `undefined` = INEXISTENTE (serviço). */
+  icmsPct?: number
+  /** ISS como decimal sobre P. `undefined` = INEXISTENTE (industrialização/revenda). */
+  issPct?: number
+  /**
+   * PIS/COFINS como decimal, JÁ com a exclusão do ICMS/ISS aplicada — é a EFETIVADA em
+   * `c = 0`, que é o que este módulo sempre devolveu. A nominal é reconstituída por
+   * `pisCofinsNominalFromEffective` (`sale-context.ts`), onde a razão está escrita.
+   */
+  pisCofinsEffectivePct: number
+  /** IRPJ + CSLL + adicional, decimal (R6). Separado dos tributos da matriz. */
+  profitTaxPct: number
+}
+
 export interface TaxPreviewResult {
   /** Single effective tax rate as decimal 0-1 (e.g. 0.12 = 12%). */
   effectiveTaxPct: number
+  /**
+   * Presente só nos regimes cuja matriz está escrita — hoje, Lucro Real. Ausente significa
+   * que não há matriz para aquele regime, não que os tributos sejam zero.
+   */
+  breakdown?: TaxPreviewBreakdown
   /** Human-readable label: "Simples Nacional (Anexo III)", "Lucro Presumido", etc. */
   taxLabel: string
   isMei: boolean
@@ -286,6 +316,14 @@ export async function fetchTaxPreview(tenantId: string): Promise<TaxPreviewResul
 
     return {
       effectiveTaxPct,
+      // Matriz da Parte 0: no serviço o ICMS é INEXISTENTE; fora dele, o ISS é. `undefined`
+      // é a única forma de dizer "não existe" — `0` afirmaria que existe e está zerado.
+      breakdown: {
+        icmsPct: calcType === 'SERVICO' ? undefined : lrIcms,
+        issPct: calcType === 'SERVICO' ? lrIss : undefined,
+        pisCofinsEffectivePct: lrPisCofins,
+        profitTaxPct: round4(lrIrpj + lrCsll),
+      },
       taxLabel: 'Lucro Real',
       isMei: false,
       taxesPercent: round4((lrIcms + lrPisCofins + lrIss) * 100),
