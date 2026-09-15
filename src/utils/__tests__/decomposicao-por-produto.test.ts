@@ -239,6 +239,90 @@ describe('correção 7 — decomposição com coluna por produto', () => {
       })
       expect(r2.errors.join(' ')).toContain('soma das categorias do RRO')
       expect(r2.rows).toEqual([])
+      // E NENHUM lucro é declarado. Um DRE que não fechou não tem lucro a informar, e um
+      // objeto zerado aqui afirmaria "o lucro desta venda é zero" — que é outra coisa.
+      expect(r2.lucroDaVenda).toBeNull()
+    })
+  })
+
+  describe('8. LUCRO DA VENDA — o objetivo final (seção 6.2)', () => {
+    it('R$ 23.409,54, ou 6,79% da receita após desconto, contra os 8,00% cadastrados', () => {
+      // Os três números da planilha (G88 e a nota ao lado), e o par é o ponto: o lucro
+      // sozinho não diz nada; ele contra o cadastrado diz quanto o desconto consumiu.
+      const l = r.lucroDaVenda!
+      expect(l.valor).toBeCloseTo(23409.54, 1)
+      expect(l.pctApurado).toBeCloseTo(0.067880450592515, 10)
+      expect(l.pctCadastrado).toBeCloseTo(0.08, 12)
+      // A DIFERENÇA é contra o percentual sobre PRODUTOS, não contra o da receita após
+      // desconto — ver o caso "DUAS BASES" abaixo, que é o motivo.
+      expect(l.pctSobreProdutos).toBeCloseTo(0.0705173815770, 10)
+      expect(l.diferenca).toBeCloseTo(0.0705173815770 - 0.08, 10)
+      expect(l.diferenca).toBeLessThan(0)
+    })
+
+    it('DUAS BASES, e confundi-las atribui ao desconto o que é do repasse', () => {
+      // MINHA HIPÓTESE ERA QUE, SEM DESCONTO, O APURADO VOLTAVA AOS 8% — e este caso a
+      // derrubou: sobre a receita APÓS DESCONTO ele dá 7,7158%, porque essa receita inclui
+      // R$ 12.895,87 de repasse (itens manuais + acréscimos) que não geram lucro.
+      // `hipotese-derrubada-pela-propria-medicao.md`: a suposição e a medição que a desmente
+      // têm o mesmo autor, com minutos de intervalo.
+      const sem = buildDecomposition({ ...CENARIO, discountPct: 0 })
+      expect(sem.lucroDaVenda!.pctApurado).toBeCloseTo(0.0771580516698, 10)
+      expect(sem.lucroDaVenda!.pctApurado).not.toBeCloseTo(0.08, 3)
+
+      // Sobre a RECEITA DE PRODUTOS, sim: exatamente o cadastrado. É o teste 3 do checklist.
+      expect(sem.lucroDaVenda!.pctSobreProdutos).toBeCloseTo(0.08, 10)
+      expect(sem.lucroDaVenda!.diferenca).toBeCloseTo(0, 10)
+    })
+
+    it('a DIFERENÇA é só o desconto — o repasse não entra nela', () => {
+      // Com 5%, o apurado sobre a receita após desconto cai 1,2120 pontos abaixo do
+      // cadastrado; a diferença exibida é 0,9482, porque 0,2842 daquilo é repasse, não
+      // desconto. Atribuir a queda inteira ao desconto seria um número que a construção
+      // nunca produziu.
+      const l = r.lucroDaVenda!
+      expect(l.pctCadastrado - l.pctApurado!).toBeCloseTo(0.0121195494, 8)
+      expect(Math.abs(l.diferenca!)).toBeCloseTo(0.0094826184, 8)
+      expect(Math.abs(l.diferenca!)).toBeLessThan(l.pctCadastrado - l.pctApurado!)
+    })
+
+    it('quanto MAIOR o desconto, mais o lucro apurado se afasta do cadastrado', () => {
+      const d = [0, 0.05, 0.1, 0.2].map((x) => buildDecomposition({ ...CENARIO, discountPct: x }).lucroDaVenda!)
+      for (let i = 1; i < d.length; i++) {
+        expect(d[i].pctApurado!).toBeLessThan(d[i - 1].pctApurado!)
+        expect(d[i].pctSobreProdutos!).toBeLessThan(d[i - 1].pctSobreProdutos!)
+        expect(d[i].diferenca!).toBeLessThan(d[i - 1].diferenca!)
+      }
+      // E o cadastrado NÃO se move — é ele que serve de régua.
+      for (const x of d) expect(x.pctCadastrado).toBeCloseTo(0.08, 12)
+    })
+
+    it('o lucro POR PRODUTO vem junto — é o que diz em qual produto a margem foi', () => {
+      expect(r.lucroDaVenda!.perItem).toHaveLength(2)
+      expect(r.lucroDaVenda!.perItem![0]).toBeCloseTo(17621.31, 1)
+      expect(r.lucroDaVenda!.perItem![1]).toBeCloseTo(5788.23, 1)
+      // E a soma dos dois é o valor total — R16 vale aqui também.
+      expect(r.lucroDaVenda!.perItem!.reduce((a, b) => a + b, 0)).toBeCloseTo(r.lucroDaVenda!.valor, 8)
+    })
+
+    it('a ÚLTIMA LINHA DO DRE continua sendo o RESIDUAL (seção 6.4)', () => {
+      // O lucro da venda é destaque SEPARADO, como a linha 88 da planilha, que vem depois do
+      // DRE terminado na 86. Enfiá-lo no fim da tabela tiraria do residual o lugar que a 6.4
+      // lhe dá — e foi isso que a primeira versão desta correção fez, antes de ser desfeita.
+      expect(r.rows[r.rows.length - 1].key).toBe('residual')
+      expect(r.rows.some((x) => x.key === 'lucro_da_venda')).toBe(false)
+    })
+
+    it('sem linhas, `lucroDaVenda` é `null` — e `null` não é lucro zero', () => {
+      const vazio = buildDecomposition({ ...CENARIO, items: [] })
+      expect(vazio.lucroDaVenda).toBeNull()
+      // Os TRÊS caminhos de recusa, porque cada um tem o seu `return` — e um deles escapou
+      // da primeira versão deste caso, que só cobria dois.
+      expect(buildDecomposition({ ...CENARIO, discountPct: 1 }).lucroDaVenda).toBeNull()
+      expect(buildDecomposition({
+        ...CENARIO,
+        categories: { ...CENARIO.categories, comissaoPct: 0, lucroPct: 0, irpjPct: 0, csllPct: 0 },
+      }).lucroDaVenda).toBeNull()
     })
   })
 })

@@ -26,7 +26,7 @@
 
 import React from 'react'
 
-import { analiseVertical, type DecompositionResult, type DecompositionRow } from '@/utils/decomposition-dre'
+import { analiseVertical, type DecompositionResult, type DecompositionRow, type LucroDaVenda } from '@/utils/decomposition-dre'
 
 /** Formato brasileiro obrigatório (6.4): `R$ 1.234,56`. */
 function brl(v: number): string {
@@ -138,6 +138,53 @@ export function DecompositionTable({ decomposition, itemLabels, marginTop = 16 }
       </div>
 
       {alertaResidual(residualForaDeZero, residual.total)}
+      {lucroDaVenda(decomposition.lucroDaVenda)}
+    </div>
+  )
+}
+
+/**
+ * Seção 6.2 — O OBJETIVO FINAL.
+ *
+ * Os DOIS percentuais lado a lado, sempre. O lucro sozinho não diz nada; o par diz quanto do
+ * lucro cadastrado o desconto consumiu. Exibir só o apurado esconde exatamente o que a
+ * decomposição existe para mostrar — e exibir só o cadastrado seria pior, porque afirmaria um
+ * número que esta venda não realizou.
+ *
+ * Fora do DRE de propósito: a última linha da tabela é o RESIDUAL (6.4), e esta é a linha 88
+ * da planilha, separada do DRE que termina na 86.
+ */
+function lucroDaVenda(lucro: LucroDaVenda | null) {
+  if (!lucro) return null
+  const corroeu = lucro.diferenca != null && lucro.diferenca < 0
+  return (
+    <div style={{
+      marginTop: 12, padding: '12px 16px', borderRadius: 8,
+      background: 'rgba(59, 130, 246, 0.10)', border: '1px solid rgba(59, 130, 246, 0.28)',
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
+        <strong style={{ color: '#f1f5f9', fontSize: 14 }}>LUCRO DA VENDA</strong>
+        <strong style={{ color: '#60a5fa', fontSize: 20, fontVariantNumeric: 'tabular-nums' }}>{brl(lucro.valor)}</strong>
+      </div>
+      <div style={{ marginTop: 6, fontSize: 12, color: '#94a3b8', fontVariantNumeric: 'tabular-nums' }}>
+        <strong style={{ color: '#cbd5e1' }}>{pct(lucro.pctApurado)}</strong>
+        {' da receita após desconto'}
+      </div>
+      {/* Os DOIS percentuais comparáveis, lado a lado. A diferença exibida é contra o
+          percentual SOBRE PRODUTOS — a receita após desconto inclui repasse, que não gera
+          lucro, e comparar o cadastrado com ela atribuiria ao desconto uma perda que não é
+          dele. Medido: mesmo com desconto ZERO os dois divergem em 0,28 ponto. */}
+      <div style={{ marginTop: 4, fontSize: 12, color: '#94a3b8', fontVariantNumeric: 'tabular-nums' }}>
+        <strong style={{ color: corroeu ? '#fbbf24' : '#cbd5e1' }}>{pct(lucro.pctSobreProdutos)}</strong>
+        {' da receita de produtos, contra '}
+        <strong style={{ color: '#cbd5e1' }}>{pct(lucro.pctCadastrado)}</strong>
+        {' cadastrados'}
+        {corroeu && (
+          <span style={{ color: '#fbbf24' }}>
+            {' — o desconto consumiu '}{pct(Math.abs(lucro.diferenca!))}{' de margem'}
+          </span>
+        )}
+      </div>
     </div>
   )
 }

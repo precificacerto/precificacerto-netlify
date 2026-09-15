@@ -113,18 +113,47 @@ corrosão da margem.
 
 ### A linha final: LUCRO DA VENDA
 
-O DRE termina com o **lucro da venda em R$ e como percentual da receita após desconto, contra
-o percentual cadastrado**. No cenário de referência: R$ 23.409,54, ou 6,79% contra os 8,00%
-cadastrados.
+O DRE termina com o **lucro da venda em R$ e como percentual, contra o percentual
+cadastrado**. No cenário de referência: R$ 23.409,54, ou 6,79% da receita após desconto,
+contra os 8,00% cadastrados.
 
 Os dois números juntos são o ponto da decomposição inteira. O lucro sozinho não diz nada; o
 par diz **quanto do lucro cadastrado o desconto consumiu**, e a coluna por produto diz **em
 qual produto**.
 
-> **ESTADO: a linha ainda NÃO existe no código.** `buildDecomposition`
-> (`src/utils/decomposition-dre.ts`) termina no RESIDUAL. Está registrado como pendência
-> nomeada, e não como se estivesse feito — `ausente-vs-falso.md` vale para o estado de uma
-> regra tanto quanto para o de um dado.
+**Ela NÃO é uma linha do DRE.** A última linha da tabela é o RESIDUAL, e isso é requisito
+desta mesma página. O lucro da venda é destaque SEPARADO, abaixo — na planilha é a linha 88,
+depois do DRE que termina na 86. Enfiá-lo no fim da tabela tiraria do residual o lugar que a
+regra lhe dá.
+
+### SÃO DUAS BASES, e confundi-las atribui ao desconto o que é do repasse
+
+A medição, feita ao implementar a linha e registrada porque desmentiu quem a formulou:
+
+| Desconto | Sobre a receita APÓS DESCONTO | Sobre a RECEITA DE PRODUTOS | Cadastrado |
+|---|---|---|---|
+| 0% | **7,7158%** | **8,0000%** | 8,00% |
+| 5% | **6,7880%** | **7,0517%** | 8,00% |
+
+**Mesmo com desconto ZERO, o percentual sobre a receita após desconto fica abaixo do
+cadastrado.** A receita após desconto inclui itens manuais e acréscimos — R$ 12.895,87 no
+cenário — que são REPASSE e não geram lucro. Os 0,2842 pontos de diferença ali não são
+desconto: são repasse.
+
+Consequência para a tela, e é ela que importa: **a diferença exibida como corrosão é contra o
+percentual sobre PRODUTOS**, nunca contra o da receita após desconto. Com 5% de desconto a
+queda total é de 1,2120 pontos, e só 0,9482 é do desconto. Atribuir a queda inteira a ele
+seria exibir um número que a construção nunca produziu — a mesma falha que
+`regime-e-segmento-determinam-a-construcao.md` cataloga, num lugar em que ela é visível.
+
+Os dois percentuais aparecem na tela, cada um com a sua base escrita ao lado. O da receita
+após desconto é o que a seção 6.2 publica; o sobre produtos é o comparável com o cadastrado.
+
+> A suposição de que "sem desconto o apurado volta aos 8%" era minha, e caiu no primeiro caso
+> de teste escrito para confirmá-la. É a forma de
+> `hipotese-derrubada-pela-propria-medicao.md`: a hipótese e a medição que a desmente têm o
+> mesmo autor, com minutos de intervalo, e a hipótese chegou como justificativa de um passo,
+> não como conjectura a testar.
 
 ---
 

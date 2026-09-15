@@ -103,8 +103,48 @@ export interface DecompositionRow {
   total: number
 }
 
+/**
+ * A linha final do DRE (relatório, seção 6.2). Os DOIS números juntos são o ponto da
+ * decomposição inteira: o lucro sozinho não diz nada; o par diz QUANTO do lucro cadastrado o
+ * desconto consumiu — e a coluna por produto diz EM QUAL produto.
+ */
+export interface LucroDaVenda {
+  /** Por produto — é o que diz EM QUAL produto o desconto corroeu. */
+  perItem?: number[]
+  /** O lucro apurado, em R$. É a soma da linha `lucro`. */
+  valor: number
+  /**
+   * O lucro apurado como fração da RECEITA APÓS DESCONTO. É o número que a seção 6.2
+   * publica (6,79% no cenário de referência).
+   *
+   * >>> NÃO É COMPARÁVEL DIRETAMENTE COM O CADASTRADO <<<
+   * A receita após desconto inclui itens manuais e acréscimos, que são REPASSE e não geram
+   * lucro. Mesmo com desconto ZERO este percentual fica abaixo do cadastrado — medido:
+   * 7,7158% contra 8,00%, e os 0,2842 pontos são os R$ 12.895,87 de repasse, não desconto.
+   * Para comparar com o cadastrado, use `pctSobreProdutos`.
+   */
+  pctApurado: number | null
+  /**
+   * O lucro apurado como fração da RECEITA DE PRODUTOS. É ESTE que é comparável com o
+   * cadastrado: com desconto zero ele devolve exatamente o % cadastrado, e é o teste 3 do
+   * checklist ("a decomposição com desconto zero devolve os % Originais").
+   */
+  pctSobreProdutos: number | null
+  /** O % de lucro CADASTRADO, tal como veio das categorias. */
+  pctCadastrado: number
+  /**
+   * `pctSobreProdutos − pctCadastrado` — a corrosão que o DESCONTO causou, e só ela.
+   *
+   * Contra `pctApurado` a diferença misturaria desconto e repasse, e a tela atribuiria ao
+   * desconto uma perda que não é dele. `null` quando não é calculável.
+   */
+  diferenca: number | null
+}
+
 export interface DecompositionResult {
   rows: DecompositionRow[]
+  /** Seção 6.2 — o objetivo final. Ausente só quando não há linhas. */
+  lucroDaVenda: LucroDaVenda | null
   /** R20 — o residual, no total e por item. Deve ser zero. */
   residual: { perItem: number[]; total: number }
   /** A receita após desconto, base da análise vertical (seção 6.4). */
@@ -136,10 +176,10 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
   const { items, categories: cat } = input
   const errors: string[] = []
 
-  if (items.length === 0) return { rows: [], residual: { perItem: [], total: 0 }, receitaAposDesconto: 0, errors }
+  if (items.length === 0) return { rows: [], lucroDaVenda: null, residual: { perItem: [], total: 0 }, receitaAposDesconto: 0, errors }
   if (!(input.discountPct >= 0 && input.discountPct < 1)) {
     errors.push(`desconto fora de [0, 1): ${input.discountPct}`)
-    return { rows: [], residual: { perItem: [], total: 0 }, receitaAposDesconto: 0, errors }
+    return { rows: [], lucroDaVenda: null, residual: { perItem: [], total: 0 }, receitaAposDesconto: 0, errors }
   }
 
   const receitaBrutaPorItem = items.map((i) => i.totalProduto + i.acrescimos)
@@ -187,7 +227,7 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
   const somaRRO = cat.comissaoPct + cat.lucroPct + cat.irpjPct + cat.csllPct
   if (somaRRO <= 0) {
     errors.push('soma das categorias do RRO <= 0: não há como distribuir o resultado residual.')
-    return { rows: [], residual: { perItem: [], total: 0 }, receitaAposDesconto, errors }
+    return { rows: [], lucroDaVenda: null, residual: { perItem: [], total: 0 }, receitaAposDesconto, errors }
   }
   const peso = (pct: number) => pct / somaRRO
   const comissaoPorItem = rroPorItem.map((r) => r * peso(cat.comissaoPct))
@@ -264,11 +304,33 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
     // é essa relação que a R20 preserva e que a engenharia reversa confere.
     linha('irpj', 'IRPJ', irpjPorItem, { base: soma(lucroPorItem), pct: cat.lucroPct > 0 ? cat.irpjPct / cat.lucroPct : null }),
     linha('csll', 'CSLL', csllPorItem, { base: soma(lucroPorItem), pct: cat.lucroPct > 0 ? cat.csllPct / cat.lucroPct : null }),
+    // A ÚLTIMA LINHA DO DRE É O RESIDUAL, e isso é requisito da seção 6.4. O LUCRO DA VENDA
+    // NÃO entra aqui: na planilha ele é a linha 88, separado do DRE que termina na 86, e
+    // enfiá-lo no fim da tabela tiraria do residual o lugar que a regra lhe dá. Ele sai em
+    // `lucroDaVenda`, e a tela o exibe como destaque abaixo.
     linha('residual', '► RESIDUAL (deve ser zero)', residualPorItem, { subtotal: true }),
   ]
 
+  // Seção 6.2 — LUCRO DA VENDA. O apurado é sobre a receita APÓS desconto, e o cadastrado é
+  // o `% Lucro` que entrou na construção. Exibir só o primeiro esconde exatamente o que a
+  // decomposição existe para mostrar.
+  const lucroApurado = soma(lucroPorItem)
+  const pctApurado = receitaAposDesconto !== 0 ? lucroApurado / receitaAposDesconto : null
+  const pctSobreProdutos = receitaProdutosTotal !== 0 ? lucroApurado / receitaProdutosTotal : null
+  const lucroDaVenda: LucroDaVenda = {
+    valor: lucroApurado,
+    perItem: lucroPorItem,
+    pctApurado,
+    pctSobreProdutos,
+    pctCadastrado: cat.lucroPct,
+    // Contra o percentual SOBRE PRODUTOS, não contra o da receita após desconto: só assim a
+    // diferença é o desconto. Ver o comentário de `pctApurado`.
+    diferenca: pctSobreProdutos != null ? pctSobreProdutos - cat.lucroPct : null,
+  }
+
   return {
     rows,
+    lucroDaVenda,
     residual: { perItem: residualPorItem, total: soma(residualPorItem) },
     receitaAposDesconto,
     errors,
