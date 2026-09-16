@@ -349,7 +349,7 @@ describe('7. A VIEW leva as colunas até a tela — por EFEITO, não por leitura
   })
 
   it('e a soma das colunas continua sendo o valor da linha', () => {
-    for (const label of ['(−) Custos — congelado', '(−) Despesas operacionais', '(−) ICMS', '► RRO — RESULTADO RESIDUAL OPERACIONAL']) {
+    for (const label of ['(−) Custos — congelado', '(−) Despesas operacionais — congelado', '(−) ICMS', '► RRO — RESULTADO RESIDUAL OPERACIONAL']) {
       const l = linhaView(label)
       expect(l.valor).toBeCloseTo(l.perItem.reduce((a, b) => a + b, 0), 2)
     }
@@ -568,5 +568,132 @@ describe('10. A JUNTA — a tela decompõe o array ENRIQUECIDO, não a linha cru
     // Com `budgetItems` na lista de dependências, o custo resolvido depois da carga do
     // contexto do tenant não chegaria à tabela.
     expect(orc).toContain('}, [enrichedItems, allocatedByKey, products, globalDiscountPercent')
+  })
+})
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────────────────
+ * 11. COM DESCONTO — R18: OS QUATRO CONGELADOS NÃO SE MOVEM
+ * ─────────────────────────────────────────────────────────────────────────────────────────
+ *
+ * "decomposicao-igual-a-construcao.test.ts roda SEM desconto. Com desconto zero, congelar e
+ *  recalcular dão o mesmo número — o caso não discrimina."
+ *
+ * Está certo, e a razão é aritmética: com `discountPct = 0`, `receitaProdutosPorItem[k]` É
+ * `items[k].totalProduto`, então `r × pct` e `totalProduto × pct` são o MESMO número. Os dez
+ * blocos acima rodam todos em desconto zero — nenhum deles podia distinguir os dois estados.
+ * É a variante 2 de `.claude/rules/teste-que-nao-exercita.md`, e ela passou despercebida
+ * porque o caso parecia completo: ele confere sete linhas ao centavo.
+ *
+ * O DEFEITO QUE ELE DEIXAVA PASSAR, medido no ORC-5487 com 5% de desconto:
+ *
+ *     despesas recalculadas  34.919,79 × 22,92% = R$ 8.003,62
+ *     despesas congeladas    36.757,67 × 22,92% = R$ 8.424,86    diferença R$ 421,24
+ *     RRO                    5.547,92  contra   5.126,68
+ *
+ * >>> E A ASSIMETRIA É O PONTO, NÃO UM DETALHE <<<
+ * IBS, CBS, IS, IPI, ICMS, ISS, PIS/COFINS e a Comissão RT RECALCULAM — tributo acompanha a
+ * receita. Custo, despesa, acréscimos e itens manuais NÃO — eles já aconteceram. Um caso que
+ * só afirmasse "nada encolhe" passaria num módulo que congelasse o imposto junto, e aí a
+ * decomposição estaria errada do outro lado.
+ */
+describe('11. R18 COM DESCONTO — o que congela, o que recalcula, e a medida exata', () => {
+  /** Documento COMPLETO: produto com acréscimo, segundo produto, e um item manual. */
+  const COMPLETO: BudgetDecompositionItem[] = [
+    item({ acrescimos: 1200 }),
+    item({
+      key: 'b', label: 'Metade', unitPrice: PRODUTO_NO_BANCO.sale_price / 2,
+      costUnit: MATERIAL / 2, productiveLaborUnit: MO_PRODUTIVA / 2, acrescimos: 400,
+    }),
+    { key: 'm', label: 'Manual', isManual: true, quantity: 1, unitPrice: 2500 },
+  ]
+
+  const sem = montar(COMPLETO, 0)
+  const com = montar(COMPLETO, 0.05)
+
+  const CONGELADAS = ['custos', 'despesas', 'acrescimos', 'repasse_manuais'] as const
+  const RECALCULAM = ['por_fora_ibs', 'por_fora_cbs', 'icms', 'pis_cofins', 'rt'] as const
+
+  /**
+   * O MESMO documento com RT de 1%.
+   *
+   * Ele vive à parte de propósito: o preço do ATeste1509 foi formado SEM RT, então acrescentar
+   * 1% aqui faz o RRO deixar de fechar com o reservado — o RT come uma fatia que a construção
+   * não guardou. O caso do RT não precisa que o RRO feche; os outros precisam. Misturar os
+   * dois faria o caso do percentual cadastrado exibir 4,7127% e parecer defeito.
+   */
+  const comRt = (d: number) => montar(COMPLETO.map((i) => (i.isManual ? i : { ...i, rtPct: 1 })), d)
+
+  it('as QUATRO linhas congeladas saem IDÊNTICAS com 0%, 5% e 30% de desconto', () => {
+    const trinta = montar(COMPLETO, 0.3)
+    for (const k of CONGELADAS) {
+      expect(linha(com, k).total).toBeCloseTo(linha(sem, k).total, 8)
+      expect(linha(trinta, k).total).toBeCloseTo(linha(sem, k).total, 8)
+    }
+    // A despesa é a que estava quebrada, e este é o discriminante: recalculada sobre a
+    // receita pós-desconto ela sairia exatamente 5% menor, e NÃO sai.
+    expect(linha(com, 'despesas').total).not.toBeCloseTo(linha(sem, 'despesas').total * 0.95, 2)
+  })
+
+  it('e POR PRODUTO também — a coluna de cada um fica parada', () => {
+    for (const k of CONGELADAS) {
+      linha(sem, k).perItem.forEach((v, i) => expect(linha(com, k).perItem[i]).toBeCloseTo(v, 8))
+    }
+    // Com acréscimo nos dois produtos, a coluna de acréscimos tem valor DIFERENTE de zero em
+    // cada uma — sem isso o caso não distinguiria "congelou" de "está vazia".
+    expect(Math.abs(linha(com, 'acrescimos').perItem[0])).toBeCloseTo(1200, 6)
+    expect(Math.abs(linha(com, 'acrescimos').perItem[1])).toBeCloseTo(400, 6)
+  })
+
+  it('as linhas de TRIBUTO e a Comissão RT recalculam — e é o que deve acontecer', () => {
+    // O contraste que impede o caso acima de passar num módulo em que NADA encolhe.
+    for (const k of RECALCULAM) {
+      if (k === 'rt') continue
+      expect(Math.abs(linha(com, k).total)).toBeLessThan(Math.abs(linha(sem, k).total))
+    }
+    // A Comissão RT, no documento com RT — ver `comRt`.
+    expect(Math.abs(linha(comRt(0.05), 'rt').total))
+      .toBeLessThan(Math.abs(linha(comRt(0), 'rt').total))
+    // E ela encolhe MAIS que os 5% nominais, como as de tributo — R14: itens manuais e
+    // acréscimos saem inteiros, então o desconto recai todo sobre os produtos, e a base
+    // destas linhas é a receita de PRODUTOS.
+    expect(Math.abs(linha(comRt(0.05), 'rt').total))
+      .toBeLessThan(Math.abs(linha(comRt(0), 'rt').total) * 0.95)
+  })
+
+  it('o RRO encolhe EXATAMENTE na medida das linhas que recalculam', () => {
+    // RRO = receita líquida + custos + despesas + RT. Com custos e despesas parados, a queda
+    // do RRO é a queda da receita líquida mais a da RT, ao centésimo de centavo. Se a despesa
+    // encolhesse junto, esta igualdade quebraria pela diferença dela.
+    const queda = linha(sem, 'rro').total - linha(com, 'rro').total
+    const quedaDasQueRecalculam =
+      (linha(sem, 'receita_liquida').total - linha(com, 'receita_liquida').total) +
+      (linha(sem, 'rt').total - linha(com, 'rt').total)
+    expect(queda).toBeCloseTo(quedaDasQueRecalculam, 8)
+    expect(queda).toBeGreaterThan(0)
+  })
+
+  it('com desconto ZERO, comissão volta a 5,00% e lucro a 10,00% do total', () => {
+    expect(linha(sem, 'comissao').pctSobreTotalGeral! * 100).toBeCloseTo(5, 4)
+    expect(linha(sem, 'lucro').pctSobreTotalGeral! * 100).toBeCloseTo(10, 4)
+    expect(sem.rro!.foraDeZero).toBe(false)
+    // E COM desconto os dois caem — é a corrosão, e ela DEVE aparecer.
+    expect(linha(com, 'comissao').pctSobreTotalGeral! * 100).toBeLessThan(5)
+    expect(linha(com, 'lucro').pctSobreTotalGeral! * 100).toBeLessThan(10)
+  })
+
+  it('APRESENTAÇÃO: linha congelada não tem base nem percentual', () => {
+    // Base e percentual numa linha congelada afirmam um cálculo que não existe — e o número
+    // que ele produziria é justamente o errado. `.claude/rules/ausente-vs-falso.md`.
+    for (const k of CONGELADAS) {
+      expect(linha(com, k).base).toBeNull()
+      expect(linha(com, k).pct).toBeNull()
+    }
+    // E o contraste: quem recalcula CONTINUA exibindo a base e a alíquota, que é o que se
+    // confere contra o cadastro do produto.
+    for (const k of RECALCULAM) {
+      expect(linha(com, k).base).not.toBeNull()
+      expect(linha(com, k).pct).not.toBeNull()
+    }
   })
 })

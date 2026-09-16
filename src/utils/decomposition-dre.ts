@@ -333,8 +333,38 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
   // As categorias DESTE item: as próprias quando ele as tem, as do documento quando não.
   const catDe = (k: number): DecompositionCategories => items[k].categories ?? cat
 
+  // ───────────────────────────────────────────────────────────────────────────────────────
+  // R18 — OS QUATRO CONGELADOS, E A UNIDADE EM QUE O PARÂMETRO CHEGA NÃO DECIDE NADA
+  //
+  // "Custos, despesas, acréscimos e itens manuais são valores em R$ herdados da construção e
+  //  NÃO ENCOLHEM com o desconto." É exatamente isso que revela a corrosão da margem.
+  //
+  // >>> O DEFEITO QUE ESTA SEÇÃO EXISTE PARA IMPEDIR <<<
+  // Três dos quatro chegam em R$ — `i.custo`, `i.acrescimos`, `itensManuaisComAcrescimos` — e
+  // congelaram por acidente: não havia como recalculá-los. A DESPESA chega em PERCENTUAL, e
+  // foi recalculada junto com as linhas de imposto, que são as vizinhas na escrita. Medido no
+  // ORC-5487, 5% de desconto:
+  //
+  //     recalculada   34.919,79 × 22,92% = R$ 8.003,62
+  //     congelada     36.757,67 × 22,92% = R$ 8.424,86     diferença R$ 421,24
+  //
+  // Formulação do dono do produto, registrada como está: "Não é decisão errada, é AUSÊNCIA DE
+  // DECISÃO — ninguém marcou 'esta é percentual mas não recalcula'."
+  //
+  // >>> A DISTINÇÃO É ECONÔMICA, NÃO DE IMPLEMENTAÇÃO <<<
+  // Tributo acompanha a receita — faturou menos, paga menos —, e por isso IBS, CBS, IS, IPI,
+  // ICMS, ISS, PIS/COFINS e a Comissão RT recalculam MESMO, sobre a receita pós-desconto.
+  // Custo e despesa não acompanham: eles já aconteceram. É essa assimetria que faz o desconto
+  // doer, e se a despesa encolhesse junto a tela esconderia o estrago.
+  //
+  // A base congelada é a receita de produtos SEM DESCONTO, que é o `totalProduto` de cada
+  // item: com `discountPct = 0`, `receitaProdutosPorItem[k]` É `items[k].totalProduto`, e é
+  // por isso que os dois caminhos coincidem ali — e por isso um teste sem desconto NÃO
+  // DISTINGUE congelar de recalcular (`.claude/rules/teste-que-nao-exercita.md`, variante 2).
+  // ───────────────────────────────────────────────────────────────────────────────────────
   const custoPorItem = items.map((i) => -i.custo)
-  const despesasPorItem = receitaProdutosPorItem.map((r, k) => -r * catDe(k).despesasOperacionaisPct)
+  const despesasPorItem = items.map((i, k) => -i.totalProduto * catDe(k).despesasOperacionaisPct)
+  // A RT recalcula: é comissão sobre o que foi faturado. Ver o parágrafo acima.
   const rtPorItem = receitaProdutosPorItem.map((r, k) => -r * catDe(k).rtPct)
   const rroPorItem = items.map(
     (_, k) => receitaLiquidaPorItem[k] + custoPorItem[k] + despesasPorItem[k] + rtPorItem[k],
@@ -448,11 +478,10 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
     }),
     linha('receita_liquida', '► RECEITA LÍQUIDA', receitaLiquidaPorItem, { subtotal: true }),
     linha('custos', '(−) Custos — congelado', custoPorItem),
-    linha('despesas', '(−) Despesas operacionais', despesasPorItem, {
-      base: rp,
-      pct: pctDe(soma(despesasPorItem), rp),
-      derived: heterogeneo(items.map((_, k) => catDe(k).despesasOperacionaisPct)),
-    }),
+    // CONGELADA: sem base e sem percentual, como as outras três. Exibir `base × 22,92%` numa
+    // linha que não se calcula assim afirma um cálculo que não existe — e o número que ele
+    // produziria é o errado. O rótulo diz por quê, na própria tela.
+    linha('despesas', '(−) Despesas operacionais — congelado', despesasPorItem),
     linha('rt', '(−) Comissão RT', rtPorItem, {
       base: rp,
       pct: pctDe(soma(rtPorItem), rp),

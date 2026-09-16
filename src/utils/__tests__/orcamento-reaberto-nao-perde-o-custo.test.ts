@@ -134,9 +134,21 @@ describe('3. AS BASES, linha por linha — o que a regra manda', () => {
     expect(l('pis_cofins').base).not.toBeCloseTo(P, 1)
   })
 
-  it('Despesas e Comissão RT → RECEITA DE PRODUTOS', () => {
-    expect(l('despesas').base).toBeCloseTo(rp, 2)
+  it('Comissão RT → RECEITA DE PRODUTOS', () => {
     expect(l('rt').base).toBeCloseTo(rp, 2)
+  })
+
+  it('DESPESAS não tem base nem percentual — ela é CONGELADA (R18)', () => {
+    // MUDANÇA DE REQUISITO, registrada: a despesa tinha `base = receita de produtos` e
+    // `22,92%`, e por isso ENCOLHIA com o desconto junto com as linhas de imposto. Ela é um
+    // dos quatro congelados da R18 e não se calcula assim — exibir a base e o percentual
+    // afirma um cálculo que não existe, e o número que ele produz é o errado.
+    expect(l('despesas').base).toBeNull()
+    expect(l('despesas').pct).toBeNull()
+    // O contraste que impede a asserção de passar por acidente: as linhas que REALMENTE
+    // recalculam continuam com a base.
+    expect(l('rt').base).not.toBeNull()
+    expect(l('icms').base).not.toBeNull()
   })
 
   it('Comissão e Lucro → RRO', () => {

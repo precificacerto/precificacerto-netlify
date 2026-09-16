@@ -369,6 +369,33 @@ esta regra não dizia isto com todas as letras.
 R$ herdados da construção e **não encolhem com o desconto**. É exatamente isso
 que revela a corrosão da margem.
 
+**A UNIDADE EM QUE O PARÂMETRO CHEGA NÃO DECIDE NADA.** Custo, acréscimos e itens
+manuais chegam em R$ e congelaram por acidente — não havia como recalculá-los. A
+**despesa chega em PERCENTUAL**, e por isso foi recalculada junto com as linhas de
+imposto, que são as vizinhas na escrita. Formulação do dono do produto, registrada
+como está: *"Não é decisão errada, é AUSÊNCIA DE DECISÃO — ninguém marcou 'esta é
+percentual mas não recalcula'."* A base da despesa congelada é a **receita de
+produtos SEM desconto**, que é o total do produto.
+
+Medido no ORC-5487, 5% de desconto: recalculada `34.919,79 × 22,92% = R$ 8.003,62`;
+congelada `36.757,67 × 22,92% = R$ 8.424,86`. Diferença de R$ 421,24, que ia toda
+para o RRO e inflava comissão e lucro.
+
+**A assimetria é econômica, e vale nos dois sentidos.** IBS, CBS, IS, IPI, ICMS, ISS,
+PIS/COFINS e a **Comissão RT recalculam MESMO**: tributo acompanha a receita — faturou
+menos, paga menos. Custo e despesa não acompanham, porque já aconteceram. Congelar o
+tributo junto é o erro espelhado.
+
+**Linha congelada não tem base nem percentual.** Exibi-los afirma um cálculo que não
+existe, e o número que ele produziria é o errado — `ausente-vs-falso.md` na coluna.
+
+> **A planilha diverge nesta única linha.** A aba "Orçamento" recalcula a despesa
+> (`331.968,38 × 22,92% = 76.087,15`), e o congelamento dá `350.119,13 × 22,92% =
+> 80.247,31`. Não é falha dela: foi construída sob o nível anterior, antes de a
+> distinção existir (`decisao-sob-regra-da-epoca.md`). A decisão pelo congelamento é do
+> dono do produto, em **16/09/2026**. Todas as outras linhas da planilha seguem valendo
+> ao centavo.
+
 **R19 · Ordem do DRE.**
 
 ```

@@ -6,6 +6,32 @@
  *
  * TODO número esperado dos casos 1 a 4 vem da PLANILHA. Nenhum foi copiado da saída do
  * módulo — é o que separa "o teste confere a conta" de "o teste registra o que saiu".
+ *
+ * ─────────────────────────────────────────────────────────────────────────────────────────
+ * >>> A PLANILHA DIVERGE DA R18 NUMA LINHA, E A DECISÃO É DO DONO DO PRODUTO (16/09/2026) <<<
+ * ─────────────────────────────────────────────────────────────────────────────────────────
+ *
+ * A planilha RECALCULA a linha de DESPESAS OPERACIONAIS sobre a receita de produtos
+ * pós-desconto: 331.968,38 × 22,92% = R$ 76.087,15. A R18 diz que despesa é um dos QUATRO
+ * CONGELADOS e não encolhe com o desconto: 350.119,13 × 22,92% = R$ 80.247,31.
+ *
+ * O dono do produto decidiu pelo CONGELAMENTO, medindo o ORC-5487 e formulando a razão:
+ * "tributo acompanha a receita — faturou menos, paga menos —, custo e despesa não. É por
+ * isso que o desconto dói, e se a despesa encolhesse junto a tela esconderia o estrago."
+ *
+ * Isso NÃO é falha da planilha: ela foi construída sob o nível anterior, quando a distinção
+ * entre congelado-em-R$ e congelado-em-% ainda não tinha sido tomada
+ * (`.claude/rules/decisao-sob-regra-da-epoca.md`). O que muda é UMA célula e o que ela
+ * arrasta — RRO, as quatro do RRO, a análise vertical e o LUCRO DA VENDA.
+ *
+ * >>> DE ONDE VÊM OS NÚMEROS NOVOS, E POR QUE ELES NÃO SÃO A SAÍDA DO MÓDULO <<<
+ * Os INSUMOS continuam sendo os da planilha, célula por célula: `totalProduto`, `custo`,
+ * `acrescimos`, as alíquotas, o `c`, os percentuais de categoria e o manual. A cadeia foi
+ * recalculada FORA deste repositório, à parte do módulo, trocando só a fórmula da despesa —
+ * e foi essa cadeia independente que produziu cada número abaixo. As demais linhas do bloco
+ * 1 (receita bruta, desconto, repasse, receita de produtos, por fora, ICMS, PIS/COFINS,
+ * receita líquida, custos, RT) NÃO MUDARAM e seguem sendo as da planilha, ao centavo — é o
+ * contraste que prova que a alteração é de uma linha só.
  */
 
 import { analiseVertical, buildDecomposition, type DecompositionInput } from '@/utils/decomposition-dre'
@@ -98,25 +124,37 @@ describe('correção 7 — decomposição com coluna por produto', () => {
       expect(linha(r, 'receita_liquida').total).toBeCloseTo(236312.21, 1)
     })
 
-    it('custos, despesas e RT: −113.246,58 · −76.087,15 · −3.319,68', () => {
+    it('custos e RT seguem os da planilha: −113.246,58 e −3.319,68', () => {
       expect(linha(r, 'custos').total).toBeCloseTo(-113246.58, 1)
-      expect(linha(r, 'despesas').total).toBeCloseTo(-76087.15, 1)
       expect(linha(r, 'rt').total).toBeCloseTo(-3319.68, 1)
     })
 
-    it('RRO: 43.658,79, sendo 32.863,75 e 10.795,04', () => {
-      expect(linha(r, 'rro').perItem[0]).toBeCloseTo(32863.75, 1)
-      expect(linha(r, 'rro').perItem[1]).toBeCloseTo(10795.04, 1)
-      expect(linha(r, 'rro').total).toBeCloseTo(43658.79, 1)
+    it('DESPESAS: −80.247,31 CONGELADA, e não os −76.087,15 recalculados da planilha', () => {
+      // 350.119,13 (receita de produtos SEM desconto) × 22,92%. Ver o cabeçalho.
+      expect(linha(r, 'despesas').total).toBeCloseTo(-80247.31, 1)
+      expect(linha(r, 'despesas').perItem[0]).toBeCloseTo(-59903.74, 1)
+      expect(linha(r, 'despesas').perItem[1]).toBeCloseTo(-20343.56, 1)
+      // O discriminante, e ele é o número da própria planilha: recalculada sobre a receita
+      // pós-desconto ela daria R$ 4.160,16 a menos.
+      expect(linha(r, 'despesas').total).not.toBeCloseTo(-76087.15, 1)
+    })
+
+    it('RRO: 39.498,64, sendo 29.758,24 e 9.740,40', () => {
+      // Os 43.658,79 da planilha menos os R$ 4.160,16 da despesa que deixou de encolher.
+      expect(linha(r, 'rro').perItem[0]).toBeCloseTo(29758.24, 1)
+      expect(linha(r, 'rro').perItem[1]).toBeCloseTo(9740.40, 1)
+      expect(linha(r, 'rro').total).toBeCloseTo(39498.64, 1)
+      expect(linha(r, 'rro').total).not.toBeCloseTo(43658.79, 1)
     })
   })
 
   describe('2. DISTRIBUIÇÃO DO RRO — R20, planilha linhas 82 a 86', () => {
-    it('comissão 14.630,96 · lucro 23.409,54 · IRPJ 3.511,43 · CSLL 2.106,86', () => {
-      expect(linha(r, 'comissao').total).toBeCloseTo(14630.96, 1)
-      expect(linha(r, 'lucro').total).toBeCloseTo(23409.54, 1)
-      expect(linha(r, 'irpj').total).toBeCloseTo(3511.43, 1)
-      expect(linha(r, 'csll').total).toBeCloseTo(2106.86, 1)
+    it('comissão 13.236,81 · lucro 21.178,90 · IRPJ 3.176,83 · CSLL 1.906,10', () => {
+      // Os PESOS da R20 não mudaram — o que encolheu foi o RRO que eles repartem.
+      expect(linha(r, 'comissao').total).toBeCloseTo(13236.81, 1)
+      expect(linha(r, 'lucro').total).toBeCloseTo(21178.90, 1)
+      expect(linha(r, 'irpj').total).toBeCloseTo(3176.83, 1)
+      expect(linha(r, 'csll').total).toBeCloseTo(1906.10, 1)
     })
 
     it('teste 9 do checklist — IRPJ ÷ Lucro = 15%, com desconto e sem ele', () => {
@@ -207,7 +245,12 @@ describe('correção 7 — decomposição com coluna por produto', () => {
 
     it('teste 3 do checklist — com desconto ZERO a decomposição devolve os % Originais', () => {
       const semDesconto = buildDecomposition({ ...CENARIO, discountPct: 0 })
-      expect(linha(semDesconto, 'despesas').pct).toBeCloseTo(CENARIO.categories.despesasOperacionaisPct, 12)
+      // A despesa é CONGELADA e não exibe percentual — o valor dela sobre a receita de
+      // produtos é que tem de dar os 22,92% cadastrados, e dá.
+      const rpSemDesc = linha(semDesconto, 'receita_produtos').total
+      expect(Math.abs(linha(semDesconto, 'despesas').total) / rpSemDesc)
+        .toBeCloseTo(CENARIO.categories.despesasOperacionaisPct, 12)
+      expect(linha(semDesconto, 'despesas').pct).toBeNull()
       expect(linha(semDesconto, 'rt').pct).toBeCloseTo(0.01, 12)
       // E o lucro apurado volta ao cadastrado: lucro ÷ receita de produtos = 8%.
       const rpSem = linha(semDesconto, 'receita_produtos').total
@@ -216,9 +259,9 @@ describe('correção 7 — decomposição com coluna por produto', () => {
   })
 
   describe('6. ANÁLISE VERTICAL (seção 6.4)', () => {
-    it('é sobre a receita APÓS descontos, e o lucro dá 6,788%', () => {
+    it('é sobre a receita APÓS descontos, e o lucro dá 6,141%', () => {
       expect(r.receitaAposDesconto).toBeCloseTo(344864.26, 1)
-      expect(analiseVertical(linha(r, 'lucro').total, r.receitaAposDesconto)).toBeCloseTo(0.067880450592515, 10)
+      expect(analiseVertical(linha(r, 'lucro').total, r.receitaAposDesconto)).toBeCloseTo(0.061412269415712, 10)
     })
 
     it('base zero devolve `null`, nunca 0% — "não apurável" não é "zero por cento"', () => {
@@ -246,17 +289,17 @@ describe('correção 7 — decomposição com coluna por produto', () => {
   })
 
   describe('8. LUCRO DA VENDA — o objetivo final (seção 6.2)', () => {
-    it('R$ 23.409,54, ou 6,79% da receita após desconto, contra os 8,00% cadastrados', () => {
-      // Os três números da planilha (G88 e a nota ao lado), e o par é o ponto: o lucro
-      // sozinho não diz nada; ele contra o cadastrado diz quanto o desconto consumiu.
+    it('R$ 21.178,90, ou 6,14% da receita após desconto, contra os 8,00% cadastrados', () => {
+      // O par é o ponto: o lucro sozinho não diz nada; ele contra o cadastrado diz quanto o
+      // desconto consumiu — e consome MAIS agora, porque a despesa não encolhe junto.
       const l = r.lucroDaVenda!
-      expect(l.valor).toBeCloseTo(23409.54, 1)
-      expect(l.pctApurado).toBeCloseTo(0.067880450592515, 10)
+      expect(l.valor).toBeCloseTo(21178.90, 1)
+      expect(l.pctApurado).toBeCloseTo(0.061412269415712, 10)
       expect(l.pctCadastrado).toBeCloseTo(0.08, 12)
       // A DIFERENÇA é contra o percentual sobre PRODUTOS, não contra o da receita após
       // desconto — ver o caso "DUAS BASES" abaixo, que é o motivo.
-      expect(l.pctSobreProdutos).toBeCloseTo(0.0705173815770, 10)
-      expect(l.diferenca).toBeCloseTo(0.0705173815770 - 0.08, 10)
+      expect(l.pctSobreProdutos).toBeCloseTo(0.063797932955618, 10)
+      expect(l.diferenca).toBeCloseTo(0.063797932955618 - 0.08, 10)
       expect(l.diferenca).toBeLessThan(0)
     })
 
@@ -281,8 +324,8 @@ describe('correção 7 — decomposição com coluna por produto', () => {
       // desconto. Atribuir a queda inteira ao desconto seria um número que a construção
       // nunca produziu.
       const l = r.lucroDaVenda!
-      expect(l.pctCadastrado - l.pctApurado!).toBeCloseTo(0.0121195494, 8)
-      expect(Math.abs(l.diferenca!)).toBeCloseTo(0.0094826184, 8)
+      expect(l.pctCadastrado - l.pctApurado!).toBeCloseTo(0.0185877306, 8)
+      expect(Math.abs(l.diferenca!)).toBeCloseTo(0.0162020670, 8)
       expect(Math.abs(l.diferenca!)).toBeLessThan(l.pctCadastrado - l.pctApurado!)
     })
 
@@ -299,8 +342,8 @@ describe('correção 7 — decomposição com coluna por produto', () => {
 
     it('o lucro POR PRODUTO vem junto — é o que diz em qual produto a margem foi', () => {
       expect(r.lucroDaVenda!.perItem).toHaveLength(2)
-      expect(r.lucroDaVenda!.perItem![0]).toBeCloseTo(17621.31, 1)
-      expect(r.lucroDaVenda!.perItem![1]).toBeCloseTo(5788.23, 1)
+      expect(r.lucroDaVenda!.perItem![0]).toBeCloseTo(15956.16, 1)
+      expect(r.lucroDaVenda!.perItem![1]).toBeCloseTo(5222.74, 1)
       // E a soma dos dois é o valor total — R16 vale aqui também.
       expect(r.lucroDaVenda!.perItem!.reduce((a, b) => a + b, 0)).toBeCloseTo(r.lucroDaVenda!.valor, 8)
     })
