@@ -722,6 +722,24 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
 /**
  * Arredonda para CENTAVOS. O `Math.round` sobre centavos, e não `toFixed`, porque o segundo
  * devolve string e reintroduz o problema no próximo somatório.
+ *
+ * >>> O LIMITE DO MEIO-CENTAVO, e o que NÃO fazer com ele <<<
+ *
+ * `centavos(1.005)` devolve **1,00**, não 1,01: `1.005 × 100` é `100.49999999999999` em
+ * IEEE-754, e `Math.round` arredonda o que recebe. Não é defeito desta função — é a
+ * representação binária de decimais, e vale para qualquer código que multiplique por 100.
+ *
+ * **O invariante que importa não depende disto.** A soma das colunas e o total impresso
+ * passam pela MESMA função, então os dois lados erram junto e a igualdade que a NF-e valida
+ * continua valendo. O efeito é de meio centavo num valor isolado.
+ *
+ * **NÃO conserte com epsilon.** `Math.round(v * 100 + 0.0001) / 100`, `+ Number.EPSILON`, ou
+ * qualquer variante, troca um erro conhecido e limitado por um erro deslocado e não
+ * catalogado: ele acerta o 1,005 e passa a errar outro valor, que ninguém mediu. Decisão do
+ * dono do produto, 16/09/2026: **se isto virar problema real, o remédio é aritmética
+ * DECIMAL — trabalhar em centavos inteiros, ou uma biblioteca de decimal —, nunca gambiarra
+ * de arredondamento.** O caso que fixa o comportamento atual está em
+ * `a-soma-das-colunas-fecha-com-o-total.test.ts`.
  */
 export function centavos(v: number): number {
   return Math.round(v * 100) / 100
