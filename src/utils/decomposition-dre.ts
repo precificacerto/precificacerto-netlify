@@ -237,6 +237,22 @@ export interface DecompositionResult {
 
 const soma = (xs: number[]): number => xs.reduce((a, b) => a + b, 0)
 
+/**
+ * A tolerância do invariante do RRO: um centavo, OU um centésimo de milésimo do valor — o que
+ * for maior.
+ *
+ * O limiar absoluto de R$ 0,01 é estreito demais para documentos grandes. Medido no
+ * ATeste1509: o RRO apurado sai R$ 6.395,8447 contra R$ 6.395,8346 esperados — uma diferença
+ * de R$ 0,0101, que é ACÚMULO DE ARREDONDAMENTO das alíquotas em quatro casas, não defeito.
+ * Um alerta disparando ali seria `portao-que-nao-alcanca.md` pelo avesso: o aviso perde o
+ * sentido quando aparece em documento são, e quem o vê aprende a ignorá-lo.
+ *
+ * A proporção é conservadora de propósito: 0,001% de R$ 6.395 são seis centavos, e o defeito
+ * que este invariante existe para pegar — o CMV ausente do ATeste1509 — era de R$ 10.562,58,
+ * cinco ordens de grandeza acima.
+ */
+const toleranciaRro = (esperado: number): number => Math.max(0.01, Math.abs(esperado) * 0.00001)
+
 /** As linhas que são DETALHE de tributo — exibidas como sub-item (ver `isTaxDetail`). */
 const LINHAS_DE_TRIBUTO = new Set([
   'por_fora', 'por_fora_ibs', 'por_fora_cbs', 'por_fora_is', 'por_fora_ipi',
@@ -497,8 +513,8 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
       // Ver `RroInvariante.foraDeZero`: com desconto, só a SOBRA acusa; sem desconto, os
       // dois sentidos acusam.
       foraDeZero: input.discountPct > 0
-        ? rroDivergencia > 0.01
-        : Math.abs(rroDivergencia) > 0.01,
+        ? rroDivergencia > toleranciaRro(rroEsperado)
+        : Math.abs(rroDivergencia) > toleranciaRro(rroEsperado),
     },
     errors,
   }

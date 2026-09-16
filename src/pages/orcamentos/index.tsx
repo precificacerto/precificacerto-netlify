@@ -58,6 +58,7 @@ import { ResidualDistributionBlock } from '@/page-parts/shared/residual-distribu
 import { buildDecomposition } from '@/utils/decomposition-dre'
 import { buildBudgetDecompositionInput } from '@/utils/budget-decomposition-input'
 import { pisCofinsNominalFromEffective } from '@/utils/sale-context'
+import { pctToFraction, pisCofinsFractionFromItem } from '@/utils/rate-scale'
 import {
     allocateAccessories,
     buildDocumentAccessoriesPayload,
@@ -933,21 +934,26 @@ function Budgets() {
             const rates = item.item_tax_rates
             const ficha = resolveItemFicha({
                 segment: item.isService ? 'SERVICO' : 'INDUSTRIALIZACAO',
+                // MESMA travessia de escala da decomposição (`rate-scale.ts`). Aqui as
+                // alíquotas eram passadas CRUAS — `icms_pct = 17` chegava como 1700% —, e o
+                // rateio e a decomposição liam a mesma fonte em escalas diferentes. Duas
+                // leituras divergentes do mesmo campo é `copia-divergente.md`, e o campo em
+                // divergência era uma alíquota.
                 rates: {
-                    icmsPct: item.isService ? null : (rates?.icms_pct ?? 0),
-                    issPct: item.isService ? (rates?.iss_pct ?? 0) : null,
+                    icmsPct: item.isService ? null : pctToFraction(rates?.icms_pct),
+                    issPct: item.isService ? pctToFraction(rates?.iss_pct) : null,
                     // O cadastro guarda o PIS/COFINS já com a exclusão do ICMS aplicada; o
                     // motor pede a nominal. A reconstituição é exata em `c = 0` — ver
                     // `pisCofinsNominalFromEffective`.
                     pisCofinsPct: pisCofinsNominalFromEffective(
-                        (rates?.pis_pct ?? 0) + (rates?.cofins_pct ?? 0),
-                        item.isService ? 0 : (rates?.icms_pct ?? 0),
-                        item.isService ? (rates?.iss_pct ?? 0) : 0,
+                        pisCofinsFractionFromItem(rates?.pis_pct, rates?.cofins_pct),
+                        item.isService ? 0 : pctToFraction(rates?.icms_pct),
+                        item.isService ? pctToFraction(rates?.iss_pct) : 0,
                     ),
-                    ipiPct: item.isService ? null : (rates?.ipi_pct ?? 0),
-                    isPct: item.isService ? null : (rates?.is_pct ?? 0),
-                    ibsPct: rates?.ibs_pct ?? 0,
-                    cbsPct: rates?.cbs_pct ?? 0,
+                    ipiPct: item.isService ? null : pctToFraction(rates?.ipi_pct),
+                    isPct: item.isService ? null : pctToFraction(rates?.is_pct),
+                    ibsPct: pctToFraction(rates?.ibs_pct),
+                    cbsPct: pctToFraction(rates?.cbs_pct),
                 },
             })
             const prod = item.product_id ? (products as any[]).find((p) => p.id === item.product_id) : null
@@ -1268,6 +1274,9 @@ function Budgets() {
                 quantity: Number(item.quantity) || 0,
                 unitPrice: Number(item.unit_price) || 0,
                 costUnit: Number(item.cost_total) || 0,
+                // A outra metade do CMV: `resolveProductCostAndLabor` separa material de MO
+                // produtiva, e só a soma é o "Custo produto" que a construção exibe.
+                productiveLaborUnit: Number(item.productive_labor_unit) || 0,
                 commissionPct: Number(item.commission_percent) || 0,
                 profitPct: Number(item.profit_percent) || 0,
                 rtPct: Number(item.rt_reserve_percent) || 0,

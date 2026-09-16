@@ -24,6 +24,12 @@ import {
 } from './decomposition-dre'
 import { resolveItemFicha } from './budget-accessories'
 import { pisCofinsNominalFromEffective } from './sale-context'
+import {
+  CSLL_RATE_ON_PROFIT,
+  IRPJ_RATE_ON_PROFIT,
+  pctToFraction,
+  pisCofinsFractionFromItem,
+} from './rate-scale'
 
 /** As alíquotas do item, como o documento as guarda (base 100 ou fração conforme o campo). */
 export interface BudgetItemRates {
@@ -45,8 +51,21 @@ export interface BudgetDecompositionItem {
   quantity: number
   /** Preço unitário GRAVADO — é o total geral do item por unidade. */
   unitPrice: number
-  /** Custo unitário congelado (R18). */
+  /**
+   * Custo unitário congelado (R18) — a parcela de MATERIAL.
+   *
+   * NÃO é o CMV inteiro: `resolveProductCostAndLabor` devolve
+   * `costTotal = CMV consolidado − MO produtiva`, e a MO vem em `productiveLaborUnit`. Somar
+   * só este campo deixa a MO de fora do custo e joga a diferença no RRO.
+   */
   costUnit?: number | null
+  /**
+   * MO produtiva por unidade — a outra metade do CMV.
+   *
+   * Medido no ATeste1509: material R$ 7.985,99 + MO R$ 2.576,58 = R$ 10.562,57, que é o
+   * "Custo produto" que a construção exibe. Sem ela, faltavam R$ 2.576,58 na decomposição.
+   */
+  productiveLaborUnit?: number | null
   /** Percentuais do item, base 100. */
   commissionPct?: number | null
   profitPct?: number | null
@@ -63,10 +82,13 @@ export interface BudgetDecompositionParams {
   discountPct: number
   /** Despesas operacionais do tenant, FRAÇÃO sobre o total geral. */
   despesasOperacionaisPct: number
-  /** Alíquota do IRPJ sobre o LUCRO, FRAÇÃO (R6). */
-  irpjAliquota: number
-  /** Alíquota da CSLL sobre o LUCRO, FRAÇÃO. */
-  csllAliquota: number
+  /**
+   * @deprecated As alíquotas legais saem de `rate-scale.ts`, não do tenant. Os campos
+   * permanecem aceitos para não quebrar os chamadores, e são IGNORADOS — ver o comentário em
+   * `categories.irpjPct`. Passá-los não muda resultado nenhum.
+   */
+  irpjAliquota?: number
+  csllAliquota?: number
 }
 
 export interface BudgetDecompositionResult {
@@ -82,8 +104,6 @@ const num = (v: unknown): number => {
   return Number.isFinite(n) ? n : 0
 }
 
-/** Base 100 → fração. */
-const frac = (v: unknown): number => num(v) / 100
 
 /**
  * Monta a entrada da decomposição a partir dos itens do orçamento.
@@ -105,12 +125,14 @@ export function buildBudgetDecompositionInput(
 
   const items: DecompositionItem[] = produtos.map((item) => {
     const r = item.rates ?? null
-    const icms = item.isService ? 0 : frac(r?.icms_pct)
-    const iss = item.isService ? frac(r?.iss_pct) : 0
+    // ICMS, ISS, IPI, IS, IBS e CBS vêm SEMPRE em percentual — escala conhecida, conversão
+    // pura. PIS e COFINS são os únicos ambíguos, e têm função própria. Ver `rate-scale.ts`.
+    const icms = item.isService ? 0 : pctToFraction(r?.icms_pct)
+    const iss = item.isService ? pctToFraction(r?.iss_pct) : 0
     // O cadastro guarda PIS/COFINS já com a exclusão do ICMS/ISS; a decomposição precisa da
     // NOMINAL, porque ela reaplica a exclusão sobre a base própria (R5, exceção 2).
     const pisCofinsNominal = pisCofinsNominalFromEffective(
-      frac(r?.pis_pct) + frac(r?.cofins_pct),
+      pisCofinsFractionFromItem(r?.pis_pct, r?.cofins_pct),
       icms,
       iss,
     )
@@ -121,29 +143,35 @@ export function buildBudgetDecompositionInput(
         icmsPct: item.isService ? null : icms,
         issPct: item.isService ? iss : null,
         pisCofinsPct: pisCofinsNominal,
-        ipiPct: item.isService ? null : frac(r?.ipi_pct),
-        isPct: item.isService ? null : frac(r?.is_pct),
-        ibsPct: frac(r?.ibs_pct),
-        cbsPct: frac(r?.cbs_pct),
+        ipiPct: item.isService ? null : pctToFraction(r?.ipi_pct),
+        isPct: item.isService ? null : pctToFraction(r?.is_pct),
+        ibsPct: pctToFraction(r?.ibs_pct),
+        cbsPct: pctToFraction(r?.cbs_pct),
       },
     })
 
-    const lucroPct = frac(item.profitPct)
+    const lucroPct = pctToFraction(item.profitPct)
     const categories: DecompositionCategories = {
       despesasOperacionaisPct: num(params.despesasOperacionaisPct),
-      rtPct: frac(item.rtPct),
-      comissaoPct: frac(item.commissionPct),
+      rtPct: pctToFraction(item.rtPct),
+      comissaoPct: pctToFraction(item.commissionPct),
       lucroPct,
-      // R6 — a base do IRPJ e da CSLL é o VALOR DO LUCRO: `% Original = alíquota × % Lucro`.
-      irpjPct: lucroPct * num(params.irpjAliquota),
-      csllPct: lucroPct * num(params.csllAliquota),
+      // R6 — a base do IRPJ e da CSLL é o VALOR DO LUCRO: `% Original = alíquota × % Lucro`,
+      // com o lucro DESTE item e a ALÍQUOTA LEGAL.
+      //
+      // NÃO usar `mrmConfig.irpj_pct`: ele já é `% Lucro do TENANT × 15%` (ver `tax-sync.ts`,
+      // `lrIrpj = profitPct * 0.15`). Multiplicá-lo pelo lucro do item aplica o lucro DUAS
+      // vezes — foi o que exibiu IRPJ de 1,80% onde a construção mostra 15,00%.
+      irpjPct: lucroPct * IRPJ_RATE_ON_PROFIT,
+      csllPct: lucroPct * CSLL_RATE_ON_PROFIT,
     }
 
     return {
       id: item.key,
       label: item.label,
       totalProduto: num(item.unitPrice) * num(item.quantity),
-      custo: num(item.costUnit) * num(item.quantity),
+      // O CMV INTEIRO: material + MO produtiva. Ver `costUnit` e `productiveLaborUnit`.
+      custo: (num(item.costUnit) + num(item.productiveLaborUnit)) * num(item.quantity),
       acrescimos: num(item.acrescimos),
       taxes: {
         icmsPct: icms,
