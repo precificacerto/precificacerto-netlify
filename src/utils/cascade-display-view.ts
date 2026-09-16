@@ -59,6 +59,18 @@ export interface CascadeViewRow {
   effectiveRatePct: number | null
   /** Tooltip: a fórmula da etapa, quando existe. */
   formula: string
+  /**
+   * O valor da linha POR PRODUTO, paralelo aos rótulos das colunas.
+   *
+   * R16 e teste 10 do checklist: cada linha congelada — custos, despesas, acréscimos, itens
+   * manuais — é o AGRUPAMENTO dos valores de cada produto, e a coluna Total é a SOMA das
+   * colunas, nunca um cálculo próprio. Exibir só o total esconde qual produto carregou o
+   * custo, que é a correção inteira da coluna por produto.
+   *
+   * Vazio nas etapas da CONSTRUÇÃO: o `cascade_trace` é consolidado e não tem abertura por
+   * item. Vazio é ausência de dado, e a tela exibe travessão — nunca R$ 0,00.
+   */
+  perItem: number[]
   /** Chave estável para o React. */
   key: string
 }
@@ -89,6 +101,7 @@ export function buildCascadeView(
         peso: step.peso ?? null,
         effectiveRatePct: step.effective_rate_pct ?? null,
         formula: step.formula ?? '',
+        perItem: [],
         key: `t-${step.step}-${step.source}-${out.length}`,
       })
       for (const child of step.children ?? []) {
@@ -105,6 +118,7 @@ export function buildCascadeView(
           peso: child.peso ?? null,
           effectiveRatePct: child.effective_rate_pct ?? null,
           formula: child.formula ?? '',
+          perItem: [],
           key: `t-${step.step}-c-${out.length}-${child.source}`,
         })
       }
@@ -133,6 +147,7 @@ export function buildCascadeView(
     peso: null as number | null,
     effectiveRatePct: null as number | null,
     formula: '',
+    perItem: row.perItem,
     key: `d-${row.key}-${i}`,
   }))
 
@@ -153,6 +168,7 @@ export function buildCascadeView(
       peso: null,
       effectiveRatePct: null,
       formula: 'Lucro apurado, e o percentual SOBRE PRODUTOS — o comparável com o cadastrado',
+      perItem: lv.perItem ?? [],
       key: 'd-lucro-da-venda',
     })
   }

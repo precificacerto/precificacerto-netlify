@@ -3520,6 +3520,7 @@ function Budgets() {
                             /* R19 — a cascata expande da etapa 12 em diante com as linhas da
                                decomposição: uma por dedução, e a MESMA que o PDF imprime. */
                             decomposition={decomposition?.result ?? null}
+                            itemLabels={decomposition?.labels ?? []}
                             dre={consolidatedDRE}
                             cascadeTrace={epicV5DisplayData.cascadeTrace}
                             pesoOpInterna={epicV5DisplayData.pesoOpInterna}

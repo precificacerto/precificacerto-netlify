@@ -311,7 +311,7 @@ export function applyTotalACobrarToStep11(
  * trace tem 6 da etapa 12 em diante, então qualquer número aqui seria inventado. Rótulo sem
  * número é melhor que número que mente.
  */
-function CascadeViewLine({ row }: { row: CascadeViewRow }) {
+function CascadeViewLine({ row, colunas }: { row: CascadeViewRow; colunas: number }) {
   const labelColor = row.isChild ? '#94a3b8' : row.isSubtotal ? '#c7d2fe' : '#cbd5e1'
   // Tipografia: rótulo principal em BOLD; tributo em fonte MENOR, como os sub-itens da
   // construção. É a hierarquia da R19 aparecendo na leitura.
@@ -343,6 +343,17 @@ function CascadeViewLine({ row }: { row: CascadeViewRow }) {
           ? `${(row.pct * 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}%${row.isDerivedAverage ? ' (% médio)' : ''}`
           : pesoText || '—'}
       </div>
+      {/* Uma coluna POR PRODUTO. A etapa da construção não tem abertura por item — o
+          `cascade_trace` é consolidado —, e ali sai TRAVESSÃO, nunca R$ 0,00: zero afirmaria
+          que aquele produto não tem custo (`.claude/rules/ausente-vs-falso.md`). */}
+      {Array.from({ length: colunas }, (_, k) => (
+        <div key={`c-${k}`} style={{
+          textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontSize,
+          color: row.perItem[k] != null && row.perItem[k] < 0 ? '#fca5a5' : labelColor, fontWeight,
+        }}>
+          {row.perItem[k] != null ? formatBRL(row.perItem[k]) : '—'}
+        </div>
+      ))}
       <div style={{
         textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontSize,
         color: row.valor < 0 ? '#fca5a5' : labelColor, fontWeight,
@@ -354,7 +365,7 @@ function CascadeViewLine({ row }: { row: CascadeViewRow }) {
 }
 
 /** Mesma linha, em bloco vertical — o grid de 5 colunas fica ilegível abaixo de 640px. */
-function CascadeViewMobileLine({ row }: { row: CascadeViewRow }) {
+function CascadeViewMobileLine({ row, itemLabels }: { row: CascadeViewRow; itemLabels: string[] }) {
   return (
     <div style={{
       marginLeft: row.isChild ? 12 : 0,
@@ -371,6 +382,11 @@ function CascadeViewMobileLine({ row }: { row: CascadeViewRow }) {
           {formatBRL(row.valor)}
         </span>
       </div>
+      {row.perItem.length > 0 && (
+        <div style={{ color: '#94a3b8', fontSize: 10, marginTop: 2 }}>
+          {row.perItem.map((v, k) => `${itemLabels[k] ?? `P${k + 1}`}: ${formatBRL(v)}`).join('  ·  ')}
+        </div>
+      )}
       <div style={{ color: '#64748b', fontSize: 10, marginTop: 2 }}>
         {row.base != null ? `base ${formatBRL(row.base)}` : ''}
         {row.pct != null
@@ -381,7 +397,7 @@ function CascadeViewMobileLine({ row }: { row: CascadeViewRow }) {
   )
 }
 
-function CascadeExpander({ trace: traceBruto, marginTop = 8, pdfMeta, decomposition }: { trace: CascadeStep[]; marginTop?: number; pdfMeta?: CascadePdfMeta; decomposition?: DecompositionResult | null }) {
+function CascadeExpander({ trace: traceBruto, marginTop = 8, pdfMeta, decomposition, itemLabels = [] }: { trace: CascadeStep[]; marginTop?: number; pdfMeta?: CascadePdfMeta; decomposition?: DecompositionResult | null; itemLabels?: string[] }) {
   const { isMobile } = useDevice()
 
   // R19 — a ordem das deduções: repasse, POR FORA, por dentro, custos/despesas/RT, RRO. O
@@ -394,6 +410,9 @@ function CascadeExpander({ trace: traceBruto, marginTop = 8, pdfMeta, decomposit
   // dedução: IBS, CBS, IS e IPI são QUATRO; ICMS, ISS e PIS/COFINS são TRÊS. Sem ela (pedido
   // e venda, que ainda não a montam), segue o trace inteiro, como sempre foi.
   const view = buildCascadeView(trace, decomposition)
+  // Só há coluna por produto quando a decomposição governa: o `cascade_trace` sozinho é
+  // consolidado, e inventar colunas para ele seria exibir rateio como se fosse apuração.
+  const colunas = decomposition && decomposition.rows.length > 0 ? itemLabels.length : 0
 
   if (view.length === 0) return null
 
@@ -429,7 +448,7 @@ function CascadeExpander({ trace: traceBruto, marginTop = 8, pdfMeta, decomposit
         /* DM2 mobile (≤639px): blocos verticais por etapa — grid de 5 colunas vira ilegível */
         <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
           {view.map((row) => (
-            <CascadeViewMobileLine key={`m-${row.key}`} row={row} />
+            <CascadeViewMobileLine key={`m-${row.key}`} row={row} itemLabels={itemLabels} />
           ))}
         </div>
       ) : (
@@ -437,7 +456,7 @@ function CascadeExpander({ trace: traceBruto, marginTop = 8, pdfMeta, decomposit
           style={{
             marginTop: 8,
             display: 'grid',
-            gridTemplateColumns: 'auto 1fr auto auto auto',
+            gridTemplateColumns: `auto 1fr auto auto ${'auto '.repeat(colunas)}auto`,
             gap: '4px 12px',
             fontSize: 11,
             color: '#94a3b8',
@@ -447,12 +466,17 @@ function CascadeExpander({ trace: traceBruto, marginTop = 8, pdfMeta, decomposit
           <div style={{ fontWeight: 700, color: '#c7d2fe' }}>Etapa</div>
           <div style={{ fontWeight: 700, color: '#c7d2fe', textAlign: 'right' }}>Base (R$)</div>
           <div style={{ fontWeight: 700, color: '#c7d2fe', textAlign: 'right' }}>Alíquota</div>
-          <div style={{ fontWeight: 700, color: '#c7d2fe', textAlign: 'right' }}>Valor (R$)</div>
+          {Array.from({ length: colunas }, (_, k) => (
+            <div key={`h-${k}`} style={{ fontWeight: 700, color: '#c7d2fe', textAlign: 'right', whiteSpace: 'nowrap' }}>
+              {itemLabels[k] ?? `Produto ${k + 1}`}
+            </div>
+          ))}
+          <div style={{ fontWeight: 700, color: '#c7d2fe', textAlign: 'right' }}>Total (R$)</div>
           {/* V10 (ADR-011): os children viram linhas próprias, indentadas — e da etapa 12 em
               diante as linhas são as da R19, uma por dedução. `buildCascadeView` decide. */}
           {view.map((row) => (
             <React.Fragment key={row.key}>
-              <CascadeViewLine row={row} />
+              <CascadeViewLine row={row} colunas={colunas} />
             </React.Fragment>
           ))}
         </div>
@@ -558,6 +582,8 @@ export interface ConsolidatedDREBlockProps {
    * diante por uma linha POR DEDUÇÃO. Ausente = a cascata segue inteira, como sempre foi.
    */
   decomposition?: DecompositionResult | null
+  /** Rótulo de cada coluna de produto, paralelo a `perItem`. */
+  itemLabels?: string[]
 }
 
 /**
@@ -565,7 +591,7 @@ export interface ConsolidatedDREBlockProps {
  * aceitos para retrocompatibilidade dos call sites, mas não têm efeito visual.
  */
 export function ConsolidatedDREBlock(props: ConsolidatedDREBlockProps) {
-  const { cascadeTrace = null, totalACobrarComDesconto = null, manualTotal, despAcessoriasTotal, marginTop = 8, pdfMeta, decomposition } = props
+  const { cascadeTrace = null, totalACobrarComDesconto = null, manualTotal, despAcessoriasTotal, marginTop = 8, pdfMeta, decomposition, itemLabels } = props
 
   // Display (19/06/2026): ajusta a linha "Venda Consolidada pós-desconto" (Etapa 11)
   // para refletir o Total a cobrar pós-desconto. Puramente visual — não altera o motor.
@@ -585,5 +611,5 @@ export function ConsolidatedDREBlock(props: ConsolidatedDREBlockProps) {
     return null
   }
 
-  return <CascadeExpander trace={cascadeTraceForDisplay} marginTop={marginTop} pdfMeta={pdfMeta} decomposition={decomposition} />
+  return <CascadeExpander trace={cascadeTraceForDisplay} marginTop={marginTop} pdfMeta={pdfMeta} decomposition={decomposition} itemLabels={itemLabels} />
 }

@@ -37,6 +37,7 @@ import { buildBudgetDecompositionInput, type BudgetDecompositionItem } from '@/u
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import { buildItemTaxRatesFromProduct } from '@/utils/item-tax-rates'
+import { buildCascadeView } from '@/utils/cascade-display-view'
 
 /** O produto como o BANCO o guarda — inclusive a escala mista que originou o defeito 1. */
 const PRODUTO_NO_BANCO = {
@@ -224,5 +225,166 @@ describe('5. A TELA entrega as DUAS metades do CMV, e a escala resolvida', () =>
     expect(orc).toContain('pctToFraction(rates?.icms_pct)')
     expect(orc).toContain('pisCofinsFractionFromItem(rates?.pis_pct, rates?.cofins_pct)')
     expect(orc).not.toContain('(rates?.pis_pct ?? 0) + (rates?.cofins_pct ?? 0)')
+  })
+})
+
+/**
+ * >>> DOIS PRODUTOS — e é aqui que o teste passa a discriminar <<<
+ *
+ * Com UM produto, "coluna Total = soma das colunas" é trivialmente verdadeiro: a soma de uma
+ * parcela é a parcela. O caso passava sem afirmar nada sobre agrupamento — variante 2 de
+ * `teste-que-nao-exercita.md`, e foi por isso que passou.
+ *
+ * Os dois produtos têm custos, despesas efetivas, alíquotas e margens DIFERENTES, e o segundo
+ * não tem tributo por fora nenhum: sem essa divergência, trocar a coluna de um pela do outro
+ * não mudaria número nenhum.
+ */
+const P2_NO_BANCO = {
+  name: 'Segundo',
+  sale_price: 6000,
+  icms_pct: 12,
+  pis_cofins_pct: 8.14,
+  ibs_pct: 0,
+  cbs_pct: 0,
+  is_pct: 0,
+  ipi_pct: 0,
+}
+
+const P2_MO = 200
+const P2_QTD = 2
+
+const item2Base = (costUnit: number): BudgetDecompositionItem => ({
+  key: 'b', label: 'Segundo', quantity: P2_QTD,
+  unitPrice: P2_NO_BANCO.sale_price,
+  costUnit,
+  productiveLaborUnit: P2_MO,
+  commissionPct: 3, profitPct: 15, rtPct: 0,
+  rates: buildItemTaxRatesFromProduct(P2_NO_BANCO) as never,
+  acrescimos: 0,
+})
+
+/**
+ * O MATERIAL do segundo produto, apurado por SUBTRAÇÃO — como o do ATeste1509.
+ *
+ * Inventar o custo faria a conta dele não fechar, e o invariante do RRO acusaria com razão:
+ * um preço que não foi formado com aqueles percentuais não tem por que decompor neles.
+ *
+ * A subtração é sobre o MATERIAL apenas: `item2Base(0)` já leva a MO produtiva, então o que
+ * sobra no RRO é exatamente o material que falta. Somar a MO de novo aqui a contaria duas
+ * vezes — foi o que a primeira versão fez, e o RRO saiu 3,33 pontos alto, justamente os
+ * R$ 400 da MO.
+ */
+const P2_MATERIAL = (() => {
+  const soComCustoZero = montar([item2Base(0)])
+  return soComCustoZero.rro!.divergencia / P2_QTD
+})()
+
+const item2 = (): BudgetDecompositionItem => item2Base(P2_MATERIAL)
+
+describe('6. AGRUPAMENTO POR PRODUTO — coluna por produto, Total = soma', () => {
+  const r = montar([item(), item2()])
+  const col = (k: string) => linha(r, k).perItem
+
+  it('a linha de CUSTOS tem uma coluna por produto, com o CMV de cada um', () => {
+    expect(col('custos')).toHaveLength(2)
+    // O numerador de cada produto na construção: material + MO, vezes a quantidade.
+    expect(Math.abs(col('custos')[0])).toBeCloseTo(MATERIAL + MO_PRODUTIVA, 1)
+    expect(Math.abs(col('custos')[1])).toBeCloseTo((P2_MATERIAL + P2_MO) * P2_QTD, 1)
+    // E o CMV do segundo é o que o preço dele embute: material + MO, os dois.
+    expect(Math.abs(col('custos')[1])).toBeCloseTo((P2_MATERIAL + P2_MO) * P2_QTD, 1)
+    expect(P2_MATERIAL).toBeGreaterThan(0)
+    // O DISCRIMINANTE: os dois custos DIVERGEM. Com custos iguais, trocar as colunas não
+    // mudaria nada e o caso não distinguiria agrupamento de rateio.
+    expect(Math.abs(col('custos')[0])).not.toBeCloseTo(Math.abs(col('custos')[1]), 0)
+  })
+
+  it('e a coluna Total é a SOMA das colunas — não um cálculo próprio', () => {
+    for (const k of ['custos', 'despesas', 'icms', 'pis_cofins', 'rro', 'comissao', 'lucro', 'receita_produtos']) {
+      expect(linha(r, k).total).toBeCloseTo(col(k).reduce((a, b) => a + b, 0), 2)
+    }
+  })
+
+  it('TODAS as linhas com coluna fecham — o teste 10 do checklist, linha a linha', () => {
+    const comColunas = r.rows.filter((row) => row.perItem.length > 0)
+    expect(comColunas.length).toBeGreaterThan(12)
+    comColunas.forEach((row) => {
+      expect(row.total).toBeCloseTo(row.perItem.reduce((a, b) => a + b, 0), 2)
+    })
+  })
+
+  it('o RRO total é a soma dos RRO por produto', () => {
+    expect(linha(r, 'rro').total).toBeCloseTo(col('rro')[0] + col('rro')[1], 2)
+    // E cada um bate com o reservado DAQUELE produto: 17,4% contra 21,6% de soma_RRO.
+    const rp = col('receita_produtos')
+    expect(col('rro')[0] / rp[0]).toBeCloseTo(0.174, 3)
+    expect(col('rro')[1] / rp[1]).toBeCloseTo(0.216, 3)
+  })
+
+  it('o invariante do RRO fecha com margens divergentes', () => {
+    expect(r.rro!.foraDeZero).toBe(false)
+  })
+
+  it('e o produto SEM tributo por fora tem coluna ZERO nas quatro linhas', () => {
+    // Zero aqui é APURADO: as alíquotas do segundo produto são 0%. É diferente do travessão
+    // das etapas da construção, que é ausência de abertura.
+    for (const k of ['por_fora_ibs', 'por_fora_cbs', 'por_fora_is', 'por_fora_ipi']) {
+      expect(col(k)[1]).toBeCloseTo(0, 6)
+    }
+    expect(Math.abs(col('por_fora_ibs')[0])).toBeGreaterThan(0)
+  })
+})
+
+describe('7. A VIEW leva as colunas até a tela — por EFEITO, não por leitura de arquivo', () => {
+  const r = montar([item(), item2()])
+  const view = buildCascadeView([], r)
+  const linhaView = (label: string) => view.find((x) => x.label === label)!
+
+  it('a linha de custos chega à view com as DUAS colunas', () => {
+    // A mutação L5 apagou `perItem` da view e os 28 casos seguiram verdes: todos afirmavam o
+    // módulo ou o texto do componente, e nenhum afirmava a travessia entre os dois.
+    expect(linhaView('(−) Custos — congelado').perItem).toHaveLength(2)
+    expect(Math.abs(linhaView('(−) Custos — congelado').perItem[0])).toBeCloseTo(MATERIAL + MO_PRODUTIVA, 1)
+    expect(Math.abs(linhaView('(−) Custos — congelado').perItem[1])).toBeCloseTo((P2_MATERIAL + P2_MO) * P2_QTD, 1)
+  })
+
+  it('e a soma das colunas continua sendo o valor da linha', () => {
+    for (const label of ['(−) Custos — congelado', '(−) Despesas operacionais', '(−) ICMS', '► RRO — RESULTADO RESIDUAL OPERACIONAL']) {
+      const l = linhaView(label)
+      expect(l.valor).toBeCloseTo(l.perItem.reduce((a, b) => a + b, 0), 2)
+    }
+  })
+
+  it('as linhas que só existem no total chegam SEM coluna', () => {
+    expect(linhaView('► RECEITA APÓS DESCONTO').perItem).toHaveLength(0)
+    expect(linhaView('(−) Desconto concedido').perItem).toHaveLength(0)
+  })
+})
+
+describe('8. A TELA exibe as colunas — e a etapa da construção fica com travessão', () => {
+  const bloco = readFileSync(
+    join(__dirname, '..', '..', 'page-parts', 'shared', 'consolidated-dre-block.component.tsx'),
+    'utf-8',
+  )
+
+  it('a grid tem uma coluna por produto, e o cabeçalho traz o rótulo', () => {
+    expect(bloco).toContain("gridTemplateColumns: `auto 1fr auto auto ${'auto '.repeat(colunas)}auto`")
+    expect(bloco).toContain('{itemLabels[k] ?? `Produto ${k + 1}`}')
+    expect(bloco).toContain('Total (R$)')
+  })
+
+  it('a etapa SEM abertura por item exibe travessão, nunca R$ 0,00', () => {
+    // Zero afirmaria que aquele produto não tem custo naquela etapa.
+    expect(bloco).toContain("{row.perItem[k] != null ? formatBRL(row.perItem[k]) : '—'}")
+  })
+
+  it('e não há coluna quando a decomposição não governa', () => {
+    // O `cascade_trace` sozinho é consolidado: inventar colunas para ele seria exibir rateio
+    // como se fosse apuração.
+    expect(bloco).toContain('const colunas = decomposition && decomposition.rows.length > 0 ? itemLabels.length : 0')
+  })
+
+  it('o orçamento passa os rótulos', () => {
+    const orc = readFileSync(join(__dirname, '..', '..', 'pages', 'orcamentos', 'index.tsx'), 'utf-8')
+    expect(orc).toContain('itemLabels={decomposition?.labels ?? []}')
   })
 })

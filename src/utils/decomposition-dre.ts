@@ -376,7 +376,19 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
     total: opts.total !== undefined ? opts.total : soma(perItem),
   })
 
-  const zeros = items.map(() => 0)
+  /**
+   * As linhas que só existem NO TOTAL — R16: "a coluna Total é SOMA das colunas de produto,
+   * salvo nas linhas que só existem no total".
+   *
+   * `perItem` VAZIO, e não um array de zeros: zero afirmaria que aquele produto recebeu R$
+   * 0,00 de desconto, quando o desconto é do documento e não tem repartição por item. A tela
+   * exibe travessão — `.claude/rules/ausente-vs-falso.md`.
+   *
+   * E é o que faz o invariante "total = soma das colunas" valer para TODA linha que tem
+   * coluna: com zeros, essas três quebravam a igualdade e obrigariam o teste a abrir exceção
+   * — exceção que, uma vez aberta, esconderia uma linha de verdade desalinhada.
+   */
+  const semColuna: number[] = []
   const rp = receitaProdutosTotal
 
   // O percentual do TOTAL: alíquota quando todos os itens têm a mesma; média ponderada
@@ -386,9 +398,9 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
 
   const rows: DecompositionRow[] = [
     linha('receita_bruta', 'RECEITA BRUTA (agrupamento)', receitaBrutaPorItem, { subtotal: true, total: receitaBruta }),
-    linha('desconto', '(−) Desconto concedido', zeros, { pct: input.discountPct, total: desconto }),
-    linha('receita_apos_desconto', '► RECEITA APÓS DESCONTO', zeros, { subtotal: true, total: receitaAposDesconto }),
-    linha('repasse_manuais', '(−) Itens manuais + frete neles (sem tributo)', zeros, { total: repasseManuais }),
+    linha('desconto', '(−) Desconto concedido', semColuna, { pct: input.discountPct, total: desconto }),
+    linha('receita_apos_desconto', '► RECEITA APÓS DESCONTO', semColuna, { subtotal: true, total: receitaAposDesconto }),
+    linha('repasse_manuais', '(−) Itens manuais + frete neles (sem tributo)', semColuna, { total: repasseManuais }),
     linha('acrescimos', '(−) Acréscimos dos produtos (com tributo)', acrescimosPorItem),
     linha('receita_produtos', '► RECEITA DE PRODUTOS', receitaProdutosPorItem, { subtotal: true, total: rp }),
     // R19 — UMA LINHA POR TRIBUTO. A agregada só sobra quando o item não traz a abertura,
