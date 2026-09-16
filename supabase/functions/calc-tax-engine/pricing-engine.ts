@@ -794,6 +794,17 @@ export interface ExternalOpsInput {
 export interface ResolvedExternalTax {
   /** Alíquota EFETIVA = original × (1 − fator de redução) (R4). */
   effectiveRate: number
+  /**
+   * Alíquota NOMINAL, antes do redutor do IVA DUAL — a `pAliq` da nota.
+   *
+   * A NT 2025.002 da NF-e traz o grupo `gRed` com TRÊS campos: a nominal, `pRedAliq` (o
+   * percentual de redução) e `pAliqEfet` (a efetiva, derivada dos dois). Devolver só a
+   * efetiva obrigaria quem monta a nota a inferir as outras duas por divisão — e uma
+   * efetiva de 0,40% cabe em infinitos pares (nominal, redutor).
+   */
+  nominalRate: number
+  /** O fator de redução do IVA DUAL (R4), em FRAÇÃO. É a `pRedAliq` da nota. */
+  reductionFactor: number
   /** Código de base usado (R3). */
   baseCode: BaseCode
   /** A base do tributo como fração do total geral, já avaliada em `c`. */
@@ -985,6 +996,9 @@ export function resolveExternalOpsCoefficient(input: ExternalOpsInput): External
     const basePctOfTotal = t.alfa + t.beta * c
     externalTaxes[nome] = {
       effectiveRate: effectiveRateOf,
+      // Os dois que compõem a efetiva, guardados em vez de derivados — ver `nominalRate`.
+      nominalRate: tax.rate,
+      reductionFactor: tax.reductionFactor ?? 0,
       baseCode: tax.baseCode,
       basePctOfTotal,
       valuePctOfTotal: effectiveRateOf * basePctOfTotal,

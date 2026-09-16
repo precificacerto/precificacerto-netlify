@@ -54,6 +54,23 @@ export interface TargetTaxFicha {
    * agregada esconde qual deles pesou. Sai do motor, não de rateio — a decomposição LÊ.
    */
   externalByTax: { ibs: number; cbs: number; is: number; ipi: number }
+  /**
+   * A BASE de cada tributo por fora, como FRAÇÃO do total geral — o `alfa_k + beta_k × c`
+   * da R3, avaliado no `c` que a construção resolveu.
+   *
+   * >>> POR QUE ELE PRECISA VIAJAR, e não pode ser derivado <<<
+   * `externalByTax` sozinho é o VALOR sobre o total geral: com IBS de 1% sobre a base do
+   * código 4 ele dá 0,6830%, que **não é alíquota de nada**. Na nota, `vBC` é a base do
+   * código 4 e `pIBS` é 1,00%. Dividir o valor pela receita de produtos para achar a
+   * alíquota é exatamente o que a Parte 0 proíbe — e foi assim que a Etapa 8 errava.
+   */
+  externalBaseByTax: { ibs: number; cbs: number; is: number; ipi: number }
+  /** A alíquota EFETIVA de cada um (R4) — a `pAliqEfet` da NT 2025.002. */
+  externalRateByTax: { ibs: number; cbs: number; is: number; ipi: number }
+  /** A alíquota NOMINAL, antes do redutor — a `pAliq` da nota. */
+  externalNominalByTax: { ibs: number; cbs: number; is: number; ipi: number }
+  /** O fator de redução do IVA DUAL, em fração — a `pRedAliq` da nota. */
+  externalReductionByTax: { ibs: number; cbs: number; is: number; ipi: number }
 }
 
 /**
@@ -451,8 +468,20 @@ export function resolveItemFicha(input: ItemFichaInput): ItemFichaResult {
   // Exceção 2 da R5 — o PIS/COFINS incide sobre `P − ICMS − ISS`.
   const pisCofinsPctEffective = tb.pisCofinsPct * (1 - icmsPctEffective - issPctEffective)
 
-  const parcela = (nome: 'ibs' | 'cbs' | 'is' | 'ipi'): number =>
-    Number(c.externalTaxes?.[nome]?.valuePctOfTotal) || 0
+  /**
+   * Os QUATRO números de cada tributo por fora, em vez de um só.
+   *
+   * A versão anterior desta função projetava `ResolvedExternalTax` — quatro campos — num
+   * único número, o `valuePctOfTotal`. A base, a nominal e o redutor eram CALCULADOS pelo
+   * motor e descartados aqui, numa linha. Quem precisasse deles do outro lado só podia
+   * inferi-los por divisão, que é o que a Parte 0 proíbe.
+   */
+  const porTributo = (campo: keyof NonNullable<typeof c.externalTaxes>['ibs']) =>
+    (nome: 'ibs' | 'cbs' | 'is' | 'ipi'): number => Number(c.externalTaxes?.[nome]?.[campo]) || 0
+  const mapa = (campo: 'valuePctOfTotal' | 'basePctOfTotal' | 'effectiveRate' | 'nominalRate' | 'reductionFactor') => {
+    const f = porTributo(campo)
+    return { ibs: f('ibs'), cbs: f('cbs'), is: f('is'), ipi: f('ipi') }
+  }
 
   return {
     ficha: {
@@ -460,7 +489,11 @@ export function resolveItemFicha(input: ItemFichaInput): ItemFichaResult {
       issPctEffective,
       pisCofinsPctEffective,
       externalOpsCoefficient: c.externalOpsCoefficient,
-      externalByTax: { ibs: parcela('ibs'), cbs: parcela('cbs'), is: parcela('is'), ipi: parcela('ipi') },
+      externalByTax: mapa('valuePctOfTotal'),
+      externalBaseByTax: mapa('basePctOfTotal'),
+      externalRateByTax: mapa('effectiveRate'),
+      externalNominalByTax: mapa('nominalRate'),
+      externalReductionByTax: mapa('reductionFactor'),
     },
     errors: [],
   }

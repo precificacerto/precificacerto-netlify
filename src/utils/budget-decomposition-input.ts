@@ -190,6 +190,12 @@ export function buildBudgetDecompositionInput(
         externalOpsCoefficient: ficha.ficha?.externalOpsCoefficient ?? 0,
         // E aberto por tributo, para a R19 ter uma linha para cada um.
         externalByTax: ficha.ficha?.externalByTax,
+        // A base do código 4, a efetiva, a nominal e o redutor — os quatro que a NT
+        // 2025.002 pede e que a construção já calculava. Ver `DecompositionItemTaxes`.
+        externalBaseByTax: ficha.ficha?.externalBaseByTax,
+        externalRateByTax: ficha.ficha?.externalRateByTax,
+        externalNominalByTax: ficha.ficha?.externalNominalByTax,
+        externalReductionByTax: ficha.ficha?.externalReductionByTax,
       },
       categories,
     }

@@ -42,6 +42,23 @@ export interface DecompositionItemTaxes {
    * na linha agregada, que é o estado dos testes que nasceram antes desta distinção.
    */
   externalByTax?: { ibs: number; cbs: number; is: number; ipi: number }
+  /**
+   * A BASE de cada tributo por fora — o `alfa_k + beta_k × c` da R3 —, como fração do total
+   * geral, e a alíquota EFETIVA, a NOMINAL e o REDUTOR.
+   *
+   * >>> POR QUE QUATRO E NÃO UM <<<
+   * `externalByTax` é o VALOR sobre o total geral, e é ele que a R17 quer para o DRE. Mas
+   * ele NÃO é alíquota: com IBS de 1% sobre a base do código 4 ele dá 0,6830%, um número que
+   * nenhum campo da nota tem. A NT 2025.002 pede três — `pAliq`, `pRedAliq` e `pAliqEfet` —
+   * mais a base. Os quatro são CALCULADOS pela construção; o que faltava era passá-los.
+   *
+   * Ausentes = trace legado, sem a abertura. A linha agregada continua sendo o fallback.
+   */
+  externalBaseByTax?: { ibs: number; cbs: number; is: number; ipi: number }
+  externalRateByTax?: { ibs: number; cbs: number; is: number; ipi: number }
+  /** A nominal e o redutor viajam para quem monta a NOTA; a célula exibe base e efetiva. */
+  externalNominalByTax?: { ibs: number; cbs: number; is: number; ipi: number }
+  externalReductionByTax?: { ibs: number; cbs: number; is: number; ipi: number }
 }
 
 /** Uma coluna de produto da decomposição. */
@@ -191,13 +208,12 @@ export interface DecompositionRow {
    * (13,88% de ICMS num documento de 17%, 12% e 7%): um número que a construção nunca usou
    * e que nenhum item tem. Ele é APRESENTAÇÃO do total e não pode vazar para a coluna.
    *
-   * >>> LIMITE, nas linhas POR FORA <<<
-   * Ali o que chega é `externalByTax`, a fração do TOTAL GERAL — não a alíquota nominal
-   * sobre a base legal. IBS cadastrado a 1% aparece como 0,6830%: a MESMA quantia, sobre a
-   * receita de produtos em vez da base do código 4. Para a R17 é o certo; para o `pIBS` da
-   * nota não basta, e a base do código 4 não chega até aqui. Inferi-la por divisão é o que
-   * `regime-e-segmento-determinam-a-construcao.md` proíbe — está registrado como limite em
-   * `a-coluna-fiscal-base-e-aliquota.test.ts`, não resolvido em silêncio.
+   * >>> NAS LINHAS POR FORA, o par vem de `externalBaseByTax` e `externalRateByTax` <<<
+   * Houve aqui um limite, e ele caiu: a coluna exibia `externalByTax`, a fração do TOTAL
+   * GERAL, e um IBS cadastrado a 1% aparecia como 0,6830% — a mesma quantia sobre a receita
+   * de produtos em vez da base do código 4. A base já era calculada pelo motor
+   * (`alfa_k + beta_k × c`) e `resolveItemFicha` a descartava numa linha. Agora ela viaja,
+   * com a alíquota efetiva, a nominal e o redutor, e a coluna exibe a base do CÓDIGO 4.
    */
   pctPerItem: number[]
 }
@@ -561,16 +577,24 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
           base: rp,
           pct: pctDe(soma(perItemTributo), rp),
           derived: heterogeneo(items.map((i) => i.taxes.externalByTax?.[nome] ?? 0)),
-          basePerItem: receitaProdutosPorItem,
-          pctPerItem: items.map((i) => i.taxes.externalByTax?.[nome] ?? 0),
+          // A BASE do código 4 e a alíquota EFETIVA, lidas da construção. Sem elas a célula
+          // exibia `valor ÷ receita de produtos` como se fosse alíquota — 0,6830% para um
+          // IBS de 1%. Quando a construção não as trouxe (trace legado), ficam VAZIAS: a
+          // célula omite os dois em vez de exibir um par derivado.
+          basePerItem: items.some((i) => i.taxes.externalBaseByTax)
+            ? items.map((i, k) => receitaProdutosPorItem[k] * (i.taxes.externalBaseByTax?.[nome] ?? 0))
+            : undefined,
+          pctPerItem: items.some((i) => i.taxes.externalRateByTax)
+            ? items.map((i) => i.taxes.externalRateByTax?.[nome] ?? 0)
+            : undefined,
         })
       })
       : [linha('por_fora', '(−) IBS · CBS · IS · IPI', porForaPorItem, {
         base: rp,
         pct: pctDe(soma(porForaPorItem), rp),
         derived: heterogeneo(items.map((i) => i.taxes.externalOpsCoefficient)),
-        basePerItem: receitaProdutosPorItem,
-        pctPerItem: items.map((i) => i.taxes.externalOpsCoefficient),
+        // O `c` é a soma das quatro frações do total geral, e não é alíquota de tributo
+        // nenhum. A linha agregada é o fallback do trace legado, e não recebe o par.
       })]),
     linha('operacao_por_dentro', '► OPERAÇÃO POR DENTRO (P)', pPorItem, { subtotal: true }),
     linha('icms', '(−) ICMS', icmsPorItem, {

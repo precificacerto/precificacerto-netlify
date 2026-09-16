@@ -58,34 +58,38 @@ describe('1. A ALÍQUOTA DA COLUNA É A DO PRODUTO, nunca a média do documento'
   })
 
   /**
-   * >>> LIMITAÇÃO MEDIDA, e ela vale mais registrada que escondida <<<
+   * >>> A LIMITAÇÃO QUE ESTAVA AQUI CAIU, e o registro dela fica <<<
    *
-   * Nas linhas POR FORA o que chega à decomposição é `externalByTax` — a fração do TOTAL
-   * GERAL que cada tributo ocupa —, e NÃO a alíquota nominal sobre a base legal. Com IBS
-   * cadastrado a 1%, a coluna exibe 0,6830%: é a MESMA quantia, sobre a receita de produtos
-   * em vez de sobre a base do código 4 (`P − ICMS − ISS − PIS/COFINS + IS`).
+   * A primeira versão deste caso afirmava que as quatro linhas por fora exibiam
+   * `externalByTax` — a FRAÇÃO DO TOTAL GERAL —, com IBS cadastrado a 1% aparecendo como
+   * 0,6830%: a mesma quantia sobre a receita de produtos em vez da base do código 4. Estava
+   * registrado como limite conhecido, com a razão: a base do código 4 não chegava até aqui,
+   * e inferi-la por divisão é o que `regime-e-segmento-determinam-a-construcao.md` proíbe.
    *
-   * Para o DRE isso é o certo — R17 manda usar o percentual sobre o total geral. Para o
-   * `pIBS` da NF-e NÃO basta: lá a alíquota é a nominal e a base é a do código 4, e essa
-   * base não chega aqui. Inferi-la dividindo seria exatamente o que
-   * `regime-e-segmento-determinam-a-construcao.md` proíbe — a decomposição LÊ, não deduz.
-   *
-   * Fica dito em vez de disfarçado: as quatro linhas por fora ainda não servem ao campo de
-   * alíquota da nota. ICMS, ISS e PIS/COFINS servem.
+   * A base passou a CHEGAR. O motor já a calculava — `alfa_k + beta_k × c` — e
+   * `resolveItemFicha` a descartava numa linha, junto com a nominal e o redutor. Agora os
+   * quatro viajam, e a coluna exibe a base do código 4 com a alíquota EFETIVA.
    */
-  it('IBS, CBS e IPI: a fração do TOTAL GERAL — efetiva, não a nominal cadastrada', () => {
-    // 1% de IBS sobre a base do código 4 equivale a 0,6830% do total geral.
-    expect(L('por_fora_ibs').pctPerItem[0]).toBeCloseTo(0.00682963667322704, 12)
-    expect(L('por_fora_ibs').pctPerItem[0]).not.toBeCloseTo(0.01, 4)
-    // A razão CBS ÷ IBS preserva a razão das nominais — 9 ÷ 1 e 4 ÷ 0,5 —, e é isso que
-    // prova que a efetiva é a mesma quantia noutra base, e não um número inventado.
-    expect(L('por_fora_cbs').pctPerItem[0] / L('por_fora_ibs').pctPerItem[0]).toBeCloseTo(9, 8)
-    expect(L('por_fora_cbs').pctPerItem[1] / L('por_fora_ibs').pctPerItem[1]).toBeCloseTo(8, 8)
+  it('IBS, CBS e IPI: a alíquota EFETIVA sobre a base do CÓDIGO 4, não a fração do total', () => {
+    expect(L('por_fora_ibs').pctPerItem[0]).toBeCloseTo(0.01, 12)
+    expect(L('por_fora_cbs').pctPerItem[0]).toBeCloseTo(0.09, 12)
+    expect(L('por_fora_ibs').pctPerItem[1]).toBeCloseTo(0.005, 12)
+    // O discriminante: é EXATAMENTE este número que a versão anterior exibia.
+    expect(L('por_fora_ibs').pctPerItem[0]).not.toBeCloseTo(0.00682963667322704, 6)
     // O terceiro produto não tem IBS nem CBS: zero CADASTRADO, e zero aqui é afirmação.
     expect(L('por_fora_ibs').pctPerItem[2]).toBe(0)
-    // IPI só no segundo.
+    // IPI só no segundo — 5%.
     expect(L('por_fora_ipi').pctPerItem[0]).toBe(0)
-    expect(L('por_fora_ipi').pctPerItem[1]).toBeGreaterThan(0)
+    expect(L('por_fora_ipi').pctPerItem[1]).toBeCloseTo(0.05, 12)
+  })
+
+  it('e a BASE do código 4 é MENOR que a receita de produtos — é o que a torna base', () => {
+    // A base do código 4 é `P − ICMS − ISS − PIS/COFINS + IS`, sempre abaixo do total geral.
+    // Se a base exibida fosse a receita de produtos, a alíquota teria de cair para 0,6830%
+    // para o valor fechar — que é exatamente o estado anterior.
+    const rp = L('receita_produtos').perItem
+    L('por_fora_ibs').basePerItem.forEach((b, i) => expect(b).toBeLessThan(rp[i]))
+    expect(L('por_fora_ibs').basePerItem[0] / rp[0]).toBeCloseTo(0.682963667322704, 10)
   })
 
   it('e a alíquota exibida reproduz o valor: valor ÷ base = alíquota, coluna a coluna', () => {
