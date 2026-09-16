@@ -63,7 +63,7 @@ import {
     type PageItem,
 } from '@/utils/mrm-engine-v17/legacy-adapter'
 import type { ItemSnapshot, TenantSnapshotContext } from '@/lib/items-snapshot'
-import type { DiscountMode, MotorV17Result, TaxBreakdown } from '@/types/mrm'
+import type { DecompositionInputSnapshot, DiscountMode, MotorV17Result, TaxBreakdown } from '@/types/mrm'
 
 /** Um item do documento na entrada do gravador. */
 export interface DocumentItemHydrationInput {
@@ -134,6 +134,45 @@ function toPersistedBreakdown(
 }
 
 /**
+ * Congela os INSUMOS da decomposição do item, a partir do `PageItem` já enriquecido.
+ *
+ * Nenhum número é recalculado: o `motorItem` é a MESMA entrada que a tela deu ao motor, com
+ * custo e MO produtiva já resolvidos do cadastro por `enrichItemsForMotor`. Reenriquecer
+ * aqui recriaria a cópia divergente que aquele módulo eliminou.
+ *
+ * Os percentuais saem em BASE 100 porque é assim que o adaptador da decomposição os recebe —
+ * a travessia para fração é de `rate-scale.ts`, e duplicá-la aqui seria a segunda conta que
+ * a Parte 0 proíbe.
+ */
+function freezeDecompositionInput(
+    motorItem: PageItem,
+    motorTenantCtx: PageBuildArgs['tenantCtx'],
+): DecompositionInputSnapshot {
+    const mi = motorItem as PageItem & {
+        item_tax_rates?: DecompositionInputSnapshot['rates']
+        is_manual_cost?: boolean
+        service_id?: string | null
+        productive_labor_unit?: number | null
+        rt_reserve_percent?: number | null
+        commission_percent?: number | null
+        profit_percent?: number | null
+    }
+    return {
+        costUnit: Number(mi.cost_total) || 0,
+        productiveLaborUnit: Number(mi.productive_labor_unit) || 0,
+        commissionPct: Number(mi.commission_percent) || 0,
+        profitPct: Number(mi.profit_percent) || 0,
+        rtPct: Number(mi.rt_reserve_percent) || 0,
+        rates: mi.item_tax_rates ?? null,
+        isService: !!mi.service_id,
+        isManual: mi.is_manual_cost === true,
+        // R18 — a despesa é CONGELADA, e o percentual do tenant muda com o tempo. Sem
+        // gravá-lo, reabrir a venda decomporia com a despesa de hoje.
+        despesasOperacionaisPct: Number(motorTenantCtx.dop_pct) || 0,
+    }
+}
+
+/**
  * Hidrata os snapshots de TODOS os itens de um documento, com uma única passada do motor V17.
  *
  * Devolve um array PARALELO a `args.items` — mesmo índice, mesmo item. Um item para o qual o
@@ -197,6 +236,10 @@ export function hydrateDocumentSnapshots(
             tax_breakdown.baseline_new_profit = base.new_profit ?? null
             tax_breakdown.baseline_ancora_interna = base.ancora_interna ?? null
         }
+        // R15 a R20 — os insumos da decomposição, CONGELADOS. Ver
+        // `TaxBreakdown.decomposition_input`: a venda gravada é fato histórico, e resolver
+        // custo e alíquotas do cadastro de hoje reescreveria o passado.
+        tax_breakdown.decomposition_input = freezeDecompositionInput(item.motorItem, args.tenantCtx)
 
         return { tax_breakdown, ...cols }
     })

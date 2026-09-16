@@ -242,6 +242,44 @@ export interface CascadeStep {
  * Schema persistido em budget_items.tax_breakdown / sale_items.tax_breakdown / order_items.tax_breakdown.
  * Imutável quando use_snapshot_rates = TRUE (D2). Recalculado a cada edição quando FALSE.
  */
+/**
+ * Os insumos da decomposição de UM item, congelados. Ver `TaxBreakdown.decomposition_input`.
+ *
+ * Todos os percentuais em BASE 100, como o adaptador os recebe — a travessia para fração é
+ * de `rate-scale.ts`, e duplicá-la aqui seria a segunda conta que a Parte 0 proíbe.
+ */
+export interface DecompositionInputSnapshot {
+  /** Custo unitário de MATERIAL, já resolvido do cadastro no momento da gravação. */
+  costUnit: number
+  /** MO produtiva por unidade — a outra metade do CMV. */
+  productiveLaborUnit: number
+  commissionPct: number
+  profitPct: number
+  rtPct: number
+  /**
+   * A ficha do item, como a construção a usou. `null` = item manual ou sem cadastro — e
+   * `null` NÃO é alíquota zero.
+   *
+   * Tipada pelos campos que o adaptador da decomposição lê, e não por `ItemTaxRates`: aquele
+   * tipo mora em `utils/item-tax-rates.ts`, que importa deste arquivo, e referenciá-lo aqui
+   * fecharia um ciclo. A forma é a mesma; o que muda é de onde ela é declarada.
+   */
+  rates: {
+    icms_pct?: number | null
+    iss_pct?: number | null
+    pis_pct?: number | null
+    cofins_pct?: number | null
+    ipi_pct?: number | null
+    is_pct?: number | null
+    ibs_pct?: number | null
+    cbs_pct?: number | null
+  } | null
+  isService: boolean
+  isManual: boolean
+  /** Despesas operacionais do TENANT, fração sobre o total geral — R18, congelado. */
+  despesasOperacionaisPct: number
+}
+
 export interface TaxBreakdown {
   engine_version: string
   effective_date: string
@@ -383,6 +421,25 @@ export interface TaxBreakdown {
    * em vez da alíquota de cadastro. Ausentes em snapshots antigos → downstream cai no
    * comportamento legado (`weightedOriginalPct`). NÃO afetam nenhum valor em R$.
    */
+  /**
+   * R15 a R20 — os INSUMOS da decomposição, CONGELADOS no momento da gravação.
+   *
+   * >>> POR QUE INSUMO, E NÃO O RESULTADO <<<
+   * A decomposição é determinística a partir destes campos, e eles são poucos. Gravar as
+   * vinte e tantas linhas prontas seria maior, e envelheceria a cada correção de regra —
+   * este mesmo branch mudou a R18 e a base do por fora. Com o insumo congelado, uma
+   * correção de regra melhora documentos antigos em vez de deixá-los num formato morto.
+   *
+   * >>> POR QUE CONGELAR, em vez de resolver do cadastro como o pedido faz <<<
+   * A venda GRAVADA é fato histórico: resolver custo, MO e alíquotas do cadastro vivo
+   * reescreveria o passado a cada edição do produto — a 6ª aparição de
+   * `.claude/rules/fato-vs-referencia.md`. O pedido é documento em edição e segue o outro
+   * caminho, por decisão do dono do produto de 16/09/2026.
+   *
+   * AUSENTE = venda anterior a este congelamento. A tela diz isso explicitamente em vez de
+   * exibir uma decomposição montada do cadastro de hoje (`ausente-vs-falso.md`).
+   */
+  decomposition_input?: DecompositionInputSnapshot | null
   baseline_new_commission?: number | null
   baseline_new_profit?: number | null
   baseline_ancora_interna?: number | null

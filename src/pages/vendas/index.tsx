@@ -368,6 +368,62 @@ function Sales() {
 
     // EPIC-MRM-V5 (Story 005): extrai cascade_trace, peso/âncora, regime guard dos
     // snapshots persistidos em sale_items.tax_breakdown.
+    /**
+     * A DECOMPOSIÇÃO DA VENDA GRAVADA — lida do SNAPSHOT, nunca do cadastro vivo.
+     *
+     * >>> A DECISÃO, de 16/09/2026 <<<
+     * "venda gravada → gravar no snapshot daqui para frente; os 157 existentes ficam sem,
+     *  com estado explícito na tela."
+     *
+     * A venda é FATO HISTÓRICO. Resolver custo, MO e alíquotas do cadastro de hoje —
+     * como o PEDIDO faz, por ser documento em edição — reescreveria o passado a cada
+     * edição do produto: é a 6ª aparição de `.claude/rules/fato-vs-referencia.md`.
+     *
+     * >>> TUDO OU NADA, e é deliberado <<<
+     * Basta UM item sem `decomposition_input` para a decomposição inteira ficar de fora.
+     * Montá-la com os itens que têm e omitir os que não têm devolveria um DRE que não
+     * fecha — residual diferente de zero, comissão e lucro abaixo do cadastrado — sem
+     * nada na tela dizendo por quê. Melhor a cascata antiga, e o aviso.
+     */
+    const saleDecomposition = useMemo(() => {
+        const itens = (detailItems || [])
+        const VAZIA = { result: null as ReturnType<typeof buildDecomposition> | null, labels: [] as string[] }
+        if (itens.length === 0) return { ...VAZIA, estado: 'SEM_ITENS' as const }
+        const congelados = itens.map((it: any) => it?.tax_breakdown?.decomposition_input ?? null)
+        if (congelados.some((c: any) => c == null)) {
+            return { ...VAZIA, estado: 'ANTERIOR_AO_CONGELAMENTO' as const }
+        }
+        const params = buildBudgetDecompositionInput({
+            items: itens.map((it: any, idx: number) => {
+                const congelado = congelados[idx]
+                return {
+                    key: it.id ?? `sale-item-${idx}`,
+                    label: it.products?.name ?? it.services?.name ?? it.manual_description ?? 'Item',
+                    isManual: congelado.isManual,
+                    isService: congelado.isService,
+                    quantity: Number(it.quantity) || 0,
+                    unitPrice: Number(it.unit_price) || 0,
+                    costUnit: Number(congelado.costUnit) || 0,
+                    productiveLaborUnit: Number(congelado.productiveLaborUnit) || 0,
+                    commissionPct: Number(congelado.commissionPct) || 0,
+                    profitPct: Number(congelado.profitPct) || 0,
+                    rtPct: Number(congelado.rtPct) || 0,
+                    rates: congelado.rates ?? null,
+                    // R21 — a parcela CONGELADA que veio do documento de origem. Colunas
+                    // nulas são NÃO COTADO, e não zero.
+                    acrescimos: (it.freight_allocated_value != null || it.accessories_allocated_value != null)
+                        ? (Number(it.freight_allocated_value) || 0) + (Number(it.accessories_allocated_value) || 0)
+                        : 0,
+                }
+            }),
+            discountPct: (Number(selectedSale?.discount_percent) || 0) / 100,
+            // R18 — a despesa CONGELADA na gravação, não a do tenant de hoje.
+            despesasOperacionaisPct: Number(congelados[0]?.despesasOperacionaisPct) || 0,
+        })
+        if (params.isEmpty) return { ...VAZIA, estado: 'SEM_PRODUTO' as const }
+        return { result: buildDecomposition(params.input), labels: params.itemLabels, estado: 'CONGELADA' as const }
+    }, [detailItems, selectedSale])
+
     const saleEpicV5DisplayData = useMemo(
         () => extractEpicV5DisplayData(detailItems || [], {
             regime: mrmConfig.regime,
@@ -3364,10 +3420,36 @@ function Sales() {
                             Em MEI/SN, IRPJ/CSLL ocultam automaticamente. */}
                         {saleSubtotal > 0 && (
                             <ResidualDistributionBlock
-                                distribution={saleResidualDistribution}
+                                /* Os cards leem a DECOMPOSIÇÃO quando ela existe — mesma
+                                   correção do 1934dbb. Sem o congelado, seguem na Etapa 16:
+                                   melhor ela que card nenhum. */
+                                distribution={applyDecompositionToResidual(
+                                    saleResidualDistribution, saleDecomposition.result,
+                                )}
                                 regimeGuardActive={saleEpicV5DisplayData.regimeGuardActive}
                                 discountMode={normalizeDiscountModeForDisplay(selectedSale?.discount_mode)}
+                                footerNote={saleDecomposition.result ? NOTA_DA_DECOMPOSICAO : undefined}
                             />
+                        )}
+
+                        {/* ESTADO EXPLÍCITO — a venda é anterior ao congelamento da
+                            decomposição. Montá-la do cadastro de HOJE reescreveria o passado
+                            (`fato-vs-referencia.md`), e exibir uma decomposição parcial
+                            devolveria um DRE que não fecha sem dizer por quê. A tela diz. */}
+                        {saleSubtotal > 0 && saleDecomposition.estado === 'ANTERIOR_AO_CONGELAMENTO' && (
+                            <div style={{
+                                marginTop: 12, padding: '10px 14px', borderRadius: 8, fontSize: 12,
+                                background: 'rgba(234,179,8,0.10)', border: '1px solid rgba(234,179,8,0.35)',
+                                color: '#fde68a',
+                            }}>
+                                ⚠ Decomposição por produto indisponível nesta venda
+                                <div style={{ color: '#94a3b8', marginTop: 4, fontSize: 11 }}>
+                                    Ela é anterior ao congelamento dos insumos da decomposição. Recompor
+                                    com o cadastro de hoje mudaria os números de uma venda já emitida, então
+                                    a tela mostra a cascata como foi gravada. Vendas emitidas a partir de
+                                    agora trazem a decomposição completa.
+                                </div>
+                            </div>
                         )}
 
                         {/* R21 — o rateio de frete herdado ainda descreve esta venda?
@@ -3396,6 +3478,12 @@ function Sales() {
                         {/* S14 — DRE Consolidada (R3=B + R7=B). Snapshot histórico imutável. */}
                         {saleSubtotal > 0 && (
                             <ConsolidatedDREBlock
+                                /* R19 — quando o congelado existe, a cascata expande da etapa
+                                   12 em diante com as linhas da decomposição e a Etapa 8 traz
+                                   o bloco por fora APURADO. Sem ele, `null` faz a view cair
+                                   no trace de sempre. */
+                                decomposition={saleDecomposition.result}
+                                itemLabels={saleDecomposition.labels}
                                 dre={saleConsolidatedDRE}
                                 cascadeTrace={saleEpicV5DisplayData.cascadeTrace}
                                 pesoOpInterna={saleEpicV5DisplayData.pesoOpInterna}

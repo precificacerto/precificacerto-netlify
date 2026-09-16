@@ -47,7 +47,7 @@ const CUSTO_DA_CONSTRUCAO = 10562.57
 
 /** A linha do pedido, como `OrderItemRow` a carrega — SEM custo, SEM MO, SEM alíquota. */
 const LINHA_DO_PEDIDO = {
-  key: 'edit-1-0', product_id: 'ce51cfae', service_id: null, product_name: 'ATeste1509',
+  key: 'edit-1-0', product_id: 'ce51cfae', service_id: null as string | null, product_name: 'ATeste1509',
   quantity: 1, unit_price: 36757.67, total_price: 36757.67,
   commission_percent: 5, profit_percent: 10,
   freight_allocated_value: null as number | null,
