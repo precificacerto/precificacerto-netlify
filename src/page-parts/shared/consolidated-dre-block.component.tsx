@@ -21,6 +21,7 @@ import { downloadCascadePdf, downloadDecompositionPdf, type CascadePdfMeta } fro
 import { orderCascadeForDisplay } from '@/utils/cascade-display-order'
 import { buildCascadeView, type CascadeViewRow } from '@/utils/cascade-display-view'
 import type { DecompositionResult } from '@/utils/decomposition-dre'
+import { totalExibido } from '@/utils/decomposition-dre'
 import { formatBRL } from '@/utils/formatters'
 import { DECOMPOSITION_LABEL } from '@/constants/decomposition-label'
 import type { DRESection } from '@/utils/consolidated-dre'
@@ -393,11 +394,15 @@ function CascadeViewLine({ row, colunas }: { row: CascadeViewRow; colunas: numbe
           )}
         </div>
       ))}
+      {/* A NF-e VALIDA que a soma dos itens é igual ao total. Com o total calculado à parte e
+          cada coluna arredondada na formatação, os dois divergiam em centavos — medido: sete
+          linhas com R$ 0,01 num documento de três produtos. O número INTERNO segue exato; o
+          impresso é a soma das colunas. Ver `totalExibido`. */}
       <div style={{
         textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontSize,
         color: row.valor < 0 ? '#fca5a5' : labelColor, fontWeight,
       }}>
-        {formatBRL(row.valor)}
+        {formatBRL(totalExibido({ perItem: row.perItem, total: row.valor }))}
       </div>
     </>
   )
@@ -418,7 +423,7 @@ function CascadeViewMobileLine({ row, itemLabels }: { row: CascadeViewRow; itemL
           {row.numero != null ? `${row.numero}. ` : ''}{row.label}
         </span>
         <span style={{ color: row.valor < 0 ? '#fca5a5' : '#cbd5e1', fontWeight: 600, fontSize: 12, whiteSpace: 'nowrap' }}>
-          {formatBRL(row.valor)}
+          {formatBRL(totalExibido({ perItem: row.perItem, total: row.valor }))}
         </span>
       </div>
       {row.perItem.length > 0 && (

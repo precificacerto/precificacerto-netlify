@@ -720,6 +720,38 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
 }
 
 /**
+ * Arredonda para CENTAVOS. O `Math.round` sobre centavos, e não `toFixed`, porque o segundo
+ * devolve string e reintroduz o problema no próximo somatório.
+ */
+export function centavos(v: number): number {
+  return Math.round(v * 100) / 100
+}
+
+/**
+ * O TOTAL EXIBIDO de uma linha: a SOMA DAS COLUNAS JÁ ARREDONDADAS.
+ *
+ * >>> O DEFEITO, MEDIDO <<<
+ * O `total` interno é a soma EXATA, e cada coluna é arredondada só na formatação. Os dois
+ * caminhos divergem: num documento de três produtos com valores quebrados, SETE linhas
+ * fechavam com R$ 0,01 de diferença — ICMS Σcolunas −3.119,38 contra total −3.119,37;
+ * PIS/COFINS, CBS, operação por dentro, receita líquida, comissão e lucro idem.
+ *
+ * O PDF imprimia `−R$ 1.991,32 | −R$ 898,47 | −R$ 229,59` e total `−R$ 3.119,37`. Quem
+ * somasse as colunas achava outro número — e a NF-e VALIDA que a soma dos itens é igual ao
+ * total: um centavo de diferença rejeita a nota.
+ *
+ * O número interno continua exato: é ele que faz a decomposição bater com a construção ao
+ * centavo, e mexer nele desfaria várias rodadas. O que muda é o que se IMPRIME.
+ *
+ * Linha sem coluna — desconto do documento, repasse dos manuais — devolve o próprio total
+ * arredondado: não há colunas a somar, e inventar um array de zeros mudaria o número.
+ */
+export function totalExibido(row: Pick<DecompositionRow, 'perItem' | 'total'>): number {
+  if (row.perItem.length === 0) return centavos(row.total)
+  return centavos(row.perItem.reduce((acc, v) => acc + centavos(v), 0))
+}
+
+/**
  * Análise vertical: quanto a linha representa da RECEITA APÓS DESCONTOS (seção 6.4).
  *
  * `null` quando a base é zero — e `null` é "não apurável", jamais 0%.

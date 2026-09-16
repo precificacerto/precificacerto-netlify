@@ -28,6 +28,7 @@
 
 import type { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
+import { totalExibido } from '@/utils/decomposition-dre'
 import type { DecompositionResult, DecompositionRow } from '@/utils/decomposition-dre'
 
 /**
@@ -201,7 +202,7 @@ export function appendDecompositionPages(doc: jsPDF, input: DecompositionPdfInpu
       row.base == null ? '—' : brlPdf(row.base),
       celulaPercentual(percentualDaLinha(row), row.isDerivedAverage),
       ...bloco.map((k) => celulaDoProduto(row, k)),
-      brlPdf(row.total),
+      brlPdf(totalExibido(row)),
     ])
 
     const residualForaDeZero = Math.abs(decomposition.residual.total) > RESIDUAL_TOLERANCE_PDF
