@@ -232,6 +232,17 @@ export interface DecompositionResult {
    * seja ele qual for. Ver `RroInvariante`.
    */
   rro: RroInvariante | null
+  /**
+   * Os % ORIGINAIS das quatro categorias do RRO, ponderados pela receita de produtos.
+   *
+   * É o CADASTRADO — o que o usuário digitou no produto —, e é o par do apurado nos cards de
+   * Comissão e Lucro: sem desconto os dois coincidem, e com desconto a diferença é a corrosão.
+   * Com itens de percentuais diferentes, a ponderação é pela receita de produtos de cada um,
+   * que é a base sobre a qual os % originais incidem (R17).
+   *
+   * `null` quando não há produto: zero afirmaria que a comissão cadastrada é zero.
+   */
+  rroCadastrado: { comissaoPct: number; lucroPct: number; irpjPct: number; csllPct: number } | null
   errors: string[]
 }
 
@@ -281,10 +292,10 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
   const { items, categories: cat } = input
   const errors: string[] = []
 
-  if (items.length === 0) return { rows: [], lucroDaVenda: null, residual: { perItem: [], total: 0 }, receitaAposDesconto: 0, rro: null, errors }
+  if (items.length === 0) return { rows: [], lucroDaVenda: null, residual: { perItem: [], total: 0 }, receitaAposDesconto: 0, rro: null, rroCadastrado: null, errors }
   if (!(input.discountPct >= 0 && input.discountPct < 1)) {
     errors.push(`desconto fora de [0, 1): ${input.discountPct}`)
-    return { rows: [], lucroDaVenda: null, residual: { perItem: [], total: 0 }, receitaAposDesconto: 0, rro: null, errors }
+    return { rows: [], lucroDaVenda: null, residual: { perItem: [], total: 0 }, receitaAposDesconto: 0, rro: null, rroCadastrado: null, errors }
   }
 
   const receitaBrutaPorItem = items.map((i) => i.totalProduto + i.acrescimos)
@@ -342,7 +353,7 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
   }
   if (items.some((_, k) => somaRROde(k) <= 0)) {
     errors.push('soma das categorias do RRO <= 0: não há como distribuir o resultado residual.')
-    return { rows: [], lucroDaVenda: null, residual: { perItem: [], total: 0 }, receitaAposDesconto, rro: null, errors }
+    return { rows: [], lucroDaVenda: null, residual: { perItem: [], total: 0 }, receitaAposDesconto, rro: null, rroCadastrado: null, errors }
   }
   const pesoDe = (k: number, pct: number) => pct / somaRROde(k)
   const comissaoPorItem = rroPorItem.map((r, k) => r * pesoDe(k, catDe(k).comissaoPct))
@@ -513,11 +524,25 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
   const rroApurado = soma(rroPorItem)
   const rroDivergencia = rroApurado - rroEsperado
 
+  // O CADASTRADO das quatro categorias, ponderado pela receita de produtos de cada item —
+  // a base sobre a qual os % originais incidem (R17). Ver `rroCadastrado`.
+  const pctCadastrado = (pega: (c: DecompositionCategories) => number): number =>
+    rp !== 0 ? items.reduce((a, _it, k) => a + receitaProdutosPorItem[k] * pega(catDe(k)), 0) / rp : 0
+  const rroCadastrado = items.length > 0
+    ? {
+      comissaoPct: pctCadastrado((c) => c.comissaoPct),
+      lucroPct: pctCadastrado((c) => c.lucroPct),
+      irpjPct: pctCadastrado((c) => c.irpjPct),
+      csllPct: pctCadastrado((c) => c.csllPct),
+    }
+    : null
+
   return {
     rows,
     lucroDaVenda,
     residual: { perItem: residualPorItem, total: soma(residualPorItem) },
     receitaAposDesconto,
+    rroCadastrado,
     rro: {
       apurado: rroApurado,
       esperado: rroEsperado,

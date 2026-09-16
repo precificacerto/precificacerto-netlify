@@ -55,6 +55,7 @@ import { consolidateStDifalFromItems, computeTotalACobrar } from '@/utils/icms-s
 import { useResidualDistribution } from '@/hooks/use-residual-distribution'
 import { type ResidualItemInput, validateResidualVsCascade } from '@/utils/residual-distribution'
 import { ResidualDistributionBlock } from '@/page-parts/shared/residual-distribution-block.component'
+import { NOTA_DA_DECOMPOSICAO, applyDecompositionToResidual } from '@/utils/residual-from-decomposition'
 import { buildDecomposition } from '@/utils/decomposition-dre'
 import { buildBudgetDecompositionInput } from '@/utils/budget-decomposition-input'
 import { pisCofinsNominalFromEffective } from '@/utils/sale-context'
@@ -1300,6 +1301,24 @@ function Budgets() {
         return { result: buildDecomposition(params.input), labels: params.itemLabels }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [budgetItems, allocatedByKey, products, globalDiscountPercent, mrmConfig.dop_pct, mrmConfig.irpj_pct, mrmConfig.csll_pct])
+
+    /**
+     * OS CARDS LEEM A DECOMPOSIÇÃO — e deixam de ser a segunda fonte.
+     *
+     * Medido na tela: cards Comissão R$ 2.117,59 (6,188%) e Lucro R$ 4.235,18 (12,377%),
+     * contra R$ 1.837,88 e R$ 3.675,77 na construção, com 5,00% e 10,00% cadastrados —
+     * R$ 279,71 de divergência. Os cards leem a Etapa 16 do motor, e a Etapa 16 é apurada
+     * com a receita líquida da cascata ANTIGA: sem a ordem das deduções da R19, sem o CMV
+     * do item e com o PIS/COFINS fora de escala. A decomposição corrige os três.
+     *
+     * O BUG-CARDS-RRO-001 continua valendo: o card NÃO calcula. O que muda é a fonte de onde
+     * ele lê — ver `residual-from-decomposition.ts`, que registra por que a regra da época
+     * estava certa e o que mudou desde então.
+     */
+    const residualExibido = useMemo(
+        () => applyDecompositionToResidual(residualDistribution, decomposition?.result ?? null),
+        [residualDistribution, decomposition],
+    )
 
     // ── Salvar orçamento ──
     const handleSave = async () => {
@@ -3526,9 +3545,10 @@ function Budgets() {
 
                     {budgetTotal > 0 && (
                         <ResidualDistributionBlock
-                            distribution={residualDistribution}
+                            distribution={residualExibido}
                             regimeGuardActive={epicV5DisplayData.regimeGuardActive}
                             discountMode={discountMode}
+                            footerNote={decomposition?.result ? NOTA_DA_DECOMPOSICAO : undefined}
                         />
                     )}
 

@@ -163,7 +163,7 @@ describe('3. SEM decomposição, nada muda — pedido e venda seguem como estão
   })
 
   it('decomposição VAZIA também cai no caminho antigo — vazia não é decomposição', () => {
-    const vazia: DecompositionResult = { rows: [], lucroDaVenda: null, residual: { perItem: [], total: 0 }, receitaAposDesconto: 0, rro: null, errors: [] }
+    const vazia: DecompositionResult = { rows: [], lucroDaVenda: null, residual: { perItem: [], total: 0 }, receitaAposDesconto: 0, rro: null, rroCadastrado: null, errors: [] }
     expect(buildCascadeView(TRACE, vazia)).toHaveLength(buildCascadeView(TRACE).length)
   })
 })

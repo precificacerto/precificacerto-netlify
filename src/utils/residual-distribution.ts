@@ -49,6 +49,15 @@ export interface ResidualLine {
    *   pₑᵢ = Rᵢ / Vₗ × 100
    */
   effectivePct: number
+  /**
+   * O NOME da base do `effectivePct`, para a linha de texto do card.
+   *
+   * Ausente = "a operação interna", que é a base da Etapa 16 e o comportamento de sempre.
+   * Quando a rubrica vem da DECOMPOSIÇÃO a base é outra — a receita de produtos —, e um
+   * rótulo fixo afirmaria uma base que o número não usou. Ver
+   * `residual-from-decomposition.ts`.
+   */
+  baseLabel?: string
 }
 
 export interface ResidualDistribution {
@@ -520,7 +529,7 @@ export function formatResidualLine(line: ResidualLine, hasDiscount: boolean): st
   const fmt = (n: number): string =>
     n.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })
   if (!hasDiscount) return `${fmt(line.originalPct)}%`
-  return `${fmt(line.originalPct)}% original → ${fmt(line.effectivePct)}% sobre a operação interna`
+  return `${fmt(line.originalPct)}% original → ${fmt(line.effectivePct)}% sobre ${line.baseLabel ?? 'a operação interna'}`
 }
 
 /**
