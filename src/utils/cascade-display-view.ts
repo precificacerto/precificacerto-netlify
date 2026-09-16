@@ -70,6 +70,24 @@ export const LINHAS_COM_DOIS_PERCENTUAIS = new Set(['comissao', 'lucro', 'irpj',
  */
 export const ETAPA_DA_OPERACAO_POR_FORA = 8
 
+/**
+ * A etapa do DIAGNÓSTICO INTERNO do motor, que NÃO é renderizada.
+ *
+ * "Pesos estruturais R$ 1,00 · Peso Op Interna 0,931 R$ 0,93 · Peso Op Externa 0,069 R$ 0,07.
+ *  R$ 1,00 não é dinheiro — é a unidade normalizada. Um valor em reais que não é dinheiro é
+ *  pior que não mostrar nada."
+ *
+ * O `amount` da etapa é `1` por construção (`peso_interno + peso_externo = 1`), e os dois
+ * filhos trazem a própria fração como `amount`. A coluna de valores da cascata é de REAIS, e
+ * três números que não são reais numa coluna de reais afirmam um valor que ninguém apurou —
+ * `.claude/rules/ausente-vs-falso.md` na UNIDADE, a mesma família do PIS/COFINS fora de escala.
+ *
+ * >>> O MOTOR NÃO É TOCADO <<<
+ * Os pesos continuam sendo calculados e usados — a âncora interna, o rateio do RRO e a
+ * redistribuição da Camada 2 dependem deles. O que muda é que param de ser RENDERIZADOS.
+ */
+export const ETAPA_DOS_PESOS_ESTRUTURAIS = 10
+
 /** As chaves das linhas da decomposição que compõem o bloco por fora. */
 const LINHAS_DO_BLOCO_POR_FORA = new Set([
   'por_fora', 'por_fora_ibs', 'por_fora_cbs', 'por_fora_is', 'por_fora_ipi',
@@ -166,6 +184,9 @@ export function buildCascadeView(
   const doTrace = (steps: CascadeStep[], porFora?: BlocoPorFora | null): CascadeViewRow[] => {
     const out: CascadeViewRow[] = []
     for (const step of steps) {
+      // Diagnóstico interno do motor — ver `ETAPA_DOS_PESOS_ESTRUTURAIS`. Sai com os dois
+      // filhos junto: um "Peso Op Interna" órfão seria pior que a etapa inteira.
+      if (Number(step.step) === ETAPA_DOS_PESOS_ESTRUTURAIS) continue
       // A etapa 8 exibe o BLOCO APURADO quando a decomposição existe — ver
       // `ETAPA_DA_OPERACAO_POR_FORA`. Sem decomposição (pedido e venda, que ainda não a
       // montam) fica o número do motor: melhor o derivado que nada.

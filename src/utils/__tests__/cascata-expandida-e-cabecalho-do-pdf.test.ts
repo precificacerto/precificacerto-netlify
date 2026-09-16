@@ -52,6 +52,19 @@ const DECOMP = buildDecomposition(buildBudgetDecompositionInput({
 
 describe('1. DA 12 EM DIANTE, a decomposição substitui as etapas', () => {
   const view = buildCascadeView(TRACE, DECOMP)
+  /**
+   * As linhas da CONSTRUÇÃO que sobram na tela.
+   *
+   * MUDANÇA DE REQUISITO, registrada em vez de dissolvida: a etapa 10 ("Pesos estruturais")
+   * saiu da EXIBIÇÃO — ver `ETAPA_DOS_PESOS_ESTRUTURAIS`. Ela e os dois filhos exibiam
+   * R$ 1,00 · R$ 0,93 · R$ 0,07 numa coluna de reais, e nenhum dos três é dinheiro. O motor
+   * segue calculando e usando os pesos.
+   *
+   * O NÚMERO NÃO É RENUMERADO: a sequência passa a ser 1…9, 11, e a decomposição continua
+   * em 12. O número é identidade, não posição — renumerar quebraria as citações já escritas.
+   */
+  const construidas = view.filter((r) => (r.numero ?? 0) <= ULTIMA_ETAPA_DA_CONSTRUCAO)
+  const decompostas = view.slice(construidas.length)
 
   /**
    * MUDANÇA DE DECISÃO, registrada: a primeira versão deixava as linhas da decomposição SEM
@@ -59,10 +72,9 @@ describe('1. DA 12 EM DIANTE, a decomposição substitui as etapas', () => {
    * o argumento e decidiu o contrário — numerar em sequência. A numeração é de EXIBIÇÃO: não
    * volta ao `cascade_trace`, não é gravada e não é citável.
    */
-  it('a construção vai de 1 a 11, e a decomposição CONTINUA a sequência', () => {
-    expect(view.slice(0, 11).map((r) => r.numero)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
+  it('a construção vai até 11 — SEM a 10 — e a decomposição CONTINUA a sequência', () => {
+    expect(construidas.map((r) => r.numero)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 11])
     expect(ULTIMA_ETAPA_DA_CONSTRUCAO).toBe(11)
-    const decompostas = view.slice(11)
     expect(decompostas[0].numero).toBe(12)
     // Sem buraco e sem repetição: a sequência é contínua até o fim.
     decompostas.forEach((r, i) => expect(r.numero).toBe(12 + i))
@@ -87,7 +99,6 @@ describe('1. DA 12 EM DIANTE, a decomposição substitui as etapas', () => {
   it('e o número da decomposição NÃO vem do trace — é de exibição', () => {
     // O trace tem a etapa 13 e a 17; a decomposição ocupa 12, 13, 14… em sequência própria.
     // Se viessem do trace, haveria buraco entre 14 e 16 e a 17 apareceria fora de lugar.
-    const decompostas = view.slice(11)
     expect(decompostas.length).toBeGreaterThan(15)
     expect(decompostas.map((r) => r.numero)).toEqual(
       decompostas.map((_, i) => 12 + i),
