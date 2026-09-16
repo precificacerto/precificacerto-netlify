@@ -230,13 +230,33 @@ manual do oficial é `cclass_trib_origem` (`'TABELA'` | `'MANUAL'`) mais
 por "o código não está na tabela"**, porque contra uma tabela que muda essa
 dedução erra nos dois sentidos e a resposta muda sozinha.
 
-**Estado em 16/09/2026.** O schema e a derivação existem e estão testados:
+**Estado em 16/09/2026. AS TRÊS MIGRAÇÕES ESTÃO APLICADAS E VERIFICADAS.**
 
-| migração | o que faz |
-|---|---|
-| `20260916000001` | as duas tabelas oficiais — 18 CST e 164 cClassTrib |
-| `20260916000002` | as seis colunas em `products` **e em `services`**, com as três CHECK de coerência |
-| `20260916000003` | a travessia ADITIVA: as duas colunas novas recebem o valor de `iva_dual_reduction_factor`, e a antiga FICA |
+| migração | o que faz | estado |
+|---|---|---|
+| `20260916000001` | as duas tabelas oficiais — 18 CST e 164 cClassTrib | **aplicada** |
+| `20260916000002` | as seis colunas em `products` **e em `services`**, com as três CHECK de coerência | **aplicada** |
+| `20260916000003` | a travessia ADITIVA: as duas colunas novas recebem o valor de `iva_dual_reduction_factor`, e a antiga FICA | **aplicada** |
+
+> **A verificação foi por CONSULTA AO SCHEMA, não pelo retorno do comando.**
+> `migration-delivery.md` diz que o default é PENDENTE até alguém olhar a coluna
+> na tabela, e `estado-relatado-vs-real.md` diz que estado de sistema externo
+> exige a fonte primária antes de virar premissa. O dono do produto aplicou e
+> reportou; a consulta abaixo é independente do relato dele e bate com ele:
+>
+> | | medido |
+> |---|---|
+> | `cst_ibs_cbs` · `cclass_trib` | 18 · 164 |
+> | com `d_fim_vig` · com redução > 0 · divergentes | 3 · 59 · 1 |
+> | `200025` (ProUni) | **60 / 100** |
+> | colunas novas em `products` · em `services` | 6 · 6 |
+> | CHECK de classificação e redução | 10 |
+> | `products` com as duas reduções · com o legado · divergentes | 1 · 1 · **0** |
+> | `services` com redução | 0 |
+> | linhas intactas | 163 produtos · 10 serviços |
+>
+> `NOTIFY pgrst` rodado nas três — é ele que evita o erro do PostgREST que
+> derrubou produção em 01/09/2026, e ele não vem junto com o `COMMIT`.
 
 Mais `src/utils/classificacao-fiscal.ts`, que é a fonte única da derivação.
 

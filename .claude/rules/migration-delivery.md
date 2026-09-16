@@ -132,6 +132,40 @@ momento da aplicação e é a única coisa que liga as duas metades enquanto o g
 A perda de hoje fica registrada como perda, não corrigida: reescrever o `name` de uma migração
 já aplicada é mexer em histórico, e não vale o risco por um registro.
 
+### A convenção FUNCIONOU — primeira aplicação sob ela, 16/09/2026
+
+As três migrações do cClassTrib foram aplicadas por fora do CLI (a primeira pelo SQL Editor,
+as outras duas pelo conector) e o `name` carrega o nome completo do arquivo:
+
+| versão gerada pelo banco | `name` registrado |
+|---|---|
+| `20260916190412` | `20260916000001_cst_ibs_cbs_e_cclass_trib` |
+| `20260916193058` | `20260916000002_classificacao_fiscal_em_products` |
+| `20260916193508` | `20260916000003_reducao_por_tributo_backfill` |
+
+**A versão continua não batendo, e isso é o esperado** — o banco a gera na hora, e a regra
+acima já dizia que ela nunca vai coincidir com o prefixo do arquivo. O que a convenção
+preserva é a LIGAÇÃO, e ela está preservada: dá para achar o arquivo a partir da linha do
+`schema_migrations` sem adivinhar por semelhança de nome, que era exatamente o que se perdeu
+em `iva_dual_reduction_factor_range`.
+
+Fica registrado como precedente de que a convenção é praticável, não só desejável.
+
+### Duas coisas que a aplicação de hoje ensinou, e que não estavam escritas
+
+**1. `BEGIN`/`COMMIT` no arquivo brigam com o conector.** O conector do Supabase abre
+transação própria; o `BEGIN` do arquivo produz `WARNING: there is already a transaction in
+progress` e o `COMMIT` fecha a transação DELE. As duas migrações aplicadas por esse caminho
+tiveram os dois removidos na hora. O SQL Editor, ao contrário, aceita o arquivo como está.
+
+Consequência para quem escrever a próxima: **o `BEGIN`/`COMMIT` é do arquivo, e quem aplica
+decide se tira.** Escrever sem eles seria pior — aplicar por psql ou pelo Editor deixaria cada
+comando em autocommit, e uma falha no meio não teria rollback.
+
+**2. O `NOTIFY pgrst` não vem junto com o `COMMIT`.** É passo separado, e foi rodado nas três.
+A regra acima já dizia por quê; aqui fica o registro de que foi feito, porque "esqueci o
+NOTIFY" é indistinguível de "a coluna não existe" pela mensagem de erro que o usuário vê.
+
 ## PENDENTE POR PADRÃO
 
 Formulação do dono do produto, registrada como está:
