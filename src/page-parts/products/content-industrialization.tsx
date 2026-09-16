@@ -39,7 +39,8 @@ interface ContentIndustrializationProps {
   onIbsPctChange?: (value: number) => void
   cbsPct?: number
   onCbsPctChange?: (value: number) => void
-  ivaDualReductionFactor?: number | null
+  ivaReductionIbsPct?: number | null
+  ivaReductionCbsPct?: number | null
   isPct?: number
   onIsPctChange?: (value: number) => void
   ipiPct?: number
@@ -89,7 +90,8 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
   onIbsPctChange,
   cbsPct,
   onCbsPctChange,
-  ivaDualReductionFactor,
+  ivaReductionIbsPct,
+  ivaReductionCbsPct,
   isPct,
   onIsPctChange,
   ipiPct,
@@ -243,7 +245,8 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
         ibsPct={ibsPct}
         onIbsPctChange={onIbsPctChange}
         cbsPct={cbsPct}
-        ivaDualReductionFactor={ivaDualReductionFactor}
+        ivaReductionIbsPct={ivaReductionIbsPct}
+        ivaReductionCbsPct={ivaReductionCbsPct}
         onCbsPctChange={onCbsPctChange}
         isPct={isPct}
         onIsPctChange={onIsPctChange}

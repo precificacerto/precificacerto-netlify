@@ -20,7 +20,7 @@
  */
 
 import { calculatePricing, type CalcType, type ResolvedTaxBreakdown } from './pricing-engine'
-import { resolveConstructionTaxInput, type BaseCodeOverrides, type BuyerPurpose, type BuyerTypeEnum, type SaleScope } from './sale-context'
+import { resolveConstructionTaxInput, type BaseCodeOverrides, type BuyerPurpose, type BuyerTypeEnum, type ConstructionTaxRates, type SaleScope } from './sale-context'
 
 export interface ProductConstructionInput {
   taxableRegime: string | null | undefined
@@ -40,18 +40,19 @@ export interface ProductConstructionInput {
   /** IRPJ + CSLL + adicional (R6). */
   profitTaxPct: number
 
-  rates: {
-    icmsPct?: number | null
-    issPct?: number | null
-    /** Como o cadastro o guarda: já com a exclusão do ICMS/ISS. */
-    pisCofinsEffectivePct?: number | null
-    ipiPct?: number | null
-    isPct?: number | null
-    ibsPct?: number | null
-    cbsPct?: number | null
-    /** FRAÇÃO [0, 1]. */
-    ivaDualReductionFactor?: number | null
-  }
+  /**
+   * O MESMO tipo que `resolveConstructionTaxInput` recebe, importado em vez de
+   * redeclarado.
+   *
+   * Até 16/09/2026 esta lista era um literal inline com os mesmos campos — a
+   * SEGUNDA cópia do mesmo contrato, e ela já divergiu: ao separar a redução em
+   * IBS e CBS, o `tsc` apontou os quatro chamadores de `ConstructionTaxRates` e
+   * NÃO apontou este arquivo, porque ele tinha a própria declaração. É
+   * `copia-divergente.md` na forma literal, e o remédio dela não é conferir as
+   * duas: *"é apagar uma. Com um construtor só, acrescentar um campo vale para
+   * todas as rotas, e a omissão deixa de ser possível."*
+   */
+  rates: ConstructionTaxRates
 
   /**
    * Override manual do código de base, por tributo (7.5, item 6). Ausente ou `null` por

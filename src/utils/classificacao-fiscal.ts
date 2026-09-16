@@ -176,3 +176,73 @@ export function resolveClassificacaoFiscal(args: ResolveArgs): ResultadoClassifi
     },
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   A TRAVESSIA DO LEGADO — uma, nomeada, e a única autorizada
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/** O que qualquer cadastro (produto ou serviço) traz sobre redução. */
+export interface ItemComReducao {
+  iva_reduction_ibs_pct?: number | null
+  iva_reduction_cbs_pct?: number | null
+  /** LEGADO — o fator único, anterior à classificação fiscal. */
+  iva_dual_reduction_factor?: number | null
+}
+
+export type FonteDaReducao = 'POR_TRIBUTO' | 'LEGADO' | 'AUSENTE'
+
+export interface ReducoesDoItem {
+  /** Percentual inteiro em [0, 100], ou `null` quando não há o que aplicar. */
+  ibs: number | null
+  cbs: number | null
+  /**
+   * De onde os dois vieram. É o que a TELA usa para rotular: com `LEGADO` ela
+   * mostra o valor anterior à classificação fiscal, em leitura apenas, e o
+   * caminho para mudá-lo é classificar.
+   */
+  fonte: FonteDaReducao
+}
+
+/**
+ * Resolve a redução de IBS e de CBS de um cadastro, com UMA travessia do legado.
+ *
+ * ── Por que existe, e por que é uma função e não um `??` espalhado ──────────
+ *
+ * Depois da `20260916000003` o mesmo valor existe em dois lugares de propósito:
+ * `iva_dual_reduction_factor` (legado, que FICA) e as duas colunas novas. Ler os
+ * dois em cada ponto de consumo seria espalhar a decisão por N lugares, e o
+ * primeiro que esquecesse a metade nova receberia um número PLAUSÍVEL — que é
+ * exatamente como a junta passa (`copia-divergente.md`).
+ *
+ * É o mesmo desenho de `reductionFactorPctToFraction`: uma travessia autorizada,
+ * e todo mundo passa por ela.
+ *
+ * ── A ORDEM, e o que ela protege ───────────────────────────────────────────
+ *
+ * As colunas novas VENCEM. Só quando as duas estão vazias é que o legado entra —
+ * e aí ele vale para os dois tributos, porque era um número só. Se o legado
+ * viesse primeiro, classificar um produto pelo cClassTrib não mudaria nada
+ * enquanto o campo antigo tivesse valor, e a classificação ficaria decorativa.
+ *
+ * ── `AUSENTE` NÃO É ZERO ───────────────────────────────────────────────────
+ *
+ * `null` nos três campos significa "ninguém classificou", e a função devolve
+ * `null`, não `0`. Quem precisa de número para o motor converte na borda — e
+ * ali, para o `c`, ausente e zero dão o mesmo resultado, o que é exatamente o
+ * que a R4 diz. A distinção fica onde é acionável: no dado e na tela.
+ */
+export function resolveReducoesDoItem(item: ItemComReducao | null | undefined): ReducoesDoItem {
+  const ibs = item?.iva_reduction_ibs_pct
+  const cbs = item?.iva_reduction_cbs_pct
+  if (ibs != null || cbs != null) {
+    return { ibs: ibs ?? null, cbs: cbs ?? null, fonte: 'POR_TRIBUTO' }
+  }
+
+  const legado = item?.iva_dual_reduction_factor
+  if (legado != null) {
+    // Um número só, aplicado aos dois — é o que ele sempre significou.
+    return { ibs: legado, cbs: legado, fonte: 'LEGADO' }
+  }
+
+  return { ibs: null, cbs: null, fonte: 'AUSENTE' }
+}

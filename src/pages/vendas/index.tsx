@@ -84,6 +84,7 @@ import { decideMrmAction } from '@/utils/mrm-policies'
 import { aggregateMotorResults } from '@/utils/mrm-aggregate'
 import { ACTIVE_OR_NULL_FILTER } from '@/utils/active-record-filter'
 import { RequiresReviewBadge } from '@/components/mrm/RequiresReviewBadge'
+import { SERVICE_TAX_SELECT } from '@/utils/item-tax-columns'
 
 const PAYMENT_METHODS = [
     { value: 'PIX', label: '⚡ PIX' },
@@ -588,7 +589,9 @@ function Sales() {
             // Services: try with recurrence_days, fall back without
             let svcs: any[] | null = null
             const svb = supabase as any
-            const svcTaxCols = 'icms_pct, pis_cofins_pct, pis_pct, cofins_pct, iss_pct, is_pct, ipi_pct, ibs_pct, cbs_pct, ibs_reference_pct, cbs_reference_pct, iva_dual_reduction_factor, iss_retido_pct, irpj_pct, csll_pct, sale_price_base, freight_value, insurance_value, accessory_expenses_value'
+            // A lista vive em `item-tax-columns.ts`, com teste de efeito. Escrevê-la à
+            // mão aqui é a forma do #28 e do #45 — `copia-divergente.md`.
+            const svcTaxCols = SERVICE_TAX_SELECT
             const { data: svcsFull, error: svcsErr } = await svb.from('services').select(`id, name, base_price, commission_percent, profit_percent, rt_reserve_percent, commission_table_id, recurrence_days, destination_snapshot, ${svcTaxCols}`).eq('status', 'ACTIVE').or(ACTIVE_OR_NULL_FILTER).order('name')
             if (!svcsErr) {
                 svcs = svcsFull

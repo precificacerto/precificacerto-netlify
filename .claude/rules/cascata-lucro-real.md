@@ -251,8 +251,40 @@ propósito: é o que permite medir o motor novo contra o antigo. Medido antes de
 escrever a migração, por consulta ao banco: **163 produtos, 1 com fator (valor
 50); 10 serviços, nenhum com fator.** A `000003` atualiza UMA linha.
 
-**A fiação da tela NÃO está feita**, e `products.iva_dual_reduction_factor`
-continua sendo o que o motor lê hoje.
+**A fiação está feita em 16/09/2026.** O bloco `ClassificacaoFiscalBlock`
+(`src/page-parts/shared/`) serve produto E serviço — um componente, dois
+cadastros, pela mesma razão de classe. O seletor de oito faixas **saiu como
+entrada livre**: ele só reaparece no caminho de EXCEÇÃO, quando o código está
+fora da tabela.
+
+**A JUNTA ERA UMA LINHA.** `ExternalTax.reductionFactor` sempre foi por tributo
+no motor — `ibs` e `cbs` são objetos independentes. Quem os forçava a coincidir
+era `sale-context.ts:300`, lendo UM campo e copiando para os dois. O motor não
+mudou; o que mudou foi parar de copiar.
+
+E `item-tax-rates.ts:636-637` mudou **no mesmo commit**, não depois: ele
+continuaria derivando do fator único enquanto o resto lê os dois novos, e os
+números sairiam PLAUSÍVEIS — alíquota reduzida, pela redução errada, sem erro e
+sem log.
+
+**A travessia do legado é UMA, nomeada.** `resolveReducoesDoItem`: as colunas
+novas vencem; o fator antigo só entra quando as duas estão vazias. Se o legado
+viesse primeiro, classificar não mudaria nada enquanto o campo antigo tivesse
+valor, e a classificação ficaria decorativa.
+
+**Uma segunda declaração do mesmo contrato apareceu e foi apagada.**
+`ProductConstructionInput.rates` era um literal inline com os mesmos campos de
+`ConstructionTaxRates` — o `tsc` apontou os chamadores de um e **não** os do
+outro. Trocado pelo tipo importado, o compilador enumerou os nove pontos
+restantes de uma vez. `copia-divergente.md`, e o remédio dela.
+
+**O lançamento manual de imposto é override da ALÍQUOTA, não da CLASSIFICAÇÃO.**
+ADR-022 D5 estendido: as duas reduções novas são zeradas junto com o fator legado,
+porque são entrada da derivação; `cclass_trib` e `cst_ibs_cbs_code` ficam, porque
+a NF-e os exige e lançar imposto à mão não torna o item outra coisa. O estado
+resultante — classificado, com reduções NULL — se distingue do código MANUAL por
+`taxes_launched`. É por isso que a `20260916000002` NÃO amarrou as reduções ao
+cClassTrib por CHECK: a constraint proibiria este caso.
 
 **R5 · Percentual efetivado.** Toda categoria da operação interna é cadastrada
 como **% Original sobre o total geral** e convertida para cálculo:

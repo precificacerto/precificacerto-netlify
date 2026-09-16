@@ -299,11 +299,11 @@ describe('correção 6 — acréscimos no orçamento, com rateio', () => {
     it('reproduz a ficha dos dois produtos da planilha — e o `c` é POR PRODUTO, não global', () => {
       const f1 = resolveItemFicha({
         segment: 'INDUSTRIALIZACAO',
-        rates: { icmsPct: 0.17, pisCofinsPct: 0.0925, ibsPct: 0.01, cbsPct: 0.088, ivaDualReductionFactor: 0 },
+        rates: { icmsPct: 0.17, pisCofinsPct: 0.0925, ibsPct: 0.01, cbsPct: 0.088, ivaReductionIbs: 0, ivaReductionCbs: 0 },
       })
       const f2 = resolveItemFicha({
         segment: 'INDUSTRIALIZACAO',
-        rates: { icmsPct: 0.12, pisCofinsPct: 0.0925, ibsPct: 0.01, cbsPct: 0.088, ivaDualReductionFactor: 0.6 },
+        rates: { icmsPct: 0.12, pisCofinsPct: 0.0925, ibsPct: 0.01, cbsPct: 0.088, ivaReductionIbs: 0.6, ivaReductionCbs: 0.6 },
       })
 
       // Planilha aba "Orçamento", linhas 18 a 20.

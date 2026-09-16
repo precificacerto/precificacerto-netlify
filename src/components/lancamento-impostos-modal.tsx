@@ -3,6 +3,7 @@ import { Modal, Form, Button, Divider, Row, Col, Typography, Spin, message } fro
 import { PercentInput } from '@/components/percent-input.component'
 import { supabase } from '@/supabase/client'
 import { computeIvaDualOutside } from '@/utils/iva-dual-outside'
+import { buildLancamentoManualPayload } from '@/utils/lancamento-manual-de-impostos'
 
 const { Text } = Typography
 
@@ -142,27 +143,10 @@ export const LancamentoImpostosModal: FC<LancamentoImpostosModalProps> = ({
     try {
       const { error } = await (supabase as any)
         .from(table)
-        .update({
-          taxes_launched: true,
-          is_pct: isPct,
-          is_value: isValue,
-          ibs_pct: ibsPct,
-          ibs_value: ibsValue,
-          cbs_pct: cbsPct,
-          cbs_value: cbsValue,
-          // ADR-022: lançamento manual é OVERRIDE explícito — o usuário digita a alíquota
-          // EFETIVA final. Limpa a referência/fator para que o motor use o valor digitado
-          // (fallback), evitando que a derivação (referência × fator) ignore o lançamento.
-          ibs_reference_pct: null,
-          cbs_reference_pct: null,
-          iva_dual_reduction_factor: null,
-          ipi_pct: ipiPct,
-          ipi_value: ipiValue,
-          sale_price_base: salePrice,
-          sale_price_after_taxes: finalPrice,
-          sale_price: finalPrice,
-          updated_at: new Date().toISOString(),
-        })
+        .update(buildLancamentoManualPayload({
+          isPct, isValue, ibsPct, ibsValue, cbsPct, cbsValue, ipiPct, ipiValue,
+          salePrice, finalPrice, updatedAt: new Date().toISOString(),
+        }))
         .eq('id', entityId)
 
       if (error) {

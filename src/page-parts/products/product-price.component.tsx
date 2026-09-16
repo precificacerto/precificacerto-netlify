@@ -48,9 +48,14 @@ interface Props {
   onIbsPctChange?: (value: number) => void
   cbsPct?: number
   onCbsPctChange?: (value: number) => void
-  /* PC-BUG-FATOR-REDUCAO-002 Ponto 1: fator de redução IVA Dual aplicado SOBRE a alíquota
-     bruta de IBS/CBS no cadastro (efetiva = bruta × (1 − fator)). Só IBS/CBS. */
-  ivaDualReductionFactor?: number | null
+  /* PC-BUG-FATOR-REDUCAO-002 Ponto 1: a redução do IVA Dual é aplicada SOBRE a alíquota
+     bruta no cadastro (efetiva = bruta × (1 − redução)). Só IBS/CBS a sofrem.
+
+     SÃO DUAS PROPS e não uma desde 16/09/2026: a redução DECORRE do cClassTrib, e a
+     tabela oficial separa `pRedIBS` de `pRedCBS` — o código `200025` (ProUni) tem 60 no
+     IBS e 100 na CBS. Percentual inteiro em [0, 100], como a tela usa. */
+  ivaReductionIbsPct?: number | null
+  ivaReductionCbsPct?: number | null
   isPct?: number
   onIsPctChange?: (value: number) => void
   ipiPct?: number
@@ -114,7 +119,8 @@ export const ProductPrice: FC<Props> = ({
   onFinalPriceWithTaxesChange,
   advancedTaxesSection,
   advancedTaxParams,
-  ivaDualReductionFactor = null,
+  ivaReductionIbsPct = null,
+  ivaReductionCbsPct = null,
   fractionByYield = false,
   isResaleProduct = false,
 }: Props) => {
@@ -218,7 +224,10 @@ export const ProductPrice: FC<Props> = ({
       isPct: (isPct || 0) / 100,
       ibsPct: (ibsPct || 0) / 100,
       cbsPct: (cbsPct || 0) / 100,
-      ivaDualReductionFactor: ivaDualReductionFactor != null ? ivaDualReductionFactor / 100 : null,
+      // Os DOIS, separados. A fração vem da mesma travessia que o motor usa, para
+      // que a tela e o cálculo não possam divergir na origem do número.
+      ivaReductionIbs: ivaReductionIbsPct != null ? ivaReductionIbsPct / 100 : null,
+      ivaReductionCbs: ivaReductionCbsPct != null ? ivaReductionCbsPct / 100 : null,
     },
     // Override manual do código de base (7.5, item 6). `null` = não classificado, cai no
     // padrão da R3 — jamais no código 1 por omissão.
@@ -315,11 +324,12 @@ export const ProductPrice: FC<Props> = ({
   // mas NÃO a base do IS nem sofrem dedução de ICMS/PIS. ICMS Complementar não se aplica no
   // cadastro (depende do destinatário — só em orçamento/pedido/venda).
   const _ivaApplies = isLucroReal || isLucroPresumed
-  // PC-BUG-FATOR-REDUCAO-002 Ponto 1: aplica o fator de redução SOBRE a alíquota bruta de
-  // IBS/CBS (efetiva = bruta × (1 − fator)). IPI e IS NÃO sofrem o fator. É o que faz o valor
-  // de IBS/CBS reduzir já na tela de construção do produto ao selecionar o fator.
-  const _ibsEffective = resolveIvaDualEffectiveRate(ibsPct, ivaDualReductionFactor) || 0
-  const _cbsEffective = resolveIvaDualEffectiveRate(cbsPct, ivaDualReductionFactor) || 0
+  // PC-BUG-FATOR-REDUCAO-002 Ponto 1: aplica a redução SOBRE a alíquota bruta de IBS/CBS
+  // (efetiva = bruta × (1 − redução)). IPI e IS NÃO a sofrem. É o que faz o valor de
+  // IBS/CBS reduzir já na tela de construção do produto ao classificar o item.
+  // CADA UM COM A SUA — era aqui que o fator único se copiava para os dois.
+  const _ibsEffective = resolveIvaDualEffectiveRate(ibsPct, ivaReductionIbsPct) || 0
+  const _cbsEffective = resolveIvaDualEffectiveRate(cbsPct, ivaReductionCbsPct) || 0
   const _iva = computeIvaDualOutside({
     opInterna: baseForSalePrice,
     despAcessorias: terceirizadasTotal,
@@ -637,17 +647,18 @@ export const ProductPrice: FC<Props> = ({
         {/* IBS / CBS — LUCRO_REAL / LUCRO_PRESUMIDO */}
         {(isLucroReal || isLucroPresumed || isSimplesHibrido) && (() => {
           const ibsCbsRows = [
-            { label: 'IBS — Imposto sobre Bens e Serv. (%)', value: ibsPct, onChange: onIbsPctChange, taxValue: taxIbsValue },
-            { label: 'CBS — Contrib. sobre Bens e Serv. (%)', value: cbsPct, onChange: onCbsPctChange, taxValue: taxCbsValue },
-          ] as { label: string; value: number; onChange?: (v: number) => void; taxValue: number }[]
+            { label: 'IBS — Imposto sobre Bens e Serv. (%)', value: ibsPct, onChange: onIbsPctChange, taxValue: taxIbsValue, reductionPct: ivaReductionIbsPct },
+            { label: 'CBS — Contrib. sobre Bens e Serv. (%)', value: cbsPct, onChange: onCbsPctChange, taxValue: taxCbsValue, reductionPct: ivaReductionCbsPct },
+          ] as { label: string; value: number; onChange?: (v: number) => void; taxValue: number; reductionPct: number | null }[]
           // PC-UI-IBSCBS-ALIQEFETIVA-005 (PO Cristiano, 2026-06-30): exibe a alíquota EFETIVA
           // (pós-fator de redução do IVA Dual) na própria linha do imposto, ao lado do R$ já
           // calculado com o fator — eliminando a ambiguidade de ver só a alíquota cheia.
           // Reusa a MESMA lógica do cálculo (resolveIvaDualEffectiveRate), sem nova regra.
           const fmtPct = (n: number) =>
             n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 3 }) + '%'
-          const hasReductionFactor =
-            ivaDualReductionFactor != null && Number(ivaDualReductionFactor) > 0
+          // A redução é POR LINHA: o IBS pode ter uma e a CBS outra. Uma variável única
+          // aqui reintroduziria a junta na TELA — os dois números certos no cálculo e um
+          // rótulo só, dizendo o do primeiro.
           return (
             <div style={{ marginTop: 14, background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '12px 14px', border: '1px solid rgba(255,255,255,0.07)' }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' as const, letterSpacing: 0.6, marginBottom: 10 }}>
@@ -657,9 +668,10 @@ export const ProductPrice: FC<Props> = ({
                   L1 = campo de % (esq.) + fator (centro) + alíquota efetiva (borda direita);
                   L2 = valor em R$ resultante. Campo de % com largura IGUAL a IBS/CBS/IS/IPI
                   (88px mobile / 110px desktop) e fração monetária com o MESMO tamanho de fonte. */}
-              {ibsCbsRows.map(({ label, value, onChange, taxValue }) => {
-                const effective = hasReductionFactor && value > 0
-                  ? (resolveIvaDualEffectiveRate(value, ivaDualReductionFactor) || 0)
+              {ibsCbsRows.map(({ label, value, onChange, taxValue, reductionPct }) => {
+                const hasReduction = reductionPct != null && Number(reductionPct) > 0
+                const effective = hasReduction && value > 0
+                  ? (resolveIvaDualEffectiveRate(value, reductionPct) || 0)
                   : null
                 return (
                   <div key={label} style={{ padding: '6px 0', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
@@ -676,7 +688,7 @@ export const ProductPrice: FC<Props> = ({
                       {effective != null && (
                         <>
                           <span style={{ fontSize: 11, color: '#94a3b8', textAlign: 'center' as const, flex: '1 1 auto' }}>
-                            fator {Number(ivaDualReductionFactor)}%
+                            redução {Number(reductionPct)}%
                           </span>
                           <span style={{ fontSize: 11, color: '#4ade80', fontWeight: 600, textAlign: 'right' as const, whiteSpace: 'nowrap', flex: '0 0 auto' }}>
                             efetiva {fmtPct(effective)}

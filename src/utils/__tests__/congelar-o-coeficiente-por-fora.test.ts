@@ -42,7 +42,7 @@ function construir(ibsPct: number, cbsPct: number, regime = 'LUCRO_REAL') {
     structurePct: 0.1792, rtReservePct: 0, commissionPct: 0.02, profitPct: 0.02, profitTaxPct: 0.01,
     rates: {
       icmsPct: 0.17, issPct: null, pisCofinsEffectivePct: 0.076775,
-      ipiPct: 0, isPct: 0, ibsPct: ibsPct / 100, cbsPct: cbsPct / 100, ivaDualReductionFactor: null,
+      ipiPct: 0, isPct: 0, ibsPct: ibsPct / 100, cbsPct: cbsPct / 100, ivaReductionIbs: null, ivaReductionCbs: null,
     },
     despAcessorias: 0,
   })

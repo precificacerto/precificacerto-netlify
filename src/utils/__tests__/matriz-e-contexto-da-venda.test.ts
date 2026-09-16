@@ -142,7 +142,8 @@ describe('correção 5 — a matriz e o contexto da venda', () => {
         rates: {
           icmsPct: 0.17, pisCofinsPct: 0.0925,
           ibsPct: 0.088, cbsPct: 0.088, isPct: 0.02, ipiPct: 0.05,
-          ivaDualReductionFactor: 0.6,
+          ivaReductionIbs: 0.6,
+          ivaReductionCbs: 0.6,
         },
       })
       expect(r.taxBreakdown!.ibs!.reductionFactor).toBe(0.6)
@@ -563,7 +564,7 @@ describe('correção 5 — a matriz e o contexto da venda', () => {
         segment: 'INDUSTRIALIZACAO',
         buyerType: 'CONSUMIDOR_FINAL',
         saleScope: 'INTRAESTADUAL',
-        rates: { icmsPct: 0.17, pisCofinsEffectivePct: 0.0768, ibsPct: 0.1, ivaDualReductionFactor: 0.5 },
+        rates: { icmsPct: 0.17, pisCofinsEffectivePct: 0.0768, ibsPct: 0.1, ivaReductionIbs: 0.5, ivaReductionCbs: 0.5 },
         profitTaxPct: 0,
       })
       const r = calculatePricing({

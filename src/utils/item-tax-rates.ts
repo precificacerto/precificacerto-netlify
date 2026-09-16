@@ -17,6 +17,7 @@
 
 import type { TaxRatePeriod, TaxType, TaxRegime } from '@/types/mrm'
 import { isValidReductionFactorPct } from '@/utils/iva-dual-reduction-factor'
+import { resolveReducoesDoItem } from '@/utils/classificacao-fiscal'
 
 /**
  * Alíquotas tributárias persistidas em `products`/`services` (todas em DECIMAL).
@@ -632,9 +633,18 @@ export function buildItemTaxRatesFromProduct(prod: any): ItemTaxRates {
     difal_pct: usesAdvancedDifal ? null : (prod?.difal_pct ?? null),
     fcp_pct: usesAdvancedDifal ? null : (prod?.fcp_pct ?? null),
     // PC-BUG-FATOR-REDUCAO-002: ibs_pct/cbs_pct são a alíquota BRUTA digitada; a EFETIVA =
-    // bruta × (1 − fator) é derivada on-read (regra do PO). Só IBS/CBS sofrem o fator.
-    ibs_pct: resolveIvaDualEffectiveRate(prod?.ibs_pct, prod?.iva_dual_reduction_factor),
-    cbs_pct: resolveIvaDualEffectiveRate(prod?.cbs_pct, prod?.iva_dual_reduction_factor),
+    // bruta × (1 − redução) é derivada on-read (regra do PO). Só IBS/CBS a sofrem.
+    //
+    // 16/09/2026 — A REDUÇÃO É POR TRIBUTO, e este ponto muda NO MESMO COMMIT que
+    // `sale-context.ts`. Deixá-lo para depois é o que a junta faz: ele continuaria
+    // derivando do fator ÚNICO legado enquanto o resto do sistema lê os dois novos,
+    // e os números sairiam PLAUSÍVEIS — alíquota reduzida, só que pela redução
+    // errada. Nada falharia. `copia-divergente.md`.
+    //
+    // `resolveReducoesDoItem` é a travessia única do legado: as colunas novas
+    // vencem; o fator antigo só entra quando as duas estão vazias.
+    ibs_pct: resolveIvaDualEffectiveRate(prod?.ibs_pct, resolveReducoesDoItem(prod).ibs),
+    cbs_pct: resolveIvaDualEffectiveRate(prod?.cbs_pct, resolveReducoesDoItem(prod).cbs),
     iss_retido_pct: prod?.iss_retido_pct ?? null,
     // EPIC-DAS: produto grava em `custom_tax_percent`; serviço em `taxable_regime_percent`.
     // O helper serve aos dois cadastros, então aceita qualquer uma das colunas.

@@ -80,9 +80,15 @@ describe('2. A FICHA carrega os quatro mapas, e não mais um só', () => {
     rates: {
       icmsPct: 0.17, issPct: null, pisCofinsPct: 0.0925,
       ipiPct: 0, isPct: 0, ibsPct: 0.01, cbsPct: 0.09,
-      // R4 — o fator é do PRODUTO e vale para IBS e CBS (só eles o sofrem). Em FRAÇÃO: a
+      // R4 — a redução vale só para IBS e CBS, e desde 16/09/2026 são DUAS: ela DECORRE
+      // do cClassTrib, e a tabela oficial separa `pRedIBS` de `pRedCBS`. Em FRAÇÃO: a
       // travessia percentual→fração é de `reductionFactorPctToFraction`, e não daqui.
-      ivaDualReductionFactor: 0.6,
+      //
+      // Os valores são os do código 200025 (educação, ProUni): 60% no IBS, 100% na CBS.
+      // É o ÚNICO dos 164 em que os dois divergem, e é por isso que ele está aqui — com
+      // valores iguais este caso não distinguiria "dois campos" de "um campo copiado".
+      ivaReductionIbs: 0.6,
+      ivaReductionCbs: 1,
     } as never,
   }).ficha!
 
@@ -92,10 +98,22 @@ describe('2. A FICHA carrega os quatro mapas, e não mais um só', () => {
     expect(f.externalRateByTax.ibs).toBeCloseTo(0.004, 12)
     expect(f.externalBaseByTax.ibs).toBeGreaterThan(0)
     expect(f.externalBaseByTax.ibs).toBeLessThan(1)
-    // O CBS sofre o MESMO fator — ele é do produto, não do tributo (R4). O contraste que
-    // separa nominal de efetiva está aqui: 9,00% cadastrado, 3,60% efetivo.
+    // O CBS tem a SUA redução, e ela é OUTRA. Até 16/09/2026 este caso afirmava que o
+    // fator era "do produto, não do tributo" — era a junta escrita como asserção.
+    expect(f.externalReductionByTax.cbs).toBeCloseTo(1, 12)
     expect(f.externalNominalByTax.cbs).toBeCloseTo(0.09, 12)
-    expect(f.externalRateByTax.cbs).toBeCloseTo(0.036, 12)
+    // 100% de redução zera a alíquota. Com o fator único de 60% ela sairia 3,60%.
+    expect(f.externalRateByTax.cbs).toBeCloseTo(0, 12)
+    expect(f.externalRateByTax.cbs).not.toBeCloseTo(0.036, 5)
+  })
+
+  it('AS DUAS REDUÇÕES CAMINHAM SEPARADAS — é o que um campo só não conseguia dizer', () => {
+    // O contraste, e é ele que mata o colapso dos dois campos num só: se a CBS lesse a
+    // redução do IBS, os dois redutores seriam 0,6 e as duas efetivas seriam proporcionais
+    // à mesma fração.
+    expect(f.externalReductionByTax.ibs).not.toBeCloseTo(f.externalReductionByTax.cbs, 5)
+    expect(f.externalReductionByTax.ibs).toBeCloseTo(0.6, 12)
+    expect(f.externalReductionByTax.cbs).toBeCloseTo(1, 12)
   })
 
   it('e `externalByTax` continua sendo o VALOR — é o que a R17 quer para o DRE', () => {

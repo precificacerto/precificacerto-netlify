@@ -15,7 +15,8 @@ import { useAuth } from '@/hooks/use-auth.hook'
 import { useDevice } from '@/contexts/device.context'
 import { getMonetaryValue } from '@/utils/get-monetary-value'
 import { PercentInput } from '@/components/percent-input.component'
-import IvaDualReductionFactorField from '@/components/iva-dual-reduction-factor-field'
+import { resolveReducoesDoItem } from '@/utils/classificacao-fiscal'
+import ClassificacaoFiscalBlock, { type ClassificacaoFiscalValue } from '@/page-parts/shared/classificacao-fiscal-block.component'
 import { calculateItemPrice } from '@/utils/calculate-item-price'
 import { resolveMonthlyWorkload } from '@/utils/resolve-monthly-workload'
 import type { TaxPreviewResult } from '@/utils/calc-tax-preview'
@@ -170,9 +171,36 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
 
     // Handler: fator IVA DUAL muda (PC-BUG-FATOR-REDUCAO-002, regra do PO).
     // O campo IBS/CBS guarda a alíquota BRUTA digitada; a EFETIVA é derivada on-read pelo motor.
-    function handleIvaDualFactorChange(factor: number | null) {
-        setIvaDualReductionFactor(factor)
-    }
+    // ── A CLASSIFICAÇÃO FISCAL — serviço tem as MESMAS seis colunas ─────────
+    // Deixar o serviço de fora seria `copia-divergente.md` na tela, logo depois
+    // de a migração ter evitado exatamente isso no schema: o produto com duas
+    // reduções e o serviço com um fator só, e nada falhando.
+    const [classificacao, setClassificacao] = useState<ClassificacaoFiscalValue>({
+        cstIbsCbsCode: (serviceData as any)?.cst_ibs_cbs_code ?? null,
+        cclassTrib: (serviceData as any)?.cclass_trib ?? null,
+        cclassTribOrigem: (serviceData as any)?.cclass_trib_origem ?? null,
+        cclassTribSourcePublishedAt: (serviceData as any)?.cclass_trib_source_published_at ?? null,
+        ivaReductionIbsPct: (serviceData as any)?.iva_reduction_ibs_pct != null
+            ? Number((serviceData as any).iva_reduction_ibs_pct) : null,
+        ivaReductionCbsPct: (serviceData as any)?.iva_reduction_cbs_pct != null
+            ? Number((serviceData as any).iva_reduction_cbs_pct) : null,
+    })
+    const [bloqueioDaClassificacao, setBloqueioDaClassificacao] = useState<string | null>(null)
+
+    // A TRAVESSIA ÚNICA — a mesma que o produto e o motor usam.
+    const reducoes = useMemo(
+        () => resolveReducoesDoItem({
+            iva_reduction_ibs_pct: classificacao.ivaReductionIbsPct,
+            iva_reduction_cbs_pct: classificacao.ivaReductionCbsPct,
+            iva_dual_reduction_factor: ivaDualReductionFactor,
+        }),
+        [classificacao.ivaReductionIbsPct, classificacao.ivaReductionCbsPct, ivaDualReductionFactor],
+    )
+
+    // `handleIvaDualFactorChange` FOI REMOVIDA em 16/09/2026. O fator deixou de ser
+    // ENTRADA: a redução decorre do cClassTrib, e o valor legado é só leitura. Manter o
+    // handler seria deixar uma porta que a regra fechou — e código morto coberto por caso
+    // inventado é escrever teste para provar que o teste existe.
 
     // Commission tables
     const [commissionTables, setCommissionTables] = useState<{ id: string; name: string; commission_percent: number }[]>([])
@@ -417,7 +445,8 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                 isPct: null,
                 ibsPct: (ibsPct || 0) / 100,
                 cbsPct: (cbsPct || 0) / 100,
-                ivaDualReductionFactor: ivaDualReductionFactor != null ? ivaDualReductionFactor / 100 : null,
+                ivaReductionIbs: reducoes.ibs != null ? reducoes.ibs / 100 : null,
+                ivaReductionCbs: reducoes.cbs != null ? reducoes.cbs / 100 : null,
             },
             despAcessorias: 0,
         })
@@ -554,6 +583,13 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
         try {
             setSaving(true)
             const v = await form.validateFields()
+
+            // Par CST × cClassTrib incompatível é rejeitado pela SEFAZ. A mesma
+            // guarda do produto, e pela mesma razão.
+            if (bloqueioDaClassificacao) {
+                message.error(bloqueioDaClassificacao)
+                return
+            }
             const tid = await getTenantId()
             if (!tid) { msgApi.error('Sessão expirada.'); return }
 
@@ -591,8 +627,8 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                     issPct: issPctSvc || 0,
                     pisCofinsPct: pisCofinsLRPct || 0,
                     isPct: isPct || 0,
-                    ibsPct: resolveIvaDualEffectiveRate(ibsPct, ivaDualReductionFactor) || 0,
-                    cbsPct: resolveIvaDualEffectiveRate(cbsPct, ivaDualReductionFactor) || 0,
+                    ibsPct: resolveIvaDualEffectiveRate(ibsPct, reducoes.ibs) || 0,
+                    cbsPct: resolveIvaDualEffectiveRate(cbsPct, reducoes.cbs) || 0,
                     ipiPct: ipiPct || 0,
                 })
                 // Com a matriz (R8), o total geral é `P ÷ (1 − c)` — não a soma por cima.
@@ -649,7 +685,14 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                 sale_price_base: isLRorLPorSHSvcComp ? pricing.sellingPrice : null,
                 sale_price_after_taxes: isLRorLPorSHSvcComp ? svcFinalPrice : null,
                 valor_precificado_icms_piscofins: isLRorLPorSHSvcComp ? pricing.sellingPrice : null,
+                // O fator legado FICA — deixa de ser entrada, não de existir.
                 iva_dual_reduction_factor: isLRorLPorSHSvcComp ? (ivaDualReductionFactor ?? null) : null,
+                cst_ibs_cbs_code: isLRorLPorSHSvcComp ? classificacao.cstIbsCbsCode : null,
+                cclass_trib: isLRorLPorSHSvcComp ? classificacao.cclassTrib : null,
+                cclass_trib_origem: isLRorLPorSHSvcComp ? classificacao.cclassTribOrigem : null,
+                cclass_trib_source_published_at: isLRorLPorSHSvcComp ? classificacao.cclassTribSourcePublishedAt : null,
+                iva_reduction_ibs_pct: isLRorLPorSHSvcComp ? classificacao.ivaReductionIbsPct : null,
+                iva_reduction_cbs_pct: isLRorLPorSHSvcComp ? classificacao.ivaReductionCbsPct : null,
                 // ADR-022: snapshot da referência bruta IBS/CBS (fonte da verdade + fator).
                 ibs_reference_pct: isLRorLPorSHSvcComp && ibsReferencePct > 0 ? ibsReferencePct : null,
                 cbs_reference_pct: isLRorLPorSHSvcComp && cbsReferencePct > 0 ? cbsReferencePct : null,
@@ -1194,27 +1237,27 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                         </>
                     )}
 
-                    {/* Fator de redução IVA DUAL */}
+                    {/* CLASSIFICAÇÃO FISCAL — de onde a redução DECORRE.
+                        O seletor de oito faixas saiu como entrada livre: a redução vem do
+                        cClassTrib, não da escolha do usuário. Mesmo bloco do produto. */}
                     {(isLucroRealDisplay || isLucroPresumidoDisplay || isSHDisplay) && (
                         <div style={{ marginTop: 14, background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '12px 14px', border: '1px solid rgba(255,255,255,0.07)' }}>
                             <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 10 }}>
-                                Fator de Redução da Alíquota do IVA DUAL
+                                Classificação Fiscal — CST e cClassTrib
                             </div>
-                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
-                                <IvaDualReductionFactorField
-                                    value={ivaDualReductionFactor}
-                                    onChange={(val) => handleIvaDualFactorChange(val)}
-                                    variant="dark"
-                                    inputWidth={220}
-                                />
-                                {ivaDualReductionFactor != null && (ibsPct > 0 || cbsPct > 0) && (
-                                    <span style={{ fontSize: 12, color: '#64748b' }}>
-                                        IBS: {ibsPct.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}% (bruta) → {parseFloat((ibsPct * (1 - ivaDualReductionFactor / 100)).toFixed(4)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}% (efetiva)
-                                        &nbsp;·&nbsp;
-                                        CBS: {cbsPct.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}% (bruta) → {parseFloat((cbsPct * (1 - ivaDualReductionFactor / 100)).toFixed(4)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}% (efetiva)
-                                    </span>
-                                )}
-                            </div>
+                            <ClassificacaoFiscalBlock
+                                value={classificacao}
+                                onChange={setClassificacao}
+                                fatorLegado={ivaDualReductionFactor}
+                                onBloqueioChange={setBloqueioDaClassificacao}
+                            />
+                            {(reducoes.ibs != null || reducoes.cbs != null) && (ibsPct > 0 || cbsPct > 0) && (
+                                <div style={{ fontSize: 12, color: '#64748b', marginTop: 10 }}>
+                                    IBS: {ibsPct.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}% (bruta) → {parseFloat((ibsPct * (1 - (reducoes.ibs ?? 0) / 100)).toFixed(4)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}% (efetiva)
+                                    &nbsp;·&nbsp;
+                                    CBS: {cbsPct.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}% (bruta) → {parseFloat((cbsPct * (1 - (reducoes.cbs ?? 0) / 100)).toFixed(4)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}% (efetiva)
+                                </div>
+                            )}
                         </div>
                     )}
 
@@ -1228,8 +1271,8 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                             issPct: issPctSvc || 0,
                             pisCofinsPct: pisCofinsLRPct || 0,
                             isPct: isPct || 0,
-                            ibsPct: resolveIvaDualEffectiveRate(ibsPct, ivaDualReductionFactor) || 0,
-                            cbsPct: resolveIvaDualEffectiveRate(cbsPct, ivaDualReductionFactor) || 0,
+                            ibsPct: resolveIvaDualEffectiveRate(ibsPct, reducoes.ibs) || 0,
+                            cbsPct: resolveIvaDualEffectiveRate(cbsPct, reducoes.cbs) || 0,
                             ipiPct: ipiPct || 0,
                         })
                         // Mesma fonte do save: exibir por um caminho e gravar por outro é a
@@ -1258,14 +1301,15 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                         //      apenas em IBS/CBS]; L2 = valor R$ resultante (borda direita).
                         const fmtPct = (n: number) =>
                             n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 3 }) + '%'
-                        const hasReductionFactor =
-                            ivaDualReductionFactor != null && Number(ivaDualReductionFactor) > 0
+                        // A redução é POR LINHA: IBS e CBS podem ter percentuais diferentes.
+                        // Uma variável única aqui reintroduziria a junta na TELA.
                         const renderRow = (
                             { label, value, setter, taxValue }: { label: string; value: number; setter: (v: number) => void; taxValue: number },
                             withFactor: boolean,
                         ) => {
-                            const effective = withFactor && hasReductionFactor && value > 0
-                                ? (resolveIvaDualEffectiveRate(value, ivaDualReductionFactor) || 0)
+                            const reducaoDaLinha = label.startsWith('CBS') ? reducoes.cbs : reducoes.ibs
+                            const effective = withFactor && reducaoDaLinha != null && Number(reducaoDaLinha) > 0 && value > 0
+                                ? (resolveIvaDualEffectiveRate(value, reducaoDaLinha) || 0)
                                 : null
                             return (
                                 <div key={label} style={{ padding: '6px 0', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
@@ -1281,7 +1325,7 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                                         {effective != null && (
                                             <>
                                                 <span style={{ fontSize: 11, color: '#94a3b8', textAlign: 'center' as const, flex: '1 1 auto' }}>
-                                                    fator {Number(ivaDualReductionFactor)}%
+                                                    redução {Number(reducaoDaLinha)}%
                                                 </span>
                                                 <span style={{ fontSize: 11, color: '#4ade80', fontWeight: 600, textAlign: 'right' as const, whiteSpace: 'nowrap', flex: '0 0 auto' }}>
                                                     efetiva {fmtPct(effective)}

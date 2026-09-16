@@ -59,6 +59,7 @@ import { NOTA_DA_DECOMPOSICAO, applyDecompositionToResidual } from '@/utils/resi
 import { buildDecomposition } from '@/utils/decomposition-dre'
 import { buildBudgetDecompositionInput } from '@/utils/budget-decomposition-input'
 import { pisCofinsNominalFromEffective } from '@/utils/sale-context'
+import { PRODUCT_TAX_SELECT, SERVICE_TAX_SELECT } from '@/utils/item-tax-columns'
 import { pctToFraction, pisCofinsFractionFromItem } from '@/utils/rate-scale'
 import {
     allocateAccessories,
@@ -1793,7 +1794,7 @@ function Budgets() {
         setCustomerMode(record.customer_id ? 'existing' : 'manual')
 
         const [itemsResult, tablesResult] = await Promise.all([
-            supabase.from('budget_items').select('*, products(id, name, code, max_discount_percent, commission_table_id, commission_percent, profit_percent, sale_price, cost_total, yield_quantity, product_items(item_id, item_cost_net, item_cost_gross, quantity_needed, items(item_type)), labor_costs(*), pricing_calculations(*), icms_pct, pis_cofins_pct, pis_pct, cofins_pct, iss_pct, ipi_pct, icms_st_pct, difal_pct, fcp_pct, icms_st_active, difal_active, ibs_pct, cbs_pct, ibs_reference_pct, cbs_reference_pct, iva_dual_reduction_factor, iss_retido_pct, irpj_pct, csll_pct, custom_tax_percent, product_type, yield_quantity), services(id, name, commission_table_id, commission_percent, profit_percent, base_price, cost_total, icms_pct, pis_cofins_pct, pis_pct, cofins_pct, iss_pct, ipi_pct, icms_st_pct, difal_pct, fcp_pct, ibs_pct, cbs_pct, ibs_reference_pct, cbs_reference_pct, iva_dual_reduction_factor, iss_retido_pct, irpj_pct, csll_pct, taxable_regime_percent), manual_description').eq('budget_id', record.id),
+            supabase.from('budget_items').select(`*, products(id, name, code, max_discount_percent, commission_table_id, commission_percent, profit_percent, sale_price, cost_total, yield_quantity, product_items(item_id, item_cost_net, item_cost_gross, quantity_needed, items(item_type)), labor_costs(*), pricing_calculations(*), ${PRODUCT_TAX_SELECT}, product_type, yield_quantity), services(id, name, commission_table_id, commission_percent, profit_percent, base_price, cost_total, ${SERVICE_TAX_SELECT}), manual_description`).eq('budget_id', record.id),
             record.employee_id
                 ? (supabase as any).from('employee_commission_tables').select('commission_tables(id, name, type, commission_percent)').eq('employee_id', record.employee_id)
                 : Promise.resolve({ data: [] }),

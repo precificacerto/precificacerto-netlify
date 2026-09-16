@@ -187,8 +187,22 @@ export interface TaxRatesInput {
   isPct?: number | null
   ibsPct?: number | null
   cbsPct?: number | null
-  /** Fator de redução do IVA DUAL como FRAÇÃO [0, 1]. Só IBS e CBS o sofrem (R4). */
-  ivaDualReductionFactor?: number | null
+  /**
+   * Redução do IBS como FRAÇÃO [0, 1]. Só IBS e CBS sofrem redução (R4).
+   *
+   * São DOIS campos e não um porque a tabela oficial os separa: o cClassTrib
+   * `200025` (educação, ProUni) tem `pRedIBS = 60` e `pRedCBS = 100`. O fator
+   * único não tinha como dizer isso.
+   *
+   * O campo antigo `ivaDualReductionFactor` FOI REMOVIDO deste contrato de
+   * propósito, e não substituído por um opcional ao lado: `construtor-empobrecido.md`
+   * diz que o custo de tornar o campo obrigatório é exatamente o benefício — o
+   * compilador enumera, na hora, todos os produtores que não o preenchem. Deixar
+   * os três convivendo produziria a próxima aparição daquela classe.
+   */
+  ivaReductionIbs?: number | null
+  /** Redução da CBS como FRAÇÃO [0, 1]. Separada do IBS — ver acima. */
+  ivaReductionCbs?: number | null
 }
 
 export interface BuildTaxBreakdownInput extends SaleContextInput {
@@ -296,9 +310,17 @@ export function buildTaxBreakdown(input: BuildTaxBreakdownInput): BuildTaxBreakd
       return undefined
     }
     if (rate === 0) return undefined
-    // R4 — o fator de redução do IVA DUAL vale SÓ para IBS e CBS. IPI e IS não o sofrem.
+    // R4 — a redução vale SÓ para IBS e CBS. IPI e IS não a sofrem.
+    //
+    // ESTA ERA A JUNTA. Até 16/09/2026 a linha lia UM campo e o copiava para os
+    // DOIS tributos; o motor já tratava `ibs.reductionFactor` e `cbs.reductionFactor`
+    // como independentes (`ExternalTax`), e quem os forçava a coincidir era aqui.
+    // Cada um lê o seu, e o código `200025` (IBS 60%, CBS 100%) é o caso que
+    // distingue os dois estados — com valores iguais nenhum caso discriminaria.
     const reductionFactor =
-      tax === 'IBS' || tax === 'CBS' ? positive(rates.ivaDualReductionFactor) : 0
+      tax === 'IBS' ? positive(rates.ivaReductionIbs)
+        : tax === 'CBS' ? positive(rates.ivaReductionCbs)
+          : 0
     // O override vence o padrão; ausente cai no padrão. IS e IPI recusam 4 e 5, que somariam
     // o próprio tributo e criariam a recursão que a R3 diz não existir.
     const override = input.baseCodes?.[tax.toLowerCase() as keyof BaseCodeOverrides]
@@ -377,8 +399,10 @@ export interface ConstructionTaxRates {
   isPct?: number | null
   ibsPct?: number | null
   cbsPct?: number | null
-  /** Fator de redução do IVA DUAL como FRAÇÃO [0, 1]. */
-  ivaDualReductionFactor?: number | null
+  /** Redução do IBS como FRAÇÃO [0, 1]. Separada da CBS — ver `TaxRatesInput`. */
+  ivaReductionIbs?: number | null
+  /** Redução da CBS como FRAÇÃO [0, 1]. Separada do IBS — ver `TaxRatesInput`. */
+  ivaReductionCbs?: number | null
 }
 
 export interface ConstructionTaxInput extends SaleContextInput {
@@ -444,7 +468,8 @@ export function resolveConstructionTaxInput(input: ConstructionTaxInput): Constr
       isPct: r.isPct,
       ibsPct: r.ibsPct,
       cbsPct: r.cbsPct,
-      ivaDualReductionFactor: r.ivaDualReductionFactor,
+      ivaReductionIbs: r.ivaReductionIbs,
+      ivaReductionCbs: r.ivaReductionCbs,
     },
     baseCodes: input.baseCodes,
   })

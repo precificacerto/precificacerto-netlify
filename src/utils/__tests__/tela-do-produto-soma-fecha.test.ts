@@ -68,7 +68,8 @@ function construir(ibsPct: number, cbsPct: number) {
       isPct: 0,
       ibsPct: ibsPct / 100,
       cbsPct: cbsPct / 100,
-      ivaDualReductionFactor: null,
+      ivaReductionIbs: null,
+      ivaReductionCbs: null,
     },
     despAcessorias: 0,
   })
@@ -168,7 +169,7 @@ describe('2. A % EFETIVA é LIDA do que a construção usou — não recalculada
       structurePct: 0.1792, rtReservePct: 0, commissionPct: 0.02, profitPct: 0.02, profitTaxPct: 0.01,
       rates: {
         icmsPct: ICMS, issPct: null, pisCofinsEffectivePct: PIS_COFINS_EFETIVO,
-        ipiPct: 0.05, isPct: 0, ibsPct: 0.01, cbsPct: 0.088, ivaDualReductionFactor: null,
+        ipiPct: 0.05, isPct: 0, ibsPct: 0.01, cbsPct: 0.088, ivaReductionIbs: null, ivaReductionCbs: null,
       },
       despAcessorias: 0,
     })

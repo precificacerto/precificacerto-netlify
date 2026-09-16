@@ -24,6 +24,8 @@ import { resolveMonthlyWorkload } from '@/utils/resolve-monthly-workload'
 import { computeIvaDualOutside } from '@/utils/iva-dual-outside'
 import { resolveIvaDualEffectiveRate } from '@/utils/item-tax-rates'
 import { resolvePisCofinsPctFromNcm } from '@/utils/ncm-pis-cofins'
+import { resolveReducoesDoItem } from '@/utils/classificacao-fiscal'
+import ClassificacaoFiscalBlock, { type ClassificacaoFiscalValue } from '@/page-parts/shared/classificacao-fiscal-block.component'
 import { computeIcmsSt, computeDifal, computeIcmsComplementar, mvaAjustada } from '@/utils/icms-st-difal'
 import { CALC_TYPE_ENUM } from '@/shared/enums/calc-type'
 import { ContentIndustrialization } from './content-industrialization'
@@ -287,6 +289,36 @@ export const Content: FC<ContentProps> = ({
     (product as any)?.iva_dual_reduction_factor != null ? Number((product as any).iva_dual_reduction_factor) : null
   )
 
+  // ── A CLASSIFICAÇÃO FISCAL, de onde a redução DECORRE ───────────────────────
+  // Seis estados porque são seis colunas, e cada uma responde uma pergunta
+  // diferente. `cclass_trib_origem` e a publicação são FATO gravado no momento da
+  // classificação, nunca deduzidos depois: contra uma tabela que muda, a dedução
+  // erra nos dois sentidos e a resposta mudaria sozinha.
+  const [classificacao, setClassificacao] = useState<ClassificacaoFiscalValue>({
+    cstIbsCbsCode: (product as any)?.cst_ibs_cbs_code ?? null,
+    cclassTrib: (product as any)?.cclass_trib ?? null,
+    cclassTribOrigem: (product as any)?.cclass_trib_origem ?? null,
+    cclassTribSourcePublishedAt: (product as any)?.cclass_trib_source_published_at ?? null,
+    ivaReductionIbsPct: (product as any)?.iva_reduction_ibs_pct != null
+      ? Number((product as any).iva_reduction_ibs_pct) : null,
+    ivaReductionCbsPct: (product as any)?.iva_reduction_cbs_pct != null
+      ? Number((product as any).iva_reduction_cbs_pct) : null,
+  })
+  // Par incompatível não grava e não salva — a SEFAZ o rejeita.
+  const [bloqueioDaClassificacao, setBloqueioDaClassificacao] = useState<string | null>(null)
+
+  // A TRAVESSIA ÚNICA. Tela e motor leem daqui, para que não possam divergir na
+  // origem do número: as colunas novas vencem, e o fator legado só entra quando
+  // as duas estão vazias.
+  const reducoes = useMemo(
+    () => resolveReducoesDoItem({
+      iva_reduction_ibs_pct: classificacao.ivaReductionIbsPct,
+      iva_reduction_cbs_pct: classificacao.ivaReductionCbsPct,
+      iva_dual_reduction_factor: ivaDualReductionFactor,
+    }),
+    [classificacao.ivaReductionIbsPct, classificacao.ivaReductionCbsPct, ivaDualReductionFactor],
+  )
+
   const [ibsPct, setIbsPct] = useState<number>(
     (product as any)?.ibs_pct != null ? Number((product as any).ibs_pct) : 0
   )
@@ -309,9 +341,9 @@ export const Content: FC<ContentProps> = ({
   // O campo IBS/CBS guarda a alíquota BRUTA digitada; a EFETIVA = bruta × (1 − fator) é
   // derivada on-read pelo motor (resolveIvaDualEffectiveRate). NÃO sobrescreve a bruta aqui —
   // o usuário vê a bruta digitada e a efetiva calculada ao lado (não dupla redução).
-  function handleIvaDualFactorChange(factor: number | null) {
-    setIvaDualReductionFactor(factor)
-  }
+  // `handleIvaDualFactorChange` FOI REMOVIDA em 16/09/2026. O fator deixou de ser
+  // ENTRADA: a redução decorre do cClassTrib, e o valor legado é exibido só em leitura.
+  // Manter o handler seria deixar aberta a porta que a regra fechou.
   const [isPct, setIsPct] = useState<number>(
     (product as any)?.is_pct != null ? Number((product as any).is_pct) : 0
   )
@@ -1046,6 +1078,12 @@ export const Content: FC<ContentProps> = ({
 
       await productForm.validateFields()
 
+      // Par CST × cClassTrib incompatível é rejeitado pela SEFAZ. Salvar gravaria
+      // um documento que a nota recusa, e o usuário só descobriria na emissão.
+      if (bloqueioDaClassificacao) {
+        return messageApi.open({ type: 'error', content: bloqueioDaClassificacao })
+      }
+
       const values = productForm.getFieldsValue()
       const tenantId = await getTenantId()
       if (!tenantId) {
@@ -1171,7 +1209,16 @@ export const Content: FC<ContentProps> = ({
       if (isLRorLPorSH) {
         extraFields.icms_pct = icmsPct || 0
         extraFields.pis_cofins_pct = pisCofinsLRPct || 0
+        // O fator legado FICA — a migração é aditiva e o produto com fator 50 não
+        // pode perder o valor. Ele deixa de ser entrada, não de existir.
         extraFields.iva_dual_reduction_factor = ivaDualReductionFactor ?? null
+        // A classificação fiscal e as DUAS reduções derivadas dela.
+        extraFields.cst_ibs_cbs_code = classificacao.cstIbsCbsCode
+        extraFields.cclass_trib = classificacao.cclassTrib
+        extraFields.cclass_trib_origem = classificacao.cclassTribOrigem
+        extraFields.cclass_trib_source_published_at = classificacao.cclassTribSourcePublishedAt
+        extraFields.iva_reduction_ibs_pct = classificacao.ivaReductionIbsPct
+        extraFields.iva_reduction_cbs_pct = classificacao.ivaReductionCbsPct
         // ADR-022: snapshota a referência BRUTA (fonte da verdade junto com o fator). O motor
         // deriva a efetiva = referência × (1 − fator) de forma idempotente. NULL = sem snapshot.
         extraFields.ibs_reference_pct = ibsReferencePct > 0 ? ibsReferencePct : null
@@ -1185,8 +1232,8 @@ export const Content: FC<ContentProps> = ({
         const _opDentro = Math.max(0, _saleBase - terceirizadasSum)
         // PC-BUG-FATOR-REDUCAO-002 Ponto 1: aplica o fator de redução SOBRE a alíquota bruta de
         // IBS/CBS (efetiva = bruta × (1 − fator)) ao gravar ibs_value/cbs_value. IPI/IS intactos.
-        const _ibsEff2 = resolveIvaDualEffectiveRate(ibsPct, ivaDualReductionFactor) || 0
-        const _cbsEff2 = resolveIvaDualEffectiveRate(cbsPct, ivaDualReductionFactor) || 0
+        const _ibsEff2 = resolveIvaDualEffectiveRate(ibsPct, reducoes.ibs) || 0
+        const _cbsEff2 = resolveIvaDualEffectiveRate(cbsPct, reducoes.cbs) || 0
         const _iva2 = computeIvaDualOutside({
           opInterna: _opDentro,
           despAcessorias: terceirizadasSum,
@@ -2324,30 +2371,29 @@ export const Content: FC<ContentProps> = ({
             </div>
           )}
 
-          {isLRorLPorSH && (
-            <div>
-              <label style={{ display: 'block', marginBottom: 6, fontWeight: 500, fontSize: 13 }}>
-                Fator de redução da alíquota do IVA DUAL&nbsp;
-                <Tooltip title="Percentual de REDUÇÃO aplicado sobre a alíquota original de IBS e CBS: efetiva = original × (1 − fator/100). Ex.: alíquota 10% com fator 50 resulta em efetiva 5%. Campo livre de 0 a 100 — os atalhos são sugestão, não limite.">
-                  <InfoCircleOutlined style={{ color: '#64748b' }} />
-                </Tooltip>
-              </label>
-              <IvaDualReductionFactorField
-                value={ivaDualReductionFactor}
-                onChange={(val) => handleIvaDualFactorChange(val)}
-                variant="light"
-                inputWidth="100%"
-              />
-              {ivaDualReductionFactor != null && (ibsPct > 0 || cbsPct > 0) && (
-                <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>
-                  IBS: {ibsPct.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}% (bruta) → {parseFloat((ibsPct * (1 - ivaDualReductionFactor / 100)).toFixed(4)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}% (efetiva)
-                  &nbsp;·&nbsp;
-                  CBS: {cbsPct.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}% (bruta) → {parseFloat((cbsPct * (1 - ivaDualReductionFactor / 100)).toFixed(4)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}% (efetiva)
-                </div>
-              )}
-            </div>
-          )}
         </div>
+
+        {/* ── CLASSIFICAÇÃO FISCAL — de onde a redução DECORRE ──────────────────
+            O seletor de oito faixas SAIU como entrada livre em 16/09/2026. A
+            redução não é escolha do usuário: ela vem do cClassTrib, como a
+            alíquota do IPI vem do NCM. O caminho de exceção é o código fora da
+            tabela, e só ele aceita digitação — ver o bloco compartilhado. */}
+        {isLRorLPorSH && (
+          <ClassificacaoFiscalBlock
+            value={classificacao}
+            onChange={setClassificacao}
+            fatorLegado={ivaDualReductionFactor}
+            onBloqueioChange={setBloqueioDaClassificacao}
+          />
+        )}
+
+        {isLRorLPorSH && (reducoes.ibs != null || reducoes.cbs != null) && (ibsPct > 0 || cbsPct > 0) && (
+          <div style={{ fontSize: 11, color: '#64748b', marginTop: 8 }}>
+            IBS: {ibsPct.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}% (bruta) → {parseFloat((ibsPct * (1 - (reducoes.ibs ?? 0) / 100)).toFixed(4)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}% (efetiva)
+            &nbsp;·&nbsp;
+            CBS: {cbsPct.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}% (bruta) → {parseFloat((cbsPct * (1 - (reducoes.cbs ?? 0) / 100)).toFixed(4)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}% (efetiva)
+          </div>
+        )}
 
         <div style={{
           background: 'rgba(46, 144, 250, 0.12)', border: '1px solid rgba(46, 144, 250, 0.3)', borderRadius: 8,
@@ -2390,7 +2436,8 @@ export const Content: FC<ContentProps> = ({
           onIbsPctChange={setIbsPct}
           cbsPct={cbsPct}
           onCbsPctChange={setCbsPct}
-          ivaDualReductionFactor={ivaDualReductionFactor}
+          ivaReductionIbsPct={reducoes.ibs}
+          ivaReductionCbsPct={reducoes.cbs}
           isPct={isPct}
           onIsPctChange={setIsPct}
           ipiPct={ipiPct}
@@ -2436,7 +2483,8 @@ export const Content: FC<ContentProps> = ({
           onIbsPctChange={setIbsPct}
           cbsPct={cbsPct}
           onCbsPctChange={setCbsPct}
-          ivaDualReductionFactor={ivaDualReductionFactor}
+          ivaReductionIbsPct={reducoes.ibs}
+          ivaReductionCbsPct={reducoes.cbs}
           isPct={isPct}
           onIsPctChange={setIsPct}
           ipiPct={ipiPct}
@@ -2480,7 +2528,8 @@ export const Content: FC<ContentProps> = ({
           onIbsPctChange={setIbsPct}
           cbsPct={cbsPct}
           onCbsPctChange={setCbsPct}
-          ivaDualReductionFactor={ivaDualReductionFactor}
+          ivaReductionIbsPct={reducoes.ibs}
+          ivaReductionCbsPct={reducoes.cbs}
           isPct={isPct}
           onIsPctChange={setIsPct}
           ipiPct={ipiPct}
