@@ -316,6 +316,23 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
     totalProdutos > 0 ? receitaProdutosTotal * (i.totalProduto / totalProdutos) : 0,
   )
 
+  /**
+   * R14 — O DESCONTO POR ITEM, que já existia e não tinha linha.
+   *
+   * Ele nunca precisou ser calculado para o DRE fechar: está EMBUTIDO em
+   * `receitaProdutosPorItem`, porque a receita de produtos já é a pós-desconto rateada. Só
+   * que embutido ele não serve para nada fora daqui — e na NF-e o desconto é `vDesc` POR
+   * ITEM, não um abatimento global.
+   *
+   * O rateio é pelo TOTAL DO PRODUTO, o mesmo peso da receita de produtos, e é o que faz a
+   * soma das colunas devolver o desconto inteiro: itens manuais e acréscimos saem INTEIROS
+   * (R14), então o desconto que incidiria sobre eles recai sobre os produtos e já está no
+   * total. Ratear pela receita bruta do item — que inclui o acréscimo — repartiria errado.
+   */
+  const descontoPorItem = items.map((i) =>
+    totalProdutos > 0 ? desconto * (i.totalProduto / totalProdutos) : 0,
+  )
+
   // R8 invertido: os tributos por fora são `receita de produtos × c` do PRÓPRIO item.
   const porForaPorItem = items.map((i, k) => -receitaProdutosPorItem[k] * i.taxes.externalOpsCoefficient)
   const pPorItem = items.map((_, k) => receitaProdutosPorItem[k] + porForaPorItem[k])
@@ -439,7 +456,10 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
 
   const rows: DecompositionRow[] = [
     linha('receita_bruta', 'RECEITA BRUTA (agrupamento)', receitaBrutaPorItem, { subtotal: true, total: receitaBruta }),
-    linha('desconto', '(−) Desconto concedido', semColuna, { pct: input.discountPct, total: desconto }),
+    // A coluna existe agora: é o `vDesc` de cada item. O `total` segue sendo o valor exato do
+    // documento, e não a soma das frações — os dois coincidem a menos de erro de ponto
+    // flutuante, e o exato é o que o usuário digitou.
+    linha('desconto', '(−) Desconto concedido', descontoPorItem, { pct: input.discountPct, total: desconto }),
     linha('receita_apos_desconto', '► RECEITA APÓS DESCONTO', semColuna, { subtotal: true, total: receitaAposDesconto }),
     linha('repasse_manuais', '(−) Itens manuais + frete neles (sem tributo)', semColuna, { total: repasseManuais }),
     linha('acrescimos', '(−) Acréscimos dos produtos (com tributo)', acrescimosPorItem),

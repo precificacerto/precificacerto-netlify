@@ -356,8 +356,10 @@ describe('7. A VIEW leva as colunas até a tela — por EFEITO, não por leitura
   })
 
   it('as linhas que só existem no total chegam SEM coluna', () => {
+    // MUDANÇA DE REQUISITO, registrada: o DESCONTO saiu desta lista. Na NF-e ele é `vDesc`
+    // POR ITEM, e o número já existia embutido na receita de produtos — passou a ter linha.
     expect(linhaView('► RECEITA APÓS DESCONTO').perItem).toHaveLength(0)
-    expect(linhaView('(−) Desconto concedido').perItem).toHaveLength(0)
+    expect(linhaView('(−) Itens manuais + frete neles (sem tributo)').perItem).toHaveLength(0)
   })
 })
 
@@ -695,5 +697,66 @@ describe('11. R18 COM DESCONTO — o que congela, o que recalcula, e a medida ex
       expect(linha(com, k).base).not.toBeNull()
       expect(linha(com, k).pct).not.toBeNull()
     }
+  })
+})
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────────────────
+ * 12. O DESCONTO POR ITEM — o `vDesc` que já existia e não tinha linha
+ * ─────────────────────────────────────────────────────────────────────────────────────────
+ *
+ * "Na NF-e o desconto é vDesc por item, não um abatimento global. A linha de desconto na
+ *  decomposição hoje só existe no total."
+ *
+ * MEDIDO ANTES: `perItem` da linha era VAZIO, mas o número existia embutido — derivando
+ * `receita_bruta − acréscimos − receita_produtos` num documento de três produtos com 5% de
+ * desconto saía [632,05 / 404,00 / 176,97], somando exatamente os R$ 1.213,02 do total. O
+ * rateio já estava certo; faltava expor.
+ */
+describe('12. DESCONTO POR ITEM — R14 na coluna', () => {
+  const COM_ACRESCIMO: BudgetDecompositionItem[] = [
+    item({ acrescimos: 1200 }),
+    item({
+      key: 'b', label: 'Metade', unitPrice: PRODUTO_NO_BANCO.sale_price / 2,
+      costUnit: MATERIAL / 2, productiveLaborUnit: MO_PRODUTIVA / 2, acrescimos: 400,
+    }),
+    { key: 'm', label: 'Manual', isManual: true, quantity: 1, unitPrice: 2500 },
+  ]
+  const r = montar(COM_ACRESCIMO, 0.05)
+
+  it('a linha tem uma coluna por produto, e elas somam o desconto do documento', () => {
+    const d = linha(r, 'desconto')
+    expect(d.perItem).toHaveLength(2)
+    expect(d.perItem.reduce((a, b) => a + b, 0)).toBeCloseTo(d.total, 6)
+  })
+
+  it('o rateio é pelo TOTAL DO PRODUTO — o mesmo peso da receita de produtos', () => {
+    const d = linha(r, 'desconto')
+    // 2/3 e 1/3: o segundo produto é metade do primeiro.
+    expect(d.perItem[0] / d.perItem[1]).toBeCloseTo(2, 6)
+    // O discriminante: pela RECEITA BRUTA (que inclui o acréscimo) a razão seria outra,
+    // porque os acréscimos são 1.200 e 400 sobre bases diferentes.
+    const rb = linha(r, 'receita_bruta').perItem
+    expect(d.perItem[0] / d.perItem[1]).not.toBeCloseTo(rb[0] / rb[1], 4)
+  })
+
+  it('o item MANUAL não recebe coluna de desconto — ele sai inteiro (R14)', () => {
+    // Item manual não é coluna na decomposição, e o desconto que incidiria sobre ele já
+    // está no total, recaindo sobre os produtos. Uma terceira coluna aqui afirmaria que o
+    // manual foi descontado.
+    expect(linha(r, 'desconto').perItem).toHaveLength(2)
+    expect(linha(r, 'repasse_manuais').perItem).toHaveLength(0)
+  })
+
+  it('sem desconto a coluna existe e vale ZERO — e zero aqui é verdade, não ausência', () => {
+    const sem = montar(COM_ACRESCIMO, 0)
+    expect(linha(sem, 'desconto').perItem).toHaveLength(2)
+    for (const v of linha(sem, 'desconto').perItem) expect(v).toBeCloseTo(0, 10)
+  })
+
+  it('e o DRE continua fechando: residual zero e RRO no reservado', () => {
+    // O desconto ganhou coluna sem entrar em conta nenhuma — ele já estava embutido.
+    expect(r.residual.total).toBeCloseTo(0, 6)
+    expect(montar(COM_ACRESCIMO, 0).rro!.foraDeZero).toBe(false)
   })
 })
