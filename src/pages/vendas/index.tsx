@@ -72,6 +72,9 @@ import {
 } from '@/utils/document-deleted'
 import { useDeletedDocuments } from '@/hooks/use-deleted-documents.hook'
 import { enrichItemsForMotor } from '@/utils/motor-item-enrichment'
+import { buildBudgetDecompositionInput } from '@/utils/budget-decomposition-input'
+import { buildDecomposition } from '@/utils/decomposition-dre'
+import { NOTA_DA_DECOMPOSICAO, applyDecompositionToResidual } from '@/utils/residual-from-decomposition'
 import { hydrateDocumentSnapshots } from '@/lib/document-snapshot'
 import type { TenantSnapshotContext } from '@/lib/items-snapshot'
 import { calculateMotorV17ForPage } from '@/utils/mrm-engine-v17/legacy-adapter'
@@ -1334,11 +1337,17 @@ function Sales() {
     // opcionais no `PageItem`: o motor só caía no fallback de cada um.
     // Agora é UMA instância, lida pelo drawer, pela validação e pelo save.
     // Ver `.claude/rules/copia-divergente.md`.
-    const balcaoEnrichedItems = enrichItemsForMotor(saleItems, { products, services }, {
+    //
+    // >>> E ELE É A ENTRADA DA DECOMPOSIÇÃO TAMBÉM, NÃO SÓ DO MOTOR <<<
+    // `sale_items` não tem coluna de custo — medido no schema, igual a `budget_items` e
+    // `order_items`. O custo e a MO produtiva são RESOLVIDOS do cadastro vivo com o contexto
+    // de MO do tenant, e sem esse contexto a MO some sem que o `costTotal` mude (97c6968).
+    // Memoizado porque a decomposição depende dele.
+    const balcaoEnrichedItems = useMemo(() => enrichItemsForMotor(saleItems, { products, services }, {
         production_labor_cost: mrmConfig.production_labor_cost,
         monthly_workload_minutes: mrmConfig.monthly_workload_minutes,
         productive_value_per_minute: mrmConfig.productive_value_per_minute,
-    })
+    }), [saleItems, products, services, mrmConfig.production_labor_cost, mrmConfig.monthly_workload_minutes, mrmConfig.productive_value_per_minute])
     // Contexto do tenant para o motor V17 — UMA instância, lida pelo drawer, pela validação
     // pré-save, pelo save e pelo gravador do snapshot.
     const balcaoMotorTenantCtxV17 = {
@@ -1419,6 +1428,51 @@ function Sales() {
             (Number(p.accessory_expenses_value) || 0)
         return s + tercUnit * (Number(i.quantity) || 0)
     }, 0)
+
+    /**
+     * A DECOMPOSIÇÃO DO BALCÃO — R15 a R20, paridade com o Orçamento.
+     *
+     * O balcão roda o motor AO VIVO, como o orçamento, e já tinha o enriquecimento com o
+     * cadastro e o contexto do tenant. Faltava só CHAMAR: os insumos estavam todos na tela.
+     *
+     * `balcaoEnrichedItems`, NUNCA `saleItems` — é a junta do 97c6968: o custo não está
+     * gravado em lugar nenhum e a MO produtiva só existe no array enriquecido.
+     */
+    const balcaoDecomposition = useMemo(() => {
+        const tercUnitDoCadastro = (productId?: string | null) => {
+            const p = productId ? (products as any[]).find((x) => x.id === productId) : null
+            if (!p) return 0
+            return (Number(p.freight_value) || 0) + (Number(p.insurance_value) || 0)
+                + (Number(p.accessory_expenses_value) || 0)
+        }
+        const params = buildBudgetDecompositionInput({
+            items: balcaoEnrichedItems.map((item) => ({
+                key: item.key,
+                label: item.product_name || 'Item',
+                isManual: item.is_manual,
+                isService: item.is_service,
+                quantity: Number(item.quantity) || 0,
+                unitPrice: Number(item.unit_price) || 0,
+                costUnit: Number(item.cost_total) || 0,
+                productiveLaborUnit: Number(item.productive_labor_unit) || 0,
+                commissionPct: Number(item.commission_percent) || 0,
+                profitPct: Number(item.profit_percent) || 0,
+                rtPct: Number(item.rt_reserve_percent) || 0,
+                rates: item.item_tax_rates ?? null,
+                // R21 — a parcela CONGELADA herdada do documento de origem; o cadastro quando
+                // a venda nasceu no balcão e nunca teve rateio. As duas colunas nulas são NÃO
+                // COTADO, e não zero (`ausente-vs-falso.md`) — por isso a escolha é pela
+                // PRESENÇA da coluna, não pelo valor ser positivo.
+                acrescimos: (item.freight_allocated_value != null || item.accessories_allocated_value != null)
+                    ? (Number(item.freight_allocated_value) || 0) + (Number(item.accessories_allocated_value) || 0)
+                    : tercUnitDoCadastro(item.product_id) * (Number(item.quantity) || 0),
+            })),
+            discountPct: (Number(globalDiscountPercentV) || 0) / 100,
+            despesasOperacionaisPct: Number(mrmConfig.dop_pct) || 0,
+        })
+        if (params.isEmpty) return null
+        return { result: buildDecomposition(params.input), labels: params.itemLabels }
+    }, [balcaoEnrichedItems, products, globalDiscountPercentV, mrmConfig.dop_pct])
 
     const balcaoResidualItems: ResidualItemInput[] = useMemo(
         () => saleItems.map((item, idx) => {
@@ -3115,14 +3169,25 @@ function Sales() {
                     {/* Distribuição Residual + DRE Consolidada — paridade com orçamentos */}
                     {saleTotal > 0 && (
                         <ResidualDistributionBlock
-                            distribution={balcaoResidualDistribution}
+                            /* Os cards leem a DECOMPOSIÇÃO, não a Etapa 16 — mesma correção do
+                               1934dbb no orçamento. Sem ela a tela teria duas fontes para o
+                               mesmo RRO, e elas divergem. */
+                            distribution={applyDecompositionToResidual(
+                                balcaoResidualDistribution, balcaoDecomposition?.result ?? null,
+                            )}
                             configWarning={balcaoConfigWarning}
                             regimeGuardActive={balcaoEpicV5DisplayData.regimeGuardActive}
                             discountMode={discountModeV}
+                            footerNote={balcaoDecomposition?.result ? NOTA_DA_DECOMPOSICAO : undefined}
                         />
                     )}
                     {saleTotal > 0 && (
                         <ConsolidatedDREBlock
+                            /* R19 — a cascata expande da etapa 12 em diante com as linhas da
+                               decomposição, e a Etapa 8 passa a exibir o bloco por fora
+                               APURADO em vez do peso derivado por divisão (e109cd6). */
+                            decomposition={balcaoDecomposition?.result ?? null}
+                            itemLabels={balcaoDecomposition?.labels ?? []}
                             dre={balcaoConsolidatedDRE}
                             cascadeTrace={balcaoEpicV5DisplayData.cascadeTrace}
                             pesoOpInterna={balcaoEpicV5DisplayData.pesoOpInterna}
