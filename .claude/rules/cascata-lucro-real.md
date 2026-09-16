@@ -389,12 +389,42 @@ tributo junto é o erro espelhado.
 **Linha congelada não tem base nem percentual.** Exibi-los afirma um cálculo que não
 existe, e o número que ele produziria é o errado — `ausente-vs-falso.md` na coluna.
 
-> **A planilha diverge nesta única linha.** A aba "Orçamento" recalcula a despesa
-> (`331.968,38 × 22,92% = 76.087,15`), e o congelamento dá `350.119,13 × 22,92% =
-> 80.247,31`. Não é falha dela: foi construída sob o nível anterior, antes de a
-> distinção existir (`decisao-sob-regra-da-epoca.md`). A decisão pelo congelamento é do
-> dono do produto, em **16/09/2026**. Todas as outras linhas da planilha seguem valendo
-> ao centavo.
+**POR QUE O CONGELAMENTO, e não o contrário.** Formulação do dono do produto, registrada
+como está:
+
+> Custo e despesa não encolhem porque houve desconto. **O aluguel não diminui.** Tributo
+> acompanha a receita porque o fisco cobra sobre o que foi faturado; despesa não tem esse
+> vínculo. É essa distinção que faz a decomposição mostrar a corrosão da margem em vez de
+> escondê-la.
+
+> **A planilha divergia nesta única linha, e é ELA que se corrige.** A aba "Orçamento"
+> recalcula a despesa (`331.968,38 × 22,92% = 76.087,15`); o congelamento dá
+> `350.119,13 × 22,92% = 80.247,31`. A divergência **existiu, foi medida em 16/09/2026, e
+> a régua é o congelamento** — decisão do dono do produto. Não é falha da planilha: ela
+> foi construída sob o nível anterior, antes de a distinção entre congelado-em-R$ e
+> congelado-em-% existir (`decisao-sob-regra-da-epoca.md`). Todas as outras linhas dela
+> seguem valendo ao centavo, e isso está afirmado caso a caso em
+> `decomposicao-por-produto.test.ts`.
+
+### O LIMITE CONHECIDO — e ele é simplificação consciente, não descuido
+
+Das quatro despesas que compõem os 22,92%, **duas de fato variam com a venda**:
+
+| bucket | varia com a venda? | por quê |
+|---|---|---|
+| MO administrativa | não | folha do mês, independe do faturado |
+| Fixa | não | aluguel, e é o exemplo que nomeia a regra |
+| **Variável** | **SIM** | cresce e encolhe com o volume vendido |
+| **Financeira** | **SIM** | taxa de cartão sobre valor menor É menor |
+
+Congelar as quatro é **decisão tomada**, registrada aqui em 16/09/2026 para que quem
+encontrar isto depois saiba que a variável e a financeira **foram consideradas e
+deixadas congeladas de propósito** — e não que alguém esqueceu de separá-las.
+
+**A separação NÃO está implementada, e não deve ser puxada no meio de outra correção.**
+Ela tem escopo próprio: exige o percentual de cada bucket por item na decomposição (hoje
+chega um `despesasOperacionaisPct` agregado), e a base de cada um é diferente. Quem for
+fazê-la encontra aqui a razão de não ter sido feita agora.
 
 **R19 · Ordem do DRE.**
 
