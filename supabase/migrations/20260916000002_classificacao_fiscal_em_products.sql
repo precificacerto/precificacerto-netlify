@@ -79,13 +79,14 @@
 -- ══════════════════════════════════════════════════════════════════════════
 -- ESCOPO — o que este arquivo NÃO faz
 -- ══════════════════════════════════════════════════════════════════════════
--- Nenhum DROP, nenhum UPDATE, nenhuma linha existente alterada. As 160 linhas de
--- `products` ficam com NULL nas seis colunas novas, que é exatamente o que NULL
--- deve significar aqui.
+-- Nenhum DROP, nenhum UPDATE, nenhuma linha existente alterada. As 163 linhas de
+-- `products` e as 10 de `services` ficam com NULL nas seis colunas novas, que é
+-- exatamente o que NULL deve significar aqui. (Contagem medida no banco em
+-- 16/09/2026, não lembrada — `estado-relatado-vs-real.md`.)
 --
--- `products.iva_dual_reduction_factor` NÃO é tocado. Ele continua existindo e
--- continua sendo o que o motor lê hoje. A travessia dele para as duas colunas
--- novas é decisão própria, e NÃO está tomada neste arquivo.
+-- `iva_dual_reduction_factor` NÃO é tocado por este arquivo, em nenhuma das duas
+-- tabelas. A travessia dele para as duas colunas novas é a `20260916000003`, e é
+-- ADITIVA: a coluna antiga fica.
 --
 -- `services` RECEBE AS MESMAS SEIS COLUNAS E AS MESMAS TRÊS CHECK. A primeira
 -- versão deste arquivo nomeava só `products`, e o dono do produto corrigiu:
