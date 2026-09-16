@@ -361,6 +361,21 @@ function CascadeViewLine({ row, colunas }: { row: CascadeViewRow; colunas: numbe
           color: row.perItem[k] != null && row.perItem[k] < 0 ? '#fca5a5' : labelColor, fontWeight,
         }}>
           {row.perItem[k] != null ? formatBRL(row.perItem[k]) : '—'}
+          {/* A BASE e a ALÍQUOTA DAQUELE item, quando a linha as tem. O percentual da coluna
+              da esquerda é do DOCUMENTO e, com produtos heterogêneos, é média ponderada
+              derivada — na NF-e cada item tem o seu `vBC` e o seu `pICMS`, e média não
+              existe lá. Onde não se aplica, nada é exibido: `R$ 0,00` de base afirmaria que
+              o item não tem base de cálculo (`ausente-vs-falso.md`). */}
+          {row.basePerItem[k] != null && (
+            <div style={{ fontSize: 9, color: '#64748b', fontWeight: 400 }}>
+              base {formatBRL(row.basePerItem[k])}
+            </div>
+          )}
+          {row.pctPerItem[k] != null && (
+            <div style={{ fontSize: 9, color: '#86efac', fontWeight: 600 }}>
+              {(row.pctPerItem[k] * 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}%
+            </div>
+          )}
         </div>
       ))}
       <div style={{

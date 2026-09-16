@@ -156,6 +156,10 @@ export interface CascadeViewRow {
    * item. Vazio é ausência de dado, e a tela exibe travessão — nunca R$ 0,00.
    */
   perItem: number[]
+  /** A BASE de cálculo por produto, paralela a `perItem`. Vazio = não se aplica. */
+  basePerItem: number[]
+  /** A ALÍQUOTA por produto, fração, paralela a `perItem`. Vazio = não se aplica. */
+  pctPerItem: number[]
   /**
    * O percentual da linha sobre o TOTAL GERAL, quando ele responde OUTRA pergunta que o
    * `pct`. `null` quando os dois seriam o mesmo número.
@@ -206,6 +210,8 @@ export function buildCascadeView(
           ? 'IBS + CBS + IS + IPI apurados — lidos da decomposição, não do peso estrutural'
           : (step.formula ?? ''),
         perItem: bloco ? bloco.perItem : [],
+        basePerItem: [],
+        pctPerItem: [],
         pctSobreTotalGeral: null,
         key: `t-${step.step}-${step.source}-${out.length}`,
       })
@@ -224,6 +230,8 @@ export function buildCascadeView(
           effectiveRatePct: child.effective_rate_pct ?? null,
           formula: child.formula ?? '',
           perItem: [],
+          basePerItem: [],
+          pctPerItem: [],
           pctSobreTotalGeral: null,
           key: `t-${step.step}-c-${out.length}-${child.source}`,
         })
@@ -255,6 +263,8 @@ export function buildCascadeView(
     effectiveRatePct: null as number | null,
     formula: '',
     perItem: row.perItem,
+    basePerItem: row.basePerItem,
+    pctPerItem: row.pctPerItem,
     // Só onde os dois números DIVERGEM. Nas demais linhas o `pct` já é o percentual sobre a
     // base delas, e repetir o mesmo número em duas colunas ensina o leitor a ignorar a
     // segunda.
@@ -280,6 +290,8 @@ export function buildCascadeView(
       effectiveRatePct: null,
       formula: 'Lucro apurado, e o percentual SOBRE PRODUTOS — o comparável com o cadastrado',
       perItem: lv.perItem ?? [],
+      basePerItem: [],
+      pctPerItem: [],
       pctSobreTotalGeral: null,
       key: 'd-lucro-da-venda',
     })

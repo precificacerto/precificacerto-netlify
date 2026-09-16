@@ -28,7 +28,7 @@
 
 import type { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import type { DecompositionResult } from '@/utils/decomposition-dre'
+import type { DecompositionResult, DecompositionRow } from '@/utils/decomposition-dre'
 
 /**
  * Quantos produtos cabem numa página paisagem sem espremer célula nenhuma.
@@ -111,6 +111,35 @@ const LINHAS_DO_RRO = new Set(['comissao', 'lucro', 'irpj', 'csll'])
  * É também o teste que fecha o invariante do RRO: se a base da decomposição estiver errada,
  * estes dois números deixam de ser os cadastrados — e isso aparece no papel, não num log.
  */
+/**
+ * A CÉLULA DA COLUNA DE UM PRODUTO — três linhas, e é o que a NF-e precisa.
+ *
+ * >>> POR QUE NÃO BASTA O VALOR <<<
+ * Até aqui a coluna trazia só o valor em R$, e a base e o percentual eram UMA célula à
+ * esquerda, do DOCUMENTO. Com produtos heterogêneos esse percentual é média ponderada
+ * derivada — 13,88% de ICMS num documento de 17%, 12% e 7% —, um número que a construção
+ * nunca usou e que nenhum item tem. Na NF-e cada item tem o seu `vBC` e o seu `pICMS`:
+ * **média não existe lá**, e a base do documento dividida não é a base do item.
+ *
+ * As três linhas saem SEMPRE nesta ordem — valor, base, alíquota —, e a base e a alíquota
+ * só aparecem quando a linha as tem por item. Onde não se aplica, a célula fica só com o
+ * valor: um `R$ 0,00` de base afirmaria que o item não tem base de cálculo.
+ *
+ * A alíquota é impressa COMO VEM. Houve aqui um `Math.abs` que não fazia nada — nenhum
+ * `pctPerItem` é negativo, e a mutação que o removia deixava os 15 casos verdes. Tirado em
+ * vez de coberto por um caso inventado: o que garante o sinal é a origem do número, e é
+ * isso que o teste afirma (`.claude/rules/teste-que-nao-exercita.md`).
+ */
+export function celulaDoProduto(row: DecompositionRow, k: number): string {
+  if (row.perItem[k] === undefined) return '—'
+  const linhas = [brlPdf(row.perItem[k])]
+  const base = row.basePerItem[k]
+  const pct = row.pctPerItem[k]
+  if (base !== undefined) linhas.push(`base ${brlPdf(base)}`)
+  if (pct !== undefined) linhas.push(pctPdf(pct))
+  return linhas.join('\n')
+}
+
 export function percentualDaLinha(row: { key: string; pct: number | null; pctSobreTotalGeral: number | null }): number | null {
   return LINHAS_DO_RRO.has(row.key) ? row.pctSobreTotalGeral : row.pct
 }
@@ -162,7 +191,7 @@ export function appendDecompositionPages(doc: jsPDF, input: DecompositionPdfInpu
       row.label,
       row.base == null ? '—' : brlPdf(row.base),
       celulaPercentual(percentualDaLinha(row), row.isDerivedAverage),
-      ...bloco.map((k) => (row.perItem[k] === undefined ? '—' : brlPdf(row.perItem[k]))),
+      ...bloco.map((k) => celulaDoProduto(row, k)),
       brlPdf(row.total),
     ])
 

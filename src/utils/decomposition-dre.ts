@@ -137,6 +137,35 @@ export interface DecompositionRow {
    * `null` quando a base é zero. Nunca 0%.
    */
   pctSobreTotalGeral: number | null
+  /**
+   * A BASE DE CÁLCULO POR ITEM, paralela a `perItem`. Vazio quando não se aplica.
+   *
+   * >>> POR QUE ELA PRECISA EXISTIR POR ITEM, e não só no total <<<
+   * O PDF por coluna é a memória de cálculo do documento fiscal: na NF-e cada item tem o
+   * seu `vBC`, e a base do documento dividida NÃO é a base do item — os produtos têm
+   * receitas diferentes. O cálculo sempre usou a base do item; o que faltava era exibi-la.
+   *
+   * Medido no cenário de três produtos: base do ICMS [11.713,62 / 7.487,23 / 3.279,84]
+   * contra a única base exibida antes, 22.480,69 — que é a soma e não serve a item nenhum.
+   */
+  basePerItem: number[]
+  /**
+   * A ALÍQUOTA POR ITEM, em FRAÇÃO, paralela a `perItem`. Vazio quando não se aplica.
+   *
+   * Na NF-e cada item tem o seu `pICMS`, `pPIS`, `pCOFINS` — **média não existe lá**. O
+   * `pct` da linha é do TOTAL e, com produtos heterogêneos, é média ponderada derivada
+   * (13,88% de ICMS num documento de 17%, 12% e 7%): um número que a construção nunca usou
+   * e que nenhum item tem. Ele é APRESENTAÇÃO do total e não pode vazar para a coluna.
+   *
+   * >>> LIMITE, nas linhas POR FORA <<<
+   * Ali o que chega é `externalByTax`, a fração do TOTAL GERAL — não a alíquota nominal
+   * sobre a base legal. IBS cadastrado a 1% aparece como 0,6830%: a MESMA quantia, sobre a
+   * receita de produtos em vez da base do código 4. Para a R17 é o certo; para o `pIBS` da
+   * nota não basta, e a base do código 4 não chega até aqui. Inferi-la por divisão é o que
+   * `regime-e-segmento-determinam-a-construcao.md` proíbe — está registrado como limite em
+   * `a-coluna-fiscal-base-e-aliquota.test.ts`, não resolvido em silêncio.
+   */
+  pctPerItem: number[]
 }
 
 /**
@@ -416,7 +445,13 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
     key: string,
     label: string,
     perItem: number[],
-    opts: { base?: number | null; pct?: number | null; derived?: boolean; subtotal?: boolean; total?: number } = {},
+    opts: {
+      base?: number | null; pct?: number | null; derived?: boolean; subtotal?: boolean; total?: number
+      /** A base DAQUELE item — ver `DecompositionRow.basePerItem`. */
+      basePerItem?: number[]
+      /** A alíquota DAQUELE item — ver `DecompositionRow.pctPerItem`. */
+      pctPerItem?: number[]
+    } = {},
   ): DecompositionRow => ({
     key,
     label,
@@ -432,6 +467,11 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
     // R16 — a coluna Total é SOMA das colunas de produto, salvo nas linhas que só existem no
     // total (desconto e repasse dos manuais), onde o valor é informado.
     total: opts.total !== undefined ? opts.total : soma(perItem),
+    // Vazio, e não um array de zeros: base zero afirmaria que aquele item não tem base de
+    // cálculo, e alíquota zero afirmaria isenção (`ausente-vs-falso.md`). A tela exibe
+    // travessão onde não se aplica.
+    basePerItem: opts.basePerItem ?? [],
+    pctPerItem: opts.pctPerItem ?? [],
   })
 
   /**
@@ -473,28 +513,40 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
           base: rp,
           pct: pctDe(soma(perItemTributo), rp),
           derived: heterogeneo(items.map((i) => i.taxes.externalByTax?.[nome] ?? 0)),
+          basePerItem: receitaProdutosPorItem,
+          pctPerItem: items.map((i) => i.taxes.externalByTax?.[nome] ?? 0),
         })
       })
       : [linha('por_fora', '(−) IBS · CBS · IS · IPI', porForaPorItem, {
         base: rp,
         pct: pctDe(soma(porForaPorItem), rp),
         derived: heterogeneo(items.map((i) => i.taxes.externalOpsCoefficient)),
+        basePerItem: receitaProdutosPorItem,
+        pctPerItem: items.map((i) => i.taxes.externalOpsCoefficient),
       })]),
     linha('operacao_por_dentro', '► OPERAÇÃO POR DENTRO (P)', pPorItem, { subtotal: true }),
     linha('icms', '(−) ICMS', icmsPorItem, {
       base: rp,
       pct: pctDe(soma(icmsPorItem), rp),
       derived: heterogeneo(items.map((i) => i.taxes.icmsPct)),
+      basePerItem: receitaProdutosPorItem,
+      pctPerItem: items.map((i) => i.taxes.icmsPct),
     }),
     linha('iss', '(−) ISS', issPorItem, {
       base: soma(pPorItem),
       pct: pctDe(soma(issPorItem), soma(pPorItem)),
       derived: heterogeneo(items.map((i) => i.taxes.issPct)),
+      basePerItem: pPorItem,
+      pctPerItem: items.map((i) => i.taxes.issPct),
     }),
     linha('pis_cofins', '(−) PIS/COFINS', pisCofinsPorItem, {
       base: soma(pPorItem) + soma(icmsPorItem) + soma(issPorItem),
       pct: pctDe(soma(pisCofinsPorItem), soma(pPorItem) + soma(icmsPorItem) + soma(issPorItem)),
       derived: heterogeneo(items.map((i) => i.taxes.pisCofinsPct)),
+      // R5, exceção 2: a base é `P − ICMS − ISS` DESTE item. As três parcelas são negativas
+      // no DRE, então somá-las É subtraí-las.
+      basePerItem: pPorItem.map((p, k) => p + icmsPorItem[k] + issPorItem[k]),
+      pctPerItem: items.map((i) => i.taxes.pisCofinsPct),
     }),
     linha('receita_liquida', '► RECEITA LÍQUIDA', receitaLiquidaPorItem, { subtotal: true }),
     linha('custos', '(−) Custos — congelado', custoPorItem),
@@ -506,6 +558,8 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
       base: rp,
       pct: pctDe(soma(rtPorItem), rp),
       derived: heterogeneo(items.map((_, k) => catDe(k).rtPct)),
+      basePerItem: receitaProdutosPorItem,
+      pctPerItem: items.map((_, k) => catDe(k).rtPct),
     }),
     linha('rro', '► RRO — RESULTADO RESIDUAL OPERACIONAL', rroPorItem, { subtotal: true }),
     // R17/R20 — a base é o RRO e o percentual é o PESO. NÃO a alíquota efetivada: efetivada
@@ -515,11 +569,15 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
       base: soma(rroPorItem),
       pct: soma(rroPorItem) !== 0 ? soma(comissaoPorItem) / soma(rroPorItem) : null,
       derived: heterogeneo(items.map((_, k) => pesoDe(k, catDe(k).comissaoPct))),
+      basePerItem: rroPorItem,
+      pctPerItem: items.map((_, k) => pesoDe(k, catDe(k).comissaoPct)),
     }),
     linha('lucro', 'Lucro', lucroPorItem, {
       base: soma(rroPorItem),
       pct: soma(rroPorItem) !== 0 ? soma(lucroPorItem) / soma(rroPorItem) : null,
       derived: heterogeneo(items.map((_, k) => pesoDe(k, catDe(k).lucroPct))),
+      basePerItem: rroPorItem,
+      pctPerItem: items.map((_, k) => pesoDe(k, catDe(k).lucroPct)),
     }),
     // A base do IRPJ e da CSLL é o LUCRO distribuído, e o percentual é a alíquota legal —
     // é essa relação que a R20 preserva e que a engenharia reversa confere.
@@ -527,11 +585,15 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
       base: soma(lucroPorItem),
       pct: soma(lucroPorItem) !== 0 ? soma(irpjPorItem) / soma(lucroPorItem) : null,
       derived: heterogeneo(items.map((_, k) => (catDe(k).lucroPct > 0 ? catDe(k).irpjPct / catDe(k).lucroPct : 0))),
+      basePerItem: lucroPorItem,
+      pctPerItem: items.map((_, k) => (catDe(k).lucroPct > 0 ? catDe(k).irpjPct / catDe(k).lucroPct : 0)),
     }),
     linha('csll', 'CSLL', csllPorItem, {
       base: soma(lucroPorItem),
       pct: soma(lucroPorItem) !== 0 ? soma(csllPorItem) / soma(lucroPorItem) : null,
       derived: heterogeneo(items.map((_, k) => (catDe(k).lucroPct > 0 ? catDe(k).csllPct / catDe(k).lucroPct : 0))),
+      basePerItem: lucroPorItem,
+      pctPerItem: items.map((_, k) => (catDe(k).lucroPct > 0 ? catDe(k).csllPct / catDe(k).lucroPct : 0)),
     }),
     // A ÚLTIMA LINHA DO DRE É O RESIDUAL, e isso é requisito da seção 6.4. O LUCRO DA VENDA
     // NÃO entra aqui: na planilha ele é a linha 88, separado do DRE que termina na 86, e
