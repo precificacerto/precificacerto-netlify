@@ -37,6 +37,11 @@ import { resolveInheritedRtPctDecimal } from '@/utils/balcao-rt'
 import { ResidualDistributionBlock } from '@/page-parts/shared/residual-distribution-block.component'
 import { computeConsolidatedDRE, type DREItemInput } from '@/utils/consolidated-dre'
 import { ConsolidatedDREBlock } from '@/page-parts/shared/consolidated-dre-block.component'
+import { enrichItemsForMotor } from '@/utils/motor-item-enrichment'
+import { buildItemTaxRatesFromProduct } from '@/utils/item-tax-rates'
+import { buildBudgetDecompositionInput } from '@/utils/budget-decomposition-input'
+import { buildDecomposition } from '@/utils/decomposition-dre'
+import { NOTA_DA_DECOMPOSICAO, applyDecompositionToResidual } from '@/utils/residual-from-decomposition'
 import {
     resolveDocumentAccessoriesInheritance,
     INHERITANCE_VERDICT_MESSAGE,
@@ -328,6 +333,69 @@ function OrdersPage() {
         const pct = Math.max(0, Math.min(100, Number(editingDiscountPct) || 0))
         return orderSubtotal * (1 - pct / 100)
     }, [orderSubtotal, editingDiscountPct])
+
+    /**
+     * A DECOMPOSIÇÃO DO PEDIDO — R15 a R20, paridade com o orçamento.
+     *
+     * >>> POR QUE O CUSTO VEM DO CADASTRO VIVO, e é decisão registrada <<<
+     *
+     * Medido no schema: `order_items` NÃO tem coluna de custo, de MO produtiva nem de
+     * alíquota — só `freight_allocated_value` e `accessories_allocated_value`. E o snapshot
+     * gravado não serve: em 16/09/2026, dos 32 `order_items` com `tax_breakdown`, só 10
+     * tinham `cp > 0` e NENHUM tinha `taxes_outside` preenchido. Ler o gravado devolveria uma
+     * decomposição sem custo e sem tributo por fora na maioria dos pedidos.
+     *
+     * Decisão do dono do produto, 16/09/2026: **pedido resolve do cadastro VIVO**, porque é
+     * documento ainda EM EDIÇÃO — a mesma natureza do orçamento reaberto. A venda GRAVADA
+     * segue outro caminho, e está registrada à parte.
+     *
+     * E o enriquecimento precisa do contexto de MO do tenant: sem ele a MO produtiva some sem
+     * que o `costTotal` mude, que é a junta do 97c6968.
+     */
+    const orderEnrichedItems = useMemo(() => enrichItemsForMotor(
+        orderItems.map((it) => ({ ...it, isManual: it.isManual === true || (!it.product_id && !it.service_id && !!it.manual_description) })),
+        { products, services },
+        {
+            production_labor_cost: mrmConfig.production_labor_cost,
+            monthly_workload_minutes: mrmConfig.monthly_workload_minutes,
+            productive_value_per_minute: mrmConfig.productive_value_per_minute,
+        },
+    ), [orderItems, products, services, mrmConfig.production_labor_cost, mrmConfig.monthly_workload_minutes, mrmConfig.productive_value_per_minute])
+
+    const orderDecomposition = useMemo(() => {
+        const params = buildBudgetDecompositionInput({
+            items: orderEnrichedItems.map((item) => {
+                const cadastro = item.service_id
+                    ? (services as any[]).find((x) => x.id === item.service_id)
+                    : (products as any[]).find((x) => x.id === item.product_id)
+                return {
+                    key: item.key,
+                    label: item.product_name || item.manual_description || 'Item',
+                    isManual: item.isManual,
+                    isService: !!item.service_id,
+                    quantity: Number(item.quantity) || 0,
+                    unitPrice: Number(item.unit_price) || 0,
+                    costUnit: Number(item.cost_total) || 0,
+                    productiveLaborUnit: Number(item.productive_labor_unit) || 0,
+                    commissionPct: Number(item.commission_percent) || 0,
+                    profitPct: Number(item.profit_percent) || 0,
+                    rtPct: Number(item.rt_reserve_percent) || 0,
+                    // A ficha do CADASTRO, pela MESMA função que o orçamento usa. `null` em
+                    // item manual e em produto excluído — e `null` não é alíquota zero.
+                    rates: cadastro ? buildItemTaxRatesFromProduct(cadastro) : null,
+                    // R21 — a parcela CONGELADA herdada do orçamento. As duas colunas nulas
+                    // são NÃO COTADO, e não zero: a escolha é pela PRESENÇA da coluna.
+                    acrescimos: (item.freight_allocated_value != null || item.accessories_allocated_value != null)
+                        ? (Number(item.freight_allocated_value) || 0) + (Number(item.accessories_allocated_value) || 0)
+                        : 0,
+                }
+            }),
+            discountPct: (Number(editingDiscountPct) || 0) / 100,
+            despesasOperacionaisPct: Number(mrmConfig.dop_pct) || 0,
+        })
+        if (params.isEmpty) return null
+        return { result: buildDecomposition(params.input), labels: params.itemLabels }
+    }, [orderEnrichedItems, products, services, editingDiscountPct, mrmConfig.dop_pct])
 
     /**
      * R21 — o rateio de frete herdado do orçamento ainda descreve este pedido?
@@ -2085,15 +2153,26 @@ function OrdersPage() {
 
                 {orderSubtotal > 0 && (
                     <ResidualDistributionBlock
-                        distribution={orderResidualDistribution}
+                        /* Os cards leem a DECOMPOSIÇÃO, não a Etapa 16 — mesma correção do
+                           1934dbb no orçamento. Sem ela a tela teria duas fontes para o
+                           mesmo RRO, e elas divergem. */
+                        distribution={applyDecompositionToResidual(
+                            orderResidualDistribution, orderDecomposition?.result ?? null,
+                        )}
                         regimeGuardActive={orderEpicV5DisplayData.regimeGuardActive}
                         discountMode={normalizeDiscountModeForDisplay(editingOrder?.discount_mode)}
+                        footerNote={orderDecomposition?.result ? NOTA_DA_DECOMPOSICAO : undefined}
                     />
                 )}
 
                 {/* S14 — DRE Consolidada (R3=B + R7=B). Snapshot histórico imutável. */}
                 {orderSubtotal > 0 && (
                     <ConsolidatedDREBlock
+                        /* R19 — a cascata expande da etapa 12 em diante com as linhas da
+                           decomposição, e a Etapa 8 passa a exibir o bloco por fora APURADO
+                           em vez do peso derivado por divisão (e109cd6). */
+                        decomposition={orderDecomposition?.result ?? null}
+                        itemLabels={orderDecomposition?.labels ?? []}
                         dre={orderConsolidatedDRE}
                         cascadeTrace={orderEpicV5DisplayData.cascadeTrace}
                         pesoOpInterna={orderEpicV5DisplayData.pesoOpInterna}
@@ -2115,6 +2194,11 @@ function OrdersPage() {
                             totalACobrar: orderFinalTotal,
                             discountPercent: orderDiscountPct,
                             discountMode: orderDiscountMode,
+                            // O PDF passa a imprimir a DECOMPOSIÇÃO em colunas, no lugar das
+                            // etapas — a MESMA que a tela exibe, e não uma segunda montagem.
+                            ...(orderDecomposition
+                                ? { decomposition: { decomposition: orderDecomposition.result, itemLabels: orderDecomposition.labels } }
+                                : {}),
                         }}
                     />
                 )}
