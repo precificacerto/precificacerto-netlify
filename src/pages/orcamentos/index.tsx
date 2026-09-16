@@ -770,11 +770,19 @@ function Budgets() {
     // divergido: as de venda não recompunham custo/MO/despesa, não marcavam `is_manual_cost`
     // e duas nem resolviam o RT. Com um construtor só, acrescentar um campo vale para as
     // quatro rotas. Ver `.claude/rules/copia-divergente.md`.
-    const enrichedItems = enrichItemsForMotor(budgetItems, { products, services }, {
+    //
+    // >>> E ELE É A ENTRADA DOS DOIS CONSUMIDORES, NÃO SÓ DO MOTOR <<<
+    // A decomposição lia `budgetItems` CRU. O custo de um item não está gravado — não existe
+    // coluna `budget_items.cost_total` — então ele é RESOLVIDO do cadastro vivo, e a MO
+    // produtiva do ATeste1509 só sai do fallback runtime `product_workload ×
+    // (production_labor_cost ÷ monthly_workload_minutes)`, que precisa do contexto do tenant.
+    // Congelado na linha, ele vale o que valia no instante em que a linha foi montada;
+    // resolvido aqui, vale o que vale agora. Memoizado porque a decomposição depende dele.
+    const enrichedItems = useMemo(() => enrichItemsForMotor(budgetItems, { products, services }, {
         production_labor_cost: mrmConfig.production_labor_cost,
         monthly_workload_minutes: mrmConfig.monthly_workload_minutes,
         productive_value_per_minute: mrmConfig.productive_value_per_minute,
-    })
+    }), [budgetItems, products, services, mrmConfig.production_labor_cost, mrmConfig.monthly_workload_minutes, mrmConfig.productive_value_per_minute])
     // Parâmetros de operação para a hierarquia do ICMS Complementar (Etapa 17). ST/DIFAL é
     // por-produto; consolidamos como "algum item ativo" (bloqueio no nível da operação). Frete
     // e seguro separados das demais despesas acessórias (FOB exclui frete; CIF contribuinte usa
@@ -1267,7 +1275,12 @@ function Budgets() {
      */
     const decomposition = useMemo(() => {
         const params = buildBudgetDecompositionInput({
-            items: budgetItems.map((item) => ({
+            // `enrichedItems`, NUNCA `budgetItems`: o custo e a MO produtiva são RESOLVIDOS do
+            // cadastro vivo mais o contexto de mão de obra do tenant, e é isso que o motor
+            // consome. Ler a linha crua aqui fazia da decomposição a SEGUNDA fonte do custo —
+            // e ela exibia R$ 7.985,99 (só `product_items.item_cost_net`) onde a construção
+            // exibe R$ 10.562,57, faltando exatamente a MO de R$ 2.576,58.
+            items: enrichedItems.map((item) => ({
                 key: item.key,
                 label: item.product_name || 'Item',
                 isManual: item.isManual,
@@ -1300,7 +1313,7 @@ function Budgets() {
         if (params.isEmpty) return null
         return { result: buildDecomposition(params.input), labels: params.itemLabels }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [budgetItems, allocatedByKey, products, globalDiscountPercent, mrmConfig.dop_pct, mrmConfig.irpj_pct, mrmConfig.csll_pct])
+    }, [enrichedItems, allocatedByKey, products, globalDiscountPercent, mrmConfig.dop_pct, mrmConfig.irpj_pct, mrmConfig.csll_pct])
 
     /**
      * OS CARDS LEEM A DECOMPOSIÇÃO — e deixam de ser a segunda fonte.

@@ -38,6 +38,7 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 import { buildItemTaxRatesFromProduct } from '@/utils/item-tax-rates'
 import { buildCascadeView } from '@/utils/cascade-display-view'
+import { enrichItemsForMotor } from '@/utils/motor-item-enrichment'
 
 /** O produto como o BANCO o guarda — inclusive a escala mista que originou o defeito 1. */
 const PRODUTO_NO_BANCO = {
@@ -386,5 +387,186 @@ describe('8. A TELA exibe as colunas — e a etapa da construção fica com trav
   it('o orçamento passa os rótulos', () => {
     const orc = readFileSync(join(__dirname, '..', '..', 'pages', 'orcamentos', 'index.tsx'), 'utf-8')
     expect(orc).toContain('itemLabels={decomposition?.labels ?? []}')
+  })
+})
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────────────────
+ * 9. O CAMINHO REAL — O QUE OS OITO BLOCOS ACIMA NÃO EXERCITAVAM
+ * ─────────────────────────────────────────────────────────────────────────────────────────
+ *
+ * "Se o teste passa e a tela erra em R$ 2.576,58, o teste não exercita o caminho que a tela
+ *  usa. Descubra o que ele exercita e faça-o exercitar o caminho real. Um caso que monta o
+ *  custo à mão passaria com o defeito de volta."
+ *
+ * O QUE ELES EXERCITAVAM: `item()` monta `costUnit: MATERIAL` e `productiveLaborUnit:
+ * MO_PRODUTIVA` À MÃO, com os dois números já separados e já corretos. Isso cobre
+ * `budget-decomposition-input.ts` (que os SOMA) e `decomposition-dre.ts` — e nada antes
+ * disso. A pergunta "de onde vêm esses dois números na tela" ficava fora do caso, e é
+ * exatamente ali que o defeito estava.
+ *
+ * O CAMINHO REAL, e é ele que este bloco percorre:
+ *
+ *   produto do cadastro  →  enrichItemsForMotor (resolve custo + MO do cadastro VIVO
+ *                           com o contexto de MO do TENANT)
+ *                        →  o mapeamento da tela
+ *                        →  buildBudgetDecompositionInput  →  buildDecomposition
+ *
+ * >>> POR QUE O CONTEXTO DO TENANT É O DISCRIMINANTE, E NÃO UM DETALHE DE SETUP <<<
+ *
+ * Medido no banco em 16/09/2026, no ATeste1509 (`ce51cfae`):
+ *
+ *   products.cost_total ............. 0
+ *   products.productive_labor_total.. 0
+ *   labor_costs .................... 0 linhas
+ *   pricing_calculations.cmv ......... 0
+ *   pricing_calculations.product_workload_price / total_labor_* / val_indirect_labor ... 0
+ *   pricing_calculations.product_workload ......... 10.000 minutos
+ *   tenant_expense_config.productive_value_per_minute ... 0
+ *   tenant_expense_config.production_labor_cost_hub ..... 40.813,03
+ *   tenant_settings ..................... 528 HOURS × 5 produtivos = 158.400 min/mês
+ *
+ * Os NÍVEIS 0 a 4 de `resolveProductLaborTotal` saem todos ZERO. A MO deste produto só existe
+ * pelo fallback RUNTIME: `10.000 × (40.813,03 ÷ 158.400) = 2.576,58`. Sem o contexto do
+ * tenant a função devolve MO = 0 **e `costTotal` = 7.985,99 IGUAL** — o número não muda, só
+ * a MO some. Foi por isso que o defeito atravessou: a metade visível estava certa.
+ */
+describe('9. DO CADASTRO À DECOMPOSIÇÃO — sem montar o custo à mão', () => {
+  /** O produto como o BANCO o tem. Nenhum campo arrumado: `cost_total` é 0 mesmo. */
+  const PRODUTO_DO_CADASTRO = {
+    id: 'ce51cfae', name: 'ATeste1509',
+    cost_total: 0, yield_quantity: 1, productive_labor_total: 0,
+    sale_price: PRODUTO_NO_BANCO.sale_price,
+    commission_percent: 5, profit_percent: 10, rt_reserve_percent: 0,
+    product_items: [{ item_id: 'i', item_cost_net: 7985.988202500001, quantity_needed: 1 }],
+    labor_costs: [] as { net_value: number }[],
+    pricing_calculations: [{
+      cmv: 0, product_workload: 10000, product_workload_price: 0,
+      total_labor_net: 0, total_labor_gross: 0, val_indirect_labor: 0, total_material_cost_net: 0,
+    }],
+    freight_value: 0, insurance_value: 0, accessory_expenses_value: 0,
+    icms_pct: 17, pis_cofins_pct: 7.6775, ibs_pct: 1, cbs_pct: 9, is_pct: 0, ipi_pct: 0,
+  }
+
+  /** O contexto de MO do tenant, como `useTenantTaxContext` o entrega. */
+  const CTX_DO_TENANT = {
+    production_labor_cost: 40813.03,
+    monthly_workload_minutes: 158400,
+    productive_value_per_minute: 0,
+  }
+
+  /** A LINHA do documento, como ela existe antes de qualquer resolução de custo. */
+  const LINHA_DO_DOCUMENTO = {
+    key: 'a', product_id: 'ce51cfae', product_name: 'ATeste1509',
+    quantity: 1, unit_price: PRODUTO_NO_BANCO.sale_price,
+    commission_percent: 5, profit_percent: 10,
+    item_tax_rates: buildItemTaxRatesFromProduct(PRODUTO_NO_BANCO),
+  }
+
+  /** O MESMO mapeamento da tela, sobre o array que a tela passa. */
+  const decomporDe = (linhas: readonly unknown[]) => buildDecomposition(buildBudgetDecompositionInput({
+    items: (linhas as any[]).map((item) => ({
+      key: item.key, label: item.product_name, isManual: item.isManual, isService: item.isService,
+      quantity: Number(item.quantity) || 0,
+      unitPrice: Number(item.unit_price) || 0,
+      costUnit: Number(item.cost_total) || 0,
+      productiveLaborUnit: Number(item.productive_labor_unit) || 0,
+      commissionPct: Number(item.commission_percent) || 0,
+      profitPct: Number(item.profit_percent) || 0,
+      rtPct: Number(item.rt_reserve_percent) || 0,
+      rates: item.item_tax_rates ?? null,
+      acrescimos: 0,
+    })),
+    discountPct: 0, despesasOperacionaisPct: DESPESAS_PCT,
+  }).input)
+
+  const enriquecidos = enrichItemsForMotor(
+    [LINHA_DO_DOCUMENTO] as never,
+    { products: [PRODUTO_DO_CADASTRO] as never, services: [] as never },
+    CTX_DO_TENANT as never,
+  )
+
+  it('o enriquecimento separa material de MO, e a soma é o CUSTO PRODUTO da construção', () => {
+    const e = enriquecidos[0] as unknown as { cost_total: number; productive_labor_unit: number }
+    expect(e.cost_total).toBeCloseTo(MATERIAL, 1)
+    expect(e.productive_labor_unit).toBeCloseTo(MO_PRODUTIVA, 1)
+    expect(e.cost_total + e.productive_labor_unit).toBeCloseTo(CONSTRUCAO.custo, 1)
+  })
+
+  it('a linha de CUSTOS sai R$ 10.562,57 — e NÃO os R$ 7.985,99 da tela', () => {
+    const r = decomporDe(enriquecidos)
+    expect(val(r, 'custos')).toBeCloseTo(CONSTRUCAO.custo, 1)
+    // O número que o dono do produto mediu na linha 27. Ele é `product_items.item_cost_net`
+    // sozinho — a metade visível do CMV.
+    expect(val(r, 'custos')).not.toBeCloseTo(MATERIAL, 1)
+  })
+
+  it('e o RRO fecha em R$ 6.395,83, não nos R$ 8.972,42 da tela', () => {
+    const r = decomporDe(enriquecidos)
+    expect(val(r, 'rro')).toBeCloseTo(CONSTRUCAO.rro, 1)
+    // A diferença era EXATAMENTE a MO: custo a menos vira RRO a mais.
+    expect(val(r, 'rro')).not.toBeCloseTo(CONSTRUCAO.rro + MO_PRODUTIVA, 1)
+    expect(r.rro!.foraDeZero).toBe(false)
+  })
+
+  it('a comissão volta a 5,00% e o lucro a 10,00% do total geral', () => {
+    const r = decomporDe(enriquecidos)
+    expect(linha(r, 'comissao').pctSobreTotalGeral! * 100).toBeCloseTo(5, 2)
+    expect(linha(r, 'lucro').pctSobreTotalGeral! * 100).toBeCloseTo(10, 2)
+    // Os 7,0143% que a tela exibia com o custo incompleto.
+    expect(linha(r, 'comissao').pctSobreTotalGeral! * 100).not.toBeCloseTo(7.0143, 2)
+  })
+
+  it('>>> A LINHA CRUA, SEM ENRIQUECER, REPRODUZ O DEFEITO — é o contraste que faltava <<<', () => {
+    // `budget_items` NÃO TEM coluna de custo: o custo de um item nunca é gravado, é sempre
+    // resolvido. A linha do documento chega assim, sem custo nenhum, e a decomposição lida
+    // sobre ela devolve custo ZERO. Foi a leitura crua que produziu tanto o R$ 0,00 da
+    // medição anterior quanto o R$ 7.985,99 desta.
+    const r = decomporDe([LINHA_DO_DOCUMENTO])
+    expect(val(r, 'custos')).toBeCloseTo(0, 2)
+    expect(val(r, 'custos')).not.toBeCloseTo(CONSTRUCAO.custo, 1)
+  })
+
+  it('>>> E SEM O CONTEXTO DE MO DO TENANT, sai EXATAMENTE o R$ 7.985,99 da tela <<<', () => {
+    // Este é o caso que nomeia a causa. Os níveis 0 a 4 de `resolveProductLaborTotal` são
+    // todos zero neste produto; a MO só existe pelo fallback runtime, que precisa do
+    // contexto. Sem ele, `costTotal` sai IGUAL e só a MO some — a metade visível fica certa,
+    // e é por isso que o defeito atravessou três correções.
+    const semCtx = enrichItemsForMotor(
+      [LINHA_DO_DOCUMENTO] as never,
+      { products: [PRODUTO_DO_CADASTRO] as never, services: [] as never },
+      { production_labor_cost: 0, monthly_workload_minutes: 0, productive_value_per_minute: 0 } as never,
+    )
+    expect((semCtx[0] as unknown as { cost_total: number }).cost_total).toBeCloseTo(MATERIAL, 1)
+    expect(val(decomporDe(semCtx), 'custos')).toBeCloseTo(MATERIAL, 1)
+  })
+})
+
+describe('10. A JUNTA — a tela decompõe o array ENRIQUECIDO, não a linha crua', () => {
+  const orc = readFileSync(join(__dirname, '..', '..', 'pages', 'orcamentos', 'index.tsx'), 'utf-8')
+
+  it('o `buildBudgetDecompositionInput` da tela mapeia `enrichedItems`', () => {
+    // É a quarta vez nesta cadeia que o custo chega errado, e as quatro foram na JUNTA:
+    // módulo certo, tela no caminho antigo. O motor sempre consumiu `enrichedItems`; a
+    // decomposição consumia `budgetItems`, e eram DUAS FONTES para o mesmo custo.
+    const memo = orc.slice(orc.indexOf('const decomposition = useMemo'))
+    const corpo = memo.slice(0, memo.indexOf('}, ['))
+    expect(corpo).toContain('items: enrichedItems.map((item) => ({')
+    expect(corpo).not.toContain('items: budgetItems.map((item) => ({')
+  })
+
+  it('e `enrichedItems` recebe o contexto de MO do tenant', () => {
+    // Sem os três campos o fallback runtime não roda, e a MO deste produto é SÓ ele.
+    const bloco = orc.slice(orc.indexOf('enrichItemsForMotor(budgetItems'))
+    const chamada = bloco.slice(0, bloco.indexOf('})'))
+    expect(chamada).toContain('production_labor_cost: mrmConfig.production_labor_cost')
+    expect(chamada).toContain('monthly_workload_minutes: mrmConfig.monthly_workload_minutes')
+    expect(chamada).toContain('productive_value_per_minute: mrmConfig.productive_value_per_minute')
+  })
+
+  it('o memo da decomposição depende de `enrichedItems` — não de uma cópia congelada', () => {
+    // Com `budgetItems` na lista de dependências, o custo resolvido depois da carga do
+    // contexto do tenant não chegaria à tabela.
+    expect(orc).toContain('}, [enrichedItems, allocatedByKey, products, globalDiscountPercent')
   })
 })
