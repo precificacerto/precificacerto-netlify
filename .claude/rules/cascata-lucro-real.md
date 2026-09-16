@@ -190,6 +190,58 @@ tela.
 em `[0, 100]`; o motor usa fração em `[0, 1]`. `reductionFactorPctToFraction`
 (`src/utils/iva-dual-reduction-factor.ts`) é a única travessia autorizada.
 
+#### O FATOR DEIXA DE SER ENTRADA E VIRA DERIVADO — decisão de 16/09/2026
+
+Tudo acima descreve o fator como **escolha do usuário numa lista**. Isso muda, e
+a razão é a mecânica da própria reforma. Formulação do dono do produto,
+registrada como está:
+
+> O fator de redução **NÃO é escolha do usuário. Ele DECORRE do cClassTrib.** Na
+> reforma, o contribuinte classifica a operação — escolhe CST e cClassTrib — e a
+> redução vem junto, da tabela: `pRedIBS` e `pRedCBS` são atributos do código,
+> não campos que o emitente preenche. Na NF-e, o grupo `gRed` é validado contra o
+> que o código permite; escolher um percentual que o código não dá é nota
+> rejeitada. **É como o NCM: ninguém digita a alíquota do IPI, classifica o
+> produto e a alíquota vem.**
+
+| | hoje | depois |
+|---|---|---|
+| o que o usuário faz | escolhe 0/30/40/50/60/70/80/100 | escolhe o **cClassTrib** |
+| de onde sai o percentual | da lista, digitado | de `cclass_trib.p_red_ibs` e `.p_red_cbs` |
+| quantos números | **um**, para IBS e CBS juntos | **dois**, separados |
+
+**São dois porque a tabela oficial os separa.** O código `200025` (educação,
+ProUni) tem `pRedIBS = 60` e `pRedCBS = 100` — 1 em 164. O limite do campo único,
+registrado na seção da NF-e como "não serve para o `200025`", **deixa de existir
+por este caminho**: os dois valores vêm do código, separados, porque é o que a
+tabela diz.
+
+**E eles são CONGELADOS no produto, não relidos.** `iva_reduction_ibs_pct` e
+`iva_reduction_cbs_pct` são gravados no momento da classificação porque **o preço
+foi formado com eles**: se uma publicação futura mudar o código, o preço de ontem
+não pode mudar junto. Reler da tabela seria a **sétima aparição** de
+`fato-vs-referencia.md`.
+
+**A tela sugere, o banco aceita — e a procedência é gravada.** O usuário pode
+cadastrar código que a tabela não tem, pelo mesmo motivo do fator: código novo
+publicado antes da nossa atualização não pode travar ninguém. O que distingue o
+manual do oficial é `cclass_trib_origem` (`'TABELA'` | `'MANUAL'`) mais
+`cclass_trib_source_published_at`, gravados como fato — **nunca deduzidos depois
+por "o código não está na tabela"**, porque contra uma tabela que muda essa
+dedução erra nos dois sentidos e a resposta muda sozinha.
+
+**Estado em 16/09/2026.** O schema e a derivação existem e estão testados:
+migrações `20260916000001` (as duas tabelas oficiais, 18 + 164 linhas) e
+`20260916000002` (as seis colunas em `products`), mais
+`src/utils/classificacao-fiscal.ts`. **A fiação da tela NÃO está feita**, e
+`products.iva_dual_reduction_factor` continua sendo o que o motor lê. A travessia
+de um para o outro é decisão própria e não está tomada.
+
+**Consequência a honrar quando a fiação chegar:** `services` tem
+`iva_dual_reduction_factor` próprio e cai na mesma mudança de natureza. As seis
+colunas não foram criadas lá — a instrução nomeou `products`. Fica escrito para
+não virar descoberta tardia.
+
 **R5 · Percentual efetivado.** Toda categoria da operação interna é cadastrada
 como **% Original sobre o total geral** e convertida para cálculo:
 
