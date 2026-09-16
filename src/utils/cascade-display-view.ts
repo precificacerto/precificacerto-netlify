@@ -46,6 +46,65 @@ export const ULTIMA_ETAPA_DA_CONSTRUCAO = 11
  */
 export const LINHAS_COM_DOIS_PERCENTUAIS = new Set(['comissao', 'lucro', 'irpj', 'csll'])
 
+/**
+ * A etapa da CONSTRUÇÃO que exibe o BLOCO POR FORA — IBS + CBS + IS + IPI.
+ *
+ * >>> ELA NÃO LIA TRIBUTO NENHUM, E O NÚMERO QUE EXIBIA ERA DERIVADO POR DIVISÃO <<<
+ *
+ * O motor a emite como `rb_total × (1 − peso_op_interna)` (`cascade-trace.ts:326`), e o
+ * `peso_op_interna` do item é redescoberto por `(sale_price_base − terceirizadas) ÷
+ * (unit_price − terceirizadas)` (`legacy-adapter.ts:776`), com FALLBACK `= 1` quando o
+ * produto não tem `sale_price_base` gravado. Medido nos dois lados, com o motor real:
+ *
+ *   produto COM `sale_price_base` e SEM IBS/CBS  → etapa exibia R$ 69,00; apurado R$ 0,00
+ *   produto SEM `sale_price_base` e COM IBS/CBS  → etapa exibia R$ 0,00;  apurado > 0
+ *
+ * É a aparição 2 de `.claude/rules/regime-e-segmento-determinam-a-construcao.md`: a
+ * decomposição REDESCOBRE a proporção em vez de LER o que a construção usou. E não é o caso
+ * da etapa 17: a Camada 2 (`absorption.ts`) reescreve as etapas 9, 11, 12, 16 e 17 — a 8
+ * nunca. Ela não é placeholder; é um número calculado de outra coisa.
+ *
+ * A correção lê as QUATRO linhas por fora da decomposição, que saem da mesma ficha
+ * (`resolveItemFicha`) que a construção usou. O motor não é tocado: os pesos continuam sendo
+ * calculados e usados, e o que muda é a LEITURA.
+ */
+export const ETAPA_DA_OPERACAO_POR_FORA = 8
+
+/** As chaves das linhas da decomposição que compõem o bloco por fora. */
+const LINHAS_DO_BLOCO_POR_FORA = new Set([
+  'por_fora', 'por_fora_ibs', 'por_fora_cbs', 'por_fora_is', 'por_fora_ipi',
+])
+
+/** O bloco por fora apurado, pronto para substituir o número derivado da etapa 8. */
+export interface BlocoPorFora {
+  /** Σ |IBS| + |CBS| + |IS| + |IPI|, em R$. */
+  valor: number
+  /** A base das linhas por fora — a receita de produtos. */
+  base: number | null
+  /** `valor ÷ base`. `null` quando não há base: nunca zero. */
+  pct: number | null
+  /** O bloco POR PRODUTO, paralelo aos rótulos das colunas. */
+  perItem: number[]
+}
+
+/**
+ * Soma as linhas por fora da decomposição.
+ *
+ * As linhas saem NEGATIVAS (são deduções do DRE) e o bloco é exibido como VALOR, igual às
+ * demais etapas da construção — daí o `Math.abs`. `null` quando a decomposição não tem
+ * nenhuma delas, porque bloco ausente é ausência, não R$ 0,00.
+ */
+export function blocoPorForaDaDecomposicao(decomposition: DecompositionResult): BlocoPorFora | null {
+  const linhas = decomposition.rows.filter((r) => LINHAS_DO_BLOCO_POR_FORA.has(r.key))
+  if (linhas.length === 0) return null
+  const valor = linhas.reduce((s, r) => s + Math.abs(r.total), 0)
+  const base = linhas.find((r) => r.base != null)?.base ?? null
+  const colunas = linhas.reduce((m, r) => Math.max(m, r.perItem.length), 0)
+  const perItem = Array.from({ length: colunas }, (_, k) =>
+    linhas.reduce((s, r) => s + Math.abs(r.perItem[k] ?? 0), 0))
+  return { valor, base, pct: base != null && base !== 0 ? valor / base : null, perItem }
+}
+
 /** Uma linha da cascata, já pronta para a tela. */
 export interface CascadeViewRow {
   /** O número exibido. `null` só nos sub-itens indentados da construção. */
@@ -104,22 +163,28 @@ export function buildCascadeView(
   trace: CascadeStep[],
   decomposition?: DecompositionResult | null,
 ): CascadeViewRow[] {
-  const doTrace = (steps: CascadeStep[]): CascadeViewRow[] => {
+  const doTrace = (steps: CascadeStep[], porFora?: BlocoPorFora | null): CascadeViewRow[] => {
     const out: CascadeViewRow[] = []
     for (const step of steps) {
+      // A etapa 8 exibe o BLOCO APURADO quando a decomposição existe — ver
+      // `ETAPA_DA_OPERACAO_POR_FORA`. Sem decomposição (pedido e venda, que ainda não a
+      // montam) fica o número do motor: melhor o derivado que nada.
+      const bloco = porFora && Number(step.step) === ETAPA_DA_OPERACAO_POR_FORA ? porFora : null
       out.push({
         numero: Number(step.step),
         label: step.label ?? '',
-        base: step.base ?? null,
-        pct: step.rate ?? null,
-        valor: Number(step.amount) || 0,
+        base: bloco ? bloco.base : (step.base ?? null),
+        pct: bloco ? bloco.pct : (step.rate ?? null),
+        valor: bloco ? bloco.valor : (Number(step.amount) || 0),
         isSubtotal: false,
         isChild: false,
         isDerivedAverage: false,
         peso: step.peso ?? null,
         effectiveRatePct: step.effective_rate_pct ?? null,
-        formula: step.formula ?? '',
-        perItem: [],
+        formula: bloco
+          ? 'IBS + CBS + IS + IPI apurados — lidos da decomposição, não do peso estrutural'
+          : (step.formula ?? ''),
+        perItem: bloco ? bloco.perItem : [],
         pctSobreTotalGeral: null,
         key: `t-${step.step}-${step.source}-${out.length}`,
       })
@@ -149,6 +214,7 @@ export function buildCascadeView(
   if (!decomposition || decomposition.rows.length === 0) return doTrace(trace)
 
   const construcao = trace.filter((s) => Number(s.step) <= ULTIMA_ETAPA_DA_CONSTRUCAO)
+  const porFora = blocoPorForaDaDecomposicao(decomposition)
 
   // A numeração continua de onde a construção parou — sequência de EXIBIÇÃO, não do motor.
   const ultimoNumero = construcao.reduce((m, s) => Math.max(m, Number(s.step) || 0), 0)
@@ -198,5 +264,5 @@ export function buildCascadeView(
     })
   }
 
-  return [...doTrace(construcao), ...decomposta]
+  return [...doTrace(construcao, porFora), ...decomposta]
 }
