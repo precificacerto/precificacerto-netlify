@@ -2212,7 +2212,8 @@ export const Content: FC<ContentProps> = ({
         {/* ┌ LUGAR PREPARADO — campos que a NF-e exige e que NÃO existem no schema:
             │   • Origem da mercadoria (0 a 8)
             │   • CST / CSOSN
-            │   • cClassTrib — 156 códigos vigentes na v1.40 da NT 2025.002
+            │   • cClassTrib — 164 códigos na tabela oficial do Portal DF-e SVRS,
+            │     publicação 2026-06-22 (o "156 da v1.40" é fonte secundária)
             └ Não criar sem a tabela de códigos: inventar a lista é pior que não tê-la. */}
 
         {/* As sugestões de NCM vêm do NOME digitado, que ficou no bloco de Identificação.

@@ -685,23 +685,70 @@ Está registrado com o cronograma justamente para que quem chegar depois saiba *
 partir de quando** a simplificação deixa de servir, em vez de descobrir com uma
 nota rejeitada.
 
-### Falta o `cClassTrib`
+### Falta o `cClassTrib` — agora com FONTE PRIMÁRIA na mão
 
-A NT traz **156 códigos vigentes na v1.40**. O `cClassTrib` é o vínculo entre o
-item e o dispositivo da LC 214/2025 que lhe dá o tratamento tributário — **código
-errado significa apuração errada**, não só campo em branco.
+O `cClassTrib` é o vínculo entre o item e o dispositivo da LC 214/2025 que lhe dá
+o tratamento tributário — **código errado significa apuração errada**, não só
+campo em branco. Não existe no nosso schema.
 
-Não existe no nosso schema.
+**A ressalva de fonte acima NÃO se aplica mais a esta subseção.** Em 16/09/2026 o
+dono do produto trouxe o arquivo oficial **`cClassTrib 2026-06-22.xlsx`**, do
+Portal DF-e SVRS, extraído por leitura direta do xlsx — sem transcrição. O que
+segue é medição sobre ele, não resumo de terceiro. A ressalva **continua valendo
+para o resto da seção**, em especial para o IBS partido em `gIBSUF`/`gIBSMun`.
+
+**São 164 códigos, não 156.** O número 156 veio das fontes secundárias, atribuído
+à v1.40, e **não reconcilia** com o arquivo oficial: 164 linhas, das quais 3 têm
+`d_fim_vig`, o que daria 161 e não 156. A diferença fica registrada como
+divergência, **sem escolha de lado e sem conta inventada para fechá-la** — quem
+precisar do número da v1.40 confere a NT; quem precisar do que a tabela tem
+confere o arquivo. Onde o repositório citar 156, é a fonte secundária falando.
+
+| medição sobre o arquivo oficial | |
+|---|---|
+| códigos | **164** |
+| CST distintos | **18** — e todo CST tem ao menos um cClassTrib, e vice-versa |
+| `d_ini_vig` | **2026-01-01 em 164 de 164** |
+| `d_fim_vig` preenchido | **3** — `220001`, `220002`, `220003`, todos do CST 220 |
+| `data_atualizacao` | **2026-06-22 em 164 de 164** |
+| com `pRedIBS`/`pRedCBS` > 0 | **59** |
+
+Os três com fim de vigência têm **`d_fim_vig` igual ao `d_ini_vig`** — começam e
+terminam em 2026-01-01. Está registrado como o arquivo traz. **Não interpretei o
+que significa**, e a validação de vigência tem de decidir pelo dado, não pela
+leitura que alguém fizer disto.
+
+### `ind_gRed` vem do CST, NÃO do cClassTrib — correção de registro
+
+O indicador que diz se a operação leva o grupo `gRed` está na **tabela de CST,
+coluna 5** (`ind_gRed`), e vale para os 18 CST. A afirmação anterior, do dono do
+produto, o colocava no `cClassTrib`; o arquivo oficial mostra que não.
+
+Os CST que ligam o `gRed` são **três, e só três**: **`011`** (tributação com
+alíquotas uniformes reduzidas), **`200`** (alíquota reduzida) e **`515`**
+(diferimento com redução de alíquota). O `cClassTrib` traz os
+**percentuais** (`pRedIBS`, `pRedCBS`); o CST traz o **indicador de que o grupo
+existe**. São as duas metades da mesma informação, em tabelas diferentes, e
+procurá-las no lugar errado é o que `regime-e-segmento-determinam-a-construcao.md`
+chama de inferir em vez de ler.
+
+**Uma consequência que o modelo atual não comporta.** O código **`200025`**
+(serviços de educação do ProUni) tem `pRedIBS = 60` e `pRedCBS = 100` — **as duas
+alíquotas com reduções DIFERENTES**. Nosso `iva_dual_reduction_factor` é **um só
+por produto**, para IBS e CBS juntos, e a R4 diz isso com todas as letras. É a
+mesma forma da simplificação do `ibs_pct` único registrada acima: serve hoje,
+**não serve para o `200025`**, e fica escrito para que quem o encontrar saiba que
+o limite é conhecido e não um defeito a caçar. 1 de 164.
 
 ### A lista do que falta, consolidada
 
 | Campo | Existe hoje? |
 |---|---|
 | CFOP | não |
-| CST / CSOSN | não |
+| CST / CSOSN | não — 18 CST na tabela oficial de IBS/CBS |
 | Origem da mercadoria | não |
 | Unidade comercial | não |
 | EAN / GTIN | não |
-| **`cClassTrib`** | **não** |
+| **`cClassTrib`** | **não** — 164 códigos na tabela oficial de 2026-06-22 |
 | **IBS partido em UF e Município** | **não — um `ibs_pct` só** |
 | NCM | **sim**, em `items` e em `products` |

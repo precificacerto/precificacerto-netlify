@@ -48,6 +48,42 @@ Três pontos IMPUNHAM a restrição — tela de produto, tela de serviço, `CHEC
 citações estavam em dois pontos **adjacentes** (as migrações) e um **distante** (o helper).
 Nenhuma no ponto de declaração.
 
+### A razão tem FONTE OFICIAL, e ela chegou depois — 16/09/2026
+
+O registro acima dizia que a razão era "a LC 214", lida no texto da lei. Ela é mais forte que
+isso, e o fato só apareceu meses depois, quando o dono do produto trouxe o arquivo oficial
+**`cClassTrib 2026-06-22.xlsx`**, do Portal DF-e SVRS.
+
+Os percentuais de `pRedIBS`/`pRedCBS` da tabela oficial, medidos sobre as 164 linhas:
+
+| valor | linhas |
+|---|---|
+| 0 | 105 |
+| 30 | 2 |
+| 40 | 5 |
+| 50 | 1 |
+| 60 | 22 |
+| 70 | 1 |
+| 80 | 1 |
+| 100 | 26 |
+
+**Os valores distintos maiores que zero são exatamente `30, 40, 50, 60, 70, 80, 100`, em 59
+das 164 linhas.** É a lista do `Select` original, item por item, sem sobra e sem falta.
+
+O que isso muda no registro: a restrição não era leitura da lei feita por alguém — era
+**transcrição de uma tabela publicada**. Quem a escreveu tinha a fonte na mão. A aparição 1
+continua sendo o que era (razão longe da declaração, leitor alarga), e o custo dela sobe: o
+campo livre não afrouxou uma interpretação, afrouxou **um domínio enumerado pelo fisco**.
+
+E a citação que faltava agora tem endereço verificável, que é o critério da regra 1 desta
+página — *"a citação boa é a que permite ao próximo leitor VERIFICAR"*:
+
+```
+// Fator de redução do IVA Dual — as 7 faixas são os valores distintos de
+// pRedIBS/pRedCBS na tabela oficial cClassTrib do Portal DF-e SVRS
+// (publicação 2026-06-22), 59 das 164 linhas. LC 214/2025.
+```
+
 ## Por que a distinção é difícil de ver
 
 Porque quem declara a restrição **não precisa da citação**. Ele acabou de ler a lei; a lista
