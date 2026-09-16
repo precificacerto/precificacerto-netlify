@@ -1013,9 +1013,17 @@ function Budgets() {
      */
     const allocatedByKey = useMemo(() => {
         if (!accessoriesAllocation || accessoriesAllocation.errors.length > 0) return null
-        const m = new Map<string, { freight: number; accessories: number }>()
+        const m = new Map<string, {
+            freight: number; accessories: number
+            /** R13 — o tributo por dentro sobre o acréscimo, como a CONSTRUÇÃO o apurou. */
+            fiscais: { base: number; icms: number; iss: number; pisCofins: number } | null
+        }>()
         for (const t of accessoriesAllocation.perTarget) {
-            m.set(t.id, { freight: t.allocatedFreight, accessories: t.allocatedAccessories })
+            m.set(t.id, {
+                freight: t.allocatedFreight,
+                accessories: t.allocatedAccessories,
+                fiscais: t.taxesInside ? { base: t.price, ...t.taxesInside } : null,
+            })
         }
         return m
     }, [accessoriesAllocation])
@@ -1296,6 +1304,9 @@ function Budgets() {
                 rtPct: Number(item.rt_reserve_percent) || 0,
                 rates: item.item_tax_rates ?? null,
                 // R13 — a parcela RATEADA quando o documento cotou; o cadastro quando não.
+                // R13 — o tributo do acréscimo, LIDO da construção. `null` quando o
+                // documento não cotou: ele é EXIBIÇÃO FISCAL e não entra no DRE.
+                acrescimosFiscais: allocatedByKey?.get(item.key)?.fiscais ?? null,
                 acrescimos: allocatedByKey
                     ? (allocatedByKey.get(item.key)?.freight ?? 0) + (allocatedByKey.get(item.key)?.accessories ?? 0)
                     : (() => {

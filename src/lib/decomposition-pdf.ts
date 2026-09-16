@@ -137,6 +137,15 @@ export function celulaDoProduto(row: DecompositionRow, k: number): string {
   const pct = row.pctPerItem[k]
   if (base !== undefined) linhas.push(`base ${brlPdf(base)}`)
   if (pct !== undefined) linhas.push(pctPdf(pct))
+  // R13 — o componente do ACRÉSCIMO, quando existe. Ele NÃO está no valor acima: o de cima
+  // é o do DRE, este é o que vai na nota. Ver `DecompositionItem.acrescimosFiscais`.
+  const acr = row.acrescimoPerItem[k]
+  const baseAcr = row.baseAcrescimoPerItem[k]
+  if (acr !== undefined && baseAcr !== undefined) {
+    linhas.push(`+ frete ${brlPdf(acr)}`)
+    linhas.push(`= fiscal ${brlPdf(Math.abs(row.perItem[k]) + acr)}`)
+    linhas.push(`base fiscal ${brlPdf((base ?? 0) + baseAcr)}`)
+  }
   return linhas.join('\n')
 }
 

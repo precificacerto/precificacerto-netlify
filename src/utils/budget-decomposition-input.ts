@@ -74,6 +74,14 @@ export interface BudgetDecompositionItem {
   rates?: BudgetItemRates | null
   /** Acréscimos deste item, em R$ TOTAL (parcela rateada ou o do cadastro × quantidade). */
   acrescimos?: number | null
+  /**
+   * R13 — o que a CONSTRUÇÃO apurou de tributo por dentro sobre o acréscimo deste item.
+   *
+   * Vem de `allocateAccessories`, que é onde a R13 mora. A decomposição LÊ; derivar aqui,
+   * mesmo com a fórmula certa, seria a segunda conta que
+   * `regime-e-segmento-determinam-a-construcao.md` proíbe.
+   */
+  acrescimosFiscais?: { base: number; icms: number; iss: number; pisCofins: number } | null
 }
 
 export interface BudgetDecompositionParams {
@@ -173,6 +181,7 @@ export function buildBudgetDecompositionInput(
       // O CMV INTEIRO: material + MO produtiva. Ver `costUnit` e `productiveLaborUnit`.
       custo: (num(item.costUnit) + num(item.productiveLaborUnit)) * num(item.quantity),
       acrescimos: num(item.acrescimos),
+      ...(item.acrescimosFiscais ? { acrescimosFiscais: item.acrescimosFiscais } : {}),
       taxes: {
         icmsPct: icms,
         issPct: iss,

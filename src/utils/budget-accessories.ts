@@ -124,6 +124,23 @@ export interface AllocatedTarget {
   price: number
   /** R13 — `preço ÷ (1 − c)`. Em item manual, igual ao preço: SEM gross-up. */
   total: number
+  /**
+   * R13 — os TRIBUTOS POR DENTRO sobre o acréscimo deste item, ABERTOS por tributo.
+   *
+   * A R13 já os calcula: `preço − parcela` é exatamente a soma dos três, porque
+   * `MC = 1 − ICMS ef − ISS ef − PIS/COFINS ef` e `preço = parcela ÷ MC`. Cada um sai
+   * `preço × alíquota efetiva`, e é isso que o fisco cobra sobre o frete daquele item.
+   *
+   * >>> ELES EXISTIAM E NÃO TINHAM ONDE APARECER <<<
+   * Medido na decomposição: "o acréscimo sai inteiro e o tributo dele não aparece em lugar
+   * nenhum". O número nunca esteve errado — estava sem linha. Abri-los aqui, onde a
+   * construção os apura, é o que permite a decomposição LER em vez de inferir
+   * (`.claude/rules/regime-e-segmento-determinam-a-construcao.md`).
+   *
+   * `null` em item manual — repasse puro, sem MC a aplicar — e no item sem ficha. `null` é
+   * "não há o que apurar", nunca zero.
+   */
+  taxesInside: { icms: number; iss: number; pisCofins: number } | null
 }
 
 export interface AccessoriesResult {
@@ -202,14 +219,14 @@ export function allocateAccessories(input: AccessoriesInput): AccessoriesResult 
 
     if (t.isManual) {
       // R12 — repasse puro: sem MC e sem gross-up, coerente com o item de origem.
-      const manual: AllocatedTarget = { id: t.id, isManual: true, share, allocated, allocatedFreight, allocatedAccessories, mcAccessories: null, price: allocated, total: allocated }
+      const manual: AllocatedTarget = { id: t.id, isManual: true, share, allocated, allocatedFreight, allocatedAccessories, mcAccessories: null, price: allocated, total: allocated, taxesInside: null }
       return manual
     }
 
     const r = t.resolved
     if (!r) {
       errors.push(`item ${t.id} não é manual e não trouxe o que a construção resolveu — sem isso a parcela não tem alíquota a herdar.`)
-      const semFicha: AllocatedTarget = { id: t.id, isManual: false, share, allocated, allocatedFreight, allocatedAccessories, mcAccessories: null, price: 0, total: 0 }
+      const semFicha: AllocatedTarget = { id: t.id, isManual: false, share, allocated, allocatedFreight, allocatedAccessories, mcAccessories: null, price: 0, total: 0, taxesInside: null }
       return semFicha
     }
 
@@ -219,12 +236,19 @@ export function allocateAccessories(input: AccessoriesInput): AccessoriesResult 
     const mcAccessories = 1 - r.icmsPctEffective - r.issPctEffective - r.pisCofinsPctEffective
     if (mcAccessories <= 0) {
       errors.push(`item ${t.id}: margem de contribuição dos acréscimos <= 0 — os tributos por dentro somam 100% ou mais.`)
-      return { id: t.id, isManual: false, share, allocated, allocatedFreight, allocatedAccessories, mcAccessories, price: 0, total: 0 }
+      return { id: t.id, isManual: false, share, allocated, allocatedFreight, allocatedAccessories, mcAccessories, price: 0, total: 0, taxesInside: null }
     }
 
     const price = allocated / mcAccessories
     const total = price / (1 - r.externalOpsCoefficient)
-    return { id: t.id, isManual: false, share, allocated, allocatedFreight, allocatedAccessories, mcAccessories, price, total }
+    // Os três somam `price − allocated` por construção da MC. São as MESMAS efetivas que a
+    // MC usou — reinferi-las de outra fonte seria a divergência que a Parte 0 proíbe.
+    const taxesInside = {
+      icms: price * r.icmsPctEffective,
+      iss: price * r.issPctEffective,
+      pisCofins: price * r.pisCofinsPctEffective,
+    }
+    return { id: t.id, isManual: false, share, allocated, allocatedFreight, allocatedAccessories, mcAccessories, price, total, taxesInside }
   })
 
   if (errors.length > 0) return EMPTY(errors)

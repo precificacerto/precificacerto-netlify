@@ -160,6 +160,10 @@ export interface CascadeViewRow {
   basePerItem: number[]
   /** A ALÍQUOTA por produto, fração, paralela a `perItem`. Vazio = não se aplica. */
   pctPerItem: number[]
+  /** R13 — o tributo do ACRÉSCIMO daquele produto. Vazio = não se aplica. */
+  acrescimoPerItem: number[]
+  /** A base do componente do acréscimo. Vazio = não se aplica. */
+  baseAcrescimoPerItem: number[]
   /**
    * O percentual da linha sobre o TOTAL GERAL, quando ele responde OUTRA pergunta que o
    * `pct`. `null` quando os dois seriam o mesmo número.
@@ -212,6 +216,8 @@ export function buildCascadeView(
         perItem: bloco ? bloco.perItem : [],
         basePerItem: [],
         pctPerItem: [],
+        acrescimoPerItem: [],
+        baseAcrescimoPerItem: [],
         pctSobreTotalGeral: null,
         key: `t-${step.step}-${step.source}-${out.length}`,
       })
@@ -232,6 +238,8 @@ export function buildCascadeView(
           perItem: [],
           basePerItem: [],
           pctPerItem: [],
+          acrescimoPerItem: [],
+          baseAcrescimoPerItem: [],
           pctSobreTotalGeral: null,
           key: `t-${step.step}-c-${out.length}-${child.source}`,
         })
@@ -265,6 +273,8 @@ export function buildCascadeView(
     perItem: row.perItem,
     basePerItem: row.basePerItem,
     pctPerItem: row.pctPerItem,
+    acrescimoPerItem: row.acrescimoPerItem,
+    baseAcrescimoPerItem: row.baseAcrescimoPerItem,
     // Só onde os dois números DIVERGEM. Nas demais linhas o `pct` já é o percentual sobre a
     // base delas, e repetir o mesmo número em duas colunas ensina o leitor a ignorar a
     // segunda.
@@ -292,6 +302,8 @@ export function buildCascadeView(
       perItem: lv.perItem ?? [],
       basePerItem: [],
       pctPerItem: [],
+      acrescimoPerItem: [],
+      baseAcrescimoPerItem: [],
       pctSobreTotalGeral: null,
       key: 'd-lucro-da-venda',
     })

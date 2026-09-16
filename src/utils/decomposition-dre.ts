@@ -65,6 +65,29 @@ export interface DecompositionItem {
   acrescimos: number
   taxes: DecompositionItemTaxes
   /**
+   * R13 — o que a CONSTRUÇÃO apurou de tributo POR DENTRO sobre o acréscimo deste item, e
+   * a base sobre a qual apurou (o preço do acréscimo).
+   *
+   * >>> ELE NÃO ENTRA NO DRE, E ISSO É DELIBERADO <<<
+   * O acréscimo é REPASSE: entra na receita bruta e sai inteiro na linha de repasse, e os
+   * dois se cancelam. Somar o tributo dele às deduções obrigaria a aumentar a receita bruta
+   * na mesma medida para o DRE continuar fechando — e isso mudaria a base do desconto e o
+   * total geral. A instrução foi explícita: **não mude base nenhuma**.
+   *
+   * Então ele é EXIBIÇÃO FISCAL, ao lado do número do DRE: o `vICMS` que vai na nota é o do
+   * produto MAIS o do frete daquele item; o ICMS que reduz a receita continua sendo o do
+   * produto. São duas perguntas diferentes sobre o mesmo item, e a tela responde as duas.
+   *
+   * Ausente = o documento não cotou acréscimo, ou o item é manual. Nunca zero.
+   */
+  acrescimosFiscais?: {
+    /** R13 — o PREÇO do acréscimo, `parcela ÷ MC`. É a base fiscal do componente. */
+    base: number
+    icms: number
+    iss: number
+    pisCofins: number
+  }
+  /**
    * As categorias DESTE item, quando ele tem as suas.
    *
    * Comissão, lucro e RT são cadastrados POR PRODUTO — dois itens no mesmo orçamento têm
@@ -149,6 +172,17 @@ export interface DecompositionRow {
    * contra a única base exibida antes, 22.480,69 — que é a soma e não serve a item nenhum.
    */
   basePerItem: number[]
+  /**
+   * R13 — o TRIBUTO DO ACRÉSCIMO daquele item, e a base dele. Vazio fora de ICMS, ISS e
+   * PIS/COFINS, e vazio quando o documento não cotou acréscimo.
+   *
+   * O valor FISCAL do item — o que vai na nota — é `|perItem[k]| + acrescimoPerItem[k]`, e
+   * a base fiscal é `basePerItem[k] + baseAcrescimoPerItem[k]`. O `perItem` e o `total`
+   * seguem sendo os do DRE: ver `DecompositionItem.acrescimosFiscais`.
+   */
+  acrescimoPerItem: number[]
+  /** A base do componente do acréscimo — o preço do acréscimo (R13). */
+  baseAcrescimoPerItem: number[]
   /**
    * A ALÍQUOTA POR ITEM, em FRAÇÃO, paralela a `perItem`. Vazio quando não se aplica.
    *
@@ -451,6 +485,8 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
       basePerItem?: number[]
       /** A alíquota DAQUELE item — ver `DecompositionRow.pctPerItem`. */
       pctPerItem?: number[]
+      /** R13 — o tributo do ACRÉSCIMO daquele item. Ver `DecompositionRow.acrescimoPerItem`. */
+      acrescimoPerItem?: number[]
     } = {},
   ): DecompositionRow => ({
     key,
@@ -472,6 +508,8 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
     // travessão onde não se aplica.
     basePerItem: opts.basePerItem ?? [],
     pctPerItem: opts.pctPerItem ?? [],
+    acrescimoPerItem: opts.acrescimoPerItem ?? [],
+    baseAcrescimoPerItem: opts.acrescimoPerItem ? baseAcrescimoPorItem : [],
   })
 
   /**
@@ -488,6 +526,16 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
    */
   const semColuna: number[] = []
   const rp = receitaProdutosTotal
+
+  /**
+   * R13 — o tributo do acréscimo, LIDO do que a construção apurou. Zeros quando o item não
+   * tem acréscimo cotado: aqui zero é "não há acréscimo a tributar", e o array só é anexado
+   * às três linhas por dentro quando ALGUM item traz o componente.
+   */
+  const temAcrescimoFiscal = items.some((i) => i.acrescimosFiscais != null)
+  const baseAcrescimoPorItem = temAcrescimoFiscal ? items.map((i) => i.acrescimosFiscais?.base ?? 0) : []
+  const acrescimoDe = (campo: 'icms' | 'iss' | 'pisCofins'): number[] | undefined =>
+    temAcrescimoFiscal ? items.map((i) => i.acrescimosFiscais?.[campo] ?? 0) : undefined
 
   // O percentual do TOTAL: alíquota quando todos os itens têm a mesma; média ponderada
   // derivada quando não. `pctDe` calcula sempre `valor ÷ base`, e `heterogeneo` decide o
@@ -531,6 +579,7 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
       derived: heterogeneo(items.map((i) => i.taxes.icmsPct)),
       basePerItem: receitaProdutosPorItem,
       pctPerItem: items.map((i) => i.taxes.icmsPct),
+      acrescimoPerItem: acrescimoDe('icms'),
     }),
     linha('iss', '(−) ISS', issPorItem, {
       base: soma(pPorItem),
@@ -538,6 +587,7 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
       derived: heterogeneo(items.map((i) => i.taxes.issPct)),
       basePerItem: pPorItem,
       pctPerItem: items.map((i) => i.taxes.issPct),
+      acrescimoPerItem: acrescimoDe('iss'),
     }),
     linha('pis_cofins', '(−) PIS/COFINS', pisCofinsPorItem, {
       base: soma(pPorItem) + soma(icmsPorItem) + soma(issPorItem),
@@ -547,6 +597,7 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
       // no DRE, então somá-las É subtraí-las.
       basePerItem: pPorItem.map((p, k) => p + icmsPorItem[k] + issPorItem[k]),
       pctPerItem: items.map((i) => i.taxes.pisCofinsPct),
+      acrescimoPerItem: acrescimoDe('pisCofins'),
     }),
     linha('receita_liquida', '► RECEITA LÍQUIDA', receitaLiquidaPorItem, { subtotal: true }),
     linha('custos', '(−) Custos — congelado', custoPorItem),

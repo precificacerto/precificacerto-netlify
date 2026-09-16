@@ -376,6 +376,21 @@ function CascadeViewLine({ row, colunas }: { row: CascadeViewRow; colunas: numbe
               {(row.pctPerItem[k] * 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}%
             </div>
           )}
+          {/* R13 — o componente do ACRÉSCIMO. Ele NÃO está no valor acima: o de cima é o do
+              DRE — o acréscimo é repasse e sai inteiro —, e este é o que vai na nota. Somá-lo
+              ao DRE obrigaria a inflar a receita bruta na mesma medida, e a instrução foi
+              não mudar base nenhuma. */}
+          {row.acrescimoPerItem[k] != null && row.baseAcrescimoPerItem[k] != null && (
+            <div style={{ fontSize: 9, color: '#fbbf24', fontWeight: 500 }}>
+              + frete {formatBRL(row.acrescimoPerItem[k])}
+              <div style={{ fontWeight: 700 }}>
+                = fiscal {formatBRL(Math.abs(row.perItem[k]) + row.acrescimoPerItem[k])}
+              </div>
+              <div style={{ color: '#64748b', fontWeight: 400 }}>
+                base fiscal {formatBRL((row.basePerItem[k] ?? 0) + row.baseAcrescimoPerItem[k])}
+              </div>
+            </div>
+          )}
         </div>
       ))}
       <div style={{
