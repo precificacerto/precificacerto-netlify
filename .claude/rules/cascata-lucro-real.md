@@ -636,3 +636,72 @@ não da correção.
 ICMS-ST e DIFAL (bases por MVA e diferencial, linha própria); apuração
 débito × crédito do período; calibração dos percentuais, que vem do diagnóstico
 do negócio e não da estrutura de cálculo.
+
+---
+
+## O que falta para EMITIR nota — e o que a decomposição já entrega
+
+**Não existe emissão de NF-e nem integração fiscal neste repositório.** Medido em
+16/09/2026: uma edge function (`calc-tax-engine`), 64 rotas de API, nenhuma fiscal,
+e nada de CFOP, CST, CSOSN, chave de acesso, série ou XML em ponto nenhum do
+schema. O único artefato fiscal é `ncm_codes`, tabela de **alíquotas sugeridas por
+NCM** usada no cadastro de item.
+
+A decomposição por coluna é **memória de cálculo**, e desde a NT 2025.002 ela
+entrega base, alíquota efetiva, nominal e redutor por item. O documento fiscal em
+si precisa de um cadastro que não existe.
+
+> **RESSALVA DE FONTE, e ela vale para esta seção inteira.** A NT 2025.002 da
+> NF-e/NFC-e, versões 1.31 a 1.40, **não foi lida no original**. O que está aqui
+> vem de três fontes secundárias que concordam entre si — TecnoSpeed, TOTVS e
+> Contábeis. **Quem for implementar lê a NT no Portal Nacional da NF-e, não este
+> resumo.** É a mesma disciplina de `estado-relatado-vs-real.md`: fonte secundária
+> serve para saber que há o que decidir, não para virar premissa de implementação.
+
+### O IBS é PARTIDO EM DOIS na NF-e, e o nosso campo é um só
+
+A NT criou dois subgrupos distintos, porque as alíquotas variam entre estados e
+municípios:
+
+| Subgrupo | Campos | Competência |
+|---|---|---|
+| `gIBSUF` | `pIBSUF`, `vIBSUF` | **estadual** |
+| `gIBSMun` | `pIBSMun`, `vIBSMun` | **municipal** |
+
+O cronograma da LC 214, arts. 343 e 344:
+
+| Ano | Estadual | Municipal |
+|---|---|---|
+| 2026 | 0,1% — **exclusivamente** | — |
+| 2027 e 2028 | 0,05% | 0,05% |
+
+**O modelo tem um `ibs_pct` só, e ele NÃO muda agora — é simplificação
+consciente**, decidida em 16/09/2026. Ela serve enquanto a alíquota for
+exclusivamente estadual, ou seja **até o fim de 2026**. De 2027 em diante o campo
+único deixa de bastar: ele não tem como dizer quanto do IBS é de cada
+competência, e a nota exige os dois separados.
+
+Está registrado com o cronograma justamente para que quem chegar depois saiba **a
+partir de quando** a simplificação deixa de servir, em vez de descobrir com uma
+nota rejeitada.
+
+### Falta o `cClassTrib`
+
+A NT traz **156 códigos vigentes na v1.40**. O `cClassTrib` é o vínculo entre o
+item e o dispositivo da LC 214/2025 que lhe dá o tratamento tributário — **código
+errado significa apuração errada**, não só campo em branco.
+
+Não existe no nosso schema.
+
+### A lista do que falta, consolidada
+
+| Campo | Existe hoje? |
+|---|---|
+| CFOP | não |
+| CST / CSOSN | não |
+| Origem da mercadoria | não |
+| Unidade comercial | não |
+| EAN / GTIN | não |
+| **`cClassTrib`** | **não** |
+| **IBS partido em UF e Município** | **não — um `ibs_pct` só** |
+| NCM | **sim**, em `items` e em `products` |
