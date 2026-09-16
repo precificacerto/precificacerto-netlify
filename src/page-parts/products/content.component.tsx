@@ -23,6 +23,7 @@ import { calculatePricing } from '@/utils/pricing-engine'
 import { resolveMonthlyWorkload } from '@/utils/resolve-monthly-workload'
 import { computeIvaDualOutside } from '@/utils/iva-dual-outside'
 import { resolveIvaDualEffectiveRate } from '@/utils/item-tax-rates'
+import { resolvePisCofinsPctFromNcm } from '@/utils/ncm-pis-cofins'
 import { computeIcmsSt, computeDifal, computeIcmsComplementar, mvaAjustada } from '@/utils/icms-st-difal'
 import { CALC_TYPE_ENUM } from '@/shared/enums/calc-type'
 import { ContentIndustrialization } from './content-industrialization'
@@ -503,23 +504,26 @@ export const Content: FC<ContentProps> = ({
 
   const fetchNcmRatesForLR = useCallback(async (code: string) => {
     if (!isLRorLP || !code) return
-    // LP usa PIS/COFINS cumulativo fixo (3,65%): recalcula com base no ICMS atual
+    // LP usa PIS/COFINS cumulativo e NÃO consulta o NCM: responde sem ir ao banco.
     if (isLucroPresumidoProdOnly) {
-      setPisCofinsLRPct(parseFloat((3.65 * (1 - icmsPct / 100)).toFixed(4)))
+      const pct = resolvePisCofinsPctFromNcm({
+        isLucroReal: false, isLucroPresumido: true, icmsPct, ncmRow: null,
+      })
+      if (pct != null) setPisCofinsLRPct(pct)
       return
     }
-    // LR: busca alíquotas não-cumulativas pela NCM
+    // LR: busca as alíquotas não-cumulativas pela NCM. A CONTA vive em `ncm-pis-cofins.ts`,
+    // exportada para que o efeito seja afirmável por teste — aqui fica só a ida ao banco.
     try {
       const { data } = await (supabase as any)
         .from('ncm_codes')
         .select('pis_rate_nao_cumulativo, cofins_rate_nao_cumulativo')
         .eq('code', code)
         .single()
-      if (data) {
-        const pis = (Number(data.pis_rate_nao_cumulativo) || 0) * 100
-        const cofins = (Number(data.cofins_rate_nao_cumulativo) || 0) * 100
-        setPisCofinsLRPct(parseFloat((pis + cofins).toFixed(4)))
-      }
+      const pct = resolvePisCofinsPctFromNcm({
+        isLucroReal: true, isLucroPresumido: false, icmsPct, ncmRow: data ?? null,
+      })
+      if (pct != null) setPisCofinsLRPct(pct)
     } catch { /* silent */ }
   }, [isLRorLP, isLucroPresumidoProdOnly, icmsPct])
 
@@ -1938,13 +1942,18 @@ export const Content: FC<ContentProps> = ({
         )}
       </Card>
 
+      {/* O <Form> abraça os DOIS Cards — Identificação e Fiscal. A indentação dos
+          Cards não foi mexida de propósito: reindentar 400 linhas esconderia a
+          mudança real no diff. Tirar um Form.Item de dentro deste escopo faz o campo
+          sumir do `values` do save SEM erro nenhum — é o que o teste
+          `o-ncm-mora-no-bloco-fiscal.test.ts` trava. */}
+      <Form form={productForm} layout="vertical">
       <Card size="small">
-        <Form form={productForm} layout="vertical">
           <Form.Item name="id" label="Id" hidden>
             <Input />
           </Form.Item>
 
-          {/* Linha 1: Nome | Seção | NCM (+ Código se editando) */}
+          {/* Linha 1: Nome | Seção (+ Código se editando). O NCM saiu daqui para o bloco Fiscal. */}
           <div style={{ display: 'grid', gridTemplateColumns: isEditingMode ? 'repeat(auto-fit, minmax(180px, 1fr))' : 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16 }}>
             {isEditingMode && (
               <Form.Item
@@ -1981,31 +1990,6 @@ export const Content: FC<ContentProps> = ({
                   title="Criar nova seção"
                 />
               </div>
-            </Form.Item>
-
-            <Form.Item
-              name="ncm_code"
-              label={
-                <span>
-                  NCM&nbsp;
-                  <Tooltip title="Nomenclatura Comum do Mercosul — código fiscal do produto final. Digite o código ou pesquise pelo nome do produto.">
-                    <InfoCircleOutlined style={{ color: '#64748b' }} />
-                  </Tooltip>
-                </span>
-              }
-              style={{ marginBottom: 0 }}
-            >
-              <AutoComplete
-                options={ncmOptions}
-                onSearch={handleNcmSearch}
-                onSelect={(value: string) => {
-                  productForm.setFieldsValue({ ncm_code: value })
-                  fetchNcmRatesForLR(value)
-                }}
-                placeholder="Digite o NCM ou pesquise (ex: bolo, 1905...)"
-                notFoundContent={ncmFieldSearching ? <Spin size="small" /> : null}
-                allowClear
-              />
             </Form.Item>
           </div>
 
@@ -2182,8 +2166,59 @@ export const Content: FC<ContentProps> = ({
               maxLength={80}
             />
           </Modal>
-        </Form>
 
+      </Card>
+
+      {/* ══════════════════════════════════════════════════════
+          FISCAL — o que a NOTA exige do produto
+          O NCM e o contexto da venda moram juntos porque respondem à mesma
+          pergunta: qual é o tratamento tributário deste produto. O bloco está
+          preparado para receber ORIGEM DA MERCADORIA, CST/CSOSN e cClassTrib,
+          que a NT 2025.002 exige e que o schema ainda não tem —
+          `cascata-lucro-real.md`, seção "O que falta para EMITIR nota".
+          ══════════════════════════════════════════════════════ */}
+      <Card size="small" style={{ marginTop: 16 }}>
+        <Divider orientation="left" style={{ fontSize: 12, color: '#94a3b8', marginTop: 0 }}>
+          Fiscal
+        </Divider>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16 }}>
+          <Form.Item
+            name="ncm_code"
+            label={
+              <span>
+                NCM&nbsp;
+                <Tooltip title="Nomenclatura Comum do Mercosul — código fiscal do produto final. Digite o código ou pesquise pelo nome do produto.">
+                  <InfoCircleOutlined style={{ color: '#64748b' }} />
+                </Tooltip>
+              </span>
+            }
+            style={{ marginBottom: 0 }}
+          >
+            <AutoComplete
+              options={ncmOptions}
+              onSearch={handleNcmSearch}
+              onSelect={(value: string) => {
+                productForm.setFieldsValue({ ncm_code: value })
+                fetchNcmRatesForLR(value)
+              }}
+              placeholder="Digite o NCM ou pesquise (ex: bolo, 1905...)"
+              notFoundContent={ncmFieldSearching ? <Spin size="small" /> : null}
+              allowClear
+            />
+          </Form.Item>
+        </div>
+
+        {/* ┌ LUGAR PREPARADO — campos que a NF-e exige e que NÃO existem no schema:
+            │   • Origem da mercadoria (0 a 8)
+            │   • CST / CSOSN
+            │   • cClassTrib — 156 códigos vigentes na v1.40 da NT 2025.002
+            └ Não criar sem a tabela de códigos: inventar a lista é pior que não tê-la. */}
+
+        {/* As sugestões de NCM vêm do NOME digitado, que ficou no bloco de Identificação.
+            Elas moram AQUI, junto do campo que preenchem. A consequência é conhecida e
+            aceita: a sugestão aparece longe do campo que a dispara. Se incomodar no uso, a
+            correção é o bloco reagir também ao NCM vazio — NÃO devolvê-lo para cima. */}
         {(ncmSugLoading || ncmSuggestions.length > 0) && (
           <div style={{
             marginTop: 8, marginBottom: 4, padding: '8px 12px',
@@ -2229,14 +2264,7 @@ export const Content: FC<ContentProps> = ({
           </div>
         )}
 
-      </Card>
-
-      {/* ══════════════════════════════════════════════════════
-          CONTEXTO DE VENDA — Ajuste 2
-          Imposto não fica fixo no produto, fica na precificação
-          ══════════════════════════════════════════════════════ */}
-      <Card size="small" style={{ marginTop: 16 }}>
-        <Divider orientation="left" style={{ fontSize: 12, color: '#94a3b8', marginTop: 0 }}>
+        <Divider orientation="left" style={{ fontSize: 12, color: '#94a3b8' }}>
           Contexto da Venda (para cálculo de impostos)
         </Divider>
 
@@ -2330,6 +2358,7 @@ export const Content: FC<ContentProps> = ({
           simulação de preço — o imposto não fica fixo no produto.
         </div>
       </Card>
+      </Form>
 
       {productType === 'PRODUZIDO' && (
         <ContentIndustrialization
