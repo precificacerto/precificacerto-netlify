@@ -1750,7 +1750,7 @@ function Budgets() {
         setCustomerMode(record.customer_id ? 'existing' : 'manual')
 
         const [itemsResult, tablesResult] = await Promise.all([
-            supabase.from('budget_items').select('*, products(id, name, code, max_discount_percent, commission_table_id, commission_percent, profit_percent, sale_price, cost_total, icms_pct, pis_cofins_pct, pis_pct, cofins_pct, iss_pct, ipi_pct, icms_st_pct, difal_pct, fcp_pct, icms_st_active, difal_active, ibs_pct, cbs_pct, ibs_reference_pct, cbs_reference_pct, iva_dual_reduction_factor, iss_retido_pct, irpj_pct, csll_pct, custom_tax_percent, product_type, yield_quantity), services(id, name, commission_table_id, commission_percent, profit_percent, base_price, cost_total, icms_pct, pis_cofins_pct, pis_pct, cofins_pct, iss_pct, ipi_pct, icms_st_pct, difal_pct, fcp_pct, ibs_pct, cbs_pct, ibs_reference_pct, cbs_reference_pct, iva_dual_reduction_factor, iss_retido_pct, irpj_pct, csll_pct, taxable_regime_percent), manual_description').eq('budget_id', record.id),
+            supabase.from('budget_items').select('*, products(id, name, code, max_discount_percent, commission_table_id, commission_percent, profit_percent, sale_price, cost_total, yield_quantity, product_items(item_id, item_cost_net, item_cost_gross, quantity_needed, items(item_type)), labor_costs(*), pricing_calculations(*), icms_pct, pis_cofins_pct, pis_pct, cofins_pct, iss_pct, ipi_pct, icms_st_pct, difal_pct, fcp_pct, icms_st_active, difal_active, ibs_pct, cbs_pct, ibs_reference_pct, cbs_reference_pct, iva_dual_reduction_factor, iss_retido_pct, irpj_pct, csll_pct, custom_tax_percent, product_type, yield_quantity), services(id, name, commission_table_id, commission_percent, profit_percent, base_price, cost_total, icms_pct, pis_cofins_pct, pis_pct, cofins_pct, iss_pct, ipi_pct, icms_st_pct, difal_pct, fcp_pct, ibs_pct, cbs_pct, ibs_reference_pct, cbs_reference_pct, iva_dual_reduction_factor, iss_retido_pct, irpj_pct, csll_pct, taxable_regime_percent), manual_description').eq('budget_id', record.id),
             record.employee_id
                 ? (supabase as any).from('employee_commission_tables').select('commission_tables(id, name, type, commission_percent)').eq('employee_id', record.employee_id)
                 : Promise.resolve({ data: [] }),
@@ -1832,9 +1832,26 @@ function Budgets() {
                 }
             }
             // S8: cost_total alimenta CP do motor RR (RRO = RV − IMP − CP − MOD − DOP)
-            const itemCostTotal = isService
-                ? Number(it.services?.cost_total || 0)
-                : Number(it.products?.cost_total || 0)
+            //
+            // >>> O MESMO RESOLVEDOR DA INSERÇÃO, e é por isso que ele está aqui <<<
+            // Esta rota lia `products.cost_total` CRU, e a de inserção
+            // (`handleProductSelect`) usa `resolveProductCostAndLabor`, que resolve o CMV
+            // VIVO de `product_items` quando a coluna está zerada — que é o caso real do
+            // ATeste1509: coluna 0, `item_cost_net` 7.985,99. Duas rotas montando o MESMO
+            // `BudgetItemRow`, uma com o resolvedor e outra sem, é `copia-divergente.md`, e o
+            // campo em divergência era o CUSTO: o orçamento reaberto decompunha com custo
+            // ZERO e jogava o CMV inteiro no RRO.
+            //
+            // A MO produtiva vem junto: `resolveProductCostAndLabor` devolve
+            // `costTotal = CMV − MO`, e só a soma é o "Custo produto" da construção.
+            const laborCtxEdit = {
+                mod_pct: mrmConfig.mod_pct,
+                production_labor_cost: mrmConfig.production_labor_cost,
+                monthly_workload_minutes: mrmConfig.monthly_workload_minutes,
+                productive_value_per_minute: mrmConfig.productive_value_per_minute,
+            }
+            const custoResolvido = resolveProductCostAndLabor(isService ? it.services : it.products, laborCtxEdit)
+            const itemCostTotal = custoResolvido.costTotal
             // S11: alíquotas tributárias específicas do item (NULL → fallback tenant).
             // EPIC-POR-FORA-V3/S2: usar o helper único (em vez de montar inline) garante a
             // neutralização condicional de ICMS-ST/DIFAL/FCP também no caminho de EDIÇÃO
@@ -1855,6 +1872,7 @@ function Budgets() {
                 commission_percent: commissionPercent,
                 profit_percent: profitPercent,
                 cost_total: itemCostTotal,
+                productive_labor_unit: custoResolvido.productiveLaborUnit,
                 item_tax_rates: itemTaxRates,
                 // D-A: o destino congelado DESTE item, não o do cadastro de hoje. É o que
                 // faz reabrir e salvar um orçamento antigo não reprecificar o destino; item

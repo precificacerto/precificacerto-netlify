@@ -338,10 +338,19 @@ function CascadeViewLine({ row, colunas }: { row: CascadeViewRow; colunas: numbe
       <div style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontSize }}>
         {row.base != null ? formatBRL(row.base) : '—'}
       </div>
+      {/* OS DOIS PERCENTUAIS, quando eles respondem perguntas diferentes: o peso sobre o RRO
+          ("quanto desta sobra é comissão") e o percentual sobre o total geral ("quanto do
+          preço é comissão"), que é o que bate com o CADASTRADO. Ver
+          `LINHAS_COM_DOIS_PERCENTUAIS`. */}
       <div style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontSize }}>
         {row.pct != null
           ? `${(row.pct * 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}%${row.isDerivedAverage ? ' (% médio)' : ''}`
           : pesoText || '—'}
+        {row.pctSobreTotalGeral != null && (
+          <div style={{ fontSize: 9, color: '#86efac', fontWeight: 600 }}>
+            {(row.pctSobreTotalGeral * 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}% do total
+          </div>
+        )}
       </div>
       {/* Uma coluna POR PRODUTO. A etapa da construção não tem abertura por item — o
           `cascade_trace` é consolidado —, e ali sai TRAVESSÃO, nunca R$ 0,00: zero afirmaria

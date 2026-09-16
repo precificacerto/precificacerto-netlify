@@ -38,6 +38,14 @@ import type { DecompositionResult } from './decomposition-dre'
 /** A última etapa da CONSTRUÇÃO. Da seguinte em diante, quem manda é a decomposição. */
 export const ULTIMA_ETAPA_DA_CONSTRUCAO = 11
 
+/**
+ * As linhas em que o percentual sobre o total geral responde OUTRA pergunta que o `pct`.
+ *
+ * São as quatro da distribuição do RRO (R20): ali o `pct` é o peso sobre a sobra, e o
+ * percentual sobre o total é o que se confere contra o cadastro do produto.
+ */
+export const LINHAS_COM_DOIS_PERCENTUAIS = new Set(['comissao', 'lucro', 'irpj', 'csll'])
+
 /** Uma linha da cascata, já pronta para a tela. */
 export interface CascadeViewRow {
   /** O número exibido. `null` só nos sub-itens indentados da construção. */
@@ -71,6 +79,16 @@ export interface CascadeViewRow {
    * item. Vazio é ausência de dado, e a tela exibe travessão — nunca R$ 0,00.
    */
   perItem: number[]
+  /**
+   * O percentual da linha sobre o TOTAL GERAL, quando ele responde OUTRA pergunta que o
+   * `pct`. `null` quando os dois seriam o mesmo número.
+   *
+   * É o caso das quatro linhas do RRO: `pct` é o PESO — "quanto desta sobra é comissão",
+   * 28,74% — e este é "quanto do PREÇO é comissão", que tem de voltar como os 5% e os 10%
+   * CADASTRADOS. Exibir só o peso esconde justamente o número que se confere contra o
+   * cadastro; exibir só o percentual esconde a repartição da R20. Os dois, lado a lado.
+   */
+  pctSobreTotalGeral: number | null
   /** Chave estável para o React. */
   key: string
 }
@@ -102,6 +120,7 @@ export function buildCascadeView(
         effectiveRatePct: step.effective_rate_pct ?? null,
         formula: step.formula ?? '',
         perItem: [],
+        pctSobreTotalGeral: null,
         key: `t-${step.step}-${step.source}-${out.length}`,
       })
       for (const child of step.children ?? []) {
@@ -119,6 +138,7 @@ export function buildCascadeView(
           effectiveRatePct: child.effective_rate_pct ?? null,
           formula: child.formula ?? '',
           perItem: [],
+          pctSobreTotalGeral: null,
           key: `t-${step.step}-c-${out.length}-${child.source}`,
         })
       }
@@ -148,6 +168,10 @@ export function buildCascadeView(
     effectiveRatePct: null as number | null,
     formula: '',
     perItem: row.perItem,
+    // Só onde os dois números DIVERGEM. Nas demais linhas o `pct` já é o percentual sobre a
+    // base delas, e repetir o mesmo número em duas colunas ensina o leitor a ignorar a
+    // segunda.
+    pctSobreTotalGeral: LINHAS_COM_DOIS_PERCENTUAIS.has(row.key) ? row.pctSobreTotalGeral : null,
     key: `d-${row.key}-${i}`,
   }))
 
@@ -169,6 +193,7 @@ export function buildCascadeView(
       effectiveRatePct: null,
       formula: 'Lucro apurado, e o percentual SOBRE PRODUTOS — o comparável com o cadastrado',
       perItem: lv.perItem ?? [],
+      pctSobreTotalGeral: null,
       key: 'd-lucro-da-venda',
     })
   }
