@@ -18,6 +18,7 @@ import {
   brlPdf,
   celulaPercentual,
   pctPdf,
+  percentualDaLinha,
   planDecompositionColumnBlocks,
   rotuloDoBloco,
 } from '@/lib/decomposition-pdf'
@@ -178,5 +179,27 @@ describe('4. O PDF É UM SÓ, e a fonte da tabela é a MESMA da tela', () => {
     // Os DOIS percentuais, com as duas bases nomeadas: o par é o ponto da decomposição.
     expect(mod).toContain('da receita após desconto')
     expect(mod).toContain('sobre produtos')
+  })
+})
+
+describe('5. COMISSÃO E LUCRO em % do TOTAL GERAL — o teste que fecha o invariante', () => {
+  const row = (key: string, pct: number | null, pctTotal: number | null) =>
+    ({ key, pct, pctSobreTotalGeral: pctTotal })
+
+  it('as quatro linhas do RRO exibem o % sobre o total, não o peso', () => {
+    // O peso responde "quanto desta sobra é comissão" (28,7%); quem lê o PDF quer "quanto do
+    // preço é comissão" (5%), que é o CADASTRADO.
+    expect(percentualDaLinha(row('comissao', 0.2874, 0.05))).toBeCloseTo(0.05, 6)
+    expect(percentualDaLinha(row('lucro', 0.5747, 0.10))).toBeCloseTo(0.10, 6)
+    expect(percentualDaLinha(row('irpj', 0.0862, 0.015))).toBeCloseTo(0.015, 6)
+    expect(percentualDaLinha(row('csll', 0.0517, 0.009))).toBeCloseTo(0.009, 6)
+  })
+
+  it('e as demais linhas continuam com o SEU percentual', () => {
+    // O discriminante: se todas passassem a usar o % do total, o ICMS deixaria de exibir a
+    // alíquota cadastrada — e é ela que se confere contra o cadastro do produto.
+    expect(percentualDaLinha(row('icms', 0.17, 0.17))).toBeCloseTo(0.17, 6)
+    expect(percentualDaLinha(row('desconto', 0.05, 0.05))).toBeCloseTo(0.05, 6)
+    expect(percentualDaLinha(row('custos', null, 0.28))).toBeNull()
   })
 })

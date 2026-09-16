@@ -313,7 +313,10 @@ export function applyTotalACobrarToStep11(
  */
 function CascadeViewLine({ row }: { row: CascadeViewRow }) {
   const labelColor = row.isChild ? '#94a3b8' : row.isSubtotal ? '#c7d2fe' : '#cbd5e1'
-  const fontWeight = row.isChild ? 400 : row.isSubtotal ? 700 : 600
+  // Tipografia: rótulo principal em BOLD; tributo em fonte MENOR, como os sub-itens da
+  // construção. É a hierarquia da R19 aparecendo na leitura.
+  const fontWeight = row.isChild ? 400 : row.isSubtotal ? 700 : 700
+  const fontSize = row.isChild ? 10 : undefined
   const pesoText =
     row.peso != null
       ? `peso ${row.peso.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}`
@@ -323,7 +326,7 @@ function CascadeViewLine({ row }: { row: CascadeViewRow }) {
       <div style={{ fontVariantNumeric: 'tabular-nums', color: row.isChild ? '#64748b' : '#a5b4fc' }}>
         {row.numero ?? ''}
       </div>
-      <div title={row.formula} style={{ color: labelColor, fontWeight, paddingLeft: row.isChild ? 12 : 0 }}>
+      <div title={row.formula} style={{ color: labelColor, fontWeight, fontSize, paddingLeft: row.isChild ? 12 : 0 }}>
         {row.isChild ? '└─ ' : ''}
         {row.label}
         {row.effectiveRatePct != null && (
@@ -332,16 +335,16 @@ function CascadeViewLine({ row }: { row: CascadeViewRow }) {
           </span>
         )}
       </div>
-      <div style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+      <div style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontSize }}>
         {row.base != null ? formatBRL(row.base) : '—'}
       </div>
-      <div style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+      <div style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontSize }}>
         {row.pct != null
           ? `${(row.pct * 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}%${row.isDerivedAverage ? ' (% médio)' : ''}`
           : pesoText || '—'}
       </div>
       <div style={{
-        textAlign: 'right', fontVariantNumeric: 'tabular-nums',
+        textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontSize,
         color: row.valor < 0 ? '#fca5a5' : labelColor, fontWeight,
       }}>
         {formatBRL(row.valor)}
@@ -460,6 +463,21 @@ function CascadeExpander({ trace: traceBruto, marginTop = 8, pdfMeta, decomposit
       <div style={{ fontSize: 10, color: '#64748b', marginTop: 8, fontStyle: 'italic' }}>
         Sub-itens em cinza detalham cada componente.
       </div>
+      {/* O INVARIANTE DO RRO — o apurado por subtração contra o que a construção reservou.
+          O RESIDUAL não cobre isto: ele fecha por construção, distribuindo o RRO inteiro seja
+          ele qual for, e foi assim que um CMV zerado inflou a conta em silêncio. */}
+      {decomposition?.rro?.foraDeZero && (
+        <div style={{
+          marginTop: 8, padding: '8px 12px', borderRadius: 6, fontSize: 11,
+          background: 'rgba(239, 68, 68, 0.12)', border: '1px solid rgba(239, 68, 68, 0.3)', color: '#fca5a5',
+        }}>
+          ⚠ O RRO apurado ({formatBRL(decomposition.rro.apurado)}) não bate com o reservado pela
+          construção ({formatBRL(decomposition.rro.esperado)}) — diferença de{' '}
+          {formatBRL(decomposition.rro.divergencia)}. Há valor sem dedução correspondente, e a
+          distribuição abaixo está inflada na mesma medida.
+        </div>
+      )}
+
       {/* PC-FEAT-CASCADE-PDF-001: botão de exportação no RODAPÉ, alinhado à DIREITA, após a Etapa 17. */}
       {pdfMeta && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>

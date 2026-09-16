@@ -13,15 +13,17 @@
  *   da 12 em diante — a DECOMPOSIÇÃO: como o preço se reparte. Sai de `buildDecomposition`,
  *                    a MESMA que o PDF imprime em colunas.
  *
- * >>> POR QUE AS LINHAS DA DECOMPOSIÇÃO NÃO GANHAM NÚMERO <<<
+ >>> TODAS AS LINHAS SÃO NUMERADAS, E A NUMERAÇÃO DA DECOMPOSIÇÃO É DE EXIBIÇÃO <<<
  *
- * A R19 tem 21 linhas; o trace tem 6 da etapa 12 em diante. Qualquer número atribuído a
- * "(−) IBS" seria inventado, e a formulação do dono do produto decide o caso: **rótulo sem
- * número é melhor que número que mente**.
+ * Eu argumentei que numerar as linhas da decomposição seria inventar número, e o dono do
+ * produto concordou com o argumento — e decidiu o contrário: **numere em sequência**. Fica
+ * registrado assim porque a decisão é dele e o argumento era meu; suavizar qualquer um dos
+ * dois apagaria por que a escolha foi consciente.
  *
- * E é o que mantém intactas as citações já escritas — "a Etapa 16 é a fonte de verdade de
- * Comissão e Lucro" está em regra, em ADR e em comentário de código. Elas falam do
- * `cascade_trace` que o MOTOR emite, e ele continua emitindo as 17 etapas, com os mesmos
+ * A numeração continua depois da última etapa da construção, e é de APRESENTAÇÃO: ela não
+ * volta para o `cascade_trace`, não é gravada e não é citável. As citações já escritas — "a
+ * Etapa 16 é a fonte de verdade de Comissão e Lucro", em regra, em ADR e em comentário —
+ * seguem falando do trace que o MOTOR emite, e ele continua com as 17 etapas, os mesmos
  * números, valores e filhos. Nada em `cascade-trace.ts`, `absorption.ts` ou `motor-rro.ts` é
  * tocado: o que muda é a LEITURA, como no caso da ordem do por fora.
  *
@@ -38,7 +40,7 @@ export const ULTIMA_ETAPA_DA_CONSTRUCAO = 11
 
 /** Uma linha da cascata, já pronta para a tela. */
 export interface CascadeViewRow {
-  /** `null` nas linhas da decomposição — ver o cabeçalho. */
+  /** O número exibido. `null` só nos sub-itens indentados da construção. */
   numero: number | null
   label: string
   base: number | null
@@ -114,14 +116,19 @@ export function buildCascadeView(
 
   const construcao = trace.filter((s) => Number(s.step) <= ULTIMA_ETAPA_DA_CONSTRUCAO)
 
+  // A numeração continua de onde a construção parou — sequência de EXIBIÇÃO, não do motor.
+  const ultimoNumero = construcao.reduce((m, s) => Math.max(m, Number(s.step) || 0), 0)
+
   const decomposta: CascadeViewRow[] = decomposition.rows.map((row, i) => ({
-    numero: null as number | null,
+    numero: (ultimoNumero + 1 + i) as number | null,
     label: row.label,
     base: row.base,
     pct: row.pct,
     valor: row.total,
     isSubtotal: row.isSubtotal,
-    isChild: false,
+    // Tipografia: os tributos saem como SUB-ITEM, em fonte menor, igual aos filhos das
+    // etapas da construção. É o que preserva a hierarquia da R19 na leitura.
+    isChild: row.isTaxDetail,
     isDerivedAverage: row.isDerivedAverage,
     peso: null as number | null,
     effectiveRatePct: null as number | null,
@@ -135,7 +142,7 @@ export function buildCascadeView(
   const lv = decomposition.lucroDaVenda
   if (lv) {
     decomposta.push({
-      numero: null,
+      numero: ultimoNumero + 1 + decomposition.rows.length,
       label: 'LUCRO DA VENDA',
       base: null,
       pct: lv.pctSobreProdutos,

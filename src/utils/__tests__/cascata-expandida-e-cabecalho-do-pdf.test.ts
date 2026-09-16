@@ -53,30 +53,60 @@ const DECOMP = buildDecomposition(buildBudgetDecompositionInput({
 describe('1. DA 12 EM DIANTE, a decomposição substitui as etapas', () => {
   const view = buildCascadeView(TRACE, DECOMP)
 
-  it('as etapas 1 a 11 continuam, NUMERADAS', () => {
-    const numeradas = view.filter((r) => r.numero != null).map((r) => r.numero)
-    expect(numeradas).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
-    expect(Math.max(...(numeradas as number[]))).toBe(ULTIMA_ETAPA_DA_CONSTRUCAO)
+  /**
+   * MUDANÇA DE DECISÃO, registrada: a primeira versão deixava as linhas da decomposição SEM
+   * número, com o argumento de que numerá-las seria inventar. O dono do produto concordou com
+   * o argumento e decidiu o contrário — numerar em sequência. A numeração é de EXIBIÇÃO: não
+   * volta ao `cascade_trace`, não é gravada e não é citável.
+   */
+  it('a construção vai de 1 a 11, e a decomposição CONTINUA a sequência', () => {
+    expect(view.slice(0, 11).map((r) => r.numero)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
+    expect(ULTIMA_ETAPA_DA_CONSTRUCAO).toBe(11)
+    const decompostas = view.slice(11)
+    expect(decompostas[0].numero).toBe(12)
+    // Sem buraco e sem repetição: a sequência é contínua até o fim.
+    decompostas.forEach((r, i) => expect(r.numero).toBe(12 + i))
   })
 
-  it('e as etapas 12, 13, 14, 16 e 17 NÃO aparecem mais como etapas', () => {
-    // O discriminante: sem a decomposição elas apareceriam. O caso exige o contraste.
+  it('TODAS as linhas têm número — nenhuma fica sem', () => {
+    expect(view.every((r) => r.numero != null)).toBe(true)
+  })
+
+  it('e os RÓTULOS das etapas 12 a 17 do trace somem — quem manda é a decomposição', () => {
+    // O contraste: sem a decomposição, os rótulos do trace aparecem. Com ela, não — e a
+    // asserção é sobre o RÓTULO, não sobre o número: os números 12 a 17 continuam existindo,
+    // agora como sequência de exibição da decomposição, o que é outra coisa.
     const semDecomp = buildCascadeView(TRACE)
-    expect(semDecomp.filter((r) => r.numero != null).map((r) => r.numero))
-      .toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 17])
-    expect(view.some((r) => r.numero === 17)).toBe(false)
+    expect(semDecomp.map((r) => r.label)).toContain('Cascata tributária')
+    expect(semDecomp.map((r) => r.label)).toContain('Consolidação final')
+    expect(view.map((r) => r.label)).not.toContain('Cascata tributária')
+    expect(view.map((r) => r.label)).not.toContain('Consolidação final')
+    expect(view.map((r) => r.label)).not.toContain('RRO')
   })
 
-  it('as linhas da decomposição vêm SEM número', () => {
+  it('e o número da decomposição NÃO vem do trace — é de exibição', () => {
+    // O trace tem a etapa 13 e a 17; a decomposição ocupa 12, 13, 14… em sequência própria.
+    // Se viessem do trace, haveria buraco entre 14 e 16 e a 17 apareceria fora de lugar.
     const decompostas = view.slice(11)
     expect(decompostas.length).toBeGreaterThan(15)
-    decompostas.forEach((r) => expect(r.numero).toBeNull())
+    expect(decompostas.map((r) => r.numero)).toEqual(
+      decompostas.map((_, i) => 12 + i),
+    )
   })
 })
 
 describe('2. CADA DEDUÇÃO É UMA LINHA — a quantidade muda, e é o ponto', () => {
   const view = buildCascadeView(TRACE, DECOMP)
   const rotulos = view.map((r) => r.label)
+
+  it('IBS, CBS, IS e IPI são QUATRO linhas — não uma agregada', () => {
+    expect(rotulos).toContain('(−) IBS')
+    expect(rotulos).toContain('(−) CBS')
+    expect(rotulos).toContain('(−) IS')
+    expect(rotulos).toContain('(−) IPI')
+    // A agregada era o que escondia qual dos quatro pesou.
+    expect(rotulos).not.toContain('(−) IBS · CBS · IS · IPI')
+  })
 
   it('ICMS, ISS e PIS/COFINS são TRÊS linhas', () => {
     expect(rotulos).toContain('(−) ICMS')
@@ -98,8 +128,8 @@ describe('2. CADA DEDUÇÃO É UMA LINHA — a quantidade muda, e é o ponto', (
 
   it('a ordem é a da R19: repasse → por fora → por dentro → custos → RRO', () => {
     const i = (l: string) => rotulos.findIndex((x) => x === l)
-    expect(i('(−) Itens manuais + frete neles (sem tributo)')).toBeLessThan(i('(−) IBS · CBS · IS · IPI'))
-    expect(i('(−) IBS · CBS · IS · IPI')).toBeLessThan(i('(−) ICMS'))
+    expect(i('(−) Itens manuais + frete neles (sem tributo)')).toBeLessThan(i('(−) IBS'))
+    expect(i('(−) IPI')).toBeLessThan(i('(−) ICMS'))
     expect(i('(−) ICMS')).toBeLessThan(i('(−) Custos — congelado'))
     expect(i('(−) Custos — congelado')).toBeLessThan(i('► RRO — RESULTADO RESIDUAL OPERACIONAL'))
   })
@@ -122,7 +152,7 @@ describe('3. SEM decomposição, nada muda — pedido e venda seguem como estão
   })
 
   it('decomposição VAZIA também cai no caminho antigo — vazia não é decomposição', () => {
-    const vazia: DecompositionResult = { rows: [], lucroDaVenda: null, residual: { perItem: [], total: 0 }, receitaAposDesconto: 0, errors: [] }
+    const vazia: DecompositionResult = { rows: [], lucroDaVenda: null, residual: { perItem: [], total: 0 }, receitaAposDesconto: 0, rro: null, errors: [] }
     expect(buildCascadeView(TRACE, vazia)).toHaveLength(buildCascadeView(TRACE).length)
   })
 })
@@ -167,5 +197,53 @@ describe('5. NO PDF, o cabeçalho é CENTRADO sobre os valores', () => {
     // ramo do corpo e recentraria os valores também.
     const head = mod.slice(mod.indexOf("if (hook.section === 'head')"), mod.indexOf("if (hook.section !== 'body')"))
     expect(head).toContain('return')
+  })
+})
+
+describe('6. TIPOGRAFIA — o tributo é sub-item, o resto é rótulo principal', () => {
+  const view = buildCascadeView(TRACE, DECOMP)
+  const linha = (l: string) => view.find((r) => r.label === l)!
+
+  it('IBS, CBS, IS, IPI, ICMS, ISS e PIS/COFINS saem como SUB-ITEM', () => {
+    for (const l of ['(−) IBS', '(−) CBS', '(−) IS', '(−) IPI', '(−) ICMS', '(−) ISS', '(−) PIS/COFINS']) {
+      expect(linha(l).isChild).toBe(true)
+    }
+  })
+
+  it('e os agrupamentos e as demais deduções NÃO', () => {
+    // O discriminante: se tudo virasse sub-item, a hierarquia da R19 sumiria por outro
+    // caminho — todo mundo em fonte menor é o mesmo que ninguém.
+    expect(linha('► RECEITA DE PRODUTOS').isChild).toBe(false)
+    expect(linha('(−) Custos — congelado').isChild).toBe(false)
+    expect(linha('► RRO — RESULTADO RESIDUAL OPERACIONAL').isChild).toBe(false)
+    expect(linha('Comissão').isChild).toBe(false)
+  })
+
+  it('a tela usa o flag para a fonte menor, e o bold é o padrão', () => {
+    const bloco = ler('page-parts/shared/consolidated-dre-block.component.tsx')
+    expect(bloco).toContain('const fontSize = row.isChild ? 10 : undefined')
+    expect(bloco).toContain('row.isChild ? 400 : row.isSubtotal ? 700 : 700')
+  })
+})
+
+describe('7. O ALERTA DO INVARIANTE DO RRO chega à tela e ao PDF', () => {
+  it('a tela o exibe quando o RRO não bate', () => {
+    const bloco = ler('page-parts/shared/consolidated-dre-block.component.tsx')
+    expect(bloco).toContain('decomposition?.rro?.foraDeZero')
+    expect(bloco).toContain('não bate com o reservado pela')
+  })
+
+  it('o PDF também — e o residual NÃO é o mesmo aviso', () => {
+    const mod = ler('lib/decomposition-pdf.ts')
+    expect(mod).toContain('decomposition.rro?.foraDeZero')
+    expect(mod).toContain('ATENÇÃO: o RRO apurado')
+    // Os dois avisos coexistem: o residual fecha por construção e não substitui este.
+    expect(mod).toContain('ATENÇÃO: o residual não fechou em zero')
+  })
+
+  it('e o PDF exibe comissão e lucro em % do TOTAL GERAL, não o peso', () => {
+    const mod = ler('lib/decomposition-pdf.ts')
+    expect(mod).toContain('percentualDaLinha(row)')
+    expect(mod).toContain("LINHAS_DO_RRO = new Set(['comissao', 'lucro', 'irpj', 'csll'])")
   })
 })

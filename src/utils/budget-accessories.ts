@@ -46,6 +46,14 @@ export interface TargetTaxFicha {
   pisCofinsPctEffective: number
   /** O `c` da R3, deste item. É INDIVIDUAL do produto, nunca global (seção 5.1). */
   externalOpsCoefficient: number
+  /**
+   * O `c` ABERTO por tributo — cada um como FRAÇÃO do total geral.
+   *
+   * A soma dos quatro é o próprio `externalOpsCoefficient`. Existe porque a R19 pede UMA
+   * LINHA POR TRIBUTO na decomposição: IBS, CBS, IS e IPI são quatro deduções, e uma linha
+   * agregada esconde qual deles pesou. Sai do motor, não de rateio — a decomposição LÊ.
+   */
+  externalByTax: { ibs: number; cbs: number; is: number; ipi: number }
 }
 
 /**
@@ -419,12 +427,16 @@ export function resolveItemFicha(input: ItemFichaInput): ItemFichaResult {
   // Exceção 2 da R5 — o PIS/COFINS incide sobre `P − ICMS − ISS`.
   const pisCofinsPctEffective = tb.pisCofinsPct * (1 - icmsPctEffective - issPctEffective)
 
+  const parcela = (nome: 'ibs' | 'cbs' | 'is' | 'ipi'): number =>
+    Number(c.externalTaxes?.[nome]?.valuePctOfTotal) || 0
+
   return {
     ficha: {
       icmsPctEffective,
       issPctEffective,
       pisCofinsPctEffective,
       externalOpsCoefficient: c.externalOpsCoefficient,
+      externalByTax: { ibs: parcela('ibs'), cbs: parcela('cbs'), is: parcela('is'), ipi: parcela('ipi') },
     },
     errors: [],
   }

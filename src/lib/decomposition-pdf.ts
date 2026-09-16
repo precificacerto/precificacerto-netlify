@@ -98,6 +98,23 @@ export function celulaPercentual(pct: number | null, isDerivedAverage: boolean):
 /** Tolerância do residual, em R$. Acima disso a linha é ALERTA, não um número discreto. */
 export const RESIDUAL_TOLERANCE_PDF = 0.01
 
+/** As quatro linhas da distribuição do RRO (R20). */
+const LINHAS_DO_RRO = new Set(['comissao', 'lucro', 'irpj', 'csll'])
+
+/**
+ * O percentual que a COLUNA do PDF exibe.
+ *
+ * Nas quatro linhas do RRO, o `pct` é o PESO da R20 — base RRO —, e o peso responde "quanto
+ * desta sobra é comissão": 28,7% e 57,5% no cenário medido. Quem lê o PDF quer a outra
+ * pergunta, "quanto do preço é comissão", e a resposta são os 5% e os 10% CADASTRADOS.
+ *
+ * É também o teste que fecha o invariante do RRO: se a base da decomposição estiver errada,
+ * estes dois números deixam de ser os cadastrados — e isso aparece no papel, não num log.
+ */
+export function percentualDaLinha(row: { key: string; pct: number | null; pctSobreTotalGeral: number | null }): number | null {
+  return LINHAS_DO_RRO.has(row.key) ? row.pctSobreTotalGeral : row.pct
+}
+
 export interface DecompositionPdfInput {
   decomposition: DecompositionResult
   itemLabels: string[]
@@ -144,7 +161,7 @@ export function appendDecompositionPages(doc: jsPDF, input: DecompositionPdfInpu
     const body = decomposition.rows.map((row) => [
       row.label,
       row.base == null ? '—' : brlPdf(row.base),
-      celulaPercentual(row.pct, row.isDerivedAverage),
+      celulaPercentual(percentualDaLinha(row), row.isDerivedAverage),
       ...bloco.map((k) => (row.perItem[k] === undefined ? '—' : brlPdf(row.perItem[k]))),
       brlPdf(row.total),
     ])
@@ -197,6 +214,22 @@ export function appendDecompositionPages(doc: jsPDF, input: DecompositionPdfInpu
     })
 
     let y = ((doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? 22) + 6
+
+    // O invariante do RRO: o apurado por subtração contra o que a construção reservou. O
+    // RESIDUAL não cobre isto — ele fecha por construção, distribuindo o RRO inteiro seja
+    // ele qual for, e foi assim que um CMV zerado inflou a conta em silêncio.
+    if (decomposition.rro?.foraDeZero) {
+      doc.setFontSize(8)
+      doc.setTextColor(153, 27, 27)
+      doc.text(
+        `ATENÇÃO: o RRO apurado (${brlPdf(decomposition.rro.apurado)}) não bate com o reservado pela `
+        + `construção (${brlPdf(decomposition.rro.esperado)}). Diferença de `
+        + `${brlPdf(decomposition.rro.divergencia)} — há valor sem dedução correspondente.`,
+        margin,
+        y,
+      )
+      y += 6
+    }
 
     if (residualForaDeZero) {
       doc.setFontSize(8)

@@ -35,6 +35,13 @@ export interface DecompositionItemTaxes {
   pisCofinsPct: number
   /** O `c` da R3 DESTE item. Individual, nunca global. */
   externalOpsCoefficient: number
+  /**
+   * O `c` aberto por tributo, cada um como FRAÇÃO do total geral. A soma é o `c`.
+   *
+   * A R19 pede UMA LINHA POR TRIBUTO: IBS, CBS, IS e IPI são quatro deduções. Ausente = cai
+   * na linha agregada, que é o estado dos testes que nasceram antes desta distinção.
+   */
+  externalByTax?: { ibs: number; cbs: number; is: number; ipi: number }
 }
 
 /** Uma coluna de produto da decomposição. */
@@ -108,9 +115,28 @@ export interface DecompositionRow {
   pct: number | null
   /** `true` quando `pct` é média ponderada derivada e NÃO uma alíquota cadastrada. */
   isDerivedAverage: boolean
+  /**
+   * `true` nas linhas de TRIBUTO — IBS, CBS, IS, IPI, ICMS, ISS, PIS/COFINS.
+   *
+   * A tela as exibe como SUB-ITEM, em fonte menor, como já faz com os filhos das etapas da
+   * construção: são o detalhamento de uma dedução, e lê-las com o mesmo peso dos
+   * agrupamentos achata a hierarquia que a R19 tem.
+   */
+  isTaxDetail: boolean
   perItem: number[]
   /** R16 — soma das colunas de produto. Nunca percentual sobre o total. */
   total: number
+  /**
+   * O percentual da linha sobre a RECEITA DE PRODUTOS — o total geral dos produtos.
+   *
+   * É o que a R17 chama de "% Original com base no total geral", e é por isso que ele existe
+   * ao lado de `pct`: nas quatro linhas do RRO o `pct` é o PESO da R20 (base RRO), e o peso
+   * responde "quanto desta sobra é comissão"; este responde "quanto do preço é comissão" — e
+   * é este que tem de voltar como os 5% e os 10% CADASTRADOS.
+   *
+   * `null` quando a base é zero. Nunca 0%.
+   */
+  pctSobreTotalGeral: number | null
 }
 
 /**
@@ -118,6 +144,46 @@ export interface DecompositionRow {
  * decomposição inteira: o lucro sozinho não diz nada; o par diz QUANTO do lucro cadastrado o
  * desconto consumiu — e a coluna por produto diz EM QUAL produto.
  */
+/**
+ * O INVARIANTE DO RRO — o que a decomposição apurou contra o que a construção reservou.
+ *
+ * A construção reserva `(% Comissão + % Lucro + % IRPJ + % CSLL) × TOTAL GERAL` para o RRO.
+ * A decomposição chega nele por SUBTRAÇÃO: receita menos tudo. Os dois têm de dar o MESMO
+ * número, ao centavo — e quando não dão, há um valor SEM DONO na conta.
+ *
+ * Foi o que faltava: nenhum caso afirmava essa igualdade, e por isso um CMV que chega zerado
+ * (produto com `cost_total = 0` e preço digitado) inflava o RRO em silêncio. O residual
+ * continuava R$ 0,00 — ele fecha por construção, porque distribui o RRO INTEIRO, seja ele
+ * qual for. Um residual zerado NÃO prova que o RRO está certo, e essa é a distinção que este
+ * invariante existe para fazer.
+ */
+export interface RroInvariante {
+  /** O RRO que a decomposição apurou por subtração. */
+  apurado: number
+  /** `Σ % cadastrados × total geral` — o que a construção reservou. */
+  esperado: number
+  /** `apurado − esperado`. */
+  divergencia: number
+  /**
+   * `true` quando a divergência denuncia VALOR SEM DONO.
+   *
+   * >>> OS DOIS SINAIS NÃO SIGNIFICAM A MESMA COISA, e tratá-los igual seria errado <<<
+   *
+   * **Sobra** (`apurado > esperado`) é sempre defeito: entrou no RRO dinheiro que nenhuma
+   * dedução reclamou — um CMV que chegou zerado, uma despesa que não foi lançada.
+   *
+   * **Falta** (`apurado < esperado`) COM DESCONTO é o comportamento correto, e é o ponto da
+   * cascata inteira: custos, despesas e acréscimos são CONGELADOS (R18) e não encolhem com o
+   * desconto, então o RRO encolhe mais que proporcionalmente. Chamar isso de divergência
+   * transformaria a corrosão da margem — que a decomposição existe para mostrar — em erro de
+   * cálculo. Ela aparece no LUCRO DA VENDA, que é o lugar dela.
+   *
+   * SEM desconto não há corrosão a explicar, e aí qualquer diferença nos dois sentidos é
+   * defeito.
+   */
+  foraDeZero: boolean
+}
+
 export interface LucroDaVenda {
   /** Por produto — é o que diz EM QUAL produto o desconto corroeu. */
   perItem?: number[]
@@ -159,10 +225,23 @@ export interface DecompositionResult {
   residual: { perItem: number[]; total: number }
   /** A receita após desconto, base da análise vertical (seção 6.4). */
   receitaAposDesconto: number
+  /**
+   * O RRO apurado contra o reservado pela construção. `null` só quando não há linhas.
+   *
+   * O RESIDUAL não substitui isto: ele fecha por construção, porque distribui o RRO inteiro
+   * seja ele qual for. Ver `RroInvariante`.
+   */
+  rro: RroInvariante | null
   errors: string[]
 }
 
 const soma = (xs: number[]): number => xs.reduce((a, b) => a + b, 0)
+
+/** As linhas que são DETALHE de tributo — exibidas como sub-item (ver `isTaxDetail`). */
+const LINHAS_DE_TRIBUTO = new Set([
+  'por_fora', 'por_fora_ibs', 'por_fora_cbs', 'por_fora_is', 'por_fora_ipi',
+  'icms', 'iss', 'pis_cofins',
+])
 
 /**
  * `true` quando os itens NÃO compartilham a mesma alíquota — é o que torna o percentual da
@@ -186,10 +265,10 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
   const { items, categories: cat } = input
   const errors: string[] = []
 
-  if (items.length === 0) return { rows: [], lucroDaVenda: null, residual: { perItem: [], total: 0 }, receitaAposDesconto: 0, errors }
+  if (items.length === 0) return { rows: [], lucroDaVenda: null, residual: { perItem: [], total: 0 }, receitaAposDesconto: 0, rro: null, errors }
   if (!(input.discountPct >= 0 && input.discountPct < 1)) {
     errors.push(`desconto fora de [0, 1): ${input.discountPct}`)
-    return { rows: [], lucroDaVenda: null, residual: { perItem: [], total: 0 }, receitaAposDesconto: 0, errors }
+    return { rows: [], lucroDaVenda: null, residual: { perItem: [], total: 0 }, receitaAposDesconto: 0, rro: null, errors }
   }
 
   const receitaBrutaPorItem = items.map((i) => i.totalProduto + i.acrescimos)
@@ -247,7 +326,7 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
   }
   if (items.some((_, k) => somaRROde(k) <= 0)) {
     errors.push('soma das categorias do RRO <= 0: não há como distribuir o resultado residual.')
-    return { rows: [], lucroDaVenda: null, residual: { perItem: [], total: 0 }, receitaAposDesconto, errors }
+    return { rows: [], lucroDaVenda: null, residual: { perItem: [], total: 0 }, receitaAposDesconto, rro: null, errors }
   }
   const pesoDe = (k: number, pct: number) => pct / somaRROde(k)
   const comissaoPorItem = rroPorItem.map((r, k) => r * pesoDe(k, catDe(k).comissaoPct))
@@ -271,6 +350,10 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
     base: opts.base ?? null,
     pct: opts.pct ?? null,
     isDerivedAverage: opts.derived ?? false,
+    isTaxDetail: LINHAS_DE_TRIBUTO.has(key),
+    pctSobreTotalGeral: receitaProdutosTotal !== 0
+      ? Math.abs(opts.total !== undefined ? opts.total : soma(perItem)) / receitaProdutosTotal
+      : null,
     perItem,
     // R16 — a coluna Total é SOMA das colunas de produto, salvo nas linhas que só existem no
     // total (desconto e repasse dos manuais), onde o valor é informado.
@@ -292,11 +375,22 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
     linha('repasse_manuais', '(−) Itens manuais + frete neles (sem tributo)', zeros, { total: repasseManuais }),
     linha('acrescimos', '(−) Acréscimos dos produtos (com tributo)', acrescimosPorItem),
     linha('receita_produtos', '► RECEITA DE PRODUTOS', receitaProdutosPorItem, { subtotal: true, total: rp }),
-    linha('por_fora', '(−) IBS · CBS · IS · IPI', porForaPorItem, {
-      base: rp,
-      pct: pctDe(soma(porForaPorItem), rp),
-      derived: heterogeneo(items.map((i) => i.taxes.externalOpsCoefficient)),
-    }),
+    // R19 — UMA LINHA POR TRIBUTO. A agregada só sobra quando o item não traz a abertura,
+    // que é o caso do trace legado: melhor a linha agregada que nenhuma.
+    ...(items.some((i) => i.taxes.externalByTax)
+      ? (['ibs', 'cbs', 'is', 'ipi'] as const).map((nome) => {
+        const perItemTributo = items.map((i, k) => -receitaProdutosPorItem[k] * (i.taxes.externalByTax?.[nome] ?? 0))
+        return linha(`por_fora_${nome}`, `(−) ${nome.toUpperCase()}`, perItemTributo, {
+          base: rp,
+          pct: pctDe(soma(perItemTributo), rp),
+          derived: heterogeneo(items.map((i) => i.taxes.externalByTax?.[nome] ?? 0)),
+        })
+      })
+      : [linha('por_fora', '(−) IBS · CBS · IS · IPI', porForaPorItem, {
+        base: rp,
+        pct: pctDe(soma(porForaPorItem), rp),
+        derived: heterogeneo(items.map((i) => i.taxes.externalOpsCoefficient)),
+      })]),
     linha('operacao_por_dentro', '► OPERAÇÃO POR DENTRO (P)', pPorItem, { subtotal: true }),
     linha('icms', '(−) ICMS', icmsPorItem, {
       base: rp,
@@ -378,11 +472,34 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
     diferenca: pctSobreProdutos != null ? pctSobreProdutos - cat.lucroPct : null,
   }
 
+  // O invariante: a construção reservou `Σ % cadastrados × total geral` para o RRO, e a
+  // decomposição chegou nele por subtração. Os dois têm de dar o mesmo número.
+  //
+  // O total geral de cada item é a receita de produtos DELE — é sobre ela que os % originais
+  // incidem (R17). Com desconto, o reservado encolhe junto, porque a base encolheu: é o que
+  // faz a corrosão aparecer no LUCRO DA VENDA em vez de virar divergência aqui.
+  const rroEsperado = items.reduce((acc, _it, k) => {
+    const c = catDe(k)
+    return acc + receitaProdutosPorItem[k] * (c.comissaoPct + c.lucroPct + c.irpjPct + c.csllPct)
+  }, 0)
+  const rroApurado = soma(rroPorItem)
+  const rroDivergencia = rroApurado - rroEsperado
+
   return {
     rows,
     lucroDaVenda,
     residual: { perItem: residualPorItem, total: soma(residualPorItem) },
     receitaAposDesconto,
+    rro: {
+      apurado: rroApurado,
+      esperado: rroEsperado,
+      divergencia: rroDivergencia,
+      // Ver `RroInvariante.foraDeZero`: com desconto, só a SOBRA acusa; sem desconto, os
+      // dois sentidos acusam.
+      foraDeZero: input.discountPct > 0
+        ? rroDivergencia > 0.01
+        : Math.abs(rroDivergencia) > 0.01,
+    },
     errors,
   }
 }

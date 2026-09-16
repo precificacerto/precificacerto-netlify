@@ -151,6 +151,8 @@ export function buildBudgetDecompositionInput(
         pisCofinsPct: pisCofinsNominal,
         // O `c` da construção DAQUELE item, lido da ficha — nunca um `c` global.
         externalOpsCoefficient: ficha.ficha?.externalOpsCoefficient ?? 0,
+        // E aberto por tributo, para a R19 ter uma linha para cada um.
+        externalByTax: ficha.ficha?.externalByTax,
       },
       categories,
     }

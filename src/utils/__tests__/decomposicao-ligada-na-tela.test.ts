@@ -153,7 +153,12 @@ describe('4. (c) A ORDEM é a da planilha, linhas 64 a 86', () => {
       'repasse_manuais',
       'acrescimos',
       'receita_produtos',
-      'por_fora',
+      // R19 — UMA LINHA POR TRIBUTO. Era `por_fora` agregada; a decisão de abrir veio depois,
+      // e o motivo é o que a agregação escondia: qual dos quatro pesou.
+      'por_fora_ibs',
+      'por_fora_cbs',
+      'por_fora_is',
+      'por_fora_ipi',
       'operacao_por_dentro',
       'icms',
       'iss',
@@ -175,8 +180,9 @@ describe('4. (c) A ORDEM é a da planilha, linhas 64 a 86', () => {
     const idx = (k: string) => result.rows.findIndex((r) => r.key === k)
     // A Memória Cascata antiga os punha na Etapa 17, DEPOIS do RRO. Aqui o RRO tem de ser a
     // última sobra da conta, e o caso afirma as duas relações.
-    expect(idx('por_fora')).toBeLessThan(idx('operacao_por_dentro'))
-    expect(idx('por_fora')).toBeLessThan(idx('rro'))
+    expect(idx('por_fora_ibs')).toBeLessThan(idx('operacao_por_dentro'))
+    expect(idx('por_fora_ipi')).toBeLessThan(idx('operacao_por_dentro'))
+    expect(idx('por_fora_ibs')).toBeLessThan(idx('rro'))
     expect(idx('rro')).toBeGreaterThan(idx('receita_liquida'))
   })
 
