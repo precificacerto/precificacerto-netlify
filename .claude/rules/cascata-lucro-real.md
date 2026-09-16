@@ -231,16 +231,28 @@ por "o código não está na tabela"**, porque contra uma tabela que muda essa
 dedução erra nos dois sentidos e a resposta muda sozinha.
 
 **Estado em 16/09/2026.** O schema e a derivação existem e estão testados:
-migrações `20260916000001` (as duas tabelas oficiais, 18 + 164 linhas) e
-`20260916000002` (as seis colunas em `products`), mais
-`src/utils/classificacao-fiscal.ts`. **A fiação da tela NÃO está feita**, e
-`products.iva_dual_reduction_factor` continua sendo o que o motor lê. A travessia
-de um para o outro é decisão própria e não está tomada.
 
-**Consequência a honrar quando a fiação chegar:** `services` tem
-`iva_dual_reduction_factor` próprio e cai na mesma mudança de natureza. As seis
-colunas não foram criadas lá — a instrução nomeou `products`. Fica escrito para
-não virar descoberta tardia.
+| migração | o que faz |
+|---|---|
+| `20260916000001` | as duas tabelas oficiais — 18 CST e 164 cClassTrib |
+| `20260916000002` | as seis colunas em `products` **e em `services`**, com as três CHECK de coerência |
+| `20260916000003` | a travessia ADITIVA: as duas colunas novas recebem o valor de `iva_dual_reduction_factor`, e a antiga FICA |
+
+Mais `src/utils/classificacao-fiscal.ts`, que é a fonte única da derivação.
+
+**`services` entra junto, e a razão é de classe.** A primeira versão nomeava só
+`products`. Fazer metade da travessia seria `copia-divergente.md` NASCENDO: o
+mesmo mapeamento em dois cadastros, um com dois percentuais e o outro com um só,
+e nada falha — a divergência só apareceria como apuração errada. As duas metades
+entram no mesmo arquivo para que não exista janela em que uma exista e a outra não.
+
+**NENHUM DROP.** Depois da `000003` o mesmo valor existe em dois lugares, de
+propósito: é o que permite medir o motor novo contra o antigo. Medido antes de
+escrever a migração, por consulta ao banco: **163 produtos, 1 com fator (valor
+50); 10 serviços, nenhum com fator.** A `000003` atualiza UMA linha.
+
+**A fiação da tela NÃO está feita**, e `products.iva_dual_reduction_factor`
+continua sendo o que o motor lê hoje.
 
 **R5 · Percentual efetivado.** Toda categoria da operação interna é cadastrada
 como **% Original sobre o total geral** e convertida para cálculo:

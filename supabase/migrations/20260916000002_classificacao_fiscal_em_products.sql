@@ -1,5 +1,5 @@
--- Migration: a classificação fiscal do produto — CST, cClassTrib, procedência
---            e as DUAS reduções, gravadas como FATO
+-- Migration: a classificação fiscal do PRODUTO E DO SERVIÇO — CST, cClassTrib,
+--            procedência e as DUAS reduções, gravadas como FATO
 --
 -- ══════════════════════════════════════════════════════════════════════════
 -- DEPENDE DE `20260916000001_cst_ibs_cbs_e_cclass_trib.sql`
@@ -87,15 +87,27 @@
 -- continua sendo o que o motor lê hoje. A travessia dele para as duas colunas
 -- novas é decisão própria, e NÃO está tomada neste arquivo.
 --
--- `services` NÃO recebe as colunas nesta migração. A instrução do dono do produto
--- nomeou `products`. Serviço tem `iva_dual_reduction_factor` próprio e cai na
--- mesma mudança de natureza — fica registrado aqui como a metade em aberto, para
--- não virar descoberta tardia.
+-- `services` RECEBE AS MESMAS SEIS COLUNAS E AS MESMAS TRÊS CHECK. A primeira
+-- versão deste arquivo nomeava só `products`, e o dono do produto corrigiu:
+-- *"minha instrução nomeou só products e isso foi omissão, não escopo"*. Serviço
+-- tem `iva_dual_reduction_factor` próprio e cai na mesma mudança de natureza.
+--
+-- Fazer metade da travessia seria `copia-divergente.md` NASCENDO — o mesmo
+-- mapeamento em dois cadastros, um deles esquecendo campos, e nada falha: o
+-- serviço continuaria com um fator único enquanto o produto teria dois, e a
+-- divergência só apareceria como apuração errada. As duas metades entram no
+-- mesmo arquivo de propósito, para que não exista janela em que uma exista e a
+-- outra não.
+--
+-- A COLUNA CHAMA-SE `cst_ibs_cbs_code`, e não `cst_ibs_cbs`. A tabela de
+-- referência se chama `cst_ibs_cbs`, e uma coluna homônima é legal no Postgres
+-- mas faz `select cst_ibs_cbs from products` ler igual a `from cst_ibs_cbs`. O
+-- sufixo custa cinco caracteres e evita a leitura errada.
 
 BEGIN;
 
 ALTER TABLE products
-  ADD COLUMN IF NOT EXISTS cst_ibs_cbs                     text,
+  ADD COLUMN IF NOT EXISTS cst_ibs_cbs_code                text,
   ADD COLUMN IF NOT EXISTS cclass_trib                     text,
   ADD COLUMN IF NOT EXISTS cclass_trib_origem              text,
   ADD COLUMN IF NOT EXISTS cclass_trib_source_published_at date,
@@ -115,7 +127,7 @@ ALTER TABLE products
 ALTER TABLE products DROP CONSTRAINT IF EXISTS products_cclass_trib_par_chk;
 ALTER TABLE products
   ADD CONSTRAINT products_cclass_trib_par_chk
-  CHECK ((cst_ibs_cbs IS NULL) = (cclass_trib IS NULL));
+  CHECK ((cst_ibs_cbs_code IS NULL) = (cclass_trib IS NULL));
 
 -- Classificou, declarou de onde veio. Sem isto a coluna de procedência volta a
 -- ser opcional na prática, e a auditoria volta a depender de dedução.
@@ -141,7 +153,7 @@ ALTER TABLE products
   CHECK (iva_reduction_cbs_pct IS NULL
          OR (iva_reduction_cbs_pct >= 0 AND iva_reduction_cbs_pct <= 100));
 
-COMMENT ON COLUMN products.cst_ibs_cbs IS
+COMMENT ON COLUMN products.cst_ibs_cbs_code IS
   'CST do IBS/CBS escolhido para o produto. Texto livre, SEM FK para cst_ibs_cbs: a tela sugere, o banco aceita. NULL = não classificado, que não é o mesmo que CST 000.';
 COMMENT ON COLUMN products.cclass_trib IS
   'cClassTrib do produto. Só é válido DENTRO do seu CST — o par é a chave em cclass_trib, e par incompatível é rejeitado pela SEFAZ. SEM FK de propósito: código publicado antes da nossa atualização precisa passar.';
@@ -154,6 +166,66 @@ COMMENT ON COLUMN products.iva_reduction_ibs_pct IS
 COMMENT ON COLUMN products.iva_reduction_cbs_pct IS
   'Percentual de REDUÇÃO da CBS, DERIVADO do cClassTrib (cclass_trib.p_red_cbs) e CONGELADO aqui. Separado do IBS porque a tabela oficial os separa: o código 200025 (ProUni) tem 60 no IBS e 100 na CBS.';
 
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- O MESMO EM `services` — as seis colunas e as três CHECK, sem exceção
+-- ─────────────────────────────────────────────────────────────────────────
+-- As razões estão escritas uma vez, no bloco de `products` acima, e valem
+-- inteiras aqui: nuláveis e sem default, sem FK, e as três CHECK de coerência.
+-- Repeti-las seria a segunda cópia que `copia-divergente.md` manda não criar.
+--
+-- O que NÃO se repete e precisa ser dito: serviço tem `iva_dual_reduction_factor`
+-- próprio, e deixá-lo de fora faria o produto ter duas reduções e o serviço uma,
+-- sem nada falhar. É por isso que as duas metades entram no MESMO arquivo.
+
+ALTER TABLE services
+  ADD COLUMN IF NOT EXISTS cst_ibs_cbs_code                text,
+  ADD COLUMN IF NOT EXISTS cclass_trib                     text,
+  ADD COLUMN IF NOT EXISTS cclass_trib_origem              text,
+  ADD COLUMN IF NOT EXISTS cclass_trib_source_published_at date,
+  ADD COLUMN IF NOT EXISTS iva_reduction_ibs_pct           numeric,
+  ADD COLUMN IF NOT EXISTS iva_reduction_cbs_pct           numeric;
+
+ALTER TABLE services DROP CONSTRAINT IF EXISTS services_cclass_trib_origem_chk;
+ALTER TABLE services
+  ADD CONSTRAINT services_cclass_trib_origem_chk
+  CHECK (cclass_trib_origem IS NULL OR cclass_trib_origem IN ('TABELA', 'MANUAL'));
+
+ALTER TABLE services DROP CONSTRAINT IF EXISTS services_cclass_trib_par_chk;
+ALTER TABLE services
+  ADD CONSTRAINT services_cclass_trib_par_chk
+  CHECK ((cst_ibs_cbs_code IS NULL) = (cclass_trib IS NULL));
+
+ALTER TABLE services DROP CONSTRAINT IF EXISTS services_cclass_trib_procedencia_chk;
+ALTER TABLE services
+  ADD CONSTRAINT services_cclass_trib_procedencia_chk
+  CHECK ((cclass_trib IS NULL) = (cclass_trib_origem IS NULL));
+
+ALTER TABLE services DROP CONSTRAINT IF EXISTS services_iva_reduction_ibs_pct_chk;
+ALTER TABLE services
+  ADD CONSTRAINT services_iva_reduction_ibs_pct_chk
+  CHECK (iva_reduction_ibs_pct IS NULL
+         OR (iva_reduction_ibs_pct >= 0 AND iva_reduction_ibs_pct <= 100));
+
+ALTER TABLE services DROP CONSTRAINT IF EXISTS services_iva_reduction_cbs_pct_chk;
+ALTER TABLE services
+  ADD CONSTRAINT services_iva_reduction_cbs_pct_chk
+  CHECK (iva_reduction_cbs_pct IS NULL
+         OR (iva_reduction_cbs_pct >= 0 AND iva_reduction_cbs_pct <= 100));
+
+COMMENT ON COLUMN services.cst_ibs_cbs_code IS
+  'CST do IBS/CBS escolhido para o serviço. Texto livre, SEM FK para cst_ibs_cbs: a tela sugere, o banco aceita. NULL = não classificado, que não é o mesmo que CST 000.';
+COMMENT ON COLUMN services.cclass_trib IS
+  'cClassTrib do serviço. Só é válido DENTRO do seu CST — o par é a chave em cclass_trib, e par incompatível é rejeitado pela SEFAZ. SEM FK de propósito: código publicado antes da nossa atualização precisa passar.';
+COMMENT ON COLUMN services.cclass_trib_origem IS
+  'Procedência do código, gravada como FATO no momento do cadastro: TABELA (existia na tabela oficial) ou MANUAL (o usuário digitou um código que a tabela não tinha). NULL = serviço anterior a este campo, que não é nenhum dos dois. NÃO é derivável depois: a tabela muda, e a resposta mudaria sozinha.';
+COMMENT ON COLUMN services.cclass_trib_source_published_at IS
+  'Publicação da tabela oficial vigente no momento em que o serviço foi classificado. É o que torna a procedência verificável: "veio da tabela de 22/06/2026" se confere; "veio da tabela" não.';
+COMMENT ON COLUMN services.iva_reduction_ibs_pct IS
+  'Percentual de REDUÇÃO do IBS, DERIVADO do cClassTrib (cclass_trib.p_red_ibs) e CONGELADO aqui: o preço foi formado com ele. Reler da tabela seria a 7a aparição de fato-vs-referencia.md. Inteiro em [0, 100]: efetiva = original × (1 − pct/100).';
+COMMENT ON COLUMN services.iva_reduction_cbs_pct IS
+  'Percentual de REDUÇÃO da CBS, DERIVADO do cClassTrib (cclass_trib.p_red_cbs) e CONGELADO aqui. Separado do IBS porque a tabela oficial os separa: o código 200025 (ProUni) tem 60 no IBS e 100 na CBS.';
+
 COMMIT;
 
 -- ─────────────────────────────────────────────────────────────────────────
@@ -161,13 +233,14 @@ COMMIT;
 -- ─────────────────────────────────────────────────────────────────────────
 --   select column_name, data_type, is_nullable, column_default
 --   from information_schema.columns
---   where table_schema = 'public' and table_name = 'products'
---     and column_name in ('cst_ibs_cbs','cclass_trib','cclass_trib_origem',
+--   where table_schema = 'public' and table_name in ('products', 'services')
+--     and column_name in ('cst_ibs_cbs_code','cclass_trib','cclass_trib_origem',
 --                         'cclass_trib_source_published_at',
 --                         'iva_reduction_ibs_pct','iva_reduction_cbs_pct')
---   order by column_name;
+--   order by table_name, column_name;
 --
--- Espera SEIS linhas, todas com is_nullable = 'YES' e column_default NULL.
+-- Espera SEIS linhas POR TABELA (products e services), todas com
+-- is_nullable = 'YES' e column_default NULL.
 -- Zero linhas = não aplicada, independentemente do que o merge diga.
 --
 --   NOTIFY pgrst, 'reload schema';
