@@ -146,6 +146,53 @@ Com duas ocorrências a página deixa de ser anedota e passa a ser padrão. **Ai
 critério** — `registro-de-classe.md` fixa o limiar em quatro —, e continua morando aqui em
 vez de `.claude/rules/`.
 
+## A LIÇÃO, e é maior que o harness
+
+Formulação do dono do produto, 17/09/2026, registrada como está:
+
+> Mutação que não compila **não é morta nem sobrevivente — é INCONCLUSIVA**, e chamá-la de
+> morta é o mesmo erro de ontem em forma nova. **O instrumento de medição precisa do mesmo
+> rigor que o código medido — e ninguém estava medindo o instrumento.**
+
+É essa última oração que fecha a página, e ela explica as duas ocorrências de uma vez.
+
+Este repositório tem disciplina de sobra sobre o código: `teste-que-nao-exercita.md` exige que
+cada asserção falhe sem a sua correção; `portao-que-nao-alcanca.md` exige perguntar o que faz
+cada portão ficar vermelho; `baseline-measurement.md` prescreve como medir sem se enganar.
+**Nada disso foi aplicado ao harness**, que é justamente o instrumento com que se decide se as
+outras medições valem.
+
+E o harness não era um script menor: ele é quem responde "os testes desta rodada realmente
+pegam o defeito?". Um relatório dele errado **valida uma rodada inteira sem base** — foi o que
+o `20/20 mortas` da primeira ocorrência fez.
+
+### Por que ninguém o mediu, e não é descuido
+
+Porque **o harness é escrito para medir, não para ser medido.** Ele nasce como ferramenta de
+uma rodada, roda uma vez, imprime um relatório e some. Não tem teste, não tem revisor, não
+entra no CI, e o sinal de que ele funcionou é o próprio relatório que ele produz — que é
+exatamente o que estava errado nas duas vezes.
+
+É a mesma assimetria de `teste-que-nao-exercita.md` num degrau acima: lá, quem escreve a
+asserção é quem acabou de escrever a correção; **aqui, quem escreve o instrumento é quem lê o
+resultado dele, e não há terceira parte para desconfiar.**
+
+### As três perguntas, aplicadas ao instrumento
+
+São as de `portao-que-nao-alcanca.md`, e elas respondem na hora quando feitas do harness em
+vez do CI:
+
+1. **Se o instrumento medisse errado, eu veria?** Se a única evidência de que ele funcionou é
+   o relatório dele, não.
+2. **O indicador pode assumir o valor que eu quero detectar?** `morta`/`SOBREVIVEU` é binário
+   sobre um mundo de três estados — a terceira possibilidade não tinha como aparecer.
+3. **Existe um estado do mundo em que o instrumento não mediu nada e não diz?** Nas duas
+   ocorrências, sim: a árvore suja e a suíte que não carregou.
+
+O custo de responder as três é o que já está no harness: uma comparação de contagem e um
+`assert`. **Vinte linhas ao todo**, contra uma rodada inteira de trabalho apagado e um
+relatório que não valia nada.
+
 ## Ressalvas de método
 
 1. **São DUAS ocorrências**, ambas do mesmo harness e do mesmo mecanismo. Não há tabela
