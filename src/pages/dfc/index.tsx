@@ -209,7 +209,7 @@ function closedMonthsCount(col: PeriodColumn, viewYear: number): number {
 
 // ── Data fetching ──
 
-type CashEntry = {
+export type CashEntry = {
   amount: number
   type: 'INCOME' | 'EXPENSE'
   expense_group: string | null
@@ -300,9 +300,13 @@ export type AggregatedData = {
   atividadesTerceirizadas: MonthlyValues // Atividades terceirizadas operacionais de entrega (LR / Simples Híbrido — seção cabeçalho DRE)
   impostoPorDentro: MonthlyValues // Impostos sobre o faturamento por dentro: ICMS Próprio, PIS, COFINS (LR / Simples Híbrido)
   amortizacao: MonthlyValues // Pagamento de PRINCIPAL de dívida — não é despesa operacional
+  repasse: MonthlyValues // Valor que atravessa a empresa sem gerar lucro — ver `expense-groups.ts`
 }
 
-function aggregateEntries(entries: CashEntry[]): AggregatedData {
+// EXPORTADA para que o teste afirme EFEITO (o lançamento cai no balde certo) em vez de
+// passagem (o `case` existe no arquivo). `.claude/rules/teste-que-nao-exercita.md`: "quando a
+// pergunta 3 não tem resposta boa porque a função não é exportada, exporte a função".
+export function aggregateEntries(entries: CashEntry[]): AggregatedData {
   const data: AggregatedData = {
     receitaBruta: { ...EMPTY_MONTHS },
     maoDeObraProdutiva: { ...EMPTY_MONTHS },
@@ -320,6 +324,7 @@ function aggregateEntries(entries: CashEntry[]): AggregatedData {
     atividadesTerceirizadas: { ...EMPTY_MONTHS },
     impostoPorDentro: { ...EMPTY_MONTHS },
     amortizacao: { ...EMPTY_MONTHS },
+    repasse: { ...EMPTY_MONTHS },
   }
 
   // Category keys considered as product cost (CMV) — matches CASHIER_CATEGORY.EXPENSE keys
@@ -424,6 +429,12 @@ function aggregateEntries(entries: CashEntry[]): AggregatedData {
         // Entra DEPOIS do resultado operacional, nas três variantes de demonstração.
         data.amortizacao[monthKey] += entry.amount
         break
+      case 'REPASSE':
+        // Valor que ATRAVESSA a empresa: entrou pela receita bruta junto com a venda e sai
+        // aqui, na dedução logo abaixo. Linha PRÓPRIA, ao lado das devoluções e nunca somada
+        // a elas — ver o comentário do grupo em `expense-groups.ts`.
+        data.repasse[monthKey] += entry.amount
+        break
       case 'LUCRO':
         // Distribuição de lucros / Investimentos — não compõem o DRE de estrutura.
         // REGISTRADO E NÃO CORRIGIDO nesta rodada: isto descarta 15 lançamentos, R$ 125.318,22
@@ -506,7 +517,21 @@ export function buildDreLucroRealPresumido(
   // O MODELO é `buildDrePresumidoRET`, que já estava certo desde o LP-RET-013: lá a linha vem
   // imediatamente depois da Receita Bruta. Essa variante NÃO É TOCADA aqui.
   rows.push(buildRow('deducoes_devolucoes', '(-) Devoluções e Deduções da Receita', agg.deducaoReceita, receitaBrutaBase, { sign: '-' }))
-  const receitaAposDevolucoes = subtractMonths(receitaBrutaBase, agg.deducaoReceita)
+
+  // (-) REPASSE — LINHA PRÓPRIA, NO MESMO BLOCO DAS DEVOLUÇÕES E NUNCA SOMADA A ELAS.
+  //
+  // Repasse é valor que ATRAVESSA a empresa: a venda aconteceu, o dinheiro entrou pela receita
+  // bruta, e o valor pertence a terceiro. Devolução é o oposto — uma venda que SE DESFEZ.
+  // Somar as duas apagaria a distinção; por isso mesmo bloco, linhas separadas.
+  //
+  // ASSIMETRIA CONHECIDA, e ela é de desenho: esta linha zera o repasse do RESULTADO, não do
+  // FATURAMENTO. A entrada continua chegando inteira pela receita bruta, porque o `continue`
+  // do INCOME em `aggregateEntries` corta antes do `switch` e nenhum INCOME é lido por grupo.
+  // Os números e as duas alternativas estão em
+  // `docs/registros/o-repasse-entra-inteiro-pela-receita.md`.
+  rows.push(buildRow('repasse', '(-) Repasse', agg.repasse, receitaBrutaBase, { sign: '-' }))
+
+  const receitaAposDevolucoes = subtractMonths(subtractMonths(receitaBrutaBase, agg.deducaoReceita), agg.repasse)
 
   let receitaLiquida: MonthlyValues
   if (isLrOrHibrido) {
@@ -587,7 +612,20 @@ export function buildDrePresumidoRET(agg: AggregatedData): DreRow[] {
   rows.push(buildRow('inss_retido', '(-) INSS Retido na Fonte (11%)', { ...EMPTY_MONTHS }, receitaBruta, { sign: '-', indent: 2 }))
   rows.push(buildRow('iss_retido', '(-) ISS Retido pelo Tomador', { ...EMPTY_MONTHS }, receitaBruta, { sign: '-', indent: 2 }))
 
-  const receitaLiquida = subtractMonths(receitaBruta, deducoesReceita)
+  // (-) REPASSE — LINHA PRÓPRIA, NO MESMO BLOCO DAS DEVOLUÇÕES E NUNCA SOMADA A ELAS.
+  //
+  // Repasse é valor que ATRAVESSA a empresa: a venda aconteceu, o dinheiro entrou pela receita
+  // bruta, e o valor pertence a terceiro. Devolução é o oposto — uma venda que SE DESFEZ.
+  // Somar as duas apagaria a distinção; por isso mesmo bloco, linhas separadas.
+  //
+  // ASSIMETRIA CONHECIDA, e ela é de desenho: esta linha zera o repasse do RESULTADO, não do
+  // FATURAMENTO. A entrada continua chegando inteira pela receita bruta, porque o `continue`
+  // do INCOME em `aggregateEntries` corta antes do `switch` e nenhum INCOME é lido por grupo.
+  // Os números e as duas alternativas estão em
+  // `docs/registros/o-repasse-entra-inteiro-pela-receita.md`.
+  rows.push(buildRow('repasse', '(-) Repasse', agg.repasse, receitaBruta, { sign: '-', indent: 1 }))
+
+  const receitaLiquida = subtractMonths(subtractMonths(receitaBruta, deducoesReceita), agg.repasse)
   rows.push(buildRow('receita_liquida', '(=) Receita Líquida de Serviços/Obras', receitaLiquida, receitaBruta, { isSubtotal: true, sign: '=' }))
 
   // Custos Diretos (CPV — Custo dos Serviços Prestados)
@@ -651,6 +689,19 @@ export function buildDreSimplesNacional(agg: AggregatedData, _calcType: CalcType
   // imediatamente depois da Receita Bruta. Essa variante NÃO É TOCADA aqui.
   rows.push(buildRow('deducoes_devolucoes', '(-) Devoluções e Deduções da Receita', agg.deducaoReceita, receitaBruta, { sign: '-' }))
 
+  // (-) REPASSE — LINHA PRÓPRIA, NO MESMO BLOCO DAS DEVOLUÇÕES E NUNCA SOMADA A ELAS.
+  //
+  // Repasse é valor que ATRAVESSA a empresa: a venda aconteceu, o dinheiro entrou pela receita
+  // bruta, e o valor pertence a terceiro. Devolução é o oposto — uma venda que SE DESFEZ.
+  // Somar as duas apagaria a distinção; por isso mesmo bloco, linhas separadas.
+  //
+  // ASSIMETRIA CONHECIDA, e ela é de desenho: esta linha zera o repasse do RESULTADO, não do
+  // FATURAMENTO. A entrada continua chegando inteira pela receita bruta, porque o `continue`
+  // do INCOME em `aggregateEntries` corta antes do `switch` e nenhum INCOME é lido por grupo.
+  // Os números e as duas alternativas estão em
+  // `docs/registros/o-repasse-entra-inteiro-pela-receita.md`.
+  rows.push(buildRow('repasse', '(-) Repasse', agg.repasse, receitaBruta, { sign: '-' }))
+
   // DAS — usa valores reais pagos do HUB (expense_group IMPOSTO / REGIME_TRIBUTARIO)
   const das = { ...agg.imposto }
 
@@ -658,7 +709,7 @@ export function buildDreSimplesNacional(agg: AggregatedData, _calcType: CalcType
   rows.push(buildRow('deducoes_trib', '(-) Deduções Tributárias', das, receitaBruta, { sign: '-', indent: 1 }))
   rows.push(buildRow('das', '(-) DAS / Impostos do Regime (pago)', das, receitaBruta, { sign: '-', indent: 2 }))
 
-  const receitaLiquida = subtractMonths(subtractMonths(receitaBruta, das), agg.deducaoReceita)
+  const receitaLiquida = subtractMonths(subtractMonths(subtractMonths(receitaBruta, das), agg.deducaoReceita), agg.repasse)
   rows.push(buildRow('receita_liquida', '(=) Receita Líquida', receitaLiquida, receitaBruta, { isSubtotal: true, sign: '=' }))
 
   // CMV — MO Produtiva sempre aparece como linha separada (independente do calcType)

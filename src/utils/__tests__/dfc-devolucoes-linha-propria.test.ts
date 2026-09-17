@@ -33,6 +33,19 @@
  * Receita Líquida NÃO muda — ela continua sendo a Receita Bruta menos devoluções E menos
  * tributos. Mover a linha sem mexer no subtotal é deliberado: alterar o número seria mudança de
  * conta, que não foi pedida. Há caso abaixo afirmando essa invariância.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * ATUALIZAÇÃO DE 17/09/2026 — A CONTA GANHOU UMA PARCELA, E A INVARIÂNCIA CONTINUA
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * A Receita Líquida passou a descontar também o REPASSE, que é dedução própria logo abaixo da
+ * devolução e **nunca somada a ela**. Os três casos de invariância no fim do arquivo foram
+ * atualizados para incluí-la, e a razão está escrita lá: o que este arquivo trava é que MOVER
+ * A LINHA não mexe no subtotal — não que o subtotal seja imutável. Quem o mudou foi uma
+ * dedução nova, deliberada e visível na demonstração.
+ *
+ * A fixture ganhou `repasse` porque o campo é OBRIGATÓRIO em `AggregatedData`, e foi o `tsc`
+ * que apontou este arquivo — não uma leitura. É o remédio de `construtor-empobrecido.md`
+ * funcionando: campo de cálculo sem default neutro faz o compilador enumerar os produtores.
  */
 
 import {
@@ -71,6 +84,13 @@ const comDevolucao = (): AggregatedData => ({
     impostosRecuperaveisCusto: mes(900),
     atividadesTerceirizadas: mes(800),
     amortizacao: mes(2_500),
+    // REPASSE (17/09/2026) — valor DIFERENTE de todos os outros, pela mesma razão do
+    // cabeçalho: se coincidisse com outro, um caso poderia somar a linha errada sem que a
+    // asserção percebesse. A linha nova é afirmada em
+    // `o-repasse-e-linha-propria-ao-lado-da-devolucao.test.ts`; aqui ela entra só para a
+    // fixture ficar completa, e o valor não-zero garante que a POSIÇÃO da devolução continua
+    // sendo afirmada com a vizinha presente, não com ela ausente.
+    repasse: mes(4_300),
 })
 
 const indice = (rows: DreRow[], key: string) => rows.findIndex((r) => r.key === key)
@@ -178,21 +198,36 @@ describe.each(VARIANTES)('$nome — a devolução tem linha própria e posição
 describe('a correção é de POSIÇÃO, não de conta — o valor não muda', () => {
     // Ressalva de método afirmada em teste: mover a linha sem mexer no subtotal foi deliberado.
     // Se alguém "melhorar" a ordem alterando o cálculo, este caso fica vermelho.
-    it('Lucro Real: Receita Líquida = Bruta − impostos por dentro − devoluções', () => {
+    //
+    // ── ATUALIZADO EM 17/09/2026, e a atualização é PARTE DA ASSERÇÃO ────────────────────
+    //
+    // A conta ganhou uma parcela: o REPASSE, que é dedução própria logo abaixo da devolução.
+    // As três linhas abaixo passaram a subtrair `REPASSE` — e isso NÃO desmente a invariância
+    // que este bloco trava. Ele afirma que a POSIÇÃO da devolução não mexe no subtotal; quem
+    // mexeu no subtotal foi uma DEDUÇÃO NOVA, deliberada, com linha visível na demonstração.
+    //
+    // O `repasse` da fixture é diferente de zero DE PROPÓSITO: com ele em zero, estes três
+    // casos passariam idênticos aos de ontem e não distinguiriam "o repasse deduz" de "o
+    // repasse é ignorado" — `.claude/rules/teste-que-nao-exercita.md`, variante 2. O efeito
+    // do repasse é afirmado em `o-repasse-e-linha-propria-ao-lado-da-devolucao.test.ts`;
+    // aqui ele entra na conta para que a invariância continue sendo medida no mundo real.
+    const REPASSE_DA_FIXTURE = 4_300
+
+    it('Lucro Real: Receita Líquida = Bruta − impostos por dentro − devoluções − repasse', () => {
         const rows = buildDreLucroRealPresumido(comDevolucao(), 'RESALE', 'LUCRO_REAL')
         // A base do LR desconta imposto e atividades terceirizadas da receita bruta antes.
         const bruta = linha(rows, 'receita_bruta')!.values.jan
-        expect(linha(rows, 'receita_liquida')!.values.jan).toBe(bruta - 3_000 - 7_000)
+        expect(linha(rows, 'receita_liquida')!.values.jan).toBe(bruta - 3_000 - 7_000 - REPASSE_DA_FIXTURE)
     })
 
-    it('Lucro Presumido: Receita Líquida = Bruta − imposto − devoluções', () => {
+    it('Lucro Presumido: Receita Líquida = Bruta − imposto − devoluções − repasse', () => {
         const rows = buildDreLucroRealPresumido(comDevolucao(), 'RESALE', 'LUCRO_PRESUMIDO')
-        expect(linha(rows, 'receita_liquida')!.values.jan).toBe(100_000 - 5_000 - 7_000)
+        expect(linha(rows, 'receita_liquida')!.values.jan).toBe(100_000 - 5_000 - 7_000 - REPASSE_DA_FIXTURE)
     })
 
-    it('Simples Nacional: Receita Líquida = Bruta − DAS − devoluções', () => {
+    it('Simples Nacional: Receita Líquida = Bruta − DAS − devoluções − repasse', () => {
         const rows = buildDreSimplesNacional(comDevolucao(), 'RESALE')
-        expect(linha(rows, 'receita_liquida')!.values.jan).toBe(100_000 - 5_000 - 7_000)
+        expect(linha(rows, 'receita_liquida')!.values.jan).toBe(100_000 - 5_000 - 7_000 - REPASSE_DA_FIXTURE)
     })
 })
 

@@ -369,7 +369,7 @@ describe('7. A VIEW leva as colunas até a tela — por EFEITO, não por leitura
     // MUDANÇA DE REQUISITO, registrada: o DESCONTO saiu desta lista. Na NF-e ele é `vDesc`
     // POR ITEM, e o número já existia embutido na receita de produtos — passou a ter linha.
     expect(linhaView('► RECEITA APÓS DESCONTO').perItem).toHaveLength(0)
-    expect(linhaView('(−) Itens manuais + frete neles (sem tributo)').perItem).toHaveLength(0)
+    expect(linhaView('(−) Repasse + frete neles (sem tributo)').perItem).toHaveLength(0)
   })
 })
 

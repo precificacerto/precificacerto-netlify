@@ -240,7 +240,7 @@ function OrderTotalsSummary({ form, items }: { form: any; items: OrderItemRow[] 
             </div>
             {manualSum > 0 && pct > 0 && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, color: '#667085', fontSize: 12 }}>
-                    <span>Itens manuais (imunes ao desconto)</span>
+                    <span>Produtos manuais / Repasse (imunes ao desconto)</span>
                     <span>{formatCurrency(manualSum)}</span>
                 </div>
             )}
@@ -2129,7 +2129,7 @@ function OrdersPage() {
                         onClick={handleAddManualItem}
                         style={{ flex: '1 1 200px' }}
                     >
-                        Adicionar item manual
+                        Inserir produtos manuais / Repasse
                     </Button>
                 </div>
 

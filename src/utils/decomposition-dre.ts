@@ -607,7 +607,7 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
     // flutuante, e o exato é o que o usuário digitou.
     linha('desconto', '(−) Desconto concedido', descontoPorItem, { pct: input.discountPct, total: desconto }),
     linha('receita_apos_desconto', '► RECEITA APÓS DESCONTO', semColuna, { subtotal: true, total: receitaAposDesconto }),
-    linha('repasse_manuais', '(−) Itens manuais + frete neles (sem tributo)', semColuna, { total: repasseManuais }),
+    linha('repasse_manuais', '(−) Repasse + frete neles (sem tributo)', semColuna, { total: repasseManuais }),
     linha('acrescimos', '(−) Acréscimos dos produtos (com tributo)', acrescimosPorItem),
     linha('receita_produtos', '► RECEITA DE PRODUTOS', receitaProdutosPorItem, { subtotal: true, total: rp }),
     // R19 — UMA LINHA POR TRIBUTO. A agregada só sobra quando o item não traz a abertura,

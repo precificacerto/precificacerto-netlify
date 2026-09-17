@@ -3388,7 +3388,7 @@ function Budgets() {
                     <Space.Compact block style={{ marginTop: 4, display: 'flex', gap: 8 }}>
                         <Button type="dashed" onClick={handleAddManualItem} icon={<PlusOutlined />} style={{ flex: 1 }}
                             disabled={!selectedEmployeeId}>
-                            Adicionar item manual
+                            Inserir produtos manuais / Repasse
                         </Button>
                     </Space.Compact>
 

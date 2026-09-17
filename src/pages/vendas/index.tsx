@@ -3119,7 +3119,7 @@ function Sales() {
                     <Space.Compact block style={{ marginTop: 4, display: 'flex', gap: 8 }}>
                         <Button type="dashed" onClick={handleAddManualProduct} icon={<PlusOutlined />} style={{ flex: 1 }}
                             disabled={!selectedEmployeeIdV}>
-                            Adicionar item manual
+                            Inserir produtos manuais / Repasse
                         </Button>
                     </Space.Compact>
 
