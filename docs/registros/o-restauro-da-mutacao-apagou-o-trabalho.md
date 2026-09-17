@@ -95,10 +95,61 @@ positiva de que não houve acumulação.
 **22/22 mortas, com o portão ligado.** É esse o número que vale; o `20/20` da primeira rodada
 não vale nada.
 
+## A SEGUNDA ocorrência, 17/09/2026 — o mesmo indicador, o outro falso
+
+Com o restauro já corrigido, o harness marcou `morta` uma mutação que ele **não tinha
+medido**. A linha de contagem estava na tela:
+
+```
+morta  P1  o CONDICIONAL do LR volta a ser a RÉGUA  | Tests: 26 passed, 26 total
+```
+
+**`26 passed, 26 total`, e nenhum `failed`.** O `morta` veio de o harness ler
+`Test Suites: … failed` — o que era verdade, e não pelo motivo que ele supunha: a mutação
+substituía uma string que existe em **três** builders, e nos outros dois a variável
+`isLrOrHibrido` não existe. A suíte **não compilou**. O total caiu de 178 casos para 26, e
+zero casos exercitaram coisa alguma.
+
+É a aparição 6 de `portao-que-nao-alcanca.md` pelo avesso, e no mesmo instrumento da primeira
+metade desta página: **uma suíte que não carrega não contribui caso nenhum**, então nem o
+`passed` nem o `failed` dizem o que se quer saber. Lá o número não podia subir; aqui não podia
+descer.
+
+### O portão, e ele é de uma linha
+
+O harness passou a **contar os casos** e a comparar com o baseline de quando tudo carrega:
+
+```python
+_, _, BASE_TOTAL, _, _ = roda()      # 178, com a árvore limpa
+...
+carregou = (total == BASE_TOTAL)
+if not carregou:   print('INCONCLUSIVA  …')   # ← o estado que não existia
+elif falhou:       print('morta         …')
+else:              print('SOBREVIVEU    …')
+```
+
+**O que faltava não era um teste a mais: era o terceiro estado.** O harness só sabia dizer
+`morta` e `SOBREVIVEU`, e uma mutação que não compila não é nenhum dos dois — é
+**INCONCLUSIVA**, e precisa ser reescrita, não contada.
+
+Refeita para mutar só o builder do Lucro Real, ela morreu de verdade: **178 casos carregados,
+3 falharam.**
+
+### O que as duas ocorrências têm em comum, e é o que as torna uma classe
+
+Nas duas, o harness reportou `morta` sobre uma medição que não aconteceu. E nas duas **o
+número que desmentia estava impresso ao lado da palavra** — a escada de falhas na primeira, o
+total de casos na segunda. O defeito não é de atenção: é de o indicador não ter poder de
+discriminação para o caso de interesse, e por isso nenhuma quantidade de cuidado o corrigiria.
+
+Com duas ocorrências a página deixa de ser anedota e passa a ser padrão. **Ainda não é
+critério** — `registro-de-classe.md` fixa o limiar em quatro —, e continua morando aqui em
+vez de `.claude/rules/`.
+
 ## Ressalvas de método
 
-1. **É UMA ocorrência.** Não há tabela de aparições porque não há aparições a tabelar. A busca
-   por precedentes foi feita e está na seção seguinte.
+1. **São DUAS ocorrências**, ambas do mesmo harness e do mesmo mecanismo. Não há tabela
+   porque duas linhas não fazem tabela; a busca por precedentes está na seção seguinte.
 2. **O erro é do assistente, inteiro** — o harness é meu, a decisão de rodá-lo sobre árvore
    suja é minha, e a leitura da saída também. Ninguém pediu para mutar sem commitar.
 3. **O `22/22` NÃO prova que os testes são bons**, prova que estas 22 mutações morrem. Mutação
