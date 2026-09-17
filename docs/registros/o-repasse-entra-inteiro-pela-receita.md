@@ -209,9 +209,95 @@ denominador que não é o faturamento.
    aparece na medição por não ter movimento. A divergência estrutural existe para ele também.
 3. **Não foi medido o efeito em `pctOfRL` linha a linha.** O que se mediu foi o denominador.
 
-## O que NÃO foi feito, e por quê
+## A DECISÃO: uniformizada em 17/09/2026, e o que ela quase quebrou
 
-**A base do Lucro Real NÃO foi alterada.**
+O dono do produto decidiu que **as três variantes usam o faturamento total como 100%**, e
+que o condicional do `receitaBrutaBase` sairia. A mesma instrução dizia, no parágrafo
+seguinte: *"Os VALORES em R$ não mudam. Só a coluna de percentual."*
+
+**As duas frases não podiam ser verdade juntas**, e a razão só aparece ao ler o código:
+`receitaBrutaBase` fazia **dois trabalhos**.
+
+| papel | onde |
+|---|---|
+| **régua** dos percentuais | 4º argumento de todo `buildRow`, que alimenta `pctMonths` |
+| **ponto de partida da aritmética** | `receitaAposDevolucoes = receitaBrutaBase − deducaoReceita − repasse`, e daí cascateia até o Lucro Líquido |
+
+### A medição que decidiu a leitura
+
+Feita ANTES de escrever, aplicando a instrução literal (`const receitaBrutaBase = receitaBruta`)
+sobre uma fixture de R$ 100.000 de faturamento:
+
+| | hoje | com o condicional apagado |
+|---|---:|---:|
+| Receita Bruta (LR) | R$ 94.200,00 | R$ 100.000,00 |
+| **Lucro Líquido (LR)** | **R$ 46.700,00** | **R$ 52.500,00** |
+
+Os R$ 5.800,00 são `imposto 5.000 + atividadesTerceirizadas 800` — os dois grupos que no
+Lucro Real são deduzidos **só no bloco de cabeçalho** e em mais lugar nenhum. Apagar o
+condicional não mudaria a coluna de percentual: faria a demonstração **deixar de deduzir dois
+grupos**.
+
+### A leitura implementada: separar os papéis
+
+`baseAV` passa a ser a régua — `agg.receitaBruta`, o faturamento, nas três variantes.
+`receitaBrutaBase` fica sendo a conta. É a única leitura em que as duas frases da instrução
+são verdade ao mesmo tempo.
+
+**Verificado por diff linha a linha das quatro variantes, contra o commit anterior:**
+
+- **coluna R$: idêntica**, 85 linhas, zero diferenças;
+- **coluna AV: só o Lucro Real mudou**, e na proporção exata `94.200 ÷ 100.000 = 0,942`
+  (Lucro Líquido de 49,5754% para 46,7000%);
+- **LP, RET e SN: zero linhas no diff.**
+
+### A resposta à pergunta da linha "Faturamento Total"
+
+Ela foi feita sob a premissa de que `faturamento_total` e `receita_bruta` virariam o mesmo
+número. **Com os papéis separados, não viram**: R$ 100.000,00 contra R$ 94.200,00. Não há duas
+linhas iguais com nomes diferentes, e a escolha entre "exibir 100%" e "fundir as duas" não se
+coloca.
+
+O `pctOfRL: undefined` da linha `faturamento_total` **saiu**: ele existia porque a régua era
+outra linha. Ela agora exibe 100,00%, que é o que a torna legível como base.
+
+## A SUTILEZA DAS OUTRAS VARIANTES — três baldes que não chegam a linha nenhuma
+
+Conferido no mesmo dia, a pedido de quem decidiu.
+
+| balde do agregador | LR | LP | RET | SN |
+|---|---|---|---|---|
+| `atividadesTerceirizadas` | 3 usos | **0** | **0** | **0** |
+| `impostoPorDentro` | 2 usos | 2 usos | **0** | **0** |
+| `impostosRecuperaveisCusto` | 2 usos | 2 usos | **0** | **0** |
+
+Em Presumido RET e Simples Nacional esses valores são somados pelo agregador e **não aparecem
+em linha nenhuma da demonstração** — nem exibidos, nem deduzidos. O dinheiro entra no balde e
+morre ali.
+
+**`DFC_GROUPS_QUE_SOMAM` fica verde com isso**, e é preciso dizer por quê: aquele caso afirma
+que todo grupo da fonte única soma em algum **balde do agregador**. Ele não afirma que o balde
+chega a uma **linha da demonstração**. São duas coisas, e o portão só alcança a primeira —
+`portao-que-nao-alcanca.md`, agora no portão que eu mesmo escrevi.
+
+**Exposição hoje: ZERO.** Medido sobre `cash_entries` confirmadas: os únicos lançamentos de
+`ATIVIDADES_TERCEIRIZADAS` (R$ 8.721,20, 6 linhas) e de `IMPOSTO_FATURAMENTO_DENTRO`
+(R$ 185.321,52, 17 linhas) são de tenants em **Lucro Real**, que é justamente a variante que
+os exibe. Simples Nacional e MEI têm zero dos dois.
+
+**O furo existe e não está materializado**, e é por isso que ele fica registrado em vez de
+corrigido: `ATIVIDADES_TERCEIRIZADAS` É oferecido no seletor do Simples Nacional
+(`BLOCK_ATIVIDADES_TERCEIRIZADAS_SN`), então o primeiro tenant SN que lançar ali vê o valor
+sumir da demonstração sem erro nenhum. Corrigir é decidir **onde** a linha entra em cada
+variante, e isso é mudança de conta — rodada própria.
+
+## O que NÃO foi feito NA RODADA ANTERIOR, e por quê — registro preservado
+
+> **Superado em 17/09/2026 pela decisão acima.** Fica registrado porque o raciocínio continua
+> valendo como método: a divergência foi reportada em vez de corrigida por conta própria, e a
+> correção veio como decisão explícita de quem podia tomá-la.
+
+**A base do Lucro Real NÃO foi alterada naquela rodada.**
 
 A decisão do dono do produto — *"100% no faturamento total"* — foi tomada respondendo a **outra
 pergunta**: se a base deveria virar a receita depois de devoluções e repasse. Ele não sabia,

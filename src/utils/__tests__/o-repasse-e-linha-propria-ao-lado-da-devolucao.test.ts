@@ -378,56 +378,93 @@ describe('9. A ORDEM DO BLOCO: devolução, depois repasse, cada uma em linha pr
     })
 })
 
-describe('10. A BASE DA ANÁLISE VERTICAL — travada como ela é HOJE, com o achado registrado', () => {
-    // MEDIDO EM 17/09/2026, e é ACHADO: as três variantes NÃO usam a mesma base.
+describe('10. A BASE DA ANÁLISE VERTICAL — UMA SÓ, o faturamento total', () => {
+    // Decisão do dono do produto, 17/09/2026: as TRÊS variantes usam o FATURAMENTO TOTAL
+    // como 100%. Antes, LR e Simples Híbrido usavam `receitaBruta − imposto −
+    // atividadesTerceirizadas`, e as outras três o faturamento do Hub.
     //
-    // | variante | base dos 100% |
-    // |---|---|
-    // | LP, RET, SN | `agg.receitaBruta` — o faturamento do Hub |
-    // | **LR e Simples Híbrido** | `receitaBruta − imposto − atividadesTerceirizadas` |
+    // ── O QUE A UNIFORMIZAÇÃO **NÃO** PODIA FAZER, e por que o `receitaBrutaBase` FICOU ──
     //
-    // O dono do produto decidiu que a base NÃO muda para "receita depois de devoluções e
-    // repasse". A divergência do LR é OUTRA coisa, e ele não a conhecia quando decidiu —
-    // está reportada e NÃO corrigida. Estes casos travam o estado atual para que a correção,
-    // quando vier, seja uma decisão visível e não um efeito colateral.
+    // `receitaBrutaBase` fazia DOIS trabalhos: a régua dos percentuais E o ponto de partida
+    // da aritmética. Apagar o condicional, como a leitura literal pedia, levaria o Lucro
+    // Líquido do LR de R$ 46.700,00 para R$ 52.500,00 — +R$ 5.800,00, que é
+    // `imposto 5.000 + terceirizadas 800`, deduzidos SÓ no bloco de cabeçalho do LR.
+    //
+    // Os papéis foram separados: `baseAV` é a régua, `receitaBrutaBase` segue sendo a conta.
+    // Os casos abaixo travam AS DUAS coisas — a régua uniforme E os R$ intactos —, porque
+    // afirmar só a régua deixaria a quebra dos valores passar verde.
     const BASE = comRepasse()
+    const FATURAMENTO = 100_000
 
-    it('>>> LP, RET e SN: os 100% são o FATURAMENTO do Hub <<<', () => {
+    describe.each(VARIANTES)('$nome', ({ build }) => {
+        const rows = build(BASE)
+
+        it('>>> TODA linha mede contra o FATURAMENTO — `valor ÷ faturamento` <<<', () => {
+            // O DISCRIMINANTE: no LR a régua antiga era 94.200. Qualquer linha medida contra
+            // ela dá um percentual diferente, e este caso pega cada uma delas.
+            const comPct = rows.filter((r) => r.pctOfRL !== undefined)
+            expect(comPct.length).toBeGreaterThan(5)
+            for (const r of comPct) {
+                expect(r.pctOfRL!.jan).toBeCloseTo((r.values.jan / FATURAMENTO) * 100, 6)
+            }
+        })
+    })
+
+    it('>>> LUCRO REAL: a linha de 100% é o FATURAMENTO TOTAL, e ela EXIBE o percentual <<<', () => {
+        const rows = buildDreLucroRealPresumido(BASE, 'RESALE', 'LUCRO_REAL')
+        const fat = linha(rows, 'faturamento_total')!
+        expect(fat.values.jan).toBe(FATURAMENTO)
+        // Antes desta rodada era `pctOfRL: undefined` — a régua era outra linha.
+        expect(fat.pctOfRL).toBeDefined()
+        expect(fat.pctOfRL!.jan).toBeCloseTo(100, 6)
+    })
+
+    it('>>> e a "Receita Bruta" do LR NÃO é mais 100% — é a fração dele <<<', () => {
+        // A resposta medida à pergunta "as duas viram o mesmo número?": NÃO.
+        // 100.000 contra 94.200 — não há duas linhas iguais com nomes diferentes.
+        const rows = buildDreLucroRealPresumido(BASE, 'RESALE', 'LUCRO_REAL')
+        const rb = linha(rows, 'receita_bruta')!
+        expect(rb.values.jan).toBe(94_200)
+        expect(rb.values.jan).not.toBe(linha(rows, 'faturamento_total')!.values.jan)
+        expect(rb.pctOfRL!.jan).toBeCloseTo(94.2, 6)
+    })
+
+    it('>>> OS VALORES EM R$ NÃO MUDARAM — o Lucro Líquido do LR segue R$ 46.700,00 <<<', () => {
+        // ESTE é o caso que separa a uniformização certa da literal. Apagar o condicional
+        // daria 52.500,00 aqui, e todo o resto da suíte continuaria verde.
+        const rows = buildDreLucroRealPresumido(BASE, 'RESALE', 'LUCRO_REAL')
+        expect(linha(rows, 'lucro_liquido')!.values.jan).toBe(46_700)
+        expect(linha(rows, 'receita_liquida')!.values.jan).toBe(79_900)
+        expect(linha(rows, 'lucro_bruto')!.values.jan).toBe(57_900)
+    })
+
+    it('e LP, RET e SN não mudaram NADA — nem R$, nem régua', () => {
         for (const rows of [
             buildDreLucroRealPresumido(BASE, 'RESALE', 'LUCRO_PRESUMIDO'),
             buildDrePresumidoRET(BASE),
             buildDreSimplesNacional(BASE, 'RESALE'),
         ]) {
-            // A receita bruta contra ela mesma é 100%: é a definição da base.
+            expect(linha(rows, 'receita_bruta')!.values.jan).toBe(FATURAMENTO)
             expect(linha(rows, 'receita_bruta')!.pctOfRL!.jan).toBeCloseTo(100, 6)
-            expect(linha(rows, 'receita_bruta')!.values.jan).toBe(BASE.receitaBruta.jan)
+            expect(rows.find((r) => r.isTotal)!.values.jan).toBe(51_400)
         }
     })
+})
 
-    it('>>> LUCRO REAL: a base NÃO é o faturamento total — é ele MENOS as deduções <<<', () => {
-        const rows = buildDreLucroRealPresumido(BASE, 'RESALE', 'LUCRO_REAL')
-        const faturamento = linha(rows, 'faturamento_total')!.values.jan
-        const base = linha(rows, 'receita_bruta')!.values.jan
-        expect(faturamento).toBe(100_000)
-        // 100.000 − imposto 5.000 − terceirizadas 800
-        expect(base).toBe(94_200)
-        expect(base).not.toBe(faturamento)
-        // E é ESSA que vale 100% — o que faz a AV do LR ser outra régua.
-        expect(linha(rows, 'receita_bruta')!.pctOfRL!.jan).toBeCloseTo(100, 6)
-    })
-
-    it('e a linha "Faturamento Total" do LR NÃO exibe percentual — só existe no LR', () => {
-        const lr = buildDreLucroRealPresumido(BASE, 'RESALE', 'LUCRO_REAL')
-        expect(linha(lr, 'faturamento_total')!.pctOfRL).toBeUndefined()
-        expect(linha(buildDreLucroRealPresumido(BASE, 'RESALE', 'LUCRO_PRESUMIDO'), 'faturamento_total')).toBeUndefined()
-    })
-
-    it('>>> o REPASSE é medido contra a base da variante, e ela é a linha de 100% <<<', () => {
-        for (const [rows, base] of [
-            [buildDreLucroRealPresumido(BASE, 'RESALE', 'LUCRO_REAL'), 94_200],
-            [buildDreSimplesNacional(BASE, 'RESALE'), 100_000],
-        ] as [DreRow[], number][]) {
-            expect(linha(rows, 'repasse')!.pctOfRL!.jan).toBeCloseTo((REPASSE / base) * 100, 6)
-        }
+describe('11. O BLOCO DE DEDUÇÕES COMEÇA NA DEVOLUÇÃO', () => {
+    // Acrescentado a pedido do dono do produto, e é barato porque a âncora é a linha
+    // `receita_bruta`, não a posição absoluta.
+    //
+    // A afirmação NÃO é "a devolução é a primeira dedução da demonstração": no Lucro Real
+    // existe um bloco de deduções ANTES da Receita Bruta (tributos por fora e atividades de
+    // entrega), e afirmar o contrário seria falso. A afirmação é a que importa e vale nas
+    // três: **depois da Receita Bruta, a primeira dedução é a devolução.**
+    describe.each(VARIANTES)('$nome', ({ build, devolucao }) => {
+        it('>>> a primeira linha depois da Receita Bruta é a DEVOLUÇÃO <<<', () => {
+            const rows = build(comRepasse())
+            const iRB = indice(rows, 'receita_bruta')
+            expect(iRB).toBeGreaterThanOrEqual(0)
+            expect(rows[iRB + 1]?.key).toBe(devolucao)
+        })
     })
 })
