@@ -2357,7 +2357,8 @@ function SalesReport() {
                         </p>
                         <p style={{ margin: '4px 0', fontSize: 12, color: '#94a3b8' }}>
                             O valor entra inteiro pela receita. Para que a demonstração mostre que ele teve
-                            destino, lance no Fluxo de Caixa uma despesa na categoria <strong>Repasse</strong>.
+                            destino, lance no Fluxo de Caixa uma despesa na categoria{' '}
+                            <strong>Repasse de mercadorias</strong>.
                             Este aviso não lança nada sozinho.
                         </p>
                     </div>

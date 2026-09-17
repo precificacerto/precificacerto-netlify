@@ -249,7 +249,11 @@ export const SN_CATEGORY_GROUP_MAP: CategoryGroup[] = [
 
 /** Repasse — valor que atravessa a empresa. Ver o grupo em `@/constants/expense-groups`. */
 export const REPASSE_CATEGORIES: CategoryGroup[] = [
-  { category: 'Repasse', group: 'REPASSE' },
+  // O `category` é o VALOR GRAVADO em `cash_entries.expense_category`, não só o rótulo.
+  // Renomear é de graça hoje e só hoje: ZERO linhas usam este valor, porque o grupo nasceu
+  // em 17/09/2026 e a migração da CHECK ainda nem foi aplicada. Depois de o primeiro
+  // lançamento existir, renomear passa a exigir backfill.
+  { category: 'Repasse de mercadorias', group: 'REPASSE' },
 ]
 
 /** Devoluções — estorno de receita. NÃO é repasse: ver `expense-groups.ts`. */
@@ -264,7 +268,7 @@ export const AMORTIZACAO_CATEGORIES: CategoryGroup[] = [
 
 /** Os dois blocos que entram logo abaixo de "Custo dos Produtos", na ordem do DRE. */
 const REPASSE_E_DEDUCOES_OPTION_GROUPS: CategoryOptionGroup[] = [
-  { label: '── Repasse ──', options: REPASSE_CATEGORIES.map(c => ({ label: c.category, value: c.category })) },
+  { label: '── Repasse de mercadorias ──', options: REPASSE_CATEGORIES.map(c => ({ label: c.category, value: c.category })) },
   { label: '── Deduções da Receita ──', options: DEDUCAO_RECEITA_CATEGORIES.map(c => ({ label: c.category, value: c.category })) },
 ]
 

@@ -145,7 +145,11 @@ export const EXPENSE_GROUP_META: Record<ExpenseGroupKey, ExpenseGroupMeta> = {
     // A ASSIMETRIA está registrada em `docs/registros/o-repasse-entra-inteiro-pela-receita.md`:
     // o lado da SAÍDA é escolhido a mão aqui; o lado da ENTRADA continua chegando inteiro como
     // receita bruta, porque o `continue` do INCOME em `dfc/index.tsx` corta antes do `switch`.
-    REPASSE: { label: 'Repasse' },
+    // O RÓTULO É "Repasse de mercadorias", decidido pelo dono do produto em 17/09/2026.
+    // Vale no DRE e no fluxo de caixa. Nas TELAS DE DOCUMENTO o rótulo continua sendo
+    // "Inserir produtos manuais / Repasse" — são contextos diferentes de propósito, e é por
+    // isso que o rótulo do documento NÃO deriva daqui.
+    REPASSE: { label: 'Repasse de mercadorias' },
     IMPOSTO_LUCRO: { label: 'Impostos sobre o Lucro' },
     IMPOSTO_FATURAMENTO_DENTRO: { label: 'Impostos sobre o Faturamento (Por dentro)' },
     IMPOSTO: {

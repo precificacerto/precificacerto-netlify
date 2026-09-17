@@ -337,7 +337,7 @@ export const CASHIER_CATEGORY = {
     // aqui serve aos consumidores por CHAVE (`get-category-name.util`, `hub-engine`,
     // `dre/[year]`). As duas metades precisam existir, e foi não existirem as duas que
     // deixou `DEVOLUCOES` e `AMORTIZACAO` órfãs desde 09/09/2026.
-    REPASSE: { order: 97.7, key: 'REPASSE', value: 'Repasse', group: 'REPASSE' satisfies ExpenseGroupKey },
+    REPASSE: { order: 97.7, key: 'REPASSE', value: 'Repasse de mercadorias', group: 'REPASSE' satisfies ExpenseGroupKey },
     // Atividades terceirizadas operacionais de entrega
     FRETES_LOGISTICA_ENTREGA_TERCEIRIZADOS: { order: 98, key: 'FRETES_LOGISTICA_ENTREGA_TERCEIRIZADOS', value: 'Fretes / Logísticas de entrega Terceirizados', group: 'ATIVIDADES_TERCEIRIZADAS' satisfies ExpenseGroupKey },
     SEGURO_TRANSPORTE_ENTREGA: { order: 99, key: 'SEGURO_TRANSPORTE_ENTREGA', value: 'Seguro de transporte entrega', group: 'ATIVIDADES_TERCEIRIZADAS' satisfies ExpenseGroupKey },

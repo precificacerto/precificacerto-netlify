@@ -142,3 +142,88 @@ quando a consulta falha, em vez de aparecer dizendo que não há repasse.
 página é o mesmo conceito do lado do caixa. `.claude/rules/registro-de-classe.md` diz onde
 isto mora e por que não é uma página de `.claude/rules/`: não há classe, há uma decisão com
 custo.
+
+---
+
+# Anexo — A BASE DA ANÁLISE VERTICAL, e o achado de 17/09/2026
+
+## A decisão do dono do produto: a base NÃO muda
+
+Formulação dele, registrada como está:
+
+> O DRE da análise financeira é o **apanhado geral do faturamento que de fato entrou**. Os
+> percentuais da formação de preço têm outra origem — o Hub — e outro propósito. **São dois
+> exercícios, e misturar as bases faria o DRE responder uma pergunta que não é a dele.**
+
+Eu tinha levantado se a base dos 100% deveria passar a ser a receita **depois** de devoluções e
+repasse. A resposta é **não**: 100% no faturamento total, e a decomposição desce até o lucro
+líquido.
+
+Fica escrito porque a alternativa é plausível e alguém vai propô-la de novo. O que a recusa
+diz não é "a outra base está errada" — é que ela pertence a **outro exercício**, o da formação
+de preço, que vive no Hub e responde outra pergunta. A regra do lado de quem propuser é a de
+`razao-longe-da-restricao.md`: **restrição com razão citada não autoriza remoção sem rebater a
+razão.**
+
+## O ACHADO — as três variantes NÃO usam a mesma base
+
+Medido em `src/pages/dfc/index.tsx` no mesmo dia, a pedido do dono do produto, que pediu que
+uma divergência fosse reportada se existisse. Ela existe.
+
+| variante | base dos 100% |
+|---|---|
+| Lucro Presumido · Presumido RET · Simples Nacional | `agg.receitaBruta` — **o faturamento do Hub** |
+| **Lucro Real e Simples Híbrido** | `receitaBruta − imposto − atividadesTerceirizadas` |
+
+```ts
+// dfc/index.tsx — a linha que produz a divergência
+const receitaBrutaBase = isLrOrHibrido
+  ? subtractMonths(receitaBruta, sumMonths(agg.imposto, agg.atividadesTerceirizadas))
+  : receitaBruta
+```
+
+No Lucro Real a demonstração abre com uma linha **"Faturamento Total"** — que existe só nessa
+variante e **não exibe percentual** (`pctOfRL: undefined`) — deduz os tributos por fora e as
+atividades de entrega, e só então chama de "Receita Bruta" o que vira a régua dos 100%.
+
+### Quanto isso vale, medido na base (ano de 2026)
+
+| regime | tenants com lançamento | faturamento | imposto | terceirizadas | base da AV hoje |
+|---|---:|---:|---:|---:|---:|
+| **LUCRO_REAL** | 3 | R$ 5.781.468,89 | R$ 29.006,97 | R$ 8.721,20 | **R$ 5.743.740,72** |
+| SIMPLES_NACIONAL | 4 | R$ 225.165,00 | R$ 2.110,68 | 0 | R$ 225.165,00 |
+| MEI | 1 | R$ 185.676,74 | R$ 5.000,00 | 0 | R$ 185.676,74 |
+| SIMPLES_HIBRIDO | 1 | R$ 0,00 | 0 | 0 | — |
+
+**A régua do Lucro Real está 0,65% abaixo do faturamento total** — R$ 37.728,17 em R$ 5,78
+milhões. É pequena e é **real**: todo percentual da demonstração do regime dominante sai de um
+denominador que não é o faturamento.
+
+### Ressalvas de método
+
+1. **A conta acima reproduz a fórmula do `receitaBrutaBase`, não roda o DFC.** Ela aplica os
+   mesmos filtros (INCOME sem boleto/cheque pendente; EXPENSE com `paid_date`) sobre o ano de
+   2026 agregado por regime. O DFC agrega por tenant e por mês, e soma de tenants não é o que
+   qualquer tenant vê — serve para dimensionar, não para conferir tela nenhuma.
+2. **`SIMPLES_HIBRIDO` tem 1 tenant e faturamento zero.** Ele usa a mesma base do LR e não
+   aparece na medição por não ter movimento. A divergência estrutural existe para ele também.
+3. **Não foi medido o efeito em `pctOfRL` linha a linha.** O que se mediu foi o denominador.
+
+## O que NÃO foi feito, e por quê
+
+**A base do Lucro Real NÃO foi alterada.**
+
+A decisão do dono do produto — *"100% no faturamento total"* — foi tomada respondendo a **outra
+pergunta**: se a base deveria virar a receita depois de devoluções e repasse. Ele não sabia,
+ao decidir, que o Lucro Real já usava uma terceira base. Aplicar a frase dele ao caso do LR
+seria estender uma decisão para além do que ela decidiu, e mudaria **todo percentual da
+demonstração do regime dominante** — 87 dos 109 registros de `pricing_calculations` são
+`LUCRO_REAL`.
+
+É o limite que `regime-e-segmento-determinam-a-construcao.md` impõe quando a regra não alcança
+o caso: **registrar a dúvida, não escolher a metade que parece mais provável.**
+
+Há casos de teste travando as duas bases como elas são hoje, no bloco 10 de
+`src/utils/__tests__/o-repasse-e-linha-propria-ao-lado-da-devolucao.test.ts`. Eles existem
+para que a uniformização, quando vier, seja uma decisão visível — e não um efeito colateral de
+alguém "arrumando" a linha do `receitaBrutaBase`.

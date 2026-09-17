@@ -529,7 +529,7 @@ export function buildDreLucroRealPresumido(
   // do INCOME em `aggregateEntries` corta antes do `switch` e nenhum INCOME é lido por grupo.
   // Os números e as duas alternativas estão em
   // `docs/registros/o-repasse-entra-inteiro-pela-receita.md`.
-  rows.push(buildRow('repasse', '(-) Repasse', agg.repasse, receitaBrutaBase, { sign: '-' }))
+  rows.push(buildRow('repasse', '(-) Repasse de mercadorias', agg.repasse, receitaBrutaBase, { sign: '-' }))
 
   const receitaAposDevolucoes = subtractMonths(subtractMonths(receitaBrutaBase, agg.deducaoReceita), agg.repasse)
 
@@ -623,7 +623,7 @@ export function buildDrePresumidoRET(agg: AggregatedData): DreRow[] {
   // do INCOME em `aggregateEntries` corta antes do `switch` e nenhum INCOME é lido por grupo.
   // Os números e as duas alternativas estão em
   // `docs/registros/o-repasse-entra-inteiro-pela-receita.md`.
-  rows.push(buildRow('repasse', '(-) Repasse', agg.repasse, receitaBruta, { sign: '-', indent: 1 }))
+  rows.push(buildRow('repasse', '(-) Repasse de mercadorias', agg.repasse, receitaBruta, { sign: '-', indent: 1 }))
 
   const receitaLiquida = subtractMonths(subtractMonths(receitaBruta, deducoesReceita), agg.repasse)
   rows.push(buildRow('receita_liquida', '(=) Receita Líquida de Serviços/Obras', receitaLiquida, receitaBruta, { isSubtotal: true, sign: '=' }))
@@ -700,7 +700,7 @@ export function buildDreSimplesNacional(agg: AggregatedData, _calcType: CalcType
   // do INCOME em `aggregateEntries` corta antes do `switch` e nenhum INCOME é lido por grupo.
   // Os números e as duas alternativas estão em
   // `docs/registros/o-repasse-entra-inteiro-pela-receita.md`.
-  rows.push(buildRow('repasse', '(-) Repasse', agg.repasse, receitaBruta, { sign: '-' }))
+  rows.push(buildRow('repasse', '(-) Repasse de mercadorias', agg.repasse, receitaBruta, { sign: '-' }))
 
   // DAS — usa valores reais pagos do HUB (expense_group IMPOSTO / REGIME_TRIBUTARIO)
   const das = { ...agg.imposto }

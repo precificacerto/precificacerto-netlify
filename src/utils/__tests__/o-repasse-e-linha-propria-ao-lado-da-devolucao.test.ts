@@ -248,8 +248,8 @@ describe('4. A FONTE ÚNICA conhece o grupo, e o rótulo é o decidido', () => {
         expect(EXPENSE_GROUP_KEYS).toContain('REPASSE')
     })
 
-    it('>>> o rótulo do DRE e do fluxo de caixa é "Repasse" <<<', () => {
-        expect(EXPENSE_GROUP_META.REPASSE.label).toBe('Repasse')
+    it('>>> o rótulo do DRE e do fluxo de caixa é "Repasse de mercadorias" <<<', () => {
+        expect(EXPENSE_GROUP_META.REPASSE.label).toBe('Repasse de mercadorias')
     })
 
     it('e ele aparece no seletor de GRUPO — não é derivado nem técnico', () => {
@@ -261,7 +261,7 @@ describe('5. O SELETOR VIVO oferece as três, nos QUATRO regimes', () => {
     // `fluxo-de-caixa` e `controle-financeiro` consomem `expense-categories-by-regime.ts`.
     // Antes desta rodada, Devoluções e Amortização não existiam ali em regime nenhum.
     const REGIMES: (string | null)[] = ['LUCRO_REAL', 'LUCRO_PRESUMIDO', 'SIMPLES_NACIONAL', null]
-    const ESPERADAS = ['Repasse', 'Devoluções', 'Amortização de Dívida (principal)']
+    const ESPERADAS = ['Repasse de mercadorias', 'Devoluções', 'Amortização de Dívida (principal)']
 
     describe.each(REGIMES)('regime %s', (regime) => {
         const grupos = getExpenseCategoryOptionsForRegime(regime)
@@ -272,14 +272,14 @@ describe('5. O SELETOR VIVO oferece as três, nos QUATRO regimes', () => {
         })
 
         it('e cada uma RESOLVE para o grupo certo — oferecer sem resolver gravaria grupo nulo', () => {
-            expect(getGroupForCategoryByRegime(regime, 'Repasse')).toBe('REPASSE')
+            expect(getGroupForCategoryByRegime(regime, 'Repasse de mercadorias')).toBe('REPASSE')
             expect(getGroupForCategoryByRegime(regime, 'Devoluções')).toBe('DEDUCAO_RECEITA')
             expect(getGroupForCategoryByRegime(regime, 'Amortização de Dívida (principal)')).toBe('AMORTIZACAO')
         })
 
-        it('o bloco "── Repasse ──" fica LOGO ABAIXO de "── Custo dos Produtos ──"', () => {
+        it('o bloco "── Repasse de mercadorias ──" fica LOGO ABAIXO de "── Custo dos Produtos ──"', () => {
             const rotulos = grupos.map((g) => g.label)
-            const iRepasse = rotulos.indexOf('── Repasse ──')
+            const iRepasse = rotulos.indexOf('── Repasse de mercadorias ──')
             expect(iRepasse).toBeGreaterThanOrEqual(0)
             const iCusto = rotulos.indexOf('── Custo dos Produtos ──')
             // A lista base não tem "Custo dos Produtos": ali o Repasse abre o seletor.
@@ -327,5 +327,107 @@ describe('7. OS RÓTULOS DE TELA — repasse nomeado onde o usuário o insere', 
         const src = leia('src', 'utils', 'decomposition-dre.ts')
         expect(src).toContain("'(−) Repasse + frete neles (sem tributo)'")
         expect(src).not.toContain("'(−) Itens manuais + frete neles (sem tributo)'")
+    })
+})
+
+describe('8. O RÓTULO é "Repasse de mercadorias" no DRE e no caixa, e SÓ ali', () => {
+    // Decisão do dono do produto, 17/09/2026: vale no DRE e no fluxo de caixa; nas telas de
+    // documento continua "Inserir produtos manuais / Repasse". São dois rótulos DE PROPÓSITO,
+    // e é por isso que o do documento não deriva de `EXPENSE_GROUP_META`.
+    describe.each(VARIANTES)('$nome', ({ build }) => {
+        it('>>> a linha do DRE diz "Repasse de mercadorias" <<<', () => {
+            expect(linha(build(comRepasse()), 'repasse')!.label).toBe('(-) Repasse de mercadorias')
+        })
+    })
+
+    it('a CATEGORIA do fluxo de caixa também — é o valor gravado, não só o rótulo', () => {
+        const valores = getExpenseCategoryOptionsForRegime('LUCRO_REAL').flatMap((g) => g.options.map((o) => o.value))
+        expect(valores).toContain('Repasse de mercadorias')
+        // O DISCRIMINANTE: renomear só o rótulo do grupo e esquecer a categoria deixaria o
+        // seletor oferecendo "Repasse" e o DRE dizendo outra coisa.
+        expect(valores).not.toContain('Repasse')
+    })
+
+    it('>>> e as TELAS DE DOCUMENTO continuam com o rótulo delas — não foram arrastadas <<<', () => {
+        for (const p of [['pages','orcamentos','index.tsx'],['pages','pedidos','index.tsx'],['pages','vendas','index.tsx']]) {
+            const src = leia('src', ...p)
+            expect(src).toContain('Inserir produtos manuais / Repasse')
+            expect(src).not.toContain('Inserir produtos manuais / Repasse de mercadorias')
+        }
+    })
+})
+
+describe('9. A ORDEM DO BLOCO: devolução, depois repasse, cada uma em linha própria', () => {
+    describe.each(VARIANTES)('$nome', ({ build, devolucao }) => {
+        const rows = build(comRepasse())
+
+        it('>>> o repasse é a PRÓXIMA linha do mesmo nível depois da devolução <<<', () => {
+            // Mais forte que "vem depois": afirma que NADA do mesmo nível se intromete entre
+            // as duas. Sem isto, inserir uma dedução no meio passaria despercebido.
+            const iDev = indice(rows, devolucao)
+            const nivelDev = rows[iDev].indent ?? 0
+            const seguintes = rows.slice(iDev + 1).filter((r) => (r.indent ?? 0) <= nivelDev)
+            expect(seguintes[0]?.key).toBe('repasse')
+        })
+
+        it('e o que vier entre elas é SUBITEM da devolução — o caso da RET', () => {
+            const iDev = indice(rows, devolucao)
+            const meio = rows.slice(iDev + 1, indice(rows, 'repasse'))
+            for (const r of meio) expect(r.indent ?? 0).toBeGreaterThan(rows[iDev].indent ?? 0)
+        })
+    })
+})
+
+describe('10. A BASE DA ANÁLISE VERTICAL — travada como ela é HOJE, com o achado registrado', () => {
+    // MEDIDO EM 17/09/2026, e é ACHADO: as três variantes NÃO usam a mesma base.
+    //
+    // | variante | base dos 100% |
+    // |---|---|
+    // | LP, RET, SN | `agg.receitaBruta` — o faturamento do Hub |
+    // | **LR e Simples Híbrido** | `receitaBruta − imposto − atividadesTerceirizadas` |
+    //
+    // O dono do produto decidiu que a base NÃO muda para "receita depois de devoluções e
+    // repasse". A divergência do LR é OUTRA coisa, e ele não a conhecia quando decidiu —
+    // está reportada e NÃO corrigida. Estes casos travam o estado atual para que a correção,
+    // quando vier, seja uma decisão visível e não um efeito colateral.
+    const BASE = comRepasse()
+
+    it('>>> LP, RET e SN: os 100% são o FATURAMENTO do Hub <<<', () => {
+        for (const rows of [
+            buildDreLucroRealPresumido(BASE, 'RESALE', 'LUCRO_PRESUMIDO'),
+            buildDrePresumidoRET(BASE),
+            buildDreSimplesNacional(BASE, 'RESALE'),
+        ]) {
+            // A receita bruta contra ela mesma é 100%: é a definição da base.
+            expect(linha(rows, 'receita_bruta')!.pctOfRL!.jan).toBeCloseTo(100, 6)
+            expect(linha(rows, 'receita_bruta')!.values.jan).toBe(BASE.receitaBruta.jan)
+        }
+    })
+
+    it('>>> LUCRO REAL: a base NÃO é o faturamento total — é ele MENOS as deduções <<<', () => {
+        const rows = buildDreLucroRealPresumido(BASE, 'RESALE', 'LUCRO_REAL')
+        const faturamento = linha(rows, 'faturamento_total')!.values.jan
+        const base = linha(rows, 'receita_bruta')!.values.jan
+        expect(faturamento).toBe(100_000)
+        // 100.000 − imposto 5.000 − terceirizadas 800
+        expect(base).toBe(94_200)
+        expect(base).not.toBe(faturamento)
+        // E é ESSA que vale 100% — o que faz a AV do LR ser outra régua.
+        expect(linha(rows, 'receita_bruta')!.pctOfRL!.jan).toBeCloseTo(100, 6)
+    })
+
+    it('e a linha "Faturamento Total" do LR NÃO exibe percentual — só existe no LR', () => {
+        const lr = buildDreLucroRealPresumido(BASE, 'RESALE', 'LUCRO_REAL')
+        expect(linha(lr, 'faturamento_total')!.pctOfRL).toBeUndefined()
+        expect(linha(buildDreLucroRealPresumido(BASE, 'RESALE', 'LUCRO_PRESUMIDO'), 'faturamento_total')).toBeUndefined()
+    })
+
+    it('>>> o REPASSE é medido contra a base da variante, e ela é a linha de 100% <<<', () => {
+        for (const [rows, base] of [
+            [buildDreLucroRealPresumido(BASE, 'RESALE', 'LUCRO_REAL'), 94_200],
+            [buildDreSimplesNacional(BASE, 'RESALE'), 100_000],
+        ] as [DreRow[], number][]) {
+            expect(linha(rows, 'repasse')!.pctOfRL!.jan).toBeCloseTo((REPASSE / base) * 100, 6)
+        }
     })
 })
