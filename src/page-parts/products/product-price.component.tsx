@@ -520,6 +520,36 @@ export const ProductPrice: FC<Props> = ({
         </div>
       )}
 
+      {/* CUSTO ZERO — a tabela inteira sai R$ 0,00 e, até 17/09/2026, ela não dizia por quê.
+          Foi assim que a tela foi lida como "coluna de valor vazia": o número está lá e não
+          significa nada. `ausente-vs-falso.md` na forma mais direta — `R$ 0,00` em TODA linha
+          afirma que a categoria não custa nada, quando o que houve foi não haver custo a
+          ratear. O aviso não bloqueia: o produto pode ser salvo e completado depois.
+
+          Vale para os DOIS tipos: REVENDA sem item na composição e PRODUZIDO sem receita
+          caem no mesmo estado, pelo mesmo motivo. */}
+      {costTotal <= 0 && (
+        <div
+          data-testid="custo-zero"
+          style={{
+            background: '#2b1d05', border: '1px solid #FA8C16', borderRadius: 8,
+            padding: '12px 14px', fontSize: 12, color: '#ffd591', marginBottom: 12,
+          }}
+        >
+          <div style={{ fontWeight: 700, marginBottom: 4 }}>
+            <InfoCircleOutlined style={{ marginRight: 6 }} />
+            Sem custo, não há preço a formar — os valores abaixo são zero por isso
+          </div>
+          <div style={{ color: '#d9b382' }}>
+            O produto ainda não tem itens na composição, então o CMV é R$ 0,00 e todas as
+            categorias saem zeradas. As alíquotas <strong>cadastradas</strong> continuam
+            válidas — o que falta é a base. <strong>IRPJ e CSLL aparecem em 0,000% por outro
+            motivo</strong>: eles são derivados do preço, e sem custo não há preço.
+            Adicione o item na composição acima para a precificação sair.
+          </div>
+        </div>
+      )}
+
       <div style={{ background: '#0a1628', borderRadius: 8, padding: 16, border: '1px solid rgba(255,255,255,0.06)' }}>
         <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0 2px' }}>
           <thead>

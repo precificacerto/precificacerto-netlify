@@ -641,6 +641,50 @@ export const Content: FC<ContentProps> = ({
     }
   }, [productType, baseItemId, items])
 
+  /**
+   * O CICLO AO CONTRÁRIO — a composição PASSA A ESCREVER `baseItemId`.
+   *
+   * >>> O QUE ISTO CORRIGE, medido em 17/09/2026 <<<
+   *
+   * Ao remover o seletor "Item base", `base_item_id` passou a ser derivado na GRAVAÇÃO.
+   * O que ficou de fora é que o seletor era também o **único escritor em tempo de
+   * edição**, e o efeito acima — o que dá CUSTO ao produto de revenda — depende dele.
+   * Medido: os pontos de UI que chamavam `setBaseItemId` caíram de DOIS para ZERO.
+   *
+   * Consequência num produto de REVENDA **novo**, criado direto nesta tela: composição
+   * vazia, `itemsPriceSum = 0`, `doProductCalc` devolve preço 0, e a tabela inteira sai
+   * `R$ 0,00` com IRPJ e CSLL em `0,000%`. Produto em EDIÇÃO não era afetado —
+   * `baseItemId` vem do banco — nem o criado a partir de um item, que usa o prefill.
+   *
+   * >>> POR QUE A MESMA FUNÇÃO DA GRAVAÇÃO <<<
+   *
+   * `derivarBaseItemId` é a que o save chama. Escrever aqui uma segunda regra de "um
+   * item vira base" seria `copia-divergente.md` entre o que a tela mostra e o que o
+   * banco recebe. Com uma função só, a gravação passa a CONFIRMAR o que a tela já
+   * resolveu, em vez de descobrir sozinha.
+   *
+   * >>> POR QUE NÃO ENTRA EM LAÇO COM O EFEITO ACIMA <<<
+   *
+   * A comparação é por ID. Item X entra na composição → aqui `baseItemId := X` → o
+   * efeito acima dispara e reconstrói a composição com X → aqui `X === baseItemId` e
+   * nada é setado. Converge numa volta. Sem a comparação, os dois efeitos se chamariam
+   * para sempre.
+   */
+  useEffect(() => {
+    if (productType !== 'REVENDA') return
+    const derivado = derivarBaseItemId({
+      productType,
+      itens: productItemsData.map((i) => ({ id: String(i.id) })),
+      baseItemIdAtual: baseItemId,
+    })
+    // Só a DERIVAÇÃO escreve. `PRESERVADO` é o caso de zero ou dois e mais itens, e ali
+    // o valor gravado continua valendo — sobrescrevê-lo apagaria o vínculo dos 32
+    // produtos medidos. Ver `base-item-derivado.ts`.
+    if (derivado.origem !== 'DERIVADO_DA_COMPOSICAO') return
+    if (derivado.baseItemId === baseItemId) return
+    setBaseItemId(derivado.baseItemId)
+  }, [productType, productItemsData, baseItemId])
+
   useEffect(() => {
     const autoTaxRegime = calcBase.taxableRegimeAutoPercent ?? 0
     const taxRegimeValue = autoTaxRegime > 0 ? autoTaxRegime : (currentUser?.taxableRegimeValue || 0)

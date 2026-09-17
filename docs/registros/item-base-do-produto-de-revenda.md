@@ -7,6 +7,14 @@
 >
 > **DUAS CORREÇÕES AO QUE ESTA PÁGINA AFIRMAVA.** Estão no topo, e não no fim, porque a
 > primeira muda o enquadramento inteiro.
+>
+> **E UMA TERCEIRA, que é uma REGRESSÃO que esta medição deixou passar.** A lista de cinco
+> leitores abaixo está certa e é **metade da relação**: o seletor era também o único
+> ESCRITOR de `baseItemId` em tempo de edição, e removê-lo deixou todo produto de REVENDA
+> novo sem custo. Corrigido no mesmo dia, fechando o ciclo pela composição em vez de
+> devolver o seletor. A classe está em
+> `docs/registros/leitores-e-escritores-sao-listas-diferentes.md` — leia-a antes de usar a
+> lista abaixo para autorizar outra remoção.
 
 ## CORREÇÃO 1 — o seletor era UM DE DOIS produtores, e o MINORITÁRIO
 
