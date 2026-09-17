@@ -2203,7 +2203,9 @@ function OrdersPage() {
                             budgetId: editingOrder?.budget_id ?? null,
                             orderCode: editingOrder?.order_code ?? null,
                             customerName: editingOrder?.customer_name ?? null,
-                            totalValue: orderSubtotal,
+                            // Mesma razão do orçamento: o total geral sai da decomposição,
+                            // que é quem inclui os acréscimos rateados. Ver `totalGeral`.
+                            totalValue: orderDecomposition ? orderDecomposition.result.totalGeral : orderSubtotal,
                             totalACobrar: orderFinalTotal,
                             discountPercent: orderDiscountPct,
                             discountMode: orderDiscountMode,

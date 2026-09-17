@@ -19,9 +19,8 @@ import React from 'react'
 import { useDevice } from '@/contexts/device.context'
 import { downloadCascadePdf, downloadDecompositionPdf, type CascadePdfMeta } from '@/lib/create-cascade-pdf'
 import { orderCascadeForDisplay } from '@/utils/cascade-display-order'
-import { buildCascadeView, type CascadeViewRow } from '@/utils/cascade-display-view'
+import { buildCascadeView, totalExibidoDaView, type CascadeViewRow } from '@/utils/cascade-display-view'
 import type { DecompositionResult } from '@/utils/decomposition-dre'
-import { totalExibido } from '@/utils/decomposition-dre'
 import { formatBRL } from '@/utils/formatters'
 import { DECOMPOSITION_LABEL } from '@/constants/decomposition-label'
 import type { DRESection } from '@/utils/consolidated-dre'
@@ -402,7 +401,7 @@ function CascadeViewLine({ row, colunas }: { row: CascadeViewRow; colunas: numbe
         textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontSize,
         color: row.valor < 0 ? '#fca5a5' : labelColor, fontWeight,
       }}>
-        {formatBRL(totalExibido({ perItem: row.perItem, total: row.valor }))}
+        {formatBRL(totalExibidoDaView(row))}
       </div>
     </>
   )
@@ -423,7 +422,7 @@ function CascadeViewMobileLine({ row, itemLabels }: { row: CascadeViewRow; itemL
           {row.numero != null ? `${row.numero}. ` : ''}{row.label}
         </span>
         <span style={{ color: row.valor < 0 ? '#fca5a5' : '#cbd5e1', fontWeight: 600, fontSize: 12, whiteSpace: 'nowrap' }}>
-          {formatBRL(totalExibido({ perItem: row.perItem, total: row.valor }))}
+          {formatBRL(totalExibidoDaView(row))}
         </span>
       </div>
       {row.perItem.length > 0 && (

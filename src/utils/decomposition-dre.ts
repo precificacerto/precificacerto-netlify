@@ -167,6 +167,26 @@ export interface DecompositionRow {
   /** R16 — soma das colunas de produto. Nunca percentual sobre o total. */
   total: number
   /**
+   * A parcela do `total` que NÃO pertence a coluna nenhuma, em R$.
+   *
+   * >>> POR QUE ELA PRECISA SER EXPLÍCITA <<<
+   *
+   * A R16 diz que a coluna Total é a soma das colunas, e isso vale em 23 das 24 linhas.
+   * A **RECEITA BRUTA** é a exceção: ela tem colunas (os produtos) E inclui os ITENS
+   * MANUAIS, que por R13 não são coluna. O `total` sempre esteve certo; quem descartava
+   * a diferença era `totalExibido`, que imprime a soma das colunas arredondadas.
+   *
+   * Medido no ORC-5487: RECEITA BRUTA impressa R$ 40.434,58 contra `total`
+   * R$ 45.581,86 — **a linha de itens manuais inteira**, R$ 5.147,28, sumindo entre o
+   * cálculo e a impressão. `bruta − desconto` deixava de dar `receita após desconto` na
+   * tela, embora desse no módulo.
+   *
+   * Zero em toda linha cujo total É a soma das colunas — e aí `totalExibido` devolve
+   * exatamente o que devolvia antes. Distinguir por `total !== soma(perItem)` seria
+   * INFERIR a exceção de um arredondamento de centavo; aqui ela é AFIRMADA na origem.
+   */
+  foraDasColunas: number
+  /**
    * O percentual da linha sobre a RECEITA DE PRODUTOS — o total geral dos produtos.
    *
    * É o que a R17 chama de "% Original com base no total geral", e é por isso que ele existe
@@ -305,6 +325,21 @@ export interface DecompositionResult {
   /** A receita após desconto, base da análise vertical (seção 6.4). */
   receitaAposDesconto: number
   /**
+   * O TOTAL GERAL do documento (R10): produtos + acréscimos + itens manuais, ANTES do
+   * desconto. É o mesmo número da linha RECEITA BRUTA.
+   *
+   * >>> POR QUE ELE É EXPOSTO, e não recalculado por quem precisa <<<
+   *
+   * O cabeçalho do PDF montava o próprio: `budgetItems.reduce(… unit_price × quantity)`,
+   * que soma produtos e manuais e **ignora os acréscimos**, porque eles vivem no documento
+   * e são rateados. Medido no ORC-5487: cabeçalho R$ 44.134,58 contra tabela R$ 45.434,58
+   * — exatamente os R$ 1.300,00 de frete e seguro.
+   *
+   * Duas contas para o mesmo número é `copia-divergente.md`, e o remédio dela não é
+   * conferir as duas: é apagar uma. Quem exibe o total do documento LÊ daqui.
+   */
+  totalGeral: number
+  /**
    * O RRO apurado contra o reservado pela construção. `null` só quando não há linhas.
    *
    * O RESIDUAL não substitui isto: ele fecha por construção, porque distribui o RRO inteiro
@@ -371,10 +406,10 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
   const { items, categories: cat } = input
   const errors: string[] = []
 
-  if (items.length === 0) return { rows: [], lucroDaVenda: null, residual: { perItem: [], total: 0 }, receitaAposDesconto: 0, rro: null, rroCadastrado: null, errors }
+  if (items.length === 0) return { rows: [], lucroDaVenda: null, residual: { perItem: [], total: 0 }, receitaAposDesconto: 0, totalGeral: 0, rro: null, rroCadastrado: null, errors }
   if (!(input.discountPct >= 0 && input.discountPct < 1)) {
     errors.push(`desconto fora de [0, 1): ${input.discountPct}`)
-    return { rows: [], lucroDaVenda: null, residual: { perItem: [], total: 0 }, receitaAposDesconto: 0, rro: null, rroCadastrado: null, errors }
+    return { rows: [], lucroDaVenda: null, residual: { perItem: [], total: 0 }, receitaAposDesconto: 0, totalGeral: 0, rro: null, rroCadastrado: null, errors }
   }
 
   const receitaBrutaPorItem = items.map((i) => i.totalProduto + i.acrescimos)
@@ -479,7 +514,7 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
   }
   if (items.some((_, k) => somaRROde(k) <= 0)) {
     errors.push('soma das categorias do RRO <= 0: não há como distribuir o resultado residual.')
-    return { rows: [], lucroDaVenda: null, residual: { perItem: [], total: 0 }, receitaAposDesconto, rro: null, rroCadastrado: null, errors }
+    return { rows: [], lucroDaVenda: null, residual: { perItem: [], total: 0 }, receitaAposDesconto, totalGeral: receitaBruta, rro: null, rroCadastrado: null, errors }
   }
   const pesoDe = (k: number, pct: number) => pct / somaRROde(k)
   const comissaoPorItem = rroPorItem.map((r, k) => r * pesoDe(k, catDe(k).comissaoPct))
@@ -503,6 +538,8 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
       pctPerItem?: number[]
       /** R13 — o tributo do ACRÉSCIMO daquele item. Ver `DecompositionRow.acrescimoPerItem`. */
       acrescimoPerItem?: number[]
+      /** A parcela do total fora das colunas. Ver `DecompositionRow.foraDasColunas`. */
+      foraDasColunas?: number
     } = {},
   ): DecompositionRow => ({
     key,
@@ -519,6 +556,7 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
     // R16 — a coluna Total é SOMA das colunas de produto, salvo nas linhas que só existem no
     // total (desconto e repasse dos manuais), onde o valor é informado.
     total: opts.total !== undefined ? opts.total : soma(perItem),
+    foraDasColunas: opts.foraDasColunas ?? 0,
     // Vazio, e não um array de zeros: base zero afirmaria que aquele item não tem base de
     // cálculo, e alíquota zero afirmaria isenção (`ausente-vs-falso.md`). A tela exibe
     // travessão onde não se aplica.
@@ -559,7 +597,11 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
   const pctDe = (valorTotal: number, base: number) => (base !== 0 ? -valorTotal / base : null)
 
   const rows: DecompositionRow[] = [
-    linha('receita_bruta', 'RECEITA BRUTA (agrupamento)', receitaBrutaPorItem, { subtotal: true, total: receitaBruta }),
+    // Os itens manuais entram no total e NÃO têm coluna (R13). Sem declarar a parcela, o
+    // total impresso perdia a linha inteira deles — ver `foraDasColunas`.
+    linha('receita_bruta', 'RECEITA BRUTA (agrupamento)', receitaBrutaPorItem, {
+      subtotal: true, total: receitaBruta, foraDasColunas: input.itensManuaisComAcrescimos,
+    }),
     // A coluna existe agora: é o `vDesc` de cada item. O `total` segue sendo o valor exato do
     // documento, e não a soma das frações — os dois coincidem a menos de erro de ponto
     // flutuante, e o exato é o que o usuário digitou.
@@ -728,6 +770,7 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
     lucroDaVenda,
     residual: { perItem: residualPorItem, total: soma(residualPorItem) },
     receitaAposDesconto,
+    totalGeral: receitaBruta,
     rroCadastrado,
     rro: {
       apurado: rroApurado,
@@ -788,9 +831,14 @@ export function centavos(v: number): number {
  * Linha sem coluna — desconto do documento, repasse dos manuais — devolve o próprio total
  * arredondado: não há colunas a somar, e inventar um array de zeros mudaria o número.
  */
-export function totalExibido(row: Pick<DecompositionRow, 'perItem' | 'total'>): number {
+export function totalExibido(
+  row: Pick<DecompositionRow, 'perItem' | 'total'> & { foraDasColunas?: number },
+): number {
   if (row.perItem.length === 0) return centavos(row.total)
-  return centavos(row.perItem.reduce((acc, v) => acc + centavos(v), 0))
+  const colunas = row.perItem.reduce((acc, v) => acc + centavos(v), 0)
+  // A parcela SEM coluna entra por fora, já arredondada. Sem ela, a RECEITA BRUTA
+  // imprimia só os produtos e perdia os itens manuais — medido: R$ 5.147,28 no ORC-5487.
+  return centavos(colunas + centavos(row.foraDasColunas ?? 0))
 }
 
 /**

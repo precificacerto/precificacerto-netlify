@@ -34,6 +34,7 @@
 
 import type { CascadeStep } from '@/types/mrm'
 import type { DecompositionResult } from './decomposition-dre'
+import { totalExibido } from './decomposition-dre'
 
 /** A última etapa da CONSTRUÇÃO. Da seguinte em diante, quem manda é a decomposição. */
 export const ULTIMA_ETAPA_DA_CONSTRUCAO = 11
@@ -124,6 +125,25 @@ export function blocoPorForaDaDecomposicao(decomposition: DecompositionResult): 
 }
 
 /** Uma linha da cascata, já pronta para a tela. */
+/**
+ * O TOTAL EXIBIDO de uma linha da VIEW — a travessia para `totalExibido`, uma só.
+ *
+ * >>> POR QUE ELA EXISTE, e não é açúcar <<<
+ *
+ * `consolidated-dre-block.component.tsx` montava o argumento À MÃO, nos dois pontos em que
+ * imprime o total: `totalExibido({ perItem: row.perItem, total: row.valor })`. Quando
+ * `foraDasColunas` nasceu, os dois literais ficaram sem ele **e nada falhou** — o campo é
+ * opcional na assinatura e o default é zero. É `construtor-empobrecido.md` na forma exata:
+ * dois produtores do mesmo argumento, um deles com menos campos, e o resultado sai plausível.
+ *
+ * Medido no ORC-5487: a RECEITA BRUTA imprimia R$ 40.434,58 contra R$ 45.581,86 — a linha
+ * de itens manuais inteira. O remédio de `copia-divergente.md` não é conferir os dois
+ * literais: é apagá-los.
+ */
+export function totalExibidoDaView(row: Pick<CascadeViewRow, 'perItem' | 'valor' | 'foraDasColunas'>): number {
+  return totalExibido({ perItem: row.perItem, total: row.valor, foraDasColunas: row.foraDasColunas })
+}
+
 export interface CascadeViewRow {
   /** O número exibido. `null` só nos sub-itens indentados da construção. */
   numero: number | null
@@ -132,6 +152,12 @@ export interface CascadeViewRow {
   /** Fração. `null` = não se aplica, nunca zero. */
   pct: number | null
   valor: number
+  /**
+   * A parcela do `valor` que não pertence a coluna nenhuma — ver
+   * `DecompositionRow.foraDasColunas`. A tela a repassa a `totalExibido`; sem ela, a
+   * RECEITA BRUTA imprime só os produtos e perde os itens manuais.
+   */
+  foraDasColunas: number
   /** Agrupamento/subtotal: a tela o destaca. */
   isSubtotal: boolean
   /** Sub-item indentado de uma etapa da construção. */
@@ -205,6 +231,7 @@ export function buildCascadeView(
         base: bloco ? bloco.base : (step.base ?? null),
         pct: bloco ? bloco.pct : (step.rate ?? null),
         valor: bloco ? bloco.valor : (Number(step.amount) || 0),
+        foraDasColunas: 0,
         isSubtotal: false,
         isChild: false,
         isDerivedAverage: false,
@@ -229,6 +256,7 @@ export function buildCascadeView(
           // V15.2: as despesas da etapa 10 não exibem percentual nos filhos.
           pct: Number(step.step) === 10 ? null : (child.rate ?? null),
           valor: Number(child.amount) || 0,
+          foraDasColunas: 0,
           isSubtotal: false,
           isChild: true,
           isDerivedAverage: false,
@@ -262,6 +290,7 @@ export function buildCascadeView(
     base: row.base,
     pct: row.pct,
     valor: row.total,
+    foraDasColunas: row.foraDasColunas,
     isSubtotal: row.isSubtotal,
     // Tipografia: os tributos saem como SUB-ITEM, em fonte menor, igual aos filhos das
     // etapas da construção. É o que preserva a hierarquia da R19 na leitura.
@@ -293,6 +322,7 @@ export function buildCascadeView(
       base: null,
       pct: lv.pctSobreProdutos,
       valor: lv.valor,
+      foraDasColunas: 0,
       isSubtotal: true,
       isChild: false,
       isDerivedAverage: false,

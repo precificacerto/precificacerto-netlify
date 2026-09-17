@@ -577,6 +577,49 @@ tributária, MC, RT, comissão, lucro e fator de redução são individuais. Com
 produtos heterogêneos, o percentual da linha de total é **média ponderada
 derivada** e deve ser rotulado como tal.
 
+**A RECEITA BRUTA TEM UMA PARCELA FORA DAS COLUNAS — e a R16 tem essa exceção.**
+
+A coluna Total é a soma das colunas de produto em **23 das 24 linhas**. A RECEITA BRUTA é a
+única que tem colunas E inclui os **ITENS MANUAIS**, que por R13 não são coluna. O `total`
+sempre esteve certo; quem descartava a diferença era a IMPRESSÃO.
+
+Medido no ORC-5487 (dois produtos, frete, seguro e um item manual, 5% de desconto):
+
+| | |
+|---|---:|
+| RECEITA BRUTA impressa | R$ 40.287,30 |
+| (−) Desconto | R$ 2.271,73 |
+| = | R$ 38.015,57 |
+| RECEITA APÓS DESCONTO impressa | **R$ 43.162,85** |
+| **diferença** | **R$ 5.147,28** — a linha de manuais inteira |
+
+**Não eram duas fontes.** O desconto usou a base certa: R$ 2.271,73 são 5% de R$ 45.434,58,
+não de R$ 40.287,30. Quem imprimia a soma das colunas era `totalExibido`, que existe por uma
+razão boa — a NF-e valida que a soma dos itens é igual ao total, e o arredondamento por
+coluna divergia em centavos. Ela pressupunha que o total É a soma das colunas.
+
+A parcela passa a ser **DECLARADA** em `DecompositionRow.foraDasColunas`, e `totalExibido`
+soma `Σ colunas arredondadas + a parcela`. Inferi-la por `total − soma(perItem)` confundiria
+a exceção com um centavo de arredondamento.
+
+**LIMITE CONHECIDO, e é de desenho:** no IMPRESSO o invariante fecha a **menos de um
+centavo**, porque linha com coluna imprime a soma das colunas e linha sem coluna imprime o
+próprio total. No número interno ele é exato. Não confundir com o defeito acima — são cinco
+mil reais contra um centavo.
+
+**O CABEÇALHO DO PDF divergia da tabela, e ESSE era duas contas.**
+
+| | |
+|---|---:|
+| cabeçalho "Valor Total" | R$ 44.134,58 |
+| base real da tabela | R$ 45.434,58 |
+| **diferença** | **R$ 1.300,00** — os acréscimos |
+
+`budgetTotal` é `Σ unit_price × quantity`: soma produtos e manuais e **ignora os
+acréscimos**, porque eles vivem no documento e são rateados. `copia-divergente.md`, e o
+remédio é apagar uma: `DecompositionResult.totalGeral` passa a ser a fonte, e as telas leem
+dali. Sem decomposição não há tabela com que divergir, e o número próprio segue valendo.
+
 **R17 · Percentuais aplicados são os % Originais**, com base no total geral.
 Nunca misturar % Original com base P.
 

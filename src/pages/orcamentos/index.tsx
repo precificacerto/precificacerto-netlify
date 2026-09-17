@@ -3619,7 +3619,15 @@ function Budgets() {
                             pdfMeta={{
                                 budgetId: editingBudgetId,
                                 customerName: selectedCustomer?.name ?? null,
-                                totalValue: budgetTotal,
+                                // O TOTAL GERAL vem da DECOMPOSIÇÃO quando ela existe (R10:
+                                // produtos + manuais + acréscimos). `budgetTotal` soma
+                                // `unit_price × quantity` e IGNORA os acréscimos, que vivem
+                                // no documento e são rateados — medido no ORC-5487:
+                                // R$ 44.134,58 no cabeçalho contra R$ 45.434,58 na tabela,
+                                // os R$ 1.300,00 de frete e seguro. Duas contas para o mesmo
+                                // número é `copia-divergente.md`; sem decomposição não há
+                                // tabela com que divergir, e `budgetTotal` é o único número.
+                                totalValue: decomposition ? decomposition.result.totalGeral : budgetTotal,
                                 totalACobrar: globalDiscountPercent > 0 ? budgetTotalACobrar : budgetTotal,
                                 discountPercent: globalDiscountPercent,
                                 discountMode,

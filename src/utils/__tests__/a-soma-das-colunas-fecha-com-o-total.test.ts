@@ -131,7 +131,12 @@ describe('4. A JUNTA — o PDF e a tela imprimem o total exibido', () => {
   it('a tela idem, no desktop E no mobile', () => {
     const bloco = readFileSync(
       join(__dirname, '..', '..', 'page-parts', 'shared', 'consolidated-dre-block.component.tsx'), 'utf-8')
-    expect((bloco.match(/totalExibido\(\{ perItem: row\.perItem, total: row\.valor \}\)/g) || []).length).toBe(2)
+    // 17/09/2026 — os dois literais montados À MÃO viraram UMA travessia. Eles eram dois
+    // produtores do mesmo argumento, e quando `foraDasColunas` nasceu ficaram sem ele,
+    // em silêncio: `construtor-empobrecido.md`. A RECEITA BRUTA imprimia R$ 40.434,58
+    // contra R$ 45.581,86 — a linha de itens manuais inteira.
+    expect((bloco.match(/totalExibidoDaView\(row\)/g) || []).length).toBe(2)
+    expect(bloco).not.toContain('totalExibido({ perItem: row.perItem, total: row.valor })')
     expect(bloco).not.toContain('{formatBRL(row.valor)}')
   })
 })
