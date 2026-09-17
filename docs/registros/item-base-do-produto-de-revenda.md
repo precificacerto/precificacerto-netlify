@@ -42,17 +42,41 @@ NULL"*. Medido antes de implementar, sobre os 77 produtos de revenda:
 | sem base, sem composição | 9 | segue sem |
 
 **O caso "dois ou mais" não existe em produção.** O caso real é "zero itens", e são 32 —
-mais da metade dos que têm base. Gravar `null` ali não é o que a decisão quis dizer: é
-apagar o único vínculo de estoque de 32 produtos existentes, em silêncio, na primeira vez
-que alguém abrir e salvar cada um.
+mais da metade dos que têm base. Gravar `null` ali apagaria o único vínculo de estoque de 32
+produtos existentes, em silêncio, na primeira vez que alguém abrir e salvar cada um.
 
 Daí a regra implementada em `src/utils/base-item-derivado.ts`: **um item → deriva; zero ou
 dois e mais → PRESERVA o gravado**, que num produto novo é `null`, exatamente como pedido.
 Preservar não é inventar — o valor preservado foi gravado por alguém, não deduzido de um
 "primeiro item".
 
-É `hipotese-derrubada-pela-propria-medicao.md`: a razão para escolher `null` era uma
-suposição sobre ONDE o vazio acontece.
+### A instrução foi CORRIGIDA POR MEDIÇÃO, e o dono do produto a confirmou
+
+Isto não é interpretação de intenção feita pelo assistente. A divergência foi implementada,
+reportada como divergência, e **confirmada em seguida**. Formulação do dono do produto,
+registrada como está:
+
+> Sua divergência está certa e eu estava errado. Confirmo como está. Eu legislei sobre
+> "dois ou mais itens", que você mediu não existir. O caso real é ZERO itens, em 32
+> produtos, e gravar `null` ali apagaria o vínculo de estoque deles na primeira abertura e
+> save. Preservar o gravado é o certo. **Registre que a minha instrução foi corrigida por
+> medição, e que o caso que eu tinha em mente não estava na base.**
+
+**A instrução não estava errada sobre O QUE FAZER — estava errada sobre ONDE.** Ela descreve
+corretamente o que deve acontecer com dois ou mais itens; só que nenhum produto está nesse
+estado, e o estado em que 32 produtos de fato estão ficou de fora do enunciado. Uma regra
+certa aplicada a um conjunto vazio não protege ninguém, e a que faltava teria destruído dado.
+
+É a distinção que importa para a próxima vez: **legislar sobre um estado do sistema exige
+saber que aquele estado existe.** Medir a população antes de escrever a regra custa uma
+consulta; aqui ela mudou a regra inteira.
+
+E é `hipotese-derrubada-pela-propria-medicao.md` na forma que a página chama de vizinha mais
+próxima — a razão para escolher `null` era uma suposição sobre ONDE o vazio acontece. A
+aparição ficou registrada AQUI e não lá, de propósito: na quinta aparição daquela página o
+que se mede é a refutação sair do próprio trabalho de quem formulou a hipótese, e esta veio
+de uma consulta ao banco feita por outro. Forçá-la para dentro da tabela apagaria justamente
+essa distinção.
 
 ## O que o seletor ERA, na tela
 
