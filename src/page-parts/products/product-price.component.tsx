@@ -10,6 +10,8 @@ import { resolveIvaDualEffectiveRate } from '@/utils/item-tax-rates'
 import { buildProductConstruction, externalOpsCoefficientToFreeze } from '@/utils/product-price-construction'
 import { buildProductPriceRows, type PriceRowInput } from '@/utils/product-price-rows'
 import { toBaseCode } from '@/utils/sale-context'
+import { apenasTributosQueExistem, tributoExisteNoSegmento } from '@/utils/campos-do-segmento'
+import { resolveSegmentoDaConstrucao } from '@/utils/despesas-do-segmento'
 import { computeAdvancedOutsideTaxes, type AdvancedOutsideParams } from '@/utils/icms-st-difal'
 import { TaxDecompositionPanel } from './tax-decomposition-panel.component'
 import { CALC_TYPE_ENUM } from '@/shared/enums/calc-type'
@@ -201,9 +203,19 @@ export const ProductPrice: FC<Props> = ({
   //
   // Produto é mercadoria: o segmento nunca é SERVICO aqui (a tela força `REVENDA` em tenant
   // de serviço), e o ISS é INEXISTENTE — `null`, nunca zero.
+  // O SEGMENTO SAI DA FONTE ÚNICA. A expressão que estava inline aqui era a TERCEIRA
+  // cópia do mesmo critério — `copia-divergente.md` entre a tela, a decomposição e o
+  // gravador. `isProduct` é o que impede uma mercadoria de virar SERVICO pelo tenant.
+  const _segmento = resolveSegmentoDaConstrucao({
+    isService: false,
+    isProduct: true,
+    productType: isResaleProduct ? 'REVENDA' : null,
+    tenantCalcType: isCalcTypeResale ? 'REVENDA' : isCalcTypeService ? 'SERVICO' : 'INDUSTRIALIZACAO',
+  })
+
   const _matriz = buildProductConstruction({
     taxableRegime: currentUser?.taxableRegime,
-    segment: (isCalcTypeService || isCalcTypeResale || isResaleProduct) ? 'REVENDA' : 'INDUSTRIALIZACAO',
+    segment: _segmento,
     // O cadastro forma a FICHA TRIBUTÁRIA; o contexto da venda de fato é aplicado no
     // orçamento (R9). Aqui vale a linha geral da tabela, que é o comportamento de hoje.
     buyerType: 'CONSUMIDOR_FINAL',
@@ -268,7 +280,10 @@ export const ProductPrice: FC<Props> = ({
       { key: 'csll', originalPct: csllPct },
     ] : []),
     ...((isLucroReal || isLucroPresumed) ? [{ key: 'adicionalIrpj', originalPct: adicionalIrpjPct }] : []),
-    ...((isLucroReal || isLucroPresumed) && !isCalcTypeService
+    // O ICMS também é decidido pela MATRIZ, não por `!isCalcTypeService`. A condição
+    // antiga acertava por coincidência — mercadoria em tenant de serviço cai em REVENDA,
+    // onde o ICMS existe. Ler a matriz faz a tela seguir a Parte 0 se uma célula mudar.
+    ...((isLucroReal || isLucroPresumed) && tributoExisteNoSegmento(_segmento, 'ICMS')
       ? [{ key: 'icms', originalPct: icmsPct, kind: 'ICMS' as const }] : []),
     ...((isLucroReal || isLucroPresumed)
       ? [{ key: 'pisCofins', originalPct: pisCofinsLRPct, kind: 'PIS_COFINS' as const }] : []),
@@ -644,6 +659,42 @@ export const ProductPrice: FC<Props> = ({
           </div>
         )}
 
+        {/* A MATRIZ NÃO GOVERNOU ESTE PREÇO — e o motivo SOBE, em vez de ser descartado.
+            17/09/2026, decisão do dono do produto: "Salvar continua permitido; fingir que
+            a conta saiu, não." Até aqui o componente lia `_matriz.applied` e jogava fora
+            `reason` e `errors` — medido: ZERO ocorrências de `_matriz.reason` fora do
+            módulo. O preço caía em `computeIvaDualOutside`, que soma os tributos POR CIMA
+            do preço formado sem eles, e nada na tela dizia isso.
+            As DUAS portas de `buildProductConstruction` avisam aqui. */}
+        {(isLucroReal || isLucroPresumed) && !_matriz.applied && (
+          <div
+            data-testid="matriz-nao-aplicada"
+            style={{
+              marginTop: 14, background: '#2b1d05', border: '1px solid #FA8C16',
+              borderRadius: 8, padding: '12px 14px', fontSize: 12, color: '#ffd591',
+            }}
+          >
+            <div style={{ fontWeight: 700, marginBottom: 6 }}>
+              <InfoCircleOutlined style={{ marginRight: 6 }} />
+              Preço formado SEM a matriz — os tributos por fora estão somados por cima
+            </div>
+            <div style={{ marginBottom: 6 }}>
+              Motivo: <strong>{_matriz.reason}</strong>
+            </div>
+            {_matriz.errors.length > 0 && (
+              <ul style={{ margin: '0 0 6px 16px', padding: 0 }}>
+                {_matriz.errors.map((e) => <li key={e}>{e}</li>)}
+              </ul>
+            )}
+            <div style={{ color: '#d9b382' }}>
+              A margem de contribuição exibida não encolheu pela operação por fora
+              (<code>c = 0</code>), então o preço está abaixo do que a cascata do Lucro Real
+              produziria. Salvar é permitido; o coeficiente será gravado como{' '}
+              <strong>não apurado</strong>.
+            </div>
+          </div>
+        )}
+
         {/* IBS / CBS — LUCRO_REAL / LUCRO_PRESUMIDO */}
         {(isLucroReal || isLucroPresumed || isSimplesHibrido) && (() => {
           const ibsCbsRows = [
@@ -707,16 +758,21 @@ export const ProductPrice: FC<Props> = ({
           )
         })()}
 
-        {/* IS / IPI — LUCRO_REAL / LUCRO_PRESUMIDO */}
+        {/* IS / IPI — LUCRO_REAL / LUCRO_PRESUMIDO, e SÓ os que a matriz diz existir.
+            17/09/2026: o campo SOME onde a matriz diz INEXISTENTE (IPI em revenda é o
+            caso que a originou). Nenhum tributo é nomeado na condição — quem decide é
+            `placementOf`, para que mudar a matriz mude a tela. Ver
+            `.claude/rules/cascata-lucro-real.md`, Parte 0, e `campos-do-segmento.ts`. */}
         {(isLucroReal || isLucroPresumed) && (() => {
-          const isIpiRows = [
-            { label: 'IS — Imposto Seletivo (%)', value: isPct, onChange: onIsPctChange, taxValue: taxIsValue },
-            { label: 'IPI (%)', value: ipiPct, onChange: onIpiPctChange, taxValue: taxIpiValue },
-          ] as { label: string; value: number; onChange?: (v: number) => void; taxValue: number }[]
+          const isIpiRows = apenasTributosQueExistem(_segmento, [
+            { tributo: 'IS' as const, label: 'IS — Imposto Seletivo (%)', value: isPct, onChange: onIsPctChange, taxValue: taxIsValue },
+            { tributo: 'IPI' as const, label: 'IPI (%)', value: ipiPct, onChange: onIpiPctChange, taxValue: taxIpiValue },
+          ] as { tributo: 'IS' | 'IPI'; label: string; value: number; onChange?: (v: number) => void; taxValue: number }[])
+          if (isIpiRows.length === 0) return null
           return (
             <div style={{ marginTop: 8, background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '12px 14px', border: '1px solid rgba(255,255,255,0.07)' }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' as const, letterSpacing: 0.6, marginBottom: 10 }}>
-                Impostos (IS / IPI)
+                {`Impostos (${isIpiRows.map((r) => r.tributo).join(' / ')})`}
               </div>
               {/* Doc 28/07 (item 43): mesmo layout de 3 linhas (L1 título, L2 alíquota menor sem "%",
                   L3 valor R$). IS/IPI não sofrem fator de redução, então sem linha cheia→efetiva. */}

@@ -107,6 +107,69 @@ congelar: o erro vira permanente (`fato-vs-referencia.md`). Medido em 17/09/2026
 (0 de 196) ou `order_items` (0 de 34) — o congelamento ainda não foi a produção, então
 **nenhum documento carrega o número errado**.
 
+#### O CAMPO SOME ONDE A MATRIZ DIZ INEXISTENTE — decisão de 17/09/2026
+
+Formulação do dono do produto, registrada como está:
+
+> **O CAMPO SOME.** IPI não aparece em revenda. Se o tributo não existe no segmento, não há
+> campo. Some também o IS, e qualquer outro que a matriz diga INEXISTENTE no segmento.
+> **Não trate o IPI como caso especial — a matriz é a fonte.**
+
+Até aqui a tela de produto aceitava a alíquota, `buildProductConstruction` recusava com
+`reason = 'alíquota declarada onde a matriz diz INEXISTENTE'`, e o componente **descartava
+`applied`, `reason` E `errors`** — medido: ZERO ocorrências de `_matriz.reason` fora do
+módulo. O preço caía em `computeIvaDualOutside`, que soma os tributos POR CIMA do preço
+formado sem eles. É o que a R9 chama de erro, acontecendo na tela de cadastro.
+
+Medido em 17/09/2026, REVENDA, custo R$ 1.250, ICMS 17%, PIS/COFINS efetivo 7,678%,
+IBS 1%, CBS 9%:
+
+| | `applied` | `c` | MC | P |
+|---|---|---:|---:|---:|
+| **com IPI 9%** | **false** | **0** | 43,2020% | 2.893,38 |
+| sem IPI | true | 6,9055% | 39,6750% | **3.150,59** |
+
+**O `c` ESTAVA ligado em revenda** — a segunda linha prova. O defeito era a recusa, não o
+coeficiente morto. Com o campo ausente, a porta fecha na origem.
+
+A tela lê `placementOf` por `src/utils/campos-do-segmento.ts`. Nenhum tributo é nomeado na
+condição: um `if (segmento === 'REVENDA') esconde o IPI` seria a matriz reescrita na
+apresentação, e mudar uma célula não mudaria a tela.
+
+**Exposição:** 0 produtos de revenda com IPI. Não há dado a apagar.
+
+#### A RECUSA É VISÍVEL, E O SAVE NÃO BLOQUEIA
+
+Formulação do dono do produto, registrada como está:
+
+> **NÃO BLOQUEIE O SAVE.** O bloqueio seria rede para caso raro (importação, troca de
+> segmento, API), e travar por isso custa mais do que protege. Mas o **SILÊNCIO acaba**. O
+> preço tem que ficar visivelmente não-formado, dizendo por quê. **Salvar continua
+> permitido; fingir que a conta saiu, não.**
+
+`_matriz.reason` e `_matriz.errors` sobem para a tela nas **duas portas** de
+`buildProductConstruction`: alíquota onde a matriz diz INEXISTENTE, e **acréscimos gravados
+no produto** (a porta da R11, com **4 produtos** em LR hoje, que caíam no mesmo silêncio).
+
+**O coeficiente nulo está CERTO e não muda.** `externalOpsCoefficientToFreeze` devolve
+`null` quando a matriz recusa — `null` é *não apurado*, que é a verdade; `0` seria *apurado
+e vale nada*. São 111 de 112 produtos LR/LP hoje. **Ninguém deve preencher com zero depois**
+(`ausente-vs-falso.md`).
+
+#### MERCADORIA NUNCA VIRA SERVICO PELO TENANT
+
+`resolveSegmentoDaConstrucao` caía na segmentação do tenant para um produto `PRODUZIDO` num
+tenant de SERVIÇO, e devolvia `SERVICO` — matriz de serviço num PRODUTO, com ICMS
+INEXISTENTE e ISS POR DENTRO. A tela nunca fez isso; a função é que dizia outra coisa. O
+sinal `isProduct` fecha a lacuna.
+
+**Exposição: 0.** Os 18 produtos em tenant de SERVIÇO são todos `product_type = REVENDA`, e
+essa linha já os resolvia antes. O sinal existe para que o primeiro `PRODUZIDO` cadastrado
+ali não descubra pela alíquota errada.
+
+E a expressão inline de `product-price.component.tsx:206` era a **terceira cópia** do
+critério de segmento — tela, decomposição e gravador. Agora as três leem a mesma função.
+
 ### Principal e Secundária
 
 `products.product_type` = `PRODUZIDO` é Principal; `REVENDA` é Secundária.

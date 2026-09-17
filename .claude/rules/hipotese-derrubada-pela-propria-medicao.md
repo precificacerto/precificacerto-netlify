@@ -14,14 +14,17 @@ Não é sobre errar. É sobre **quem descobre**. Nas quatro aparições abaixo a
 medição que a derruba têm o mesmo autor, e o intervalo entre uma e outra é de minutos: a pessoa
 escreve o caso para provar o que acredita, roda, e o número diz outra coisa.
 
-**Com a quarta, isto deixa de ser padrão e passa a ser critério.** É o limiar que
+**Com a quarta, isto deixou de ser padrão e passou a ser critério.** É o limiar que
 `registro-de-classe.md` fixa: "uma ocorrência é anedota, quatro com o mesmo padrão é critério".
-A partir daqui não é mais possível ler nenhuma delas como acidente local — e a leitura correta
-da página deixa de ser "veja o que aconteceu" e passa a ser "procure a quinta".
+A partir dali não é mais possível ler nenhuma delas como acidente local — e a leitura correta
+da página deixou de ser "veja o que aconteceu" e passou a ser "procure a quinta".
+
+**A quinta chegou em 17/09/2026, e sozinha ela acrescenta uma coisa nova: a refutação pode
+estar DENTRO do próprio enunciado da hipótese, escrita pela mesma pessoa, na mesma mensagem.**
 
 ## De quem é a hipótese
 
-**Três das quatro são do assistente, uma é do próprio desenho da ADR.** Está escrito assim
+**Três são do assistente, uma é do próprio desenho da ADR, e a quinta é do dono do produto.** Está escrito assim
 porque o dono do produto pediu autoria plana, e porque suavizar apagaria o que torna isto útil:
 o valor do padrão está justamente em o autor ser o corretor. Registrar como "descobriu-se que"
 esconderia o mecanismo.
@@ -46,12 +49,52 @@ desmentiu.** Por isso o padrão só aparece em quem escreve o caso completo em v
 | 2 | **Baseline pós-stash**: `git stash` devolve a árvore do `main` para medir o baseline | O `HEAD` continua no branch — o que sobra é "o branch menos o não commitado". Mediu 393 erros e 19 falhas onde o `main` real tinha 385 e zero | do assistente |
 | 3 | **`discount_mode` sem desconto**: sem desconto os dois modos de absorção coincidem, logo o caso do teste precisa de desconto | **126,92 no `PROPORTIONAL` contra 380,77 no `SELLER_REDUCTION`, mesmo item, desconto zero.** O modo governa o rateio do RRO SEMPRE | do assistente |
 | 4 | **As duas bases do lucro**: sem desconto, o lucro apurado volta ao percentual cadastrado, logo `apurado − cadastrado` é a corrosão do desconto | **7,7158% contra 8,00% cadastrados, com desconto ZERO.** A receita após desconto inclui R$ 12.895,87 de repasse, que não gera lucro. Com 5% de desconto a queda é de 1,2120 pontos e só 0,9482 é do desconto | do assistente |
+| 5 | **O `c` esperado da revenda é 7,0151%** — enunciado como "o que DEVERIA sair", ao lado do defeito medido | **6,9055%.** O 7,0151% sai usando os 7,678% do cadastro, que são a **efetiva**; a R3 pede a **nominal** de 9,25%. E a refutação estava na MESMA mensagem: a base do IBS ali calculada, `2.893,35 × 0,83 × (1 − 0,0925) = 2.179,34`, **já usava 9,25%** | do dono do produto |
+
+### O que a QUINTA acrescenta: a refutação dentro do próprio enunciado
+
+Nas quatro primeiras a refutação vem de rodar alguma coisa — um teste, um `tsc`, uma
+consulta. Na quinta ela **não precisou ser produzida**: estava escrita duas linhas abaixo da
+hipótese, na mesma mensagem, pela mesma pessoa.
+
+A hipótese dizia que o `c` correto era 7,0151%. Três parágrafos adiante, a mesma mensagem
+calculava a base do IBS como `2.893,35 × 0,83 × (1 − 0,0925)` — com **9,25%**, que é a
+nominal, e não com os 7,678% que produziriam o 7,0151%. **As duas afirmações não podiam ser
+verdade juntas**, e a que estava certa era a conta, não o enunciado.
+
+Reconhecimento do dono do produto, registrado como está:
+
+> A MINHA CONTA ESTAVA ERRADA — registre. `c = 6,9055%`, não 7,0151%. Usei 7,678% (a efetiva
+> do cadastro) onde a R3 pede a nominal de 9,25%. **A prova está na minha própria conta: a
+> base do IBS que calculei já usava 9,25%.**
+
+Quem apontou foi o assistente, ao conferir o número esperado contra o medido. Isso afrouxa o
+"mesmo autor" do critério original — e **entra assim mesmo**, porque o que a página mede é de
+onde sai a refutação, não quem a lê primeiro. Aqui ela saiu inteira do trabalho de quem
+formulou a hipótese. O mecanismo é o mesmo; a leitura é que foi de fora.
+
+Consequência prática, e é a que faz a aparição valer: **um número esperado publicado ao lado
+da medição que o contradiz não se resolve sozinho.** Se o assistente tivesse implementado
+"o que deveria sair" em vez de conferir, o `c` teria saído errado com a bênção das duas partes.
+
+### A candidata que foi EXAMINADA e NÃO entrou
+
+Na mesma rodada, a decisão *"com dois ou mais itens grave NULL"* foi derrubada por medição:
+o caso "dois ou mais" tem **0 produtos**, e o caso real é "zero itens", com **32**.
+
+Mesma forma verbal, e **não entra**: ali a refutação veio de uma consulta ao banco feita pelo
+assistente, não do próprio trabalho de quem formulou. É a distinção que a seção acima preserva
+— e inflar a tabela com ela apagaria justamente o que a quinta ensina. Fica registrada em
+`docs/registros/item-base-do-produto-de-revenda.md`.
 
 ### Nota da busca por precedentes
 
 A busca foi feita conforme `registro-de-classe.md`, e a pista veio do próprio dono do produto,
 que citou as duas primeiras ao ler a terceira — o mesmo mérito dividido que
 `ausente-vs-falso.md` registra: a forma é de quem escreve, a pista é de quem formulou.
+
+**A quinta foi reconhecida e mandada registrar pelo próprio dono do produto**, na mesma
+mensagem em que decidiu as três correções desta rodada — sem que ninguém pedisse.
 
 **A quarta foi reconhecida pelo assistente e incluída por instrução do dono do produto.** Ela
 apareceu ao implementar a linha LUCRO DA VENDA, ficou registrada na regra da tela
@@ -67,7 +110,7 @@ tinham a mesma origem. Entrou porque o discriminante que importa é o mesmo — 
 sua refutação têm o mesmo autor, e a refutação sai do próprio trabalho de verificar**. O que
 muda é o instrumento, não a estrutura.
 
-Nenhuma quinta foi forçada.
+Nenhuma sexta foi forçada.
 
 ## O que a aparição 3 acrescenta, e é o motivo do destaque
 

@@ -28,6 +28,7 @@ import { resolveReducoesDoItem } from '@/utils/classificacao-fiscal'
 import ClassificacaoFiscalBlock, { type ClassificacaoFiscalValue } from '@/page-parts/shared/classificacao-fiscal-block.component'
 import { computeIcmsSt, computeDifal, computeIcmsComplementar, mvaAjustada } from '@/utils/icms-st-difal'
 import { CALC_TYPE_ENUM } from '@/shared/enums/calc-type'
+import { derivarBaseItemId } from '@/utils/base-item-derivado'
 import { ContentIndustrialization } from './content-industrialization'
 import { ContentResale } from './content-resale'
 import { ContentService } from './content-service'
@@ -1031,8 +1032,11 @@ export const Content: FC<ContentProps> = ({
 
   const validateProductItems = () => {
     if (productType === 'REVENDA' && !isCalcTypeService) {
+      // A MENSAGEM mudou junto com o seletor. Ela mandava "selecionar o item de revenda"
+      // num formulário que não tem mais onde selecionar — instrução impossível de cumprir.
+      // O bloqueio em si NÃO mudou: continua sendo um OU, e composição preenchida passa.
       if (!baseItemId && !productItemsData.length) {
-        return 'Selecione o item de revenda como base do custo.'
+        return 'Adicione o item de revenda à composição do produto — ele é a base do custo.'
       }
       return undefined
     }
@@ -1117,6 +1121,15 @@ export const Content: FC<ContentProps> = ({
         ? finalPriceWithTaxesRef.current
         : salePriceToSave
 
+      // `base_item_id` sem seletor: derivado da composição, preservando o gravado quando
+      // não há o que derivar. Ver `base-item-derivado.ts` — e a medição que mostrou que o
+      // caso real é ZERO itens (32 produtos), não "dois ou mais" (0 produtos).
+      const _baseItemDerivado = derivarBaseItemId({
+        productType,
+        itens: productItemsData.map((i) => ({ id: String(i.id) })),
+        baseItemIdAtual: baseItemId,
+      })
+
       let autoCode = values.code
       if (!autoCode) {
         const { data: lastProduct } = await supabase
@@ -1152,7 +1165,11 @@ export const Content: FC<ContentProps> = ({
         commission_percent: Number(productPriceInfo.salesCommissionPercent) || 0,
         rt_reserve_percent: Number(productPriceInfo.rtReservePercent) || 0,
         product_type: productType,
-        base_item_id: productType === 'REVENDA' ? baseItemId : null,
+        // DERIVADO da composição, não mais de um seletor (17/09/2026). Um item → é ele;
+        // zero ou dois e mais → preserva o gravado, que num produto novo é `null`.
+        // Apagar o que já existe quebraria a sincronização de estoque de 32 produtos
+        // medidos — ver `base-item-derivado.ts`.
+        base_item_id: _baseItemDerivado.baseItemId,
         ncm_code: values.ncm_code || null,
         nbs_code: values.nbs_code || null,
         updated_at: new Date().toISOString(),
@@ -1898,36 +1915,6 @@ export const Content: FC<ContentProps> = ({
                 <Radio.Button value="REVENDA">📦 Revenda (produto acabado)</Radio.Button>
               </Radio.Group>
             </div>
-            <div style={{
-              background: '#FFF7E6', border: '1px solid #FFD591', borderRadius: 8,
-              padding: '10px 14px', fontSize: 12, marginBottom: 16, color: '#000000',
-            }}>
-              <InfoCircleOutlined style={{ color: '#FA8C16', marginRight: 6 }} />
-              <strong>Revenda:</strong> Selecione um item do tipo &ldquo;Mercadoria para revenda&rdquo; como base do custo.
-              O custo do produto será o custo desse item.
-            </div>
-            <Form.Item label="Item base (mercadoria para revenda)" style={{ maxWidth: 400 }}>
-              <Select
-                showSearch
-                placeholder="Selecione o item de revenda"
-                value={baseItemId}
-                onChange={(val) => setBaseItemId(val)}
-                filterOption={(input, option) =>
-                  (option?.children as unknown as string || '').toLowerCase().includes(input.toLowerCase())
-                }
-                notFoundContent={
-                  <div style={{ padding: 12, textAlign: 'center', color: '#64748b' }}>
-                    Nenhum item do tipo &ldquo;Revenda&rdquo; cadastrado.
-                  </div>
-                }
-              >
-                {itemsForSelection.map((item) => (
-                  <Select.Option key={item.id} value={item.id}>
-                    {item.name}
-                  </Select.Option>
-                ))}
-              </Select>
-            </Form.Item>
           </>
         ) : (
           <>
@@ -1950,41 +1937,6 @@ export const Content: FC<ContentProps> = ({
               </Radio.Group>
             </div>
 
-            {productType === 'REVENDA' && (
-              <div style={{
-                background: '#FFF7E6', border: '1px solid #FFD591', borderRadius: 8,
-                padding: '10px 14px', fontSize: 12, marginBottom: 16, color: '#000000',
-              }}>
-                <InfoCircleOutlined style={{ color: '#FA8C16', marginRight: 6 }} />
-                <strong>Revenda:</strong> Selecione um item do tipo &ldquo;Mercadoria para revenda&rdquo; como base do custo.
-                O custo do produto será o custo desse item.
-              </div>
-            )}
-
-            {productType === 'REVENDA' && (
-              <Form.Item label="Item base (mercadoria para revenda)" style={{ maxWidth: 400 }}>
-                <Select
-                  showSearch
-                  placeholder="Selecione o item de revenda"
-                  value={baseItemId}
-                  onChange={(val) => setBaseItemId(val)}
-                  filterOption={(input, option) =>
-                    (option?.children as unknown as string || '').toLowerCase().includes(input.toLowerCase())
-                  }
-                  notFoundContent={
-                    <div style={{ padding: 12, textAlign: 'center', color: '#64748b' }}>
-                      Nenhum item do tipo &ldquo;Revenda&rdquo; cadastrado.
-                    </div>
-                  }
-                >
-                  {itemsForSelection.map((item) => (
-                    <Select.Option key={item.id} value={item.id}>
-                      {item.name}
-                    </Select.Option>
-                  ))}
-                </Select>
-              </Form.Item>
-            )}
           </>
         )}
       </Card>

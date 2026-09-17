@@ -115,6 +115,19 @@ export interface SegmentoArgs {
   productType?: string | null
   /** `tenant_settings.calc_type`. Decide o segmento quando o produto não é de revenda. */
   tenantCalcType?: string | null
+  /**
+   * O item é uma MERCADORIA (linha de `products`)? Mercadoria nunca é SERVICO.
+   *
+   * Sem este sinal, um produto `PRODUZIDO` num tenant de SERVIÇO caía na segmentação do
+   * tenant e recebia a matriz do serviço — ICMS INEXISTENTE e ISS POR DENTRO num produto.
+   * A tela de produto nunca fez isso: `product-price.component.tsx:206` manda REVENDA
+   * nesse caso, e esta função passa a dizer o mesmo.
+   *
+   * Exposição medida em 17/09/2026: **0**. Os 18 produtos em tenant de SERVIÇO são todos
+   * `product_type = REVENDA`, e a linha acima já os resolvia. O sinal existe para que o
+   * primeiro `PRODUZIDO` cadastrado ali não descubra pela alíquota errada.
+   */
+  isProduct?: boolean | null
 }
 
 /**
@@ -130,7 +143,10 @@ export interface SegmentoArgs {
 export function resolveSegmentoDaConstrucao(args: SegmentoArgs): SegmentoDaConstrucao {
   if (args.isService) return 'SERVICO'
   if (norm(args.productType) === 'REVENDA') return 'REVENDA'
-  return segmentoDoTenant(args.tenantCalcType)
+  const tenant = segmentoDoTenant(args.tenantCalcType)
+  // Mercadoria não vira SERVICO por causa do tenant — ver `isProduct`.
+  if (tenant === 'SERVICO' && args.isProduct) return 'REVENDA'
+  return tenant
 }
 
 /**
