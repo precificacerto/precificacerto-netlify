@@ -209,7 +209,7 @@ function closedMonthsCount(col: PeriodColumn, viewYear: number): number {
 
 // ── Data fetching ──
 
-type CashEntry = {
+export type CashEntry = {
   amount: number
   type: 'INCOME' | 'EXPENSE'
   expense_group: string | null
@@ -300,9 +300,13 @@ export type AggregatedData = {
   atividadesTerceirizadas: MonthlyValues // Atividades terceirizadas operacionais de entrega (LR / Simples Híbrido — seção cabeçalho DRE)
   impostoPorDentro: MonthlyValues // Impostos sobre o faturamento por dentro: ICMS Próprio, PIS, COFINS (LR / Simples Híbrido)
   amortizacao: MonthlyValues // Pagamento de PRINCIPAL de dívida — não é despesa operacional
+  repasse: MonthlyValues // Valor que atravessa a empresa sem gerar lucro — ver `expense-groups.ts`
 }
 
-function aggregateEntries(entries: CashEntry[]): AggregatedData {
+// EXPORTADA para que o teste afirme EFEITO (o lançamento cai no balde certo) em vez de
+// passagem (o `case` existe no arquivo). `.claude/rules/teste-que-nao-exercita.md`: "quando a
+// pergunta 3 não tem resposta boa porque a função não é exportada, exporte a função".
+export function aggregateEntries(entries: CashEntry[]): AggregatedData {
   const data: AggregatedData = {
     receitaBruta: { ...EMPTY_MONTHS },
     maoDeObraProdutiva: { ...EMPTY_MONTHS },
@@ -320,6 +324,7 @@ function aggregateEntries(entries: CashEntry[]): AggregatedData {
     atividadesTerceirizadas: { ...EMPTY_MONTHS },
     impostoPorDentro: { ...EMPTY_MONTHS },
     amortizacao: { ...EMPTY_MONTHS },
+    repasse: { ...EMPTY_MONTHS },
   }
 
   // Category keys considered as product cost (CMV) — matches CASHIER_CATEGORY.EXPENSE keys
@@ -424,6 +429,12 @@ function aggregateEntries(entries: CashEntry[]): AggregatedData {
         // Entra DEPOIS do resultado operacional, nas três variantes de demonstração.
         data.amortizacao[monthKey] += entry.amount
         break
+      case 'REPASSE':
+        // Valor que ATRAVESSA a empresa: entrou pela receita bruta junto com a venda e sai
+        // aqui, na dedução logo abaixo. Linha PRÓPRIA, ao lado das devoluções e nunca somada
+        // a elas — ver o comentário do grupo em `expense-groups.ts`.
+        data.repasse[monthKey] += entry.amount
+        break
       case 'LUCRO':
         // Distribuição de lucros / Investimentos — não compõem o DRE de estrutura.
         // REGISTRADO E NÃO CORRIGIDO nesta rodada: isto descarta 15 lançamentos, R$ 125.318,22
@@ -473,12 +484,17 @@ export function buildDreLucroRealPresumido(
   const rows: DreRow[] = []
 
   const receitaBruta = agg.receitaBruta
+  /** A RÉGUA da análise vertical. Uma só, nas três variantes: o faturamento do Hub. */
+  const baseAV = receitaBruta
   const isLrOrHibrido = taxRegime === 'LUCRO_REAL' || taxRegime === 'SIMPLES_HIBRIDO'
 
   if (isLrOrHibrido) {
     // ── Seção de cabeçalho: Faturamento Total = total do Hub (valor dos lançamentos de receita) ──
     // Faturamento Total agora é o próprio receitaBruta (valor total do Hub, sem somar impostos por fora)
-    rows.push({ ...buildRow('faturamento_total', 'Faturamento Total', receitaBruta, receitaBruta, { isHeader: true, sign: '+' }), pctOfRL: undefined })
+    // A RÉGUA passa a ser esta linha, então ela EXIBE o percentual — 100,00% por definição.
+    // O `pctOfRL: undefined` daqui saiu: ele existia porque a régua era outra linha, e manter
+    // a linha de 100% sem percentual deixaria a demonstração sem dizer qual é a base.
+    rows.push(buildRow('faturamento_total', 'Faturamento Total', receitaBruta, baseAV, { isHeader: true, sign: '+' }))
 
     const totalDeducoes = sumMonths(agg.imposto, agg.atividadesTerceirizadas)
     rows.push({ ...buildRow('deducoes_header', '(-) Deduções Tributárias Sobre Receita', totalDeducoes, receitaBruta, { sign: '-' }), pctOfRL: undefined })
@@ -486,11 +502,40 @@ export function buildDreLucroRealPresumido(
     rows.push({ ...buildRow('atividades_entrega', 'Atividades operacionais de entrega', agg.atividadesTerceirizadas, receitaBruta, { indent: 1, sign: '-' }), pctOfRL: undefined })
   }
 
-  // ── Receita Bruta (base 100%): para LR/Híbrido = Faturamento Total - Deduções; outros regimes = Hub total ──
+  // ══════════════════════════════════════════════════════════════════════════════════════
+  // DUAS COISAS QUE ERAM UMA SÓ — uniformização da análise vertical, 17/09/2026
+  // ══════════════════════════════════════════════════════════════════════════════════════
+  //
+  // Decisão do dono do produto: **as TRÊS variantes usam o FATURAMENTO TOTAL como 100%.**
+  //
+  // O `receitaBrutaBase` fazia DOIS trabalhos ao mesmo tempo, e era isso que impedia a
+  // uniformização de ser o que ela parecia:
+  //
+  //   1. a RÉGUA dos percentuais — o 4º argumento de todo `buildRow`;
+  //   2. o ponto de partida da ARITMÉTICA — `receitaAposDevolucoes` sai dele, e daí cascateia
+  //      até o Lucro Líquido.
+  //
+  // MEDIDO antes de escrever, com a fixture de 100.000 de faturamento: apagar o condicional,
+  // como a leitura literal pedia, levaria o **Lucro Líquido do LR de R$ 46.700,00 para
+  // R$ 52.500,00** — +R$ 5.800,00, exatamente `imposto 5.000 + terceirizadas 800`, que no
+  // LR são deduzidos SÓ aqui e em mais lugar nenhum. Não seria mudança de percentual: seria
+  // a demonstração deixar de deduzir dois grupos.
+  //
+  // A instrução dizia as duas coisas — "o condicional sai" E "os valores em R$ não mudam" —
+  // e as duas só são verdade se os papéis forem SEPARADOS. É o que está feito abaixo.
+  //
+  // Consequência na tela, e ela é a resposta à pergunta de quem decidiu: `faturamento_total`
+  // e `receita_bruta` continuam números DIFERENTES no LR (100.000 contra 94.200), então não
+  // há duas linhas iguais com nomes diferentes. A linha de 100% passa a ser o Faturamento
+  // Total, e a Receita Bruta passa a exibir a sua fração dele.
+
+  // O ponto de partida da ARITMÉTICA. No LR/Híbrido o faturamento entra líquido dos tributos
+  // por fora e das atividades de entrega, que o bloco de cabeçalho acima deduz — e que NÃO
+  // são deduzidos em nenhum outro ponto desta variante.
   const receitaBrutaBase = isLrOrHibrido
     ? subtractMonths(receitaBruta, sumMonths(agg.imposto, agg.atividadesTerceirizadas))
     : receitaBruta
-  rows.push(buildRow('receita_bruta', 'Receita Bruta', receitaBrutaBase, receitaBrutaBase, { isHeader: true, sign: '+' }))
+  rows.push(buildRow('receita_bruta', 'Receita Bruta', receitaBrutaBase, baseAV, { isHeader: true, sign: '+' }))
 
   // (-) DEVOLUÇÕES E DEDUÇÕES DA RECEITA — LINHA PRÓPRIA, LOGO APÓS A RECEITA BRUTA.
   //
@@ -505,68 +550,82 @@ export function buildDreLucroRealPresumido(
   //
   // O MODELO é `buildDrePresumidoRET`, que já estava certo desde o LP-RET-013: lá a linha vem
   // imediatamente depois da Receita Bruta. Essa variante NÃO É TOCADA aqui.
-  rows.push(buildRow('deducoes_devolucoes', '(-) Devoluções e Deduções da Receita', agg.deducaoReceita, receitaBrutaBase, { sign: '-' }))
-  const receitaAposDevolucoes = subtractMonths(receitaBrutaBase, agg.deducaoReceita)
+  rows.push(buildRow('deducoes_devolucoes', '(-) Devoluções e Deduções da Receita', agg.deducaoReceita, baseAV, { sign: '-' }))
+
+  // (-) REPASSE — LINHA PRÓPRIA, NO MESMO BLOCO DAS DEVOLUÇÕES E NUNCA SOMADA A ELAS.
+  //
+  // Repasse é valor que ATRAVESSA a empresa: a venda aconteceu, o dinheiro entrou pela receita
+  // bruta, e o valor pertence a terceiro. Devolução é o oposto — uma venda que SE DESFEZ.
+  // Somar as duas apagaria a distinção; por isso mesmo bloco, linhas separadas.
+  //
+  // ASSIMETRIA CONHECIDA, e ela é de desenho: esta linha zera o repasse do RESULTADO, não do
+  // FATURAMENTO. A entrada continua chegando inteira pela receita bruta, porque o `continue`
+  // do INCOME em `aggregateEntries` corta antes do `switch` e nenhum INCOME é lido por grupo.
+  // Os números e as duas alternativas estão em
+  // `docs/registros/o-repasse-entra-inteiro-pela-receita.md`.
+  rows.push(buildRow('repasse', '(-) Repasse de mercadorias', agg.repasse, baseAV, { sign: '-' }))
+
+  const receitaAposDevolucoes = subtractMonths(subtractMonths(receitaBrutaBase, agg.deducaoReceita), agg.repasse)
 
   let receitaLiquida: MonthlyValues
   if (isLrOrHibrido) {
     // (-) Impostos sobre a receita — Por dentro: ICMS Próprio, PIS, COFINS
-    rows.push(buildRow('impostos_receita', '(-) Impostos sobre a receita', agg.impostoPorDentro, receitaBrutaBase, { sign: '-', indent: 1 }))
+    rows.push(buildRow('impostos_receita', '(-) Impostos sobre a receita', agg.impostoPorDentro, baseAV, { sign: '-', indent: 1 }))
     receitaLiquida = subtractMonths(receitaAposDevolucoes, agg.impostoPorDentro)
   } else {
     // Lucro Presumido: mantém comportamento anterior
-    rows.push(buildRow('deducoes_trib_receita', '(-) Deduções Tributárias Sobre Receita', agg.imposto, receitaBrutaBase, { sign: '-', indent: 1 }))
+    rows.push(buildRow('deducoes_trib_receita', '(-) Deduções Tributárias Sobre Receita', agg.imposto, baseAV, { sign: '-', indent: 1 }))
     receitaLiquida = subtractMonths(receitaAposDevolucoes, agg.imposto)
   }
 
-  rows.push(buildRow('receita_liquida', '(=) Receita Líquida de Venda Interna', receitaLiquida, receitaBrutaBase, { isSubtotal: true, sign: '=' }))
+  rows.push(buildRow('receita_liquida', '(=) Receita Líquida de Venda Interna', receitaLiquida, baseAV, { isSubtotal: true, sign: '=' }))
 
   // CMV — MO Produtiva sempre aparece como linha separada (independente do calcType)
   const custoProdutos = agg.custoProduto
   const cmvTotal = isLrOrHibrido
     ? sumMonths(sumMonths(custoProdutos, agg.impostosRecuperaveisCusto), agg.maoDeObraProdutiva)
     : sumMonths(custoProdutos, agg.maoDeObraProdutiva)
-  rows.push(buildRow('cmv_header', '(-) Custos Líquido dos Produtos (CMV)', cmvTotal, receitaBrutaBase, { sign: '-' }))
-  rows.push(buildRow('cmv_custo_prod', 'Custo Líquido dos Produtos', custoProdutos, receitaBrutaBase, { indent: 2 }))
+  rows.push(buildRow('cmv_header', '(-) Custos Líquido dos Produtos (CMV)', cmvTotal, baseAV, { sign: '-' }))
+  rows.push(buildRow('cmv_custo_prod', 'Custo Líquido dos Produtos', custoProdutos, baseAV, { indent: 2 }))
   if (isLrOrHibrido) {
-    rows.push(buildRow('cmv_impostos_rec', 'Custos dos Impostos Recuperáveis sobre Compras', agg.impostosRecuperaveisCusto, receitaBrutaBase, { indent: 2 }))
+    rows.push(buildRow('cmv_impostos_rec', 'Custos dos Impostos Recuperáveis sobre Compras', agg.impostosRecuperaveisCusto, baseAV, { indent: 2 }))
   }
-  rows.push(buildRow('cmv_mo_direta', 'Custo Mão de Obra Direta (Produtiva)', agg.maoDeObraProdutiva, receitaBrutaBase, { indent: 2 }))
+  rows.push(buildRow('cmv_mo_direta', 'Custo Mão de Obra Direta (Produtiva)', agg.maoDeObraProdutiva, baseAV, { indent: 2 }))
 
   // Lucro Bruto
   const lucroBruto = subtractMonths(receitaLiquida, cmvTotal)
-  rows.push(buildRow('lucro_bruto', '(=) Lucro Bruto', lucroBruto, receitaBrutaBase, { isSubtotal: true, sign: '=' }))
+  rows.push(buildRow('lucro_bruto', '(=) Lucro Bruto', lucroBruto, baseAV, { isSubtotal: true, sign: '=' }))
 
   // Despesas Operacionais — MO Indireta/Administrativa (exclui MO Produtiva que já está no CMV)
   const moIndireta = sumMonths(agg.maoDeObraAdministrativa, agg.maoDeObra)
   const despesasOp = sumMonths(sumMonths(sumMonths(sumMonths(moIndireta, agg.despesaFixa), agg.despesaVariavel), agg.comissoes), agg.reservaTecnica)
-  rows.push(buildRow('desp_op_header', '(-) Despesas Operacionais', despesasOp, receitaBrutaBase, { sign: '-' }))
-  rows.push(buildRow('desp_mo_indireta', 'Despesa MO Indireta', moIndireta, receitaBrutaBase, { indent: 2 }))
-  rows.push(buildRow('desp_fixa', 'Despesa Fixa', agg.despesaFixa, receitaBrutaBase, { indent: 2 }))
-  rows.push(buildRow('desp_variavel', 'Despesa Variável', agg.despesaVariavel, receitaBrutaBase, { indent: 2 }))
-  rows.push(buildRow('desp_comissoes', 'Comissões', agg.comissoes, receitaBrutaBase, { indent: 2 }))
-  rows.push(buildRow('desp_reserva_tecnica', 'RT — Comissão Reserva Técnica', agg.reservaTecnica, receitaBrutaBase, { indent: 2 }))
+  rows.push(buildRow('desp_op_header', '(-) Despesas Operacionais', despesasOp, baseAV, { sign: '-' }))
+  rows.push(buildRow('desp_mo_indireta', 'Despesa MO Indireta', moIndireta, baseAV, { indent: 2 }))
+  rows.push(buildRow('desp_fixa', 'Despesa Fixa', agg.despesaFixa, baseAV, { indent: 2 }))
+  rows.push(buildRow('desp_variavel', 'Despesa Variável', agg.despesaVariavel, baseAV, { indent: 2 }))
+  rows.push(buildRow('desp_comissoes', 'Comissões', agg.comissoes, baseAV, { indent: 2 }))
+  rows.push(buildRow('desp_reserva_tecnica', 'RT — Comissão Reserva Técnica', agg.reservaTecnica, baseAV, { indent: 2 }))
 
   // Lucro Operacional (EBITDA/EBIT)
   const lucroOperacional = subtractMonths(lucroBruto, despesasOp)
-  rows.push(buildRow('lucro_operacional', '(=) Lucro Operacional (EBITDA/EBIT)', lucroOperacional, receitaBrutaBase, { isSubtotal: true, sign: '=' }))
+  rows.push(buildRow('lucro_operacional', '(=) Lucro Operacional (EBITDA/EBIT)', lucroOperacional, baseAV, { isSubtotal: true, sign: '=' }))
 
   // Despesas Financeiras
-  rows.push(buildRow('desp_financeira', '(-) Despesas Financeiras', agg.despesaFinanceira, receitaBrutaBase, { sign: '-' }))
+  rows.push(buildRow('desp_financeira', '(-) Despesas Financeiras', agg.despesaFinanceira, baseAV, { sign: '-' }))
 
   // Resultado Financeiro
   const resultadoFinanceiro = subtractMonths(lucroOperacional, agg.despesaFinanceira)
-  rows.push(buildRow('resultado_financeiro', '(=) Resultado Financeiro', resultadoFinanceiro, receitaBrutaBase, { isSubtotal: true, sign: '=' }))
+  rows.push(buildRow('resultado_financeiro', '(=) Resultado Financeiro', resultadoFinanceiro, baseAV, { isSubtotal: true, sign: '=' }))
 
   // AMORTIZAÇÃO — depois do resultado operacional, porque pagamento de PRINCIPAL de dívida NÃO
   // é despesa operacional. A regra é DO NEGÓCIO, não do regime: a linha existe nas TRÊS
   // variantes. Omiti-la numa delas faria o mesmo valor sumir só para um regime — que é a
   // divergência que `copia-divergente.md` descreve.
-  rows.push(buildRow('amortizacao', '(-) Amortização de Dívida (principal)', agg.amortizacao, receitaBrutaBase, { sign: '-' }))
+  rows.push(buildRow('amortizacao', '(-) Amortização de Dívida (principal)', agg.amortizacao, baseAV, { sign: '-' }))
 
   // Lucro Líquido (sem estimativa de IRPJ/CSLL — usa apenas valores reais do HUB)
   const lucroLiquidoLr = subtractMonths(resultadoFinanceiro, agg.amortizacao)
-  rows.push(buildRow('lucro_liquido', '(=) Lucro Líquido', lucroLiquidoLr, receitaBrutaBase, { isTotal: true, sign: '=' }))
+  rows.push(buildRow('lucro_liquido', '(=) Lucro Líquido', lucroLiquidoLr, baseAV, { isTotal: true, sign: '=' }))
 
   return rows
 }
@@ -577,55 +636,70 @@ export function buildDrePresumidoRET(agg: AggregatedData): DreRow[] {
   const rows: DreRow[] = []
 
   const receitaBruta = agg.receitaBruta
-  rows.push(buildRow('receita_bruta', 'Receita Bruta de Serviços/Obras', receitaBruta, receitaBruta, { isHeader: true, sign: '+' }))
+  // A MESMA régua das outras duas variantes — ver o bloco em `buildDreLucroRealPresumido`.
+  const baseAV = receitaBruta
+  rows.push(buildRow('receita_bruta', 'Receita Bruta de Serviços/Obras', receitaBruta, baseAV, { isHeader: true, sign: '+' }))
 
   // Deduções da Receita Bruta (INSS retido na fonte + ISS retido pelo tomador)
   const deducoesReceita = agg.deducaoReceita
   // Esta variante JÁ tinha a linha — o rótulo passa a nomear as devoluções, que agora entram
   // aqui pelo mesmo grupo `DEDUCAO_RECEITA` das retenções na fonte.
-  rows.push(buildRow('deducoes_receita', '(-) Devoluções e Deduções da Receita Bruta', deducoesReceita, receitaBruta, { sign: '-', indent: 1 }))
-  rows.push(buildRow('inss_retido', '(-) INSS Retido na Fonte (11%)', { ...EMPTY_MONTHS }, receitaBruta, { sign: '-', indent: 2 }))
-  rows.push(buildRow('iss_retido', '(-) ISS Retido pelo Tomador', { ...EMPTY_MONTHS }, receitaBruta, { sign: '-', indent: 2 }))
+  rows.push(buildRow('deducoes_receita', '(-) Devoluções e Deduções da Receita Bruta', deducoesReceita, baseAV, { sign: '-', indent: 1 }))
+  rows.push(buildRow('inss_retido', '(-) INSS Retido na Fonte (11%)', { ...EMPTY_MONTHS }, baseAV, { sign: '-', indent: 2 }))
+  rows.push(buildRow('iss_retido', '(-) ISS Retido pelo Tomador', { ...EMPTY_MONTHS }, baseAV, { sign: '-', indent: 2 }))
 
-  const receitaLiquida = subtractMonths(receitaBruta, deducoesReceita)
-  rows.push(buildRow('receita_liquida', '(=) Receita Líquida de Serviços/Obras', receitaLiquida, receitaBruta, { isSubtotal: true, sign: '=' }))
+  // (-) REPASSE — LINHA PRÓPRIA, NO MESMO BLOCO DAS DEVOLUÇÕES E NUNCA SOMADA A ELAS.
+  //
+  // Repasse é valor que ATRAVESSA a empresa: a venda aconteceu, o dinheiro entrou pela receita
+  // bruta, e o valor pertence a terceiro. Devolução é o oposto — uma venda que SE DESFEZ.
+  // Somar as duas apagaria a distinção; por isso mesmo bloco, linhas separadas.
+  //
+  // ASSIMETRIA CONHECIDA, e ela é de desenho: esta linha zera o repasse do RESULTADO, não do
+  // FATURAMENTO. A entrada continua chegando inteira pela receita bruta, porque o `continue`
+  // do INCOME em `aggregateEntries` corta antes do `switch` e nenhum INCOME é lido por grupo.
+  // Os números e as duas alternativas estão em
+  // `docs/registros/o-repasse-entra-inteiro-pela-receita.md`.
+  rows.push(buildRow('repasse', '(-) Repasse de mercadorias', agg.repasse, baseAV, { sign: '-', indent: 1 }))
+
+  const receitaLiquida = subtractMonths(subtractMonths(receitaBruta, deducoesReceita), agg.repasse)
+  rows.push(buildRow('receita_liquida', '(=) Receita Líquida de Serviços/Obras', receitaLiquida, baseAV, { isSubtotal: true, sign: '=' }))
 
   // Custos Diretos (CPV — Custo dos Serviços Prestados)
   const retPago = agg.imposto
   const folha = sumMonths(sumMonths(agg.maoDeObraProdutiva, agg.maoDeObraAdministrativa), agg.maoDeObra)
   const custosDiretos = sumMonths(sumMonths(retPago, agg.custoProduto), folha)
-  rows.push(buildRow('custos_diretos', '(-) Custos Diretos (CPV)', custosDiretos, receitaBruta, { sign: '-' }))
-  rows.push(buildRow('ret_pago', 'RET — IRPJ+CSLL+PIS+COFINS (DARF 1068)', retPago, receitaBruta, { indent: 2 }))
-  rows.push(buildRow('materiais_obra', 'Materiais e Insumos de Obra', agg.custoProduto, receitaBruta, { indent: 2 }))
-  rows.push(buildRow('folha_ret', 'Mão de Obra Direta + Folha', folha, receitaBruta, { indent: 2 }))
+  rows.push(buildRow('custos_diretos', '(-) Custos Diretos (CPV)', custosDiretos, baseAV, { sign: '-' }))
+  rows.push(buildRow('ret_pago', 'RET — IRPJ+CSLL+PIS+COFINS (DARF 1068)', retPago, baseAV, { indent: 2 }))
+  rows.push(buildRow('materiais_obra', 'Materiais e Insumos de Obra', agg.custoProduto, baseAV, { indent: 2 }))
+  rows.push(buildRow('folha_ret', 'Mão de Obra Direta + Folha', folha, baseAV, { indent: 2 }))
 
   const resultadoBruto = subtractMonths(receitaLiquida, custosDiretos)
-  rows.push(buildRow('resultado_bruto', '(=) Resultado Bruto (Margem Bruta)', resultadoBruto, receitaBruta, { isSubtotal: true, sign: '=' }))
+  rows.push(buildRow('resultado_bruto', '(=) Resultado Bruto (Margem Bruta)', resultadoBruto, baseAV, { isSubtotal: true, sign: '=' }))
 
   // Despesas Operacionais
   const despesasOp = sumMonths(sumMonths(sumMonths(agg.despesaFixa, agg.despesaVariavel), agg.comissoes), agg.reservaTecnica)
-  rows.push(buildRow('desp_op', '(-) Despesas Operacionais', despesasOp, receitaBruta, { sign: '-' }))
-  rows.push(buildRow('desp_fixa', 'Despesas Administrativas e Fixas', agg.despesaFixa, receitaBruta, { indent: 2 }))
-  rows.push(buildRow('desp_variavel', 'Despesas Variáveis e Subempreitada', agg.despesaVariavel, receitaBruta, { indent: 2 }))
-  rows.push(buildRow('desp_comissoes', 'Comissões', agg.comissoes, receitaBruta, { indent: 2 }))
-  rows.push(buildRow('desp_reserva_tecnica', 'RT — Comissão Reserva Técnica', agg.reservaTecnica, receitaBruta, { indent: 2 }))
+  rows.push(buildRow('desp_op', '(-) Despesas Operacionais', despesasOp, baseAV, { sign: '-' }))
+  rows.push(buildRow('desp_fixa', 'Despesas Administrativas e Fixas', agg.despesaFixa, baseAV, { indent: 2 }))
+  rows.push(buildRow('desp_variavel', 'Despesas Variáveis e Subempreitada', agg.despesaVariavel, baseAV, { indent: 2 }))
+  rows.push(buildRow('desp_comissoes', 'Comissões', agg.comissoes, baseAV, { indent: 2 }))
+  rows.push(buildRow('desp_reserva_tecnica', 'RT — Comissão Reserva Técnica', agg.reservaTecnica, baseAV, { indent: 2 }))
 
   const resultadoAntesImposto = subtractMonths(resultadoBruto, despesasOp)
-  rows.push(buildRow('resultado_antes_imposto', '(=) Resultado Antes dos Impostos sobre o Lucro', resultadoAntesImposto, receitaBruta, { isSubtotal: true, sign: '=' }))
+  rows.push(buildRow('resultado_antes_imposto', '(=) Resultado Antes dos Impostos sobre o Lucro', resultadoAntesImposto, baseAV, { isSubtotal: true, sign: '=' }))
 
-  rows.push(buildRow('desp_financeira', '(-) Despesas Financeiras', agg.despesaFinanceira, receitaBruta, { sign: '-' }))
+  rows.push(buildRow('desp_financeira', '(-) Despesas Financeiras', agg.despesaFinanceira, baseAV, { sign: '-' }))
 
   // AMORTIZAÇÃO — depois do resultado operacional, porque pagamento de PRINCIPAL de dívida NÃO
   // é despesa operacional. A regra é DO NEGÓCIO, não do regime: a linha existe nas TRÊS
   // variantes. Omiti-la numa delas faria o mesmo valor sumir só para um regime — que é a
   // divergência que `copia-divergente.md` descreve.
-  rows.push(buildRow('amortizacao', '(-) Amortização de Dívida (principal)', agg.amortizacao, receitaBruta, { sign: '-' }))
+  rows.push(buildRow('amortizacao', '(-) Amortização de Dívida (principal)', agg.amortizacao, baseAV, { sign: '-' }))
 
   const lucroLiquido = subtractMonths(
     subtractMonths(resultadoAntesImposto, agg.despesaFinanceira),
     agg.amortizacao,
   )
-  rows.push(buildRow('lucro_liquido', '(=) Lucro/Prejuízo Líquido do Período', lucroLiquido, receitaBruta, { isTotal: true, sign: '=' }))
+  rows.push(buildRow('lucro_liquido', '(=) Lucro/Prejuízo Líquido do Período', lucroLiquido, baseAV, { isTotal: true, sign: '=' }))
 
   return rows
 }
@@ -634,7 +708,9 @@ export function buildDreSimplesNacional(agg: AggregatedData, _calcType: CalcType
   const rows: DreRow[] = []
 
   const receitaBruta = agg.receitaBruta
-  rows.push(buildRow('receita_bruta', 'Receita Bruta', receitaBruta, receitaBruta, { isHeader: true, sign: '+' }))
+  // A MESMA régua das outras duas variantes — ver o bloco em `buildDreLucroRealPresumido`.
+  const baseAV = receitaBruta
+  rows.push(buildRow('receita_bruta', 'Receita Bruta', receitaBruta, baseAV, { isHeader: true, sign: '+' }))
 
   // (-) DEVOLUÇÕES E DEDUÇÕES DA RECEITA — LINHA PRÓPRIA, LOGO APÓS A RECEITA BRUTA.
   //
@@ -649,54 +725,67 @@ export function buildDreSimplesNacional(agg: AggregatedData, _calcType: CalcType
   //
   // O MODELO é `buildDrePresumidoRET`, que já estava certo desde o LP-RET-013: lá a linha vem
   // imediatamente depois da Receita Bruta. Essa variante NÃO É TOCADA aqui.
-  rows.push(buildRow('deducoes_devolucoes', '(-) Devoluções e Deduções da Receita', agg.deducaoReceita, receitaBruta, { sign: '-' }))
+  rows.push(buildRow('deducoes_devolucoes', '(-) Devoluções e Deduções da Receita', agg.deducaoReceita, baseAV, { sign: '-' }))
+
+  // (-) REPASSE — LINHA PRÓPRIA, NO MESMO BLOCO DAS DEVOLUÇÕES E NUNCA SOMADA A ELAS.
+  //
+  // Repasse é valor que ATRAVESSA a empresa: a venda aconteceu, o dinheiro entrou pela receita
+  // bruta, e o valor pertence a terceiro. Devolução é o oposto — uma venda que SE DESFEZ.
+  // Somar as duas apagaria a distinção; por isso mesmo bloco, linhas separadas.
+  //
+  // ASSIMETRIA CONHECIDA, e ela é de desenho: esta linha zera o repasse do RESULTADO, não do
+  // FATURAMENTO. A entrada continua chegando inteira pela receita bruta, porque o `continue`
+  // do INCOME em `aggregateEntries` corta antes do `switch` e nenhum INCOME é lido por grupo.
+  // Os números e as duas alternativas estão em
+  // `docs/registros/o-repasse-entra-inteiro-pela-receita.md`.
+  rows.push(buildRow('repasse', '(-) Repasse de mercadorias', agg.repasse, baseAV, { sign: '-' }))
 
   // DAS — usa valores reais pagos do HUB (expense_group IMPOSTO / REGIME_TRIBUTARIO)
   const das = { ...agg.imposto }
 
   // Deduções tributárias = DAS (incluído dentro da Receita Bruta)
-  rows.push(buildRow('deducoes_trib', '(-) Deduções Tributárias', das, receitaBruta, { sign: '-', indent: 1 }))
-  rows.push(buildRow('das', '(-) DAS / Impostos do Regime (pago)', das, receitaBruta, { sign: '-', indent: 2 }))
+  rows.push(buildRow('deducoes_trib', '(-) Deduções Tributárias', das, baseAV, { sign: '-', indent: 1 }))
+  rows.push(buildRow('das', '(-) DAS / Impostos do Regime (pago)', das, baseAV, { sign: '-', indent: 2 }))
 
-  const receitaLiquida = subtractMonths(subtractMonths(receitaBruta, das), agg.deducaoReceita)
-  rows.push(buildRow('receita_liquida', '(=) Receita Líquida', receitaLiquida, receitaBruta, { isSubtotal: true, sign: '=' }))
+  const receitaLiquida = subtractMonths(subtractMonths(subtractMonths(receitaBruta, das), agg.deducaoReceita), agg.repasse)
+  rows.push(buildRow('receita_liquida', '(=) Receita Líquida', receitaLiquida, baseAV, { isSubtotal: true, sign: '=' }))
 
   // CMV — MO Produtiva sempre aparece como linha separada (independente do calcType)
   const cmv = sumMonths(agg.custoProduto, agg.maoDeObraProdutiva)
-  rows.push(buildRow('cmv', '(-) CMV (Custo Produtos + MO Direta)', cmv, receitaBruta, { sign: '-' }))
-  rows.push(buildRow('cmv_custo_prod', 'Custo Produtos', agg.custoProduto, receitaBruta, { indent: 2 }))
-  rows.push(buildRow('cmv_mo_direta', 'MO Direta (Produtiva)', agg.maoDeObraProdutiva, receitaBruta, { indent: 2 }))
+  rows.push(buildRow('cmv', '(-) CMV (Custo Produtos + MO Direta)', cmv, baseAV, { sign: '-' }))
+  rows.push(buildRow('cmv_custo_prod', 'Custo Produtos', agg.custoProduto, baseAV, { indent: 2 }))
+  rows.push(buildRow('cmv_mo_direta', 'MO Direta (Produtiva)', agg.maoDeObraProdutiva, baseAV, { indent: 2 }))
 
   const lucroBruto = subtractMonths(receitaLiquida, cmv)
-  rows.push(buildRow('lucro_bruto', '(=) Lucro Bruto', lucroBruto, receitaBruta, { isSubtotal: true, sign: '=' }))
+  rows.push(buildRow('lucro_bruto', '(=) Lucro Bruto', lucroBruto, baseAV, { isSubtotal: true, sign: '=' }))
 
   // Despesas Operacionais — MO Indireta/Administrativa (exclui MO Produtiva que já está no CMV)
   const moIndireta = sumMonths(agg.maoDeObraAdministrativa, agg.maoDeObra)
 
   const despesasOp = sumMonths(sumMonths(sumMonths(sumMonths(moIndireta, agg.despesaFixa), agg.despesaVariavel), agg.comissoes), agg.reservaTecnica)
-  rows.push(buildRow('desp_op', '(-) Despesas Operacionais', despesasOp, receitaBruta, { sign: '-' }))
-  rows.push(buildRow('desp_mo_indireta', 'MO Indireta', moIndireta, receitaBruta, { indent: 2 }))
-  rows.push(buildRow('desp_fixa', 'Despesa Fixa', agg.despesaFixa, receitaBruta, { indent: 2 }))
-  rows.push(buildRow('desp_variavel', 'Despesa Variável', agg.despesaVariavel, receitaBruta, { indent: 2 }))
-  rows.push(buildRow('desp_comissoes', 'Comissões', agg.comissoes, receitaBruta, { indent: 2 }))
-  rows.push(buildRow('desp_reserva_tecnica', 'RT — Comissão Reserva Técnica', agg.reservaTecnica, receitaBruta, { indent: 2 }))
+  rows.push(buildRow('desp_op', '(-) Despesas Operacionais', despesasOp, baseAV, { sign: '-' }))
+  rows.push(buildRow('desp_mo_indireta', 'MO Indireta', moIndireta, baseAV, { indent: 2 }))
+  rows.push(buildRow('desp_fixa', 'Despesa Fixa', agg.despesaFixa, baseAV, { indent: 2 }))
+  rows.push(buildRow('desp_variavel', 'Despesa Variável', agg.despesaVariavel, baseAV, { indent: 2 }))
+  rows.push(buildRow('desp_comissoes', 'Comissões', agg.comissoes, baseAV, { indent: 2 }))
+  rows.push(buildRow('desp_reserva_tecnica', 'RT — Comissão Reserva Técnica', agg.reservaTecnica, baseAV, { indent: 2 }))
 
   const lucroOperacional = subtractMonths(lucroBruto, despesasOp)
-  rows.push(buildRow('lucro_operacional', '(=) Lucro Operacional', lucroOperacional, receitaBruta, { isSubtotal: true, sign: '=' }))
+  rows.push(buildRow('lucro_operacional', '(=) Lucro Operacional', lucroOperacional, baseAV, { isSubtotal: true, sign: '=' }))
 
-  rows.push(buildRow('desp_financeira', '(-) Despesas Financeiras', agg.despesaFinanceira, receitaBruta, { sign: '-' }))
+  rows.push(buildRow('desp_financeira', '(-) Despesas Financeiras', agg.despesaFinanceira, baseAV, { sign: '-' }))
 
   // AMORTIZAÇÃO — depois do resultado operacional, porque pagamento de PRINCIPAL de dívida NÃO
   // é despesa operacional. A regra é DO NEGÓCIO, não do regime: a linha existe nas TRÊS
   // variantes. Omiti-la numa delas faria o mesmo valor sumir só para um regime — que é a
   // divergência que `copia-divergente.md` descreve.
-  rows.push(buildRow('amortizacao', '(-) Amortização de Dívida (principal)', agg.amortizacao, receitaBruta, { sign: '-' }))
+  rows.push(buildRow('amortizacao', '(-) Amortização de Dívida (principal)', agg.amortizacao, baseAV, { sign: '-' }))
 
   const lucroLiquido = subtractMonths(
     subtractMonths(lucroOperacional, agg.despesaFinanceira),
     agg.amortizacao,
   )
-  rows.push(buildRow('lucro_liquido', '(=) Lucro Líquido', lucroLiquido, receitaBruta, { isTotal: true, sign: '=' }))
+  rows.push(buildRow('lucro_liquido', '(=) Lucro Líquido', lucroLiquido, baseAV, { isTotal: true, sign: '=' }))
 
   return rows
 }

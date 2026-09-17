@@ -36,6 +36,7 @@ export function buildCalcBase(expense: any, taxPreview?: TaxPreviewResult): Calc
     variableExpensePct: variable,
     financialExpensePct: financial,
     taxPct: taxPctDisplay,
+    taxBreakdown: taxPreview?.breakdown,
     taxLabel: label,
     isMei,
     productiveValuePerMinute,

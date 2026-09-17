@@ -329,6 +329,15 @@ export const CASHIER_CATEGORY = {
     // Não podia ser subitem de `LUCRO`: aquele grupo é DESCARTADO da demonstração, e a
     // amortização sumiria sem erro nenhum.
     AMORTIZACAO: { order: 97.6, key: 'AMORTIZACAO', value: 'Amortização de Dívida (principal)', group: 'AMORTIZACAO' satisfies ExpenseGroupKey },
+    // REPASSE (17/09/2026) — valor que ATRAVESSA a empresa. Grupo próprio, ao lado de
+    // `DEDUCAO_RECEITA` no mesmo bloco do DRE e NUNCA somado a ela: devolução é venda
+    // desfeita, repasse é venda que aconteceu com valor de terceiro.
+    //
+    // O SELETOR VIVO é `expense-categories-by-regime.ts`, não este dicionário — a entrada
+    // aqui serve aos consumidores por CHAVE (`get-category-name.util`, `hub-engine`,
+    // `dre/[year]`). As duas metades precisam existir, e foi não existirem as duas que
+    // deixou `DEVOLUCOES` e `AMORTIZACAO` órfãs desde 09/09/2026.
+    REPASSE: { order: 97.7, key: 'REPASSE', value: 'Repasse de mercadorias', group: 'REPASSE' satisfies ExpenseGroupKey },
     // Atividades terceirizadas operacionais de entrega
     FRETES_LOGISTICA_ENTREGA_TERCEIRIZADOS: { order: 98, key: 'FRETES_LOGISTICA_ENTREGA_TERCEIRIZADOS', value: 'Fretes / Logísticas de entrega Terceirizados', group: 'ATIVIDADES_TERCEIRIZADAS' satisfies ExpenseGroupKey },
     SEGURO_TRANSPORTE_ENTREGA: { order: 99, key: 'SEGURO_TRANSPORTE_ENTREGA', value: 'Seguro de transporte entrega', group: 'ATIVIDADES_TERCEIRIZADAS' satisfies ExpenseGroupKey },

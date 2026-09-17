@@ -35,6 +35,17 @@ interface CardConfig {
   line: ResidualLine
 }
 
+/**
+ * A nota de rodapé de quando os cards vêm da ETAPA 16 do motor.
+ *
+ * Ela nomeia a BASE dos percentuais efetivos, e é por isso que ela é substituível: quando o
+ * caller passa a distribuição já lida da DECOMPOSIÇÃO, a base deixa de ser a Âncora Gerencial
+ * e passa a ser a receita de produtos. Um texto fixo afirmaria uma base que o número não usou
+ * — `.claude/rules/ausente-vs-falso.md` na legenda.
+ */
+export const NOTA_DA_ETAPA_16 =
+  'Percentuais efetivos calculados sobre a Operação Interna pós-desconto (Âncora Gerencial) — a base própria de comissão e lucro; a Operação Externa (tributos por fora) não entra no denominador. Custos, despesas e impostos por dentro são preservados; comissão e lucro são proporcionalmente redistribuídos sobre o Resultado Residual Operacional.'
+
 function DistributionCard({ label, bgColor, valueColor, line, hasDiscount }: CardConfig & { hasDiscount: boolean }) {
   return (
     <div style={{ padding: '8px 12px', background: bgColor, borderRadius: 6 }}>
@@ -90,6 +101,13 @@ export interface ResidualDistributionBlockProps {
    * `normalizeDiscountModeForDisplay()`.
    */
   discountMode?: DiscountMode
+  /**
+   * Substitui a nota de rodapé. Ausente = `NOTA_DA_ETAPA_16`, o texto de sempre.
+   *
+   * Existe porque a nota NOMEIA A BASE dos percentuais efetivos, e a base muda quando os
+   * cards leem a decomposição em vez da Etapa 16.
+   */
+  footerNote?: string
 }
 
 /**
@@ -103,6 +121,7 @@ export function ResidualDistributionBlock({
   marginTop = 8,
   configWarning = null,
   regimeGuardActive = null,
+  footerNote,
 }: ResidualDistributionBlockProps) {
   const { commission, profit, hasDiscount, hidesProfitTaxes, requiresReview } = distribution
 
@@ -193,7 +212,7 @@ export function ResidualDistributionBlock({
       </div>
       {!hideFooterNote && !hidesProfitTaxes && hasDiscount && (
         <div style={{ fontSize: 11, color: '#64748b', marginTop: 8, fontStyle: 'italic' }}>
-          Percentuais efetivos calculados sobre a Operação Interna pós-desconto (Âncora Gerencial) — a base própria de comissão e lucro; a Operação Externa (tributos por fora) não entra no denominador. Custos, despesas e impostos por dentro são preservados; comissão e lucro são proporcionalmente redistribuídos sobre o Resultado Residual Operacional.
+          {footerNote ?? NOTA_DA_ETAPA_16}
         </div>
       )}
     </div>

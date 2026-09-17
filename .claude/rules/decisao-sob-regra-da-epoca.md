@@ -99,3 +99,8 @@ guarda a aparição 1.
 
 As quatro compartilham a mesma origem: **confiar num sinal indireto em vez de olhar o fato** —
 aqui, o fato sendo a data em que a regra passou a existir.
+
+`razao-longe-da-restricao.md` é a vizinha que se confunde com esta, e o discriminante está lá:
+aqui a regra **mudou** e a decisão antiga estava certa para a época; lá a regra **é a mesma** e a
+decisão antiga está certa hoje — o que faltava era a citação da fonte externa no ponto onde a
+restrição é declarada. Datar resolve esta; citar resolve aquela.

@@ -37,6 +37,16 @@ import { resolveInheritedRtPctDecimal } from '@/utils/balcao-rt'
 import { ResidualDistributionBlock } from '@/page-parts/shared/residual-distribution-block.component'
 import { computeConsolidatedDRE, type DREItemInput } from '@/utils/consolidated-dre'
 import { ConsolidatedDREBlock } from '@/page-parts/shared/consolidated-dre-block.component'
+import { enrichItemsForMotor } from '@/utils/motor-item-enrichment'
+import { buildItemTaxRatesFromProduct } from '@/utils/item-tax-rates'
+import { buildBudgetDecompositionInput } from '@/utils/budget-decomposition-input'
+import { buildDecomposition } from '@/utils/decomposition-dre'
+import { NOTA_DA_DECOMPOSICAO, applyDecompositionToResidual } from '@/utils/residual-from-decomposition'
+import {
+    resolveDocumentAccessoriesInheritance,
+    INHERITANCE_VERDICT_MESSAGE,
+    INHERITANCE_VERDICT_TONE,
+} from '@/utils/budget-accessories'
 import { extractEpicV5DisplayData } from '@/utils/mrm-display-extractor'
 import { filterDeletedDocuments } from '@/utils/document-deleted'
 import { useDeletedDocuments } from '@/hooks/use-deleted-documents.hook'
@@ -96,6 +106,11 @@ interface OrderItemRow {
     // descartava — então `readSnapshotColumn(it)` no save lia um objeto que ESTRUTURALMENTE
     // não tinha o campo, e regravava NULL. Editar um pedido apagava o snapshot.
     destination_snapshot?: unknown
+    // R21: as parcelas de acréscimo, CONGELADAS no rateio do orçamento. Fora desta interface
+    // o mapeamento as descartaria e o save regravaria NULL — o mesmo mecanismo do
+    // `destination_snapshot` acima, que este arquivo já pagou uma vez.
+    freight_allocated_value?: number | null
+    accessories_allocated_value?: number | null
 }
 
 interface Order {
@@ -225,7 +240,7 @@ function OrderTotalsSummary({ form, items }: { form: any; items: OrderItemRow[] 
             </div>
             {manualSum > 0 && pct > 0 && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, color: '#667085', fontSize: 12 }}>
-                    <span>Itens manuais (imunes ao desconto)</span>
+                    <span>Produtos manuais / Repasse (imunes ao desconto)</span>
                     <span>{formatCurrency(manualSum)}</span>
                 </div>
             )}
@@ -318,6 +333,97 @@ function OrdersPage() {
         const pct = Math.max(0, Math.min(100, Number(editingDiscountPct) || 0))
         return orderSubtotal * (1 - pct / 100)
     }, [orderSubtotal, editingDiscountPct])
+
+    /**
+     * A DECOMPOSIÇÃO DO PEDIDO — R15 a R20, paridade com o orçamento.
+     *
+     * >>> POR QUE O CUSTO VEM DO CADASTRO VIVO, e é decisão registrada <<<
+     *
+     * Medido no schema: `order_items` NÃO tem coluna de custo, de MO produtiva nem de
+     * alíquota — só `freight_allocated_value` e `accessories_allocated_value`. E o snapshot
+     * gravado não serve: em 16/09/2026, dos 32 `order_items` com `tax_breakdown`, só 10
+     * tinham `cp > 0` e NENHUM tinha `taxes_outside` preenchido. Ler o gravado devolveria uma
+     * decomposição sem custo e sem tributo por fora na maioria dos pedidos.
+     *
+     * Decisão do dono do produto, 16/09/2026: **pedido resolve do cadastro VIVO**, porque é
+     * documento ainda EM EDIÇÃO — a mesma natureza do orçamento reaberto. A venda GRAVADA
+     * segue outro caminho, e está registrada à parte.
+     *
+     * E o enriquecimento precisa do contexto de MO do tenant: sem ele a MO produtiva some sem
+     * que o `costTotal` mude, que é a junta do 97c6968.
+     */
+    const orderEnrichedItems = useMemo(() => enrichItemsForMotor(
+        orderItems.map((it) => ({ ...it, isManual: it.isManual === true || (!it.product_id && !it.service_id && !!it.manual_description) })),
+        { products, services },
+        {
+            production_labor_cost: mrmConfig.production_labor_cost,
+            monthly_workload_minutes: mrmConfig.monthly_workload_minutes,
+            productive_value_per_minute: mrmConfig.productive_value_per_minute,
+        },
+    ), [orderItems, products, services, mrmConfig.production_labor_cost, mrmConfig.monthly_workload_minutes, mrmConfig.productive_value_per_minute])
+
+    const orderDecomposition = useMemo(() => {
+        const params = buildBudgetDecompositionInput({
+            items: orderEnrichedItems.map((item) => {
+                const cadastro = item.service_id
+                    ? (services as any[]).find((x) => x.id === item.service_id)
+                    : (products as any[]).find((x) => x.id === item.product_id)
+                return {
+                    key: item.key,
+                    label: item.product_name || item.manual_description || 'Item',
+                    isManual: item.isManual,
+                    isService: !!item.service_id,
+                    // Segmento LIDO, não inferido — ver `despesas-do-segmento.ts`.
+                    productType: item.product_id
+                        ? ((products as any[]).find((p) => p.id === item.product_id)?.product_type ?? null)
+                        : null,
+                    quantity: Number(item.quantity) || 0,
+                    unitPrice: Number(item.unit_price) || 0,
+                    costUnit: Number(item.cost_total) || 0,
+                    productiveLaborUnit: Number(item.productive_labor_unit) || 0,
+                    commissionPct: Number(item.commission_percent) || 0,
+                    profitPct: Number(item.profit_percent) || 0,
+                    rtPct: Number(item.rt_reserve_percent) || 0,
+                    // A ficha do CADASTRO, pela MESMA função que o orçamento usa. `null` em
+                    // item manual e em produto excluído — e `null` não é alíquota zero.
+                    rates: cadastro ? buildItemTaxRatesFromProduct(cadastro) : null,
+                    // R21 — a parcela CONGELADA herdada do orçamento. As duas colunas nulas
+                    // são NÃO COTADO, e não zero: a escolha é pela PRESENÇA da coluna.
+                    acrescimos: (item.freight_allocated_value != null || item.accessories_allocated_value != null)
+                        ? (Number(item.freight_allocated_value) || 0) + (Number(item.accessories_allocated_value) || 0)
+                        : 0,
+                }
+            }),
+            discountPct: (Number(editingDiscountPct) || 0) / 100,
+            despesas: {
+                fixa: Number(mrmConfig.expense_breakdown?.fixed_pct) || 0,
+                variavel: Number(mrmConfig.expense_breakdown?.variable_pct) || 0,
+                financeira: Number(mrmConfig.expense_breakdown?.financial_pct) || 0,
+                indireta: Number(mrmConfig.expense_breakdown?.administrative_pct) || 0,
+                // Só entra em segmentação REVENDA, agrupada com a indireta — ver
+                // `indirect-labor-grouping.ts`. Fora dela a soma a ignora.
+                moProdutiva: Number(mrmConfig.mo_produtiva_pct) || 0,
+            },
+            tenantCalcType: mrmConfig.calc_type,
+        })
+        if (params.isEmpty) return null
+        return { result: buildDecomposition(params.input), labels: params.itemLabels }
+    }, [orderEnrichedItems, products, services, editingDiscountPct, mrmConfig.dop_pct])
+
+    /**
+     * R21 — o rateio de frete herdado do orçamento ainda descreve este pedido?
+     *
+     * NÃO recalcula. O share de cada item tem o conjunto inteiro no denominador, então
+     * recalcular mudaria a parcela de itens que ninguém tocou. O que isto faz é dizer se o
+     * congelado continua aplicável — e `CONJUNTO_MUDOU` é um pedido de decisão ao usuário.
+     */
+    const accessoriesInheritance = useMemo(
+        () => resolveDocumentAccessoriesInheritance(
+            editingOrder as unknown as Parameters<typeof resolveDocumentAccessoriesInheritance>[0],
+            orderItems,
+        ),
+        [editingOrder, orderItems],
+    )
     const orderTenantTaxRates = useMemo(
         () => ({ irpj: mrmConfig.irpj_pct || 0, csll: mrmConfig.csll_pct || 0 }),
         [mrmConfig.irpj_pct, mrmConfig.csll_pct],
@@ -558,6 +664,9 @@ function OrdersPage() {
             rt_reserve_percent: it.products?.rt_reserve_percent ?? it.services?.rt_reserve_percent ?? null,
             tax_breakdown: it.tax_breakdown ?? null,
             destination_snapshot: it.destination_snapshot ?? null,
+            // R21: herdadas do orçamento e NÃO recalculadas aqui.
+            freight_allocated_value: it.freight_allocated_value ?? null,
+            accessories_allocated_value: it.accessories_allocated_value ?? null,
         }))
     }
 
@@ -2020,7 +2129,7 @@ function OrdersPage() {
                         onClick={handleAddManualItem}
                         style={{ flex: '1 1 200px' }}
                     >
-                        Adicionar item manual
+                        Inserir produtos manuais / Repasse
                     </Button>
                 </div>
 
@@ -2029,17 +2138,54 @@ function OrdersPage() {
                 {/* EPIC-RR-DISPLAY S4: Distribuição do resultado (mesma semântica que orçamentos).
                     Pedidos usam snapshot persistido em order_items.tax_breakdown — sem
                     recálculo runtime do motor. Em MEI/SN, IRPJ/CSLL ocultos automaticamente. */}
+                {/* ══════════════════════════════════════════════════════════════════
+                    R21 — o rateio de frete herdado ainda descreve ESTE pedido?
+                    O pedido é onde o conjunto pode ter mudado: item removido, quantidade
+                    alterada. A verificação NÃO recalcula — o share tem o conjunto inteiro no
+                    denominador, e recalcular mudaria a parcela de itens que ninguém tocou.
+                    INDETERMINADO aparece com o MESMO destaque de CONJUNTO_MUDOU: documento
+                    anterior à coluna que registra a base do rateio não pode parecer conferido.
+                    ══════════════════════════════════════════════════════════════════ */}
+                {accessoriesInheritance && accessoriesInheritance.verdict !== 'SEM_RATEIO' && (
+                    <div style={{
+                        marginTop: 12, padding: '10px 14px', borderRadius: 8, fontSize: 12,
+                        background: INHERITANCE_VERDICT_TONE[accessoriesInheritance.verdict] === 'alerta'
+                            ? 'rgba(239, 68, 68, 0.12)' : 'rgba(34, 197, 94, 0.10)',
+                        border: INHERITANCE_VERDICT_TONE[accessoriesInheritance.verdict] === 'alerta'
+                            ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid rgba(34, 197, 94, 0.25)',
+                        color: INHERITANCE_VERDICT_TONE[accessoriesInheritance.verdict] === 'alerta'
+                            ? '#fca5a5' : '#86efac',
+                    }}>
+                        {INHERITANCE_VERDICT_TONE[accessoriesInheritance.verdict] === 'alerta' ? '⚠ ' : '✓ '}
+                        {INHERITANCE_VERDICT_MESSAGE[accessoriesInheritance.verdict]}
+                        <div style={{ color: '#94a3b8', marginTop: 4, fontSize: 11 }}>
+                            {accessoriesInheritance.reason}
+                        </div>
+                    </div>
+                )}
+
                 {orderSubtotal > 0 && (
                     <ResidualDistributionBlock
-                        distribution={orderResidualDistribution}
+                        /* Os cards leem a DECOMPOSIÇÃO, não a Etapa 16 — mesma correção do
+                           1934dbb no orçamento. Sem ela a tela teria duas fontes para o
+                           mesmo RRO, e elas divergem. */
+                        distribution={applyDecompositionToResidual(
+                            orderResidualDistribution, orderDecomposition?.result ?? null,
+                        )}
                         regimeGuardActive={orderEpicV5DisplayData.regimeGuardActive}
                         discountMode={normalizeDiscountModeForDisplay(editingOrder?.discount_mode)}
+                        footerNote={orderDecomposition?.result ? NOTA_DA_DECOMPOSICAO : undefined}
                     />
                 )}
 
                 {/* S14 — DRE Consolidada (R3=B + R7=B). Snapshot histórico imutável. */}
                 {orderSubtotal > 0 && (
                     <ConsolidatedDREBlock
+                        /* R19 — a cascata expande da etapa 12 em diante com as linhas da
+                           decomposição, e a Etapa 8 passa a exibir o bloco por fora APURADO
+                           em vez do peso derivado por divisão (e109cd6). */
+                        decomposition={orderDecomposition?.result ?? null}
+                        itemLabels={orderDecomposition?.labels ?? []}
                         dre={orderConsolidatedDRE}
                         cascadeTrace={orderEpicV5DisplayData.cascadeTrace}
                         pesoOpInterna={orderEpicV5DisplayData.pesoOpInterna}
@@ -2057,10 +2203,17 @@ function OrdersPage() {
                             budgetId: editingOrder?.budget_id ?? null,
                             orderCode: editingOrder?.order_code ?? null,
                             customerName: editingOrder?.customer_name ?? null,
-                            totalValue: orderSubtotal,
+                            // Mesma razão do orçamento: o total geral sai da decomposição,
+                            // que é quem inclui os acréscimos rateados. Ver `totalGeral`.
+                            totalValue: orderDecomposition ? orderDecomposition.result.totalGeral : orderSubtotal,
                             totalACobrar: orderFinalTotal,
                             discountPercent: orderDiscountPct,
                             discountMode: orderDiscountMode,
+                            // O PDF passa a imprimir a DECOMPOSIÇÃO em colunas, no lugar das
+                            // etapas — a MESMA que a tela exibe, e não uma segunda montagem.
+                            ...(orderDecomposition
+                                ? { decomposition: { decomposition: orderDecomposition.result, itemLabels: orderDecomposition.labels } }
+                                : {}),
                         }}
                     />
                 )}

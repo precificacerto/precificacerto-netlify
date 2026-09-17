@@ -46,6 +46,13 @@ import { buildBaselineFromSnapshots, detectConfigWarning, type ResidualItemInput
 import { PAGE_SIZE } from '@/constants/pagination'
 import { ResidualDistributionBlock } from '@/page-parts/shared/residual-distribution-block.component'
 import {
+    inheritDocumentAccessories,
+    resolveDocumentAccessoriesInheritance,
+    INHERITANCE_VERDICT_MESSAGE,
+    INHERITANCE_VERDICT_TONE,
+    type DocumentAccessoryHeader,
+} from '@/utils/budget-accessories'
+import {
   buildItemTaxRatesFromProduct,
   mergeItemAndTenantRates,
   resolveItemCsllPct,
@@ -65,6 +72,9 @@ import {
 } from '@/utils/document-deleted'
 import { useDeletedDocuments } from '@/hooks/use-deleted-documents.hook'
 import { enrichItemsForMotor } from '@/utils/motor-item-enrichment'
+import { buildBudgetDecompositionInput } from '@/utils/budget-decomposition-input'
+import { buildDecomposition } from '@/utils/decomposition-dre'
+import { NOTA_DA_DECOMPOSICAO, applyDecompositionToResidual } from '@/utils/residual-from-decomposition'
 import { hydrateDocumentSnapshots } from '@/lib/document-snapshot'
 import type { TenantSnapshotContext } from '@/lib/items-snapshot'
 import { calculateMotorV17ForPage } from '@/utils/mrm-engine-v17/legacy-adapter'
@@ -74,6 +84,7 @@ import { decideMrmAction } from '@/utils/mrm-policies'
 import { aggregateMotorResults } from '@/utils/mrm-aggregate'
 import { ACTIVE_OR_NULL_FILTER } from '@/utils/active-record-filter'
 import { RequiresReviewBadge } from '@/components/mrm/RequiresReviewBadge'
+import { SERVICE_TAX_SELECT } from '@/utils/item-tax-columns'
 
 const PAYMENT_METHODS = [
     { value: 'PIX', label: '⚡ PIX' },
@@ -143,6 +154,9 @@ interface SaleItemRow {
     expense_breakdown_unit?: import('@/utils/item-tax-rates').ProductExpenseBreakdown | null
     /** Alíquotas tributárias específicas do item (Sprint S11). NULL = fallback tenant. */
     item_tax_rates?: ItemTaxRates | null
+    /** R21: as parcelas de acréscimo, CONGELADAS no rateio do documento de origem. */
+    freight_allocated_value?: number | null
+    accessories_allocated_value?: number | null
     /** true = item manual (nome/valor digitados), false = produto do catálogo */
     is_manual?: boolean
     /** true = item de servico do catalogo */
@@ -258,6 +272,29 @@ function Sales() {
         [detailItems],
     )
     const saleFinalValue = Number(selectedSale?.finalValue) || saleSubtotal
+
+    /**
+     * R21 — o rateio de frete herdado ainda descreve ESTA venda?
+     *
+     * A MESMA função da tela de pedidos. Uma segunda implementação aqui seria a
+     * `copia-divergente` entre duas telas que fazem a mesma pergunta — e a venda é onde a
+     * resposta importa mais, porque depois dela não há documento derivado que corrija.
+     */
+    const saleAccessoriesInheritance = useMemo(
+        () => resolveDocumentAccessoriesInheritance(
+            selectedSale as Parameters<typeof resolveDocumentAccessoriesInheritance>[0],
+            // `detailItems`, e NÃO `saleItems`: é a lista que alimenta o DRE do detalhe, ao
+            // lado do qual o veredito aparece. `saleItems` é o formulário da venda no balcão,
+            // e olhar a lista errada daria soma zero — todo documento com rateio pareceria
+            // ter perdido itens.
+            (detailItems || []).map((it: Record<string, unknown>) => ({
+                total_price: (Number(it.unit_price) || 0) * (Number(it.quantity) || 0),
+                freight_allocated_value: it.freight_allocated_value as number | null,
+                accessories_allocated_value: it.accessories_allocated_value as number | null,
+            })),
+        ),
+        [selectedSale, detailItems],
+    )
     // Etapa 11 abate os itens manuais ANTES de distribuir — repasse puro, resíduo 0. Sai do
     // documento gravado (item sem `product_id` e sem `service_id`), nunca do cadastro vivo.
     const saleManualTotal = useMemo(
@@ -332,6 +369,67 @@ function Sales() {
 
     // EPIC-MRM-V5 (Story 005): extrai cascade_trace, peso/âncora, regime guard dos
     // snapshots persistidos em sale_items.tax_breakdown.
+    /**
+     * A DECOMPOSIÇÃO DA VENDA GRAVADA — lida do SNAPSHOT, nunca do cadastro vivo.
+     *
+     * >>> A DECISÃO, de 16/09/2026 <<<
+     * "venda gravada → gravar no snapshot daqui para frente; os 157 existentes ficam sem,
+     *  com estado explícito na tela."
+     *
+     * A venda é FATO HISTÓRICO. Resolver custo, MO e alíquotas do cadastro de hoje —
+     * como o PEDIDO faz, por ser documento em edição — reescreveria o passado a cada
+     * edição do produto: é a 6ª aparição de `.claude/rules/fato-vs-referencia.md`.
+     *
+     * >>> TUDO OU NADA, e é deliberado <<<
+     * Basta UM item sem `decomposition_input` para a decomposição inteira ficar de fora.
+     * Montá-la com os itens que têm e omitir os que não têm devolveria um DRE que não
+     * fecha — residual diferente de zero, comissão e lucro abaixo do cadastrado — sem
+     * nada na tela dizendo por quê. Melhor a cascata antiga, e o aviso.
+     */
+    const saleDecomposition = useMemo(() => {
+        const itens = (detailItems || [])
+        const VAZIA = { result: null as ReturnType<typeof buildDecomposition> | null, labels: [] as string[] }
+        if (itens.length === 0) return { ...VAZIA, estado: 'SEM_ITENS' as const }
+        const congelados = itens.map((it: any) => it?.tax_breakdown?.decomposition_input ?? null)
+        if (congelados.some((c: any) => c == null)) {
+            return { ...VAZIA, estado: 'ANTERIOR_AO_CONGELAMENTO' as const }
+        }
+        const params = buildBudgetDecompositionInput({
+            items: itens.map((it: any, idx: number) => {
+                const congelado = congelados[idx]
+                return {
+                    key: it.id ?? `sale-item-${idx}`,
+                    label: it.products?.name ?? it.services?.name ?? it.manual_description ?? 'Item',
+                    isManual: congelado.isManual,
+                    isService: congelado.isService,
+                    productType: it.products?.product_type ?? null,
+                    // R18 — o que ESTE item congelou. Vence o cálculo por segmento.
+                    despesasOperacionaisPctCongelado: congelado.despesasOperacionaisPct ?? null,
+                    quantity: Number(it.quantity) || 0,
+                    unitPrice: Number(it.unit_price) || 0,
+                    costUnit: Number(congelado.costUnit) || 0,
+                    productiveLaborUnit: Number(congelado.productiveLaborUnit) || 0,
+                    commissionPct: Number(congelado.commissionPct) || 0,
+                    profitPct: Number(congelado.profitPct) || 0,
+                    rtPct: Number(congelado.rtPct) || 0,
+                    rates: congelado.rates ?? null,
+                    // R21 — a parcela CONGELADA que veio do documento de origem. Colunas
+                    // nulas são NÃO COTADO, e não zero.
+                    acrescimos: (it.freight_allocated_value != null || it.accessories_allocated_value != null)
+                        ? (Number(it.freight_allocated_value) || 0) + (Number(it.accessories_allocated_value) || 0)
+                        : 0,
+                }
+            }),
+            discountPct: (Number(selectedSale?.discount_percent) || 0) / 100,
+            // R18 — a despesa CONGELADA na gravação vai POR ITEM (acima), não como um
+            // número do documento: cada item congelou o seu. Os baldes ficam zerados
+            // porque nada aqui é recalculado — o congelado vence em todos.
+            despesas: { fixa: 0, variavel: 0, financeira: 0, indireta: 0, moProdutiva: 0 },
+        })
+        if (params.isEmpty) return { ...VAZIA, estado: 'SEM_PRODUTO' as const }
+        return { result: buildDecomposition(params.input), labels: params.itemLabels, estado: 'CONGELADA' as const }
+    }, [detailItems, selectedSale])
+
     const saleEpicV5DisplayData = useMemo(
         () => extractEpicV5DisplayData(detailItems || [], {
             regime: mrmConfig.regime,
@@ -496,7 +594,9 @@ function Sales() {
             // Services: try with recurrence_days, fall back without
             let svcs: any[] | null = null
             const svb = supabase as any
-            const svcTaxCols = 'icms_pct, pis_cofins_pct, pis_pct, cofins_pct, iss_pct, is_pct, ipi_pct, ibs_pct, cbs_pct, ibs_reference_pct, cbs_reference_pct, iva_dual_reduction_factor, iss_retido_pct, irpj_pct, csll_pct, sale_price_base, freight_value, insurance_value, accessory_expenses_value'
+            // A lista vive em `item-tax-columns.ts`, com teste de efeito. Escrevê-la à
+            // mão aqui é a forma do #28 e do #45 — `copia-divergente.md`.
+            const svcTaxCols = SERVICE_TAX_SELECT
             const { data: svcsFull, error: svcsErr } = await svb.from('services').select(`id, name, base_price, commission_percent, profit_percent, rt_reserve_percent, commission_table_id, recurrence_days, destination_snapshot, ${svcTaxCols}`).eq('status', 'ACTIVE').or(ACTIVE_OR_NULL_FILTER).order('name')
             if (!svcsErr) {
                 svcs = svcsFull
@@ -787,6 +887,10 @@ function Sales() {
                 // ICMS Complementar — parâmetros de operação da hierarquia (linhagem orçamento→venda).
                 freight_mode: (selectedBudget as any).freight_mode || 'CIF',
                 icms_compl_override: (selectedBudget as any).icms_compl_override ?? null,
+                // R21: o cabeçalho de acréscimos atravessa por CÓPIA LITERAL. A MESMA função
+                // das outras duas travessias — um literal por rota seria a `copia-divergente`
+                // esperando a terceira esquecer um campo.
+                ...inheritDocumentAccessories(selectedBudget as DocumentAccessoryHeader),
             }).select().single()
             if (saleErr) throw saleErr
 
@@ -1297,11 +1401,17 @@ function Sales() {
     // opcionais no `PageItem`: o motor só caía no fallback de cada um.
     // Agora é UMA instância, lida pelo drawer, pela validação e pelo save.
     // Ver `.claude/rules/copia-divergente.md`.
-    const balcaoEnrichedItems = enrichItemsForMotor(saleItems, { products, services }, {
+    //
+    // >>> E ELE É A ENTRADA DA DECOMPOSIÇÃO TAMBÉM, NÃO SÓ DO MOTOR <<<
+    // `sale_items` não tem coluna de custo — medido no schema, igual a `budget_items` e
+    // `order_items`. O custo e a MO produtiva são RESOLVIDOS do cadastro vivo com o contexto
+    // de MO do tenant, e sem esse contexto a MO some sem que o `costTotal` mude (97c6968).
+    // Memoizado porque a decomposição depende dele.
+    const balcaoEnrichedItems = useMemo(() => enrichItemsForMotor(saleItems, { products, services }, {
         production_labor_cost: mrmConfig.production_labor_cost,
         monthly_workload_minutes: mrmConfig.monthly_workload_minutes,
         productive_value_per_minute: mrmConfig.productive_value_per_minute,
-    })
+    }), [saleItems, products, services, mrmConfig.production_labor_cost, mrmConfig.monthly_workload_minutes, mrmConfig.productive_value_per_minute])
     // Contexto do tenant para o motor V17 — UMA instância, lida pelo drawer, pela validação
     // pré-save, pelo save e pelo gravador do snapshot.
     const balcaoMotorTenantCtxV17 = {
@@ -1382,6 +1492,64 @@ function Sales() {
             (Number(p.accessory_expenses_value) || 0)
         return s + tercUnit * (Number(i.quantity) || 0)
     }, 0)
+
+    /**
+     * A DECOMPOSIÇÃO DO BALCÃO — R15 a R20, paridade com o Orçamento.
+     *
+     * O balcão roda o motor AO VIVO, como o orçamento, e já tinha o enriquecimento com o
+     * cadastro e o contexto do tenant. Faltava só CHAMAR: os insumos estavam todos na tela.
+     *
+     * `balcaoEnrichedItems`, NUNCA `saleItems` — é a junta do 97c6968: o custo não está
+     * gravado em lugar nenhum e a MO produtiva só existe no array enriquecido.
+     */
+    const balcaoDecomposition = useMemo(() => {
+        const tercUnitDoCadastro = (productId?: string | null) => {
+            const p = productId ? (products as any[]).find((x) => x.id === productId) : null
+            if (!p) return 0
+            return (Number(p.freight_value) || 0) + (Number(p.insurance_value) || 0)
+                + (Number(p.accessory_expenses_value) || 0)
+        }
+        const params = buildBudgetDecompositionInput({
+            items: balcaoEnrichedItems.map((item) => ({
+                key: item.key,
+                label: item.product_name || 'Item',
+                isManual: item.is_manual,
+                isService: item.is_service,
+                // Segmento LIDO, não inferido — ver `despesas-do-segmento.ts`.
+                productType: item.product_id
+                    ? ((products as any[]).find((p) => p.id === item.product_id)?.product_type ?? null)
+                    : null,
+                quantity: Number(item.quantity) || 0,
+                unitPrice: Number(item.unit_price) || 0,
+                costUnit: Number(item.cost_total) || 0,
+                productiveLaborUnit: Number(item.productive_labor_unit) || 0,
+                commissionPct: Number(item.commission_percent) || 0,
+                profitPct: Number(item.profit_percent) || 0,
+                rtPct: Number(item.rt_reserve_percent) || 0,
+                rates: item.item_tax_rates ?? null,
+                // R21 — a parcela CONGELADA herdada do documento de origem; o cadastro quando
+                // a venda nasceu no balcão e nunca teve rateio. As duas colunas nulas são NÃO
+                // COTADO, e não zero (`ausente-vs-falso.md`) — por isso a escolha é pela
+                // PRESENÇA da coluna, não pelo valor ser positivo.
+                acrescimos: (item.freight_allocated_value != null || item.accessories_allocated_value != null)
+                    ? (Number(item.freight_allocated_value) || 0) + (Number(item.accessories_allocated_value) || 0)
+                    : tercUnitDoCadastro(item.product_id) * (Number(item.quantity) || 0),
+            })),
+            discountPct: (Number(globalDiscountPercentV) || 0) / 100,
+            despesas: {
+                fixa: Number(mrmConfig.expense_breakdown?.fixed_pct) || 0,
+                variavel: Number(mrmConfig.expense_breakdown?.variable_pct) || 0,
+                financeira: Number(mrmConfig.expense_breakdown?.financial_pct) || 0,
+                indireta: Number(mrmConfig.expense_breakdown?.administrative_pct) || 0,
+                // Só entra em segmentação REVENDA, agrupada com a indireta — ver
+                // `indirect-labor-grouping.ts`. Fora dela a soma a ignora.
+                moProdutiva: Number(mrmConfig.mo_produtiva_pct) || 0,
+            },
+            tenantCalcType: mrmConfig.calc_type,
+        })
+        if (params.isEmpty) return null
+        return { result: buildDecomposition(params.input), labels: params.itemLabels }
+    }, [balcaoEnrichedItems, products, globalDiscountPercentV, mrmConfig.dop_pct])
 
     const balcaoResidualItems: ResidualItemInput[] = useMemo(
         () => saleItems.map((item, idx) => {
@@ -2951,7 +3119,7 @@ function Sales() {
                     <Space.Compact block style={{ marginTop: 4, display: 'flex', gap: 8 }}>
                         <Button type="dashed" onClick={handleAddManualProduct} icon={<PlusOutlined />} style={{ flex: 1 }}
                             disabled={!selectedEmployeeIdV}>
-                            Adicionar item manual
+                            Inserir produtos manuais / Repasse
                         </Button>
                     </Space.Compact>
 
@@ -3078,14 +3246,25 @@ function Sales() {
                     {/* Distribuição Residual + DRE Consolidada — paridade com orçamentos */}
                     {saleTotal > 0 && (
                         <ResidualDistributionBlock
-                            distribution={balcaoResidualDistribution}
+                            /* Os cards leem a DECOMPOSIÇÃO, não a Etapa 16 — mesma correção do
+                               1934dbb no orçamento. Sem ela a tela teria duas fontes para o
+                               mesmo RRO, e elas divergem. */
+                            distribution={applyDecompositionToResidual(
+                                balcaoResidualDistribution, balcaoDecomposition?.result ?? null,
+                            )}
                             configWarning={balcaoConfigWarning}
                             regimeGuardActive={balcaoEpicV5DisplayData.regimeGuardActive}
                             discountMode={discountModeV}
+                            footerNote={balcaoDecomposition?.result ? NOTA_DA_DECOMPOSICAO : undefined}
                         />
                     )}
                     {saleTotal > 0 && (
                         <ConsolidatedDREBlock
+                            /* R19 — a cascata expande da etapa 12 em diante com as linhas da
+                               decomposição, e a Etapa 8 passa a exibir o bloco por fora
+                               APURADO em vez do peso derivado por divisão (e109cd6). */
+                            decomposition={balcaoDecomposition?.result ?? null}
+                            itemLabels={balcaoDecomposition?.labels ?? []}
                             dre={balcaoConsolidatedDRE}
                             cascadeTrace={balcaoEpicV5DisplayData.cascadeTrace}
                             pesoOpInterna={balcaoEpicV5DisplayData.pesoOpInterna}
@@ -3262,15 +3441,70 @@ function Sales() {
                             Em MEI/SN, IRPJ/CSLL ocultam automaticamente. */}
                         {saleSubtotal > 0 && (
                             <ResidualDistributionBlock
-                                distribution={saleResidualDistribution}
+                                /* Os cards leem a DECOMPOSIÇÃO quando ela existe — mesma
+                                   correção do 1934dbb. Sem o congelado, seguem na Etapa 16:
+                                   melhor ela que card nenhum. */
+                                distribution={applyDecompositionToResidual(
+                                    saleResidualDistribution, saleDecomposition.result,
+                                )}
                                 regimeGuardActive={saleEpicV5DisplayData.regimeGuardActive}
                                 discountMode={normalizeDiscountModeForDisplay(selectedSale?.discount_mode)}
+                                footerNote={saleDecomposition.result ? NOTA_DA_DECOMPOSICAO : undefined}
                             />
+                        )}
+
+                        {/* ESTADO EXPLÍCITO — a venda é anterior ao congelamento da
+                            decomposição. Montá-la do cadastro de HOJE reescreveria o passado
+                            (`fato-vs-referencia.md`), e exibir uma decomposição parcial
+                            devolveria um DRE que não fecha sem dizer por quê. A tela diz. */}
+                        {saleSubtotal > 0 && saleDecomposition.estado === 'ANTERIOR_AO_CONGELAMENTO' && (
+                            <div style={{
+                                marginTop: 12, padding: '10px 14px', borderRadius: 8, fontSize: 12,
+                                background: 'rgba(234,179,8,0.10)', border: '1px solid rgba(234,179,8,0.35)',
+                                color: '#fde68a',
+                            }}>
+                                ⚠ Decomposição por produto indisponível nesta venda
+                                <div style={{ color: '#94a3b8', marginTop: 4, fontSize: 11 }}>
+                                    Ela é anterior ao congelamento dos insumos da decomposição. Recompor
+                                    com o cadastro de hoje mudaria os números de uma venda já emitida, então
+                                    a tela mostra a cascata como foi gravada. Vendas emitidas a partir de
+                                    agora trazem a decomposição completa.
+                                </div>
+                            </div>
+                        )}
+
+                        {/* R21 — o rateio de frete herdado ainda descreve esta venda?
+                            NÃO recalcula: o share tem o conjunto inteiro no denominador, e
+                            recalcular mudaria a parcela de itens que ninguém tocou.
+                            INDETERMINADO aparece com o MESMO destaque de CONJUNTO_MUDOU —
+                            venda anterior à coluna da base não pode parecer conferida. */}
+                        {saleAccessoriesInheritance && saleAccessoriesInheritance.verdict !== 'SEM_RATEIO' && (
+                            <div style={{
+                                marginTop: 12, padding: '10px 14px', borderRadius: 8, fontSize: 12,
+                                background: INHERITANCE_VERDICT_TONE[saleAccessoriesInheritance.verdict] === 'alerta'
+                                    ? 'rgba(239, 68, 68, 0.12)' : 'rgba(34, 197, 94, 0.10)',
+                                border: INHERITANCE_VERDICT_TONE[saleAccessoriesInheritance.verdict] === 'alerta'
+                                    ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid rgba(34, 197, 94, 0.25)',
+                                color: INHERITANCE_VERDICT_TONE[saleAccessoriesInheritance.verdict] === 'alerta'
+                                    ? '#fca5a5' : '#86efac',
+                            }}>
+                                {INHERITANCE_VERDICT_TONE[saleAccessoriesInheritance.verdict] === 'alerta' ? '⚠ ' : '✓ '}
+                                {INHERITANCE_VERDICT_MESSAGE[saleAccessoriesInheritance.verdict]}
+                                <div style={{ color: '#94a3b8', marginTop: 4, fontSize: 11 }}>
+                                    {saleAccessoriesInheritance.reason}
+                                </div>
+                            </div>
                         )}
 
                         {/* S14 — DRE Consolidada (R3=B + R7=B). Snapshot histórico imutável. */}
                         {saleSubtotal > 0 && (
                             <ConsolidatedDREBlock
+                                /* R19 — quando o congelado existe, a cascata expande da etapa
+                                   12 em diante com as linhas da decomposição e a Etapa 8 traz
+                                   o bloco por fora APURADO. Sem ele, `null` faz a view cair
+                                   no trace de sempre. */
+                                decomposition={saleDecomposition.result}
+                                itemLabels={saleDecomposition.labels}
                                 dre={saleConsolidatedDRE}
                                 cascadeTrace={saleEpicV5DisplayData.cascadeTrace}
                                 pesoOpInterna={saleEpicV5DisplayData.pesoOpInterna}

@@ -34,23 +34,137 @@ percorrido que o de salvar serviço. Ficou armada, esperando.
 ## Por que não existe gate hoje
 
 O controle de migrações do banco e os arquivos do repositório **não têm relação nenhuma**.
-Medido em 01/09/2026:
+A pasta `supabase/migrations/` é **documentação da intenção, não fonte de verdade do schema**.
+
+### Medição de 15/09/2026 — o quadro atual
 
 | | |
 |---|---|
-| Arquivos `.sql` em `supabase/migrations/` | 146 |
-| Versões em `supabase_migrations.schema_migrations` | 130 |
-| Versões em comum (por timestamp do nome) | **0** |
+| Arquivos `.sql` em `supabase/migrations/` | **151** (149 migrações + 2 `rollback_*.sql` sem versão) |
+| Versões distintas nos nomes dos arquivos | **146** |
+| Versões em `supabase_migrations.schema_migrations` | **137** |
+| **Versões em comum** | **4** |
+| Arquivos locais sem correspondente remoto | **142** |
+| Versões remotas sem arquivo local | **133** |
 
-Zero. As migrações do banco foram aplicadas historicamente por outro caminho (Studio, MCP,
-dashboard), cada uma com a sua própria versão gerada na hora. Nenhuma delas carrega o
-timestamp do arquivo correspondente.
+**Método**, para quem for refazer: extrair o prefixo de 14 dígitos de cada nome de arquivo
+(`ls supabase/migrations/*.sql`, `sed -E 's#^([0-9]{14}).*#\1#'`), listar as versões remotas
+pelo conector (`list_migrations`, que lê `supabase_migrations.schema_migrations`), e intersectar
+os dois CONJUNTOS. Comparar contagens não serve: 146 e 137 são números próximos e a
+intersecção é 4.
 
-Consequência: `supabase db push`, que compara essa tabela com os arquivos, não é o caminho em
-uso — e se fosse rodado hoje trataria as 146 como pendentes. Não há nada, hoje, que compare o
-que o repositório declara com o que o banco tem.
+As quatro em comum são todas de 28/02/2026 — `20260228001435`, `001447`, `001647` e `001719`,
+as do enum de papéis. Nelas o `name` remoto é idêntico ao do arquivo, então foram aplicadas
+pelo caminho que o CLI pressupõe. São as únicas.
+
+**Correção de uma medição anterior, registrada aqui em vez de apagada.** A medição de
+01/09/2026 nesta mesma página dizia **146 arquivos, 130 versões remotas e ZERO em comum**. O
+zero estava errado: as quatro de fevereiro já existiam dos dois lados. O diagnóstico não muda
+— quatro em 146 é a mesma conclusão que zero em 146 — mas o número, sim, e um número errado
+numa página de regra é o tipo de coisa que alguém cita depois.
+
+### Caso concreto: a constraint que esta rodada substituiu nunca esteve no histórico
+
+`20260628000001_iva_dual_reduction_factor_check.sql` existe no repositório, está aplicada no
+banco desde junho, e **não aparece em `schema_migrations`**. O mesmo vale para
+`20260414000001_add_iva_dual_fields` e `20260629000001_add_iva_dual_reference_per_item`.
+
+Ou seja: o arquivo existir e o efeito dele estar no banco são fatos independentes, e o
+histórico de migrações não liga um ao outro. Foi assim que a rodada do fator de redução
+descobriu a constraint — consultando `pg_constraint`, não lendo a pasta.
+
+### O `config.toml` aponta para lugar nenhum
+
+`supabase/config.toml` traz `project_id = "web-app"`. Não é o ref do projeto de produção
+(`jvthwpkwzpangnwhuyvj`) — é o placeholder que o `supabase init` grava com o nome do diretório.
+Qualquer comando de CLI que dependa desse arquivo para saber contra quem falar não está
+apontando para a produção.
+
+### A consequência, e por que ela precisa estar escrita ANTES
+
+**`supabase db push` não reconcilia nada.** Rodado hoje, ele consideraria **142 arquivos
+pendentes** — quase todos já aplicados no banco por outro caminho. Não é um comando de
+sincronização esperando para ser descoberto; é um comando que trataria seis meses de schema
+já existente como trabalho a fazer.
+
+Está escrito aqui porque a leitura natural de uma pasta chamada `migrations` com 149 arquivos é
+que ela seja a fonte de verdade, e a leitura natural de `db push` é que ele sincronize. As duas
+são falsas neste repositório, e quem descobrir isso rodando o comando descobre tarde.
+
+**Não há proposta de reconciliação nesta página.** Alinhar os 142 é decisão de risco com escopo
+próprio, e não sai de uma correção de defeito — é o mesmo item de INFRAESTRUTURA já registrado
+na seção seguinte.
+
+### Efeito colateral: três timestamps duplicados entre arquivos
+
+149 arquivos de migração carregam 146 versões distintas. Três pares compartilham timestamp:
+
+| Versão | Arquivos |
+|---|---|
+| `20260310000003` | `soft_delete_is_active`, `split_labor_expense_group` |
+| `20260327000001` | `add_commission_tables`, `extend_expense_group_constraint` |
+| `20260419000002` | `epic22_customer_attachments`, `epic22_products_items_soft_delete` |
+
+Hoje é inofensivo, porque nada consome a pasta como sequência. Passaria a importar no dia em
+que alguém adotasse o CLI de verdade: a versão é a chave em `schema_migrations`, e duas
+migrações com a mesma chave não cabem lá.
 
 Enquanto isso for verdade, **a verificação é manual e é obrigatória**.
+
+## A CONVENÇÃO DE NOME — o que dá rastreabilidade arquivo ↔ aplicação
+
+Quando a aplicação é feita fora do CLI, o banco gera a versão na hora e ela **nunca** vai bater
+com o nome do arquivo. O que ainda dá para preservar é a ligação, e há precedente de ter sido
+preservada:
+
+| Versão remota | `name` registrado | Dá para achar o arquivo? |
+|---|---|---|
+| `20260910193636` | `20260909000001_delete_sale_cascade_sem_precondicao` | **sim** — o nome do arquivo está inteiro no campo |
+| `20260915151847` | `iva_dual_reduction_factor_range` | **não** — o prefixo `20260915000001` se perdeu |
+
+As duas foram aplicadas pelo conector, com dias de diferença. A primeira deixa rastro; a
+segunda obriga a adivinhar por semelhança de nome.
+
+**Convenção, daqui em diante:** ao aplicar por fora do CLI, o `name` da migração é o **nome
+completo do arquivo do repositório**, com o prefixo de timestamp, sem a extensão. Custa nada no
+momento da aplicação e é a única coisa que liga as duas metades enquanto o gate não existir.
+
+A perda de hoje fica registrada como perda, não corrigida: reescrever o `name` de uma migração
+já aplicada é mexer em histórico, e não vale o risco por um registro.
+
+### A convenção FUNCIONOU — primeira aplicação sob ela, 16/09/2026
+
+As três migrações do cClassTrib foram aplicadas por fora do CLI (a primeira pelo SQL Editor,
+as outras duas pelo conector) e o `name` carrega o nome completo do arquivo:
+
+| versão gerada pelo banco | `name` registrado |
+|---|---|
+| `20260916190412` | `20260916000001_cst_ibs_cbs_e_cclass_trib` |
+| `20260916193058` | `20260916000002_classificacao_fiscal_em_products` |
+| `20260916193508` | `20260916000003_reducao_por_tributo_backfill` |
+
+**A versão continua não batendo, e isso é o esperado** — o banco a gera na hora, e a regra
+acima já dizia que ela nunca vai coincidir com o prefixo do arquivo. O que a convenção
+preserva é a LIGAÇÃO, e ela está preservada: dá para achar o arquivo a partir da linha do
+`schema_migrations` sem adivinhar por semelhança de nome, que era exatamente o que se perdeu
+em `iva_dual_reduction_factor_range`.
+
+Fica registrado como precedente de que a convenção é praticável, não só desejável.
+
+### Duas coisas que a aplicação de hoje ensinou, e que não estavam escritas
+
+**1. `BEGIN`/`COMMIT` no arquivo brigam com o conector.** O conector do Supabase abre
+transação própria; o `BEGIN` do arquivo produz `WARNING: there is already a transaction in
+progress` e o `COMMIT` fecha a transação DELE. As duas migrações aplicadas por esse caminho
+tiveram os dois removidos na hora. O SQL Editor, ao contrário, aceita o arquivo como está.
+
+Consequência para quem escrever a próxima: **o `BEGIN`/`COMMIT` é do arquivo, e quem aplica
+decide se tira.** Escrever sem eles seria pior — aplicar por psql ou pelo Editor deixaria cada
+comando em autocommit, e uma falha no meio não teria rollback.
+
+**2. O `NOTIFY pgrst` não vem junto com o `COMMIT`.** É passo separado, e foi rodado nas três.
+A regra acima já dizia por quê; aqui fica o registro de que foi feito, porque "esqueci o
+NOTIFY" é indistinguível de "a coluna não existe" pela mensagem de erro que o usuário vê.
 
 ## PENDENTE POR PADRÃO
 

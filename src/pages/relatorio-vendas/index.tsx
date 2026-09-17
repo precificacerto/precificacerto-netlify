@@ -243,6 +243,10 @@ function SalesReport() {
     const [recClientFilter, setRecClientFilter] = useState<string | undefined>(undefined)
     const [payModalOpen, setPayModalOpen] = useState(false)
     const [payingRecord, setPayingRecord] = useState<PendingReceivableRow | null>(null)
+    // SUGESTÃO DE REPASSE — total dos itens manuais da venda que está sendo recebida.
+    // `null` é NÃO CONSULTADO; `0` é consultado e não há repasse. São coisas diferentes e a
+    // tela não exibe nada em nenhum dos dois (`ausente-vs-falso.md`).
+    const [repasseDaVenda, setRepasseDaVenda] = useState<number | null>(null)
     const [payingSaving, setPayingSaving] = useState(false)
     const [payForm] = Form.useForm()
 
@@ -793,10 +797,43 @@ function SalesReport() {
         }
     }, [effectiveTenantId, commDateRange, commEmployeeFilter, commSaleFilter, commProductFilter, employees, messageApi])
 
-    const handleOpenRegisterPayment = (record: PendingReceivableRow) => {
+    const handleOpenRegisterPayment = async (record: PendingReceivableRow) => {
         setPayingRecord(record)
+        setRepasseDaVenda(null)
         payForm.resetFields()
         setPayModalOpen(true)
+
+        // O ELO VENDA↔CAIXA JÁ EXISTE, e é isto que torna a sugestão barata: o lançamento de
+        // recebimento gravado logo abaixo leva `origin_type: 'SALE'` e `origin_id: saleId`.
+        // Medido em 17/09/2026: 175 de 176 lançamentos de venda carregam o `origin_id`.
+        //
+        // ITEM MANUAL NÃO TEM COLUNA PRÓPRIA em `sale_items` — nem `is_manual`, nem
+        // `manual_description`. Ele é o item com `product_id` E `service_id` NULOS, que é o
+        // mesmo critério de `#27`. Medido: 16 itens manuais, em 16 das 98 vendas,
+        // R$ 1.980.321,17.
+        //
+        // A SUGESTÃO NÃO LANÇA NADA. Ela diz que aquele valor tem destino e onde registrá-lo;
+        // quem lança é o usuário, no Fluxo de Caixa. Lançar sozinho gravaria uma despesa que
+        // ninguém conferiu — e o lado da ENTRADA continua inteiro na receita bruta de
+        // qualquer jeito (ver `docs/registros/o-repasse-entra-inteiro-pela-receita.md`).
+        if (!record.saleId) return
+        try {
+            const { data: manuais } = await (supabase as any)
+                .from('sale_items')
+                .select('quantity, unit_price')
+                .eq('sale_id', record.saleId)
+                .is('product_id', null)
+                .is('service_id', null)
+            const total = (manuais || []).reduce(
+                (acc: number, it: any) => acc + (Number(it.unit_price) || 0) * (Number(it.quantity) || 0),
+                0,
+            )
+            setRepasseDaVenda(total)
+        } catch {
+            // Falha na consulta é AUSÊNCIA, não zero: o aviso não aparece em vez de aparecer
+            // dizendo que não há repasse.
+            setRepasseDaVenda(null)
+        }
     }
 
     const handleRegisterPayment = async () => {
@@ -2291,7 +2328,7 @@ function SalesReport() {
             <Modal
                 title="Registrar Pagamento"
                 open={payModalOpen}
-                onCancel={() => { setPayModalOpen(false); setPayingRecord(null) }}
+                onCancel={() => { setPayModalOpen(false); setPayingRecord(null); setRepasseDaVenda(null) }}
                 onOk={handleRegisterPayment}
                 okText="Confirmar Pagamento"
                 confirmLoading={payingSaving}
@@ -2308,6 +2345,22 @@ function SalesReport() {
                             <strong>Saldo pendente:</strong> {formatCurrency(payingRecord.amountRemaining > 0 ? payingRecord.amountRemaining : payingRecord.amount)}
                         </p>
                         <p style={{ margin: '4px 0', fontSize: 12, color: '#94a3b8' }}><strong>Descrição:</strong> {payingRecord.description}</p>
+                    </div>
+                )}
+                {repasseDaVenda != null && repasseDaVenda > 0 && (
+                    <div
+                        data-testid="sugestao-repasse"
+                        style={{ marginBottom: 16, padding: '12px 16px', background: '#1e293b', borderRadius: 8, border: '1px solid #D97706' }}
+                    >
+                        <p style={{ margin: '4px 0', color: '#F79009', fontWeight: 700 }}>
+                            Esta venda tem {formatCurrency(repasseDaVenda)} em produtos manuais / Repasse.
+                        </p>
+                        <p style={{ margin: '4px 0', fontSize: 12, color: '#94a3b8' }}>
+                            O valor entra inteiro pela receita. Para que a demonstração mostre que ele teve
+                            destino, lance no Fluxo de Caixa uma despesa na categoria{' '}
+                            <strong>Repasse de mercadorias</strong>.
+                            Este aviso não lança nada sozinho.
+                        </p>
                     </div>
                 )}
                 <Form form={payForm} layout="vertical" initialValues={{ payment_type: 'FULL' }}>

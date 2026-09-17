@@ -315,14 +315,26 @@ O AIOS carrega regras contextuais de `.claude/rules/` automaticamente. Regras co
 | `agent-memory-imports.md` | Agent memory lifecycle and CLAUDE.md ownership |
 | `ausente-vs-falso.md` | Dado ausente ou dado falso — omitir não afirma nada; default afirma |
 | `baseline-measurement.md` | Baseline measurement procedure for validating a PR against main |
+| `cascata-lucro-real.md` | A cascata do Lucro Real — construção, orçamento e decomposição (R1 a R20) |
 | `coderabbit-integration.md` | Automated code review integration rules |
-| `fato-vs-referencia.md` | Valor gravado é fato histórico ou referência viva — classe com 5 aparições |
-| `ids-principles.md` | Incremental Development System principles |
-| `migration-delivery.md` | PR com migração só está entregue com a migração aplicada e verificada |
-| `registro-de-classe.md` | Onde o registro vive e como se escreve — uma ocorrência é anedota, quatro é critério |
+| `construtor-empobrecido.md` | Dois produtores do mesmo contrato, um com menos campos, e nada falha |
+| `copia-divergente.md` | O mesmo mapeamento escrito duas vezes, uma esquecendo um campo |
+| `decisao-sob-regra-da-epoca.md` | Decisão correta sob a regra da época não é falha — datar antes de nomear |
+| `decomposicao-na-tela.md` | Os requisitos de tela da decomposição — colunas, "% médio", truncamento, residual |
 | `estado-relatado-vs-real.md` | Estado de sistema externo exige consulta à fonte primária antes de virar premissa |
+| `fato-vs-referencia.md` | Valor gravado é fato histórico ou referência viva — classe com 5 aparições |
+| `hipotese-derrubada-pela-propria-medicao.md` | Quando a razão para NÃO testar um caso é uma suposição sua, teste o caso |
+| `ids-principles.md` | Incremental Development System principles |
 | `mcp-usage.md` | MCP server usage rules and tool selection priority |
+| `migration-delivery.md` | PR com migração só está entregue com a migração aplicada e verificada |
+| `portao-que-nao-alcanca.md` | O portão fica verde e a proteção declarada não foi exercida |
+| `razao-longe-da-restricao.md` | A restrição é imposta num ponto e a razão mora noutro — citar onde se declara |
+| `regime-e-segmento-determinam-a-construcao.md` | Regime e segmento determinam o formato; a decomposição lê, não infere |
+| `registro-de-classe.md` | Onde o registro vive e como se escreve — uma ocorrência é anedota, quatro é critério |
 | `story-lifecycle.md` | Story status transitions and quality gates |
+| `teste-que-nao-exercita.md` | Cada asserção precisa FALHAR sem a sua correção |
+| `tool-examples.md` | Tool input examples for selection guidance |
+| `tool-response-filtering.md` | Tool response filtering rules |
 | `workflow-execution.md` | 4 primary workflows (SDC, QA Loop, Spec Pipeline, Brownfield) |
 
 > **Diretório:** `.claude/rules/` — rules são carregadas automaticamente pelo Claude Code quando relevantes.

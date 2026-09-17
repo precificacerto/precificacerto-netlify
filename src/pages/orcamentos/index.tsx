@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react'
 import {
     App as AntdApp,
     Button, Checkbox, Drawer, Dropdown, Form, Input, InputNumber, Space, Table, Tag,
-    message, DatePicker, Steps, Popconfirm, Divider, Empty, Modal, Upload, Radio, Segmented,
+    message, DatePicker, Steps, Popconfirm, Divider, Empty, Modal, Upload, Radio, Segmented, Tooltip,
 } from 'antd'
 import { Select } from '@/components/ui/app-select.component'
 import type { ColumnsType } from 'antd/es/table'
@@ -20,7 +20,7 @@ import {
     DollarOutlined, SearchOutlined, PlusOutlined, DeleteOutlined,
     WhatsAppOutlined, SendOutlined, EditOutlined,
     PaperClipOutlined, UploadOutlined, ShoppingCartOutlined, ToolOutlined,
-    UnorderedListOutlined, FilePdfOutlined, MoreOutlined,
+    UnorderedListOutlined, FilePdfOutlined, MoreOutlined, InfoCircleOutlined,
 } from '@ant-design/icons'
 import { useDevice } from '@/contexts/device.context'
 import { MAX_PHONE_MASKED_LENGTH, phoneMask, phoneRules } from '@/utils/phone-br'
@@ -55,6 +55,25 @@ import { consolidateStDifalFromItems, computeTotalACobrar } from '@/utils/icms-s
 import { useResidualDistribution } from '@/hooks/use-residual-distribution'
 import { type ResidualItemInput, validateResidualVsCascade } from '@/utils/residual-distribution'
 import { ResidualDistributionBlock } from '@/page-parts/shared/residual-distribution-block.component'
+import { NOTA_DA_DECOMPOSICAO, applyDecompositionToResidual } from '@/utils/residual-from-decomposition'
+import { buildDecomposition } from '@/utils/decomposition-dre'
+import { buildBudgetDecompositionInput } from '@/utils/budget-decomposition-input'
+import { resolveSegmentoDaConstrucao } from '@/utils/despesas-do-segmento'
+import { pisCofinsNominalFromEffective } from '@/utils/sale-context'
+import { PRODUCT_TAX_SELECT, SERVICE_TAX_SELECT } from '@/utils/item-tax-columns'
+import { pctToFraction, pisCofinsFractionFromItem } from '@/utils/rate-scale'
+import {
+    allocateAccessories,
+    buildDocumentAccessoriesPayload,
+    inheritDocumentAccessories,
+    type DocumentAccessoryHeader,
+    resolveAccessoriesSource,
+    resolveItemFicha,
+    roundAllocationsToCents,
+    DEFAULT_ALLOCATION_CRITERIA,
+    type AllocationCriteria,
+    type AllocationTarget,
+} from '@/utils/budget-accessories'
 import {
   buildItemTaxRatesFromProduct,
   mergeItemAndTenantRates,
@@ -242,6 +261,16 @@ function Budgets() {
     const [empServiceTables, setEmpServiceTables] = useState<{id: string; name: string; type: string; commission_percent?: number}[]>([])
     const [tableSections, setTableSections] = useState<{key: string; tableId: string | null}[]>([{key: 'ts-0', tableId: null}])
     const [globalDiscountPercent, setGlobalDiscountPercent] = useState(0)
+
+    // ── R10 · R11 · R12 — ACRÉSCIMOS DO DOCUMENTO ──
+    // "Um frete atende vários produtos" (R11). Os três valores são COTADOS AQUI, e a NF-e já
+    // obriga o rateio por item (`vFrete` existe no nível do item). `null` é NÃO COTADO, e é o
+    // estado de todo orçamento existente: nele o cadastro do produto continua prevalecendo,
+    // exatamente como hoje, sem migração retroativa.
+    const [docFreightValue, setDocFreightValue] = useState<number | null>(null)
+    const [docInsuranceValue, setDocInsuranceValue] = useState<number | null>(null)
+    const [docAccessoryValue, setDocAccessoryValue] = useState<number | null>(null)
+    const [docAllocationCriteria, setDocAllocationCriteria] = useState<AllocationCriteria>(DEFAULT_ALLOCATION_CRITERIA)
     const [discountInputMode, setDiscountInputMode] = useState<'PERCENT' | 'AMOUNT'>('PERCENT')
     const [discountMode, setDiscountMode] = useState<DiscountMode>('PROPORTIONAL')
     const skipTableAutoSelectRef = useRef(false)
@@ -743,11 +772,19 @@ function Budgets() {
     // divergido: as de venda não recompunham custo/MO/despesa, não marcavam `is_manual_cost`
     // e duas nem resolviam o RT. Com um construtor só, acrescentar um campo vale para as
     // quatro rotas. Ver `.claude/rules/copia-divergente.md`.
-    const enrichedItems = enrichItemsForMotor(budgetItems, { products, services }, {
+    //
+    // >>> E ELE É A ENTRADA DOS DOIS CONSUMIDORES, NÃO SÓ DO MOTOR <<<
+    // A decomposição lia `budgetItems` CRU. O custo de um item não está gravado — não existe
+    // coluna `budget_items.cost_total` — então ele é RESOLVIDO do cadastro vivo, e a MO
+    // produtiva do ATeste1509 só sai do fallback runtime `product_workload ×
+    // (production_labor_cost ÷ monthly_workload_minutes)`, que precisa do contexto do tenant.
+    // Congelado na linha, ele vale o que valia no instante em que a linha foi montada;
+    // resolvido aqui, vale o que vale agora. Memoizado porque a decomposição depende dele.
+    const enrichedItems = useMemo(() => enrichItemsForMotor(budgetItems, { products, services }, {
         production_labor_cost: mrmConfig.production_labor_cost,
         monthly_workload_minutes: mrmConfig.monthly_workload_minutes,
         productive_value_per_minute: mrmConfig.productive_value_per_minute,
-    })
+    }), [budgetItems, products, services, mrmConfig.production_labor_cost, mrmConfig.monthly_workload_minutes, mrmConfig.productive_value_per_minute])
     // Parâmetros de operação para a hierarquia do ICMS Complementar (Etapa 17). ST/DIFAL é
     // por-produto; consolidamos como "algum item ativo" (bloqueio no nível da operação). Frete
     // e seguro separados das demais despesas acessórias (FOB exclui frete; CIF contribuinte usa
@@ -874,7 +911,139 @@ function Budgets() {
     // CHEIO (pré-desconto, d=0) → exibição ACIMA do campo de desconto.
     const stDifalFull = consolidateStDifalFromItems(budgetItems, products as any[], 0)
     const totalPorForaExtraFull = stDifalFull.st + stDifalFull.difal + stDifalFull.fcp + icmsComplFull
-    const totalACobrarFull = budgetTotal + totalPorForaExtraFull
+    // ══════════════════════════════════════════════════════════════════════════
+    // R10 · R11 · R12 · R13 — ACRÉSCIMOS DO DOCUMENTO, RATEADOS POR ITEM
+    // ══════════════════════════════════════════════════════════════════════════
+    //
+    // A precedência é explícita e não adivinha (`resolveAccessoriesSource`):
+    //   documento cotou algum acréscimo → o rateio manda, o cadastro do produto é ignorado;
+    //   documento não cotou nada        → o cadastro do produto prevalece, como hoje.
+    //
+    // Todo orçamento existente está no segundo caso, e continua com o preço que tinha —
+    // é a R11 dizendo "sem migração retroativa" em código, não em comentário.
+    //
+    // A base do rateio é o MONTANTE A CARREGAR (R10): produtos precificados MAIS itens
+    // manuais. Ela é fixada ANTES do gross-up, e é isso que evita a circularidade.
+    const accessoriesSource = resolveAccessoriesSource({
+        freightValue: docFreightValue,
+        insuranceValue: docInsuranceValue,
+        accessoryExpensesValue: docAccessoryValue,
+        criteria: docAllocationCriteria,
+    })
+
+    const accessoriesAllocation = useMemo(() => {
+        if (accessoriesSource.source !== 'DOCUMENTO') return null
+
+        const targets: AllocationTarget[] = budgetItems.map((item, idx) => {
+            const totalValue = getItemTotalWithCommission(item)
+            if (item.isManual) {
+                return { id: item.key, totalValue, isManual: true }
+            }
+            // R12 — a parcela HERDA as alíquotas do item que a recebeu. A ficha sai de
+            // `resolveItemFicha`, que lê a MESMA matriz da construção: não se inventa
+            // alíquota para o frete, e não se redescobre a que o produto usou.
+            const rates = item.item_tax_rates
+            const ficha = resolveItemFicha({
+                // A SEGUNDA CÓPIA do segmento de dois valores, corrigida junto com a da
+                // decomposição em 17/09/2026. Elas liam a MESMA matriz e a inferiam do
+                // mesmo jeito errado — um produto de REVENDA entrava como industrialização,
+                // onde o IPI é POR FORA. Uma fonte só, em `despesas-do-segmento.ts`.
+                segment: resolveSegmentoDaConstrucao({
+                    isService: item.isService,
+                    productType: (products as any[]).find((p) => p.id === item.product_id)?.product_type ?? null,
+                    tenantCalcType: mrmConfig.calc_type,
+                }),
+                // MESMA travessia de escala da decomposição (`rate-scale.ts`). Aqui as
+                // alíquotas eram passadas CRUAS — `icms_pct = 17` chegava como 1700% —, e o
+                // rateio e a decomposição liam a mesma fonte em escalas diferentes. Duas
+                // leituras divergentes do mesmo campo é `copia-divergente.md`, e o campo em
+                // divergência era uma alíquota.
+                rates: {
+                    icmsPct: item.isService ? null : pctToFraction(rates?.icms_pct),
+                    issPct: item.isService ? pctToFraction(rates?.iss_pct) : null,
+                    // O cadastro guarda o PIS/COFINS já com a exclusão do ICMS aplicada; o
+                    // motor pede a nominal. A reconstituição é exata em `c = 0` — ver
+                    // `pisCofinsNominalFromEffective`.
+                    pisCofinsPct: pisCofinsNominalFromEffective(
+                        pisCofinsFractionFromItem(rates?.pis_pct, rates?.cofins_pct),
+                        item.isService ? 0 : pctToFraction(rates?.icms_pct),
+                        item.isService ? pctToFraction(rates?.iss_pct) : 0,
+                    ),
+                    ipiPct: item.isService ? null : pctToFraction(rates?.ipi_pct),
+                    isPct: item.isService ? null : pctToFraction(rates?.is_pct),
+                    ibsPct: pctToFraction(rates?.ibs_pct),
+                    cbsPct: pctToFraction(rates?.cbs_pct),
+                },
+            })
+            const prod = item.product_id ? (products as any[]).find((p) => p.id === item.product_id) : null
+            return {
+                id: item.key,
+                totalValue,
+                isManual: false,
+                resolved: ficha.ficha,
+                // Grandezas dos critérios PESO e VOLUME, quando o cadastro as tem.
+                weight: prod ? Number(prod.weight) || 0 : 0,
+                volume: prod ? Number(prod.volume) || 0 : 0,
+                manualWeight: totalValue,
+            }
+        })
+
+        const r = allocateAccessories({
+            freightValue: accessoriesSource.document.freightValue,
+            insuranceValue: accessoriesSource.document.insuranceValue,
+            accessoryExpensesValue: accessoriesSource.document.accessoryExpensesValue,
+            criteria: accessoriesSource.document.criteria,
+            targets,
+        })
+        if (r.errors.length > 0) return r
+
+        // Arredonda para centavos SEM perder nem inventar dinheiro: é o que vai para o
+        // `freight_allocated_value` de cada item, e a soma tem de fechar com o cotado.
+        const cents = roundAllocationsToCents(r.perTarget.map((t) => t.allocated), r.totalOriginal)
+        const fretes = roundAllocationsToCents(
+            r.perTarget.map((t) => t.allocatedFreight),
+            accessoriesSource.document.freightValue,
+        )
+        const acess = roundAllocationsToCents(
+            r.perTarget.map((t) => t.allocatedAccessories),
+            accessoriesSource.document.insuranceValue + accessoriesSource.document.accessoryExpensesValue,
+        )
+        return {
+            ...r,
+            perTarget: r.perTarget.map((t, i) => ({
+                ...t, allocated: cents[i], allocatedFreight: fretes[i], allocatedAccessories: acess[i],
+            })),
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [accessoriesSource.source, docFreightValue, docInsuranceValue, docAccessoryValue, docAllocationCriteria, budgetItems, products])
+
+    /**
+     * A parcela de cada item, por chave, já em centavos fechados. `null` quando o documento
+     * não cotou nada — e `null` significa NÃO RATEADO, que é diferente de rateado em zero.
+     */
+    const allocatedByKey = useMemo(() => {
+        if (!accessoriesAllocation || accessoriesAllocation.errors.length > 0) return null
+        const m = new Map<string, {
+            freight: number; accessories: number
+            /** R13 — o tributo por dentro sobre o acréscimo, como a CONSTRUÇÃO o apurou. */
+            fiscais: { base: number; icms: number; iss: number; pisCofins: number } | null
+        }>()
+        for (const t of accessoriesAllocation.perTarget) {
+            m.set(t.id, {
+                freight: t.allocatedFreight,
+                accessories: t.allocatedAccessories,
+                fiscais: t.taxesInside ? { base: t.price, ...t.taxesInside } : null,
+            })
+        }
+        return m
+    }, [accessoriesAllocation])
+
+    /** R13 — o total dos acréscimos COM tributo. Zero quando o documento não cotou nada. */
+    const accessoriesTotalComTributos = accessoriesAllocation && accessoriesAllocation.errors.length === 0
+        ? accessoriesAllocation.totalComTributos
+        : 0
+
+    const totalACobrarFull = budgetTotal + totalPorForaExtraFull + accessoriesTotalComTributos
     // COM desconto (base pós-desconto) → exibição ABAIXO do desconto e persistência.
     const stDifalConsolidated = consolidateStDifalFromItems(budgetItems, products as any[], globalDiscountPercent)
     // R1 (doc v4 Tab. 30/36): total a cobrar do cliente inclui os tributos por fora destacados.
@@ -900,15 +1069,20 @@ function Budgets() {
         (s, i) => (i.isManual ? s + (Number(i.unit_price) || 0) * (Number(i.quantity) || 0) : s),
         0,
     )
-    const despAcessoriasTotal = budgetItems.reduce((s, i) => {
-        const p = findProd(i.product_id)
-        if (!p) return s
-        const terceirizadasUnit =
-            (Number(p.freight_value) || 0) +
-            (Number(p.insurance_value) || 0) +
-            (Number(p.accessory_expenses_value) || 0)
-        return s + terceirizadasUnit * (Number(i.quantity) || 0)
-    }, 0)
+    // R11 — o cadastro do produto só alimenta esta linha quando o DOCUMENTO não cotou nada.
+    // Com acréscimo cotado no orçamento, o rateio manda e somar o do cadastro por cima seria
+    // cobrar o mesmo frete duas vezes.
+    const despAcessoriasTotal = accessoriesSource.source === 'DOCUMENTO'
+        ? (accessoriesAllocation && accessoriesAllocation.errors.length === 0 ? accessoriesAllocation.totalAllocated : 0)
+        : budgetItems.reduce((s, i) => {
+            const p = findProd(i.product_id)
+            if (!p) return s
+            const terceirizadasUnit =
+                (Number(p.freight_value) || 0) +
+                (Number(p.insurance_value) || 0) +
+                (Number(p.accessory_expenses_value) || 0)
+            return s + terceirizadasUnit * (Number(i.quantity) || 0)
+        }, 0)
 
     // ── EPIC-RR-DISPLAY: distribuição semântica (PDF GPT + DOCX Claude, 20/05/2026) ──
     // Aria S2 review: memoizar array de items antes de passar ao hook (evita
@@ -1044,9 +1218,20 @@ function Budgets() {
                 motor_new_irpj: motor?.new_irpj,
                 motor_cp_total: motor?.cp,
                 motor_expense_breakdown: motorV17?.expense_breakdown_v17 ?? null,
-                freight_unit: prod ? Number(prod.freight_value) || 0 : 0,
-                insurance_unit: prod ? Number(prod.insurance_value) || 0 : 0,
-                accessory_unit: prod ? Number(prod.accessory_expenses_value) || 0 : 0,
+                // R11 — com acréscimo cotado no documento, o item recebe a PARCELA RATEADA
+                // (já por unidade) e o cadastro do produto é ignorado. Sem cotação, segue o
+                // cadastro, como sempre foi.
+                ...(allocatedByKey
+                    ? {
+                        freight_unit: (allocatedByKey.get(item.key)?.freight ?? 0) / Math.max(1, Number(item.quantity) || 1),
+                        insurance_unit: 0,
+                        accessory_unit: (allocatedByKey.get(item.key)?.accessories ?? 0) / Math.max(1, Number(item.quantity) || 1),
+                    }
+                    : {
+                        freight_unit: prod ? Number(prod.freight_value) || 0 : 0,
+                        insurance_unit: prod ? Number(prod.insurance_value) || 0 : 0,
+                        accessory_unit: prod ? Number(prod.accessory_expenses_value) || 0 : 0,
+                    }),
             }
         })
         // Para DRE: os snapshots de taxes_inside/outside precisam vir do motor
@@ -1089,6 +1274,99 @@ function Budgets() {
             irpj_pct: mrmConfig.irpj_pct,
         })
     }, [budgetItems, motorResultsByItem, mrmConfig.regime, mrmConfig.csll_pct, mrmConfig.irpj_pct])
+
+    /**
+     * A DECOMPOSIÇÃO — R15 a R20, com COLUNA POR PRODUTO.
+     *
+     * Substitui a Memória Cascata de 17 etapas neste ponto da tela. A antiga divergia da
+     * regra em três lugares, e a nova já nasceu certa nos três (medido em
+     * `decomposicao-ligada-na-tela.test.ts`):
+     *
+     *   - na distribuição do RRO a base é o RRO e o percentual é o PESO (R17/R20), não a
+     *     alíquota "efetivada" — efetivada é da CONSTRUÇÃO;
+     *   - a base do ICMS é a RECEITA DE PRODUTOS (planilha, linha 72), não a âncora interna;
+     *   - IBS/CBS/IS/IPI vêm logo depois dos repasses e ANTES da operação por dentro (R19),
+     *     porque o RRO tem de ser a última sobra da conta.
+     *
+     * A ficha de cada item sai de `resolveItemFicha`, a MESMA do rateio: a decomposição LÊ o
+     * que a construção usou, nunca redescobre.
+     */
+    const decomposition = useMemo(() => {
+        const params = buildBudgetDecompositionInput({
+            // `enrichedItems`, NUNCA `budgetItems`: o custo e a MO produtiva são RESOLVIDOS do
+            // cadastro vivo mais o contexto de mão de obra do tenant, e é isso que o motor
+            // consome. Ler a linha crua aqui fazia da decomposição a SEGUNDA fonte do custo —
+            // e ela exibia R$ 7.985,99 (só `product_items.item_cost_net`) onde a construção
+            // exibe R$ 10.562,57, faltando exatamente a MO de R$ 2.576,58.
+            items: enrichedItems.map((item) => ({
+                key: item.key,
+                label: item.product_name || 'Item',
+                isManual: item.isManual,
+                isService: item.isService,
+                // O SEGMENTO é lido, não inferido: produto de REVENDA é REVENDA em
+                // qualquer tenant, e lá o IPI é INEXISTENTE. Ver `despesas-do-segmento.ts`.
+                productType: item.product_id
+                    ? ((products as any[]).find((p) => p.id === item.product_id)?.product_type ?? null)
+                    : null,
+                quantity: Number(item.quantity) || 0,
+                unitPrice: Number(item.unit_price) || 0,
+                costUnit: Number(item.cost_total) || 0,
+                // A outra metade do CMV: `resolveProductCostAndLabor` separa material de MO
+                // produtiva, e só a soma é o "Custo produto" que a construção exibe.
+                productiveLaborUnit: Number(item.productive_labor_unit) || 0,
+                commissionPct: Number(item.commission_percent) || 0,
+                profitPct: Number(item.profit_percent) || 0,
+                rtPct: Number(item.rt_reserve_percent) || 0,
+                rates: item.item_tax_rates ?? null,
+                // R13 — a parcela RATEADA quando o documento cotou; o cadastro quando não.
+                // R13 — o tributo do acréscimo, LIDO da construção. `null` quando o
+                // documento não cotou: ele é EXIBIÇÃO FISCAL e não entra no DRE.
+                acrescimosFiscais: allocatedByKey?.get(item.key)?.fiscais ?? null,
+                acrescimos: allocatedByKey
+                    ? (allocatedByKey.get(item.key)?.freight ?? 0) + (allocatedByKey.get(item.key)?.accessories ?? 0)
+                    : (() => {
+                        const prod = item.product_id ? (products as any[]).find((p) => p.id === item.product_id) : null
+                        if (!prod) return 0
+                        return ((Number(prod.freight_value) || 0) + (Number(prod.insurance_value) || 0)
+                            + (Number(prod.accessory_expenses_value) || 0)) * (Number(item.quantity) || 0)
+                    })(),
+            })),
+            discountPct: (Number(globalDiscountPercent) || 0) / 100,
+            despesas: {
+                fixa: Number(mrmConfig.expense_breakdown?.fixed_pct) || 0,
+                variavel: Number(mrmConfig.expense_breakdown?.variable_pct) || 0,
+                financeira: Number(mrmConfig.expense_breakdown?.financial_pct) || 0,
+                indireta: Number(mrmConfig.expense_breakdown?.administrative_pct) || 0,
+                // Só entra em segmentação REVENDA, agrupada com a indireta — ver
+                // `indirect-labor-grouping.ts`. Fora dela a soma a ignora.
+                moProdutiva: Number(mrmConfig.mo_produtiva_pct) || 0,
+            },
+            tenantCalcType: mrmConfig.calc_type,
+            irpjAliquota: Number(mrmConfig.irpj_pct) || 0,
+            csllAliquota: Number(mrmConfig.csll_pct) || 0,
+        })
+        if (params.isEmpty) return null
+        return { result: buildDecomposition(params.input), labels: params.itemLabels }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [enrichedItems, allocatedByKey, products, globalDiscountPercent, mrmConfig.dop_pct, mrmConfig.irpj_pct, mrmConfig.csll_pct])
+
+    /**
+     * OS CARDS LEEM A DECOMPOSIÇÃO — e deixam de ser a segunda fonte.
+     *
+     * Medido na tela: cards Comissão R$ 2.117,59 (6,188%) e Lucro R$ 4.235,18 (12,377%),
+     * contra R$ 1.837,88 e R$ 3.675,77 na construção, com 5,00% e 10,00% cadastrados —
+     * R$ 279,71 de divergência. Os cards leem a Etapa 16 do motor, e a Etapa 16 é apurada
+     * com a receita líquida da cascata ANTIGA: sem a ordem das deduções da R19, sem o CMV
+     * do item e com o PIS/COFINS fora de escala. A decomposição corrige os três.
+     *
+     * O BUG-CARDS-RRO-001 continua valendo: o card NÃO calcula. O que muda é a fonte de onde
+     * ele lê — ver `residual-from-decomposition.ts`, que registra por que a regra da época
+     * estava certa e o que mudou desde então.
+     */
+    const residualExibido = useMemo(
+        () => applyDecompositionToResidual(residualDistribution, decomposition?.result ?? null),
+        [residualDistribution, decomposition],
+    )
 
     // ── Salvar orçamento ──
     const handleSave = async () => {
@@ -1247,6 +1525,12 @@ function Budgets() {
                 // ICMS Complementar — parâmetros de operação da hierarquia (Etapa 17).
                 freight_mode: freightMode,
                 icms_compl_override: icmsComplOverride,
+                // R11/R21 — acréscimos COTADOS NO DOCUMENTO, mais o MONTANTE A CARREGAR que o
+                // rateio usou. Só vão quando o usuário de fato cotou: sem isso, todo orçamento
+                // gravaria `0`, e `0` afirma "cotei e não há frete", que é diferente de "não
+                // cotei" (`.claude/rules/ausente-vs-falso.md`). A base é o que torna o rateio
+                // VERIFICÁVEL na travessia — sem ela o pedido nasce `INDETERMINADO`.
+                ...buildDocumentAccessoriesPayload(accessoriesSource, accessoriesAllocation),
                 engine_version: mrmConfig.enabled ? MRM_ENGINE_VERSION : 'legacy',
                 expiration_date: values.expiration_date?.format('YYYY-MM-DD') || null,
                 notes: values.notes || null,
@@ -1278,6 +1562,12 @@ function Budgets() {
                 // inserido, o preservado se já estava no orçamento. `null` = item manual ou
                 // legado, e nunca destino FORA.
                 destination_snapshot: readSnapshotColumn(i),
+                // R12/R18 — a parcela de acréscimo deste item, CONGELADA em R$. Só vai quando
+                // o documento cotou: ausente é "não rateado", nunca zero rateado.
+                ...(allocatedByKey ? {
+                    freight_allocated_value: allocatedByKey.get(i.key)?.freight ?? null,
+                    accessories_allocated_value: allocatedByKey.get(i.key)?.accessories ?? null,
+                } : {}),
             }))
 
             if (items.length > 0) {
@@ -1442,6 +1732,12 @@ function Budgets() {
                 // ICMS Complementar — parâmetros de operação da hierarquia (Etapa 17).
                 freight_mode: freightMode,
                 icms_compl_override: icmsComplOverride,
+                // R11/R21 — acréscimos COTADOS NO DOCUMENTO, mais o MONTANTE A CARREGAR que o
+                // rateio usou. Só vão quando o usuário de fato cotou: sem isso, todo orçamento
+                // gravaria `0`, e `0` afirma "cotei e não há frete", que é diferente de "não
+                // cotei" (`.claude/rules/ausente-vs-falso.md`). A base é o que torna o rateio
+                // VERIFICÁVEL na travessia — sem ela o pedido nasce `INDETERMINADO`.
+                ...buildDocumentAccessoriesPayload(accessoriesSource, accessoriesAllocation),
                 engine_version: mrmConfig.enabled ? MRM_ENGINE_VERSION : 'legacy',
                 expiration_date: values.expiration_date?.format('YYYY-MM-DD') || null,
                 notes: values.notes || null,
@@ -1473,6 +1769,12 @@ function Budgets() {
                 // inserido, o preservado se já estava no orçamento. `null` = item manual ou
                 // legado, e nunca destino FORA.
                 destination_snapshot: readSnapshotColumn(i),
+                // R12/R18 — a parcela de acréscimo deste item, CONGELADA em R$. Só vai quando
+                // o documento cotou: ausente é "não rateado", nunca zero rateado.
+                ...(allocatedByKey ? {
+                    freight_allocated_value: allocatedByKey.get(i.key)?.freight ?? null,
+                    accessories_allocated_value: allocatedByKey.get(i.key)?.accessories ?? null,
+                } : {}),
             }))
             if (items.length > 0) {
                 const { error: itemsErr } = await supabase.from('budget_items').insert(items)
@@ -1515,7 +1817,7 @@ function Budgets() {
         setCustomerMode(record.customer_id ? 'existing' : 'manual')
 
         const [itemsResult, tablesResult] = await Promise.all([
-            supabase.from('budget_items').select('*, products(id, name, code, max_discount_percent, commission_table_id, commission_percent, profit_percent, sale_price, cost_total, icms_pct, pis_cofins_pct, pis_pct, cofins_pct, iss_pct, ipi_pct, icms_st_pct, difal_pct, fcp_pct, icms_st_active, difal_active, ibs_pct, cbs_pct, ibs_reference_pct, cbs_reference_pct, iva_dual_reduction_factor, iss_retido_pct, irpj_pct, csll_pct, custom_tax_percent, product_type, yield_quantity), services(id, name, commission_table_id, commission_percent, profit_percent, base_price, cost_total, icms_pct, pis_cofins_pct, pis_pct, cofins_pct, iss_pct, ipi_pct, icms_st_pct, difal_pct, fcp_pct, ibs_pct, cbs_pct, ibs_reference_pct, cbs_reference_pct, iva_dual_reduction_factor, iss_retido_pct, irpj_pct, csll_pct, taxable_regime_percent), manual_description').eq('budget_id', record.id),
+            supabase.from('budget_items').select(`*, products(id, name, code, max_discount_percent, commission_table_id, commission_percent, profit_percent, sale_price, cost_total, yield_quantity, product_items(item_id, item_cost_net, item_cost_gross, quantity_needed, items(item_type)), labor_costs(*), pricing_calculations(*), ${PRODUCT_TAX_SELECT}, product_type, yield_quantity), services(id, name, commission_table_id, commission_percent, profit_percent, base_price, cost_total, ${SERVICE_TAX_SELECT}), manual_description`).eq('budget_id', record.id),
             record.employee_id
                 ? (supabase as any).from('employee_commission_tables').select('commission_tables(id, name, type, commission_percent)').eq('employee_id', record.employee_id)
                 : Promise.resolve({ data: [] }),
@@ -1547,6 +1849,16 @@ function Budgets() {
 
         skipTableAutoSelectRef.current = true
         setGlobalDiscountPercent(Number(record.global_discount_percent || 0))
+        // R11 — os acréscimos COTADOS neste documento. `null` (ou coluna ausente, enquanto a
+        // migração não estiver aplicada) é NÃO COTADO: o orçamento reabre no caminho do
+        // cadastro do produto, com o preço que tinha.
+        const recAcc = record as unknown as Record<string, unknown>
+        setDocFreightValue(recAcc.freight_value != null ? Number(recAcc.freight_value) : null)
+        setDocInsuranceValue(recAcc.insurance_value != null ? Number(recAcc.insurance_value) : null)
+        setDocAccessoryValue(recAcc.accessory_expenses_value != null ? Number(recAcc.accessory_expenses_value) : null)
+        setDocAllocationCriteria(
+            (recAcc.freight_allocation_criteria as AllocationCriteria | null) ?? DEFAULT_ALLOCATION_CRITERIA,
+        )
         // MRM D1: ao abrir registro legado com motor ativo, força PROPORTIONAL
         // Epic MRM-V6 (ADR-009): 3 modos disponíveis. Snapshots V5 legacy com
         // discount_mode='MRM' são lidos como PROPORTIONAL (sem recálculo do snapshot).
@@ -1587,9 +1899,26 @@ function Budgets() {
                 }
             }
             // S8: cost_total alimenta CP do motor RR (RRO = RV − IMP − CP − MOD − DOP)
-            const itemCostTotal = isService
-                ? Number(it.services?.cost_total || 0)
-                : Number(it.products?.cost_total || 0)
+            //
+            // >>> O MESMO RESOLVEDOR DA INSERÇÃO, e é por isso que ele está aqui <<<
+            // Esta rota lia `products.cost_total` CRU, e a de inserção
+            // (`handleProductSelect`) usa `resolveProductCostAndLabor`, que resolve o CMV
+            // VIVO de `product_items` quando a coluna está zerada — que é o caso real do
+            // ATeste1509: coluna 0, `item_cost_net` 7.985,99. Duas rotas montando o MESMO
+            // `BudgetItemRow`, uma com o resolvedor e outra sem, é `copia-divergente.md`, e o
+            // campo em divergência era o CUSTO: o orçamento reaberto decompunha com custo
+            // ZERO e jogava o CMV inteiro no RRO.
+            //
+            // A MO produtiva vem junto: `resolveProductCostAndLabor` devolve
+            // `costTotal = CMV − MO`, e só a soma é o "Custo produto" da construção.
+            const laborCtxEdit = {
+                mod_pct: mrmConfig.mod_pct,
+                production_labor_cost: mrmConfig.production_labor_cost,
+                monthly_workload_minutes: mrmConfig.monthly_workload_minutes,
+                productive_value_per_minute: mrmConfig.productive_value_per_minute,
+            }
+            const custoResolvido = resolveProductCostAndLabor(isService ? it.services : it.products, laborCtxEdit)
+            const itemCostTotal = custoResolvido.costTotal
             // S11: alíquotas tributárias específicas do item (NULL → fallback tenant).
             // EPIC-POR-FORA-V3/S2: usar o helper único (em vez de montar inline) garante a
             // neutralização condicional de ICMS-ST/DIFAL/FCP também no caminho de EDIÇÃO
@@ -1610,6 +1939,7 @@ function Budgets() {
                 commission_percent: commissionPercent,
                 profit_percent: profitPercent,
                 cost_total: itemCostTotal,
+                productive_labor_unit: custoResolvido.productiveLaborUnit,
                 item_tax_rates: itemTaxRates,
                 // D-A: o destino congelado DESTE item, não o do cadastro de hoje. É o que
                 // faz reabrir e salvar um orçamento antigo não reprecificar o destino; item
@@ -1726,6 +2056,11 @@ function Budgets() {
                 icms_st_value: (b as any).icms_st_value || 0,
                 difal_value: (b as any).difal_value || 0,
                 fcp_value: (b as any).fcp_value || 0,
+                // R21: o cabeçalho de acréscimos atravessa por CÓPIA LITERAL. O valor cotado é
+                // fato histórico externo — veio de uma transportadora, não de uma fórmula.
+                // Origem sem cotação devolve `{}` e as colunas ficam NULL: gravar zeros
+                // afirmaria "cotei e não houve frete" num documento em que ninguém cotou.
+                ...inheritDocumentAccessories(b as DocumentAccessoryHeader),
                 // MRM-V2-S2.1: coage modos legacy do budget pai → PROPORTIONAL ao copiar para o pedido.
                 discount_mode: coerceLegacyDiscountMode(b.discount_mode || null, { tenant_id: tenantId, document_id: b.id, surface: 'order' }),
                 discount_value: b.discount_value || null,
@@ -1877,6 +2212,10 @@ function Budgets() {
                 // ICMS Complementar — parâmetros de operação da hierarquia (linhagem orçamento→venda).
                 freight_mode: (selectedBudget as any).freight_mode || 'CIF',
                 icms_compl_override: (selectedBudget as any).icms_compl_override ?? null,
+                // R21: o cabeçalho de acréscimos atravessa por cópia literal — ver a travessia
+                // para o pedido, acima. É a MESMA função nas três rotas, de propósito: um
+                // literal por rota seria a `copia-divergente` esperando a terceira.
+                ...inheritDocumentAccessories(selectedBudget as DocumentAccessoryHeader),
             }).select().single()
 
             if (saleErr) throw saleErr
@@ -3049,9 +3388,86 @@ function Budgets() {
                     <Space.Compact block style={{ marginTop: 4, display: 'flex', gap: 8 }}>
                         <Button type="dashed" onClick={handleAddManualItem} icon={<PlusOutlined />} style={{ flex: 1 }}
                             disabled={!selectedEmployeeId}>
-                            Adicionar item manual
+                            Inserir produtos manuais / Repasse
                         </Button>
                     </Space.Compact>
+
+                    {/* ══════════════════════════════════════════════════════════════════
+                        R10 — SEÇÃO 3: FRETE, SEGURO E DESPESAS ACESSÓRIAS
+                        A ORDEM É FUNCIONAL, NÃO ESTÉTICA. Esta seção vem DEPOIS dos produtos
+                        e dos itens manuais, e ANTES do total geral: se o bloco de acréscimos
+                        aparecesse antes da operação interna, o usuário entenderia — com razão —
+                        que despesa fixa e financeira incidem sobre o frete. Não incidem.
+                        ══════════════════════════════════════════════════════════════════ */}
+                    <div style={{
+                        marginTop: 16, padding: '12px 16px', background: 'rgba(148, 163, 184, 0.06)',
+                        border: '1px solid rgba(148, 163, 184, 0.18)', borderRadius: 8,
+                    }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13, color: '#cbd5e1', marginBottom: 4 }}>
+                            <strong>Montante a carregar</strong>
+                            <strong>{formatCurrency(budgetTotal)}</strong>
+                        </div>
+                        <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 12 }}>
+                            Produtos precificados + itens manuais. É a base da cotação do frete, e ela é
+                            fixada <strong>antes</strong> do gross-up — o frete não entra na própria base.
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
+                            <div>
+                                <label style={{ display: 'block', marginBottom: 4, fontSize: 12, color: '#94a3b8' }}>Frete</label>
+                                <CurrencyInput min={0} value={docFreightValue ?? 0} onChange={(v) => setDocFreightValue(v ?? 0)} style={{ width: '100%' }} />
+                            </div>
+                            <div>
+                                <label style={{ display: 'block', marginBottom: 4, fontSize: 12, color: '#94a3b8' }}>Seguro</label>
+                                <CurrencyInput min={0} value={docInsuranceValue ?? 0} onChange={(v) => setDocInsuranceValue(v ?? 0)} style={{ width: '100%' }} />
+                            </div>
+                            <div>
+                                <label style={{ display: 'block', marginBottom: 4, fontSize: 12, color: '#94a3b8' }}>Outras despesas acessórias</label>
+                                <CurrencyInput min={0} value={docAccessoryValue ?? 0} onChange={(v) => setDocAccessoryValue(v ?? 0)} style={{ width: '100%' }} />
+                            </div>
+                            <div>
+                                <label style={{ display: 'block', marginBottom: 4, fontSize: 12, color: '#94a3b8' }}>
+                                    Critério de rateio&nbsp;
+                                    <Tooltip title="Como o valor cotado é repartido entre os itens. A parcela de cada item herda as alíquotas DELE — não se inventa alíquota para o frete. A parcela que cai em item manual é repasse puro, sem gross-up.">
+                                        <InfoCircleOutlined style={{ color: '#64748b' }} />
+                                    </Tooltip>
+                                </label>
+                                <Select
+                                    value={docAllocationCriteria}
+                                    onChange={(v) => setDocAllocationCriteria(v as AllocationCriteria)}
+                                    style={{ width: '100%' }}
+                                    options={[
+                                        { value: 'VALOR', label: 'Por valor (padrão)' },
+                                        { value: 'PESO', label: 'Por peso' },
+                                        { value: 'VOLUME', label: 'Por volume' },
+                                        { value: 'MANUAL', label: 'Manual' },
+                                    ]}
+                                />
+                            </div>
+                        </div>
+
+                        {accessoriesAllocation && accessoriesAllocation.errors.length > 0 && (
+                            <div style={{ marginTop: 10, fontSize: 12, color: '#fca5a5' }}>
+                                {accessoriesAllocation.errors.map((e, i) => <div key={i}>⚠ {e}</div>)}
+                            </div>
+                        )}
+
+                        {accessoriesAllocation && accessoriesAllocation.errors.length === 0 && accessoriesAllocation.totalOriginal > 0 && (
+                            <div style={{ marginTop: 12, borderTop: '1px solid rgba(148, 163, 184, 0.18)', paddingTop: 10 }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#94a3b8' }}>
+                                    <span>Parcela rateada (congelada — não encolhe com desconto)</span>
+                                    <span>{formatCurrency(accessoriesAllocation.totalAllocated)}</span>
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#cbd5e1', marginTop: 6 }}>
+                                    <strong>Total dos acréscimos (com tributos)</strong>
+                                    <strong>{formatCurrency(accessoriesAllocation.totalComTributos)}</strong>
+                                </div>
+                                <div style={{ fontSize: 11, color: '#64748b', marginTop: 6 }}>
+                                    A parcela que cai em item manual é repasse puro: entra e sai pelo mesmo valor.
+                                </div>
+                            </div>
+                        )}
+                    </div>
 
                     {/* Resumo do orçamento (ACIMA do campo de desconto): base, tributos por fora e total a cobrar.
                         Sem desconto: total a cobrar = base + tributos. Com desconto: ver bloco abaixo do campo. */}
@@ -3169,17 +3585,28 @@ function Budgets() {
                         Bloco aparece também SEM desconto (Q7): exibe apenas % original.
                         Em MEI/SN, hidesProfitTaxes oculta IRPJ/CSLL automaticamente.
                         S9: configWarning alerta quando CP+DOP+MOD = 0 (RRO degradado). */}
+                    {/* A TABELA POR PRODUTO NÃO FICA NA TELA — ela é o formato do PDF.
+                        A tela mantém a decomposição em ETAPAS, no mesmo lugar e com o mesmo
+                        acionamento de sempre; o `decomposition` montado acima viaja no
+                        `pdfMeta` e é o que o botão imprime. São duas LEITURAS do mesmo
+                        cálculo, e não duas contas — que é o que `copia-divergente.md` proíbe. */}
+
                     {budgetTotal > 0 && (
                         <ResidualDistributionBlock
-                            distribution={residualDistribution}
+                            distribution={residualExibido}
                             regimeGuardActive={epicV5DisplayData.regimeGuardActive}
                             discountMode={discountMode}
+                            footerNote={decomposition?.result ? NOTA_DA_DECOMPOSICAO : undefined}
                         />
                     )}
 
                     {/* S14 — DRE Consolidada (R3=B: adicional, R7=B: universal) */}
                     {budgetTotal > 0 && (
                         <ConsolidatedDREBlock
+                            /* R19 — a cascata expande da etapa 12 em diante com as linhas da
+                               decomposição: uma por dedução, e a MESMA que o PDF imprime. */
+                            decomposition={decomposition?.result ?? null}
+                            itemLabels={decomposition?.labels ?? []}
                             dre={consolidatedDRE}
                             cascadeTrace={epicV5DisplayData.cascadeTrace}
                             pesoOpInterna={epicV5DisplayData.pesoOpInterna}
@@ -3192,10 +3619,23 @@ function Budgets() {
                             pdfMeta={{
                                 budgetId: editingBudgetId,
                                 customerName: selectedCustomer?.name ?? null,
-                                totalValue: budgetTotal,
+                                // O TOTAL GERAL vem da DECOMPOSIÇÃO quando ela existe (R10:
+                                // produtos + manuais + acréscimos). `budgetTotal` soma
+                                // `unit_price × quantity` e IGNORA os acréscimos, que vivem
+                                // no documento e são rateados — medido no ORC-5487:
+                                // R$ 44.134,58 no cabeçalho contra R$ 45.434,58 na tabela,
+                                // os R$ 1.300,00 de frete e seguro. Duas contas para o mesmo
+                                // número é `copia-divergente.md`; sem decomposição não há
+                                // tabela com que divergir, e `budgetTotal` é o único número.
+                                totalValue: decomposition ? decomposition.result.totalGeral : budgetTotal,
                                 totalACobrar: globalDiscountPercent > 0 ? budgetTotalACobrar : budgetTotal,
                                 discountPercent: globalDiscountPercent,
                                 discountMode,
+                                // A MESMA decomposição que a tela exibe acima — nos dois
+                                // lugares, de uma fonte só.
+                                decomposition: decomposition
+                                    ? { decomposition: decomposition.result, itemLabels: decomposition.labels }
+                                    : null,
                             }}
                         />
                     )}

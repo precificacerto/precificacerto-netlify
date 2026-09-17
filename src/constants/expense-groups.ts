@@ -57,6 +57,7 @@ export const EXPENSE_GROUP_KEYS = [
     'RESERVA_TECNICA',
     'LUCRO',
     'AMORTIZACAO',
+    'REPASSE',
     'IMPOSTO_LUCRO',
     'IMPOSTO_FATURAMENTO_DENTRO',
     'IMPOSTO',
@@ -128,6 +129,27 @@ export const EXPENSE_GROUP_META: Record<ExpenseGroupKey, ExpenseGroupMeta> = {
     // dívida. Entra DEPOIS do resultado operacional, e por isso NÃO pode ser subitem de Lucro:
     // o grupo `LUCRO` é descartado da demonstração (ver `DFC_GROUPS_QUE_SOMAM`).
     AMORTIZACAO: { label: 'Amortização de Dívida' },
+    // REPASSE — valor que ATRAVESSA a empresa sem gerar lucro e sem sofrer coeficiente.
+    // Decisão do dono do produto, 17/09/2026, registrada como está:
+    //
+    //   "O repasse entra nas despesas, mensurando que o valor recebido teve destino."
+    //
+    // O dinheiro entra pela venda, como já entra hoje, e o lançamento de Repasse na despesa
+    // registra que aquele valor SAIU. As duas se anulam na demonstração: entra +X na receita
+    // bruta, sai −X na dedução logo abaixo.
+    //
+    // NÃO é subitem de `DEDUCAO_RECEITA`: devolução é ESTORNO de uma venda que se desfez;
+    // repasse é uma venda que ACONTECEU e cujo valor pertence a terceiro. Somá-los apagaria a
+    // distinção — o mesmo bloco, linhas separadas.
+    //
+    // A ASSIMETRIA está registrada em `docs/registros/o-repasse-entra-inteiro-pela-receita.md`:
+    // o lado da SAÍDA é escolhido a mão aqui; o lado da ENTRADA continua chegando inteiro como
+    // receita bruta, porque o `continue` do INCOME em `dfc/index.tsx` corta antes do `switch`.
+    // O RÓTULO É "Repasse de mercadorias", decidido pelo dono do produto em 17/09/2026.
+    // Vale no DRE e no fluxo de caixa. Nas TELAS DE DOCUMENTO o rótulo continua sendo
+    // "Inserir produtos manuais / Repasse" — são contextos diferentes de propósito, e é por
+    // isso que o rótulo do documento NÃO deriva daqui.
+    REPASSE: { label: 'Repasse de mercadorias' },
     IMPOSTO_LUCRO: { label: 'Impostos sobre o Lucro' },
     IMPOSTO_FATURAMENTO_DENTRO: { label: 'Impostos sobre o Faturamento (Por dentro)' },
     IMPOSTO: {

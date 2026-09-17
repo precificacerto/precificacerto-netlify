@@ -2,6 +2,7 @@ import { ChangeEvent, FC, useCallback, useEffect, useMemo, useRef, useState } fr
 import { AutoComplete, Button, Card, Form, Input, InputNumber, Popconfirm, Space, Alert, Radio, Divider, Tooltip, Spin, Switch, Modal, Tag, Segmented } from 'antd'
 import { Select } from '@/components/ui/app-select.component'
 import { PercentInput } from '@/components/percent-input.component'
+import IvaDualReductionFactorField from '@/components/iva-dual-reduction-factor-field'
 import { InfoCircleOutlined, PlusOutlined, SearchOutlined, SyncOutlined, DeleteOutlined } from '@ant-design/icons'
 import { PAGE_TITLES } from '@/constants/page-titles'
 import { IItemModel } from '@/server/model/item'
@@ -22,8 +23,12 @@ import { calculatePricing } from '@/utils/pricing-engine'
 import { resolveMonthlyWorkload } from '@/utils/resolve-monthly-workload'
 import { computeIvaDualOutside } from '@/utils/iva-dual-outside'
 import { resolveIvaDualEffectiveRate } from '@/utils/item-tax-rates'
+import { resolvePisCofinsPctFromNcm } from '@/utils/ncm-pis-cofins'
+import { resolveReducoesDoItem } from '@/utils/classificacao-fiscal'
+import ClassificacaoFiscalBlock, { type ClassificacaoFiscalValue } from '@/page-parts/shared/classificacao-fiscal-block.component'
 import { computeIcmsSt, computeDifal, computeIcmsComplementar, mvaAjustada } from '@/utils/icms-st-difal'
 import { CALC_TYPE_ENUM } from '@/shared/enums/calc-type'
+import { derivarBaseItemId } from '@/utils/base-item-derivado'
 import { ContentIndustrialization } from './content-industrialization'
 import { ContentResale } from './content-resale'
 import { ContentService } from './content-service'
@@ -285,6 +290,36 @@ export const Content: FC<ContentProps> = ({
     (product as any)?.iva_dual_reduction_factor != null ? Number((product as any).iva_dual_reduction_factor) : null
   )
 
+  // ── A CLASSIFICAÇÃO FISCAL, de onde a redução DECORRE ───────────────────────
+  // Seis estados porque são seis colunas, e cada uma responde uma pergunta
+  // diferente. `cclass_trib_origem` e a publicação são FATO gravado no momento da
+  // classificação, nunca deduzidos depois: contra uma tabela que muda, a dedução
+  // erra nos dois sentidos e a resposta mudaria sozinha.
+  const [classificacao, setClassificacao] = useState<ClassificacaoFiscalValue>({
+    cstIbsCbsCode: (product as any)?.cst_ibs_cbs_code ?? null,
+    cclassTrib: (product as any)?.cclass_trib ?? null,
+    cclassTribOrigem: (product as any)?.cclass_trib_origem ?? null,
+    cclassTribSourcePublishedAt: (product as any)?.cclass_trib_source_published_at ?? null,
+    ivaReductionIbsPct: (product as any)?.iva_reduction_ibs_pct != null
+      ? Number((product as any).iva_reduction_ibs_pct) : null,
+    ivaReductionCbsPct: (product as any)?.iva_reduction_cbs_pct != null
+      ? Number((product as any).iva_reduction_cbs_pct) : null,
+  })
+  // Par incompatível não grava e não salva — a SEFAZ o rejeita.
+  const [bloqueioDaClassificacao, setBloqueioDaClassificacao] = useState<string | null>(null)
+
+  // A TRAVESSIA ÚNICA. Tela e motor leem daqui, para que não possam divergir na
+  // origem do número: as colunas novas vencem, e o fator legado só entra quando
+  // as duas estão vazias.
+  const reducoes = useMemo(
+    () => resolveReducoesDoItem({
+      iva_reduction_ibs_pct: classificacao.ivaReductionIbsPct,
+      iva_reduction_cbs_pct: classificacao.ivaReductionCbsPct,
+      iva_dual_reduction_factor: ivaDualReductionFactor,
+    }),
+    [classificacao.ivaReductionIbsPct, classificacao.ivaReductionCbsPct, ivaDualReductionFactor],
+  )
+
   const [ibsPct, setIbsPct] = useState<number>(
     (product as any)?.ibs_pct != null ? Number((product as any).ibs_pct) : 0
   )
@@ -307,15 +342,31 @@ export const Content: FC<ContentProps> = ({
   // O campo IBS/CBS guarda a alíquota BRUTA digitada; a EFETIVA = bruta × (1 − fator) é
   // derivada on-read pelo motor (resolveIvaDualEffectiveRate). NÃO sobrescreve a bruta aqui —
   // o usuário vê a bruta digitada e a efetiva calculada ao lado (não dupla redução).
-  function handleIvaDualFactorChange(factor: number | null) {
-    setIvaDualReductionFactor(factor)
-  }
+  // `handleIvaDualFactorChange` FOI REMOVIDA em 16/09/2026. O fator deixou de ser
+  // ENTRADA: a redução decorre do cClassTrib, e o valor legado é exibido só em leitura.
+  // Manter o handler seria deixar aberta a porta que a regra fechou.
   const [isPct, setIsPct] = useState<number>(
     (product as any)?.is_pct != null ? Number((product as any).is_pct) : 0
   )
   const [ipiPct, setIpiPct] = useState<number>(
     (product as any)?.ipi_pct != null ? Number((product as any).ipi_pct) : 0
   )
+
+  // R3 — CÓDIGO DE BASE por tributo por fora (7.5, item 6: derivado do contexto da venda,
+  // COM OVERRIDE MANUAL). `null` é NÃO CLASSIFICADO e cai no padrão (IPI e IS no 1, IBS e
+  // CBS no 4); jamais o código 1 por omissão — `.claude/rules/ausente-vs-falso.md`.
+  //
+  // O produto legado não tem as colunas, então chega `undefined` e vira `null`. Enquanto a
+  // migração `20260915000003` não estiver aplicada, TODO produto está neste estado, e o
+  // motor usa o padrão — que é o comportamento de hoje.
+  const readBaseCode = (campo: string): number | null => {
+    const v = (product as any)?.[campo]
+    return v != null ? Number(v) : null
+  }
+  const [ibsBaseCode, setIbsBaseCode] = useState<number | null>(() => readBaseCode('ibs_base_code'))
+  const [cbsBaseCode, setCbsBaseCode] = useState<number | null>(() => readBaseCode('cbs_base_code'))
+  const [isBaseCode, setIsBaseCode] = useState<number | null>(() => readBaseCode('is_base_code'))
+  const [ipiBaseCode, setIpiBaseCode] = useState<number | null>(() => readBaseCode('ipi_base_code'))
 
   // ───────── EPIC-POR-FORA-V3 / S1 — seção superior dos 7 campos % simples REMOVIDA ─────────
   // Os estados issPct/issRetidoPct/icmsStPct/difalPct/fcpPct/irpjItemPct/csllItemPct foram
@@ -433,6 +484,34 @@ export const Content: FC<ContentProps> = ({
   const nameDebounceRef = useRef<NodeJS.Timeout | null>(null)
   const finalPriceWithTaxesRef = useRef<number>(0)
   const salePriceBaseRef = useRef<number>(0)
+  /**
+   * R3 — o `c` que ESTA construção usou, para congelar junto com o preço.
+   *
+   * Começa com o que já está gravado no produto, e não com `null`: o `ProductPrice` só emite
+   * quando o preço sai positivo, e um save feito sem novo cálculo não pode APAGAR o
+   * coeficiente de uma construção anterior. `null` aqui significa "nunca apurado", que é o
+   * estado de todo produto anterior a esta coluna — `.claude/rules/ausente-vs-falso.md`.
+   */
+  const externalOpsCoefficientRef = useRef<number | null>(
+    (product as any)?.external_ops_coefficient != null ? Number((product as any).external_ops_coefficient) : null
+  )
+
+  /**
+   * UM handler, e não três.
+   *
+   * Os três `<Content*>` recebiam o MESMO literal escrito à mão, e o campo que precisava
+   * entrar agora é exatamente o tipo de campo que entra em duas cópias e esquece a terceira
+   * — `.claude/rules/copia-divergente.md`. O teste `congelar-o-coeficiente-por-fora` afirma
+   * que existe um só.
+   */
+  const handleFinalPriceWithTaxes = useCallback(
+    (d: { finalPrice: number; basePrice: number; externalOpsCoefficient: number | null }) => {
+      finalPriceWithTaxesRef.current = d.finalPrice
+      salePriceBaseRef.current = d.basePrice
+      externalOpsCoefficientRef.current = d.externalOpsCoefficient
+    },
+    [],
+  )
 
   const searchNcmByName = useCallback(async (name: string) => {
     if (name.length < 2) { setNcmSuggestions([]); return }
@@ -458,23 +537,26 @@ export const Content: FC<ContentProps> = ({
 
   const fetchNcmRatesForLR = useCallback(async (code: string) => {
     if (!isLRorLP || !code) return
-    // LP usa PIS/COFINS cumulativo fixo (3,65%): recalcula com base no ICMS atual
+    // LP usa PIS/COFINS cumulativo e NÃO consulta o NCM: responde sem ir ao banco.
     if (isLucroPresumidoProdOnly) {
-      setPisCofinsLRPct(parseFloat((3.65 * (1 - icmsPct / 100)).toFixed(4)))
+      const pct = resolvePisCofinsPctFromNcm({
+        isLucroReal: false, isLucroPresumido: true, icmsPct, ncmRow: null,
+      })
+      if (pct != null) setPisCofinsLRPct(pct)
       return
     }
-    // LR: busca alíquotas não-cumulativas pela NCM
+    // LR: busca as alíquotas não-cumulativas pela NCM. A CONTA vive em `ncm-pis-cofins.ts`,
+    // exportada para que o efeito seja afirmável por teste — aqui fica só a ida ao banco.
     try {
       const { data } = await (supabase as any)
         .from('ncm_codes')
         .select('pis_rate_nao_cumulativo, cofins_rate_nao_cumulativo')
         .eq('code', code)
         .single()
-      if (data) {
-        const pis = (Number(data.pis_rate_nao_cumulativo) || 0) * 100
-        const cofins = (Number(data.cofins_rate_nao_cumulativo) || 0) * 100
-        setPisCofinsLRPct(parseFloat((pis + cofins).toFixed(4)))
-      }
+      const pct = resolvePisCofinsPctFromNcm({
+        isLucroReal: true, isLucroPresumido: false, icmsPct, ncmRow: data ?? null,
+      })
+      if (pct != null) setPisCofinsLRPct(pct)
     } catch { /* silent */ }
   }, [isLRorLP, isLucroPresumidoProdOnly, icmsPct])
 
@@ -558,6 +640,50 @@ export const Content: FC<ContentProps> = ({
       }
     }
   }, [productType, baseItemId, items])
+
+  /**
+   * O CICLO AO CONTRÁRIO — a composição PASSA A ESCREVER `baseItemId`.
+   *
+   * >>> O QUE ISTO CORRIGE, medido em 17/09/2026 <<<
+   *
+   * Ao remover o seletor "Item base", `base_item_id` passou a ser derivado na GRAVAÇÃO.
+   * O que ficou de fora é que o seletor era também o **único escritor em tempo de
+   * edição**, e o efeito acima — o que dá CUSTO ao produto de revenda — depende dele.
+   * Medido: os pontos de UI que chamavam `setBaseItemId` caíram de DOIS para ZERO.
+   *
+   * Consequência num produto de REVENDA **novo**, criado direto nesta tela: composição
+   * vazia, `itemsPriceSum = 0`, `doProductCalc` devolve preço 0, e a tabela inteira sai
+   * `R$ 0,00` com IRPJ e CSLL em `0,000%`. Produto em EDIÇÃO não era afetado —
+   * `baseItemId` vem do banco — nem o criado a partir de um item, que usa o prefill.
+   *
+   * >>> POR QUE A MESMA FUNÇÃO DA GRAVAÇÃO <<<
+   *
+   * `derivarBaseItemId` é a que o save chama. Escrever aqui uma segunda regra de "um
+   * item vira base" seria `copia-divergente.md` entre o que a tela mostra e o que o
+   * banco recebe. Com uma função só, a gravação passa a CONFIRMAR o que a tela já
+   * resolveu, em vez de descobrir sozinha.
+   *
+   * >>> POR QUE NÃO ENTRA EM LAÇO COM O EFEITO ACIMA <<<
+   *
+   * A comparação é por ID. Item X entra na composição → aqui `baseItemId := X` → o
+   * efeito acima dispara e reconstrói a composição com X → aqui `X === baseItemId` e
+   * nada é setado. Converge numa volta. Sem a comparação, os dois efeitos se chamariam
+   * para sempre.
+   */
+  useEffect(() => {
+    if (productType !== 'REVENDA') return
+    const derivado = derivarBaseItemId({
+      productType,
+      itens: productItemsData.map((i) => ({ id: String(i.id) })),
+      baseItemIdAtual: baseItemId,
+    })
+    // Só a DERIVAÇÃO escreve. `PRESERVADO` é o caso de zero ou dois e mais itens, e ali
+    // o valor gravado continua valendo — sobrescrevê-lo apagaria o vínculo dos 32
+    // produtos medidos. Ver `base-item-derivado.ts`.
+    if (derivado.origem !== 'DERIVADO_DA_COMPOSICAO') return
+    if (derivado.baseItemId === baseItemId) return
+    setBaseItemId(derivado.baseItemId)
+  }, [productType, productItemsData, baseItemId])
 
   useEffect(() => {
     const autoTaxRegime = calcBase.taxableRegimeAutoPercent ?? 0
@@ -950,8 +1076,11 @@ export const Content: FC<ContentProps> = ({
 
   const validateProductItems = () => {
     if (productType === 'REVENDA' && !isCalcTypeService) {
+      // A MENSAGEM mudou junto com o seletor. Ela mandava "selecionar o item de revenda"
+      // num formulário que não tem mais onde selecionar — instrução impossível de cumprir.
+      // O bloqueio em si NÃO mudou: continua sendo um OU, e composição preenchida passa.
       if (!baseItemId && !productItemsData.length) {
-        return 'Selecione o item de revenda como base do custo.'
+        return 'Adicione o item de revenda à composição do produto — ele é a base do custo.'
       }
       return undefined
     }
@@ -997,6 +1126,12 @@ export const Content: FC<ContentProps> = ({
 
       await productForm.validateFields()
 
+      // Par CST × cClassTrib incompatível é rejeitado pela SEFAZ. Salvar gravaria
+      // um documento que a nota recusa, e o usuário só descobriria na emissão.
+      if (bloqueioDaClassificacao) {
+        return messageApi.open({ type: 'error', content: bloqueioDaClassificacao })
+      }
+
       const values = productForm.getFieldsValue()
       const tenantId = await getTenantId()
       if (!tenantId) {
@@ -1029,6 +1164,15 @@ export const Content: FC<ContentProps> = ({
       const finalSalePriceForSave = finalPriceWithTaxesRef.current > 0
         ? finalPriceWithTaxesRef.current
         : salePriceToSave
+
+      // `base_item_id` sem seletor: derivado da composição, preservando o gravado quando
+      // não há o que derivar. Ver `base-item-derivado.ts` — e a medição que mostrou que o
+      // caso real é ZERO itens (32 produtos), não "dois ou mais" (0 produtos).
+      const _baseItemDerivado = derivarBaseItemId({
+        productType,
+        itens: productItemsData.map((i) => ({ id: String(i.id) })),
+        baseItemIdAtual: baseItemId,
+      })
 
       let autoCode = values.code
       if (!autoCode) {
@@ -1065,7 +1209,11 @@ export const Content: FC<ContentProps> = ({
         commission_percent: Number(productPriceInfo.salesCommissionPercent) || 0,
         rt_reserve_percent: Number(productPriceInfo.rtReservePercent) || 0,
         product_type: productType,
-        base_item_id: productType === 'REVENDA' ? baseItemId : null,
+        // DERIVADO da composição, não mais de um seletor (17/09/2026). Um item → é ele;
+        // zero ou dois e mais → preserva o gravado, que num produto novo é `null`.
+        // Apagar o que já existe quebraria a sincronização de estoque de 32 produtos
+        // medidos — ver `base-item-derivado.ts`.
+        base_item_id: _baseItemDerivado.baseItemId,
         ncm_code: values.ncm_code || null,
         nbs_code: values.nbs_code || null,
         updated_at: new Date().toISOString(),
@@ -1113,13 +1261,25 @@ export const Content: FC<ContentProps> = ({
         autoTaxPercent: calcBase.taxPct,
       })
       extraFields.additional_irpj_percent = additionalIrpjPercent || 0
-      extraFields.freight_value = freightValue || 0
-      extraFields.insurance_value = insuranceValue || 0
-      extraFields.accessory_expenses_value = accessoryExpensesValue || 0
+      // R11 — os acréscimos NÃO são mais alimentados pelo cadastro. "Acréscimos pertencem ao
+      // orçamento, não ao produto", e os campos do produto "deixam de ser alimentados DAQUI
+      // PARA A FRENTE". As colunas continuam no banco e continuam sendo LIDAS: a precedência
+      // documento × cadastro de `resolveAccessoriesSource` depende delas, e os produtos que
+      // já têm valor permanecem como estão — SEM MIGRAÇÃO RETROATIVA, que é a outra metade
+      // da mesma regra. Gravar `0` aqui seria migração retroativa disfarçada de save.
       if (isLRorLPorSH) {
         extraFields.icms_pct = icmsPct || 0
         extraFields.pis_cofins_pct = pisCofinsLRPct || 0
+        // O fator legado FICA — a migração é aditiva e o produto com fator 50 não
+        // pode perder o valor. Ele deixa de ser entrada, não de existir.
         extraFields.iva_dual_reduction_factor = ivaDualReductionFactor ?? null
+        // A classificação fiscal e as DUAS reduções derivadas dela.
+        extraFields.cst_ibs_cbs_code = classificacao.cstIbsCbsCode
+        extraFields.cclass_trib = classificacao.cclassTrib
+        extraFields.cclass_trib_origem = classificacao.cclassTribOrigem
+        extraFields.cclass_trib_source_published_at = classificacao.cclassTribSourcePublishedAt
+        extraFields.iva_reduction_ibs_pct = classificacao.ivaReductionIbsPct
+        extraFields.iva_reduction_cbs_pct = classificacao.ivaReductionCbsPct
         // ADR-022: snapshota a referência BRUTA (fonte da verdade junto com o fator). O motor
         // deriva a efetiva = referência × (1 − fator) de forma idempotente. NULL = sem snapshot.
         extraFields.ibs_reference_pct = ibsReferencePct > 0 ? ibsReferencePct : null
@@ -1133,8 +1293,8 @@ export const Content: FC<ContentProps> = ({
         const _opDentro = Math.max(0, _saleBase - terceirizadasSum)
         // PC-BUG-FATOR-REDUCAO-002 Ponto 1: aplica o fator de redução SOBRE a alíquota bruta de
         // IBS/CBS (efetiva = bruta × (1 − fator)) ao gravar ibs_value/cbs_value. IPI/IS intactos.
-        const _ibsEff2 = resolveIvaDualEffectiveRate(ibsPct, ivaDualReductionFactor) || 0
-        const _cbsEff2 = resolveIvaDualEffectiveRate(cbsPct, ivaDualReductionFactor) || 0
+        const _ibsEff2 = resolveIvaDualEffectiveRate(ibsPct, reducoes.ibs) || 0
+        const _cbsEff2 = resolveIvaDualEffectiveRate(cbsPct, reducoes.cbs) || 0
         const _iva2 = computeIvaDualOutside({
           opInterna: _opDentro,
           despAcessorias: terceirizadasSum,
@@ -1155,6 +1315,22 @@ export const Content: FC<ContentProps> = ({
         extraFields.cbs_value = _iva2.cbsValue
         extraFields.ipi_pct = ipiPct || 0
         extraFields.ipi_value = _iva2.ipiValue
+        // NULL = não classificado, e é assim que fica quando ninguém escolheu. Gravar o
+        // padrão aqui apagaria a diferença entre "escolhido" e "nunca escolhido".
+        extraFields.ibs_base_code = ibsBaseCode
+        extraFields.cbs_base_code = cbsBaseCode
+        extraFields.is_base_code = isBaseCode
+        extraFields.ipi_base_code = ipiBaseCode
+        // R3 — o `c` desta construção, CONGELADO com o preço. É FATO HISTÓRICO, não
+        // referência viva (`.claude/rules/fato-vs-referencia.md`): decompor um preço antigo
+        // com o `c` de hoje reescreve o passado, e o `c` muda toda vez que alguém edita
+        // IBS, CBS, IS, IPI ou o fator de redução. A coluna existia desde a migração
+        // `20260915000003` e NADA a gravava — inclusive em produtos cujo preço já tinha sido
+        // formado com `c` ≠ 0.
+        //
+        // `null` quando a matriz não governou: é ausência de regra, nunca "o coeficiente é
+        // zero". A CHECK do banco aceita `NULL` ou `[0, 1)`, e é o que o motor devolve.
+        extraFields.external_ops_coefficient = externalOpsCoefficientRef.current
         extraFields.sale_price_base = _saleBase
         extraFields.sale_price_after_taxes = finalSalePriceForSave
         // ITEM 1.5: snapshot do valor precificado também por unidade de produção (mesmo divisor).
@@ -1783,36 +1959,6 @@ export const Content: FC<ContentProps> = ({
                 <Radio.Button value="REVENDA">📦 Revenda (produto acabado)</Radio.Button>
               </Radio.Group>
             </div>
-            <div style={{
-              background: '#FFF7E6', border: '1px solid #FFD591', borderRadius: 8,
-              padding: '10px 14px', fontSize: 12, marginBottom: 16, color: '#000000',
-            }}>
-              <InfoCircleOutlined style={{ color: '#FA8C16', marginRight: 6 }} />
-              <strong>Revenda:</strong> Selecione um item do tipo &ldquo;Mercadoria para revenda&rdquo; como base do custo.
-              O custo do produto será o custo desse item.
-            </div>
-            <Form.Item label="Item base (mercadoria para revenda)" style={{ maxWidth: 400 }}>
-              <Select
-                showSearch
-                placeholder="Selecione o item de revenda"
-                value={baseItemId}
-                onChange={(val) => setBaseItemId(val)}
-                filterOption={(input, option) =>
-                  (option?.children as unknown as string || '').toLowerCase().includes(input.toLowerCase())
-                }
-                notFoundContent={
-                  <div style={{ padding: 12, textAlign: 'center', color: '#64748b' }}>
-                    Nenhum item do tipo &ldquo;Revenda&rdquo; cadastrado.
-                  </div>
-                }
-              >
-                {itemsForSelection.map((item) => (
-                  <Select.Option key={item.id} value={item.id}>
-                    {item.name}
-                  </Select.Option>
-                ))}
-              </Select>
-            </Form.Item>
           </>
         ) : (
           <>
@@ -1835,52 +1981,22 @@ export const Content: FC<ContentProps> = ({
               </Radio.Group>
             </div>
 
-            {productType === 'REVENDA' && (
-              <div style={{
-                background: '#FFF7E6', border: '1px solid #FFD591', borderRadius: 8,
-                padding: '10px 14px', fontSize: 12, marginBottom: 16, color: '#000000',
-              }}>
-                <InfoCircleOutlined style={{ color: '#FA8C16', marginRight: 6 }} />
-                <strong>Revenda:</strong> Selecione um item do tipo &ldquo;Mercadoria para revenda&rdquo; como base do custo.
-                O custo do produto será o custo desse item.
-              </div>
-            )}
-
-            {productType === 'REVENDA' && (
-              <Form.Item label="Item base (mercadoria para revenda)" style={{ maxWidth: 400 }}>
-                <Select
-                  showSearch
-                  placeholder="Selecione o item de revenda"
-                  value={baseItemId}
-                  onChange={(val) => setBaseItemId(val)}
-                  filterOption={(input, option) =>
-                    (option?.children as unknown as string || '').toLowerCase().includes(input.toLowerCase())
-                  }
-                  notFoundContent={
-                    <div style={{ padding: 12, textAlign: 'center', color: '#64748b' }}>
-                      Nenhum item do tipo &ldquo;Revenda&rdquo; cadastrado.
-                    </div>
-                  }
-                >
-                  {itemsForSelection.map((item) => (
-                    <Select.Option key={item.id} value={item.id}>
-                      {item.name}
-                    </Select.Option>
-                  ))}
-                </Select>
-              </Form.Item>
-            )}
           </>
         )}
       </Card>
 
+      {/* O <Form> abraça os DOIS Cards — Identificação e Fiscal. A indentação dos
+          Cards não foi mexida de propósito: reindentar 400 linhas esconderia a
+          mudança real no diff. Tirar um Form.Item de dentro deste escopo faz o campo
+          sumir do `values` do save SEM erro nenhum — é o que o teste
+          `o-ncm-mora-no-bloco-fiscal.test.ts` trava. */}
+      <Form form={productForm} layout="vertical">
       <Card size="small">
-        <Form form={productForm} layout="vertical">
           <Form.Item name="id" label="Id" hidden>
             <Input />
           </Form.Item>
 
-          {/* Linha 1: Nome | Seção | NCM (+ Código se editando) */}
+          {/* Linha 1: Nome | Seção (+ Código se editando). O NCM saiu daqui para o bloco Fiscal. */}
           <div style={{ display: 'grid', gridTemplateColumns: isEditingMode ? 'repeat(auto-fit, minmax(180px, 1fr))' : 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16 }}>
             {isEditingMode && (
               <Form.Item
@@ -1917,31 +2033,6 @@ export const Content: FC<ContentProps> = ({
                   title="Criar nova seção"
                 />
               </div>
-            </Form.Item>
-
-            <Form.Item
-              name="ncm_code"
-              label={
-                <span>
-                  NCM&nbsp;
-                  <Tooltip title="Nomenclatura Comum do Mercosul — código fiscal do produto final. Digite o código ou pesquise pelo nome do produto.">
-                    <InfoCircleOutlined style={{ color: '#64748b' }} />
-                  </Tooltip>
-                </span>
-              }
-              style={{ marginBottom: 0 }}
-            >
-              <AutoComplete
-                options={ncmOptions}
-                onSearch={handleNcmSearch}
-                onSelect={(value: string) => {
-                  productForm.setFieldsValue({ ncm_code: value })
-                  fetchNcmRatesForLR(value)
-                }}
-                placeholder="Digite o NCM ou pesquise (ex: bolo, 1905...)"
-                notFoundContent={ncmFieldSearching ? <Spin size="small" /> : null}
-                allowClear
-              />
             </Form.Item>
           </div>
 
@@ -2118,8 +2209,60 @@ export const Content: FC<ContentProps> = ({
               maxLength={80}
             />
           </Modal>
-        </Form>
 
+      </Card>
+
+      {/* ══════════════════════════════════════════════════════
+          FISCAL — o que a NOTA exige do produto
+          O NCM e o contexto da venda moram juntos porque respondem à mesma
+          pergunta: qual é o tratamento tributário deste produto. O bloco está
+          preparado para receber ORIGEM DA MERCADORIA, CST/CSOSN e cClassTrib,
+          que a NT 2025.002 exige e que o schema ainda não tem —
+          `cascata-lucro-real.md`, seção "O que falta para EMITIR nota".
+          ══════════════════════════════════════════════════════ */}
+      <Card size="small" style={{ marginTop: 16 }}>
+        <Divider orientation="left" style={{ fontSize: 12, color: '#94a3b8', marginTop: 0 }}>
+          Fiscal
+        </Divider>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16 }}>
+          <Form.Item
+            name="ncm_code"
+            label={
+              <span>
+                NCM&nbsp;
+                <Tooltip title="Nomenclatura Comum do Mercosul — código fiscal do produto final. Digite o código ou pesquise pelo nome do produto.">
+                  <InfoCircleOutlined style={{ color: '#64748b' }} />
+                </Tooltip>
+              </span>
+            }
+            style={{ marginBottom: 0 }}
+          >
+            <AutoComplete
+              options={ncmOptions}
+              onSearch={handleNcmSearch}
+              onSelect={(value: string) => {
+                productForm.setFieldsValue({ ncm_code: value })
+                fetchNcmRatesForLR(value)
+              }}
+              placeholder="Digite o NCM ou pesquise (ex: bolo, 1905...)"
+              notFoundContent={ncmFieldSearching ? <Spin size="small" /> : null}
+              allowClear
+            />
+          </Form.Item>
+        </div>
+
+        {/* ┌ LUGAR PREPARADO — campos que a NF-e exige e que NÃO existem no schema:
+            │   • Origem da mercadoria (0 a 8)
+            │   • CST / CSOSN
+            │   • cClassTrib — 164 códigos na tabela oficial do Portal DF-e SVRS,
+            │     publicação 2026-06-22 (o "156 da v1.40" é fonte secundária)
+            └ Não criar sem a tabela de códigos: inventar a lista é pior que não tê-la. */}
+
+        {/* As sugestões de NCM vêm do NOME digitado, que ficou no bloco de Identificação.
+            Elas moram AQUI, junto do campo que preenchem. A consequência é conhecida e
+            aceita: a sugestão aparece longe do campo que a dispara. Se incomodar no uso, a
+            correção é o bloco reagir também ao NCM vazio — NÃO devolvê-lo para cima. */}
         {(ncmSugLoading || ncmSuggestions.length > 0) && (
           <div style={{
             marginTop: 8, marginBottom: 4, padding: '8px 12px',
@@ -2165,14 +2308,7 @@ export const Content: FC<ContentProps> = ({
           </div>
         )}
 
-      </Card>
-
-      {/* ══════════════════════════════════════════════════════
-          CONTEXTO DE VENDA — Ajuste 2
-          Imposto não fica fixo no produto, fica na precificação
-          ══════════════════════════════════════════════════════ */}
-      <Card size="small" style={{ marginTop: 16 }}>
-        <Divider orientation="left" style={{ fontSize: 12, color: '#94a3b8', marginTop: 0 }}>
+        <Divider orientation="left" style={{ fontSize: 12, color: '#94a3b8' }}>
           Contexto da Venda (para cálculo de impostos)
         </Divider>
 
@@ -2231,35 +2367,29 @@ export const Content: FC<ContentProps> = ({
             </div>
           )}
 
-          {isLRorLPorSH && (
-            <div>
-              <label style={{ display: 'block', marginBottom: 6, fontWeight: 500, fontSize: 13 }}>
-                Fator de redução da alíquota do IVA DUAL&nbsp;
-                <Tooltip title="Percentual de redução aplicado sobre as alíquotas de referência de IBS e CBS configuradas nas Configurações Fiscais. Ex: 50% reduz IBS de 17% para 8,5%.">
-                  <InfoCircleOutlined style={{ color: '#64748b' }} />
-                </Tooltip>
-              </label>
-              <Select
-                placeholder="Selecione"
-                value={ivaDualReductionFactor}
-                onChange={(val) => handleIvaDualFactorChange(val)}
-                style={{ width: '100%' }}
-                allowClear
-              >
-                {[30, 40, 50, 60, 70, 80, 100].map(v => (
-                  <Select.Option key={v} value={v}>{v}%</Select.Option>
-                ))}
-              </Select>
-              {ivaDualReductionFactor != null && (ibsPct > 0 || cbsPct > 0) && (
-                <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>
-                  IBS: {ibsPct.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}% (bruta) → {parseFloat((ibsPct * (1 - ivaDualReductionFactor / 100)).toFixed(4)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}% (efetiva)
-                  &nbsp;·&nbsp;
-                  CBS: {cbsPct.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}% (bruta) → {parseFloat((cbsPct * (1 - ivaDualReductionFactor / 100)).toFixed(4)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}% (efetiva)
-                </div>
-              )}
-            </div>
-          )}
         </div>
+
+        {/* ── CLASSIFICAÇÃO FISCAL — de onde a redução DECORRE ──────────────────
+            O seletor de oito faixas SAIU como entrada livre em 16/09/2026. A
+            redução não é escolha do usuário: ela vem do cClassTrib, como a
+            alíquota do IPI vem do NCM. O caminho de exceção é o código fora da
+            tabela, e só ele aceita digitação — ver o bloco compartilhado. */}
+        {isLRorLPorSH && (
+          <ClassificacaoFiscalBlock
+            value={classificacao}
+            onChange={setClassificacao}
+            fatorLegado={ivaDualReductionFactor}
+            onBloqueioChange={setBloqueioDaClassificacao}
+          />
+        )}
+
+        {isLRorLPorSH && (reducoes.ibs != null || reducoes.cbs != null) && (ibsPct > 0 || cbsPct > 0) && (
+          <div style={{ fontSize: 11, color: '#64748b', marginTop: 8 }}>
+            IBS: {ibsPct.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}% (bruta) → {parseFloat((ibsPct * (1 - (reducoes.ibs ?? 0) / 100)).toFixed(4)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}% (efetiva)
+            &nbsp;·&nbsp;
+            CBS: {cbsPct.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}% (bruta) → {parseFloat((cbsPct * (1 - (reducoes.cbs ?? 0) / 100)).toFixed(4)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}% (efetiva)
+          </div>
+        )}
 
         <div style={{
           background: 'rgba(46, 144, 250, 0.12)', border: '1px solid rgba(46, 144, 250, 0.3)', borderRadius: 8,
@@ -2271,6 +2401,7 @@ export const Content: FC<ContentProps> = ({
           simulação de preço — o imposto não fica fixo no produto.
         </div>
       </Card>
+      </Form>
 
       {productType === 'PRODUZIDO' && (
         <ContentIndustrialization
@@ -2295,21 +2426,23 @@ export const Content: FC<ContentProps> = ({
           pisCofinsLRPct={pisCofinsLRPct}
           onPisCofinsLRPctChange={setPisCofinsLRPct}
           freightValue={freightValue}
-          onFreightChange={setFreightValue}
           insuranceValue={insuranceValue}
-          onInsuranceChange={setInsuranceValue}
           accessoryExpensesValue={accessoryExpensesValue}
-          onAccessoryExpensesChange={setAccessoryExpensesValue}
           ibsPct={ibsPct}
           onIbsPctChange={setIbsPct}
           cbsPct={cbsPct}
           onCbsPctChange={setCbsPct}
-          ivaDualReductionFactor={ivaDualReductionFactor}
+          ivaReductionIbsPct={reducoes.ibs}
+          ivaReductionCbsPct={reducoes.cbs}
           isPct={isPct}
           onIsPctChange={setIsPct}
           ipiPct={ipiPct}
           onIpiPctChange={setIpiPct}
-          onFinalPriceWithTaxesChange={(d) => { finalPriceWithTaxesRef.current = d.finalPrice; salePriceBaseRef.current = d.basePrice }}
+          ibsBaseCode={ibsBaseCode}
+          cbsBaseCode={cbsBaseCode}
+          isBaseCode={isBaseCode}
+          ipiBaseCode={ipiBaseCode}
+          onFinalPriceWithTaxesChange={handleFinalPriceWithTaxes}
           advancedTaxesSection={advancedTaxesSection}
           advancedTaxParams={advancedTaxParams}
           mobileItemsList={productItemsMobileList}
@@ -2340,21 +2473,23 @@ export const Content: FC<ContentProps> = ({
           pisCofinsLRPct={pisCofinsLRPct}
           onPisCofinsLRPctChange={setPisCofinsLRPct}
           freightValue={freightValue}
-          onFreightChange={setFreightValue}
           insuranceValue={insuranceValue}
-          onInsuranceChange={setInsuranceValue}
           accessoryExpensesValue={accessoryExpensesValue}
-          onAccessoryExpensesChange={setAccessoryExpensesValue}
           ibsPct={ibsPct}
           onIbsPctChange={setIbsPct}
           cbsPct={cbsPct}
           onCbsPctChange={setCbsPct}
-          ivaDualReductionFactor={ivaDualReductionFactor}
+          ivaReductionIbsPct={reducoes.ibs}
+          ivaReductionCbsPct={reducoes.cbs}
           isPct={isPct}
           onIsPctChange={setIsPct}
           ipiPct={ipiPct}
           onIpiPctChange={setIpiPct}
-          onFinalPriceWithTaxesChange={(d) => { finalPriceWithTaxesRef.current = d.finalPrice; salePriceBaseRef.current = d.basePrice }}
+          ibsBaseCode={ibsBaseCode}
+          cbsBaseCode={cbsBaseCode}
+          isBaseCode={isBaseCode}
+          ipiBaseCode={ipiBaseCode}
+          onFinalPriceWithTaxesChange={handleFinalPriceWithTaxes}
           advancedTaxesSection={advancedTaxesSection}
           advancedTaxParams={advancedTaxParams}
           mobileItemsList={productItemsMobileList}
@@ -2383,21 +2518,23 @@ export const Content: FC<ContentProps> = ({
           pisCofinsLRPct={pisCofinsLRPct}
           onPisCofinsLRPctChange={setPisCofinsLRPct}
           freightValue={freightValue}
-          onFreightChange={setFreightValue}
           insuranceValue={insuranceValue}
-          onInsuranceChange={setInsuranceValue}
           accessoryExpensesValue={accessoryExpensesValue}
-          onAccessoryExpensesChange={setAccessoryExpensesValue}
           ibsPct={ibsPct}
           onIbsPctChange={setIbsPct}
           cbsPct={cbsPct}
           onCbsPctChange={setCbsPct}
-          ivaDualReductionFactor={ivaDualReductionFactor}
+          ivaReductionIbsPct={reducoes.ibs}
+          ivaReductionCbsPct={reducoes.cbs}
           isPct={isPct}
           onIsPctChange={setIsPct}
           ipiPct={ipiPct}
           onIpiPctChange={setIpiPct}
-          onFinalPriceWithTaxesChange={(d) => { finalPriceWithTaxesRef.current = d.finalPrice; salePriceBaseRef.current = d.basePrice }}
+          ibsBaseCode={ibsBaseCode}
+          cbsBaseCode={cbsBaseCode}
+          isBaseCode={isBaseCode}
+          ipiBaseCode={ipiBaseCode}
+          onFinalPriceWithTaxesChange={handleFinalPriceWithTaxes}
           advancedTaxesSection={advancedTaxesSection}
           advancedTaxParams={advancedTaxParams}
           mobileItemsList={productItemsMobileList}

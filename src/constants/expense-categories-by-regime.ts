@@ -227,18 +227,80 @@ export const SN_CATEGORY_GROUP_MAP: CategoryGroup[] = [
   { category: 'Distribuição de lucros', group: 'LUCRO' },
 ]
 
+// ── REPASSE, DEVOLUÇÕES E AMORTIZAÇÃO — UMA definição, usada nos QUATRO regimes ───
+//
+// Escritos aqui, e não repetidos em cada lista, porque este arquivo já tem cinco mapas de
+// categoria e quatro listas de opção: acrescentar a categoria a mão em cada uma seria
+// `copia-divergente.md` NASCENDO — esquecer uma faz a categoria sumir de um regime só, sem
+// erro nenhum. Com uma definição, acrescentar vale para os quatro.
+//
+// ── O QUE ISTO CORRIGE, MEDIDO EM 17/09/2026 ──
+//
+// `DEVOLUCOES` e `AMORTIZACAO` existiam em `CASHIER_CATEGORY.EXPENSE` desde 09/09/2026 e em
+// NENHUM seletor vivo: zero ocorrências neste arquivo, zero em `expense-setup-blocks.ts`.
+// O `switch` do DFC tem `case 'AMORTIZACAO'` e as três variantes de demonstração têm a linha
+// "(-) Amortização de Dívida (principal)" — para um grupo que o usuário NÃO TINHA COMO
+// ESCOLHER. A linha existia e não podia ser alimentada; é `portao-que-nao-alcanca.md` pelo
+// avesso, e por isso as duas entram junto com a nova, na mesma rodada.
+//
+// E a CHECK do banco também não as aceitava: `cash_entries_expense_group_check` lista 16
+// grupos e nenhum deles é `AMORTIZACAO`, `REPASSE` ou `OUTROS`. Sem a migração
+// `20260917000001`, escolher qualquer um dos três falha no INSERT.
+
+/** Repasse — valor que atravessa a empresa. Ver o grupo em `@/constants/expense-groups`. */
+export const REPASSE_CATEGORIES: CategoryGroup[] = [
+  // O `category` é o VALOR GRAVADO em `cash_entries.expense_category`, não só o rótulo.
+  // Renomear é de graça hoje e só hoje: ZERO linhas usam este valor, porque o grupo nasceu
+  // em 17/09/2026 e a migração da CHECK ainda nem foi aplicada. Depois de o primeiro
+  // lançamento existir, renomear passa a exigir backfill.
+  { category: 'Repasse de mercadorias', group: 'REPASSE' },
+]
+
+/** Devoluções — estorno de receita. NÃO é repasse: ver `expense-groups.ts`. */
+export const DEDUCAO_RECEITA_CATEGORIES: CategoryGroup[] = [
+  { category: 'Devoluções', group: 'DEDUCAO_RECEITA' },
+]
+
+/** Amortização — pagamento de principal de dívida, depois do resultado operacional. */
+export const AMORTIZACAO_CATEGORIES: CategoryGroup[] = [
+  { category: 'Amortização de Dívida (principal)', group: 'AMORTIZACAO' },
+]
+
+/** Os dois blocos que entram logo abaixo de "Custo dos Produtos", na ordem do DRE. */
+const REPASSE_E_DEDUCOES_OPTION_GROUPS: CategoryOptionGroup[] = [
+  { label: '── Repasse de mercadorias ──', options: REPASSE_CATEGORIES.map(c => ({ label: c.category, value: c.category })) },
+  { label: '── Deduções da Receita ──', options: DEDUCAO_RECEITA_CATEGORIES.map(c => ({ label: c.category, value: c.category })) },
+]
+
+/** A amortização vem DEPOIS do resultado operacional no DRE, e por isso fecha o seletor. */
+const AMORTIZACAO_OPTION_GROUP: CategoryOptionGroup = {
+  label: '── Amortização ──',
+  options: AMORTIZACAO_CATEGORIES.map(c => ({ label: c.category, value: c.category })),
+}
+
+/** Tudo o que os três blocos acrescentam — para os resolvedores de grupo. */
+const NAO_OPERACIONAIS: CategoryGroup[] = [
+  ...REPASSE_CATEGORIES,
+  ...DEDUCAO_RECEITA_CATEGORIES,
+  ...AMORTIZACAO_CATEGORIES,
+]
+
 // ── Grouped option lists consumed by AntD Select ───────────────────────────
 export const EXPENSE_CATEGORY_OPTIONS: CategoryOptionGroup[] = [
+  // A lista base não tem "Custo dos Produtos"; os dois blocos abrem o seletor.
+  ...REPASSE_E_DEDUCOES_OPTION_GROUPS,
   { label: '── Mão de Obra Produtiva ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'MAO_DE_OBRA_PRODUTIVA').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Mão de Obra Administrativa ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'MAO_DE_OBRA_ADMINISTRATIVA').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Despesas Fixas ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_FIXA').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Despesas Variáveis ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_VARIAVEL').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Despesas Financeiras ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_FINANCEIRA').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Comissões ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'COMISSOES' || c.group === 'RESERVA_TECNICA').map(c => ({ label: c.category, value: c.category })) },
+  AMORTIZACAO_OPTION_GROUP,
 ]
 
 export const LR_EXPENSE_CATEGORY_OPTIONS: CategoryOptionGroup[] = [
   { label: '── Custo dos Produtos ──', options: LR_CUSTO_PRODUTOS.map(c => ({ label: c.category, value: c.category })) },
+  ...REPASSE_E_DEDUCOES_OPTION_GROUPS,
   { label: '── Mão de Obra Produtiva ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'MAO_DE_OBRA_PRODUTIVA').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Mão de Obra Administrativa ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'MAO_DE_OBRA_ADMINISTRATIVA').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Despesas Fixas ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_FIXA').map(c => ({ label: c.category, value: c.category })) },
@@ -250,10 +312,12 @@ export const LR_EXPENSE_CATEGORY_OPTIONS: CategoryOptionGroup[] = [
   { label: '── Impostos sobre o Lucro ──', options: LR_IMPOSTOS_SOBRE_LUCRO.map(c => ({ label: c.category, value: c.category })) },
   { label: '── Impostos sobre o Faturamento (Por dentro) ──', options: LR_IMPOSTOS_FATURAMENTO_DENTRO.map(c => ({ label: c.category, value: c.category })) },
   { label: '── Impostos sobre o Faturamento (Por fora) ──', options: LR_IMPOSTOS_FATURAMENTO_FORA.map(c => ({ label: c.category, value: c.category })) },
+  AMORTIZACAO_OPTION_GROUP,
 ]
 
 export const LP_EXPENSE_CATEGORY_OPTIONS: CategoryOptionGroup[] = [
   { label: '── Custo dos Produtos ──', options: LR_CUSTO_PRODUTOS.map(c => ({ label: c.category, value: c.category })) },
+  ...REPASSE_E_DEDUCOES_OPTION_GROUPS,
   { label: '── Mão de Obra Produtiva ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'MAO_DE_OBRA_PRODUTIVA').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Mão de Obra Administrativa ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'MAO_DE_OBRA_ADMINISTRATIVA').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Despesas Fixas ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_FIXA').map(c => ({ label: c.category, value: c.category })) },
@@ -265,10 +329,12 @@ export const LP_EXPENSE_CATEGORY_OPTIONS: CategoryOptionGroup[] = [
   { label: '── Impostos sobre o Lucro ──', options: LP_IMPOSTOS_SOBRE_LUCRO.map(c => ({ label: c.category, value: c.category })) },
   { label: '── Impostos sobre o Faturamento (Por dentro) ──', options: LP_IMPOSTOS_FATURAMENTO_DENTRO.map(c => ({ label: c.category, value: c.category })) },
   { label: '── Impostos sobre o Faturamento (Por fora) ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'IMPOSTO').map(c => ({ label: c.category, value: c.category })) },
+  AMORTIZACAO_OPTION_GROUP,
 ]
 
 export const SN_EXPENSE_CATEGORY_OPTIONS: CategoryOptionGroup[] = [
   { label: '── Custo dos Produtos ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'CUSTO_PRODUTOS').map(c => ({ label: c.category, value: c.category })) },
+  ...REPASSE_E_DEDUCOES_OPTION_GROUPS,
   { label: '── Mão de Obra Produção ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'MAO_DE_OBRA_PRODUTIVA').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Mão de Obra Administrativa ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'MAO_DE_OBRA_ADMINISTRATIVA').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Despesas Fixas ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_FIXA').map(c => ({ label: c.category, value: c.category })) },
@@ -279,6 +345,7 @@ export const SN_EXPENSE_CATEGORY_OPTIONS: CategoryOptionGroup[] = [
   { label: '── Impostos sobre o Faturamento (Por dentro) ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'IMPOSTO_FATURAMENTO_DENTRO').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Comissões ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'COMISSOES' || c.group === 'RESERVA_TECNICA').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Lucro ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'LUCRO').map(c => ({ label: c.category, value: c.category })) },
+  AMORTIZACAO_OPTION_GROUP,
 ]
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -305,7 +372,7 @@ export function getExpenseCategoryOptionsForRegime(regime: string | null | undef
 export function getGroupForCategoryByRegime(regime: string | null | undefined, category: string): string | undefined {
   if (!category) return undefined
   if (isSimplesRegime(regime)) {
-    return SN_CATEGORY_GROUP_MAP.find(c => c.category === category)?.group
+    return [...NAO_OPERACIONAIS, ...SN_CATEGORY_GROUP_MAP].find(c => c.category === category)?.group
   }
   if (isLucroRealRegime(regime)) {
     const lr = [
@@ -315,6 +382,7 @@ export function getGroupForCategoryByRegime(regime: string | null | undefined, c
       ...LR_IMPOSTOS_SOBRE_LUCRO,
       ...LR_IMPOSTOS_FATURAMENTO_DENTRO,
       ...LR_IMPOSTOS_FATURAMENTO_FORA,
+      ...NAO_OPERACIONAIS,
       ...CATEGORY_GROUP_MAP,
     ]
     return lr.find(c => c.category === category)?.group
@@ -326,11 +394,12 @@ export function getGroupForCategoryByRegime(regime: string | null | undefined, c
       ...LR_LUCRO,
       ...LP_IMPOSTOS_SOBRE_LUCRO,
       ...LP_IMPOSTOS_FATURAMENTO_DENTRO,
+      ...NAO_OPERACIONAIS,
       ...CATEGORY_GROUP_MAP,
     ]
     return lp.find(c => c.category === category)?.group
   }
-  return CATEGORY_GROUP_MAP.find(c => c.category === category)?.group
+  return [...NAO_OPERACIONAIS, ...CATEGORY_GROUP_MAP].find(c => c.category === category)?.group
 }
 
 /** Returns true when the category triggers the ICMS/PIS/COFINS/IPI/CBS/IBS breakdown

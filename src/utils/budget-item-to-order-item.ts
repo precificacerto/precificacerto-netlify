@@ -51,6 +51,12 @@ export const BUDGET_ITEM_COLUMNS_FOR_ORDER = [
     // D-A: o destino congelado do item do orçamento. Fora desta lista ele chega `undefined`
     // e o pedido cai na matriz pelo `calc_type` atual — o D12 outra vez.
     'destination_snapshot',
+    // R21: a parcela de acréscimo que coube a este item, CONGELADA em R$. Fora desta lista
+    // ela chega `undefined`, grava NULL, e o frete morre no orçamento — que é exatamente o
+    // mecanismo desta página: o `select` que não pede o que o mapeador lê não falha, o campo
+    // só chega vazio.
+    'freight_allocated_value',
+    'accessories_allocated_value',
 ] as const
 
 /** A mesma lista no formato que o `.select()` do Supabase espera. */
@@ -69,6 +75,10 @@ export interface BudgetItemForOrder {
     tax_breakdown?: TaxBreakdown | null
     /** D-A: snapshot de destino congelado na inserção do item no orçamento. */
     destination_snapshot?: unknown
+    /** R21: parcela do frete congelada no rateio do orçamento. */
+    freight_allocated_value?: number | null
+    /** R21: parcela de seguro + demais acessórias, congelada no rateio do orçamento. */
+    accessories_allocated_value?: number | null
 }
 
 /** Linha pronta para `insert` em `order_items`. */
@@ -85,6 +95,8 @@ export interface OrderItemRowToInsert {
     rt_pct: number
     tax_breakdown: TaxBreakdown | null
     destination_snapshot: unknown
+    freight_allocated_value: number | null
+    accessories_allocated_value: number | null
 }
 
 /**
@@ -117,5 +129,10 @@ export function mapBudgetItemsToOrderItems(
         // D-A: o pedido herda o destino congelado do orçamento, não o do cadastro — o item
         // do orçamento já respondeu por ele.
         destination_snapshot: bi.destination_snapshot ?? null,
+        // R21: o pedido HERDA a parcela, não a recalcula. O share tem o conjunto inteiro no
+        // denominador, então recalcular mudaria a parcela de itens que ninguém tocou.
+        // `null` = não rateado, e nunca rateado em zero.
+        freight_allocated_value: bi.freight_allocated_value ?? null,
+        accessories_allocated_value: bi.accessories_allocated_value ?? null,
     }))
 }

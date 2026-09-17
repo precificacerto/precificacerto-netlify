@@ -33,21 +33,24 @@ interface ContentIndustrializationProps {
   pisCofinsLRPct?: number
   onPisCofinsLRPctChange?: (value: number) => void
   freightValue?: number
-  onFreightChange?: (value: number) => void
   insuranceValue?: number
-  onInsuranceChange?: (value: number) => void
   accessoryExpensesValue?: number
-  onAccessoryExpensesChange?: (value: number) => void
   ibsPct?: number
   onIbsPctChange?: (value: number) => void
   cbsPct?: number
   onCbsPctChange?: (value: number) => void
-  ivaDualReductionFactor?: number | null
+  ivaReductionIbsPct?: number | null
+  ivaReductionCbsPct?: number | null
   isPct?: number
   onIsPctChange?: (value: number) => void
   ipiPct?: number
   onIpiPctChange?: (value: number) => void
-  onFinalPriceWithTaxesChange?: (data: { finalPrice: number; basePrice: number }) => void
+  /* R3 — código de base por tributo por fora. `null` = não classificado (padrão da R3). */
+  ibsBaseCode?: number | null
+  cbsBaseCode?: number | null
+  isBaseCode?: number | null
+  ipiBaseCode?: number | null
+  onFinalPriceWithTaxesChange?: (data: { finalPrice: number; basePrice: number; externalOpsCoefficient: number | null }) => void
   advancedTaxesSection?: ReactNode
   /**
    * Alerta de carga horária não configurada. Quando presente, SUBSTITUI o card de
@@ -81,20 +84,22 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
   pisCofinsLRPct,
   onPisCofinsLRPctChange,
   freightValue,
-  onFreightChange,
   insuranceValue,
-  onInsuranceChange,
   accessoryExpensesValue,
-  onAccessoryExpensesChange,
   ibsPct,
   onIbsPctChange,
   cbsPct,
   onCbsPctChange,
-  ivaDualReductionFactor,
+  ivaReductionIbsPct,
+  ivaReductionCbsPct,
   isPct,
   onIsPctChange,
   ipiPct,
   onIpiPctChange,
+  ibsBaseCode,
+  cbsBaseCode,
+  isBaseCode,
+  ipiBaseCode,
   onFinalPriceWithTaxesChange,
   advancedTaxesSection,
   workloadAlert,
@@ -235,20 +240,22 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
         pisCofinsLRPct={pisCofinsLRPct}
         onPisCofinsLRPctChange={onPisCofinsLRPctChange}
         freightValue={freightValue}
-        onFreightChange={onFreightChange}
         insuranceValue={insuranceValue}
-        onInsuranceChange={onInsuranceChange}
         accessoryExpensesValue={accessoryExpensesValue}
-        onAccessoryExpensesChange={onAccessoryExpensesChange}
         ibsPct={ibsPct}
         onIbsPctChange={onIbsPctChange}
         cbsPct={cbsPct}
-        ivaDualReductionFactor={ivaDualReductionFactor}
+        ivaReductionIbsPct={ivaReductionIbsPct}
+        ivaReductionCbsPct={ivaReductionCbsPct}
         onCbsPctChange={onCbsPctChange}
         isPct={isPct}
         onIsPctChange={onIsPctChange}
         ipiPct={ipiPct}
         onIpiPctChange={onIpiPctChange}
+        ibsBaseCode={ibsBaseCode}
+        cbsBaseCode={cbsBaseCode}
+        isBaseCode={isBaseCode}
+        ipiBaseCode={ipiBaseCode}
         onFinalPriceWithTaxesChange={onFinalPriceWithTaxesChange}
         advancedTaxesSection={advancedTaxesSection}
         advancedTaxParams={advancedTaxParams}

@@ -57,15 +57,35 @@ describe('A causa · o select deixou de ser escrito à mão', () => {
         // É esta asserção que impede o defeito de voltar: `BudgetItemForOrder` é o contrato do
         // que o mapeador consome, e um campo que entre lá sem entrar aqui quebra o build,
         // em vez de chegar vazio em silêncio.
-        const contratoDoMapeamento: Array<keyof BudgetItemForOrder> = [
-            'product_id', 'service_id', 'quantity', 'unit_price', 'manual_description',
-            'commission_pct', 'profit_pct', 'rt_pct', 'tax_breakdown',
-            'destination_snapshot',
-        ]
-        for (const campo of contratoDoMapeamento) {
+        //
+        // >>> O `satisfies` É O QUE FAZ A FRASE ACIMA SER VERDADE <<<
+        // Antes isto era um ARRAY escrito à mão, e a comparação era entre duas listas
+        // escritas à mão — a do módulo e a do teste. Um campo novo na interface que não
+        // entrasse em nenhuma das duas passava verde: o teste afirmava o que podia ver, e o
+        // que podia ver não era a interface (`.claude/rules/teste-que-nao-exercita.md`).
+        //
+        // Com `satisfies Record<keyof BudgetItemForOrder, true>`, faltar uma chave é ERRO DE
+        // TIPO, e sobrar uma que a interface não tem também. Agora o build quebra de verdade.
+        const contratoDoMapeamento = {
+            product_id: true,
+            service_id: true,
+            quantity: true,
+            unit_price: true,
+            manual_description: true,
+            commission_pct: true,
+            profit_pct: true,
+            rt_pct: true,
+            tax_breakdown: true,
+            destination_snapshot: true,
+            // R21: as parcelas de acréscimo atravessam congeladas.
+            freight_allocated_value: true,
+            accessories_allocated_value: true,
+        } satisfies Record<keyof BudgetItemForOrder, true>
+
+        for (const campo of Object.keys(contratoDoMapeamento) as Array<keyof BudgetItemForOrder>) {
             expect(BUDGET_ITEM_COLUMNS_FOR_ORDER).toContain(campo)
         }
-        expect(BUDGET_ITEM_COLUMNS_FOR_ORDER).toHaveLength(contratoDoMapeamento.length)
+        expect(BUDGET_ITEM_COLUMNS_FOR_ORDER).toHaveLength(Object.keys(contratoDoMapeamento).length)
     })
 
     it('`destination_snapshot` está na lista — a coluna que faltava', () => {

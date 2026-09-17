@@ -63,7 +63,12 @@ import {
     type PageItem,
 } from '@/utils/mrm-engine-v17/legacy-adapter'
 import type { ItemSnapshot, TenantSnapshotContext } from '@/lib/items-snapshot'
-import type { DiscountMode, MotorV17Result, TaxBreakdown } from '@/types/mrm'
+import type { DecompositionInputSnapshot, DiscountMode, MotorV17Result, TaxBreakdown } from '@/types/mrm'
+import {
+    resolveDespesasOperacionaisPct,
+    resolveSegmentoDaDespesa,
+    type BaldesDeDespesa,
+} from '@/utils/despesas-do-segmento'
 
 /** Um item do documento na entrada do gravador. */
 export interface DocumentItemHydrationInput {
@@ -134,6 +139,95 @@ function toPersistedBreakdown(
 }
 
 /**
+ * Congela os INSUMOS da decomposição do item, a partir do `PageItem` já enriquecido.
+ *
+ * Nenhum número é recalculado: o `motorItem` é a MESMA entrada que a tela deu ao motor, com
+ * custo e MO produtiva já resolvidos do cadastro por `enrichItemsForMotor`. Reenriquecer
+ * aqui recriaria a cópia divergente que aquele módulo eliminou.
+ *
+ * Os percentuais saem em BASE 100 porque é assim que o adaptador da decomposição os recebe —
+ * a travessia para fração é de `rate-scale.ts`, e duplicá-la aqui seria a segunda conta que
+ * a Parte 0 proíbe.
+ */
+function freezeDecompositionInput(
+    motorItem: PageItem,
+    motorTenantCtx: PageBuildArgs['tenantCtx'],
+): DecompositionInputSnapshot {
+    const mi = motorItem as PageItem & {
+        item_tax_rates?: DecompositionInputSnapshot['rates']
+        is_manual_cost?: boolean
+        service_id?: string | null
+        productive_labor_unit?: number | null
+        rt_reserve_percent?: number | null
+        commission_percent?: number | null
+        profit_percent?: number | null
+    }
+    return {
+        costUnit: Number(mi.cost_total) || 0,
+        productiveLaborUnit: Number(mi.productive_labor_unit) || 0,
+        commissionPct: Number(mi.commission_percent) || 0,
+        profitPct: Number(mi.profit_percent) || 0,
+        rtPct: Number(mi.rt_reserve_percent) || 0,
+        rates: mi.item_tax_rates ?? null,
+        isService: !!mi.service_id,
+        isManual: mi.is_manual_cost === true,
+        // R18 — a despesa é CONGELADA, e o percentual do tenant muda com o tempo. Sem
+        // gravá-lo, reabrir a venda decomporia com a despesa de hoje.
+        //
+        // 17/09/2026 — E ELA É DO SEGMENTO, não o `dop_pct` agregado. No SERVIÇO a
+        // construção usa só variável + financeira, porque fixa e MO indireta já estão
+        // no custo em R$ por minuto; congelar o agregado grava a dupla contagem de
+        // forma PERMANENTE, que é pior que não congelar. Medido no tenant real:
+        // R$ 1.205,98 a mais na despesa e o RRO indo a −786,80.
+        //
+        // Os baldes vêm do contexto do tenant. Quando ele traz só o agregado (chamador
+        // antigo), o não-serviço fica idêntico ao de antes — o agregado É a soma dos
+        // quatro — e o serviço é o único que muda, que é o que se quer corrigir.
+        // O segmento da DESPESA, não o da matriz: o tipo do produto não participa —
+        // `isCalcService` em `products/content.component.tsx:832` olha só o tenant.
+        despesasOperacionaisPct: resolveDespesasOperacionaisPct(
+            resolveSegmentoDaDespesa({
+                isService: !!mi.service_id,
+                tenantCalcType: (motorTenantCtx as { calc_type?: string | null }).calc_type ?? null,
+            }),
+            baldesDoContexto(motorTenantCtx),
+        ),
+    }
+}
+
+/**
+ * Os quatro baldes, do contexto do tenant.
+ *
+ * Quando o `expense_breakdown` está presente, usa as partes. Quando NÃO está, põe o
+ * agregado inteiro na `fixa` — o que reproduz EXATAMENTE o comportamento anterior para
+ * quem não é serviço (fixa + 0 + 0 + 0 = agregado) e deixa o serviço com zero, em vez de
+ * com a dupla contagem. Nenhum dos dois é um chute: o primeiro é o número de antes, e o
+ * segundo é a ausência do dado, que `ausente-vs-falso.md` manda não preencher.
+ */
+function baldesDoContexto(ctx: unknown): BaldesDeDespesa {
+    const c = ctx as {
+        dop_pct?: number | null
+        mo_produtiva_pct?: number | null
+        expense_breakdown?: {
+            fixed_pct?: number | null; variable_pct?: number | null
+            financial_pct?: number | null; administrative_pct?: number | null
+        } | null
+    }
+    const moProdutiva = Number(c?.mo_produtiva_pct) || 0
+    const eb = c?.expense_breakdown
+    if (eb) {
+        return {
+            fixa: Number(eb.fixed_pct) || 0,
+            variavel: Number(eb.variable_pct) || 0,
+            financeira: Number(eb.financial_pct) || 0,
+            indireta: Number(eb.administrative_pct) || 0,
+            moProdutiva,
+        }
+    }
+    return { fixa: Number(c?.dop_pct) || 0, variavel: 0, financeira: 0, indireta: 0, moProdutiva: 0 }
+}
+
+/**
  * Hidrata os snapshots de TODOS os itens de um documento, com uma única passada do motor V17.
  *
  * Devolve um array PARALELO a `args.items` — mesmo índice, mesmo item. Um item para o qual o
@@ -197,6 +291,10 @@ export function hydrateDocumentSnapshots(
             tax_breakdown.baseline_new_profit = base.new_profit ?? null
             tax_breakdown.baseline_ancora_interna = base.ancora_interna ?? null
         }
+        // R15 a R20 — os insumos da decomposição, CONGELADOS. Ver
+        // `TaxBreakdown.decomposition_input`: a venda gravada é fato histórico, e resolver
+        // custo e alíquotas do cadastro de hoje reescreveria o passado.
+        tax_breakdown.decomposition_input = freezeDecompositionInput(item.motorItem, args.tenantCtx)
 
         return { tax_breakdown, ...cols }
     })

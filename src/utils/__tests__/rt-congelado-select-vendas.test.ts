@@ -95,17 +95,34 @@ describe('A causa · o select deixou de ser escrito à mão', () => {
         // É esta asserção que impede o defeito de voltar. `BudgetItemForSale` é o contrato do
         // que o mapeador consome; se um campo entrar lá e não aqui, este teste quebra antes de
         // alguém descobrir em produção que a venda nasceu com o valor errado.
-        const contratoDoMapeamento: Array<keyof BudgetItemForSale> = [
-            'product_id', 'service_id', 'quantity', 'unit_price', 'discount',
-            'manual_description', 'commission_pct', 'profit_pct', 'rt_pct', 'tax_breakdown',
+        //
+        // >>> O `satisfies` É O QUE FAZ A FRASE ACIMA SER VERDADE <<<
+        // Antes isto era um ARRAY escrito à mão: a comparação era entre a lista do módulo e
+        // uma segunda lista, aqui. Um campo novo na interface que não entrasse em nenhuma
+        // das duas passava verde. Com `satisfies Record<keyof BudgetItemForSale, true>`,
+        // faltar chave é erro de TIPO — o build quebra, como o comentário promete.
+        const contratoDoMapeamento = {
+            product_id: true,
+            service_id: true,
+            quantity: true,
+            unit_price: true,
+            discount: true,
+            manual_description: true,
+            commission_pct: true,
+            profit_pct: true,
+            rt_pct: true,
+            tax_breakdown: true,
             // D-A: o destino congelado do item do orçamento entrou no contrato, e esta
             // asserção é o que garante que ele entre também no `select`.
-            'destination_snapshot',
-        ]
-        for (const campo of contratoDoMapeamento) {
+            destination_snapshot: true,
+            // R21: as parcelas de acréscimo atravessam congeladas.
+            freight_allocated_value: true,
+            accessories_allocated_value: true,
+        } satisfies Record<keyof BudgetItemForSale, true>
+        for (const campo of Object.keys(contratoDoMapeamento) as Array<keyof BudgetItemForSale>) {
             expect(BUDGET_ITEM_COLUMNS_FOR_SALE).toContain(campo)
         }
-        expect(BUDGET_ITEM_COLUMNS_FOR_SALE).toHaveLength(contratoDoMapeamento.length)
+        expect(BUDGET_ITEM_COLUMNS_FOR_SALE).toHaveLength(Object.keys(contratoDoMapeamento).length)
     })
 
     it('`rt_pct` está na lista — a coluna que faltava', () => {
@@ -114,9 +131,16 @@ describe('A causa · o select deixou de ser escrito à mão', () => {
     })
 
     it('a string do select tem o formato que o Supabase espera', () => {
-        expect(BUDGET_ITEM_SELECT_FOR_SALE).toBe(
-            'product_id, service_id, quantity, unit_price, discount, manual_description, commission_pct, profit_pct, rt_pct, tax_breakdown, destination_snapshot',
-        )
+        // O FORMATO, não o conteúdo. Repetir a lista inteira aqui seria a QUARTA cópia dela
+        // — módulo, interface, o mapa exaustivo acima e mais esta —, e toda coluna nova
+        // quebraria um teste que não é sobre coluna nenhuma. O conteúdo já é afirmado pelo
+        // caso anterior, que o compilador mantém exaustivo.
+        expect(BUDGET_ITEM_SELECT_FOR_SALE).toBe(BUDGET_ITEM_COLUMNS_FOR_SALE.join(', '))
+        expect(BUDGET_ITEM_SELECT_FOR_SALE).not.toMatch(/,\s*$/)
+        expect(BUDGET_ITEM_SELECT_FOR_SALE).not.toMatch(/\n/)
+        // Vírgula seguida de UM espaço, sempre — é o que o `.select()` do Supabase aceita.
+        expect(BUDGET_ITEM_SELECT_FOR_SALE).not.toMatch(/,(?! )/)
+        expect(BUDGET_ITEM_SELECT_FOR_SALE).not.toMatch(/,  /)
     })
 })
 
