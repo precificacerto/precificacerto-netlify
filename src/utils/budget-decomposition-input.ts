@@ -25,6 +25,12 @@ import {
 import { resolveItemFicha } from './budget-accessories'
 import { pisCofinsNominalFromEffective } from './sale-context'
 import {
+  resolveDespesasOperacionaisPct,
+  resolveSegmentoDaConstrucao,
+  resolveSegmentoDaDespesa,
+  type BaldesDeDespesa,
+} from './despesas-do-segmento'
+import {
   CSLL_RATE_ON_PROFIT,
   IRPJ_RATE_ON_PROFIT,
   pctToFraction,
@@ -48,6 +54,21 @@ export interface BudgetDecompositionItem {
   label: string
   isManual?: boolean
   isService?: boolean
+  /**
+   * `products.product_type` (`REVENDA` | `PRODUZIDO`). É o que distingue REVENDA de
+   * INDUSTRIALIZACAO, e sem ele a decomposição INFERE o segmento — ver
+   * `despesas-do-segmento.ts`. Ausente cai na segmentação do tenant.
+   */
+  productType?: string | null
+  /**
+   * A despesa CONGELADA na gravação do documento, em fração. Quando presente, VENCE
+   * o cálculo por segmento — R18 e `fato-vs-referencia.md`: o preço foi formado com
+   * ela, e recalculá-la contra a configuração de hoje reescreve o passado.
+   *
+   * Só a venda gravada a tem. Orçamento, pedido e venda de balcão resolvem do
+   * segmento, porque ainda estão sendo formados.
+   */
+  despesasOperacionaisPctCongelado?: number | null
   quantity: number
   /** Preço unitário GRAVADO — é o total geral do item por unidade. */
   unitPrice: number
@@ -88,8 +109,26 @@ export interface BudgetDecompositionParams {
   items: BudgetDecompositionItem[]
   /** Desconto do documento, FRAÇÃO [0, 1). */
   discountPct: number
-  /** Despesas operacionais do tenant, FRAÇÃO sobre o total geral. */
-  despesasOperacionaisPct: number
+  /**
+   * Os QUATRO BALDES de despesa do tenant, em fração — não o total agregado.
+   *
+   * Era um escalar até 17/09/2026, e o escalar era a causa: o serviço recebia
+   * `fixa + variável + financeira + MOI` quando a construção dele usa só
+   * `variável + financeira`, porque fixa e MO indireta já estão no custo em R$.
+   * Dupla contagem de R$ 1.205,98 no tenant medido, com o RRO indo a NEGATIVO.
+   *
+   * O total não permite desfazer a soma, então o contrato passa a pedir as partes.
+   * `construtor-empobrecido.md`: campo de cálculo é obrigatório, e o custo de
+   * torná-lo obrigatório é exatamente o benefício — o compilador enumerou os 17
+   * chamadores de uma vez.
+   */
+  despesas: BaldesDeDespesa
+  /**
+   * `tenant_settings.calc_type`. Decide o segmento quando o item não é serviço nem
+   * produto de revenda. Ausente cai em INDUSTRIALIZACAO, que é o default da
+   * construção.
+   */
+  tenantCalcType?: string | null
   /**
    * @deprecated As alíquotas legais saem de `rate-scale.ts`, não do tenant. Os campos
    * permanecem aceitos para não quebrar os chamadores, e são IGNORADOS — ver o comentário em
@@ -145,8 +184,26 @@ export function buildBudgetDecompositionInput(
       iss,
     )
 
+    // O SEGMENTO É LIDO, não inferido. A versão anterior desta linha tinha dois
+    // valores onde a matriz tem três — `item.isService ? 'SERVICO' : 'INDUSTRIALIZACAO'`
+    // — e com isso um produto de REVENDA entrava como industrialização, onde o IPI é
+    // POR FORA e na revenda é INEXISTENTE. Ver `despesas-do-segmento.ts`.
+    //
+    // E são DOIS segmentos, porque a construção decide as duas coisas por critérios
+    // diferentes: a MATRIZ pelo produto (revenda é revenda em qualquer tenant), a
+    // DESPESA pelo tenant (`isCalcService`, onde o tipo do produto não participa).
+    const segmento = resolveSegmentoDaConstrucao({
+      isService: item.isService,
+      productType: item.productType,
+      tenantCalcType: params.tenantCalcType,
+    })
+    const segmentoDaDespesa = resolveSegmentoDaDespesa({
+      isService: item.isService,
+      tenantCalcType: params.tenantCalcType,
+    })
+
     const ficha = resolveItemFicha({
-      segment: item.isService ? 'SERVICO' : 'INDUSTRIALIZACAO',
+      segment: segmento,
       rates: {
         icmsPct: item.isService ? null : icms,
         issPct: item.isService ? iss : null,
@@ -160,7 +217,14 @@ export function buildBudgetDecompositionInput(
 
     const lucroPct = pctToFraction(item.profitPct)
     const categories: DecompositionCategories = {
-      despesasOperacionaisPct: num(params.despesasOperacionaisPct),
+      // POR ITEM, porque o segmento é por item: um orçamento com produto E serviço
+      // tem dois percentuais de despesa, e um número só para o documento daria o do
+      // primeiro a todos. A regra de qual balde entra é a MESMA da construção.
+      // O CONGELADO vence. Ele é fato histórico do documento; o cálculo por segmento
+      // é a regra viva, e só vale para documento que ainda está sendo formado.
+      despesasOperacionaisPct: item.despesasOperacionaisPctCongelado != null
+        ? num(item.despesasOperacionaisPctCongelado)
+        : resolveDespesasOperacionaisPct(segmentoDaDespesa, params.despesas),
       rtPct: pctToFraction(item.rtPct),
       comissaoPct: pctToFraction(item.commissionPct),
       lucroPct,
@@ -205,7 +269,9 @@ export function buildBudgetDecompositionInput(
   // Nenhum cálculo por item as usa: cada um tem as suas acima.
   const primeira = items[0]?.categories
   const categories: DecompositionCategories = primeira ?? {
-    despesasOperacionaisPct: num(params.despesasOperacionaisPct),
+    // Sem item nenhum não há segmento a ler. O default é o da construção —
+    // INDUSTRIALIZACAO — e nada é calculado com ele, porque não há coluna.
+    despesasOperacionaisPct: resolveDespesasOperacionaisPct('INDUSTRIALIZACAO', params.despesas),
     rtPct: 0, comissaoPct: 0, lucroPct: 0, irpjPct: 0, csllPct: 0,
   }
 

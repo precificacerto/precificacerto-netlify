@@ -47,7 +47,7 @@ const PRODUTO: BudgetDecompositionItem = {
 
 const DECOMP = buildDecomposition(buildBudgetDecompositionInput({
   items: [PRODUTO, { key: 'm', label: 'Manual', isManual: true, quantity: 1, unitPrice: 500 }],
-  discountPct: 0.05, despesasOperacionaisPct: 0.18, irpjAliquota: 0.15, csllAliquota: 0.09,
+  discountPct: 0.05, despesas: { fixa: 0.18, variavel: 0, financeira: 0, indireta: 0, moProdutiva: 0 }, irpjAliquota: 0.15, csllAliquota: 0.09,
 }).input)
 
 describe('1. DA 12 EM DIANTE, a decomposição substitui as etapas', () => {

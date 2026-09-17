@@ -64,6 +64,11 @@ import {
 } from '@/utils/mrm-engine-v17/legacy-adapter'
 import type { ItemSnapshot, TenantSnapshotContext } from '@/lib/items-snapshot'
 import type { DecompositionInputSnapshot, DiscountMode, MotorV17Result, TaxBreakdown } from '@/types/mrm'
+import {
+    resolveDespesasOperacionaisPct,
+    resolveSegmentoDaDespesa,
+    type BaldesDeDespesa,
+} from '@/utils/despesas-do-segmento'
 
 /** Um item do documento na entrada do gravador. */
 export interface DocumentItemHydrationInput {
@@ -168,8 +173,58 @@ function freezeDecompositionInput(
         isManual: mi.is_manual_cost === true,
         // R18 — a despesa é CONGELADA, e o percentual do tenant muda com o tempo. Sem
         // gravá-lo, reabrir a venda decomporia com a despesa de hoje.
-        despesasOperacionaisPct: Number(motorTenantCtx.dop_pct) || 0,
+        //
+        // 17/09/2026 — E ELA É DO SEGMENTO, não o `dop_pct` agregado. No SERVIÇO a
+        // construção usa só variável + financeira, porque fixa e MO indireta já estão
+        // no custo em R$ por minuto; congelar o agregado grava a dupla contagem de
+        // forma PERMANENTE, que é pior que não congelar. Medido no tenant real:
+        // R$ 1.205,98 a mais na despesa e o RRO indo a −786,80.
+        //
+        // Os baldes vêm do contexto do tenant. Quando ele traz só o agregado (chamador
+        // antigo), o não-serviço fica idêntico ao de antes — o agregado É a soma dos
+        // quatro — e o serviço é o único que muda, que é o que se quer corrigir.
+        // O segmento da DESPESA, não o da matriz: o tipo do produto não participa —
+        // `isCalcService` em `products/content.component.tsx:832` olha só o tenant.
+        despesasOperacionaisPct: resolveDespesasOperacionaisPct(
+            resolveSegmentoDaDespesa({
+                isService: !!mi.service_id,
+                tenantCalcType: (motorTenantCtx as { calc_type?: string | null }).calc_type ?? null,
+            }),
+            baldesDoContexto(motorTenantCtx),
+        ),
     }
+}
+
+/**
+ * Os quatro baldes, do contexto do tenant.
+ *
+ * Quando o `expense_breakdown` está presente, usa as partes. Quando NÃO está, põe o
+ * agregado inteiro na `fixa` — o que reproduz EXATAMENTE o comportamento anterior para
+ * quem não é serviço (fixa + 0 + 0 + 0 = agregado) e deixa o serviço com zero, em vez de
+ * com a dupla contagem. Nenhum dos dois é um chute: o primeiro é o número de antes, e o
+ * segundo é a ausência do dado, que `ausente-vs-falso.md` manda não preencher.
+ */
+function baldesDoContexto(ctx: unknown): BaldesDeDespesa {
+    const c = ctx as {
+        dop_pct?: number | null
+        mo_produtiva_pct?: number | null
+        expense_breakdown?: {
+            fixed_pct?: number | null; variable_pct?: number | null
+            financial_pct?: number | null; administrative_pct?: number | null
+        } | null
+    }
+    const moProdutiva = Number(c?.mo_produtiva_pct) || 0
+    const eb = c?.expense_breakdown
+    if (eb) {
+        return {
+            fixa: Number(eb.fixed_pct) || 0,
+            variavel: Number(eb.variable_pct) || 0,
+            financeira: Number(eb.financial_pct) || 0,
+            indireta: Number(eb.administrative_pct) || 0,
+            moProdutiva,
+        }
+    }
+    return { fixa: Number(c?.dop_pct) || 0, variavel: 0, financeira: 0, indireta: 0, moProdutiva: 0 }
 }
 
 /**

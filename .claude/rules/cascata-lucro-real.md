@@ -54,6 +54,59 @@ corrigido no #14. Ela é uma constante local em
 `src/page-parts/products/content.component.tsx:751` e alimenta `calculatePricing` —
 **não é o divisor da cascata**. Ver Parte 4.
 
+#### A DECOMPOSIÇÃO NÃO LIA ISSO — corrigido em 17/09/2026
+
+`budget-decomposition-input.ts:149` resolvia o segmento assim:
+
+```ts
+segment: item.isService ? 'SERVICO' : 'INDUSTRIALIZACAO',
+```
+
+**Dois valores onde esta Parte 0 tem três**, e a mesma linha escrita uma segunda vez em
+`orcamentos/index.tsx:946`, alimentando o rateio dos acréscimos (R12) — `copia-divergente.md`
+já na origem. A decomposição INFERIA o formato em vez de lê-lo, e recebia um
+`despesasOperacionaisPct` AGREGADO que o serviço não usa.
+
+Medido no tenant de SERVIÇO real (fixa 50,06% · variável 17,09% · financeira 3,37% · MOI 0),
+custo R$ 1.000, ISS 5%, PIS/COFINS 9,25%, IBS 1% + CBS 9%, comissão 5%, lucro 10%:
+
+| linha | construção | decomposição | delta |
+|---|---:|---:|---:|
+| despesas | 492,90 | 1.698,88 | **+1.205,98** |
+| RRO | **+419,18** | **−786,80** | −1.205,98 |
+
+O delta é `2.409,07 × 50,06%` — a despesa fixa inteira, contada duas vezes. **O RRO ficava
+NEGATIVO**, e repartir resíduo negativo devolve comissão e lucro negativos. Todas as outras
+linhas batiam ao centavo, e o RESIDUAL fechava em zero — ele fecha por construção, distribui
+o RRO seja ele qual for, e por isso não acusava (`teste-que-nao-exercita.md`).
+
+A REVENDA, medida no mesmo dia, **não divergia** em nenhuma das treze linhas: ela leva os
+quatro baldes, e o agregado é a soma dos quatro.
+
+**SÃO DOIS SEGMENTOS, e é a parte que a primeira correção errou.** A construção decide as
+duas coisas por critérios diferentes, e a fonte única está em `src/utils/despesas-do-segmento.ts`:
+
+| pergunta | quem decide | onde, na construção |
+|---|---|---|
+| quais tributos existem e de que lado (a MATRIZ) | o **PRODUTO** primeiro — revenda é revenda em qualquer tenant | `product-price.component.tsx:206` |
+| qual despesa entra no coeficiente | o **TENANT** — `isCalcService` é `currentUser.calcType === SERVICE`, e o tipo do produto não participa | `products/content.component.tsx:832` |
+
+Com uma função só para os dois usos, **produto de revenda em tenant de serviço** recebia a
+despesa completa — a mesma dupla contagem, num caso mais estreito. Achado ao conferir o
+módulo novo contra `structurePctForEngine` antes de empurrar, não por caso vermelho.
+
+**A MO PRODUTIVA entra na despesa em segmentação REVENDA**, agrupada com a indireta por
+`resolveIndirectLaborPct` — e `dop_pct` do tenant NÃO a contém (`dop_pct = fixa + variável +
+financeira + MOI`). A fonte única LÊ aquela função em vez de reescrever o critério.
+Exposição em produção: **zero** — 0 dos 4 tenants de segmentação REVENDA tem
+`production_labor_percent > 0`.
+
+**O GRAVADOR congela a do segmento, não o agregado.** Congelar o errado é pior que não
+congelar: o erro vira permanente (`fato-vs-referencia.md`). Medido em 17/09/2026: **nenhum**
+`tax_breakdown.decomposition_input` gravado em `sale_items` (0 de 123), `budget_items`
+(0 de 196) ou `order_items` (0 de 34) — o congelamento ainda não foi a produção, então
+**nenhum documento carrega o número errado**.
+
 ### Principal e Secundária
 
 `products.product_type` = `PRODUZIDO` é Principal; `REVENDA` é Secundária.

@@ -373,6 +373,10 @@ function OrdersPage() {
                     label: item.product_name || item.manual_description || 'Item',
                     isManual: item.isManual,
                     isService: !!item.service_id,
+                    // Segmento LIDO, não inferido — ver `despesas-do-segmento.ts`.
+                    productType: item.product_id
+                        ? ((products as any[]).find((p) => p.id === item.product_id)?.product_type ?? null)
+                        : null,
                     quantity: Number(item.quantity) || 0,
                     unitPrice: Number(item.unit_price) || 0,
                     costUnit: Number(item.cost_total) || 0,
@@ -391,7 +395,16 @@ function OrdersPage() {
                 }
             }),
             discountPct: (Number(editingDiscountPct) || 0) / 100,
-            despesasOperacionaisPct: Number(mrmConfig.dop_pct) || 0,
+            despesas: {
+                fixa: Number(mrmConfig.expense_breakdown?.fixed_pct) || 0,
+                variavel: Number(mrmConfig.expense_breakdown?.variable_pct) || 0,
+                financeira: Number(mrmConfig.expense_breakdown?.financial_pct) || 0,
+                indireta: Number(mrmConfig.expense_breakdown?.administrative_pct) || 0,
+                // Só entra em segmentação REVENDA, agrupada com a indireta — ver
+                // `indirect-labor-grouping.ts`. Fora dela a soma a ignora.
+                moProdutiva: Number(mrmConfig.mo_produtiva_pct) || 0,
+            },
+            tenantCalcType: mrmConfig.calc_type,
         })
         if (params.isEmpty) return null
         return { result: buildDecomposition(params.input), labels: params.itemLabels }

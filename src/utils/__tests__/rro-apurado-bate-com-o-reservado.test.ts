@@ -46,7 +46,7 @@ const ATESTE: BudgetDecompositionItem = {
 
 const montar = (items: BudgetDecompositionItem[], discountPct = 0) => {
   const p = buildBudgetDecompositionInput({
-    items, discountPct, despesasOperacionaisPct: 0.2292, irpjAliquota: 0.15, csllAliquota: 0.09,
+    items, discountPct, despesas: { fixa: 0.2292, variavel: 0, financeira: 0, indireta: 0, moProdutiva: 0 }, irpjAliquota: 0.15, csllAliquota: 0.09,
   })
   return buildDecomposition(p.input)
 }

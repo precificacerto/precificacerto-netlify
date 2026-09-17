@@ -41,7 +41,7 @@ const TRES = [
     rates: { icms_pct: 7, pis_pct: 1.53, cofins_pct: 7.05, ibs_pct: 0, cbs_pct: 0, is_pct: 0, ipi_pct: 0 } },
 ]
 const r = buildDecomposition(buildBudgetDecompositionInput({
-  items: TRES as never, discountPct: 0.05, despesasOperacionaisPct: 0.2292,
+  items: TRES as never, discountPct: 0.05, despesas: { fixa: 0.2292, variavel: 0, financeira: 0, indireta: 0, moProdutiva: 0 },
 }).input)
 const L = (k: string) => r.rows.find((x) => x.key === k)!
 

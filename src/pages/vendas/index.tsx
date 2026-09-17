@@ -402,6 +402,9 @@ function Sales() {
                     label: it.products?.name ?? it.services?.name ?? it.manual_description ?? 'Item',
                     isManual: congelado.isManual,
                     isService: congelado.isService,
+                    productType: it.products?.product_type ?? null,
+                    // R18 — o que ESTE item congelou. Vence o cálculo por segmento.
+                    despesasOperacionaisPctCongelado: congelado.despesasOperacionaisPct ?? null,
                     quantity: Number(it.quantity) || 0,
                     unitPrice: Number(it.unit_price) || 0,
                     costUnit: Number(congelado.costUnit) || 0,
@@ -418,8 +421,10 @@ function Sales() {
                 }
             }),
             discountPct: (Number(selectedSale?.discount_percent) || 0) / 100,
-            // R18 — a despesa CONGELADA na gravação, não a do tenant de hoje.
-            despesasOperacionaisPct: Number(congelados[0]?.despesasOperacionaisPct) || 0,
+            // R18 — a despesa CONGELADA na gravação vai POR ITEM (acima), não como um
+            // número do documento: cada item congelou o seu. Os baldes ficam zerados
+            // porque nada aqui é recalculado — o congelado vence em todos.
+            despesas: { fixa: 0, variavel: 0, financeira: 0, indireta: 0, moProdutiva: 0 },
         })
         if (params.isEmpty) return { ...VAZIA, estado: 'SEM_PRODUTO' as const }
         return { result: buildDecomposition(params.input), labels: params.itemLabels, estado: 'CONGELADA' as const }
@@ -1510,6 +1515,10 @@ function Sales() {
                 label: item.product_name || 'Item',
                 isManual: item.is_manual,
                 isService: item.is_service,
+                // Segmento LIDO, não inferido — ver `despesas-do-segmento.ts`.
+                productType: item.product_id
+                    ? ((products as any[]).find((p) => p.id === item.product_id)?.product_type ?? null)
+                    : null,
                 quantity: Number(item.quantity) || 0,
                 unitPrice: Number(item.unit_price) || 0,
                 costUnit: Number(item.cost_total) || 0,
@@ -1527,7 +1536,16 @@ function Sales() {
                     : tercUnitDoCadastro(item.product_id) * (Number(item.quantity) || 0),
             })),
             discountPct: (Number(globalDiscountPercentV) || 0) / 100,
-            despesasOperacionaisPct: Number(mrmConfig.dop_pct) || 0,
+            despesas: {
+                fixa: Number(mrmConfig.expense_breakdown?.fixed_pct) || 0,
+                variavel: Number(mrmConfig.expense_breakdown?.variable_pct) || 0,
+                financeira: Number(mrmConfig.expense_breakdown?.financial_pct) || 0,
+                indireta: Number(mrmConfig.expense_breakdown?.administrative_pct) || 0,
+                // Só entra em segmentação REVENDA, agrupada com a indireta — ver
+                // `indirect-labor-grouping.ts`. Fora dela a soma a ignora.
+                moProdutiva: Number(mrmConfig.mo_produtiva_pct) || 0,
+            },
+            tenantCalcType: mrmConfig.calc_type,
         })
         if (params.isEmpty) return null
         return { result: buildDecomposition(params.input), labels: params.itemLabels }

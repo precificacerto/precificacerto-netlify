@@ -58,6 +58,7 @@ import { ResidualDistributionBlock } from '@/page-parts/shared/residual-distribu
 import { NOTA_DA_DECOMPOSICAO, applyDecompositionToResidual } from '@/utils/residual-from-decomposition'
 import { buildDecomposition } from '@/utils/decomposition-dre'
 import { buildBudgetDecompositionInput } from '@/utils/budget-decomposition-input'
+import { resolveSegmentoDaConstrucao } from '@/utils/despesas-do-segmento'
 import { pisCofinsNominalFromEffective } from '@/utils/sale-context'
 import { PRODUCT_TAX_SELECT, SERVICE_TAX_SELECT } from '@/utils/item-tax-columns'
 import { pctToFraction, pisCofinsFractionFromItem } from '@/utils/rate-scale'
@@ -943,7 +944,15 @@ function Budgets() {
             // alíquota para o frete, e não se redescobre a que o produto usou.
             const rates = item.item_tax_rates
             const ficha = resolveItemFicha({
-                segment: item.isService ? 'SERVICO' : 'INDUSTRIALIZACAO',
+                // A SEGUNDA CÓPIA do segmento de dois valores, corrigida junto com a da
+                // decomposição em 17/09/2026. Elas liam a MESMA matriz e a inferiam do
+                // mesmo jeito errado — um produto de REVENDA entrava como industrialização,
+                // onde o IPI é POR FORA. Uma fonte só, em `despesas-do-segmento.ts`.
+                segment: resolveSegmentoDaConstrucao({
+                    isService: item.isService,
+                    productType: (products as any[]).find((p) => p.id === item.product_id)?.product_type ?? null,
+                    tenantCalcType: mrmConfig.calc_type,
+                }),
                 // MESMA travessia de escala da decomposição (`rate-scale.ts`). Aqui as
                 // alíquotas eram passadas CRUAS — `icms_pct = 17` chegava como 1700% —, e o
                 // rateio e a decomposição liam a mesma fonte em escalas diferentes. Duas
@@ -1294,6 +1303,11 @@ function Budgets() {
                 label: item.product_name || 'Item',
                 isManual: item.isManual,
                 isService: item.isService,
+                // O SEGMENTO é lido, não inferido: produto de REVENDA é REVENDA em
+                // qualquer tenant, e lá o IPI é INEXISTENTE. Ver `despesas-do-segmento.ts`.
+                productType: item.product_id
+                    ? ((products as any[]).find((p) => p.id === item.product_id)?.product_type ?? null)
+                    : null,
                 quantity: Number(item.quantity) || 0,
                 unitPrice: Number(item.unit_price) || 0,
                 costUnit: Number(item.cost_total) || 0,
@@ -1318,7 +1332,16 @@ function Budgets() {
                     })(),
             })),
             discountPct: (Number(globalDiscountPercent) || 0) / 100,
-            despesasOperacionaisPct: Number(mrmConfig.dop_pct) || 0,
+            despesas: {
+                fixa: Number(mrmConfig.expense_breakdown?.fixed_pct) || 0,
+                variavel: Number(mrmConfig.expense_breakdown?.variable_pct) || 0,
+                financeira: Number(mrmConfig.expense_breakdown?.financial_pct) || 0,
+                indireta: Number(mrmConfig.expense_breakdown?.administrative_pct) || 0,
+                // Só entra em segmentação REVENDA, agrupada com a indireta — ver
+                // `indirect-labor-grouping.ts`. Fora dela a soma a ignora.
+                moProdutiva: Number(mrmConfig.mo_produtiva_pct) || 0,
+            },
+            tenantCalcType: mrmConfig.calc_type,
             irpjAliquota: Number(mrmConfig.irpj_pct) || 0,
             csllAliquota: Number(mrmConfig.csll_pct) || 0,
         })

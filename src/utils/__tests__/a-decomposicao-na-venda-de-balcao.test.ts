@@ -80,7 +80,7 @@ const decomporDe = (linhas: readonly unknown[], discountPct = 0) =>
         ? (Number(item.freight_allocated_value) || 0) + (Number(item.accessories_allocated_value) || 0)
         : 0,
     })),
-    discountPct, despesasOperacionaisPct: DESPESAS_PCT,
+    discountPct, despesas: { fixa: DESPESAS_PCT, variavel: 0, financeira: 0, indireta: 0, moProdutiva: 0 },
   }).input)
 
 const enriquecer = (ctx: typeof CTX_DO_TENANT) => enrichItemsForMotor(

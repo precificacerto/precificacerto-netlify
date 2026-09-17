@@ -98,6 +98,77 @@ describe('1. O GRAVADOR congela os insumos da decomposição', () => {
       .toBeCloseTo(0.31, 10)
   })
 
+  it('>>> E ELA É A DO SEGMENTO, não o `dop_pct` agregado — 17/09/2026 <<<', () => {
+    // O gravador congelava `dop_pct`, que é `fixa + variável + financeira + MOI`. No
+    // SERVIÇO a construção usa só `variável + financeira`, porque a fixa e a MO já estão
+    // no custo em R$ por minuto. Congelar o agregado grava a dupla contagem de forma
+    // PERMANENTE — e congelar o errado é pior que não congelar.
+    const ctx = {
+      regime: 'LUCRO_REAL', rates: [] as unknown[], dop_pct: 0.7052, calc_type: 'SERVICO',
+      expense_breakdown: {
+        fixed_pct: 0.5006, variable_pct: 0.1709, financial_pct: 0.0337, administrative_pct: 0,
+      },
+    }
+    const svc = hydrateDocumentSnapshots({
+      items: [{
+        motorItem: {
+          service_id: 's1', unit_price: 2409.07, quantity: 1,
+          commission_percent: 5, profit_percent: 10, cost_total: 1000,
+        } as never,
+        commission_pct: 0.05, profit_pct: 0.10,
+      }],
+      tenantCtx: ctx as never,
+      globalDiscountPercent: 0,
+      discountMode: 'PROPORTIONAL',
+    }, SNAPSHOT_CTX)
+    const d = svc[0].tax_breakdown!.decomposition_input!
+    expect(d.despesasOperacionaisPct).toBeCloseTo(0.2046, 6)
+    // O DISCRIMINANTE: o agregado. Ele está no MESMO contexto, e o caso o recusa.
+    expect(d.despesasOperacionaisPct).not.toBeCloseTo(0.7052, 4)
+    expect(Number(ctx.dop_pct)).toBeCloseTo(0.7052, 6)
+  })
+
+  it('e um PRODUTO no mesmo tenant congela o agregado — os dois no mesmo documento', () => {
+    // Sem o contraste, o caso acima passaria num gravador que simplesmente zerasse a fixa
+    // para todo mundo. O produto continua levando os quatro baldes.
+    const ctx = {
+      regime: 'LUCRO_REAL', rates: [] as unknown[], dop_pct: 0.2857, calc_type: 'INDUSTRIALIZACAO',
+      expense_breakdown: {
+        fixed_pct: 0.1489, variable_pct: 0.0556, financial_pct: 0.0056, administrative_pct: 0.0756,
+      },
+    }
+    const prod = hydrateDocumentSnapshots({
+      items: [{
+        motorItem: { product_id: 'p1', unit_price: 4331.69, quantity: 1, commission_percent: 5, profit_percent: 10, cost_total: 1000 } as never,
+        commission_pct: 0.05, profit_pct: 0.10,
+      }],
+      tenantCtx: ctx as never, globalDiscountPercent: 0, discountMode: 'PROPORTIONAL',
+    }, SNAPSHOT_CTX)
+    expect(prod[0].tax_breakdown!.decomposition_input!.despesasOperacionaisPct)
+      .toBeCloseTo(0.2857, 6)
+  })
+
+  it('e um PRODUTO em tenant de SERVIÇO congela a do SERVIÇO — o `calc_type` é lido', () => {
+    // A despesa é decidida pelo TENANT, não pelo tipo do item: `isCalcService` em
+    // `products/content.component.tsx:832`. Sem ler o `calc_type` o gravador cairia em
+    // INDUSTRIALIZACAO e congelaria o agregado — a dupla contagem, permanente.
+    const ctx = {
+      regime: 'LUCRO_REAL', rates: [] as unknown[], dop_pct: 0.7052, calc_type: 'SERVICO',
+      expense_breakdown: {
+        fixed_pct: 0.5006, variable_pct: 0.1709, financial_pct: 0.0337, administrative_pct: 0,
+      },
+    }
+    const prod = hydrateDocumentSnapshots({
+      items: [{
+        motorItem: { product_id: 'p1', unit_price: 3205.57, quantity: 1, commission_percent: 5, profit_percent: 10, cost_total: 1000 } as never,
+        commission_pct: 0.05, profit_pct: 0.10,
+      }],
+      tenantCtx: ctx as never, globalDiscountPercent: 0, discountMode: 'PROPORTIONAL',
+    }, SNAPSHOT_CTX)
+    expect(prod[0].tax_breakdown!.decomposition_input!.despesasOperacionaisPct)
+      .toBeCloseTo(0.2046, 6)
+  })
+
   it('comissão, lucro, RT e as marcas de serviço e manual', () => {
     expect(di.commissionPct).toBeCloseTo(5, 6)
     expect(di.profitPct).toBeCloseTo(10, 6)
@@ -119,8 +190,14 @@ describe('2. A TELA lê o congelado, e NUNCA o cadastro vivo', () => {
   it('a despesa vem do congelado, não de `mrmConfig.dop_pct`', () => {
     const memo = vnd.slice(vnd.indexOf('const saleDecomposition = useMemo'))
     const corpo = memo.slice(0, memo.indexOf('}, [detailItems'))
-    expect(corpo).toContain('despesasOperacionaisPct: Number(congelados[0]?.despesasOperacionaisPct) || 0,')
+    // 17/09/2026 — a despesa congelada passou a ir POR ITEM, não como um número do
+    // documento. A versão anterior pegava `congelados[0]` e o dava a TODOS: num
+    // documento com produto E serviço, o segundo herdava a despesa do primeiro.
+    expect(corpo).toContain('despesasOperacionaisPctCongelado: congelado.despesasOperacionaisPct ?? null,')
+    // E os baldes vão ZERADOS: nada aqui é recalculado do tenant de hoje.
+    expect(corpo).toContain('despesas: { fixa: 0, variavel: 0, financeira: 0, indireta: 0, moProdutiva: 0 },')
     expect(corpo).not.toContain('mrmConfig.dop_pct')
+    expect(corpo).not.toContain('congelados[0]?.despesasOperacionaisPct')
   })
 
   it('TUDO OU NADA: um item sem o congelado tira a decomposição inteira', () => {

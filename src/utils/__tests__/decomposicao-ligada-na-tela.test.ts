@@ -44,7 +44,7 @@ const MANUAL: BudgetDecompositionItem = {
 function montar(items: BudgetDecompositionItem[], discountPct = 0) {
   const p = buildBudgetDecompositionInput({
     items, discountPct,
-    despesasOperacionaisPct: 0.18,
+    despesas: { fixa: 0.18, variavel: 0, financeira: 0, indireta: 0, moProdutiva: 0 },
     irpjAliquota: 0.15,
     csllAliquota: 0.09,
   })
@@ -261,5 +261,54 @@ describe('6. CATEGORIAS POR ITEM, e o "% médio" que se declara', () => {
       expect(Math.abs(result.residual.total)).toBeLessThan(0.01)
       result.residual.perItem.forEach((r) => expect(Math.abs(r)).toBeLessThan(0.01))
     }
+  })
+})
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────────────────
+ * 7. OS QUATRO BALDES CHEGAM DAS TELAS — a junta, de novo
+ * ─────────────────────────────────────────────────────────────────────────────────────────
+ *
+ * Em 17/09/2026 `BudgetDecompositionParams.despesas` deixou de ser um escalar e passou a
+ * pedir os baldes separados. Módulo certo e tela passando um agregado seria a correção 7
+ * acontecendo de novo — e a mutação que zerava `mo_produtiva_pct` nas páginas SOBREVIVEU
+ * a 2.378 casos até este bloco existir.
+ *
+ * É asserção de CAMINHO, e é o caso-limite que `teste-que-nao-exercita.md` permite: o
+ * `useMemo` de cada página não é exportável, então não há efeito mensurável daqui.
+ */
+describe('7. AS QUATRO TELAS passam os baldes, a MO produtiva e o `calc_type`', () => {
+  const TELAS = ['pages/orcamentos/index.tsx', 'pages/pedidos/index.tsx', 'pages/vendas/index.tsx']
+
+  it.each(TELAS)('%s passa os quatro baldes do tenant, não o `dop_pct`', (tela) => {
+    const src = ler(tela)
+    expect(src).toContain('fixa: Number(mrmConfig.expense_breakdown?.fixed_pct) || 0')
+    expect(src).toContain('variavel: Number(mrmConfig.expense_breakdown?.variable_pct) || 0')
+    expect(src).toContain('financeira: Number(mrmConfig.expense_breakdown?.financial_pct) || 0')
+    expect(src).toContain('indireta: Number(mrmConfig.expense_breakdown?.administrative_pct) || 0')
+    // O que a decomposição NÃO pode mais receber: o agregado, que não permite desfazer a soma.
+    expect(src).not.toContain('despesasOperacionaisPct: Number(mrmConfig.dop_pct)')
+  })
+
+  it.each(TELAS)('%s passa a MO PRODUTIVA — ela só entra em revenda, e não está no `dop_pct`', (tela) => {
+    expect(ler(tela)).toContain('moProdutiva: Number(mrmConfig.mo_produtiva_pct) || 0')
+  })
+
+  it.each(TELAS)('%s passa o `calc_type` — sem ele o segmento cai em INDUSTRIALIZACAO', (tela) => {
+    expect(ler(tela)).toContain('tenantCalcType: mrmConfig.calc_type')
+  })
+
+  it.each(TELAS)('%s passa o `product_type` do item — é o que distingue REVENDA', (tela) => {
+    // Sem ele a matriz do item cai na segmentação do tenant, e o IPI volta a ser POR FORA
+    // num produto de revenda de tenant industrial.
+    expect(ler(tela)).toContain('productType:')
+  })
+
+  it('a VENDA GRAVADA é a exceção, e ela é explícita: baldes ZERADOS + congelado por item', () => {
+    // Ela não recalcula nada — o congelado do item vence. Passar os baldes do tenant de
+    // hoje ali seria `fato-vs-referencia.md`: reescrever o passado a cada abertura.
+    const src = ler('pages/vendas/index.tsx')
+    expect(src).toContain('despesas: { fixa: 0, variavel: 0, financeira: 0, indireta: 0, moProdutiva: 0 },')
+    expect(src).toContain('despesasOperacionaisPctCongelado: congelado.despesasOperacionaisPct ?? null,')
   })
 })

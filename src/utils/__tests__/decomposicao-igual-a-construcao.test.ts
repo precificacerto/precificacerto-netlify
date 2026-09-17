@@ -39,6 +39,16 @@ import { join } from 'path'
 import { buildItemTaxRatesFromProduct } from '@/utils/item-tax-rates'
 import { buildCascadeView } from '@/utils/cascade-display-view'
 import { enrichItemsForMotor } from '@/utils/motor-item-enrichment'
+import { calculatePricing } from '@/utils/pricing-engine'
+import { resolveItemFicha } from '@/utils/budget-accessories'
+import { CSLL_RATE_ON_PROFIT, IRPJ_RATE_ON_PROFIT } from '@/utils/rate-scale'
+import {
+  resolveDespesasOperacionaisPct,
+  resolveSegmentoDaConstrucao,
+  resolveSegmentoDaDespesa,
+  type BaldesDeDespesa,
+  type SegmentoDaConstrucao,
+} from '@/utils/despesas-do-segmento'
 
 /** O produto como o BANCO o guarda — inclusive a escala mista que originou o defeito 1. */
 const PRODUTO_NO_BANCO = {
@@ -87,7 +97,7 @@ const item = (over: Partial<BudgetDecompositionItem> = {}): BudgetDecompositionI
 
 const montar = (items: BudgetDecompositionItem[], discountPct = 0) =>
   buildDecomposition(buildBudgetDecompositionInput({
-    items, discountPct, despesasOperacionaisPct: DESPESAS_PCT,
+    items, discountPct, despesas: { fixa: DESPESAS_PCT, variavel: 0, financeira: 0, indireta: 0, moProdutiva: 0 },
   }).input)
 
 const linha = (r: ReturnType<typeof buildDecomposition>, k: string) => r.rows.find((x) => x.key === k)!
@@ -479,7 +489,7 @@ describe('9. DO CADASTRO À DECOMPOSIÇÃO — sem montar o custo à mão', () =
       rates: item.item_tax_rates ?? null,
       acrescimos: 0,
     })),
-    discountPct: 0, despesasOperacionaisPct: DESPESAS_PCT,
+    discountPct: 0, despesas: { fixa: DESPESAS_PCT, variavel: 0, financeira: 0, indireta: 0, moProdutiva: 0 },
   }).input)
 
   const enriquecidos = enrichItemsForMotor(
@@ -758,5 +768,486 @@ describe('12. DESCONTO POR ITEM — R14 na coluna', () => {
     // O desconto ganhou coluna sem entrar em conta nenhuma — ele já estava embutido.
     expect(r.residual.total).toBeCloseTo(0, 6)
     expect(montar(COM_ACRESCIMO, 0).rro!.foraDeZero).toBe(false)
+  })
+})
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────────────────
+ * 13 a 15. OS OUTROS DOIS SEGMENTOS — a matriz tem TRÊS, e o caso só cobria UM
+ * ─────────────────────────────────────────────────────────────────────────────────────────
+ *
+ * Os doze blocos acima rodam INDUSTRIALIZAÇÃO, do primeiro ao último. E
+ * `budget-decomposition-input.ts:149` dizia, até 17/09/2026:
+ *
+ *     segment: item.isService ? 'SERVICO' : 'INDUSTRIALIZACAO',
+ *
+ * Dois valores onde a Parte 0 de `cascata-lucro-real.md` tem três. Nenhum caso podia
+ * distinguir os dois estados, porque nenhum deles saía da industrialização — variante 2 de
+ * `.claude/rules/teste-que-nao-exercita.md`: o caso escolhido não discrimina.
+ *
+ * >>> OS DOIS LADOS RODAM AQUI, E É ISSO QUE MUDA <<<
+ *
+ * Cada caso abaixo constrói o preço com `calculatePricing` — a CONSTRUÇÃO — e decompõe o
+ * preço construído. Os números absolutos estão afirmados junto, para que um erro que
+ * mova os DOIS lados na mesma direção ainda quebre o caso.
+ *
+ * >>> O QUE FOI MEDIDO, em 17/09/2026 <<<
+ *
+ * Com o tenant de SERVIÇO real (fixa 50,06% · variável 17,09% · financeira 3,37% · MOI 0):
+ *
+ *   | linha    | construção | decomposição ANTES |        delta |
+ *   |----------|-----------:|-------------------:|-------------:|
+ *   | despesas |     492,90 |           1.698,88 |  +1.205,98   |
+ *   | RRO      |    +419,18 |            −786,80 |  −1.205,98   |
+ *
+ * O delta é `2.409,07 × 50,06%` — a despesa fixa INTEIRA, contada duas vezes: uma no custo
+ * em R$ por minuto, outra no percentual sobre a receita. O RRO ficava NEGATIVO. A REVENDA,
+ * medida no mesmo dia, NÃO divergia em nenhuma das treze linhas — e é por isso que ela
+ * entra: sem o caso verde ao lado, o caso de serviço não prova discriminar segmento
+ * nenhum, só prova que um número mudou.
+ */
+
+/** A CONSTRUÇÃO, pela mesma função que a tela de produto chama. */
+const construir = (opts: {
+  segmento: SegmentoDaConstrucao
+  baldes: BaldesDeDespesa
+  custo: number
+  icms?: number
+  iss?: number
+  /** NOMINAL — a efetiva é derivada pela exceção 2 da R5. */
+  pisCofins: number
+  ibs: number
+  cbs: number
+  comissao: number
+  lucro: number
+  /**
+   * O segmento da DESPESA, quando ele DIVERGE do da matriz — o único caso é produto de
+   * revenda em tenant de serviço. Ausente, os dois coincidem. Ver o bloco 16.
+   */
+  despesaDe?: SegmentoDaConstrucao
+}) => {
+  // A MESMA função que a decomposição usa. Escrever a regra de novo aqui faria o caso
+  // conferir uma implementação contra ela mesma — `copia-divergente.md` dentro do teste.
+  const structurePct = resolveDespesasOperacionaisPct(opts.despesaDe ?? opts.segmento, opts.baldes)
+  const r = calculatePricing({
+    calcType: opts.segmento,
+    totalItemsCost: opts.custo, yieldQuantity: 1,
+    laborCostMonthly: 0, numProductiveEmployees: 0,
+    monthlyWorkloadMinutes: 0, productWorkloadMinutes: 0,
+    structurePct,
+    taxPct: (opts.icms ?? 0) + (opts.iss ?? 0) + opts.pisCofins,
+    profitTaxPct: opts.lucro * (IRPJ_RATE_ON_PROFIT + CSLL_RATE_ON_PROFIT),
+    commissionPct: opts.comissao, profitPct: opts.lucro,
+    taxBreakdown: {
+      icmsPct: opts.icms, issPct: opts.iss, pisCofinsPct: opts.pisCofins,
+      ibs: { rate: opts.ibs, reductionFactor: 0, baseCode: 4 },
+      cbs: { rate: opts.cbs, reductionFactor: 0, baseCode: 4 },
+    },
+  })
+  const tb = r.taxBreakdownResolved!
+  return {
+    result: r,
+    structurePct,
+    totalGeral: tb.totalGeral,
+    P: r.priceUnit,
+    icms: tb.icmsValue,
+    iss: tb.issValue,
+    pisCofins: tb.pisCofinsValue,
+    ibs: tb.externalTaxes.ibs?.value ?? 0,
+    cbs: tb.externalTaxes.cbs?.value ?? 0,
+    custo: r.cmvUnit,
+    despesas: tb.totalGeral * structurePct,
+    rro: tb.totalGeral * (opts.comissao + opts.lucro
+      + opts.lucro * (IRPJ_RATE_ON_PROFIT + CSLL_RATE_ON_PROFIT)),
+    /**
+     * O que o CADASTRO guarda: o PIS/COFINS já com a exclusão do ICMS/ISS NOMINAIS.
+     * Medido no ATeste1509: 9,25% × (1 − 17%) = 7,6775%, que é o `pis_cofins_pct` da
+     * linha do banco. NÃO é `pisCofinsPctEffective`, que usa o ICMS efetivado — passar
+     * aquele aqui produz uma divergência de R$ 4,67 que é do caso, não do código.
+     */
+    pisCofinsDoCadastro: opts.pisCofins * (1 - (opts.icms ?? 0) - (opts.iss ?? 0)),
+  }
+}
+
+/** O item do documento, com o preço que a construção acabou de formar. */
+const itemDoSegmento = (
+  c: ReturnType<typeof construir>,
+  opts: {
+    icms?: number; iss?: number; ibs: number; cbs: number; ipi?: number
+    comissao: number; lucro: number
+    isService?: boolean; productType?: string
+  },
+): BudgetDecompositionItem => ({
+  key: 's', label: 'Item', quantity: 1,
+  unitPrice: c.totalGeral,
+  costUnit: c.custo, productiveLaborUnit: 0,
+  commissionPct: opts.comissao * 100, profitPct: opts.lucro * 100, rtPct: 0,
+  isService: opts.isService, productType: opts.productType,
+  rates: {
+    icms_pct: opts.icms != null ? opts.icms * 100 : null,
+    iss_pct: opts.iss != null ? opts.iss * 100 : null,
+    pis_pct: c.pisCofinsDoCadastro, cofins_pct: 0,
+    ibs_pct: opts.ibs * 100, cbs_pct: opts.cbs * 100,
+    ipi_pct: (opts.ipi ?? 0) * 100, is_pct: 0,
+  },
+  acrescimos: 0,
+})
+
+const decomporDoSegmento = (
+  it: BudgetDecompositionItem, baldes: BaldesDeDespesa, tenantCalcType: string,
+) => buildDecomposition(buildBudgetDecompositionInput({
+  items: [it], discountPct: 0, despesas: baldes, tenantCalcType,
+}).input)
+
+// ── REVENDA ────────────────────────────────────────────────────────────────────────────
+const REVENDA_BALDES: BaldesDeDespesa = {
+  fixa: 0.1489, variavel: 0.0556, financeira: 0.0056, indireta: 0.0756, moProdutiva: 0 }
+const REVENDA_FICHA = { icms: 0.17, pisCofins: 0.0925, ibs: 0.01, cbs: 0.09, comissao: 0.05, lucro: 0.10 }
+
+describe('13. REVENDA — os dois lados batem, e é o CONTRASTE do caso de serviço', () => {
+  const c = construir({ segmento: 'REVENDA', baldes: REVENDA_BALDES, custo: 1000, ...REVENDA_FICHA })
+  const r = decomporDoSegmento(
+    itemDoSegmento(c, { ...REVENDA_FICHA, productType: 'REVENDA' }), REVENDA_BALDES, 'REVENDA',
+  )
+
+  it('a construção apura os números medidos — 4.331,69 de total geral', () => {
+    expect(c.result.validationErrors).toEqual([])
+    expect(c.totalGeral).toBeCloseTo(4331.69, 2)
+    expect(c.P).toBeCloseTo(4032.56, 2)
+    // REVENDA leva os QUATRO baldes: 14,89 + 5,56 + 0,56 + 7,56 = 28,57%.
+    expect(c.structurePct).toBeCloseTo(0.2857, 6)
+  })
+
+  it('e a decomposição devolve as MESMAS oito linhas, ao centavo', () => {
+    expect(val(r, 'operacao_por_dentro')).toBeCloseTo(c.P, 2)
+    expect(val(r, 'icms')).toBeCloseTo(c.icms, 2)
+    expect(val(r, 'pis_cofins')).toBeCloseTo(c.pisCofins, 2)
+    expect(val(r, 'por_fora_ibs')).toBeCloseTo(c.ibs, 2)
+    expect(val(r, 'por_fora_cbs')).toBeCloseTo(c.cbs, 2)
+    expect(val(r, 'custos')).toBeCloseTo(c.custo, 2)
+    expect(val(r, 'despesas')).toBeCloseTo(c.despesas, 2)
+    expect(val(r, 'rro')).toBeCloseTo(c.rro, 2)
+  })
+
+  it('os ABSOLUTOS medidos, para um erro que mova os dois lados junto não passar', () => {
+    expect(val(r, 'icms')).toBeCloseTo(736.39, 1)
+    expect(val(r, 'pis_cofins')).toBeCloseTo(304.90, 1)
+    expect(val(r, 'por_fora_ibs')).toBeCloseTo(29.91, 1)
+    expect(val(r, 'por_fora_cbs')).toBeCloseTo(269.22, 1)
+    expect(val(r, 'despesas')).toBeCloseTo(1237.56, 1)
+    expect(val(r, 'rro')).toBeCloseTo(753.71, 1)
+    expect(r.rro!.foraDeZero).toBe(false)
+  })
+
+  it('>>> E A REVENDA NÃO DIVERGIA ANTES — é o que faz o caso de serviço valer <<<', () => {
+    // A despesa da REVENDA é a mesma pelos dois critérios: o agregado do tenant é a soma
+    // dos quatro baldes, e a REVENDA leva os quatro. Um caso que só medisse "a despesa
+    // mudou" passaria aqui sem exercitar nada — e é exatamente por isso que ele fica.
+    const agregado = REVENDA_BALDES.fixa + REVENDA_BALDES.variavel
+      + REVENDA_BALDES.financeira + REVENDA_BALDES.indireta
+    expect(resolveDespesasOperacionaisPct('REVENDA', REVENDA_BALDES)).toBeCloseTo(agregado, 10)
+    // No SERVIÇO os dois divergem — e o próximo bloco mede em quanto.
+    expect(resolveDespesasOperacionaisPct('SERVICO', REVENDA_BALDES)).not.toBeCloseTo(agregado, 4)
+  })
+
+  it('o segmento é lido do PRODUTO e também do TENANT — os dois caminhos da construção', () => {
+    // Produto de revenda é REVENDA em qualquer tenant; e sem `product_type` o tenant decide.
+    expect(resolveSegmentoDaConstrucao({ productType: 'REVENDA', tenantCalcType: 'INDUSTRIALIZACAO' }))
+      .toBe('REVENDA')
+    expect(resolveSegmentoDaConstrucao({ tenantCalcType: 'REVENDA' })).toBe('REVENDA')
+    // E o serviço vence os dois — serviço é serviço em qualquer tenant.
+    expect(resolveSegmentoDaConstrucao({ isService: true, tenantCalcType: 'REVENDA' })).toBe('SERVICO')
+  })
+})
+
+// ── SERVIÇO ────────────────────────────────────────────────────────────────────────────
+const SERVICO_BALDES: BaldesDeDespesa = {
+  fixa: 0.5006, variavel: 0.1709, financeira: 0.0337, indireta: 0, moProdutiva: 0 }
+const SERVICO_FICHA = { iss: 0.05, pisCofins: 0.0925, ibs: 0.01, cbs: 0.09, comissao: 0.05, lucro: 0.10 }
+
+describe('14. SERVIÇO — a despesa fixa contada DUAS VEZES, e o RRO negativo', () => {
+  const c = construir({ segmento: 'SERVICO', baldes: SERVICO_BALDES, custo: 1000, ...SERVICO_FICHA })
+  const r = decomporDoSegmento(
+    itemDoSegmento(c, { ...SERVICO_FICHA, isService: true }), SERVICO_BALDES, 'SERVICO',
+  )
+
+  it('a construção usa SÓ variável + financeira — 20,46%, não 70,52%', () => {
+    expect(c.result.validationErrors).toEqual([])
+    expect(c.structurePct).toBeCloseTo(0.2046, 6)
+    // O agregado que a decomposição usava. A diferença é a fixa inteira.
+    const agregado = SERVICO_BALDES.fixa + SERVICO_BALDES.variavel
+      + SERVICO_BALDES.financeira + SERVICO_BALDES.indireta
+    expect(agregado).toBeCloseTo(0.7052, 6)
+    expect(agregado - c.structurePct).toBeCloseTo(SERVICO_BALDES.fixa, 10)
+    expect(c.totalGeral).toBeCloseTo(2409.07, 2)
+    expect(c.P).toBeCloseTo(2217.86, 2)
+  })
+
+  it('e a decomposição devolve as MESMAS oito linhas, ao centavo', () => {
+    expect(val(r, 'operacao_por_dentro')).toBeCloseTo(c.P, 2)
+    expect(val(r, 'iss')).toBeCloseTo(c.iss, 2)
+    expect(val(r, 'pis_cofins')).toBeCloseTo(c.pisCofins, 2)
+    expect(val(r, 'por_fora_ibs')).toBeCloseTo(c.ibs, 2)
+    expect(val(r, 'por_fora_cbs')).toBeCloseTo(c.cbs, 2)
+    expect(val(r, 'custos')).toBeCloseTo(c.custo, 2)
+    expect(val(r, 'despesas')).toBeCloseTo(c.despesas, 2)
+    expect(val(r, 'rro')).toBeCloseTo(c.rro, 2)
+    // No serviço o ICMS é INEXISTENTE — não é zero, é ausência de linha.
+    expect(val(r, 'icms')).toBeCloseTo(0, 6)
+  })
+
+  it('>>> O DISCRIMINANTE: despesas 492,90 e NÃO 1.698,88 <<<', () => {
+    expect(val(r, 'despesas')).toBeCloseTo(492.90, 1)
+    // O número que o agregado produzia: 2.409,07 × 70,52%.
+    expect(val(r, 'despesas')).not.toBeCloseTo(1698.88, 0)
+    // A diferença é a despesa FIXA inteira, sobre o total geral.
+    expect(1698.88 - val(r, 'despesas')).toBeCloseTo(c.totalGeral * SERVICO_BALDES.fixa, 0)
+  })
+
+  it('>>> E O RRO VOLTA A SER POSITIVO: +419,18, não −786,80 <<<', () => {
+    // `val` aplica `Math.abs`, e foi ele que escondeu o sinal na primeira medição: o
+    // módulo de −786,80 parecia um RRO plausível. Aqui o caso olha o número COM sinal.
+    const rro = linha(r, 'rro').total
+    expect(rro).toBeGreaterThan(0)
+    expect(rro).toBeCloseTo(419.18, 1)
+    expect(rro).not.toBeCloseTo(-786.80, 0)
+    expect(r.rro!.foraDeZero).toBe(false)
+  })
+
+  it('a comissão volta a 5,00% e o lucro a 10,00% do total geral', () => {
+    expect(linha(r, 'comissao').pctSobreTotalGeral! * 100).toBeCloseTo(5, 2)
+    expect(linha(r, 'lucro').pctSobreTotalGeral! * 100).toBeCloseTo(10, 2)
+    expect(linha(r, 'comissao').total).toBeCloseTo(120.45, 1)
+  })
+
+  it('>>> COM O AGREGADO, o RRO negativo devolvia COMISSÃO NEGATIVA <<<', () => {
+    // O estado anterior, forçado pelo campo que a venda gravada usa — não por um módulo
+    // mutilado. Repartir um resíduo NEGATIVO devolve as quatro categorias negativas: a
+    // tela exibia comissão e lucro com sinal invertido, e o residual fechava em zero,
+    // porque ele fecha por construção (distribui o RRO, seja ele qual for).
+    const agregado = SERVICO_BALDES.fixa + SERVICO_BALDES.variavel
+      + SERVICO_BALDES.financeira + SERVICO_BALDES.indireta
+    const comAgregado = decomporDoSegmento(
+      { ...itemDoSegmento(c, { ...SERVICO_FICHA, isService: true }), despesasOperacionaisPctCongelado: agregado },
+      SERVICO_BALDES, 'SERVICO',
+    )
+    expect(val(comAgregado, 'despesas')).toBeCloseTo(1698.88, 1)
+    expect(linha(comAgregado, 'rro').total).toBeCloseTo(-786.80, 1)
+    expect(linha(comAgregado, 'comissao').total).toBeLessThan(0)
+    // E o residual NÃO acusava — é o que `teste-que-nao-exercita.md` diz do invariante que
+    // fecha por construção: ele não distingue o estado certo do errado.
+    expect(comAgregado.residual.total).toBeCloseTo(0, 6)
+  })
+})
+
+// ── REVENDA COM IPI ────────────────────────────────────────────────────────────────────
+/**
+ * >>> O CASO QUE PEGA A LINHA 149 SEM ESPERAR ALGUÉM CADASTRAR O PRIMEIRO <<<
+ *
+ * Medido em 17/09/2026: `0` produtos de REVENDA com IPI em produção. O caso de serviço
+ * acima pega a linha pela DESPESA; este a pega pela MATRIZ, que é o outro lado do mesmo
+ * defeito — e a matriz não depende de o tenant ter despesa nenhuma configurada.
+ *
+ * A Parte 0 de `cascata-lucro-real.md`: IPI é **POR FORA** em industrialização e
+ * **INEXISTENTE** em revenda. Com `segment: 'INDUSTRIALIZACAO'` forçado, um IPI cadastrado
+ * por engano num produto de revenda ganhava linha de R$ 192,79 — um valor que a construção
+ * não produziu e não podia produzir, porque ela RECUSA o item.
+ *
+ * >>> A RESSALVA, e ela é do estado atual, não deste caso <<<
+ *
+ * Quando a ficha é recusada, `budget-decomposition-input.ts` cai em `externalOpsCoefficient
+ * ?? 0` e o item perde TODA a abertura por fora — o IBS e o CBS legítimos somem junto com o
+ * IPI ilegítimo. O residual então fica FORA DE ZERO e a tela alerta (`decomposicao-na-tela.md`).
+ * É falha ruidosa, que é o comportamento certo para dado incoerente, mas o alerta não diz
+ * QUAL tributo está fora da matriz. Fica registrado como limite conhecido.
+ */
+describe('15. REVENDA COM IPI — INEXISTENTE não é zero, e não é POR FORA', () => {
+  const c = construir({ segmento: 'REVENDA', baldes: REVENDA_BALDES, custo: 1000, ...REVENDA_FICHA })
+  const comIpi = { ...REVENDA_FICHA, ipi: 0.05 }
+
+  const revenda = decomporDoSegmento(
+    itemDoSegmento(c, { ...comIpi, productType: 'REVENDA' }), REVENDA_BALDES, 'REVENDA',
+  )
+  /** O que a linha 149 fazia: todo item não-serviço entrava como INDUSTRIALIZACAO. */
+  const comoAntes = decomporDoSegmento(
+    itemDoSegmento(c, comIpi), REVENDA_BALDES, 'INDUSTRIALIZACAO',
+  )
+
+  it('a CONSTRUÇÃO recusa o item, e diz por quê', () => {
+    const ficha = resolveItemFicha({
+      segment: 'REVENDA',
+      rates: { icmsPct: 0.17, issPct: null, pisCofinsPct: 0.0925, ipiPct: 0.05, isPct: null, ibsPct: 0.01, cbsPct: 0.09 },
+    })
+    expect(ficha.ficha).toBeNull()
+    expect(ficha.errors.join(' ')).toContain('IPI')
+    expect(ficha.errors.join(' ')).toContain('INEXISTENTE não é zero')
+    // E em INDUSTRIALIZAÇÃO o MESMO item passa — é a matriz decidindo, não a alíquota.
+    expect(resolveItemFicha({
+      segment: 'INDUSTRIALIZACAO',
+      rates: { icmsPct: 0.17, issPct: null, pisCofinsPct: 0.0925, ipiPct: 0.05, isPct: null, ibsPct: 0.01, cbsPct: 0.09 },
+    }).ficha).not.toBeNull()
+  })
+
+  it('>>> a decomposição NÃO cria linha de IPI em revenda <<<', () => {
+    expect(revenda.rows.find((x) => x.key === 'por_fora_ipi')).toBeUndefined()
+  })
+
+  it('>>> e a linha 149 criava: R$ 192,79 que a construção nunca apurou <<<', () => {
+    // O DISCRIMINANTE. Sem este contraste o caso acima passaria num módulo que
+    // simplesmente não soubesse abrir o por fora — afirmaria ausência, não recusa.
+    const ipi = comoAntes.rows.find((x) => x.key === 'por_fora_ipi')
+    expect(ipi).toBeDefined()
+    expect(Math.abs(ipi!.total)).toBeCloseTo(192.79, 1)
+    // E ele CASCATEAVA: com o IPI na base, o `c` muda e as outras três linhas do por fora
+    // mudam junto. Não era uma linha a mais — era a decomposição inteira em outro formato.
+    expect(Math.abs(comoAntes.rows.find((x) => x.key === 'por_fora_ibs')!.total)).toBeCloseTo(28.31, 1)
+    expect(Math.abs(revenda.rows.find((x) => x.key === 'por_fora_ibs')?.total ?? 0)).not.toBeCloseTo(28.31, 1)
+  })
+
+  it('o RESIDUAL acusa nos dois — e é o que a tela mostra em vez de um número inventado', () => {
+    // Falha ruidosa: o item é incoerente com a matriz, e nenhum dos dois formatos fecha.
+    expect(revenda.rro!.foraDeZero).toBe(true)
+    expect(comoAntes.rro!.foraDeZero).toBe(true)
+    // Mas as divergências têm SINAIS OPOSTOS: com o IPI inventado o RRO sai CURTO em
+    // R$ 160,40; sem abertura por fora ele sai SOBRANDO R$ 271,46. Um caso que só
+    // afirmasse `foraDeZero === true` não distinguiria os dois estados.
+    expect(comoAntes.rro!.divergencia).toBeLessThan(0)
+    expect(revenda.rro!.divergencia).toBeGreaterThan(0)
+  })
+
+  it('A SEGUNDA CÓPIA sumiu — o rateio do frete lê o MESMO segmento', () => {
+    /**
+     * `orcamentos/index.tsx:946` tinha a MESMA linha de dois valores, e alimentava
+     * `resolveItemFicha` para o rateio dos acréscimos (R12). Duas leituras da mesma
+     * matriz, as duas inferindo — `copia-divergente.md`, e o remédio dela é apagar uma.
+     *
+     * Este caso afirma CAMINHO, e é o caso-limite que `teste-que-nao-exercita.md`
+     * permite: o `useMemo` do rateio vive dentro do componente de página e não é
+     * exportável, então não há efeito mensurável a afirmar daqui. O que ele afirma é
+     * o que importa para a classe — que não existe uma segunda cópia.
+     */
+    const orc = readFileSync(join(__dirname, '..', '..', 'pages', 'orcamentos', 'index.tsx'), 'utf-8')
+    expect(orc).not.toContain("segment: item.isService ? 'SERVICO' : 'INDUSTRIALIZACAO'")
+    expect(orc).toContain('segment: resolveSegmentoDaConstrucao({')
+    // E ela recebe o `product_type`: sem ele a função cai na segmentação do tenant, e o
+    // produto de revenda num tenant industrial volta a ser INDUSTRIALIZACAO.
+    const memo = orc.slice(orc.indexOf('const accessoriesAllocation = useMemo'))
+    expect(memo.slice(0, memo.indexOf('}, ['))).toContain('product_type ?? null')
+  })
+
+  it('e SEM o IPI o mesmo produto de revenda fecha — o IPI é a única variável', () => {
+    const semIpi = decomporDoSegmento(
+      itemDoSegmento(c, { ...REVENDA_FICHA, productType: 'REVENDA' }), REVENDA_BALDES, 'REVENDA',
+    )
+    expect(semIpi.rro!.foraDeZero).toBe(false)
+    expect(Math.abs(semIpi.rows.find((x) => x.key === 'por_fora_ibs')!.total)).toBeCloseTo(29.91, 1)
+  })
+})
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────────────────
+ * 16. SÃO DOIS SEGMENTOS — e confundi-los é o defeito espelhado
+ * ─────────────────────────────────────────────────────────────────────────────────────────
+ *
+ * A primeira versão de `despesas-do-segmento.ts` tinha UMA função para os dois usos. Ela
+ * fechava os casos 13 a 15 e errava num terceiro, encontrado ao conferir o módulo contra
+ * `structurePctForEngine` antes de empurrar — não por caso vermelho.
+ *
+ * A construção decide as duas coisas por critérios DIFERENTES:
+ *
+ *   MATRIZ  — `product-price.component.tsx:206`: o PRODUTO primeiro. Revenda é revenda em
+ *             qualquer tenant, e é isso que torna o IPI INEXISTENTE nele.
+ *   DESPESA — `products/content.component.tsx:832`: `isCalcService` olha
+ *             `currentUser.calcType`, e o tipo do produto NÃO participa.
+ *
+ * Com uma função só, um produto de REVENDA num tenant de SERVIÇO recebia a despesa
+ * COMPLETA — a mesma dupla contagem do bloco 14, num caso mais estreito.
+ */
+describe('16. PRODUTO DE REVENDA EM TENANT DE SERVIÇO — matriz REVENDA, despesa SERVIÇO', () => {
+  it('os dois segmentos DIVERGEM neste caso, e é só nele que a distinção aparece', () => {
+    const args = { isService: false, productType: 'REVENDA', tenantCalcType: 'SERVICO' }
+    expect(resolveSegmentoDaConstrucao(args)).toBe('REVENDA')
+    expect(resolveSegmentoDaDespesa(args)).toBe('SERVICO')
+    // E nos casos dos blocos 13 e 14 os dois COINCIDEM — por isso eles não discriminavam.
+    expect(resolveSegmentoDaConstrucao({ productType: 'REVENDA', tenantCalcType: 'REVENDA' }))
+      .toBe(resolveSegmentoDaDespesa({ tenantCalcType: 'REVENDA' }))
+    expect(resolveSegmentoDaConstrucao({ isService: true, tenantCalcType: 'SERVICO' }))
+      .toBe(resolveSegmentoDaDespesa({ isService: true, tenantCalcType: 'SERVICO' }))
+  })
+
+  it('>>> a despesa é a do SERVIÇO: 20,46%, e não os 70,52% do agregado <<<', () => {
+    const pct = resolveDespesasOperacionaisPct(
+      resolveSegmentoDaDespesa({ isService: false, tenantCalcType: 'SERVICO' }), SERVICO_BALDES,
+    )
+    expect(pct).toBeCloseTo(0.2046, 6)
+    // O DISCRIMINANTE: a versão anterior lia o segmento da MATRIZ, que aqui é REVENDA,
+    // e REVENDA leva os quatro baldes.
+    expect(resolveDespesasOperacionaisPct('REVENDA', SERVICO_BALDES)).toBeCloseTo(0.7052, 6)
+  })
+
+  it('e os dois lados fecham, com os números medidos', () => {
+    const c = construir({
+      segmento: 'REVENDA', baldes: SERVICO_BALDES, custo: 1000,
+      icms: 0.17, pisCofins: 0.0925, ibs: 0.01, cbs: 0.09, comissao: 0.05, lucro: 0.10,
+      despesaDe: 'SERVICO',
+    })
+    expect(c.totalGeral).toBeCloseTo(3205.57, 2)
+    expect(c.despesas).toBeCloseTo(655.86, 1)
+    const r = decomporDoSegmento(
+      itemDoSegmento(c, { icms: 0.17, ibs: 0.01, cbs: 0.09, comissao: 0.05, lucro: 0.10, productType: 'REVENDA' }),
+      SERVICO_BALDES, 'SERVICO',
+    )
+    expect(val(r, 'despesas')).toBeCloseTo(655.86, 1)
+    expect(val(r, 'rro')).toBeCloseTo(c.rro, 2)
+    expect(r.rro!.foraDeZero).toBe(false)
+    // A MATRIZ continua sendo a de REVENDA: ICMS existe, e o item não virou serviço.
+    expect(val(r, 'icms')).toBeCloseTo(c.icms, 2)
+    expect(val(r, 'iss')).toBeCloseTo(0, 6)
+  })
+})
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────────────────
+ * 17. A MO PRODUTIVA EM SEGMENTAÇÃO REVENDA — lida, não reescrita
+ * ─────────────────────────────────────────────────────────────────────────────────────────
+ *
+ * `structurePctForEngine` soma `resolveIndirectLaborPct`, que em REVENDA agrupa a MO
+ * produtiva com a indireta: lá não há minuto sobre o qual ratear a folha, então ela só pode
+ * entrar como percentual. `dop_pct` do tenant NÃO a inclui — ele é
+ * `fixa + variável + financeira + MOI`, e só.
+ *
+ * EXPOSIÇÃO EM PRODUÇÃO: **zero**. Medido em 17/09/2026, 0 dos 4 tenants de segmentação
+ * REVENDA tem `production_labor_percent > 0`. O caso existe para que a próxima pessoa que
+ * cadastrar o primeiro não descubra pela margem errada.
+ */
+describe('17. MO PRODUTIVA EM REVENDA — o agrupamento vem da fonte única', () => {
+  const COM_MO: BaldesDeDespesa = { ...REVENDA_BALDES, moProdutiva: 0.15 }
+
+  it('>>> em REVENDA ela ENTRA: 43,57%, contra os 28,57% do `dop_pct` <<<', () => {
+    expect(resolveDespesasOperacionaisPct('REVENDA', COM_MO)).toBeCloseTo(0.4357, 6)
+    // `dop_pct` do tenant é a soma dos quatro baldes — a MO produtiva não está nele.
+    const dopPct = COM_MO.fixa + COM_MO.variavel + COM_MO.financeira + COM_MO.indireta
+    expect(dopPct).toBeCloseTo(0.2857, 6)
+    expect(resolveDespesasOperacionaisPct('REVENDA', COM_MO) - dopPct).toBeCloseTo(0.15, 10)
+  })
+
+  it('e nos outros dois segmentos NÃO entra — seria dupla contagem', () => {
+    // Em industrialização ela já é custo por tempo; em serviço, custo por minuto.
+    expect(resolveDespesasOperacionaisPct('INDUSTRIALIZACAO', COM_MO))
+      .toBeCloseTo(resolveDespesasOperacionaisPct('INDUSTRIALIZACAO', REVENDA_BALDES), 10)
+    expect(resolveDespesasOperacionaisPct('SERVICO', COM_MO))
+      .toBeCloseTo(resolveDespesasOperacionaisPct('SERVICO', REVENDA_BALDES), 10)
+  })
+
+  it('e os dois lados fecham com ela dentro', () => {
+    const c = construir({ segmento: 'REVENDA', baldes: COM_MO, custo: 1000, ...REVENDA_FICHA })
+    expect(c.structurePct).toBeCloseTo(0.4357, 6)
+    expect(c.totalGeral).toBeCloseTo(12367.52, 2)
+    const r = decomporDoSegmento(
+      itemDoSegmento(c, { ...REVENDA_FICHA, productType: 'REVENDA' }), COM_MO, 'REVENDA',
+    )
+    expect(val(r, 'despesas')).toBeCloseTo(5388.53, 1)
+    expect(val(r, 'rro')).toBeCloseTo(c.rro, 2)
+    expect(r.rro!.foraDeZero).toBe(false)
   })
 })
