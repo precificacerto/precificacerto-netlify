@@ -1277,3 +1277,77 @@ describe('17. MO PRODUTIVA EM REVENDA — o agrupamento vem da fonte única', ()
     expect(r.rro!.foraDeZero).toBe(false)
   })
 })
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * 18. ICMS HETEROGÊNEO — a base e o % médio somam SÓ as colunas em que o tributo incide
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ *
+ * ESTE BLOCO EXISTE PORQUE UMA MUTAÇÃO SOBREVIVEU. Ao mutar a base do ICMS de volta para
+ * `rp` — o total de TODAS as colunas, que é o defeito corrigido em 17/09/2026 — a suíte
+ * inteira ficou VERDE: 171 de 171 casos.
+ *
+ * A razão é `teste-que-nao-exercita.md`, variante 2: **o caso escolhido não discrimina.**
+ * Toda fixture da decomposição tinha UM item, ou itens com a MESMA alíquota — e com alíquota
+ * uniforme as duas regras dão o mesmo número. O defeito que está materializado em 34
+ * documentos da base não tinha caso que o pegasse.
+ *
+ * Daí a fixture abaixo: DOIS produtos, um com ICMS 17% e outro com ICMS 0%, que é o cenário
+ * do ORC-5487 de onde o defeito foi relatado.
+ *
+ * MEDIDO lá, antes da correção:
+ *
+ *   base impressa      R$ 37.177,85   ← a soma das duas colunas
+ *   base real          R$ 34.919,79   ← só a coluna que tem ICMS
+ *   alíquota derivada       15,9675%  ← `valor ÷ base`, para um ICMS de 17,0000%
+ *
+ * **O débito em R$ está certo nos dois casos.** O que muda é a base impressa — e é ela que
+ * vai para a nota.
+ */
+describe('18. ICMS HETEROGÊNEO — a base soma só onde o tributo incide', () => {
+  const cComIcms = construir({ segmento: 'REVENDA', baldes: REVENDA_BALDES, custo: 1000, ...REVENDA_FICHA })
+  const cSemIcms = construir({
+    segmento: 'REVENDA', baldes: REVENDA_BALDES, custo: 1000, ...REVENDA_FICHA, icms: 0,
+  })
+  const r = buildDecomposition(buildBudgetDecompositionInput({
+    items: [
+      { ...itemDoSegmento(cComIcms, { ...REVENDA_FICHA, productType: 'REVENDA' }), key: 'com', label: 'Com ICMS' },
+      { ...itemDoSegmento(cSemIcms, { ...REVENDA_FICHA, icms: 0, productType: 'REVENDA' }), key: 'sem', label: 'Sem ICMS' },
+    ],
+    discountPct: 0, despesas: REVENDA_BALDES, tenantCalcType: 'REVENDA',
+  }).input)
+  const l = (k: string) => r.rows.find((x) => x.key === k)!
+  const rpTotal = Math.abs(l('receita_produtos').total)
+  const colunas = l('receita_produtos').perItem.map((v) => Math.abs(v))
+
+  it('a fixture DISCRIMINA — as duas colunas têm alíquotas diferentes e valores diferentes', () => {
+    // Sem isto o bloco inteiro seria decorativo: com colunas iguais as duas regras coincidem.
+    expect(colunas).toHaveLength(2)
+    expect(colunas[0]).toBeGreaterThan(0)
+    expect(colunas[1]).toBeGreaterThan(0)
+    expect(colunas[0]).not.toBeCloseTo(colunas[1], 0)
+  })
+
+  it('>>> a BASE do ICMS é SÓ a coluna que tem ICMS, não o total <<<', () => {
+    expect(l('icms').base).toBeCloseTo(colunas[0], 2)
+    // O DISCRIMINANTE contra a regra de ontem — é ESTE `expect` que a mutação mata.
+    expect(l('icms').base).not.toBeCloseTo(rpTotal, 0)
+    expect(rpTotal - l('icms').base).toBeCloseTo(colunas[1], 2)
+  })
+
+  it('>>> e o % MÉDIO volta a ser a alíquota cadastrada — 17,00%, não a média diluída <<<', () => {
+    // Com a base do total daria `valor ÷ total`, estritamente MENOR que a alíquota real.
+    expect(Math.abs(l('icms').pct!)).toBeCloseTo(0.17, 6)
+    const diluida = Math.abs(l('icms').total) / rpTotal
+    expect(diluida).toBeLessThan(0.17)
+  })
+
+  it('o VALOR em R$ não muda — o defeito era da base impressa, não do débito', () => {
+    // A correção não podia mexer no imposto devido, e este caso é o que prova.
+    expect(Math.abs(l('icms').total)).toBeCloseTo(colunas[0] * 0.17, 2)
+  })
+
+  it('e o RESIDUAL continua fechando em zero com as duas colunas', () => {
+    expect(Math.abs(l('residual').total)).toBeLessThan(0.02)
+  })
+})
