@@ -798,7 +798,7 @@ describe('12. DESCONTO POR ITEM — R14 na coluna', () => {
  *   | linha    | construção | decomposição ANTES |        delta |
  *   |----------|-----------:|-------------------:|-------------:|
  *   | despesas |     492,90 |           1.698,88 |  +1.205,98   |
- *   | RRO      |    +419,18 |            −786,80 |  −1.205,98   |
+ *   | RRO      |    +422,54 |            −793,11 |  −1.205,98   |
  *
  * O delta é `2.409,07 × 50,06%` — a despesa fixa INTEIRA, contada duas vezes: uma no custo
  * em R$ por minuto, outra no percentual sobre a receita. O RRO ficava NEGATIVO. A REVENDA,
@@ -965,6 +965,32 @@ const SERVICO_BALDES: BaldesDeDespesa = {
   fixa: 0.5006, variavel: 0.1709, financeira: 0.0337, indireta: 0, moProdutiva: 0 }
 const SERVICO_FICHA = { iss: 0.05, pisCofins: 0.0925, ibs: 0.01, cbs: 0.09, comissao: 0.05, lucro: 0.10 }
 
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * 17/09/2026 — OS NÚMEROS DESTE BLOCO MUDARAM, E A REGRA QUE ELE TRAVA NÃO
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ *
+ * Ele afirma a mesma coisa de antes: a construção do SERVIÇO usa só variável + financeira, a
+ * decomposição devolve as MESMAS linhas, e o RRO é POSITIVO. Nada disso mudou.
+ *
+ * O que mudou foi o CENÁRIO: o ISS passou a sofrer gross-up, como o ICMS, e com ele o total
+ * geral subiu. Os valores antigos, e de onde vêm os novos:
+ *
+ *   total geral    2.409,07  →  2.428,39        ISS  111,82  →  121,42
+ *   P              2.217,86  →  2.236,45        despesas  492,90  →  496,85
+ *   RRO              419,18  →    422,54   (e o do agregado, −786,80 → −793,11)        comissão  120,45  →  121,42
+ *
+ * **A comissão continua sendo 5,00% do total geral** — 2.428,39 × 0,05 = 121,42. Foi o
+ * primeiro número que conferi ao ver o caso vermelho, porque uma comissão que deixasse de ser
+ * 5% seria defeito, não mudança de cenário.
+ *
+ * E ESTE BLOCO ACHOU UM DEFEITO QUE A CORREÇÃO DO MOTOR TERIA DEIXADO PASSAR: o caso
+ * 'a decomposição devolve as MESMAS oito linhas' ficou vermelho com o motor devolvendo ISS de
+ * R$ 121,42 e a decomposição R$ 111,82. A decomposição calculava `-pPorItem[k] * issPct` — a
+ * MESMA assimetria do motor, replicada em `decomposition-dre.ts:458`. Corrigir só o motor
+ * teria feito os dois lados divergirem, que é exatamente o que
+ * `regime-e-segmento-determinam-a-construcao.md` proíbe.
+ */
 describe('14. SERVIÇO — a despesa fixa contada DUAS VEZES, e o RRO negativo', () => {
   const c = construir({ segmento: 'SERVICO', baldes: SERVICO_BALDES, custo: 1000, ...SERVICO_FICHA })
   const r = decomporDoSegmento(
@@ -979,8 +1005,8 @@ describe('14. SERVIÇO — a despesa fixa contada DUAS VEZES, e o RRO negativo',
       + SERVICO_BALDES.financeira + SERVICO_BALDES.indireta
     expect(agregado).toBeCloseTo(0.7052, 6)
     expect(agregado - c.structurePct).toBeCloseTo(SERVICO_BALDES.fixa, 10)
-    expect(c.totalGeral).toBeCloseTo(2409.07, 2)
-    expect(c.P).toBeCloseTo(2217.86, 2)
+    expect(c.totalGeral).toBeCloseTo(2428.39, 2)
+    expect(c.P).toBeCloseTo(2236.45, 2)
   })
 
   it('e a decomposição devolve as MESMAS oito linhas, ao centavo', () => {
@@ -996,20 +1022,20 @@ describe('14. SERVIÇO — a despesa fixa contada DUAS VEZES, e o RRO negativo',
     expect(val(r, 'icms')).toBeCloseTo(0, 6)
   })
 
-  it('>>> O DISCRIMINANTE: despesas 492,90 e NÃO 1.698,88 <<<', () => {
-    expect(val(r, 'despesas')).toBeCloseTo(492.90, 1)
+  it('>>> O DISCRIMINANTE: despesas 496,85 e NÃO 1.712,50 <<<', () => {
+    expect(val(r, 'despesas')).toBeCloseTo(496.85, 1)
     // O número que o agregado produzia: 2.409,07 × 70,52%.
-    expect(val(r, 'despesas')).not.toBeCloseTo(1698.88, 0)
+    expect(val(r, 'despesas')).not.toBeCloseTo(1712.50, 0)
     // A diferença é a despesa FIXA inteira, sobre o total geral.
-    expect(1698.88 - val(r, 'despesas')).toBeCloseTo(c.totalGeral * SERVICO_BALDES.fixa, 0)
+    expect(1712.50 - val(r, 'despesas')).toBeCloseTo(c.totalGeral * SERVICO_BALDES.fixa, 0)
   })
 
-  it('>>> E O RRO VOLTA A SER POSITIVO: +419,18, não −786,80 <<<', () => {
+  it('>>> E O RRO VOLTA A SER POSITIVO: +422,54, não −793,11 <<<', () => {
     // `val` aplica `Math.abs`, e foi ele que escondeu o sinal na primeira medição: o
     // módulo de −786,80 parecia um RRO plausível. Aqui o caso olha o número COM sinal.
     const rro = linha(r, 'rro').total
     expect(rro).toBeGreaterThan(0)
-    expect(rro).toBeCloseTo(419.18, 1)
+    expect(rro).toBeCloseTo(422.54, 1)
     expect(rro).not.toBeCloseTo(-786.80, 0)
     expect(r.rro!.foraDeZero).toBe(false)
   })
@@ -1017,7 +1043,7 @@ describe('14. SERVIÇO — a despesa fixa contada DUAS VEZES, e o RRO negativo',
   it('a comissão volta a 5,00% e o lucro a 10,00% do total geral', () => {
     expect(linha(r, 'comissao').pctSobreTotalGeral! * 100).toBeCloseTo(5, 2)
     expect(linha(r, 'lucro').pctSobreTotalGeral! * 100).toBeCloseTo(10, 2)
-    expect(linha(r, 'comissao').total).toBeCloseTo(120.45, 1)
+    expect(linha(r, 'comissao').total).toBeCloseTo(121.42, 1)
   })
 
   it('>>> COM O AGREGADO, o RRO negativo devolvia COMISSÃO NEGATIVA <<<', () => {
@@ -1031,8 +1057,8 @@ describe('14. SERVIÇO — a despesa fixa contada DUAS VEZES, e o RRO negativo',
       { ...itemDoSegmento(c, { ...SERVICO_FICHA, isService: true }), despesasOperacionaisPctCongelado: agregado },
       SERVICO_BALDES, 'SERVICO',
     )
-    expect(val(comAgregado, 'despesas')).toBeCloseTo(1698.88, 1)
-    expect(linha(comAgregado, 'rro').total).toBeCloseTo(-786.80, 1)
+    expect(val(comAgregado, 'despesas')).toBeCloseTo(1712.50, 1)
+    expect(linha(comAgregado, 'rro').total).toBeCloseTo(-793.11, 1)
     expect(linha(comAgregado, 'comissao').total).toBeLessThan(0)
     // E o residual NÃO acusava — é o que `teste-que-nao-exercita.md` diz do invariante que
     // fecha por construção: ele não distingue o estado certo do errado.

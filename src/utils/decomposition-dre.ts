@@ -454,8 +454,14 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
   // R17 — os percentuais aplicados são os % ORIGINAIS, com base no TOTAL GERAL. O ICMS incide
   // sobre a receita de produtos, não sobre P: misturar % Original com base P é o erro que a
   // R17 nomeia.
+  //
+  // ICMS E ISS TÊM TRATAMENTO IDÊNTICO — correção de 17/09/2026. O ISS era
+  // `-pPorItem[k] * issPct`, com base na operação interna, enquanto o ICMS usava a receita
+  // de produtos. Era a MESMA assimetria do motor (`pricing-engine.ts`, `issEff`), replicada
+  // aqui — e por isso a decomposição divergia da construção depois de o motor ser corrigido:
+  // o motor devolvia ISS de R$ 121,42 e a decomposição R$ 111,82 no cenário do bloco 14.
   const icmsPorItem = items.map((i, k) => -receitaProdutosPorItem[k] * i.taxes.icmsPct)
-  const issPorItem = items.map((i, k) => -pPorItem[k] * i.taxes.issPct)
+  const issPorItem = items.map((i, k) => -receitaProdutosPorItem[k] * i.taxes.issPct)
   const pisCofinsPorItem = items.map(
     (i, k) => -(pPorItem[k] + icmsPorItem[k] + issPorItem[k]) * i.taxes.pisCofinsPct,
   )
@@ -596,6 +602,33 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
   // rótulo — sem o rótulo, o número derivado seria lido como alíquota cadastrada.
   const pctDe = (valorTotal: number, base: number) => (base !== 0 ? -valorTotal / base : null)
 
+  /**
+   * A BASE e o % MÉDIO somam SÓ as colunas em que aquele tributo INCIDE.
+   *
+   * Decisão do dono do produto, 17/09/2026. Antes, `base` era `rp` (ICMS e por fora) ou
+   * `soma(pPorItem)` (ISS) — o TOTAL, incluindo colunas de alíquota zero.
+   *
+   * MEDIDO no ORC-5487, com um produto a 17% e outro a 0%:
+   *
+   *   base impressa  R$ 37.177,85      base real  R$ 34.919,79      Δ R$ 2.258,06 (6,07%)
+   *   alíquota derivada (valor ÷ base)  15,9675%   contra os 17,0000% cadastrados
+   *
+   * **O débito em R$ está certo nos dois casos.** O que muda é a base impressa — e é ela que
+   * vai para a nota. Com ISS numa coluna e ICMS noutra o defeito dobra: o ICMS mostraria base
+   * contendo receita de serviço e o ISS base contendo receita de mercadoria.
+   *
+   * Alíquota ZERO é o discriminante, e não "ausente": `INEXISTENTE não é zero` (Parte 0) vale
+   * para a EXISTÊNCIA do tributo no segmento; aqui a pergunta é outra — se ele INCIDE naquela
+   * coluna. Um item com 0% tem linha e não tem base.
+   */
+  const somaOndeIncide = (valores: number[], aliquotas: number[]) =>
+    valores.reduce((acc, v, k) => acc + ((aliquotas[k] ?? 0) !== 0 ? v : 0), 0)
+
+  /** R5, exceção 2: a base do PIS/COFINS é `P − ICMS − ISS` DESTE item. As três parcelas são
+   *  negativas no DRE, então somá-las É subtraí-las. Nomeado uma vez: a base e o `basePerItem`
+   *  precisam ser o MESMO array, ou a coluna diverge do total. */
+  const basePisCofinsPorItem = pPorItem.map((p, k) => p + icmsPorItem[k] + issPorItem[k])
+
   const rows: DecompositionRow[] = [
     // Os itens manuais entram no total e NÃO têm coluna (R13). Sem declarar a parcela, o
     // total impresso perdia a linha inteira deles — ver `foraDasColunas`.
@@ -615,9 +648,11 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
     ...(items.some((i) => i.taxes.externalByTax)
       ? (['ibs', 'cbs', 'is', 'ipi'] as const).map((nome) => {
         const perItemTributo = items.map((i, k) => -receitaProdutosPorItem[k] * (i.taxes.externalByTax?.[nome] ?? 0))
+        const aliqsDoTributo = items.map((i) => i.taxes.externalByTax?.[nome] ?? 0)
+        const baseIncidente = somaOndeIncide(receitaProdutosPorItem, aliqsDoTributo)
         return linha(`por_fora_${nome}`, `(−) ${nome.toUpperCase()}`, perItemTributo, {
-          base: rp,
-          pct: pctDe(soma(perItemTributo), rp),
+          base: baseIncidente,
+          pct: pctDe(soma(perItemTributo), baseIncidente),
           derived: heterogeneo(items.map((i) => i.taxes.externalByTax?.[nome] ?? 0)),
           // A BASE do código 4 e a alíquota EFETIVA, lidas da construção. Sem elas a célula
           // exibia `valor ÷ receita de produtos` como se fosse alíquota — 0,6830% para um
@@ -640,28 +675,28 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
       })]),
     linha('operacao_por_dentro', '► OPERAÇÃO POR DENTRO (P)', pPorItem, { subtotal: true }),
     linha('icms', '(−) ICMS', icmsPorItem, {
-      base: rp,
-      pct: pctDe(soma(icmsPorItem), rp),
+      base: somaOndeIncide(receitaProdutosPorItem, items.map((i) => i.taxes.icmsPct ?? 0)),
+      pct: pctDe(soma(icmsPorItem), somaOndeIncide(receitaProdutosPorItem, items.map((i) => i.taxes.icmsPct ?? 0))),
       derived: heterogeneo(items.map((i) => i.taxes.icmsPct)),
       basePerItem: receitaProdutosPorItem,
       pctPerItem: items.map((i) => i.taxes.icmsPct),
       acrescimoPerItem: acrescimoDe('icms'),
     }),
     linha('iss', '(−) ISS', issPorItem, {
-      base: soma(pPorItem),
-      pct: pctDe(soma(issPorItem), soma(pPorItem)),
+      base: somaOndeIncide(receitaProdutosPorItem, items.map((i) => i.taxes.issPct ?? 0)),
+      pct: pctDe(soma(issPorItem), somaOndeIncide(receitaProdutosPorItem, items.map((i) => i.taxes.issPct ?? 0))),
       derived: heterogeneo(items.map((i) => i.taxes.issPct)),
-      basePerItem: pPorItem,
+      basePerItem: receitaProdutosPorItem,
       pctPerItem: items.map((i) => i.taxes.issPct),
       acrescimoPerItem: acrescimoDe('iss'),
     }),
     linha('pis_cofins', '(−) PIS/COFINS', pisCofinsPorItem, {
-      base: soma(pPorItem) + soma(icmsPorItem) + soma(issPorItem),
-      pct: pctDe(soma(pisCofinsPorItem), soma(pPorItem) + soma(icmsPorItem) + soma(issPorItem)),
+      base: somaOndeIncide(basePisCofinsPorItem, items.map((i) => i.taxes.pisCofinsPct ?? 0)),
+      pct: pctDe(soma(pisCofinsPorItem), somaOndeIncide(basePisCofinsPorItem, items.map((i) => i.taxes.pisCofinsPct ?? 0))),
       derived: heterogeneo(items.map((i) => i.taxes.pisCofinsPct)),
       // R5, exceção 2: a base é `P − ICMS − ISS` DESTE item. As três parcelas são negativas
       // no DRE, então somá-las É subtraí-las.
-      basePerItem: pPorItem.map((p, k) => p + icmsPorItem[k] + issPorItem[k]),
+      basePerItem: basePisCofinsPorItem,
       pctPerItem: items.map((i) => i.taxes.pisCofinsPct),
       acrescimoPerItem: acrescimoDe('pisCofins'),
     }),
