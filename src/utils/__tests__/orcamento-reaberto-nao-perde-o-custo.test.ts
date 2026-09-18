@@ -115,9 +115,43 @@ describe('3. AS BASES, linha por linha — o que a regra manda', () => {
   const rro = v('rro')
   const lucro = v('lucro')
 
-  it('IBS, CBS, IS e IPI → RECEITA DE PRODUTOS', () => {
-    for (const k of ['por_fora_ibs', 'por_fora_cbs', 'por_fora_is', 'por_fora_ipi']) {
+  /**
+   * ═════════════════════════════════════════════════════════════════════════════════════
+   * 17/09/2026 — A BASE PASSOU A SOMAR SÓ AS COLUNAS EM QUE O TRIBUTO INCIDE
+   * ═════════════════════════════════════════════════════════════════════════════════════
+   *
+   * Os dois casos abaixo afirmavam, sem condição:
+   *
+   *   'IBS, CBS, IS e IPI → RECEITA DE PRODUTOS'   →  base === rp, para os QUATRO
+   *   'ISS → OPERAÇÃO POR DENTRO (P)'              →  base === P
+   *
+   * Eles passavam porque somavam TODAS as colunas — inclusive as de alíquota zero. Neste
+   * cenário o produto não tem IS, não tem IPI e não tem ISS, e os três exibiam base cheia
+   * mesmo assim.
+   *
+   * POR QUE MUDOU — decisão do dono do produto: a base e o % médio somam só onde o tributo
+   * incide. Medido no ORC-5487, com um produto a 17% e outro a 0%: base impressa
+   * R$ 37.177,85 contra a real R$ 34.919,79, e alíquota derivada de 15,9675% para um ICMS
+   * de 17,00%. O débito em R$ estava certo; a base impressa, que é a que vai para a nota,
+   * não estava.
+   *
+   * O que NÃO mudou: a base do tributo que INCIDE. O ICMS continua medindo contra a receita
+   * de produtos, e é por isso que o caso dele ficou como estava.
+   */
+  it('>>> o tributo que INCIDE mede contra a receita de produtos <<<', () => {
+    for (const k of ['por_fora_ibs', 'por_fora_cbs']) {
       expect(l(k).base).toBeCloseTo(rp, 2)
+    }
+  })
+
+  it('>>> e o que NÃO incide não tem base — IS e IPI, ausentes neste produto <<<', () => {
+    // O DISCRIMINANTE contra a regra de ontem, que dava `rp` aos quatro.
+    for (const k of ['por_fora_is', 'por_fora_ipi']) {
+      expect(l(k).base).toBe(0)
+      expect(l(k).base).not.toBeCloseTo(rp, 2)
+      // E sem base não há percentual a exibir: `pctDe` devolve null, e a célula cala em vez
+      // de imprimir 0,0000% — `ausente-vs-falso.md`.
+      expect(l(k).pct).toBeNull()
     }
   })
 
@@ -127,7 +161,14 @@ describe('3. AS BASES, linha por linha — o que a regra manda', () => {
     expect(Math.abs(rp - P)).toBeGreaterThan(2500)
   })
 
-  it('ISS → OPERAÇÃO POR DENTRO (P)', () => { expect(l('iss').base).toBeCloseTo(P, 2) })
+  it('>>> ISS: o produto não tem ISS, então a linha NÃO tem base <<<', () => {
+    // Afirmava `base === P`. A mudança de base do ISS (de P para o total geral) é do MOTOR
+    // e está em `pricing-engine-tributos-separados.test.ts`; aqui o que se afirma é o outro
+    // lado da mesma decisão — uma mercadoria não tem ISS, e o que não incide não tem base.
+    expect(l('iss').base).toBe(0)
+    expect(l('iss').base).not.toBeCloseTo(P, 2)
+    expect(l('iss').pct).toBeNull()
+  })
 
   it('PIS/COFINS → P − ICMS − ISS', () => {
     expect(l('pis_cofins').base).toBeCloseTo(baseDoPis, 2)

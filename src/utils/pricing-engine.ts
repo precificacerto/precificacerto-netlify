@@ -243,7 +243,7 @@ export interface PricingInput {
 export interface TaxBreakdownInput {
   /** ICMS sobre o TOTAL GERAL. `undefined` = INEXISTENTE (serviço); `0` = existe zerado. */
   icmsPct?: number
-  /** ISS sobre P, sem gross-up. `undefined` = INEXISTENTE (indústria/revenda); `0` = existe zerado. */
+  /** ISS sobre o TOTAL GERAL, como o ICMS. `undefined` = INEXISTENTE (indústria/revenda); `0` = existe zerado. */
   issPct?: number
   /** PIS/COFINS, alíquota NOMINAL — a efetiva é derivada pela exceção da R5. */
   pisCofinsPct: number
@@ -277,7 +277,7 @@ export interface ResolvedTaxBreakdown {
   ipiIntegraBaseIcms: boolean
   /** ICMS: conversão padrão, `% Original ÷ (1 − c)`. */
   icmsPctEffective: number
-  /** ISS: exceção da R5 — NÃO sofre gross-up, efetiva = original. */
+  /** ISS: conversão PADRÃO, igual à do ICMS — `% Original ÷ (1 − c)`. */
   issPctEffective: number
   /** PIS/COFINS: exceção da R5 — nominal × (1 − ICMS efetivada − ISS efetivada). */
   pisCofinsPctEffective: number
@@ -596,9 +596,14 @@ export function calculatePricing(input: PricingInput): PricingResult {
     // ICMS: conversão PADRÃO — mas sobre o que a R9 deixou na base, não sobre o
     // `icmsPct` cru. Os dois coincidem quando o IPI integra a base (o padrão).
     const icmsEff = cResult.icmsPctOverTotalGeral / k
-    // Exceção 1 da R5 — ISS no serviço NÃO sofre gross-up. A base do IBS/CBS
-    // exclui o ISS, mas o IBS/CBS não entra na base do ISS.
-    const issEff = iss
+    // ICMS E ISS TÊM TRATAMENTO IDÊNTICO. Decisão do dono do produto, 17/09/2026:
+    //
+    //   "Os dois são por dentro, incidem sobre o valor da operação, e saem primeiro."
+    //
+    // A "exceção 1 da R5" — ISS sem gross-up — ERA A FORMULAÇÃO DO DEFEITO, e saiu da regra
+    // no mesmo commit. Medido com 5% de alíquota e o mesmo custo: o ICMS dava R$ 126,52 com
+    // base no TOTAL GERAL e o ISS dava R$ 115,99 com base em P — mesma natureza, duas contas.
+    const issEff = iss / k
     // Exceção 2 da R5 — PIS/COFINS incide sobre `P − ICMS − ISS`. NÃO usar a
     // conversão padrão ÷ (1 − c).
     const pisCofinsEff = tb.pisCofinsPct * (1 - icmsEff - issEff)
@@ -943,9 +948,16 @@ export function resolveExternalOpsCoefficient(input: ExternalOpsInput): External
   const icmsBeta = ipiForaDaBaseIcms ? -i * aIPIParaIcms * termsIPIParaIcms.beta : 0
 
   // --- Bases que não dependem de ninguém (códigos 1 a 3) ---
-  // `base2/T = P/T − ICMS/T − ISS/T = (1−s)(1−c) − (icmsAlfa + icmsBeta·c)`.
-  // No caso padrão `icmsAlfa = i` e `icmsBeta = 0`, e os pares voltam a ser os da R3.
-  const base2: BaseTerms = { alfa: (1 - s) - icmsAlfa, beta: -(1 - s) - icmsBeta }
+  //
+  // `base2/T = P/T − ICMS/T − ISS/T`, e o ISS entra COMO O ICMS: fração constante do total
+  // geral, não `s(1−c)`. Antes de 17/09/2026 o par era `{(1−s) − icmsAlfa, −(1−s) − icmsBeta}`,
+  // que é o mesmo que dizer `ISS/T = s(1−c)` — a base do ISS era P, a do ICMS era T.
+  //
+  //   base2/T = (1−c) − s − (icmsAlfa + icmsBeta·c)
+  //
+  // CONTINUA LINEAR EM `c`, então a forma fechada da R3 resolve sem virar outro sistema.
+  // Verificado contra iteração de ponto fixo (500 passos): Δ ≈ 1e-17.
+  const base2: BaseTerms = { alfa: 1 - s - icmsAlfa, beta: -1 - icmsBeta }
   const base3: BaseTerms = { alfa: (1 - p) * base2.alfa, beta: (1 - p) * base2.beta }
 
   const termsFor = (code: BaseCode, base4: BaseTerms, base5: BaseTerms): BaseTerms => {

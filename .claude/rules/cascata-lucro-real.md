@@ -429,13 +429,66 @@ como **% Original sobre o total geral** e convertida para cálculo:
 % Efetivada = % Original ÷ (1 − c)
 ```
 
-**Duas exceções, e só duas:**
+**UMA exceção, e só uma.** A segunda — "ISS no serviço não sofre gross-up" — **SAIU em
+17/09/2026**: ela era a formulação de um defeito, não uma regra.
+
 - **PIS/COFINS** — a alíquota nominal incide sobre `P − ICMS − ISS`. Não aplicar
   a conversão padrão: `efetivada = nominal × (1 − ICMS efetivada − ISS
   efetivada)`. O código **já faz isso corretamente** (9,25% → 7,678% = 9,25% ×
   0,83). Preservar ao introduzir `c`.
-- **ISS no serviço** — a base do IBS/CBS exclui o ISS, mas o IBS/CBS não entra na
-  base do ISS. O ISS não sofre gross-up: `efetivada = original`.
+
+#### ICMS E ISS TÊM TRATAMENTO IDÊNTICO — correção de 17/09/2026
+
+Formulação do dono do produto, registrada como está:
+
+> **ICMS e ISS têm TRATAMENTO IDÊNTICO** — na formação do preço e, por consequência, na
+> decomposição. Os dois são por dentro, incidem sobre o valor da operação, e saem primeiro.
+
+A regra dizia, até esta data, que o ISS não sofria gross-up e que a base dele era a operação
+interna `P`, enquanto a do ICMS era o total geral. **Isso não era exceção: era o defeito com
+status de regra** — que é a pior forma dele, porque quem fosse corrigir o código encontraria a
+regra versionada dizendo que o código estava certo.
+
+Medido antes de corrigir, mesma alíquota de 5% e mesmo custo de R$ 2.000:
+
+| | efetiva | valor | base |
+|---|---:|---:|---|
+| REVENDA · ICMS 5% | 5,4291% | R$ 126,52 | **R$ 2.530,38 — o TOTAL GERAL** |
+| SERVIÇO · ISS 5% | 5,0000% | R$ 115,99 | **R$ 2.319,85 — a operação interna P** |
+
+O ISS passa a usar a conversão PADRÃO da R5, `% Efetivada = % Original ÷ (1 − c)`, como
+qualquer categoria da operação interna. No par `(alfa, beta)` do coeficiente, `ISS/T` deixa de
+ser `s(1−c)` e passa a ser `s` — constante, como o ICMS.
+
+**A forma fechada da R3 NÃO muda de natureza.** Verificada contra iteração de ponto fixo, 500
+passos: Δ ≈ 1e-17 em todas as configurações testadas. O que muda é o par, não o método.
+
+#### A PREMISSA DO PIS/COFINS NÃO É PACÍFICA — e é decisão de risco, não de conta
+
+A exceção acima manda deduzir **ICMS e ISS** da base do PIS/COFINS. Os dois fundamentos **não
+têm o mesmo peso**, e quem mantiver esta regra precisa saber disso:
+
+| | fundamento | estado |
+|---|---|---|
+| **ICMS fora** | STF, **Tema 69** | **vinculante desde 2017** |
+| **ISS fora** | STF, **Tema 118** (RE 592.616) | **NÃO JULGADO** |
+
+Estado do Tema 118, conferido em 17/09/2026: **placar 5×5**, falta o voto do min. Fux, e o
+processo foi **retirado da pauta de 25/02/2026 sem nova data**. A maioria dos TRFs já estende
+o Tema 69 ao ISS, e é isso que sustenta a prática — não uma tese firmada.
+
+**Pela lei escrita os dois ficariam.** A Lei 12.973, art. 12, §5º, define a receita bruta
+incluindo os tributos sobre ela incidentes. Quem tirou o ICMS de lá foi o STF, não o
+legislador.
+
+**O que acontece se o STF decidir em contrário:** quem calculou o preço sem o ISS na base do
+PIS/COFINS **recolheu a menos**. A diferença não é ajuste de preço — é **tributo devido, com
+multa e juros**, sobre todo o período em que a conta foi feita assim.
+
+**NÃO há campo de ação judicial no sistema, e isso é decisão**, tomada pelo dono do produto em
+17/09/2026: *"Não crie campo de ação judicial. Registrar na documentação basta."* A dedução do
+ISS é o comportamento único, para todo tenant. Quem quiser o outro não tem como pedi-lo, e
+este parágrafo é o registro de que a ausência é escolha, não esquecimento.
 
 **R6 · IRPJ e CSLL.** Base de cálculo é o **valor do lucro**.
 `% Original IRPJ = alíquota IRPJ × % Lucro`. Idem CSLL. O adicional de 10% tem

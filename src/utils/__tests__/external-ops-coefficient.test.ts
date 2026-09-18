@@ -50,9 +50,13 @@ const CASOS: ReadonlyArray<readonly [string, ExternalOpsInput, number]> = [
     0.08925318761384333,
   ],
   [
+    // 17/09/2026 — o valor era `0.08517061568017564`, de quando `ISS/T = s(1−c)`. Com ICMS e
+    // ISS no mesmo tratamento, `ISS/T = s` e o `c` cai. O número NOVO foi recalculado pelos
+    // DOIS caminhos do cabeçalho, em `Decimal` de 40 casas — ponto fixo com 2.000 iterações
+    // contra a forma fechada, Δ = 0 exato. NÃO foi copiado da saída da função.
     'E · D, com ISS 5%',
     { icmsPct: 0, issPct: 0.05, pisCofinsPct: 0, ibs: { rate: 0.01, baseCode: 4 }, cbs: { rate: 0.088, baseCode: 4 } },
-    0.08517061568017564,
+    0.08479052823315118,
   ],
   [
     'F · A, mais IPI 5% na base 1 (IPI FORA da base do IBS/CBS)',
@@ -118,7 +122,16 @@ describe('resolveExternalOpsCoefficient — o c da R3 em forma fechada', () => {
       expect(Math.abs(zerado.externalOpsCoefficient - semCbs.externalOpsCoefficient)).toBeLessThan(TOL)
     })
 
-    it('ISS entra sem gross-up e ICMS sobre o total: E difere de D', () => {
+    /**
+     * 17/09/2026 — este caso se chamava `ISS entra sem gross-up e ICMS sobre o total: E
+     * difere de D`, e o nome afirmava a conduta que saiu. A ASSERÇÃO (`e < d`) continua
+     * verdadeira e continua valendo: ISS na base reduz o que sobra para o IBS/CBS, de um
+     * jeito ou de outro. O que mudou foi QUANTO — de 0,08517 para 0,08479 — e o nome.
+     *
+     * Por isso ele ganhou o segundo `expect`: sem ele, o caso passaria verde nas DUAS
+     * regras e não seria o teste de nenhuma.
+     */
+    it('o ISS na base reduz o c, e agora ele entra COMO O ICMS — fração do total', () => {
       const d = resolveExternalOpsCoefficient({
         icmsPct: 0, issPct: 0, pisCofinsPct: 0, ibs: { rate: 0.01, baseCode: 4 }, cbs: { rate: 0.088, baseCode: 4 },
       }).externalOpsCoefficient
@@ -126,6 +139,11 @@ describe('resolveExternalOpsCoefficient — o c da R3 em forma fechada', () => {
         icmsPct: 0, issPct: 0.05, pisCofinsPct: 0, ibs: { rate: 0.01, baseCode: 4 }, cbs: { rate: 0.088, baseCode: 4 },
       }).externalOpsCoefficient
       expect(e).toBeLessThan(d)
+      // O DISCRIMINANTE entre as duas regras: com `ISS/T = s` constante, `d − e` é
+      // exatamente `s × (a_ibs + a_cbs) ÷ (1 + a_ibs + a_cbs)`. Com o `s(1−c)` de ontem
+      // dava outro número, e este `expect` fica vermelho lá.
+      const a = 0.01 + 0.088
+      expect(d - e).toBeCloseTo((0.05 * a) / (1 + a), 12)
     })
 
     it('as bases 1, 2 e 3 são estritamente decrescentes com ICMS e PIS/COFINS > 0', () => {

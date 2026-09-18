@@ -208,7 +208,34 @@ describe('motor com tributos separados', () => {
     })
   })
 
-  describe('5. exceção do ISS no serviço', () => {
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════════════════
+   * 17/09/2026 — ESTE BLOCO AFIRMAVA O DEFEITO, E FOI REESCRITO
+   * ═══════════════════════════════════════════════════════════════════════════════════════
+   *
+   * Ele se chamava `5. exceção do ISS no serviço` e travava duas condutas:
+   *
+   *   'a efetiva do ISS é igual à original — sem gross-up'
+   *       expect(res.issPctEffective).toBe(0.05)
+   *       expect(res.issPctEffective).toBeLessThan(0.05 / (1 - c))   ← proibia o gross-up
+   *
+   *   'em R$: ISS = alíquota × P, não × total geral'
+   *       expect(|issValue − 0.05 × priceUnit|).toBeLessThan(0.01)
+   *       expect(|issValue − 0.05 × totalGeral|).toBeGreaterThan(0.5)
+   *
+   * POR QUE MUDOU — decisão do dono do produto, registrada como está:
+   *
+   *   "ICMS e ISS têm TRATAMENTO IDÊNTICO. Os dois são por dentro, incidem sobre o valor da
+   *    operação, e saem primeiro."
+   *
+   * A "exceção" não era exceção: era o defeito com status de regra, e a R5 de
+   * `.claude/rules/cascata-lucro-real.md` o repetia. Medido com 5% e o mesmo custo, o ICMS
+   * dava R$ 126,52 com base no total geral e o ISS R$ 115,99 com base em P.
+   *
+   * Os dois casos abaixo são a INVERSÃO dos de cima, e é isso que os torna o teste da
+   * correção: eles ficam vermelhos no código de ontem, palavra por palavra.
+   */
+  describe('5. ISS e ICMS têm a MESMA conversão — a "exceção" saiu', () => {
     const entrada: PricingInput = {
       ...SERVICO,
       taxPct: 0.05,
@@ -220,19 +247,42 @@ describe('motor com tributos separados', () => {
       },
     }
 
-    it('a efetiva do ISS é igual à original — sem gross-up', () => {
+    it('>>> a efetiva do ISS SOFRE o gross-up — `original ÷ (1 − c)` <<<', () => {
       const res = calculatePricing(entrada).taxBreakdownResolved!
-      expect(res.issPctEffective).toBe(0.05)
       expect(res.externalOpsCoefficient).toBeGreaterThan(0)
-      // Com gross-up daria 0,05 ÷ (1 − c), que é estritamente maior.
-      expect(res.issPctEffective).toBeLessThan(0.05 / (1 - res.externalOpsCoefficient))
+      expect(res.issPctEffective).toBeCloseTo(0.05 / (1 - res.externalOpsCoefficient), 10)
+      // O DISCRIMINANTE contra o código de ontem, que devolvia exatamente 0,05:
+      expect(res.issPctEffective).toBeGreaterThan(0.05)
     })
 
-    it('em R$: ISS = alíquota × P, não × total geral', () => {
+    it('>>> em R$: ISS = alíquota × TOTAL GERAL, não × P <<<', () => {
       const r = calculatePricing(entrada)
       const res = r.taxBreakdownResolved!
-      expect(Math.abs(res.issValue - 0.05 * r.priceUnit)).toBeLessThan(0.01)
-      expect(Math.abs(res.issValue - 0.05 * res.totalGeral)).toBeGreaterThan(0.5)
+      expect(Math.abs(res.issValue - 0.05 * res.totalGeral)).toBeLessThan(0.01)
+      // E o par invertido: agora é o × P que tem de DIVERGIR.
+      expect(Math.abs(res.issValue - 0.05 * r.priceUnit)).toBeGreaterThan(0.5)
+    })
+
+    it('>>> e é a MESMA conta do ICMS — mesma alíquota, mesmo custo, mesmo valor <<<', () => {
+      // O caso que nenhum dos dois de ontem tinha, e que é o ponto da decisão: com a mesma
+      // alíquota, trocar ICMS por ISS não pode mudar número nenhum.
+      //
+      // A MO PRODUTIVA É ZERADA NOS DOIS LADOS DE PROPÓSITO. Sem isso o caso compara duas
+      // coisas ao mesmo tempo: `cmvUnit` soma a MO em SERVIÇO e NÃO soma em REVENDA, então
+      // os preços divergiriam por R$ 62,42 sem tributo nenhum ter mudado. Foi o que a
+      // primeira versão deste caso mediu, e ela teria acusado o motor pelo motivo errado.
+      const semMO = { ...entrada, productWorkloadMinutes: 0, laborCostMonthly: 0, totalItemsCost: 2000 }
+      const comIss = calculatePricing(semMO)
+      const comIcms = calculatePricing({
+        ...semMO,
+        calcType: 'REVENDA',
+        taxBreakdown: { ...entrada.taxBreakdown!, issPct: undefined, icmsPct: 0.05 },
+      })
+      const a = comIss.taxBreakdownResolved!
+      const b = comIcms.taxBreakdownResolved!
+      expect(a.issPctEffective).toBeCloseTo(b.icmsPctEffective, 10)
+      expect(a.issValue).toBeCloseTo(b.icmsValue, 2)
+      expect(a.totalGeral).toBeCloseTo(b.totalGeral, 2)
     })
   })
 
