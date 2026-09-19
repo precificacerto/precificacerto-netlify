@@ -1351,3 +1351,62 @@ describe('18. ICMS HETEROGÊNEO — a base soma só onde o tributo incide', () =
     expect(Math.abs(l('residual').total)).toBeLessThan(0.02)
   })
 })
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * 19. REVENDA SECUNDÁRIA EM TENANT DE INDUSTRIALIZAÇÃO — a combinação que faltava
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ *
+ * REGRA (PO, 19/09/2026 — planilha "Cascata Lucro Real", Produto 4 "Secundária = revenda"):
+ *
+ *   > Quando a revenda é SECUNDÁRIA, a MO produtiva já está diluída na produtividade da
+ *   > atividade principal — não pode compor o preço da secundária. MO indireta, despesa fixa
+ *   > e as demais permanecem na MC. O agrupamento Produtiva + Indireta é SÓ da revenda
+ *   > PRINCIPAL.
+ *
+ * O bloco 16 cobre a secundária em tenant de SERVIÇO; o 17, a revenda PRINCIPAL com MO
+ * produtiva. Faltava a secundária em INDUSTRIALIZAÇÃO — que é o caso REAL da base: 21 dos
+ * 27 tenants são de industrialização. Sem ele, "a decomposição lê o segmento da despesa pelo
+ * tenant" era leitura de código, não medição.
+ *
+ * O caso discrimina porque o tenant TEM MO produtiva (15%): se a decomposição tratasse a
+ * revenda como principal, agruparia e daria 43,57% de despesa em vez de 28,57%.
+ */
+describe('19. REVENDA SECUNDÁRIA EM TENANT DE INDUSTRIALIZAÇÃO — matriz REVENDA, despesa INDUSTRIALIZAÇÃO', () => {
+  const COM_MO: BaldesDeDespesa = { ...REVENDA_BALDES, moProdutiva: 0.15 }
+  const args = { productType: 'REVENDA', tenantCalcType: 'INDUSTRIALIZACAO' }
+
+  it('matriz do PRODUTO (revenda), despesa do TENANT (industrialização)', () => {
+    expect(resolveSegmentoDaConstrucao(args)).toBe('REVENDA')
+    expect(resolveSegmentoDaDespesa(args)).toBe('INDUSTRIALIZACAO')
+  })
+
+  it('>>> a MO produtiva NÃO entra: 28,57% (fixa + variável + financeira + MOI), não 43,57% <<<', () => {
+    expect(resolveDespesasOperacionaisPct(resolveSegmentoDaDespesa(args), COM_MO)).toBeCloseTo(0.2857, 6)
+    expect(resolveDespesasOperacionaisPct('REVENDA', COM_MO)).toBeCloseTo(0.4357, 6)
+  })
+
+  it('e os dois lados fecham, ao centavo, com o RRO no reservado', () => {
+    const c = construir({
+      segmento: 'REVENDA', despesaDe: 'INDUSTRIALIZACAO', baldes: COM_MO, custo: 1000, ...REVENDA_FICHA,
+    })
+    expect(c.structurePct).toBeCloseTo(0.2857, 6)
+    const r = decomporDoSegmento(
+      itemDoSegmento(c, { ...REVENDA_FICHA, productType: 'REVENDA' }), COM_MO, 'INDUSTRIALIZACAO',
+    )
+    expect(val(r, 'despesas')).toBeCloseTo(c.despesas, 1)
+    expect(val(r, 'icms')).toBeCloseTo(c.icms, 1)
+    expect(val(r, 'rro')).toBeCloseTo(c.rro, 2)
+    expect(r.rro!.foraDeZero).toBe(false)
+  })
+
+  it('>>> CONTRASTE: decompor como se fosse revenda PRINCIPAL quebraria o RRO <<<', () => {
+    const c = construir({
+      segmento: 'REVENDA', despesaDe: 'INDUSTRIALIZACAO', baldes: COM_MO, custo: 1000, ...REVENDA_FICHA,
+    })
+    const errado = decomporDoSegmento(
+      itemDoSegmento(c, { ...REVENDA_FICHA, productType: 'REVENDA' }), COM_MO, 'REVENDA',
+    )
+    expect(Math.abs(val(errado, 'rro') - c.rro)).toBeGreaterThan(100)
+  })
+})
