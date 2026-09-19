@@ -96,8 +96,14 @@ export function applyDecompositionToResidual(
 
   const commission = linhaDe('commission')
   const profit = linhaDe('profit')
-  const irpj = linhaDe('irpj')
-  const csll = linhaDe('csll')
+  // Na GUIA ÚNICA (Simples/MEI) as linhas de IRPJ e CSLL não existem por regra — já estão no
+  // DAS. A ausência é zero LEGÍTIMO, não rubrica faltando: sem isto o "tudo ou nada" abaixo
+  // devolveria os cards do Simples à Etapa 16.
+  const zeroDaGuiaUnica: ResidualLine | null = decomposition.guiaUnica
+    ? { amount: 0, originalPct: 0, effectivePct: 0, baseLabel: BASE_DOS_PERCENTUAIS_DA_DECOMPOSICAO }
+    : null
+  const irpj = linhaDe('irpj') ?? zeroDaGuiaUnica
+  const csll = linhaDe('csll') ?? zeroDaGuiaUnica
   // Tudo ou nada: com uma rubrica faltando, o bloco voltaria a ser duas fontes misturadas —
   // três cards da decomposição e um da Etapa 16, sem nada na tela dizendo qual é qual.
   if (!commission || !profit || !irpj || !csll) return distribution

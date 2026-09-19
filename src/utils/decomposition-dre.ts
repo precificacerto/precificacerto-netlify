@@ -27,6 +27,13 @@
 
 /** A ficha tributária que a CONSTRUÇÃO daquele item produziu. Nada aqui é derivado. */
 export interface DecompositionItemTaxes {
+  /**
+   * DAS — Simples Nacional / MEI, em FRAÇÃO. Guia única: SUBSTITUI ICMS + ISS + PIS/COFINS
+   * (R2 do Motor 2) e incide sobre o TOTAL DA OPERAÇÃO de cada item, recalculando com o
+   * desconto como todo tributo (planilha "Cascata SIMPLES e MEI", linha 82: `H82 = H80`).
+   * Ausente fora da guia única. Ver `DecompositionInput.guiaUnica`.
+   */
+  dasPct?: number
   /** ICMS NOMINAL sobre o total geral (R17: os percentuais aplicados são os % Originais). */
   icmsPct: number
   /** ISS NOMINAL sobre P. */
@@ -135,6 +142,16 @@ export interface DecompositionInput {
   discountPct: number
   /** R18 — itens manuais + a parcela de acréscimo que caiu neles. Repasse SEM tributo. */
   itensManuaisComAcrescimos: number
+  /**
+   * GUIA ÚNICA — Simples Nacional e MEI. LIDO do regime, nunca inferido da alíquota.
+   *
+   * Regra do dono do produto (Motor 2, 28/08/2026; planilha "Cascata SIMPLES e MEI",
+   * 19/09/2026): o DAS OCUPA O LUGAR de ICMS + ISS + PIS/COFINS, e IBS, CBS, IS e IPI "não
+   * existem no Simples e MEI". Por isso, com `guiaUnica`, as linhas desses tributos NÃO
+   * APARECEM — nem zeradas (R4: é inadmissível rotular imposto de um regime em outro) — e
+   * a linha do DAS aparece no lugar delas. Fora da guia única, a linha do DAS não existe.
+   */
+  guiaUnica?: boolean
 }
 
 /** Uma linha do DRE. `perItem` é paralelo a `input.items`. */
@@ -318,6 +335,13 @@ export interface LucroDaVenda {
 
 export interface DecompositionResult {
   rows: DecompositionRow[]
+  /**
+   * `true` quando a decomposição saiu no formato da GUIA ÚNICA (Simples/MEI) — e por isso
+   * NÃO TEM as linhas de IRPJ e CSLL (decisão do PO, 19/09/2026: ocultas no Simples/MEI, onde
+   * já estão dentro do DAS). Quem lê as quatro rubricas do RRO usa isto para saber que a
+   * ausência é regra, e não falha.
+   */
+  guiaUnica?: boolean
   /** Seção 6.2 — o objetivo final. Ausente só quando não há linhas. */
   lucroDaVenda: LucroDaVenda | null
   /** R20 — o residual, no total e por item. Deve ser zero. */
@@ -381,7 +405,7 @@ const toleranciaRro = (esperado: number): number => Math.max(0.01, Math.abs(espe
 /** As linhas que são DETALHE de tributo — exibidas como sub-item (ver `isTaxDetail`). */
 const LINHAS_DE_TRIBUTO = new Set([
   'por_fora', 'por_fora_ibs', 'por_fora_cbs', 'por_fora_is', 'por_fora_ipi',
-  'icms', 'iss', 'pis_cofins',
+  'icms', 'iss', 'pis_cofins', 'das',
 ])
 
 /**
@@ -465,7 +489,12 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
   const pisCofinsPorItem = items.map(
     (i, k) => -(pPorItem[k] + icmsPorItem[k] + issPorItem[k]) * i.taxes.pisCofinsPct,
   )
-  const receitaLiquidaPorItem = items.map((_, k) => pPorItem[k] + icmsPorItem[k] + issPorItem[k] + pisCofinsPorItem[k])
+  // DAS — guia única do Simples/MEI, sobre o TOTAL DA OPERAÇÃO do item (planilha, linha 82).
+  // Recalcula com o desconto, como todo tributo: faturou menos, paga menos.
+  const dasPorItem = items.map((i, k) => -pPorItem[k] * (i.taxes.dasPct ?? 0))
+  const receitaLiquidaPorItem = items.map(
+    (_, k) => pPorItem[k] + icmsPorItem[k] + issPorItem[k] + pisCofinsPorItem[k] + dasPorItem[k],
+  )
 
   // As categorias DESTE item: as próprias quando ele as tem, as do documento quando não.
   const catDe = (k: number): DecompositionCategories => items[k].categories ?? cat
@@ -629,7 +658,7 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
    *  precisam ser o MESMO array, ou a coluna diverge do total. */
   const basePisCofinsPorItem = pPorItem.map((p, k) => p + icmsPorItem[k] + issPorItem[k])
 
-  const rows: DecompositionRow[] = [
+  const todasAsLinhas: DecompositionRow[] = [
     // Os itens manuais entram no total e NÃO têm coluna (R13). Sem declarar a parcela, o
     // total impresso perdia a linha inteira deles — ver `foraDasColunas`.
     linha('receita_bruta', 'RECEITA BRUTA (agrupamento)', receitaBrutaPorItem, {
@@ -674,6 +703,13 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
         // nenhum. A linha agregada é o fallback do trace legado, e não recebe o par.
       })]),
     linha('operacao_por_dentro', '► OPERAÇÃO POR DENTRO (P)', pPorItem, { subtotal: true }),
+    linha('das', '(−) DAS', dasPorItem, {
+      base: somaOndeIncide(pPorItem, items.map((i) => i.taxes.dasPct ?? 0)),
+      pct: pctDe(soma(dasPorItem), somaOndeIncide(pPorItem, items.map((i) => i.taxes.dasPct ?? 0))),
+      derived: heterogeneo(items.map((i) => i.taxes.dasPct ?? 0)),
+      basePerItem: pPorItem,
+      pctPerItem: items.map((i) => i.taxes.dasPct ?? 0),
+    }),
     linha('icms', '(−) ICMS', icmsPorItem, {
       base: somaOndeIncide(receitaProdutosPorItem, items.map((i) => i.taxes.icmsPct ?? 0)),
       pct: pctDe(soma(icmsPorItem), somaOndeIncide(receitaProdutosPorItem, items.map((i) => i.taxes.icmsPct ?? 0))),
@@ -754,6 +790,17 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
     linha('residual', '► RESIDUAL (deve ser zero)', residualPorItem, { subtotal: true }),
   ]
 
+  // O REGIME DECIDE QUAIS LINHAS EXISTEM — a regra de construção, lida. Na guia única somem
+  // os tributos que o DAS absorve e os por fora que não existem; fora dela, some o DAS.
+  // IRPJ e CSLL também somem (decisão do PO, 19/09/2026): no Simples/MEI já estão no DAS, e
+  // o RRO se reparte só entre comissão e lucro — como na planilha "Cascata SIMPLES e MEI".
+  const SOMEM_NA_GUIA_UNICA = new Set([
+    'por_fora', 'por_fora_ibs', 'por_fora_cbs', 'por_fora_is', 'por_fora_ipi', 'icms', 'iss', 'pis_cofins',
+    'irpj', 'csll',
+  ])
+  const rows = todasAsLinhas.filter((r) =>
+    input.guiaUnica ? !SOMEM_NA_GUIA_UNICA.has(r.key) : r.key !== 'das')
+
   // Seção 6.2 — LUCRO DA VENDA. O apurado é sobre a receita APÓS desconto, e o cadastrado é
   // o `% Lucro` que entrou na construção. Exibir só o primeiro esconde exatamente o que a
   // decomposição existe para mostrar.
@@ -818,6 +865,7 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
         : Math.abs(rroDivergencia) > toleranciaRro(rroEsperado),
     },
     errors,
+    ...(input.guiaUnica ? { guiaUnica: true } : {}),
   }
 }
 

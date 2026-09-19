@@ -425,10 +425,12 @@ function Sales() {
             // número do documento: cada item congelou o seu. Os baldes ficam zerados
             // porque nada aqui é recalculado — o congelado vence em todos.
             despesas: { fixa: 0, variavel: 0, financeira: 0, indireta: 0, moProdutiva: 0 },
+            // Guia única (Simples/MEI) é LIDA do regime. Enquanto carrega: null = comportamento de antes.
+            regime: mrmConfig.loading ? null : mrmConfig.regime,
         })
         if (params.isEmpty) return { ...VAZIA, estado: 'SEM_PRODUTO' as const }
         return { result: buildDecomposition(params.input), labels: params.itemLabels, estado: 'CONGELADA' as const }
-    }, [detailItems, selectedSale])
+    }, [detailItems, selectedSale, mrmConfig.regime, mrmConfig.loading])
 
     const saleEpicV5DisplayData = useMemo(
         () => extractEpicV5DisplayData(detailItems || [], {
@@ -1546,10 +1548,12 @@ function Sales() {
                 moProdutiva: Number(mrmConfig.mo_produtiva_pct) || 0,
             },
             tenantCalcType: mrmConfig.calc_type,
+            // Guia única (Simples/MEI) é LIDA do regime. Enquanto carrega: null = comportamento de antes.
+            regime: mrmConfig.loading ? null : mrmConfig.regime,
         })
         if (params.isEmpty) return null
         return { result: buildDecomposition(params.input), labels: params.itemLabels }
-    }, [balcaoEnrichedItems, products, globalDiscountPercentV, mrmConfig.dop_pct])
+    }, [balcaoEnrichedItems, products, globalDiscountPercentV, mrmConfig.dop_pct, mrmConfig.regime, mrmConfig.loading])
 
     const balcaoResidualItems: ResidualItemInput[] = useMemo(
         () => saleItems.map((item, idx) => {
