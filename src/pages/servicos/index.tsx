@@ -24,6 +24,8 @@ import { fetchTaxPreview } from '@/utils/calc-tax-preview'
 import { PAGE_SIZE } from '@/constants/pagination'
 import { ACTIVE_OR_NULL_FILTER } from '@/utils/active-record-filter'
 import { useRouter } from 'next/router'
+import { tenantOffersServices } from '@/utils/segment-visibility'
+import { ServicesSegmentNotice } from '@/components/services-segment-notice.component'
 
 function fmt(v: number) {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 }).format(v)
@@ -34,6 +36,9 @@ function ServicesPage() {
     const { currentUser } = useAuth()
     const { isMobile } = useDevice()
     const router = useRouter()
+
+    // Segmentação: Serviços só existe em Prestação de Serviços (URL direta incluída).
+    if (currentUser && !tenantOffersServices(currentUser.calcType)) return <ServicesSegmentNotice />
 
     if (!canView(MODULES.SERVICES)) return (
         <Layout title={PAGE_TITLES.SERVICES}>

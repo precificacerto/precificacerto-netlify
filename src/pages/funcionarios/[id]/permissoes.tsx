@@ -9,6 +9,7 @@ import { useAuth } from '@/hooks/use-auth.hook'
 import { MODULES, type ModuleKey } from '@/hooks/use-permissions.hook'
 import { ROUTES } from '@/constants/routes'
 import { PERMISSIONS } from '@/shared/enums/permissions'
+import { moduleVisibleForSegment } from '@/utils/segment-visibility'
 
 const MODULE_LABELS: Record<string, string> = {
   home: 'Início',
@@ -301,7 +302,8 @@ export default function EmployeePermissions() {
             <h3 style={{ marginBottom: 16, fontSize: 16, fontWeight: 600 }}>Módulos</h3>
             <Table
               columns={columns}
-              dataSource={permissions}
+              // Paridade com o menu: módulo oculto pela segmentação não aparece aqui.
+              dataSource={permissions.filter(p => moduleVisibleForSegment(p.module, currentUser?.calcType))}
               rowKey="module"
               pagination={false}
               size="middle"

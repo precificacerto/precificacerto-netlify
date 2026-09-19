@@ -11,6 +11,8 @@ import { mergeExpenseConfig } from '@/utils/recalc-expense-config'
 import { ServiceContent } from '@/page-parts/services/content.component'
 import { useRevalidateOnFocus } from '@/hooks/use-revalidate-on-focus'
 import { ACTIVE_OR_NULL_FILTER } from '@/utils/active-record-filter'
+import { tenantOffersServices } from '@/utils/segment-visibility'
+import { ServicesSegmentNotice } from '@/components/services-segment-notice.component'
 
 interface RawItem {
     id: string; name: string; unit: string; cost_price: number; quantity: number; item_type?: string; measure_quantity?: number; cost_net?: number; cost_gross?: number
@@ -111,6 +113,11 @@ export default function EditServicePage() {
         silentRefresh()
         return () => { cancelled = true }
     }, [effectiveTenantId, revalidationKey])
+
+    // Segmentação: Serviços só existe em Prestação de Serviços (URL direta incluída).
+    if (!authLoading && currentUser && !tenantOffersServices(currentUser.calcType)) {
+        return <ServicesSegmentNotice />
+    }
 
     if (loading || !effectiveTenantId || !serviceData) {
         return (

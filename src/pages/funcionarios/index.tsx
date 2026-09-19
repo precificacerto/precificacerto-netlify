@@ -29,6 +29,7 @@ import {
 import { formatBRL } from '@/utils/formatters'
 import { PAGE_SIZE } from '@/constants/pagination'
 import { useDevice } from '@/contexts/device.context'
+import { moduleVisibleForSegment } from '@/utils/segment-visibility'
 
 const formatCurrency = formatBRL
 
@@ -803,7 +804,11 @@ function Employees() {
                             </Divider>
 
                             <div style={{ border: '1px solid rgba(255,255,255,0.06)', borderRadius: 8, overflow: 'hidden', marginBottom: 16 }}>
-                                {PERMISSION_SECTIONS.map((section, sIdx) => {
+                                {PERMISSION_SECTIONS
+                                    // Paridade com o menu: módulo oculto pela segmentação não aparece aqui.
+                                    .map(section => ({ ...section, modules: section.modules.filter(m => moduleVisibleForSegment(m.key, currentUser?.calcType)) }))
+                                    .filter(section => section.modules.length > 0)
+                                    .map((section, sIdx) => {
                                     const permState = (mod: string): 'none' | 'view' | 'edit' => {
                                         const p = modulePerms[mod]
                                         if (p?.can_edit) return 'edit'

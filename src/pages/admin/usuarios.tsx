@@ -10,6 +10,7 @@ import { useRouter } from 'next/router'
 import { ROUTES } from '@/constants/routes'
 import { MODULES, type ModuleKey } from '@/hooks/use-permissions.hook'
 import { PAGE_SIZE } from '@/constants/pagination'
+import { moduleVisibleForSegment } from '@/utils/segment-visibility'
 import { SettingOutlined, UserAddOutlined, RightOutlined } from '@ant-design/icons'
 
 const MODULE_LABELS: Record<string, string> = {
@@ -369,7 +370,8 @@ function Users() {
           </div>
         ) : (
         <Table
-          dataSource={permissions}
+          // Paridade com o menu: módulo oculto pela segmentação não aparece aqui.
+          dataSource={permissions.filter(p => moduleVisibleForSegment(p.module, currentUser?.calcType))}
           rowKey="module"
           pagination={false}
           size="small"
