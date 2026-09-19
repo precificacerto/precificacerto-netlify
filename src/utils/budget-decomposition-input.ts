@@ -47,6 +47,8 @@ export interface BudgetItemRates {
   is_pct?: number | null
   ibs_pct?: number | null
   cbs_pct?: number | null
+  /** DAS (Simples/MEI), em PERCENTUAL — `custom_tax_percent` / `taxable_regime_percent`. Ver `item-tax-rates.ts`. */
+  das_pct?: number | null
 }
 
 export interface BudgetDecompositionItem {
@@ -130,6 +132,13 @@ export interface BudgetDecompositionParams {
    */
   tenantCalcType?: string | null
   /**
+   * `tenant_settings.tax_regime` (ou o `mrmConfig.regime` da tela). Decide a GUIA ÚNICA:
+   * em SIMPLES_NACIONAL e MEI o DAS substitui ICMS + ISS + PIS/COFINS, não há tributo por
+   * fora, e IRPJ/CSLL entram com peso zero (R2, R5 e R7 do Motor 2). Ausente = regime
+   * discriminado (Lucro Real/Presumido), que é o comportamento de antes, bit-exact.
+   */
+  regime?: string | null
+  /**
    * @deprecated As alíquotas legais saem de `rate-scale.ts`, não do tenant. Os campos
    * permanecem aceitos para não quebrar os chamadores, e são IGNORADOS — ver o comentário em
    * `categories.irpjPct`. Passá-los não muda resultado nenhum.
@@ -170,19 +179,29 @@ export function buildBudgetDecompositionInput(
     0,
   )
 
+  // GUIA ÚNICA — Simples Nacional e MEI. O regime é LIDO do parâmetro; a presença de
+  // `das_pct` no item não decide nada (a mesma coluna serve a RET e Híbrido).
+  const regimeNorm = String(params.regime ?? '').trim().toUpperCase()
+  const guiaUnica = regimeNorm === 'SIMPLES_NACIONAL' || regimeNorm === 'MEI'
+  const isMei = regimeNorm === 'MEI'
+
   const items: DecompositionItem[] = produtos.map((item) => {
     const r = item.rates ?? null
     // ICMS, ISS, IPI, IS, IBS e CBS vêm SEMPRE em percentual — escala conhecida, conversão
     // pura. PIS e COFINS são os únicos ambíguos, e têm função própria. Ver `rate-scale.ts`.
-    const icms = item.isService ? 0 : pctToFraction(r?.icms_pct)
-    const iss = item.isService ? pctToFraction(r?.iss_pct) : 0
+    // Na guia única os três por dentro NÃO EXISTEM: o DAS ocupa o lugar deles (R2).
+    const icms = guiaUnica || item.isService ? 0 : pctToFraction(r?.icms_pct)
+    const iss = !guiaUnica && item.isService ? pctToFraction(r?.iss_pct) : 0
     // O cadastro guarda PIS/COFINS já com a exclusão do ICMS/ISS; a decomposição precisa da
     // NOMINAL, porque ela reaplica a exclusão sobre a base própria (R5, exceção 2).
-    const pisCofinsNominal = pisCofinsNominalFromEffective(
+    const pisCofinsNominal = guiaUnica ? 0 : pisCofinsNominalFromEffective(
       pisCofinsFractionFromItem(r?.pis_pct, r?.cofins_pct),
       icms,
       iss,
     )
+    // DAS do PRÓPRIO item (percentual no cadastro → fração). MEI: zero, sempre — o DAS do
+    // MEI é fixo mensal e não incide por venda (D17); a linha existe com R$ 0,00.
+    const dasPct = guiaUnica && !isMei ? pctToFraction(r?.das_pct) : 0
 
     // O SEGMENTO É LIDO, não inferido. A versão anterior desta linha tinha dois
     // valores onde a matriz tem três — `item.isService ? 'SERVICO' : 'INDUSTRIALIZACAO'`
@@ -234,8 +253,9 @@ export function buildBudgetDecompositionInput(
       // NÃO usar `mrmConfig.irpj_pct`: ele já é `% Lucro do TENANT × 15%` (ver `tax-sync.ts`,
       // `lrIrpj = profitPct * 0.15`). Multiplicá-lo pelo lucro do item aplica o lucro DUAS
       // vezes — foi o que exibiu IRPJ de 1,80% onde a construção mostra 15,00%.
-      irpjPct: lucroPct * IRPJ_RATE_ON_PROFIT,
-      csllPct: lucroPct * CSLL_RATE_ON_PROFIT,
+      // R5 do Motor 2: na guia única IRPJ e CSLL já estão no DAS — peso ZERO, linha presente.
+      irpjPct: guiaUnica ? 0 : lucroPct * IRPJ_RATE_ON_PROFIT,
+      csllPct: guiaUnica ? 0 : lucroPct * CSLL_RATE_ON_PROFIT,
     }
 
     return {
@@ -251,15 +271,17 @@ export function buildBudgetDecompositionInput(
         issPct: iss,
         pisCofinsPct: pisCofinsNominal,
         // O `c` da construção DAQUELE item, lido da ficha — nunca um `c` global.
-        externalOpsCoefficient: ficha.ficha?.externalOpsCoefficient ?? 0,
+        // Na guia única não há tributo por fora (R7): IBS, CBS, IS e IPI estão no DAS.
+        externalOpsCoefficient: guiaUnica ? 0 : (ficha.ficha?.externalOpsCoefficient ?? 0),
         // E aberto por tributo, para a R19 ter uma linha para cada um.
-        externalByTax: ficha.ficha?.externalByTax,
+        externalByTax: guiaUnica ? undefined : ficha.ficha?.externalByTax,
         // A base do código 4, a efetiva, a nominal e o redutor — os quatro que a NT
         // 2025.002 pede e que a construção já calculava. Ver `DecompositionItemTaxes`.
-        externalBaseByTax: ficha.ficha?.externalBaseByTax,
-        externalRateByTax: ficha.ficha?.externalRateByTax,
-        externalNominalByTax: ficha.ficha?.externalNominalByTax,
-        externalReductionByTax: ficha.ficha?.externalReductionByTax,
+        externalBaseByTax: guiaUnica ? undefined : ficha.ficha?.externalBaseByTax,
+        externalRateByTax: guiaUnica ? undefined : ficha.ficha?.externalRateByTax,
+        externalNominalByTax: guiaUnica ? undefined : ficha.ficha?.externalNominalByTax,
+        externalReductionByTax: guiaUnica ? undefined : ficha.ficha?.externalReductionByTax,
+        ...(guiaUnica ? { dasPct } : {}),
       },
       categories,
     }
@@ -281,6 +303,7 @@ export function buildBudgetDecompositionInput(
       categories,
       discountPct: num(params.discountPct),
       itensManuaisComAcrescimos,
+      ...(guiaUnica ? { guiaUnica: true } : {}),
     },
     itemLabels: items.map((i) => i.label),
     isEmpty: items.length === 0,

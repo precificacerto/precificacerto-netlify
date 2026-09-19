@@ -405,10 +405,12 @@ function OrdersPage() {
                 moProdutiva: Number(mrmConfig.mo_produtiva_pct) || 0,
             },
             tenantCalcType: mrmConfig.calc_type,
+            // Guia única (Simples/MEI) é LIDA do regime. Enquanto carrega: null = comportamento de antes.
+            regime: mrmConfig.loading ? null : mrmConfig.regime,
         })
         if (params.isEmpty) return null
         return { result: buildDecomposition(params.input), labels: params.itemLabels }
-    }, [orderEnrichedItems, products, services, editingDiscountPct, mrmConfig.dop_pct])
+    }, [orderEnrichedItems, products, services, editingDiscountPct, mrmConfig.dop_pct, mrmConfig.regime, mrmConfig.loading])
 
     /**
      * R21 — o rateio de frete herdado do orçamento ainda descreve este pedido?

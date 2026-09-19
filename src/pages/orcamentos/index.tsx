@@ -1342,13 +1342,15 @@ function Budgets() {
                 moProdutiva: Number(mrmConfig.mo_produtiva_pct) || 0,
             },
             tenantCalcType: mrmConfig.calc_type,
+            // Guia única (Simples/MEI) é LIDA do regime. Enquanto carrega: null = comportamento de antes.
+            regime: mrmConfig.loading ? null : mrmConfig.regime,
             irpjAliquota: Number(mrmConfig.irpj_pct) || 0,
             csllAliquota: Number(mrmConfig.csll_pct) || 0,
         })
         if (params.isEmpty) return null
         return { result: buildDecomposition(params.input), labels: params.itemLabels }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [enrichedItems, allocatedByKey, products, globalDiscountPercent, mrmConfig.dop_pct, mrmConfig.irpj_pct, mrmConfig.csll_pct])
+    }, [enrichedItems, allocatedByKey, products, globalDiscountPercent, mrmConfig.dop_pct, mrmConfig.irpj_pct, mrmConfig.csll_pct, mrmConfig.regime, mrmConfig.loading])
 
     /**
      * OS CARDS LEEM A DECOMPOSIÇÃO — e deixam de ser a segunda fonte.
