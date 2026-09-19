@@ -32,6 +32,7 @@ import { monthObjects } from '@/constants/month'
 import { useAuth } from '@/hooks/use-auth.hook'
 import { usePermissions, MODULES, type ModuleKey } from '@/hooks/use-permissions.hook'
 import { PERMISSIONS } from '@/shared/enums/permissions'
+import { moduleVisibleForSegment } from '@/utils/segment-visibility'
 
 type Props = {
   open: boolean
@@ -48,7 +49,6 @@ type Item = {
   superAdminOnly?: boolean
   hideForRepresentative?: boolean
   hideForSuperAdmin?: boolean
-  hideForRevenda?: boolean
   module?: ModuleKey
   onClick?: () => void
 }
@@ -60,7 +60,6 @@ const MobileMoreDrawer = ({ open, onClose }: Props) => {
 
   const isAdmin = !!currentUser?.permissions?.find((p) => p === PERMISSIONS.ADMIN)
   const isRepresentative = !!currentUser?.permissions?.find((p) => p === PERMISSIONS.REPRESENTATIVE)
-  const isRevenda = currentUser?.calcType === 'RESALE'
 
   const handleSupport = () => {
     const url = `https://api.whatsapp.com/send?phone=555199114290&text=Ol%C3%A1%2C%20estou%20precisando%20de%20suporte%2C%20meu%20email%20%C3%A9%3A%20${currentUser?.email}`
@@ -82,7 +81,7 @@ const MobileMoreDrawer = ({ open, onClose }: Props) => {
     // Cadastros
     { key: 'items', label: 'Itens', href: ROUTES.ITEMS, icon: <UnorderedListOutlined />, section: 'Cadastros', module: MODULES.ITEMS },
     { key: 'products', label: 'Produtos', href: ROUTES.PRODUCTS, icon: <AppstoreOutlined />, section: 'Cadastros', module: MODULES.PRODUCTS },
-    { key: 'services', label: 'Serviços', href: ROUTES.SERVICES, icon: <ToolOutlined />, section: 'Cadastros', module: MODULES.SERVICES, hideForRevenda: true },
+    { key: 'services', label: 'Serviços', href: ROUTES.SERVICES, icon: <ToolOutlined />, section: 'Cadastros', module: MODULES.SERVICES },
     { key: 'stock', label: 'Estoque', href: ROUTES.STOCK, icon: <DatabaseOutlined />, section: 'Cadastros', module: MODULES.STOCK },
     { key: 'clients', label: 'Clientes', href: ROUTES.CLIENTS, icon: <TeamOutlined />, section: 'Cadastros', module: MODULES.CUSTOMERS },
     { key: 'employees', label: 'Funcionários', href: ROUTES.EMPLOYEES, icon: <IdcardOutlined />, section: 'Cadastros', adminOnly: true, module: MODULES.EMPLOYEES },
@@ -135,7 +134,9 @@ const MobileMoreDrawer = ({ open, onClose }: Props) => {
     if (item.superAdminOnly && !isSuperAdmin) return false
     if (item.hideForRepresentative && isRepresentative) return false
     if (item.hideForSuperAdmin && isSuperAdmin) return false
-    if (item.hideForRevenda && isRevenda) return false
+    // Segmentação: Serviços só existe em Prestação de Serviços. Mesma função da tela de
+    // Permissões de Acesso — paridade menu ↔ permissões por construção.
+    if (!moduleVisibleForSegment(item.module, currentUser?.calcType)) return false
     if (item.module && !canView(item.module)) return false
     return true
   })
