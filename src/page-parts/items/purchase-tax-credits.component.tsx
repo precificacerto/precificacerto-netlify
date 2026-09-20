@@ -91,9 +91,11 @@ interface Props {
   onRecalc: () => void
   /** O bloco não existe em Simples e MEI. */
   visivel: boolean
+  /** Rótulo da unidade de medida escolhida — "metro", "ml", "kg". Para o quarto número. */
+  unidadeLabel?: string
 }
 
-export function PurchaseTaxCredits({ bandeiras, custo, onToggle, onRecalc, visivel }: Props) {
+export function PurchaseTaxCredits({ bandeiras, custo, onToggle, onRecalc, visivel, unidadeLabel }: Props) {
   if (!visivel) return null
 
   const linha = (t: TributoCreditavel, valor: number | null | undefined, extra?: React.ReactNode) => {
@@ -103,7 +105,7 @@ export function PurchaseTaxCredits({ bandeiras, custo, onToggle, onRecalc, visiv
       <div
         key={t}
         style={{
-          display: 'grid', gridTemplateColumns: '150px 1fr 160px', gap: 12, alignItems: 'center',
+          display: 'grid', gridTemplateColumns: '140px 1fr 150px 130px', gap: 12, alignItems: 'center',
           padding: '10px 0', borderBottom: '1px solid rgba(148,163,184,0.12)',
         }}
       >
@@ -157,6 +159,19 @@ export function PurchaseTaxCredits({ bandeiras, custo, onToggle, onRecalc, visiv
             )}
           </div>
         )}
+
+        {/*
+          EFEITO NO CUSTO — a coluna que responde a pergunta que o usuário de fato tem.
+          "Gera crédito" é a causa; "sai do custo" é a consequência, e é ela que explica por
+          que o número do rodapé mudou. Sem esta coluna o usuário liga um botão e vê o total
+          mexer sem saber qual linha o moveu.
+        */}
+        <span style={{
+          fontSize: 12, textAlign: 'right',
+          color: b?.ativo ? '#22C55E' : '#94a3b8',
+        }}>
+          {b?.ativo ? 'sai do custo' : 'soma no custo'}
+        </span>
       </div>
     )
   }
@@ -196,6 +211,18 @@ export function PurchaseTaxCredits({ bandeiras, custo, onToggle, onRecalc, visiv
         />
       </Form.Item>
 
+      {/* O cabeçalho da tabela — as seis colunas do §6. */}
+      <div style={{
+        display: 'grid', gridTemplateColumns: '140px 1fr 150px 130px', gap: 12,
+        fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.4,
+        paddingBottom: 6, borderBottom: '1px solid rgba(148,163,184,0.2)', marginTop: 8,
+      }}>
+        <span>Imposto</span>
+        <span>Alíquota · regra específica · valor</span>
+        <span style={{ textAlign: 'right' }}>Crédito</span>
+        <span style={{ textAlign: 'right' }}>Efeito no custo</span>
+      </div>
+
       {/*
         AS TRÊS LINHAS APARECEM SEMPRE, inclusive no Simples Híbrido — decisão do PO de
         20/09/2026, seção 4. Antes elas SUMIAM ali, e sumir afirma que o tributo não existe
@@ -223,7 +250,7 @@ export function PurchaseTaxCredits({ bandeiras, custo, onToggle, onRecalc, visiv
         outra nota do mesmo item, de outro fornecedor, credita normalmente.
       */}
       <Form.Item
-        name="fornecedor_simples_sem_regime_regular"
+        name="supplier_simples_sem_regime_regular"
         valuePropName="checked"
         style={{ marginTop: 10, marginBottom: 0 }}
       >
@@ -273,8 +300,23 @@ export function PurchaseTaxCredits({ bandeiras, custo, onToggle, onRecalc, visiv
           <span style={{ fontWeight: 600, color: '#22C55E' }}>− {fmt(custo?.creditoTotal ?? 0)}</span>
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, paddingTop: 6, borderTop: '1px solid rgba(148,163,184,0.15)' }}>
-          <span style={{ fontWeight: 700 }}>Custo líquido</span>
+          <span style={{ fontWeight: 700 }}>Custo líquido <span style={{ fontWeight: 400, color: '#94a3b8' }}>(unidade comprada)</span></span>
           <span style={{ fontWeight: 700, color: '#22C55E' }}>{fmt(custo?.custoLiquido)}</span>
+        </div>
+
+        {/*
+          O QUARTO NÚMERO — e é ele que a receita do produto consome.
+          A compra é de uma unidade; o produto usa uma FRAÇÃO dela. Travessão quando não há
+          QTD. medida: `null` ali é "não há fração a apurar", e exibir o próprio líquido
+          afirmaria uma divisão por 1 que ninguém fez (`ausente-vs-falso.md`).
+        */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+          <span style={{ color: '#94a3b8' }}>
+            Custo líquido por {unidadeLabel || 'fração da unidade'}
+          </span>
+          <span style={{ fontWeight: 600, color: custo?.custoPorFracao == null ? '#94a3b8' : '#22C55E' }}>
+            {fmt(custo?.custoPorFracao)}
+          </span>
         </div>
       </div>
     </div>

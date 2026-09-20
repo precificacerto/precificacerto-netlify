@@ -151,7 +151,7 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
           cstIcms: values.cst_icms ?? null,
           cstIpi: values.cst_ipi ?? null,
           cstPisCofins: values.cst_pis_cofins ?? null,
-          fornecedorSimplesSemRegimeRegular: values.fornecedor_simples_sem_regime_regular ?? null,
+          fornecedorSimplesSemRegimeRegular: values.supplier_simples_sem_regime_regular ?? null,
         },
         // `?? null` e NÃO `Boolean(...)`: ausente cai no padrão da destinação, desligado é
         // escolha do usuário. Achatar os dois aqui apagaria a distinção logo depois de a
@@ -177,6 +177,9 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
           cbsPct: Number(values.cbs_rate) || 0,
           ibsPct: Number(values.ibs_rate) || 0,
           icmsSt: Number(values.icms_st_value) || 0,
+          // QTD. medida — em quantas frações a unidade comprada se divide. É o que dá o
+          // custo POR FRAÇÃO, que é o número que a receita do produto consome.
+          qtdMedida: Number(values.measure_quantity) || null,
           difalOrigemPct: Number(values.difal_origem_pct) || 0,
           difalDestinoPct: Number(values.difal_destino_pct) || 0,
         },
@@ -908,6 +911,7 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
             bandeiras={bandeiras}
             custo={custoDoItem}
             visivel={isLucroRealOrLP}
+            unidadeLabel={baseUnitLabel}
             onToggle={handleToggleCredito}
             onRecalc={recalcNetCost}
           />
