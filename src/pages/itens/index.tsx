@@ -1,9 +1,14 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react'
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { Button, Space, Table, Input, Drawer, message, Form, Spin, Tag, Radio, InputNumber, Modal, Dropdown } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { Layout } from '@/components/layout/layout.component'
 import { useDevice } from '@/contexts/device.context'
 import { NewItemForm } from '@/page-parts/items/new-item-form.component'
+import CreditImpactModal from '@/page-parts/items/credit-impact-modal.component'
+import {
+  calcularImpactoDoCredito, houveMudancaDeCredito,
+  type ImpactoDoItem, type UsoDoItem,
+} from '@/utils/impacto-do-credito'
 import { RenewQuantityForm, type ItemOption } from '@/page-parts/items/renew-quantity-form.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
 import { UNIT_TYPE } from '@/constants/item-unit-types'
@@ -875,12 +880,82 @@ function Items() {
     setSearchText(value)
   }
 
+  /** O aviso de impacto: quem usa este item e o que o preço deles seria com o custo novo. */
+  const [impactoAberto, setImpactoAberto] = useState(false)
+  const [impactoCarregando, setImpactoCarregando] = useState(false)
+  const [impactos, setImpactos] = useState<ImpactoDoItem[]>([])
+  const [impactoCtx, setImpactoCtx] = useState<{ nome: string; antes: number; depois: number }>({ nome: '', antes: 0, depois: 0 })
+
+  /**
+   * Levanta quem usa o item e calcula o preço que a construção daria com o custo novo.
+   *
+   * SÓ LÊ. A escrita desta tela termina no item — `fato-vs-referencia.md`.
+   */
+  const levantarImpacto = useCallback(async (itemId: string, nome: string, antes: number, depois: number) => {
+    setImpactoCtx({ nome, antes, depois })
+    setImpactos([])
+    setImpactoCarregando(true)
+    setImpactoAberto(true)
+    try {
+      /*
+       * O CAST É POR TIPO DEFASADO, e não por preguiça — a razão fica escrita porque
+       * `razao-longe-da-restricao.md` diz que restrição sem razão citada vira palpite.
+       *
+       * `src/supabase/database.types.ts` está atrás do schema real: ele nega
+       * `product_items.cost_per_base_unit`, que EXISTE no banco (conferido em 20/09/2026).
+       * É daí que vêm os 8 `TS2769` que este arquivo já carregava antes desta mudança.
+       * Regenerar os tipos é rodada própria — está como pendência no PR.
+       */
+      const sb = supabase as unknown as {
+        from: (t: string) => { select: (q: string) => { eq: (c: string, v: string) => Promise<{ data: unknown[] | null }> } }
+      }
+      const [prod, svc] = await Promise.all([
+        sb.from('product_items')
+          .select('quantity_needed, products(id, name, cost_total, sale_price)')
+          .eq('item_id', itemId),
+        // `service_items` usa `quantity` (não `quantity_needed`) e `services` guarda o preço
+        // em `sale_price_after_taxes` (não `sale_price`) — os dois foram conferidos no schema
+        // depois de o `tsc` recusar a consulta anterior. Ele estava certo: a consulta é que
+        // estava errada, e teria voltado vazia em silêncio.
+        sb.from('service_items')
+          .select('quantity, services(id, name, cost_total, sale_price_after_taxes)')
+          .eq('item_id', itemId),
+      ])
+      const usos: UsoDoItem[] = [
+        ...((prod.data ?? []) as any[]).filter((r) => r.products).map((r) => ({
+          id: String(r.products.id), nome: String(r.products.name ?? ''), tipo: 'PRODUTO' as const,
+          quantidade: Number(r.quantity_needed) || 0,
+          custoTotalAtual: Number(r.products.cost_total) || 0,
+          precoAtual: Number(r.products.sale_price) || 0,
+        })),
+        ...((svc.data ?? []) as any[]).filter((r) => r.services).map((r) => ({
+          id: String(r.services.id), nome: String(r.services.name ?? ''), tipo: 'SERVICO' as const,
+          quantidade: Number(r.quantity) || 0,
+          custoTotalAtual: Number(r.services.cost_total) || 0,
+          precoAtual: Number(r.services.sale_price_after_taxes) || 0,
+        })),
+      ]
+      setImpactos(calcularImpactoDoCredito({ custoLiquidoAntes: antes, custoLiquidoDepois: depois, usos }))
+    } catch {
+      setImpactos([])
+    } finally {
+      setImpactoCarregando(false)
+    }
+  }, [])
+
   const handleSaveItem = async () => {
     try {
       await form.validateFields()
       setSaving(true)
 
       const values = form.getFieldsValue()
+      // O estado ANTES da gravação, para saber se alguma bandeira de crédito mudou. Lido do
+      // banco, e não da memória: `estado-relatado-vs-real.md`.
+      const { data: antesRow } = values.id
+        ? await supabase.from('items')
+          .select('cost_net, icms_credit_enabled, pis_cofins_credit_enabled, ipi_credit_enabled, cbs_credit_enabled, ibs_credit_enabled')
+          .eq('id', values.id).maybeSingle()
+        : { data: null }
       const tenantId = contextTenantId ?? currentUser?.tenant_id
       if (!tenantId) {
         messageApi.error('Não foi possível identificar o tenant.')
@@ -925,8 +1000,30 @@ function Items() {
         measure_quantity: Number(values.measure_quantity) || 1,
         unit: values.unitType,
         cost_price: totalCost,
-        cost_gross: priceNumber,
+        // O BRUTO CALCULADO, e não mais o preço unitário.
+        //
+        // `cost_gross` já existia e valia `priceNumber` — o que É o bruto enquanto não há
+        // IPI, ICMS-ST nem DIFAL na compra. Quem o consome (`services/content.component.tsx`)
+        // já o trata como "BRUTO de referência", então a mudança ALINHA a coluna com o que o
+        // leitor dela sempre acreditou. Medido em 20/09/2026: ZERO dos 72 itens tem IPI, ST
+        // ou DIFAL, logo o número gravado é BIT-IDÊNTICO ao de antes em toda a base.
+        cost_gross: values.cost_gross != null ? Number(values.cost_gross) : priceNumber,
         cost_net: costNet,
+        // ── Crédito por tributo (comando do PO, 20/09/2026) ──
+        // `?? null` e NÃO `Boolean(...)`: null = "o usuário nunca decidiu" e cai no padrão da
+        // destinação na próxima leitura. Achatar aqui apagaria a distinção que a coluna
+        // nullable existe para preservar (`ausente-vs-falso.md`).
+        destination: values.destination ?? null,
+        icms_credit_enabled: values.icms_credit_enabled ?? null,
+        pis_cofins_credit_enabled: values.pis_cofins_credit_enabled ?? null,
+        ipi_credit_enabled: values.ipi_credit_enabled ?? null,
+        cbs_credit_enabled: values.cbs_credit_enabled ?? null,
+        ibs_credit_enabled: values.ibs_credit_enabled ?? null,
+        cbs_rate: Number(values.cbs_rate) || 0,
+        ibs_rate: Number(values.ibs_rate) || 0,
+        cst_icms: values.cst_icms || null,
+        cst_ipi: values.cst_ipi || null,
+        cst_pis_cofins: values.cst_pis_cofins || null,
         cost_per_base_unit: costPerBaseUnit,
         icms_rate: hasItemTaxes ? (Number(values.icms_rate) || 0) : 0,
         // Lucro Real: campo único pis_cofins_rate dividido proporcionalmente (1,65/9,25 e 7,6/9,25).
@@ -977,6 +1074,22 @@ function Items() {
           .single()
         if (error) throw error
         savedItem = created
+      }
+
+      /*
+       * O AVISO DE IMPACTO — depois de gravar o ITEM, e só ele.
+       *
+       * `houveMudancaDeCredito` compara sem achatar: sair de `null` para `true` É mudança,
+       * porque o padrão virou decisão. A lista que sobe é INFORMAÇÃO — nenhum produto é
+       * tocado aqui, e o modal diz isso com todas as letras.
+       */
+      if (antesRow && houveMudancaDeCredito(antesRow as never, itemData as never)) {
+        void levantarImpacto(
+          String(savedItem.id),
+          String(values.name ?? ''),
+          Number((antesRow as { cost_net?: number }).cost_net) || 0,
+          Number(costNet) || 0,
+        )
       }
 
       // ── Criar/atualizar estoque automaticamente ──
@@ -1214,6 +1327,16 @@ function Items() {
   return (
     <Layout title={PAGE_TITLES.ITEMS}>
       {contextHolder}
+
+      <CreditImpactModal
+        aberto={impactoAberto}
+        onClose={() => setImpactoAberto(false)}
+        nomeDoItem={impactoCtx.nome}
+        custoAntes={impactoCtx.antes}
+        custoDepois={impactoCtx.depois}
+        impactos={impactos}
+        carregando={impactoCarregando}
+      />
 
       <div className="pc-card--table">
         {/* Botão VERDE "Adicionar item" no topo, acima do campo de busca (desktop e mobile). */}
