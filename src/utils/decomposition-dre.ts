@@ -152,6 +152,19 @@ export interface DecompositionInput {
    * a linha do DAS aparece no lugar delas. Fora da guia única, a linha do DAS não existe.
    */
   guiaUnica?: boolean
+  /**
+   * SIMPLES NACIONAL HÍBRIDO — guia única **com** operação externa (LC 214/2025 art. 41 §3º
+   * e LC 123 art. 13 §10): o optante apura IBS e CBS pelo regime regular, e o IS sai do DAS
+   * por força do art. 13 §1º XIV-A. O DAS segue por dentro, reduzido.
+   *
+   * São DOIS EIXOS, e é por isso que são dois campos: "tem DAS" e "tem por fora" não são a
+   * mesma pergunta. Um booleano só obrigaria a decomposição a inferir o formato a partir do
+   * regime, que é o que `regime-e-segmento-determinam-a-construcao.md` proíbe.
+   *
+   * O **IPI continua no DAS** mesmo aqui (Anexo II): a linha `por_fora_ipi` some nos dois
+   * casos. Não há IPI destacado nem ICMS complementar no Simples.
+   */
+  operacaoExternaAtiva?: boolean
 }
 
 /** Uma linha do DRE. `perItem` é paralelo a `input.items`. */
@@ -528,10 +541,35 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
   // por isso que os dois caminhos coincidem ali — e por isso um teste sem desconto NÃO
   // DISTINGUE congelar de recalcular (`.claude/rules/teste-que-nao-exercita.md`, variante 2).
   // ───────────────────────────────────────────────────────────────────────────────────────
+  /**
+   * A BASE DAS CATEGORIAS DA OPERAÇÃO INTERNA — e ela depende de como a construção cadastrou
+   * o percentual, não de gosto.
+   *
+   * No Lucro Real a R5 manda cadastrar tudo como **% Original sobre o total geral** e
+   * converter por `% Efetivada = % Original ÷ (1 − c)` para formar o preço. Logo, aplicar o
+   * % Original sobre o TOTAL devolve o mesmo R$ que a construção gastou — é a R17.
+   *
+   * Na GUIA ÚNICA a construção NÃO faz esse gross-up: `Σ = despesas + DAS + RT + comissão +
+   * lucro` entra direto em `P = Custo ÷ (1 − Σ)`, então os percentuais são **sobre P**. Com
+   * o Simples unificado e o MEI a distinção some, porque ali `c = 0` e `P = Total`. Com o
+   * HÍBRIDO ela aparece pela primeira vez, e vale R$ 7,05 num item de R$ 216,65 (despesa de
+   * 20%: 36,28 sobre P contra 43,33 sobre o total).
+   *
+   * Por isso o fator é `(1 − c)` na guia única e `1` fora dela — e é o que mantém o Simples
+   * e o MEI bit-exact, porque lá ele vale 1 de qualquer jeito.
+   *
+   * Exibir o percentual cadastrado sobre a base errada seria o inverso do que a R17 pede:
+   * um % que o usuário digitou, multiplicado por uma base que a construção não usou.
+   */
+  const baseInternaFator = items.map((i) =>
+    input.guiaUnica ? 1 - (i.taxes.externalOpsCoefficient || 0) : 1)
+
   const custoPorItem = items.map((i) => -i.custo)
-  const despesasPorItem = items.map((i, k) => -i.totalProduto * catDe(k).despesasOperacionaisPct)
+  const despesasPorItem = items.map(
+    (i, k) => -i.totalProduto * baseInternaFator[k] * catDe(k).despesasOperacionaisPct)
   // A RT recalcula: é comissão sobre o que foi faturado. Ver o parágrafo acima.
-  const rtPorItem = receitaProdutosPorItem.map((r, k) => -r * catDe(k).rtPct)
+  const baseRtPorItem = receitaProdutosPorItem.map((r, k) => r * baseInternaFator[k])
+  const rtPorItem = baseRtPorItem.map((b, k) => -b * catDe(k).rtPct)
   const rroPorItem = items.map(
     (_, k) => receitaLiquidaPorItem[k] + custoPorItem[k] + despesasPorItem[k] + rtPorItem[k],
   )
@@ -743,10 +781,13 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
     // produziria é o errado. O rótulo diz por quê, na própria tela.
     linha('despesas', '(−) Despesas operacionais — congelado', despesasPorItem),
     linha('rt', '(−) Comissão RT', rtPorItem, {
-      base: rp,
-      pct: pctDe(soma(rtPorItem), rp),
+      // A base é a MESMA sobre a qual o percentual foi aplicado — na guia única, P; fora
+      // dela, a receita de produtos. Exibir `rp` nos dois casos faria a célula mostrar uma
+      // alíquota derivada no lugar da cadastrada.
+      base: soma(baseRtPorItem),
+      pct: pctDe(soma(rtPorItem), soma(baseRtPorItem)),
       derived: heterogeneo(items.map((_, k) => catDe(k).rtPct)),
-      basePerItem: receitaProdutosPorItem,
+      basePerItem: baseRtPorItem,
       pctPerItem: items.map((_, k) => catDe(k).rtPct),
     }),
     linha('rro', '► RRO — RESULTADO RESIDUAL OPERACIONAL', rroPorItem, { subtotal: true }),
@@ -790,16 +831,32 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
     linha('residual', '► RESIDUAL (deve ser zero)', residualPorItem, { subtotal: true }),
   ]
 
-  // O REGIME DECIDE QUAIS LINHAS EXISTEM — a regra de construção, lida. Na guia única somem
-  // os tributos que o DAS absorve e os por fora que não existem; fora dela, some o DAS.
-  // IRPJ e CSLL também somem (decisão do PO, 19/09/2026): no Simples/MEI já estão no DAS, e
-  // o RRO se reparte só entre comissão e lucro — como na planilha "Cascata SIMPLES e MEI".
-  const SOMEM_NA_GUIA_UNICA = new Set([
-    'por_fora', 'por_fora_ibs', 'por_fora_cbs', 'por_fora_is', 'por_fora_ipi', 'icms', 'iss', 'pis_cofins',
-    'irpj', 'csll',
-  ])
-  const rows = todasAsLinhas.filter((r) =>
-    input.guiaUnica ? !SOMEM_NA_GUIA_UNICA.has(r.key) : r.key !== 'das')
+  /**
+   * O REGIME DECIDE QUAIS LINHAS EXISTEM — a regra de construção, LIDA. São dois eixos, e
+   * cada um apaga o seu conjunto:
+   *
+   * | formato                  | DAS | ICMS·ISS·PIS/COFINS | IRPJ·CSLL | IBS·CBS·IS | IPI |
+   * |--------------------------|-----|---------------------|-----------|------------|-----|
+   * | Lucro Real / Presumido   |  —  |         sim         |    sim    |    sim     | sim |
+   * | Simples unificado · MEI  | sim |          —          |     —     |     —      |  —  |
+   * | Simples HÍBRIDO          | sim |          —          |     —     |    sim     |  —  |
+   *
+   * A linha AUSENTE não é a linha zerada: `INEXISTENTE não é zero`. Exibir ICMS de R$ 0,00
+   * num documento do Simples afirmaria que o tributo existe ali e deu nada.
+   *
+   * O IPI some nos dois formatos de guia única, e é o único por fora que o híbrido NÃO
+   * ganha: no Simples ele está dentro do DAS do Anexo II (regra 6 do comando).
+   */
+  const SOMEM_NA_GUIA_UNICA = new Set(['icms', 'iss', 'pis_cofins', 'irpj', 'csll'])
+  const POR_FORA = new Set(['por_fora', 'por_fora_ibs', 'por_fora_cbs', 'por_fora_is', 'por_fora_ipi'])
+  const rows = todasAsLinhas.filter((r) => {
+    if (!input.guiaUnica) return r.key !== 'das'
+    if (SOMEM_NA_GUIA_UNICA.has(r.key)) return false
+    if (!POR_FORA.has(r.key)) return true
+    // O agregado `por_fora` é o fallback do trace legado — no híbrido as linhas por tributo
+    // existem, então ele nunca aparece. E o IPI segue no DAS.
+    return !!input.operacaoExternaAtiva && r.key !== 'por_fora_ipi' && r.key !== 'por_fora'
+  })
 
   // Seção 6.2 — LUCRO DA VENDA. O apurado é sobre a receita APÓS desconto, e o cadastrado é
   // o `% Lucro` que entrou na construção. Exibir só o primeiro esconde exatamente o que a
@@ -827,9 +884,15 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
   // O total geral de cada item é a receita de produtos DELE — é sobre ela que os % originais
   // incidem (R17). Com desconto, o reservado encolhe junto, porque a base encolheu: é o que
   // faz a corrosão aparecer no LUCRO DA VENDA em vez de virar divergência aqui.
+  //
+  // A BASE é a mesma de `despesas` e `rt`, e pelo mesmo motivo: na guia única os percentuais
+  // são sobre P, não sobre o total geral (ver `baseInternaFator`). Usar a receita de produtos
+  // ali faria o invariante acusar divergência em TODO documento do híbrido — e a divergência
+  // seria do invariante, não da conta.
   const rroEsperado = items.reduce((acc, _it, k) => {
     const c = catDe(k)
-    return acc + receitaProdutosPorItem[k] * (c.comissaoPct + c.lucroPct + c.irpjPct + c.csllPct)
+    return acc + receitaProdutosPorItem[k] * baseInternaFator[k]
+      * (c.comissaoPct + c.lucroPct + c.irpjPct + c.csllPct)
   }, 0)
   const rroApurado = soma(rroPorItem)
   const rroDivergencia = rroApurado - rroEsperado

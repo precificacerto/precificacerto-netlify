@@ -89,7 +89,19 @@ export const TAXES_OUTSIDE: readonly TaxType[] = [
   'ISS_RETIDO',
 ] as const
 
-export type TaxRegime = 'MEI' | 'SIMPLES_NACIONAL' | 'LUCRO_PRESUMIDO' | 'LUCRO_REAL'
+/**
+ * O regime, como o MOTOR o enxerga.
+ *
+ * `SIMPLES_HIBRIDO` entrou em 19/09/2026 e é regime PRÓPRIO, não um apelido: ele é guia
+ * única (DAS reduzido por dentro, IRPJ/CSLL dentro dele) COM operação externa (IBS, CBS e
+ * IS por fora, LC 214/2025 art. 41 §3º). Mapeá-lo para `LUCRO_PRESUMIDO`, como se fazia,
+ * afirmava um formato que a LC 214 não dá ao optante do Simples — ICMS, ISS e PIS/COFINS
+ * discriminados, IRPJ e CSLL sobre o lucro.
+ *
+ * `LUCRO_PRESUMIDO_RET` continua mapeado para `LUCRO_PRESUMIDO`, e isso NÃO é a mesma
+ * omissão: ali o formato é o mesmo, muda a alíquota. Aqui muda o formato.
+ */
+export type TaxRegime = 'MEI' | 'SIMPLES_NACIONAL' | 'SIMPLES_HIBRIDO' | 'LUCRO_PRESUMIDO' | 'LUCRO_REAL'
 
 export type ReapurationStatus =
   | 'PENDING'

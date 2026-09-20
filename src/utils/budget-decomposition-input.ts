@@ -23,6 +23,7 @@ import {
   type DecompositionItem,
 } from './decomposition-dre'
 import { resolveItemFicha } from './budget-accessories'
+import { resolveFichaHibrida } from './simples-hibrido'
 import { pisCofinsNominalFromEffective } from './sale-context'
 import {
   resolveDespesasOperacionaisPct,
@@ -49,6 +50,14 @@ export interface BudgetItemRates {
   cbs_pct?: number | null
   /** DAS (Simples/MEI), em PERCENTUAL — `custom_tax_percent` / `taxable_regime_percent`. Ver `item-tax-rates.ts`. */
   das_pct?: number | null
+  /**
+   * Dedução da base de IBS/CBS no Simples Híbrido, em PERCENTUAL (LC 214 art. 12 §2º V).
+   *
+   * É POR ITEM pelo mesmo motivo que `das_pct` é: um tenant com mais de uma atividade tem
+   * anexos diferentes, e a dedução sai do anexo. Ausente, cai no parâmetro do documento —
+   * que é o caso do tenant de atividade única.
+   */
+  deducao_base_pct?: number | null
 }
 
 export interface BudgetDecompositionItem {
@@ -136,8 +145,24 @@ export interface BudgetDecompositionParams {
    * em SIMPLES_NACIONAL e MEI o DAS substitui ICMS + ISS + PIS/COFINS, não há tributo por
    * fora, e IRPJ/CSLL entram com peso zero (R2, R5 e R7 do Motor 2). Ausente = regime
    * discriminado (Lucro Real/Presumido), que é o comportamento de antes, bit-exact.
+   *
+   * `SIMPLES_HIBRIDO` é guia única **com operação externa**: DAS reduzido por dentro, IBS,
+   * CBS e IS por fora (LC 214 art. 41 §3º). Ver `simples-hibrido.ts`.
    */
   regime?: string | null
+  /**
+   * Dedução da base de IBS/CBS no híbrido, em FRAÇÃO — `deducaoBaseIbsCbsPct()` de
+   * `simples-anexos.ts`, com o anexo, o RBT12 e o ano do tenant. Só é lida quando
+   * `regime === 'SIMPLES_HIBRIDO'`; nos demais regimes é ignorada.
+   *
+   * LIMITE CONHECIDO, e ele é de schema: este número é REFERÊNCIA VIVA, não fato congelado.
+   * `das_pct` do item vem do cadastro e sobrevive à mudança de faixa; a dedução não tem
+   * coluna onde ser gravada, então um documento antigo reaberto a recalcula pelo RBT12 de
+   * hoje. É `fato-vs-referencia.md` à espera da sétima aparição, e a correção é uma coluna
+   * ao lado de `custom_tax_percent`, congelada na gravação. Registrado como pendência em vez
+   * de resolvido por invenção de campo.
+   */
+  deducaoBaseIbsCbsPct?: number | null
   /**
    * @deprecated As alíquotas legais saem de `rate-scale.ts`, não do tenant. Os campos
    * permanecem aceitos para não quebrar os chamadores, e são IGNORADOS — ver o comentário em
@@ -179,11 +204,20 @@ export function buildBudgetDecompositionInput(
     0,
   )
 
-  // GUIA ÚNICA — Simples Nacional e MEI. O regime é LIDO do parâmetro; a presença de
-  // `das_pct` no item não decide nada (a mesma coluna serve a RET e Híbrido).
+  // GUIA ÚNICA — Simples Nacional, MEI e o HÍBRIDO. O regime é LIDO do parâmetro; a presença
+  // de `das_pct` no item não decide nada (a mesma coluna serve a RET e ao Híbrido).
+  //
+  // O HÍBRIDO é guia única COM OPERAÇÃO EXTERNA (LC 214 art. 41 §3º): o DAS continua
+  // ocupando o lugar de ICMS/ISS/PIS-COFINS e absorvendo IRPJ/CSLL, e IBS, CBS e IS são
+  // apurados por fora. São dois eixos independentes, e por isso são duas variáveis: tratar
+  // "guia única" e "sem por fora" como a mesma coisa é o que impediria o híbrido de existir.
   const regimeNorm = String(params.regime ?? '').trim().toUpperCase()
-  const guiaUnica = regimeNorm === 'SIMPLES_NACIONAL' || regimeNorm === 'MEI'
+  const hibrido = regimeNorm === 'SIMPLES_HIBRIDO'
+  const guiaUnica = regimeNorm === 'SIMPLES_NACIONAL' || regimeNorm === 'MEI' || hibrido
+  // MEI NUNCA é híbrido (regra 10 do comando): o DAS dele é fixo mensal e não há apuração
+  // por fora a optar.
   const isMei = regimeNorm === 'MEI'
+  const deducaoBaseHibrido = hibrido ? num(params.deducaoBaseIbsCbsPct) : 0
 
   const items: DecompositionItem[] = produtos.map((item) => {
     const r = item.rates ?? null
@@ -201,6 +235,8 @@ export function buildBudgetDecompositionInput(
     )
     // DAS do PRÓPRIO item (percentual no cadastro → fração). MEI: zero, sempre — o DAS do
     // MEI é fixo mensal e não incide por venda (D17); a linha existe com R$ 0,00.
+    // No híbrido o campo é o mesmo (`custom_tax_percent`/`taxable_regime_percent`); o que
+    // mudou foi o número que a construção gravou lá: o DAS REDUZIDO.
     const dasPct = guiaUnica && !isMei ? pctToFraction(r?.das_pct) : 0
 
     // O SEGMENTO É LIDO, não inferido. A versão anterior desta linha tinha dois
@@ -233,6 +269,31 @@ export function buildBudgetDecompositionInput(
         cbsPct: pctToFraction(r?.cbs_pct),
       },
     })
+
+    /**
+     * A ficha POR FORA do híbrido — IBS, CBS e IS sobre a base do art. 12, já deduzida.
+     *
+     * Ela NÃO sai de `resolveItemFicha`, e a razão é de conta: aquela função apura a base
+     * econômica como `P − ICMS − ISS − PIS/COFINS`, e no híbrido os três são ZERO — a base
+     * sairia igual a `P`, sem a dedução da parcela desses tributos contida no DAS. O número
+     * seria plausível e maior que o devido.
+     *
+     * É a MESMA função que a construção usa (`simples-hibrido.ts`), e é isso que impede a
+     * decomposição de inferir o formato em vez de lê-lo.
+     */
+    const fichaHibrida = hibrido
+      ? resolveFichaHibrida({
+        // A do ITEM vence a do documento — ela é o fato congelado; a do documento é o
+        // fallback do tenant de atividade única.
+        deducaoBasePct: r?.deducao_base_pct != null
+          ? pctToFraction(r.deducao_base_pct)
+          : deducaoBaseHibrido,
+        isPct: pctToFraction(r?.is_pct),
+        ibsPct: pctToFraction(r?.ibs_pct),
+        cbsPct: pctToFraction(r?.cbs_pct),
+        segmento,
+      })
+      : null
 
     const lucroPct = pctToFraction(item.profitPct)
     const categories: DecompositionCategories = {
@@ -271,14 +332,25 @@ export function buildBudgetDecompositionInput(
         issPct: iss,
         pisCofinsPct: pisCofinsNominal,
         // O `c` da construção DAQUELE item, lido da ficha — nunca um `c` global.
-        // Na guia única não há tributo por fora (R7): IBS, CBS, IS e IPI estão no DAS.
-        externalOpsCoefficient: guiaUnica ? 0 : (ficha.ficha?.externalOpsCoefficient ?? 0),
+        // Na guia única SEM híbrido não há tributo por fora (R7): IBS, CBS, IS e IPI estão
+        // todos no DAS. No híbrido os três primeiros saem, e o IPI fica (regra 6).
+        externalOpsCoefficient: fichaHibrida
+          ? fichaHibrida.externalOpsCoefficient
+          : guiaUnica ? 0 : (ficha.ficha?.externalOpsCoefficient ?? 0),
         // E aberto por tributo, para a R19 ter uma linha para cada um.
-        externalByTax: guiaUnica ? undefined : ficha.ficha?.externalByTax,
+        externalByTax: fichaHibrida
+          ? fichaHibrida.externalByTax
+          : guiaUnica ? undefined : ficha.ficha?.externalByTax,
         // A base do código 4, a efetiva, a nominal e o redutor — os quatro que a NT
         // 2025.002 pede e que a construção já calculava. Ver `DecompositionItemTaxes`.
-        externalBaseByTax: guiaUnica ? undefined : ficha.ficha?.externalBaseByTax,
-        externalRateByTax: guiaUnica ? undefined : ficha.ficha?.externalRateByTax,
+        externalBaseByTax: fichaHibrida
+          ? fichaHibrida.externalBaseByTax
+          : guiaUnica ? undefined : ficha.ficha?.externalBaseByTax,
+        externalRateByTax: fichaHibrida
+          ? fichaHibrida.externalRateByTax
+          : guiaUnica ? undefined : ficha.ficha?.externalRateByTax,
+        // No híbrido não há redutor de IVA Dual a declarar: a alíquota exibida É a nominal,
+        // e omitir os dois é dizer "não apurado" em vez de afirmar um redutor de zero.
         externalNominalByTax: guiaUnica ? undefined : ficha.ficha?.externalNominalByTax,
         externalReductionByTax: guiaUnica ? undefined : ficha.ficha?.externalReductionByTax,
         ...(guiaUnica ? { dasPct } : {}),
@@ -304,6 +376,7 @@ export function buildBudgetDecompositionInput(
       discountPct: num(params.discountPct),
       itensManuaisComAcrescimos,
       ...(guiaUnica ? { guiaUnica: true } : {}),
+      ...(hibrido ? { operacaoExternaAtiva: true } : {}),
     },
     itemLabels: items.map((i) => i.label),
     isEmpty: items.length === 0,

@@ -250,6 +250,12 @@ export const ProductPrice: FC<Props> = ({
       ipi: toBaseCode(ipiBaseCode),
     },
     despAcessorias: terceirizadasTotal,
+    // SIMPLES HÍBRIDO — o DAS reduzido e a dedução da base, do anexo/faixa do tenant.
+    // Lidos só pelo ramo do híbrido; nos demais regimes a função os ignora.
+    // `taxPctDisplay` é o MESMO número que a linha "Impostos" exibe: exibição e formação
+    // saem de um ponto só, que é o que `product-price-rows.ts` existe para garantir.
+    dasHibridoPct: taxPctDisplay / 100,
+    deducaoBaseIbsCbsPct: calcBase.deducaoBaseIbsCbsPct,
   })
 
   // ─── R5 · R8 · Parte 5 teste 2 — as LINHAS, com a % EFETIVA ao lado da ORIGINAL ───

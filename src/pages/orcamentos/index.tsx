@@ -1344,6 +1344,10 @@ function Budgets() {
             tenantCalcType: mrmConfig.calc_type,
             // Guia única (Simples/MEI) é LIDA do regime. Enquanto carrega: null = comportamento de antes.
             regime: mrmConfig.loading ? null : mrmConfig.regime,
+            // Simples Híbrido: a dedução da base de IBS/CBS, do anexo e da faixa do tenant.
+            // Ausente fora do híbrido, e é o que a decomposição usa como fallback quando o
+            // item não carrega a sua. Ver `budget-decomposition-input.ts`.
+            deducaoBaseIbsCbsPct: mrmConfig.components?.deducaoBaseIbsCbsPct,
             irpjAliquota: Number(mrmConfig.irpj_pct) || 0,
             csllAliquota: Number(mrmConfig.csll_pct) || 0,
         })

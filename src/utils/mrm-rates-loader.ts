@@ -125,10 +125,15 @@ export function invalidateRatesCache(): void {
  *
  * SN e MEI usam regime cumulativo absorvido pelo DAS — sem invariante a verificar.
  *
+ * SIMPLES_HÍBRIDO entra na MESMA exclusão, e por um motivo mais forte: até 2026 PIS e
+ * COFINS estão dentro do DAS, e a partir de 2027 eles SAEM do sistema tributário — o
+ * optante passa a apurar CBS. Não há alíquota canônica a conferir em momento nenhum, e
+ * inventar uma aqui afirmaria um tributo que o regime não tem.
+ *
  * Story MRM-V5-002 AC4 + ADR-008.
  */
 const PIS_COFINS_EXPECTED: Record<
-  Exclude<TaxRegime, 'MEI' | 'SIMPLES_NACIONAL'>,
+  Exclude<TaxRegime, 'MEI' | 'SIMPLES_NACIONAL' | 'SIMPLES_HIBRIDO'>,
   Record<PisCofinsPerspective, number>
 > = {
   LUCRO_REAL: {
@@ -162,8 +167,10 @@ export function validatePisCofinsInvariant(
   perspective: PisCofinsPerspective,
   regime: TaxRegime,
 ): void {
-  // SN/MEI: regime cumulativo absorvido pelo DAS — sem invariante
-  if (regime === 'SIMPLES_NACIONAL' || regime === 'MEI') {
+  // SN/MEI: regime cumulativo absorvido pelo DAS — sem invariante.
+  // SIMPLES_HÍBRIDO pelo mesmo motivo e mais: a partir de 2027 o optante não tem PIS e
+  // COFINS, tem CBS. Ver `PIS_COFINS_EXPECTED`.
+  if (regime === 'SIMPLES_NACIONAL' || regime === 'MEI' || regime === 'SIMPLES_HIBRIDO') {
     return
   }
 

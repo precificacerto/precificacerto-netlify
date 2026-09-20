@@ -1,5 +1,6 @@
 import { supabase } from '@/supabase/client'
 import { formatPercentWithDigits } from '@/utils/formatters'
+import { resolveDasHibridoDoTenant } from '@/utils/simples-hibrido'
 
 /**
  * Os tributos POR DENTRO, DISCRIMINADOS (Parte 0 + R5).
@@ -37,6 +38,14 @@ export interface TaxPreviewResult {
   /** Human-readable label: "Simples Nacional (Anexo III)", "Lucro Presumido", etc. */
   taxLabel: string
   isMei: boolean
+  /**
+   * SIMPLES HÍBRIDO — a dedução da base de IBS/CBS (LC 214 art. 12 §2º V), em DECIMAL.
+   *
+   * `undefined` nos demais regimes, e a ausência é a afirmação certa: fora do híbrido não
+   * há dedução a fazer, e um zero diria que há e vale nada (`ausente-vs-falso.md`).
+   * Viaja junto do `effectiveTaxPct` porque os dois saem da MESMA faixa do MESMO anexo.
+   */
+  deducaoBaseIbsCbsPct?: number
 
   // Legacy fields kept for backward compat during migration (PR 3).
   /** @deprecated Use effectiveTaxPct instead */
@@ -131,46 +140,21 @@ export async function fetchTaxPreview(tenantId: string): Promise<TaxPreviewResul
     return buildResult(0, 0, 'Simples Nacional', false)
   }
 
+  // SIMPLES HÍBRIDO — LC 214/2025 art. 41 §3º + LC 123 art. 13 §10.
+  //
+  // ATÉ 19/09/2026 ESTE BLOCO ESPELHAVA O LUCRO REAL (ICMS por dentro, PIS/COFINS de
+  // 9,25%, ISS, IRPJ 15% e CSLL 9% sobre o lucro projetado). Era o formato errado: o
+  // optante do Simples que apura IBS e CBS pelo regime regular segue com TUDO O MAIS no
+  // DAS, reduzido das parcelas substituídas.
+  //
+  // O `effectiveTaxPct` é SÓ o DAS. IBS, CBS e IS são por fora e entram depois, sobre a
+  // base do art. 12 — somá-los aqui os embutiria no divisor da formação do preço.
+  // Ver `simples-hibrido.ts`.
   if (regime === 'SIMPLES_HIBRIDO') {
-    // Simples Híbrido espelha LUCRO_REAL: PIS/COFINS não-cumulativo (9,25%),
-    // ICMS por dentro, IRPJ 15% + CSLL 9% sobre lucro projetado.
-    // 1. ICMS venda (decimal 0-1)
-    let shIcms = 0
-    if (calcType === 'SERVICO') {
-      shIcms = 0
-    } else if (ts.icms_contribuinte) {
-      shIcms = icmsRateDecimal
-    }
-
-    // 2. PIS/COFINS não-cumulativo (9,25%) — ajuste de base pelo ICMS por dentro
-    const pisCofinsNominal = 0.0925
-    const shPisCofins = calcType === 'SERVICO'
-      ? pisCofinsNominal
-      : shIcms > 0
-        ? pisCofinsNominal * (1 - shIcms)
-        : pisCofinsNominal
-
-    // 3. ISS (só para SERVICO)
-    const shIss = calcType === 'SERVICO'
-      ? (Number(ts.iss_municipality_rate) || 0.05)
-      : 0
-
-    // 4. IRPJ e CSLL sobre lucro PROJETADO (margem configurada pelo tenant)
-    const profitPctRaw = Number(expenseRes?.data?.profit_margin_percent) || 0.12
-    const profitPct = profitPctRaw > 0 && profitPctRaw < 1 ? profitPctRaw : profitPctRaw / 100
-    const shIrpj = profitPct * 0.15
-    const shCsll = profitPct * 0.09
-
-    const effectiveTaxPct = round4(shIcms + shPisCofins + shIss + shIrpj + shCsll)
-
-    return {
-      effectiveTaxPct,
-      taxLabel: 'Simples Híbrido',
-      isMei: false,
-      taxesPercent: round4((shIcms + shPisCofins + shIss) * 100),
-      taxableRegimePercent: round4((shIrpj + shCsll) * 100),
-      regimeLabel: 'Simples Híbrido',
-    }
+    const hib = resolveDasHibridoDoTenant(ts as never)
+    if (!hib) return buildResult(0, 0, 'Simples Híbrido', false)
+    return { ...buildResult(0, round4(hib.dasPct * 100), hib.label, false),
+      deducaoBaseIbsCbsPct: hib.deducaoPct }
   }
 
   if (regime === 'LUCRO_PRESUMIDO_RET') {
