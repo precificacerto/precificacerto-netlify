@@ -21,6 +21,11 @@ import {
   LINHAS_DE_APRESENTACAO_DO_CUSTO,
   type RegimeDoBloco,
 } from '@/utils/custo-produtos-no-dre'
+import {
+  ehCompromissoFinanceiro,
+  LABEL_DO_BLOCO,
+  ordemNoBloco,
+} from '@/utils/compromissos-financeiros'
 
 /**
  * As chaves que NÃO são mês. `apenasApresentacao` e `ordem` PRECISAM estar aqui: quem soma os
@@ -92,6 +97,7 @@ export function processYearEntries(entries: any[], _year: number, regime: Regime
   const expenseItems: ProcessItem[] = []
   const custoProdutosBrutoPorMes: Record<string, number> = {}
   const creditoDeCompraPorMes: Record<string, number> = {}
+  const subtotalDoBlocoPorMes: Record<string, number> = {}
 
   entries.forEach((entry: any) => {
     const monthIdx = parseInt((entry.due_date || '').slice(5, 7), 10) - 1
@@ -139,8 +145,36 @@ export function processYearEntries(entries: any[], _year: number, regime: Regime
       }
     }
 
+    // >>> COMPROMISSOS FINANCEIROS — o bloco dentro de Despesa Fixa, §7 <<<
+    //
+    // A categoria é LIDA como `DESPESA_FIXA` mesmo quando o grupo gravado é `AMORTIZACAO`: o
+    // §7 exige que a amortização apareça uma vez só, dentro do bloco. O grupo GRAVADO não
+    // muda — a Análise Financeira contábil (`pages/dfc/`) continua pondo a amortização depois
+    // do resultado operacional, e o valor dela lá não muda.
+    //
+    // É o mesmo desenho do bloco de cima: o subtotal é do GRUPO no mês, não de uma entrada, e
+    // por isso só vira linha depois do laço.
+    if (ehCompromissoFinanceiro(category)) {
+      expenseItems.push({
+        category, expenseGroup: 'DESPESA_FIXA', price: amount, month: monthVal,
+        ordem: ordemNoBloco(category) ?? undefined,
+      })
+      subtotalDoBlocoPorMes[monthVal] = (subtotalDoBlocoPorMes[monthVal] || 0) + amount
+      return
+    }
+
     expenseItems.push({ category, expenseGroup: group, price: amount, month: monthVal })
   })
+
+  // O SUBTOTAL do bloco. Ele NÃO entra no resultado do mês: é a soma de linhas que já estão
+  // lá, e somá-lo contaria o bloco duas vezes. Sem compromisso lançado, nenhuma linha — um
+  // subtotal de R$ 0,00 afirmaria que a empresa não tem compromisso (`ausente-vs-falso.md`).
+  for (const [month, price] of Object.entries(subtotalDoBlocoPorMes)) {
+    expenseItems.push({
+      category: LABEL_DO_BLOCO, expenseGroup: 'DESPESA_FIXA', price, month,
+      apenasApresentacao: true, ordem: ordemNoBloco(LABEL_DO_BLOCO) ?? undefined,
+    })
+  }
 
   for (const month of Object.keys(custoProdutosBrutoPorMes)) {
     const bloco = montarBlocoDeCustoDosProdutos({

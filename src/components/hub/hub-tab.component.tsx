@@ -130,7 +130,9 @@ export function HubTab({ tenantId, refreshToken }: HubTabProps) {
         for (const sub of row.subRows) {
             rows.push({
                 key: `${row.group}__${sub.categoryKey}`,
-                label: sub.label,
+                // O SUBTOTAL do bloco Compromissos Financeiros se anuncia. Sem a marca ele
+                // parece mais uma categoria, e o leitor soma o bloco com os membros.
+                label: sub.apenasApresentacao ? `${sub.label} (subtotal)` : sub.label,
                 kind: 'category',
                 group: row.group,
                 values: sub.values,

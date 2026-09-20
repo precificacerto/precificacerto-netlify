@@ -634,7 +634,7 @@ export function buildDreLucroRealPresumido(
   // é despesa operacional. A regra é DO NEGÓCIO, não do regime: a linha existe nas TRÊS
   // variantes. Omiti-la numa delas faria o mesmo valor sumir só para um regime — que é a
   // divergência que `copia-divergente.md` descreve.
-  rows.push(buildRow('amortizacao', '(-) Amortização de Dívida (principal)', agg.amortizacao, baseAV, { sign: '-' }))
+  rows.push(buildRow('amortizacao', '(-) Amortização de Dívida (principal) — já considerada na formação do preço', agg.amortizacao, baseAV, { sign: '-' }))
 
   // Lucro Líquido (sem estimativa de IRPJ/CSLL — usa apenas valores reais do HUB)
   const lucroLiquidoLr = subtractMonths(resultadoFinanceiro, agg.amortizacao)
@@ -712,7 +712,7 @@ export function buildDrePresumidoRET(agg: AggregatedData): DreRow[] {
   // é despesa operacional. A regra é DO NEGÓCIO, não do regime: a linha existe nas TRÊS
   // variantes. Omiti-la numa delas faria o mesmo valor sumir só para um regime — que é a
   // divergência que `copia-divergente.md` descreve.
-  rows.push(buildRow('amortizacao', '(-) Amortização de Dívida (principal)', agg.amortizacao, baseAV, { sign: '-' }))
+  rows.push(buildRow('amortizacao', '(-) Amortização de Dívida (principal) — já considerada na formação do preço', agg.amortizacao, baseAV, { sign: '-' }))
 
   const lucroLiquido = subtractMonths(
     subtractMonths(resultadoAntesImposto, agg.despesaFinanceira),
@@ -804,7 +804,7 @@ export function buildDreSimplesNacional(agg: AggregatedData, _calcType: CalcType
   // é despesa operacional. A regra é DO NEGÓCIO, não do regime: a linha existe nas TRÊS
   // variantes. Omiti-la numa delas faria o mesmo valor sumir só para um regime — que é a
   // divergência que `copia-divergente.md` descreve.
-  rows.push(buildRow('amortizacao', '(-) Amortização de Dívida (principal)', agg.amortizacao, baseAV, { sign: '-' }))
+  rows.push(buildRow('amortizacao', '(-) Amortização de Dívida (principal) — já considerada na formação do preço', agg.amortizacao, baseAV, { sign: '-' }))
 
   const lucroLiquido = subtractMonths(
     subtractMonths(lucroOperacional, agg.despesaFinanceira),

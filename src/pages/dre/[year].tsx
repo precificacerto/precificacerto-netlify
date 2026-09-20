@@ -20,6 +20,7 @@ import { ResultData, TableDataType } from '@/shared/enums/dre-year-base'
 import { supabase } from '@/supabase/client'
 import { getTenantId } from '@/utils/get-tenant-id'
 import { ordemDaLinhaDeApresentacao, type RegimeDoBloco } from '@/utils/custo-produtos-no-dre'
+import { ordemNoBloco } from '@/utils/compromissos-financeiros'
 import {
   processYearEntries,
   somaMensalDasLinhas,
@@ -285,10 +286,12 @@ function getColumns(type: string, _dataSource: TableDataType[]): ColumnsType<Tab
         compare: (a, b) => {
           const catA = ALL_CASHIER_CATEGORIES[a.category as CASHIER_CATEGORY_EXPENSE_OBJECT | CASHIER_CATEGORY_INCOME_OBJECT]
           const catB = ALL_CASHIER_CATEGORIES[b.category as CASHIER_CATEGORY_EXPENSE_OBJECT | CASHIER_CATEGORY_INCOME_OBJECT]
-          // O bloco de três linhas só se lê de cima para baixo; sem ordem explícita o
-          // `localeCompare` do rótulo ("(−) …", "= …") os espalharia pela tabela.
-          const orderA = a.ordem ?? ordemDaLinhaDeApresentacao(a.category) ?? catA?.order ?? 0
-          const orderB = b.ordem ?? ordemDaLinhaDeApresentacao(b.category) ?? catB?.order ?? 0
+          // DOIS blocos só se leem de cima para baixo, e uma categoria pertence no máximo a
+          // um deles: as três linhas do Custo dos Produtos e as seis dos Compromissos
+          // Financeiros. Sem ordem explícita o `localeCompare` do rótulo ("(−) …", "= …")
+          // as espalharia pela tabela.
+          const orderA = a.ordem ?? ordemDaLinhaDeApresentacao(a.category) ?? ordemNoBloco(a.category) ?? catA?.order ?? 0
+          const orderB = b.ordem ?? ordemDaLinhaDeApresentacao(b.category) ?? ordemNoBloco(b.category) ?? catB?.order ?? 0
           if (orderA !== orderB) return orderA - orderB
           return (a.category || '').localeCompare(b.category || '')
         },
