@@ -70,6 +70,15 @@ export interface ValoresDaCompra {
   /** DIFAL: as duas alíquotas, em PERCENTUAL. SEMPRE custo. */
   difalOrigemPct?: number | null
   difalDestinoPct?: number | null
+  /**
+   * QTD. MEDIDA — em quantas frações a unidade comprada se divide (6 metros, 500 ml, 20 kg).
+   *
+   * É o que a receita do produto consome, e por isso o custo POR FRAÇÃO é o número que a
+   * precificação de fato usa. Ausente ou não positiva NÃO vira 1: devolve `null` em
+   * `custoPorFracao`, porque "uma unidade" é uma afirmação sobre o item, e dividir por zero
+   * é um erro disfarçado de resultado.
+   */
+  qtdMedida?: number | null
 }
 
 /** De onde saiu o estado da bandeira — é isto que torna "ausente ≠ desligada" verificável. */
@@ -343,6 +352,13 @@ export interface CustoDoItem {
   custoBruto: number
   /** `bruto − créditos` — o numerador da precificação. */
   custoLiquido: number
+  /**
+   * `líquido ÷ QTD. medida` — o custo de UMA fração da unidade de medida.
+   *
+   * `null` quando a QTD. medida não foi informada ou não é positiva. Não é zero, e não é o
+   * próprio líquido: os dois afirmariam uma divisão que ninguém fez.
+   */
+  custoPorFracao: number | null
   /** O crédito de cada tributo, em R$. Zero quando a bandeira está desligada ou vedada. */
   creditos: Record<TributoCreditavel, number>
   creditoTotal: number
@@ -395,8 +411,20 @@ export function calcularCustoDoItem(
   const icmsVal = icmsEfetivoPct == null ? null : base * icmsEfetivoPct / 100
   const icmsCred = bandeiras.ICMS.ativo ? (icmsVal ?? 0) : 0
 
+  /**
+   * A BASE É O ICMS DESTACADO, NÃO O CREDITADO — §7 do comando de 21/09/2026.
+   *
+   * O ICMS integra a base do PIS/COFINS na entrada porque ele está no PREÇO, e o preço não
+   * muda conforme o adquirente credite ou não. Usar `icmsCred` aqui faria o VALOR exibido do
+   * PIS/COFINS mudar quando o usuário desligasse o botão do ICMS — dois tributos amarrados
+   * por uma decisão que só diz respeito a um deles.
+   *
+   * O líquido não muda nos casos em que o ICMS credita (`icmsCred === icmsVal`), e é por isso
+   * que a diferença só aparece em uso e consumo, no Híbrido e no fornecedor do Simples: ali o
+   * exibido ia para R$ 92,50 em vez dos R$ 75,85 da nota.
+   */
   const pisCofinsPct = pct(valores.pisCofinsPct)
-  const pisCofinsVal = pisCofinsPct == null ? null : (base - icmsCred) * pisCofinsPct / 100
+  const pisCofinsVal = pisCofinsPct == null ? null : (base - (icmsVal ?? 0)) * pisCofinsPct / 100
   const pisCofinsCred = bandeiras.PIS_COFINS.ativo ? (pisCofinsVal ?? 0) : 0
 
   const ipiPct = pct(valores.ipiPct)
@@ -419,9 +447,14 @@ export function calcularCustoDoItem(
   const custoBruto = base + (ipiVal ?? 0) + icmsSt + difal + fcp + (cbsVal ?? 0) + (ibsVal ?? 0)
   const creditoTotal = icmsCred + pisCofinsCred + ipiCred + cbsCred + ibsCred
 
+  const custoLiquido = custoBruto - creditoTotal
+  const qtdMedida = Number(valores.qtdMedida)
+  const fracionavel = Number.isFinite(qtdMedida) && qtdMedida > 0
+
   return {
     custoBruto,
-    custoLiquido: custoBruto - creditoTotal,
+    custoLiquido,
+    custoPorFracao: fracionavel ? custoLiquido / qtdMedida : null,
     creditos: { ICMS: icmsCred, PIS_COFINS: pisCofinsCred, IPI: ipiCred, CBS: cbsCred, IBS: ibsCred },
     creditoTotal,
     valores: { icms: icmsVal, pisCofins: pisCofinsVal, ipi: ipiVal, cbs: cbsVal, ibs: ibsVal, icmsSt, difal, fcp },
