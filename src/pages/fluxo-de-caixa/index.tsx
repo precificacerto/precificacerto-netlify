@@ -14,6 +14,12 @@ import { getEffectiveIncomeAmount } from '@/utils/cash-entry-amount'
 import { mergeExpenseConfig } from '@/utils/recalc-expense-config'
 import { ehCompromissoFinanceiro, separarJurosEPrincipal, LABEL_DO_BLOCO } from '@/utils/compromissos-financeiros'
 import {
+    calcularImpactoDoRateio, houveMudancaDoPercentual, type ImpactoDoRateio,
+} from '@/utils/impacto-do-rateio'
+
+/** As quatro colunas que o aviso de impacto do §9 lê de `products`. */
+type ProdutoDoImpacto = { id: string; name?: string | null; cost_total?: number | null; sale_price?: number | null }
+import {
     CalendarOutlined, FileExcelOutlined,
 } from '@ant-design/icons'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
@@ -190,6 +196,11 @@ export default function CashFlow() {
     // informado", e é ela que vira `null` no banco: `ausente-vs-falso.md`.
     const [compJuros, setCompJuros] = useState<string>('')
     const [compPrincipal, setCompPrincipal] = useState<string>('')
+    // §9 — o aviso de impacto. NADA é regravado: a lista existe para o usuário DECIDIR o que
+    // remargear (`fato-vs-referencia.md`).
+    const [impactoAberto, setImpactoAberto] = useState(false)
+    const [impactoPct, setImpactoPct] = useState<{ antes: number; depois: number }>({ antes: 0, depois: 0 })
+    const [impactos, setImpactos] = useState<ImpactoDoRateio[]>([])
 
     const [form] = Form.useForm()
 
@@ -855,7 +866,35 @@ export default function CashFlow() {
                     if (error) throw error
                 }
                 messageApi.success(`${entries.length} lançamento(s) de despesa criado(s)!`)
-                mergeExpenseConfig(tenant_id).catch(() => {})
+                // §9 — mudar a base do rateio muda o preço sugerido de TODO produto. O
+                // recálculo continua acontecendo; o que muda é que ele deixa de ser silencioso.
+                void (async () => {
+                    try {
+                        const cfg = await mergeExpenseConfig(tenant_id)
+                        if (!cfg || !houveMudancaDoPercentual(cfg.fixed_expense_percent_anterior, cfg.fixed_expense_percent)) return
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        // O cast é do `database.types.ts` desatualizado, não da consulta: sem
+                        // ele o `tsc` estoura em TS2589 nesta cadeia. As quatro colunas existem.
+                        const { data: prods } = await (supabase as any)
+                            .from('products')
+                            .select('id, name, cost_total, sale_price')
+                            .eq('tenant_id', tenant_id)
+                            .eq('is_active', true)
+                        const lista = calcularImpactoDoRateio({
+                            pctAntes: cfg.fixed_expense_percent_anterior as number,
+                            pctDepois: cfg.fixed_expense_percent,
+                            produtos: ((prods ?? []) as ProdutoDoImpacto[]).map((p) => ({
+                                id: String(p.id),
+                                nome: String(p.name ?? ''),
+                                custoAtual: Number(p.cost_total) || 0,
+                                precoAtual: Number(p.sale_price) || 0,
+                            })),
+                        })
+                        setImpactoPct({ antes: cfg.fixed_expense_percent_anterior as number, depois: cfg.fixed_expense_percent })
+                        setImpactos(lista)
+                        setImpactoAberto(true)
+                    } catch { /* o aviso é informativo: falhar nele não pode derrubar o lançamento */ }
+                })()
             }
 
             setDrawerOpen(false)
@@ -1475,6 +1514,57 @@ export default function CashFlow() {
                 </div>
                 )}
             </div>
+
+            {/* §9 — Aviso de impacto do rateio. NADA é regravado aqui. */}
+            <Modal
+                title="O percentual de despesa fixa mudou"
+                open={impactoAberto}
+                onCancel={() => setImpactoAberto(false)}
+                footer={<Button onClick={() => setImpactoAberto(false)}>Entendi</Button>}
+                width={760}
+            >
+                <div style={{ display: 'flex', gap: 24, marginBottom: 16 }}>
+                    <div>
+                        <div style={{ fontSize: 12, color: '#94a3b8' }}>% antes</div>
+                        <div style={{ fontSize: 20 }}>{impactoPct.antes.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</div>
+                    </div>
+                    <div>
+                        <div style={{ fontSize: 12, color: '#94a3b8' }}>% depois</div>
+                        <div style={{ fontSize: 20, fontWeight: 600 }}>{impactoPct.depois.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</div>
+                    </div>
+                </div>
+                <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 12 }}>
+                    Nenhum preço foi alterado. A lista abaixo é uma ESTIMATIVA de quanto cada
+                    produto precisaria custar com o percentual novo — quem já foi precificado
+                    mantém o preço até você remargear.
+                </div>
+                <Table
+                    size="small"
+                    rowKey="id"
+                    pagination={{ pageSize: 8 }}
+                    dataSource={impactos}
+                    columns={[
+                        { title: 'Produto', dataIndex: 'nome', key: 'nome' },
+                        {
+                            title: 'Preço atual', dataIndex: 'precoAtual', key: 'precoAtual',
+                            render: (v: number) => v > 0 ? `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—',
+                        },
+                        {
+                            title: 'Preço recalculado', dataIndex: 'precoNovo', key: 'precoNovo',
+                            // Travessão, nunca R$ 0,00: `null` é "não dá para dizer".
+                            render: (v: number | null) => v == null ? '—' : `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+                        },
+                        {
+                            title: 'Variação', dataIndex: 'variacao', key: 'variacao',
+                            render: (v: number | null) => v == null ? '—' : (
+                                <span style={{ color: v > 0 ? '#DC2626' : v < 0 ? '#12B76A' : undefined }}>
+                                    {v > 0 ? '+' : ''}{v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </span>
+                            ),
+                        },
+                    ]}
+                />
+            </Modal>
 
             {/* Drawer: Novo Lançamento (Despesa) */}
             <Drawer title="Novo Lançamento de Despesa" width={680} open={drawerOpen} destroyOnClose onClose={() => { setDrawerOpen(false); setExpPaymentMethod(''); setExpInstallments([{ date: null, amount: 0 }]); setExpInstallmentPreset('customizado'); setExpManualDates(false); setSelectedExpenseCategory(''); setLrValorIcms(''); setLrValorPisCofins(''); setLrValorIpi(''); setLrValorCbs(''); setLrValorIbs(''); setCompJuros(''); setCompPrincipal('') }}

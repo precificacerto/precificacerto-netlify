@@ -232,13 +232,23 @@ export async function calculateHubData(tenantId: string): Promise<HubData> {
       //
       // A regra mora em `compromissos-financeiros.ts`, e é a MESMA que o rateio usa — o §5
       // pede uma implementação só, e ela é chamada das duas cópias deste laço.
-      if (ehCompromissoFinanceiro(entry.expense_category as string)) {
+      // Uma leitura tipada só, em vez de seis acessos: o `database.types.ts` está
+      // desatualizado para `cash_entries` e cada acesso direto vira um TS2339 a mais no
+      // diagnóstico. As seis colunas existem — `juros_value` e `principal_value` vêm da
+      // migração `20260922000001`.
+      const lanc = entry as unknown as {
+        expense_group?: string | null
+        expense_category?: string | null
+        juros_value?: number | null
+        principal_value?: number | null
+      }
+      if (ehCompromissoFinanceiro(lanc.expense_category)) {
         const partes = classificarLancamentoDeDespesa({
-          expense_group: entry.expense_group as string,
-          expense_category: entry.expense_category as string,
+          expense_group: lanc.expense_group,
+          expense_category: lanc.expense_category,
           amount,
-          juros_value: (entry as { juros_value?: number | null }).juros_value,
-          principal_value: (entry as { principal_value?: number | null }).principal_value,
+          juros_value: lanc.juros_value,
+          principal_value: lanc.principal_value,
         })
         for (const parte of partes) {
           if (!expenseByGroupByMonth[parte.group]) expenseByGroupByMonth[parte.group] = {}
@@ -444,13 +454,23 @@ export async function calculateHubDataPrevMonth(tenantId: string): Promise<HubDa
       //
       // A regra mora em `compromissos-financeiros.ts`, e é a MESMA que o rateio usa — o §5
       // pede uma implementação só, e ela é chamada das duas cópias deste laço.
-      if (ehCompromissoFinanceiro(entry.expense_category as string)) {
+      // Uma leitura tipada só, em vez de seis acessos: o `database.types.ts` está
+      // desatualizado para `cash_entries` e cada acesso direto vira um TS2339 a mais no
+      // diagnóstico. As seis colunas existem — `juros_value` e `principal_value` vêm da
+      // migração `20260922000001`.
+      const lanc = entry as unknown as {
+        expense_group?: string | null
+        expense_category?: string | null
+        juros_value?: number | null
+        principal_value?: number | null
+      }
+      if (ehCompromissoFinanceiro(lanc.expense_category)) {
         const partes = classificarLancamentoDeDespesa({
-          expense_group: entry.expense_group as string,
-          expense_category: entry.expense_category as string,
+          expense_group: lanc.expense_group,
+          expense_category: lanc.expense_category,
           amount,
-          juros_value: (entry as { juros_value?: number | null }).juros_value,
-          principal_value: (entry as { principal_value?: number | null }).principal_value,
+          juros_value: lanc.juros_value,
+          principal_value: lanc.principal_value,
         })
         for (const parte of partes) {
           if (!expenseByGroupByMonth[parte.group]) expenseByGroupByMonth[parte.group] = {}

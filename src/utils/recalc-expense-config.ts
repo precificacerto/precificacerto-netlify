@@ -141,11 +141,24 @@ export async function recalcExpenseConfigFromCashflow(
   }
 }
 
+/** O que o `mergeExpenseConfig` devolve, mais o que ele SUBSTITUIU. */
+export interface ExpenseConfigMerged extends ExpenseConfigResult {
+  /**
+   * O `fixed_expense_percent` que estava gravado ANTES — é ele que o aviso de impacto do §9
+   * compara com o novo.
+   *
+   * `null` quando não havia configuração: aí não há "antes", e avisar sobre a diferença
+   * contra zero diria que o percentual subiu de 0,00%, o que nunca aconteceu
+   * (`ausente-vs-falso.md`).
+   */
+  fixed_expense_percent_anterior: number | null
+}
+
 /**
  * Recalcula e salva os percentuais do Hub em tenant_expense_config.
  * Preserva campos manuais (commission, profit, production_labor_cost).
  */
-export async function mergeExpenseConfig(tenantId: string): Promise<ExpenseConfigResult | null> {
+export async function mergeExpenseConfig(tenantId: string): Promise<ExpenseConfigMerged | null> {
   const result = await recalcExpenseConfigFromCashflow(tenantId)
   if (!result) return null
 
@@ -177,13 +190,17 @@ export async function mergeExpenseConfig(tenantId: string): Promise<ExpenseConfi
     updated_at: new Date().toISOString(),
   }
 
+  const anterior = existing == null
+    ? null
+    : (existing as { fixed_expense_percent?: number | null }).fixed_expense_percent ?? null
+
   if (existing?.id) {
     await supabase.from('tenant_expense_config').update(configData).eq('id', existing.id)
   } else {
     await supabase.from('tenant_expense_config').insert({ tenant_id: tenantId, ...configData })
   }
 
-  return result
+  return { ...result, fixed_expense_percent_anterior: anterior == null ? null : Number(anterior) }
 }
 
 /** @deprecated Use mergeExpenseConfig instead */
