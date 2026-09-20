@@ -48,6 +48,12 @@ const formatBRL3 = (v: number) =>
   v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 3 })
 
 // Lucro Real — base PIS+COFINS não-cumulativo (1,65% + 7,6% = 9,25%)
+import PurchaseTaxCredits from '@/page-parts/items/purchase-tax-credits.component'
+import {
+  calcularCustoDoItem, resolverFlagsDoItem,
+  type BandeirasDeCredito, type CustoDoItem, type TributoCreditavel,
+} from '@/utils/custo-liquido-do-item'
+
 const PIS_COFINS_BASE = 9.25
 const PIS_COFINS_LP = 3.65
 
@@ -69,6 +75,10 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
   const itemTypeWatch = Form.useWatch('item_type', form)
   const [netCostDisplay, setNetCostDisplay] = useState<string | null>(null)
   const [impostosRecuperaveisDisplay, setImpostosRecuperaveisDisplay] = useState<number>(0)
+  /** O resultado da fórmula única — bruto, créditos e líquido, para o rodapé do bloco. */
+  const [custoDoItem, setCustoDoItem] = useState<CustoDoItem | null>(null)
+  /** As bandeiras resolvidas: quem está ligado, quem está vedado e por quê. */
+  const [bandeiras, setBandeiras] = useState<BandeirasDeCredito | null>(null)
   // Lucro Real — quando o usuário edita PIS/COFINS manualmente, o auto-cálculo é suspenso
   const [pisCofinsManuallyEdited, setPisCofinsManuallyEdited] = useState(false)
   const nameDebounceRef = useRef<NodeJS.Timeout | null>(null)
@@ -82,7 +92,23 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
   const ipiNrPctWatch = Form.useWatch('ipi_nr_pct', form) ?? 0
   const priceWatch = Form.useWatch('price', form) ?? '0'
 
+  /**
+   * O CUSTO LÍQUIDO, pela fórmula ÚNICA de `custo-liquido-do-item.ts`.
+   *
+   * Até 20/09/2026 a conta morava AQUI dentro, com a regra de crédito como premissa fixa:
+   * ICMS e PIS/COFINS sempre recuperáveis, IPI nunca. Agora cada tributo tem a sua bandeira,
+   * e a regra é a legal — mas a conta saiu do componente por outra razão, que é a de
+   * `copia-divergente.md`: a próxima tela que precisar do custo líquido vai precisar da
+   * MESMA conta, e a segunda cópia é como as duas passam a divergir.
+   *
+   * REGRESSÃO: com as bandeiras do backfill (ICMS on, PIS/COFINS on, IPI off) o número sai
+   * IDÊNTICO ao de antes. É o caso A do gabarito, e ele está afirmado termo a termo em
+   * `custo-liquido-do-item.test.ts`.
+   */
   const recalcNetCost = useCallback(() => {
+    // Simples e MEI não têm bloco de impostos da compra: o imposto está no DAS e o custo é o
+    // bruto. A função retornava cedo aqui antes desta mudança, e continua retornando — os 46
+    // itens desses regimes têm `cost_net = 0` hoje e NÃO passam a ser recalculados.
     if (!isLucroRealOrLP) return
     const values = form.getFieldsValue()
     const isDeferidoEnabled = Boolean(values.icms_deferido_enabled)
@@ -91,7 +117,6 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
     const icms = Number(values.icms_rate) || 0
     const icmsDeferido = isDeferidoEnabled ? (Number(values.icms_deferido_rate) || 0) : 0
 
-    // Impostos/ICMS recuperáveis: quando deferido ativo = ICMS% × (1 - deferido%); senão = ICMS%
     const impostosRec = isDeferidoEnabled ? icms * (1 - icmsDeferido / 100) : icms
     setImpostosRecuperaveisDisplay(parseFloat(impostosRec.toFixed(4)))
 
@@ -118,30 +143,72 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
     }
 
     if (priceNum > 0) {
-      const deducao1 = priceNum * impostosRec / 100
-      const deducao2 = (priceNum - deducao1) * pisCofinsTotal / 100
-      // Impostos não recuperáveis: ICMS-ST (manual) + IPI (alíquota%) + DIFAL
-      const icmsSt = Number(values.icms_st_value) || 0
-      const ipiNrPct = Number(values.ipi_nr_pct) || 0
-      const ipiNrVal = priceNum * ipiNrPct / 100
-      const difalOrigem = Number(values.difal_origem_pct) || 0
-      const difalDestino = Number(values.difal_destino_pct) || 0
-      const _icmsOrigemDifal = priceNum * difalOrigem / 100
-      const _baseAposOrigem = priceNum - _icmsOrigemDifal
-      const _destPct = difalDestino / 100
-      const difalVal = (_destPct > 0 && _destPct < 1)
-        ? Math.max(0, (_baseAposOrigem / (1 - _destPct)) * _destPct - _icmsOrigemDifal)
-        : 0
-      const totalNaoRec = icmsSt + ipiNrVal + difalVal
-      const valorLiquido = priceNum - deducao1 - deducao2 + totalNaoRec
+      const flags = resolverFlagsDoItem(
+        {
+          regime: taxableRegime,
+          destinacao: values.destination ?? null,
+          segmento: currentUser?.calcType,
+          cstIcms: values.cst_icms ?? null,
+          cstIpi: values.cst_ipi ?? null,
+          cstPisCofins: values.cst_pis_cofins ?? null,
+        },
+        // `?? null` e NÃO `Boolean(...)`: ausente cai no padrão da destinação, desligado é
+        // escolha do usuário. Achatar os dois aqui apagaria a distinção logo depois de a
+        // coluna tê-la preservado.
+        {
+          ICMS: values.icms_credit_enabled ?? null,
+          PIS_COFINS: values.pis_cofins_credit_enabled ?? null,
+          IPI: values.ipi_credit_enabled ?? null,
+          CBS: values.cbs_credit_enabled ?? null,
+          IBS: values.ibs_credit_enabled ?? null,
+        },
+      )
+      setBandeiras(flags)
 
-      setNetCostDisplay(getMonetaryValue(valorLiquido))
-      form.setFieldsValue({ cost_net: valorLiquido })
+      const r = calcularCustoDoItem(
+        {
+          base: priceNum,
+          // A alíquota do ICMS entra JÁ EFETIVADA pelo diferido, como o campo de tela a
+          // exibe — por isso o `icmsDeferidoAtivo` não é repassado: ele já foi aplicado.
+          icmsPct: impostosRec,
+          pisCofinsPct: pisCofinsTotal,
+          ipiPct: Number(values.ipi_nr_pct) || 0,
+          cbsPct: Number(values.cbs_rate) || 0,
+          ibsPct: Number(values.ibs_rate) || 0,
+          icmsSt: Number(values.icms_st_value) || 0,
+          difalOrigemPct: Number(values.difal_origem_pct) || 0,
+          difalDestinoPct: Number(values.difal_destino_pct) || 0,
+        },
+        flags,
+      )
+
+      setCustoDoItem(r)
+      setNetCostDisplay(getMonetaryValue(r.custoLiquido))
+      form.setFieldsValue({ cost_net: r.custoLiquido, cost_gross: r.custoBruto })
     } else {
       setNetCostDisplay(null)
-      form.setFieldsValue({ cost_net: 0 })
+      setCustoDoItem(null)
+      form.setFieldsValue({ cost_net: 0, cost_gross: 0 })
     }
-  }, [form, isLucroReal, isLucroPresumido, isLucroRealOrLP, isSimplesHibrido, pisCofinsManuallyEdited])
+  }, [form, isLucroReal, isLucroPresumido, isLucroRealOrLP, isSimplesHibrido, pisCofinsManuallyEdited, taxableRegime, currentUser?.calcType])
+
+  /**
+   * Liga ou desliga a bandeira de um tributo.
+   *
+   * Grava `true`/`false` EXPLÍCITOS — nunca deixa voltar a `null`. `null` significa "o
+   * usuário nunca decidiu", e depois de ele ter mexido no botão isso deixou de ser verdade.
+   */
+  const handleToggleCredito = useCallback((tributo: TributoCreditavel, valor: boolean) => {
+    const campo: Record<TributoCreditavel, string> = {
+      ICMS: 'icms_credit_enabled',
+      PIS_COFINS: 'pis_cofins_credit_enabled',
+      IPI: 'ipi_credit_enabled',
+      CBS: 'cbs_credit_enabled',
+      IBS: 'ibs_credit_enabled',
+    }
+    form.setFieldsValue({ [campo[tributo]]: valor })
+    setTimeout(recalcNetCost, 0)
+  }, [form, recalcNetCost])
 
   const fetchAndFillNcmRates = useCallback(async (code: string) => {
     // Lucro Real: PIS/COFINS é fixo em 9,25% (não usa NCM).
@@ -367,6 +434,22 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
       <Form.Item name="id" hidden><Input /></Form.Item>
       <Form.Item name="cost_net" hidden><InputNumber /></Form.Item>
       <Form.Item name="icms_deferido_enabled" hidden><Input /></Form.Item>
+      {/*
+        As bandeiras e os CST viajam no form como campos ocultos: quem as edita é o bloco
+        `PurchaseTaxCredits` (as bandeiras) e a importação do XML da NF-e (os CST, fase 2).
+        Ficarem no form é o que faz `cost_net` e `cost_gross` serem gravados junto com elas,
+        numa transação só — bandeira gravada sem o custo correspondente seria o documento
+        dizendo uma coisa e o número dizendo outra.
+      */}
+      <Form.Item name="icms_credit_enabled" hidden><Input /></Form.Item>
+      <Form.Item name="pis_cofins_credit_enabled" hidden><Input /></Form.Item>
+      <Form.Item name="ipi_credit_enabled" hidden><Input /></Form.Item>
+      <Form.Item name="cbs_credit_enabled" hidden><Input /></Form.Item>
+      <Form.Item name="ibs_credit_enabled" hidden><Input /></Form.Item>
+      <Form.Item name="cst_icms" hidden><Input /></Form.Item>
+      <Form.Item name="cst_ipi" hidden><Input /></Form.Item>
+      <Form.Item name="cst_pis_cofins" hidden><Input /></Form.Item>
+      <Form.Item name="cost_gross" hidden><Input /></Form.Item>
       <Form.Item name="pis_cofins_rate" hidden><InputNumber /></Form.Item>
 
       <Divider orientation="left" style={{ fontSize: 12, color: '#94a3b8', marginTop: 0 }}>
@@ -813,6 +896,21 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
               </div>
             )}
           </div>
+
+          {/*
+            O BLOCO DO CRÉDITO POR TRIBUTO. As alíquotas de ICMS, PIS/COFINS, IPI, ST e DIFAL
+            seguem nos campos acima, que são de onde elas sempre vieram; o que este bloco
+            acrescenta é a DESTINAÇÃO, as cinco bandeiras, as alíquotas de CBS e IBS e o
+            rodapé com bruto, crédito e líquido.
+          */}
+          <PurchaseTaxCredits
+            bandeiras={bandeiras}
+            custo={custoDoItem}
+            visivel={isLucroRealOrLP}
+            apenasIva={isSimplesHibrido}
+            onToggle={handleToggleCredito}
+            onRecalc={recalcNetCost}
+          />
 
           {/* Linha de impostos 3 (Lucro Real / Lucro Presumido): Valor custo líquido | QTD. Comprado | Estoque mínimo */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, alignItems: 'end' }}>

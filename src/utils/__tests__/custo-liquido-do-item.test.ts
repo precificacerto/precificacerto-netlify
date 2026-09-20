@@ -34,6 +34,7 @@ import {
   type DestinacaoItem,
   type ValoresDaCompra,
 } from '@/utils/custo-liquido-do-item'
+import { calcularImpactoDoCredito, houveMudancaDeCredito } from '@/utils/impacto-do-credito'
 
 /** A compra do gabarito: R$ 1.000,00 de produto, IPI 5%, ST R$ 50,00, sem DIFAL. */
 const COMPRA: ValoresDaCompra = {
@@ -340,5 +341,45 @@ describe('ICMS diferido: a parcela diferida não gera crédito', () => {
       resolverFlagsDoItem(ctx('REVENDA'), {}),
     )
     expect(r.creditos.ICMS).toBeCloseTo(180, 2)
+  })
+})
+
+// ═════════════════════════════════════════════════════════════════════════════════════════
+// O IMPACTO — quem sente quando a bandeira muda, e o que NÃO é regravado
+// ═════════════════════════════════════════════════════════════════════════════════════════
+describe('Mudar um botão mostra quem é afetado, e não regrava ninguém', () => {
+  const usos = [
+    { id: 'p1', nome: 'Produto A', tipo: 'PRODUTO' as const, quantidade: 2, custoTotalAtual: 200, precoAtual: 500 },
+    { id: 's1', nome: 'Serviço B', tipo: 'SERVICO' as const, quantidade: 1, custoTotalAtual: 100, precoAtual: 250 },
+  ]
+
+  it('>>> ligar o IPI baixa o custo do item, e o preço sugerido cai PROPORCIONALMENTE <<<', () => {
+    // Caso A → caso B do gabarito: o líquido cai de 844,15 para 794,15, delta −50,00.
+    const r = calcularImpactoDoCredito({ custoLiquidoAntes: 844.15, custoLiquidoDepois: 794.15, usos })
+    expect(r[0].custoTotalNovo).toBeCloseTo(200 - 100, 2)   // 2 unidades × −50
+    expect(r[0].precoNovo).toBeCloseTo(500 * (100 / 200), 2)
+    expect(r[0].variacao).toBeCloseTo(-250, 2)
+    expect(r[1].custoTotalNovo).toBeCloseTo(50, 2)
+    expect(r[1].precoNovo).toBeCloseTo(125, 2)
+  })
+
+  it('>>> custo atual ZERO não vira preço zero: não é apurável, e diz isso <<<', () => {
+    const r = calcularImpactoDoCredito({
+      custoLiquidoAntes: 844.15, custoLiquidoDepois: 794.15,
+      usos: [{ ...usos[0], custoTotalAtual: 0 }],
+    })
+    expect(r[0].precoNovo).toBeNull()
+    expect(r[0].variacao).toBeNull()
+  })
+
+  it('sem mudança de crédito, o impacto é zero em todos', () => {
+    const r = calcularImpactoDoCredito({ custoLiquidoAntes: 844.15, custoLiquidoDepois: 844.15, usos })
+    r.forEach((x) => expect(x.variacao).toBeCloseTo(0, 6))
+  })
+
+  it('>>> sair de NULL para TRUE É mudança: o padrão virou decisão <<<', () => {
+    expect(houveMudancaDeCredito({ ipi_credit_enabled: null }, { ipi_credit_enabled: true })).toBe(true)
+    expect(houveMudancaDeCredito({ ipi_credit_enabled: null }, { ipi_credit_enabled: false })).toBe(true)
+    expect(houveMudancaDeCredito({ ipi_credit_enabled: false }, { ipi_credit_enabled: false })).toBe(false)
   })
 })
