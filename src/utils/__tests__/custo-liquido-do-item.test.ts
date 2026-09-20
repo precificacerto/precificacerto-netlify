@@ -54,121 +54,157 @@ const custo = (valores: ValoresDaCompra, destinacao: DestinacaoItem, regime = 'L
   calcularCustoDoItem(valores, resolverFlagsDoItem(ctx(destinacao, regime, segmento), {}))
 
 // ═════════════════════════════════════════════════════════════════════════════════════════
-// OS SEIS CASOS DO GABARITO — bruto, crédito e líquido, os três em cada um
+// OS NOVE CASOS DO GABARITO — bruto, créditos, líquido E custo por fração
+//
+// QTD. medida = 6: a compra é de uma unidade que se fraciona em 6 (6 metros, 6 kg, 6 ml…),
+// e é o custo POR FRAÇÃO que a receita do produto consome. Um caso com QTD = 1 não
+// distinguiria a divisão de a ausência dela.
 // ═════════════════════════════════════════════════════════════════════════════════════════
-describe('CASO A — revenda em Lucro Real: o comportamento de HOJE, sem IVA', () => {
-  const r = custo(COMPRA, 'REVENDA')
+const QTD_MEDIDA = 6
 
-  it('bruto 1.100,00 · crédito 255,85 · líquido 844,15', () => {
-    expect(r.custoBruto).toBeCloseTo(1100.00, 2)
-    expect(r.creditoTotal).toBeCloseTo(255.85, 2)
-    expect(r.custoLiquido).toBeCloseTo(844.15, 2)
+type CasoDoGabarito = {
+  nome: string
+  valores: ValoresDaCompra
+  regime: string
+  destinacao: DestinacaoItem
+  ctxExtra?: Partial<Parameters<typeof resolverFlagsDoItem>[0]>
+  gravadas?: Parameters<typeof resolverFlagsDoItem>[1]
+  bruto: number
+  creditos: number
+  liquido: number
+  fracao: number
+}
+
+const CASOS: CasoDoGabarito[] = [
+  { nome: 'A — LR · revenda, sem IVA (= comportamento de hoje)',
+    valores: COMPRA, regime: 'LUCRO_REAL', destinacao: 'REVENDA',
+    bruto: 1100.00, creditos: 255.85, liquido: 844.15, fracao: 140.69 },
+
+  { nome: 'B — LR · insumo, IPI creditável, sem IVA',
+    valores: COMPRA, regime: 'LUCRO_REAL', destinacao: 'INSUMO',
+    bruto: 1100.00, creditos: 305.85, liquido: 794.15, fracao: 132.36 },
+
+  { nome: 'C — LR · uso e consumo, sem IVA',
+    valores: COMPRA, regime: 'LUCRO_REAL', destinacao: 'USO_CONSUMO',
+    bruto: 1100.00, creditos: 0.00, liquido: 1100.00, fracao: 183.33 },
+
+  { nome: 'D — LR · revenda com IVA creditável',
+    valores: COMPRA_IVA, regime: 'LUCRO_REAL', destinacao: 'REVENDA',
+    bruto: 1189.00, creditos: 344.85, liquido: 844.15, fracao: 140.69 },
+
+  { nome: 'E — LR · revenda, IVA sem crédito',
+    valores: COMPRA_IVA, regime: 'LUCRO_REAL', destinacao: 'REVENDA',
+    gravadas: { CBS: false, IBS: false },
+    bruto: 1189.00, creditos: 255.85, liquido: 933.15, fracao: 155.53 },
+
+  // No Híbrido ICMS, PIS/COFINS e IPI ficam no custo — estão dentro do DAS.
+  { nome: 'F — Híbrido · revenda (só CBS/IBS creditam)',
+    valores: COMPRA_IVA, regime: 'SIMPLES_HIBRIDO', destinacao: 'REVENDA',
+    bruto: 1189.00, creditos: 89.00, liquido: 1100.00, fracao: 183.33 },
+
+  { nome: 'G — Híbrido · fornecedor do Simples sem regime regular',
+    valores: COMPRA_IVA, regime: 'SIMPLES_HIBRIDO', destinacao: 'REVENDA',
+    ctxExtra: { fornecedorSimplesSemRegimeRegular: true },
+    bruto: 1189.00, creditos: 0.00, liquido: 1189.00, fracao: 198.17 },
+
+  // Simples e MEI não têm o bloco: as alíquotas de CBS/IBS não são sequer informadas, e por
+  // isso o bruto é 1.100,00 e não 1.189,00.
+  { nome: 'H — Simples/MEI',
+    valores: COMPRA, regime: 'SIMPLES_NACIONAL', destinacao: 'REVENDA',
+    bruto: 1100.00, creditos: 0.00, liquido: 1100.00, fracao: 183.33 },
+
+  { nome: 'I — LP · revenda (PIS/COFINS cumulativo, sem crédito)',
+    valores: COMPRA, regime: 'LUCRO_PRESUMIDO', destinacao: 'REVENDA',
+    bruto: 1100.00, creditos: 180.00, liquido: 920.00, fracao: 153.33 },
+]
+
+describe.each(CASOS.map((c) => [c.nome, c] as const))('CASO %s', (_nome, c) => {
+  const r = calcularCustoDoItem(
+    { ...c.valores, qtdMedida: QTD_MEDIDA },
+    resolverFlagsDoItem({ ...ctx(c.destinacao, c.regime), ...(c.ctxExtra ?? {}) }, c.gravadas ?? {}),
+  )
+
+  it(`bruto ${c.bruto} · créditos ${c.creditos} · líquido ${c.liquido} · por fração ${c.fracao}`, () => {
+    expect(r.custoBruto).toBeCloseTo(c.bruto, 2)
+    expect(r.creditoTotal).toBeCloseTo(c.creditos, 2)
+    expect(r.custoLiquido).toBeCloseTo(c.liquido, 2)
+    expect(r.custoPorFracao).toBeCloseTo(c.fracao, 2)
   })
 
-  it('>>> REGRESSÃO: é a conta de `recalcNetCost` do main, termo a termo <<<', () => {
-    const icms = 1000 * 0.18
-    const pisCofins = (1000 - icms) * 0.0925
-    const comoOMainCalcula = 1000 - icms - pisCofins + 50 /* ST */ + 50 /* IPI */
-    expect(r.custoLiquido).toBeCloseTo(comoOMainCalcula, 10)
-    expect(comoOMainCalcula).toBeCloseTo(844.15, 2)
-  })
-
-  it('o IPI de revenda NÃO gera crédito e entra inteiro no custo (RIPI art. 226)', () => {
-    expect(r.creditos.IPI).toBe(0)
-    expect(r.valores.ipi).toBeCloseTo(50, 2)
-  })
-})
-
-describe('CASO B — insumo de indústria: o IPI passa a gerar crédito', () => {
-  const r = custo(COMPRA, 'INSUMO')
-
-  it('bruto 1.100,00 · crédito 305,85 · líquido 794,15', () => {
-    expect(r.custoBruto).toBeCloseTo(1100.00, 2)
-    expect(r.creditoTotal).toBeCloseTo(305.85, 2)
-    expect(r.custoLiquido).toBeCloseTo(794.15, 2)
-  })
-
-  it('>>> e a diferença para o caso A é EXATAMENTE o IPI — R$ 50,00 <<<', () => {
-    expect(custo(COMPRA, 'REVENDA').custoLiquido - r.custoLiquido).toBeCloseTo(50, 2)
-    expect(r.creditos.IPI).toBeCloseTo(50, 2)
-  })
-})
-
-describe('CASO C — uso e consumo: nada gera crédito', () => {
-  const r = custo(COMPRA, 'USO_CONSUMO')
-
-  it('bruto 1.100,00 · crédito 0,00 · líquido 1.100,00', () => {
-    expect(r.custoBruto).toBeCloseTo(1100.00, 2)
-    expect(r.creditoTotal).toBe(0)
-    expect(r.custoLiquido).toBeCloseTo(1100.00, 2)
-  })
-
-  it('>>> o ICMS de uso e consumo está ADIADO para 2033, não é zero por acaso <<<', () => {
-    expect(r.creditos.ICMS).toBe(0)
-    // O valor do ICMS EXISTE — o que não existe é o crédito. A distinção é o ponto.
-    expect(r.valores.icms).toBeCloseTo(180, 2)
-  })
-})
-
-describe('CASO D — revenda com IVA CREDITÁVEL', () => {
-  const r = custo(COMPRA_IVA, 'REVENDA')
-
-  it('bruto 1.189,00 · crédito 344,85 · líquido 844,15', () => {
-    expect(r.custoBruto).toBeCloseTo(1189.00, 2)
-    expect(r.creditoTotal).toBeCloseTo(344.85, 2)
-    expect(r.custoLiquido).toBeCloseTo(844.15, 2)
-  })
-
-  it('>>> o líquido empata com o caso A, e o BRUTO não: o IVA entrou e foi creditado <<<', () => {
-    const a = custo(COMPRA, 'REVENDA')
-    expect(r.custoLiquido).toBeCloseTo(a.custoLiquido, 2)
-    expect(r.custoBruto - a.custoBruto).toBeCloseTo(89, 2)
-    expect(r.creditoTotal - a.creditoTotal).toBeCloseTo(89, 2)
-  })
-
-  it('CBS 88,00 e IBS 1,00, creditados integralmente (LC 214 art. 47)', () => {
-    expect(r.creditos.CBS).toBeCloseTo(88, 2)
-    expect(r.creditos.IBS).toBeCloseTo(1, 2)
-  })
-})
-
-describe('CASO E — revenda com IVA SEM crédito', () => {
-  const r = calcularCustoDoItem(COMPRA_IVA, resolverFlagsDoItem(ctx('REVENDA'), { CBS: false, IBS: false }))
-
-  it('bruto 1.189,00 · crédito 255,85 · líquido 933,15', () => {
-    expect(r.custoBruto).toBeCloseTo(1189.00, 2)
-    expect(r.creditoTotal).toBeCloseTo(255.85, 2)
-    expect(r.custoLiquido).toBeCloseTo(933.15, 2)
-  })
-
-  it('>>> e a diferença para o caso D é o IVA inteiro — R$ 89,00 <<<', () => {
-    expect(r.custoLiquido - custo(COMPRA_IVA, 'REVENDA').custoLiquido).toBeCloseTo(89, 2)
+  it('o custo por fração é o líquido dividido pela QTD. medida, e nada mais', () => {
+    expect(r.custoPorFracao).toBeCloseTo(r.custoLiquido / QTD_MEDIDA, 10)
   })
 })
 
-describe('CASO F — Simples e MEI: o imposto da compra está no DAS, nada credita', () => {
-  for (const regime of ['SIMPLES_NACIONAL', 'MEI']) {
-    it(`${regime}: bruto 1.100,00 · crédito 0,00 · líquido 1.100,00`, () => {
-      const r = custo(COMPRA, 'REVENDA', regime)
-      expect(r.custoBruto).toBeCloseTo(1100.00, 2)
-      expect(r.creditoTotal).toBe(0)
-      expect(r.custoLiquido).toBeCloseTo(1100.00, 2)
-    })
+describe('O que os nove casos, JUNTOS, provam — e um caso sozinho não provaria', () => {
+  const de = (n: string) => {
+    const c = CASOS.find((x) => x.nome.startsWith(n))!
+    return calcularCustoDoItem({ ...c.valores, qtdMedida: QTD_MEDIDA },
+      resolverFlagsDoItem({ ...ctx(c.destinacao, c.regime), ...(c.ctxExtra ?? {}) }, c.gravadas ?? {}))
   }
 
-  it('>>> e o motivo é VISÍVEL, não um zero mudo <<<', () => {
-    const f = resolverFlagsDoItem(ctx('REVENDA', 'SIMPLES_NACIONAL'), {})
-    expect(f.ICMS.vedado).toBe(true)
-    expect(f.ICMS.motivo).toMatch(/DAS|Simples/i)
-    expect(f.CBS.vedado).toBe(true)
+  it('>>> REGRESSÃO: o caso A é a conta do main, termo a termo <<<', () => {
+    const icms = 1000 * 0.18
+    const pisCofins = (1000 - icms) * 0.0925
+    expect(de('A').custoLiquido).toBeCloseTo(1000 - icms - pisCofins + 50 + 50, 10)
   })
 
-  it('a bandeira LIGADA pelo usuário não vence a vedação legal', () => {
-    const r = calcularCustoDoItem(COMPRA, resolverFlagsDoItem(
-      ctx('REVENDA', 'SIMPLES_NACIONAL'), { ICMS: true, PIS_COFINS: true, IPI: true },
-    ))
-    expect(r.creditoTotal).toBe(0)
-    expect(r.custoLiquido).toBeCloseTo(1100.00, 2)
+  it('>>> A e D têm o MESMO líquido e BRUTOS diferentes: só os três números distinguem <<<', () => {
+    expect(de('D').custoLiquido).toBeCloseTo(de('A').custoLiquido, 2)
+    expect(de('D').custoBruto - de('A').custoBruto).toBeCloseTo(89, 2)
+  })
+
+  it('>>> F e H têm o mesmo líquido por caminhos OPOSTOS: um credita 89, o outro não tem IVA <<<', () => {
+    expect(de('F').custoLiquido).toBeCloseTo(de('H').custoLiquido, 2)
+    expect(de('F').creditoTotal).toBeCloseTo(89, 2)
+    expect(de('H').creditoTotal).toBe(0)
+    expect(de('F').custoBruto - de('H').custoBruto).toBeCloseTo(89, 2)
+  })
+
+  it('>>> B − A = o IPI (50,00) · E − D = o IVA (89,00) · A − I = o PIS/COFINS (75,85) <<<', () => {
+    expect(de('A').custoLiquido - de('B').custoLiquido).toBeCloseTo(50, 2)
+    expect(de('E').custoLiquido - de('D').custoLiquido).toBeCloseTo(89, 2)
+    expect(de('I').custoLiquido - de('A').custoLiquido).toBeCloseTo(75.85, 2)
+  })
+
+  it('>>> G − F = o IVA inteiro: o fornecedor do Simples tira os dois créditos <<<', () => {
+    expect(de('G').custoLiquido - de('F').custoLiquido).toBeCloseTo(89, 2)
+  })
+})
+
+describe('O custo por fração: ausente não é zero', () => {
+  it('>>> sem QTD. medida não há fração a apurar, e o campo diz isso <<<', () => {
+    const semQtd = calcularCustoDoItem(COMPRA, resolverFlagsDoItem(ctx('REVENDA'), {}))
+    expect(semQtd.custoPorFracao).toBeNull()
+    expect(semQtd.custoLiquido).toBeCloseTo(844.15, 2)
+  })
+
+  it('QTD. medida 1 devolve o próprio líquido — e isso é apurado, não ausente', () => {
+    const um = calcularCustoDoItem({ ...COMPRA, qtdMedida: 1 }, resolverFlagsDoItem(ctx('REVENDA'), {}))
+    expect(um.custoPorFracao).toBeCloseTo(844.15, 2)
+  })
+
+  it('QTD. medida zero ou negativa NÃO vira divisão por zero: devolve null', () => {
+    for (const q of [0, -3]) {
+      const r = calcularCustoDoItem({ ...COMPRA, qtdMedida: q }, resolverFlagsDoItem(ctx('REVENDA'), {}))
+      expect(r.custoPorFracao).toBeNull()
+    }
+  })
+})
+
+describe('A BASE do PIS/COFINS é o ICMS DESTACADO, não o ICMS creditado (§7)', () => {
+  it('>>> com o ICMS sem crédito, o PIS/COFINS EXIBIDO continua sobre `base − ICMS` <<<', () => {
+    // Uso e consumo: o ICMS não credita, mas incidiu. A base do PIS/COFINS é a mesma.
+    const usoConsumo = calcularCustoDoItem(COMPRA, resolverFlagsDoItem(ctx('USO_CONSUMO'), {}))
+    expect(usoConsumo.valores.pisCofins).toBeCloseTo((1000 - 180) * 0.0925, 2)
+    expect(usoConsumo.valores.pisCofins).toBeCloseTo(75.85, 2)
+    // E NÃO os 92,50 que sairiam de `base × 9,25%` se a base ignorasse o ICMS destacado.
+    expect(usoConsumo.valores.pisCofins).not.toBeCloseTo(92.50, 2)
+  })
+
+  it('o crédito segue sendo zero ali — o valor existe, o crédito é que não', () => {
+    const usoConsumo = calcularCustoDoItem(COMPRA, resolverFlagsDoItem(ctx('USO_CONSUMO'), {}))
+    expect(usoConsumo.creditos.PIS_COFINS).toBe(0)
   })
 })
 
@@ -381,5 +417,93 @@ describe('Mudar um botão mostra quem é afetado, e não regrava ninguém', () =
     expect(houveMudancaDeCredito({ ipi_credit_enabled: null }, { ipi_credit_enabled: true })).toBe(true)
     expect(houveMudancaDeCredito({ ipi_credit_enabled: null }, { ipi_credit_enabled: false })).toBe(true)
     expect(houveMudancaDeCredito({ ipi_credit_enabled: false }, { ipi_credit_enabled: false })).toBe(false)
+  })
+})
+
+// ═════════════════════════════════════════════════════════════════════════════════════════
+// O FORNECEDOR DO SIMPLES — LC 214/2025 art. 47 §9º II
+// ═════════════════════════════════════════════════════════════════════════════════════════
+describe('Fornecedor do Simples sem regime regular veda o crédito de CBS e IBS', () => {
+  const comFornecedor = (over: Record<string, unknown> = {}) => resolverFlagsDoItem(
+    { ...ctx('REVENDA'), fornecedorSimplesSemRegimeRegular: true, ...over }, {},
+  )
+
+  it('>>> CBS e IBS ficam vedados, e o motivo cita o art. 47 <<<', () => {
+    const f = comFornecedor()
+    expect(f.CBS.ativo).toBe(false)
+    expect(f.IBS.ativo).toBe(false)
+    expect(f.CBS.motivo).toMatch(/47/)
+    expect(f.CBS.tipoVedacao).toBe('FORNECEDOR')
+  })
+
+  it('>>> e o EFEITO: o IVA da compra deixa de ser creditado e sobe no custo líquido <<<', () => {
+    const credita = calcularCustoDoItem(COMPRA_IVA, resolverFlagsDoItem(ctx('REVENDA'), {}))
+    const naoCredita = calcularCustoDoItem(COMPRA_IVA, comFornecedor())
+    expect(naoCredita.custoLiquido - credita.custoLiquido).toBeCloseTo(89, 2)
+    expect(naoCredita.custoLiquido).toBeCloseTo(933.15, 2)
+  })
+
+  it('ICMS, PIS/COFINS e IPI NÃO são afetados — a regra é só de IBS/CBS', () => {
+    const f = comFornecedor()
+    expect(f.ICMS.ativo).toBe(true)
+    expect(f.PIS_COFINS.ativo).toBe(true)
+    expect(f.ICMS.vedado).toBe(false)
+  })
+
+  it('>>> NÃO INFORMADO não veda: ausência não é proibição <<<', () => {
+    for (const v of [null, undefined, false]) {
+      const f = resolverFlagsDoItem({ ...ctx('REVENDA'), fornecedorSimplesSemRegimeRegular: v }, {})
+      expect(f.CBS.ativo).toBe(true)
+      expect(f.CBS.vedado).toBe(false)
+    }
+  })
+
+  it('a bandeira ligada à mão não vence a vedação do fornecedor', () => {
+    const f = resolverFlagsDoItem(
+      { ...ctx('REVENDA'), fornecedorSimplesSemRegimeRegular: true }, { CBS: true, IBS: true },
+    )
+    expect(f.CBS.ativo).toBe(false)
+  })
+})
+
+// ═════════════════════════════════════════════════════════════════════════════════════════
+// O TIPO DA VEDAÇÃO — é ele que decide se a TELA mostra botão
+// ═════════════════════════════════════════════════════════════════════════════════════════
+describe('Vedação de REGIME é estrutural; as outras dependem daquela compra', () => {
+  it('>>> no Simples Híbrido ICMS, PIS/COFINS e IPI são vedados por REGIME — sem botão <<<', () => {
+    const f = resolverFlagsDoItem(ctx('INSUMO', 'SIMPLES_HIBRIDO'), {})
+    for (const t of ['ICMS', 'PIS_COFINS', 'IPI'] as const) {
+      expect(f[t].vedado).toBe(true)
+      expect(f[t].tipoVedacao).toBe('REGIME')
+      expect(f[t].motivo).toMatch(/DAS/i)
+    }
+    // CBS e IBS seguem com botão, porque é o que o híbrido apura pelo regime regular.
+    expect(f.CBS.ativo).toBe(true)
+    expect(f.CBS.tipoVedacao).toBeUndefined()
+  })
+
+  it('Simples Nacional e MEI: os cinco por REGIME', () => {
+    for (const r of ['SIMPLES_NACIONAL', 'MEI']) {
+      const f = resolverFlagsDoItem(ctx('INSUMO', r), {})
+      for (const t of ['ICMS', 'PIS_COFINS', 'IPI', 'CBS', 'IBS'] as const) {
+        expect(f[t].tipoVedacao).toBe('REGIME')
+      }
+    }
+  })
+
+  it('>>> CST e destaque são de COMPRA, não de regime — tipo diferente, botão existe <<<', () => {
+    expect(resolverFlagsDoItem({ ...ctx('INSUMO'), cstIcms: '60' }, {}).ICMS.tipoVedacao).toBe('CST')
+    expect(resolverFlagsDoItem({ ...ctx('REVENDA'), cstIbsCbs: { indGibscbs: false } }, {}).CBS.tipoVedacao)
+      .toBe('IVA_SEM_DESTAQUE')
+  })
+
+  it('>>> o Lucro Presumido NÃO veda PIS/COFINS: nasce desligado e o usuário pode ligar <<<', () => {
+    const f = resolverFlagsDoItem(ctx('INSUMO', 'LUCRO_PRESUMIDO'), {})
+    expect(f.PIS_COFINS.ativo).toBe(false)
+    expect(f.PIS_COFINS.vedado).toBe(false)
+    expect(f.PIS_COFINS.tipoVedacao).toBeUndefined()
+    // E ligado à mão, ele credita — é o que distingue padrão de vedação.
+    const ligado = resolverFlagsDoItem(ctx('INSUMO', 'LUCRO_PRESUMIDO'), { PIS_COFINS: true })
+    expect(calcularCustoDoItem(COMPRA, ligado).creditos.PIS_COFINS).toBeGreaterThan(0)
   })
 })

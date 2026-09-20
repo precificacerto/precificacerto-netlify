@@ -1,4 +1,11 @@
 import { supabase } from '@/supabase/client'
+import {
+  creditoRecuperavelDaCompra,
+  montarBlocoDeCustoDosProdutos,
+  ordemDaLinhaDeApresentacao,
+  LINHAS_DE_APRESENTACAO_DO_CUSTO,
+  type RegimeDoBloco,
+} from '@/utils/custo-produtos-no-dre'
 import { HUB_GROUPS as HUB_GROUPS_FONTE } from '@/constants/expense-groups'
 import { CASHIER_CATEGORY } from '@/constants/cashier-category'
 
@@ -40,34 +47,58 @@ const CATEGORY_LABEL_MAP: Record<string, string> = Object.fromEntries(
   Object.values(CASHIER_CATEGORY.EXPENSE).map((c: any) => [c.key, c.value])
 )
 
-// Labels das sub-categorias virtuais de impostos (Lucro Real / Simples Híbrido — Custo dos Produtos)
+/** A chave do grupo, uma vez só. Não é lista de grupos — a lista vive em `expense-groups.ts`. */
+const GRUPO_CUSTO_PRODUTOS = 'CUSTO_PRODUTOS'
+
+// Rótulos das duas SUB-ROWS DE APRESENTAÇÃO do bloco Custo dos Produtos.
+//
+// Antes daqui havia SEIS sub-rows, uma por tributo (`LR_ICMS_CUSTO` e companhia), e a
+// categoria carregava o custo JÁ LÍQUIDO. O comando do PO de 21/09/2026, §9, troca isso por
+// bloco de três linhas: a categoria volta a carregar o BRUTO, e a dedução e o subtotal são
+// duas linhas próprias. O total do grupo não muda em nenhum dos dois desenhos — ele vem de
+// `expenseByGroupByMonth`, que sempre somou o `amount` cheio.
 const LR_TAX_CATEGORY_LABELS: Record<string, string> = {
-  'LR_ICMS_CUSTO':       'ICMS (custo produto)',
-  'LR_PIS_COFINS_CUSTO': 'PIS/COFINS (custo produto)',
-  'LR_IPI_CUSTO':        'IPI (custo produto)',
-  'LR_CBS_CUSTO':        'CBS (custo produto)',
-  'LR_IBS_CUSTO':        'IBS (custo produto)',
+  [LINHAS_DE_APRESENTACAO_DO_CUSTO.creditos.key]: LINHAS_DE_APRESENTACAO_DO_CUSTO.creditos.label,
+  [LINHAS_DE_APRESENTACAO_DO_CUSTO.liquido.key]: LINHAS_DE_APRESENTACAO_DO_CUSTO.liquido.label,
 }
 
-/** Mescla PIS e COFINS em uma linha única "PIS/COFINS" no mapa de categorias. */
-function mergePisCofins(expenseByCategoryByMonth: Record<string, { group: string; values: Record<string, number> }>) {
-  const pisData = expenseByCategoryByMonth['LR_PIS_CUSTO']
-  const cofinsData = expenseByCategoryByMonth['LR_COFINS_CUSTO']
-  if (!pisData && !cofinsData) return
-  const group = pisData?.group || cofinsData?.group || 'CUSTO_PRODUTOS'
-  const allMonths = new Set([
-    ...Object.keys(pisData?.values ?? {}),
-    ...Object.keys(cofinsData?.values ?? {}),
-  ])
-  const merged: Record<string, number> = {}
-  for (const m of allMonths) {
-    merged[m] = (pisData?.values[m] ?? 0) + (cofinsData?.values[m] ?? 0)
+/**
+ * Acrescenta ao mapa de categorias as DUAS LINHAS DE APRESENTAÇÃO do bloco Custo dos Produtos.
+ *
+ * >>> O QUE ESTA FUNÇÃO NÃO FAZ <<<
+ *
+ * Ela não toca `expenseByGroupByMonth`, que é de onde saem o total do grupo e o "Total
+ * Despesas" da tela. É essa separação que garante a restrição do §9: **o resultado do mês não
+ * pode mudar**. As duas linhas são detalhe dentro do grupo, como as categorias já eram.
+ *
+ * O bloco só existe quando há crédito a mostrar — em Simples e MEI, `creditoRecuperavelDaCompra`
+ * devolve zero e nada é acrescentado.
+ */
+function acrescentaBlocoDeCustoDosProdutos(
+  expenseByCategoryByMonth: Record<string, { group: string; values: HubMonthData }>,
+  brutoPorMes: HubMonthData,
+  creditoPorMes: HubMonthData,
+  regime: RegimeDoBloco,
+) {
+  for (const monthKey of Object.keys(brutoPorMes)) {
+    const bloco = montarBlocoDeCustoDosProdutos({
+      valorBrutoPago: brutoPorMes[monthKey] || 0,
+      creditoRecuperavel: creditoPorMes[monthKey] || 0,
+      regime,
+    })
+    // Uma linha só = não há crédito naquele mês, e o bloco não se decompõe.
+    if (bloco.linhas.length < 3) continue
+
+    const add = (key: string, val: number) => {
+      if (!expenseByCategoryByMonth[key]) {
+        expenseByCategoryByMonth[key] = { group: GRUPO_CUSTO_PRODUTOS, values: {} }
+      }
+      expenseByCategoryByMonth[key].values[monthKey] =
+        (expenseByCategoryByMonth[key].values[monthKey] || 0) + val
+    }
+    add(LINHAS_DE_APRESENTACAO_DO_CUSTO.creditos.key, bloco.linhas[1].valor)
+    add(LINHAS_DE_APRESENTACAO_DO_CUSTO.liquido.key, bloco.linhas[2].valor)
   }
-  if (Object.values(merged).some(v => v > 0)) {
-    expenseByCategoryByMonth['LR_PIS_COFINS_CUSTO'] = { group, values: merged }
-  }
-  delete expenseByCategoryByMonth['LR_PIS_CUSTO']
-  delete expenseByCategoryByMonth['LR_COFINS_CUSTO']
 }
 
 // Mapa de categoryKey → order (para ordenação)
@@ -89,6 +120,17 @@ const HUB_GROUPS = HUB_GROUPS_FONTE
  *   averagePct = (soma_grupo / soma_INCOME) × 100
  */
 export async function calculateHubData(tenantId: string): Promise<HubData> {
+  // O REGIME decide QUAIS tributos da compra são recuperáveis — e sem ele o Híbrido deduziria
+  // ICMS, PIS/COFINS e IPI, que ali estão dentro do DAS e COMPÕEM o custo. Ver
+  // `custo-produtos-no-dre.ts`. Ausente = trata como regime discriminado, o comportamento
+  // de antes.
+  const { data: cfgRegime } = await supabase
+    .from('tenant_settings')
+    .select('tax_regime')
+    .eq('tenant_id', tenantId)
+    .maybeSingle()
+  const regimeDoTenant = (cfgRegime as { tax_regime?: string } | null)?.tax_regime ?? null
+
   const now = new Date()
   // Limite: último dia do mês ANTERIOR (exclui mês corrente para não distorcer médias de precificação).
   const lastDayDate = new Date(now.getFullYear(), now.getMonth(), 0)
@@ -112,6 +154,10 @@ export async function calculateHubData(tenantId: string): Promise<HubData> {
   const expenseByGroupByMonth: Record<string, HubMonthData> = {}
   // { categoryKey -> { group, values: { monthKey -> total } } }
   const expenseByCategoryByMonth: Record<string, { group: string; values: HubMonthData }> = {}
+  // O bloco Custo dos Produtos é montado DEPOIS do laço, a partir destes dois acumuladores:
+  // o subtotal líquido é do GRUPO INTEIRO no mês, não de uma entrada.
+  const custoProdutosBrutoPorMes: HubMonthData = {}
+  const creditoDeCompraPorMes: HubMonthData = {}
 
   for (const entry of entries) {
     // Extrai YYYY-MM direto da string para evitar problema de timezone:
@@ -146,41 +192,37 @@ export async function calculateHubData(tenantId: string): Promise<HubData> {
           expenseByCategoryByMonth[catKey] = { group: entry.expense_group, values: {} }
         }
 
-        // Para CUSTO_PRODUTOS com breakdown LR/Simples Híbrido: valor da categoria = amount − impostos recuperáveis
-        // (os impostos aparecem como sub-rows somados separadamente)
-        const isCustoProdutos = entry.expense_group === 'CUSTO_PRODUTOS'
-        const taxDeduction = (hasLrBreakdown && isCustoProdutos)
-          ? (Number(entry.valor_icms) || 0) + (Number(entry.valor_pis) || 0)
-            + (Number(entry.valor_cofins) || 0) + (Number(entry.valor_ipi) || 0)
-            + (Number(entry.valor_cbs) || 0) + (Number(entry.valor_ibs) || 0)
-          : 0
+        const isCustoProdutos = entry.expense_group === GRUPO_CUSTO_PRODUTOS
 
+        // A CATEGORIA CARREGA O BRUTO. Antes ela carregava `amount − impostos`, e a dedução
+        // aparecia como seis sub-rows POSITIVAS dentro do custo — o §9 do comando de
+        // 21/09/2026 tira a dedução de dentro do custo e a transforma em linha própria, com
+        // subtotal. Ver `custo-produtos-no-dre.ts`.
         expenseByCategoryByMonth[catKey].values[monthKey] =
-          (expenseByCategoryByMonth[catKey].values[monthKey] || 0) + amount - taxDeduction
+          (expenseByCategoryByMonth[catKey].values[monthKey] || 0) + amount
 
-        // Sub-rows de impostos (Lucro Real / Simples Híbrido — Custo dos Produtos): somados de todas as categorias
-        if (hasLrBreakdown && isCustoProdutos) {
-          const addTaxCat = (key: string, val: number) => {
-            if (!val) return
-            if (!expenseByCategoryByMonth[key]) {
-              expenseByCategoryByMonth[key] = { group: entry.expense_group as string, values: {} }
-            }
-            expenseByCategoryByMonth[key].values[monthKey] =
-              (expenseByCategoryByMonth[key].values[monthKey] || 0) + val
+        if (isCustoProdutos) {
+          custoProdutosBrutoPorMes[monthKey] = (custoProdutosBrutoPorMes[monthKey] || 0) + amount
+          // A SOMA SAI DA FONTE ÚNICA. Ela estava escrita à mão aqui E em
+          // `pages/dre/[year].tsx`, somando os seis `valor_*` dos dois lados —
+          // `copia-divergente.md` literal. Agora acrescentar um tributo ao crédito vale para as
+          // duas leituras, e é o REGIME que decide quais entram.
+          if (hasLrBreakdown) {
+            creditoDeCompraPorMes[monthKey] = (creditoDeCompraPorMes[monthKey] || 0)
+              + creditoRecuperavelDaCompra({
+                icms: entry.valor_icms, pis: entry.valor_pis, cofins: entry.valor_cofins,
+                ipi: entry.valor_ipi, cbs: entry.valor_cbs, ibs: entry.valor_ibs,
+              }, regimeDoTenant)
           }
-          addTaxCat('LR_ICMS_CUSTO', Number(entry.valor_icms) || 0)
-          addTaxCat('LR_PIS_CUSTO', Number(entry.valor_pis) || 0)
-          addTaxCat('LR_COFINS_CUSTO', Number(entry.valor_cofins) || 0)
-          addTaxCat('LR_IPI_CUSTO', Number(entry.valor_ipi) || 0)
-          addTaxCat('LR_CBS_CUSTO', Number(entry.valor_cbs) || 0)
-          addTaxCat('LR_IBS_CUSTO', Number(entry.valor_ibs) || 0)
         }
       }
     }
   }
 
   // Merge PIS + COFINS em linha única PIS/COFINS
-  mergePisCofins(expenseByCategoryByMonth)
+  acrescentaBlocoDeCustoDosProdutos(
+    expenseByCategoryByMonth, custoProdutosBrutoPorMes, creditoDeCompraPorMes, regimeDoTenant,
+  )
 
   // Lista de meses ordenados que tiveram algum lançamento
   const allMonthsSet = new Set<string>([
@@ -206,7 +248,10 @@ export async function calculateHubData(tenantId: string): Promise<HubData> {
       // Sub-rows: categorias com dados dentro deste grupo, ordenadas por order
       const subRows: HubSubRow[] = Object.entries(expenseByCategoryByMonth)
         .filter(([, cd]) => cd.group === g.group)
-        .sort(([a], [b]) => (CATEGORY_ORDER_MAP[a] ?? 999) - (CATEGORY_ORDER_MAP[b] ?? 999))
+        .sort(([a], [b]) => (
+          (ordemDaLinhaDeApresentacao(a) ?? CATEGORY_ORDER_MAP[a] ?? 999)
+          - (ordemDaLinhaDeApresentacao(b) ?? CATEGORY_ORDER_MAP[b] ?? 999)
+        ))
         .map(([catKey, cd]) => {
           const catValues = cd.values
           const catTotalSum = Object.values(catValues).reduce((s, v) => s + v, 0)
@@ -249,6 +294,17 @@ export async function calculateHubData(tenantId: string): Promise<HubData> {
  * mantendo a base sempre no mês mais recente e completo.
  */
 export async function calculateHubDataPrevMonth(tenantId: string): Promise<HubData> {
+  // O REGIME decide QUAIS tributos da compra são recuperáveis — e sem ele o Híbrido deduziria
+  // ICMS, PIS/COFINS e IPI, que ali estão dentro do DAS e COMPÕEM o custo. Ver
+  // `custo-produtos-no-dre.ts`. Ausente = trata como regime discriminado, o comportamento
+  // de antes.
+  const { data: cfgRegime } = await supabase
+    .from('tenant_settings')
+    .select('tax_regime')
+    .eq('tenant_id', tenantId)
+    .maybeSingle()
+  const regimeDoTenant = (cfgRegime as { tax_regime?: string } | null)?.tax_regime ?? null
+
   const now = new Date()
   // Cutoff: primeiro dia do mês atual (excluir mês em andamento)
   const cutoffStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
@@ -274,6 +330,10 @@ export async function calculateHubDataPrevMonth(tenantId: string): Promise<HubDa
   const incomeByMonth: HubMonthData = {}
   const expenseByGroupByMonth: Record<string, HubMonthData> = {}
   const expenseByCategoryByMonth: Record<string, { group: string; values: HubMonthData }> = {}
+  // O bloco Custo dos Produtos é montado DEPOIS do laço, a partir destes dois acumuladores:
+  // o subtotal líquido é do GRUPO INTEIRO no mês, não de uma entrada.
+  const custoProdutosBrutoPorMes: HubMonthData = {}
+  const creditoDeCompraPorMes: HubMonthData = {}
 
   for (const entry of entries) {
     const monthKey = (entry.due_date as string).substring(0, 7) // 'YYYY-MM'
@@ -297,37 +357,36 @@ export async function calculateHubDataPrevMonth(tenantId: string): Promise<HubDa
           expenseByCategoryByMonth[catKey] = { group: entry.expense_group, values: {} }
         }
 
-        const isCustoProdutos = entry.expense_group === 'CUSTO_PRODUTOS'
-        const taxDeduction = (hasLrBreakdown && isCustoProdutos)
-          ? (Number(entry.valor_icms) || 0) + (Number(entry.valor_pis) || 0)
-            + (Number(entry.valor_cofins) || 0) + (Number(entry.valor_ipi) || 0)
-            + (Number(entry.valor_cbs) || 0) + (Number(entry.valor_ibs) || 0)
-          : 0
+        const isCustoProdutos = entry.expense_group === GRUPO_CUSTO_PRODUTOS
 
+        // A CATEGORIA CARREGA O BRUTO. Antes ela carregava `amount − impostos`, e a dedução
+        // aparecia como seis sub-rows POSITIVAS dentro do custo — o §9 do comando de
+        // 21/09/2026 tira a dedução de dentro do custo e a transforma em linha própria, com
+        // subtotal. Ver `custo-produtos-no-dre.ts`.
         expenseByCategoryByMonth[catKey].values[monthKey] =
-          (expenseByCategoryByMonth[catKey].values[monthKey] || 0) + amount - taxDeduction
+          (expenseByCategoryByMonth[catKey].values[monthKey] || 0) + amount
 
-        if (hasLrBreakdown && isCustoProdutos) {
-          const addTaxCat = (key: string, val: number) => {
-            if (!val) return
-            if (!expenseByCategoryByMonth[key]) {
-              expenseByCategoryByMonth[key] = { group: entry.expense_group as string, values: {} }
-            }
-            expenseByCategoryByMonth[key].values[monthKey] =
-              (expenseByCategoryByMonth[key].values[monthKey] || 0) + val
+        if (isCustoProdutos) {
+          custoProdutosBrutoPorMes[monthKey] = (custoProdutosBrutoPorMes[monthKey] || 0) + amount
+          // A SOMA SAI DA FONTE ÚNICA. Ela estava escrita à mão aqui E em
+          // `pages/dre/[year].tsx`, somando os seis `valor_*` dos dois lados —
+          // `copia-divergente.md` literal. Agora acrescentar um tributo ao crédito vale para as
+          // duas leituras, e é o REGIME que decide quais entram.
+          if (hasLrBreakdown) {
+            creditoDeCompraPorMes[monthKey] = (creditoDeCompraPorMes[monthKey] || 0)
+              + creditoRecuperavelDaCompra({
+                icms: entry.valor_icms, pis: entry.valor_pis, cofins: entry.valor_cofins,
+                ipi: entry.valor_ipi, cbs: entry.valor_cbs, ibs: entry.valor_ibs,
+              }, regimeDoTenant)
           }
-          addTaxCat('LR_ICMS_CUSTO', Number(entry.valor_icms) || 0)
-          addTaxCat('LR_PIS_CUSTO', Number(entry.valor_pis) || 0)
-          addTaxCat('LR_COFINS_CUSTO', Number(entry.valor_cofins) || 0)
-          addTaxCat('LR_IPI_CUSTO', Number(entry.valor_ipi) || 0)
-          addTaxCat('LR_CBS_CUSTO', Number(entry.valor_cbs) || 0)
-          addTaxCat('LR_IBS_CUSTO', Number(entry.valor_ibs) || 0)
         }
       }
     }
   }
 
-  mergePisCofins(expenseByCategoryByMonth)
+  acrescentaBlocoDeCustoDosProdutos(
+    expenseByCategoryByMonth, custoProdutosBrutoPorMes, creditoDeCompraPorMes, regimeDoTenant,
+  )
 
   const allMonthsSet = new Set<string>([
     ...Object.keys(incomeByMonth),
@@ -349,7 +408,10 @@ export async function calculateHubDataPrevMonth(tenantId: string): Promise<HubDa
 
       const subRows: HubSubRow[] = Object.entries(expenseByCategoryByMonth)
         .filter(([, cd]) => cd.group === g.group)
-        .sort(([a], [b]) => (CATEGORY_ORDER_MAP[a] ?? 999) - (CATEGORY_ORDER_MAP[b] ?? 999))
+        .sort(([a], [b]) => (
+          (ordemDaLinhaDeApresentacao(a) ?? CATEGORY_ORDER_MAP[a] ?? 999)
+          - (ordemDaLinhaDeApresentacao(b) ?? CATEGORY_ORDER_MAP[b] ?? 999)
+        ))
         .map(([catKey, cd]) => {
           const catValues = cd.values
           const catTotalSum = Object.values(catValues).reduce((s, v) => s + v, 0)

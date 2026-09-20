@@ -1024,6 +1024,8 @@ function Items() {
         cst_icms: values.cst_icms || null,
         cst_ipi: values.cst_ipi || null,
         cst_pis_cofins: values.cst_pis_cofins || null,
+        // LC 214/2025 art. 47 §9º II. `?? null` — não informado não é "não é do Simples".
+        supplier_simples_sem_regime_regular: values.supplier_simples_sem_regime_regular ?? null,
         cost_per_base_unit: costPerBaseUnit,
         icms_rate: hasItemTaxes ? (Number(values.icms_rate) || 0) : 0,
         // Lucro Real: campo único pis_cofins_rate dividido proporcionalmente (1,65/9,25 e 7,6/9,25).

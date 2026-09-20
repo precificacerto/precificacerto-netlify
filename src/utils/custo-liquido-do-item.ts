@@ -70,6 +70,15 @@ export interface ValoresDaCompra {
   /** DIFAL: as duas alíquotas, em PERCENTUAL. SEMPRE custo. */
   difalOrigemPct?: number | null
   difalDestinoPct?: number | null
+  /**
+   * QTD. MEDIDA — em quantas frações a unidade comprada se divide (6 metros, 500 ml, 20 kg).
+   *
+   * É o que a receita do produto consome, e por isso o custo POR FRAÇÃO é o número que a
+   * precificação de fato usa. Ausente ou não positiva NÃO vira 1: devolve `null` em
+   * `custoPorFracao`, porque "uma unidade" é uma afirmação sobre o item, e dividir por zero
+   * é um erro disfarçado de resultado.
+   */
+  qtdMedida?: number | null
 }
 
 /** De onde saiu o estado da bandeira — é isto que torna "ausente ≠ desligada" verificável. */
@@ -78,10 +87,22 @@ export type OrigemDaBandeira = 'gravada' | 'padrao' | 'vedacao'
 export interface BandeiraDeCredito {
   /** O crédito é tomado? */
   ativo: boolean
-  /** A lei proíbe. O botão fica DESABILITADO, e `motivo` diz por quê. */
+  /** A lei proíbe. `motivo` diz por quê. */
   vedado: boolean
   motivo?: string
   origem: OrigemDaBandeira
+  /**
+   * QUE TIPO de vedação — e a distinção decide a TELA, não a conta.
+   *
+   * `REGIME` é estrutural: naquele regime aquele tributo NUNCA credita, para item nenhum.
+   * A linha aparece SEM BOTÃO, porque um botão desabilitado convida a perguntar "o que
+   * preciso mudar para habilitar?", e a resposta é "nada — mude de regime".
+   *
+   * `CST`, `FORNECEDOR` e `IVA_SEM_DESTAQUE` dependem DAQUELA COMPRA: outra nota, do mesmo
+   * item, pode creditar. Aí o botão existe, desabilitado, com o cadeado e o motivo — porque
+   * o usuário PODE mudar o dado que o bloqueia.
+   */
+  tipoVedacao?: 'REGIME' | 'CST' | 'FORNECEDOR' | 'IVA_SEM_DESTAQUE'
 }
 
 export type BandeirasDeCredito = Record<TributoCreditavel, BandeiraDeCredito>
@@ -102,6 +123,19 @@ export interface ContextoDoItem {
   cstIbsCbs?: { indGibscbs?: boolean | null } | null
   /** A linha de `cclass_trib` da nota, quando informada. */
   cclassTrib?: { indEstornoCred?: boolean | null } | null
+  /**
+   * O fornecedor é optante do Simples e NÃO aderiu ao regime regular de IBS/CBS.
+   *
+   * LC 214/2025 art. 47 §9º II: nesse caso o crédito do adquirente fica limitado ao que o
+   * fornecedor recolheu DENTRO do DAS — que não é destacado na nota e não é apurável aqui.
+   * O crédito é bloqueado em vez de estimado: estimar produziria um número que ninguém
+   * apurou (`ausente-vs-falso.md`), e ele entraria no custo como se fosse fato.
+   *
+   * É propriedade DA COMPRA, não do regime do comprador — por isso a vedação é do tipo
+   * `FORNECEDOR` e o botão continua existindo, desabilitado: outra nota do mesmo item, de
+   * outro fornecedor, credita normalmente.
+   */
+  fornecedorSimplesSemRegimeRegular?: boolean | null
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────
@@ -247,10 +281,20 @@ export function resolverFlagsDoItem(
 
   const resolver = (t: TributoCreditavel): BandeiraDeCredito => {
     const veda = vedacaoPorRegime(t, regime)
-    if (veda) return { ativo: false, vedado: true, motivo: veda, origem: 'vedacao' }
+    if (veda) return { ativo: false, vedado: true, motivo: veda, origem: 'vedacao', tipoVedacao: 'REGIME' }
+
+    if ((t === 'CBS' || t === 'IBS') && ctx.fornecedorSimplesSemRegimeRegular === true) {
+      return {
+        ativo: false,
+        vedado: true,
+        motivo: 'Fornecedor optante do Simples que não aderiu ao regime regular: o crédito fica limitado ao recolhido no DAS, que a nota não destaca (LC 214/2025 art. 47 §9º II).',
+        origem: 'vedacao',
+        tipoVedacao: 'FORNECEDOR',
+      }
+    }
 
     if ((t === 'CBS' || t === 'IBS') && vedacaoIva.vedado) {
-      return { ativo: false, vedado: true, motivo: vedacaoIva.motivo, origem: 'vedacao' }
+      return { ativo: false, vedado: true, motivo: vedacaoIva.motivo, origem: 'vedacao', tipoVedacao: 'IVA_SEM_DESTAQUE' }
     }
 
     const { ok, cst } = cstDe(t)
@@ -260,6 +304,7 @@ export function resolverFlagsDoItem(
         vedado: true,
         motivo: `CST ${cst} na nota de compra não admite crédito de ${t === 'PIS_COFINS' ? 'PIS/COFINS' : t}.`,
         origem: 'vedacao',
+        tipoVedacao: 'CST',
       }
     }
 
@@ -307,6 +352,13 @@ export interface CustoDoItem {
   custoBruto: number
   /** `bruto − créditos` — o numerador da precificação. */
   custoLiquido: number
+  /**
+   * `líquido ÷ QTD. medida` — o custo de UMA fração da unidade de medida.
+   *
+   * `null` quando a QTD. medida não foi informada ou não é positiva. Não é zero, e não é o
+   * próprio líquido: os dois afirmariam uma divisão que ninguém fez.
+   */
+  custoPorFracao: number | null
   /** O crédito de cada tributo, em R$. Zero quando a bandeira está desligada ou vedada. */
   creditos: Record<TributoCreditavel, number>
   creditoTotal: number
@@ -359,8 +411,20 @@ export function calcularCustoDoItem(
   const icmsVal = icmsEfetivoPct == null ? null : base * icmsEfetivoPct / 100
   const icmsCred = bandeiras.ICMS.ativo ? (icmsVal ?? 0) : 0
 
+  /**
+   * A BASE É O ICMS DESTACADO, NÃO O CREDITADO — §7 do comando de 21/09/2026.
+   *
+   * O ICMS integra a base do PIS/COFINS na entrada porque ele está no PREÇO, e o preço não
+   * muda conforme o adquirente credite ou não. Usar `icmsCred` aqui faria o VALOR exibido do
+   * PIS/COFINS mudar quando o usuário desligasse o botão do ICMS — dois tributos amarrados
+   * por uma decisão que só diz respeito a um deles.
+   *
+   * O líquido não muda nos casos em que o ICMS credita (`icmsCred === icmsVal`), e é por isso
+   * que a diferença só aparece em uso e consumo, no Híbrido e no fornecedor do Simples: ali o
+   * exibido ia para R$ 92,50 em vez dos R$ 75,85 da nota.
+   */
   const pisCofinsPct = pct(valores.pisCofinsPct)
-  const pisCofinsVal = pisCofinsPct == null ? null : (base - icmsCred) * pisCofinsPct / 100
+  const pisCofinsVal = pisCofinsPct == null ? null : (base - (icmsVal ?? 0)) * pisCofinsPct / 100
   const pisCofinsCred = bandeiras.PIS_COFINS.ativo ? (pisCofinsVal ?? 0) : 0
 
   const ipiPct = pct(valores.ipiPct)
@@ -383,9 +447,14 @@ export function calcularCustoDoItem(
   const custoBruto = base + (ipiVal ?? 0) + icmsSt + difal + fcp + (cbsVal ?? 0) + (ibsVal ?? 0)
   const creditoTotal = icmsCred + pisCofinsCred + ipiCred + cbsCred + ibsCred
 
+  const custoLiquido = custoBruto - creditoTotal
+  const qtdMedida = Number(valores.qtdMedida)
+  const fracionavel = Number.isFinite(qtdMedida) && qtdMedida > 0
+
   return {
     custoBruto,
-    custoLiquido: custoBruto - creditoTotal,
+    custoLiquido,
+    custoPorFracao: fracionavel ? custoLiquido / qtdMedida : null,
     creditos: { ICMS: icmsCred, PIS_COFINS: pisCofinsCred, IPI: ipiCred, CBS: cbsCred, IBS: ibsCred },
     creditoTotal,
     valores: { icms: icmsVal, pisCofins: pisCofinsVal, ipi: ipiVal, cbs: cbsVal, ibs: ibsVal, icmsSt, difal, fcp },

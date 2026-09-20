@@ -10,7 +10,7 @@
  * conta aqui seria a cópia que `copia-divergente.md` cataloga, e ela fecharia consigo mesma.
  */
 import React from 'react'
-import { Form, Select, Switch, Tooltip } from 'antd'
+import { Checkbox, Form, Select, Switch, Tooltip } from 'antd'
 import { InfoCircleOutlined, LockOutlined } from '@ant-design/icons'
 import PercentInput from '@/components/percent-input.component'
 import { getMonetaryValue } from '@/utils/get-monetary-value'
@@ -91,11 +91,11 @@ interface Props {
   onRecalc: () => void
   /** O bloco não existe em Simples e MEI. */
   visivel: boolean
-  /** No Simples Híbrido só CBS e IBS têm botão — os outros três estão no DAS. */
-  apenasIva: boolean
+  /** Rótulo da unidade de medida escolhida — "metro", "ml", "kg". Para o quarto número. */
+  unidadeLabel?: string
 }
 
-export function PurchaseTaxCredits({ bandeiras, custo, onToggle, onRecalc, visivel, apenasIva }: Props) {
+export function PurchaseTaxCredits({ bandeiras, custo, onToggle, onRecalc, visivel, unidadeLabel }: Props) {
   if (!visivel) return null
 
   const linha = (t: TributoCreditavel, valor: number | null | undefined, extra?: React.ReactNode) => {
@@ -105,7 +105,7 @@ export function PurchaseTaxCredits({ bandeiras, custo, onToggle, onRecalc, visiv
       <div
         key={t}
         style={{
-          display: 'grid', gridTemplateColumns: '150px 1fr 160px', gap: 12, alignItems: 'center',
+          display: 'grid', gridTemplateColumns: '140px 1fr 150px 130px', gap: 12, alignItems: 'center',
           padding: '10px 0', borderBottom: '1px solid rgba(148,163,184,0.12)',
         }}
       >
@@ -121,25 +121,57 @@ export function PurchaseTaxCredits({ bandeiras, custo, onToggle, onRecalc, visiv
           <span style={{ color: '#94a3b8', fontSize: 13, minWidth: 92 }}>{fmt(valor)}</span>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end' }}>
-          <Switch
-            size="small"
-            checked={!!b?.ativo}
-            disabled={!!b?.vedado}
-            onChange={(v) => onToggle(t, v)}
-          />
-          <span style={{ fontSize: 12, color: b?.vedado ? '#fca5a5' : '#94a3b8' }}>gera crédito</span>
-          {/*
-            O MOTIVO É VISÍVEL, e não só o botão cinza. Um botão desabilitado sem explicação
-            faz o usuário achar que o sistema está quebrado; com o motivo, ele aprende a
-            regra. É a mesma razão do rótulo "% médio" em `decomposicao-na-tela.md`.
-          */}
-          {b?.vedado && b.motivo && (
-            <Tooltip title={b.motivo}>
-              <LockOutlined style={{ color: '#fca5a5' }} />
-            </Tooltip>
-          )}
-        </div>
+        {/*
+          VEDAÇÃO DE REGIME NÃO TEM BOTÃO — e a distinção é deliberada.
+          Naquele regime o tributo NUNCA credita, para item nenhum: um botão desabilitado
+          convidaria a perguntar "o que preciso mudar para habilitar?", e a resposta seria
+          "nada — mude de regime". A linha diz onde o tributo está, e isso é a informação.
+          As outras vedações (CST, fornecedor, sem destaque) dependem DAQUELA COMPRA: ali o
+          botão existe, desabilitado, porque o usuário pode mudar o dado que o bloqueia.
+        */}
+        {b?.tipoVedacao === 'REGIME' ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end' }}>
+            <span style={{ fontSize: 12, color: '#fca5a5' }}>dentro do DAS — compõe o custo</span>
+            {b.motivo && (
+              <Tooltip title={b.motivo}>
+                <InfoCircleOutlined style={{ color: '#64748b' }} />
+              </Tooltip>
+            )}
+          </div>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end' }}>
+            <Switch
+              size="small"
+              checked={!!b?.ativo}
+              disabled={!!b?.vedado}
+              onChange={(v) => onToggle(t, v)}
+            />
+            <span style={{ fontSize: 12, color: b?.vedado ? '#fca5a5' : '#94a3b8' }}>gera crédito</span>
+            {/*
+              O MOTIVO É VISÍVEL, e não só o botão cinza. Um botão desabilitado sem explicação
+              faz o usuário achar que o sistema está quebrado; com o motivo, ele aprende a
+              regra. É a mesma razão do rótulo "% médio" em `decomposicao-na-tela.md`.
+            */}
+            {b?.vedado && b.motivo && (
+              <Tooltip title={b.motivo}>
+                <LockOutlined style={{ color: '#fca5a5' }} />
+              </Tooltip>
+            )}
+          </div>
+        )}
+
+        {/*
+          EFEITO NO CUSTO — a coluna que responde a pergunta que o usuário de fato tem.
+          "Gera crédito" é a causa; "sai do custo" é a consequência, e é ela que explica por
+          que o número do rodapé mudou. Sem esta coluna o usuário liga um botão e vê o total
+          mexer sem saber qual linha o moveu.
+        */}
+        <span style={{
+          fontSize: 12, textAlign: 'right',
+          color: b?.ativo ? '#22C55E' : '#94a3b8',
+        }}>
+          {b?.ativo ? 'sai do custo' : 'soma no custo'}
+        </span>
       </div>
     )
   }
@@ -179,9 +211,27 @@ export function PurchaseTaxCredits({ bandeiras, custo, onToggle, onRecalc, visiv
         />
       </Form.Item>
 
-      {!apenasIva && linha('ICMS', v?.icms)}
-      {!apenasIva && linha('PIS_COFINS', v?.pisCofins)}
-      {!apenasIva && linha('IPI', v?.ipi)}
+      {/* O cabeçalho da tabela — as seis colunas do §6. */}
+      <div style={{
+        display: 'grid', gridTemplateColumns: '140px 1fr 150px 130px', gap: 12,
+        fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.4,
+        paddingBottom: 6, borderBottom: '1px solid rgba(148,163,184,0.2)', marginTop: 8,
+      }}>
+        <span>Imposto</span>
+        <span>Alíquota · regra específica · valor</span>
+        <span style={{ textAlign: 'right' }}>Crédito</span>
+        <span style={{ textAlign: 'right' }}>Efeito no custo</span>
+      </div>
+
+      {/*
+        AS TRÊS LINHAS APARECEM SEMPRE, inclusive no Simples Híbrido — decisão do PO de
+        20/09/2026, seção 4. Antes elas SUMIAM ali, e sumir afirma que o tributo não existe
+        na compra: ele existe, compõe o custo, e o que não existe é o crédito. É a mesma
+        distinção de `ausente-vs-falso.md` — a linha some, o usuário conclui que não pagou.
+      */}
+      {linha('ICMS', v?.icms)}
+      {linha('PIS_COFINS', v?.pisCofins)}
+      {linha('IPI', v?.ipi)}
 
       {linha('CBS', v?.cbs, (
         <Form.Item name="cbs_rate" noStyle initialValue={0}>
@@ -193,6 +243,26 @@ export function PurchaseTaxCredits({ bandeiras, custo, onToggle, onRecalc, visiv
           <PercentInput min={0} max={100} style={{ width: 110 }} onChange={() => setTimeout(onRecalc, 50)} />
         </Form.Item>
       ))}
+
+      {/*
+        O FORNECEDOR DO SIMPLES — LC 214/2025 art. 47 §9º II.
+        Fica junto de CBS/IBS porque é só deles que ele trata, e é propriedade DA COMPRA:
+        outra nota do mesmo item, de outro fornecedor, credita normalmente.
+      */}
+      <Form.Item
+        name="supplier_simples_sem_regime_regular"
+        valuePropName="checked"
+        style={{ marginTop: 10, marginBottom: 0 }}
+      >
+        <Checkbox onChange={() => setTimeout(onRecalc, 50)}>
+          <span style={{ fontSize: 12 }}>
+            Fornecedor do Simples sem regime regular&nbsp;
+            <Tooltip title="Optante do Simples que NÃO aderiu ao regime regular de IBS/CBS: o crédito do adquirente fica limitado ao recolhido dentro do DAS, que a nota não destaca. Marcado, o crédito de CBS e IBS é bloqueado — bloquear é mais honesto que estimar um número que ninguém apurou. LC 214/2025 art. 47 §9º II.">
+              <InfoCircleOutlined style={{ color: '#64748b' }} />
+            </Tooltip>
+          </span>
+        </Checkbox>
+      </Form.Item>
 
       {/* SEMPRE CUSTO — sem botão, porque não há caso em que creditem. */}
       <div style={{ marginTop: 14, paddingTop: 10, borderTop: '1px dashed rgba(148,163,184,0.25)' }}>
@@ -230,8 +300,23 @@ export function PurchaseTaxCredits({ bandeiras, custo, onToggle, onRecalc, visiv
           <span style={{ fontWeight: 600, color: '#22C55E' }}>− {fmt(custo?.creditoTotal ?? 0)}</span>
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, paddingTop: 6, borderTop: '1px solid rgba(148,163,184,0.15)' }}>
-          <span style={{ fontWeight: 700 }}>Custo líquido</span>
+          <span style={{ fontWeight: 700 }}>Custo líquido <span style={{ fontWeight: 400, color: '#94a3b8' }}>(unidade comprada)</span></span>
           <span style={{ fontWeight: 700, color: '#22C55E' }}>{fmt(custo?.custoLiquido)}</span>
+        </div>
+
+        {/*
+          O QUARTO NÚMERO — e é ele que a receita do produto consome.
+          A compra é de uma unidade; o produto usa uma FRAÇÃO dela. Travessão quando não há
+          QTD. medida: `null` ali é "não há fração a apurar", e exibir o próprio líquido
+          afirmaria uma divisão por 1 que ninguém fez (`ausente-vs-falso.md`).
+        */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+          <span style={{ color: '#94a3b8' }}>
+            Custo líquido por {unidadeLabel || 'fração da unidade'}
+          </span>
+          <span style={{ fontWeight: 600, color: custo?.custoPorFracao == null ? '#94a3b8' : '#22C55E' }}>
+            {fmt(custo?.custoPorFracao)}
+          </span>
         </div>
       </div>
     </div>
