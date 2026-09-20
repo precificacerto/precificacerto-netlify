@@ -12,6 +12,7 @@ import { supabase } from '@/supabase/client'
 import { getTenantId } from '@/utils/get-tenant-id'
 import { getEffectiveIncomeAmount } from '@/utils/cash-entry-amount'
 import { mergeExpenseConfig } from '@/utils/recalc-expense-config'
+import { ehCompromissoFinanceiro, separarJurosEPrincipal, LABEL_DO_BLOCO } from '@/utils/compromissos-financeiros'
 import {
     CalendarOutlined, FileExcelOutlined,
 } from '@ant-design/icons'
@@ -185,6 +186,10 @@ export default function CashFlow() {
     const [lrValorIpi, setLrValorIpi] = useState<string>('')
     const [lrValorCbs, setLrValorCbs] = useState<string>('')
     const [lrValorIbs, setLrValorIbs] = useState<string>('')
+    // §6 — juros e principal da parcela de um compromisso financeiro. STRING VAZIA é "não
+    // informado", e é ela que vira `null` no banco: `ausente-vs-falso.md`.
+    const [compJuros, setCompJuros] = useState<string>('')
+    const [compPrincipal, setCompPrincipal] = useState<string>('')
 
     const [form] = Form.useForm()
 
@@ -276,6 +281,13 @@ export default function CashFlow() {
     const isLucroReal = taxRegime === 'LUCRO_REAL'
     const isSimplesHibrido = taxRegime === 'SIMPLES_HIBRIDO'
     const isLrCustoProdutos = (isLucroReal || isSimplesHibrido) && (LR_CUSTO_CATEGORIES_SPECIAL as readonly string[]).includes(selectedExpenseCategory)
+    // §6 — os dois campos só aparecem nas categorias do bloco Compromissos Financeiros.
+    const isCompromissoFinanceiro = ehCompromissoFinanceiro(selectedExpenseCategory)
+    const compSeparacao = separarJurosEPrincipal({
+        total: parseCurrencyFn(expenseAmount),
+        juros: compJuros === '' ? null : parseCurrencyFn(compJuros),
+        principal: compPrincipal === '' ? null : parseCurrencyFn(compPrincipal),
+    })
     const activeCategoryOptions = getExpenseCategoryOptionsForRegime(taxRegime)
     const activeGroupForCategory = (cat: string) => getGroupForCategoryByRegime(taxRegime, cat)
 
@@ -732,6 +744,14 @@ export default function CashFlow() {
                 const amountNum = parseCurrencyFn(expenseAmount)
                 if (amountNum <= 0) { messageApi.warning('Informe o valor da despesa.'); return }
                 if (!values.expense_category) { messageApi.warning('Selecione a categoria.'); return }
+                // §6 — "com o total da parcela conferindo com a soma". A soma que não fecha é
+                // RECUSADA aqui, e não corrigida em silêncio: o HUB grava `total − juros` como
+                // principal, e gravar uma soma divergente faria a tela dizer uma coisa e a
+                // leitura outra.
+                if (ehCompromissoFinanceiro(values.expense_category) && compSeparacao.divergeDoTotal) {
+                    messageApi.warning('Juros + Principal precisa fechar com o Valor Total da parcela.')
+                    return
+                }
 
                 const desc = values.expense_description
                     ? `${values.expense_category} — ${values.expense_description}`
@@ -778,6 +798,12 @@ export default function CashFlow() {
                             expense_category: values.expense_category,
                             ...(paymentMethod ? { payment_method: paymentMethod } : {}),
                             ...(autoPaidDate ? { paid_date: autoPaidDate } : {}),
+                            // §6 — `null` quando o usuário não separou. NUNCA zero: zero
+                            // afirmaria que a parcela não tem juros.
+                            ...(isCompromissoFinanceiro ? {
+                                juros_value: compSeparacao.juros == null ? null : Math.round(compSeparacao.juros * ratio * 100) / 100,
+                                principal_value: compSeparacao.juros == null ? null : Math.round(compSeparacao.principal * ratio * 100) / 100,
+                            } : {}),
                             ...(isLrCustoProdutos ? {
                                 valor_icms: Math.round(parseCurrencyFn(lrValorIcms) * ratio * 100) / 100,
                                 valor_pis: Math.round(parseCurrencyFn(lrValorPisCofins) * ratio * 100) / 100,
@@ -808,6 +834,10 @@ export default function CashFlow() {
                             expense_category: values.expense_category,
                             ...(paymentMethod ? { payment_method: paymentMethod } : {}),
                             ...(autoPaidDate ? { paid_date: autoPaidDate } : {}),
+                            ...(isCompromissoFinanceiro ? {
+                                juros_value: compSeparacao.juros == null ? null : Math.round(compSeparacao.juros / parcelas * 100) / 100,
+                                principal_value: compSeparacao.juros == null ? null : Math.round(compSeparacao.principal / parcelas * 100) / 100,
+                            } : {}),
                             ...(isLrCustoProdutos ? {
                                 valor_icms: Math.round(parseCurrencyFn(lrValorIcms) / parcelas * 100) / 100,
                                 valor_pis: Math.round(parseCurrencyFn(lrValorPisCofins) / parcelas * 100) / 100,
@@ -1447,7 +1477,7 @@ export default function CashFlow() {
             </div>
 
             {/* Drawer: Novo Lançamento (Despesa) */}
-            <Drawer title="Novo Lançamento de Despesa" width={680} open={drawerOpen} destroyOnClose onClose={() => { setDrawerOpen(false); setExpPaymentMethod(''); setExpInstallments([{ date: null, amount: 0 }]); setExpInstallmentPreset('customizado'); setExpManualDates(false); setSelectedExpenseCategory(''); setLrValorIcms(''); setLrValorPisCofins(''); setLrValorIpi(''); setLrValorCbs(''); setLrValorIbs('') }}
+            <Drawer title="Novo Lançamento de Despesa" width={680} open={drawerOpen} destroyOnClose onClose={() => { setDrawerOpen(false); setExpPaymentMethod(''); setExpInstallments([{ date: null, amount: 0 }]); setExpInstallmentPreset('customizado'); setExpManualDates(false); setSelectedExpenseCategory(''); setLrValorIcms(''); setLrValorPisCofins(''); setLrValorIpi(''); setLrValorCbs(''); setLrValorIbs(''); setCompJuros(''); setCompPrincipal('') }}
                 extra={<Button type="primary" onClick={handleSaveEntry}>Salvar</Button>}>
                 <Form form={form} layout="vertical">
                     <Form.Item name="expense_category" label="Categoria da Despesa" rules={[{ required: true, message: 'Selecione a categoria' }]}>
@@ -1463,6 +1493,8 @@ export default function CashFlow() {
                                 setLrValorIpi('')
                                 setLrValorCbs('')
                                 setLrValorIbs('')
+                                setCompJuros('')
+                                setCompPrincipal('')
                             }}
                         />
                     </Form.Item>
@@ -1486,6 +1518,51 @@ export default function CashFlow() {
                             }}
                         />
                     </Form.Item>
+                    {isCompromissoFinanceiro && (
+                        <div style={{ marginBottom: 16, padding: '12px 14px', background: 'rgba(37,99,235,0.06)', borderRadius: 6, border: '1px solid rgba(37,99,235,0.2)' }}>
+                            <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 10 }}>
+                                {LABEL_DO_BLOCO} — a parcela tem duas naturezas
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
+                                <div>
+                                    <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Juros (vai para Despesa Financeira)</div>
+                                    <Input
+                                        prefix="R$"
+                                        placeholder="0,00"
+                                        value={compJuros}
+                                        onChange={(e) => {
+                                            const v = currencyMaskFn(e.target.value)
+                                            setCompJuros(v)
+                                            // O principal acompanha: ele é o RESTO do total, e
+                                            // deixá-lo parado convidaria a soma a não fechar.
+                                            const total = parseCurrencyFn(expenseAmount)
+                                            const j = v === '' ? null : parseCurrencyFn(v)
+                                            // `Math.max(0, …)` porque a máscara descarta o sinal: juros maior que o total
+                                            // mostraria o resto NEGATIVO como positivo. Zerado, a
+                                            // soma não fecha e o aviso de divergência barra o salvar.
+                                            setCompPrincipal(j == null ? '' : currencyMaskFn((Math.max(0, total - j) * 100).toFixed(0)))
+                                        }}
+                                    />
+                                </div>
+                                <div>
+                                    <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Principal — amortização (entra no preço)</div>
+                                    <Input
+                                        prefix="R$"
+                                        placeholder="0,00"
+                                        value={compPrincipal}
+                                        onChange={(e) => setCompPrincipal(currencyMaskFn(e.target.value))}
+                                    />
+                                </div>
+                            </div>
+                            <div style={{ fontSize: 12, color: compSeparacao.divergeDoTotal ? '#DC2626' : '#94a3b8', marginTop: 10 }}>
+                                {compSeparacao.divergeDoTotal
+                                    ? 'Juros + Principal não fecha com o Valor Total — corrija antes de salvar.'
+                                    : compSeparacao.usouValorCheio
+                                        ? 'Sem separação, o valor cheio entra como principal e vai inteiro para o preço. Informe os juros para separá-los.'
+                                        : 'Os juros vão para Despesa Financeira; o principal entra na base da despesa fixa.'}
+                            </div>
+                        </div>
+                    )}
                     {isLrCustoProdutos && (
                         <div style={{ marginBottom: 16, padding: '12px 14px', background: 'rgba(99,102,241,0.06)', borderRadius: 6, border: '1px solid rgba(99,102,241,0.2)' }}>
                             <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 10 }}>Impostos recuperáveis (informativo — registrados no Hub)</div>
