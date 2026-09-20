@@ -126,16 +126,24 @@ interface HookOptions {
 }
 
 /**
- * Mapeia regime string do banco para o tipo TaxRegime do motor.
- * `LUCRO_PRESUMIDO_RET` e `SIMPLES_HIBRIDO` mapeiam para os tipos base
- * do motor (LUCRO_PRESUMIDO e SIMPLES_NACIONAL) para fins de guard Q5,
- * mas os componentes já refletem a alíquota correta vinda do tax-sync.
+ * Mapeia o regime do banco para o tipo `TaxRegime` do motor.
+ *
+ * `SIMPLES_HIBRIDO` É REGIME PRÓPRIO desde 19/09/2026 — antes ele devolvia
+ * `LUCRO_PRESUMIDO`, e isso afirmava um FORMATO que a LC 214 não dá ao optante do Simples:
+ * ICMS, ISS e PIS/COFINS discriminados, IRPJ e CSLL sobre o lucro. O formato dele é outro:
+ * DAS reduzido por dentro, IBS/CBS/IS por fora. Ver `simples-hibrido.ts`.
+ *
+ * O motor V17 só pergunta `isSimplesOuMei`, e para ele nada muda: o híbrido ficava fora
+ * daquele ramo como `LUCRO_PRESUMIDO` e continua fora como ele mesmo.
+ *
+ * `LUCRO_PRESUMIDO_RET` segue mapeado, e não é a mesma omissão: ali o formato é o mesmo do
+ * Lucro Presumido e o que muda é a alíquota.
  */
-function mapToMotorRegime(regimeRaw: string | null | undefined): TaxRegime {
+export function mapToMotorRegime(regimeRaw: string | null | undefined): TaxRegime {
   if (!regimeRaw) return 'SIMPLES_NACIONAL'
   if (regimeRaw === 'MEI') return 'MEI'
   if (regimeRaw === 'SIMPLES_NACIONAL') return 'SIMPLES_NACIONAL'
-  if (regimeRaw === 'SIMPLES_HIBRIDO') return 'LUCRO_PRESUMIDO'
+  if (regimeRaw === 'SIMPLES_HIBRIDO') return 'SIMPLES_HIBRIDO'
   if (regimeRaw === 'LUCRO_PRESUMIDO') return 'LUCRO_PRESUMIDO'
   if (regimeRaw === 'LUCRO_PRESUMIDO_RET') return 'LUCRO_PRESUMIDO'
   if (regimeRaw === 'LUCRO_REAL') return 'LUCRO_REAL'

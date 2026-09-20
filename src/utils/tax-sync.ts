@@ -23,6 +23,7 @@
  */
 
 import { supabase } from '@/supabase/client'
+import { resolveDasHibridoDoTenant } from '@/utils/simples-hibrido'
 import { formatPercentWithDigits } from '@/utils/formatters'
 
 /**
@@ -51,6 +52,17 @@ export interface TaxComponents {
   label: string
   /** Flag MEI (sem rateio RR). */
   isMei: boolean
+  /**
+   * SIMPLES HÍBRIDO — a dedução da base de IBS/CBS (LC 214 art. 12 §2º V), em decimal.
+   *
+   * Presente SÓ no híbrido, e `undefined` nos demais regimes: fora dele não existe dedução
+   * a fazer, e um zero ali afirmaria que existe e vale nada. É a distinção de
+   * `ausente-vs-falso.md`, no contrato em vez de na coluna.
+   *
+   * Vem junto do `total` (o DAS) porque os dois saem da MESMA faixa do MESMO anexo — separá-
+   * los em duas consultas é como as duas metades passam a divergir.
+   */
+  deducaoBaseIbsCbsPct?: number
 }
 
 /**
@@ -144,45 +156,31 @@ export function extractEffectiveTaxComponents(input: TaxComponentsInput): TaxCom
   }
 
   // ───────── SIMPLES HÍBRIDO ─────────
+  //
+  // ATÉ 19/09/2026 ESTE BLOCO ESPELHAVA O LUCRO REAL: ICMS por dentro, PIS/COFINS
+  // não-cumulativo de 9,25%, ISS e IRPJ/CSLL sobre o lucro projetado. Isso afirmava um
+  // FORMATO que a LC 214 não dá ao optante do Simples. O correto (art. 41 §3º da LC 214 e
+  // art. 13 §10 da LC 123): DAS REDUZIDO por dentro, e IBS/CBS/IS por fora.
+  //
+  // Os componentes saem TODOS ZERO, como no Simples unificado logo acima, e pelo mesmo
+  // motivo: ICMS, ISS, PIS, COFINS, IRPJ e CSLL não são linha própria aqui — estão dentro
+  // do DAS, que é o `total`. IBS, CBS e IS não entram no `total` porque são POR FORA:
+  // somá-los aqui os embutiria na formação do preço, e o preço sairia menor que o devido.
   if (regime === 'SIMPLES_HIBRIDO') {
-    // Espelha LUCRO_REAL: PIS/COFINS não-cumulativo (9,25%), ICMS por dentro,
-    // IRPJ 15% + CSLL 9% sobre lucro projetado.
-    let shIcms = 0
-    if (calcType !== 'SERVICO' && ts.icms_contribuinte) {
-      shIcms = icmsRateDecimal
-    }
-
-    const pisCofinsNominal = 0.0925
-    const pisCofinsTotal = calcType === 'SERVICO'
-      ? pisCofinsNominal
-      : shIcms > 0
-        ? pisCofinsNominal * (1 - shIcms)
-        : pisCofinsNominal
-    // Decomposição PIS/COFINS na proporção legal 1,65/7,60 (não-cumulativo)
-    const shPis = round4(pisCofinsTotal * (0.0165 / 0.0925))
-    const shCofins = round4(pisCofinsTotal - shPis)
-
-    const shIss = calcType === 'SERVICO'
-      ? Number(ts.iss_municipality_rate) || 0.05
-      : 0
-
-    const profitPctRaw = Number(expenseConfig?.profit_margin_percent) || 0.12
-    const profitPct = profitPctRaw > 0 && profitPctRaw < 1 ? profitPctRaw : profitPctRaw / 100
-    const shIrpj = round4(profitPct * 0.15)
-    const shCsll = round4(profitPct * 0.09)
-
-    const total = round4(shIcms + shPis + shCofins + shIss + shIrpj + shCsll)
+    const hib = resolveDasHibridoDoTenant(ts as never)
+    if (!hib) return ZERO_COMPONENTS('SIMPLES_HIBRIDO', 'Simples Híbrido')
     return {
-      icms: round4(shIcms),
-      pis: shPis,
-      cofins: shCofins,
-      iss: round4(shIss),
-      irpj: shIrpj,
-      csll: shCsll,
-      total,
+      icms: 0,
+      pis: 0,
+      cofins: 0,
+      iss: 0,
+      irpj: 0,
+      csll: 0,
+      total: round4(hib.dasPct),
       regime: 'SIMPLES_HIBRIDO',
-      label: 'Simples Híbrido',
+      label: hib.label,
       isMei: false,
+      deducaoBaseIbsCbsPct: hib.deducaoPct,
     }
   }
 

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, createContext, ReactNode } from 'react'
 import { supabase } from '@/supabase/client'
+import { resolveDasHibridoDoTenant } from '@/utils/simples-hibrido'
 import { useRouter } from 'next/router'
 import { LoggedUser } from '@/types/logged-user.type'
 import { Session } from '@supabase/supabase-js'
@@ -167,33 +168,15 @@ async function computeTaxableRegimeValue(settings: any): Promise<number> {
   }
 
   if (regime === 'SIMPLES_HIBRIDO') {
-    // Simples Híbrido espelha Lucro Real: PIS/COFINS 9,25% + ICMS + ISS + IRPJ 15% + CSLL 9%
-    // (simplificação para navbar/dashboard; calc-tax-preview.ts faz o cálculo preciso)
-    const calcType = settings.calc_type || 'INDUSTRIALIZACAO'
-    const originState = settings.state_code || 'SP'
-
-    const { data: statesData } = await supabase
-      .from('brazilian_states')
-      .select('code, icms_internal_rate')
-      .eq('code', originState)
-      .maybeSingle()
-
-    const icmsInternalRate = decimalToPercent(Number(statesData?.icms_internal_rate) || 0.18)
-
-    let total = 0
-    total += 1.65 + 7.60 // PIS 1,65% + COFINS 7,60% (não-cumulativo)
-
-    if (calcType !== 'SERVICO' && settings.icms_contribuinte) {
-      total += icmsInternalRate
-    }
-    if (calcType === 'SERVICO') {
-      total += decimalToPercent(Number(settings.iss_municipality_rate) || 0.05)
-    }
-
-    // IRPJ 15% + CSLL 9% sobre lucro projetado (presunção COMERCIO/INDUSTRIA como referência)
-    total += round4(8 / 100 * 15) + round4(12 / 100 * 9) // 1,20% + 1,08% = 2,28%
-
-    return round4(total)
+    // ATÉ 19/09/2026 ESTA FUNÇÃO ESPELHAVA O LUCRO REAL aqui — PIS/COFINS de 9,25%, ICMS,
+    // ISS e um IRPJ/CSLL sobre lucro PRESUMIDO FIXO (8% e 12% escritos no código). Era a
+    // terceira cópia do mesmo espelho, ao lado de `calc-tax-preview.ts` e `tax-sync.ts`.
+    //
+    // O que a navbar e o dashboard mostram é a carga POR DENTRO, e no híbrido ela é o DAS
+    // reduzido. IBS, CBS e IS são por fora e não entram neste número — ele é o que incide
+    // sobre a receita, não o que o cliente paga a mais.
+    const hib = resolveDasHibridoDoTenant(settings as never)
+    return hib ? round4(hib.dasPct * 100) : 0
   }
 
   if (regime === 'LUCRO_PRESUMIDO' || regime === 'LUCRO_REAL') {

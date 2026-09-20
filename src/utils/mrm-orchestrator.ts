@@ -183,10 +183,21 @@ export interface ItemTaxCreditSnapshot {
  */
 export function aggregateItemTaxCredits(
   credits: ItemTaxCreditSnapshot[],
-  regime: 'MEI' | 'SIMPLES_NACIONAL' | 'LUCRO_PRESUMIDO' | 'LUCRO_REAL',
+  regime: TaxRegime,
 ): { recoverable: number; non_recoverable: number } {
   // MEI/SN: regime cumulativo absorvido pelo DAS — zero créditos
-  if (regime === 'MEI' || regime === 'SIMPLES_NACIONAL') {
+  //
+  // SIMPLES_HÍBRIDO entra aqui POR ORA, e é uma LACUNA CONHECIDA, não a regra: o optante
+  // que apura IBS/CBS pelo regime regular TEM direito ao crédito das compras, e o custo
+  // deveria entrar líquido dele. O que falta não é a conta — é o DADO: `item_tax_credits`
+  // tem ZERO linhas (medido em 20/09/2026), não há tela de lançamento de crédito de
+  // IBS/CBS na compra, e o crédito real do Lucro Real vive em `items.cost_net`, por outro
+  // caminho.
+  //
+  // Devolver zero aqui é o mesmo que o regime faz hoje, e NÃO afirma que não há crédito —
+  // afirma que esta função não tem de onde tirá-lo. Inventar um campo seria pior que a
+  // lacuna. Registrado como pendência no PR que trouxe o híbrido.
+  if (regime === 'MEI' || regime === 'SIMPLES_NACIONAL' || regime === 'SIMPLES_HIBRIDO') {
     return { recoverable: 0, non_recoverable: 0 }
   }
 

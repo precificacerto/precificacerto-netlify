@@ -41,6 +41,9 @@
  */
 import { calculatePricing } from '@/utils/pricing-engine'
 import { computeIvaDualFromBase } from '@/utils/iva-dual-outside'
+import {
+  dasHibridoPct, deducaoBaseIbsCbsPct, normalizeAnexoSimples, type AnexoSimples,
+} from '@/utils/simples-anexos'
 import type { SegmentoDaConstrucao } from '@/utils/despesas-do-segmento'
 
 /**
@@ -243,6 +246,33 @@ export function construirPrecoHibrido(input: ConstrucaoHibridaInput): Construcao
       },
     },
     avisos,
+  }
+}
+
+/**
+ * O DAS híbrido e a dedução DO TENANT — a travessia única entre `tenant_settings` e as
+ * funções puras de `simples-anexos.ts`.
+ *
+ * Existe para que `calc-tax-preview.ts` e `tax-sync.ts` NÃO escrevam a mesma resolução duas
+ * vezes. Eram justamente esses dois arquivos que carregavam o espelho do Lucro Real, cada um
+ * com a sua cópia — e a segunda cópia é como `copia-divergente.md` começa.
+ *
+ * Devolve `null` quando o anexo não está configurado. **Não cai no Anexo I**: cada anexo tem
+ * uma repartição diferente, e escolher um por default afirmaria um enquadramento que ninguém
+ * declarou. O chamador trata como "não configurado", que é o que os outros regimes já fazem.
+ */
+export function resolveDasHibridoDoTenant(
+  ts: { simples_anexo?: unknown; simples_revenue_12m?: unknown } | null | undefined,
+  ano: number = new Date().getFullYear(),
+): { anexo: AnexoSimples; dasPct: number; deducaoPct: number; label: string } | null {
+  const anexo = normalizeAnexoSimples(ts?.simples_anexo)
+  if (!anexo) return null
+  const rbt12 = Number(ts?.simples_revenue_12m) || 0
+  return {
+    anexo,
+    dasPct: dasHibridoPct(anexo, rbt12, ano),
+    deducaoPct: deducaoBaseIbsCbsPct(anexo, rbt12, ano),
+    label: `Simples Híbrido (Anexo ${anexo})`,
   }
 }
 

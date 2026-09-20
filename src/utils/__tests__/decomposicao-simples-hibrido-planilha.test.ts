@@ -39,6 +39,7 @@ import {
 } from '@/utils/simples-anexos'
 import { construirPrecoHibrido, isPctDoSegmento } from '@/utils/simples-hibrido'
 import type { BaldesDeDespesa } from '@/utils/despesas-do-segmento'
+import { mapToMotorRegime } from '@/hooks/use-tenant-tax-context'
 
 /** As alíquotas de referência que o comando fixa PARA OS TESTES. Produção lê `tax_rates_periods`. */
 const CBS = 0.088
@@ -461,6 +462,32 @@ describe('Os CARDS leem a decomposição, e a ausência de IRPJ/CSLL é zero LEG
   it('IRPJ e CSLL chegam zerados, com a linha presente no card', () => {
     expect(dist.irpj?.amount).toBe(0)
     expect(dist.csll?.amount).toBe(0)
+  })
+})
+
+// ═════════════════════════════════════════════════════════════════════════════════════════
+// O REGIME QUE CHEGA ÀS TELAS — sem isto, tudo acima é inalcançável em produção
+// ═════════════════════════════════════════════════════════════════════════════════════════
+describe('O híbrido chega às telas como SIMPLES_HIBRIDO, e não como Lucro Presumido', () => {
+  it('>>> mapToMotorRegime NÃO mapeia mais o híbrido para LUCRO_PRESUMIDO <<<', () => {
+    expect(mapToMotorRegime('SIMPLES_HIBRIDO')).toBe('SIMPLES_HIBRIDO')
+    expect(mapToMotorRegime('SIMPLES_HIBRIDO')).not.toBe('LUCRO_PRESUMIDO')
+  })
+
+  it('e o EFEITO: com o mapeamento antigo a decomposição sairia no formato do Lucro Real', () => {
+    const comoAntes = buildDecomposition(buildBudgetDecompositionInput({
+      items: [item('A', cA, 100, 0, A_FICHA, 'PRODUZIDO')], discountPct: 0,
+      despesas: A_BALDES, tenantCalcType: 'INDUSTRIALIZACAO',
+      regime: mapToMotorRegime('SIMPLES_HIBRIDO') === 'SIMPLES_HIBRIDO' ? 'LUCRO_PRESUMIDO' : 'x',
+      deducaoBaseIbsCbsPct: A_DED,
+    }).input)
+    const chaves = comoAntes.rows.map((x) => x.key)
+    expect(chaves).toContain('irpj')
+    expect(chaves).not.toContain('das')
+  })
+
+  it('LUCRO_PRESUMIDO_RET continua mapeado — ali muda a alíquota, não o formato', () => {
+    expect(mapToMotorRegime('LUCRO_PRESUMIDO_RET')).toBe('LUCRO_PRESUMIDO')
   })
 })
 
