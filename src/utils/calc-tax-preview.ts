@@ -38,6 +38,14 @@ export interface TaxPreviewResult {
   /** Human-readable label: "Simples Nacional (Anexo III)", "Lucro Presumido", etc. */
   taxLabel: string
   isMei: boolean
+  /**
+   * SIMPLES HÍBRIDO — a dedução da base de IBS/CBS (LC 214 art. 12 §2º V), em DECIMAL.
+   *
+   * `undefined` nos demais regimes, e a ausência é a afirmação certa: fora do híbrido não
+   * há dedução a fazer, e um zero diria que há e vale nada (`ausente-vs-falso.md`).
+   * Viaja junto do `effectiveTaxPct` porque os dois saem da MESMA faixa do MESMO anexo.
+   */
+  deducaoBaseIbsCbsPct?: number
 
   // Legacy fields kept for backward compat during migration (PR 3).
   /** @deprecated Use effectiveTaxPct instead */
@@ -145,7 +153,8 @@ export async function fetchTaxPreview(tenantId: string): Promise<TaxPreviewResul
   if (regime === 'SIMPLES_HIBRIDO') {
     const hib = resolveDasHibridoDoTenant(ts as never)
     if (!hib) return buildResult(0, 0, 'Simples Híbrido', false)
-    return buildResult(0, round4(hib.dasPct * 100), hib.label, false)
+    return { ...buildResult(0, round4(hib.dasPct * 100), hib.label, false),
+      deducaoBaseIbsCbsPct: hib.deducaoPct }
   }
 
   if (regime === 'LUCRO_PRESUMIDO_RET') {

@@ -448,6 +448,11 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                 ivaReductionIbs: reducoes.ibs != null ? reducoes.ibs / 100 : null,
                 ivaReductionCbs: reducoes.cbs != null ? reducoes.cbs / 100 : null,
             },
+            // SIMPLES HÍBRIDO — DAS reduzido e dedução da base, do anexo/faixa do tenant.
+            // O IS é INEXISTENTE em serviço (regra 5), e `isPctDoSegmento` o força a zero
+            // com aviso caso alguém tenha cadastrado um.
+            dasHibridoPct: taxPreview ? taxPreview.effectiveTaxPct : undefined,
+            deducaoBaseIbsCbsPct: taxPreview?.deducaoBaseIbsCbsPct,
             despAcessorias: 0,
         })
 

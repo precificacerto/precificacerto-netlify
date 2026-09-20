@@ -40,6 +40,7 @@ import {
 import { construirPrecoHibrido, isPctDoSegmento } from '@/utils/simples-hibrido'
 import type { BaldesDeDespesa } from '@/utils/despesas-do-segmento'
 import { mapToMotorRegime } from '@/hooks/use-tenant-tax-context'
+import { buildProductConstruction } from '@/utils/product-price-construction'
 
 /** As alíquotas de referência que o comando fixa PARA OS TESTES. Produção lê `tax_rates_periods`. */
 const CBS = 0.088
@@ -492,6 +493,72 @@ describe('O híbrido chega às telas como SIMPLES_HIBRIDO, e não como Lucro Pre
 })
 
 // ═════════════════════════════════════════════════════════════════════════════════════════
+// A CONSTRUÇÃO PELA PORTA DE PRODUÇÃO — `buildProductConstruction`, que é o que a tela chama
+// ═════════════════════════════════════════════════════════════════════════════════════════
+describe('A tela do produto forma o preço do híbrido pela matriz, não por soma por cima', () => {
+  const construirPelaTela = (over: Partial<Parameters<typeof buildProductConstruction>[0]> = {}) =>
+    buildProductConstruction({
+      taxableRegime: 'SIMPLES_HIBRIDO',
+      segment: 'INDUSTRIALIZACAO',
+      buyerType: 'CONSUMIDOR_FINAL',
+      saleScope: 'INTRAESTADUAL',
+      costTotal: 100,
+      structurePct: 0.20,
+      rtReservePct: 0.01,
+      commissionPct: 0.05,
+      profitPct: 0.15,
+      profitTaxPct: 0,
+      rates: {
+        icmsPct: null, issPct: null, pisCofinsEffectivePct: 0, ipiPct: null,
+        isPct: 0.10, ibsPct: IBS, cbsPct: CBS, ivaReductionIbs: null, ivaReductionCbs: null,
+      },
+      baseCodes: { ibs: null, cbs: null, is: null, ipi: null },
+      despAcessorias: 0,
+      dasHibridoPct: dasHibridoPct('II', RBT12, ANO),
+      deducaoBaseIbsCbsPct: A_DED,
+      ...over,
+    } as never)
+
+  it('>>> o CASO A sai igual pela tela: P 181,39 e total 216,65 <<<', () => {
+    const m = construirPelaTela()
+    expect(m.applied).toBe(true)
+    expect(m.opInterna).toBeCloseTo(181.39, 2)
+    expect(m.totalGeral).toBeCloseTo(216.65, 2)
+  })
+
+  it('>>> e NÃO é soma por cima: o total excede P em IS + CBS + IBS, sobre a base deduzida <<<', () => {
+    const m = construirPelaTela()
+    const ext = m.resolved!.externalTaxes
+    expect(ext.is!.baseValue).toBeCloseTo(178.17, 2)
+    expect(ext.ibs!.baseValue).toBeCloseTo(195.98, 2)
+    expect(ext.cbs!.baseValue).toBeCloseTo(195.98, 2)
+    expect(m.totalGeral - m.opInterna)
+      .toBeCloseTo(ext.is!.value + ext.ibs!.value + ext.cbs!.value, 6)
+  })
+
+  it('ICMS, ISS e PIS/COFINS saem ZERADOS da construção: estão dentro do DAS', () => {
+    const r = construirPelaTela().resolved!
+    expect(r.icmsValue).toBe(0)
+    expect(r.issValue).toBe(0)
+    expect(r.pisCofinsValue).toBe(0)
+    expect(r.icmsPctEffective).toBe(0)
+  })
+
+  it('>>> SEM ANEXO configurado a matriz NÃO se aplica — e não forma preço com DAS zero <<<', () => {
+    const m = construirPelaTela({ dasHibridoPct: null, deducaoBaseIbsCbsPct: null } as never)
+    expect(m.applied).toBe(false)
+    expect(m.reason).toMatch(/anexo/i)
+  })
+
+  it('>>> revenda com IS cadastrado: zera e AVISA, e o total cai porque o IS saiu <<<', () => {
+    const comIs = construirPelaTela({ segment: 'REVENDA' } as never)
+    expect(comIs.resolved!.externalTaxes.is).toBeUndefined()
+    expect(comIs.errors.join(' ')).toMatch(/Imposto Seletivo/i)
+    expect(comIs.totalGeral).toBeLessThan(construirPelaTela().totalGeral)
+  })
+})
+
+// ═════════════════════════════════════════════════════════════════════════════════════════
 // REGRESSÃO — o que NÃO pode mudar
 // ═════════════════════════════════════════════════════════════════════════════════════════
 describe('REGRESSÃO: fora do híbrido nada muda', () => {
@@ -510,6 +577,20 @@ describe('REGRESSÃO: fora do híbrido nada muda', () => {
     const chaves = semRegime('MEI').rows.map((x) => x.key)
     expect(chaves).toContain('das')
     for (const k of ['por_fora_ibs', 'por_fora_cbs']) expect(chaves).not.toContain(k)
+  })
+
+  it('>>> LUCRO_PRESUMIDO continua SEM matriz na construção — a regra dele segue sem ser escrita <<<', () => {
+    const m = buildProductConstruction({
+      taxableRegime: 'LUCRO_PRESUMIDO', segment: 'INDUSTRIALIZACAO',
+      buyerType: 'CONSUMIDOR_FINAL', saleScope: 'INTRAESTADUAL',
+      costTotal: 100, structurePct: 0.20, rtReservePct: 0.01, commissionPct: 0.05,
+      profitPct: 0.15, profitTaxPct: 0,
+      rates: { icmsPct: 0.17, issPct: null, pisCofinsEffectivePct: 0.03, ipiPct: null,
+        isPct: null, ibsPct: IBS, cbsPct: CBS, ivaReductionIbs: null, ivaReductionCbs: null },
+      baseCodes: { ibs: null, cbs: null, is: null, ipi: null }, despAcessorias: 0,
+    } as never)
+    expect(m.applied).toBe(false)
+    expect(m.reason).toMatch(/regime sem matriz/i)
   })
 
   it('>>> LUCRO_REAL continua com ICMS, PIS/COFINS, IRPJ e CSLL, e SEM linha de DAS <<<', () => {

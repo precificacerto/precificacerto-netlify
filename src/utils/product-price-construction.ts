@@ -20,6 +20,7 @@
  */
 
 import { calculatePricing, type CalcType, type ResolvedTaxBreakdown } from './pricing-engine'
+import { construirPrecoHibrido } from './simples-hibrido'
 import { resolveConstructionTaxInput, type BaseCodeOverrides, type BuyerPurpose, type BuyerTypeEnum, type ConstructionTaxRates, type SaleScope } from './sale-context'
 
 export interface ProductConstructionInput {
@@ -53,6 +54,19 @@ export interface ProductConstructionInput {
    * todas as rotas, e a omissão deixa de ser possível."*
    */
   rates: ConstructionTaxRates
+  /**
+   * SIMPLES HÍBRIDO — os dois números do anexo/faixa do tenant, em DECIMAL.
+   *
+   * `dasHibridoPct` é o DAS reduzido (por dentro) e `deducaoBaseIbsCbsPct` é a dedução da
+   * base de IBS/CBS do art. 12 §2º V. Vêm de `resolveDasHibridoDoTenant`, que é a única
+   * travessia entre `tenant_settings` e as funções puras dos anexos.
+   *
+   * Ausentes fora do híbrido — e ausência aqui NÃO é zero: sem eles o híbrido cai em
+   * "não configurado" e a tela mantém o preço que já tinha, em vez de formar um preço com
+   * DAS de zero.
+   */
+  dasHibridoPct?: number | null
+  deducaoBaseIbsCbsPct?: number | null
 
   /**
    * Override manual do código de base, por tributo (7.5, item 6). Ausente ou `null` por
@@ -108,6 +122,88 @@ const NOT_APPLIED = (reason: string, errors: string[] = []): ProductConstruction
 export function buildProductConstruction(
   input: ProductConstructionInput,
 ): ProductConstructionResult {
+  // ─── SIMPLES HÍBRIDO ───────────────────────────────────────────────────────────────────
+  //
+  // A trava de `REGIMES_COM_MATRIZ` dizia, com todas as letras: "Lucro Presumido e Simples
+  // Híbrido habilitam os campos de IBS/CBS/IS/IPI na tela e NÃO têm regra escrita... Ficam
+  // no contrato antigo, com o preço que já tinham, ATÉ QUE A REGRA DELES EXISTA."
+  //
+  // A do híbrido passou a existir em 19/09/2026, e ela NÃO é a do Lucro Real: o `c` não sai
+  // de `buildTaxBreakdown` porque ICMS, ISS e PIS/COFINS não são linha aqui — estão no DAS,
+  // e a base de IBS/CBS é `P × (1 − dedução)`. Por isso o ramo é próprio, e não um item a
+  // mais naquela lista: acrescentá-lo lá aplicaria a fórmula errada com o nome certo.
+  //
+  // O Lucro Presumido CONTINUA fora, e isso não é esquecimento: a regra dele segue sem ser
+  // escrita.
+  if (String(input.taxableRegime) === 'SIMPLES_HIBRIDO') {
+    if (input.despAcessorias > 0) {
+      return NOT_APPLIED('produto com acréscimos gravados — a base deles é do orçamento (R11)')
+    }
+    // `== null` ANTES de `Number()`, e a ordem é o ponto: `Number(null)` é 0, e 0 é finito.
+    // Só a checagem numérica deixaria "anexo não configurado" virar "DAS de zero" —
+    // `ausente-vs-falso.md` no próprio guarda que existe para impedi-lo.
+    const das = input.dasHibridoPct == null ? NaN : Number(input.dasHibridoPct)
+    const ded = input.deducaoBaseIbsCbsPct == null ? NaN : Number(input.deducaoBaseIbsCbsPct)
+    if (!Number.isFinite(das) || !Number.isFinite(ded)) {
+      // Sem anexo configurado não há DAS a aplicar. Formar o preço com zero afirmaria que o
+      // tenant não paga DAS — `ausente-vs-falso.md`. O chamador mantém o preço antigo.
+      return NOT_APPLIED('Simples Híbrido sem anexo/faixa configurados em tenant_settings')
+    }
+
+    const hib = construirPrecoHibrido({
+      custoTotal: input.costTotal,
+      despesasPct: input.structurePct,
+      rtPct: input.rtReservePct,
+      comissaoPct: input.commissionPct,
+      lucroPct: input.profitPct,
+      dasHibridoPct: das,
+      deducaoBasePct: ded,
+      isPct: Number(input.rates.isPct) || 0,
+      ibsPct: Number(input.rates.ibsPct) || 0,
+      cbsPct: Number(input.rates.cbsPct) || 0,
+      segmento: input.segment as never,
+    })
+
+    /**
+     * Os CÓDIGOS DE BASE do híbrido, e eles são LIDOS da conta, não escolhidos.
+     *
+     * A R3 define o código 3 como "P − ICMS/ISS − PIS/COFINS" e o 4 como "código 3 + IS".
+     * No híbrido esses tributos não são discriminados — estão dentro do DAS —, e o que se
+     * deduz é exatamente a parcela deles contida nele. A FORMA é a mesma: o IS incide sobre
+     * a operação interna líquida dos tributos por dentro (código 3), e IBS/CBS sobre ela
+     * mais o IS (código 4). O IPI não tem entrada porque é INEXISTENTE por fora aqui.
+     */
+    const resolved: ResolvedTaxBreakdown = {
+      externalOpsCoefficient: hib.ficha.externalOpsCoefficient,
+      icmsPctOverTotalGeral: 0,
+      ipiIntegraBaseIcms: false,
+      icmsPctEffective: 0,
+      issPctEffective: 0,
+      pisCofinsPctEffective: 0,
+      icmsValue: 0,
+      issValue: 0,
+      pisCofinsValue: 0,
+      externalValue: hib.isValue + hib.ibsValue + hib.cbsValue,
+      totalGeral: hib.totalACobrar,
+      externalTaxes: {
+        ...(hib.isPctAplicado > 0
+          ? { is: { effectiveRate: hib.isPctAplicado, baseCode: 3, baseValue: hib.baseIS, value: hib.isValue } }
+          : {}),
+        ibs: { effectiveRate: Number(input.rates.ibsPct) || 0, baseCode: 4, baseValue: hib.baseIbsCbs, value: hib.ibsValue },
+        cbs: { effectiveRate: Number(input.rates.cbsPct) || 0, baseCode: 4, baseValue: hib.baseIbsCbs, value: hib.cbsValue },
+      },
+    }
+
+    return {
+      applied: true,
+      reason: '',
+      opInterna: hib.precoPorDentro,
+      totalGeral: hib.totalACobrar,
+      resolved,
+      errors: hib.avisos,
+    }
+  }
+
   const tax = resolveConstructionTaxInput({
     taxableRegime: input.taxableRegime,
     segment: input.segment,

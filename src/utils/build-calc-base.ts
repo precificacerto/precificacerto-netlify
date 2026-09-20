@@ -37,6 +37,9 @@ export function buildCalcBase(expense: any, taxPreview?: TaxPreviewResult): Calc
     financialExpensePct: financial,
     taxPct: taxPctDisplay,
     taxBreakdown: taxPreview?.breakdown,
+    // Simples Híbrido: a dedução da base de IBS/CBS, do anexo/faixa do tenant. Ausente nos
+    // demais regimes — ver `TaxPreviewResult.deducaoBaseIbsCbsPct`.
+    deducaoBaseIbsCbsPct: taxPreview?.deducaoBaseIbsCbsPct,
     taxLabel: label,
     isMei,
     productiveValuePerMinute,

@@ -25,6 +25,14 @@ export interface CalcBaseType {
    * cuja matriz está escrita — hoje, Lucro Real. Ausente = sem matriz, nunca alíquota zero.
    */
   taxBreakdown?: TaxPreviewBreakdown
+  /**
+   * SIMPLES HÍBRIDO — a dedução da base de IBS/CBS (LC 214 art. 12 §2º V), DECIMAL.
+   *
+   * `undefined` nos demais regimes. Ela viaja ao lado de `taxPct` (que ali é o DAS
+   * reduzido) porque os dois saem da mesma faixa do mesmo anexo, e separá-los em duas
+   * travessias é como as duas metades passam a divergir.
+   */
+  deducaoBaseIbsCbsPct?: number
   /** Human-readable tax regime label. */
   taxLabel: string
   isMei: boolean
