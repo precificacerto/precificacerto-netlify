@@ -33,9 +33,9 @@
 BEGIN;
 
 ALTER TABLE public.items
-  ADD COLUMN IF NOT EXISTS fornecedor_simples_sem_regime_regular boolean;
+  ADD COLUMN IF NOT EXISTS supplier_simples_sem_regime_regular boolean;
 
-COMMENT ON COLUMN public.items.fornecedor_simples_sem_regime_regular IS
+COMMENT ON COLUMN public.items.supplier_simples_sem_regime_regular IS
   'Fornecedor optante do Simples que NÃO aderiu ao regime regular de IBS/CBS (LC 214/2025 art. 47 §9º II). Marcado, bloqueia o crédito de CBS e IBS. NULL = não informado.';
 
 COMMIT;
