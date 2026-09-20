@@ -3,11 +3,21 @@ import {
   creditoRecuperavelDaCompra,
   montarBlocoDeCustoDosProdutos,
   ordemDaLinhaDeApresentacao,
+  ehLinhaDeApresentacao,
   LINHAS_DE_APRESENTACAO_DO_CUSTO,
   type RegimeDoBloco,
 } from '@/utils/custo-produtos-no-dre'
 import { HUB_GROUPS as HUB_GROUPS_FONTE } from '@/constants/expense-groups'
 import { CASHIER_CATEGORY } from '@/constants/cashier-category'
+import {
+  GRUPOS_DA_BASE_DA_DESPESA_FIXA,
+  GRUPO_INVESTIMENTO,
+  LABEL_DO_BLOCO,
+  CATEGORIAS_DO_BLOCO,
+  ehCompromissoFinanceiro,
+  classificarLancamentoDeDespesa,
+  ordemNoBloco,
+} from '@/utils/compromissos-financeiros'
 
 export interface HubMonthData {
   [monthKey: string]: number // ex: '2025-01': 1500.00
@@ -21,6 +31,14 @@ export interface HubSubRow {
   closedMonthsWithData: number
   averageRS: number
   averagePct: number
+  /**
+   * `true` = SUBTOTAL de apresentação. Não é uma categoria: é a soma de outras sub-rows do
+   * mesmo grupo, e somá-la junto contaria o bloco duas vezes.
+   *
+   * Hoje nada soma sub-rows — o total do grupo vem de `expenseByGroupByMonth` — e o campo
+   * existe para que continue assim quando alguém escrever o próximo consumidor.
+   */
+  apenasApresentacao?: boolean
 }
 
 export interface HubRow {
@@ -101,6 +119,31 @@ function acrescentaBlocoDeCustoDosProdutos(
   }
 }
 
+/**
+ * Acrescenta o SUBTOTAL do bloco Compromissos Financeiros dentro de Despesa Fixa — §7.
+ *
+ * >>> ELE NÃO ENTRA EM SOMA NENHUMA <<<
+ * O total do grupo vem de `expenseByGroupByMonth`, que já tem o valor das categorias. Esta
+ * linha é a soma DELAS, marcada com `apenasApresentacao` para que o próximo consumidor que
+ * resolver somar sub-rows não conte o bloco duas vezes.
+ *
+ * Sem compromisso lançado no período, nada é acrescentado: um subtotal de R$ 0,00 afirmaria
+ * que a empresa não tem compromisso, quando o que há é ausência de lançamento
+ * (`ausente-vs-falso.md`).
+ */
+function acrescentaSubtotalDoBloco(
+  expenseByCategoryByMonth: Record<string, { group: string; values: HubMonthData }>,
+) {
+  const subtotal: HubMonthData = {}
+  for (const c of CATEGORIAS_DO_BLOCO) {
+    const dados = expenseByCategoryByMonth[c.category]
+    if (!dados) continue
+    for (const [m, v] of Object.entries(dados.values)) subtotal[m] = (subtotal[m] || 0) + v
+  }
+  if (Object.keys(subtotal).length === 0) return
+  expenseByCategoryByMonth[LABEL_DO_BLOCO] = { group: 'DESPESA_FIXA', values: subtotal }
+}
+
 // Mapa de categoryKey → order (para ordenação)
 const CATEGORY_ORDER_MAP: Record<string, number> = Object.fromEntries(
   Object.values(CASHIER_CATEGORY.EXPENSE).map((c: any) => [c.key, c.order ?? 999])
@@ -178,6 +221,39 @@ export async function calculateHubData(tenantId: string): Promise<HubData> {
       const hasLrBreakdown = entry.valor_icms != null || entry.valor_pis != null || entry.valor_cofins != null || entry.valor_ipi != null
         || entry.valor_cbs != null || entry.valor_ibs != null
 
+      // >>> COMPROMISSO FINANCEIRO — §5 e §6 do comando de 21/09/2026 <<<
+      //
+      // O lançamento se decompõe em juros (despesa financeira de verdade) e principal (que
+      // entra no preço), e o que era `AMORTIZACAO` passa a ser lido DENTRO de Despesa Fixa —
+      // o §7 exige que a amortização apareça uma vez só, no bloco. O `expense_group` GRAVADO
+      // não muda: quem muda de lugar é esta leitura. A Análise Financeira contábil
+      // (`pages/dfc/`) lê `cash_entries` direto e segue pondo a amortização depois do
+      // resultado operacional.
+      //
+      // A regra mora em `compromissos-financeiros.ts`, e é a MESMA que o rateio usa — o §5
+      // pede uma implementação só, e ela é chamada das duas cópias deste laço.
+      if (ehCompromissoFinanceiro(entry.expense_category as string)) {
+        const partes = classificarLancamentoDeDespesa({
+          expense_group: entry.expense_group as string,
+          expense_category: entry.expense_category as string,
+          amount,
+          juros_value: (entry as { juros_value?: number | null }).juros_value,
+          principal_value: (entry as { principal_value?: number | null }).principal_value,
+        })
+        for (const parte of partes) {
+          if (!expenseByGroupByMonth[parte.group]) expenseByGroupByMonth[parte.group] = {}
+          expenseByGroupByMonth[parte.group][monthKey] =
+            (expenseByGroupByMonth[parte.group][monthKey] || 0) + parte.amount
+
+          if (!expenseByCategoryByMonth[parte.category]) {
+            expenseByCategoryByMonth[parte.category] = { group: parte.group, values: {} }
+          }
+          expenseByCategoryByMonth[parte.category].values[monthKey] =
+            (expenseByCategoryByMonth[parte.category].values[monthKey] || 0) + parte.amount
+        }
+        continue
+      }
+
       // Nível grupo: sempre usa o amount total
       if (!expenseByGroupByMonth[entry.expense_group]) {
         expenseByGroupByMonth[entry.expense_group] = {}
@@ -220,9 +296,13 @@ export async function calculateHubData(tenantId: string): Promise<HubData> {
   }
 
   // Merge PIS + COFINS em linha única PIS/COFINS
+  // Os DOIS blocos de apresentação, e eles não se cruzam: um vive em Custo dos Produtos, o
+  // outro em Despesa Fixa. Nenhum dos dois toca `expenseByGroupByMonth`, que é de onde saem o
+  // total do grupo e o "Total Despesas" — é essa separação que mantém o resultado do mês.
   acrescentaBlocoDeCustoDosProdutos(
     expenseByCategoryByMonth, custoProdutosBrutoPorMes, creditoDeCompraPorMes, regimeDoTenant,
   )
+  acrescentaSubtotalDoBloco(expenseByCategoryByMonth)
 
   // Lista de meses ordenados que tiveram algum lançamento
   const allMonthsSet = new Set<string>([
@@ -248,9 +328,12 @@ export async function calculateHubData(tenantId: string): Promise<HubData> {
       // Sub-rows: categorias com dados dentro deste grupo, ordenadas por order
       const subRows: HubSubRow[] = Object.entries(expenseByCategoryByMonth)
         .filter(([, cd]) => cd.group === g.group)
+        // DOIS blocos têm ordem PRÓPRIA, e uma categoria pertence no máximo a um deles: as
+        // duas linhas do Custo dos Produtos e as seis dos Compromissos Financeiros. Sem isso
+        // elas caem todas no `?? 999` e saem intercaladas com o aluguel e a energia.
         .sort(([a], [b]) => (
-          (ordemDaLinhaDeApresentacao(a) ?? CATEGORY_ORDER_MAP[a] ?? 999)
-          - (ordemDaLinhaDeApresentacao(b) ?? CATEGORY_ORDER_MAP[b] ?? 999)
+          (ordemDaLinhaDeApresentacao(a) ?? ordemNoBloco(a) ?? CATEGORY_ORDER_MAP[a] ?? 999)
+          - (ordemDaLinhaDeApresentacao(b) ?? ordemNoBloco(b) ?? CATEGORY_ORDER_MAP[b] ?? 999)
         ))
         .map(([catKey, cd]) => {
           const catValues = cd.values
@@ -266,6 +349,11 @@ export async function calculateHubData(tenantId: string): Promise<HubData> {
             closedMonthsWithData: catClosedMonths,
             averageRS: Math.round(catAverageRS * 100) / 100,
             averagePct: Math.round(catAveragePct * 100) / 100,
+            // Os DOIS blocos marcam as suas linhas de apresentação: as duas do Custo dos
+            // Produtos (dedução e líquido) e o subtotal dos Compromissos Financeiros. Nada
+            // soma sub-rows hoje — o total do grupo vem de `expenseByGroupByMonth` —, e o
+            // campo existe para que continue assim no próximo consumidor.
+            apenasApresentacao: catKey === LABEL_DO_BLOCO || ehLinhaDeApresentacao(catKey),
           }
         })
 
@@ -345,6 +433,40 @@ export async function calculateHubDataPrevMonth(tenantId: string): Promise<HubDa
       const hasLrBreakdown = entry.valor_icms != null || entry.valor_pis != null || entry.valor_cofins != null || entry.valor_ipi != null
         || entry.valor_cbs != null || entry.valor_ibs != null
 
+      // >>> COMPROMISSO FINANCEIRO — §5 e §6 do comando de 21/09/2026 <<<
+      //
+      // O lançamento se decompõe em juros (despesa financeira de verdade) e principal (que
+      // entra no preço), e o que era `AMORTIZACAO` passa a ser lido DENTRO de Despesa Fixa —
+      // o §7 exige que a amortização apareça uma vez só, no bloco. O `expense_group` GRAVADO
+      // não muda: quem muda de lugar é esta leitura. A Análise Financeira contábil
+      // (`pages/dfc/`) lê `cash_entries` direto e segue pondo a amortização depois do
+      // resultado operacional.
+      //
+      // A regra mora em `compromissos-financeiros.ts`, e é a MESMA que o rateio usa — o §5
+      // pede uma implementação só, e ela é chamada das duas cópias deste laço.
+      if (ehCompromissoFinanceiro(entry.expense_category as string)) {
+        const partes = classificarLancamentoDeDespesa({
+          expense_group: entry.expense_group as string,
+          expense_category: entry.expense_category as string,
+          amount,
+          juros_value: (entry as { juros_value?: number | null }).juros_value,
+          principal_value: (entry as { principal_value?: number | null }).principal_value,
+        })
+        for (const parte of partes) {
+          if (!expenseByGroupByMonth[parte.group]) expenseByGroupByMonth[parte.group] = {}
+          expenseByGroupByMonth[parte.group][monthKey] =
+            (expenseByGroupByMonth[parte.group][monthKey] || 0) + parte.amount
+
+          if (!expenseByCategoryByMonth[parte.category]) {
+            expenseByCategoryByMonth[parte.category] = { group: parte.group, values: {} }
+          }
+          expenseByCategoryByMonth[parte.category].values[monthKey] =
+            (expenseByCategoryByMonth[parte.category].values[monthKey] || 0) + parte.amount
+        }
+        continue
+      }
+
+      // Nível grupo: sempre usa o amount total
       if (!expenseByGroupByMonth[entry.expense_group]) {
         expenseByGroupByMonth[entry.expense_group] = {}
       }
@@ -384,9 +506,13 @@ export async function calculateHubDataPrevMonth(tenantId: string): Promise<HubDa
     }
   }
 
+  // Os DOIS blocos de apresentação, e eles não se cruzam: um vive em Custo dos Produtos, o
+  // outro em Despesa Fixa. Nenhum dos dois toca `expenseByGroupByMonth`, que é de onde saem o
+  // total do grupo e o "Total Despesas" — é essa separação que mantém o resultado do mês.
   acrescentaBlocoDeCustoDosProdutos(
     expenseByCategoryByMonth, custoProdutosBrutoPorMes, creditoDeCompraPorMes, regimeDoTenant,
   )
+  acrescentaSubtotalDoBloco(expenseByCategoryByMonth)
 
   const allMonthsSet = new Set<string>([
     ...Object.keys(incomeByMonth),
@@ -408,9 +534,12 @@ export async function calculateHubDataPrevMonth(tenantId: string): Promise<HubDa
 
       const subRows: HubSubRow[] = Object.entries(expenseByCategoryByMonth)
         .filter(([, cd]) => cd.group === g.group)
+        // DOIS blocos têm ordem PRÓPRIA, e uma categoria pertence no máximo a um deles: as
+        // duas linhas do Custo dos Produtos e as seis dos Compromissos Financeiros. Sem isso
+        // elas caem todas no `?? 999` e saem intercaladas com o aluguel e a energia.
         .sort(([a], [b]) => (
-          (ordemDaLinhaDeApresentacao(a) ?? CATEGORY_ORDER_MAP[a] ?? 999)
-          - (ordemDaLinhaDeApresentacao(b) ?? CATEGORY_ORDER_MAP[b] ?? 999)
+          (ordemDaLinhaDeApresentacao(a) ?? ordemNoBloco(a) ?? CATEGORY_ORDER_MAP[a] ?? 999)
+          - (ordemDaLinhaDeApresentacao(b) ?? ordemNoBloco(b) ?? CATEGORY_ORDER_MAP[b] ?? 999)
         ))
         .map(([catKey, cd]) => {
           const catValues = cd.values
@@ -426,6 +555,11 @@ export async function calculateHubDataPrevMonth(tenantId: string): Promise<HubDa
             closedMonthsWithData: catClosedMonths,
             averageRS: Math.round(catAverageRS * 100) / 100,
             averagePct: Math.round(catAveragePct * 100) / 100,
+            // Os DOIS blocos marcam as suas linhas de apresentação: as duas do Custo dos
+            // Produtos (dedução e líquido) e o subtotal dos Compromissos Financeiros. Nada
+            // soma sub-rows hoje — o total do grupo vem de `expenseByGroupByMonth` —, e o
+            // campo existe para que continue assim no próximo consumidor.
+            apenasApresentacao: catKey === LABEL_DO_BLOCO || ehLinhaDeApresentacao(catKey),
           }
         })
 
@@ -523,7 +657,23 @@ export function extractStructurePercents(
 
   return {
     indirect_labor_percent: Math.round(moAdmin * 10000) / 10000,
-    fixed_expense_percent:  Math.round(findPct('DESPESA_FIXA') * 10000) / 10000,
+      // >>> A BASE DA DESPESA FIXA INCLUI OS COMPROMISSOS FINANCEIROS — §5 do comando <<<
+    //
+    // Parcela de financiamento, empréstimo, consórcio e amortização de principal VENCEM MESMO
+    // SEM VENDA. O preço tem de cobri-las, e até aqui a amortização ficava de fora: o grupo
+    // `AMORTIZACAO` existe desde 09/09/2026 e nunca entrou no rateio.
+    //
+    // Somar o GRUPO inteiro é correto porque TODAS as categorias de `AMORTIZACAO` são do
+    // bloco — há caso afirmando isso, e ele fica vermelho no dia em que alguém criar uma que
+    // não seja. As outras quatro categorias do bloco já são `DESPESA_FIXA`.
+    //
+    // A soma é IDEMPOTENTE de propósito: `calculateHubData` dobra a amortização dentro de
+    // `DESPESA_FIXA` para a tela, e aí `findPct('AMORTIZACAO')` devolve zero. Um `HubData` com
+    // os dois grupos separados e um já dobrado dão o MESMO número.
+    //
+    // `INVESTIMENTO` NUNCA entra: ele só acontece se sobrar dinheiro, e sai do lucro.
+    fixed_expense_percent:
+      Math.round(GRUPOS_DA_BASE_DA_DESPESA_FIXA.reduce((acc, g) => acc + findPct(g), 0) * 10000) / 10000,
     variable_expense_percent: Math.round(findPct('DESPESA_VARIAVEL') * 10000) / 10000,
     financial_expense_percent: Math.round(findPct('DESPESA_FINANCEIRA') * 10000) / 10000,
     // REVENDA: já contabilizada dentro de `indirect_labor_percent` — devolver aqui de novo

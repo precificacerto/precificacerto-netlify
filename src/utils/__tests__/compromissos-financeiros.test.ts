@@ -24,6 +24,8 @@ import {
   CATEGORIAS_DE_INVESTIMENTO,
   GRUPOS_DA_BASE_DA_DESPESA_FIXA,
   LEGADO_PARA_ATUAL,
+  classificarLancamentoDeDespesa,
+  CATEGORIA_JUROS,
 } from '@/utils/compromissos-financeiros'
 
 /** Faturamento de referência do §8. */
@@ -228,5 +230,71 @@ describe('O bloco: as cinco, mais os rótulos que o banco já tem', () => {
       expect(ehCompromissoFinanceiro(inv.category)).toBe(false)
     }
     expect(CATEGORIAS_DE_INVESTIMENTO).toHaveLength(5)
+  })
+})
+
+describe('>>> §6 — a parcela se decompõe, e a soma das partes é SEMPRE o que saiu do caixa <<<', () => {
+  const parcela = (extra: Record<string, unknown> = {}) => classificarLancamentoDeDespesa({
+    expense_group: 'DESPESA_FIXA',
+    expense_category: 'Financiamentos',
+    amount: PARCELA_FINANCIAMENTO,
+    ...extra,
+  })
+
+  it('separada: 2.500,00 no bloco e 500,00 em despesa financeira', () => {
+    const partes = parcela({ juros_value: JUROS, principal_value: PRINCIPAL })
+    expect(partes).toHaveLength(2)
+    expect(partes[0]).toMatchObject({ group: 'DESPESA_FIXA', category: 'Financiamentos', amount: 2500 })
+    expect(partes[1]).toMatchObject({ group: 'DESPESA_FINANCEIRA', category: CATEGORIA_JUROS, amount: 500 })
+  })
+
+  it('>>> as partes somam o `amount`, mesmo quando o principal digitado diverge <<<', () => {
+    // O HUB é por caixa: se as partes somassem 2.500,00 quando saíram 3.000,00, o "Total
+    // Despesas" deixaria de bater com o extrato. O principal é `total − juros`, não o digitado.
+    const partes = parcela({ juros_value: 500, principal_value: 2000 })
+    expect(partes.reduce((a, p) => a + p.amount, 0)).toBeCloseTo(PARCELA_FINANCIAMENTO, 10)
+    expect(partes[0].amount).toBeCloseTo(2500, 2)
+  })
+
+  it('>>> valor cheio: UMA parte só, e nenhuma linha de juros R$ 0,00 <<<', () => {
+    const partes = parcela()
+    expect(partes).toHaveLength(1)
+    expect(partes[0]).toMatchObject({ group: 'DESPESA_FIXA', amount: 3000 })
+  })
+
+  it('>>> juros ZERO informado também não abre linha — R$ 0,00 não é informação <<<', () => {
+    expect(parcela({ juros_value: 0 })).toHaveLength(1)
+  })
+
+  it('>>> a AMORTIZAÇÃO passa a ler como DESPESA_FIXA no HUB — existe só dentro do bloco <<<', () => {
+    const partes = classificarLancamentoDeDespesa({
+      expense_group: 'AMORTIZACAO',
+      expense_category: 'Amortização de Dívida (principal)',
+      amount: PRINCIPAL,
+    })
+    expect(partes).toHaveLength(1)
+    expect(partes[0].group).toBe('DESPESA_FIXA')
+    expect(partes[0].group).not.toBe('AMORTIZACAO')
+  })
+
+  it('>>> e o legado do banco entra no bloco do mesmo jeito <<<', () => {
+    const partes = classificarLancamentoDeDespesa({
+      expense_group: 'DESPESA_FIXA', expense_category: 'Aplicações / Consórcios', amount: 800,
+    })
+    expect(partes[0]).toMatchObject({ group: 'DESPESA_FIXA', amount: 800 })
+  })
+
+  it('lançamento que NÃO é compromisso passa inteiro, com o grupo gravado', () => {
+    for (const [group, category] of [['DESPESA_FIXA', 'Aluguel'], ['INVESTIMENTO', 'Obras e benfeitorias'], ['CUSTO_PRODUTOS', 'Fornecedores']]) {
+      const partes = classificarLancamentoDeDespesa({ expense_group: group, expense_category: category, amount: 777 })
+      expect(partes).toEqual([{ group, category, amount: 777 }])
+    }
+  })
+
+  it('>>> o juros destacado NÃO pode voltar para a base da despesa fixa <<<', () => {
+    const partes = parcela({ juros_value: JUROS })
+    const naBaseFixa = partes.filter((p) => p.group === 'DESPESA_FIXA').reduce((a, p) => a + p.amount, 0)
+    expect(naBaseFixa).toBeCloseTo(2500, 2)
+    expect(naBaseFixa).not.toBeCloseTo(3000, 2)
   })
 })

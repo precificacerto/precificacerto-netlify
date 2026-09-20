@@ -301,6 +301,7 @@ export type AggregatedData = {
   impostoPorDentro: MonthlyValues // Impostos sobre o faturamento por dentro: ICMS Próprio, PIS, COFINS (LR / Simples Híbrido)
   amortizacao: MonthlyValues // Pagamento de PRINCIPAL de dívida — não é despesa operacional
   repasse: MonthlyValues // Valor que atravessa a empresa sem gerar lucro — ver `expense-groups.ts`
+  investimento: MonthlyValues // Só acontece se sobrar dinheiro: SAI DO LUCRO, depois dele
 }
 
 // EXPORTADA para que o teste afirme EFEITO (o lançamento cai no balde certo) em vez de
@@ -325,6 +326,7 @@ export function aggregateEntries(entries: CashEntry[]): AggregatedData {
     impostoPorDentro: { ...EMPTY_MONTHS },
     amortizacao: { ...EMPTY_MONTHS },
     repasse: { ...EMPTY_MONTHS },
+    investimento: { ...EMPTY_MONTHS },
   }
 
   // Category keys considered as product cost (CMV) — matches CASHIER_CATEGORY.EXPENSE keys
@@ -434,6 +436,17 @@ export function aggregateEntries(entries: CashEntry[]): AggregatedData {
         // aqui, na dedução logo abaixo. Linha PRÓPRIA, ao lado das devoluções e nunca somada
         // a elas — ver o comentário do grupo em `expense-groups.ts`.
         data.repasse[monthKey] += entry.amount
+        break
+      case 'INVESTIMENTO':
+        // Aquisição de máquina, obra, software, participação societária. Só acontece SE
+        // SOBRAR DINHEIRO — não é despesa operacional e não entra no preço. Aparece DEPOIS
+        // do lucro líquido, nas três variantes, pela mesma razão que a amortização aparece
+        // depois do resultado: pô-la antes a faria compor a margem.
+        //
+        // Sem este `case` o grupo cairia no `default` e o valor SUMIRIA da demonstração sem
+        // erro nenhum — é a armadilha que o comentário do `default` descreve, e o caso sobre
+        // `DFC_GROUPS_QUE_SOMAM` ficou vermelho exatamente aqui antes desta linha existir.
+        data.investimento[monthKey] += entry.amount
         break
       case 'LUCRO':
         // Distribuição de lucros / Investimentos — não compõem o DRE de estrutura.
@@ -627,6 +640,12 @@ export function buildDreLucroRealPresumido(
   const lucroLiquidoLr = subtractMonths(resultadoFinanceiro, agg.amortizacao)
   rows.push(buildRow('lucro_liquido', '(=) Lucro Líquido', lucroLiquidoLr, baseAV, { isTotal: true, sign: '=' }))
 
+  // INVESTIMENTO — DEPOIS do lucro, porque é dele que sai. A regra é DO NEGÓCIO, não do
+  // regime: a linha existe nas TRÊS variantes, como a amortização. Omiti-la numa delas faria
+  // o mesmo valor sumir só para um regime — `copia-divergente.md`.
+  rows.push(buildRow('investimento', '(-) Investimentos (saem do lucro)', agg.investimento, baseAV, { sign: '-' }))
+  rows.push(buildRow('sobra_apos_investimento', '(=) Sobra após Investimentos', subtractMonths(lucroLiquidoLr, agg.investimento), baseAV, { isSubtotal: true, sign: '=' }))
+
   return rows
 }
 
@@ -700,6 +719,12 @@ export function buildDrePresumidoRET(agg: AggregatedData): DreRow[] {
     agg.amortizacao,
   )
   rows.push(buildRow('lucro_liquido', '(=) Lucro/Prejuízo Líquido do Período', lucroLiquido, baseAV, { isTotal: true, sign: '=' }))
+
+  // INVESTIMENTO — DEPOIS do lucro, porque é dele que sai. A regra é DO NEGÓCIO, não do
+  // regime: a linha existe nas TRÊS variantes, como a amortização. Omiti-la numa delas faria
+  // o mesmo valor sumir só para um regime — `copia-divergente.md`.
+  rows.push(buildRow('investimento', '(-) Investimentos (saem do lucro)', agg.investimento, baseAV, { sign: '-' }))
+  rows.push(buildRow('sobra_apos_investimento', '(=) Sobra após Investimentos', subtractMonths(lucroLiquido, agg.investimento), baseAV, { isSubtotal: true, sign: '=' }))
 
   return rows
 }
@@ -786,6 +811,12 @@ export function buildDreSimplesNacional(agg: AggregatedData, _calcType: CalcType
     agg.amortizacao,
   )
   rows.push(buildRow('lucro_liquido', '(=) Lucro Líquido', lucroLiquido, baseAV, { isTotal: true, sign: '=' }))
+
+  // INVESTIMENTO — DEPOIS do lucro, porque é dele que sai. A regra é DO NEGÓCIO, não do
+  // regime: a linha existe nas TRÊS variantes, como a amortização. Omiti-la numa delas faria
+  // o mesmo valor sumir só para um regime — `copia-divergente.md`.
+  rows.push(buildRow('investimento', '(-) Investimentos (saem do lucro)', agg.investimento, baseAV, { sign: '-' }))
+  rows.push(buildRow('sobra_apos_investimento', '(=) Sobra após Investimentos', subtractMonths(lucroLiquido, agg.investimento), baseAV, { isSubtotal: true, sign: '=' }))
 
   return rows
 }

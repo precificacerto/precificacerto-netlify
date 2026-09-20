@@ -192,3 +192,86 @@ export function separarJurosEPrincipal(parcela: ParcelaInformada): ParcelaSepara
     divergeDoTotal: Math.abs(juros + principal - total) > 0.005,
   }
 }
+
+// ───────────────────────────────────────────────────────────────────────────────────────────
+// A CLASSIFICAÇÃO DE UM LANÇAMENTO — a implementação ÚNICA do §5
+// ───────────────────────────────────────────────────────────────────────────────────────────
+
+/** A categoria que recebe a parcela de juros de um compromisso. */
+export const CATEGORIA_JUROS = 'Juros'
+
+export interface LancamentoDeDespesa {
+  expense_group?: string | null
+  expense_category?: string | null
+  amount: number
+  juros_value?: number | null
+  principal_value?: number | null
+}
+
+export interface ParteDoLancamento {
+  group: string
+  category: string
+  amount: number
+  /** `true` na parcela de juros que foi DESTACADA de um compromisso. */
+  destacadaDoCompromisso?: boolean
+}
+
+/**
+ * Em que PARTES um lançamento de despesa se decompõe para o HUB e para o rateio.
+ *
+ * >>> A SOMA DAS PARTES É SEMPRE O `amount` <<<
+ *
+ * O `amount` é o que saiu do caixa, e o HUB é por caixa: se as partes somassem outra coisa, o
+ * "Total Despesas" da tela deixaria de bater com o extrato. Por isso o principal é SEMPRE
+ * `total − juros`, e não o `principal_value` digitado — divergência entre os dois é problema
+ * do formulário, que a recusa antes de gravar (`separarJurosEPrincipal().divergeDoTotal`), e
+ * nunca um número que o HUB inventa para fechar.
+ *
+ * >>> O COMPROMISSO VAI PARA `DESPESA_FIXA`, INCLUSIVE O QUE ERA `AMORTIZACAO` <<<
+ *
+ * É o §7: *"a amortização deixa de aparecer em qualquer outro ponto do HUB/Análise: ela existe
+ * só dentro do bloco"*. O `expense_group` GRAVADO não muda — quem muda de lugar é a leitura do
+ * HUB. A Análise Financeira contábil (`pages/dfc/`) lê `cash_entries` direto e continua pondo
+ * a amortização depois do resultado operacional.
+ */
+export function classificarLancamentoDeDespesa(entry: LancamentoDeDespesa): ParteDoLancamento[] {
+  const total = n(entry.amount)
+  const categoria = entry.expense_category || ''
+  const grupoGravado = entry.expense_group || 'OUTROS'
+
+  if (!ehCompromissoFinanceiro(categoria)) {
+    return [{ group: grupoGravado, category: categoria, amount: total }]
+  }
+
+  const { juros } = separarJurosEPrincipal({
+    total,
+    juros: entry.juros_value,
+    principal: entry.principal_value,
+  })
+
+  // Juros ausente (`null`) ou zero não abre linha: uma linha de R$ 0,00 em despesa financeira
+  // afirmaria que houve juros e eles deram zero. Ausente não afirma nada.
+  if (juros == null || juros === 0) {
+    return [{ group: 'DESPESA_FIXA', category: categoria, amount: total }]
+  }
+
+  return [
+    { group: 'DESPESA_FIXA', category: categoria, amount: total - juros },
+    { group: 'DESPESA_FINANCEIRA', category: CATEGORIA_JUROS, amount: juros, destacadaDoCompromisso: true },
+  ]
+}
+
+/**
+ * A ORDEM das linhas do bloco na tela — o subtotal ANTES dos membros, como o §7 desenha:
+ *
+ *     Compromissos Financeiros                 ← subtotal do bloco
+ *         Amortização · Financiamentos · Empréstimos · Consórcios · Aplicações
+ *
+ * Sem ordem explícita as seis linhas caem no `?? 999` do mapa de ordem das categorias e saem
+ * intercaladas com o aluguel e a energia — o bloco deixa de ser bloco.
+ */
+export function ordemNoBloco(category: string): number | null {
+  if (category === LABEL_DO_BLOCO) return 9000
+  const i = CATEGORIAS_DO_BLOCO.findIndex((c) => c.category === category)
+  return i < 0 ? null : 9001 + i
+}

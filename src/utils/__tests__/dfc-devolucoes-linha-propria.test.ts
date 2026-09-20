@@ -91,6 +91,9 @@ const comDevolucao = (): AggregatedData => ({
     // fixture ficar completa, e o valor não-zero garante que a POSIÇÃO da devolução continua
     // sendo afirmada com a vizinha presente, não com ela ausente.
     repasse: mes(4_300),
+    // Campo OBRIGATÓRIO desde 21/09/2026, e foi o `tsc` que apontou as duas fixtures —
+    // `construtor-empobrecido.md`: campo de cálculo é obrigatório, e o compilador enumera.
+    investimento: { ...ZERO },
 })
 
 const indice = (rows: DreRow[], key: string) => rows.findIndex((r) => r.key === key)
