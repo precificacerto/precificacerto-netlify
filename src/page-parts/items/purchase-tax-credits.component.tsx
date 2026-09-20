@@ -10,7 +10,7 @@
  * conta aqui seria a cópia que `copia-divergente.md` cataloga, e ela fecharia consigo mesma.
  */
 import React from 'react'
-import { Form, Select, Switch, Tooltip } from 'antd'
+import { Checkbox, Form, Select, Switch, Tooltip } from 'antd'
 import { InfoCircleOutlined, LockOutlined } from '@ant-design/icons'
 import PercentInput from '@/components/percent-input.component'
 import { getMonetaryValue } from '@/utils/get-monetary-value'
@@ -91,11 +91,9 @@ interface Props {
   onRecalc: () => void
   /** O bloco não existe em Simples e MEI. */
   visivel: boolean
-  /** No Simples Híbrido só CBS e IBS têm botão — os outros três estão no DAS. */
-  apenasIva: boolean
 }
 
-export function PurchaseTaxCredits({ bandeiras, custo, onToggle, onRecalc, visivel, apenasIva }: Props) {
+export function PurchaseTaxCredits({ bandeiras, custo, onToggle, onRecalc, visivel }: Props) {
   if (!visivel) return null
 
   const linha = (t: TributoCreditavel, valor: number | null | undefined, extra?: React.ReactNode) => {
@@ -121,25 +119,44 @@ export function PurchaseTaxCredits({ bandeiras, custo, onToggle, onRecalc, visiv
           <span style={{ color: '#94a3b8', fontSize: 13, minWidth: 92 }}>{fmt(valor)}</span>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end' }}>
-          <Switch
-            size="small"
-            checked={!!b?.ativo}
-            disabled={!!b?.vedado}
-            onChange={(v) => onToggle(t, v)}
-          />
-          <span style={{ fontSize: 12, color: b?.vedado ? '#fca5a5' : '#94a3b8' }}>gera crédito</span>
-          {/*
-            O MOTIVO É VISÍVEL, e não só o botão cinza. Um botão desabilitado sem explicação
-            faz o usuário achar que o sistema está quebrado; com o motivo, ele aprende a
-            regra. É a mesma razão do rótulo "% médio" em `decomposicao-na-tela.md`.
-          */}
-          {b?.vedado && b.motivo && (
-            <Tooltip title={b.motivo}>
-              <LockOutlined style={{ color: '#fca5a5' }} />
-            </Tooltip>
-          )}
-        </div>
+        {/*
+          VEDAÇÃO DE REGIME NÃO TEM BOTÃO — e a distinção é deliberada.
+          Naquele regime o tributo NUNCA credita, para item nenhum: um botão desabilitado
+          convidaria a perguntar "o que preciso mudar para habilitar?", e a resposta seria
+          "nada — mude de regime". A linha diz onde o tributo está, e isso é a informação.
+          As outras vedações (CST, fornecedor, sem destaque) dependem DAQUELA COMPRA: ali o
+          botão existe, desabilitado, porque o usuário pode mudar o dado que o bloqueia.
+        */}
+        {b?.tipoVedacao === 'REGIME' ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end' }}>
+            <span style={{ fontSize: 12, color: '#fca5a5' }}>dentro do DAS — compõe o custo</span>
+            {b.motivo && (
+              <Tooltip title={b.motivo}>
+                <InfoCircleOutlined style={{ color: '#64748b' }} />
+              </Tooltip>
+            )}
+          </div>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end' }}>
+            <Switch
+              size="small"
+              checked={!!b?.ativo}
+              disabled={!!b?.vedado}
+              onChange={(v) => onToggle(t, v)}
+            />
+            <span style={{ fontSize: 12, color: b?.vedado ? '#fca5a5' : '#94a3b8' }}>gera crédito</span>
+            {/*
+              O MOTIVO É VISÍVEL, e não só o botão cinza. Um botão desabilitado sem explicação
+              faz o usuário achar que o sistema está quebrado; com o motivo, ele aprende a
+              regra. É a mesma razão do rótulo "% médio" em `decomposicao-na-tela.md`.
+            */}
+            {b?.vedado && b.motivo && (
+              <Tooltip title={b.motivo}>
+                <LockOutlined style={{ color: '#fca5a5' }} />
+              </Tooltip>
+            )}
+          </div>
+        )}
       </div>
     )
   }
@@ -179,9 +196,15 @@ export function PurchaseTaxCredits({ bandeiras, custo, onToggle, onRecalc, visiv
         />
       </Form.Item>
 
-      {!apenasIva && linha('ICMS', v?.icms)}
-      {!apenasIva && linha('PIS_COFINS', v?.pisCofins)}
-      {!apenasIva && linha('IPI', v?.ipi)}
+      {/*
+        AS TRÊS LINHAS APARECEM SEMPRE, inclusive no Simples Híbrido — decisão do PO de
+        20/09/2026, seção 4. Antes elas SUMIAM ali, e sumir afirma que o tributo não existe
+        na compra: ele existe, compõe o custo, e o que não existe é o crédito. É a mesma
+        distinção de `ausente-vs-falso.md` — a linha some, o usuário conclui que não pagou.
+      */}
+      {linha('ICMS', v?.icms)}
+      {linha('PIS_COFINS', v?.pisCofins)}
+      {linha('IPI', v?.ipi)}
 
       {linha('CBS', v?.cbs, (
         <Form.Item name="cbs_rate" noStyle initialValue={0}>
@@ -193,6 +216,26 @@ export function PurchaseTaxCredits({ bandeiras, custo, onToggle, onRecalc, visiv
           <PercentInput min={0} max={100} style={{ width: 110 }} onChange={() => setTimeout(onRecalc, 50)} />
         </Form.Item>
       ))}
+
+      {/*
+        O FORNECEDOR DO SIMPLES — LC 214/2025 art. 47 §9º II.
+        Fica junto de CBS/IBS porque é só deles que ele trata, e é propriedade DA COMPRA:
+        outra nota do mesmo item, de outro fornecedor, credita normalmente.
+      */}
+      <Form.Item
+        name="fornecedor_simples_sem_regime_regular"
+        valuePropName="checked"
+        style={{ marginTop: 10, marginBottom: 0 }}
+      >
+        <Checkbox onChange={() => setTimeout(onRecalc, 50)}>
+          <span style={{ fontSize: 12 }}>
+            Fornecedor do Simples sem regime regular&nbsp;
+            <Tooltip title="Optante do Simples que NÃO aderiu ao regime regular de IBS/CBS: o crédito do adquirente fica limitado ao recolhido dentro do DAS, que a nota não destaca. Marcado, o crédito de CBS e IBS é bloqueado — bloquear é mais honesto que estimar um número que ninguém apurou. LC 214/2025 art. 47 §9º II.">
+              <InfoCircleOutlined style={{ color: '#64748b' }} />
+            </Tooltip>
+          </span>
+        </Checkbox>
+      </Form.Item>
 
       {/* SEMPRE CUSTO — sem botão, porque não há caso em que creditem. */}
       <div style={{ marginTop: 14, paddingTop: 10, borderTop: '1px dashed rgba(148,163,184,0.25)' }}>

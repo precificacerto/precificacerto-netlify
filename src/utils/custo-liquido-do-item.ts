@@ -78,10 +78,22 @@ export type OrigemDaBandeira = 'gravada' | 'padrao' | 'vedacao'
 export interface BandeiraDeCredito {
   /** O crédito é tomado? */
   ativo: boolean
-  /** A lei proíbe. O botão fica DESABILITADO, e `motivo` diz por quê. */
+  /** A lei proíbe. `motivo` diz por quê. */
   vedado: boolean
   motivo?: string
   origem: OrigemDaBandeira
+  /**
+   * QUE TIPO de vedação — e a distinção decide a TELA, não a conta.
+   *
+   * `REGIME` é estrutural: naquele regime aquele tributo NUNCA credita, para item nenhum.
+   * A linha aparece SEM BOTÃO, porque um botão desabilitado convida a perguntar "o que
+   * preciso mudar para habilitar?", e a resposta é "nada — mude de regime".
+   *
+   * `CST`, `FORNECEDOR` e `IVA_SEM_DESTAQUE` dependem DAQUELA COMPRA: outra nota, do mesmo
+   * item, pode creditar. Aí o botão existe, desabilitado, com o cadeado e o motivo — porque
+   * o usuário PODE mudar o dado que o bloqueia.
+   */
+  tipoVedacao?: 'REGIME' | 'CST' | 'FORNECEDOR' | 'IVA_SEM_DESTAQUE'
 }
 
 export type BandeirasDeCredito = Record<TributoCreditavel, BandeiraDeCredito>
@@ -102,6 +114,19 @@ export interface ContextoDoItem {
   cstIbsCbs?: { indGibscbs?: boolean | null } | null
   /** A linha de `cclass_trib` da nota, quando informada. */
   cclassTrib?: { indEstornoCred?: boolean | null } | null
+  /**
+   * O fornecedor é optante do Simples e NÃO aderiu ao regime regular de IBS/CBS.
+   *
+   * LC 214/2025 art. 47 §9º II: nesse caso o crédito do adquirente fica limitado ao que o
+   * fornecedor recolheu DENTRO do DAS — que não é destacado na nota e não é apurável aqui.
+   * O crédito é bloqueado em vez de estimado: estimar produziria um número que ninguém
+   * apurou (`ausente-vs-falso.md`), e ele entraria no custo como se fosse fato.
+   *
+   * É propriedade DA COMPRA, não do regime do comprador — por isso a vedação é do tipo
+   * `FORNECEDOR` e o botão continua existindo, desabilitado: outra nota do mesmo item, de
+   * outro fornecedor, credita normalmente.
+   */
+  fornecedorSimplesSemRegimeRegular?: boolean | null
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────
@@ -247,10 +272,20 @@ export function resolverFlagsDoItem(
 
   const resolver = (t: TributoCreditavel): BandeiraDeCredito => {
     const veda = vedacaoPorRegime(t, regime)
-    if (veda) return { ativo: false, vedado: true, motivo: veda, origem: 'vedacao' }
+    if (veda) return { ativo: false, vedado: true, motivo: veda, origem: 'vedacao', tipoVedacao: 'REGIME' }
+
+    if ((t === 'CBS' || t === 'IBS') && ctx.fornecedorSimplesSemRegimeRegular === true) {
+      return {
+        ativo: false,
+        vedado: true,
+        motivo: 'Fornecedor optante do Simples que não aderiu ao regime regular: o crédito fica limitado ao recolhido no DAS, que a nota não destaca (LC 214/2025 art. 47 §9º II).',
+        origem: 'vedacao',
+        tipoVedacao: 'FORNECEDOR',
+      }
+    }
 
     if ((t === 'CBS' || t === 'IBS') && vedacaoIva.vedado) {
-      return { ativo: false, vedado: true, motivo: vedacaoIva.motivo, origem: 'vedacao' }
+      return { ativo: false, vedado: true, motivo: vedacaoIva.motivo, origem: 'vedacao', tipoVedacao: 'IVA_SEM_DESTAQUE' }
     }
 
     const { ok, cst } = cstDe(t)
@@ -260,6 +295,7 @@ export function resolverFlagsDoItem(
         vedado: true,
         motivo: `CST ${cst} na nota de compra não admite crédito de ${t === 'PIS_COFINS' ? 'PIS/COFINS' : t}.`,
         origem: 'vedacao',
+        tipoVedacao: 'CST',
       }
     }
 

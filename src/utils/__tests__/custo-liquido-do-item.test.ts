@@ -383,3 +383,91 @@ describe('Mudar um botão mostra quem é afetado, e não regrava ninguém', () =
     expect(houveMudancaDeCredito({ ipi_credit_enabled: false }, { ipi_credit_enabled: false })).toBe(false)
   })
 })
+
+// ═════════════════════════════════════════════════════════════════════════════════════════
+// O FORNECEDOR DO SIMPLES — LC 214/2025 art. 47 §9º II
+// ═════════════════════════════════════════════════════════════════════════════════════════
+describe('Fornecedor do Simples sem regime regular veda o crédito de CBS e IBS', () => {
+  const comFornecedor = (over: Record<string, unknown> = {}) => resolverFlagsDoItem(
+    { ...ctx('REVENDA'), fornecedorSimplesSemRegimeRegular: true, ...over }, {},
+  )
+
+  it('>>> CBS e IBS ficam vedados, e o motivo cita o art. 47 <<<', () => {
+    const f = comFornecedor()
+    expect(f.CBS.ativo).toBe(false)
+    expect(f.IBS.ativo).toBe(false)
+    expect(f.CBS.motivo).toMatch(/47/)
+    expect(f.CBS.tipoVedacao).toBe('FORNECEDOR')
+  })
+
+  it('>>> e o EFEITO: o IVA da compra deixa de ser creditado e sobe no custo líquido <<<', () => {
+    const credita = calcularCustoDoItem(COMPRA_IVA, resolverFlagsDoItem(ctx('REVENDA'), {}))
+    const naoCredita = calcularCustoDoItem(COMPRA_IVA, comFornecedor())
+    expect(naoCredita.custoLiquido - credita.custoLiquido).toBeCloseTo(89, 2)
+    expect(naoCredita.custoLiquido).toBeCloseTo(933.15, 2)
+  })
+
+  it('ICMS, PIS/COFINS e IPI NÃO são afetados — a regra é só de IBS/CBS', () => {
+    const f = comFornecedor()
+    expect(f.ICMS.ativo).toBe(true)
+    expect(f.PIS_COFINS.ativo).toBe(true)
+    expect(f.ICMS.vedado).toBe(false)
+  })
+
+  it('>>> NÃO INFORMADO não veda: ausência não é proibição <<<', () => {
+    for (const v of [null, undefined, false]) {
+      const f = resolverFlagsDoItem({ ...ctx('REVENDA'), fornecedorSimplesSemRegimeRegular: v }, {})
+      expect(f.CBS.ativo).toBe(true)
+      expect(f.CBS.vedado).toBe(false)
+    }
+  })
+
+  it('a bandeira ligada à mão não vence a vedação do fornecedor', () => {
+    const f = resolverFlagsDoItem(
+      { ...ctx('REVENDA'), fornecedorSimplesSemRegimeRegular: true }, { CBS: true, IBS: true },
+    )
+    expect(f.CBS.ativo).toBe(false)
+  })
+})
+
+// ═════════════════════════════════════════════════════════════════════════════════════════
+// O TIPO DA VEDAÇÃO — é ele que decide se a TELA mostra botão
+// ═════════════════════════════════════════════════════════════════════════════════════════
+describe('Vedação de REGIME é estrutural; as outras dependem daquela compra', () => {
+  it('>>> no Simples Híbrido ICMS, PIS/COFINS e IPI são vedados por REGIME — sem botão <<<', () => {
+    const f = resolverFlagsDoItem(ctx('INSUMO', 'SIMPLES_HIBRIDO'), {})
+    for (const t of ['ICMS', 'PIS_COFINS', 'IPI'] as const) {
+      expect(f[t].vedado).toBe(true)
+      expect(f[t].tipoVedacao).toBe('REGIME')
+      expect(f[t].motivo).toMatch(/DAS/i)
+    }
+    // CBS e IBS seguem com botão, porque é o que o híbrido apura pelo regime regular.
+    expect(f.CBS.ativo).toBe(true)
+    expect(f.CBS.tipoVedacao).toBeUndefined()
+  })
+
+  it('Simples Nacional e MEI: os cinco por REGIME', () => {
+    for (const r of ['SIMPLES_NACIONAL', 'MEI']) {
+      const f = resolverFlagsDoItem(ctx('INSUMO', r), {})
+      for (const t of ['ICMS', 'PIS_COFINS', 'IPI', 'CBS', 'IBS'] as const) {
+        expect(f[t].tipoVedacao).toBe('REGIME')
+      }
+    }
+  })
+
+  it('>>> CST e destaque são de COMPRA, não de regime — tipo diferente, botão existe <<<', () => {
+    expect(resolverFlagsDoItem({ ...ctx('INSUMO'), cstIcms: '60' }, {}).ICMS.tipoVedacao).toBe('CST')
+    expect(resolverFlagsDoItem({ ...ctx('REVENDA'), cstIbsCbs: { indGibscbs: false } }, {}).CBS.tipoVedacao)
+      .toBe('IVA_SEM_DESTAQUE')
+  })
+
+  it('>>> o Lucro Presumido NÃO veda PIS/COFINS: nasce desligado e o usuário pode ligar <<<', () => {
+    const f = resolverFlagsDoItem(ctx('INSUMO', 'LUCRO_PRESUMIDO'), {})
+    expect(f.PIS_COFINS.ativo).toBe(false)
+    expect(f.PIS_COFINS.vedado).toBe(false)
+    expect(f.PIS_COFINS.tipoVedacao).toBeUndefined()
+    // E ligado à mão, ele credita — é o que distingue padrão de vedação.
+    const ligado = resolverFlagsDoItem(ctx('INSUMO', 'LUCRO_PRESUMIDO'), { PIS_COFINS: true })
+    expect(calcularCustoDoItem(COMPRA, ligado).creditos.PIS_COFINS).toBeGreaterThan(0)
+  })
+})

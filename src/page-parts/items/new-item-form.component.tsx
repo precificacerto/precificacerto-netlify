@@ -151,6 +151,7 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
           cstIcms: values.cst_icms ?? null,
           cstIpi: values.cst_ipi ?? null,
           cstPisCofins: values.cst_pis_cofins ?? null,
+          fornecedorSimplesSemRegimeRegular: values.fornecedor_simples_sem_regime_regular ?? null,
         },
         // `?? null` e NÃO `Boolean(...)`: ausente cai no padrão da destinação, desligado é
         // escolha do usuário. Achatar os dois aqui apagaria a distinção logo depois de a
@@ -907,7 +908,6 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
             bandeiras={bandeiras}
             custo={custoDoItem}
             visivel={isLucroRealOrLP}
-            apenasIva={isSimplesHibrido}
             onToggle={handleToggleCredito}
             onRecalc={recalcNetCost}
           />
