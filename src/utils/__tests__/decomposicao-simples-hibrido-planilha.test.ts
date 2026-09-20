@@ -65,6 +65,7 @@ const item = (
     icms_pct: 0, iss_pct: 0, pis_pct: 0, cofins_pct: 0, ipi_pct: 0,
     is_pct: f.is * 100, ibs_pct: IBS * 100, cbs_pct: CBS * 100,
     das_pct: c.dasHibridoPct * 100,
+    deducao_base_pct: c.deducaoBasePct * 100,
   },
   acrescimos: 0,
 } as BudgetDecompositionItem)
@@ -96,7 +97,7 @@ describe('1. A repartição dos anexos é a FONTE ÚNICA, e ela fecha em 100%', 
 
   it('a faixa é LIDA do RBT12, não escolhida por default', () => {
     expect(faixaDoRbt12('I', 100_000).faixa).toBe(1)
-    expect(faixaDoRbt12('I', 1_000_000).faixa).toBe(3)
+    expect(faixaDoRbt12('I', 1_000_000).faixa).toBe(4)
     expect(faixaDoRbt12('I', 4_000_000).faixa).toBe(6)
   })
 
@@ -381,9 +382,15 @@ describe('CASO D — orçamento misto revenda + serviço, desconto 10%', () => {
   // Os dois itens vivem no MESMO documento e têm ANEXOS diferentes — logo, DAS diferentes.
   // A dedução do documento é a do tenant; o que diverge entre eles é o DAS por item, que é
   // exatamente o que `das_pct` carrega.
+  //
+  // A despesa vem CONGELADA em cada item, que é o que um documento gravado carrega: os dois
+  // foram construídos com 2,08%, cada um pela regra do SEU segmento. Deixar a decomposição
+  // recalculá-la pelo tenant daria ao serviço a despesa da indústria — e o RRO sairia
+  // R$ 1,27 maior, fechando consigo mesmo.
+  const congelada = { despesasOperacionaisPctCongelado: 0.0208 } as Partial<BudgetDecompositionItem>
   const itens = [
-    item('B-revenda', cB, 50, 0, B_FICHA, 'REVENDA'),
-    item('C-servico', cC, 8, 19.58, C_FICHA, 'SERVICO', true),
+    { ...item('B-revenda', cB, 50, 0, B_FICHA, 'REVENDA'), ...congelada },
+    { ...item('C-servico', cC, 8, 19.58, C_FICHA, 'SERVICO', true), ...congelada },
   ]
   const r = decompor(itens, 'INDUSTRIALIZACAO', B_BALDES, B_DED, 0.10)
 
@@ -408,7 +415,7 @@ describe('CASO D — orçamento misto revenda + serviço, desconto 10%', () => {
     expect(Math.abs(das.perItem![0]) / p[0]).toBeCloseTo(dasHibridoPct('I', RBT12, ANO), 6)
     expect(Math.abs(das.perItem![1]) / p[1]).toBeCloseTo(dasHibridoPct('III', RBT12, ANO), 6)
     // E a linha é rotulada como DERIVADA, porque o percentual do total é média ponderada.
-    expect(das.derived).toBe(true)
+    expect(das.isDerivedAverage).toBe(true)
   })
 
   it('toda linha com coluna: a soma das colunas é o total (R16)', () => {
