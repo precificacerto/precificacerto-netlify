@@ -23,7 +23,8 @@ import {
   type MonthlyValues,
   type DreRow,
 } from '@/pages/dfc'
-import { LABEL_DO_BLOCO, CATEGORIAS_OFERECIDAS_DO_BLOCO, CATEGORIAS_DE_INVESTIMENTO } from '@/utils/compromissos-financeiros'
+import { LABEL_DO_BLOCO, CATEGORIAS_OFERECIDAS_DO_BLOCO, CATEGORIAS_DE_INVESTIMENTO, ordemNoBloco } from '@/utils/compromissos-financeiros'
+import { LINHAS_DE_APRESENTACAO_DO_CUSTO, ordemDaLinhaDeApresentacao } from '@/utils/custo-produtos-no-dre'
 import {
   getExpenseCategoryOptionsForRegime,
   getGroupForCategoryByRegime,
@@ -257,5 +258,62 @@ describe('A categoria ANTIGA de investimento continua onde está', () => {
 
   it.each(['SIMPLES_NACIONAL', 'MEI'])('em %s ela NÃO resolve — e já não resolvia antes', (regime) => {
     expect(getGroupForCategoryByRegime(regime, 'INVESTIMENTOS (Máquinas, Equipamentos, Expansão e Melhorias)')).toBeUndefined()
+  })
+})
+
+describe('>>> OS DOIS BLOCOS NA MESMA TELA — é aqui que o rebase do #68 com o #69 se prova <<<', () => {
+  /**
+   * O #68 pôs um bloco de três linhas em CUSTO DOS PRODUTOS (bruto · dedução · líquido) e o
+   * #69 pôs um bloco em DESPESA FIXA (subtotal · membros). Os dois usam `apenasApresentacao`
+   * e `ordem`, e os dois são filtrados da mesma soma.
+   *
+   * O risco do merge não é nenhum deles sozinho: é um APAGAR o outro. Por isso este bloco
+   * afirma os dois JUNTOS, no mesmo `processYearEntries`, e afirma o número do mês.
+   */
+  const COMPRA = {
+    type: 'EXPENSE', due_date: '2026-03-05', paid_date: '2026-03-05',
+    amount: 1000, expense_group: 'CUSTO_PRODUTOS', expense_category: 'Fornecedores',
+    valor_icms: 180, valor_pis: 16.5, valor_cofins: 76,
+    valor_ipi: 50, valor_cbs: 88, valor_ibs: 1,
+  }
+  const CREDITO = 180 + 16.5 + 76 + 50 + 88 + 1  // 411,50
+
+  const dois = processYearEntries([...LANCAMENTOS, COMPRA], 2026, 'LUCRO_REAL')
+  const l = (cat: string) => dois.expenseData.find((x) => x.category === cat)
+
+  it('o bloco do CUSTO existe, com os seus três números', () => {
+    expect(l('Fornecedores')?.mar).toBeCloseTo(1000, 2)
+    expect(l(LINHAS_DE_APRESENTACAO_DO_CUSTO.creditos.label)?.mar).toBeCloseTo(-CREDITO, 2)
+    expect(l(LINHAS_DE_APRESENTACAO_DO_CUSTO.liquido.label)?.mar).toBeCloseTo(1000 - CREDITO, 2)
+  })
+
+  it('e o bloco dos COMPROMISSOS continua inteiro, ao lado dele', () => {
+    expect(l(LABEL_DO_BLOCO)?.mar).toBeCloseTo(1000 + 800 + 200 + 2500, 2)
+    expect(l('Amortização de Dívida (principal)')?.expenseGroup).toBe('DESPESA_FIXA')
+  })
+
+  it('>>> as QUATRO linhas de apresentação se declaram, e nenhuma entra no mês <<<', () => {
+    const apresentacao = dois.expenseData.filter((x) => x.apenasApresentacao).map((x) => x.category)
+    expect(apresentacao.sort()).toEqual([
+      LINHAS_DE_APRESENTACAO_DO_CUSTO.creditos.label,
+      LINHAS_DE_APRESENTACAO_DO_CUSTO.liquido.label,
+      LABEL_DO_BLOCO,
+    ].sort())
+  })
+
+  it('>>> o resultado do mês é 35.500,00 — os 34.500,00 de antes mais a compra <<<', () => {
+    const saidas = somaMensalDasLinhas(dois.expenseData)
+    expect(saidas.mar).toBeCloseTo(34500 + 1000, 10)
+    // Somar as quatro linhas de apresentação junto daria 35.500 − 411,50 + 588,50 + 4.500.
+    const somaCega = dois.expenseData.reduce((a, x) => a + (x.mar || 0), 0)
+    expect(somaCega).not.toBeCloseTo(35500, 2)
+  })
+
+  it('>>> e as ORDENS não colidem: cada categoria pertence a um bloco só <<<', () => {
+    for (const cat of dois.expenseData.map((x) => x.category)) {
+      const noCusto = ordemDaLinhaDeApresentacao(cat)
+      const noFixa = ordemNoBloco(cat)
+      expect(noCusto != null && noFixa != null).toBe(false)
+    }
   })
 })
