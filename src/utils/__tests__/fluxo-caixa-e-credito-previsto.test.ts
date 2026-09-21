@@ -257,6 +257,16 @@ describe('>>> A dispensa é por SESSÃO e por CONJUNTO, não só por tenant <<<'
     expect(chaveDeDispensa('t1', r2)).not.toBe(chaveDeDispensa('t1', r1))
   })
 
+  it('>>> e a TROCA de um vencido por outro também muda: a CONTAGEM não basta <<<', () => {
+    // O caso acima passa a lista de UM para DOIS, e a contagem sozinha já os distingue —
+    // ele ficaria verde com uma chave que ignorasse os ids. Aqui a contagem é a MESMA e os
+    // ids mudam: um foi pago e outro venceu no mesmo dia. Sem a assinatura, o modal não
+    // voltaria. (`teste-que-nao-exercita.md`, variante 2 — o caso precisa DISCRIMINAR.)
+    const trocado = resumirVencidos([lanc({ id: 'd9' })], HOJE)
+    expect(trocado.aPagar).toHaveLength(r1.aPagar.length)
+    expect(chaveDeDispensa('t1', trocado)).not.toBe(chaveDeDispensa('t1', r1))
+  })
+
   it('tenants diferentes nunca compartilham a dispensa', () => {
     expect(chaveDeDispensa('t2', r1)).not.toBe(chaveDeDispensa('t1', r1))
   })
