@@ -25,6 +25,7 @@ import { LINHAS_DE_APRESENTACAO_DO_CUSTO } from '@/utils/custo-produtos-no-dre'
 
 const CREDITOS = LINHAS_DE_APRESENTACAO_DO_CUSTO.creditos.label
 const LIQUIDO = LINHAS_DE_APRESENTACAO_DO_CUSTO.liquido.label
+const BRUTO = LINHAS_DE_APRESENTACAO_DO_CUSTO.bruto.label
 
 /** Uma compra de R$ 1.000,00 paga em março, com os seis tributos abertos. */
 const COMPRA = {
@@ -76,8 +77,14 @@ describe('As três linhas do bloco', () => {
     expect(linha(r, LIQUIDO)?.apenasApresentacao).toBe(true)
   })
 
-  it('as três saem na ordem do bloco, e não na do `localeCompare` do rótulo', () => {
-    expect(linha(r, CREDITOS)!.ordem!).toBeLessThan(linha(r, LIQUIDO)!.ordem!)
+  it('>>> o LÍQUIDO é a CABEÇA do bloco, e as parcelas vêm abaixo dele <<<', () => {
+    // Invertido em 21/09/2026, §2: *"quem usa o cabeçalho para conferir preço usa o número
+    // errado"*. Antes o líquido fechava o bloco; agora ele o abre, e bruto, créditos e o
+    // detalhe por tributo o explicam.
+    const ordem = (c: string) => linha(r, c)!.ordem as number
+    expect(ordem(LIQUIDO)).toBeLessThan(ordem(BRUTO))
+    expect(ordem(BRUTO)).toBeLessThan(ordem(CREDITOS))
+    expect(ordem(CREDITOS)).toBeLessThan(ordem('ICMS'))
     expect(linha(r, 'Fornecedores')?.ordem).toBeUndefined()
   })
 })
@@ -107,8 +114,10 @@ describe('>>> O RESULTADO DO MÊS — é aqui que a implementação errada fica 
   it('>>> somar TODAS as linhas devolveria outro número — a dupla contagem, medida <<<', () => {
     const r = processYearEntries([COMPRA, VENDA], 2026, 'LUCRO_REAL')
     const somaCega = r.expenseData.reduce((a, l) => a + (l.mar || 0), 0)
-    // 1.000,00 − 411,50 + 588,50 = 1.177,00. Nem o bruto, nem o líquido.
-    expect(somaCega).toBeCloseTo(1177, 2)
+    // Fornecedores 1.000 + líquido 588,50 + bruto 1.000 − créditos 411,50 − os cinco
+    // detalhes (411,50) = 1.765,50. Nem o bruto, nem o líquido — e quanto MAIS linhas de
+    // apresentação o bloco ganha, mais longe a soma cega fica do número certo.
+    expect(somaCega).toBeCloseTo(1765.5, 2)
     expect(somaCega).not.toBeCloseTo(1000, 2)
   })
 })

@@ -2,9 +2,12 @@ import { supabase } from '@/supabase/client'
 import {
   creditoRecuperavelDaCompra,
   montarBlocoDeCustoDosProdutos,
+  detalheDoCreditoPorTributo,
   ordemDaLinhaDeApresentacao,
   ehLinhaDeApresentacao,
   LINHAS_DE_APRESENTACAO_DO_CUSTO,
+  DETALHE_DO_CREDITO_POR_TRIBUTO,
+  type TributosDaCompra,
   type RegimeDoBloco,
 } from '@/utils/custo-produtos-no-dre'
 import { HUB_GROUPS as HUB_GROUPS_FONTE } from '@/constants/expense-groups'
@@ -44,7 +47,21 @@ export interface HubSubRow {
 export interface HubRow {
   group: string
   label: string
-  values: HubMonthData       // R$ por mês (total do grupo)
+  values: HubMonthData       // R$ por mês (total do grupo) — É ELE que soma no Total Despesas
+  /**
+   * O que o CABEÇALHO do grupo exibe, quando difere de `values` — §2 do comando de
+   * 21/09/2026.
+   *
+   * >>> POR QUE DOIS CAMPOS, E NÃO UM <<<
+   * `values` responde "quanto saiu do caixa" e é o que o "Total Despesas" soma. Este
+   * responde "quanto isto pesa no preço", que é o LÍQUIDO de créditos. Trocar `values` pelo
+   * líquido faria o Total Despesas deixar de bater com o extrato; exibir `values` no
+   * cabeçalho é o defeito que o §2 corrige — na De Paula, 51,66% onde o que forma preço é
+   * 41,71%.
+   *
+   * `undefined` quando o grupo não tem crédito: aí as duas perguntas têm a mesma resposta.
+   */
+  valuesExibidas?: HubMonthData
   totalSum: number           // soma total nos meses encerrados
   closedMonthsWithData: number // quantos meses tiveram valor > 0 neste grupo
   averageRS: number          // totalSum / closedMonthsWithData
@@ -76,8 +93,8 @@ const GRUPO_CUSTO_PRODUTOS = 'CUSTO_PRODUTOS'
 // duas linhas próprias. O total do grupo não muda em nenhum dos dois desenhos — ele vem de
 // `expenseByGroupByMonth`, que sempre somou o `amount` cheio.
 const LR_TAX_CATEGORY_LABELS: Record<string, string> = {
-  [LINHAS_DE_APRESENTACAO_DO_CUSTO.creditos.key]: LINHAS_DE_APRESENTACAO_DO_CUSTO.creditos.label,
-  [LINHAS_DE_APRESENTACAO_DO_CUSTO.liquido.key]: LINHAS_DE_APRESENTACAO_DO_CUSTO.liquido.label,
+  ...Object.fromEntries(Object.values(LINHAS_DE_APRESENTACAO_DO_CUSTO).map((l) => [l.key, l.label])),
+  ...Object.fromEntries(Object.values(DETALHE_DO_CREDITO_POR_TRIBUTO).map((d) => [d.key, d.label])),
 }
 
 /**
@@ -96,14 +113,20 @@ function acrescentaBlocoDeCustoDosProdutos(
   expenseByCategoryByMonth: Record<string, { group: string; values: HubMonthData }>,
   brutoPorMes: HubMonthData,
   creditoPorMes: HubMonthData,
+  tributosPorMes: Record<string, TributosDaCompra>,
   regime: RegimeDoBloco,
-) {
+): HubMonthData {
+  /** O que o CABEÇALHO do grupo passa a exibir: o LÍQUIDO. §2 do comando de 21/09/2026. */
+  const exibidoPorMes: HubMonthData = {}
+
   for (const monthKey of Object.keys(brutoPorMes)) {
     const bloco = montarBlocoDeCustoDosProdutos({
       valorBrutoPago: brutoPorMes[monthKey] || 0,
       creditoRecuperavel: creditoPorMes[monthKey] || 0,
       regime,
     })
+    exibidoPorMes[monthKey] = bloco.totalExibidoNoCabecalho
+
     // Uma linha só = não há crédito naquele mês, e o bloco não se decompõe.
     if (bloco.linhas.length < 3) continue
 
@@ -114,9 +137,18 @@ function acrescentaBlocoDeCustoDosProdutos(
       expenseByCategoryByMonth[key].values[monthKey] =
         (expenseByCategoryByMonth[key].values[monthKey] || 0) + val
     }
-    add(LINHAS_DE_APRESENTACAO_DO_CUSTO.creditos.key, bloco.linhas[1].valor)
     add(LINHAS_DE_APRESENTACAO_DO_CUSTO.liquido.key, bloco.linhas[2].valor)
+    add(LINHAS_DE_APRESENTACAO_DO_CUSTO.bruto.key, bloco.linhas[0].valor)
+    add(LINHAS_DE_APRESENTACAO_DO_CUSTO.creditos.key, bloco.linhas[1].valor)
+
+    // O DETALHE POR TRIBUTO, negativo como a linha-mãe. Ele decompõe um número que já está
+    // na linha acima, que decompõe um que já está no cabeçalho — somar qualquer um conta o
+    // mesmo crédito três vezes, e é por isso que todos são `apenasApresentacao`.
+    for (const d of detalheDoCreditoPorTributo(tributosPorMes[monthKey], regime)) {
+      add(d.key, -d.valor)
+    }
   }
+  return exibidoPorMes
 }
 
 /**
@@ -201,6 +233,8 @@ export async function calculateHubData(tenantId: string): Promise<HubData> {
   // o subtotal líquido é do GRUPO INTEIRO no mês, não de uma entrada.
   const custoProdutosBrutoPorMes: HubMonthData = {}
   const creditoDeCompraPorMes: HubMonthData = {}
+  // Os seis tributos abertos por mês — é deles que saem as sub-linhas por tributo.
+  const tributosDaCompraPorMes: Record<string, TributosDaCompra> = {}
 
   for (const entry of entries) {
     // Extrai YYYY-MM direto da string para evitar problema de timezone:
@@ -294,11 +328,19 @@ export async function calculateHubData(tenantId: string): Promise<HubData> {
           // `copia-divergente.md` literal. Agora acrescentar um tributo ao crédito vale para as
           // duas leituras, e é o REGIME que decide quais entram.
           if (hasLrBreakdown) {
+            const tributos: TributosDaCompra = {
+              icms: entry.valor_icms, pis: entry.valor_pis, cofins: entry.valor_cofins,
+              ipi: entry.valor_ipi, cbs: entry.valor_cbs, ibs: entry.valor_ibs,
+            }
             creditoDeCompraPorMes[monthKey] = (creditoDeCompraPorMes[monthKey] || 0)
-              + creditoRecuperavelDaCompra({
-                icms: entry.valor_icms, pis: entry.valor_pis, cofins: entry.valor_cofins,
-                ipi: entry.valor_ipi, cbs: entry.valor_cbs, ibs: entry.valor_ibs,
-              }, regimeDoTenant)
+              + creditoRecuperavelDaCompra(tributos, regimeDoTenant)
+
+            const acc = tributosDaCompraPorMes[monthKey] ?? (tributosDaCompraPorMes[monthKey] = {})
+            for (const k of ['icms', 'pis', 'cofins', 'ipi', 'cbs', 'ibs'] as const) {
+              const v = Number(tributos[k])
+              if (!Number.isFinite(v) || v === 0) continue
+              acc[k] = (acc[k] ?? 0) + v
+            }
           }
         }
       }
@@ -309,8 +351,9 @@ export async function calculateHubData(tenantId: string): Promise<HubData> {
   // Os DOIS blocos de apresentação, e eles não se cruzam: um vive em Custo dos Produtos, o
   // outro em Despesa Fixa. Nenhum dos dois toca `expenseByGroupByMonth`, que é de onde saem o
   // total do grupo e o "Total Despesas" — é essa separação que mantém o resultado do mês.
-  acrescentaBlocoDeCustoDosProdutos(
-    expenseByCategoryByMonth, custoProdutosBrutoPorMes, creditoDeCompraPorMes, regimeDoTenant,
+  const custoExibidoPorMes = acrescentaBlocoDeCustoDosProdutos(
+    expenseByCategoryByMonth, custoProdutosBrutoPorMes, creditoDeCompraPorMes,
+    tributosDaCompraPorMes, regimeDoTenant,
   )
   acrescentaSubtotalDoBloco(expenseByCategoryByMonth)
 
@@ -371,6 +414,8 @@ export async function calculateHubData(tenantId: string): Promise<HubData> {
         group: g.group,
         label: g.label,
         values,
+        // O cabeçalho exibe o líquido; `values` segue sendo o que soma no Total Despesas.
+        valuesExibidas: g.group === GRUPO_CUSTO_PRODUTOS ? custoExibidoPorMes : undefined,
         totalSum,
         closedMonthsWithData,
         averageRS: Math.round(averageRS * 100) / 100,
@@ -432,6 +477,8 @@ export async function calculateHubDataPrevMonth(tenantId: string): Promise<HubDa
   // o subtotal líquido é do GRUPO INTEIRO no mês, não de uma entrada.
   const custoProdutosBrutoPorMes: HubMonthData = {}
   const creditoDeCompraPorMes: HubMonthData = {}
+  // Os seis tributos abertos por mês — é deles que saem as sub-linhas por tributo.
+  const tributosDaCompraPorMes: Record<string, TributosDaCompra> = {}
 
   for (const entry of entries) {
     const monthKey = (entry.due_date as string).substring(0, 7) // 'YYYY-MM'
@@ -515,11 +562,19 @@ export async function calculateHubDataPrevMonth(tenantId: string): Promise<HubDa
           // `copia-divergente.md` literal. Agora acrescentar um tributo ao crédito vale para as
           // duas leituras, e é o REGIME que decide quais entram.
           if (hasLrBreakdown) {
+            const tributos: TributosDaCompra = {
+              icms: entry.valor_icms, pis: entry.valor_pis, cofins: entry.valor_cofins,
+              ipi: entry.valor_ipi, cbs: entry.valor_cbs, ibs: entry.valor_ibs,
+            }
             creditoDeCompraPorMes[monthKey] = (creditoDeCompraPorMes[monthKey] || 0)
-              + creditoRecuperavelDaCompra({
-                icms: entry.valor_icms, pis: entry.valor_pis, cofins: entry.valor_cofins,
-                ipi: entry.valor_ipi, cbs: entry.valor_cbs, ibs: entry.valor_ibs,
-              }, regimeDoTenant)
+              + creditoRecuperavelDaCompra(tributos, regimeDoTenant)
+
+            const acc = tributosDaCompraPorMes[monthKey] ?? (tributosDaCompraPorMes[monthKey] = {})
+            for (const k of ['icms', 'pis', 'cofins', 'ipi', 'cbs', 'ibs'] as const) {
+              const v = Number(tributos[k])
+              if (!Number.isFinite(v) || v === 0) continue
+              acc[k] = (acc[k] ?? 0) + v
+            }
           }
         }
       }
@@ -529,8 +584,9 @@ export async function calculateHubDataPrevMonth(tenantId: string): Promise<HubDa
   // Os DOIS blocos de apresentação, e eles não se cruzam: um vive em Custo dos Produtos, o
   // outro em Despesa Fixa. Nenhum dos dois toca `expenseByGroupByMonth`, que é de onde saem o
   // total do grupo e o "Total Despesas" — é essa separação que mantém o resultado do mês.
-  acrescentaBlocoDeCustoDosProdutos(
-    expenseByCategoryByMonth, custoProdutosBrutoPorMes, creditoDeCompraPorMes, regimeDoTenant,
+  const custoExibidoPorMes = acrescentaBlocoDeCustoDosProdutos(
+    expenseByCategoryByMonth, custoProdutosBrutoPorMes, creditoDeCompraPorMes,
+    tributosDaCompraPorMes, regimeDoTenant,
   )
   acrescentaSubtotalDoBloco(expenseByCategoryByMonth)
 
@@ -587,6 +643,8 @@ export async function calculateHubDataPrevMonth(tenantId: string): Promise<HubDa
         group: g.group,
         label: g.label,
         values,
+        // O cabeçalho exibe o líquido; `values` segue sendo o que soma no Total Despesas.
+        valuesExibidas: g.group === GRUPO_CUSTO_PRODUTOS ? custoExibidoPorMes : undefined,
         totalSum,
         closedMonthsWithData,
         averageRS: Math.round(averageRS * 100) / 100,

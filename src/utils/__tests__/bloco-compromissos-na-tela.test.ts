@@ -24,7 +24,7 @@ import {
   type DreRow,
 } from '@/pages/dfc'
 import { LABEL_DO_BLOCO, CATEGORIAS_OFERECIDAS_DO_BLOCO, CATEGORIAS_DE_INVESTIMENTO, ordemNoBloco } from '@/utils/compromissos-financeiros'
-import { LINHAS_DE_APRESENTACAO_DO_CUSTO, ordemDaLinhaDeApresentacao } from '@/utils/custo-produtos-no-dre'
+import { LINHAS_DE_APRESENTACAO_DO_CUSTO, DETALHE_DO_CREDITO_POR_TRIBUTO, ordemDaLinhaDeApresentacao } from '@/utils/custo-produtos-no-dre'
 import {
   getExpenseCategoryOptionsForRegime,
   getGroupForCategoryByRegime,
@@ -292,11 +292,14 @@ describe('>>> OS DOIS BLOCOS NA MESMA TELA — é aqui que o rebase do #68 com o
     expect(l('Amortização de Dívida (principal)')?.expenseGroup).toBe('DESPESA_FIXA')
   })
 
-  it('>>> as QUATRO linhas de apresentação se declaram, e nenhuma entra no mês <<<', () => {
+  it('>>> TODAS as linhas de apresentação se declaram, e nenhuma entra no mês <<<', () => {
+    // O bloco do Custo cresceu em 21/09/2026 (§2): líquido, bruto, créditos e o detalhe por
+    // tributo. A lista é derivada, não escrita à mão — assim ela acompanha o bloco, e o que
+    // o caso afirma continua sendo o que importa: quem se declara não entra no mês.
     const apresentacao = dois.expenseData.filter((x) => x.apenasApresentacao).map((x) => x.category)
     expect(apresentacao.sort()).toEqual([
-      LINHAS_DE_APRESENTACAO_DO_CUSTO.creditos.label,
-      LINHAS_DE_APRESENTACAO_DO_CUSTO.liquido.label,
+      ...Object.values(LINHAS_DE_APRESENTACAO_DO_CUSTO).map((l) => l.label),
+      ...Object.values(DETALHE_DO_CREDITO_POR_TRIBUTO).map((d) => d.label),
       LABEL_DO_BLOCO,
     ].sort())
   })

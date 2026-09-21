@@ -82,6 +82,46 @@ describe('A — o cabeçalho do Custo dos Produtos é o LÍQUIDO', () => {
   })
 })
 
+/**
+ * OS OITO MESES DA DE PAULA, medidos no banco em 21/09/2026 com a régua do HUB (INCOME sem
+ * boleto/cheque pendente; EXPENSE só com `paid_date`).
+ *
+ * É o critério do §9: *"o resultado do mês não muda em nenhum mês da De Paula (prove com os
+ * 8 meses)"*. Um caso com um mês só não distinguiria a implementação certa da que troca os
+ * dois campos em algum caminho — e é por isso que os oito estão aqui, e não um.
+ */
+const DE_PAULA: { mes: string; receita: number; bruto: number; creditos: number }[] = [
+  { mes: '2026-01', receita: 357399.47, bruto: 184628.50, creditos: 35543.88 },
+  { mes: '2026-02', receita: 219456.39, bruto: 137737.86, creditos: 25598.55 },
+  { mes: '2026-03', receita: 297639.07, bruto: 156196.83, creditos: 25001.93 },
+  { mes: '2026-04', receita: 303991.20, bruto: 200702.71, creditos: 30667.81 },
+  { mes: '2026-05', receita: 310745.63, bruto: 193836.40, creditos: 7300.77 },
+  { mes: '2026-06', receita: 458323.83, bruto: 246221.99, creditos: 50114.29 },
+  { mes: '2026-07', receita: 426226.38, bruto: 236743.45, creditos: 44608.23 },
+  { mes: '2026-08', receita: 418923.62, bruto: 257908.19, creditos: 39475.53 },
+]
+
+describe.each(DE_PAULA)('A.1 — De Paula $mes: o cabeçalho muda, o resultado NÃO', ({ receita, bruto, creditos }) => {
+  const b = montarBlocoDeCustoDosProdutos({
+    valorBrutoPago: bruto, creditoRecuperavel: creditos, regime: 'LUCRO_REAL',
+  })
+
+  it('>>> o que entra no resultado é o BRUTO, ao centavo <<<', () => {
+    expect(b.totalNoResultado).toBeCloseTo(bruto, 2)
+  })
+
+  it('>>> e o cabeçalho é o líquido, que é OUTRO número <<<', () => {
+    expect(b.totalExibidoNoCabecalho).toBeCloseTo(bruto - creditos, 2)
+    expect(b.totalExibidoNoCabecalho).toBeLessThan(b.totalNoResultado)
+  })
+
+  it('o percentual do cabeçalho é menor que o do bruto, e a diferença é o crédito', () => {
+    const pctCabecalho = (b.totalExibidoNoCabecalho / receita) * 100
+    const pctBruto = (bruto / receita) * 100
+    expect(pctBruto - pctCabecalho).toBeCloseTo((creditos / receita) * 100, 6)
+  })
+})
+
 describe('A.2 — o detalhe POR TRIBUTO, a pendência que o #68 deixou aberta', () => {
   const TRIBUTOS = { icms: 180, pis: 16.5, cofins: 76, ipi: 50, cbs: 88, ibs: 1 }
 
