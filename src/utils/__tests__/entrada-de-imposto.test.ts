@@ -367,7 +367,7 @@ describe('>>> A conversão mora na BORDA, e a conta do imposto em UM lugar só <
     varrer(raiz)
     // IMPORTAÇÃO, não menção: citar a função num comentário é o que se quer que as telas
     // façam. O defeito é passar a LER a base e decidir sozinha o que dividir por quê.
-    const importa = (src: string) => /import[^;]*\bbaseDoTributo\b[^;]*from/s.test(src)
+    const importa = (src: string) => /import[^;]*\bbaseDoTributo\b[^;]*from/.test(src)
     const consumidores = arquivos
       .filter((f) => importa(fs.readFileSync(f, 'utf8')))
       .map((f) => path.relative(process.cwd(), f))
@@ -405,6 +405,32 @@ describe('>>> §2 — o "Novo Lançamento de Despesa" abre em 50vw <<<', () => {
     // O defeito que este caso barra: cair no padrão de 75vw, ou numa largura literal.
     expect(bloco).not.toContain('LARGURA_MODAL_75')
     expect(bloco).not.toMatch(/width=\{?['"]?\d+/)
+  })
+
+  /**
+   * >>> O LANÇAMENTO DE DESPESA TEM DUAS PORTAS <<<
+   *
+   * Fluxo de Caixa e Controle Financeiro. A segunda abria com `width={680}` — largura
+   * literal, ABAIXO do piso de 720px da regra. O caso do §2 que só olhasse a primeira
+   * passaria verde com a segunda quebrada, que é `portao-que-nao-alcanca.md`: o portão não
+   * alcança o arquivo.
+   */
+  it('>>> as DUAS portas do lançamento de despesa leem a MESMA regra de largura <<<', () => {
+    const portas = [
+      'src/pages/fluxo-de-caixa/index.tsx',
+      'src/pages/controle-financeiro/index.tsx',
+    ]
+    for (const porta of portas) {
+      const s = fs.readFileSync(path.join(process.cwd(), porta), 'utf8')
+      const aberturas = [...s.matchAll(/<Drawer[\s\S]{0,600}?>/g)].map((m) => m[0])
+      const deDespesa = aberturas.filter((a) => /Despesa|Lançamento/.test(a))
+      expect(deDespesa.length).toBeGreaterThan(0)
+      for (const a of deDespesa) {
+        expect(a).toContain('LARGURA_MODAL_50.width')
+        // A largura literal é o defeito exato que esta rodada encontrou.
+        expect(a).not.toMatch(/width=\{\s*\d+\s*\}/)
+      }
+    }
   })
 
   it('o CSS cobre tablet e mobile para esta classe', () => {
