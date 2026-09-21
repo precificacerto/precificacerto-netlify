@@ -2,6 +2,13 @@
 // Consumed by fluxo-de-caixa (Novo Lançamento) and controle-financeiro
 // (Nova Despesa Recorrente / Novo Lançamento) so all regimes behave the same.
 
+import {
+  CATEGORIAS_DO_BLOCO,
+  CATEGORIAS_OFERECIDAS_DO_BLOCO,
+  CATEGORIAS_DE_INVESTIMENTO,
+  LABEL_DO_BLOCO,
+} from '@/utils/compromissos-financeiros'
+
 export type CategoryGroup = { category: string; group: string }
 export type CategoryOptionGroup = {
   label: string
@@ -33,11 +40,9 @@ export const CATEGORY_GROUP_MAP: CategoryGroup[] = [
   // Despesas Fixas
   { category: 'Água / Esgoto', group: 'DESPESA_FIXA' },
   { category: 'Aluguel', group: 'DESPESA_FIXA' },
-  { category: 'Aplicações / Consórcios', group: 'DESPESA_FIXA' },
   { category: 'Consultoria', group: 'DESPESA_FIXA' },
   { category: 'Contabilidade', group: 'DESPESA_FIXA' },
   { category: 'Depreciação', group: 'DESPESA_FIXA' },
-  { category: 'Empréstimos', group: 'DESPESA_FIXA' },
   { category: 'Energia Elétrica', group: 'DESPESA_FIXA' },
   { category: 'Impostos IPTU / IPVA', group: 'DESPESA_FIXA' },
   { category: 'Internet', group: 'DESPESA_FIXA' },
@@ -174,11 +179,9 @@ export const SN_CATEGORY_GROUP_MAP: CategoryGroup[] = [
   // Despesa Fixa
   { category: 'Água / Esgoto', group: 'DESPESA_FIXA' },
   { category: 'Aluguel', group: 'DESPESA_FIXA' },
-  { category: 'Aplicações / Consórcios', group: 'DESPESA_FIXA' },
   { category: 'Consultoria', group: 'DESPESA_FIXA' },
   { category: 'Contabilidade', group: 'DESPESA_FIXA' },
   { category: 'Depreciação', group: 'DESPESA_FIXA' },
-  { category: 'Empréstimos / Financiamentos', group: 'DESPESA_FIXA' },
   { category: 'Energia elétrica', group: 'DESPESA_FIXA' },
   { category: 'Impostos IPTU / IPVA', group: 'DESPESA_FIXA' },
   { category: 'Internet', group: 'DESPESA_FIXA' },
@@ -261,10 +264,37 @@ export const DEDUCAO_RECEITA_CATEGORIES: CategoryGroup[] = [
   { category: 'Devoluções', group: 'DEDUCAO_RECEITA' },
 ]
 
-/** Amortização — pagamento de principal de dívida, depois do resultado operacional. */
-export const AMORTIZACAO_CATEGORIES: CategoryGroup[] = [
-  { category: 'Amortização de Dívida (principal)', group: 'AMORTIZACAO' },
-]
+/**
+ * COMPROMISSOS FINANCEIROS — o bloco dentro de Despesa Fixa. §3 do comando de 21/09/2026.
+ *
+ * >>> A LISTA NÃO É ESCRITA AQUI <<<
+ * Ela vem de `@/utils/compromissos-financeiros`, que é a mesma fonte que o rateio e o HUB
+ * leem. Repeti-la neste arquivo criaria a terceira cópia de uma lista que JÁ divergia em
+ * duas: `CATEGORY_GROUP_MAP` dizia 'Empréstimos' e `SN_CATEGORY_GROUP_MAP` dizia
+ * 'Empréstimos / Financiamentos' para a mesma coisa, e o banco tem lançamentos com os dois
+ * rótulos. `copia-divergente.md`.
+ *
+ * A AMORTIZAÇÃO entra aqui: ela deixa de ter optgroup próprio e passa a existir SÓ dentro do
+ * bloco (§7), para não ser escolhível em dois lugares.
+ */
+export const COMPROMISSOS_CATEGORIES: CategoryGroup[] = CATEGORIAS_DO_BLOCO.map((c) => ({
+  category: c.category,
+  group: c.group,
+}))
+
+/**
+ * INVESTIMENTOS — §4. Grupo próprio, DEPOIS do lucro, e NUNCA no rateio do preço.
+ *
+ * Eles existiam como uma categoria só dentro de `LUCRO` — grupo que a Análise Financeira
+ * descarta da demonstração. Medido em 21/09/2026: 10 lançamentos, R$ 47.023,17, invisíveis.
+ * A categoria antiga NÃO é removida: reclassificar lançamento do passado é decisão do usuário.
+ */
+export const INVESTIMENTO_CATEGORIES: CategoryGroup[] = CATEGORIAS_DE_INVESTIMENTO
+
+/** @deprecated A amortização virou uma das cinco do bloco. Mantido para os consumidores. */
+export const AMORTIZACAO_CATEGORIES: CategoryGroup[] = COMPROMISSOS_CATEGORIES.filter(
+  (c) => c.group === 'AMORTIZACAO',
+)
 
 /** Os dois blocos que entram logo abaixo de "Custo dos Produtos", na ordem do DRE. */
 const REPASSE_E_DEDUCOES_OPTION_GROUPS: CategoryOptionGroup[] = [
@@ -272,17 +302,33 @@ const REPASSE_E_DEDUCOES_OPTION_GROUPS: CategoryOptionGroup[] = [
   { label: '── Deduções da Receita ──', options: DEDUCAO_RECEITA_CATEGORIES.map(c => ({ label: c.category, value: c.category })) },
 ]
 
-/** A amortização vem DEPOIS do resultado operacional no DRE, e por isso fecha o seletor. */
-const AMORTIZACAO_OPTION_GROUP: CategoryOptionGroup = {
-  label: '── Amortização ──',
-  options: AMORTIZACAO_CATEGORIES.map(c => ({ label: c.category, value: c.category })),
+/**
+ * O bloco vai LOGO DEPOIS de "Despesas Fixas", porque é onde ele mora — §7.
+ *
+ * Só as CINCO oferecidas: os rótulos legados ('Aplicações / Consórcios' e 'Empréstimos /
+ * Financiamentos') continuam sendo LIDOS pelos resolvedores, e deixam de ser oferecidos.
+ * Quem já lançou não perde o lançamento; quem for lançar escolhe a natureza certa.
+ */
+const COMPROMISSOS_OPTION_GROUP: CategoryOptionGroup = {
+  label: `── ${LABEL_DO_BLOCO} ──`,
+  options: CATEGORIAS_OFERECIDAS_DO_BLOCO.map(c => ({ label: c.category, value: c.category })),
 }
+
+/** Investimentos — ABAIXO e SEPARADO do bloco, porque não é compromisso: só sai se sobrar. */
+const INVESTIMENTO_OPTION_GROUP: CategoryOptionGroup = {
+  label: '── Investimentos ──',
+  options: INVESTIMENTO_CATEGORIES.map(c => ({ label: c.category, value: c.category })),
+}
+
+/** @deprecated A amortização virou item do bloco; o optgroup próprio saiu do fim do seletor. */
+const AMORTIZACAO_OPTION_GROUP: CategoryOptionGroup = COMPROMISSOS_OPTION_GROUP
 
 /** Tudo o que os três blocos acrescentam — para os resolvedores de grupo. */
 const NAO_OPERACIONAIS: CategoryGroup[] = [
   ...REPASSE_CATEGORIES,
   ...DEDUCAO_RECEITA_CATEGORIES,
-  ...AMORTIZACAO_CATEGORIES,
+  ...COMPROMISSOS_CATEGORIES,
+  ...INVESTIMENTO_CATEGORIES,
 ]
 
 // ── Grouped option lists consumed by AntD Select ───────────────────────────
@@ -292,10 +338,11 @@ export const EXPENSE_CATEGORY_OPTIONS: CategoryOptionGroup[] = [
   { label: '── Mão de Obra Produtiva ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'MAO_DE_OBRA_PRODUTIVA').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Mão de Obra Administrativa ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'MAO_DE_OBRA_ADMINISTRATIVA').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Despesas Fixas ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_FIXA').map(c => ({ label: c.category, value: c.category })) },
+  COMPROMISSOS_OPTION_GROUP,
+  INVESTIMENTO_OPTION_GROUP,
   { label: '── Despesas Variáveis ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_VARIAVEL').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Despesas Financeiras ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_FINANCEIRA').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Comissões ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'COMISSOES' || c.group === 'RESERVA_TECNICA').map(c => ({ label: c.category, value: c.category })) },
-  AMORTIZACAO_OPTION_GROUP,
 ]
 
 export const LR_EXPENSE_CATEGORY_OPTIONS: CategoryOptionGroup[] = [
@@ -304,6 +351,8 @@ export const LR_EXPENSE_CATEGORY_OPTIONS: CategoryOptionGroup[] = [
   { label: '── Mão de Obra Produtiva ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'MAO_DE_OBRA_PRODUTIVA').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Mão de Obra Administrativa ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'MAO_DE_OBRA_ADMINISTRATIVA').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Despesas Fixas ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_FIXA').map(c => ({ label: c.category, value: c.category })) },
+  COMPROMISSOS_OPTION_GROUP,
+  INVESTIMENTO_OPTION_GROUP,
   { label: '── Despesas Variáveis ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_VARIAVEL').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Atividades Terceirizadas Operacionais de Entrega ──', options: LR_ATIVIDADES_TERCEIRIZADAS.map(c => ({ label: c.category, value: c.category })) },
   { label: '── Despesas Financeiras ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_FINANCEIRA').map(c => ({ label: c.category, value: c.category })) },
@@ -312,7 +361,6 @@ export const LR_EXPENSE_CATEGORY_OPTIONS: CategoryOptionGroup[] = [
   { label: '── Impostos sobre o Lucro ──', options: LR_IMPOSTOS_SOBRE_LUCRO.map(c => ({ label: c.category, value: c.category })) },
   { label: '── Impostos sobre o Faturamento (Por dentro) ──', options: LR_IMPOSTOS_FATURAMENTO_DENTRO.map(c => ({ label: c.category, value: c.category })) },
   { label: '── Impostos sobre o Faturamento (Por fora) ──', options: LR_IMPOSTOS_FATURAMENTO_FORA.map(c => ({ label: c.category, value: c.category })) },
-  AMORTIZACAO_OPTION_GROUP,
 ]
 
 export const LP_EXPENSE_CATEGORY_OPTIONS: CategoryOptionGroup[] = [
@@ -321,6 +369,8 @@ export const LP_EXPENSE_CATEGORY_OPTIONS: CategoryOptionGroup[] = [
   { label: '── Mão de Obra Produtiva ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'MAO_DE_OBRA_PRODUTIVA').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Mão de Obra Administrativa ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'MAO_DE_OBRA_ADMINISTRATIVA').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Despesas Fixas ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_FIXA').map(c => ({ label: c.category, value: c.category })) },
+  COMPROMISSOS_OPTION_GROUP,
+  INVESTIMENTO_OPTION_GROUP,
   { label: '── Despesas Variáveis ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_VARIAVEL').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Atividades Terceirizadas Operacionais de Entrega ──', options: LR_ATIVIDADES_TERCEIRIZADAS.map(c => ({ label: c.category, value: c.category })) },
   { label: '── Despesas Financeiras ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_FINANCEIRA').map(c => ({ label: c.category, value: c.category })) },
@@ -329,7 +379,6 @@ export const LP_EXPENSE_CATEGORY_OPTIONS: CategoryOptionGroup[] = [
   { label: '── Impostos sobre o Lucro ──', options: LP_IMPOSTOS_SOBRE_LUCRO.map(c => ({ label: c.category, value: c.category })) },
   { label: '── Impostos sobre o Faturamento (Por dentro) ──', options: LP_IMPOSTOS_FATURAMENTO_DENTRO.map(c => ({ label: c.category, value: c.category })) },
   { label: '── Impostos sobre o Faturamento (Por fora) ──', options: CATEGORY_GROUP_MAP.filter(c => c.group === 'IMPOSTO').map(c => ({ label: c.category, value: c.category })) },
-  AMORTIZACAO_OPTION_GROUP,
 ]
 
 export const SN_EXPENSE_CATEGORY_OPTIONS: CategoryOptionGroup[] = [
@@ -338,6 +387,8 @@ export const SN_EXPENSE_CATEGORY_OPTIONS: CategoryOptionGroup[] = [
   { label: '── Mão de Obra Produção ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'MAO_DE_OBRA_PRODUTIVA').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Mão de Obra Administrativa ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'MAO_DE_OBRA_ADMINISTRATIVA').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Despesas Fixas ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_FIXA').map(c => ({ label: c.category, value: c.category })) },
+  COMPROMISSOS_OPTION_GROUP,
+  INVESTIMENTO_OPTION_GROUP,
   { label: '── Despesas Variáveis ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_VARIAVEL').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Despesas Financeiras ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'DESPESA_FINANCEIRA').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Atividades Terceirizadas Operacionais de Entrega ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'ATIVIDADES_TERCEIRIZADAS').map(c => ({ label: c.category, value: c.category })) },
@@ -345,7 +396,6 @@ export const SN_EXPENSE_CATEGORY_OPTIONS: CategoryOptionGroup[] = [
   { label: '── Impostos sobre o Faturamento (Por dentro) ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'IMPOSTO_FATURAMENTO_DENTRO').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Comissões ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'COMISSOES' || c.group === 'RESERVA_TECNICA').map(c => ({ label: c.category, value: c.category })) },
   { label: '── Lucro ──', options: SN_CATEGORY_GROUP_MAP.filter(c => c.group === 'LUCRO').map(c => ({ label: c.category, value: c.category })) },
-  AMORTIZACAO_OPTION_GROUP,
 ]
 
 // ── Helpers ─────────────────────────────────────────────────────────────────

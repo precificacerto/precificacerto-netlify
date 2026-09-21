@@ -82,6 +82,8 @@ const comRepasse = (): AggregatedData => ({
     receitaBruta: mes(100_000),
     deducaoReceita: mes(DEVOLUCAO),
     repasse: mes(REPASSE),
+    // Campo OBRIGATÓRIO desde 21/09/2026 — ver a nota gêmea na fixture das devoluções.
+    investimento: { ...ZERO },
     imposto: mes(5_000),
     impostoPorDentro: mes(3_000),
     maoDeObraProdutiva: mes(1_100),
@@ -289,7 +291,29 @@ describe('5. O SELETOR VIVO oferece as três, nos QUATRO regimes', () => {
 })
 
 describe('6. A MIGRAÇÃO cobre TODA a fonte única — não só os três desta rodada', () => {
-    const sql = leia('supabase', 'migrations', '20260917000001_repasse_amortizacao_outros_expense_group.sql')
+    /**
+     * >>> O ARQUIVO NÃO É NOMEADO À MÃO, E A RAZÃO É O PRÓPRIO DEFEITO DESTE CASO <<<
+     *
+     * Até 21/09/2026 este bloco lia `20260917000001` por nome. Quando `INVESTIMENTO` entrou na
+     * fonte única com a CHECK redefinida num arquivo NOVO, o caso ficou vermelho apontando para
+     * a migração velha — o gate acusou a coisa certa pelo motivo errado, e a "correção" óbvia
+     * seria reescrever a migração já mergeada.
+     *
+     * Agora ele encontra a ÚLTIMA migração que redefine a CHECK. O gate segue valendo, e passa
+     * a valer também para a próxima. `portao-que-nao-alcanca.md`: o portão tem de ficar
+     * vermelho pelo defeito que ele existe para barrar, e não por ter envelhecido.
+     */
+    const dir = path.join(process.cwd(), 'supabase', 'migrations')
+    const migracoesDaCheck = fs.readdirSync(dir)
+        .filter((f) => f.endsWith('.sql'))
+        .filter((f) => fs.readFileSync(path.join(dir, f), 'utf-8')
+            .includes('ADD CONSTRAINT cash_entries_expense_group_check'))
+        .sort()
+    const sql = fs.readFileSync(path.join(dir, migracoesDaCheck[migracoesDaCheck.length - 1]), 'utf-8')
+
+    it('há pelo menos duas migrações da CHECK — a atual e alguma anterior', () => {
+        expect(migracoesDaCheck.length).toBeGreaterThanOrEqual(2)
+    })
 
     it.each([...EXPENSE_GROUP_KEYS])('>>> a CHECK aceita `%s` <<<', (key) => {
         // Afirmar só REPASSE deixaria a próxima chave nova fora sem nada ficar vermelho.
@@ -297,11 +321,15 @@ describe('6. A MIGRAÇÃO cobre TODA a fonte única — não só os três desta 
         expect(sql).toContain(`'${key}'::text`)
     })
 
-    it('e ela é ALARGAMENTO — a CHECK anterior inteira continua dentro', () => {
-        const anterior = leia('supabase', 'migrations', '20260716000001_add_reserva_tecnica_expense_group.sql')
-        const grupos = [...anterior.matchAll(/'([A-Z_]+)'::text/g)].map((m) => m[1])
-        expect(grupos.length).toBe(16)
-        for (const g of grupos) expect(sql).toContain(`'${g}'::text`)
+    it('>>> e ela é ALARGAMENTO: nenhum grupo de NENHUMA CHECK anterior se perdeu <<<', () => {
+        // Mais forte que conferir contra uma migração só: uma CHECK que esquecesse um grupo de
+        // QUALQUER versão anterior recusaria um valor já gravado no banco.
+        for (const f of migracoesDaCheck.slice(0, -1)) {
+            const anterior = fs.readFileSync(path.join(dir, f), 'utf-8')
+            const grupos = [...anterior.matchAll(/'([A-Z_]+)'::text/g)].map((m) => m[1])
+            expect(grupos.length).toBeGreaterThan(0)
+            for (const g of grupos) expect(sql).toContain(`'${g}'::text`)
+        }
     })
 })
 

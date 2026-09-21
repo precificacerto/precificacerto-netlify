@@ -57,6 +57,7 @@ export const EXPENSE_GROUP_KEYS = [
     'RESERVA_TECNICA',
     'LUCRO',
     'AMORTIZACAO',
+    'INVESTIMENTO',
     'REPASSE',
     'IMPOSTO_LUCRO',
     'IMPOSTO_FATURAMENTO_DENTRO',
@@ -129,6 +130,20 @@ export const EXPENSE_GROUP_META: Record<ExpenseGroupKey, ExpenseGroupMeta> = {
     // dívida. Entra DEPOIS do resultado operacional, e por isso NÃO pode ser subitem de Lucro:
     // o grupo `LUCRO` é descartado da demonstração (ver `DFC_GROUPS_QUE_SOMAM`).
     AMORTIZACAO: { label: 'Amortização de Dívida' },
+    // INVESTIMENTO — saída de caixa que só acontece SE SOBRAR DINHEIRO, e por isso não entra
+    // no preço. Formulação do dono do produto, 21/09/2026:
+    //
+    //   "Parcela de financiamento, empréstimo, consórcio e amortização de principal vencem
+    //    mesmo sem venda: são compromisso assumido. Investimento não — ele só acontece se
+    //    sobrar dinheiro, então sai do lucro e não entra no preço."
+    //
+    // É o OPOSTO de `AMORTIZACAO`, que acabou de ENTRAR no rateio pela mesma razão invertida.
+    // As duas nasceram juntas de propósito: separá-las é a decisão, e tê-las lado a lado aqui
+    // é o que torna a decisão legível.
+    //
+    // Até aqui, investimento era lançado em `LUCRO` — grupo que a Análise Financeira DESCARTA
+    // da demonstração. Medido em 21/09/2026: 10 lançamentos, R$ 47.023,17, invisíveis.
+    INVESTIMENTO: { label: 'Investimentos', labelHub: 'Investimentos (saem do lucro)' },
     // REPASSE — valor que ATRAVESSA a empresa sem gerar lucro e sem sofrer coeficiente.
     // Decisão do dono do produto, 17/09/2026, registrada como está:
     //

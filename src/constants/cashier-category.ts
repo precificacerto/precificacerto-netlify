@@ -141,12 +141,20 @@ export const CASHIER_CATEGORY = {
     },
     AGUA: { order: 30, key: 'AGUA', value: 'Água / Esgoto', group: 'DESPESA_FIXA' satisfies ExpenseGroupKey },
     ALUGUEL: { order: 31, key: 'ALUGUEL', value: 'Aluguel', group: 'DESPESA_FIXA' satisfies ExpenseGroupKey },
+    // ── O BLOCO COMPROMISSOS FINANCEIROS (21/09/2026) ──
+    // As duas chaves abaixo eram cada uma DUAS naturezas num rótulo só. Elas FICAM, com o
+    // rótulo antigo, porque o banco tem 26 lançamentos apontando para eles — 'Empréstimos' 10,
+    // 'Aplicações / Consórcios' 13, 'Empréstimos / Financiamentos' 3, R$ 108.353,95. Renomear
+    // aqui não renomeia o dado gravado, e apagaria a leitura do passado.
     APLICACOES_CONSORCIOS: {
       order: 32,
       key: 'APLICACOES_CONSORCIOS',
       value: 'Aplicações / Consórcios',
       group: 'DESPESA_FIXA' satisfies ExpenseGroupKey,
     },
+    APLICACOES: { order: 32.2, key: 'APLICACOES', value: 'Aplicações', group: 'DESPESA_FIXA' satisfies ExpenseGroupKey },
+    CONSORCIOS: { order: 32.3, key: 'CONSORCIOS', value: 'Consórcios', group: 'DESPESA_FIXA' satisfies ExpenseGroupKey },
+    FINANCIAMENTOS: { order: 32.4, key: 'FINANCIAMENTOS', value: 'Financiamentos', group: 'DESPESA_FIXA' satisfies ExpenseGroupKey },
     CONSULTORIA: { order: 33, key: 'CONSULTORIA', value: 'Consultoria', group: 'DESPESA_FIXA' satisfies ExpenseGroupKey },
     CONTABILIDADE: { order: 34, key: 'CONTABILIDADE', value: 'Contabilidade', group: 'DESPESA_FIXA' satisfies ExpenseGroupKey },
     DEPRECIACAO: { order: 35, key: 'DEPRECIACAO', value: 'Depreciação', group: 'DESPESA_FIXA' satisfies ExpenseGroupKey },
@@ -245,6 +253,14 @@ export const CASHIER_CATEGORY = {
       value: 'Investimentos (máquinas, equipamentos, expansão e melhorias)',
       group: 'LUCRO' satisfies ExpenseGroupKey,
     },
+    // ── INVESTIMENTO (21/09/2026) — grupo PRÓPRIO, depois do lucro, fora do rateio ──
+    // A chave acima FICA em `LUCRO`: ela tem 10 lançamentos e R$ 47.023,17 gravados, e
+    // reclassificar o passado é decisão do usuário, não da migração (`fato-vs-referencia.md`).
+    INVESTIMENTO_MAQUINAS_EQUIPAMENTOS: { order: 73.1, key: 'INVESTIMENTO_MAQUINAS_EQUIPAMENTOS', value: 'Aquisição de máquinas e equipamentos', group: 'INVESTIMENTO' satisfies ExpenseGroupKey },
+    INVESTIMENTO_OBRAS_BENFEITORIAS: { order: 73.2, key: 'INVESTIMENTO_OBRAS_BENFEITORIAS', value: 'Obras e benfeitorias', group: 'INVESTIMENTO' satisfies ExpenseGroupKey },
+    INVESTIMENTO_SOFTWARE_TECNOLOGIA: { order: 73.3, key: 'INVESTIMENTO_SOFTWARE_TECNOLOGIA', value: 'Software e tecnologia', group: 'INVESTIMENTO' satisfies ExpenseGroupKey },
+    INVESTIMENTO_PARTICIPACAO_SOCIETARIA: { order: 73.4, key: 'INVESTIMENTO_PARTICIPACAO_SOCIETARIA', value: 'Participação societária', group: 'INVESTIMENTO' satisfies ExpenseGroupKey },
+    INVESTIMENTO_OUTROS: { order: 73.5, key: 'INVESTIMENTO_OUTROS', value: 'Outros investimentos', group: 'INVESTIMENTO' satisfies ExpenseGroupKey },
     DISTRIBUICAO_DE_LUCROS: {
       order: 74,
       key: 'DISTRIBUICAO_DE_LUCROS',
