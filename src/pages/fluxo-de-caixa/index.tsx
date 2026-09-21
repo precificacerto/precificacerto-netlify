@@ -28,6 +28,8 @@ import {
     TRIBUTOS_CREDITAVEIS, type TributoCreditavel,
 } from '@/utils/custo-liquido-do-item'
 import PurchaseTaxCredits from '@/page-parts/items/purchase-tax-credits.component'
+import EntradaDeImposto from '@/components/despesas/entrada-de-imposto.component'
+import { baseDaLinha, colunasDaEntrada, CAMPO_DA_ALIQUOTA, FORMATO_PADRAO, type FormatoDaEntrada } from '@/utils/entrada-de-imposto'
 import PercentInput from '@/components/percent-input.component'
 import {
     calcularImpactoDoRateio, houveMudancaDoPercentual, type ImpactoDoRateio,
@@ -215,6 +217,14 @@ export default function CashFlow() {
     // `Form.Item`, e as bandeiras ficam aqui: `null` é "o usuário não decidiu" e cai no
     // padrão da natureza; `false` é "desligou" e vence o padrão (`ausente-vs-falso.md`).
     const [creditoGravado, setCreditoGravado] = useState<Partial<Record<TributoCreditavel, boolean | null>>>({})
+    /**
+     * §4 — O FORMATO DE ENTRADA DE CADA LINHA: % ou R$.
+     *
+     * Ele é POR LINHA porque a nota é assim: o ICMS vem destacado em reais e a alíquota do
+     * IPI vem em percentual, na mesma nota. Um seletor único obrigaria o usuário a converter
+     * uma das duas à mão — que é exatamente a conta que este campo existe para evitar.
+     */
+    const [formatoDeEntrada, setFormatoDeEntrada] = useState<Partial<Record<TributoCreditavel, FormatoDaEntrada>>>({})
     // §9 — o aviso de impacto. NADA é regravado: a lista existe para o usuário DECIDIR o que
     // remargear (`fato-vs-referencia.md`).
     const [impactoAberto, setImpactoAberto] = useState(false)
@@ -353,15 +363,25 @@ export default function CashFlow() {
         }])) as typeof base
     }, [contextoDoCredito, creditoGravado, naturezaDoLancamento.estado, naturezaDoLancamento.motivo])
 
-    const custoDoLancamento = useMemo(() => calcularCustoDoItem({
+    /**
+     * §4 — OS VALORES DA COMPRA, montados UMA vez.
+     *
+     * A conta e a BORDA leem o mesmo objeto: o cálculo o recebe inteiro, e `baseDaLinha` o
+     * usa para resolver a base de cada tributo. Montar um segundo objeto "só para a base"
+     * seria a cópia divergente nascendo no mesmo arquivo.
+     */
+    const valoresDaCompra = useMemo(() => ({
         base: parseCurrencyFn(expenseAmount),
         icmsPct: taxaIcms ?? null,
         pisCofinsPct: taxaPisCofins ?? null,
         ipiPct: taxaIpi ?? null,
         cbsPct: taxaCbs ?? null,
         ibsPct: taxaIbs ?? null,
-    }, bandeirasDoLancamento),
-    [expenseAmount, taxaIcms, taxaPisCofins, taxaIpi, taxaCbs, taxaIbs, bandeirasDoLancamento])
+    }), [expenseAmount, taxaIcms, taxaPisCofins, taxaIpi, taxaCbs, taxaIbs])
+
+    const custoDoLancamento = useMemo(
+        () => calcularCustoDoItem(valoresDaCompra, bandeirasDoLancamento),
+        [valoresDaCompra, bandeirasDoLancamento])
     // §6 — os dois campos só aparecem nas categorias do bloco Compromissos Financeiros.
     const isCompromissoFinanceiro = ehCompromissoFinanceiro(selectedExpenseCategory)
     const compSeparacao = separarJurosEPrincipal({
@@ -1020,6 +1040,17 @@ export default function CashFlow() {
                             credit_ipi: c.IPI,
                             credit_cbs: c.CBS,
                             credit_ibs: c.IBS,
+                            /*
+                              §4 — A ALÍQUOTA E O FORMATO DE CADA LINHA.
+                              O crédito em R$ sozinho não reabre a nota do jeito que ela foi
+                              digitada: ele é o RESULTADO. O que o usuário digitou — 18% ou
+                              R$ 1.800,00 — é outra informação, e é ela que ele vai conferir
+                              contra a nota na gaveta.
+                            */
+                            ...colunasDaEntrada(
+                                { ICMS: taxaIcms, PIS_COFINS: taxaPisCofins, IPI: taxaIpi, CBS: taxaCbs, IBS: taxaIbs },
+                                formatoDeEntrada,
+                            ),
                             origin: 'NOVO',
                         })
                         .select('id')
@@ -1118,7 +1149,7 @@ export default function CashFlow() {
                     <CalendarOutlined style={{ fontSize: 18, color: '#94a3b8' }} />
                     <DatePicker picker="month" value={month} onChange={(d) => d && setMonth(d)} allowClear={false} format="MMMM YYYY" />
                     {canEdit(MODULES.CASH_FLOW) && (
-                        <Button type="primary" onClick={() => { form.resetFields(); setExpenseAmount(''); setExpPaymentMethod(''); setExpInstallments([{ date: null, amount: 0 }]); setExpInstallmentPreset('customizado'); setExpManualDates(false); setSelectedExpenseCategory('');      setDrawerOpen(true) }}>
+                        <Button type="primary" onClick={() => { form.resetFields(); setExpenseAmount(''); setExpPaymentMethod(''); setExpInstallments([{ date: null, amount: 0 }]); setExpInstallmentPreset('customizado'); setExpManualDates(false); setSelectedExpenseCategory(''); setFormatoDeEntrada({});      setDrawerOpen(true) }}>
                             + Novo Lançamento
                         </Button>
                     )}
@@ -1781,7 +1812,7 @@ export default function CashFlow() {
               perdidas numa tela larga. A regra mora em `largura-de-modal.ts`, e o CSS
               global cuida de tablet (92vw) e mobile (tela cheia).
             */}
-            <Drawer title="Novo Lançamento de Despesa" width={LARGURA_MODAL_50.width} className="drawer-50" open={drawerOpen} destroyOnClose onClose={() => { setDrawerOpen(false); setExpPaymentMethod(''); setExpInstallments([{ date: null, amount: 0 }]); setExpInstallmentPreset('customizado'); setExpManualDates(false); setSelectedExpenseCategory('');      setCompJuros(''); setCompPrincipal('') }}
+            <Drawer title="Novo Lançamento de Despesa" width={LARGURA_MODAL_50.width} className="drawer-50" open={drawerOpen} destroyOnClose onClose={() => { setDrawerOpen(false); setExpPaymentMethod(''); setExpInstallments([{ date: null, amount: 0 }]); setExpInstallmentPreset('customizado'); setExpManualDates(false); setSelectedExpenseCategory(''); setFormatoDeEntrada({});      setCompJuros(''); setCompPrincipal('') }}
                 extra={<Button type="primary" onClick={handleSaveEntry}>Salvar</Button>}>
                 <Form form={form} layout="vertical">
                     <Form.Item name="expense_category" label="Categoria da Despesa" rules={[{ required: true, message: 'Selecione a categoria' }]}>
@@ -1795,6 +1826,7 @@ export default function CashFlow() {
                                 setCompJuros('')
                                 setCompPrincipal('')
                                 setCreditoGravado({})
+                                setFormatoDeEntrada({})
                                 // A sugestão do §5: mês ANTERIOR ao vencimento. Ela aparece
                                 // no campo, onde o usuário a vê e pode corrigi-la.
                                 const venc = expInstallments[0]?.date?.format('YYYY-MM-DD') ?? null
@@ -1980,23 +2012,27 @@ export default function CashFlow() {
                                 custo={custoDoLancamento}
                                 onToggle={(t, v) => setCreditoGravado((prev) => ({ ...prev, [t]: v }))}
                                 onRecalc={() => { /* o cálculo é derivado do `Form.useWatch` */ }}
-                                extras={{
-                                    ICMS: (
-                                        <Form.Item name="icms_rate" noStyle initialValue={0}>
-                                            <PercentInput min={0} max={100} style={{ width: 110 }} />
-                                        </Form.Item>
-                                    ),
-                                    PIS_COFINS: (
-                                        <Form.Item name="pis_cofins_rate" noStyle initialValue={0}>
-                                            <PercentInput min={0} max={100} style={{ width: 110 }} />
-                                        </Form.Item>
-                                    ),
-                                    IPI: (
-                                        <Form.Item name="ipi_rate" noStyle initialValue={0}>
-                                            <PercentInput min={0} max={100} style={{ width: 110 }} />
-                                        </Form.Item>
-                                    ),
-                                }}
+                                /*
+                                  §4 — OS CINCO ENTRAM PELA MESMA COSTURA.
+                                  CBS e IBS caíam no `PercentInput` padrão do componente, que
+                                  não tem seletor: deixá-los ali faria duas linhas da MESMA
+                                  tabela aceitarem formatos diferentes de entrada, e o usuário
+                                  descobriria isso tentando digitar o valor da nota.
+
+                                  NENHUM tem `initialValue={0}`: alíquota ausente é ausente, e
+                                  zero afirmaria que o tributo incidiu e deu nada
+                                  (`ausente-vs-falso.md`). É o que o oráculo E exige.
+                                */
+                                extras={Object.fromEntries(TRIBUTOS_CREDITAVEIS.map((t) => [t, (
+                                    <Form.Item key={t} name={CAMPO_DA_ALIQUOTA[t]} noStyle>
+                                        <EntradaDeImposto
+                                            base={baseDaLinha(valoresDaCompra, t)}
+                                            formato={formatoDeEntrada[t] ?? FORMATO_PADRAO}
+                                            onFormato={(f) => setFormatoDeEntrada((prev) => ({ ...prev, [t]: f }))}
+                                            disabled={bandeirasDoLancamento[t]?.tipoVedacao === 'REGIME'}
+                                        />
+                                    </Form.Item>
+                                )])) as Partial<Record<TributoCreditavel, React.ReactNode>>}
                             />
                         </>
                     )}

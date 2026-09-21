@@ -347,9 +347,38 @@ describe('>>> A conversão mora na BORDA, e a conta do imposto em UM lugar só <
     expect(src).not.toMatch(/\/\s*base\b/)
   })
 
-  it('a fórmula da conversão aparece UMA vez, e é no módulo da borda', () => {
-    const src = ler('src/utils/entrada-de-imposto.ts')
-    expect(src).toMatch(/valor\s*\/\s*base/)
+  /**
+   * A afirmação mais forte que este bloco faz, e a que barra o defeito de verdade.
+   *
+   * "A fórmula aparece uma vez" se verifica por texto e envelhece mal. O que não envelhece é
+   * QUEM PODE LER A BASE: se uma tela importar `baseDoTributo`, ela passa a poder decidir
+   * sozinha o que dividir por quê — e é exatamente daí que a segunda escrita nasce.
+   */
+  it('>>> só a BORDA lê a base: nenhuma TELA importa `baseDoTributo` <<<', () => {
+    const raiz = path.join(process.cwd(), 'src')
+    const arquivos: string[] = []
+    const varrer = (dir: string) => {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        const cheio = path.join(dir, e.name)
+        if (e.isDirectory()) { if (e.name !== '__tests__') varrer(cheio); continue }
+        if (/\.tsx?$/.test(e.name)) arquivos.push(cheio)
+      }
+    }
+    varrer(raiz)
+    // IMPORTAÇÃO, não menção: citar a função num comentário é o que se quer que as telas
+    // façam. O defeito é passar a LER a base e decidir sozinha o que dividir por quê.
+    const importa = (src: string) => /import[^;]*\bbaseDoTributo\b[^;]*from/s.test(src)
+    const consumidores = arquivos
+      .filter((f) => importa(fs.readFileSync(f, 'utf8')))
+      .map((f) => path.relative(process.cwd(), f))
+      .sort()
+    expect(consumidores).toEqual(['src/utils/entrada-de-imposto.ts'])
+    // E ela é DEFINIDA na função pura, que é onde a conta mora.
+    expect(ler('src/utils/custo-liquido-do-item.ts')).toMatch(/export function baseDoTributo\b/)
+  })
+
+  it('e a divisão pela base mora no módulo da borda', () => {
+    expect(ler('src/utils/entrada-de-imposto.ts')).toMatch(/valorDigitado\s*\/\s*baseDaLinha/)
   })
 })
 
