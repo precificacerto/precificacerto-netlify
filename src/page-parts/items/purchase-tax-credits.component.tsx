@@ -122,7 +122,7 @@ export function PurchaseTaxCredits({ bandeiras, custo, onToggle, onRecalc, visiv
       <div
         key={t}
         style={{
-          display: 'grid', gridTemplateColumns: '140px 1fr 150px 130px', gap: 12, alignItems: 'center',
+          display: 'grid', gridTemplateColumns: '140px 1fr 150px', gap: 12, alignItems: 'center',
           padding: '10px 0', borderBottom: '1px solid rgba(148,163,184,0.12)',
         }}
       >
@@ -177,18 +177,6 @@ export function PurchaseTaxCredits({ bandeiras, custo, onToggle, onRecalc, visiv
           </div>
         )}
 
-        {/*
-          EFEITO NO CUSTO — a coluna que responde a pergunta que o usuário de fato tem.
-          "Gera crédito" é a causa; "sai do custo" é a consequência, e é ela que explica por
-          que o número do rodapé mudou. Sem esta coluna o usuário liga um botão e vê o total
-          mexer sem saber qual linha o moveu.
-        */}
-        <span style={{
-          fontSize: 12, textAlign: 'right',
-          color: b?.ativo ? '#22C55E' : '#94a3b8',
-        }}>
-          {b?.ativo ? 'sai do custo' : 'soma no custo'}
-        </span>
       </div>
     )
   }
@@ -230,16 +218,25 @@ export function PurchaseTaxCredits({ bandeiras, custo, onToggle, onRecalc, visiv
       </Form.Item>
       )}
 
-      {/* O cabeçalho da tabela — as seis colunas do §6. */}
+      {/*
+        O CABEÇALHO — três colunas, e a quarta SAIU em 22/09/2026 (§3 do comando).
+
+        "Efeito no custo" dizia "sai do custo" / "soma no custo" ao lado de um botão que já
+        diz a mesma coisa: ligado credita, desligado ou vedado compõe o custo. Duas colunas
+        para uma informação treinam o leitor a ignorar uma delas, e o rodapé é quem mostra o
+        efeito em R$ — que é o número, e não o rótulo.
+
+        As linhas sem botão (ICMS-ST, DIFAL, FCP) continuam dizendo "sempre custo", logo
+        abaixo: ali a informação NÃO está no botão, porque botão não há.
+      */}
       <div style={{
-        display: 'grid', gridTemplateColumns: '140px 1fr 150px 130px', gap: 12,
+        display: 'grid', gridTemplateColumns: '140px 1fr 150px', gap: 12,
         fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.4,
         paddingBottom: 6, borderBottom: '1px solid rgba(148,163,184,0.2)', marginTop: 8,
       }}>
         <span>Imposto</span>
         <span>Alíquota · regra específica · valor</span>
         <span style={{ textAlign: 'right' }}>Crédito</span>
-        <span style={{ textAlign: 'right' }}>Efeito no custo</span>
       </div>
 
       {/*

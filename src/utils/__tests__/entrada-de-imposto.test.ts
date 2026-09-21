@@ -420,15 +420,25 @@ describe('>>> §3 — a coluna "Efeito no custo" saiu, e o "nunca credita" ficou
   const path = require('path') as typeof import('path')
   const src = () => fs.readFileSync(path.join(process.cwd(), 'src/page-parts/items/purchase-tax-credits.component.tsx'), 'utf8')
 
+  /**
+   * SEM OS COMENTÁRIOS — a asserção é sobre o que a tela EXIBE.
+   *
+   * A razão de a coluna ter saído fica escrita no ponto em que ela existia, que é onde a
+   * próxima pessoa vai procurá-la (`razao-longe-da-restricao.md`). Um caso que lesse o
+   * arquivo cru proibiria justamente esse registro.
+   */
+  const semComentarios = (s: string) =>
+    s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+
   it('>>> a coluna não existe mais, nem o texto que ela exibia <<<', () => {
-    const s = src()
+    const s = semComentarios(src())
     expect(s).not.toContain('Efeito no custo')
     expect(s).not.toContain('sai do custo')
     expect(s).not.toContain('soma no custo')
   })
 
   it('>>> mas ICMS-ST, DIFAL e FCP continuam dizendo que NUNCA creditam <<<', () => {
-    const s = src()
+    const s = semComentarios(src())
     expect(s).toContain('sempre custo')
     expect(s).toContain('ICMS-ST')
     expect(s).toContain('DIFAL')
@@ -436,7 +446,7 @@ describe('>>> §3 — a coluna "Efeito no custo" saiu, e o "nunca credita" ficou
   })
 
   it('a grade do cabeçalho e a da linha continuam com o MESMO número de colunas', () => {
-    const s = src()
+    const s = semComentarios(src())
     const grades = [...s.matchAll(/gridTemplateColumns:\s*'([^']+)'/g)].map((m) => m[1])
     const comColunas = grades.filter((g) => g.includes('px') && g.includes('1fr'))
     // Cabeçalho e linha: as duas grades têm de casar, senão as colunas desalinham.
