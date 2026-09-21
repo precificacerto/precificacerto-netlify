@@ -13,6 +13,13 @@ import { getTenantId } from '@/utils/get-tenant-id'
 import { getEffectiveIncomeAmount } from '@/utils/cash-entry-amount'
 import { mergeExpenseConfig } from '@/utils/recalc-expense-config'
 import { ehCompromissoFinanceiro, separarJurosEPrincipal, LABEL_DO_BLOCO } from '@/utils/compromissos-financeiros'
+import { naturezaDaDespesa } from '@/utils/natureza-da-despesa'
+import {
+    resolverFlagsDoItem, calcularCustoDoItem,
+    TRIBUTOS_CREDITAVEIS, type TributoCreditavel,
+} from '@/utils/custo-liquido-do-item'
+import PurchaseTaxCredits from '@/page-parts/items/purchase-tax-credits.component'
+import PercentInput from '@/components/percent-input.component'
 import {
     calcularImpactoDoRateio, houveMudancaDoPercentual, type ImpactoDoRateio,
 } from '@/utils/impacto-do-rateio'
@@ -32,7 +39,6 @@ import { ExportFormatModal } from '@/components/ui/export-format-modal.component
 import { getExpenseGroupLabel, getExpenseGroupColor } from '@/constants/cashier-category'
 import {
     CATEGORY_GROUP_MAP,
-    LR_CUSTO_CATEGORIES_SPECIAL,
     getExpenseCategoryOptionsForRegime,
     getGroupForCategoryByRegime,
 } from '@/constants/expense-categories-by-regime'
@@ -162,6 +168,8 @@ export default function CashFlow() {
     const [customerMap, setCustomerMap] = useState<Record<string, string>>({})
     const [saleCodeMap, setSaleCodeMap] = useState<Record<string, string>>({})
     const [taxRegime, setTaxRegime] = useState<string | null>(null)
+    /** A segmentação do tenant — é ela que decide o padrão do IPI no crédito da compra. */
+    const [calcType, setCalcType] = useState<string | null>(null)
     const [loading, setLoading] = useState(false)
     const [month, setMonth] = useState(dayjs())
 
@@ -184,18 +192,17 @@ export default function CashFlow() {
 
     // Lucro Real / Simples Híbrido — detalhamento de impostos no custo dos produtos
     const [selectedExpenseCategory, setSelectedExpenseCategory] = useState('')
-    const [lrValorIcms, setLrValorIcms] = useState<string>('')
     // Item 1.2 (Relatório 03/08): PIS e COFINS unificados em um único campo na UI.
     // Ao salvar, o valor TOTAL vai para `valor_pis` e `valor_cofins` recebe 0 (mantém
     // compatibilidade com relatórios que somam as duas colunas).
-    const [lrValorPisCofins, setLrValorPisCofins] = useState<string>('')
-    const [lrValorIpi, setLrValorIpi] = useState<string>('')
-    const [lrValorCbs, setLrValorCbs] = useState<string>('')
-    const [lrValorIbs, setLrValorIbs] = useState<string>('')
     // §6 — juros e principal da parcela de um compromisso financeiro. STRING VAZIA é "não
     // informado", e é ela que vira `null` no banco: `ausente-vs-falso.md`.
     const [compJuros, setCompJuros] = useState<string>('')
     const [compPrincipal, setCompPrincipal] = useState<string>('')
+    // §3 — o bloco de impostos passa a valer para TODA despesa. As alíquotas entram por
+    // `Form.Item`, e as bandeiras ficam aqui: `null` é "o usuário não decidiu" e cai no
+    // padrão da natureza; `false` é "desligou" e vence o padrão (`ausente-vs-falso.md`).
+    const [creditoGravado, setCreditoGravado] = useState<Partial<Record<TributoCreditavel, boolean | null>>>({})
     // §9 — o aviso de impacto. NADA é regravado: a lista existe para o usuário DECIDIR o que
     // remargear (`fato-vs-referencia.md`).
     const [impactoAberto, setImpactoAberto] = useState(false)
@@ -254,7 +261,7 @@ export default function CashFlow() {
                     ? sbf.from('employees').select('id, name, salary').eq('tenant_id', tenantId).eq('status', 'ACTIVE').eq('is_active', true)
                     : Promise.resolve({ data: [] }),
                 tenantId
-                    ? sbf.from('tenant_settings').select('tax_regime').eq('tenant_id', tenantId).maybeSingle()
+                    ? sbf.from('tenant_settings').select('tax_regime, calc_type').eq('tenant_id', tenantId).maybeSingle()
                     : Promise.resolve({ data: null }),
                 tenantId
                     ? sbf.from('customers').select('id, name').eq('tenant_id', tenantId).eq('is_active', true)
@@ -279,6 +286,7 @@ export default function CashFlow() {
             }
 
             if (tenantSettings?.tax_regime) setTaxRegime(tenantSettings.tax_regime)
+            if (tenantSettings?.calc_type) setCalcType(tenantSettings.calc_type)
         } catch {
             messageApi.error('Erro ao carregar dados.')
         } finally {
@@ -291,7 +299,49 @@ export default function CashFlow() {
     const isSimples = taxRegime === 'SIMPLES_NACIONAL' || taxRegime === 'MEI'
     const isLucroReal = taxRegime === 'LUCRO_REAL'
     const isSimplesHibrido = taxRegime === 'SIMPLES_HIBRIDO'
-    const isLrCustoProdutos = (isLucroReal || isSimplesHibrido) && (LR_CUSTO_CATEGORIES_SPECIAL as readonly string[]).includes(selectedExpenseCategory)
+    const activeGroupForCategory = (cat: string) => getGroupForCategoryByRegime(taxRegime, cat)
+
+
+    // ── §3: O BLOCO DE IMPOSTOS EM TODA DESPESA ──────────────────────────────────────────
+    // A conta é a MESMA do cadastro de item. Uma segunda implementação aqui seria
+    // `copia-divergente.md` na pior forma: as duas fechariam consigo mesmas e a divergência
+    // só apareceria como crédito errado, meses depois.
+    const grupoDaCategoria = activeGroupForCategory(selectedExpenseCategory) || 'DESPESA_FIXA'
+    const naturezaDoLancamento = naturezaDaDespesa(selectedExpenseCategory, grupoDaCategoria)
+    const temBlocoDeImposto = !!selectedExpenseCategory && naturezaDoLancamento.estado !== 'SEM_BLOCO'
+
+    const taxaIcms = Form.useWatch('icms_rate', form)
+    const taxaPisCofins = Form.useWatch('pis_cofins_rate', form)
+    const taxaIpi = Form.useWatch('ipi_rate', form)
+    const taxaCbs = Form.useWatch('cbs_rate', form)
+    const taxaIbs = Form.useWatch('ibs_rate', form)
+
+    const contextoDoCredito = useMemo(() => ({
+        regime: taxRegime,
+        segmento: calcType,
+        destinacao: naturezaDoLancamento.destinacao,
+    }), [taxRegime, calcType, naturezaDoLancamento.destinacao])
+
+    const bandeirasDoLancamento = useMemo(() => {
+        const base = resolverFlagsDoItem(contextoDoCredito, creditoGravado)
+        // VEDADO é o terceiro estado: há imposto na operação e a lei proíbe o crédito. Ele
+        // trava os cinco botões com o motivo à vista, e não some o bloco — sumir afirmaria
+        // que não houve imposto.
+        if (naturezaDoLancamento.estado !== 'VEDADO') return base
+        return Object.fromEntries(TRIBUTOS_CREDITAVEIS.map((t) => [t, {
+            ativo: false, vedado: true, motivo: naturezaDoLancamento.motivo ?? '', origem: 'vedacao' as const,
+        }])) as typeof base
+    }, [contextoDoCredito, creditoGravado, naturezaDoLancamento.estado, naturezaDoLancamento.motivo])
+
+    const custoDoLancamento = useMemo(() => calcularCustoDoItem({
+        base: parseCurrencyFn(expenseAmount),
+        icmsPct: taxaIcms ?? null,
+        pisCofinsPct: taxaPisCofins ?? null,
+        ipiPct: taxaIpi ?? null,
+        cbsPct: taxaCbs ?? null,
+        ibsPct: taxaIbs ?? null,
+    }, bandeirasDoLancamento),
+    [expenseAmount, taxaIcms, taxaPisCofins, taxaIpi, taxaCbs, taxaIbs, bandeirasDoLancamento])
     // §6 — os dois campos só aparecem nas categorias do bloco Compromissos Financeiros.
     const isCompromissoFinanceiro = ehCompromissoFinanceiro(selectedExpenseCategory)
     const compSeparacao = separarJurosEPrincipal({
@@ -300,7 +350,6 @@ export default function CashFlow() {
         principal: compPrincipal === '' ? null : parseCurrencyFn(compPrincipal),
     })
     const activeCategoryOptions = getExpenseCategoryOptionsForRegime(taxRegime)
-    const activeGroupForCategory = (cat: string) => getGroupForCategoryByRegime(taxRegime, cat)
 
     const handleOpenPaymentModal = (entry: any) => {
         setPaymentEntry(entry)
@@ -755,6 +804,31 @@ export default function CashFlow() {
                 const amountNum = parseCurrencyFn(expenseAmount)
                 if (amountNum <= 0) { messageApi.warning('Informe o valor da despesa.'); return }
                 if (!values.expense_category) { messageApi.warning('Selecione a categoria.'); return }
+
+                /**
+                 * O QUE VAI PARA `valor_*` É O CRÉDITO, NÃO O DESTACADO.
+                 *
+                 * É o que o HUB já consome: `creditoRecuperavelDaCompra` soma esses seis e os
+                 * deduz. Gravar o destacado de um tributo cujo botão está DESLIGADO faria o
+                 * Hub deduzir um crédito que o usuário disse não ter — e o custo líquido da
+                 * tela diria uma coisa e o cabeçalho do Hub outra.
+                 *
+                 * Sem bloco, nenhum dos seis é gravado: `null` é "não há imposto nesta
+                 * operação", e zero afirmaria que há e ele deu zero (`ausente-vs-falso.md`).
+                 */
+                const creditoRateado = (fracao: number) => {
+                    if (!temBlocoDeImposto) return {}
+                    const r = (v: number) => Math.round(v * fracao * 100) / 100
+                    const c = custoDoLancamento.creditos
+                    return {
+                        valor_icms: r(c.ICMS),
+                        valor_pis: r(c.PIS_COFINS),
+                        valor_cofins: 0,
+                        valor_ipi: r(c.IPI),
+                        valor_cbs: r(c.CBS),
+                        valor_ibs: r(c.IBS),
+                    }
+                }
                 // §6 — "com o total da parcela conferindo com a soma". A soma que não fecha é
                 // RECUSADA aqui, e não corrigida em silêncio: o HUB grava `total − juros` como
                 // principal, e gravar uma soma divergente faria a tela dizer uma coisa e a
@@ -815,14 +889,7 @@ export default function CashFlow() {
                                 juros_value: compSeparacao.juros == null ? null : Math.round(compSeparacao.juros * ratio * 100) / 100,
                                 principal_value: compSeparacao.juros == null ? null : Math.round(compSeparacao.principal * ratio * 100) / 100,
                             } : {}),
-                            ...(isLrCustoProdutos ? {
-                                valor_icms: Math.round(parseCurrencyFn(lrValorIcms) * ratio * 100) / 100,
-                                valor_pis: Math.round(parseCurrencyFn(lrValorPisCofins) * ratio * 100) / 100,
-                                valor_cofins: 0,
-                                valor_ipi: Math.round(parseCurrencyFn(lrValorIpi) * ratio * 100) / 100,
-                                valor_cbs: Math.round(parseCurrencyFn(lrValorCbs) * ratio * 100) / 100,
-                                valor_ibs: Math.round(parseCurrencyFn(lrValorIbs) * ratio * 100) / 100,
-                            } : {}),
+                            ...creditoRateado(ratio),
                         })
                     })
                 } else {
@@ -849,14 +916,7 @@ export default function CashFlow() {
                                 juros_value: compSeparacao.juros == null ? null : Math.round(compSeparacao.juros / parcelas * 100) / 100,
                                 principal_value: compSeparacao.juros == null ? null : Math.round(compSeparacao.principal / parcelas * 100) / 100,
                             } : {}),
-                            ...(isLrCustoProdutos ? {
-                                valor_icms: Math.round(parseCurrencyFn(lrValorIcms) / parcelas * 100) / 100,
-                                valor_pis: Math.round(parseCurrencyFn(lrValorPisCofins) / parcelas * 100) / 100,
-                                valor_cofins: 0,
-                                valor_ipi: Math.round(parseCurrencyFn(lrValorIpi) / parcelas * 100) / 100,
-                                valor_cbs: Math.round(parseCurrencyFn(lrValorCbs) / parcelas * 100) / 100,
-                                valor_ibs: Math.round(parseCurrencyFn(lrValorIbs) / parcelas * 100) / 100,
-                            } : {}),
+                            ...creditoRateado(1 / parcelas),
                         })
                     }
                 }
@@ -905,11 +965,6 @@ export default function CashFlow() {
             setExpInstallmentPreset('customizado')
             setExpManualDates(false)
             setSelectedExpenseCategory('')
-            setLrValorIcms('')
-            setLrValorPisCofins('')
-            setLrValorIpi('')
-            setLrValorCbs('')
-            setLrValorIbs('')
             await fetchData()
         } catch (err: any) {
             if (err && err.name === 'ValidateError') {
@@ -936,7 +991,7 @@ export default function CashFlow() {
                     <CalendarOutlined style={{ fontSize: 18, color: '#94a3b8' }} />
                     <DatePicker picker="month" value={month} onChange={(d) => d && setMonth(d)} allowClear={false} format="MMMM YYYY" />
                     {canEdit(MODULES.CASH_FLOW) && (
-                        <Button type="primary" onClick={() => { form.resetFields(); setExpenseAmount(''); setExpPaymentMethod(''); setExpInstallments([{ date: null, amount: 0 }]); setExpInstallmentPreset('customizado'); setExpManualDates(false); setSelectedExpenseCategory(''); setLrValorIcms(''); setLrValorPisCofins(''); setLrValorIpi(''); setLrValorCbs(''); setLrValorIbs(''); setDrawerOpen(true) }}>
+                        <Button type="primary" onClick={() => { form.resetFields(); setExpenseAmount(''); setExpPaymentMethod(''); setExpInstallments([{ date: null, amount: 0 }]); setExpInstallmentPreset('customizado'); setExpManualDates(false); setSelectedExpenseCategory('');      setDrawerOpen(true) }}>
                             + Novo Lançamento
                         </Button>
                     )}
@@ -1567,7 +1622,7 @@ export default function CashFlow() {
             </Modal>
 
             {/* Drawer: Novo Lançamento (Despesa) */}
-            <Drawer title="Novo Lançamento de Despesa" width={680} open={drawerOpen} destroyOnClose onClose={() => { setDrawerOpen(false); setExpPaymentMethod(''); setExpInstallments([{ date: null, amount: 0 }]); setExpInstallmentPreset('customizado'); setExpManualDates(false); setSelectedExpenseCategory(''); setLrValorIcms(''); setLrValorPisCofins(''); setLrValorIpi(''); setLrValorCbs(''); setLrValorIbs(''); setCompJuros(''); setCompPrincipal('') }}
+            <Drawer title="Novo Lançamento de Despesa" width={680} open={drawerOpen} destroyOnClose onClose={() => { setDrawerOpen(false); setExpPaymentMethod(''); setExpInstallments([{ date: null, amount: 0 }]); setExpInstallmentPreset('customizado'); setExpManualDates(false); setSelectedExpenseCategory('');      setCompJuros(''); setCompPrincipal('') }}
                 extra={<Button type="primary" onClick={handleSaveEntry}>Salvar</Button>}>
                 <Form form={form} layout="vertical">
                     <Form.Item name="expense_category" label="Categoria da Despesa" rules={[{ required: true, message: 'Selecione a categoria' }]}>
@@ -1578,11 +1633,6 @@ export default function CashFlow() {
                             filterOption={(input, option) => (option?.label as string || '').toLowerCase().includes(input.toLowerCase())}
                             onChange={(v: string) => {
                                 setSelectedExpenseCategory(v || '')
-                                setLrValorIcms('')
-                                setLrValorPisCofins('')
-                                setLrValorIpi('')
-                                setLrValorCbs('')
-                                setLrValorIbs('')
                                 setCompJuros('')
                                 setCompPrincipal('')
                             }}
@@ -1653,57 +1703,52 @@ export default function CashFlow() {
                             </div>
                         </div>
                     )}
-                    {isLrCustoProdutos && (
-                        <div style={{ marginBottom: 16, padding: '12px 14px', background: 'rgba(99,102,241,0.06)', borderRadius: 6, border: '1px solid rgba(99,102,241,0.2)' }}>
-                            <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 10 }}>Impostos recuperáveis (informativo — registrados no Hub)</div>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
-                                <div>
-                                    <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Valor ICMS</div>
-                                    <Input
-                                        prefix="R$"
-                                        placeholder="0,00"
-                                        value={lrValorIcms}
-                                        onChange={(e) => setLrValorIcms(currencyMaskFn(e.target.value))}
-                                    />
+                    {/*
+                      §3 — O BLOCO DE IMPOSTOS EM TODA DESPESA.
+                      Antes daqui havia CINCO campos de VALOR, e só para as quatro categorias
+                      de custo de produto do Lucro Real. Na LC 214/2025 quase toda aquisição
+                      para a atividade gera crédito, e um crédito que só existe em
+                      matéria-prima infla o custo de todo o resto.
+
+                      O componente é o MESMO do cadastro de item, e a conta também. O que
+                      muda é de onde vêm as alíquotas: ali elas têm campo próprio fora do
+                      bloco, aqui os cinco entram por dentro — é para isso que existe a
+                      costura `extras`.
+                    */}
+                    {temBlocoDeImposto && (
+                        <>
+                            {naturezaDoLancamento.motivo && naturezaDoLancamento.estado === 'VEDADO' && (
+                                <div style={{ marginBottom: 12, fontSize: 12, color: '#fca5a5' }}>
+                                    {naturezaDoLancamento.motivo}
                                 </div>
-                                <div>
-                                    <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Valor PIS/COFINS</div>
-                                    <Input
-                                        prefix="R$"
-                                        placeholder="0,00"
-                                        value={lrValorPisCofins}
-                                        onChange={(e) => setLrValorPisCofins(currencyMaskFn(e.target.value))}
-                                    />
-                                </div>
-                                <div>
-                                    <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Valor IPI</div>
-                                    <Input
-                                        prefix="R$"
-                                        placeholder="0,00"
-                                        value={lrValorIpi}
-                                        onChange={(e) => setLrValorIpi(currencyMaskFn(e.target.value))}
-                                    />
-                                </div>
-                                <div>
-                                    <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Valor CBS</div>
-                                    <Input
-                                        prefix="R$"
-                                        placeholder="0,00"
-                                        value={lrValorCbs}
-                                        onChange={(e) => setLrValorCbs(currencyMaskFn(e.target.value))}
-                                    />
-                                </div>
-                                <div>
-                                    <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Valor IBS</div>
-                                    <Input
-                                        prefix="R$"
-                                        placeholder="0,00"
-                                        value={lrValorIbs}
-                                        onChange={(e) => setLrValorIbs(currencyMaskFn(e.target.value))}
-                                    />
-                                </div>
-                            </div>
-                        </div>
+                            )}
+                            <PurchaseTaxCredits
+                                visivel
+                                semDestinacao
+                                titulo={`Impostos da despesa — ${naturezaDoLancamento.destinacao === 'INSUMO' ? 'insumo' : naturezaDoLancamento.destinacao === 'REVENDA' ? 'revenda' : 'uso e consumo'}`}
+                                bandeiras={bandeirasDoLancamento}
+                                custo={custoDoLancamento}
+                                onToggle={(t, v) => setCreditoGravado((prev) => ({ ...prev, [t]: v }))}
+                                onRecalc={() => { /* o cálculo é derivado do `Form.useWatch` */ }}
+                                extras={{
+                                    ICMS: (
+                                        <Form.Item name="icms_rate" noStyle initialValue={0}>
+                                            <PercentInput min={0} max={100} style={{ width: 110 }} />
+                                        </Form.Item>
+                                    ),
+                                    PIS_COFINS: (
+                                        <Form.Item name="pis_cofins_rate" noStyle initialValue={0}>
+                                            <PercentInput min={0} max={100} style={{ width: 110 }} />
+                                        </Form.Item>
+                                    ),
+                                    IPI: (
+                                        <Form.Item name="ipi_rate" noStyle initialValue={0}>
+                                            <PercentInput min={0} max={100} style={{ width: 110 }} />
+                                        </Form.Item>
+                                    ),
+                                }}
+                            />
+                        </>
                     )}
                     <Form.Item name="payment_method" label="Método de Pagamento">
                         <Select

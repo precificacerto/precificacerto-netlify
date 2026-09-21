@@ -301,3 +301,41 @@ describe('A natureza da despesa — a tabela do §3, lida e não inferida', () =
     expect(naturezaDaDespesa('Imposto ICMS', 'IMPOSTO').motivo).toContain('quadro de apuração')
   })
 })
+
+describe('>>> O QUE VAI PARA `valor_*` É O CRÉDITO, NÃO O DESTACADO <<<', () => {
+  /**
+   * O HUB soma os seis `valor_*` e os DEDUZ (`creditoRecuperavelDaCompra`). Gravar o
+   * destacado de um tributo cujo botão está DESLIGADO faria o Hub deduzir um crédito que o
+   * usuário disse não ter — e o custo líquido da tela diria uma coisa e o cabeçalho do Hub
+   * outra, sem nada acusar.
+   */
+  const comIcmsDesligado = () => {
+    const nat = naturezaDaDespesa('Água / Esgoto', 'DESPESA_FIXA')
+    const ctx = { regime: 'LUCRO_REAL', segmento: 'INDUSTRIALIZACAO', destinacao: nat.destinacao }
+    const bandeiras = resolverFlagsDoItem(ctx, {})
+    return calcularCustoDoItem({ base: 1000, icmsPct: 25 }, bandeiras)
+  }
+
+  it('o DESTACADO existe e vale 250,00 — a nota tem ICMS', () => {
+    expect(comIcmsDesligado().valores.icms).toBeCloseTo(250, 2)
+  })
+
+  it('>>> e o CRÉDITO é zero: é este o número que o Hub pode deduzir <<<', () => {
+    expect(comIcmsDesligado().creditos.ICMS).toBeCloseTo(0, 2)
+    expect(comIcmsDesligado().creditos.ICMS).not.toBeCloseTo(250, 2)
+  })
+
+  it('ligar o botão move o crédito, e só ele — o destacado não muda', () => {
+    const ctx = { regime: 'LUCRO_REAL', segmento: 'INDUSTRIALIZACAO', destinacao: 'USO_CONSUMO' as const }
+    const ligado = calcularCustoDoItem({ base: 1000, icmsPct: 25 }, resolverFlagsDoItem(ctx, { ICMS: true }))
+    expect(ligado.valores.icms).toBeCloseTo(250, 2)
+    expect(ligado.creditos.ICMS).toBeCloseTo(250, 2)
+    expect(ligado.custoLiquido).toBeCloseTo(750, 2)
+  })
+
+  it('>>> sem bloco, NENHUM dos seis é gravado — `null` não é zero <<<', () => {
+    // A ausência do bloco é a única forma de não afirmar nada. Gravar seis zeros numa folha
+    // de pagamento afirma que houve imposto e ele deu zero.
+    expect(temBlocoDeImpostos('Salários Produção', 'MAO_DE_OBRA_PRODUTIVA')).toBe(false)
+  })
+})
