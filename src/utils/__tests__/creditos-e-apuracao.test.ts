@@ -21,6 +21,13 @@ import {
   ordemDaLinhaDeApresentacao,
 } from '@/utils/custo-produtos-no-dre'
 import { naturezaDaDespesa, temBlocoDeImpostos } from '@/utils/natureza-da-despesa'
+import {
+  mesDoCredito, cardsDoPeriodo, situacaoDaNota, filtrarNotas, creditoTotalDaNota,
+  SPLIT_PAYMENT_DESLIGADO, type NotaDeCompra,
+} from '@/utils/creditos-do-periodo'
+import {
+  apurarMes, competenciaSugerida, guiaEntraNaApuracao, TRIBUTOS_QUE_SAO_DESPESA,
+} from '@/utils/apuracao-de-tributos'
 import { resolverFlagsDoItem, calcularCustoDoItem } from '@/utils/custo-liquido-do-item'
 
 const r2 = (v: number) => Math.round(v * 100) / 100
@@ -337,5 +344,166 @@ describe('>>> O QUE VAI PARA `valor_*` É O CRÉDITO, NÃO O DESTACADO <<<', () 
     // A ausência do bloco é a única forma de não afirmar nada. Gravar seis zeros numa folha
     // de pagamento afirma que houve imposto e ele deu zero.
     expect(temBlocoDeImpostos('Salários Produção', 'MAO_DE_OBRA_PRODUTIVA')).toBe(false)
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────────────────
+// E — o quadro de apuração
+// ─────────────────────────────────────────────────────────────────────────────────────────
+
+describe('E — apuração do ICMS em agosto', () => {
+  it('>>> guia 12.000,00 + crédito 23.315,15 → débito 35.315,15; a recolher 12.000,00 <<<', () => {
+    const a = apurarMes({ guia: 12000, credito: 23315.15, saldoCredorAnterior: 0 })
+    expect(a.debito).toBeCloseTo(35315.15, 2)
+    expect(a.aRecolher).toBeCloseTo(12000, 2)
+    expect(a.saldoCredorATransportar).toBeCloseTo(0, 2)
+    expect(a.alertaGuiaFaltando).toBe(false)
+  })
+
+  it('>>> crédito 40.000,00 com guia ZERO: a recolher 0,00 e saldo credor a transportar <<<', () => {
+    // Com guia zero o débito é 40.000,00 (guia + crédito), a recolher é zero e o que sobra é
+    // `crédito − débito` = 0 — a conta fecha em si mesma, e é o que a fórmula do §5 diz.
+    const a = apurarMes({ guia: 0, credito: 40000, saldoCredorAnterior: 0 })
+    expect(a.aRecolher).toBeCloseTo(0, 2)
+    expect(a.debito).toBeCloseTo(40000, 2)
+    expect(a.saldoCredorATransportar).toBeCloseTo(40000 - (a.debito as number), 2)
+  })
+
+  it('o saldo credor anterior reduz o a recolher, e o que sobra transporta', () => {
+    const a = apurarMes({ guia: 5000, credito: 10000, saldoCredorAnterior: 3000, saldoCredorAtual: 0 })
+    expect(a.debito).toBeCloseTo(5000 + 10000 + 3000, 2)
+    expect(a.aRecolher).toBeCloseTo(5000, 2)
+  })
+
+  it('>>> SEM GUIA o débito é `null`, não zero — e o alerta acende <<<', () => {
+    // Zero afirmaria que não houve operação no mês. O que há é lançamento faltando.
+    const a = apurarMes({ guia: null, credito: 23315.15, saldoCredorAnterior: 0 })
+    expect(a.debito).toBeNull()
+    expect(a.aRecolher).toBeNull()
+    expect(a.alertaGuiaFaltando).toBe(true)
+    expect(a.saldoCredorATransportar).toBeCloseTo(23315.15, 2)
+  })
+
+  it('sem guia E sem crédito não há alerta: aí o mês realmente não teve nada', () => {
+    expect(apurarMes({ guia: null, credito: 0, saldoCredorAnterior: 0 }).alertaGuiaFaltando).toBe(false)
+  })
+})
+
+describe('A COMPETÊNCIA sugerida é o mês ANTERIOR ao vencimento', () => {
+  it.each([['2026-09-20', '2026-08'], ['2026-01-10', '2025-12'], ['2026-03-31', '2026-02']])(
+    'vence em %s → competência %s', (venc, esperado) => {
+      expect(competenciaSugerida(venc)).toBe(esperado)
+    })
+
+  it('>>> sem vencimento não se sugere competência — `null` entra, `null` sai <<<', () => {
+    expect(competenciaSugerida(null)).toBeNull()
+    expect(competenciaSugerida('')).toBeNull()
+  })
+})
+
+describe('>>> QUEM APURA E QUEM É DESPESA — §5, lido e não deduzido <<<', () => {
+  it.each(['ICMS', 'PIS', 'COFINS', 'IPI', 'CBS', 'IBS'])('%s principal apura', (t) => {
+    expect(guiaEntraNaApuracao(t, 'principal')).toBe(true)
+    expect(guiaEntraNaApuracao(t, 'complementar')).toBe(true)
+  })
+
+  it.each(['retificadora', 'multa_juros', 'parcelamento'])('ICMS %s NÃO apura', (tipo) => {
+    // A retificadora SUBSTITUI outra: somá-la contaria o mesmo período duas vezes.
+    expect(guiaEntraNaApuracao('ICMS', tipo)).toBe(false)
+  })
+
+  it.each([...TRIBUTOS_QUE_SAO_DESPESA])('%s é despesa, e não apura nem como principal', (t) => {
+    expect(guiaEntraNaApuracao(t, 'principal')).toBe(false)
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────────────────
+// A aba Créditos — o momento do crédito
+// ─────────────────────────────────────────────────────────────────────────────────────────
+
+const nota = (over: Partial<NotaDeCompra> = {}): NotaDeCompra => ({
+  id: 'n1', invoiceNumber: '123', supplierName: 'Fornecedor A',
+  expenseNature: 'INSUMO', expenseCategory: 'Matéria Prima - Base dos produtos',
+  totalAmount: 1000, creditDate: '2026-08-10', creditDateEstimated: false,
+  settlementDate: '2026-09-05', origin: 'NOVO',
+  creditos: { ICMS: 180, PIS_COFINS: 92.5, IPI: 50, CBS: 88, IBS: 1 },
+  ...over,
+})
+
+describe('O MOMENTO do crédito — art. 48 enquanto o split payment não operar', () => {
+  it('>>> com o split DESLIGADO, os cinco creditam no mês da NOTA <<<', () => {
+    for (const t of ['ICMS', 'PIS_COFINS', 'IPI', 'CBS', 'IBS'] as const) {
+      expect(mesDoCredito(nota(), t, SPLIT_PAYMENT_DESLIGADO)).toBe('2026-08')
+    }
+  })
+
+  it('>>> ligado, CBS e IBS passam para o mês da LIQUIDAÇÃO; os outros três não mudam <<<', () => {
+    const split = { ativo: true, inicio: '2026-01-01' }
+    expect(mesDoCredito(nota(), 'ICMS', split)).toBe('2026-08')
+    expect(mesDoCredito(nota(), 'CBS', split)).toBe('2026-09')
+    expect(mesDoCredito(nota(), 'IBS', split)).toBe('2026-09')
+  })
+
+  it('o split só vale para notas a partir do início — antes dele, mês da nota', () => {
+    const split = { ativo: true, inicio: '2026-09-01' }
+    expect(mesDoCredito(nota(), 'CBS', split)).toBe('2026-08')
+  })
+
+  it('>>> sem data de liquidação sob split, o mês é `null` — não se chuta competência <<<', () => {
+    const split = { ativo: true, inicio: '2026-01-01' }
+    expect(mesDoCredito(nota({ settlementDate: null }), 'CBS', split)).toBeNull()
+  })
+
+  it('nota sem data de crédito não credita em mês nenhum', () => {
+    expect(mesDoCredito(nota({ creditDate: null }), 'ICMS')).toBeNull()
+  })
+})
+
+describe('Os cards do mês, e o "A apropriar"', () => {
+  it('somam por tributo e no total', () => {
+    const c = cardsDoPeriodo([nota()], '2026-08')
+    expect(c.porTributo.ICMS).toBeCloseTo(180, 2)
+    expect(c.porTributo.PIS_COFINS).toBeCloseTo(92.5, 2)
+    expect(c.total).toBeCloseTo(411.5, 2)
+    expect(c.aApropriar).toBeCloseTo(0, 2)
+    expect(creditoTotalDaNota(nota())).toBeCloseTo(411.5, 2)
+  })
+
+  it('>>> sob split sem liquidação, CBS e IBS saem do total e vão para "A apropriar" <<<', () => {
+    const split = { ativo: true, inicio: '2026-01-01' }
+    const c = cardsDoPeriodo([nota({ settlementDate: null })], '2026-08', split)
+    expect(c.total).toBeCloseTo(322.5, 2)
+    expect(c.aApropriar).toBeCloseTo(89, 2)
+  })
+
+  it('os tributos da MESMA nota podem cair em meses diferentes', () => {
+    const split = { ativo: true, inicio: '2026-01-01' }
+    expect(cardsDoPeriodo([nota()], '2026-08', split).total).toBeCloseTo(322.5, 2)
+    expect(cardsDoPeriodo([nota()], '2026-09', split).total).toBeCloseTo(89, 2)
+  })
+})
+
+describe('A situação e os filtros da aba', () => {
+  it('>>> LEGADO vence as outras: a data ali foi DEDUZIDA, não informada <<<', () => {
+    expect(situacaoDaNota(nota({ origin: 'LEGADO' }), '2026-08')).toBe('LEGADO')
+    expect(situacaoDaNota(nota({ creditDateEstimated: true }), '2026-08')).toBe('LEGADO')
+    expect(situacaoDaNota(nota(), '2026-08')).toBe('APROPRIADO')
+    expect(situacaoDaNota(nota(), '2026-09')).toBe('A_APROPRIAR')
+  })
+
+  it.each([
+    ['mês', { mes: '2026-08' }, 1],
+    ['mês errado', { mes: '2026-07' }, 0],
+    ['tributo presente', { tributo: 'ICMS' as const }, 1],
+    ['fornecedor', { fornecedor: 'fornecedor a' }, 1],
+    ['natureza', { natureza: 'INSUMO' }, 1],
+    ['natureza errada', { natureza: 'REVENDA' }, 0],
+  ])('filtro por %s devolve %s nota(s)', (_n, filtros, esperado) => {
+    expect(filtrarNotas([nota()], filtros)).toHaveLength(esperado as number)
+  })
+
+  it('>>> filtrar por tributo que a nota não tem a exclui, e zero não é presença <<<', () => {
+    expect(filtrarNotas([nota({ creditos: { ICMS: 0, CBS: 88 } })], { tributo: 'ICMS' })).toHaveLength(0)
+    expect(filtrarNotas([nota({ creditos: { ICMS: 0, CBS: 88 } })], { tributo: 'CBS' })).toHaveLength(1)
   })
 })

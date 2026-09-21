@@ -22,6 +22,7 @@ import {
     CreditCardOutlined, BarChartOutlined,
 } from '@ant-design/icons'
 import { HubTab } from '@/components/hub/hub-tab.component'
+import { CreditosTab } from '@/components/creditos/creditos-tab.component'
 import { useAuth } from '@/hooks/use-auth.hook'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import {
@@ -1191,6 +1192,24 @@ export default function ControleFinanceiro() {
                             <div style={{ padding: '16px 0' }}>
                                 {tenantId ? (
                                     <HubTab tenantId={tenantId} refreshToken={hubRefreshToken} />
+                                ) : (
+                                    <div style={{ textAlign: 'center', padding: 40, color: '#64748b' }}>
+                                        Carregando...
+                                    </div>
+                                )}
+                            </div>
+                        ),
+                    },
+                    {
+                        // §4 — a aba Créditos vem DEPOIS do Hub, e a ordem é a leitura: o Hub
+                        // mostra o custo já líquido, e esta aba mostra de onde saiu o crédito
+                        // que o tornou líquido.
+                        label: <span><BarChartOutlined style={{ marginRight: 4 }} />Créditos</span>,
+                        key: 'creditos',
+                        children: (
+                            <div style={{ padding: '16px 0' }}>
+                                {tenantId ? (
+                                    <CreditosTab tenantId={tenantId} />
                                 ) : (
                                     <div style={{ textAlign: 'center', padding: 40, color: '#64748b' }}>
                                         Carregando...
