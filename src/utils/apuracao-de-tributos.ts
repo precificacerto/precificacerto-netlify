@@ -161,3 +161,28 @@ export function apurarMes(e: EntradaDaApuracao): ApuracaoDoMes {
     alertaGuiaFaltando: false,
   }
 }
+
+/** Os grupos cujo lançamento É uma guia de imposto — é neles que os campos do §5 aparecem. */
+export const GRUPOS_DE_GUIA: readonly string[] = [
+  'IMPOSTO', 'IMPOSTO_FATURAMENTO_DENTRO', 'IMPOSTO_LUCRO', 'REGIME_TRIBUTARIO',
+] as const
+
+export function ehGuiaDeImposto(group: string | null | undefined): boolean {
+  return GRUPOS_DE_GUIA.includes(String(group ?? '').trim().toUpperCase())
+}
+
+/** As opções de `tax_kind` do seletor: os seis que apuram, mais os que são despesa. */
+export const OPCOES_DE_TRIBUTO: { value: string; label: string; apura: boolean }[] = [
+  ...TRIBUTOS_APURAVEIS.map((t) => ({ value: t, label: t, apura: true })),
+  ...TRIBUTOS_QUE_SAO_DESPESA.map((t) => ({
+    value: t, label: t.replace(/_/g, '-'), apura: false,
+  })),
+]
+
+export const OPCOES_DE_TIPO_DE_GUIA: { value: string; label: string; apura: boolean }[] = [
+  { value: 'principal', label: 'Principal', apura: true },
+  { value: 'complementar', label: 'Complementar', apura: true },
+  { value: 'retificadora', label: 'Retificadora', apura: false },
+  { value: 'multa_juros', label: 'Multa / Juros', apura: false },
+  { value: 'parcelamento', label: 'Parcelamento', apura: false },
+]

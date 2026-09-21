@@ -8,7 +8,7 @@
  * assinaturas: ela fecharia consigo mesma e divergiria do quadro de apuração em silêncio.
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { Card, DatePicker, Input, Select, Spin, Table, Tag, Tooltip } from 'antd'
+import { Card, DatePicker, Divider, Input, Select, Spin, Table, Tag, Tooltip } from 'antd'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { supabase } from '@/supabase/client'
@@ -18,6 +18,7 @@ import {
   TRIBUTOS_DO_CREDITO, SPLIT_PAYMENT_DESLIGADO,
   type NotaDeCompra, type SituacaoDoCredito, type TributoDoCredito,
 } from '@/utils/creditos-do-periodo'
+import { QuadroDeApuracao } from '@/components/creditos/quadro-de-apuracao.component'
 
 const brl = (v: number | null | undefined) =>
   v == null ? '—' : `R$ ${getMonetaryValue(v)}`
@@ -247,6 +248,14 @@ export function CreditosTab({ tenantId }: { tenantId: string }) {
           },
         ]}
       />
+
+      {/*
+        O QUADRO DE APURAÇÃO — §5. Ele mora AQUI, ao lado dos créditos, e não no DRE: o DRE
+        mede resultado, e isto é conta corrente com o fisco.
+      */}
+      <Divider style={{ margin: '8px 0' }} />
+      <div style={{ fontSize: 13, fontWeight: 700, color: '#e2e8f0' }}>Quadro de apuração</div>
+      <QuadroDeApuracao tenantId={tenantId} />
     </section>
   )
 }

@@ -15,6 +15,10 @@ import { mergeExpenseConfig } from '@/utils/recalc-expense-config'
 import { ehCompromissoFinanceiro, separarJurosEPrincipal, LABEL_DO_BLOCO } from '@/utils/compromissos-financeiros'
 import { naturezaDaDespesa } from '@/utils/natureza-da-despesa'
 import {
+    ehGuiaDeImposto, competenciaSugerida, guiaEntraNaApuracao,
+    OPCOES_DE_TRIBUTO, OPCOES_DE_TIPO_DE_GUIA,
+} from '@/utils/apuracao-de-tributos'
+import {
     resolverFlagsDoItem, calcularCustoDoItem,
     TRIBUTOS_CREDITAVEIS, type TributoCreditavel,
 } from '@/utils/custo-liquido-do-item'
@@ -309,6 +313,13 @@ export default function CashFlow() {
     const grupoDaCategoria = activeGroupForCategory(selectedExpenseCategory) || 'DESPESA_FIXA'
     const naturezaDoLancamento = naturezaDaDespesa(selectedExpenseCategory, grupoDaCategoria)
     const temBlocoDeImposto = !!selectedExpenseCategory && naturezaDoLancamento.estado !== 'SEM_BLOCO'
+
+    // §5 — o lançamento de GUIA pede tributo, competência e tipo. Sem competência não há
+    // apuração: a guia vence em setembro e apura agosto, e somar uma na outra é o erro que o
+    // quadro existe para impedir.
+    const ehGuia = !!selectedExpenseCategory && ehGuiaDeImposto(grupoDaCategoria)
+    const tributoDaGuia = Form.useWatch('tax_kind', form)
+    const tipoDaGuia = Form.useWatch('guide_type', form)
 
     const taxaIcms = Form.useWatch('icms_rate', form)
     const taxaPisCofins = Form.useWatch('pis_cofins_rate', form)
@@ -816,6 +827,22 @@ export default function CashFlow() {
                  * Sem bloco, nenhum dos seis é gravado: `null` é "não há imposto nesta
                  * operação", e zero afirmaria que há e ele deu zero (`ausente-vs-falso.md`).
                  */
+                /**
+                 * OS TRÊS CAMPOS DA GUIA — §5.
+                 *
+                 * Só são gravados quando o lançamento É uma guia. Num lançamento comum eles
+                 * ficam `null`, e não com um tributo qualquer: `ausente-vs-falso.md`.
+                 */
+                const camposDaGuia = () => {
+                    if (!ehGuia) return {}
+                    const comp = values.competence_month
+                    return {
+                        tax_kind: values.tax_kind ?? null,
+                        guide_type: values.guide_type ?? null,
+                        competence_month: comp ? dayjs(comp).startOf('month').format('YYYY-MM-DD') : null,
+                    }
+                }
+
                 const creditoRateado = (fracao: number) => {
                     if (!temBlocoDeImposto) return {}
                     const r = (v: number) => Math.round(v * fracao * 100) / 100
@@ -890,6 +917,7 @@ export default function CashFlow() {
                                 principal_value: compSeparacao.juros == null ? null : Math.round(compSeparacao.principal * ratio * 100) / 100,
                             } : {}),
                             ...creditoRateado(ratio),
+                            ...camposDaGuia(),
                         })
                     })
                 } else {
@@ -917,6 +945,7 @@ export default function CashFlow() {
                                 principal_value: compSeparacao.juros == null ? null : Math.round(compSeparacao.principal / parcelas * 100) / 100,
                             } : {}),
                             ...creditoRateado(1 / parcelas),
+                            ...camposDaGuia(),
                         })
                     }
                 }
@@ -1635,6 +1664,12 @@ export default function CashFlow() {
                                 setSelectedExpenseCategory(v || '')
                                 setCompJuros('')
                                 setCompPrincipal('')
+                                setCreditoGravado({})
+                                // A sugestão do §5: mês ANTERIOR ao vencimento. Ela aparece
+                                // no campo, onde o usuário a vê e pode corrigi-la.
+                                const venc = expInstallments[0]?.date?.format('YYYY-MM-DD') ?? null
+                                const sug = competenciaSugerida(venc)
+                                form.setFieldValue('competence_month', sug ? dayjs(`${sug}-01`) : null)
                             }}
                         />
                     </Form.Item>
@@ -1700,6 +1735,46 @@ export default function CashFlow() {
                                     : compSeparacao.usouValorCheio
                                         ? 'Sem separação, o valor cheio entra como principal e vai inteiro para o preço. Informe os juros para separá-los.'
                                         : 'Os juros vão para Despesa Financeira; o principal entra na base da despesa fixa.'}
+                            </div>
+                        </div>
+                    )}
+                    {/*
+                      §5 — OS CAMPOS DA GUIA. A competência é SUGERIDA, não imposta: ela vem
+                      do vencimento e o usuário a corrige. Um default no banco afirmaria a
+                      competência de toda guia antiga (`ausente-vs-falso.md`).
+                    */}
+                    {ehGuia && (
+                        <div style={{ marginBottom: 16, padding: '12px 14px', background: 'rgba(220,38,38,0.06)', borderRadius: 6, border: '1px solid rgba(220,38,38,0.2)' }}>
+                            <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 10 }}>
+                                Guia de imposto — um tributo por lançamento
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
+                                <Form.Item name="tax_kind" label="Tributo" style={{ marginBottom: 0 }}>
+                                    <Select
+                                        placeholder="Selecione o tributo"
+                                        showSearch
+                                        options={OPCOES_DE_TRIBUTO.map((o) => ({
+                                            value: o.value,
+                                            label: o.apura ? o.label : `${o.label} — despesa, fora da apuração`,
+                                        }))}
+                                    />
+                                </Form.Item>
+                                <Form.Item name="guide_type" label="Tipo" initialValue="principal" style={{ marginBottom: 0 }}>
+                                    <Select
+                                        options={OPCOES_DE_TIPO_DE_GUIA.map((o) => ({
+                                            value: o.value,
+                                            label: o.apura ? o.label : `${o.label} — fora da apuração`,
+                                        }))}
+                                    />
+                                </Form.Item>
+                                <Form.Item name="competence_month" label="Competência" style={{ marginBottom: 0 }}>
+                                    <DatePicker picker="month" format="MM/YYYY" style={{ width: '100%' }} />
+                                </Form.Item>
+                            </div>
+                            <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 10 }}>
+                                {guiaEntraNaApuracao(tributoDaGuia, tipoDaGuia)
+                                    ? 'Esta guia ENTRA no quadro de apuração da competência escolhida.'
+                                    : 'Esta guia é DESPESA: ela não entra no quadro de apuração.'}
                             </div>
                         </div>
                     )}
