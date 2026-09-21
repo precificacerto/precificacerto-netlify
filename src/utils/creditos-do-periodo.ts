@@ -38,6 +38,14 @@ export interface NotaDeCompra {
   settlementDate?: string | null
   origin: 'NOVO' | 'LEGADO'
   creditos: Partial<Record<TributoDoCredito, number | null>>
+  /**
+   * As parcelas que pagam esta nota — §5 do comando de 21/09/2026.
+   *
+   * Ausente = não carregadas, e aí o CONFIRMADO não é apurável. Lista VAZIA é outra coisa:
+   * a nota não tem parcela nenhuma. `ausente-vs-falso.md`, e é por isso que o campo é
+   * opcional em vez de `[]` por default.
+   */
+  parcelas?: { amount: number; paidDate?: string | null }[]
 }
 
 /**
