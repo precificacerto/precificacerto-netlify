@@ -19,6 +19,10 @@ import {
   type NotaDeCompra, type SituacaoDoCredito, type TributoDoCredito,
 } from '@/utils/creditos-do-periodo'
 import { QuadroDeApuracao } from '@/components/creditos/quadro-de-apuracao.component'
+import {
+  creditoPrevistoEConfirmado, rotuloDaSituacao, situacaoDaConfirmacao,
+  type CreditoDaNota, type SituacaoDaConfirmacao,
+} from '@/utils/credito-previsto-e-confirmado'
 
 const brl = (v: number | null | undefined) =>
   v == null ? '—' : `R$ ${getMonetaryValue(v)}`
@@ -40,6 +44,8 @@ const AJUDA_DA_SITUACAO: Record<SituacaoDoCredito, string> = {
 /** As linhas que a consulta devolve, antes de virarem `NotaDeCompra`. */
 type LinhaDoBanco = {
   id: string
+  /** As parcelas que apontam para esta nota — é delas que sai o CONFIRMADO. */
+  cash_entries?: { amount: number | null; paid_date: string | null }[] | null
   invoice_number: string | null
   supplier_name: string | null
   expense_nature: string | null
@@ -63,6 +69,7 @@ export function CreditosTab({ tenantId }: { tenantId: string }) {
   const [fornecedor, setFornecedor] = useState('')
   const [natureza, setNatureza] = useState<string | null>(null)
   const [situacao, setSituacao] = useState<SituacaoDoCredito | null>(null)
+  const [confirmacao, setConfirmacao] = useState<SituacaoDaConfirmacao | null>(null)
 
   const buscar = useCallback(async () => {
     setCarregando(true)
@@ -72,7 +79,7 @@ export function CreditosTab({ tenantId }: { tenantId: string }) {
       // `20260922000002` e os tipos gerados ainda não a conhecem.
       const { data } = await (supabase as any)
         .from('purchase_invoices')
-        .select('id, invoice_number, supplier_name, expense_nature, expense_category, total_amount, credit_date, credit_date_estimated, origin, credit_icms, credit_pis_cofins, credit_ipi, credit_cbs, credit_ibs')
+        .select('id, invoice_number, supplier_name, expense_nature, expense_category, total_amount, credit_date, credit_date_estimated, origin, credit_icms, credit_pis_cofins, credit_ipi, credit_cbs, credit_ibs, cash_entries(amount, paid_date)')
         .eq('tenant_id', tenantId)
         .order('credit_date', { ascending: false })
 
@@ -86,6 +93,9 @@ export function CreditosTab({ tenantId }: { tenantId: string }) {
         creditDate: r.credit_date,
         creditDateEstimated: r.credit_date_estimated === true,
         origin: r.origin === 'LEGADO' ? 'LEGADO' : 'NOVO',
+        parcelas: (r.cash_entries ?? []).map((p) => ({
+          amount: Number(p.amount) || 0, paidDate: p.paid_date,
+        })),
         creditos: {
           ICMS: r.credit_icms == null ? null : Number(r.credit_icms),
           PIS_COFINS: r.credit_pis_cofins == null ? null : Number(r.credit_pis_cofins),
@@ -107,9 +117,50 @@ export function CreditosTab({ tenantId }: { tenantId: string }) {
   const split = SPLIT_PAYMENT_DESLIGADO
 
   const cards = useMemo(() => cardsDoPeriodo(notas, mes, split), [notas, mes, split])
+
+  /**
+   * Os DOIS números de cada nota — §5. A conta é de `credito-previsto-e-confirmado.ts`;
+   * aqui só se indexa por nota. Uma segunda conta nesta tela divergiria da apuração em
+   * silêncio (`copia-divergente.md`).
+   */
+  const confirmacaoPorNota = useMemo(() => {
+    const m = new Map<string, CreditoDaNota>()
+    for (const n of notas) {
+      m.set(n.id, creditoPrevistoEConfirmado({
+        creditoPrevisto: creditoTotalDaNota(n),
+        parcelas: n.parcelas ?? [],
+      }))
+    }
+    return m
+  }, [notas])
+
+  /**
+   * A PROJEÇÃO FISCAL do mês — §6.
+   *
+   * Ela soma só as notas que creditam NESTE mês, e por isso é derivada da mesma lista que os
+   * cards: previsto e confirmado do mesmo conjunto, ou os dois números falariam de meses
+   * diferentes.
+   */
+  const projecao = useMemo(() => {
+    const doMes = filtrarNotas(notas, { mes }, split)
+    let previsto = 0
+    let confirmado = 0
+    for (const n of doMes) {
+      const c = confirmacaoPorNota.get(n.id)
+      if (!c) continue
+      previsto += c.previsto
+      confirmado += c.confirmado
+    }
+    return { previsto, confirmado, aConfirmar: Math.round((previsto - confirmado) * 100) / 100 }
+  }, [notas, mes, split, confirmacaoPorNota])
   const lista = useMemo(
-    () => filtrarNotas(notas, { mes, tributo, fornecedor: fornecedor || null, natureza, situacao }, split),
-    [notas, mes, tributo, fornecedor, natureza, situacao, split],
+    () => filtrarNotas(notas, { mes, tributo, fornecedor: fornecedor || null, natureza, situacao }, split)
+      .filter((n) => {
+        if (!confirmacao) return true
+        const c = confirmacaoPorNota.get(n.id)
+        return !!c && situacaoDaConfirmacao(c) === confirmacao
+      }),
+    [notas, mes, tributo, fornecedor, natureza, situacao, split, confirmacao, confirmacaoPorNota],
   )
 
   const naturezas = useMemo(
@@ -123,8 +174,16 @@ export function CreditosTab({ tenantId }: { tenantId: string }) {
     <section style={{ display: 'grid', gap: 16 }}>
       {/* ── CARDS ────────────────────────────────────────────────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
-        <Card size="small" title="Crédito do período">
+        <Card size="small" title="Crédito previsto">
           <strong style={{ fontSize: 18, color: '#22C55E' }}>{brl(cards.total)}</strong>
+        </Card>
+        <Card size="small" title="Crédito confirmado">
+          <strong style={{ fontSize: 18 }}>{brl(projecao.confirmado)}</strong>
+        </Card>
+        <Card size="small" title="A confirmar">
+          <strong style={{ fontSize: 18, color: projecao.aConfirmar > 0 ? '#D97706' : undefined }}>
+            {projecao.aConfirmar === 0 ? '—' : brl(projecao.aConfirmar)}
+          </strong>
         </Card>
         {TRIBUTOS_DO_CREDITO.map((t) => (
           <Card size="small" key={t} title={ROTULO[t]}>
@@ -173,6 +232,15 @@ export function CreditosTab({ tenantId }: { tenantId: string }) {
           placeholder="Natureza" allowClear style={{ width: 180 }}
           value={natureza} onChange={(v) => setNatureza(v ?? null)}
           options={naturezas.map((n) => ({ value: n, label: n }))}
+        />
+        <Select
+          placeholder="Confirmação" allowClear style={{ width: 180 }}
+          value={confirmacao} onChange={(v) => setConfirmacao(v ?? null)}
+          options={[
+            { value: 'CONFIRMADO', label: 'Confirmado' },
+            { value: 'PARCIAL', label: 'Parcial' },
+            { value: 'A_CONFIRMAR', label: 'A confirmar' },
+          ]}
         />
         <Select
           placeholder="Situação" allowClear style={{ width: 170 }}
@@ -234,6 +302,29 @@ export function CreditosTab({ tenantId }: { tenantId: string }) {
             ),
           },
           {
+            title: 'Crédito confirmado', key: 'confirmado', align: 'right' as const,
+            render: (_: unknown, r: NotaDeCompra) => {
+              const c = confirmacaoPorNota.get(r.id)
+              // Travessão quando não há parcela carregada: `0,00` afirmaria que nada foi
+              // pago, e o que há é ausência de informação.
+              if (!c || c.parcelasTotal === 0) return '—'
+              return <span style={{ color: c.confirmado > 0 ? '#22C55E' : '#94a3b8' }}>{brl(c.confirmado)}</span>
+            },
+          },
+          {
+            title: 'Confirmação', key: 'confirmacao',
+            render: (_: unknown, r: NotaDeCompra) => {
+              const c = confirmacaoPorNota.get(r.id)
+              if (!c || c.parcelasTotal === 0) return '—'
+              const s = situacaoDaConfirmacao(c)
+              return (
+                <Tag color={s === 'CONFIRMADO' ? 'green' : s === 'PARCIAL' ? 'blue' : 'default'}>
+                  {rotuloDaSituacao(c)}
+                </Tag>
+              )
+            },
+          },
+          {
             title: 'Situação', key: 'situacao',
             render: (_: unknown, r: NotaDeCompra) => {
               const s = situacaoDaNota(r, mes, split)
@@ -248,6 +339,36 @@ export function CreditosTab({ tenantId }: { tenantId: string }) {
           },
         ]}
       />
+
+      {/*
+        PROJEÇÃO FISCAL — §6. Os dois números lado a lado, com a frase que explica o que
+        acontece quando as parcelas forem pagas. O §5 é explícito: *"nunca trocar um pelo
+        outro em silêncio"*, e exibir só um dos dois é a forma silenciosa de trocar.
+      */}
+      <div style={{ border: '1px solid rgba(148,163,184,0.2)', borderRadius: 10, padding: 14 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: '#e2e8f0', marginBottom: 8 }}>Projeção fiscal</div>
+        <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', fontSize: 13 }}>
+          <span>Confirmado hoje <strong>{brl(projecao.confirmado)}</strong></span>
+          <span>Previsto no mês <strong style={{ color: '#22C55E' }}>{brl(projecao.previsto)}</strong></span>
+          <span>A confirmar <strong style={{ color: projecao.aConfirmar > 0 ? '#D97706' : undefined }}>{brl(projecao.aConfirmar)}</strong></span>
+        </div>
+        {projecao.aConfirmar > 0 && (
+          <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 8 }}>
+            Quando todas as parcelas forem pagas, o crédito do mês chega a {brl(projecao.previsto)}.
+          </div>
+        )}
+        {/*
+          A LINHA QUE IMPEDE A TROCA SILENCIOSA — §5. A apuração de ICMS, IPI e PIS/COFINS
+          usa o PREVISTO, e o usuário precisa saber disso quando os dois números divergem.
+        */}
+        {projecao.previsto !== projecao.confirmado && (
+          <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 6 }}>
+            A apuração de ICMS, IPI e PIS/COFINS usa o <strong>previsto</strong> — o crédito
+            nasce da entrada e não espera pagamento. CBS e IBS também, enquanto o split
+            payment não operar.
+          </div>
+        )}
+      </div>
 
       {/*
         O QUADRO DE APURAÇÃO — §5. Ele mora AQUI, ao lado dos créditos, e não no DRE: o DRE

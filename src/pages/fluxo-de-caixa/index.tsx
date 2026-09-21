@@ -15,6 +15,11 @@ import { mergeExpenseConfig } from '@/utils/recalc-expense-config'
 import { ehCompromissoFinanceiro, separarJurosEPrincipal, LABEL_DO_BLOCO } from '@/utils/compromissos-financeiros'
 import { naturezaDaDespesa } from '@/utils/natureza-da-despesa'
 import {
+    useVencidos, FaixaDeVencidos, VencidosModal, deveAbrirSozinho,
+} from '@/components/cashflow/vencidos-modal.component'
+import { chaveDeDispensa } from '@/utils/vencidos-do-tenant'
+import { LARGURA_MODAL_50 } from '@/utils/largura-de-modal'
+import {
     ehGuiaDeImposto, competenciaSugerida, guiaEntraNaApuracao,
     OPCOES_DE_TRIBUTO, OPCOES_DE_TIPO_DE_GUIA,
 } from '@/utils/apuracao-de-tributos'
@@ -31,7 +36,7 @@ import {
 /** As quatro colunas que o aviso de impacto do §9 lê de `products`. */
 type ProdutoDoImpacto = { id: string; name?: string | null; cost_total?: number | null; sale_price?: number | null }
 import {
-    CalendarOutlined, FileExcelOutlined,
+    CalendarOutlined, FileExcelOutlined, InfoCircleOutlined, WarningOutlined,
 } from '@ant-design/icons'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import { useDevice } from '@/contexts/device.context'
@@ -174,6 +179,9 @@ export default function CashFlow() {
     const [taxRegime, setTaxRegime] = useState<string | null>(null)
     /** A segmentação do tenant — é ela que decide o padrão do IPI no crédito da compra. */
     const [calcType, setCalcType] = useState<string | null>(null)
+    const [tenantIdDaTela, setTenantIdDaTela] = useState<string | null>(null)
+    const [vencidosAbertos, setVencidosAbertos] = useState(false)
+    const [vencidosToken, setVencidosToken] = useState(0)
     const [loading, setLoading] = useState(false)
     const [month, setMonth] = useState(dayjs())
 
@@ -289,6 +297,7 @@ export default function CashFlow() {
                 setSaleCodeMap({})
             }
 
+            setTenantIdDaTela(tenantId)
             if (tenantSettings?.tax_regime) setTaxRegime(tenantSettings.tax_regime)
             if (tenantSettings?.calc_type) setCalcType(tenantSettings.calc_type)
         } catch {
@@ -360,6 +369,25 @@ export default function CashFlow() {
         juros: compJuros === '' ? null : parseCurrencyFn(compJuros),
         principal: compPrincipal === '' ? null : parseCurrencyFn(compPrincipal),
     })
+    // §3 — UMA fonte para o modal e para a faixa.
+    const { resumo: vencidos, recarregar: recarregarVencidos } = useVencidos(tenantIdDaTela, vencidosToken)
+
+    useEffect(() => {
+        // >>> ABRE UMA VEZ POR SESSÃO **E POR CONJUNTO** <<<
+        // `sessionStorage` some no logout, que é o "novo login" do §3; a assinatura dos ids
+        // na chave é o que faz o modal voltar quando surge um vencido NOVO.
+        if (!deveAbrirSozinho(tenantIdDaTela, vencidos, (k) => {
+            try { return sessionStorage.getItem(k) === '1' } catch { return false }
+        })) return
+        setVencidosAbertos(true)
+    }, [tenantIdDaTela, vencidos])
+
+    const dispensarVencidos = () => {
+        setVencidosAbertos(false)
+        if (!tenantIdDaTela) return
+        try { sessionStorage.setItem(chaveDeDispensa(tenantIdDaTela, vencidos), '1') } catch { /* private mode */ }
+    }
+
     const activeCategoryOptions = getExpenseCategoryOptionsForRegime(taxRegime)
 
     const handleOpenPaymentModal = (entry: any) => {
@@ -950,8 +978,61 @@ export default function CashFlow() {
                     }
                 }
 
+                /**
+                 * A NOTA DE COMPRA — §1 e §5.
+                 *
+                 * >>> QUEM RECEBE A MERCADORIA LANÇA A NOTA, E A ENTRADA MANDA <<<
+                 * `credit_date` recebe a DATA DE ENTRADA, não a emissão: recebeu 30/08 e
+                 * lançou 02/09 → crédito de setembro, e isso é aceito. A emissão é
+                 * informação da nota e não entra em conta nenhuma.
+                 *
+                 * A nota é UMA para todas as parcelas: o crédito é dela, não da parcela. É
+                 * por isso que `purchase_invoices` existe separada — uma nota em 6x produz
+                 * seis lançamentos e um crédito só.
+                 */
+                let notaId: string | null = null
+                if (temBlocoDeImposto && custoDoLancamento.creditoTotal > 0) {
+                    const entrada = values.entry_date
+                        ? dayjs(values.entry_date).format('YYYY-MM-DD')
+                        : dayjs().format('YYYY-MM-DD')
+                    const c = custoDoLancamento.creditos
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    // O cast é do `database.types.ts` desatualizado: a tabela nasceu na
+                    // migração `20260922000002` e os tipos gerados ainda não a conhecem.
+                    const { data: nota, error: erroNota } = await (supabase as any)
+                        .from('purchase_invoices')
+                        .insert({
+                            tenant_id,
+                            invoice_number: values.invoice_number || null,
+                            supplier_name: values.supplier_name || null,
+                            // A emissão é opcional e NÃO define nada — `null` quando ausente,
+                            // porque preenchê-la com a entrada afirmaria uma emissão que
+                            // ninguém informou (`ausente-vs-falso.md`).
+                            issue_date: values.issue_date ? dayjs(values.issue_date).format('YYYY-MM-DD') : null,
+                            entry_date: entrada,
+                            credit_date: entrada,
+                            credit_date_estimated: false,
+                            expense_nature: naturezaDoLancamento.destinacao,
+                            expense_category: values.expense_category,
+                            total_amount: parseCurrencyFn(expenseAmount),
+                            credit_icms: c.ICMS,
+                            credit_pis_cofins: c.PIS_COFINS,
+                            credit_ipi: c.IPI,
+                            credit_cbs: c.CBS,
+                            credit_ibs: c.IBS,
+                            origin: 'NOVO',
+                        })
+                        .select('id')
+                        .single()
+                    if (erroNota) throw erroNota
+                    notaId = (nota as { id?: string } | null)?.id ?? null
+                }
+
                 if (entries.length > 0) {
-                    const { error } = await supabase.from('cash_entries').insert(entries)
+                    const comNota = notaId
+                        ? entries.map((e) => ({ ...e, purchase_invoice_id: notaId }))
+                        : entries
+                    const { error } = await supabase.from('cash_entries').insert(comNota)
                     if (error) throw error
                 }
                 messageApi.success(`${entries.length} lançamento(s) de despesa criado(s)!`)
@@ -1009,6 +1090,23 @@ export default function CashFlow() {
     return (
         <Layout title={PAGE_TITLES.CASH_FLOW} subtitle="Relatório de Fluxo de Caixa">
             {contextHolder}
+
+            {/*
+              §3 — A FAIXA. Ela é clicável e reabre o modal, e some sozinha quando não há
+              vencido: uma faixa exibindo "0 vencidos" treinaria o usuário a ignorá-la.
+            */}
+            {vencidos.temVencidos && (
+                <div style={{ marginBottom: 12 }}>
+                    <FaixaDeVencidos resumo={vencidos} onAbrir={() => setVencidosAbertos(true)} />
+                </div>
+            )}
+
+            <VencidosModal
+                resumo={vencidos}
+                aberto={vencidosAbertos}
+                onFechar={dispensarVencidos}
+                onMudou={() => { setVencidosToken((t) => t + 1); void fetchData() }}
+            />
 
             <div className="pc-card cashflow-toolbar" style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
                 {/* Doc 28/07 (item 35): "Atualizar" removido (dados carregam automaticamente).
@@ -1365,6 +1463,31 @@ export default function CashFlow() {
                                 </td>
                             </tr>
 
+                            {/*
+                              ── DIA CONSIDERADO — §4 ──
+                              Entre "Total de saídas" e "Saldo acumulado", a data que cada
+                              coluna representa.
+
+                              >>> É APRESENTAÇÃO: NÃO ENTRA EM SOMA NENHUMA <<<
+                              A linha é `<tr>` de texto, e nenhuma célula dela é lida por
+                              `dailyAccumulatedBalance` nem por `extratoData`. O saldo
+                              acumulado antes é igual ao depois, e há caso afirmando isso.
+                            */}
+                            <tr style={{ background: '#0f172a' }}>
+                                <td style={{ padding: '6px 12px', fontWeight: 600, color: '#94a3b8', fontSize: 11, position: 'sticky', left: 0, background: '#0f172a', zIndex: 1, whiteSpace: 'nowrap' }}>
+                                    DIA CONSIDERADO
+                                </td>
+                                {Array.from({ length: pivotByDay.daysInMonth }, (_, i) => i + 1).map(day => (
+                                    <td key={day} style={{ padding: '5px 4px', textAlign: 'right', color: '#64748b', fontSize: 10, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                                        {month.date(day).format('DD/MM/YYYY')}
+                                    </td>
+                                ))}
+                                {/* Na coluna de MÊS, o INTERVALO — ela não representa um dia. */}
+                                <td style={{ padding: '6px 12px', textAlign: 'right', color: '#64748b', fontSize: 10, whiteSpace: 'nowrap', borderLeft: '1px solid rgba(255,255,255,0.06)' }}>
+                                    {month.startOf('month').format('DD/MM')} a {month.endOf('month').format('DD/MM')}
+                                </td>
+                            </tr>
+
                             {/* ── SALDO ACUMULADO ── */}
                             <tr style={{ background: '#1e1b4b', borderLeft: '5px solid #818cf8' }}>
                                 <td style={{ padding: '10px 12px', fontWeight: 700, color: '#c7d2fe', fontSize: 13, position: 'sticky', left: 0, background: '#1e1b4b', borderRight: '1px solid rgba(255,255,255,0.1)', zIndex: 1, whiteSpace: 'nowrap' }}>
@@ -1651,7 +1774,14 @@ export default function CashFlow() {
             </Modal>
 
             {/* Drawer: Novo Lançamento (Despesa) */}
-            <Drawer title="Novo Lançamento de Despesa" width={680} open={drawerOpen} destroyOnClose onClose={() => { setDrawerOpen(false); setExpPaymentMethod(''); setExpInstallments([{ date: null, amount: 0 }]); setExpInstallmentPreset('customizado'); setExpManualDates(false); setSelectedExpenseCategory('');      setCompJuros(''); setCompPrincipal('') }}
+            {/*
+              §2 — O MODAL DE DESPESA EM 50vw, com piso de 720px e teto de 1100px.
+              O piso existe para que o bloco de impostos não seja espremido: ele tem quatro
+              colunas, e abaixo de 720px elas começam a truncar. O teto evita colunas
+              perdidas numa tela larga. A regra mora em `largura-de-modal.ts`, e o CSS
+              global cuida de tablet (92vw) e mobile (tela cheia).
+            */}
+            <Drawer title="Novo Lançamento de Despesa" width={LARGURA_MODAL_50.width} className="drawer-50" open={drawerOpen} destroyOnClose onClose={() => { setDrawerOpen(false); setExpPaymentMethod(''); setExpInstallments([{ date: null, amount: 0 }]); setExpInstallmentPreset('customizado'); setExpManualDates(false); setSelectedExpenseCategory('');      setCompJuros(''); setCompPrincipal('') }}
                 extra={<Button type="primary" onClick={handleSaveEntry}>Salvar</Button>}>
                 <Form form={form} layout="vertical">
                     <Form.Item name="expense_category" label="Categoria da Despesa" rules={[{ required: true, message: 'Selecione a categoria' }]}>
@@ -1776,6 +1906,51 @@ export default function CashFlow() {
                                     ? 'Esta guia ENTRA no quadro de apuração da competência escolhida.'
                                     : 'Esta guia é DESPESA: ela não entra no quadro de apuração.'}
                             </div>
+                        </div>
+                    )}
+                    {/*
+                      §1 — A NOTA. A DATA DE ENTRADA nasce como HOJE e é editável, porque
+                      quem recebe a mercadoria lança a nota. É ela que define o mês do
+                      crédito; a emissão é só informação, e o vencimento das parcelas manda
+                      apenas no caixa.
+                    */}
+                    {temBlocoDeImposto && (
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 16 }}>
+                            <Form.Item
+                                name="entry_date"
+                                label={(
+                                    <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                        Data de entrada
+                                        <Tooltip title="Quando a mercadoria ou o serviço entrou. É ELA que define o mês do crédito — recebeu 30/08 e lançou 02/09, o crédito é de setembro.">
+                                            <InfoCircleOutlined style={{ color: '#64748b' }} />
+                                        </Tooltip>
+                                    </span>
+                                )}
+                                initialValue={dayjs()}
+                                style={{ marginBottom: 0 }}
+                            >
+                                <DatePicker format="DD/MM/YYYY" style={{ width: '100%' }} allowClear={false} />
+                            </Form.Item>
+                            <Form.Item
+                                name="issue_date"
+                                label={(
+                                    <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                        Emissão (opcional)
+                                        <Tooltip title="Data de emissão da nota. É informação: ela NÃO define o mês do crédito.">
+                                            <InfoCircleOutlined style={{ color: '#64748b' }} />
+                                        </Tooltip>
+                                    </span>
+                                )}
+                                style={{ marginBottom: 0 }}
+                            >
+                                <DatePicker format="DD/MM/YYYY" style={{ width: '100%' }} />
+                            </Form.Item>
+                            <Form.Item name="invoice_number" label="Nº da NF (opcional)" style={{ marginBottom: 0 }}>
+                                <Input placeholder="Ex: 12345" />
+                            </Form.Item>
+                            <Form.Item name="supplier_name" label="Fornecedor (opcional)" style={{ marginBottom: 0 }}>
+                                <Input placeholder="Razão social" />
+                            </Form.Item>
                         </div>
                     )}
                     {/*

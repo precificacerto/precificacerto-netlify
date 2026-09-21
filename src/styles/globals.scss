@@ -3554,3 +3554,55 @@ body {
     width: 100% !important;
   }
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────────────────
+   §2 do comando do PO de 21/09/2026 — a largura dos modais de lançamento.
+
+   O `width` do AntD entra INLINE, e inline vence classe. Por isso a regra de desktop mora em
+   `largura-de-modal.ts` (um `clamp`, sem medir a janela em JavaScript) e AQUI ficam só os
+   dois breakpoints, com `!important` — que é o único jeito de uma media query vencer o
+   inline.
+
+   >>> NADA ENCOLHE E NADA É CORTADO <<<
+   O miolo rola; a largura não é reduzida para caber. É a mesma disciplina de
+   `decomposicao-na-tela.md`: um valor truncado não parece truncado, e a saída quando não cabe
+   é ROLAR, nunca espremer a célula.
+   ───────────────────────────────────────────────────────────────────────────────────────── */
+
+/* TABLET — 92vw */
+@media (max-width: 1024px) {
+  .modal-50.ant-modal,
+  .drawer-50 .ant-drawer-content-wrapper {
+    width: 92vw !important;
+    max-width: 92vw !important;
+  }
+}
+
+/* MOBILE — tela cheia */
+@media (max-width: 640px) {
+  .modal-50.ant-modal,
+  .drawer-50 .ant-drawer-content-wrapper {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    margin: 0 !important;
+    top: 0 !important;
+    padding-bottom: 0 !important;
+  }
+
+  .modal-50 .ant-modal-content {
+    min-height: 100vh;
+    border-radius: 0;
+  }
+
+  /* Cabeçalho e rodapé FIXOS, miolo rolando — o modal em tela cheia não perde as ações. */
+  .modal-50 .ant-modal-body {
+    max-height: calc(100vh - 140px) !important;
+    overflow-y: auto;
+  }
+}
+
+/* O bloco de impostos NUNCA encolhe para caber: quando não couber, a tabela rola. */
+.drawer-50 .ant-drawer-body,
+.modal-50 .ant-modal-body {
+  overflow-x: auto;
+}
