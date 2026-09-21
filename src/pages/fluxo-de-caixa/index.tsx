@@ -1463,6 +1463,31 @@ export default function CashFlow() {
                                 </td>
                             </tr>
 
+                            {/*
+                              ── DIA CONSIDERADO — §4 ──
+                              Entre "Total de saídas" e "Saldo acumulado", a data que cada
+                              coluna representa.
+
+                              >>> É APRESENTAÇÃO: NÃO ENTRA EM SOMA NENHUMA <<<
+                              A linha é `<tr>` de texto, e nenhuma célula dela é lida por
+                              `dailyAccumulatedBalance` nem por `extratoData`. O saldo
+                              acumulado antes é igual ao depois, e há caso afirmando isso.
+                            */}
+                            <tr style={{ background: '#0f172a' }}>
+                                <td style={{ padding: '6px 12px', fontWeight: 600, color: '#94a3b8', fontSize: 11, position: 'sticky', left: 0, background: '#0f172a', zIndex: 1, whiteSpace: 'nowrap' }}>
+                                    DIA CONSIDERADO
+                                </td>
+                                {Array.from({ length: pivotByDay.daysInMonth }, (_, i) => i + 1).map(day => (
+                                    <td key={day} style={{ padding: '5px 4px', textAlign: 'right', color: '#64748b', fontSize: 10, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                                        {month.date(day).format('DD/MM/YYYY')}
+                                    </td>
+                                ))}
+                                {/* Na coluna de MÊS, o INTERVALO — ela não representa um dia. */}
+                                <td style={{ padding: '6px 12px', textAlign: 'right', color: '#64748b', fontSize: 10, whiteSpace: 'nowrap', borderLeft: '1px solid rgba(255,255,255,0.06)' }}>
+                                    {month.startOf('month').format('DD/MM')} a {month.endOf('month').format('DD/MM')}
+                                </td>
+                            </tr>
+
                             {/* ── SALDO ACUMULADO ── */}
                             <tr style={{ background: '#1e1b4b', borderLeft: '5px solid #818cf8' }}>
                                 <td style={{ padding: '10px 12px', fontWeight: 700, color: '#c7d2fe', fontSize: 13, position: 'sticky', left: 0, background: '#1e1b4b', borderRight: '1px solid rgba(255,255,255,0.1)', zIndex: 1, whiteSpace: 'nowrap' }}>
@@ -1749,7 +1774,14 @@ export default function CashFlow() {
             </Modal>
 
             {/* Drawer: Novo Lançamento (Despesa) */}
-            <Drawer title="Novo Lançamento de Despesa" width={680} open={drawerOpen} destroyOnClose onClose={() => { setDrawerOpen(false); setExpPaymentMethod(''); setExpInstallments([{ date: null, amount: 0 }]); setExpInstallmentPreset('customizado'); setExpManualDates(false); setSelectedExpenseCategory('');      setCompJuros(''); setCompPrincipal('') }}
+            {/*
+              §2 — O MODAL DE DESPESA EM 50vw, com piso de 720px e teto de 1100px.
+              O piso existe para que o bloco de impostos não seja espremido: ele tem quatro
+              colunas, e abaixo de 720px elas começam a truncar. O teto evita colunas
+              perdidas numa tela larga. A regra mora em `largura-de-modal.ts`, e o CSS
+              global cuida de tablet (92vw) e mobile (tela cheia).
+            */}
+            <Drawer title="Novo Lançamento de Despesa" width={LARGURA_MODAL_50.width} className="drawer-50" open={drawerOpen} destroyOnClose onClose={() => { setDrawerOpen(false); setExpPaymentMethod(''); setExpInstallments([{ date: null, amount: 0 }]); setExpInstallmentPreset('customizado'); setExpManualDates(false); setSelectedExpenseCategory('');      setCompJuros(''); setCompPrincipal('') }}
                 extra={<Button type="primary" onClick={handleSaveEntry}>Salvar</Button>}>
                 <Form form={form} layout="vertical">
                     <Form.Item name="expense_category" label="Categoria da Despesa" rules={[{ required: true, message: 'Selecione a categoria' }]}>

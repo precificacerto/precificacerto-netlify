@@ -17,6 +17,8 @@ import {
   resumirVencidos, chaveDeDispensa, textoDaFaixa, diasEntre, type EntradaBruta,
 } from '@/utils/vencidos-do-tenant'
 import { deveAbrirSozinho } from '@/components/cashflow/vencidos-modal.component'
+import fs from 'fs'
+import path from 'path'
 import { LARGURA_MODAL_50, LARGURA_MODAL_75 } from '@/utils/largura-de-modal'
 
 // ─────────────────────────────────────────────────────────────────────────────────────────
@@ -317,5 +319,51 @@ describe('>>> §2 — a largura do modal de despesa é 50vw, com piso e teto <<<
   it('>>> e os dois têm teto de viewport — nada é cortado fora da tela <<<', () => {
     expect(LARGURA_MODAL_50.style.maxWidth).toBe('96vw')
     expect(LARGURA_MODAL_75.style.maxWidth).toBe('96vw')
+  })
+})
+
+describe('>>> F — a linha "Dia considerado" não entra em soma nenhuma <<<', () => {
+  /**
+   * A linha é de APRESENTAÇÃO: ela exibe texto de data, e nenhuma célula dela é lida pelo
+   * saldo acumulado nem pelos totais.
+   *
+   * O caso é ESTRUTURAL de propósito, e é o caso-limite que `teste-que-nao-exercita.md`
+   * admite: não há efeito numérico a medir — o defeito seria a linha ser SOMADA, e o que
+   * prova que ela não é somada é ela estar FORA das duas fontes que somam.
+   */
+  const pagina = fs.readFileSync(
+    path.join(process.cwd(), 'src', 'pages', 'fluxo-de-caixa', 'index.tsx'), 'utf-8',
+  )
+
+  /** O corpo da linha: do RÓTULO até o começo da linha do saldo. */
+  const corpoDaLinha = (src: string) => {
+    const fim = src.indexOf('── SALDO ACUMULADO ──')
+    return src.slice(src.lastIndexOf('DIA CONSIDERADO', fim), fim)
+  }
+
+  it('a linha existe, e está ENTRE total de saídas e saldo acumulado', () => {
+    const iSaidas = pagina.indexOf('TOTAL SAÍDAS')
+    const iDia = pagina.indexOf('DIA CONSIDERADO')
+    const iSaldo = pagina.indexOf('SALDO ACUMULADO')
+    expect(iSaidas).toBeGreaterThan(0)
+    expect(iDia).toBeGreaterThan(iSaidas)
+    expect(iSaldo).toBeGreaterThan(iDia)
+  })
+
+  it('>>> e ela exibe DATA, não valor: nenhuma das duas fontes de soma a alimenta <<<', () => {
+    // Do RÓTULO da linha (a última ocorrência antes do saldo — a primeira é o comentário
+    // que a explica) até o começo da linha do saldo.
+    const bloco = corpoDaLinha(pagina)
+    // As duas fontes que somam nesta tabela. Se qualquer uma aparecer dentro do bloco da
+    // linha nova, ela deixou de ser apresentação.
+    expect(bloco).not.toContain('dailyAccumulatedBalance')
+    expect(bloco).not.toContain('pivotByDay.data')
+    expect(bloco).toContain("format('DD/MM/YYYY')")
+  })
+
+  it('na coluna de MÊS ela mostra o INTERVALO, porque ali não há um dia', () => {
+    const bloco = corpoDaLinha(pagina)
+    expect(bloco).toContain("startOf('month')")
+    expect(bloco).toContain("endOf('month')")
   })
 })
