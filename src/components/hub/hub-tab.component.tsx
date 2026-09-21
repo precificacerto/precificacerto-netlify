@@ -118,10 +118,14 @@ export function HubTab({ tenantId, refreshToken }: HubTabProps) {
         // Linha header do grupo (sem valores nas colunas de mês — só label e média total)
         rows.push({
             key: `__grp__${row.group}`,
-            label: row.label,
+            // O cabeçalho anuncia que é o LÍQUIDO. Sem o rótulo, o leitor compara este número
+            // com o extrato e conclui que um dos dois está errado — eles respondem a
+            // perguntas diferentes (§2 do comando de 21/09/2026).
+            label: row.valuesExibidas ? `${row.label} (líquido)` : row.label,
             kind: 'group-header',
             group: row.group,
-            values: row.values,
+            // >>> EXIBE O LÍQUIDO; o "Total Despesas" abaixo continua somando `row.values` <<<
+            values: row.valuesExibidas ?? row.values,
             averagePct: row.averagePct,
             averageRS: row.averageRS,
         })

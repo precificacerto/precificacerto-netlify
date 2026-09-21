@@ -93,9 +93,26 @@ interface Props {
   visivel: boolean
   /** Rótulo da unidade de medida escolhida — "metro", "ml", "kg". Para o quarto número. */
   unidadeLabel?: string
+  /**
+   * O input de ALÍQUOTA de cada tributo, quando quem monta o bloco precisa fornecê-lo.
+   *
+   * >>> POR QUE UMA COSTURA, E NÃO UM SEGUNDO COMPONENTE <<<
+   * No cadastro de item as alíquotas de ICMS, PIS/COFINS e IPI já têm campo próprio fora
+   * deste bloco, e só CBS e IBS entram por aqui. No lançamento de DESPESA não há nenhum campo
+   * fora — os cinco precisam entrar no bloco. Duplicar o componente para atender os dois
+   * seria `copia-divergente.md` com a pior das assinaturas: as duas cópias exibiriam o mesmo
+   * número por caminhos diferentes, e a divergência só apareceria como crédito errado.
+   *
+   * Ausente, o bloco mantém o comportamento do cadastro de item.
+   */
+  extras?: Partial<Record<TributoCreditavel, React.ReactNode>>
+  /** Cabeçalho do bloco. O lançamento de despesa diz de qual despesa se trata. */
+  titulo?: string
+  /** Esconde o seletor de destinação — no lançamento ele vem da natureza da despesa. */
+  semDestinacao?: boolean
 }
 
-export function PurchaseTaxCredits({ bandeiras, custo, onToggle, onRecalc, visivel, unidadeLabel }: Props) {
+export function PurchaseTaxCredits({ bandeiras, custo, onToggle, onRecalc, visivel, unidadeLabel, extras, titulo, semDestinacao }: Props) {
   if (!visivel) return null
 
   const linha = (t: TributoCreditavel, valor: number | null | undefined, extra?: React.ReactNode) => {
@@ -182,13 +199,14 @@ export function PurchaseTaxCredits({ bandeiras, custo, onToggle, onRecalc, visiv
   return (
     <div style={{ border: '1px solid rgba(148,163,184,0.2)', borderRadius: 10, padding: 16, marginBottom: 24 }}>
       <div style={{ fontSize: 13, fontWeight: 700, color: '#e2e8f0', marginBottom: 4 }}>
-        Impostos da compra
+        {titulo ?? 'Impostos da compra'}
       </div>
       <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 14 }}>
         O custo bruto é o valor da compra. O custo líquido — que é o que a precificação usa —
         é o bruto menos o que gera crédito.
       </div>
 
+      {!semDestinacao && (
       <Form.Item
         name="destination"
         label={
@@ -210,6 +228,7 @@ export function PurchaseTaxCredits({ bandeiras, custo, onToggle, onRecalc, visiv
           onChange={() => setTimeout(onRecalc, 50)}
         />
       </Form.Item>
+      )}
 
       {/* O cabeçalho da tabela — as seis colunas do §6. */}
       <div style={{
@@ -229,16 +248,16 @@ export function PurchaseTaxCredits({ bandeiras, custo, onToggle, onRecalc, visiv
         na compra: ele existe, compõe o custo, e o que não existe é o crédito. É a mesma
         distinção de `ausente-vs-falso.md` — a linha some, o usuário conclui que não pagou.
       */}
-      {linha('ICMS', v?.icms)}
-      {linha('PIS_COFINS', v?.pisCofins)}
-      {linha('IPI', v?.ipi)}
+      {linha('ICMS', v?.icms, extras?.ICMS)}
+      {linha('PIS_COFINS', v?.pisCofins, extras?.PIS_COFINS)}
+      {linha('IPI', v?.ipi, extras?.IPI)}
 
-      {linha('CBS', v?.cbs, (
+      {linha('CBS', v?.cbs, extras?.CBS ?? (
         <Form.Item name="cbs_rate" noStyle initialValue={0}>
           <PercentInput min={0} max={100} style={{ width: 110 }} onChange={() => setTimeout(onRecalc, 50)} />
         </Form.Item>
       ))}
-      {linha('IBS', v?.ibs, (
+      {linha('IBS', v?.ibs, extras?.IBS ?? (
         <Form.Item name="ibs_rate" noStyle initialValue={0}>
           <PercentInput min={0} max={100} style={{ width: 110 }} onChange={() => setTimeout(onRecalc, 50)} />
         </Form.Item>
@@ -297,7 +316,20 @@ export function PurchaseTaxCredits({ bandeiras, custo, onToggle, onRecalc, visiv
               </Tooltip>
             )}
           </span>
-          <span style={{ fontWeight: 600, color: '#22C55E' }}>− {fmt(custo?.creditoTotal ?? 0)}</span>
+          <span style={{ fontWeight: 600, color: '#22C55E' }}>
+            − {fmt(custo?.creditoTotal ?? 0)}
+            {/*
+              O % DO QUE FOI PAGO — §3 do comando de 21/09/2026.
+              O valor sozinho não diz se o crédito é relevante: R$ 319,38 numa compra de mil
+              é um terço, e numa de cem mil é ruído. Travessão quando o bruto é zero: uma
+              divisão por zero exibida como 0,00% afirmaria que nada creditou.
+            */}
+            {custo && custo.custoBruto > 0 && (
+              <span style={{ fontWeight: 400, color: '#94a3b8', marginLeft: 6 }}>
+                ({getMonetaryValue((custo.creditoTotal / custo.custoBruto) * 100)}% do que foi pago)
+              </span>
+            )}
+          </span>
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, paddingTop: 6, borderTop: '1px solid rgba(148,163,184,0.15)' }}>
           <span style={{ fontWeight: 700 }}>Custo líquido <span style={{ fontWeight: 400, color: '#94a3b8' }}>(unidade comprada)</span></span>

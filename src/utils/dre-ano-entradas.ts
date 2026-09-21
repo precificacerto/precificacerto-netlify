@@ -17,8 +17,10 @@ import { ResultData, TableDataType } from '@/shared/enums/dre-year-base'
 import {
   creditoRecuperavelDaCompra,
   montarBlocoDeCustoDosProdutos,
+  detalheDoCreditoPorTributo,
   temBreakdownDeCompra,
   LINHAS_DE_APRESENTACAO_DO_CUSTO,
+  type TributosDaCompra,
   type RegimeDoBloco,
 } from '@/utils/custo-produtos-no-dre'
 import {
@@ -97,6 +99,7 @@ export function processYearEntries(entries: any[], _year: number, regime: Regime
   const expenseItems: ProcessItem[] = []
   const custoProdutosBrutoPorMes: Record<string, number> = {}
   const creditoDeCompraPorMes: Record<string, number> = {}
+  const tributosDaCompraPorMes: Record<string, TributosDaCompra> = {}
   const subtotalDoBlocoPorMes: Record<string, number> = {}
 
   entries.forEach((entry: any) => {
@@ -142,6 +145,14 @@ export function processYearEntries(entries: any[], _year: number, regime: Regime
       if (temBreakdownDeCompra(tributos)) {
         creditoDeCompraPorMes[monthVal] =
           (creditoDeCompraPorMes[monthVal] || 0) + creditoRecuperavelDaCompra(tributos, regime)
+
+        // Os seis abertos, para as sub-linhas por tributo.
+        const acc = tributosDaCompraPorMes[monthVal] ?? (tributosDaCompraPorMes[monthVal] = {})
+        for (const k of ['icms', 'pis', 'cofins', 'ipi', 'cbs', 'ibs'] as const) {
+          const v = Number((tributos as Record<string, unknown>)[k])
+          if (!Number.isFinite(v) || v === 0) continue
+          acc[k] = (acc[k] ?? 0) + v
+        }
       }
     }
 
@@ -184,22 +195,24 @@ export function processYearEntries(entries: any[], _year: number, regime: Regime
     })
     // Uma linha só = sem crédito naquele mês (Simples, MEI, ou nenhum tributo informado).
     if (bloco.linhas.length < 3) continue
-    expenseItems.push({
-      category: LINHAS_DE_APRESENTACAO_DO_CUSTO.creditos.label,
-      expenseGroup: 'CUSTO_PRODUTOS',
-      price: bloco.linhas[1].valor,
-      month,
-      apenasApresentacao: true,
-      ordem: LINHAS_DE_APRESENTACAO_DO_CUSTO.creditos.ordem,
+
+    const apresentar = (rotulo: string, price: number, ordem: number) => expenseItems.push({
+      category: rotulo, expenseGroup: 'CUSTO_PRODUTOS', price, month,
+      apenasApresentacao: true, ordem,
     })
-    expenseItems.push({
-      category: LINHAS_DE_APRESENTACAO_DO_CUSTO.liquido.label,
-      expenseGroup: 'CUSTO_PRODUTOS',
-      price: bloco.linhas[2].valor,
-      month,
-      apenasApresentacao: true,
-      ordem: LINHAS_DE_APRESENTACAO_DO_CUSTO.liquido.ordem,
-    })
+
+    // >>> O LÍQUIDO VEM PRIMEIRO — §2 do comando de 21/09/2026 <<<
+    // Aqui não há linha de cabeçalho de grupo, então a inversão é a ORDEM: o líquido é a
+    // cabeça do bloco e as parcelas que o explicam vêm abaixo. As categorias reais
+    // (Fornecedores, Matéria Prima…) continuam carregando o bruto e entrando no resultado —
+    // a linha "Custo bruto" abaixo é o AGREGADO delas, e é apresentação como as outras.
+    apresentar(LINHAS_DE_APRESENTACAO_DO_CUSTO.liquido.label, bloco.linhas[2].valor, LINHAS_DE_APRESENTACAO_DO_CUSTO.liquido.ordem)
+    apresentar(LINHAS_DE_APRESENTACAO_DO_CUSTO.bruto.label, bloco.linhas[0].valor, LINHAS_DE_APRESENTACAO_DO_CUSTO.bruto.ordem)
+    apresentar(LINHAS_DE_APRESENTACAO_DO_CUSTO.creditos.label, bloco.linhas[1].valor, LINHAS_DE_APRESENTACAO_DO_CUSTO.creditos.ordem)
+
+    for (const d of detalheDoCreditoPorTributo(tributosDaCompraPorMes[month], regime)) {
+      apresentar(d.label, -d.valor, d.ordem)
+    }
   }
 
   return {
