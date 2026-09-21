@@ -1855,6 +1855,130 @@ export default function CashFlow() {
                             }}
                         />
                     </Form.Item>
+                    {/*
+                      §5 — AS CONDIÇÕES DE PAGAMENTO VÊM LOGO APÓS O VALOR TOTAL.
+
+                      Antes elas ficavam DEPOIS do bloco de impostos, e a ordem ensinava a
+                      coisa errada: quem lança uma despesa decide primeiro quanto é e como
+                      paga — o imposto é leitura da nota, e vem depois. Com o bloco de
+                      impostos no meio, o usuário atravessava cinco linhas de tributo para
+                      informar o número de parcelas de uma conta de luz.
+
+                      A ordem de TABULAÇÃO acompanha porque é a ordem do DOM: o bloco foi
+                      movido, não reposicionado por CSS. `order` do flexbox deixaria o Tab
+                      seguindo a ordem antiga, e o teclado veria um formulário diferente do
+                      que a tela mostra.
+                    */}
+                    <Form.Item name="payment_method" label="Método de Pagamento">
+                        <Select
+                            placeholder="Selecione o método (opcional)"
+                            allowClear
+                            options={EXPENSE_PAYMENT_METHODS}
+                            onChange={(v) => { setExpPaymentMethod(v || ''); setExpInstallments([{ date: null, amount: 0 }]); setExpInstallmentPreset('customizado'); setExpManualDates(false) }}
+                        />
+                    </Form.Item>
+                    {(() => {
+                        const isBoletoOrCheque = expPaymentMethod === 'BOLETO' || expPaymentMethod === 'CHEQUE_PRE_DATADO'
+                        // Boleto/Cheque Pré-datado sempre usam o editor manual. Para os demais
+                        // métodos, o editor manual fica disponível via toggle "Personalizar vencimentos".
+                        const showManualEditor = isBoletoOrCheque || expManualDates
+                        return (
+                            <>
+                                {/* Correção Felipe (10/08): seletor Automático x Personalizado — só para
+                                    métodos que não são Boleto/Cheque Pré-datado (esses já são sempre manuais). */}
+                                {!isBoletoOrCheque && (
+                                    <div style={{ marginBottom: 12 }}>
+                                        <div style={{ marginBottom: 6, color: '#94a3b8', fontSize: 13, fontWeight: 500 }}>Condição de Pagamento</div>
+                                        <Radio.Group
+                                            value={expManualDates ? 'manual' : 'auto'}
+                                            onChange={(e) => {
+                                                const manual = e.target.value === 'manual'
+                                                setExpManualDates(manual)
+                                                if (manual) {
+                                                    // Ao personalizar, começa com uma linha em branco já com o valor total.
+                                                    setExpInstallmentPreset('customizado')
+                                                    setExpInstallments([{ date: null, amount: parseCurrencyFn(expenseAmount) || 0 }])
+                                                }
+                                            }}
+                                            optionType="button"
+                                            size="small"
+                                        >
+                                            <Radio.Button value="auto">Parcelas mensais</Radio.Button>
+                                            <Radio.Button value="manual">Personalizar vencimentos</Radio.Button>
+                                        </Radio.Group>
+                                    </div>
+                                )}
+
+                                {showManualEditor ? (
+                                    <div style={{ marginBottom: 16, padding: 12, background: 'rgba(96, 165, 250, 0.08)', border: '1px solid rgba(96,165,250,0.25)', borderRadius: 8 }}>
+                                        <div style={{ fontSize: 13, fontWeight: 600, color: '#93c5fd', marginBottom: 8 }}>
+                                            Datas e valores de vencimento
+                                        </div>
+                                        <div style={{ marginBottom: 10 }}>
+                                            <Radio.Group
+                                                value={expInstallmentPreset}
+                                                onChange={(e) => {
+                                                    const p = e.target.value
+                                                    setExpInstallmentPreset(p)
+                                                    const insts = buildInstallmentsByPreset(p)
+                                                    const total = parseCurrencyFn(expenseAmount)
+                                                    const n = insts.length
+                                                    const amt = n > 0 && total > 0 ? Math.round((total / n) * 100) / 100 : 0
+                                                    setExpInstallments(insts.map(inst => ({ ...inst, amount: amt })))
+                                                }}
+                                                size="small"
+                                            >
+                                                {INSTALLMENT_PRESETS.map(p => <Radio.Button key={p.value} value={p.value}>{p.label}</Radio.Button>)}
+                                            </Radio.Group>
+                                        </div>
+                                        {expInstallments.map((item, idx) => (
+                                            <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8, marginBottom: 8, alignItems: 'center' }}>
+                                                <DatePicker
+                                                    placeholder="Data de vencimento"
+                                                    format="DD/MM/YYYY"
+                                                    value={item.date}
+                                                    onChange={(d) => setExpInstallments(prev => prev.map((r, i) => i === idx ? { ...r, date: d } : r))}
+                                                    style={{ width: '100%' }}
+                                                />
+                                                <InputNumber
+                                                    min={0} step={0.01} precision={2} style={{ width: '100%' }}
+                                                    placeholder="Valor (R$)" value={item.amount || undefined} addonBefore="R$"
+                                                    decimalSeparator="," formatter={brlFormatter as any} parser={brlParser as any}
+                                                    onChange={(v) => setExpInstallments(prev => prev.map((r, i) => i === idx ? { ...r, amount: Number(v) || 0 } : r))}
+                                                />
+                                                <Button danger size="small" type="text"
+                                                    disabled={expInstallmentPreset !== 'customizado' || expInstallments.length === 1}
+                                                    onClick={() => setExpInstallments(prev => prev.filter((_, i) => i !== idx))}>✕</Button>
+                                            </div>
+                                        ))}
+                                        {expInstallmentPreset === 'customizado' && (
+                                            <Button type="dashed" size="small" style={{ width: '100%' }}
+                                                onClick={() => setExpInstallments(prev => [...prev, { date: null, amount: 0 }])}>
+                                                + Adicionar data/valor
+                                            </Button>
+                                        )}
+                                    </div>
+                                ) : (
+                                    <>
+                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
+                                            <Form.Item name="parcelas" label="Número de parcelas" initialValue={1}>
+                                                <InputNumber min={1} max={120} style={{ width: '100%' }} placeholder="1 = à vista" />
+                                            </Form.Item>
+                                            <Form.Item name="expense_start_date" label="Data de início" rules={[{ required: true, message: 'Informe a data de início' }]}>
+                                                {/* BUG-FLUXOCAIXA-CALENDARIO-001: o calendário abre no mês ativo do filtro
+                                                    (month), não no mês corrente do sistema. A key remonta o picker quando o
+                                                    filtro muda, garantindo que o defaultPickerValue seja reavaliado. */}
+                                                <DatePicker key={month.format('YYYY-MM')} defaultPickerValue={month} style={{ width: '100%' }} format="DD/MM/YYYY" placeholder="DD/MM/AAAA" />
+                                            </Form.Item>
+                                        </div>
+                                        <div style={{ fontSize: 12, color: '#64748b', marginTop: -8 }}>
+                                            1 parcela = à vista. 2+ parcelas = parcelado mensalmente a partir da data de início.
+                                        </div>
+                                    </>
+                                )}
+                            </>
+                        )
+                    })()}
                     {isCompromissoFinanceiro && (
                         <div style={{ marginBottom: 16, padding: '12px 14px', background: 'rgba(37,99,235,0.06)', borderRadius: 6, border: '1px solid rgba(37,99,235,0.2)' }}>
                             <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 10 }}>
@@ -2036,116 +2160,6 @@ export default function CashFlow() {
                             />
                         </>
                     )}
-                    <Form.Item name="payment_method" label="Método de Pagamento">
-                        <Select
-                            placeholder="Selecione o método (opcional)"
-                            allowClear
-                            options={EXPENSE_PAYMENT_METHODS}
-                            onChange={(v) => { setExpPaymentMethod(v || ''); setExpInstallments([{ date: null, amount: 0 }]); setExpInstallmentPreset('customizado'); setExpManualDates(false) }}
-                        />
-                    </Form.Item>
-                    {(() => {
-                        const isBoletoOrCheque = expPaymentMethod === 'BOLETO' || expPaymentMethod === 'CHEQUE_PRE_DATADO'
-                        // Boleto/Cheque Pré-datado sempre usam o editor manual. Para os demais
-                        // métodos, o editor manual fica disponível via toggle "Personalizar vencimentos".
-                        const showManualEditor = isBoletoOrCheque || expManualDates
-                        return (
-                            <>
-                                {/* Correção Felipe (10/08): seletor Automático x Personalizado — só para
-                                    métodos que não são Boleto/Cheque Pré-datado (esses já são sempre manuais). */}
-                                {!isBoletoOrCheque && (
-                                    <div style={{ marginBottom: 12 }}>
-                                        <div style={{ marginBottom: 6, color: '#94a3b8', fontSize: 13, fontWeight: 500 }}>Condição de Pagamento</div>
-                                        <Radio.Group
-                                            value={expManualDates ? 'manual' : 'auto'}
-                                            onChange={(e) => {
-                                                const manual = e.target.value === 'manual'
-                                                setExpManualDates(manual)
-                                                if (manual) {
-                                                    // Ao personalizar, começa com uma linha em branco já com o valor total.
-                                                    setExpInstallmentPreset('customizado')
-                                                    setExpInstallments([{ date: null, amount: parseCurrencyFn(expenseAmount) || 0 }])
-                                                }
-                                            }}
-                                            optionType="button"
-                                            size="small"
-                                        >
-                                            <Radio.Button value="auto">Parcelas mensais</Radio.Button>
-                                            <Radio.Button value="manual">Personalizar vencimentos</Radio.Button>
-                                        </Radio.Group>
-                                    </div>
-                                )}
-
-                                {showManualEditor ? (
-                                    <div style={{ marginBottom: 16, padding: 12, background: 'rgba(96, 165, 250, 0.08)', border: '1px solid rgba(96,165,250,0.25)', borderRadius: 8 }}>
-                                        <div style={{ fontSize: 13, fontWeight: 600, color: '#93c5fd', marginBottom: 8 }}>
-                                            Datas e valores de vencimento
-                                        </div>
-                                        <div style={{ marginBottom: 10 }}>
-                                            <Radio.Group
-                                                value={expInstallmentPreset}
-                                                onChange={(e) => {
-                                                    const p = e.target.value
-                                                    setExpInstallmentPreset(p)
-                                                    const insts = buildInstallmentsByPreset(p)
-                                                    const total = parseCurrencyFn(expenseAmount)
-                                                    const n = insts.length
-                                                    const amt = n > 0 && total > 0 ? Math.round((total / n) * 100) / 100 : 0
-                                                    setExpInstallments(insts.map(inst => ({ ...inst, amount: amt })))
-                                                }}
-                                                size="small"
-                                            >
-                                                {INSTALLMENT_PRESETS.map(p => <Radio.Button key={p.value} value={p.value}>{p.label}</Radio.Button>)}
-                                            </Radio.Group>
-                                        </div>
-                                        {expInstallments.map((item, idx) => (
-                                            <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8, marginBottom: 8, alignItems: 'center' }}>
-                                                <DatePicker
-                                                    placeholder="Data de vencimento"
-                                                    format="DD/MM/YYYY"
-                                                    value={item.date}
-                                                    onChange={(d) => setExpInstallments(prev => prev.map((r, i) => i === idx ? { ...r, date: d } : r))}
-                                                    style={{ width: '100%' }}
-                                                />
-                                                <InputNumber
-                                                    min={0} step={0.01} precision={2} style={{ width: '100%' }}
-                                                    placeholder="Valor (R$)" value={item.amount || undefined} addonBefore="R$"
-                                                    decimalSeparator="," formatter={brlFormatter as any} parser={brlParser as any}
-                                                    onChange={(v) => setExpInstallments(prev => prev.map((r, i) => i === idx ? { ...r, amount: Number(v) || 0 } : r))}
-                                                />
-                                                <Button danger size="small" type="text"
-                                                    disabled={expInstallmentPreset !== 'customizado' || expInstallments.length === 1}
-                                                    onClick={() => setExpInstallments(prev => prev.filter((_, i) => i !== idx))}>✕</Button>
-                                            </div>
-                                        ))}
-                                        {expInstallmentPreset === 'customizado' && (
-                                            <Button type="dashed" size="small" style={{ width: '100%' }}
-                                                onClick={() => setExpInstallments(prev => [...prev, { date: null, amount: 0 }])}>
-                                                + Adicionar data/valor
-                                            </Button>
-                                        )}
-                                    </div>
-                                ) : (
-                                    <>
-                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
-                                            <Form.Item name="parcelas" label="Número de parcelas" initialValue={1}>
-                                                <InputNumber min={1} max={120} style={{ width: '100%' }} placeholder="1 = à vista" />
-                                            </Form.Item>
-                                            <Form.Item name="expense_start_date" label="Data de início" rules={[{ required: true, message: 'Informe a data de início' }]}>
-                                                {/* BUG-FLUXOCAIXA-CALENDARIO-001: o calendário abre no mês ativo do filtro
-                                                    (month), não no mês corrente do sistema. A key remonta o picker quando o
-                                                    filtro muda, garantindo que o defaultPickerValue seja reavaliado. */}
-                                                <DatePicker key={month.format('YYYY-MM')} defaultPickerValue={month} style={{ width: '100%' }} format="DD/MM/YYYY" placeholder="DD/MM/AAAA" />
-                                            </Form.Item>
-                                        </div>
-                                        <div style={{ fontSize: 12, color: '#64748b', marginTop: -8 }}>
-                                            1 parcela = à vista. 2+ parcelas = parcelado mensalmente a partir da data de início.
-                                        </div>
-                                    </>
-                                )}
-                            </>
-                        )
-                    })()}
                 </Form>
             </Drawer>
 
