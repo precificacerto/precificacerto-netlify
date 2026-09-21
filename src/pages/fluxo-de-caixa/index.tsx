@@ -15,6 +15,11 @@ import { mergeExpenseConfig } from '@/utils/recalc-expense-config'
 import { ehCompromissoFinanceiro, separarJurosEPrincipal, LABEL_DO_BLOCO } from '@/utils/compromissos-financeiros'
 import { naturezaDaDespesa } from '@/utils/natureza-da-despesa'
 import {
+    useVencidos, FaixaDeVencidos, VencidosModal, deveAbrirSozinho,
+} from '@/components/cashflow/vencidos-modal.component'
+import { chaveDeDispensa } from '@/utils/vencidos-do-tenant'
+import { LARGURA_MODAL_50 } from '@/utils/largura-de-modal'
+import {
     ehGuiaDeImposto, competenciaSugerida, guiaEntraNaApuracao,
     OPCOES_DE_TRIBUTO, OPCOES_DE_TIPO_DE_GUIA,
 } from '@/utils/apuracao-de-tributos'
@@ -174,6 +179,9 @@ export default function CashFlow() {
     const [taxRegime, setTaxRegime] = useState<string | null>(null)
     /** A segmentação do tenant — é ela que decide o padrão do IPI no crédito da compra. */
     const [calcType, setCalcType] = useState<string | null>(null)
+    const [tenantIdDaTela, setTenantIdDaTela] = useState<string | null>(null)
+    const [vencidosAbertos, setVencidosAbertos] = useState(false)
+    const [vencidosToken, setVencidosToken] = useState(0)
     const [loading, setLoading] = useState(false)
     const [month, setMonth] = useState(dayjs())
 
@@ -289,6 +297,7 @@ export default function CashFlow() {
                 setSaleCodeMap({})
             }
 
+            setTenantIdDaTela(tenantId)
             if (tenantSettings?.tax_regime) setTaxRegime(tenantSettings.tax_regime)
             if (tenantSettings?.calc_type) setCalcType(tenantSettings.calc_type)
         } catch {
@@ -360,6 +369,25 @@ export default function CashFlow() {
         juros: compJuros === '' ? null : parseCurrencyFn(compJuros),
         principal: compPrincipal === '' ? null : parseCurrencyFn(compPrincipal),
     })
+    // §3 — UMA fonte para o modal e para a faixa.
+    const { resumo: vencidos, recarregar: recarregarVencidos } = useVencidos(tenantIdDaTela, vencidosToken)
+
+    useEffect(() => {
+        // >>> ABRE UMA VEZ POR SESSÃO **E POR CONJUNTO** <<<
+        // `sessionStorage` some no logout, que é o "novo login" do §3; a assinatura dos ids
+        // na chave é o que faz o modal voltar quando surge um vencido NOVO.
+        if (!deveAbrirSozinho(tenantIdDaTela, vencidos, (k) => {
+            try { return sessionStorage.getItem(k) === '1' } catch { return false }
+        })) return
+        setVencidosAbertos(true)
+    }, [tenantIdDaTela, vencidos])
+
+    const dispensarVencidos = () => {
+        setVencidosAbertos(false)
+        if (!tenantIdDaTela) return
+        try { sessionStorage.setItem(chaveDeDispensa(tenantIdDaTela, vencidos), '1') } catch { /* private mode */ }
+    }
+
     const activeCategoryOptions = getExpenseCategoryOptionsForRegime(taxRegime)
 
     const handleOpenPaymentModal = (entry: any) => {
@@ -1062,6 +1090,23 @@ export default function CashFlow() {
     return (
         <Layout title={PAGE_TITLES.CASH_FLOW} subtitle="Relatório de Fluxo de Caixa">
             {contextHolder}
+
+            {/*
+              §3 — A FAIXA. Ela é clicável e reabre o modal, e some sozinha quando não há
+              vencido: uma faixa exibindo "0 vencidos" treinaria o usuário a ignorá-la.
+            */}
+            {vencidos.temVencidos && (
+                <div style={{ marginBottom: 12 }}>
+                    <FaixaDeVencidos resumo={vencidos} onAbrir={() => setVencidosAbertos(true)} />
+                </div>
+            )}
+
+            <VencidosModal
+                resumo={vencidos}
+                aberto={vencidosAbertos}
+                onFechar={dispensarVencidos}
+                onMudou={() => { setVencidosToken((t) => t + 1); void fetchData() }}
+            />
 
             <div className="pc-card cashflow-toolbar" style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
                 {/* Doc 28/07 (item 35): "Atualizar" removido (dados carregam automaticamente).

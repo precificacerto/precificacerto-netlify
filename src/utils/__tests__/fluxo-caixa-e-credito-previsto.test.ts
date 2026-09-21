@@ -16,6 +16,8 @@ import { mesDoCredito, type NotaDeCompra } from '@/utils/creditos-do-periodo'
 import {
   resumirVencidos, chaveDeDispensa, textoDaFaixa, diasEntre, type EntradaBruta,
 } from '@/utils/vencidos-do-tenant'
+import { deveAbrirSozinho } from '@/components/cashflow/vencidos-modal.component'
+import { LARGURA_MODAL_50, LARGURA_MODAL_75 } from '@/utils/largura-de-modal'
 
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // A e B — previsto × confirmado
@@ -273,5 +275,47 @@ describe('G — reagendar tira da lista sem mexer em valor nem em crédito', () 
     // Reagendar move o caixa. O crédito segue a data de entrada da nota, e é por isso que
     // as duas coisas moram em funções diferentes.
     expect(mesDoCredito(nota(), 'ICMS')).toBe('2026-09')
+  })
+})
+
+describe('>>> O modal abre UMA VEZ por sessão, e volta quando surge um vencido novo <<<', () => {
+  const dispensadas = new Set<string>()
+  const dispensada = (k: string) => dispensadas.has(k)
+  const um = resumirVencidos([lanc({ id: 'd1' })], HOJE)
+
+  it('com vencidos e sem dispensa, abre', () => {
+    expect(deveAbrirSozinho('t1', um, dispensada)).toBe(true)
+  })
+
+  it('dispensado, não abre de novo', () => {
+    dispensadas.add(chaveDeDispensa('t1', um))
+    expect(deveAbrirSozinho('t1', um, dispensada)).toBe(false)
+  })
+
+  it('>>> mas um vencido NOVO faz voltar — "nunca suprimir para sempre" <<<', () => {
+    const dois = resumirVencidos([lanc({ id: 'd1' }), lanc({ id: 'd2' })], HOJE)
+    expect(deveAbrirSozinho('t1', dois, dispensada)).toBe(true)
+  })
+
+  it('sem vencidos nunca abre, mesmo sem dispensa', () => {
+    expect(deveAbrirSozinho('t1', resumirVencidos([], HOJE), () => false)).toBe(false)
+  })
+
+  it('sem tenant não abre', () => {
+    expect(deveAbrirSozinho(null, um, () => false)).toBe(false)
+  })
+})
+
+describe('>>> §2 — a largura do modal de despesa é 50vw, com piso e teto <<<', () => {
+  it('50vw entre 720px e 1100px; o padrão dos demais segue 75vw', () => {
+    // O piso existe para que o bloco de impostos não seja espremido; o teto, para que a
+    // tabela não fique com colunas perdidas numa tela larga.
+    expect(LARGURA_MODAL_50.width).toBe('clamp(720px, 50vw, 1100px)')
+    expect(LARGURA_MODAL_75.width).toBe('clamp(720px, 75vw, 1400px)')
+  })
+
+  it('>>> e os dois têm teto de viewport — nada é cortado fora da tela <<<', () => {
+    expect(LARGURA_MODAL_50.style.maxWidth).toBe('96vw')
+    expect(LARGURA_MODAL_75.style.maxWidth).toBe('96vw')
   })
 })
