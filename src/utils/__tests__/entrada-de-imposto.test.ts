@@ -231,6 +231,28 @@ describe('E — sem valor total da nota, o campo em R$ não existe', () => {
     expect(MENSAGEM_SEM_BASE).toBe('informe o valor total da nota primeiro')
   })
 
+  /**
+   * >>> A MUTAÇÃO QUE SOBREVIVEU, E O CASO QUE FALTAVA <<<
+   *
+   * Devolver `initialValue={0}` aos campos de alíquota do drawer deixava a suíte VERDE: os
+   * casos afirmavam que `aliquotaAPartirDoValor` devolve `null`, e nenhum afirmava que a
+   * TELA não injeta zero antes de a função ser chamada. Com o zero de volta, o oráculo E
+   * quebra onde importa — a nota grava `rate_icms = 0`, que afirma "o ICMS incidiu e deu
+   * nada" numa nota em que ninguém informou o ICMS.
+   *
+   * É `teste-que-nao-exercita.md`, variante 3: a asserção olhava a função, e o efeito estava
+   * no formulário.
+   */
+  it('>>> o formulário NÃO nasce com alíquota zero: nenhum campo de imposto tem `initialValue` <<<', () => {
+    const fs = require('fs') as typeof import('fs')
+    const path = require('path') as typeof import('path')
+    const src = fs.readFileSync(path.join(process.cwd(), 'src/pages/fluxo-de-caixa/index.tsx'), 'utf8')
+    const i = src.indexOf('CAMPO_DA_ALIQUOTA[t]')
+    expect(i).toBeGreaterThan(-1)
+    const abertura = src.slice(src.lastIndexOf('<Form.Item', i), src.indexOf('>', i) + 1)
+    expect(abertura).not.toContain('initialValue')
+  })
+
   it('>>> e a alíquota derivada é `null`, NUNCA zero — zero afirmaria que o tributo deu nada <<<', () => {
     expect(aliquotaAPartirDoValor(500, 0)).toBeNull()
     expect(aliquotaAPartirDoValor(500, null)).toBeNull()
