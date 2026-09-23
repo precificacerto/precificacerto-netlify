@@ -617,6 +617,79 @@ describe('S — a mesma nota pelas duas direções grava as mesmas colunas de cr
 })
 
 // ═════════════════════════════════════════════════════════════════════════════════════════
+// M (§11) — A ABA CRÉDITOS NÃO PERDE NADA
+// ═════════════════════════════════════════════════════════════════════════════════════════
+
+describe('M — a aba mostra a escada, e a nota LEGADO não ganha saldo inventado', () => {
+  const aba = () => ler('src/components/creditos/creditos-tab.component.tsx')
+
+  it('>>> a escada vem de `linhasDoDescascamento` — a MESMA função da tela <<<', () => {
+    const s = aba()
+    expect(s).toContain('linhasDoDescascamento')
+    expect(s).toContain('descascarANota')
+  })
+
+  it('>>> e fica no DETALHE expandido, não em coluna nova: a tabela já está larga <<<', () => {
+    expect(aba()).toContain('expandedRowRender')
+  })
+
+  it('>>> a nota LEGADO mostra só Total e Crédito, e DIZ por quê <<<', () => {
+    const s = aba()
+    expect(s).toContain("nota.origin === 'LEGADO'")
+    expect(s).toContain('não foram apurados')
+  })
+
+  it('>>> o crédito da nota gravada é FATO: a leitura não o redecide pelo regime de hoje <<<', () => {
+    const s = aba()
+    expect(s).toContain('BANDEIRAS_DO_JA_GRAVADO')
+    // Uma nota de agosto não pode perder o crédito porque o tenant mudou de regime em
+    // setembro — seria reescrever o passado (`fato-vs-referencia.md`).
+    const { BANDEIRAS_DO_JA_GRAVADO } = require('@/utils/nota-de-compra') as typeof import('@/utils/nota-de-compra')
+    const d = descascarANota({
+      total: 1172,
+      reducoes: { ipiCusto: 40, icmsSt: 50, difal: 18, fcp: 4 },
+      porFora: { ipi: { brl: 60 } },
+      porDentro: { icms: { brl: 180 } },
+      bandeiras: BANDEIRAS_DO_JA_GRAVADO,
+    })
+    expect(d.creditos.icms).toBeCloseTo(180.0, 2)
+    expect(d.creditos.ipi).toBeCloseTo(60.0, 2)
+  })
+
+  it('>>> a lista de campos do descascamento é UMA, lida pelo `select` e pelo repasse <<<', () => {
+    const s = aba()
+    expect(s).toContain('CAMPOS_DO_DESCASCAMENTO')
+    for (const c of ['frete', 'valor_is', 'parcela_st', 'ipi_por_dentro']) {
+      expect(s).toContain(c)
+    }
+  })
+})
+
+// ═════════════════════════════════════════════════════════════════════════════════════════
+// §8 — O CADASTRO DE ITEM HERDA O MOTOR, NÃO A DIREÇÃO
+// ═════════════════════════════════════════════════════════════════════════════════════════
+
+describe('>>> o item NÃO descasca, e herda a correção do CST <<<', () => {
+  it('a tela do item não importa `descascarANota`', () => {
+    expect(ler('src/page-parts/items/new-item-form.component.tsx')).not.toContain('descascarANota')
+  })
+
+  it('>>> mas o CST 04 veda no item também: a correção é do MOTOR <<<', () => {
+    const b = resolverFlagsDoItem(
+      { regime: 'LUCRO_REAL', destinacao: 'REVENDA', segmento: 'INDUSTRIALIZACAO', cstPisCofins: '04' },
+      {},
+    )
+    expect(b.PIS_COFINS.vedado).toBe(true)
+  })
+
+  it('a fatia não se aplica ao item: um item é homogêneo por definição', () => {
+    const src = ler('src/page-parts/items/new-item-form.component.tsx')
+    expect(src).not.toContain('parcela_st')
+    expect(src).not.toContain('parcela_monofasica')
+  })
+})
+
+// ═════════════════════════════════════════════════════════════════════════════════════════
 // O MÓDULO NÃO REIMPLEMENTA IMPOSTO
 // ═════════════════════════════════════════════════════════════════════════════════════════
 

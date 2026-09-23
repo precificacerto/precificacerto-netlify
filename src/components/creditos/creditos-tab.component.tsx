@@ -19,6 +19,7 @@ import {
   type NotaDeCompra, type SituacaoDoCredito, type TributoDoCredito,
 } from '@/utils/creditos-do-periodo'
 import { QuadroDeApuracao } from '@/components/creditos/quadro-de-apuracao.component'
+import { descascarANota, linhasDoDescascamento, BANDEIRAS_DO_JA_GRAVADO } from '@/utils/nota-de-compra'
 import {
   creditoPrevistoEConfirmado, rotuloDaSituacao, situacaoDaConfirmacao,
   type CreditoDaNota, type SituacaoDaConfirmacao,
@@ -61,6 +62,105 @@ type LinhaDoBanco = {
   credit_ibs: number | null
 }
 
+
+/**
+ * A ESCADA DE UMA NOTA, no detalhe expandido.
+ *
+ * >>> A NOTA LEGADO NÃO GANHA SALDO NEM BASE <<<
+ *
+ * Ela não tem os campos do bloco fiscal — veio da migração `20260922000003`, deduzida dos
+ * lançamentos antigos. Montar uma escada para ela exigiria supor reduções e por fora que
+ * ninguém informou, e o número resultante pareceria apurado. Ela mostra o que TEM: total e
+ * crédito, com a tarja que já existe (`ausente-vs-falso.md`).
+ */
+/**
+ * Os campos que a escada lê da nota — a MESMA lista usada no `select` e no repasse.
+ *
+ * Escrita duas vezes, bastaria acrescentar um campo num lugar e esquecer no outro: ele
+ * chegaria `undefined` e a escada exibiria um degrau a menos, sem nada falhar
+ * (`copia-divergente.md`).
+ */
+const CAMPOS_DO_DESCASCAMENTO = [
+  'frete', 'seguro', 'valor_is', 'valor_icms_st', 'valor_ipi_custo', 'valor_difal',
+  'valor_fcp', 'parcela_st', 'parcela_monofasica', 'base_manual_icms',
+  'base_manual_pis_cofins', 'ipi_por_dentro',
+] as const
+
+function EscadaDaNota({ nota }: { nota: NotaDeCompra }) {
+  const brlOuTraco = (v: number | null | undefined) =>
+    v == null ? '—' : `R$ ${getMonetaryValue(v)}`
+
+  const n = nota as NotaDeCompra & Record<string, unknown>
+  const temOsCamposNovos = ['frete', 'valor_is', 'valor_icms_st', 'valor_ipi_custo', 'parcela_st']
+    .some((c) => n[c] != null)
+
+  if (nota.origin === 'LEGADO' || !temOsCamposNovos) {
+    return (
+      <div style={{ display: 'grid', gap: 4, fontSize: 12, padding: '4px 8px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', maxWidth: 420 }}>
+          <span style={{ color: '#94a3b8' }}>Valor total da nota</span>
+          <strong>{brlOuTraco(nota.totalAmount)}</strong>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', maxWidth: 420 }}>
+          <span style={{ color: '#94a3b8' }}>Crédito total</span>
+          <strong style={{ color: '#22C55E' }}>{brlOuTraco(creditoTotalDaNota(nota))}</strong>
+        </div>
+        <div style={{ color: '#64748b', marginTop: 4 }}>
+          Esta nota não guarda os degraus do descascamento — saldo e base não são exibidos
+          porque não foram apurados.
+        </div>
+      </div>
+    )
+  }
+
+  const d = descascarANota({
+    total: nota.totalAmount ?? 0,
+    composicao: { frete: n.frete as number | null, seguro: n.seguro as number | null },
+    reducoes: {
+      ipiCusto: n.valor_ipi_custo as number | null,
+      icmsSt: n.valor_icms_st as number | null,
+      difal: n.valor_difal as number | null,
+      fcp: n.valor_fcp as number | null,
+    },
+    porFora: {
+      ipi: nota.creditos.IPI != null ? { brl: nota.creditos.IPI } : null,
+      cbs: nota.creditos.CBS != null ? { brl: nota.creditos.CBS } : null,
+      ibs: nota.creditos.IBS != null ? { brl: nota.creditos.IBS } : null,
+    },
+    ipiPorDentro: n.ipi_por_dentro === true,
+    valorIs: n.valor_is as number | null,
+    fatias: { st: n.parcela_st as number | null, monofasica: n.parcela_monofasica as number | null },
+    porDentro: {
+      icms: nota.creditos.ICMS != null ? { brl: nota.creditos.ICMS } : null,
+      pisCofins: nota.creditos.PIS_COFINS != null ? { brl: nota.creditos.PIS_COFINS } : null,
+      baseManualIcms: n.base_manual_icms as number | null,
+      baseManualPisCofins: n.base_manual_pis_cofins as number | null,
+    },
+    // O crédito desta nota já foi decidido no lançamento: aqui ele é FATO, e a leitura o
+    // exibe como está.
+    bandeiras: BANDEIRAS_DO_JA_GRAVADO,
+  })
+
+  return (
+    <div style={{ display: 'grid', gap: 2, fontSize: 12, padding: '4px 8px', maxWidth: 460 }}>
+      {linhasDoDescascamento(d).map((l) => (
+        <div
+          key={l.rotulo}
+          style={{
+            display: 'flex', justifyContent: 'space-between',
+            fontWeight: l.ehSaldo || l.ehBase || l.ehCreditoTotal || l.ehCustoLiquido ? 700 : 400,
+            color: l.ehCustoLiquido || l.ehCreditoTotal ? '#22C55E' : l.ehSaldo || l.ehBase ? '#93c5fd' : '#94a3b8',
+            paddingTop: l.ehSaldo || l.ehBase || l.ehCreditoTotal ? 4 : 0,
+          }}
+        >
+          <span>{l.rotulo}</span>
+          <span>{brlOuTraco(l.valor)}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export function CreditosTab({ tenantId }: { tenantId: string }) {
   const [carregando, setCarregando] = useState(true)
   const [notas, setNotas] = useState<NotaDeCompra[]>([])
@@ -79,7 +179,7 @@ export function CreditosTab({ tenantId }: { tenantId: string }) {
       // `20260922000002` e os tipos gerados ainda não a conhecem.
       const { data } = await (supabase as any)
         .from('purchase_invoices')
-        .select('id, invoice_number, supplier_name, expense_nature, expense_category, total_amount, credit_date, credit_date_estimated, origin, reversed_at, credit_icms, credit_pis_cofins, credit_ipi, credit_cbs, credit_ibs, cash_entries(amount, paid_date)')
+        .select('id, invoice_number, supplier_name, expense_nature, expense_category, total_amount, credit_date, credit_date_estimated, origin, reversed_at, credit_icms, credit_pis_cofins, credit_ipi, credit_cbs, credit_ibs, frete, seguro, valor_is, valor_icms_st, valor_ipi_custo, valor_difal, valor_fcp, parcela_st, parcela_monofasica, base_manual_icms, base_manual_pis_cofins, ipi_por_dentro, cash_entries(amount, paid_date)')
         .eq('tenant_id', tenantId)
         // §6.4 — a nota DESATIVADA sai daqui: a série inteira saiu e nada foi pago nem
         // apurado sobre ela. A ESTORNADA fica, riscada: ela existiu e creditou.
@@ -107,6 +207,14 @@ export function CreditosTab({ tenantId }: { tenantId: string }) {
           CBS: r.credit_cbs == null ? null : Number(r.credit_cbs),
           IBS: r.credit_ibs == null ? null : Number(r.credit_ibs),
         },
+        /*
+          §10 — OS CAMPOS DO DESCASCAMENTO, repassados CRUS para a escada do detalhe.
+
+          Eles não entram no tipo `NotaDeCompra` porque não são da aba: são da nota, e só a
+          escada os lê. Convertê-los aqui exigiria um segundo mapeamento do mesmo documento,
+          e é assim que a divergência começa.
+        */
+        ...Object.fromEntries(CAMPOS_DO_DESCASCAMENTO.map((c) => [c, (r as Record<string, unknown>)[c] ?? null])),
       })))
     } catch {
       setNotas([])
@@ -261,6 +369,18 @@ export function CreditosTab({ tenantId }: { tenantId: string }) {
         dataSource={lista}
         pagination={{ pageSize: 20 }}
         scroll={{ x: 'max-content' }}
+        /*
+          §10 — A ESCADA NO DETALHE, e NÃO em coluna nova: a tabela já está larga.
+
+          Hoje a aba mostra o total e o crédito, e o usuário não vê DE ONDE o crédito saiu.
+          A escada mostra o caminho: Total → Saldo → Base → crédito por tributo → custo
+          líquido, reusando `linhasDoDescascamento` — a mesma função da tela de lançamento.
+          Montá-la aqui seria a segunda escada, e bastaria esquecer o IS num dos dois lados.
+        */
+        expandable={{
+          expandedRowRender: (r: NotaDeCompra) => <EscadaDaNota nota={r} />,
+          rowExpandable: () => true,
+        }}
         columns={[
           {
             title: 'Data do crédito', dataIndex: 'creditDate', key: 'creditDate',

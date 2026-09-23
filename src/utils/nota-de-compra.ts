@@ -60,6 +60,27 @@ import {
   type ValoresDaCompra,
 } from '@/utils/custo-liquido-do-item'
 
+/**
+ * As bandeiras de uma nota JÁ GRAVADA: todas ligadas.
+ *
+ * >>> O CRÉDITO DE UMA NOTA GRAVADA É FATO HISTÓRICO <<<
+ *
+ * Ele foi decidido quando a nota foi lançada, pelo regime e pelo CST daquele dia. Reexibir a
+ * escada passando pelas bandeiras de HOJE faria uma nota de agosto perder o crédito porque o
+ * tenant mudou de regime em setembro — que é exatamente reescrever o passado
+ * (`fato-vs-referencia.md`).
+ *
+ * Por isso a LEITURA usa estas bandeiras: os valores gravados são exibidos como estão.
+ * Quem decide crédito é o LANÇAMENTO, e lá as bandeiras reais entram.
+ */
+export const BANDEIRAS_DO_JA_GRAVADO: BandeirasDeCredito = {
+  ICMS: { ativo: true, vedado: false, origem: 'gravada' },
+  PIS_COFINS: { ativo: true, vedado: false, origem: 'gravada' },
+  IPI: { ativo: true, vedado: false, origem: 'gravada' },
+  CBS: { ativo: true, vedado: false, origem: 'gravada' },
+  IBS: { ativo: true, vedado: false, origem: 'gravada' },
+}
+
 /** Um tributo informado em percentual OU em valor — nunca nos dois. */
 export interface EntradaDeTributo {
   pct?: number | null

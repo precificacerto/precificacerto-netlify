@@ -543,7 +543,10 @@ describe('>>> §5 — condições de pagamento logo APÓS o valor total <<<', ()
     // A âncora mudou em 23/09/2026: o rótulo passou a dizer o que o campo é — "Valor dos
     // produtos (sem IPI, ST, DIFAL e FCP)" — porque o total da nota é outro número. A ORDEM
     // que este caso afirma não mudou.
-    const valorTotal = c.indexOf('Valor dos produtos (sem IPI')
+    // A âncora mudou outra vez em 24/09/2026: com o descascamento, o campo voltou a ser o
+    // TOTAL DA NOTA (§7.2) — o #73 o tinha trocado para "Valor dos produtos" porque a tela
+    // somava. A ORDEM que este caso afirma não mudou em nenhuma das duas rodadas.
+    const valorTotal = c.indexOf('Valor total da nota')
     const pagamento = c.indexOf('name="payment_method"')
     const impostos = c.indexOf('<PurchaseTaxCredits')
     expect(valorTotal).toBeGreaterThan(-1)

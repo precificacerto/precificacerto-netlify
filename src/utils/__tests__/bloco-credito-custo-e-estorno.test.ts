@@ -26,7 +26,15 @@ import {
   type TributoCreditavel,
   type ValoresDaCompra,
 } from '@/utils/custo-liquido-do-item'
-import { totalDaNota, ratearParcelas, linhasDoTotalDaNota } from '@/utils/nota-de-compra'
+/*
+  >>> `totalDaNota` VIROU `descascarANota` EM 24/09/2026 <<<
+
+  A tela SOMAVA e passou a DESCASCAR: o total é digitado e a base é revelada. Os casos
+  abaixo afirmavam a SOMA, e a soma deixou de existir — então eles passam a afirmar a mesma
+  nota pelo caminho novo. O que eles protegem não mudou: o total de 1.172,00, o IPI nos dois
+  blocos e as parcelas que fecham.
+*/
+import { descascarANota, ratearParcelas, linhasDoDescascamento } from '@/utils/nota-de-compra'
 import {
   posicaoDoTributo,
   posicoesDosTributos,
@@ -59,10 +67,14 @@ const flags = (regime: string, destinacao: DestinacaoItem, segmento = 'INDUSTRIA
 
 describe('A — despesa sem IPI e com o bloco de custo VAZIO grava o mesmo de hoje', () => {
   it('>>> o total da nota é o valor digitado, ao centavo <<<', () => {
-    expect(totalDaNota({ produtos: 1000 }).total).toBeCloseTo(1000.0, 2)
-    expect(totalDaNota({ produtos: 1000, bloco: {} }).total).toBeCloseTo(1000.0, 2)
-    expect(totalDaNota({ produtos: 1000, bloco: { ipiCusto: null, icmsSt: null, difal: null, fcp: null } }).total)
-      .toBeCloseTo(1000.0, 2)
+    // Sem nada no bloco de custo, o total digitado É a base: o descascamento não tira nada.
+    expect(descascarANota({ total: 1000, bandeiras: flags('LUCRO_REAL', 'REVENDA') }).total).toBeCloseTo(1000.0, 2)
+    expect(descascarANota({ total: 1000, bandeiras: flags('LUCRO_REAL', 'REVENDA') }).base).toBeCloseTo(1000.0, 2)
+    expect(descascarANota({
+      total: 1000,
+      reducoes: { ipiCusto: null, icmsSt: null, difal: null, fcp: null },
+      bandeiras: flags('LUCRO_REAL', 'REVENDA'),
+    }).base).toBeCloseTo(1000.0, 2)
   })
 
   it('>>> e as parcelas são as de hoje: 1.000,00 em 3x = 333,33 · 333,33 · 333,34 <<<', () => {
@@ -93,15 +105,17 @@ describe('A — despesa sem IPI e com o bloco de custo VAZIO grava o mesmo de ho
 // ═════════════════════════════════════════════════════════════════════════════════════════
 
 describe('B — produtos 1.000 + IPI 100 + ST 50 + DIFAL 18 + FCP 4 = 1.172,00', () => {
-  const t = totalDaNota({
-    produtos: 1000,
-    ipiCredito: 60,
-    bloco: { ipiCusto: 40, icmsSt: 50, difal: 18, fcp: 4 },
+  const t = descascarANota({
+    total: 1172,
+    reducoes: { ipiCusto: 40, icmsSt: 50, difal: 18, fcp: 4 },
+    porFora: { ipi: { brl: 60 } },
+    bandeiras: flags('LUCRO_REAL', 'INSUMO'),
   })
 
-  it('>>> o total é 1.172,00, e o IPI da nota é 100,00 <<<', () => {
+  it('>>> o total é 1.172,00, e o IPI da nota é 100,00 — 60 de crédito e 40 de custo <<<', () => {
     expect(t.total).toBeCloseTo(1172.0, 2)
-    expect(t.ipiDaNota).toBeCloseTo(100.0, 2)
+    expect(t.creditos.ipi + 40).toBeCloseTo(100.0, 2)
+    expect(t.base).toBeCloseTo(1000.0, 2)
   })
 
   it('>>> em 3x: as parcelas somam 1.172,00 EXATOS, com a sobra na última <<<', () => {
@@ -127,16 +141,12 @@ describe('B — produtos 1.000 + IPI 100 + ST 50 + DIFAL 18 + FCP 4 = 1.172,00',
   })
 
   it('a leitura da tela traz as seis linhas, na ordem do §5', () => {
-    const linhas = linhasDoTotalDaNota(t)
-    expect(linhas.map((l) => l.rotulo)).toEqual([
-      'Valor informado (produtos)',
-      '+ IPI (crédito + custo)',
-      '+ ICMS-ST',
-      '+ DIFAL',
-      '+ FCP',
-      '= Total da nota',
-    ])
-    expect(linhas[linhas.length - 1].valor).toBeCloseTo(1172.0, 2)
+    // A escada substituiu a soma: o total está no TOPO, e a base é o degrau de baixo.
+    const linhas = linhasDoDescascamento(t)
+    expect(linhas[0].rotulo).toBe('Valor total da nota')
+    expect(linhas[0].valor).toBeCloseTo(1172.0, 2)
+    expect(linhas.find((l) => l.ehSaldo)?.valor).toBeCloseTo(1060.0, 2)
+    expect(linhas.find((l) => l.ehBase)?.valor).toBeCloseTo(1000.0, 2)
   })
 })
 
@@ -205,8 +215,14 @@ describe('D — a mesma nota com IPI creditável de 60,00 e IPI-custo de 40,00',
   })
 
   it('>>> e o rodapé soma os dois: 60,00 + 40,00 = 100,00 <<<', () => {
-    const t = totalDaNota({ produtos: 1000, ipiCredito: r.creditos.IPI, bloco: { ipiCusto: r.valores.ipiCusto } })
-    expect(t.ipiDaNota).toBeCloseTo(100.0, 2)
+    const t = descascarANota({
+      total: 1100,
+      reducoes: { ipiCusto: 40 },
+      porFora: { ipi: { brl: 60 } },
+      bandeiras: flags('LUCRO_REAL', 'INSUMO'),
+    })
+    expect(t.creditos.ipi + 40).toBeCloseTo(100.0, 2)
+    expect(t.base).toBeCloseTo(1000.0, 2)
   })
 
   it('NÃO há validação cruzada: o sistema não conhece o total do IPI do documento', () => {
@@ -706,6 +722,6 @@ describe('>>> `installment_group_id` é gravado nos DOIS caminhos, ou é a cópi
   it('>>> e o `amount` sai do rateio do TOTAL DA NOTA, não do valor digitado <<<', () => {
     const src = ler('src/pages/fluxo-de-caixa/index.tsx')
     expect(src).toContain('ratearParcelas')
-    expect(src).toContain('totalDaNota')
+    expect(src).toContain('descascarANota')
   })
 })
