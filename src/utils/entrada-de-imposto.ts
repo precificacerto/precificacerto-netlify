@@ -30,13 +30,19 @@ import { baseDoTributo, type ValoresDaCompra, type TributoCreditavel } from '@/u
 export type FormatoDaEntrada = 'PCT' | 'BRL'
 
 /**
- * O padrão é o percentual, que é como o sistema sempre funcionou.
+ * O padrão é o VALOR — mudou de `'PCT'` para `'BRL'` em 24/09/2026 (§7.1).
  *
- * Ele é o padrão de APRESENTAÇÃO, não um valor gravado: uma linha sem formato gravado reabre
- * em %, e isso é diferente de uma linha gravada COMO %. A distinção não muda conta nenhuma
- * hoje, e é por isso mesmo que ela se perde fácil.
+ * >>> POR QUE A INVERSÃO <<<
+ * Os valores vêm DESTACADOS na nota: `vICMS`, `vPIS`, `vCOFINS`, `vIPI`. Quem lança copia o
+ * número que está no documento; o percentual é a exceção, e pedi-lo como regra obrigava o
+ * usuário a fazer uma divisão que o sistema faz melhor.
+ *
+ * Ele é o padrão de APRESENTAÇÃO de LINHA NOVA, não um valor gravado: nota já gravada com
+ * `input_mode_* = 'PCT'` continua reabrindo em PCT, porque o formato é memória de como
+ * aquela nota foi lida (`fato-vs-referencia.md`). A distinção não muda conta nenhuma — e é
+ * por isso mesmo que ela se perderia fácil.
  */
-export const FORMATO_PADRAO: FormatoDaEntrada = 'PCT'
+export const FORMATO_PADRAO: FormatoDaEntrada = 'BRL'
 
 /** A alíquota derivada guarda 4 casas; o valor exibido, 2. */
 export const CASAS_DA_ALIQUOTA = 4
