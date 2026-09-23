@@ -71,6 +71,24 @@ export interface ValoresDaCompra {
   difalOrigemPct?: number | null
   difalDestinoPct?: number | null
   /**
+   * DIFAL em R$, como vem da nota. INFORMADO (inclusive zero) VENCE a fórmula de base dupla.
+   *
+   * O item calcula o DIFAL pelas duas alíquotas porque ali ele é projeção; a NOTA traz o
+   * valor apurado, e quem tem o número na mão não deve ser obrigado a reproduzi-lo por uma
+   * fórmula. `null` mantém o cálculo de sempre — e é por isso que a checagem é `!= null` e
+   * não um `||`: zero informado é uma afirmação sobre a nota ("não houve DIFAL"), e um `||`
+   * a trocaria pela fórmula (`ausente-vs-falso.md`).
+   */
+  difalValor?: number | null
+  /**
+   * A parcela do IPI que NÃO gera crédito — revenda, uso e consumo. Custo, nunca crédito.
+   *
+   * Ela convive com `ipiPct` na MESMA nota, e isso é caso normal: uma nota pode trazer item
+   * para revenda e item para industrialização. As duas parcelas são independentes, e o
+   * sistema não conhece o total do IPI do documento para conferir uma contra a outra.
+   */
+  ipiCustoValor?: number | null
+  /**
    * QTD. MEDIDA — em quantas frações a unidade comprada se divide (6 metros, 500 ml, 20 kg).
    *
    * É o que a receita do produto consome, e por isso o custo POR FRAÇÃO é o número que a
@@ -345,6 +363,8 @@ export interface ValoresApurados {
   icmsSt: number
   difal: number
   fcp: number
+  /** A parcela do IPI que virou custo. Entra no bruto e NUNCA no crédito. */
+  ipiCusto: number
 }
 
 export interface CustoDoItem {
@@ -478,9 +498,21 @@ export function calcularCustoDoItem(
   // ST, DIFAL e FCP: SEMPRE custo, sem bandeira. Não há caso em que creditem.
   const icmsSt = val(valores.icmsSt)
   const fcp = val(valores.fcp)
-  const difal = calcularDifal(base, val(valores.difalOrigemPct), val(valores.difalDestinoPct))
+  /**
+   * O VALOR INFORMADO VENCE A FÓRMULA — e `calcularDifal` não é tocada.
+   *
+   * Ela reproduz ao centavo os itens já gravados, e reescrevê-la "mais limpa" produziria
+   * números diferentes dos que estão no banco. O que muda é QUANDO ela é chamada: só quando
+   * ninguém informou o valor.
+   */
+  const difal = valores.difalValor != null
+    ? val(valores.difalValor)
+    : calcularDifal(base, val(valores.difalOrigemPct), val(valores.difalDestinoPct))
+  // A parcela do IPI sem crédito. Ela não passa por bandeira nenhuma: não há caso em que
+  // uma parcela declarada como custo vire crédito por causa de um botão.
+  const ipiCusto = val(valores.ipiCustoValor)
 
-  const custoBruto = base + (ipiVal ?? 0) + icmsSt + difal + fcp + (cbsVal ?? 0) + (ibsVal ?? 0)
+  const custoBruto = base + (ipiVal ?? 0) + ipiCusto + icmsSt + difal + fcp + (cbsVal ?? 0) + (ibsVal ?? 0)
   const creditoTotal = icmsCred + pisCofinsCred + ipiCred + cbsCred + ibsCred
 
   const custoLiquido = custoBruto - creditoTotal
@@ -493,6 +525,6 @@ export function calcularCustoDoItem(
     custoPorFracao: fracionavel ? custoLiquido / qtdMedida : null,
     creditos: { ICMS: icmsCred, PIS_COFINS: pisCofinsCred, IPI: ipiCred, CBS: cbsCred, IBS: ibsCred },
     creditoTotal,
-    valores: { icms: icmsVal, pisCofins: pisCofinsVal, ipi: ipiVal, cbs: cbsVal, ibs: ibsVal, icmsSt, difal, fcp },
+    valores: { icms: icmsVal, pisCofins: pisCofinsVal, ipi: ipiVal, cbs: cbsVal, ibs: ibsVal, icmsSt, difal, fcp, ipiCusto },
   }
 }
