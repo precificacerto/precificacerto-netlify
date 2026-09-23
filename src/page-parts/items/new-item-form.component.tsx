@@ -49,6 +49,7 @@ const formatBRL3 = (v: number) =>
 
 // Lucro Real — base PIS+COFINS não-cumulativo (1,65% + 7,6% = 9,25%)
 import PurchaseTaxCredits from '@/page-parts/items/purchase-tax-credits.component'
+import { bandeirasGravadasDaPosicao, posicoesDosTributos } from '@/utils/posicao-do-tributo'
 import {
   calcularCustoDoItem, resolverFlagsDoItem,
   type BandeirasDeCredito, type CustoDoItem, type TributoCreditavel,
@@ -91,6 +92,10 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
   const icmsStWatch = Form.useWatch('icms_st_value', form) ?? 0
   const ipiNrPctWatch = Form.useWatch('ipi_nr_pct', form) ?? 0
   const priceWatch = Form.useWatch('price', form) ?? '0'
+  // §4, ADENDO DO ICMS DEFERIDO — os dois números que compõem o efetivo.
+  const icmsRateWatch = Form.useWatch('icms_rate', form) ?? 0
+  const icmsDeferidoRateWatch = Form.useWatch('icms_deferido_rate', form) ?? 0
+  const fcpValueWatch = Form.useWatch('fcp_value', form)
 
   /**
    * O CUSTO LÍQUIDO, pela fórmula ÚNICA de `custo-liquido-do-item.ts`.
@@ -166,6 +171,28 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
       )
       setBandeiras(flags)
 
+      /**
+       * §4.5 — AS BANDEIRAS PASSAM A SER DERIVADAS DA POSIÇÃO.
+       *
+       * Com o switch fora, o que fica gravado tem de ser o que a tela MOSTRA. Sem isto, um
+       * item cuja destinação mudou continuaria gravando a bandeira antiga: a linha apareceria
+       * no bloco de custo e a coluna diria `true`, e o próximo a abrir veria a linha voltar
+       * para cima sem ninguém ter mexido.
+       *
+       * O VEDADO não vira `false` gravado — `bandeirasGravadasDaPosicao` devolve `null` ali,
+       * porque uma proibição da lei não é uma escolha do usuário a registrar para sempre.
+       *
+       * NENHUMA MIGRAÇÃO DE DADO: as colunas são as mesmas, com os mesmos valores.
+       */
+      const gravadas = bandeirasGravadasDaPosicao(posicoesDosTributos(flags), flags)
+      form.setFieldsValue({
+        icms_credit_enabled: gravadas.ICMS,
+        pis_cofins_credit_enabled: gravadas.PIS_COFINS,
+        ipi_credit_enabled: gravadas.IPI,
+        cbs_credit_enabled: gravadas.CBS,
+        ibs_credit_enabled: gravadas.IBS,
+      })
+
       const r = calcularCustoDoItem(
         {
           base: priceNum,
@@ -182,6 +209,9 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
           qtdMedida: Number(values.measure_quantity) || null,
           difalOrigemPct: Number(values.difal_origem_pct) || 0,
           difalDestinoPct: Number(values.difal_destino_pct) || 0,
+          // `null` e não `|| 0`: o item que nunca teve FCP não passa a afirmar que ele é
+          // zero. O motor já sabe somar `null` como ausência.
+          fcp: values.fcp_value == null || values.fcp_value === '' ? null : Number(values.fcp_value),
         },
         flags,
       )
@@ -430,8 +460,61 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
     return Math.max(0, impostoDestino - icmsOrigem)
   })()
   const ipiCalc = priceForDifal * ((ipiNrPctWatch as number) / 100)
-  const totalNaoRec = ((icmsStWatch as number) || 0) + ipiCalc + difalCalc
+  // §4.3 — o FCP é campo NOVO, em R$, e SEM `initialValue`: ausente tem de continuar
+  // distinguível de zero nos 72 itens que nunca o tiveram (`ausente-vs-falso.md`).
+  const fcpCalc = Number(fcpValueWatch) || 0
+  const totalNaoRec = ((icmsStWatch as number) || 0) + ipiCalc + difalCalc + fcpCalc
   const fmtBRL = (v: number) => 'R$ ' + v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+  /**
+   * §4, ADENDO — OS TRÊS NÚMEROS DO ICMS, E POR QUE O DO MEIO NÃO É NENHUM DOS DOIS.
+   *
+   * >>> A PARCELA DEFERIDA NÃO CREDITA E NÃO É CUSTO <<<
+   *
+   * Ela não credita porque não foi cobrada pelo fornecedor — não há imposto recolhido na
+   * etapa anterior a recuperar. E não é custo porque não está no preço pago: o diferimento
+   * adia a incidência, não a embute na nota. Não é uma coisa nem outra, e é exatamente por
+   * isso que o número que o usuário precisa ver é o TERCEIRO: o ICMS EFETIVO, que é o que
+   * de fato credita.
+   *
+   * Até aqui a tela tinha o switch e o campo de percentual, a conta mudava por dentro, e o
+   * usuário não via EM QUE ela mudou. Ele ligava o diferimento e o custo líquido se mexia
+   * sem que nada na tela dissesse qual número tinha virado qual.
+   *
+   * COM O SWITCH DESLIGADO a linha de efetivo NÃO aparece. Uma linha dizendo
+   * "efetivo = destacado" treinaria o usuário a ignorar as três — e a que importa é
+   * justamente a que só existe quando há diferimento.
+   *
+   * O percentual efetivo vem de `impostosRecuperaveisDisplay`, que `recalcNetCost` já
+   * calcula e é o MESMO número que entra em `calcularCustoDoItem`. Recalculá-lo aqui seria
+   * a segunda fórmula do ICMS efetivo que `copia-divergente.md` proíbe — e ela divergiria no
+   * dia em que o diferimento mudasse de regra num dos dois lados.
+   */
+  const icmsDestacadoPct = Number(icmsRateWatch) || 0
+  const icmsEfetivoPct = Number(impostosRecuperaveisDisplay) || 0
+  const leituraDoIcmsEfetivo = (
+    <div style={{ display: 'grid', gap: 2, fontSize: 12 }}>
+      <div style={{ color: '#94a3b8' }}>
+        ICMS destacado <strong style={{ color: '#e2e8f0' }}>{icmsDestacadoPct.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</strong>
+      </div>
+      {icmsDeferidoEnabled && (
+        <>
+          <div style={{ color: '#94a3b8' }}>
+            Deferido <strong style={{ color: '#e2e8f0' }}>{(Number(icmsDeferidoRateWatch) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</strong>
+            <span style={{ opacity: 0.7 }}> (do próprio ICMS)</span>
+          </div>
+          <div style={{ color: '#22C55E', fontWeight: 600 }}>
+            ICMS efetivo {icmsEfetivoPct.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%
+            {' → '}
+            {fmtBRL(priceForDifal * icmsEfetivoPct / 100)}
+            <Tooltip title="É este que credita. A parcela deferida não gera crédito (não foi cobrada pelo fornecedor) e também não é custo (não está no preço pago).">
+              <InfoCircleOutlined style={{ color: '#64748b', marginLeft: 6 }} />
+            </Tooltip>
+          </div>
+        </>
+      )}
+    </div>
+  )
 
   return (
     <Form layout="vertical" form={form}>
@@ -852,19 +935,57 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
             </div>
           )}
 
-          {/* Impostos não recuperáveis */}
-          <div style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.18)', borderRadius: 8, padding: '12px 14px', marginBottom: 16 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: '#fca5a5', textTransform: 'uppercase' as const, letterSpacing: 0.6, marginBottom: 10 }}>
-              Impostos não recuperáveis
-            </div>
+          {/*
+            §4.1 — A ORDEM SE INVERTE, E OS DOIS VIRAM AS DUAS METADES DO MESMO COMPONENTE.
+
+            "Impostos não recuperáveis" vinha ANTES do bloco de crédito, e a ordem ensinava
+            a coisa errada: o que compõe o custo aparecia primeiro, e o que sai dele depois.
+            Agora crédito em cima, custo embaixo, com os rótulos do §2 — e o bloco de custo
+            é PASSADO ao componente, não desenhado ao lado dele. Ao lado, ele seria uma
+            segunda tabela com regra própria; dentro, ele é a metade de baixo da mesma.
+          */}
+          <PurchaseTaxCredits
+            modo="posicao"
+            bandeiras={bandeiras}
+            custo={custoDoItem}
+            visivel={isLucroRealOrLP}
+            unidadeLabel={baseUnitLabel}
+            onToggle={handleToggleCredito}
+            onRecalc={recalcNetCost}
+            extras={{ ICMS: leituraDoIcmsEfetivo }}
+            blocoDeCusto={(
+              <div style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.18)', borderRadius: 8, padding: '12px 14px', marginTop: 12, marginBottom: 4 }}>
             {/* ICMS-ST: valor manual em R$ */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
+              {/*
+                §4.2 — OS CAMPOS EXISTENTES FICAM COM OS NOMES E COM O `initialValue={0}`
+                QUE TÊM. Trocá-lo por vazio mudaria o SIGNIFICADO do que já está gravado:
+                zero passaria a ser "não informado" em 72 itens que o gravaram como zero.
+                O campo NOVO (`fcp_value`) nasce sem default, que é a regra para o que
+                ainda não existe.
+              */}
               <Form.Item name="icms_st_value" label="ICMS-ST (valor inserido manualmente)" initialValue={0} style={{ marginBottom: 0 }}>
                 <InputNumber
                   min={0} step={0.01} precision={2} style={{ width: '100%' }}
                   placeholder="0,00"
                   formatter={(v: any) => { const n = Number(v ?? 0); return 'R$ ' + (isNaN(n) ? '0,00' : n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })) }}
                   parser={(v: any) => { const r = String(v || '0').replace('R$', '').replace(/\s/g, '').replace(/\./g, '').replace(',', '.').trim(); return isNaN(Number(r)) ? 0 : Number(r) }}
+                />
+              </Form.Item>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginTop: 12 }}>
+              <Form.Item
+                name="fcp_value"
+                label={<span>FCP (valor da nota)<Tooltip title="Fundo de Combate à Pobreza — vFCPUFDest na NF-e. Nunca gera crédito. Deixe vazio se a nota não traz o campo: vazio e zero são coisas diferentes."><InfoCircleOutlined style={{ color: '#64748b', marginLeft: 4 }} /></Tooltip></span>}
+                style={{ marginBottom: 0 }}
+              >
+                <InputNumber
+                  min={0} step={0.01} precision={2} style={{ width: '100%' }}
+                  placeholder="não informado"
+                  onChange={() => setTimeout(recalcNetCost, 50)}
+                  formatter={(v: any) => (v == null || v === '' ? '' : 'R$ ' + Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }))}
+                  parser={(v: any) => { const r = String(v || '').replace('R$', '').replace(/\s/g, '').replace(/\./g, '').replace(',', '.').trim(); return r === '' ? (null as any) : Number(r) }}
                 />
               </Form.Item>
             </div>
@@ -899,22 +1020,10 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
                 <span style={{ fontWeight: 700, color: '#fca5a5' }}>{fmtBRL(totalNaoRec)}</span>
               </div>
             )}
-          </div>
-
-          {/*
-            O BLOCO DO CRÉDITO POR TRIBUTO. As alíquotas de ICMS, PIS/COFINS, IPI, ST e DIFAL
-            seguem nos campos acima, que são de onde elas sempre vieram; o que este bloco
-            acrescenta é a DESTINAÇÃO, as cinco bandeiras, as alíquotas de CBS e IBS e o
-            rodapé com bruto, crédito e líquido.
-          */}
-          <PurchaseTaxCredits
-            bandeiras={bandeiras}
-            custo={custoDoItem}
-            visivel={isLucroRealOrLP}
-            unidadeLabel={baseUnitLabel}
-            onToggle={handleToggleCredito}
-            onRecalc={recalcNetCost}
+              </div>
+            )}
           />
+
 
           {/* Linha de impostos 3 (Lucro Real / Lucro Presumido): Valor custo líquido | QTD. Comprado | Estoque mínimo */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, alignItems: 'end' }}>

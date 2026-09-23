@@ -30,6 +30,8 @@ import {
 import PurchaseTaxCredits from '@/page-parts/items/purchase-tax-credits.component'
 import EntradaDeImposto from '@/components/despesas/entrada-de-imposto.component'
 import { baseDaLinha, colunasDaEntrada, CAMPO_DA_ALIQUOTA, FORMATO_PADRAO, type FormatoDaEntrada } from '@/utils/entrada-de-imposto'
+import { totalDaNota, ratearParcelas, linhasDoTotalDaNota } from '@/utils/nota-de-compra'
+import { vinculoDaSerie, AVISO_SEM_VINCULO } from '@/utils/serie-e-estorno'
 import PercentInput from '@/components/percent-input.component'
 import {
     calcularImpactoDoRateio, houveMudancaDoPercentual, type ImpactoDoRateio,
@@ -140,6 +142,24 @@ const brlParser = (value: string | undefined): string => {
     return cleaned
 }
 
+/** R$ no formato brasileiro, para as leituras do bloco de impostos e do total da nota. */
+const brl = (v: number | null | undefined): string =>
+    'R$ ' + (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+/**
+ * §5.3 — OS QUATRO CAMPOS DO BLOCO DE CUSTO DA NOTA.
+ *
+ * A lista mora aqui, e não inline no JSX, porque ela é o MESMO mapeamento que o `insert` da
+ * nota usa: acrescentar um tributo ao bloco sem acrescentá-lo à gravação seria a cópia
+ * divergente com a assinatura de sempre — o campo aparece na tela e não chega ao banco.
+ */
+const CAMPOS_DO_BLOCO_DE_CUSTO = [
+    { name: 'valor_ipi_custo', label: 'IPI (parcela sem crédito)', ajuda: 'A parte do IPI da nota que NÃO gera crédito — revenda, uso e consumo. A parte creditável fica no bloco de cima, e a mesma nota pode ter as duas.' },
+    { name: 'valor_icms_st', label: 'ICMS-ST', ajuda: 'Na NF-e: vICMSST. A substituição encerra a cadeia e o adquirente não credita.' },
+    { name: 'valor_difal', label: 'DIFAL', ajuda: 'Diferencial de alíquota, em R$, como apurado na nota. Informado, ele vence a fórmula de base dupla.' },
+    { name: 'valor_fcp', label: 'FCP', ajuda: 'Na NF-e: vFCPUFDest. Nunca gera crédito. Deixe vazio se a nota não traz o campo.' },
+] as const
+
 const PAYMENT_METHODS = [
     { value: 'PIX', label: '⚡ PIX' },
     { value: 'DINHEIRO', label: '💵 Dinheiro' },
@@ -216,7 +236,18 @@ export default function CashFlow() {
     // §3 — o bloco de impostos passa a valer para TODA despesa. As alíquotas entram por
     // `Form.Item`, e as bandeiras ficam aqui: `null` é "o usuário não decidiu" e cai no
     // padrão da natureza; `false` é "desligou" e vence o padrão (`ausente-vs-falso.md`).
-    const [creditoGravado, setCreditoGravado] = useState<Partial<Record<TributoCreditavel, boolean | null>>>({})
+    /*
+      §5.1 — `creditoGravado` SAIU.
+
+      Ele guardava, em estado local, o que o switch de cada linha dizia. Com a POSIÇÃO como
+      decisão, esse estado seria uma segunda fonte para o mesmo fato: a bandeira resolvida
+      por `resolverFlagsDoItem` já diz em que bloco a linha está, e um segundo lugar para
+      guardá-lo é como a divergência começa (`copia-divergente.md`).
+
+      Aqui, diferente do cadastro de item, não há coluna a gravar: o lançamento de despesa
+      grava o CRÉDITO EM R$ na nota, e quem decide o crédito é a natureza da despesa mais a
+      lei. Não há o que o usuário escolha por tributo — e era isso que o switch fingia.
+    */
     /**
      * §4 — O FORMATO DE ENTRADA DE CADA LINHA: % ou R$.
      *
@@ -353,7 +384,7 @@ export default function CashFlow() {
     }), [taxRegime, calcType, naturezaDoLancamento.destinacao])
 
     const bandeirasDoLancamento = useMemo(() => {
-        const base = resolverFlagsDoItem(contextoDoCredito, creditoGravado)
+        const base = resolverFlagsDoItem(contextoDoCredito, {})
         // VEDADO é o terceiro estado: há imposto na operação e a lei proíbe o crédito. Ele
         // trava os cinco botões com o motivo à vista, e não some o bloco — sumir afirmaria
         // que não houve imposto.
@@ -361,7 +392,7 @@ export default function CashFlow() {
         return Object.fromEntries(TRIBUTOS_CREDITAVEIS.map((t) => [t, {
             ativo: false, vedado: true, motivo: naturezaDoLancamento.motivo ?? '', origem: 'vedacao' as const,
         }])) as typeof base
-    }, [contextoDoCredito, creditoGravado, naturezaDoLancamento.estado, naturezaDoLancamento.motivo])
+    }, [contextoDoCredito, naturezaDoLancamento.estado, naturezaDoLancamento.motivo])
 
     /**
      * §4 — OS VALORES DA COMPRA, montados UMA vez.
@@ -379,9 +410,54 @@ export default function CashFlow() {
         ibsPct: taxaIbs ?? null,
     }), [expenseAmount, taxaIcms, taxaPisCofins, taxaIpi, taxaCbs, taxaIbs])
 
+    /*
+      §5.3 — OS QUATRO CAMPOS DO BLOCO DE CUSTO, EM R$.
+
+      Só R$, sem seletor de percentual: ST e FCP vêm em VALOR na nota (vICMSST,
+      vFCPUFDest), o DIFAL é resultado de base dupla e a parcela não creditável do IPI não
+      tem base própria. Um seletor de % aqui convidaria a digitar "4%" e produziria um
+      número que a nota não tem.
+    */
+    const valorIpiCusto = Form.useWatch('valor_ipi_custo', form)
+    const valorIcmsSt = Form.useWatch('valor_icms_st', form)
+    const valorDifal = Form.useWatch('valor_difal', form)
+    const valorFcp = Form.useWatch('valor_fcp', form)
+
+    /** `null` e não `0`: campo vazio é campo vazio, e a nota não afirma nada sobre ele. */
+    const soNumero = (v: unknown): number | null =>
+        v == null || v === '' || Number.isNaN(Number(v)) ? null : Number(v)
+
+    const blocoDeCustoDaNota = useMemo(() => ({
+        ipiCusto: soNumero(valorIpiCusto),
+        icmsSt: soNumero(valorIcmsSt),
+        difal: soNumero(valorDifal),
+        fcp: soNumero(valorFcp),
+    }), [valorIpiCusto, valorIcmsSt, valorDifal, valorFcp])
+
     const custoDoLancamento = useMemo(
-        () => calcularCustoDoItem(valoresDaCompra, bandeirasDoLancamento),
-        [valoresDaCompra, bandeirasDoLancamento])
+        () => calcularCustoDoItem({
+            ...valoresDaCompra,
+            // Os quatro entram na CONTA pelo mesmo caminho do item: o motor é um só.
+            ipiCustoValor: blocoDeCustoDaNota.ipiCusto,
+            icmsSt: blocoDeCustoDaNota.icmsSt,
+            difalValor: blocoDeCustoDaNota.difal,
+            fcp: blocoDeCustoDaNota.fcp,
+        }, bandeirasDoLancamento),
+        [valoresDaCompra, blocoDeCustoDaNota, bandeirasDoLancamento])
+
+    /**
+     * §5 — O TOTAL DA NOTA, e é ELE que vai para o caixa.
+     *
+     * >>> A NOTA E O CAIXA DISCORDAVAM SOBRE A MESMA COMPRA <<<
+     * O valor digitado ia direto para `amount`, e o IPI ficava só no custo teórico. Quem
+     * comprou R$ 1.000,00 de produto com R$ 100,00 de IPI pagou R$ 1.100,00 ao fornecedor —
+     * e o caixa registrava mil.
+     */
+    const totalDaNotaDoLancamento = useMemo(() => totalDaNota({
+        produtos: parseCurrencyFn(expenseAmount),
+        ipiCredito: custoDoLancamento.creditos.IPI,
+        bloco: blocoDeCustoDaNota,
+    }), [expenseAmount, custoDoLancamento, blocoDeCustoDaNota])
     // §6 — os dois campos só aparecem nas categorias do bloco Compromissos Financeiros.
     const isCompromissoFinanceiro = ehCompromissoFinanceiro(selectedExpenseCategory)
     const compSeparacao = separarJurosEPrincipal({
@@ -931,6 +1007,27 @@ export default function CashFlow() {
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const entries: any[] = []
 
+                /**
+                 * §7 — O GRUPO DA SÉRIE, gerado UMA vez e gravado em TODAS as parcelas.
+                 *
+                 * Ele é o que permite excluir a série sem adivinhar quem são as irmãs. Gerar
+                 * dentro de cada caminho do `insert` produziria dois grupos para o mesmo
+                 * lançamento no dia em que alguém mexesse num só — é o mesmo `for` da cópia
+                 * divergente.
+                 */
+                const grupoDaSerie = typeof crypto !== 'undefined' && crypto.randomUUID
+                    ? crypto.randomUUID()
+                    : `${Date.now()}-${Math.random().toString(16).slice(2)}`
+
+                /**
+                 * §5 — O QUE VAI PARA O CAIXA É O TOTAL DA NOTA.
+                 *
+                 * Sem bloco de imposto (guia, compromisso financeiro, despesa comum) ele é
+                 * EXATAMENTE o valor digitado — e é isso que o oráculo A afirma, centavo a
+                 * centavo, sobre o `amount` gravado.
+                 */
+                const totalParaOCaixa = temBlocoDeImposto ? totalDaNotaDoLancamento.total : amountNum
+
                 if (useManualInstallments) {
                     const validInst = expInstallments.filter(r => r.date && r.amount > 0)
                     if (validInst.length === 0) {
@@ -939,6 +1036,15 @@ export default function CashFlow() {
                     }
                     const today = dayjs().startOf('day')
                     const totalInst = validInst.reduce((s, r) => s + r.amount, 0)
+                    /**
+                     * As parcelas DIGITADAS viram PESOS, e o rateio é do Total da nota.
+                     *
+                     * Quem pôs 30% na entrada continua com 30% — da nota inteira, não do
+                     * valor dos produtos. Manter os valores digitados faria a soma das
+                     * parcelas ficar abaixo do total, e a diferença não apareceria em lugar
+                     * nenhum.
+                     */
+                    const valoresRateados = ratearParcelas(totalParaOCaixa, validInst.map((i) => i.amount))
                     validInst.forEach((inst, idx) => {
                         const ratio = totalInst > 0 ? inst.amount / totalInst : 1 / validInst.length
                         // Métodos à vista (não Boleto/Cheque Pré-datado) com vencimento hoje/passado
@@ -952,7 +1058,8 @@ export default function CashFlow() {
                             origin_type: 'MANUAL',
                             recurrence_type: 'ONCE',
                             description: validInst.length > 1 ? `${desc} (${idx + 1}/${validInst.length})` : desc,
-                            amount: inst.amount,
+                            amount: valoresRateados[idx],
+                            installment_group_id: grupoDaSerie,
                             due_date: inst.date.format('YYYY-MM-DD'),
                             expense_group: expenseGroup,
                             expense_category: values.expense_category,
@@ -969,7 +1076,10 @@ export default function CashFlow() {
                         })
                     })
                 } else {
-                    const parcelValue = parcelas === 1 ? amountNum : Math.round((amountNum / parcelas) * 100) / 100
+                    // A sobra de arredondamento vai para a ÚLTIMA parcela: `1.172,00 ÷ 3`
+                    // arredondado em cada uma daria 1.172,01, e a nota cobraria um centavo
+                    // que ela não tem.
+                    const valoresRateados = ratearParcelas(totalParaOCaixa, Array.from({ length: parcelas }, () => 1))
                     const today = dayjs().startOf('day')
                     for (let i = 0; i < parcelas; i++) {
                         const due = startDate.add(i, 'month')
@@ -982,7 +1092,8 @@ export default function CashFlow() {
                             origin_type: 'MANUAL',
                             recurrence_type: 'ONCE',
                             description: parcelas > 1 ? `${desc} (${i + 1}/${parcelas})` : desc,
-                            amount: parcelValue,
+                            amount: valoresRateados[i],
+                            installment_group_id: grupoDaSerie,
                             due_date: due.format('YYYY-MM-DD'),
                             expense_group: expenseGroup,
                             expense_category: values.expense_category,
@@ -1034,7 +1145,19 @@ export default function CashFlow() {
                             credit_date_estimated: false,
                             expense_nature: naturezaDoLancamento.destinacao,
                             expense_category: values.expense_category,
-                            total_amount: parseCurrencyFn(expenseAmount),
+                            // §5 — o TOTAL DA NOTA, não o valor dos produtos: é ele que o
+                            // fornecedor cobrou e é ele que o caixa registra.
+                            total_amount: totalDaNotaDoLancamento.total,
+                            /*
+                              §5 — OS QUATRO DO BLOCO DE CUSTO SÃO GRAVADOS NA NOTA, e NÃO
+                              rateados por parcela: eles são fato do DOCUMENTO. Ratear o
+                              ICMS-ST em seis inventaria seis frações de um número que a nota
+                              traz uma vez só.
+                            */
+                            valor_ipi_custo: blocoDeCustoDaNota.ipiCusto,
+                            valor_icms_st: blocoDeCustoDaNota.icmsSt,
+                            valor_difal: blocoDeCustoDaNota.difal,
+                            valor_fcp: blocoDeCustoDaNota.fcp,
                             credit_icms: c.ICMS,
                             credit_pis_cofins: c.PIS_COFINS,
                             credit_ipi: c.IPI,
@@ -1825,7 +1948,6 @@ export default function CashFlow() {
                                 setSelectedExpenseCategory(v || '')
                                 setCompJuros('')
                                 setCompPrincipal('')
-                                setCreditoGravado({})
                                 setFormatoDeEntrada({})
                                 // A sugestão do §5: mês ANTERIOR ao vencimento. Ela aparece
                                 // no campo, onde o usuário a vê e pode corrigi-la.
@@ -1838,7 +1960,13 @@ export default function CashFlow() {
                     <Form.Item name="expense_description" label="Descrição (opcional)">
                         <Input placeholder="Ex: Conta de luz da loja" />
                     </Form.Item>
-                    <Form.Item label="Valor Total" required>
+                    {/*
+                      §5 — O RÓTULO PASSA A DIZER O QUE O CAMPO É.
+                      "Valor Total" e o total da nota não eram a mesma coisa, e o campo
+                      chamava de total o que é apenas a parcela dos produtos. É o contrato
+                      que `ValoresDaCompra.base` já documenta: SEM IPI, ST, DIFAL e FCP.
+                    */}
+                    <Form.Item label={temBlocoDeImposto ? 'Valor dos produtos (sem IPI, ST, DIFAL e FCP)' : 'Valor Total'} required>
                         <Input
                             prefix="R$"
                             placeholder="0,00"
@@ -1855,6 +1983,42 @@ export default function CashFlow() {
                             }}
                         />
                     </Form.Item>
+                    {/*
+                      §5 — A LINHA QUE FECHA A NOTA, em leitura.
+
+                      Ela não é editável e não entra em soma nenhuma além da sua: é a
+                      decomposição do número que vai para o caixa, para que o usuário veja
+                      POR QUE a parcela não é o que ele digitou. Sem ela, o `amount` mudaria
+                      de significado sem nada na tela dizer isso.
+
+                      As linhas vêm de `linhasDoTotalDaNota`, que é onde a soma mora. Montar
+                      a lista aqui somaria de novo, e bastaria esquecer o FCP num dos dois
+                      lados para os números discordarem.
+                    */}
+                    {temBlocoDeImposto && (
+                        <div style={{ marginBottom: 16, padding: '12px 14px', background: 'rgba(148,163,184,0.06)', border: '1px solid rgba(148,163,184,0.2)', borderRadius: 8 }}>
+                            {linhasDoTotalDaNota(totalDaNotaDoLancamento).map((l) => (
+                                <div
+                                    key={l.rotulo}
+                                    style={{
+                                        display: 'flex', justifyContent: 'space-between',
+                                        fontSize: l.ehTotal ? 14 : 13,
+                                        fontWeight: l.ehTotal ? 700 : 400,
+                                        color: l.ehTotal ? '#e2e8f0' : '#94a3b8',
+                                        paddingTop: l.ehTotal ? 8 : 2,
+                                        marginTop: l.ehTotal ? 6 : 0,
+                                        borderTop: l.ehTotal ? '1px solid rgba(148,163,184,0.25)' : undefined,
+                                    }}
+                                >
+                                    <span>{l.rotulo}</span>
+                                    <span>{brl(l.valor)}</span>
+                                </div>
+                            ))}
+                            <div style={{ fontSize: 11, color: '#64748b', marginTop: 8 }}>
+                                É o Total da nota que vai para o caixa e é dividido nas parcelas.
+                            </div>
+                        </div>
+                    )}
                     {/*
                       §5 — AS CONDIÇÕES DE PAGAMENTO VÊM LOGO APÓS O VALOR TOTAL.
 
@@ -2129,13 +2293,52 @@ export default function CashFlow() {
                                 </div>
                             )}
                             <PurchaseTaxCredits
+                                modo="posicao"
                                 visivel
                                 semDestinacao
                                 titulo={`Impostos da despesa — ${naturezaDoLancamento.destinacao === 'INSUMO' ? 'insumo' : naturezaDoLancamento.destinacao === 'REVENDA' ? 'revenda' : 'uso e consumo'}`}
                                 bandeiras={bandeirasDoLancamento}
                                 custo={custoDoLancamento}
-                                onToggle={(t, v) => setCreditoGravado((prev) => ({ ...prev, [t]: v }))}
+                                /* Sem switch no modo 'posicao': o callback existe no contrato e não é
+                                   acionado. Um `setState` aqui seria a segunda fonte que o §5.1 tirou. */
+                                onToggle={() => { /* a POSIÇÃO é a decisão — não há botão */ }}
                                 onRecalc={() => { /* o cálculo é derivado do `Form.useWatch` */ }}
+                                rodapeDoIpi={(
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#94a3b8', padding: '8px 0 2px' }}>
+                                        <span>IPI da nota</span>
+                                        <span>
+                                            crédito <strong style={{ color: '#22C55E' }}>{brl(custoDoLancamento.creditos.IPI)}</strong>
+                                            {'  +  '}
+                                            custo <strong style={{ color: '#fca5a5' }}>{brl(custoDoLancamento.valores.ipiCusto)}</strong>
+                                            {'  =  '}
+                                            <strong style={{ color: '#e2e8f0' }}>{brl(totalDaNotaDoLancamento.ipiDaNota)}</strong>
+                                        </span>
+                                    </div>
+                                )}
+                                blocoDeCusto={(
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginTop: 10 }}>
+                                        {CAMPOS_DO_BLOCO_DE_CUSTO.map((c) => (
+                                            <Form.Item key={c.name} name={c.name} label={(
+                                                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                    {c.label}
+                                                    <Tooltip title={c.ajuda}><InfoCircleOutlined style={{ color: '#64748b' }} /></Tooltip>
+                                                </span>
+                                            )} style={{ marginBottom: 0 }}>
+                                                {/* Sem `initialValue`: vazio é vazio, e a nota não afirma
+                                                    que o tributo incidiu e deu zero. */}
+                                                <InputNumber
+                                                    min={0} step={0.01} precision={2} style={{ width: '100%' }}
+                                                    placeholder="não informado"
+                                                    formatter={(v: unknown) => (v == null || v === '' ? '' : 'R$ ' + Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }))}
+                                                    parser={(v?: string) => {
+                                                        const r = String(v ?? '').replace('R$', '').replace(/\s/g, '').replace(/\./g, '').replace(',', '.').trim()
+                                                        return (r === '' ? null : Number(r)) as unknown as number
+                                                    }}
+                                                />
+                                            </Form.Item>
+                                        ))}
+                                    </div>
+                                )}
                                 /*
                                   §4 — OS CINCO ENTRAM PELA MESMA COSTURA.
                                   CBS e IBS caíam no `PercentInput` padrão do componente, que
