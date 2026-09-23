@@ -22,6 +22,7 @@ import {
   baseDoTributo,
   TRIBUTOS_CREDITAVEIS,
   type BandeirasDeCredito,
+  type DestinacaoItem,
   type TributoCreditavel,
   type ValoresDaCompra,
 } from '@/utils/custo-liquido-do-item'
@@ -49,7 +50,7 @@ const fs = require('fs') as typeof import('fs')
 const path = require('path') as typeof import('path')
 const ler = (p: string) => fs.readFileSync(path.join(process.cwd(), p), 'utf8')
 
-const flags = (regime: string, destinacao: string, segmento = 'INDUSTRIALIZACAO'): BandeirasDeCredito =>
+const flags = (regime: string, destinacao: DestinacaoItem, segmento = 'INDUSTRIALIZACAO'): BandeirasDeCredito =>
   resolverFlagsDoItem({ regime, destinacao, segmento }, {})
 
 // ═════════════════════════════════════════════════════════════════════════════════════════
@@ -240,6 +241,30 @@ describe('E — a posição sai da bandeira, e a bandeira sai da lei', () => {
     expect(aceitaEntrada(b.ICMS)).toBe(false)
   })
 
+  /**
+   * >>> O CASO QUE A MUTAÇÃO M5 EXIGIU <<<
+   *
+   * Apagar `if (b.vedado) return 'CUSTO'` de `posicaoDoTributo` deixava a suíte VERDE: em
+   * todos os cenários testados o tributo vedado também vinha com `ativo: false`, e o
+   * `return b.ativo ? …` devolvia CUSTO por outro caminho. O caso não distinguia "a vedação
+   * decide" de "a bandeira decide, e por acaso coincidem".
+   *
+   * O estado que DISCRIMINA é `vedado: true` COM `ativo: true` — a coluna gravada dizendo
+   * que credita e a lei dizendo que não. Ele não sai de `resolverFlagsDoItem` hoje, e é
+   * exatamente o que aparece no dia em que um item gravado com `true` passa a ser vedado por
+   * mudança de regime: ali a vedação TEM de ganhar.
+   *
+   * `teste-que-nao-exercita.md`, variante 2: o caso escolhido não discrimina.
+   */
+  it('>>> vedado GANHA da bandeira ligada: `vedado:true` + `ativo:true` vai para CUSTO <<<', () => {
+    const conflito = { ativo: true, vedado: true, motivo: 'no DAS', origem: 'vedacao' as const }
+    expect(posicaoDoTributo(conflito)).toBe('CUSTO')
+    expect(aceitaEntrada(conflito)).toBe(false)
+    // E a coluna NÃO é reescrita para `false` por causa disso.
+    const b = { ICMS: conflito } as unknown as BandeirasDeCredito
+    expect(bandeirasGravadasDaPosicao({ ICMS: 'CUSTO' }, b).ICMS).toBeNull()
+  })
+
   it('>>> vedado e desligado ficam no MESMO bloco e são coisas diferentes <<<', () => {
     const vedado = { ativo: false, vedado: true, motivo: 'no DAS', origem: 'vedacao' as const }
     const desligado = { ativo: false, vedado: false, origem: 'gravada' as const }
@@ -347,7 +372,7 @@ describe('G — destacado 18,00% com 60,00% deferido mostra 7,20%', () => {
 // ═════════════════════════════════════════════════════════════════════════════════════════
 
 describe('H — a coluna gravada decide a posição na abertura, e nada é reescrito', () => {
-  const ctx = { regime: 'LUCRO_REAL', destinacao: 'REVENDA', segmento: 'INDUSTRIALIZACAO' }
+  const ctx = { regime: 'LUCRO_REAL', destinacao: 'REVENDA' as DestinacaoItem, segmento: 'INDUSTRIALIZACAO' }
 
   it('>>> `ipi_credit_enabled = false` abre no bloco de CUSTO <<<', () => {
     const b = resolverFlagsDoItem(ctx, { IPI: false })
@@ -363,7 +388,7 @@ describe('H — a coluna gravada decide a posição na abertura, e nada é reesc
 
   it('>>> `null` cai na posição do PADRÃO DA DESTINAÇÃO, e não num default de tela <<<', () => {
     expect(posicoesDosTributos(resolverFlagsDoItem(ctx, { IPI: null })).IPI).toBe('CUSTO')
-    const insumo = { ...ctx, destinacao: 'INSUMO' }
+    const insumo = { ...ctx, destinacao: 'INSUMO' as DestinacaoItem }
     expect(posicoesDosTributos(resolverFlagsDoItem(insumo, { IPI: null })).IPI).toBe('CREDITO')
   })
 
@@ -556,10 +581,31 @@ describe('M — nota creditando em agosto, estornada em setembro', () => {
     expect(notaEstaEstornada([])).toBe(false)
   })
 
-  it('>>> o quadro de apuração lê a data do ESTORNO, não a do crédito <<<', () => {
+  /**
+   * >>> O CASO QUE A MUTAÇÃO M12 EXIGIU, E É O ORÁCULO M INTEIRO <<<
+   *
+   * A primeira versão só procurava a palavra `reversed_at` no arquivo — e ela aparece no
+   * `select` também. Trocar o FILTRO da consulta do estorno de `reversed_at` para
+   * `credit_date` deixava a suíte verde e punha o estorno de setembro na apuração de agosto:
+   * exatamente a reescrita de competência passada que o §6.6 proíbe.
+   *
+   * O que discrimina é o INTERVALO: a consulta do estorno tem de filtrar `reversed_at`
+   * entre o primeiro dia do mês exibido e o primeiro do seguinte.
+   */
+  it('>>> a consulta do estorno FILTRA por `reversed_at` no mês exibido <<<', () => {
     const src = ler('src/components/creditos/quadro-de-apuracao.component.tsx')
-    expect(src).toContain('reversed_at')
+    expect(src).toContain("gte('reversed_at', primeiro)")
+    expect(src).toContain("lt('reversed_at', proximo)")
     expect(src).toContain('Estorno de crédito')
+  })
+
+  it('>>> e o crédito do mês de ORIGEM não é filtrado por estorno: agosto não muda <<<', () => {
+    const src = ler('src/components/creditos/quadro-de-apuracao.component.tsx')
+    // A soma do crédito do mês usa `credit_date` e NÃO exclui nota estornada: o crédito
+    // aconteceu, e é o estorno que o desfaz — no mês dele.
+    const consulta = src.slice(src.indexOf('const ['), src.indexOf('const cred'))
+    expect(consulta).toContain("gte('credit_date', primeiro)")
+    expect(consulta).not.toMatch(/is\('reversed_at', null\)/)
   })
 })
 
@@ -607,10 +653,25 @@ describe('>>> A rota classifica NO SERVIDOR, e a permissão tem uma fonte só <<
     expect(rota()).toContain('classificarExclusao')
   })
 
-  it('>>> e NÃO aceita lista de ids do cliente: só `id` e `escopo` <<<', () => {
-    const s = rota()
+  /**
+   * >>> O CASO QUE A MUTAÇÃO M11 EXIGIU <<<
+   *
+   * A primeira versão procurava `body.ids` e uma desestruturação com `ids`. Trocar a
+   * classificação por `(req.body as { ids?: string[] }).ids` passava por baixo das duas — e
+   * é justamente a forma que alguém escreveria "para deixar a tela decidir".
+   *
+   * A asserção que discrimina não é sobre a FORMA de ler o corpo: é sobre a palavra `ids`
+   * não existir no arquivo, e sobre o que efetivamente vai para o `update` sair de
+   * `decisao.aDesativar`.
+   */
+  it('>>> e NÃO aceita lista de ids do cliente: a palavra não existe no arquivo <<<', () => {
+    // SEM comentários: a palavra aparece no docblock, que é onde ela DEVE aparecer — é ali
+    // que está escrito por que a rota não a aceita.
+    const s = rota().replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
     expect(s).toMatch(/req\.body/)
-    expect(s).not.toMatch(/body\.ids|const \{[^}]*\bids\b/)
+    expect(s).not.toMatch(/\bids\b/)
+    // O que é desativado vem da DECISÃO do servidor, e de nenhum outro lugar.
+    expect(s).toContain('.in(\'id\', decisao.aDesativar)')
   })
 
   it('>>> a checagem de permissão é IMPORTADA, e as duas rotas leem a mesma <<<', () => {
