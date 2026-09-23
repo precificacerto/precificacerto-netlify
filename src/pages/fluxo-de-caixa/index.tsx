@@ -5,7 +5,7 @@ import {
 } from 'antd'
 import { Select } from '@/components/ui/app-select.component'
 import { CurrencyInput } from '@/components/currency-input.component'
-import dayjs from 'dayjs'
+import dayjs, { type Dayjs } from 'dayjs'
 import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
 import { supabase } from '@/supabase/client'
@@ -30,6 +30,8 @@ import {
 import PurchaseTaxCredits from '@/page-parts/items/purchase-tax-credits.component'
 import EntradaDeImposto from '@/components/despesas/entrada-de-imposto.component'
 import { baseDaLinha, colunasDaEntrada, CAMPO_DA_ALIQUOTA, FORMATO_PADRAO, type FormatoDaEntrada } from '@/utils/entrada-de-imposto'
+import { totalDaNota, ratearParcelas, linhasDoTotalDaNota } from '@/utils/nota-de-compra'
+import { vinculoDaSerie, AVISO_SEM_VINCULO, espelhoDoEstorno, notaEstaEstornada } from '@/utils/serie-e-estorno'
 import PercentInput from '@/components/percent-input.component'
 import {
     calcularImpactoDoRateio, houveMudancaDoPercentual, type ImpactoDoRateio,
@@ -140,6 +142,24 @@ const brlParser = (value: string | undefined): string => {
     return cleaned
 }
 
+/** R$ no formato brasileiro, para as leituras do bloco de impostos e do total da nota. */
+const brl = (v: number | null | undefined): string =>
+    'R$ ' + (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+/**
+ * §5.3 — OS QUATRO CAMPOS DO BLOCO DE CUSTO DA NOTA.
+ *
+ * A lista mora aqui, e não inline no JSX, porque ela é o MESMO mapeamento que o `insert` da
+ * nota usa: acrescentar um tributo ao bloco sem acrescentá-lo à gravação seria a cópia
+ * divergente com a assinatura de sempre — o campo aparece na tela e não chega ao banco.
+ */
+const CAMPOS_DO_BLOCO_DE_CUSTO = [
+    { name: 'valor_ipi_custo', label: 'IPI (parcela sem crédito)', ajuda: 'A parte do IPI da nota que NÃO gera crédito — revenda, uso e consumo. A parte creditável fica no bloco de cima, e a mesma nota pode ter as duas.' },
+    { name: 'valor_icms_st', label: 'ICMS-ST', ajuda: 'Na NF-e: vICMSST. A substituição encerra a cadeia e o adquirente não credita.' },
+    { name: 'valor_difal', label: 'DIFAL', ajuda: 'Diferencial de alíquota, em R$, como apurado na nota. Informado, ele vence a fórmula de base dupla.' },
+    { name: 'valor_fcp', label: 'FCP', ajuda: 'Na NF-e: vFCPUFDest. Nunca gera crédito. Deixe vazio se a nota não traz o campo.' },
+] as const
+
 const PAYMENT_METHODS = [
     { value: 'PIX', label: '⚡ PIX' },
     { value: 'DINHEIRO', label: '💵 Dinheiro' },
@@ -216,7 +236,18 @@ export default function CashFlow() {
     // §3 — o bloco de impostos passa a valer para TODA despesa. As alíquotas entram por
     // `Form.Item`, e as bandeiras ficam aqui: `null` é "o usuário não decidiu" e cai no
     // padrão da natureza; `false` é "desligou" e vence o padrão (`ausente-vs-falso.md`).
-    const [creditoGravado, setCreditoGravado] = useState<Partial<Record<TributoCreditavel, boolean | null>>>({})
+    /*
+      §5.1 — `creditoGravado` SAIU.
+
+      Ele guardava, em estado local, o que o switch de cada linha dizia. Com a POSIÇÃO como
+      decisão, esse estado seria uma segunda fonte para o mesmo fato: a bandeira resolvida
+      por `resolverFlagsDoItem` já diz em que bloco a linha está, e um segundo lugar para
+      guardá-lo é como a divergência começa (`copia-divergente.md`).
+
+      Aqui, diferente do cadastro de item, não há coluna a gravar: o lançamento de despesa
+      grava o CRÉDITO EM R$ na nota, e quem decide o crédito é a natureza da despesa mais a
+      lei. Não há o que o usuário escolha por tributo — e era isso que o switch fingia.
+    */
     /**
      * §4 — O FORMATO DE ENTRADA DE CADA LINHA: % ou R$.
      *
@@ -353,7 +384,7 @@ export default function CashFlow() {
     }), [taxRegime, calcType, naturezaDoLancamento.destinacao])
 
     const bandeirasDoLancamento = useMemo(() => {
-        const base = resolverFlagsDoItem(contextoDoCredito, creditoGravado)
+        const base = resolverFlagsDoItem(contextoDoCredito, {})
         // VEDADO é o terceiro estado: há imposto na operação e a lei proíbe o crédito. Ele
         // trava os cinco botões com o motivo à vista, e não some o bloco — sumir afirmaria
         // que não houve imposto.
@@ -361,7 +392,7 @@ export default function CashFlow() {
         return Object.fromEntries(TRIBUTOS_CREDITAVEIS.map((t) => [t, {
             ativo: false, vedado: true, motivo: naturezaDoLancamento.motivo ?? '', origem: 'vedacao' as const,
         }])) as typeof base
-    }, [contextoDoCredito, creditoGravado, naturezaDoLancamento.estado, naturezaDoLancamento.motivo])
+    }, [contextoDoCredito, naturezaDoLancamento.estado, naturezaDoLancamento.motivo])
 
     /**
      * §4 — OS VALORES DA COMPRA, montados UMA vez.
@@ -379,9 +410,54 @@ export default function CashFlow() {
         ibsPct: taxaIbs ?? null,
     }), [expenseAmount, taxaIcms, taxaPisCofins, taxaIpi, taxaCbs, taxaIbs])
 
+    /*
+      §5.3 — OS QUATRO CAMPOS DO BLOCO DE CUSTO, EM R$.
+
+      Só R$, sem seletor de percentual: ST e FCP vêm em VALOR na nota (vICMSST,
+      vFCPUFDest), o DIFAL é resultado de base dupla e a parcela não creditável do IPI não
+      tem base própria. Um seletor de % aqui convidaria a digitar "4%" e produziria um
+      número que a nota não tem.
+    */
+    const valorIpiCusto = Form.useWatch('valor_ipi_custo', form)
+    const valorIcmsSt = Form.useWatch('valor_icms_st', form)
+    const valorDifal = Form.useWatch('valor_difal', form)
+    const valorFcp = Form.useWatch('valor_fcp', form)
+
+    /** `null` e não `0`: campo vazio é campo vazio, e a nota não afirma nada sobre ele. */
+    const soNumero = (v: unknown): number | null =>
+        v == null || v === '' || Number.isNaN(Number(v)) ? null : Number(v)
+
+    const blocoDeCustoDaNota = useMemo(() => ({
+        ipiCusto: soNumero(valorIpiCusto),
+        icmsSt: soNumero(valorIcmsSt),
+        difal: soNumero(valorDifal),
+        fcp: soNumero(valorFcp),
+    }), [valorIpiCusto, valorIcmsSt, valorDifal, valorFcp])
+
     const custoDoLancamento = useMemo(
-        () => calcularCustoDoItem(valoresDaCompra, bandeirasDoLancamento),
-        [valoresDaCompra, bandeirasDoLancamento])
+        () => calcularCustoDoItem({
+            ...valoresDaCompra,
+            // Os quatro entram na CONTA pelo mesmo caminho do item: o motor é um só.
+            ipiCustoValor: blocoDeCustoDaNota.ipiCusto,
+            icmsSt: blocoDeCustoDaNota.icmsSt,
+            difalValor: blocoDeCustoDaNota.difal,
+            fcp: blocoDeCustoDaNota.fcp,
+        }, bandeirasDoLancamento),
+        [valoresDaCompra, blocoDeCustoDaNota, bandeirasDoLancamento])
+
+    /**
+     * §5 — O TOTAL DA NOTA, e é ELE que vai para o caixa.
+     *
+     * >>> A NOTA E O CAIXA DISCORDAVAM SOBRE A MESMA COMPRA <<<
+     * O valor digitado ia direto para `amount`, e o IPI ficava só no custo teórico. Quem
+     * comprou R$ 1.000,00 de produto com R$ 100,00 de IPI pagou R$ 1.100,00 ao fornecedor —
+     * e o caixa registrava mil.
+     */
+    const totalDaNotaDoLancamento = useMemo(() => totalDaNota({
+        produtos: parseCurrencyFn(expenseAmount),
+        ipiCredito: custoDoLancamento.creditos.IPI,
+        bloco: blocoDeCustoDaNota,
+    }), [expenseAmount, custoDoLancamento, blocoDeCustoDaNota])
     // §6 — os dois campos só aparecem nas categorias do bloco Compromissos Financeiros.
     const isCompromissoFinanceiro = ehCompromissoFinanceiro(selectedExpenseCategory)
     const compSeparacao = separarJurosEPrincipal({
@@ -457,6 +533,113 @@ export default function CashFlow() {
             messageApi.error(error instanceof Error ? error.message : 'Erro ao excluir venda')
         } finally {
             setExcluindoVenda(false)
+        }
+    }
+
+    /**
+     * §6 — EXCLUSÃO DE SÉRIE.
+     *
+     * A tela manda `id` e `escopo`, e MAIS NADA. Quem decide quais lançamentos saem é o
+     * servidor, relendo a série: uma lista montada aqui é a que apaga a parcela que alguém
+     * pagou entre o clique e o confirm.
+     */
+    const [excluindoSerie, setExcluindoSerie] = useState(false)
+    const [pagasDaSerie, setPagasDaSerie] = useState<{ id: string; due_date: string; amount: number }[]>([])
+    const [estornando, setEstornando] = useState(false)
+    const [dataDoEstorno, setDataDoEstorno] = useState<Dayjs>(dayjs())
+
+    const excluirLancamento = async (escopo: 'SERIE' | 'SO_ESTE') => {
+        if (!paymentEntry) return
+        setExcluindoSerie(true)
+        try {
+            const r = await fetch('/api/delete/cash-entry-series', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: paymentEntry.id, escopo }),
+            })
+            const j = await r.json()
+            if (r.status === 409) {
+                // O VETO. A tela NÃO insiste: ela mostra as pagas e oferece os dois caminhos.
+                setPagasDaSerie(j.pagas ?? [])
+                messageApi.warning(j.error || 'A série tem parcela paga.')
+                return
+            }
+            if (!r.ok) throw new Error(j.error || 'Erro ao excluir')
+            messageApi.success(
+                `${j.desativadas} lançamento(s) excluído(s).` + (j.nota_desativada ? ' A nota de compra saiu junto.' : ''),
+            )
+            setPaymentModalOpen(false)
+            setPagasDaSerie([])
+            await fetchData()
+        } catch (err: any) {
+            messageApi.error(err?.message || 'Erro ao excluir lançamento')
+        } finally {
+            setExcluindoSerie(false)
+        }
+    }
+
+    /**
+     * §6.6 — O ESTORNO. O pagamento OCORREU e foi desfeito.
+     *
+     * Ele NÃO limpa `paid_date`: isso é o "Cancelar Pagamento", que é outra ação e existe
+     * ao lado. Aqui o espelho é lançado na data do estorno, e o mês original fica intacto.
+     */
+    const estornarLancamento = async () => {
+        if (!paymentEntry) return
+        setEstornando(true)
+        try {
+            const tenant_id = await getTenantId()
+            const data = dataDoEstorno.format('YYYY-MM-DD')
+            const espelho = espelhoDoEstorno({
+                id: paymentEntry.id,
+                tenant_id,
+                type: paymentEntry.type === 'INCOME' ? 'INCOME' : 'EXPENSE',
+                amount: Number(paymentEntry.amount) || 0,
+                description: paymentEntry.description,
+                paid_date: paymentEntry.paid_date,
+                expense_category: paymentEntry.expense_category ?? null,
+                expense_group: paymentEntry.expense_group ?? null,
+            }, data)
+
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const db = supabase as any
+            const { data: criado, error: erroEspelho } = await db
+                .from('cash_entries').insert(espelho).select('id').single()
+            if (erroEspelho) throw erroEspelho
+
+            // O original recebe os dois ponteiros. `paid_date` PERMANECE.
+            const { error: erroOriginal } = await db.from('cash_entries')
+                .update({ reversed_at: data, reversal_entry_id: criado?.id ?? null })
+                .eq('id', paymentEntry.id).eq('tenant_id', tenant_id)
+            if (erroOriginal) throw erroOriginal
+
+            /*
+              A NOTA só é dada por estornada quando NENHUMA entrada dela segue viva. Uma
+              parcela ainda de pé significa que parte da compra continua, e o crédito com ela.
+            */
+            if (paymentEntry.purchase_invoice_id) {
+                const { data: irmas } = await db.from('cash_entries')
+                    .select('id, due_date, amount, paid_date, is_active, reversed_at')
+                    .eq('tenant_id', tenant_id)
+                    .eq('purchase_invoice_id', paymentEntry.purchase_invoice_id)
+                const lista = ((irmas ?? []) as any[]).map((e) => ({
+                    ...e,
+                    reversed_at: e.id === paymentEntry.id ? data : e.reversed_at,
+                }))
+                if (notaEstaEstornada(lista)) {
+                    await db.from('purchase_invoices')
+                        .update({ reversed_at: data })
+                        .eq('id', paymentEntry.purchase_invoice_id).eq('tenant_id', tenant_id)
+                }
+            }
+
+            messageApi.success('Estorno lançado. O pagamento original continua registrado.')
+            setPaymentModalOpen(false)
+            await fetchData()
+        } catch (err: any) {
+            messageApi.error('Erro ao estornar: ' + (err?.message || ''))
+        } finally {
+            setEstornando(false)
         }
     }
 
@@ -931,6 +1114,27 @@ export default function CashFlow() {
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const entries: any[] = []
 
+                /**
+                 * §7 — O GRUPO DA SÉRIE, gerado UMA vez e gravado em TODAS as parcelas.
+                 *
+                 * Ele é o que permite excluir a série sem adivinhar quem são as irmãs. Gerar
+                 * dentro de cada caminho do `insert` produziria dois grupos para o mesmo
+                 * lançamento no dia em que alguém mexesse num só — é o mesmo `for` da cópia
+                 * divergente.
+                 */
+                const grupoDaSerie = typeof crypto !== 'undefined' && crypto.randomUUID
+                    ? crypto.randomUUID()
+                    : `${Date.now()}-${Math.random().toString(16).slice(2)}`
+
+                /**
+                 * §5 — O QUE VAI PARA O CAIXA É O TOTAL DA NOTA.
+                 *
+                 * Sem bloco de imposto (guia, compromisso financeiro, despesa comum) ele é
+                 * EXATAMENTE o valor digitado — e é isso que o oráculo A afirma, centavo a
+                 * centavo, sobre o `amount` gravado.
+                 */
+                const totalParaOCaixa = temBlocoDeImposto ? totalDaNotaDoLancamento.total : amountNum
+
                 if (useManualInstallments) {
                     const validInst = expInstallments.filter(r => r.date && r.amount > 0)
                     if (validInst.length === 0) {
@@ -939,6 +1143,15 @@ export default function CashFlow() {
                     }
                     const today = dayjs().startOf('day')
                     const totalInst = validInst.reduce((s, r) => s + r.amount, 0)
+                    /**
+                     * As parcelas DIGITADAS viram PESOS, e o rateio é do Total da nota.
+                     *
+                     * Quem pôs 30% na entrada continua com 30% — da nota inteira, não do
+                     * valor dos produtos. Manter os valores digitados faria a soma das
+                     * parcelas ficar abaixo do total, e a diferença não apareceria em lugar
+                     * nenhum.
+                     */
+                    const valoresRateados = ratearParcelas(totalParaOCaixa, validInst.map((i) => i.amount))
                     validInst.forEach((inst, idx) => {
                         const ratio = totalInst > 0 ? inst.amount / totalInst : 1 / validInst.length
                         // Métodos à vista (não Boleto/Cheque Pré-datado) com vencimento hoje/passado
@@ -952,7 +1165,8 @@ export default function CashFlow() {
                             origin_type: 'MANUAL',
                             recurrence_type: 'ONCE',
                             description: validInst.length > 1 ? `${desc} (${idx + 1}/${validInst.length})` : desc,
-                            amount: inst.amount,
+                            amount: valoresRateados[idx],
+                            installment_group_id: grupoDaSerie,
                             due_date: inst.date.format('YYYY-MM-DD'),
                             expense_group: expenseGroup,
                             expense_category: values.expense_category,
@@ -969,7 +1183,10 @@ export default function CashFlow() {
                         })
                     })
                 } else {
-                    const parcelValue = parcelas === 1 ? amountNum : Math.round((amountNum / parcelas) * 100) / 100
+                    // A sobra de arredondamento vai para a ÚLTIMA parcela: `1.172,00 ÷ 3`
+                    // arredondado em cada uma daria 1.172,01, e a nota cobraria um centavo
+                    // que ela não tem.
+                    const valoresRateados = ratearParcelas(totalParaOCaixa, Array.from({ length: parcelas }, () => 1))
                     const today = dayjs().startOf('day')
                     for (let i = 0; i < parcelas; i++) {
                         const due = startDate.add(i, 'month')
@@ -982,7 +1199,8 @@ export default function CashFlow() {
                             origin_type: 'MANUAL',
                             recurrence_type: 'ONCE',
                             description: parcelas > 1 ? `${desc} (${i + 1}/${parcelas})` : desc,
-                            amount: parcelValue,
+                            amount: valoresRateados[i],
+                            installment_group_id: grupoDaSerie,
                             due_date: due.format('YYYY-MM-DD'),
                             expense_group: expenseGroup,
                             expense_category: values.expense_category,
@@ -1034,7 +1252,19 @@ export default function CashFlow() {
                             credit_date_estimated: false,
                             expense_nature: naturezaDoLancamento.destinacao,
                             expense_category: values.expense_category,
-                            total_amount: parseCurrencyFn(expenseAmount),
+                            // §5 — o TOTAL DA NOTA, não o valor dos produtos: é ele que o
+                            // fornecedor cobrou e é ele que o caixa registra.
+                            total_amount: totalDaNotaDoLancamento.total,
+                            /*
+                              §5 — OS QUATRO DO BLOCO DE CUSTO SÃO GRAVADOS NA NOTA, e NÃO
+                              rateados por parcela: eles são fato do DOCUMENTO. Ratear o
+                              ICMS-ST em seis inventaria seis frações de um número que a nota
+                              traz uma vez só.
+                            */
+                            valor_ipi_custo: blocoDeCustoDaNota.ipiCusto,
+                            valor_icms_st: blocoDeCustoDaNota.icmsSt,
+                            valor_difal: blocoDeCustoDaNota.difal,
+                            valor_fcp: blocoDeCustoDaNota.fcp,
                             credit_icms: c.ICMS,
                             credit_pis_cofins: c.PIS_COFINS,
                             credit_ipi: c.IPI,
@@ -1825,7 +2055,6 @@ export default function CashFlow() {
                                 setSelectedExpenseCategory(v || '')
                                 setCompJuros('')
                                 setCompPrincipal('')
-                                setCreditoGravado({})
                                 setFormatoDeEntrada({})
                                 // A sugestão do §5: mês ANTERIOR ao vencimento. Ela aparece
                                 // no campo, onde o usuário a vê e pode corrigi-la.
@@ -1838,7 +2067,13 @@ export default function CashFlow() {
                     <Form.Item name="expense_description" label="Descrição (opcional)">
                         <Input placeholder="Ex: Conta de luz da loja" />
                     </Form.Item>
-                    <Form.Item label="Valor Total" required>
+                    {/*
+                      §5 — O RÓTULO PASSA A DIZER O QUE O CAMPO É.
+                      "Valor Total" e o total da nota não eram a mesma coisa, e o campo
+                      chamava de total o que é apenas a parcela dos produtos. É o contrato
+                      que `ValoresDaCompra.base` já documenta: SEM IPI, ST, DIFAL e FCP.
+                    */}
+                    <Form.Item label={temBlocoDeImposto ? 'Valor dos produtos (sem IPI, ST, DIFAL e FCP)' : 'Valor Total'} required>
                         <Input
                             prefix="R$"
                             placeholder="0,00"
@@ -1855,6 +2090,42 @@ export default function CashFlow() {
                             }}
                         />
                     </Form.Item>
+                    {/*
+                      §5 — A LINHA QUE FECHA A NOTA, em leitura.
+
+                      Ela não é editável e não entra em soma nenhuma além da sua: é a
+                      decomposição do número que vai para o caixa, para que o usuário veja
+                      POR QUE a parcela não é o que ele digitou. Sem ela, o `amount` mudaria
+                      de significado sem nada na tela dizer isso.
+
+                      As linhas vêm de `linhasDoTotalDaNota`, que é onde a soma mora. Montar
+                      a lista aqui somaria de novo, e bastaria esquecer o FCP num dos dois
+                      lados para os números discordarem.
+                    */}
+                    {temBlocoDeImposto && (
+                        <div style={{ marginBottom: 16, padding: '12px 14px', background: 'rgba(148,163,184,0.06)', border: '1px solid rgba(148,163,184,0.2)', borderRadius: 8 }}>
+                            {linhasDoTotalDaNota(totalDaNotaDoLancamento).map((l) => (
+                                <div
+                                    key={l.rotulo}
+                                    style={{
+                                        display: 'flex', justifyContent: 'space-between',
+                                        fontSize: l.ehTotal ? 14 : 13,
+                                        fontWeight: l.ehTotal ? 700 : 400,
+                                        color: l.ehTotal ? '#e2e8f0' : '#94a3b8',
+                                        paddingTop: l.ehTotal ? 8 : 2,
+                                        marginTop: l.ehTotal ? 6 : 0,
+                                        borderTop: l.ehTotal ? '1px solid rgba(148,163,184,0.25)' : undefined,
+                                    }}
+                                >
+                                    <span>{l.rotulo}</span>
+                                    <span>{brl(l.valor)}</span>
+                                </div>
+                            ))}
+                            <div style={{ fontSize: 11, color: '#64748b', marginTop: 8 }}>
+                                É o Total da nota que vai para o caixa e é dividido nas parcelas.
+                            </div>
+                        </div>
+                    )}
                     {/*
                       §5 — AS CONDIÇÕES DE PAGAMENTO VÊM LOGO APÓS O VALOR TOTAL.
 
@@ -2129,13 +2400,52 @@ export default function CashFlow() {
                                 </div>
                             )}
                             <PurchaseTaxCredits
+                                modo="posicao"
                                 visivel
                                 semDestinacao
                                 titulo={`Impostos da despesa — ${naturezaDoLancamento.destinacao === 'INSUMO' ? 'insumo' : naturezaDoLancamento.destinacao === 'REVENDA' ? 'revenda' : 'uso e consumo'}`}
                                 bandeiras={bandeirasDoLancamento}
                                 custo={custoDoLancamento}
-                                onToggle={(t, v) => setCreditoGravado((prev) => ({ ...prev, [t]: v }))}
+                                /* Sem switch no modo 'posicao': o callback existe no contrato e não é
+                                   acionado. Um `setState` aqui seria a segunda fonte que o §5.1 tirou. */
+                                onToggle={() => { /* a POSIÇÃO é a decisão — não há botão */ }}
                                 onRecalc={() => { /* o cálculo é derivado do `Form.useWatch` */ }}
+                                rodapeDoIpi={(
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#94a3b8', padding: '8px 0 2px' }}>
+                                        <span>IPI da nota</span>
+                                        <span>
+                                            crédito <strong style={{ color: '#22C55E' }}>{brl(custoDoLancamento.creditos.IPI)}</strong>
+                                            {'  +  '}
+                                            custo <strong style={{ color: '#fca5a5' }}>{brl(custoDoLancamento.valores.ipiCusto)}</strong>
+                                            {'  =  '}
+                                            <strong style={{ color: '#e2e8f0' }}>{brl(totalDaNotaDoLancamento.ipiDaNota)}</strong>
+                                        </span>
+                                    </div>
+                                )}
+                                blocoDeCusto={(
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginTop: 10 }}>
+                                        {CAMPOS_DO_BLOCO_DE_CUSTO.map((c) => (
+                                            <Form.Item key={c.name} name={c.name} label={(
+                                                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                    {c.label}
+                                                    <Tooltip title={c.ajuda}><InfoCircleOutlined style={{ color: '#64748b' }} /></Tooltip>
+                                                </span>
+                                            )} style={{ marginBottom: 0 }}>
+                                                {/* Sem `initialValue`: vazio é vazio, e a nota não afirma
+                                                    que o tributo incidiu e deu zero. */}
+                                                <InputNumber
+                                                    min={0} step={0.01} precision={2} style={{ width: '100%' }}
+                                                    placeholder="não informado"
+                                                    formatter={(v: unknown) => (v == null || v === '' ? '' : 'R$ ' + Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }))}
+                                                    parser={(v?: string) => {
+                                                        const r = String(v ?? '').replace('R$', '').replace(/\s/g, '').replace(/\./g, '').replace(',', '.').trim()
+                                                        return (r === '' ? null : Number(r)) as unknown as number
+                                                    }}
+                                                />
+                                            </Form.Item>
+                                        ))}
+                                    </div>
+                                )}
                                 /*
                                   §4 — OS CINCO ENTRAM PELA MESMA COSTURA.
                                   CBS e IBS caíam no `PercentInput` padrão do componente, que
@@ -2323,6 +2633,98 @@ export default function CashFlow() {
                                     <Tooltip title="Exclui a venda de origem e toda a cadeia. Venda com pagamento registrado não pode ser excluída.">
                                         <Button danger loading={excluindoVenda}>Excluir venda</Button>
                                     </Tooltip>
+                                </Popconfirm>
+                            )}
+                            {/*
+                              §6.1 — EXCLUIR, e SÓ quando não vem de venda.
+                              Lançamento de venda continua exclusivamente com "Excluir venda":
+                              caixa e venda não podem discordar sobre o mesmo fato, e a
+                              decisão registrada acima permanece de pé.
+                            */}
+                            {paymentEntry.origin_type !== 'SALE' && (
+                                <Popconfirm
+                                    title={vinculoDaSerie(paymentEntry) === 'SOZINHO' ? 'Excluir este lançamento?' : 'Excluir a série inteira?'}
+                                    description={(
+                                        <div style={{ maxWidth: 380 }}>
+                                            {vinculoDaSerie(paymentEntry) === 'SOZINHO' ? (
+                                                <p style={{ marginBottom: 6 }}>{AVISO_SEM_VINCULO}</p>
+                                            ) : (
+                                                <p style={{ marginBottom: 6 }}>
+                                                    Todas as parcelas {vinculoDaSerie(paymentEntry) === 'NOTA' ? 'desta nota' : 'deste lançamento'} serão
+                                                    excluídas juntas. Nenhuma pode estar paga.
+                                                </p>
+                                            )}
+                                            {/*
+                                              AS PAGAS, com data e valor — elas só aparecem DEPOIS do
+                                              veto, porque é o servidor que as descobre. Listá-las antes
+                                              exigiria montar a série aqui, que é o que o §6.5 proíbe.
+                                            */}
+                                            {pagasDaSerie.length > 0 && (
+                                                <div style={{ marginTop: 6, padding: 8, background: 'rgba(220,38,38,0.08)', borderRadius: 6 }}>
+                                                    <div style={{ fontWeight: 600, color: '#fca5a5', marginBottom: 4 }}>
+                                                        Parcelas pagas — a série não pode ser excluída:
+                                                    </div>
+                                                    {pagasDaSerie.map((p) => (
+                                                        <div key={p.id} style={{ fontSize: 12 }}>
+                                                            {dayjs(p.due_date).format('DD/MM/YYYY')} — {brl(p.amount)}
+                                                        </div>
+                                                    ))}
+                                                    <div style={{ fontSize: 12, marginTop: 6 }}>
+                                                        Use <strong>Excluir só este vencimento</strong> no pendente, ou <strong>Estornar</strong> em cada paga.
+                                                    </div>
+                                                </div>
+                                            )}
+                                            <p style={{ marginTop: 8, marginBottom: 0, fontSize: 12, color: '#94a3b8' }}>
+                                                A exclusão é por desativação: o histórico não é apagado.
+                                            </p>
+                                        </div>
+                                    )}
+                                    onConfirm={() => void excluirLancamento('SERIE')}
+                                    onCancel={() => { if (pagasDaSerie.length > 0 && !paymentEntry.paid_date) void excluirLancamento('SO_ESTE') }}
+                                    okText={vinculoDaSerie(paymentEntry) === 'SOZINHO' ? 'Excluir' : 'Excluir a série'}
+                                    cancelText={pagasDaSerie.length > 0 && !paymentEntry.paid_date ? 'Excluir só este vencimento' : 'Voltar'}
+                                    okButtonProps={{ danger: true }}
+                                >
+                                    <Button danger loading={excluindoSerie}>Excluir</Button>
+                                </Popconfirm>
+                            )}
+                            {/*
+                              §6.6 — ESTORNAR é diferente de CANCELAR PAGAMENTO, e os textos
+                              dizem isso: cancelar é "nunca ocorreu"; estornar é "ocorreu e foi
+                              desfeito". O estorno NÃO limpa `paid_date`.
+                            */}
+                            {paymentEntry.paid_date && paymentEntry.origin_type !== 'SALE' && !paymentEntry.reversed_at && (
+                                <Popconfirm
+                                    title="Estornar este pagamento?"
+                                    description={(
+                                        <div style={{ maxWidth: 380 }}>
+                                            <p style={{ marginBottom: 6 }}>
+                                                O pagamento OCORREU e está sendo desfeito — devolução, nota cancelada, chargeback.
+                                                Um lançamento espelho será criado na data do estorno.
+                                            </p>
+                                            <p style={{ marginBottom: 6, fontSize: 12, color: '#94a3b8' }}>
+                                                O pagamento original continua registrado. Se ele nunca ocorreu, use
+                                                <strong> Cancelar Pagamento</strong> em vez disto.
+                                            </p>
+                                            <div style={{ marginTop: 8 }}>
+                                                <span style={{ fontSize: 12, color: '#94a3b8', marginRight: 8 }}>Data do estorno</span>
+                                                <DatePicker
+                                                    size="small" format="DD/MM/YYYY" allowClear={false}
+                                                    value={dataDoEstorno}
+                                                    onChange={(d) => setDataDoEstorno(d ?? dayjs())}
+                                                />
+                                            </div>
+                                            <p style={{ marginTop: 8, marginBottom: 0, fontSize: 12, color: '#fca5a5' }}>
+                                                Estorno não tem desfazer. Estornar um estorno é lançar de novo.
+                                            </p>
+                                        </div>
+                                    )}
+                                    onConfirm={() => void estornarLancamento()}
+                                    okText="Estornar"
+                                    cancelText="Voltar"
+                                    okButtonProps={{ danger: true }}
+                                >
+                                    <Button danger loading={estornando}>Estornar</Button>
                                 </Popconfirm>
                             )}
                             {paymentEntry.paid_date && (

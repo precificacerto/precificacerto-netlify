@@ -37,6 +37,14 @@ export interface NotaDeCompra {
   /** A data em que a nota foi LIQUIDADA — só ela importa quando o split payment operar. */
   settlementDate?: string | null
   origin: 'NOVO' | 'LEGADO'
+  /**
+   * Data do ESTORNO da nota, quando houve. `null` = não estornada.
+   *
+   * A nota estornada FICA na lista, riscada: ela existiu e creditou, e o crédito dela foi
+   * desfeito no mês do estorno. Sumir com ela apagaria o fato — e a apuração do mês de
+   * origem, que não muda, deixaria de ter de onde ser reconciliada.
+   */
+  reversedAt?: string | null
   creditos: Partial<Record<TributoDoCredito, number | null>>
   /**
    * As parcelas que pagam esta nota — §5 do comando de 21/09/2026.
