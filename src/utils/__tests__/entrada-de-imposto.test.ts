@@ -23,6 +23,7 @@ import {
   baseDisponivel,
   formatoGravado,
   MENSAGEM_SEM_BASE,
+  FORMATO_PADRAO,
   CASAS_DA_ALIQUOTA,
   CASAS_DO_VALOR,
   type FormatoDaEntrada,
@@ -293,9 +294,18 @@ describe('O formato gravado reabre do jeito que foi digitado', () => {
     expect(r.aliquotaPct).toBeCloseTo(18, 4)
   })
 
-  it('>>> formato AUSENTE cai em % — o padrão, e não uma escolha que ninguém fez <<<', () => {
-    expect(entradaParaReabertura({ aliquotaPct: 18, formato: null }, 10000).formato).toBe('PCT')
-    expect(entradaParaReabertura({ aliquotaPct: 18 }, 10000).formato).toBe('PCT')
+  /**
+   * >>> O PADRÃO MUDOU EM 24/09/2026: de 'PCT' para 'BRL' (§7.1) <<<
+   *
+   * Os valores vêm destacados na nota, e o percentual é a exceção. O que este caso protege
+   * NÃO mudou: o formato GRAVADO vence o padrão, seja ele qual for. Fixar `'PCT'` como
+   * resposta seria fixar o padrão da época em vez do critério que o produziu.
+   */
+  it('>>> formato AUSENTE cai no PADRÃO — e a escolha gravada sempre vence <<<', () => {
+    expect(entradaParaReabertura({ aliquotaPct: 18, formato: null }, 10000).formato).toBe(FORMATO_PADRAO)
+    expect(entradaParaReabertura({ aliquotaPct: 18 }, 10000).formato).toBe(FORMATO_PADRAO)
+    // E o gravado NÃO cai no padrão: é ele que manda.
+    expect(entradaParaReabertura({ aliquotaPct: 18, formato: 'PCT' }, 10000).formato).toBe('PCT')
     expect(formatoGravado('LIXO')).toBeNull()
     expect(formatoGravado('BRL')).toBe('BRL')
     expect(formatoGravado('PCT')).toBe('PCT')
@@ -394,7 +404,16 @@ describe('>>> A conversão mora na BORDA, e a conta do imposto em UM lugar só <
       .filter((f) => importa(fs.readFileSync(f, 'utf8')))
       .map((f) => path.relative(process.cwd(), f))
       .sort()
-    expect(consumidores).toEqual(['src/utils/entrada-de-imposto.ts'])
+    /*
+      `nota-de-compra.ts` entrou em 24/09/2026 e NÃO é tela: ele é o descascamento, e o §6
+      manda que ele LEIA a base do motor em vez de recompô-la. A proibição que este caso
+      guarda continua inteira — nenhuma PÁGINA e nenhum COMPONENTE importa `baseDoTributo`.
+    */
+    expect(consumidores).toEqual([
+      'src/utils/entrada-de-imposto.ts',
+      'src/utils/nota-de-compra.ts',
+    ])
+    expect(consumidores.some((f) => f.startsWith('src/pages/') || f.startsWith('src/components/'))).toBe(false)
     // E ela é DEFINIDA na função pura, que é onde a conta mora.
     expect(ler('src/utils/custo-liquido-do-item.ts')).toMatch(/export function baseDoTributo\b/)
   })
@@ -549,7 +568,8 @@ describe('O seletor é POR LINHA', () => {
   it('>>> trocar o formato do ICMS não muda o do PIS/COFINS <<<', () => {
     const estado: Partial<Record<TributoCreditavel, FormatoDaEntrada>> = { ICMS: 'BRL' }
     expect(estado.ICMS).toBe('BRL')
-    expect(entradaParaReabertura({ aliquotaPct: 9.25, formato: estado.PIS_COFINS ?? null }, 8200).formato).toBe('PCT')
+    // A linha que ninguém tocou fica no PADRÃO; a tocada, no que foi escolhido.
+    expect(entradaParaReabertura({ aliquotaPct: 9.25, formato: estado.PIS_COFINS ?? null }, 8200).formato).toBe(FORMATO_PADRAO)
   })
 
   it('>>> e o imposto calculado é o mesmo com formatos MISTOS <<<', () => {

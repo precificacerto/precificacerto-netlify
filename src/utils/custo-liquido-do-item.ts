@@ -81,6 +81,34 @@ export interface ValoresDaCompra {
    */
   difalValor?: number | null
   /**
+   * FATIA do valor da mercadoria que está em SUBSTITUIÇÃO TRIBUTÁRIA, em R$.
+   *
+   * >>> FATIA, E NÃO UMA CHAVE "É ST" <<<
+   * Uma nota com dez itens pode ter dois em ST e oito não. Uma chave decidiria pela NOTA
+   * inteira um fato que é do ITEM, e o erro sairia como crédito a mais ou a menos na nota
+   * mista — que é a regra, não a exceção.
+   *
+   * Ela sai da base do ICMS, e SÓ dela. Nunca sai do total: o valor foi pago.
+   */
+  parcelaSt?: number | null
+  /**
+   * FATIA do valor da mercadoria sujeita ao regime MONOFÁSICO, em R$.
+   *
+   * Sai da base do PIS/COFINS, e só dela. Nota inteiramente monofásica: a fatia é o valor
+   * todo, e o crédito sai zero pela própria conta — sem botão, sem caso especial.
+   */
+  parcelaMonofasica?: number | null
+  /**
+   * BASE MANUAL do ICMS, em R$. `null` = usar a base nativa.
+   *
+   * Quando informada, ela é usada COMO ESTÁ. O ICMS não é deduzido de novo dela, e nem a
+   * fatia em ST: quem digita uma base já a digitou pronta, e "corrigi-la" seria o sistema
+   * discordando do número que o usuário leu no documento.
+   */
+  baseManualIcms?: number | null
+  /** BASE MANUAL do PIS/COFINS, em R$. `null` = base nativa. Mesma regra. */
+  baseManualPisCofins?: number | null
+  /**
    * A parcela do IPI que NÃO gera crédito — revenda, uso e consumo. Custo, nunca crédito.
    *
    * Ela convive com `ipiPct` na MESMA nota, e isso é caso normal: uma nota pode trazer item
@@ -169,8 +197,46 @@ const CST_ICMS_COM_CREDITO = new Set(['00', '10', '20', '70'])
 const CST_ICMS_SEM_CREDITO = new Set(['40', '41', '50', '60'])
 const CST_IPI_COM_CREDITO = new Set(['00', '49'])
 const CST_IPI_SEM_CREDITO = new Set(['01', '02', '03', '05'])
-const CST_PIS_COFINS_COM_CREDITO = new Set(['50', '51', '52', '53', '54', '55', '56'])
-const CST_PIS_COFINS_SEM_CREDITO = new Set(['70', '71', '72', '73', '74', '75', '98', '99'])
+/**
+ * >>> AS LISTAS DE PIS/COFINS, CORRIGIDAS EM 24/09/2026 — É DINHEIRO, NÃO ORGANIZAÇÃO <<<
+ *
+ * Até aqui: com crédito 50–56; sem crédito 70–75, 98 e 99. Os CST **02 a 09 estavam FORA
+ * das duas listas**, e "fora da lista" significa "desconhecido, não bloqueia" — então uma
+ * nota MONOFÁSICA (CST 04) creditava PIS/COFINS que não existe.
+ *
+ * | CST | o que é | credita? |
+ * |---|---|---|
+ * | 01 | operação tributável, alíquota básica | **sim** |
+ * | 02, 03 | alíquota diferenciada / por unidade — carga concentrada no fabricante | não |
+ * | 04 | **monofásica, revenda a alíquota zero** | não |
+ * | 05 | substituição tributária de PIS/COFINS | não |
+ * | 06 | alíquota zero | não |
+ * | 07, 08, 09 | isenta, sem incidência, suspensão | não |
+ * | 50–56 | operações com direito a crédito | **sim** |
+ * | 70–75, 98, 99 | sem direito a crédito / outras | não |
+ *
+ * O 02 e o 03 não creditam para o ADQUIRENTE QUE REVENDE porque a carga já foi concentrada
+ * no fabricante — STJ, Tema 1.093, Primeira Seção, 04/05/2022.
+ *
+ * As listas de ICMS e de IPI NÃO foram tocadas.
+ */
+const CST_PIS_COFINS_COM_CREDITO = new Set(['01', '50', '51', '52', '53', '54', '55', '56'])
+const CST_PIS_COFINS_SEM_CREDITO = new Set([
+  '02', '03', '04', '05', '06', '07', '08', '09',
+  '70', '71', '72', '73', '74', '75', '98', '99',
+])
+
+/** A razão de cada CST que veda — o motivo exibido cita o código E o porquê. */
+export const RAZAO_DO_CST_PIS_COFINS: Record<string, string> = {
+  '02': 'alíquota diferenciada — carga concentrada no fabricante (STJ, Tema 1.093)',
+  '03': 'alíquota por unidade — carga concentrada no fabricante (STJ, Tema 1.093)',
+  '04': 'operação monofásica, revenda a alíquota zero',
+  '05': 'substituição tributária de PIS/COFINS',
+  '06': 'alíquota zero',
+  '07': 'operação isenta da contribuição',
+  '08': 'operação sem incidência da contribuição',
+  '09': 'operação com suspensão da contribuição',
+}
 
 const norm = (cst: unknown): string | null => {
   const s = String(cst ?? '').trim()
@@ -196,7 +262,7 @@ export function cstIpiGeraCredito(cst: unknown): boolean | null {
   return decide(cst, CST_IPI_COM_CREDITO, CST_IPI_SEM_CREDITO)
 }
 
-/** CST 50 a 56 creditam; 70 a 75 e 98/99 não. */
+/** 01 e 50–56 creditam; 02–09, 70–75, 98 e 99 não. Ver a tabela acima. */
 export function cstPisCofinsGeraCredito(cst: unknown): boolean | null {
   return decide(cst, CST_PIS_COFINS_COM_CREDITO, CST_PIS_COFINS_SEM_CREDITO)
 }
@@ -320,7 +386,11 @@ export function resolverFlagsDoItem(
       return {
         ativo: false,
         vedado: true,
-        motivo: `CST ${cst} na nota de compra não admite crédito de ${t === 'PIS_COFINS' ? 'PIS/COFINS' : t}.`,
+        motivo: t === 'PIS_COFINS' && cst && RAZAO_DO_CST_PIS_COFINS[cst]
+          // O CÓDIGO SOZINHO NÃO ENSINA NADA. "CST 04" faz o usuário procurar uma tabela;
+          // "CST 04 — operação monofásica" diz por que aquele crédito não existe.
+          ? `CST ${cst} — ${RAZAO_DO_CST_PIS_COFINS[cst]}. Não admite crédito de PIS/COFINS.`
+          : `CST ${cst} na nota de compra não admite crédito de ${t === 'PIS_COFINS' ? 'PIS/COFINS' : t}.`,
         origem: 'vedacao',
         tipoVedacao: 'CST',
       }
@@ -417,8 +487,11 @@ function calcularDifal(base: number, origemPct: number, destinoPct: number): num
  * Extraída para que `baseDoTributo` e a conta leiam o MESMO número. Duas escritas dela
  * seriam a cópia divergente com a pior assinatura: o diferimento entraria numa e não na
  * outra, e a diferença apareceria como base do PIS/COFINS, não como erro.
+ *
+ * EXPORTADA em 24/09/2026 (§5.2) para que `nota-de-compra.ts` a LEIA em vez de repetir a
+ * fórmula. A fórmula não mudou.
  */
-function icmsEfetivoPctDe(valores: ValoresDaCompra): number | null {
+export function icmsEfetivoPctDe(valores: ValoresDaCompra): number | null {
   const icmsPct = pct(valores.icmsPct)
   if (icmsPct == null) return null
   const deferidoPct = valores.icmsDeferidoAtivo ? (pct(valores.icmsDeferidoPct) ?? 0) : 0
@@ -443,9 +516,34 @@ function icmsEfetivoPctDe(valores: ValoresDaCompra): number | null {
  */
 export function baseDoTributo(valores: ValoresDaCompra, tributo: TributoCreditavel): number {
   const base = val(valores.base)
+
+  if (tributo === 'ICMS') {
+    /*
+      §5.3 — A BASE DO ICMS É A BASE MENOS A PARCELA EM ST.
+      O que está em ST já teve o imposto recolhido pelo substituto: não há o que apurar
+      sobre aquela fatia, e incluí-la produziria crédito sobre imposto que o adquirente
+      não pagou.
+    */
+    if (valores.baseManualIcms != null) return val(valores.baseManualIcms)
+    return base - val(valores.parcelaSt)
+  }
+
   if (tributo !== 'PIS_COFINS') return base
+
+  if (valores.baseManualPisCofins != null) return val(valores.baseManualPisCofins)
+  /*
+    >>> O ICMS QUE SAI É O DESTACADO, NÃO O CREDITADO — regra do #68, e ela continua <<<
+    O ICMS integra a base do PIS/COFINS porque está no PREÇO, e o preço não muda conforme o
+    adquirente credite ou não. Usar o creditado faria o valor do PIS/COFINS mudar quando o
+    usuário desligasse o botão do ICMS — dois tributos amarrados por uma decisão que só diz
+    respeito a um deles.
+
+    E a parcela MONOFÁSICA sai junto: sobre ela a contribuição já foi paga na origem.
+  */
   const p = icmsEfetivoPctDe(valores)
-  return base - (p == null ? 0 : base * p / 100)
+  const baseIcms = base - val(valores.parcelaSt)
+  const icmsDestacado = p == null ? 0 : baseIcms * p / 100
+  return base - icmsDestacado - val(valores.parcelaMonofasica)
 }
 
 /**
