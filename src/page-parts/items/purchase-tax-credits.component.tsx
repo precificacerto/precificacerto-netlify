@@ -17,6 +17,8 @@ import { getMonetaryValue } from '@/utils/get-monetary-value'
 import type {
   BandeirasDeCredito, CustoDoItem, DestinacaoItem, TributoCreditavel,
 } from '@/utils/custo-liquido-do-item'
+import { TRIBUTOS_CREDITAVEIS } from '@/utils/custo-liquido-do-item'
+import { ROTULO_DO_BLOCO, tributosPorBloco } from '@/utils/posicao-do-tributo'
 
 const fmt = (v: number | null | undefined) =>
   v == null ? '—' : `R$ ${getMonetaryValue(v)}`
@@ -110,10 +112,42 @@ interface Props {
   titulo?: string
   /** Esconde o seletor de destinação — no lançamento ele vem da natureza da despesa. */
   semDestinacao?: boolean
+  /**
+   * COMO A DECISÃO DE CRÉDITO É TOMADA.
+   *
+   * `'switch'` é o que existia: uma tabela, um botão por linha. `'posicao'` é o comando do
+   * PO de 23/09/2026 — DUAS metades, e a POSIÇÃO da linha é a decisão.
+   *
+   * O default é `'switch'` para que quem não passa a prop não mude de comportamento. Não é
+   * hesitação: é o que permite a mudança entrar tela a tela, com o mesmo componente, em vez
+   * de um arquivo copiado "para o bloco novo" — que seria `copia-divergente.md` nascendo no
+   * mesmo dia.
+   */
+  modo?: 'switch' | 'posicao'
+  /** As linhas do bloco de custo, em R$. Só no modo `'posicao'`. */
+  blocoDeCusto?: React.ReactNode
+  /**
+   * O rodapé do IPI: crédito + custo = o IPI da nota.
+   *
+   * Ele existe porque as duas parcelas convivem na MESMA nota e isso é caso normal, não
+   * erro: um documento pode trazer item para revenda e item para industrialização. Não há
+   * validação cruzada — o sistema não conhece o total do IPI do documento, e conferir contra
+   * um total que ninguém digitou recusaria lançamento correto.
+   */
+  rodapeDoIpi?: React.ReactNode
 }
 
-export function PurchaseTaxCredits({ bandeiras, custo, onToggle, onRecalc, visivel, unidadeLabel, extras, titulo, semDestinacao }: Props) {
+export function PurchaseTaxCredits({ bandeiras, custo, onToggle, onRecalc, visivel, unidadeLabel, extras, titulo, semDestinacao, modo = 'switch', blocoDeCusto, rodapeDoIpi }: Props) {
   if (!visivel) return null
+
+  const porPosicao = modo === 'posicao'
+  /**
+   * QUEM VAI PARA CADA BLOCO — lido de `posicao-do-tributo.ts`, nunca decidido aqui.
+   *
+   * Se a tela decidisse, ela teria a sua própria ideia de quem credita, e a divergência com
+   * `resolverFlagsDoItem` apareceria como crédito errado, sem nada falhar.
+   */
+  const blocos = tributosPorBloco(bandeiras)
 
   const linha = (t: TributoCreditavel, valor: number | null | undefined, extra?: React.ReactNode) => {
     const b = bandeiras?.[t]
@@ -146,7 +180,16 @@ export function PurchaseTaxCredits({ bandeiras, custo, onToggle, onRecalc, visiv
           As outras vedações (CST, fornecedor, sem destaque) dependem DAQUELA COMPRA: ali o
           botão existe, desabilitado, porque o usuário pode mudar o dado que o bloqueia.
         */}
-        {b?.tipoVedacao === 'REGIME' ? (
+        {/*
+          NO MODO 'posicao' NÃO HÁ SWITCH — e é por isso que a coluna some em vez de virar
+          um botão desabilitado. Um botão cinza afirmaria que a ação existe ali e está
+          bloqueada; o que existe é a POSIÇÃO, e ela já está dita pelo bloco em que a linha
+          está. Tributo VEDADO nem chega nesta função no modo 'posicao': ele é renderizado
+          pelo bloco de custo, em leitura, com cadeado e motivo.
+        */}
+        {porPosicao ? (
+          <span style={{ fontSize: 12, color: '#22C55E', textAlign: 'right' }}>crédito</span>
+        ) : b?.tipoVedacao === 'REGIME' ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end' }}>
             <span style={{ fontSize: 12, color: '#fca5a5' }}>dentro do DAS — compõe o custo</span>
             {b.motivo && (
@@ -229,6 +272,11 @@ export function PurchaseTaxCredits({ bandeiras, custo, onToggle, onRecalc, visiv
         As linhas sem botão (ICMS-ST, DIFAL, FCP) continuam dizendo "sempre custo", logo
         abaixo: ali a informação NÃO está no botão, porque botão não há.
       */}
+      {porPosicao && (
+        <div style={{ fontSize: 12, fontWeight: 700, color: '#22C55E', marginTop: 12, marginBottom: 2 }}>
+          {ROTULO_DO_BLOCO.CREDITO}
+        </div>
+      )}
       <div style={{
         display: 'grid', gridTemplateColumns: '140px 1fr 150px', gap: 12,
         fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.4,
@@ -236,7 +284,7 @@ export function PurchaseTaxCredits({ bandeiras, custo, onToggle, onRecalc, visiv
       }}>
         <span>Imposto</span>
         <span>Alíquota · regra específica · valor</span>
-        <span style={{ textAlign: 'right' }}>Crédito</span>
+        <span style={{ textAlign: 'right' }}>{porPosicao ? 'Efeito' : 'Crédito'}</span>
       </div>
 
       {/*
@@ -244,21 +292,32 @@ export function PurchaseTaxCredits({ bandeiras, custo, onToggle, onRecalc, visiv
         20/09/2026, seção 4. Antes elas SUMIAM ali, e sumir afirma que o tributo não existe
         na compra: ele existe, compõe o custo, e o que não existe é o crédito. É a mesma
         distinção de `ausente-vs-falso.md` — a linha some, o usuário conclui que não pagou.
-      */}
-      {linha('ICMS', v?.icms, extras?.ICMS)}
-      {linha('PIS_COFINS', v?.pisCofins, extras?.PIS_COFINS)}
-      {linha('IPI', v?.ipi, extras?.IPI)}
 
-      {linha('CBS', v?.cbs, extras?.CBS ?? (
-        <Form.Item name="cbs_rate" noStyle initialValue={0}>
-          <PercentInput min={0} max={100} style={{ width: 110 }} onChange={() => setTimeout(onRecalc, 50)} />
-        </Form.Item>
+        NO MODO 'posicao' elas continuam aparecendo SEMPRE — o que muda é ONDE: a vedação
+        manda a linha para o bloco de baixo, e é `tributosPorBloco` quem decide, lendo as
+        mesmas bandeiras de `resolverFlagsDoItem`. A tela não tem opinião sobre quem credita.
+      */}
+      {(porPosicao ? blocos.credito : TRIBUTOS_CREDITAVEIS).map((t) => linha(
+        t,
+        { ICMS: v?.icms, PIS_COFINS: v?.pisCofins, IPI: v?.ipi, CBS: v?.cbs, IBS: v?.ibs }[t],
+        extras?.[t] ?? (t === 'CBS' || t === 'IBS' ? (
+          <Form.Item name={t === 'CBS' ? 'cbs_rate' : 'ibs_rate'} noStyle initialValue={0}>
+            <PercentInput min={0} max={100} style={{ width: 110 }} onChange={() => setTimeout(onRecalc, 50)} />
+          </Form.Item>
+        ) : undefined),
       ))}
-      {linha('IBS', v?.ibs, extras?.IBS ?? (
-        <Form.Item name="ibs_rate" noStyle initialValue={0}>
-          <PercentInput min={0} max={100} style={{ width: 110 }} onChange={() => setTimeout(onRecalc, 50)} />
-        </Form.Item>
-      ))}
+
+      {/*
+        O BLOCO A VAZIO NÃO É UM BLOCO AUSENTE. No Simples os cinco descem, e um espaço em
+        branco ali faria o usuário procurar o campo que sumiu. A frase diz por quê.
+      */}
+      {porPosicao && blocos.credito.length === 0 && (
+        <div style={{ fontSize: 12, color: '#94a3b8', padding: '10px 0' }}>
+          Nenhum tributo desta compra gera crédito — todos aparecem abaixo, compondo o custo.
+        </div>
+      )}
+
+      {porPosicao && rodapeDoIpi}
 
       {/*
         O FORNECEDOR DO SIMPLES — LC 214/2025 art. 47 §9º II.
@@ -280,7 +339,60 @@ export function PurchaseTaxCredits({ bandeiras, custo, onToggle, onRecalc, visiv
         </Checkbox>
       </Form.Item>
 
-      {/* SEMPRE CUSTO — sem botão, porque não há caso em que creditem. */}
+      {/*
+        BLOCO B — "Não gera crédito — compõe o custo".
+
+        No modo 'switch' esta seção é o que sempre foi: ICMS-ST, DIFAL e FCP, sem botão,
+        porque não há caso em que creditem. No modo 'posicao' ela ganha duas coisas:
+
+        1. os tributos CREDITÁVEIS que desceram — em LEITURA, com cadeado e motivo quando a
+           vedação é da lei. Um campo editável ali convidaria a digitar um crédito que o
+           regime não dá;
+        2. os campos em R$ que quem monta o bloco fornece (`blocoDeCusto`) — e eles são SÓ
+           R$ na nota: ST e FCP vêm em valor no documento (vICMSST, vFCPUFDest), o DIFAL é
+           resultado de base dupla, e a parcela não creditável do IPI não tem base própria.
+           Um seletor de % ali convidaria a digitar "4%" e produziria um número que a nota
+           não tem.
+      */}
+      {porPosicao && (
+        <div style={{ fontSize: 12, fontWeight: 700, color: '#fca5a5', marginTop: 18, marginBottom: 6 }}>
+          {ROTULO_DO_BLOCO.CUSTO}
+        </div>
+      )}
+      {porPosicao && blocos.custo.map((t) => {
+        const b = bandeiras?.[t]
+        const a = AJUDA[t]
+        return (
+          <div key={t} style={{
+            display: 'grid', gridTemplateColumns: '140px 1fr 150px', gap: 12, alignItems: 'center',
+            padding: '8px 0', borderBottom: '1px solid rgba(148,163,184,0.12)',
+          }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600 }}>
+              {a.rotulo}
+              {/* A AJUDA ACOMPANHA A LINHA para onde ela for: o "onde achar na NF-e" é a
+                  informação que o usuário não tem como adivinhar, e ela não depende de o
+                  tributo creditar ou não. */}
+              <Tooltip title={<><div>{a.regra}</div><div style={{ marginTop: 8, opacity: 0.85 }}>{a.naNota}</div></>}>
+                <InfoCircleOutlined style={{ color: '#64748b' }} />
+              </Tooltip>
+            </span>
+            <span style={{ color: '#94a3b8', fontSize: 13 }}>
+              {fmt({ ICMS: v?.icms, PIS_COFINS: v?.pisCofins, IPI: v?.ipi, CBS: v?.cbs, IBS: v?.ibs }[t])}
+              {b?.vedado && b.motivo && (
+                <Tooltip title={b.motivo}>
+                  <LockOutlined style={{ color: '#fca5a5', marginLeft: 8 }} />
+                </Tooltip>
+              )}
+            </span>
+            <span style={{ fontSize: 12, color: '#fca5a5', textAlign: 'right' }}>
+              {b?.vedado ? 'vedado — custo' : 'custo'}
+            </span>
+          </div>
+        )
+      })}
+
+      {porPosicao && blocoDeCusto}
+
       <div style={{ marginTop: 14, paddingTop: 10, borderTop: '1px dashed rgba(148,163,184,0.25)' }}>
         {SEMPRE_CUSTO.map((s) => (
           <div key={s.rotulo} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', fontSize: 12, color: '#94a3b8' }}>
