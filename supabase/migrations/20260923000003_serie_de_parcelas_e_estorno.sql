@@ -46,8 +46,24 @@ ALTER TABLE public.cash_entries
 CREATE INDEX IF NOT EXISTS cash_entries_installment_group_idx
   ON public.cash_entries (tenant_id, installment_group_id);
 
+-- >>> ACRÉSCIMO AO TEXTO DO §7, E ELE ESTÁ DECLARADO NO CORPO DO PR <<<
+--
+-- O §6.4 manda DESATIVAR A NOTA quando a série inteira sai e nada mais ativo aponta para
+-- ela. `purchase_invoices` NÃO TEM coluna de desativação — medido em 23/09/2026:
+--
+--   select column_name from information_schema.columns
+--    where table_schema='public' and table_name='purchase_invoices'
+--      and column_name in ('is_active','reversed_at');   -- 0 linhas
+--
+-- Sem ela, "a nota também é desativada" não tem onde ser escrito. As saídas eram: deduzir o
+-- estado por "nota sem nenhuma entrada ativa" a cada leitura — dedução no lugar de fato, que
+-- é o que `ausente-vs-falso.md` desaconselha — ou apagar a nota, que leva o documento junto.
+--
+-- `deactivated_at` é nulável e sem default: NULL é "ativa", e a data diz QUANDO saiu.
+-- Um `is_active boolean DEFAULT true` afirmaria que as 327 notas existentes foram avaliadas.
 ALTER TABLE public.purchase_invoices
-  ADD COLUMN IF NOT EXISTS reversed_at date;
+  ADD COLUMN IF NOT EXISTS deactivated_at date,
+  ADD COLUMN IF NOT EXISTS reversed_at    date;
 
 COMMENT ON COLUMN public.cash_entries.installment_group_id IS
   'Agrupa as parcelas de UM lançamento. Gerado uma vez por lançamento e gravado em todas as parcelas. NULL = lançamento anterior a 23/09/2026, tratado como sozinho na exclusão.';
@@ -60,6 +76,9 @@ COMMENT ON COLUMN public.cash_entries.reversal_entry_id IS
 
 COMMENT ON COLUMN public.cash_entries.reversed_at IS
   'Data do estorno. NÃO limpa paid_date: o pagamento ocorreu, e o estorno é outro fato, em outro mês.';
+
+COMMENT ON COLUMN public.purchase_invoices.deactivated_at IS
+  'Data em que a nota saiu, junto com a série inteira de parcelas. NULL = ativa. Não é estorno: aqui nada foi pago nem apurado.';
 
 COMMENT ON COLUMN public.purchase_invoices.reversed_at IS
   'Data do estorno da nota. O crédito dela sai da apuração DO MÊS DO ESTORNO; a apuração do mês original não muda (LC 87/1996 art. 21).';

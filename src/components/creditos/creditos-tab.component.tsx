@@ -79,8 +79,11 @@ export function CreditosTab({ tenantId }: { tenantId: string }) {
       // `20260922000002` e os tipos gerados ainda não a conhecem.
       const { data } = await (supabase as any)
         .from('purchase_invoices')
-        .select('id, invoice_number, supplier_name, expense_nature, expense_category, total_amount, credit_date, credit_date_estimated, origin, credit_icms, credit_pis_cofins, credit_ipi, credit_cbs, credit_ibs, cash_entries(amount, paid_date)')
+        .select('id, invoice_number, supplier_name, expense_nature, expense_category, total_amount, credit_date, credit_date_estimated, origin, reversed_at, credit_icms, credit_pis_cofins, credit_ipi, credit_cbs, credit_ibs, cash_entries(amount, paid_date)')
         .eq('tenant_id', tenantId)
+        // §6.4 — a nota DESATIVADA sai daqui: a série inteira saiu e nada foi pago nem
+        // apurado sobre ela. A ESTORNADA fica, riscada: ela existiu e creditou.
+        .is('deactivated_at', null)
         .order('credit_date', { ascending: false })
 
       setNotas(((data ?? []) as LinhaDoBanco[]).map((r) => ({
@@ -93,6 +96,7 @@ export function CreditosTab({ tenantId }: { tenantId: string }) {
         creditDate: r.credit_date,
         creditDateEstimated: r.credit_date_estimated === true,
         origin: r.origin === 'LEGADO' ? 'LEGADO' : 'NOVO',
+        reversedAt: (r as Record<string, unknown>).reversed_at as string | null ?? null,
         parcelas: (r.cash_entries ?? []).map((p) => ({
           amount: Number(p.amount) || 0, paidDate: p.paid_date,
         })),
@@ -298,7 +302,14 @@ export function CreditosTab({ tenantId }: { tenantId: string }) {
           {
             title: 'Crédito total', key: 'total', align: 'right' as const,
             render: (_: unknown, r: NotaDeCompra) => (
-              <strong style={{ color: '#22C55E' }}>{brl(creditoTotalDaNota(r))}</strong>
+              // Estornada: o número fica RISCADO em vez de sumir. Ele é o crédito que a nota
+              // deu, e a apuração do mês de origem continua com ele.
+              <strong style={{
+                color: r.reversedAt ? '#94a3b8' : '#22C55E',
+                textDecoration: r.reversedAt ? 'line-through' : undefined,
+              }}>
+                {brl(creditoTotalDaNota(r))}
+              </strong>
             ),
           },
           {
@@ -327,6 +338,19 @@ export function CreditosTab({ tenantId }: { tenantId: string }) {
           {
             title: 'Situação', key: 'situacao',
             render: (_: unknown, r: NotaDeCompra) => {
+              /*
+                §6.6 — A NOTA ESTORNADA APARECE, E APARECE ESTORNADA.
+                Ela fica na lista porque existiu e creditou; o crédito é que foi desfeito, no
+                mês do estorno. Sumir com ela apagaria o fato, e a apuração do mês de origem
+                — que NÃO muda — deixaria de ter de onde ser reconciliada.
+              */
+              if (r.reversedAt) {
+                return (
+                  <Tooltip title="O crédito desta nota foi estornado. A apuração do mês em que ela creditou não muda; o estorno entra na apuração do mês em que ocorreu.">
+                    <Tag color="red">Estornada em {dayjs(r.reversedAt).format('DD/MM')}</Tag>
+                  </Tooltip>
+                )
+              }
               const s = situacaoDaNota(r, mes, split)
               return (
                 <Tooltip title={AJUDA_DA_SITUACAO[s]}>

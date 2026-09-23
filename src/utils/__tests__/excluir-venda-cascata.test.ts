@@ -250,10 +250,32 @@ describe('O filtro nas TRÊS telas', () => {
 describe('O Fluxo de Caixa perde o botão, e SÓ o botão', () => {
     const fluxo = () => read('pages/fluxo-de-caixa/index.tsx')
 
-    it('o botão Excluir do modal saiu, e o handler órfão junto', () => {
+    /**
+     * >>> O QUE MUDOU EM 23/09/2026, E O QUE NÃO MUDOU <<<
+     *
+     * O botão "Excluir" VOLTOU ao modal, pelo §6.1 do comando daquele dia — mas com outra
+     * semântica: ele exclui a SÉRIE, pela rota `cash-entry-series`, e SÓ aparece quando o
+     * lançamento não vem de uma venda.
+     *
+     * A decisão que tirou o botão original segue de pé, e é ela que este caso passa a
+     * afirmar: **caixa e venda não podem discordar sobre o mesmo fato**, então lançamento de
+     * venda continua exclusivamente com "Excluir venda". O que o caso NÃO pode continuar
+     * afirmando é a ausência do botão, porque ela deixou de ser a regra — afirmá-la seria
+     * fixar um estado em vez do critério que o produziu.
+     */
+    it('>>> o handler órfão continua fora, e o velho caminho não voltou <<<', () => {
         const conteudo = fluxo()
         expect(conteudo).not.toContain('handleDeleteFromPaymentModal')
-        expect(conteudo).not.toContain('Excluir este lançamento?')
+        // A tela não chama a rota de UM lançamento: o caminho dela é a série.
+        expect(conteudo).not.toMatch(/fetch\('\/api\/delete\/cash-entries'/)
+    })
+
+    it('>>> o Excluir novo é condicionado a NÃO ser venda — a decisão antiga permanece <<<', () => {
+        const conteudo = fluxo()
+        expect(conteudo).toContain("origin_type !== 'SALE'")
+        expect(conteudo).toContain('/api/delete/cash-entry-series')
+        // E o "Excluir venda" continua onde estava, para os que vêm de venda.
+        expect(conteudo).toContain('Excluir venda')
     })
 
     it('a ROTA continua existindo e em uso pelos outros call sites', () => {

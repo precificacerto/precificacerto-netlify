@@ -5,7 +5,7 @@ import {
 } from 'antd'
 import { Select } from '@/components/ui/app-select.component'
 import { CurrencyInput } from '@/components/currency-input.component'
-import dayjs from 'dayjs'
+import dayjs, { type Dayjs } from 'dayjs'
 import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
 import { supabase } from '@/supabase/client'
@@ -31,7 +31,7 @@ import PurchaseTaxCredits from '@/page-parts/items/purchase-tax-credits.componen
 import EntradaDeImposto from '@/components/despesas/entrada-de-imposto.component'
 import { baseDaLinha, colunasDaEntrada, CAMPO_DA_ALIQUOTA, FORMATO_PADRAO, type FormatoDaEntrada } from '@/utils/entrada-de-imposto'
 import { totalDaNota, ratearParcelas, linhasDoTotalDaNota } from '@/utils/nota-de-compra'
-import { vinculoDaSerie, AVISO_SEM_VINCULO } from '@/utils/serie-e-estorno'
+import { vinculoDaSerie, AVISO_SEM_VINCULO, espelhoDoEstorno, notaEstaEstornada } from '@/utils/serie-e-estorno'
 import PercentInput from '@/components/percent-input.component'
 import {
     calcularImpactoDoRateio, houveMudancaDoPercentual, type ImpactoDoRateio,
@@ -533,6 +533,113 @@ export default function CashFlow() {
             messageApi.error(error instanceof Error ? error.message : 'Erro ao excluir venda')
         } finally {
             setExcluindoVenda(false)
+        }
+    }
+
+    /**
+     * §6 — EXCLUSÃO DE SÉRIE.
+     *
+     * A tela manda `id` e `escopo`, e MAIS NADA. Quem decide quais lançamentos saem é o
+     * servidor, relendo a série: uma lista montada aqui é a que apaga a parcela que alguém
+     * pagou entre o clique e o confirm.
+     */
+    const [excluindoSerie, setExcluindoSerie] = useState(false)
+    const [pagasDaSerie, setPagasDaSerie] = useState<{ id: string; due_date: string; amount: number }[]>([])
+    const [estornando, setEstornando] = useState(false)
+    const [dataDoEstorno, setDataDoEstorno] = useState<Dayjs>(dayjs())
+
+    const excluirLancamento = async (escopo: 'SERIE' | 'SO_ESTE') => {
+        if (!paymentEntry) return
+        setExcluindoSerie(true)
+        try {
+            const r = await fetch('/api/delete/cash-entry-series', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: paymentEntry.id, escopo }),
+            })
+            const j = await r.json()
+            if (r.status === 409) {
+                // O VETO. A tela NÃO insiste: ela mostra as pagas e oferece os dois caminhos.
+                setPagasDaSerie(j.pagas ?? [])
+                messageApi.warning(j.error || 'A série tem parcela paga.')
+                return
+            }
+            if (!r.ok) throw new Error(j.error || 'Erro ao excluir')
+            messageApi.success(
+                `${j.desativadas} lançamento(s) excluído(s).` + (j.nota_desativada ? ' A nota de compra saiu junto.' : ''),
+            )
+            setPaymentModalOpen(false)
+            setPagasDaSerie([])
+            await fetchData()
+        } catch (err: any) {
+            messageApi.error(err?.message || 'Erro ao excluir lançamento')
+        } finally {
+            setExcluindoSerie(false)
+        }
+    }
+
+    /**
+     * §6.6 — O ESTORNO. O pagamento OCORREU e foi desfeito.
+     *
+     * Ele NÃO limpa `paid_date`: isso é o "Cancelar Pagamento", que é outra ação e existe
+     * ao lado. Aqui o espelho é lançado na data do estorno, e o mês original fica intacto.
+     */
+    const estornarLancamento = async () => {
+        if (!paymentEntry) return
+        setEstornando(true)
+        try {
+            const tenant_id = await getTenantId()
+            const data = dataDoEstorno.format('YYYY-MM-DD')
+            const espelho = espelhoDoEstorno({
+                id: paymentEntry.id,
+                tenant_id,
+                type: paymentEntry.type === 'INCOME' ? 'INCOME' : 'EXPENSE',
+                amount: Number(paymentEntry.amount) || 0,
+                description: paymentEntry.description,
+                paid_date: paymentEntry.paid_date,
+                expense_category: paymentEntry.expense_category ?? null,
+                expense_group: paymentEntry.expense_group ?? null,
+            }, data)
+
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const db = supabase as any
+            const { data: criado, error: erroEspelho } = await db
+                .from('cash_entries').insert(espelho).select('id').single()
+            if (erroEspelho) throw erroEspelho
+
+            // O original recebe os dois ponteiros. `paid_date` PERMANECE.
+            const { error: erroOriginal } = await db.from('cash_entries')
+                .update({ reversed_at: data, reversal_entry_id: criado?.id ?? null })
+                .eq('id', paymentEntry.id).eq('tenant_id', tenant_id)
+            if (erroOriginal) throw erroOriginal
+
+            /*
+              A NOTA só é dada por estornada quando NENHUMA entrada dela segue viva. Uma
+              parcela ainda de pé significa que parte da compra continua, e o crédito com ela.
+            */
+            if (paymentEntry.purchase_invoice_id) {
+                const { data: irmas } = await db.from('cash_entries')
+                    .select('id, due_date, amount, paid_date, is_active, reversed_at')
+                    .eq('tenant_id', tenant_id)
+                    .eq('purchase_invoice_id', paymentEntry.purchase_invoice_id)
+                const lista = ((irmas ?? []) as any[]).map((e) => ({
+                    ...e,
+                    reversed_at: e.id === paymentEntry.id ? data : e.reversed_at,
+                }))
+                if (notaEstaEstornada(lista)) {
+                    await db.from('purchase_invoices')
+                        .update({ reversed_at: data })
+                        .eq('id', paymentEntry.purchase_invoice_id).eq('tenant_id', tenant_id)
+                }
+            }
+
+            messageApi.success('Estorno lançado. O pagamento original continua registrado.')
+            setPaymentModalOpen(false)
+            await fetchData()
+        } catch (err: any) {
+            messageApi.error('Erro ao estornar: ' + (err?.message || ''))
+        } finally {
+            setEstornando(false)
         }
     }
 
@@ -2526,6 +2633,98 @@ export default function CashFlow() {
                                     <Tooltip title="Exclui a venda de origem e toda a cadeia. Venda com pagamento registrado não pode ser excluída.">
                                         <Button danger loading={excluindoVenda}>Excluir venda</Button>
                                     </Tooltip>
+                                </Popconfirm>
+                            )}
+                            {/*
+                              §6.1 — EXCLUIR, e SÓ quando não vem de venda.
+                              Lançamento de venda continua exclusivamente com "Excluir venda":
+                              caixa e venda não podem discordar sobre o mesmo fato, e a
+                              decisão registrada acima permanece de pé.
+                            */}
+                            {paymentEntry.origin_type !== 'SALE' && (
+                                <Popconfirm
+                                    title={vinculoDaSerie(paymentEntry) === 'SOZINHO' ? 'Excluir este lançamento?' : 'Excluir a série inteira?'}
+                                    description={(
+                                        <div style={{ maxWidth: 380 }}>
+                                            {vinculoDaSerie(paymentEntry) === 'SOZINHO' ? (
+                                                <p style={{ marginBottom: 6 }}>{AVISO_SEM_VINCULO}</p>
+                                            ) : (
+                                                <p style={{ marginBottom: 6 }}>
+                                                    Todas as parcelas {vinculoDaSerie(paymentEntry) === 'NOTA' ? 'desta nota' : 'deste lançamento'} serão
+                                                    excluídas juntas. Nenhuma pode estar paga.
+                                                </p>
+                                            )}
+                                            {/*
+                                              AS PAGAS, com data e valor — elas só aparecem DEPOIS do
+                                              veto, porque é o servidor que as descobre. Listá-las antes
+                                              exigiria montar a série aqui, que é o que o §6.5 proíbe.
+                                            */}
+                                            {pagasDaSerie.length > 0 && (
+                                                <div style={{ marginTop: 6, padding: 8, background: 'rgba(220,38,38,0.08)', borderRadius: 6 }}>
+                                                    <div style={{ fontWeight: 600, color: '#fca5a5', marginBottom: 4 }}>
+                                                        Parcelas pagas — a série não pode ser excluída:
+                                                    </div>
+                                                    {pagasDaSerie.map((p) => (
+                                                        <div key={p.id} style={{ fontSize: 12 }}>
+                                                            {dayjs(p.due_date).format('DD/MM/YYYY')} — {brl(p.amount)}
+                                                        </div>
+                                                    ))}
+                                                    <div style={{ fontSize: 12, marginTop: 6 }}>
+                                                        Use <strong>Excluir só este vencimento</strong> no pendente, ou <strong>Estornar</strong> em cada paga.
+                                                    </div>
+                                                </div>
+                                            )}
+                                            <p style={{ marginTop: 8, marginBottom: 0, fontSize: 12, color: '#94a3b8' }}>
+                                                A exclusão é por desativação: o histórico não é apagado.
+                                            </p>
+                                        </div>
+                                    )}
+                                    onConfirm={() => void excluirLancamento('SERIE')}
+                                    onCancel={() => { if (pagasDaSerie.length > 0 && !paymentEntry.paid_date) void excluirLancamento('SO_ESTE') }}
+                                    okText={vinculoDaSerie(paymentEntry) === 'SOZINHO' ? 'Excluir' : 'Excluir a série'}
+                                    cancelText={pagasDaSerie.length > 0 && !paymentEntry.paid_date ? 'Excluir só este vencimento' : 'Voltar'}
+                                    okButtonProps={{ danger: true }}
+                                >
+                                    <Button danger loading={excluindoSerie}>Excluir</Button>
+                                </Popconfirm>
+                            )}
+                            {/*
+                              §6.6 — ESTORNAR é diferente de CANCELAR PAGAMENTO, e os textos
+                              dizem isso: cancelar é "nunca ocorreu"; estornar é "ocorreu e foi
+                              desfeito". O estorno NÃO limpa `paid_date`.
+                            */}
+                            {paymentEntry.paid_date && paymentEntry.origin_type !== 'SALE' && !paymentEntry.reversed_at && (
+                                <Popconfirm
+                                    title="Estornar este pagamento?"
+                                    description={(
+                                        <div style={{ maxWidth: 380 }}>
+                                            <p style={{ marginBottom: 6 }}>
+                                                O pagamento OCORREU e está sendo desfeito — devolução, nota cancelada, chargeback.
+                                                Um lançamento espelho será criado na data do estorno.
+                                            </p>
+                                            <p style={{ marginBottom: 6, fontSize: 12, color: '#94a3b8' }}>
+                                                O pagamento original continua registrado. Se ele nunca ocorreu, use
+                                                <strong> Cancelar Pagamento</strong> em vez disto.
+                                            </p>
+                                            <div style={{ marginTop: 8 }}>
+                                                <span style={{ fontSize: 12, color: '#94a3b8', marginRight: 8 }}>Data do estorno</span>
+                                                <DatePicker
+                                                    size="small" format="DD/MM/YYYY" allowClear={false}
+                                                    value={dataDoEstorno}
+                                                    onChange={(d) => setDataDoEstorno(d ?? dayjs())}
+                                                />
+                                            </div>
+                                            <p style={{ marginTop: 8, marginBottom: 0, fontSize: 12, color: '#fca5a5' }}>
+                                                Estorno não tem desfazer. Estornar um estorno é lançar de novo.
+                                            </p>
+                                        </div>
+                                    )}
+                                    onConfirm={() => void estornarLancamento()}
+                                    okText="Estornar"
+                                    cancelText="Voltar"
+                                    okButtonProps={{ danger: true }}
+                                >
+                                    <Button danger loading={estornando}>Estornar</Button>
                                 </Popconfirm>
                             )}
                             {paymentEntry.paid_date && (

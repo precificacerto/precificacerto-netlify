@@ -47,6 +47,8 @@ interface LinhaDoQuadro {
   tributo: TributoApuravel
   guia: number | null
   credito: number
+  /** §6.6 — o crédito ESTORNADO neste mês, por tributo. */
+  estorno?: number
   debito: number | null
   aRecolher: number | null
   saldoCredorATransportar: number
@@ -58,6 +60,8 @@ export function QuadroDeApuracao({ tenantId }: { tenantId: string }) {
   const [mes, setMes] = useState(dayjs().format('YYYY-MM'))
   const [creditoPorTributo, setCreditoPorTributo] = useState<Record<string, number>>({})
   const [guiaPorTributo, setGuiaPorTributo] = useState<Record<string, number | null>>({})
+  /** §6.6 — o estorno de crédito do MÊS EXIBIDO, por tributo. */
+  const [estornoPorTributo, setEstornoPorTributo] = useState<Record<string, number>>({})
 
   const buscar = useCallback(async () => {
     setCarregando(true)
@@ -68,22 +72,45 @@ export function QuadroDeApuracao({ tenantId }: { tenantId: string }) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       // Os casts são do `database.types.ts` desatualizado — a tabela e as três colunas de
       // guia nascem na migração `20260922000002`.
-      const [{ data: notas }, { data: guias }] = await Promise.all([
+      const [{ data: notas }, { data: guias }, { data: estornadas }] = await Promise.all([
         (supabase as any).from('purchase_invoices')
-          .select('credit_icms, credit_pis_cofins, credit_ipi, credit_cbs, credit_ibs')
-          .eq('tenant_id', tenantId).gte('credit_date', primeiro).lt('credit_date', proximo),
+          .select('credit_icms, credit_pis_cofins, credit_ipi, credit_cbs, credit_ibs, reversed_at')
+          .eq('tenant_id', tenantId).gte('credit_date', primeiro).lt('credit_date', proximo)
+          // Nota DESATIVADA some da apuração: nada foi pago nem apurado sobre ela.
+          .is('deactivated_at', null),
         (supabase as any).from('cash_entries')
           .select('amount, tax_kind, guide_type, competence_month')
           .eq('tenant_id', tenantId).eq('is_active', true)
           .gte('competence_month', primeiro).lt('competence_month', proximo),
+        /*
+          §6.6 — O ESTORNO DE CRÉDITO CAI NO MÊS DO ESTORNO.
+
+          A consulta é por `reversed_at` DENTRO do mês exibido, e não por `credit_date`: a
+          nota que creditou em agosto e foi estornada em setembro entra AQUI em setembro, e
+          agosto não muda um centavo. É o período do evento que motiva o estorno — LC
+          87/1996 art. 21 para o ICMS, e a mesma lógica para PIS/COFINS e IBS/CBS.
+
+          Reescrever a apuração de agosto seria refazer uma apuração já entregue, e é
+          exatamente o que `fato-vs-referencia.md` chama de reescrever o passado.
+        */
+        (supabase as any).from('purchase_invoices')
+          .select('credit_icms, credit_pis_cofins, credit_ipi, credit_cbs, credit_ibs, reversed_at')
+          .eq('tenant_id', tenantId).gte('reversed_at', primeiro).lt('reversed_at', proximo),
       ])
 
       const cred: Record<string, number> = {}
+      const estorno: Record<string, number> = {}
       for (const t of TRIBUTOS_DO_CREDITO) {
         cred[t] = ((notas ?? []) as Record<string, unknown>[])
+          // A nota já estornada não credita mais no mês de origem a partir do estorno? SIM,
+          // ela credita: o crédito ACONTECEU, e é o estorno que o desfaz, no mês dele. Por
+          // isso a soma aqui NÃO filtra `reversed_at`.
+          .reduce((a, r) => a + (Number(r[CAMPO[t]]) || 0), 0)
+        estorno[t] = ((estornadas ?? []) as Record<string, unknown>[])
           .reduce((a, r) => a + (Number(r[CAMPO[t]]) || 0), 0)
       }
       setCreditoPorTributo(cred)
+      setEstornoPorTributo(estorno)
 
       // `null` quando NÃO HÁ guia daquele tributo no mês — e isso não é zero: é o que
       // acende o alerta do §5.
@@ -98,6 +125,7 @@ export function QuadroDeApuracao({ tenantId }: { tenantId: string }) {
     } catch {
       setCreditoPorTributo({})
       setGuiaPorTributo({})
+      setEstornoPorTributo({})
     } finally {
       setCarregando(false)
     }
@@ -118,11 +146,15 @@ export function QuadroDeApuracao({ tenantId }: { tenantId: string }) {
     })
     return {
       key: t, tributo: t, guia: guiaPorTributo[t] ?? null, credito,
+      estorno: coluna ? (estornoPorTributo[coluna] ?? 0) : 0,
       debito: a.debito, aRecolher: a.aRecolher,
       saldoCredorATransportar: a.saldoCredorATransportar,
       alerta: a.alertaGuiaFaltando,
     }
-  }), [creditoPorTributo, guiaPorTributo])
+  }), [creditoPorTributo, guiaPorTributo, estornoPorTributo])
+
+  /** As linhas com estorno no mês — a leitura que o §6.6 acrescenta ao quadro. */
+  const comEstorno = linhas.filter((l) => (l.estorno ?? 0) > 0)
 
   const comAlerta = linhas.filter((l) => l.alerta)
 
@@ -152,6 +184,34 @@ export function QuadroDeApuracao({ tenantId }: { tenantId: string }) {
           icon={<WarningOutlined />}
           message="Há crédito no mês sem guia lançada"
           description={`${comAlerta.map((l) => l.tributo).join(', ')}: o crédito existe e não há guia daquela competência. Isso é lançamento faltando, não imposto zero — o débito do mês não é apurável sem a guia.`}
+        />
+      )}
+
+      {/*
+        §6.6 — "(−) Estorno de crédito" POR TRIBUTO, no MÊS DO ESTORNO.
+
+        Ele é uma LINHA À PARTE, e não um desconto embutido no crédito: embutir faria o
+        número do crédito do mês deixar de ser o que as notas daquele mês creditaram, e
+        ninguém teria como reconciliá-lo com a aba Créditos.
+      */}
+      {comEstorno.length > 0 && (
+        <Alert
+          type="info"
+          showIcon
+          message="(−) Estorno de crédito neste mês"
+          description={(
+            <div style={{ display: 'grid', gap: 2 }}>
+              {comEstorno.map((l) => (
+                <div key={l.key}>
+                  {l.tributo}: {`R$ ${getMonetaryValue(l.estorno ?? 0)}`}
+                </div>
+              ))}
+              <div style={{ marginTop: 6, opacity: 0.85 }}>
+                Notas estornadas neste mês. A apuração do mês em que elas creditaram NÃO muda —
+                o estorno é lançado no período do evento que o motiva (LC 87/1996 art. 21).
+              </div>
+            </div>
+          )}
         />
       )}
 
