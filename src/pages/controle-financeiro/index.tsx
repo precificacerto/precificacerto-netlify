@@ -39,6 +39,7 @@ import {
 import { Bar, Doughnut } from 'react-chartjs-2'
 import { formatBRL } from '@/utils/formatters'
 import { PAGE_SIZE } from '@/constants/pagination'
+import { LARGURA_MODAL_50 } from '@/utils/largura-de-modal'
 import {
     getExpenseCategoryOptionsForRegime,
     getGroupForCategoryByRegime,
@@ -1467,9 +1468,23 @@ export default function ControleFinanceiro() {
 
             {/* Drawer: Novo Lançamento */}
             {/* Item 13: Type selector removed from drawer UI; toggle via button in extra */}
+            {/*
+              §2 do comando do PO de 22/09/2026 — *"Se em algum caminho ele ainda abrir em
+              75vw ou inline na página, corrigir."*
+
+              ESTE era o caminho. O lançamento de despesa tem DUAS portas — o Fluxo de Caixa
+              e o Controle Financeiro — e a segunda abria com `width={680}`, uma largura
+              literal ABAIXO do piso de 720px da regra. Numa tela de 1.920px ela ocupava 35%,
+              e o formulário ficava espremido do lado de um fundo vazio.
+
+              A largura mora em `largura-de-modal.ts`, e é de lá que as duas portas leem.
+              Repeti-la aqui como número seria a cópia que diverge no dia em que a regra
+              mudar de um lado só (`copia-divergente.md`).
+            */}
             <Drawer
                 title={drawerType === 'INCOME' ? 'Nova Receita' : 'Nova Despesa'}
-                width={680}
+                width={LARGURA_MODAL_50.width}
+                className="drawer-50"
                 open={drawerOpen}
                 onClose={() => { setDrawerOpen(false); setExpPaymentMethod(''); setExpInstallments([{ date: null, amount: 0 }]); setExpInstallmentPreset('customizado') }}
                 extra={
@@ -1611,9 +1626,14 @@ export default function ControleFinanceiro() {
             </Drawer>
 
             {/* Drawer: Editar Lançamento */}
+            {/*
+              A TERCEIRA porta, achada pelo mesmo caso do §2 — e ela é a que REABRE um
+              lançamento. Mesma largura literal de 680px das outras duas.
+            */}
             <Drawer
                 title="Editar Lançamento"
-                width={680}
+                width={LARGURA_MODAL_50.width}
+                className="drawer-50"
                 open={editDrawerOpen}
                 onClose={() => setEditDrawerOpen(false)}
                 extra={<Space><Button onClick={() => setEditDrawerOpen(false)}>Cancelar</Button><Button type="primary" onClick={handleSaveEdit}>Salvar</Button></Space>}

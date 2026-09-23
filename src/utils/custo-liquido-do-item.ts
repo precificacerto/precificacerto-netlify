@@ -392,6 +392,43 @@ function calcularDifal(base: number, origemPct: number, destinoPct: number): num
 }
 
 /**
+ * A ALÍQUOTA EFETIVA DO ICMS — a destacada menos a parcela diferida.
+ *
+ * Extraída para que `baseDoTributo` e a conta leiam o MESMO número. Duas escritas dela
+ * seriam a cópia divergente com a pior assinatura: o diferimento entraria numa e não na
+ * outra, e a diferença apareceria como base do PIS/COFINS, não como erro.
+ */
+function icmsEfetivoPctDe(valores: ValoresDaCompra): number | null {
+  const icmsPct = pct(valores.icmsPct)
+  if (icmsPct == null) return null
+  const deferidoPct = valores.icmsDeferidoAtivo ? (pct(valores.icmsDeferidoPct) ?? 0) : 0
+  return icmsPct * (1 - deferidoPct / 100)
+}
+
+/**
+ * A BASE DE CÁLCULO DE CADA TRIBUTO — a fonte única, lida pela conta E pela borda.
+ *
+ * >>> POR QUE ELA É EXPORTADA <<<
+ *
+ * A entrada de imposto em R$ (comando do PO de 22/09/2026, §4) converte o valor digitado em
+ * alíquota ANTES de chamar esta função pura: `alíquota = valor ÷ base × 100`. Para que a
+ * conversão e a conta não divirjam, as duas precisam da MESMA base — e a do PIS/COFINS não
+ * é o preço da nota, é o preço menos o ICMS destacado.
+ *
+ * Deixar a borda recompor a base seria `copia-divergente.md` nascendo: os dois lados
+ * fechariam consigo mesmos, e a divergência só apareceria como crédito errado.
+ *
+ * Devolve SEMPRE um número, inclusive zero. Quem decide se a base SERVE para converter é
+ * `baseDisponivel`, em `entrada-de-imposto.ts` — aqui zero é um número e a conta o usa.
+ */
+export function baseDoTributo(valores: ValoresDaCompra, tributo: TributoCreditavel): number {
+  const base = val(valores.base)
+  if (tributo !== 'PIS_COFINS') return base
+  const p = icmsEfetivoPctDe(valores)
+  return base - (p == null ? 0 : base * p / 100)
+}
+
+/**
  * A conta, na ordem do comando.
  *
  * O PIS/COFINS incide sobre `base − ICMS CREDITADO`, e não sobre `base − ICMS destacado`:
@@ -404,11 +441,10 @@ export function calcularCustoDoItem(
 ): CustoDoItem {
   const base = val(valores.base)
 
-  const icmsPct = pct(valores.icmsPct)
-  const deferidoPct = valores.icmsDeferidoAtivo ? (pct(valores.icmsDeferidoPct) ?? 0) : 0
-  // A parcela DIFERIDA não gera crédito — é o switch que já existia, preservado.
-  const icmsEfetivoPct = icmsPct == null ? null : icmsPct * (1 - deferidoPct / 100)
-  const icmsVal = icmsEfetivoPct == null ? null : base * icmsEfetivoPct / 100
+  // A parcela DIFERIDA não gera crédito — é o switch que já existia, preservado dentro de
+  // `icmsEfetivoPctDe`, que é a mesma função que `baseDoTributo` lê.
+  const icmsEfetivoPct = icmsEfetivoPctDe(valores)
+  const icmsVal = icmsEfetivoPct == null ? null : baseDoTributo(valores, 'ICMS') * icmsEfetivoPct / 100
   const icmsCred = bandeiras.ICMS.ativo ? (icmsVal ?? 0) : 0
 
   /**
@@ -424,19 +460,19 @@ export function calcularCustoDoItem(
    * exibido ia para R$ 92,50 em vez dos R$ 75,85 da nota.
    */
   const pisCofinsPct = pct(valores.pisCofinsPct)
-  const pisCofinsVal = pisCofinsPct == null ? null : (base - (icmsVal ?? 0)) * pisCofinsPct / 100
+  const pisCofinsVal = pisCofinsPct == null ? null : baseDoTributo(valores, 'PIS_COFINS') * pisCofinsPct / 100
   const pisCofinsCred = bandeiras.PIS_COFINS.ativo ? (pisCofinsVal ?? 0) : 0
 
   const ipiPct = pct(valores.ipiPct)
-  const ipiVal = ipiPct == null ? null : base * ipiPct / 100
+  const ipiVal = ipiPct == null ? null : baseDoTributo(valores, 'IPI') * ipiPct / 100
   const ipiCred = bandeiras.IPI.ativo ? (ipiVal ?? 0) : 0
 
   const cbsPct = pct(valores.cbsPct)
-  const cbsVal = cbsPct == null ? null : base * cbsPct / 100
+  const cbsVal = cbsPct == null ? null : baseDoTributo(valores, 'CBS') * cbsPct / 100
   const cbsCred = bandeiras.CBS.ativo ? (cbsVal ?? 0) : 0
 
   const ibsPct = pct(valores.ibsPct)
-  const ibsVal = ibsPct == null ? null : base * ibsPct / 100
+  const ibsVal = ibsPct == null ? null : baseDoTributo(valores, 'IBS') * ibsPct / 100
   const ibsCred = bandeiras.IBS.ativo ? (ibsVal ?? 0) : 0
 
   // ST, DIFAL e FCP: SEMPRE custo, sem bandeira. Não há caso em que creditem.
