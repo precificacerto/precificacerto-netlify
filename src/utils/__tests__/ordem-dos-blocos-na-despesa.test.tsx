@@ -232,39 +232,49 @@ describe('D — o rodapé da despesa é o do descascamento', () => {
 // ═════════════════════════════════════════════════════════════════════════════════════════
 
 describe('E — cada órfão sob o tributo que ele afeta', () => {
-  it('>>> o IS está no bloco POR FORA, depois do IBS e antes da BASE <<<', () => {
+  /**
+   * ATUALIZADO EM 24/09/2026 (§2 do comando das 09:xx). O IS SAIU do bloco POR FORA e desceu
+   * para o 1A, entre os que não geram crédito — que é onde o usuário procura por ele.
+   *
+   * O caso continua afirmando o MESMO critério ("o órfão mora onde ele é procurado"); o que
+   * mudou foi qual bloco responde por ele, e isso é decisão do PO, não regressão. O que NÃO
+   * mudou, e o caso C do arquivo novo prova, é que ele continua sem reduzir nada.
+   */
+  it('>>> o IS está no bloco 1A, depois do FCP e ANTES do saldo <<<', () => {
     const c = corpoDoDrawer(tela())
-    expect(c.indexOf("tributos={['IPI', 'CBS', 'IBS']}")).toBeLessThan(c.indexOf('IS (Imposto Seletivo)'))
-    expect(c.indexOf('IS (Imposto Seletivo)')).toBeLessThan(c.indexOf('Base dos produtos (vProd)'))
+    expect(c.indexOf('Reduções — não geram crédito')).toBeLessThan(c.indexOf('IS (Imposto Seletivo)'))
+    expect(c.indexOf('IS (Imposto Seletivo)')).toBeLessThan(c.indexOf('Saldo (base para os demais tributos)'))
+    // E NÃO está mais no bloco por fora.
+    const porFora = c.slice(c.indexOf("tributos={['IPI', 'CBS', 'IBS']}"), c.indexOf('Base dos produtos (vProd)'))
+    expect(porFora).not.toContain('IS (Imposto Seletivo)')
   })
 
   it('>>> o seletor POR FORA | POR DENTRO está na linha do IPI, não solto <<<', () => {
     const c = corpoDoDrawer(tela())
-    // Ele vive no `rodapeDoIpi` do bloco por fora — dentro do componente, não ao lado dele.
+    // Ele vive no `depoisDasLinhas` do bloco por fora — dentro do componente, não ao lado.
     const porFora = c.slice(c.indexOf("tributos={['IPI', 'CBS', 'IBS']}"), c.indexOf('Base dos produtos (vProd)'))
     expect(porFora).toContain('ipi_por_dentro')
     expect(porFora).toContain('POR FORA')
     expect(porFora).toContain('POR DENTRO')
   })
 
-  it('>>> parcela em ST e base manual de ICMS vêm DEPOIS do ICMS e ANTES do PIS/COFINS <<<', () => {
-    const s = tela()
-    const extras = s.slice(s.indexOf('const extrasDosTributos'), s.indexOf('O bloco de custo, como a NOTA o grava'))
-    const posIcms = extras.indexOf("t === 'ICMS'")
-    const posSt = extras.indexOf('parcela_st')
-    const posBaseIcms = extras.indexOf('base_manual_icms')
-    const posPis = extras.indexOf("t === 'PIS_COFINS'")
-    expect(posIcms).toBeGreaterThan(-1)
-    expect(posSt).toBeGreaterThan(posIcms)
-    expect(posBaseIcms).toBeGreaterThan(posSt)
-    expect(posPis).toBeGreaterThan(posBaseIcms)
-  })
-
-  it('>>> e a parcela monofásica vem depois do PIS/COFINS <<<', () => {
-    const s = tela()
-    const extras = s.slice(s.indexOf('const extrasDosTributos'), s.indexOf('O bloco de custo, como a NOTA o grava'))
-    expect(extras.indexOf('parcela_monofasica')).toBeGreaterThan(extras.indexOf("t === 'PIS_COFINS'"))
-    expect(extras.indexOf('base_manual_pis_cofins')).toBeGreaterThan(extras.indexOf('parcela_monofasica'))
+  /**
+   * ATUALIZADO EM 24/09/2026 (§4). As DUAS FATIAS e a base manual de ICMS saíram da tela:
+   * elas faziam o mesmo trabalho da base manual pelo lado negativo, e dois controles para o
+   * mesmo fato é onde o usuário desconta duas vezes.
+   *
+   * O critério do bloco E sobrevive inteiro — o órfão que restou continua ancorado no
+   * tributo que ele afeta. Trocar o caso por "as fatias sumiram" seria jogar fora a
+   * afirmação de ANCORAGEM e ficar só com a de ausência, que o caso D do arquivo novo já faz.
+   */
+  it('>>> a base manual é a linha logo DEPOIS do PIS/COFINS, dentro do bloco por dentro <<<', () => {
+    const c = corpoDoDrawer(tela())
+    const porDentro = c.slice(c.indexOf("tributos={['ICMS', 'PIS_COFINS']}"))
+    expect(porDentro).toContain('<LinhaDaBaseManual')
+    // Dentro do componente, no slot que vem logo depois das linhas — não ao lado do bloco.
+    expect(porDentro.indexOf('depoisDasLinhas')).toBeLessThan(porDentro.indexOf('<LinhaDaBaseManual') + 1)
+    // E ela é do PIS/COFINS, com a base dele.
+    expect(porDentro).toContain('descascamentoDaNota.basesPorDentro.pisCofins')
   })
 
   it('>>> o CST do documento é recolhível, no FIM do bloco por dentro <<<', () => {

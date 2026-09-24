@@ -44,6 +44,18 @@ interface Props {
   formato: FormatoDaEntrada
   onFormato: (f: FormatoDaEntrada) => void
   disabled?: boolean
+  /**
+   * O seletor sai da linha e vira um LINK de uma palavra.
+   *
+   * Comando de 24/09/2026, §3: *"O seletor % continua existindo para o caso raro, mas
+   * recolhido: R$ é o que aparece."* O ICMS vem sempre destacado na nota, então a linha
+   * dele é o campo em R$ e mais nada — e o caso raro continua alcançável em um clique.
+   *
+   * O link mostra o formato para o qual ele TROCA, nunca o atual: um link escrito "R$"
+   * dentro de uma linha que já está em R$ seria lido como estado, e clicá-lo pareceria
+   * não fazer nada.
+   */
+  seletorRecolhido?: boolean
 }
 
 /** O texto do campo em R$, no formato brasileiro e sem truncar dígito. */
@@ -61,7 +73,7 @@ const doTexto = (s: string): number | null => {
   return Number.isFinite(n) ? n : null
 }
 
-export function EntradaDeImposto({ value, onChange, base, formato, onFormato, disabled }: Props) {
+export function EntradaDeImposto({ value, onChange, base, formato, onFormato, disabled, seletorRecolhido }: Props) {
   const aliquotaPct = value ?? null
   const onAliquota = (pct: number | null) => onChange?.(pct)
   const temBase = baseDisponivel(base)
@@ -104,7 +116,20 @@ export function EntradaDeImposto({ value, onChange, base, formato, onFormato, di
     onFormato(novo)
   }
 
-  const seletor = (
+  const outro: FormatoDaEntrada = formato === 'BRL' ? 'PCT' : 'BRL'
+  const seletor = seletorRecolhido ? (
+    <Tooltip title={outro === 'PCT' ? 'informar a alíquota em vez do valor' : 'informar o valor destacado na nota'}>
+      <a
+        onClick={(ev) => { ev.preventDefault(); if (!disabled && !(outro === 'BRL' && !temBase)) trocar(outro) }}
+        style={{
+          fontSize: 11, color: '#64748b', textDecoration: 'underline',
+          cursor: disabled || (outro === 'BRL' && !temBase) ? 'not-allowed' : 'pointer',
+        }}
+      >
+        {outro === 'PCT' ? '%' : 'R$'}
+      </a>
+    </Tooltip>
+  ) : (
     <Select<FormatoDaEntrada>
       value={formato}
       onChange={trocar}
