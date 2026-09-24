@@ -44,18 +44,6 @@ interface Props {
   formato: FormatoDaEntrada
   onFormato: (f: FormatoDaEntrada) => void
   disabled?: boolean
-  /**
-   * O seletor sai da linha e vira um LINK de uma palavra.
-   *
-   * Comando de 24/09/2026, §3: *"O seletor % continua existindo para o caso raro, mas
-   * recolhido: R$ é o que aparece."* O ICMS vem sempre destacado na nota, então a linha
-   * dele é o campo em R$ e mais nada — e o caso raro continua alcançável em um clique.
-   *
-   * O link mostra o formato para o qual ele TROCA, nunca o atual: um link escrito "R$"
-   * dentro de uma linha que já está em R$ seria lido como estado, e clicá-lo pareceria
-   * não fazer nada.
-   */
-  seletorRecolhido?: boolean
 }
 
 /** O texto do campo em R$, no formato brasileiro e sem truncar dígito. */
@@ -73,7 +61,7 @@ const doTexto = (s: string): number | null => {
   return Number.isFinite(n) ? n : null
 }
 
-export function EntradaDeImposto({ value, onChange, base, formato, onFormato, disabled, seletorRecolhido }: Props) {
+export function EntradaDeImposto({ value, onChange, base, formato, onFormato, disabled }: Props) {
   const aliquotaPct = value ?? null
   const onAliquota = (pct: number | null) => onChange?.(pct)
   const temBase = baseDisponivel(base)
@@ -116,28 +104,20 @@ export function EntradaDeImposto({ value, onChange, base, formato, onFormato, di
     onFormato(novo)
   }
 
-  const outro: FormatoDaEntrada = formato === 'BRL' ? 'PCT' : 'BRL'
-  const seletor = seletorRecolhido ? (
-    <Tooltip title={outro === 'PCT' ? 'informar a alíquota em vez do valor' : 'informar o valor destacado na nota'}>
-      <a
-        onClick={(ev) => { ev.preventDefault(); if (!disabled && !(outro === 'BRL' && !temBase)) trocar(outro) }}
-        style={{
-          fontSize: 11, color: '#64748b', textDecoration: 'underline',
-          cursor: disabled || (outro === 'BRL' && !temBase) ? 'not-allowed' : 'pointer',
-        }}
-      >
-        {outro === 'PCT' ? '%' : 'R$'}
-      </a>
-    </Tooltip>
-  ) : (
-    <Select<FormatoDaEntrada>
+  const seletor = (
+        <Select<FormatoDaEntrada>
       value={formato}
       onChange={trocar}
       size="small"
       style={{ width: 62 }}
       disabled={disabled}
+      /*
+        R$ À FRENTE — §2 do comando de 24/09/2026 (tarde).
+        O valor é o que vem destacado na nota, e é o formato padrão desde o §7.1 do #75. A
+        primeira opção da lista é a que o usuário encontra primeiro, e ela tem de ser a que
+        ele usa quase sempre.
+      */
       options={[
-        { value: 'PCT', label: '%' },
         {
           value: 'BRL',
           label: 'R$',
@@ -146,23 +126,32 @@ export function EntradaDeImposto({ value, onChange, base, formato, onFormato, di
           // saber por quê — a mensagem aparece no lugar do campo de qualquer forma.
           disabled: !temBase,
         },
+        { value: 'PCT', label: '%' },
       ]}
     />
   )
 
+  /*
+    >>> A ENTRADA OCUPA O SLOT INTEIRO, NOS DOIS FORMATOS <<<
+
+    §3 do comando de 24/09/2026 (tarde): "as cinco linhas de crédito da tela têm de parecer
+    a mesma linha cinco vezes". Com larguras fixas por formato — 110 no percentual, 130 no
+    valor — a mesma linha mudava de tamanho ao trocar o seletor, e as cinco nunca ficavam
+    alinhadas ao mesmo tempo. Quem decide a largura é o SLOT de quem monta a linha.
+  */
   if (formato === 'BRL' && !temBase) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%' }}>
         {seletor}
         <Tooltip title={MENSAGEM_SEM_BASE}>
-          <Input disabled style={{ width: 130 }} placeholder={MENSAGEM_SEM_BASE} />
+          <Input disabled style={{ flex: 1, minWidth: 0 }} placeholder={MENSAGEM_SEM_BASE} />
         </Tooltip>
       </div>
     )
   }
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%' }}>
       {seletor}
       {formato === 'PCT' ? (
         <PercentInput
@@ -171,7 +160,7 @@ export function EntradaDeImposto({ value, onChange, base, formato, onFormato, di
           max={100}
           decimals={4}
           disabled={disabled}
-          style={{ width: 110 }}
+          style={{ flex: 1, minWidth: 0 }}
           onChange={(v) => onAliquota(v == null || Number.isNaN(v) ? null : v)}
         />
       ) : (
@@ -179,7 +168,7 @@ export function EntradaDeImposto({ value, onChange, base, formato, onFormato, di
           prefix="R$"
           value={texto}
           disabled={disabled}
-          style={{ width: 130 }}
+          style={{ flex: 1, minWidth: 0 }}
           placeholder="0,00"
           onChange={(e) => {
             setTexto(e.target.value)

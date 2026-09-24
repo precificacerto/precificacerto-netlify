@@ -124,16 +124,47 @@ describe('A — "Fornecedor do Simples sem regime regular" só onde ele é grava
 // ═════════════════════════════════════════════════════════════════════════════════════════
 
 describe('B — o IS é a última linha das reduções, e diz que não reduz', () => {
-  it('>>> depois dos quatro campos de custo e ANTES do saldo <<<', () => {
+  /**
+   * ATUALIZADO EM 24/09/2026 (tarde, §1). O bloco 1A virou DUAS LINHAS EXPLÍCITAS, e o IS
+   * deixou de ficar solto abaixo dos quatro: ele divide a PRIMEIRA linha com o IPI de custo.
+   *
+   * O critério é o mesmo — o IS mora entre os que não geram crédito, antes do saldo. O que
+   * mudou foi a posição dentro do bloco, e ela agora é a ordem em que a nota se lê.
+   */
+  it('>>> na PRIMEIRA linha, ao lado do IPI de custo, e ANTES do saldo <<<', () => {
     const c = corpoDoDrawer(tela())
     const posBloco = c.indexOf('Reduções — não geram crédito')
-    const posQuatro = c.indexOf('CAMPOS_DO_BLOCO_DE_CUSTO.map')
+    const posLinha1 = c.indexOf('linhaDoBloco1A(1)')
     const posIs = c.indexOf('IS (Imposto Seletivo)')
+    const posLinha2 = c.indexOf('linhaDoBloco1A(2)')
     const posSaldo = c.indexOf('Saldo (base para os demais tributos)')
-    for (const p of [posBloco, posQuatro, posIs, posSaldo]) expect(p).toBeGreaterThan(-1)
-    expect(posBloco).toBeLessThan(posQuatro)
-    expect(posQuatro).toBeLessThan(posIs)
-    expect(posIs).toBeLessThan(posSaldo)
+    for (const p of [posBloco, posLinha1, posIs, posLinha2, posSaldo]) expect(p).toBeGreaterThan(-1)
+    // O IS está DENTRO da primeira linha: depois do map dela e antes do da segunda.
+    expect(posBloco).toBeLessThan(posLinha1)
+    expect(posLinha1).toBeLessThan(posIs)
+    expect(posIs).toBeLessThan(posLinha2)
+    expect(posLinha2).toBeLessThan(posSaldo)
+  })
+
+  it('>>> e as DUAS linhas agrupam pelo que o campo é, não pela largura da tela <<<', () => {
+    const s = tela()
+    const lista = s.slice(s.indexOf('const CAMPOS_DO_BLOCO_DE_CUSTO'), s.indexOf('const linhaDoBloco1A'))
+    // Linha 1: o do PRODUTO. Linha 2: os três da OPERAÇÃO interestadual.
+    expect(lista).toMatch(/valor_ipi_custo', linha: 1/)
+    expect(lista).toMatch(/valor_icms_st', linha: 2/)
+    expect(lista).toMatch(/valor_difal', linha: 2/)
+    expect(lista).toMatch(/valor_fcp', linha: 2/)
+    // E a grade deixou de ser automática — era ela que desfazia o agrupamento.
+    // E a grade dos cinco campos deixou de ser automática — era ela que desfazia o
+    // agrupamento conforme a largura da tela. O trecho vai até o frete, que é outra seção.
+    const bloco = semComentario(corpoDoDrawer(s))
+    const cincoCampos = bloco.slice(
+      bloco.indexOf('Reduções — não geram crédito'),
+      bloco.indexOf('não reduz — integra a base e credita junto'),
+    )
+    expect(cincoCampos).not.toContain('auto-fit')
+    expect(cincoCampos).toContain("gridTemplateColumns: 'repeat(2, minmax(0, 1fr))'")
+    expect(cincoCampos).toContain("gridTemplateColumns: 'repeat(3, minmax(0, 1fr))'")
   })
 
   it('>>> com o rótulo "não reduz" na mesma linha, e o tooltip da EC 132 <<<', () => {
@@ -148,8 +179,8 @@ describe('B — o IS é a última linha das reduções, e diz que não reduz', (
     const c = corpoDoDrawer(tela())
     const porFora = c.slice(c.indexOf("tributos={['IPI', 'CBS', 'IBS']}"), c.indexOf('Base dos produtos (vProd)'))
     expect(porFora).not.toContain('valor_is')
-    // O seletor do IPI continua lá — o bloco perdeu o IS, não o `depoisDasLinhas`.
-    expect(porFora).toContain('ipi_por_dentro')
+    // O par: o bloco continua existindo com os três tributos dele.
+    expect(porFora).toContain("tributos={['IPI', 'CBS', 'IBS']}")
   })
 })
 
@@ -374,31 +405,63 @@ describe('F — base manual: o ICMS não é deduzido de novo', () => {
 // G — O ICMS EM R$, COM O SELETOR RECOLHIDO
 // ═════════════════════════════════════════════════════════════════════════════════════════
 
-describe('G — o seletor existe e não ocupa a linha', () => {
+/**
+ * ATUALIZADO EM 24/09/2026 (tarde, §3). O `seletorRecolhido` SAIU.
+ *
+ * Ele era a exceção de alinhamento do ICMS — o combo virava um link, a linha ficava mais
+ * curta que as outras quatro, e §3 diz que não há exceção: "as cinco linhas de crédito da
+ * tela têm de parecer a mesma linha cinco vezes". O bloco passa a afirmar o oposto do que
+ * afirmava, e é isso que a mudança pediu.
+ */
+describe('G — as cinco linhas têm a mesma anatomia', () => {
   const entrada = (props: Record<string, unknown>) => (
     <EntradaDeImposto base={1000} formato="BRL" onFormato={() => {}} {...props} />
   )
 
-  it('>>> recolhido, o combo "% | R$" some do DOM — e sem a prop ele está lá <<<', () => {
-    const comSelect = montar(entrada({}))
-    const recolhido = montar(entrada({ seletorRecolhido: true }))
-    expect(comSelect.querySelectorAll('.ant-select').length).toBe(1)
-    expect(recolhido.querySelectorAll('.ant-select').length).toBe(0)
-    comSelect.remove()
-    recolhido.remove()
-  })
-
-  it('>>> mas o caso raro continua alcançável: o link diz "%" <<<', () => {
-    const host = montar(entrada({ seletorRecolhido: true }))
-    const links = Array.from(host.querySelectorAll('a')).map((a) => a.textContent)
-    expect(links).toContain('%')
-    // O campo em R$ continua sendo o que aparece.
-    expect(host.querySelectorAll('input').length).toBe(1)
+  it('>>> o combo "% | R$" está em TODA linha — não há mais exceção <<<', () => {
+    const host = montar(entrada({}))
+    expect(host.querySelectorAll('.ant-select').length).toBe(1)
     host.remove()
+    // E a prop que criava a exceção não existe mais em lugar nenhum.
+    expect(ler('src/components/despesas/entrada-de-imposto.component.tsx')).not.toContain('seletorRecolhido')
+    expect(tela()).not.toContain('seletorRecolhido')
   })
 
-  it('>>> e é o ICMS, e só ele, que a tela recolhe <<<', () => {
-    expect(tela()).toContain("seletorRecolhido={t === 'ICMS'}")
+  it('>>> e o R$ vem À FRENTE do % na lista <<<', () => {
+    const fonte = ler('src/components/despesas/entrada-de-imposto.component.tsx')
+    const opcoes = fonte.slice(fonte.indexOf('options={['), fonte.indexOf('options={[') + 600)
+    expect(opcoes.indexOf("value: 'BRL'")).toBeLessThan(opcoes.indexOf("value: 'PCT'"))
+  })
+
+  it('>>> a entrada PREENCHE o slot nos dois formatos, em vez de ter largura própria <<<', () => {
+    // O defeito que isto barra: com 110px no percentual e 130px no valor, trocar o formato
+    // de UMA linha desalinhava as outras quatro. Em jsdom a largura não é computada, mas o
+    // estilo inline é — e é ele que carrega a decisão.
+    const emReais = montar(entrada({}))
+    const emPct = montar(entrada({ formato: 'PCT' }))
+    for (const host of [emReais, emPct]) {
+      // O invólucro da entrada manda largura 100%, e o campo cresce dentro dele.
+      const fora = host.querySelector('div[style*="display: flex"]') as HTMLElement
+      expect(fora.getAttribute('style')).toContain('width: 100%')
+      const estilos = Array.from(host.querySelectorAll<HTMLElement>('[style]'))
+        .map((el) => el.getAttribute('style') ?? '')
+      expect(estilos.some((st) => st.includes('flex: 1'))).toBe(true)
+      // E nenhuma largura em pixels fora a do seletor, que é igual nas cinco linhas.
+      const larguras = estilos.filter((st) => /width:\s*\d+px/.test(st))
+      expect(larguras).toEqual(['width: 62px;'])
+    }
+    emReais.remove()
+    emPct.remove()
+  })
+
+  it('>>> e o slot de cada linha é FIXO, com a coluna de apoio separada <<<', () => {
+    const s = tela()
+    const extras = s.slice(s.indexOf('const extrasDosTributos'), s.indexOf('const leiturasDoCredito'))
+    // Grade de largura fixa: a entrada numa coluna, o texto de apoio na outra. Um flex que
+    // encolhe com o conteúdo era o que empurrava a leitura do PIS/COFINS para a direita.
+    expect(extras).toContain("gridTemplateColumns: '200px 1fr'")
+    expect(extras).toContain('width: 360')
+    expect(extras).not.toContain('flexWrap')
   })
 })
 
