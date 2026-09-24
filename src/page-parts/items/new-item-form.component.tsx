@@ -946,6 +946,12 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
           */}
           <PurchaseTaxCredits
             modo="posicao"
+            /*
+              O SUBTÍTULO DEIXOU DE SER FIXO NO COMPONENTE em 24/09/2026, e passa a vir de
+              quem o usa. O item continua com o texto de sempre — ele descreve o que ESTA
+              tela faz, e é aqui que "custo bruto" e "custo líquido" continuam na tela.
+            */
+            subtitulo="O custo bruto é o valor da compra. O custo líquido — que é o que a precificação usa — é o bruto menos o que gera crédito."
             bandeiras={bandeiras}
             custo={custoDoItem}
             visivel={isLucroRealOrLP}
