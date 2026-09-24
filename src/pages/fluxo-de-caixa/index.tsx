@@ -13,7 +13,7 @@ import { getTenantId } from '@/utils/get-tenant-id'
 import { getEffectiveIncomeAmount } from '@/utils/cash-entry-amount'
 import { mergeExpenseConfig } from '@/utils/recalc-expense-config'
 import { ehCompromissoFinanceiro, separarJurosEPrincipal, LABEL_DO_BLOCO } from '@/utils/compromissos-financeiros'
-import { naturezaDaDespesa } from '@/utils/natureza-da-despesa'
+import { naturezaDaDespesa, formaDoBlocoFiscal } from '@/utils/natureza-da-despesa'
 import {
     useVencidos, FaixaDeVencidos, VencidosModal, deveAbrirSozinho,
 } from '@/components/cashflow/vencidos-modal.component'
@@ -29,7 +29,7 @@ import {
 } from '@/utils/custo-liquido-do-item'
 import PurchaseTaxCredits from '@/page-parts/items/purchase-tax-credits.component'
 import EntradaDeImposto from '@/components/despesas/entrada-de-imposto.component'
-import { baseDaLinha, colunasDaEntrada, CAMPO_DA_ALIQUOTA, FORMATO_PADRAO, type FormatoDaEntrada } from '@/utils/entrada-de-imposto'
+import { baseDaLinha, colunasDaEntrada, valorAPartirDaAliquota, CAMPO_DA_ALIQUOTA, FORMATO_PADRAO, type FormatoDaEntrada } from '@/utils/entrada-de-imposto'
 import { descascarANota, ratearParcelas, linhasDoDescascamento } from '@/utils/nota-de-compra'
 import { vinculoDaSerie, AVISO_SEM_VINCULO, espelhoDoEstorno, notaEstaEstornada } from '@/utils/serie-e-estorno'
 import PercentInput from '@/components/percent-input.component'
@@ -352,6 +352,8 @@ export default function CashFlow() {
 
     const [drawerOpen, setDrawerOpen] = useState(false)
     const [expenseAmount, setExpenseAmount] = useState('')
+    /* §1 — o link "esta nota tem outros tributos". Sessão do drawer, nunca preferência. */
+    const [revelarEscadaCompleta, setRevelarEscadaCompleta] = useState(false)
     const [selectedDay, setSelectedDay] = useState<number | null>(null)
     const [loadingPrevBalance, setLoadingPrevBalance] = useState(false)
     const [prevBalanceModalOpen, setPrevBalanceModalOpen] = useState(false)
@@ -507,6 +509,25 @@ export default function CashFlow() {
     const naturezaDoLancamento = naturezaDaDespesa(selectedExpenseCategory, grupoDaCategoria)
     const temBlocoDeImposto = !!selectedExpenseCategory && naturezaDoLancamento.estado !== 'SEM_BLOCO'
 
+    /**
+     * §1 — A FORMA COMPACTA: duas linhas, e mais nada.
+     *
+     * Conta de luz, aluguel e serviço tomado não têm ST, DIFAL, IPI nem fatia. A escada
+     * inteira ali é ruído com aparência de exigência: o usuário lê nove campos vazios e
+     * conclui que o lançamento está incompleto, quando o que falta não existe.
+     *
+     * O gatilho é `COM_CREDITO` + `USO_CONSUMO`, e não uma lista de categorias — a lista
+     * mora em `natureza-da-despesa.ts`, que é quem sabe. `INSUMO` e `REVENDA` seguem na
+     * forma completa porque matéria-prima, revenda e embalagem têm esses tributos de
+     * verdade, e `VEDADO` segue como está: bloco visível, travado, com o motivo.
+     *
+     * >>> O LINK NÃO É PREFERÊNCIA <<<
+     * `revelarEscadaCompleta` vive na sessão do drawer e nasce falso a cada abertura. Salvar
+     * a escolha faria a tela de um lançamento decidir a do próximo, e o caso raro viraria o
+     * padrão de quem o encontrou uma vez.
+     */
+    const formaCompacta = formaDoBlocoFiscal(naturezaDoLancamento, revelarEscadaCompleta) === 'COMPACTA'
+
     // §5 — o lançamento de GUIA pede tributo, competência e tipo. Sem competência não há
     // apuração: a guia vence em setembro e apura agosto, e somar uma na outra é o erro que o
     // quadro existe para impedir.
@@ -589,8 +610,38 @@ export default function CashFlow() {
         return (formatoDeEntrada[tributo] ?? FORMATO_PADRAO) === 'BRL' ? { brl: n } : { pct: n }
     }
 
-    const descascamentoDaNota = useMemo(() => descascarANota({
-        total: parseCurrencyFn(expenseAmount),
+    /**
+     * §1 — NA FORMA COMPACTA A BASE DO CRÉDITO É O VALOR TOTAL DO LANÇAMENTO.
+     *
+     * A conta de luz de R$ 1.000,00 com CBS de 8,80% dá R$ 88,00, não R$ 69,56: os tributos
+     * já estão DENTRO do que o fornecedor cobrou, e não há por fora a descascar. Mandar a
+     * alíquota como `pct` faria o motor descontá-la do saldo antes de aplicá-la — que é a
+     * conta certa para a nota de mercadoria, e a errada para esta.
+     *
+     * A conversão é a MESMA travessia da borda de `entrada-de-imposto.ts`, e é ela que a
+     * linha usa para exibir o R$. Reescrever `valor = total × pct / 100` aqui seria
+     * `copia-divergente.md` com a assinatura que ela descreve: os dois lados fechariam
+     * consigo mesmos e a divergência apareceria como crédito errado.
+     */
+    const totalDoLancamento = parseCurrencyFn(expenseAmount)
+    const creditoSobreOTotal = (aliquota: unknown) => {
+        const v = valorAPartirDaAliquota(soNumero(aliquota), totalDoLancamento)
+        return v == null ? null : { brl: v }
+    }
+
+    const descascamentoDaNota = useMemo(() => descascarANota(formaCompacta ? {
+        /*
+          SEM DEGRAUS: nenhuma redução, nenhum por dentro, nenhuma fatia. O que não é
+          enviado não é zero — é ausente, e ausente não entra na conta
+          (`ausente-vs-falso.md`). Os campos da escada nem estão na tela nesta forma, e
+          mandá-los daqui faria um valor esquecido de uma edição anterior mandar num
+          lançamento em que ele não aparece.
+        */
+        total: totalDoLancamento,
+        porFora: { cbs: creditoSobreOTotal(taxaCbs), ibs: creditoSobreOTotal(taxaIbs) },
+        bandeiras: bandeirasDoLancamento,
+    } : {
+        total: totalDoLancamento,
         composicao: { frete: soNumero(valorFrete), seguro: soNumero(valorSeguro) },
         reducoes: {
             ipiCusto: soNumero(valorIpiCusto),
@@ -628,7 +679,7 @@ export default function CashFlow() {
         cst: { icms: cstIcmsDoc ?? null, ipi: cstIpiDoc ?? null, pisCofins: cstPisCofinsDoc ?? null },
         bandeiras: bandeirasDoLancamento,
     }), [
-        expenseAmount, valorFrete, valorSeguro, valorIpiCusto, valorIcmsSt, valorDifal, valorFcp,
+        formaCompacta, totalDoLancamento, expenseAmount, valorFrete, valorSeguro, valorIpiCusto, valorIcmsSt, valorDifal, valorFcp,
         taxaIpi, taxaCbs, taxaIbs, taxaIcms, taxaPisCofins, valorIsDaNota,
         usarBaseManualPisCofins, baseManualPisCofins, cstIcmsDoc, cstIpiDoc, cstPisCofinsDoc,
         bandeirasDoLancamento, formatoDeEntrada,
@@ -674,7 +725,13 @@ export default function CashFlow() {
                 ) : (
                     <Form.Item name={CAMPO_DA_ALIQUOTA[t]} noStyle>
                         <EntradaDeImposto
-                            base={BASE_DA_LINHA_NO_DESCASCAMENTO(descascamentoDaNota, t)}
+                            /*
+                              §1 — NA FORMA COMPACTA A BASE DA LINHA É O TOTAL.
+                              É a mesma base que `creditoSobreOTotal` usa para mandar o valor
+                              ao motor. Converter por uma base e calcular por outra é o erro
+                              que `entrada-de-imposto.ts` existe para impedir.
+                            */
+                            base={formaCompacta ? (totalDoLancamento ?? 0) : BASE_DA_LINHA_NO_DESCASCAMENTO(descascamentoDaNota, t)}
                             formato={formatoDeEntrada[t] ?? FORMATO_DA_LINHA[t]}
                             onFormato={(f) => setFormatoDeEntrada((prev) => ({ ...prev, [t]: f }))}
                             disabled={descascamentoDaNota.base == null || bandeirasDoLancamento[t]?.tipoVedacao === 'REGIME'}
@@ -689,7 +746,8 @@ export default function CashFlow() {
             </div>
         )]),
     ) as Partial<Record<TributoCreditavel, React.ReactNode>>,
-    [descascamentoDaNota, formatoDeEntrada, bandeirasDoLancamento, usarBaseManualPisCofins])
+    [descascamentoDaNota, formatoDeEntrada, bandeirasDoLancamento, usarBaseManualPisCofins,
+     formaCompacta, totalDoLancamento])
 
     /**
      * A LEITURA DO CRÉDITO DE CADA LINHA.
@@ -1692,7 +1750,7 @@ export default function CashFlow() {
                     <CalendarOutlined style={{ fontSize: 18, color: '#94a3b8' }} />
                     <DatePicker picker="month" value={month} onChange={(d) => d && setMonth(d)} allowClear={false} format="MMMM YYYY" />
                     {canEdit(MODULES.CASH_FLOW) && (
-                        <Button type="primary" onClick={() => { form.resetFields(); setExpenseAmount(''); setExpPaymentMethod(''); setExpInstallments([{ date: null, amount: 0 }]); setExpInstallmentPreset('customizado'); setExpManualDates(false); setSelectedExpenseCategory(''); setFormatoDeEntrada({});      setDrawerOpen(true) }}>
+                        <Button type="primary" onClick={() => { form.resetFields(); setExpenseAmount(''); setExpPaymentMethod(''); setExpInstallments([{ date: null, amount: 0 }]); setExpInstallmentPreset('customizado'); setExpManualDates(false); setSelectedExpenseCategory(''); setFormatoDeEntrada({}); setRevelarEscadaCompleta(false);      setDrawerOpen(true) }}>
                             + Novo Lançamento
                         </Button>
                     )}
@@ -2355,7 +2413,7 @@ export default function CashFlow() {
               perdidas numa tela larga. A regra mora em `largura-de-modal.ts`, e o CSS
               global cuida de tablet (92vw) e mobile (tela cheia).
             */}
-            <Drawer title="Novo Lançamento de Despesa" width={LARGURA_MODAL_50.width} className="drawer-50" open={drawerOpen} destroyOnClose onClose={() => { setDrawerOpen(false); setExpPaymentMethod(''); setExpInstallments([{ date: null, amount: 0 }]); setExpInstallmentPreset('customizado'); setExpManualDates(false); setSelectedExpenseCategory(''); setFormatoDeEntrada({});      setCompJuros(''); setCompPrincipal('') }}
+            <Drawer title="Novo Lançamento de Despesa" width={LARGURA_MODAL_50.width} className="drawer-50" open={drawerOpen} destroyOnClose onClose={() => { setDrawerOpen(false); setExpPaymentMethod(''); setExpInstallments([{ date: null, amount: 0 }]); setExpInstallmentPreset('customizado'); setExpManualDates(false); setSelectedExpenseCategory(''); setFormatoDeEntrada({}); setRevelarEscadaCompleta(false);      setCompJuros(''); setCompPrincipal('') }}
                 extra={<Button type="primary" onClick={handleSaveEntry}>Salvar</Button>}>
                 <Form form={form} layout="vertical">
                     <Form.Item name="expense_category" label="Categoria da Despesa" rules={[{ required: true, message: 'Selecione a categoria' }]}>
@@ -2713,242 +2771,329 @@ export default function CashFlow() {
                                 </div>
                             )}
 
-                            {/* ════ BLOCO 1A — REDUÇÕES ════ */}
-                            <div style={{ marginBottom: 14, padding: '12px 14px', background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.18)', borderRadius: 8 }}>
-                                <div style={{ fontSize: 12, fontWeight: 700, color: '#fca5a5', marginBottom: 2 }}>
-                                    Reduções — não geram crédito
-                                </div>
-                                <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 10 }}>
-                                    Já estão dentro do total da nota. Serão abatidos para achar a base.
-                                </div>
-                {/*
-                                  §1 — DUAS LINHAS EXPLÍCITAS, NA ORDEM DO DOCUMENTO.
+                            {/*
+                              ════ A FORMA COMPACTA — DUAS LINHAS ════
 
-                                  Linha 1: os dois do PRODUTO, destacados no corpo da nota.
-                                  Linha 2: os três da OPERAÇÃO interestadual.
+                              §1 do comando de 24/09/2026. O MESMO componente do bloco de
+                              matéria-prima, com `tributos` filtrando para CBS e IBS: rótulo,
+                              entrada `% | R$` com R$ à frente, leitura e o efeito "crédito".
+                              Nenhuma tabela nova, nenhum arquivo copiado — uma segunda tabela
+                              aqui divergiria na primeira correção de tooltip
+                              (`copia-divergente.md`).
 
-                                  A grade `auto-fit` que estava aqui reagrupava os cinco
-                                  campos conforme a largura, e o IS ficava solto abaixo. Ela
-                                  não tinha opinião sobre a ordem — e a ordem é a informação.
-                                */}
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12, alignItems: 'flex-end' }}>
-                                    {linhaDoBloco1A(1).map((c) => (
-                                        <Form.Item key={c.name} name={c.name} label={(
-                                            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                                {c.label}
-                                                <Tooltip title={c.ajuda}><InfoCircleOutlined style={{ color: '#64748b' }} /></Tooltip>
-                                            </span>
-                                        )} style={{ marginBottom: 0 }}>
-                                            <InputNumber {...INPUT_EM_REAIS} />
-                                        </Form.Item>
-                                    ))}
+                              Sem degraus: não há redução, saldo, base, ICMS, PIS/COFINS, IPI,
+                              fatia nem CST. A base do crédito é o valor total do lançamento,
+                              e é o que `creditoSobreOTotal` manda ao motor.
+                            */}
+                            {formaCompacta && (
+                                <>
+                                    {/*
+                                      §4 — A RESSALVA DA CATEGORIA, com o bloco ABERTO.
+                                      Ela não é um `motivo` de sinal trocado: motivo explica
+                                      por que não há crédito, e aparece onde o bloco está
+                                      ausente ou travado. Isto diz em que condição o crédito
+                                      que está sendo oferecido existe.
+                                    */}
+                                    {naturezaDoLancamento.aviso && (
+                                        <div style={{ marginBottom: 12, padding: '10px 12px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.25)', borderRadius: 6, fontSize: 12, color: '#fbbf24' }}>
+                                            {naturezaDoLancamento.aviso}
+                                        </div>
+                                    )}
+
+                                    <PurchaseTaxCredits
+                                        modo="posicao"
+                                        visivel
+                                        semDestinacao
+                                        semBlocoB
+                                        semRodape
+                                        semFornecedorDoSimples
+                                        titulo="Crédito de IBS/CBS sobre esta despesa"
+                                        tributos={['CBS', 'IBS']}
+                                        bandeiras={bandeirasDoLancamento}
+                                        custo={null}
+                                        leitura={leiturasDoCredito}
+                                        onToggle={() => { /* a POSIÇÃO é a decisão — não há botão */ }}
+                                        onRecalc={() => { /* o cálculo é derivado do `Form.useWatch` */ }}
+                                        extras={extrasDosTributos}
+                                    />
+                                </>
+                            )}
+
+
+                            {!formaCompacta && (
+                                <>
+                                {/* ════ BLOCO 1A — REDUÇÕES ════ */}
+                                <div style={{ marginBottom: 14, padding: '12px 14px', background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.18)', borderRadius: 8 }}>
+                                    <div style={{ fontSize: 12, fontWeight: 700, color: '#fca5a5', marginBottom: 2 }}>
+                                        Reduções — não geram crédito
+                                    </div>
+                                    <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 10 }}>
+                                        Já estão dentro do total da nota. Serão abatidos para achar a base.
+                                    </div>
+                    {/*
+                                      §1 — DUAS LINHAS EXPLÍCITAS, NA ORDEM DO DOCUMENTO.
+
+                                      Linha 1: os dois do PRODUTO, destacados no corpo da nota.
+                                      Linha 2: os três da OPERAÇÃO interestadual.
+
+                                      A grade `auto-fit` que estava aqui reagrupava os cinco
+                                      campos conforme a largura, e o IS ficava solto abaixo. Ela
+                                      não tinha opinião sobre a ordem — e a ordem é a informação.
+                                    */}
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12, alignItems: 'flex-end' }}>
+                                        {linhaDoBloco1A(1).map((c) => (
+                                            <Form.Item key={c.name} name={c.name} label={(
+                                                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                    {c.label}
+                                                    <Tooltip title={c.ajuda}><InfoCircleOutlined style={{ color: '#64748b' }} /></Tooltip>
+                                                </span>
+                                            )} style={{ marginBottom: 0 }}>
+                                                <InputNumber {...INPUT_EM_REAIS} />
+                                            </Form.Item>
+                                        ))}
+
+                                        {/*
+                                          O IS DIVIDE A PRIMEIRA LINHA COM O IPI DE CUSTO.
+
+                                          Ele é do PRODUTO e vem destacado como o IPI, e é entre
+                                          os que NÃO GERAM CRÉDITO que o usuário procura por ele.
+
+                                          >>> E MESMO AQUI ELE NÃO REDUZ <<<
+                                          `valorIs` continua FORA de `reducoesTotal` em
+                                          `nota-de-compra.ts`: saldo e base com IS de R$ 50,00 são
+                                          IDÊNTICOS aos com IS zero. O rótulo ao lado diz isso na
+                                          tela, porque a POSIÇÃO neste bloco afirmaria o contrário
+                                          se ficasse calada.
+                                        */}
+                                        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10 }}>
+                                            <Form.Item
+                                                name="valor_is"
+                                                label={(
+                                                    <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                        IS (Imposto Seletivo)
+                                                        <Tooltip title="Não gera crédito, mas a lei manda mantê-lo na base do ICMS, do IBS e da CBS (EC 132/2023, art. 153 §6º V) — por isso ele não é abatido.">
+                                                            <InfoCircleOutlined style={{ color: '#64748b' }} />
+                                                        </Tooltip>
+                                                    </span>
+                                                )}
+                                                style={{ marginBottom: 0, flex: 1 }}
+                                            >
+                                                <InputNumber {...INPUT_EM_REAIS} />
+                                            </Form.Item>
+                                            <span style={{ fontSize: 12, color: '#fbbf24', paddingBottom: 6, whiteSpace: 'nowrap' }}>não reduz</span>
+                                        </div>
+                                    </div>
+
+                                    <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 12 }}>
+                                        {linhaDoBloco1A(2).map((c) => (
+                                            <Form.Item key={c.name} name={c.name} label={(
+                                                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                    {c.label}
+                                                    <Tooltip title={c.ajuda}><InfoCircleOutlined style={{ color: '#64748b' }} /></Tooltip>
+                                                </span>
+                                            )} style={{ marginBottom: 0 }}>
+                                                <InputNumber {...INPUT_EM_REAIS} />
+                                            </Form.Item>
+                                        ))}
+                                    </div>
 
                                     {/*
-                                      O IS DIVIDE A PRIMEIRA LINHA COM O IPI DE CUSTO.
+                                      FRETE E SEGURO NO MESMO BLOCO, E MARCADOS COMO NÃO-REDUÇÃO.
 
-                                      Ele é do PRODUTO e vem destacado como o IPI, e é entre
-                                      os que NÃO GERAM CRÉDITO que o usuário procura por ele.
-
-                                      >>> E MESMO AQUI ELE NÃO REDUZ <<<
-                                      `valorIs` continua FORA de `reducoesTotal` em
-                                      `nota-de-compra.ts`: saldo e base com IS de R$ 50,00 são
-                                      IDÊNTICOS aos com IS zero. O rótulo ao lado diz isso na
-                                      tela, porque a POSIÇÃO neste bloco afirmaria o contrário
-                                      se ficasse calada.
+                                      Eles estão aqui porque é aqui que o usuário procura "o que
+                                      mais veio na nota" — e estão MARCADOS porque a natureza deles
+                                      é oposta à das quatro linhas acima: integram a base e geram
+                                      crédito (LC 87/1996 art. 13 §1º II; RIPI art. 190 §1º; LC
+                                      214/2025 art. 12 §1º). Abatê-los jogaria crédito legítimo
+                                      fora, e a aba Créditos passaria a divergir da guia.
                                     */}
-                                    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10 }}>
-                                        <Form.Item
-                                            name="valor_is"
-                                            label={(
-                                                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                                    IS (Imposto Seletivo)
-                                                    <Tooltip title="Não gera crédito, mas a lei manda mantê-lo na base do ICMS, do IBS e da CBS (EC 132/2023, art. 153 §6º V) — por isso ele não é abatido.">
-                                                        <InfoCircleOutlined style={{ color: '#64748b' }} />
-                                                    </Tooltip>
-                                                </span>
-                                            )}
-                                            style={{ marginBottom: 0, flex: 1 }}
-                                        >
-                                            <InputNumber {...INPUT_EM_REAIS} />
-                                        </Form.Item>
-                                        <span style={{ fontSize: 12, color: '#fbbf24', paddingBottom: 6, whiteSpace: 'nowrap' }}>não reduz</span>
+                                    <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px dashed rgba(148,163,184,0.25)' }}>
+                                        <div style={{ fontSize: 11, color: '#22C55E', marginBottom: 8, fontWeight: 600 }}>
+                                            não reduz — integra a base e credita junto
+                                        </div>
+                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12 }}>
+                                            <Form.Item name="frete" label="Frete cobrado na nota" style={{ marginBottom: 0 }}>
+                                                <InputNumber {...INPUT_EM_REAIS} />
+                                            </Form.Item>
+                                            <Form.Item name="seguro" label="Seguro cobrado na nota" style={{ marginBottom: 0 }}>
+                                                <InputNumber {...INPUT_EM_REAIS} />
+                                            </Form.Item>
+                                        </div>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#94a3b8', marginTop: 10 }}>
+                                            <span>Valor das mercadorias</span>
+                                            <strong style={{ color: '#e2e8f0' }}>{brl(descascamentoDaNota.valorDasMercadorias)}</strong>
+                                        </div>
                                     </div>
                                 </div>
 
-                                <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 12 }}>
-                                    {linhaDoBloco1A(2).map((c) => (
-                                        <Form.Item key={c.name} name={c.name} label={(
-                                            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                                {c.label}
-                                                <Tooltip title={c.ajuda}><InfoCircleOutlined style={{ color: '#64748b' }} /></Tooltip>
-                                            </span>
-                                        )} style={{ marginBottom: 0 }}>
-                                            <InputNumber {...INPUT_EM_REAIS} />
-                                        </Form.Item>
-                                    ))}
-                                </div>
+                                {/* ════ O SALDO ════ */}
+                                <LinhaDeDegrau rotulo="Saldo (base para os demais tributos)" valor={descascamentoDaNota.saldo} />
 
                                 {/*
-                                  FRETE E SEGURO NO MESMO BLOCO, E MARCADOS COMO NÃO-REDUÇÃO.
+                                  ════ BLOCO 2 — GERA CRÉDITO, POR FORA ════
 
-                                  Eles estão aqui porque é aqui que o usuário procura "o que
-                                  mais veio na nota" — e estão MARCADOS porque a natureza deles
-                                  é oposta à das quatro linhas acima: integram a base e geram
-                                  crédito (LC 87/1996 art. 13 §1º II; RIPI art. 190 §1º; LC
-                                  214/2025 art. 12 §1º). Abatê-los jogaria crédito legítimo
-                                  fora, e a aba Créditos passaria a divergir da guia.
+                                  >>> DOIS RENDERS DO MESMO COMPONENTE, E NÃO DUAS TABELAS <<<
+
+                                  A hierarquia fiscal separa os por fora dos por dentro: os
+                                  primeiros SAEM da base, os segundos incidem SOBRE ela. Numa
+                                  tabela só, o usuário lê cinco linhas irmãs e aprende a conta
+                                  errada — mesmo com o número certo.
+
+                                  Escrever a segunda tabela aqui seria `copia-divergente.md`
+                                  nascendo: acrescentar um tributo, corrigir um tooltip ou mudar a
+                                  ajuda da NF-e passaria a exigir duas edições, e a segunda seria
+                                  esquecida. Com `tributos`, é o MESMO componente duas vezes.
+
+                                    §2 — O SELETOR POR FORA | POR DENTRO SAIU, e a linha do IPI
+                                    ficou idêntica às de CBS e IBS.
+
+                                    >>> NESTE BLOCO A MENÇÃO É A AFIRMAÇÃO <<<
+                                    Se o IPI está AQUI com valor, ele gera crédito e é por fora
+                                    — é isso que o título do bloco diz, e é isso que a posição
+                                    da linha já decidiu. O seletor pedia do usuário uma decisão
+                                    que ele acabara de tomar ao digitar naquela linha, e uma
+                                    segunda pergunta sobre um fato já afirmado é onde as duas
+                                    respostas divergem.
+
+                                    CONSEQUÊNCIA, declarada: o caso "IPI por dentro" deixa de
+                                    ser informável pela tela, e `ipi_por_dentro` deixa de ser
+                                    gravado. A coluna PERMANECE no banco e `descascarANota`
+                                    MANTÉM o parâmetro — o caso do #74 que afirma "por fora →
+                                    base 1.000,00; por dentro → base 1.060,00" continua verde
+                                    sem edição. A regra não se perdeu; ela saiu da tela.
                                 */}
-                                <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px dashed rgba(148,163,184,0.25)' }}>
-                                    <div style={{ fontSize: 11, color: '#22C55E', marginBottom: 8, fontWeight: 600 }}>
-                                        não reduz — integra a base e credita junto
-                                    </div>
-                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12 }}>
-                                        <Form.Item name="frete" label="Frete cobrado na nota" style={{ marginBottom: 0 }}>
-                                            <InputNumber {...INPUT_EM_REAIS} />
-                                        </Form.Item>
-                                        <Form.Item name="seguro" label="Seguro cobrado na nota" style={{ marginBottom: 0 }}>
-                                            <InputNumber {...INPUT_EM_REAIS} />
-                                        </Form.Item>
-                                    </div>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#94a3b8', marginTop: 10 }}>
-                                        <span>Valor das mercadorias</span>
-                                        <strong style={{ color: '#e2e8f0' }}>{brl(descascamentoDaNota.valorDasMercadorias)}</strong>
-                                    </div>
+                                <PurchaseTaxCredits
+                                    modo="posicao"
+                                    visivel
+                                    semDestinacao
+                                    semBlocoB
+                                    semRodape
+                                    titulo="Gera crédito — por fora"
+                                    tributos={['IPI', 'CBS', 'IBS']}
+                                    bandeiras={bandeirasDoLancamento}
+                                    custo={null}
+                                    onToggle={() => { /* a POSIÇÃO é a decisão — não há botão */ }}
+                                    onRecalc={() => { /* o cálculo é derivado do `Form.useWatch` */ }}
+                                    semFornecedorDoSimples
+                                    leitura={leiturasDoCredito}
+                                    extras={extrasDosTributos}
+                                />
+
+                                {/* ════ A BASE — separador, não linha de lista ════ */}
+                                <LinhaDeDegrau
+                                    rotulo="Base dos produtos (vProd)"
+                                    valor={descascamentoDaNota.base}
+                                    apoio="A operação por dentro incide sobre esta base."
+                                />
+
+                                {/*
+                                  ════ BLOCO 3 — GERA CRÉDITO, POR DENTRO — TRÊS LINHAS ════
+
+                                  §3 do comando de 24/09/2026. Eram SEIS controles para DOIS
+                                  tributos: duas entradas, duas fatias e duas bases manuais.
+
+                                  >>> AS FATIAS SAÍRAM DA TELA, E A RAZÃO É QUE ELAS DUPLICAM <<<
+                                  "Parcela em ST" e "parcela monofásica" fazem o MESMO trabalho
+                                  que a base manual, pelo lado negativo — e dois controles para o
+                                  mesmo fato é onde o usuário erra: ele informa a fatia E a base,
+                                  e o desconto acontece duas vezes. Fica a base manual, que é a
+                                  que ele consegue conferir contra o documento.
+
+                                  É decisão de TELA, não de motor: `descascarANota` mantém o
+                                  parâmetro `fatias`, e os casos F e G do #74 continuam verdes sem
+                                  edição — a regra não se perdeu, só saiu daqui. As colunas
+                                  `parcela_st` e `parcela_monofasica` permanecem no banco.
+
+                                  O ICMS é campo em R$ e mais nada: ele vem SEMPRE destacado na
+                                  nota, e é esse número que o usuário copia. O PIS/COFINS é o
+                                  oposto — a alíquota é que se conhece, e a base sai sozinha do
+                                  descascamento e é exibida na própria linha.
+                                */}
+                                <PurchaseTaxCredits
+                                    modo="posicao"
+                                    visivel
+                                    semDestinacao
+                                    semBlocoB
+                                    semRodape
+                                    titulo="Gera crédito — por dentro"
+                                    tributos={['ICMS', 'PIS_COFINS']}
+                                    bandeiras={bandeirasDoLancamento}
+                                    custo={null}
+                                    semFornecedorDoSimples
+                                    leitura={leiturasDoCredito}
+                                    onToggle={() => { /* a POSIÇÃO é a decisão — não há botão */ }}
+                                    onRecalc={() => { /* o cálculo é derivado do `Form.useWatch` */ }}
+                                    depoisDasLinhas={<LinhaDaBaseManual
+                                        ligado={usarBaseManualPisCofins === true}
+                                        baseEfetiva={descascamentoDaNota.basesPorDentro.pisCofins}
+                                        formatoDaAliquota={formatoDeEntrada.PIS_COFINS ?? FORMATO_DA_LINHA.PIS_COFINS}
+                                        onFormato={(f) => setFormatoDeEntrada((prev) => ({ ...prev, PIS_COFINS: f }))}
+                                        desabilitado={descascamentoDaNota.base == null}
+                                    />}
+                                    blocoDeCusto={(
+                                        <Collapse
+                                            ghost
+                                            size="small"
+                                            items={[{
+                                                key: 'cst',
+                                                label: <span style={{ fontSize: 12, color: '#94a3b8' }}>CST do documento (opcional)</span>,
+                                                children: (
+                                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
+                                                        <Form.Item name="cst_icms" label="CST ICMS" style={{ marginBottom: 0 }}>
+                                                            <Input placeholder="ex: 00" maxLength={3} />
+                                                        </Form.Item>
+                                                        <Form.Item name="cst_ipi" label="CST IPI" style={{ marginBottom: 0 }}>
+                                                            <Input placeholder="ex: 00" maxLength={3} />
+                                                        </Form.Item>
+                                                        <Form.Item name="cst_pis_cofins" label="CST PIS/COFINS" style={{ marginBottom: 0 }}>
+                                                            <Input placeholder="ex: 01" maxLength={3} />
+                                                        </Form.Item>
+                                                    </div>
+                                                ),
+                                            }]}
+                                        />
+                                    )}
+                                    extras={extrasDosTributos}
+                                />
+
+                                </>
+                            )}
+
+
+                            {/*
+                              §1 — O LINK DO CASO RARO.
+
+                              Ele REVELA campos, e não muda nada do que já foi digitado: o que
+                              for preenchido na escada grava pelo mesmo caminho de sempre. Não
+                              há volta porque voltar esconderia um campo COM VALOR, e um valor
+                              escondido que continua na conta é o pior dos dois mundos.
+                            */}
+                            {formaCompacta && (
+                                <div style={{ marginTop: 10 }}>
+                                    <a
+                                        onClick={(ev) => { ev.preventDefault(); setRevelarEscadaCompleta(true) }}
+                                        style={{ fontSize: 12, color: '#64748b', textDecoration: 'underline' }}
+                                    >
+                                        esta nota tem outros tributos
+                                    </a>
                                 </div>
-                            </div>
+                            )}
 
-                            {/* ════ O SALDO ════ */}
-                            <LinhaDeDegrau rotulo="Saldo (base para os demais tributos)" valor={descascamentoDaNota.saldo} />
-
-                            {/*
-                              ════ BLOCO 2 — GERA CRÉDITO, POR FORA ════
-
-                              >>> DOIS RENDERS DO MESMO COMPONENTE, E NÃO DUAS TABELAS <<<
-
-                              A hierarquia fiscal separa os por fora dos por dentro: os
-                              primeiros SAEM da base, os segundos incidem SOBRE ela. Numa
-                              tabela só, o usuário lê cinco linhas irmãs e aprende a conta
-                              errada — mesmo com o número certo.
-
-                              Escrever a segunda tabela aqui seria `copia-divergente.md`
-                              nascendo: acrescentar um tributo, corrigir um tooltip ou mudar a
-                              ajuda da NF-e passaria a exigir duas edições, e a segunda seria
-                              esquecida. Com `tributos`, é o MESMO componente duas vezes.
-
-                                §2 — O SELETOR POR FORA | POR DENTRO SAIU, e a linha do IPI
-                                ficou idêntica às de CBS e IBS.
-
-                                >>> NESTE BLOCO A MENÇÃO É A AFIRMAÇÃO <<<
-                                Se o IPI está AQUI com valor, ele gera crédito e é por fora
-                                — é isso que o título do bloco diz, e é isso que a posição
-                                da linha já decidiu. O seletor pedia do usuário uma decisão
-                                que ele acabara de tomar ao digitar naquela linha, e uma
-                                segunda pergunta sobre um fato já afirmado é onde as duas
-                                respostas divergem.
-
-                                CONSEQUÊNCIA, declarada: o caso "IPI por dentro" deixa de
-                                ser informável pela tela, e `ipi_por_dentro` deixa de ser
-                                gravado. A coluna PERMANECE no banco e `descascarANota`
-                                MANTÉM o parâmetro — o caso do #74 que afirma "por fora →
-                                base 1.000,00; por dentro → base 1.060,00" continua verde
-                                sem edição. A regra não se perdeu; ela saiu da tela.
-                            */}
-                            <PurchaseTaxCredits
-                                modo="posicao"
-                                visivel
-                                semDestinacao
-                                semBlocoB
-                                semRodape
-                                titulo="Gera crédito — por fora"
-                                tributos={['IPI', 'CBS', 'IBS']}
-                                bandeiras={bandeirasDoLancamento}
-                                custo={null}
-                                onToggle={() => { /* a POSIÇÃO é a decisão — não há botão */ }}
-                                onRecalc={() => { /* o cálculo é derivado do `Form.useWatch` */ }}
-                                semFornecedorDoSimples
-                                leitura={leiturasDoCredito}
-                                extras={extrasDosTributos}
-                            />
-
-                            {/* ════ A BASE — separador, não linha de lista ════ */}
-                            <LinhaDeDegrau
-                                rotulo="Base dos produtos (vProd)"
-                                valor={descascamentoDaNota.base}
-                                apoio="A operação por dentro incide sobre esta base."
-                            />
-
-                            {/*
-                              ════ BLOCO 3 — GERA CRÉDITO, POR DENTRO — TRÊS LINHAS ════
-
-                              §3 do comando de 24/09/2026. Eram SEIS controles para DOIS
-                              tributos: duas entradas, duas fatias e duas bases manuais.
-
-                              >>> AS FATIAS SAÍRAM DA TELA, E A RAZÃO É QUE ELAS DUPLICAM <<<
-                              "Parcela em ST" e "parcela monofásica" fazem o MESMO trabalho
-                              que a base manual, pelo lado negativo — e dois controles para o
-                              mesmo fato é onde o usuário erra: ele informa a fatia E a base,
-                              e o desconto acontece duas vezes. Fica a base manual, que é a
-                              que ele consegue conferir contra o documento.
-
-                              É decisão de TELA, não de motor: `descascarANota` mantém o
-                              parâmetro `fatias`, e os casos F e G do #74 continuam verdes sem
-                              edição — a regra não se perdeu, só saiu daqui. As colunas
-                              `parcela_st` e `parcela_monofasica` permanecem no banco.
-
-                              O ICMS é campo em R$ e mais nada: ele vem SEMPRE destacado na
-                              nota, e é esse número que o usuário copia. O PIS/COFINS é o
-                              oposto — a alíquota é que se conhece, e a base sai sozinha do
-                              descascamento e é exibida na própria linha.
-                            */}
-                            <PurchaseTaxCredits
-                                modo="posicao"
-                                visivel
-                                semDestinacao
-                                semBlocoB
-                                semRodape
-                                titulo="Gera crédito — por dentro"
-                                tributos={['ICMS', 'PIS_COFINS']}
-                                bandeiras={bandeirasDoLancamento}
-                                custo={null}
-                                semFornecedorDoSimples
-                                leitura={leiturasDoCredito}
-                                onToggle={() => { /* a POSIÇÃO é a decisão — não há botão */ }}
-                                onRecalc={() => { /* o cálculo é derivado do `Form.useWatch` */ }}
-                                depoisDasLinhas={<LinhaDaBaseManual
-                                    ligado={usarBaseManualPisCofins === true}
-                                    baseEfetiva={descascamentoDaNota.basesPorDentro.pisCofins}
-                                    formatoDaAliquota={formatoDeEntrada.PIS_COFINS ?? FORMATO_DA_LINHA.PIS_COFINS}
-                                    onFormato={(f) => setFormatoDeEntrada((prev) => ({ ...prev, PIS_COFINS: f }))}
-                                    desabilitado={descascamentoDaNota.base == null}
-                                />}
-                                blocoDeCusto={(
-                                    <Collapse
-                                        ghost
-                                        size="small"
-                                        items={[{
-                                            key: 'cst',
-                                            label: <span style={{ fontSize: 12, color: '#94a3b8' }}>CST do documento (opcional)</span>,
-                                            children: (
-                                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
-                                                    <Form.Item name="cst_icms" label="CST ICMS" style={{ marginBottom: 0 }}>
-                                                        <Input placeholder="ex: 00" maxLength={3} />
-                                                    </Form.Item>
-                                                    <Form.Item name="cst_ipi" label="CST IPI" style={{ marginBottom: 0 }}>
-                                                        <Input placeholder="ex: 00" maxLength={3} />
-                                                    </Form.Item>
-                                                    <Form.Item name="cst_pis_cofins" label="CST PIS/COFINS" style={{ marginBottom: 0 }}>
-                                                        <Input placeholder="ex: 01" maxLength={3} />
-                                                    </Form.Item>
-                                                </div>
-                                            ),
-                                        }]}
-                                    />
-                                )}
-                                extras={extrasDosTributos}
-                            />
 
                             {/* ════ RODAPÉ — crédito total e custo líquido ════ */}
                             <div style={{ marginTop: 14, padding: '12px 14px', background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.2)', borderRadius: 8, display: 'grid', gap: 6 }}>
+                                {/*
+                                  O VALOR TOTAL APARECE NO RODAPÉ DA FORMA COMPACTA.
+                                  Na escada ele é o topo de uma sequência que o leitor
+                                  percorreu; aqui não há sequência, e "crédito de 265" sem o
+                                  número de que ele saiu não dá para conferir.
+                                */}
+                                {formaCompacta && (
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+                                        <span style={{ color: '#94a3b8' }}>Valor total</span>
+                                        <span>{brl(totalDoLancamento)}</span>
+                                    </div>
+                                )}
                                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
                                     <span style={{ color: '#94a3b8' }}>Crédito total</span>
                                     <strong style={{ color: '#22C55E' }}>{brl(descascamentoDaNota.creditoTotal)}</strong>

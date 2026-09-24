@@ -102,9 +102,20 @@ describe('A — "Fornecedor do Simples sem regime regular" só onde ele é grava
     expect(com).not.toContain(ROTULO)
   })
 
-  it('>>> e a tela de despesa passa a prop nos DOIS blocos <<<', () => {
+  /**
+   * ATUALIZADO EM 24/09/2026 (noite). A tela ganhou um TERCEIRO render — a forma compacta —,
+   * e o caso contava dois.
+   *
+   * Contar TODOS os renders em vez de fixar o número é o que o critério sempre quis dizer:
+   * "nenhum bloco da despesa mostra o check". Fixar em 2 fazia o caso falhar quando um
+   * quarto bloco nascesse CERTO, e passar quando um nascesse ERRADO se outro fosse removido
+   * no mesmo commit.
+   */
+  it('>>> e TODO render da tela de despesa passa a prop <<<', () => {
     const c = corpoDoDrawer(tela())
-    expect((c.match(/semFornecedorDoSimples/g) ?? []).length).toBe(2)
+    const blocos = (c.match(/<PurchaseTaxCredits/g) ?? []).length
+    expect(blocos).toBeGreaterThanOrEqual(3)
+    expect((c.match(/semFornecedorDoSimples/g) ?? []).length).toBe(blocos)
   })
 
   it('>>> o cadastro de item NÃO passa a prop — é lá que a coluna é gravada <<<', () => {
@@ -285,9 +296,10 @@ describe('D — três linhas, e as fatias fora', () => {
     expect(sem).not.toContain('R$ 180,00')
   })
 
-  it('>>> e a tela passa o crédito do DESCASCAMENTO, nos dois blocos <<<', () => {
+  it('>>> e TODO bloco da tela lê o crédito do DESCASCAMENTO <<<', () => {
     const c = corpoDoDrawer(tela())
-    expect((c.match(/leitura=\{leiturasDoCredito\}/g) ?? []).length).toBe(2)
+    const blocos = (c.match(/<PurchaseTaxCredits/g) ?? []).length
+    expect((c.match(/leitura=\{leiturasDoCredito\}/g) ?? []).length).toBe(blocos)
     const fonte = tela()
     const memo = fonte.slice(fonte.indexOf('const leiturasDoCredito'), fonte.indexOf('const leiturasDoCredito') + 400)
     expect(memo).toContain('descascamentoDaNota.creditos.icms')
