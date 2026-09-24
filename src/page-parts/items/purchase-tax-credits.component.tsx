@@ -127,6 +127,45 @@ interface Props {
   /** As linhas do bloco de custo, em R$. Só no modo `'posicao'`. */
   blocoDeCusto?: React.ReactNode
   /**
+   * QUAIS LINHAS RENDERIZAR. Ausente = os cinco, que é o comportamento de sempre.
+   *
+   * >>> POR QUE UMA PROP, E NÃO UMA SEGUNDA TABELA NA PÁGINA <<<
+   *
+   * A tela de despesa precisa de DOIS blocos — por fora e por dentro — porque essa é a
+   * hierarquia fiscal: os por fora saem da base, os por dentro incidem sobre ela. Escrever
+   * a segunda tabela na página seria `copia-divergente.md` nascendo: as duas exibiriam o
+   * mesmo tributo por caminhos diferentes, e a divergência só apareceria como crédito
+   * errado.
+   *
+   * Com a prop, é o MESMO componente duas vezes. Acrescentar um tributo, mudar um tooltip ou
+   * corrigir a ajuda da NF-e vale para os dois blocos e para o cadastro de item.
+   */
+  tributos?: readonly TributoCreditavel[]
+  /**
+   * Não renderizar o bloco interno "Não gera crédito — compõe o custo".
+   *
+   * Na tela de despesa ele virou o BLOCO 1A, com CAMPOS: ICMS-ST, DIFAL e FCP são digitados
+   * lá. Repeti-los aqui como texto "sempre custo" ensinaria que não são editáveis — e
+   * duplicaria linhas que já existem na tela.
+   */
+  semBlocoB?: boolean
+  /**
+   * Não renderizar o rodapé "Custo bruto / Crédito recuperado".
+   *
+   * A tela de despesa tem o rodapé próprio — "Crédito total / CUSTO LÍQUIDO" —, que é o do
+   * descascamento. Dois rodapés com números de origens diferentes na mesma tela é o convite
+   * para alguém conferir um contra o outro e achar que discordam.
+   */
+  semRodape?: boolean
+  /**
+   * A linha de apoio sob o título. SEM TEXTO PADRÃO quando ausente.
+   *
+   * O texto que estava fixo aqui — "O custo bruto é o valor da compra…" — descrevia o
+   * desenho ANTERIOR. Um default novo teria o mesmo destino: descrever um desenho que muda.
+   * Quem tem o que dizer, diz.
+   */
+  subtitulo?: string
+  /**
    * O rodapé do IPI: crédito + custo = o IPI da nota.
    *
    * Ele existe porque as duas parcelas convivem na MESMA nota e isso é caso normal, não
@@ -137,7 +176,10 @@ interface Props {
   rodapeDoIpi?: React.ReactNode
 }
 
-export function PurchaseTaxCredits({ bandeiras, custo, onToggle, onRecalc, visivel, unidadeLabel, extras, titulo, semDestinacao, modo = 'switch', blocoDeCusto, rodapeDoIpi }: Props) {
+export function PurchaseTaxCredits({
+  bandeiras, custo, onToggle, onRecalc, visivel, unidadeLabel, extras, titulo, semDestinacao,
+  modo = 'switch', blocoDeCusto, rodapeDoIpi, tributos, semBlocoB, semRodape, subtitulo,
+}: Props) {
   if (!visivel) return null
 
   const porPosicao = modo === 'posicao'
@@ -147,7 +189,19 @@ export function PurchaseTaxCredits({ bandeiras, custo, onToggle, onRecalc, visiv
    * Se a tela decidisse, ela teria a sua própria ideia de quem credita, e a divergência com
    * `resolverFlagsDoItem` apareceria como crédito errado, sem nada falhar.
    */
-  const blocos = tributosPorBloco(bandeiras)
+  /**
+   * QUEM VAI PARA CADA BLOCO — e, antes disso, QUEM ESTE COMPONENTE desenha.
+   *
+   * `tributos` filtra; `tributosPorBloco` decide a posição dentro do que sobrou. A ordem
+   * importa: filtrar depois faria um tributo vedado sumir do bloco de custo de um render e
+   * aparecer no do outro.
+   */
+  const desenhaveis = tributos ?? TRIBUTOS_CREDITAVEIS
+  const todos = tributosPorBloco(bandeiras)
+  const blocos = {
+    credito: todos.credito.filter((t) => desenhaveis.includes(t)),
+    custo: todos.custo.filter((t) => desenhaveis.includes(t)),
+  }
 
   const linha = (t: TributoCreditavel, valor: number | null | undefined, extra?: React.ReactNode) => {
     const b = bandeiras?.[t]
@@ -232,10 +286,19 @@ export function PurchaseTaxCredits({ bandeiras, custo, onToggle, onRecalc, visiv
       <div style={{ fontSize: 13, fontWeight: 700, color: '#e2e8f0', marginBottom: 4 }}>
         {titulo ?? 'Impostos da compra'}
       </div>
-      <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 14 }}>
-        O custo bruto é o valor da compra. O custo líquido — que é o que a precificação usa —
-        é o bruto menos o que gera crédito.
-      </div>
+      {/*
+        O SUBTÍTULO SÓ EXISTE SE ALGUÉM O PASSAR.
+
+        Até 24/09/2026 este texto era fixo e descrevia o desenho ANTERIOR — "o custo bruto é
+        o valor da compra…" — numa tela que já não mostra custo bruto. Um default novo teria
+        o mesmo destino: descrever um desenho que muda. O cadastro de item continua com o
+        texto de sempre, passado por ele.
+      */}
+      {subtitulo && (
+        <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 14 }}>
+          {subtitulo}
+        </div>
+      )}
 
       {!semDestinacao && (
       <Form.Item
@@ -297,7 +360,7 @@ export function PurchaseTaxCredits({ bandeiras, custo, onToggle, onRecalc, visiv
         manda a linha para o bloco de baixo, e é `tributosPorBloco` quem decide, lendo as
         mesmas bandeiras de `resolverFlagsDoItem`. A tela não tem opinião sobre quem credita.
       */}
-      {(porPosicao ? blocos.credito : TRIBUTOS_CREDITAVEIS).map((t) => linha(
+      {(porPosicao ? blocos.credito : desenhaveis).map((t) => linha(
         t,
         { ICMS: v?.icms, PIS_COFINS: v?.pisCofins, IPI: v?.ipi, CBS: v?.cbs, IBS: v?.ibs }[t],
         extras?.[t] ?? (t === 'CBS' || t === 'IBS' ? (
@@ -324,6 +387,13 @@ export function PurchaseTaxCredits({ bandeiras, custo, onToggle, onRecalc, visiv
         Fica junto de CBS/IBS porque é só deles que ele trata, e é propriedade DA COMPRA:
         outra nota do mesmo item, de outro fornecedor, credita normalmente.
       */}
+      {/*
+        SÓ APARECE ONDE ELE ATINGE — e é por isso que a condição é sobre CBS e IBS, não sobre
+        o bloco. Com a tela de despesa renderizando o componente duas vezes, um check fixo
+        apareceria nos DOIS e o usuário veria a mesma pergunta em lugares que tratam de
+        tributos diferentes.
+      */}
+      {(desenhaveis.includes('CBS') || desenhaveis.includes('IBS')) && (
       <Form.Item
         name="supplier_simples_sem_regime_regular"
         valuePropName="checked"
@@ -338,6 +408,7 @@ export function PurchaseTaxCredits({ bandeiras, custo, onToggle, onRecalc, visiv
           </span>
         </Checkbox>
       </Form.Item>
+      )}
 
       {/*
         BLOCO B — "Não gera crédito — compõe o custo".
@@ -354,12 +425,12 @@ export function PurchaseTaxCredits({ bandeiras, custo, onToggle, onRecalc, visiv
            Um seletor de % ali convidaria a digitar "4%" e produziria um número que a nota
            não tem.
       */}
-      {porPosicao && (
+      {porPosicao && !semBlocoB && (
         <div style={{ fontSize: 12, fontWeight: 700, color: '#fca5a5', marginTop: 18, marginBottom: 6 }}>
           {ROTULO_DO_BLOCO.CUSTO}
         </div>
       )}
-      {porPosicao && blocos.custo.map((t) => {
+      {porPosicao && !semBlocoB && blocos.custo.map((t) => {
         const b = bandeiras?.[t]
         const a = AJUDA[t]
         return (
@@ -393,6 +464,14 @@ export function PurchaseTaxCredits({ bandeiras, custo, onToggle, onRecalc, visiv
 
       {porPosicao && blocoDeCusto}
 
+      {/*
+        AS TRÊS LINHAS DE TEXTO — ICMS-ST, DIFAL e FCP — SÃO PARTE DO BLOCO B.
+
+        No cadastro de item elas continuam: ali esses tributos não têm campo próprio no
+        bloco, e dizer "sempre custo" é a informação. Na tela de despesa eles TÊM campo, no
+        bloco 1A — e repeti-los aqui como texto ensinaria que não são editáveis.
+      */}
+      {!semBlocoB && (
       <div style={{ marginTop: 14, paddingTop: 10, borderTop: '1px dashed rgba(148,163,184,0.25)' }}>
         {SEMPRE_CUSTO.map((s) => (
           <div key={s.rotulo} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', fontSize: 12, color: '#94a3b8' }}>
@@ -404,8 +483,10 @@ export function PurchaseTaxCredits({ bandeiras, custo, onToggle, onRecalc, visiv
           </div>
         ))}
       </div>
+      )}
 
       {/* RODAPÉ — os três números, e o do meio é o que explica a diferença entre os outros. */}
+      {!semRodape && (
       <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid rgba(148,163,184,0.2)', display: 'grid', gap: 6 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
           <span style={{ color: '#94a3b8' }}>Custo bruto</span>
@@ -460,6 +541,7 @@ export function PurchaseTaxCredits({ bandeiras, custo, onToggle, onRecalc, visiv
           </span>
         </div>
       </div>
+      )}
     </div>
   )
 }

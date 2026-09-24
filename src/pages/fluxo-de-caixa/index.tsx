@@ -577,6 +577,74 @@ export default function CashFlow() {
     ])
 
     /**
+     * OS CAMPOS DE CADA LINHA DE TRIBUTO — e os órfãos ancorados em quem eles afetam.
+     *
+     * A entrada % | R$ é igual para os cinco. O que muda é o que vem DEPOIS dela: a parcela
+     * em ST e a base manual de ICMS ficam sob o ICMS; a parcela monofásica e a base manual
+     * de PIS/COFINS, sob o PIS/COFINS. Cada uma junto do tributo cuja base ela altera —
+     * numa seção à parte, o usuário teria de saber de antemão onde a parcela em ST entra.
+     */
+    const extrasDosTributos = useMemo(() => Object.fromEntries(
+        TRIBUTOS_CREDITAVEIS.map((t) => [t, (
+            <div key={t} style={{ display: 'grid', gap: 8 }}>
+                <Form.Item name={CAMPO_DA_ALIQUOTA[t]} noStyle>
+                    <EntradaDeImposto
+                        base={BASE_DA_LINHA_NO_DESCASCAMENTO(descascamentoDaNota, t)}
+                        formato={formatoDeEntrada[t] ?? FORMATO_PADRAO}
+                        onFormato={(f) => setFormatoDeEntrada((prev) => ({ ...prev, [t]: f }))}
+                        disabled={descascamentoDaNota.base == null || bandeirasDoLancamento[t]?.tipoVedacao === 'REGIME'}
+                    />
+                </Form.Item>
+                {t === 'ICMS' && (
+                    <>
+                        <Form.Item name="parcela_st" label={(
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                                Parcela em ST
+                                <Tooltip title="Fatia do valor da mercadoria em substituição tributária. Sai da base do ICMS, e só dela — nunca do total. Uma nota com dez itens pode ter dois em ST e oito não.">
+                                    <InfoCircleOutlined style={{ color: '#64748b' }} />
+                                </Tooltip>
+                            </span>
+                        )} style={{ marginBottom: 0, maxWidth: 240 }}>
+                            <InputNumber {...INPUT_EM_REAIS} />
+                        </Form.Item>
+                        <BaseManual
+                            tributo="ICMS"
+                            nomeDoCheck="usar_base_manual_icms"
+                            nomeDoCampo="base_manual_icms"
+                            ligado={usarBaseManualIcms === true}
+                            baseEfetiva={descascamentoDaNota.basesPorDentro.icms}
+                            aliquotaImplicita={descascamentoDaNota.aliquotaImplicita.icms}
+                        />
+                    </>
+                )}
+                {t === 'PIS_COFINS' && (
+                    <>
+                        <Form.Item name="parcela_monofasica" label={(
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                                Parcela monofásica
+                                <Tooltip title="Fatia do valor da mercadoria em regime monofásico. Sai da base do PIS/COFINS, e só dela. Nota inteiramente monofásica: a fatia é o valor todo, e o crédito sai zero pela própria conta.">
+                                    <InfoCircleOutlined style={{ color: '#64748b' }} />
+                                </Tooltip>
+                            </span>
+                        )} style={{ marginBottom: 0, maxWidth: 240 }}>
+                            <InputNumber {...INPUT_EM_REAIS} />
+                        </Form.Item>
+                        <BaseManual
+                            tributo="PIS/COFINS"
+                            nomeDoCheck="usar_base_manual_pis_cofins"
+                            nomeDoCampo="base_manual_pis_cofins"
+                            ligado={usarBaseManualPisCofins === true}
+                            baseEfetiva={descascamentoDaNota.basesPorDentro.pisCofins}
+                            aliquotaImplicita={descascamentoDaNota.aliquotaImplicita.pisCofins}
+                        />
+                    </>
+                )}
+            </div>
+        )]),
+    ) as Partial<Record<TributoCreditavel, React.ReactNode>>,
+    [descascamentoDaNota, formatoDeEntrada, bandeirasDoLancamento, usarBaseManualIcms, usarBaseManualPisCofins])
+
+    /**
      * O bloco de custo, como a NOTA o grava. Ele é leitura do que já foi coletado acima —
      * um segundo `soNumero` por campo seria a cópia nascendo no mesmo arquivo.
      */
@@ -2537,6 +2605,23 @@ export default function CashFlow() {
                     */}
                     {temBlocoDeImposto && (
                         <>
+                            {/*
+                              §7.2 — A DESTINAÇÃO VIRA LEGENDA, e some do título.
+                              Ela NÃO é um degrau da hierarquia — o título de cada bloco
+                              agora diz a POSIÇÃO do tributo, que é o que a ordem ensina.
+                              Mas ela decide QUAIS linhas creditam (`bandeirasDoLancamento`),
+                              e apagá-la de vez deixaria o leitor sem o porquê de uma linha
+                              estar marcada e a vizinha não.
+                            */}
+                            <div style={{ marginBottom: 10, fontSize: 12, color: '#94a3b8' }}>
+                                Destinação:{' '}
+                                <strong style={{ color: '#cbd5e1' }}>
+                                    {naturezaDoLancamento.destinacao === 'INSUMO' ? 'insumo'
+                                        : naturezaDoLancamento.destinacao === 'REVENDA' ? 'revenda'
+                                        : 'uso e consumo'}
+                                </strong>
+                            </div>
+
                             {naturezaDoLancamento.motivo && naturezaDoLancamento.estado === 'VEDADO' && (
                                 <div style={{ marginBottom: 12, fontSize: 12, color: '#fca5a5' }}>
                                     {naturezaDoLancamento.motivo}
@@ -2608,30 +2693,56 @@ export default function CashFlow() {
                             {/* ════ O SALDO ════ */}
                             <LinhaDeDegrau rotulo="Saldo (base para os demais tributos)" valor={descascamentoDaNota.saldo} />
 
-                            {/* ════ BLOCO 2 e 3 — pelo componente, em modo 'posicao' ════ */}
+                            {/*
+                              ════ BLOCO 2 — GERA CRÉDITO, POR FORA ════
+
+                              >>> DOIS RENDERS DO MESMO COMPONENTE, E NÃO DUAS TABELAS <<<
+
+                              A hierarquia fiscal separa os por fora dos por dentro: os
+                              primeiros SAEM da base, os segundos incidem SOBRE ela. Numa
+                              tabela só, o usuário lê cinco linhas irmãs e aprende a conta
+                              errada — mesmo com o número certo.
+
+                              Escrever a segunda tabela aqui seria `copia-divergente.md`
+                              nascendo: acrescentar um tributo, corrigir um tooltip ou mudar a
+                              ajuda da NF-e passaria a exigir duas edições, e a segunda seria
+                              esquecida. Com `tributos`, é o MESMO componente duas vezes.
+                            */}
                             <PurchaseTaxCredits
                                 modo="posicao"
                                 visivel
                                 semDestinacao
-                                titulo={`Impostos da despesa — ${naturezaDoLancamento.destinacao === 'INSUMO' ? 'insumo' : naturezaDoLancamento.destinacao === 'REVENDA' ? 'revenda' : 'uso e consumo'}`}
+                                semBlocoB
+                                semRodape
+                                titulo="Gera crédito — por fora"
+                                tributos={['IPI', 'CBS', 'IBS']}
                                 bandeiras={bandeirasDoLancamento}
                                 custo={null}
                                 onToggle={() => { /* a POSIÇÃO é a decisão — não há botão */ }}
                                 onRecalc={() => { /* o cálculo é derivado do `Form.useWatch` */ }}
                                 rodapeDoIpi={(
-                                    <div style={{ display: 'grid', gap: 8, padding: '8px 0 2px' }}>
+                                    <>
                                         {/*
-                                          §7.2 item 5 — O IPI PODE ESTAR POR DENTRO.
-                                          Por fora ele se somou ao preço e precisa SAIR do saldo;
-                                          por dentro ele já está na base e não sai. O crédito é o
-                                          mesmo nos dois — o que muda é a base dos demais.
+                                          O SELETOR FICA NA LINHA DO IPI, não solto abaixo da
+                                          tabela: ele decide o que acontece com AQUELE tributo.
+                                          Por fora ele se somou ao preço e precisa SAIR do
+                                          saldo; por dentro já está na base e não sai. O
+                                          crédito é o mesmo nos dois.
                                         */}
-                                        <Form.Item name="ipi_por_dentro" label="O IPI creditável está" style={{ marginBottom: 0 }}>
+                                        <Form.Item name="ipi_por_dentro" label="O IPI creditável está" style={{ marginBottom: 10 }}>
                                             <Radio.Group size="small" optionType="button">
                                                 <Radio.Button value={false}>POR FORA</Radio.Button>
                                                 <Radio.Button value={true}>POR DENTRO</Radio.Button>
                                             </Radio.Group>
                                         </Form.Item>
+
+                                        {/*
+                                          O IS É A ÚLTIMA LINHA DESTE BLOCO, e não uma seção à
+                                          parte: ele é um destacado da nota como CBS e IBS. O
+                                          que o distingue é a NATUREZA — ele integra a base dos
+                                          demais por determinação expressa, então não reduz; e
+                                          não gera crédito. O rótulo ao lado diz as duas coisas.
+                                        */}
                                         <Form.Item
                                             name="valor_is"
                                             label={(
@@ -2643,106 +2754,67 @@ export default function CashFlow() {
                                                 </span>
                                             )}
                                             extra="não reduz, não credita"
-                                            style={{ marginBottom: 0 }}
+                                            style={{ marginBottom: 0, maxWidth: 260 }}
                                         >
                                             <InputNumber {...INPUT_EM_REAIS} />
                                         </Form.Item>
-                                    </div>
+                                    </>
                                 )}
-                                blocoDeCusto={(
-                                    <div style={{ display: 'grid', gap: 10, marginTop: 10 }}>
-                                        {/*
-                                          AS FATIAS FICAM JUNTO DO TRIBUTO QUE ELAS AFETAM.
-                                          Uma seção "fatias" separada faria o usuário procurar
-                                          onde a parcela em ST entra — e ela entra na base do
-                                          ICMS, e só nela.
-                                        */}
-                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 12 }}>
-                                            <Form.Item name="parcela_st" label={(
-                                                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                                    Parcela em ST (sob o ICMS)
-                                                    <Tooltip title="Fatia do valor da mercadoria em substituição tributária. Sai da base do ICMS, e só dela — nunca do total. Uma nota com dez itens pode ter dois em ST e oito não.">
-                                                        <InfoCircleOutlined style={{ color: '#64748b' }} />
-                                                    </Tooltip>
-                                                </span>
-                                            )} style={{ marginBottom: 0 }}>
-                                                <InputNumber {...INPUT_EM_REAIS} />
-                                            </Form.Item>
-                                            <Form.Item name="parcela_monofasica" label={(
-                                                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                                    Parcela monofásica (sob o PIS/COFINS)
-                                                    <Tooltip title="Fatia do valor da mercadoria em regime monofásico. Sai da base do PIS/COFINS, e só dela. Nota inteiramente monofásica: a fatia é o valor todo, e o crédito sai zero pela própria conta.">
-                                                        <InfoCircleOutlined style={{ color: '#64748b' }} />
-                                                    </Tooltip>
-                                                </span>
-                                            )} style={{ marginBottom: 0 }}>
-                                                <InputNumber {...INPUT_EM_REAIS} />
-                                            </Form.Item>
-                                        </div>
-
-                                        <BaseManual
-                                            tributo="ICMS"
-                                            nomeDoCheck="usar_base_manual_icms"
-                                            nomeDoCampo="base_manual_icms"
-                                            ligado={usarBaseManualIcms === true}
-                                            baseEfetiva={descascamentoDaNota.basesPorDentro.icms}
-                                            aliquotaImplicita={descascamentoDaNota.aliquotaImplicita.icms}
-                                        />
-                                        <BaseManual
-                                            tributo="PIS/COFINS"
-                                            nomeDoCheck="usar_base_manual_pis_cofins"
-                                            nomeDoCampo="base_manual_pis_cofins"
-                                            ligado={usarBaseManualPisCofins === true}
-                                            baseEfetiva={descascamentoDaNota.basesPorDentro.pisCofins}
-                                            aliquotaImplicita={descascamentoDaNota.aliquotaImplicita.pisCofins}
-                                        />
-
-                                        {/*
-                                          §7.2 item 9 — O CST DO DOCUMENTO, num rodapé recolhível.
-                                          É O DOCUMENTO QUE DECIDE: informado um CST que veda, a
-                                          linha daquele tributo desce para o bloco de custo,
-                                          travada, com o motivo. Não é escolha do usuário.
-                                        */}
-                                        <Collapse
-                                            ghost
-                                            size="small"
-                                            items={[{
-                                                key: 'cst',
-                                                label: <span style={{ fontSize: 12, color: '#94a3b8' }}>CST do documento (opcional)</span>,
-                                                children: (
-                                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
-                                                        <Form.Item name="cst_icms" label="CST ICMS" style={{ marginBottom: 0 }}>
-                                                            <Input placeholder="ex: 00" maxLength={3} />
-                                                        </Form.Item>
-                                                        <Form.Item name="cst_ipi" label="CST IPI" style={{ marginBottom: 0 }}>
-                                                            <Input placeholder="ex: 00" maxLength={3} />
-                                                        </Form.Item>
-                                                        <Form.Item name="cst_pis_cofins" label="CST PIS/COFINS" style={{ marginBottom: 0 }}>
-                                                            <Input placeholder="ex: 01" maxLength={3} />
-                                                        </Form.Item>
-                                                    </div>
-                                                ),
-                                            }]}
-                                        />
-                                    </div>
-                                )}
-                                extras={Object.fromEntries(TRIBUTOS_CREDITAVEIS.map((t) => [t, (
-                                    <Form.Item key={t} name={CAMPO_DA_ALIQUOTA[t]} noStyle>
-                                        <EntradaDeImposto
-                                            base={BASE_DA_LINHA_NO_DESCASCAMENTO(descascamentoDaNota, t)}
-                                            formato={formatoDeEntrada[t] ?? FORMATO_PADRAO}
-                                            onFormato={(f) => setFormatoDeEntrada((prev) => ({ ...prev, [t]: f }))}
-                                            disabled={descascamentoDaNota.base == null || bandeirasDoLancamento[t]?.tipoVedacao === 'REGIME'}
-                                        />
-                                    </Form.Item>
-                                )])) as Partial<Record<TributoCreditavel, React.ReactNode>>}
+                                extras={extrasDosTributos}
                             />
 
-                            {/* ════ A BASE ════ */}
+                            {/* ════ A BASE — separador, não linha de lista ════ */}
                             <LinhaDeDegrau
                                 rotulo="Base dos produtos (vProd)"
                                 valor={descascamentoDaNota.base}
                                 apoio="A operação por dentro incide sobre esta base."
+                            />
+
+                            {/*
+                              ════ BLOCO 3 — GERA CRÉDITO, POR DENTRO ════
+
+                              Cada órfão mora sob o tributo que ele afeta: a parcela em ST e a
+                              base manual de ICMS sob o ICMS; a parcela monofásica e a base
+                              manual de PIS/COFINS sob o PIS/COFINS. Uma seção "fatias" à parte
+                              faria o usuário procurar onde a parcela em ST entra — e ela entra
+                              na base do ICMS, e só nela.
+                            */}
+                            <PurchaseTaxCredits
+                                modo="posicao"
+                                visivel
+                                semDestinacao
+                                semBlocoB
+                                semRodape
+                                titulo="Gera crédito — por dentro"
+                                tributos={['ICMS', 'PIS_COFINS']}
+                                bandeiras={bandeirasDoLancamento}
+                                custo={null}
+                                onToggle={() => { /* a POSIÇÃO é a decisão — não há botão */ }}
+                                onRecalc={() => { /* o cálculo é derivado do `Form.useWatch` */ }}
+                                blocoDeCusto={(
+                                    <Collapse
+                                        ghost
+                                        size="small"
+                                        items={[{
+                                            key: 'cst',
+                                            label: <span style={{ fontSize: 12, color: '#94a3b8' }}>CST do documento (opcional)</span>,
+                                            children: (
+                                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
+                                                    <Form.Item name="cst_icms" label="CST ICMS" style={{ marginBottom: 0 }}>
+                                                        <Input placeholder="ex: 00" maxLength={3} />
+                                                    </Form.Item>
+                                                    <Form.Item name="cst_ipi" label="CST IPI" style={{ marginBottom: 0 }}>
+                                                        <Input placeholder="ex: 00" maxLength={3} />
+                                                    </Form.Item>
+                                                    <Form.Item name="cst_pis_cofins" label="CST PIS/COFINS" style={{ marginBottom: 0 }}>
+                                                        <Input placeholder="ex: 01" maxLength={3} />
+                                                    </Form.Item>
+                                                </div>
+                                            ),
+                                        }]}
+                                    />
+                                )}
+                                extras={extrasDosTributos}
                             />
 
                             {/* ════ RODAPÉ — crédito total e custo líquido ════ */}
