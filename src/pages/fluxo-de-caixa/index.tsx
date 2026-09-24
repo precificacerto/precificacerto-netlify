@@ -11,6 +11,11 @@ import { PAGE_TITLES } from '@/constants/page-titles'
 import { supabase } from '@/supabase/client'
 import { getTenantId } from '@/utils/get-tenant-id'
 import { getEffectiveIncomeAmount } from '@/utils/cash-entry-amount'
+import {
+    ehRecebimentoPrevisto, entraNaProjecao, efeitoNoSaldo, rotuloDaFaixaDePrevisto,
+    saldoAcumuladoPorDia,
+    MODO_PADRAO, type ModoDaProjecao,
+} from '@/utils/projecao-de-caixa'
 import { mergeExpenseConfig } from '@/utils/recalc-expense-config'
 import { ehCompromissoFinanceiro, separarJurosEPrincipal, LABEL_DO_BLOCO } from '@/utils/compromissos-financeiros'
 import { naturezaDaDespesa, formaDoBlocoFiscal } from '@/utils/natureza-da-despesa'
@@ -349,6 +354,15 @@ export default function CashFlow() {
     const [vencidosToken, setVencidosToken] = useState(0)
     const [loading, setLoading] = useState(false)
     const [month, setMonth] = useState(dayjs())
+
+    /**
+     * §4.5 — O MODO NÃO É PREFERÊNCIA SALVA.
+     *
+     * A tela abre sempre em PREVISTO. Um modo lembrado faria alguém abrir a tela em
+     * CONFIRMADO meses depois e ler aquilo como projeção — que é o defeito de hoje com o
+     * rótulo trocado.
+     */
+    const [modoDaProjecao, setModoDaProjecao] = useState<ModoDaProjecao>(MODO_PADRAO)
 
     const [drawerOpen, setDrawerOpen] = useState(false)
     const [expenseAmount, setExpenseAmount] = useState('')
@@ -1116,7 +1130,8 @@ export default function CashFlow() {
         return regularData.filter((e: any) => {
             if (e.due_date !== todayStr) return false
             if (e.type === 'EXPENSE') return !e.paid_date
-            if (e.type === 'INCOME') return ((e.payment_method === 'BOLETO' || e.payment_method === 'CHEQUE_PRE_DATADO') || (e as any).is_split_remaining) && !e.paid_date
+            // §3 — a condição era inline aqui; o comportamento não muda, a porta sim.
+            if (e.type === 'INCOME') return ehRecebimentoPrevisto(e)
             return false
         })
     }, [regularData, todayStr])
@@ -1139,7 +1154,7 @@ export default function CashFlow() {
 
         for (const entry of dfcData) {
             if (entry.type === 'INCOME') {
-                if (((entry.payment_method === 'BOLETO' || entry.payment_method === 'CHEQUE_PRE_DATADO') || (entry as any).is_split_remaining) && !entry.paid_date) continue
+                if (!entraNaProjecao(entry, modoDaProjecao)) continue
                 const label = getIncomeLabel(entry)
                 incomeByLabel[label] = (incomeByLabel[label] || 0) + getEffectiveIncomeAmount(entry)
             } else {
@@ -1164,12 +1179,9 @@ export default function CashFlow() {
             if (!entry.due_date) continue
             const day = parseInt(entry.due_date.substring(8, 10), 10)
             if (day < 1 || day > daysInMonth) continue
-            if (entry.type === 'INCOME') {
-                if (((entry.payment_method === 'BOLETO' || entry.payment_method === 'CHEQUE_PRE_DATADO') || (entry as any).is_split_remaining) && !entry.paid_date) continue
-                totals[day] += getEffectiveIncomeAmount(entry)
-            } else {
-                totals[day] -= Number(entry.amount) || 0
-            }
+            // §4.3 — o total diário segue o MESMO modo do saldo. Três leituras da mesma
+            // tela em modos diferentes é o bug de hoje com outra roupa.
+            totals[day] += efeitoNoSaldo(entry, modoDaProjecao)
         }
         return { totals, daysInMonth }
     }, [regularData, month])
@@ -1205,7 +1217,7 @@ export default function CashFlow() {
             const day = parseInt(entry.due_date.substring(8, 10), 10)
             if (day < 1 || day > daysInMonth) continue
             if (entry.type === 'INCOME') {
-                if (((entry.payment_method === 'BOLETO' || entry.payment_method === 'CHEQUE_PRE_DATADO') && !entry.paid_date) || ((entry as any).is_split_remaining && !entry.paid_date)) {
+                if (ehRecebimentoPrevisto(entry)) {
                     // Track as pending income (a receber) instead of confirmed income
                     const pendingKey = '__PENDING_INCOME__'
                     if (!result[pendingKey]) {
@@ -1276,31 +1288,41 @@ export default function CashFlow() {
         return entry.type === 'INCOME' ? Number(entry.amount) : -Number(entry.amount)
     }, [data])
 
-    // ── Saldo acumulado por dia (saldo do dia anterior) ──
-    // Receitas: apenas confirmadas (BOLETO/CHEQUE_PRE_DATADO exigem paid_date)
-    // Despesas: TODAS contam (lançadas = comprometidas)
-    const saldoDiaAnterior = useMemo(() => {
-        const result: Record<number, number> = {}
-        let running = prevMonthBalanceValue
-        for (let d = 1; d <= pivotByDay.daysInMonth; d++) {
-            result[d] = running
-            const incomeDay = INCOME_LABELS.reduce((s, l) => s + ((pivotByDay.data[l] || {})[d] || 0), 0)
-            const expenseDay = GROUP_ORDER.reduce((s, k) => s + ((pivotByDay.data[k] || {})[d] || 0), 0)
-            running += incomeDay - expenseDay
-        }
-        return result
-    }, [pivotByDay, prevMonthBalanceValue])
+    /**
+     * ── O SALDO, DIA A DIA ──
+     *
+     * (o título desta seção evita de propósito a expressão que rotula a LINHA do saldo na
+     * tabela: há um caso que a localiza por `indexOf`, e um comentário com o mesmo texto
+     * acima dela o faria apontar para a prosa em vez da linha)
+     *
+     * >>> A REGRA NOVA, E O COMENTÁRIO QUE ELA SUBSTITUI <<<
+     *
+     * Estava escrito aqui, e era o defeito com todas as letras:
+     *
+     *   // Receitas: apenas confirmadas (BOLETO/CHEQUE_PRE_DATADO exigem paid_date)
+     *   // Despesas: TODAS contam (lançadas = comprometidas)
+     *
+     * Passivo previsto com ativo confirmado. Uma projeção que soma todo o passivo e ignora
+     * todo o ativo não é conservadora — ela erra o número que dispara decisão de caixa, e
+     * sempre para pior. Medido: R$ 68.925,99 fora do saldo num único mês.
+     *
+     * Agora os dois lados seguem o MESMO modo, e quem decide é `efeitoNoSaldo`.
+     *
+     * >>> E ELE SOMA AS ENTRADAS, NÃO AS CÉLULAS DO PIVÔ <<<
+     *
+     * A versão anterior somava `INCOME_LABELS` e `GROUP_ORDER` sobre o pivô. Era por aí que
+     * o recebimento previsto escapava: ele vai para `__PENDING_INCOME__`, que não está em
+     * `INCOME_LABELS` — a faixa existia na tela e não existia no saldo. Somar as ENTRADAS
+     * tira a lista de rótulos do caminho: um balde novo não precisa ser lembrado aqui.
+     */
+    const projecaoDoMes = useMemo(() => saldoAcumuladoPorDia(regularData, {
+        diasNoMes: month.daysInMonth(),
+        saldoInicial: prevMonthBalanceValue,
+        modo: modoDaProjecao,
+    }), [regularData, month, prevMonthBalanceValue, modoDaProjecao])
 
-    // ── Saldo Acumulado por dia (saldo ao FINAL de cada dia) ──
-    const dailyAccumulatedBalance = useMemo(() => {
-        const result: Record<number, number> = {}
-        for (let d = 1; d <= pivotByDay.daysInMonth; d++) {
-            const incomeDay = INCOME_LABELS.reduce((s, l) => s + ((pivotByDay.data[l] || {})[d] || 0), 0)
-            const expenseDay = GROUP_ORDER.reduce((s, k) => s + ((pivotByDay.data[k] || {})[d] || 0), 0)
-            result[d] = (saldoDiaAnterior[d] || 0) + incomeDay - expenseDay
-        }
-        return result
-    }, [pivotByDay, saldoDiaAnterior])
+    const saldoDiaAnterior = projecaoDoMes.saldoDiaAnterior
+    const dailyAccumulatedBalance = projecaoDoMes.saldoAcumulado
 
     // ── Saldo do Mês Anterior (Item 11) — usuário insere valor manualmente ──
     // Pré-preenche com o valor já lançado (se houver), permitindo correção ou
@@ -1797,7 +1819,32 @@ export default function CashFlow() {
                     <span style={{ fontSize: 16, fontWeight: 700, color: '#e2e8f0' }}>
                         Fluxo de Caixa — {month.format('MMMM [de] YYYY')}
                     </span>
-                    <span style={{ fontSize: 12, color: '#94a3b8' }}>Visão por dia (todos os dias do mês)</span>
+                    {/*
+                      §4.1 — O SELETOR DE MODO, no topo da visão por dia.
+
+                      PREVISTO é o padrão porque é o que a palavra "projeção" significa: os
+                      dois lados do que está lançado. CONFIRMADO é o caixa que de fato
+                      ocorreu — os dois lados com baixa.
+
+                      Nenhum dos dois mistura os lados, e é isso que o defeito fazia.
+                    */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                        <Radio.Group
+                            value={modoDaProjecao}
+                            onChange={(ev) => setModoDaProjecao(ev.target.value as ModoDaProjecao)}
+                            size="small"
+                            optionType="button"
+                        >
+                            <Radio.Button value="PREVISTO">Previsto</Radio.Button>
+                            <Radio.Button value="CONFIRMADO">Confirmado</Radio.Button>
+                        </Radio.Group>
+                        <span style={{ fontSize: 11, color: '#64748b', maxWidth: 320 }}>
+                            {modoDaProjecao === 'PREVISTO'
+                                ? 'Tudo que está lançado, dos dois lados: despesa a pagar e recebimento a receber.'
+                                : 'Só o que tem baixa, dos dois lados: o caixa que de fato ocorreu.'}
+                        </span>
+                        <span style={{ fontSize: 12, color: '#94a3b8' }}>Visão por dia (todos os dias do mês)</span>
+                    </div>
                 </div>
 
                 {/* Pivot Table */}
@@ -1924,6 +1971,17 @@ export default function CashFlow() {
                                     <tr style={{ background: 'rgba(251,191,36,0.08)', borderLeft: '3px solid #f59e0b' }}>
                                         <td style={{ padding: '6px 12px', color: '#fbbf24', position: 'sticky', left: 0, background: '#1a1500', borderRight: '1px solid rgba(255,255,255,0.06)', zIndex: 1, whiteSpace: 'nowrap', overflow: 'hidden', maxWidth: 180, textOverflow: 'ellipsis', fontSize: 12 }}>
                                             ⏳ A Receber (Boleto/Cheque)
+                                            {/*
+                                              §4.2 — O RÓTULO QUE IMPEDE A LEITURA DUPLA.
+                                              A faixa é a DECOMPOSIÇÃO do que o modo Previsto
+                                              já somou, nunca um total paralelo. Sem dizer
+                                              isso, o usuário soma o valor ao saldo de novo —
+                                              e o número que ele obtém não existe em lugar
+                                              nenhum do sistema.
+                                            */}
+                                            <div style={{ fontSize: 10, color: '#a16207', fontWeight: 600 }}>
+                                                {rotuloDaFaixaDePrevisto(modoDaProjecao)}
+                                            </div>
                                         </td>
                                         {Array.from({ length: pivotByDay.daysInMonth }, (_, i) => i + 1).map(day => {
                                             const val = (pivotByDay.data[pendingKey] || {})[day] || 0
