@@ -175,7 +175,9 @@ describe('C — ICMS-ST tem campo, e não texto repetido', () => {
     const ocorrencias = (semComentario(t).match(/ICMS-ST/g) ?? []).length
     expect(ocorrencias).toBe(1)
     // E é campo, com o nome da coluna, na lista dos valores em R$ do bloco de custo.
-    expect(t).toContain("{ name: 'valor_icms_st', label: 'ICMS-ST'")
+    // O campo e o rótulo, sem prender o caso à ORDEM das chaves do objeto: `linha` entrou
+    // entre as duas em 24/09/2026 e derrubou um caso que não tinha nada a ver com layout.
+    expect(t).toMatch(/name: 'valor_icms_st'[^}]*label: 'ICMS-ST'/)
   })
 
   it('>>> o bloco B interno some com `semBlocoB`, e o texto das três linhas vai junto <<<', () => {
@@ -249,13 +251,23 @@ describe('E — cada órfão sob o tributo que ele afeta', () => {
     expect(porFora).not.toContain('IS (Imposto Seletivo)')
   })
 
-  it('>>> o seletor POR FORA | POR DENTRO está na linha do IPI, não solto <<<', () => {
+  /**
+   * ATUALIZADO EM 24/09/2026 (tarde, §2). O SELETOR POR FORA | POR DENTRO SAIU.
+   *
+   * O caso afirmava que o órfão estava ancorado na linha do IPI. Ele deixou de ser órfão
+   * porque deixou de existir: neste bloco a MENÇÃO é a afirmação — o IPI que está aqui é o
+   * creditável, por fora. O que sobra a afirmar é que a linha do IPI ficou IGUAL às outras
+   * duas, e é o caso abaixo que o faz.
+   */
+  it('>>> o bloco por fora não tem mais NADA depois das linhas <<<', () => {
     const c = corpoDoDrawer(tela())
-    // Ele vive no `depoisDasLinhas` do bloco por fora — dentro do componente, não ao lado.
     const porFora = c.slice(c.indexOf("tributos={['IPI', 'CBS', 'IBS']}"), c.indexOf('Base dos produtos (vProd)'))
-    expect(porFora).toContain('ipi_por_dentro')
-    expect(porFora).toContain('POR FORA')
-    expect(porFora).toContain('POR DENTRO')
+    expect(porFora).not.toContain('ipi_por_dentro')
+    expect(porFora).not.toContain('POR DENTRO')
+    expect(porFora).not.toContain('depoisDasLinhas')
+    // E o bloco continua sendo os três tributos — o par que distingue "sumiu o seletor" de
+    // "sumiu o bloco".
+    expect(porFora).toContain("tributos={['IPI', 'CBS', 'IBS']}")
   })
 
   /**
