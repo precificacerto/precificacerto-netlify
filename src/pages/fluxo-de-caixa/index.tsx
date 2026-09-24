@@ -197,50 +197,76 @@ function LinhaDeDegrau({ rotulo, valor, apoio }: { rotulo: string; valor: number
 }
 
 /**
- * O check "usar base manual" e o campo que ele abre.
+ * O FORMATO INICIAL DE CADA LINHA NA TELA DE DESPESA — §3 do comando de 24/09/2026.
+ *
+ * `FORMATO_PADRAO` continua sendo `'BRL'`, e continua sendo o padrão do repositório: os
+ * valores vêm destacados na nota. O PIS/COFINS é a exceção, e por um motivo próprio — a
+ * base dele NÃO está no documento (é `saldo − ICMS`, que o descascamento calcula), então o
+ * que o usuário conhece ali é a alíquota. Pedir o valor obrigaria a conferir contra uma
+ * base que a nota não traz.
+ *
+ * É formato de APRESENTAÇÃO de linha nova. Nota já gravada reabre no formato gravado.
+ */
+const FORMATO_DA_LINHA: Record<TributoCreditavel, FormatoDaEntrada> = {
+    ICMS: 'BRL',
+    IPI: 'BRL',
+    CBS: 'BRL',
+    IBS: 'BRL',
+    PIS_COFINS: 'PCT',
+}
+
+/**
+ * A TERCEIRA LINHA DO BLOCO 3 — a base manual do PIS/COFINS.
+ *
+ * >>> POR QUE UM CHECK, E NÃO UM CAMPO SEMPRE VISÍVEL <<<
+ * Porque a base nativa é a resposta certa em quase toda nota, e um campo vazio ao lado dela
+ * convida a preenchê-lo. O check afirma que há uma exceção; quem não tem exceção não vê
+ * campo nenhum.
  *
  * >>> O AVISO NÃO É ORNAMENTO <<<
- * Quando a base é manual, ela é usada COMO ESTÁ — o ICMS não é deduzido de novo, nem a fatia
- * em ST. Sem o aviso, quem digita "a base do PIS/COFINS é 820" e vê 75,85 acha que o sistema
- * deduziu; quem digita 1.000 esperando 75,85 recebe 92,50 e não sabe por quê.
+ * A base manual é usada COMO ESTÁ — o ICMS não é deduzido de novo. Sem o aviso, quem digita
+ * "a base é 820" e vê 75,85 acha que o sistema deduziu; quem digita 1.000 esperando 75,85
+ * recebe 92,50 e não sabe por quê.
+ *
+ * >>> A ALÍQUOTA DESCE PARA CÁ <<<
+ * Ela é o MESMO campo `pis_cofins_rate`, e não uma segunda cópia: dois `Form.Item` com o
+ * mesmo `name` seriam dois controles para um número, e a linha de cima mostraria um valor
+ * que a de baixo acabou de mudar. Com a base manual ligada, o par (base, alíquota) fica
+ * junto, que é como ele é lido.
  */
-function BaseManual({ tributo, nomeDoCheck, nomeDoCampo, ligado, baseEfetiva, aliquotaImplicita }: {
-    tributo: string
-    nomeDoCheck: string
-    nomeDoCampo: string
+function LinhaDaBaseManual({ ligado, baseEfetiva, formatoDaAliquota, onFormato, desabilitado }: {
     ligado: boolean
     baseEfetiva: number
-    aliquotaImplicita: number | null
+    formatoDaAliquota: FormatoDaEntrada
+    onFormato: (f: FormatoDaEntrada) => void
+    desabilitado: boolean
 }) {
     return (
-        <div style={{ padding: '8px 10px', background: 'rgba(148,163,184,0.05)', borderRadius: 6 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr', gap: 12, padding: '10px 0 0' }}>
+            <span />
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-                <Form.Item name={nomeDoCheck} valuePropName="checked" style={{ marginBottom: 0 }}>
-                    <Checkbox><span style={{ fontSize: 12 }}>usar base manual de {tributo}</span></Checkbox>
+                <Form.Item name="usar_base_manual_pis_cofins" valuePropName="checked" style={{ marginBottom: 0 }}>
+                    <Checkbox><span style={{ fontSize: 12 }}>a base não é essa — informar manualmente</span></Checkbox>
                 </Form.Item>
                 {ligado && (
-                    <Form.Item name={nomeDoCampo} style={{ marginBottom: 0, width: 180 }}>
-                        <InputNumber {...INPUT_EM_REAIS} placeholder="base em R$" />
-                    </Form.Item>
+                    <>
+                        <Form.Item name="base_manual_pis_cofins" style={{ marginBottom: 0, width: 170 }}>
+                            <InputNumber {...INPUT_EM_REAIS} placeholder="base em R$" />
+                        </Form.Item>
+                        <Form.Item name="pis_cofins_rate" noStyle>
+                            <EntradaDeImposto
+                                base={baseEfetiva}
+                                formato={formatoDaAliquota}
+                                onFormato={onFormato}
+                                disabled={desabilitado}
+                            />
+                        </Form.Item>
+                        <span style={{ fontSize: 11, color: '#fca5a5' }}>
+                            usada como está — o ICMS não é deduzido de novo
+                        </span>
+                    </>
                 )}
             </div>
-            <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 6 }}>
-                Base de {tributo}: <strong style={{ color: '#e2e8f0' }}>
-                    R$ {baseEfetiva.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </strong>
-                {/* A ALÍQUOTA IMPLÍCITA é conferência: com o valor digitado, ela diz qual
-                    percentual aquele número representa sobre a base. */}
-                {aliquotaImplicita != null && (
-                    <> · alíquota implícita <strong style={{ color: '#e2e8f0' }}>
-                        {aliquotaImplicita.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%
-                    </strong></>
-                )}
-            </div>
-            {ligado && (
-                <div style={{ fontSize: 11, color: '#fca5a5', marginTop: 4 }}>
-                    O ICMS não é deduzido de novo — se ele tem de sair, retire antes de digitar.
-                </div>
-            )}
         </div>
     )
 }
@@ -513,11 +539,19 @@ export default function CashFlow() {
     const valorFrete = Form.useWatch('frete', form)
     const valorSeguro = Form.useWatch('seguro', form)
     const valorIsDaNota = Form.useWatch('valor_is', form)
-    const parcelaSt = Form.useWatch('parcela_st', form)
-    const parcelaMonofasica = Form.useWatch('parcela_monofasica', form)
-    const baseManualIcms = Form.useWatch('base_manual_icms', form)
+    /*
+      §3 e §4 — TRÊS CONTROLES SAÍRAM DA TELA, e os watches saem com eles.
+
+      Fatia em ST, fatia monofásica e base manual de ICMS não têm mais campo. As duas fatias
+      duplicavam a base manual pelo lado negativo (§4); a base manual de ICMS ficou sem
+      função quando o ICMS passou a ser digitado em R$ — com o valor destacado na mão, o
+      crédito É o valor, e a base dele não muda número nenhum.
+
+      Um `useWatch` de campo que não existe devolve `undefined` para sempre, e
+      `soNumero(undefined)` é `null`: manter os três seria gravar "não informado" por um
+      caminho que ninguém pode informar. Sai o controle, sai o watch, sai a gravação.
+    */
     const baseManualPisCofins = Form.useWatch('base_manual_pis_cofins', form)
-    const usarBaseManualIcms = Form.useWatch('usar_base_manual_icms', form)
     const usarBaseManualPisCofins = Form.useWatch('usar_base_manual_pis_cofins', form)
     const ipiPorDentro = Form.useWatch('ipi_por_dentro', form)
     const cstIcmsDoc = Form.useWatch('cst_icms', form)
@@ -557,13 +591,18 @@ export default function CashFlow() {
         },
         ipiPorDentro: ipiPorDentro === true,
         valorIs: soNumero(valorIsDaNota),
-        fatias: { st: soNumero(parcelaSt), monofasica: soNumero(parcelaMonofasica) },
+        /*
+          O PARÂMETRO `fatias` CONTINUA NO MOTOR, e a tela passa a mandá-lo vazio.
+          `descascarANota` não mudou — quem o chamar com fatia continua funcionando, e os
+          casos do #74 que afirmam a regra seguem verdes. O que saiu foi o CONTROLE.
+        */
+        fatias: null,
         porDentro: {
             icms: entradaDe('ICMS', taxaIcms),
             pisCofins: entradaDe('PIS_COFINS', taxaPisCofins),
+            baseManualIcms: null,
             // O check é que liga a base manual: sem ele, um número esquecido no campo
             // continuaria mandando na conta depois de o usuário desmarcar.
-            baseManualIcms: usarBaseManualIcms ? soNumero(baseManualIcms) : null,
             baseManualPisCofins: usarBaseManualPisCofins ? soNumero(baseManualPisCofins) : null,
         },
         cst: { icms: cstIcmsDoc ?? null, ipi: cstIpiDoc ?? null, pisCofins: cstPisCofinsDoc ?? null },
@@ -571,78 +610,70 @@ export default function CashFlow() {
     }), [
         expenseAmount, valorFrete, valorSeguro, valorIpiCusto, valorIcmsSt, valorDifal, valorFcp,
         taxaIpi, taxaCbs, taxaIbs, taxaIcms, taxaPisCofins, ipiPorDentro, valorIsDaNota,
-        parcelaSt, parcelaMonofasica, usarBaseManualIcms, baseManualIcms,
         usarBaseManualPisCofins, baseManualPisCofins, cstIcmsDoc, cstIpiDoc, cstPisCofinsDoc,
         bandeirasDoLancamento, formatoDeEntrada,
     ])
 
     /**
-     * OS CAMPOS DE CADA LINHA DE TRIBUTO — e os órfãos ancorados em quem eles afetam.
+     * OS CAMPOS DE CADA LINHA DE TRIBUTO — §3 do comando de 24/09/2026.
      *
-     * A entrada % | R$ é igual para os cinco. O que muda é o que vem DEPOIS dela: a parcela
-     * em ST e a base manual de ICMS ficam sob o ICMS; a parcela monofásica e a base manual
-     * de PIS/COFINS, sob o PIS/COFINS. Cada uma junto do tributo cuja base ela altera —
-     * numa seção à parte, o usuário teria de saber de antemão onde a parcela em ST entra.
+     * Eram seis controles para dois tributos; passam a ser um por linha, mais a terceira
+     * linha do bloco 3. O que cada linha carrega:
+     *
+     * - ICMS: o campo em R$, com o seletor RECOLHIDO. Ele vem destacado na nota (`vICMS`) e
+     *   é esse número que o usuário copia; a alíquota é o caso raro, e continua a um clique.
+     * - PIS/COFINS: a alíquota, e a BASE exibida ao lado — `saldo − ICMS`, que o
+     *   descascamento calcula. Ela não está no documento, então exibi-la é a informação que
+     *   permite conferir o crédito sem refazer a conta.
+     *
+     * As fatias em ST e monofásica saíram: ver o comentário do bloco 3.
      */
     const extrasDosTributos = useMemo(() => Object.fromEntries(
         TRIBUTOS_CREDITAVEIS.map((t) => [t, (
-            <div key={t} style={{ display: 'grid', gap: 8 }}>
-                <Form.Item name={CAMPO_DA_ALIQUOTA[t]} noStyle>
-                    <EntradaDeImposto
-                        base={BASE_DA_LINHA_NO_DESCASCAMENTO(descascamentoDaNota, t)}
-                        formato={formatoDeEntrada[t] ?? FORMATO_PADRAO}
-                        onFormato={(f) => setFormatoDeEntrada((prev) => ({ ...prev, [t]: f }))}
-                        disabled={descascamentoDaNota.base == null || bandeirasDoLancamento[t]?.tipoVedacao === 'REGIME'}
-                    />
-                </Form.Item>
-                {t === 'ICMS' && (
-                    <>
-                        <Form.Item name="parcela_st" label={(
-                            <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
-                                Parcela em ST
-                                <Tooltip title="Fatia do valor da mercadoria em substituição tributária. Sai da base do ICMS, e só dela — nunca do total. Uma nota com dez itens pode ter dois em ST e oito não.">
-                                    <InfoCircleOutlined style={{ color: '#64748b' }} />
-                                </Tooltip>
-                            </span>
-                        )} style={{ marginBottom: 0, maxWidth: 240 }}>
-                            <InputNumber {...INPUT_EM_REAIS} />
-                        </Form.Item>
-                        <BaseManual
-                            tributo="ICMS"
-                            nomeDoCheck="usar_base_manual_icms"
-                            nomeDoCampo="base_manual_icms"
-                            ligado={usarBaseManualIcms === true}
-                            baseEfetiva={descascamentoDaNota.basesPorDentro.icms}
-                            aliquotaImplicita={descascamentoDaNota.aliquotaImplicita.icms}
+            <div key={t} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                {/*
+                  COM A BASE MANUAL LIGADA, A ALÍQUOTA NÃO FICA AQUI — ela desce para a
+                  terceira linha, junto da base. Repeti-la seria o mesmo `name` em dois
+                  `Form.Item`: dois controles para um número.
+                */}
+                {t === 'PIS_COFINS' && usarBaseManualPisCofins === true ? (
+                    <span style={{ fontSize: 12, color: '#94a3b8' }}>alíquota e base na linha abaixo</span>
+                ) : (
+                    <Form.Item name={CAMPO_DA_ALIQUOTA[t]} noStyle>
+                        <EntradaDeImposto
+                            base={BASE_DA_LINHA_NO_DESCASCAMENTO(descascamentoDaNota, t)}
+                            formato={formatoDeEntrada[t] ?? FORMATO_DA_LINHA[t]}
+                            onFormato={(f) => setFormatoDeEntrada((prev) => ({ ...prev, [t]: f }))}
+                            disabled={descascamentoDaNota.base == null || bandeirasDoLancamento[t]?.tipoVedacao === 'REGIME'}
+                            seletorRecolhido={t === 'ICMS'}
                         />
-                    </>
+                    </Form.Item>
                 )}
                 {t === 'PIS_COFINS' && (
-                    <>
-                        <Form.Item name="parcela_monofasica" label={(
-                            <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
-                                Parcela monofásica
-                                <Tooltip title="Fatia do valor da mercadoria em regime monofásico. Sai da base do PIS/COFINS, e só dela. Nota inteiramente monofásica: a fatia é o valor todo, e o crédito sai zero pela própria conta.">
-                                    <InfoCircleOutlined style={{ color: '#64748b' }} />
-                                </Tooltip>
-                            </span>
-                        )} style={{ marginBottom: 0, maxWidth: 240 }}>
-                            <InputNumber {...INPUT_EM_REAIS} />
-                        </Form.Item>
-                        <BaseManual
-                            tributo="PIS/COFINS"
-                            nomeDoCheck="usar_base_manual_pis_cofins"
-                            nomeDoCampo="base_manual_pis_cofins"
-                            ligado={usarBaseManualPisCofins === true}
-                            baseEfetiva={descascamentoDaNota.basesPorDentro.pisCofins}
-                            aliquotaImplicita={descascamentoDaNota.aliquotaImplicita.pisCofins}
-                        />
-                    </>
+                    <span style={{ fontSize: 12, color: '#64748b' }}>
+                        sobre a base de {brl(descascamentoDaNota.basesPorDentro.pisCofins)}
+                    </span>
                 )}
             </div>
         )]),
     ) as Partial<Record<TributoCreditavel, React.ReactNode>>,
-    [descascamentoDaNota, formatoDeEntrada, bandeirasDoLancamento, usarBaseManualIcms, usarBaseManualPisCofins])
+    [descascamentoDaNota, formatoDeEntrada, bandeirasDoLancamento, usarBaseManualPisCofins])
+
+    /**
+     * A LEITURA DO CRÉDITO DE CADA LINHA.
+     *
+     * O bloco pede um `CustoDoItem` para exibir valores, e esta tela não tem um: ela tem o
+     * descascamento da NOTA. Montar um `CustoDoItem` parcial aqui seria um segundo produtor
+     * do mesmo contrato com menos campos — `construtor-empobrecido.md` —, e o que faltasse
+     * chegaria zero sem nada falhar. A prop `leitura` entrega o número pronto.
+     */
+    const leiturasDoCredito = useMemo(() => ({
+        ICMS: brl(descascamentoDaNota.creditos.icms),
+        PIS_COFINS: brl(descascamentoDaNota.creditos.pisCofins),
+        IPI: brl(descascamentoDaNota.creditos.ipi),
+        CBS: brl(descascamentoDaNota.creditos.cbs),
+        IBS: brl(descascamentoDaNota.creditos.ibs),
+    }), [descascamentoDaNota])
 
     /**
      * O bloco de custo, como a NOTA o grava. Ele é leitura do que já foi coletado acima —
@@ -1495,9 +1526,13 @@ export default function CashFlow() {
                             frete: soNumero(valorFrete),
                             seguro: soNumero(valorSeguro),
                             valor_is: soNumero(valorIsDaNota),
-                            parcela_st: soNumero(parcelaSt),
-                            parcela_monofasica: soNumero(parcelaMonofasica),
-                            base_manual_icms: usarBaseManualIcms ? soNumero(baseManualIcms) : null,
+                            /*
+                              §4 — `parcela_st`, `parcela_monofasica` e `base_manual_icms`
+                              DEIXAM DE SER GRAVADAS PELA TELA. As colunas permanecem no
+                              banco, e não há migração: omitir a coluna no insert deixa NULL,
+                              que é "não informado" — o que é verdade, porque a tela não tem
+                              mais onde informar (`ausente-vs-falso.md`).
+                            */
                             base_manual_pis_cofins: usarBaseManualPisCofins ? soNumero(baseManualPisCofins) : null,
                             // `null` quando o usuário não tocou: o padrão é POR FORA, e
                             // gravar `false` afirmaria uma escolha que ninguém fez.
@@ -2662,6 +2697,39 @@ export default function CashFlow() {
                                 </div>
 
                                 {/*
+                                  §2 — O IS É A QUINTA LINHA DESTE BLOCO.
+
+                                  Ele estava no bloco POR FORA, entre CBS e IBS, porque é um
+                                  destacado da nota como eles. Mas é entre os que NÃO GERAM
+                                  CRÉDITO que o usuário procura por ele — e é isso que ele
+                                  tem em comum com as quatro linhas acima.
+
+                                  >>> E MESMO AQUI ELE NÃO REDUZ <<<
+                                  `valorIs` continua FORA de `reducoesTotal` em
+                                  `nota-de-compra.ts`: o saldo e a base com IS de R$ 50,00
+                                  são IDÊNTICOS aos com IS zero. O rótulo à direita diz isso
+                                  na tela, porque a POSIÇÃO no bloco das reduções afirmaria o
+                                  contrário se ficasse calada.
+                                */}
+                                <div style={{ marginTop: 12, display: 'flex', alignItems: 'flex-end', gap: 10, flexWrap: 'wrap' }}>
+                                    <Form.Item
+                                        name="valor_is"
+                                        label={(
+                                            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                IS (Imposto Seletivo)
+                                                <Tooltip title="Não gera crédito, mas a lei manda mantê-lo na base do ICMS, do IBS e da CBS (EC 132/2023, art. 153 §6º V) — por isso ele não é abatido.">
+                                                    <InfoCircleOutlined style={{ color: '#64748b' }} />
+                                                </Tooltip>
+                                            </span>
+                                        )}
+                                        style={{ marginBottom: 0, width: 170 }}
+                                    >
+                                        <InputNumber {...INPUT_EM_REAIS} />
+                                    </Form.Item>
+                                    <span style={{ fontSize: 12, color: '#fbbf24', paddingBottom: 6 }}>não reduz</span>
+                                </div>
+
+                                {/*
                                   FRETE E SEGURO NO MESMO BLOCO, E MARCADOS COMO NÃO-REDUÇÃO.
 
                                   Eles estão aqui porque é aqui que o usuário procura "o que
@@ -2720,7 +2788,7 @@ export default function CashFlow() {
                                 custo={null}
                                 onToggle={() => { /* a POSIÇÃO é a decisão — não há botão */ }}
                                 onRecalc={() => { /* o cálculo é derivado do `Form.useWatch` */ }}
-                                rodapeDoIpi={(
+                                depoisDasLinhas={(
                                     <>
                                         {/*
                                           O SELETOR FICA NA LINHA DO IPI, não solto abaixo da
@@ -2728,38 +2796,21 @@ export default function CashFlow() {
                                           Por fora ele se somou ao preço e precisa SAIR do
                                           saldo; por dentro já está na base e não sai. O
                                           crédito é o mesmo nos dois.
+
+                                          O IS SAIU DAQUI em 24/09/2026 (§2): ele desceu para
+                                          o bloco 1A, entre os que não geram crédito, que é
+                                          onde o usuário procura por ele.
                                         */}
-                                        <Form.Item name="ipi_por_dentro" label="O IPI creditável está" style={{ marginBottom: 10 }}>
+                                        <Form.Item name="ipi_por_dentro" label="O IPI creditável está" style={{ marginBottom: 0 }}>
                                             <Radio.Group size="small" optionType="button">
                                                 <Radio.Button value={false}>POR FORA</Radio.Button>
                                                 <Radio.Button value={true}>POR DENTRO</Radio.Button>
                                             </Radio.Group>
                                         </Form.Item>
-
-                                        {/*
-                                          O IS É A ÚLTIMA LINHA DESTE BLOCO, e não uma seção à
-                                          parte: ele é um destacado da nota como CBS e IBS. O
-                                          que o distingue é a NATUREZA — ele integra a base dos
-                                          demais por determinação expressa, então não reduz; e
-                                          não gera crédito. O rótulo ao lado diz as duas coisas.
-                                        */}
-                                        <Form.Item
-                                            name="valor_is"
-                                            label={(
-                                                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                                    IS (Imposto Seletivo)
-                                                    <Tooltip title="O IS integra a base do ICMS, do ISS, do IBS e da CBS por determinação expressa (EC 132/2023 art. 153 §6º V; LC 214/2025). Por isso ele NÃO reduz a base — e também não gera crédito.">
-                                                        <InfoCircleOutlined style={{ color: '#64748b' }} />
-                                                    </Tooltip>
-                                                </span>
-                                            )}
-                                            extra="não reduz, não credita"
-                                            style={{ marginBottom: 0, maxWidth: 260 }}
-                                        >
-                                            <InputNumber {...INPUT_EM_REAIS} />
-                                        </Form.Item>
                                     </>
                                 )}
+                                semFornecedorDoSimples
+                                leitura={leiturasDoCredito}
                                 extras={extrasDosTributos}
                             />
 
@@ -2771,13 +2822,27 @@ export default function CashFlow() {
                             />
 
                             {/*
-                              ════ BLOCO 3 — GERA CRÉDITO, POR DENTRO ════
+                              ════ BLOCO 3 — GERA CRÉDITO, POR DENTRO — TRÊS LINHAS ════
 
-                              Cada órfão mora sob o tributo que ele afeta: a parcela em ST e a
-                              base manual de ICMS sob o ICMS; a parcela monofásica e a base
-                              manual de PIS/COFINS sob o PIS/COFINS. Uma seção "fatias" à parte
-                              faria o usuário procurar onde a parcela em ST entra — e ela entra
-                              na base do ICMS, e só nela.
+                              §3 do comando de 24/09/2026. Eram SEIS controles para DOIS
+                              tributos: duas entradas, duas fatias e duas bases manuais.
+
+                              >>> AS FATIAS SAÍRAM DA TELA, E A RAZÃO É QUE ELAS DUPLICAM <<<
+                              "Parcela em ST" e "parcela monofásica" fazem o MESMO trabalho
+                              que a base manual, pelo lado negativo — e dois controles para o
+                              mesmo fato é onde o usuário erra: ele informa a fatia E a base,
+                              e o desconto acontece duas vezes. Fica a base manual, que é a
+                              que ele consegue conferir contra o documento.
+
+                              É decisão de TELA, não de motor: `descascarANota` mantém o
+                              parâmetro `fatias`, e os casos F e G do #74 continuam verdes sem
+                              edição — a regra não se perdeu, só saiu daqui. As colunas
+                              `parcela_st` e `parcela_monofasica` permanecem no banco.
+
+                              O ICMS é campo em R$ e mais nada: ele vem SEMPRE destacado na
+                              nota, e é esse número que o usuário copia. O PIS/COFINS é o
+                              oposto — a alíquota é que se conhece, e a base sai sozinha do
+                              descascamento e é exibida na própria linha.
                             */}
                             <PurchaseTaxCredits
                                 modo="posicao"
@@ -2789,8 +2854,17 @@ export default function CashFlow() {
                                 tributos={['ICMS', 'PIS_COFINS']}
                                 bandeiras={bandeirasDoLancamento}
                                 custo={null}
+                                semFornecedorDoSimples
+                                leitura={leiturasDoCredito}
                                 onToggle={() => { /* a POSIÇÃO é a decisão — não há botão */ }}
                                 onRecalc={() => { /* o cálculo é derivado do `Form.useWatch` */ }}
+                                depoisDasLinhas={<LinhaDaBaseManual
+                                    ligado={usarBaseManualPisCofins === true}
+                                    baseEfetiva={descascamentoDaNota.basesPorDentro.pisCofins}
+                                    formatoDaAliquota={formatoDeEntrada.PIS_COFINS ?? FORMATO_DA_LINHA.PIS_COFINS}
+                                    onFormato={(f) => setFormatoDeEntrada((prev) => ({ ...prev, PIS_COFINS: f }))}
+                                    desabilitado={descascamentoDaNota.base == null}
+                                />}
                                 blocoDeCusto={(
                                     <Collapse
                                         ghost

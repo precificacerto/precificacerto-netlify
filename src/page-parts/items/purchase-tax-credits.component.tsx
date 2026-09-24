@@ -166,19 +166,41 @@ interface Props {
    */
   subtitulo?: string
   /**
-   * O rodapé do IPI: crédito + custo = o IPI da nota.
+   * O que vem LOGO DEPOIS das linhas de tributo, dentro do bloco.
    *
-   * Ele existe porque as duas parcelas convivem na MESMA nota e isso é caso normal, não
-   * erro: um documento pode trazer item para revenda e item para industrialização. Não há
-   * validação cruzada — o sistema não conhece o total do IPI do documento, e conferir contra
-   * um total que ninguém digitou recusaria lançamento correto.
+   * Chamava-se `rodapeDoIpi` até 24/09/2026, quando a tela de despesa passou a ter um
+   * segundo uso: no bloco POR FORA ele é o seletor do IPI e o IS; no bloco POR DENTRO é a
+   * linha da base manual. Um nome que dissesse IPI faria o segundo uso parecer erro, e o
+   * conteúdo já é decidido por quem monta o bloco.
    */
-  rodapeDoIpi?: React.ReactNode
+  depoisDasLinhas?: React.ReactNode
+  /**
+   * A LEITURA de cada linha — em vez do valor apurado de `custo`.
+   *
+   * O bloco tem `custo: CustoDoItem | null`, e a tela de despesa não tem um `CustoDoItem`:
+   * ela tem um descascamento da NOTA. Montar um `CustoDoItem` parcial ali seria
+   * `construtor-empobrecido.md` — um segundo produtor do mesmo contrato, com menos campos,
+   * e nada falharia. Com esta prop quem tem a leitura a entrega pronta, e o bloco continua
+   * sem calcular.
+   *
+   * Ausente para um tributo, a linha volta a mostrar `fmt(valor)`, que é `—` sem `custo`.
+   */
+  leitura?: Partial<Record<TributoCreditavel, React.ReactNode>>
+  /**
+   * Não renderizar o check "Fornecedor do Simples sem regime regular".
+   *
+   * `supplier_simples_sem_regime_regular` é coluna de `items`, e só o cadastro de item a
+   * grava. Na tela de despesa o check aparecia, o usuário o marcava e o valor NÃO chegava
+   * ao banco — um controle que não persiste é pior que controle ausente, porque afirma uma
+   * escolha que se perde no salvar.
+   */
+  semFornecedorDoSimples?: boolean
 }
 
 export function PurchaseTaxCredits({
   bandeiras, custo, onToggle, onRecalc, visivel, unidadeLabel, extras, titulo, semDestinacao,
-  modo = 'switch', blocoDeCusto, rodapeDoIpi, tributos, semBlocoB, semRodape, subtitulo,
+  modo = 'switch', blocoDeCusto, depoisDasLinhas, tributos, semBlocoB, semRodape, subtitulo,
+  leitura, semFornecedorDoSimples,
 }: Props) {
   if (!visivel) return null
 
@@ -223,7 +245,14 @@ export function PurchaseTaxCredits({
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           {extra}
-          <span style={{ color: '#94a3b8', fontSize: 13, minWidth: 92 }}>{fmt(valor)}</span>
+          {/*
+            A LEITURA DE QUEM MONTA O BLOCO VENCE — e, sem ela, `fmt(valor)` de sempre.
+            Quem passa `leitura` tem o número e não tem um `CustoDoItem`; quem não passa
+            continua vendo o apurado, ou `—` quando não há (`ausente-vs-falso.md`).
+          */}
+          <span style={{ color: '#94a3b8', fontSize: 13, minWidth: 92 }}>
+            {leitura?.[t] ?? fmt(valor)}
+          </span>
         </div>
 
         {/*
@@ -380,7 +409,7 @@ export function PurchaseTaxCredits({
         </div>
       )}
 
-      {porPosicao && rodapeDoIpi}
+      {porPosicao && depoisDasLinhas}
 
       {/*
         O FORNECEDOR DO SIMPLES — LC 214/2025 art. 47 §9º II.
@@ -393,7 +422,7 @@ export function PurchaseTaxCredits({
         apareceria nos DOIS e o usuário veria a mesma pergunta em lugares que tratam de
         tributos diferentes.
       */}
-      {(desenhaveis.includes('CBS') || desenhaveis.includes('IBS')) && (
+      {!semFornecedorDoSimples && (desenhaveis.includes('CBS') || desenhaveis.includes('IBS')) && (
       <Form.Item
         name="supplier_simples_sem_regime_regular"
         valuePropName="checked"
