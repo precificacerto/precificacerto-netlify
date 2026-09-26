@@ -195,9 +195,15 @@ describe('C — ICMS-ST tem campo, e não texto repetido', () => {
 // ═════════════════════════════════════════════════════════════════════════════════════════
 
 describe('D — o rodapé da despesa é o do descascamento', () => {
-  it('>>> "Custo bruto" e "Crédito recuperado" NÃO aparecem na tela de despesa <<<', () => {
+  /*
+    O RÓTULO MUDOU EM 27/09/2026: "Custo bruto" virou "TOTAL DO ITEM" e "Crédito
+    recuperado" virou "CRÉDITO DO IMPOSTO", no rodapé em três cards do §5. O critério do
+    caso é o mesmo — a tela de despesa tem o rodapé DELA, e não o do componente.
+  */
+  it('>>> o rodapé do COMPONENTE não aparece na tela de despesa <<<', () => {
     const c = corpoDoDrawer(tela())
     expect(c).not.toContain('Custo bruto')
+    expect(c).not.toContain('TOTAL DO ITEM')
     expect(c).not.toContain('Crédito recuperado')
   })
 
@@ -210,8 +216,8 @@ describe('D — o rodapé da despesa é o do descascamento', () => {
   it('>>> `semRodape` tira o rodapé do componente — o efeito, no DOM <<<', () => {
     const com = textoRenderizado({ modo: 'posicao' })
     const sem = textoRenderizado({ modo: 'posicao', semRodape: true })
-    expect(com).toContain('Custo bruto')
-    expect(sem).not.toContain('Custo bruto')
+    expect(com).toContain('TOTAL DO ITEM')
+    expect(sem).not.toContain('TOTAL DO ITEM')
   })
 
   it('>>> e o SUBTÍTULO não tem default: ausente, não há texto <<<', () => {
@@ -311,8 +317,8 @@ describe('F — sem as props novas, o componente é o de sempre', () => {
     const t = textoRenderizado({ modo: 'posicao' })
     for (const nome of ['ICMS', 'PIS/COFINS', 'IPI', 'CBS', 'IBS']) expect(t).toContain(nome)
     expect(t).toContain('sempre custo')
-    expect(t).toContain('Custo bruto')
-    expect(t).toContain('Crédito recuperado')
+    expect(t).toContain('TOTAL DO ITEM')
+    expect(t).toContain('CRÉDITO DO IMPOSTO')
   })
 
   it('>>> e a tela do item continua passando o subtítulo de sempre <<<', () => {
