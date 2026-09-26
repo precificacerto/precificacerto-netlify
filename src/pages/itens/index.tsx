@@ -9,7 +9,6 @@ import {
   calcularImpactoDoCredito, houveMudancaDeCredito,
   type ImpactoDoItem, type UsoDoItem,
 } from '@/utils/impacto-do-credito'
-import { RenewQuantityForm, type ItemOption } from '@/page-parts/items/renew-quantity-form.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
 import { UNIT_TYPE } from '@/constants/item-unit-types'
 import { getMonetaryValue } from '@/utils/get-monetary-value'
@@ -68,9 +67,6 @@ function Items() {
   const [newItemOpen, setNewItemOpen] = useState(false)
   const [titleDrawer, setTitleDrawer] = useState('Novo Item')
   const [saving, setSaving] = useState(false)
-  const [renewDrawerOpen, setRenewDrawerOpen] = useState(false)
-  const [savingRenew, setSavingRenew] = useState(false)
-  const [renewMode, setRenewMode] = useState<'include' | 'partial_delete'>('include')
   const [deleteQtyDrawerOpen, setDeleteQtyDrawerOpen] = useState(false)
   const [selectedItemForDelete, setSelectedItemForDelete] = useState<ItemRow | null>(null)
   const [updatingProductsForItemId, setUpdatingProductsForItemId] = useState<string | null>(null)
@@ -84,7 +80,6 @@ function Items() {
   const [deletingItem, setDeletingItem] = useState(false)
 
   const [form] = Form.useForm()
-  const [renewForm] = Form.useForm()
   const [deleteQtyForm] = Form.useForm()
   const [messageApi, contextHolder] = message.useMessage()
   const router = useRouter()
@@ -368,256 +363,6 @@ function Items() {
   const onClose = () => {
     setNewItemOpen(false)
     form.resetFields()
-  }
-
-  const openRenewDrawer = () => {
-    renewForm.resetFields()
-    setRenewMode('include')
-    setRenewDrawerOpen(true)
-  }
-
-  // Relatório de quantidades: nome, quantidade (estoque), custo bruto e custo líquido por item.
-  // Reutiliza o utilitário genérico de exportação (jsPDF) usado nas demais telas de relatório.
-  const handleExportQuantityReport = async () => {
-    if (filteredData.length === 0) {
-      messageApi.warning('Nenhum item para gerar o relatório.')
-      return
-    }
-    const generatedAt = new Date().toLocaleString('pt-BR')
-    const rows = filteredData.map((item) => {
-      const qty = stockMap[item.id]
-      return [
-        item.name,
-        qty !== undefined ? `${qty} ${qty === 1 ? 'unidade' : 'unidades'}` : '—',
-        `R$ ${getMonetaryValue(item.cost_gross)}`,
-        `R$ ${getMonetaryValue(item.cost_net)}`,
-      ]
-    })
-    const { exportTableToPdf } = await import('@/utils/export-generic-pdf')
-    exportTableToPdf({
-      title: 'Relatório de quantidades',
-      subtitle: `${filteredData.length} itens — Gerado em ${generatedAt}`,
-      headers: ['Item', 'Quantidade', 'Custo bruto', 'Custo líquido'],
-      rows,
-      filename: `relatorio-quantidades-${new Date().toISOString().slice(0, 10)}.pdf`,
-      orientation: 'portrait',
-      columnStyles: { 1: { halign: 'center' }, 2: { halign: 'right' }, 3: { halign: 'right' } },
-    })
-    messageApi.success('Relatório de quantidades gerado!')
-  }
-
-  const closeRenewDrawer = () => {
-    setRenewDrawerOpen(false)
-    renewForm.resetFields()
-  }
-
-  const handleSaveRenew = async () => {
-    try {
-      await renewForm.validateFields()
-      setSavingRenew(true)
-
-      const values = renewForm.getFieldsValue()
-      const tenantId = contextTenantId ?? currentUser?.tenant_id
-      if (!tenantId) {
-        messageApi.error('Não foi possível identificar o tenant.')
-        return
-      }
-
-      const itemId = values.item_id
-
-      const { data: currentItem, error: fetchError } = await supabase
-        .from('items')
-        .select('id, quantity, cost_price, cost_per_base_unit, unit, item_type, measure_quantity')
-        .eq('id', itemId)
-        .single()
-
-      if (fetchError || !currentItem) {
-        messageApi.error('Item não encontrado.')
-        return
-      }
-
-      const createdBy = await getCurrentUserId()
-      if (!createdBy) {
-        messageApi.error('Sessão inválida. Faça login novamente.')
-        setSavingRenew(false)
-        return
-      }
-
-      // ── Modo: Excluir parcialmente ──
-      if (renewMode === 'partial_delete') {
-        const qtyToRemove = Number(values.quantity) || 0
-        const currentQty = Number(currentItem.quantity) || 0
-        const unitCost = Number((currentItem as any).cost_per_base_unit) || 0
-
-        if (qtyToRemove <= 0) {
-          messageApi.error('Informe uma quantidade válida para remover.')
-          setSavingRenew(false)
-          return
-        }
-        if (qtyToRemove > currentQty) {
-          messageApi.error(`Máximo permitido: ${currentQty} ${currentItem.unit || 'UN'}.`)
-          setSavingRenew(false)
-          return
-        }
-
-        const newItemQty = Math.max(0, currentQty - qtyToRemove)
-        const newCostTotal = newItemQty * unitCost
-
-        await supabase
-          .from('items')
-          .update({ quantity: newItemQty, cost_price: newCostTotal, updated_at: new Date().toISOString() })
-          .eq('id', itemId)
-
-        const { data: st } = await supabase
-          .from('stock')
-          .select('id, quantity_current')
-          .eq('item_id', itemId)
-          .eq('stock_type', 'ITEM')
-          .maybeSingle()
-
-        if (st) {
-          const newStockQty = Math.max(0, (Number(st.quantity_current) || 0) - qtyToRemove)
-          await supabase
-            .from('stock')
-            .update({ quantity_current: newStockQty, updated_at: new Date().toISOString() })
-            .eq('id', st.id)
-          await supabase.from('stock_movements').insert({
-            stock_id: st.id,
-            delta_quantity: -qtyToRemove,
-            reason: 'Baixa de quantidade (exclusão parcial via Renovar)',
-            created_by: createdBy,
-          })
-        }
-
-        await reloadItems()
-        messageApi.success('Quantidade removida com sucesso!')
-        closeRenewDrawer()
-        return
-      }
-
-      // ── Modo: Adicionar quantidade ──
-      const newQty = Number(values.quantity) || 0
-      const unitPrice = parseFloat(
-        String(values.price || '0').replace(/\./g, '').replace(',', '.')
-      )
-      const addedCost = unitPrice > 0 ? unitPrice * newQty : 0
-
-      if (newQty < 0.001) {
-        messageApi.error('Informe uma quantidade válida.')
-        return
-      }
-
-      const currentQty = Number(currentItem.quantity) || 0
-      const currentCost = Number(currentItem.cost_price) || 0
-      const totalQty = currentQty + newQty
-      const totalCost = currentCost + addedCost
-      const measureQtyForItem = Number((currentItem as any).measure_quantity) || 1
-      // custo por unidade base = preço por embalagem ÷ measure_quantity
-      const newUnitCost = unitPrice > 0
-        ? unitPrice / measureQtyForItem
-        : (totalQty > 0 ? totalCost / (totalQty * measureQtyForItem) : 0)
-      const oldCost = Number((currentItem as any).cost_per_base_unit) || 0
-      const costChanged = Math.abs(newUnitCost - oldCost) > 0.0001
-
-      await supabase
-        .from('items')
-        .update({
-          quantity: totalQty,
-          cost_price: totalCost,
-          cost_per_base_unit: newUnitCost,
-          supplier_name: values.supplier_name || null,
-          supplier_state: values.supplier_state || null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', itemId)
-
-      const { data: stockRow } = await supabase
-        .from('stock')
-        .select('id')
-        .eq('item_id', itemId)
-        .eq('stock_type', 'ITEM')
-        .maybeSingle()
-
-      if (stockRow) {
-        await supabase
-          .from('stock')
-          .update({
-            quantity_current: totalQty,
-            unit: currentItem.unit || 'UN',
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', stockRow.id)
-
-        await supabase.from('stock_movements').insert({
-          stock_id: stockRow.id,
-          delta_quantity: newQty,
-          reason: 'Recompra - renovar quantidade',
-          created_by: createdBy,
-        })
-      } else {
-        await supabase.from('stock').insert({
-          tenant_id: tenantId,
-          item_id: itemId,
-          stock_type: 'ITEM',
-          quantity_current: totalQty,
-          min_limit: 0,
-          unit: currentItem.unit || 'UN',
-        })
-
-        const { data: newStock } = await supabase
-          .from('stock')
-          .select('id')
-          .eq('item_id', itemId)
-          .eq('stock_type', 'ITEM')
-          .single()
-
-        if (newStock) {
-          await supabase.from('stock_movements').insert({
-            stock_id: newStock.id,
-            delta_quantity: newQty,
-            reason: 'Recompra - renovar quantidade',
-            created_by: createdBy,
-          })
-        }
-      }
-
-      // Marcar produtos como needs_cost_update = true
-      const { data: affectedProductItems } = await supabase
-        .from('product_items')
-        .select('product_id')
-        .eq('item_id', itemId)
-      const { data: revendaProds } = await supabase
-        .from('products')
-        .select('id')
-        .eq('base_item_id', itemId)
-      const productIds = [...new Set([
-        ...((affectedProductItems || []) as any[]).map((r: any) => r.product_id),
-        ...((revendaProds || []) as any[]).map((r: any) => r.id),
-      ])]
-      if (productIds.length > 0) {
-        await supabase.from('products').update({ needs_cost_update: true }).in('id', productIds)
-      }
-
-      // Marcar serviços como needs_cost_update = true (somente se custo mudou)
-      if (costChanged) {
-        const { data: affectedServiceItems } = await supabase
-          .from('service_items')
-          .select('service_id')
-          .eq('item_id', itemId)
-        const serviceIds = [...new Set(((affectedServiceItems || []) as any[]).map((r: any) => r.service_id))]
-        if (serviceIds.length > 0) {
-          await supabase.from('services').update({ needs_cost_update: true }).in('id', serviceIds)
-        }
-      }
-
-      await reloadItems()
-      messageApi.success('Quantidade renovada! Custo unitário atualizado.')
-      closeRenewDrawer()
-    } catch (ex: any) {
-      messageApi.error(ex?.message || 'Preencha todos os campos obrigatórios.')
-    } finally {
-      setSavingRenew(false)
-    }
   }
 
   const updateProductsForItemCore = async (
@@ -1364,27 +1109,16 @@ function Items() {
           allowClear
         />
 
-        {/* Abaixo da busca: "Renovar quantidade" (esq.) e "Relatório de quantidades" (dir.),
-            cada um com 50% da largura, tanto no desktop quanto no mobile. */}
-        {canEdit(MODULES.ITEMS) && (
-          <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
-            <Button
-              block
-              onClick={openRenewDrawer}
-              style={{
-                flex: 1,
-                background: '#FEF08A',
-                borderColor: '#FDE047',
-                color: '#854D0E',
-              }}
-            >
-              + Renovar quantidade
-            </Button>
-            <Button block onClick={handleExportQuantityReport} style={{ flex: 1 }}>
-              Relatório de quantidades
-            </Button>
-          </div>
-        )}
+        {/*
+          "Renovar quantidade" e "Relatório de quantidades" SAÍRAM em 26/09/2026.
+
+          Eles foram para a aba Itens / Insumos do Estoque. Quantidade é fato de ESTOQUE —
+          entra, sai, e tem saldo; esta tela diz O QUE o item é e COMO ele será usado. Com
+          os dois aqui, o mesmo assunto era tratado em duas telas.
+
+          A permissão foi junto: no Estoque eles pedem `canEdit(MODULES.STOCK)`, que é o
+          módulo do que eles fazem.
+        */}
 
         {isLoading ? (
           <div style={{ textAlign: 'center', padding: 60 }}><Spin size="large" /></div>
@@ -1410,7 +1144,6 @@ function Items() {
                 if (stockQty !== undefined) subParts.push(`${stockQty} un`)
                 const menuItems = [
                   { key: 'edit', label: 'Editar', onClick: () => handleEdit(record) },
-                  { key: 'renew', label: 'Renovar quantidade', onClick: openRenewDrawer },
                   ...(canEdit(MODULES.ITEMS)
                     ? [{ key: 'del', label: 'Excluir item', danger: true, onClick: () => handleDeleteItem(record) }]
                     : []),
@@ -1457,33 +1190,6 @@ function Items() {
         <NewItemForm form={form} taxableRegime={currentUser?.taxableRegime} />
       </Drawer>
 
-      <Drawer
-        title="Renovar quantidade"
-        width={680}
-        onClose={closeRenewDrawer}
-        open={renewDrawerOpen}
-        extra={
-          <Space>
-            <Button onClick={closeRenewDrawer}>Cancelar</Button>
-            <Button onClick={handleSaveRenew} type="primary" loading={savingRenew}>Salvar</Button>
-          </Space>
-        }
-      >
-        <RenewQuantityForm
-          form={renewForm}
-          mode={renewMode}
-          onModeChange={setRenewMode}
-          items={data.map(d => ({
-            id: d.id,
-            name: d.name,
-            ncm_code: d.ncm_code,
-            unitType: d.unitType,
-            quantity: d.quantity,
-            measure_quantity: d.measure_quantity || 1,
-            cost_price: d.price,
-          }))}
-        />
-      </Drawer>
 
       <Modal
         title="Excluir item"

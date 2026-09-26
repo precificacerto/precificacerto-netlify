@@ -28,6 +28,15 @@ import { useDevice } from '@/contexts/device.context'
 import { formatBRL } from '@/utils/formatters'
 import { PAGE_SIZE } from '@/constants/pagination'
 import { ACTIVE_OR_NULL_FILTER } from '@/utils/active-record-filter'
+/*
+  §3 — O COMPONENTE É IMPORTADO DE `page-parts/items/`, E NÃO MOVIDO DE PASTA.
+
+  O nome da pasta descreve de onde ele veio, não quem pode usá-lo. Movê-lo para
+  `page-parts/estoque/` geraria um diff grande, quebraria o histórico do arquivo e não
+  mudaria nada em execução.
+*/
+import { RenewQuantityForm, type ItemOption } from '@/page-parts/items/renew-quantity-form.component'
+import { renovarQuantidade, linhasDoRelatorioDeQuantidades } from '@/utils/renovar-quantidade'
 
 interface StockRow {
     id: string
@@ -39,6 +48,9 @@ interface StockRow {
     minQty: number
     unit: string
     costPrice: number
+    /** Custo bruto e líquido do ITEM — do embed da mesma consulta que desenha a tabela. */
+    costGross: number | null
+    costNet: number | null
     profitPercent: number
     salePrice: number
     status: string
@@ -243,7 +255,7 @@ function DetailRow({ label, value }: { label: string; value: React.ReactNode }) 
 function Stock() {
     const { data: rawStock, isLoading, mutate: reloadStock } = useStock()
     const { data: rawProducts, mutate: reloadProducts } = useProducts()
-    const { mutate: reloadItems } = useItems()
+    const { data: rawItems, mutate: reloadItems } = useItems()
     const { tenantId, currentUser } = useAuth()
     const { isMobile } = useDevice()
     const effectiveTenantId = tenantId ?? currentUser?.tenant_id
@@ -256,6 +268,11 @@ function Stock() {
     const [searchText, setSearchText] = useState('')
     const [stockFilter, setStockFilter] = useState<'all' | 'below'>('all')
     const [activeTab, setActiveTab] = useState<'ITEM' | 'PRODUCT' | 'SERVICE'>('PRODUCT')
+    /* §3 — "Renovar quantidade", que veio da tela de Itens em 26/09/2026. */
+    const [renewDrawerOpen, setRenewDrawerOpen] = useState(false)
+    const [savingRenew, setSavingRenew] = useState(false)
+    const [renewMode, setRenewMode] = useState<'include' | 'partial_delete'>('include')
+    const [renewForm] = Form.useForm()
     const [servicesList, setServicesList] = useState<ServiceRow[]>([])
     const [loadingServices, setLoadingServices] = useState(false)
     const [totalMovements, setTotalMovements] = useState(0)
@@ -409,6 +426,8 @@ function Stock() {
                 minQty: s.min_limit ?? 0,
                 unit,
                 costPrice,
+                costGross: item && item.cost_gross != null ? Number(item.cost_gross) : null,
+                costNet: item && item.cost_net != null ? Number(item.cost_net) : null,
                 profitPercent,
                 salePrice,
                 status: deriveStatus(s.quantity_current ?? 0, s.min_limit ?? 0),
@@ -429,6 +448,8 @@ function Stock() {
                 if (!existing.section_id && row.section_id) existing.section_id = row.section_id
                 if (!existing.code && row.code) existing.code = row.code
                 if (existing.costPrice === 0 && row.costPrice > 0) existing.costPrice = row.costPrice
+                if (existing.costGross == null && row.costGross != null) existing.costGross = row.costGross
+                if (existing.costNet == null && row.costNet != null) existing.costNet = row.costNet
                 if (existing.salePrice === 0 && row.salePrice > 0) existing.salePrice = row.salePrice
                 if (existing.profitPercent === 0 && row.profitPercent > 0) existing.profitPercent = row.profitPercent
                 existing.status = deriveStatus(existing.currentQty, existing.minQty)
@@ -679,6 +700,110 @@ function Stock() {
         })
         messageApi.success('Relatório de produtos gerado!')
     }
+
+    /**
+     * §3 e §5 — O RELATÓRIO DE QUANTIDADES, da aba Itens / Insumos.
+     *
+     * A fonte é `filteredData`, a MESMA lista que desenha a tabela — inclusive com a busca
+     * e o filtro "Todos / abaixo do estoque" já aplicados. Uma segunda consulta aqui faria
+     * a tela mostrar um número e o PDF mostrar outro, e ninguém confere um contra o outro.
+     *
+     * A montagem das linhas vive em `renovar-quantidade.ts` para poder ser comparada, num
+     * caso, com o que a tabela exibe.
+     */
+    const handleExportQuantityReport = async () => {
+        if (filteredData.length === 0) {
+            messageApi.warning('Nenhum item para gerar o relatório.')
+            return
+        }
+        const generatedAt = new Date().toLocaleString('pt-BR')
+        const rows = linhasDoRelatorioDeQuantidades(filteredData, formatCurrency)
+        const { exportTableToPdf } = await import('@/utils/export-generic-pdf')
+        exportTableToPdf({
+            title: 'Relatório de quantidades',
+            subtitle: `${filteredData.length} itens — Gerado em ${generatedAt}`,
+            headers: ['Item', 'Quantidade', 'Custo bruto', 'Custo líquido'],
+            rows,
+            filename: `relatorio-quantidades-${new Date().toISOString().slice(0, 10)}.pdf`,
+            orientation: 'portrait',
+            columnStyles: { 1: { halign: 'center' }, 2: { halign: 'right' }, 3: { halign: 'right' } },
+        })
+        messageApi.success('Relatório de quantidades gerado!')
+    }
+
+    const openRenewDrawer = () => {
+        renewForm.resetFields()
+        setRenewMode('include')
+        setRenewDrawerOpen(true)
+    }
+
+    const closeRenewDrawer = () => {
+        setRenewDrawerOpen(false)
+        renewForm.resetFields()
+    }
+
+    /**
+     * O salvar da renovação — a conta inteira mora em `renovar-quantidade.ts`.
+     *
+     * Aqui fica só o que é de TELA: validar o formulário, resolver tenant e usuário,
+     * recarregar os caches e mostrar a mensagem. É o que permite ao oráculo D afirmar a
+     * linha gravada em `stock_movements` sem renderizar página nenhuma.
+     */
+    const handleSaveRenew = async () => {
+        try {
+            await renewForm.validateFields()
+            setSavingRenew(true)
+
+            const values = renewForm.getFieldsValue()
+            const tenantId2 = effectiveTenantId
+            if (!tenantId2) {
+                messageApi.error('Não foi possível identificar o tenant.')
+                return
+            }
+            const createdBy = await getCurrentUserId()
+            if (!createdBy) {
+                messageApi.error('Sessão inválida. Faça login novamente.')
+                return
+            }
+
+            const r = await renovarQuantidade(
+                { supabase, tenantId: tenantId2, createdBy },
+                {
+                    itemId: values.item_id,
+                    modo: renewMode,
+                    quantidade: Number(values.quantity) || 0,
+                    precoUnitario: parseFloat(
+                        String(values.price || '0').replace(/\./g, '').replace(',', '.'),
+                    ),
+                    fornecedorNome: values.supplier_name,
+                    fornecedorUf: values.supplier_state,
+                },
+            )
+
+            if (r.estado === 'ERRO') {
+                messageApi.error(r.erro)
+                return
+            }
+            await Promise.all([reloadStock(), reloadItems()])
+            messageApi.success(r.mensagem)
+            closeRenewDrawer()
+        } catch (ex: any) {
+            messageApi.error(ex?.message || 'Preencha todos os campos obrigatórios.')
+        } finally {
+            setSavingRenew(false)
+        }
+    }
+
+    /** A lista do seletor do formulário: TODOS os itens, não só os que já têm linha de estoque. */
+    const opcoesDeItem = useMemo<ItemOption[]>(() => ((rawItems || []) as any[]).map((i: any) => ({
+        id: i.id,
+        name: i.name,
+        ncm_code: i.ncm_code || '',
+        unitType: i.unit || 'UN',
+        quantity: Number(i.quantity) || 1,
+        measure_quantity: Number(i.measure_quantity) || 1,
+        cost_price: Number(i.cost_price) || 0,
+    })), [rawItems])
 
     function handleMovement(record: StockRow) {
         setSelectedItem(record)
@@ -987,6 +1112,41 @@ function Stock() {
                                 />
                                 <Button style={{ flex: 1 }} onClick={handleExportProductsReport}>
                                     Relatório de produtos
+                                </Button>
+                            </div>
+                        ) : activeTab === 'ITEM' && canEdit(MODULES.STOCK) ? (
+                            /*
+                              §3 — A ABA ITENS / INSUMOS, no MESMO padrão da aba Produtos:
+                              o seletor e os botões dividindo a largura da linha.
+
+                              Os dois vieram da tela de Itens em 26/09/2026. Eles NÃO
+                              aparecem nas abas Produtos Acabados e Serviços Realizados: lá
+                              o saldo vem de produção e de venda, não de renovação de
+                              insumo, e um botão que não se aplica ensina que se aplica.
+
+                              §4 — A PERMISSÃO É `STOCK`, e não `ITEMS`: é o módulo do que
+                              eles FAZEM. Quem edita Itens e não edita Estoque deixa de
+                              renovar quantidade — é a mudança de acesso desta entrega.
+                            */
+                            <div style={{ display: 'flex', gap: 12, width: '100%', flexWrap: 'wrap' }}>
+                                <Select
+                                    value={stockFilter}
+                                    onChange={setStockFilter}
+                                    style={{ flex: 1, minWidth: 180 }}
+                                    options={[
+                                        { value: 'all', label: 'Todos' },
+                                        { value: 'below', label: 'Apenas abaixo do estoque' },
+                                    ]}
+                                />
+                                {/* Amarelo porque ALTERA SALDO — a cor o distingue da leitura ao lado. */}
+                                <Button
+                                    style={{ flex: 1, minWidth: 180, background: '#FEF08A', borderColor: '#FDE047', color: '#854D0E' }}
+                                    onClick={openRenewDrawer}
+                                >
+                                    + Renovar quantidade
+                                </Button>
+                                <Button style={{ flex: 1, minWidth: 180 }} onClick={handleExportQuantityReport}>
+                                    Relatório de quantidades
                                 </Button>
                             </div>
                         ) : (
@@ -1343,6 +1503,31 @@ function Stock() {
                         <Input placeholder="Ex: perda, vencimento..." />
                     </Form.Item>
                 </Form>
+            </Drawer>
+
+            {/*
+              §3 — O MESMO Drawer da tela de Itens, com o MESMO componente de formulário.
+              Ele não foi copiado: a versão de `itens/index.tsx` foi removida no mesmo
+              commit, e a conta foi para `renovar-quantidade.ts`.
+            */}
+            <Drawer
+                title="Renovar quantidade"
+                width={680}
+                onClose={closeRenewDrawer}
+                open={renewDrawerOpen}
+                extra={
+                    <Space>
+                        <Button onClick={closeRenewDrawer}>Cancelar</Button>
+                        <Button onClick={handleSaveRenew} type="primary" loading={savingRenew}>Salvar</Button>
+                    </Space>
+                }
+            >
+                <RenewQuantityForm
+                    form={renewForm}
+                    mode={renewMode}
+                    onModeChange={setRenewMode}
+                    items={opcoesDeItem}
+                />
             </Drawer>
         </Layout>
     )
