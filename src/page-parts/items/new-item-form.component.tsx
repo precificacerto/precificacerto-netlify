@@ -95,6 +95,8 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
   // §4, ADENDO DO ICMS DEFERIDO — os dois números que compõem o efetivo.
   const icmsRateWatch = Form.useWatch('icms_rate', form) ?? 0
   const icmsDeferidoRateWatch = Form.useWatch('icms_deferido_rate', form) ?? 0
+  /* Subiu para cá: `Form.useWatch` dentro do JSX de um `extras` rodaria condicionalmente. */
+  const pisCofinsRateWatch = Form.useWatch('pis_cofins_rate', form) ?? 0
   const fcpValueWatch = Form.useWatch('fcp_value', form)
 
   /**
@@ -516,6 +518,75 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
     </div>
   )
 
+  /**
+   * §3 — OS CAMPOS DE ALÍQUOTA, DENTRO DO CONTAINER.
+   *
+   * Cada linha do bloco "Gera crédito" passa a aceitar entrada pela costura `extras` — a
+   * mesma que a tela de despesa usa. Os nomes dos campos e a gravação não mudaram: o que
+   * mudou foi o lugar onde eles são digitados.
+   *
+   * O CAMPO VEM PRIMEIRO E A LEITURA DEPOIS, como legenda. Com a leitura ocupando a linha
+   * inteira — que era o desenho anterior — o campo do ICMS ficaria desalinhado dos outros
+   * quatro, e a coluna deixaria de ser coluna.
+   */
+  const camposDeAliquota: Partial<Record<TributoCreditavel, React.ReactNode>> = {
+    ICMS: (
+      <div style={{ display: 'grid', gap: 6 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <Form.Item
+            name="icms_rate"
+            noStyle
+            rules={[{ validator: (_, v) => (v !== undefined && v !== null) ? Promise.resolve() : Promise.reject(new Error(REQUIRED)) }]}
+          >
+            <PercentInput min={0} max={100} style={{ width: 120 }} onChange={() => setTimeout(recalcNetCost, 50)} />
+          </Form.Item>
+          {/*
+            O SWITCH DO DIFERIMENTO FICA NA LINHA DO ICMS: ele decide o que acontece com
+            AQUELE tributo, e a parcela deferida não credita nem é custo.
+          */}
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#94a3b8' }}>
+            <Switch size="small" checked={icmsDeferidoEnabled} onChange={handleDeferidoToggle} />
+            Deferido
+            <Tooltip title="Ative para informar o percentual de diferimento do ICMS. Quando ativo, o ICMS efetivo é recalculado automaticamente.">
+              <InfoCircleOutlined style={{ color: '#64748b' }} />
+            </Tooltip>
+          </span>
+          {icmsDeferidoEnabled && (
+            <Form.Item name="icms_deferido_rate" noStyle>
+              <PercentInput min={0} max={100} style={{ width: 110 }} onChange={() => setTimeout(recalcNetCost, 50)} />
+            </Form.Item>
+          )}
+        </div>
+        {leituraDoIcmsEfetivo}
+      </div>
+    ),
+    PIS_COFINS: (
+      <Tooltip title={isLucroPresumido
+        ? 'Padrão: 3,65% (PIS 0,65% + COFINS 3%, regime cumulativo). Pode ser editado manualmente; após edição, o auto-preenchimento fica suspenso até você limpar o campo.'
+        : 'Padrão: 9,25% (PIS 1,65% + COFINS 7,6%, regime não-cumulativo). Pode ser editado manualmente; após edição, o auto-preenchimento fica suspenso até você limpar o campo.'}>
+        <InputNumber
+          value={pisCofinsRateWatch}
+          min={0}
+          max={100}
+          step={0.0001}
+          precision={4}
+          style={{ width: 120 }}
+          placeholder="0,0000"
+          suffix="%"
+          formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
+          parser={(v) => Number((v || '0').replace(',', '.'))}
+          onChange={(v) => {
+            const numeric = v !== null && v !== undefined ? Number(v) : 0
+            // Campo limpo → reativa o auto-cálculo. É a regra de hoje, preservada.
+            setPisCofinsManuallyEdited(v !== null && v !== undefined)
+            form.setFieldsValue({ pis_cofins_rate: numeric })
+            setTimeout(recalcNetCost, 50)
+          }}
+        />
+      </Tooltip>
+    ),
+  }
+
   return (
     <Form layout="vertical" form={form}>
       <Form.Item name="id" hidden><Input /></Form.Item>
@@ -731,163 +802,24 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
         </Form.Item>
       </div>
 
-      {/* Linha de impostos 1 (Lucro Real / Lucro Presumido): ICMS | ICMS Deferido | Impostos Recuperáveis */}
+      {/*
+        AS DUAS LINHAS LEGADAS DE ALÍQUOTA SAÍRAM em 26/09/2026.
+
+        "Linha de impostos 1" (ICMS, ICMS Deferido e a leitura de recuperáveis) e
+        "Linha de impostos 2" (PIS/COFINS) perguntavam as MESMAS alíquotas que o container
+        "Impostos da compra" já lista logo abaixo. O usuário preenchia em cima, via repetido
+        embaixo, e não conseguia editar embaixo.
+
+        `copia-divergente.md` manda apagar uma das duas, e a que fica é a que descreve a
+        regra certa: o container conhece a posição de cada tributo, a vedação por regime e o
+        crédito em R$. Os CAMPOS são os mesmos, com os mesmos nomes e a mesma gravação — o
+        que mudou foi ONDE se digita, pela costura `extras`.
+
+        A LINHA DO SIMPLES HÍBRIDO CONTINUA abaixo: ela usa `pis_rate` e `cofins_rate`, que
+        são outros dois campos, e o §3 do comando nomeia só `pis_cofins_rate`.
+      */}
       {isLucroRealOrLP && (
         <>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, alignItems: 'end' }}>
-            <Form.Item
-              name="icms_rate"
-              label={
-                <span>
-                  ICMS (%)&nbsp;
-                  <Tooltip title="Alíquota ICMS de entrada. Preencha manualmente conforme a nota fiscal do fornecedor.">
-                    <InfoCircleOutlined style={{ color: '#64748b' }} />
-                  </Tooltip>
-                </span>
-              }
-              rules={[{ validator: (_, v) => (v !== undefined && v !== null) ? Promise.resolve() : Promise.reject(new Error(REQUIRED)) }]}
-              initialValue={undefined}
-              style={{ marginBottom: 24 }}
-            >
-              <PercentInput
-                min={0}
-                max={100}
-                style={{ width: '100%' }}
-                onChange={() => setTimeout(recalcNetCost, 50)}
-              />
-            </Form.Item>
-
-            <Form.Item
-              label={
-                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <Switch
-                    size="small"
-                    checked={icmsDeferidoEnabled}
-                    onChange={handleDeferidoToggle}
-                  />
-                  <span>ICMS Deferido (%)&nbsp;</span>
-                  <Tooltip title="Ative para informar o percentual de diferimento do ICMS. Quando ativo, os impostos recuperáveis são recalculados automaticamente.">
-                    <InfoCircleOutlined style={{ color: '#64748b' }} />
-                  </Tooltip>
-                </span>
-              }
-              name="icms_deferido_rate"
-              style={{ marginBottom: 24 }}
-            >
-              <PercentInput
-                min={0}
-                max={100}
-                style={{ width: '100%' }}
-                disabled={!icmsDeferidoEnabled}
-                onChange={() => setTimeout(recalcNetCost, 50)}
-              />
-            </Form.Item>
-
-            <Form.Item
-              label={
-                <span>
-                  {isLucroReal ? 'ICMS recuperáveis (%)' : isLucroPresumido ? 'ICMS recuperável (%)' : 'Impostos recuperáveis (%)'}&nbsp;
-                  <Tooltip title={isLucroPresumido ? 'ICMS recuperável na entrada: quando Deferido ativo = ICMS% × (1 - Deferido%); caso contrário = ICMS%.' : 'Calculado automaticamente: quando ICMS Deferido ativo = ICMS% × (1 - Deferido%); caso contrário = ICMS%.'}>
-                    <InfoCircleOutlined style={{ color: '#64748b' }} />
-                  </Tooltip>
-                </span>
-              }
-              style={{ marginBottom: 24 }}
-            >
-              <InputNumber
-                value={impostosRecuperaveisDisplay}
-                min={0}
-                max={100}
-                precision={4}
-                style={{ width: '100%' }}
-                suffix="%"
-                disabled
-                formatter={(v) => v != null ? String(v).replace('.', ',') : '0'}
-              />
-            </Form.Item>
-          </div>
-
-          {/* Linha de impostos 2 (Lucro Real): PIS/COFINS unificado, padrão 9,25% (1,65% + 7,6%), editável */}
-          {isLucroReal && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, alignItems: 'end' }}>
-              <Form.Item
-                label={
-                  <span>
-                    PIS/COFINS (%)&nbsp;
-                    <Tooltip title="Padrão: 9,25% (PIS 1,65% + COFINS 7,6%, regime não-cumulativo). Pode ser editado manualmente; após edição, o auto-preenchimento fica suspenso até você limpar o campo.">
-                      <InfoCircleOutlined style={{ color: '#64748b' }} />
-                    </Tooltip>
-                  </span>
-                }
-                style={{ marginBottom: 24 }}
-              >
-                <InputNumber
-                  value={Form.useWatch('pis_cofins_rate', form) ?? 0}
-                  min={0}
-                  max={100}
-                  step={0.0001}
-                  precision={4}
-                  style={{ width: '100%' }}
-                  placeholder="0,0000"
-                  suffix="%"
-                  formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
-                  parser={(v) => Number((v || '0').replace(',', '.'))}
-                  onChange={(v) => {
-                    const numeric = v !== null && v !== undefined ? Number(v) : 0
-                    if (v === null || v === undefined) {
-                      // campo limpo → reativa auto-cálculo
-                      setPisCofinsManuallyEdited(false)
-                    } else {
-                      setPisCofinsManuallyEdited(true)
-                    }
-                    form.setFieldsValue({ pis_cofins_rate: numeric })
-                    setTimeout(recalcNetCost, 50)
-                  }}
-                />
-              </Form.Item>
-            </div>
-          )}
-
-          {/* Linha de impostos 2 (Lucro Presumido): PIS/COFINS unificado, padrão 3,65% (0,65% + 3%), editável */}
-          {isLucroPresumido && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, alignItems: 'end' }}>
-              <Form.Item
-                label={
-                  <span>
-                    PIS/COFINS (%)&nbsp;
-                    <Tooltip title="Padrão: 3,65% (PIS 0,65% + COFINS 3%, regime cumulativo). Pode ser editado manualmente; após edição, o auto-preenchimento fica suspenso até você limpar o campo.">
-                      <InfoCircleOutlined style={{ color: '#64748b' }} />
-                    </Tooltip>
-                  </span>
-                }
-                style={{ marginBottom: 24 }}
-              >
-                <InputNumber
-                  value={Form.useWatch('pis_cofins_rate', form) ?? 0}
-                  min={0}
-                  max={100}
-                  step={0.0001}
-                  precision={4}
-                  style={{ width: '100%' }}
-                  placeholder="0,0000"
-                  suffix="%"
-                  formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
-                  parser={(v) => Number((v || '0').replace(',', '.'))}
-                  onChange={(v) => {
-                    const numeric = v !== null && v !== undefined ? Number(v) : 0
-                    if (v === null || v === undefined) {
-                      setPisCofinsManuallyEdited(false)
-                    } else {
-                      setPisCofinsManuallyEdited(true)
-                    }
-                    form.setFieldsValue({ pis_cofins_rate: numeric })
-                    setTimeout(recalcNetCost, 50)
-                  }}
-                />
-              </Form.Item>
-            </div>
-          )}
-
           {/* Linha de impostos 2 (Simples Híbrido): PIS | COFINS não-cumulativo (vindos do NCM) */}
           {isSimplesHibrido && (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, alignItems: 'end' }}>
@@ -958,7 +890,7 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
             unidadeLabel={baseUnitLabel}
             onToggle={handleToggleCredito}
             onRecalc={recalcNetCost}
-            extras={{ ICMS: leituraDoIcmsEfetivo }}
+            extras={camposDeAliquota}
             blocoDeCusto={(
               <div style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.18)', borderRadius: 8, padding: '12px 14px', marginTop: 12, marginBottom: 4 }}>
             {/* ICMS-ST: valor manual em R$ */}

@@ -176,12 +176,27 @@ describe('6. O OUTRO PRODUTOR da coluna continua vivo — e é o majoritário', 
     join(__dirname, '..', '..', 'pages', 'itens', 'index.tsx'),
     'utf-8',
   )
+  /*
+    O ÂNCORA MUDOU DE ARQUIVO EM 26/09/2026, e o critério não.
+
+    A gravação do item saiu de `itens/index.tsx` para `gravar-item.ts`, porque o Estoque
+    ganhou "+ Adicionar item" e as duas telas têm de gravar pelo mesmo caminho. O produtor
+    de `base_item_id` continua existindo, no módulo — e é isso que este caso sempre quis
+    afirmar. Procurá-lo na página o faria falhar por uma mudança de endereço.
+  */
+  const gravacao = readFileSync(
+    join(__dirname, '..', 'gravar-item.ts'),
+    'utf-8',
+  )
 
   it('cadastrar um item de REVENDA ainda cria o produto com `base_item_id`', () => {
     // CORREÇÃO DE REGISTRO: o seletor era UM DE DOIS produtores, e o minoritário.
     // 30 dos 62 produtos com base têm o nome idêntico ao do item — a assinatura desta
     // rota, que não passa por tela de produto nenhuma. Remover o seletor não a toca.
-    expect(itens).toContain('base_item_id: savedItem.id,')
+    expect(gravacao).toContain('base_item_id: savedItem.id,')
+    // E é UM produtor só: a tela delega, não grava por conta própria.
+    expect(itens).toContain('gravarItem(')
+    expect(itens).not.toContain('base_item_id: savedItem.id,')
   })
 
   it('e os leitores da coluna seguem intactos — a remoção não os alcança', () => {
