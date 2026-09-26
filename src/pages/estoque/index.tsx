@@ -37,6 +37,12 @@ import { ACTIVE_OR_NULL_FILTER } from '@/utils/active-record-filter'
 */
 import { RenewQuantityForm, type ItemOption } from '@/page-parts/items/renew-quantity-form.component'
 import { renovarQuantidade, linhasDoRelatorioDeQuantidades } from '@/utils/renovar-quantidade'
+/*
+  §2 — O MESMO formulário e a MESMA gravação da tela de Itens. Dois formulários para o mesmo
+  cadastro divergiriam na primeira mudança fiscal, e aqui elas acontecem toda semana.
+*/
+import { NewItemForm } from '@/page-parts/items/new-item-form.component'
+import { gravarItem } from '@/utils/gravar-item'
 
 interface StockRow {
     id: string
@@ -273,6 +279,10 @@ function Stock() {
     const [savingRenew, setSavingRenew] = useState(false)
     const [renewMode, setRenewMode] = useState<'include' | 'partial_delete'>('include')
     const [renewForm] = Form.useForm()
+    /* §2 — "+ Adicionar item", que abre o mesmo Drawer da tela de Itens. */
+    const [novoItemOpen, setNovoItemOpen] = useState(false)
+    const [salvandoItem, setSalvandoItem] = useState(false)
+    const [itemForm] = Form.useForm()
     const [servicesList, setServicesList] = useState<ServiceRow[]>([])
     const [loadingServices, setLoadingServices] = useState(false)
     const [totalMovements, setTotalMovements] = useState(0)
@@ -731,6 +741,57 @@ function Stock() {
         messageApi.success('Relatório de quantidades gerado!')
     }
 
+    const abrirNovoItem = () => {
+        itemForm.resetFields()
+        setNovoItemOpen(true)
+    }
+
+    const fecharNovoItem = () => {
+        setNovoItemOpen(false)
+        itemForm.resetFields()
+    }
+
+    /**
+     * §2 — O salvar é o de `gravar-item.ts`, o MESMO que a tela de Itens usa.
+     *
+     * Sem `aoMudarCredito`: o modal de impacto do crédito é da tela de Itens, e esta não o
+     * tem. Passar um callback que não abre nada seria fingir que a tela avisa.
+     */
+    const salvarNovoItem = async () => {
+        try {
+            await itemForm.validateFields()
+            setSalvandoItem(true)
+
+            const tenantId2 = effectiveTenantId
+            if (!tenantId2) {
+                messageApi.error('Não foi possível identificar o tenant.')
+                return
+            }
+            const createdBy = await getCurrentUserId()
+            if (!createdBy) {
+                messageApi.error('Sessão inválida. Faça login novamente.')
+                return
+            }
+
+            const r = await gravarItem(
+                { supabase, tenantId: tenantId2, createdBy, taxableRegime: currentUser?.taxableRegime },
+                itemForm.getFieldsValue(),
+            )
+            if (r.estado === 'ERRO') {
+                messageApi.error(r.erro)
+                return
+            }
+            // A aba recarrega, e o item novo aparece com o saldo informado no cadastro.
+            await Promise.all([reloadStock(), reloadItems()])
+            messageApi.success(r.mensagem)
+            fecharNovoItem()
+        } catch (ex: any) {
+            messageApi.error(ex?.message || 'Preencha todos os campos obrigatórios.')
+        } finally {
+            setSalvandoItem(false)
+        }
+    }
+
     const openRenewDrawer = () => {
         renewForm.resetFields()
         setRenewMode('include')
@@ -1148,6 +1209,13 @@ function Stock() {
                                 <Button style={{ flex: 1, minWidth: 180 }} onClick={handleExportQuantityReport}>
                                     Relatório de quantidades
                                 </Button>
+                                {/* Verde como o da tela de Itens — é o mesmo cadastro. */}
+                                <Button
+                                    style={{ flex: 1, minWidth: 180, background: '#16A34A', borderColor: '#15803D', color: '#fff' }}
+                                    onClick={abrirNovoItem}
+                                >
+                                    + Adicionar item
+                                </Button>
                             </div>
                         ) : (
                             <Select
@@ -1528,6 +1596,26 @@ function Stock() {
                     onModeChange={setRenewMode}
                     items={opcoesDeItem}
                 />
+            </Drawer>
+
+            {/*
+              §2 — O MESMO Drawer de cadastro da tela de Itens. `NewItemForm` é importado,
+              e não copiado: um segundo formulário divergiria do primeiro na próxima
+              mudança fiscal.
+            */}
+            <Drawer
+                title="Novo item"
+                width={680}
+                onClose={fecharNovoItem}
+                open={novoItemOpen}
+                extra={
+                    <Space>
+                        <Button onClick={fecharNovoItem}>Cancelar</Button>
+                        <Button onClick={salvarNovoItem} type="primary" loading={salvandoItem}>Salvar</Button>
+                    </Space>
+                }
+            >
+                <NewItemForm form={itemForm} taxableRegime={currentUser?.taxableRegime} />
             </Drawer>
         </Layout>
     )
