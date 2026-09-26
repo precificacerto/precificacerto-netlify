@@ -1,9 +1,15 @@
-import { Input, Form, InputNumber, FormInstance, Divider, Tooltip, Tag, AutoComplete, Spin, Switch } from 'antd'
+import { Input, Form, InputNumber, FormInstance, Divider, Tooltip, Tag, AutoComplete, Spin, Checkbox } from 'antd'
 import { Select } from '@/components/ui/app-select.component'
 import { PercentInput } from '@/components/percent-input.component'
 import { InfoCircleOutlined, SearchOutlined } from '@ant-design/icons'
 import { currencyMask, currencyDotMask } from '@/utils/currency-mask'
-import { useEffect, useState, useRef, useCallback } from 'react'
+/*
+  §2 — A MESMA entrada `% | R$` da tela de despesa, e a MESMA travessia de borda. Um segundo
+  campo com conversão própria divergiria na base, e os dois lados fechariam consigo mesmos.
+*/
+import EntradaDeImposto from '@/components/despesas/entrada-de-imposto.component'
+import { baseDaLinha, CAMPO_DA_ALIQUOTA, type FormatoDaEntrada } from '@/utils/entrada-de-imposto'
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { getMonetaryValue } from '@/utils/get-monetary-value'
 import { supabase } from '@/supabase/client'
 import { useAuth } from '@/hooks/use-auth.hook'
@@ -51,7 +57,7 @@ const formatBRL3 = (v: number) =>
 import PurchaseTaxCredits from '@/page-parts/items/purchase-tax-credits.component'
 import { bandeirasGravadasDaPosicao, posicoesDosTributos } from '@/utils/posicao-do-tributo'
 import {
-  calcularCustoDoItem, resolverFlagsDoItem,
+  calcularCustoDoItem, resolverFlagsDoItem, icmsEfetivoPctDe,
   type BandeirasDeCredito, type CustoDoItem, type TributoCreditavel,
 } from '@/utils/custo-liquido-do-item'
 
@@ -82,6 +88,8 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
   const [bandeiras, setBandeiras] = useState<BandeirasDeCredito | null>(null)
   // Lucro Real — quando o usuário edita PIS/COFINS manualmente, o auto-cálculo é suspenso
   const [pisCofinsManuallyEdited, setPisCofinsManuallyEdited] = useState(false)
+  /* §2 — o formato de cada linha. R$ é o inicial de ICMS, CBS e IBS. */
+  const [formatoDaLinha, setFormatoDaLinha] = useState<Partial<Record<TributoCreditavel, FormatoDaEntrada>>>({})
   const nameDebounceRef = useRef<NodeJS.Timeout | null>(null)
   const ncmDebounceRef = useRef<NodeJS.Timeout | null>(null)
 
@@ -124,7 +132,22 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
     const icms = Number(values.icms_rate) || 0
     const icmsDeferido = isDeferidoEnabled ? (Number(values.icms_deferido_rate) || 0) : 0
 
-    const impostosRec = isDeferidoEnabled ? icms * (1 - icmsDeferido / 100) : icms
+    /*
+      UMA SÓ FÓRMULA DO ICMS EFETIVO. Esta linha escrevia `icms * (1 - icmsDeferido / 100)`
+      à mão, ao lado de `icmsEfetivoPctDe`, que faz exatamente isso e é a fonte que
+      `baseDoTributo` também lê. Duas escritas da mesma conta são `copia-divergente.md` com
+      a pior assinatura: o dia em que o diferimento mudar de regra, uma delas muda e a outra
+      não, e a diferença aparece como base do PIS/COFINS, nunca como erro.
+
+      O NÚMERO NÃO MUDA — a função devolve `destacado × (1 − deferido)`, e `?? 0` cobre só o
+      caso em que a alíquota é nula, onde a linha antiga já lia zero por `Number(...) || 0`.
+    */
+    const impostosRec = icmsEfetivoPctDe({
+      base: priceNum,
+      icmsPct: icms,
+      icmsDeferidoAtivo: isDeferidoEnabled,
+      icmsDeferidoPct: icmsDeferido,
+    }) ?? 0
     setImpostosRecuperaveisDisplay(parseFloat(impostosRec.toFixed(4)))
 
     // Lucro Real: campo único pis_cofins_rate. Padrão fixo 9,25% (1,65% + 7,6%) — editável.
@@ -198,9 +221,25 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
       const r = calcularCustoDoItem(
         {
           base: priceNum,
-          // A alíquota do ICMS entra JÁ EFETIVADA pelo diferido, como o campo de tela a
-          // exibe — por isso o `icmsDeferidoAtivo` não é repassado: ele já foi aplicado.
-          icmsPct: impostosRec,
+          /*
+            §3 — O DESTACADO VAI PARA O MOTOR, E O DIFERIMENTO VAI COM ELE.
+
+            Antes a tela mandava a alíquota JÁ EFETIVADA e omitia as bandeiras. O número era
+            o mesmo, e a informação não: `icmsEfetivoPctDe` não tinha como saber que houve
+            diferimento, e a borda da entrada em R$ não teria de onde derivar o destacado.
+
+            A PARCELA DEFERIDA NÃO FOI COBRADA PELO FORNECEDOR. Ela não credita, e também
+            não é custo — não está no preço. É por isso que a base do PIS/COFINS deduz o
+            ICMS EFETIVO, e não o destacado: deduzir 180,00 tiraria da base um valor que
+            ninguém pagou. Quem faz as duas contas é `icmsEfetivoPctDe` e `baseDoTributo`,
+            e nenhuma das duas é reimplementada aqui.
+
+            O resultado é IDÊNTICO ao de antes: `icmsEfetivoPctDe` devolve
+            `destacado × (1 − deferido)`, que é o que a tela já vinha mandando pronto.
+          */
+          icmsPct: icms,
+          icmsDeferidoAtivo: isDeferidoEnabled,
+          icmsDeferidoPct: icmsDeferido,
           pisCofinsPct: pisCofinsTotal,
           ipiPct: Number(values.ipi_nr_pct) || 0,
           cbsPct: Number(values.cbs_rate) || 0,
@@ -469,122 +508,138 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
   const fmtBRL = (v: number) => 'R$ ' + v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
   /**
-   * §4, ADENDO — OS TRÊS NÚMEROS DO ICMS, E POR QUE O DO MEIO NÃO É NENHUM DOS DOIS.
+   * §2 — A ANATOMIA DE CADA LINHA, e ela é o contrato visual deste PR.
    *
-   * >>> A PARCELA DEFERIDA NÃO CREDITA E NÃO É CUSTO <<<
+   *   RÓTULO + legenda      [R$|%]   entrada        valor apurado   efeito
    *
-   * Ela não credita porque não foi cobrada pelo fornecedor — não há imposto recolhido na
-   * etapa anterior a recuperar. E não é custo porque não está no preço pago: o diferimento
-   * adia a incidência, não a embute na nota. Não é uma coisa nem outra, e é exatamente por
-   * isso que o número que o usuário precisa ver é o TERCEIRO: o ICMS EFETIVO, que é o que
-   * de fato credita.
+   * As quatro colunas são iguais em todas as linhas. A legenda vai sob o RÓTULO, apagada, e
+   * não desloca a coluna de entrada — posta ao lado do campo, ela desalinharia as linhas.
    *
-   * Até aqui a tela tinha o switch e o campo de percentual, a conta mudava por dentro, e o
-   * usuário não via EM QUE ela mudou. Ele ligava o diferimento e o custo líquido se mexia
-   * sem que nada na tela dissesse qual número tinha virado qual.
+   * >>> R$ É O FORMATO INICIAL DE ICMS, CBS E IBS; PIS/COFINS NÃO TEM SELETOR <<<
    *
-   * COM O SWITCH DESLIGADO a linha de efetivo NÃO aparece. Uma linha dizendo
-   * "efetivo = destacado" treinaria o usuário a ignorar as três — e a que importa é
-   * justamente a que só existe quando há diferimento.
+   * Os três primeiros vêm DESTACADOS no documento, e é o valor que o usuário copia. O
+   * PIS/COFINS não vem: ele é apurado sobre uma base que a nota não traz, e oferecer R$ ali
+   * pediria um número que o documento não tem.
    *
-   * O percentual efetivo vem de `impostosRecuperaveisDisplay`, que `recalcNetCost` já
-   * calcula e é o MESMO número que entra em `calcularCustoDoItem`. Recalculá-lo aqui seria
-   * a segunda fórmula do ICMS efetivo que `copia-divergente.md` proíbe — e ela divergiria no
-   * dia em que o diferimento mudasse de regra num dos dois lados.
+   * A conversão R$ → alíquota é a travessia de `entrada-de-imposto.ts`, com a base vinda de
+   * `baseDoTributo` — a MESMA que a conta usa. Recompor a base aqui faria os dois lados
+   * fecharem consigo mesmos (`copia-divergente.md`).
    */
-  const icmsDestacadoPct = Number(icmsRateWatch) || 0
-  const icmsEfetivoPct = Number(impostosRecuperaveisDisplay) || 0
-  const leituraDoIcmsEfetivo = (
-    <div style={{ display: 'grid', gap: 2, fontSize: 12 }}>
-      <div style={{ color: '#94a3b8' }}>
-        ICMS destacado <strong style={{ color: '#e2e8f0' }}>{icmsDestacadoPct.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</strong>
-      </div>
-      {icmsDeferidoEnabled && (
-        <>
-          <div style={{ color: '#94a3b8' }}>
-            Deferido <strong style={{ color: '#e2e8f0' }}>{(Number(icmsDeferidoRateWatch) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</strong>
-            <span style={{ opacity: 0.7 }}> (do próprio ICMS)</span>
-          </div>
-          <div style={{ color: '#22C55E', fontWeight: 600 }}>
-            ICMS efetivo {icmsEfetivoPct.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%
-            {' → '}
-            {fmtBRL(priceForDifal * icmsEfetivoPct / 100)}
-            <Tooltip title="É este que credita. A parcela deferida não gera crédito (não foi cobrada pelo fornecedor) e também não é custo (não está no preço pago).">
-              <InfoCircleOutlined style={{ color: '#64748b', marginLeft: 6 }} />
-            </Tooltip>
-          </div>
-        </>
-      )}
-    </div>
+  const valoresParaBase = useMemo(() => ({
+    base: priceForDifal,
+    icmsPct: icmsRateWatch,
+    icmsDeferidoAtivo: icmsDeferidoEnabled,
+    icmsDeferidoPct: icmsDeferidoRateWatch,
+  }), [priceForDifal, icmsRateWatch, icmsDeferidoEnabled, icmsDeferidoRateWatch])
+
+  /*
+    `obrigatorio` existe só para o ICMS, e é a regra que a linha legada já tinha: alíquota
+    apagada NÃO é alíquota zero (`ausente-vs-falso.md`), e o formulário recusa o save em vez
+    de gravar um zero que ninguém digitou.
+  */
+  const entradaEmReais = (t: TributoCreditavel, obrigatorio = false) => (
+    <Form.Item
+      name={CAMPO_DA_ALIQUOTA[t]}
+      noStyle
+      initialValue={0}
+      rules={obrigatorio
+        ? [{ validator: (_: unknown, v: unknown) => (v !== undefined && v !== null) ? Promise.resolve() : Promise.reject(new Error(REQUIRED)) }]
+        : undefined}
+    >
+      <EntradaDeImposto
+        base={baseDaLinha(valoresParaBase as never, t)}
+        formato={formatoDaLinha[t] ?? 'BRL'}
+        onFormato={(f) => setFormatoDaLinha((prev) => ({ ...prev, [t]: f }))}
+      />
+    </Form.Item>
   )
 
-  /**
-   * §3 — OS CAMPOS DE ALÍQUOTA, DENTRO DO CONTAINER.
-   *
-   * Cada linha do bloco "Gera crédito" passa a aceitar entrada pela costura `extras` — a
-   * mesma que a tela de despesa usa. Os nomes dos campos e a gravação não mudaram: o que
-   * mudou foi o lugar onde eles são digitados.
-   *
-   * O CAMPO VEM PRIMEIRO E A LEITURA DEPOIS, como legenda. Com a leitura ocupando a linha
-   * inteira — que era o desenho anterior — o campo do ICMS ficaria desalinhado dos outros
-   * quatro, e a coluna deixaria de ser coluna.
-   */
   const camposDeAliquota: Partial<Record<TributoCreditavel, React.ReactNode>> = {
     ICMS: (
-      <div style={{ display: 'grid', gap: 6 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <Form.Item
-            name="icms_rate"
-            noStyle
-            rules={[{ validator: (_, v) => (v !== undefined && v !== null) ? Promise.resolve() : Promise.reject(new Error(REQUIRED)) }]}
-          >
-            <PercentInput min={0} max={100} style={{ width: 120 }} onChange={() => setTimeout(recalcNetCost, 50)} />
-          </Form.Item>
-          {/*
-            O SWITCH DO DIFERIMENTO FICA NA LINHA DO ICMS: ele decide o que acontece com
-            AQUELE tributo, e a parcela deferida não credita nem é custo.
-          */}
-          <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#94a3b8' }}>
-            <Switch size="small" checked={icmsDeferidoEnabled} onChange={handleDeferidoToggle} />
-            Deferido
-            <Tooltip title="Ative para informar o percentual de diferimento do ICMS. Quando ativo, o ICMS efetivo é recalculado automaticamente.">
-              <InfoCircleOutlined style={{ color: '#64748b' }} />
-            </Tooltip>
-          </span>
+      <div style={{ display: 'grid', gap: 6, width: 360 }}>
+        {entradaEmReais('ICMS', true)}
+        {/*
+          O DIFERIMENTO FICA NA LINHA DO ICMS, e mostra o EFETIVO em R$.
+
+          >>> A PARCELA DEFERIDA NÃO CREDITA E NÃO É CUSTO <<<
+
+          Não credita porque não foi cobrada pelo fornecedor — não há imposto recolhido na
+          etapa anterior a recuperar. E não é custo porque não está no preço pago: o
+          diferimento adia a incidência, não a embute na nota. Não é uma coisa nem outra, e
+          é por isso que o número que o usuário precisa ver é o TERCEIRO — o EFETIVO.
+
+          O valor digitado é o DESTACADO; o que credita é `destacado × (1 − deferido)`. O
+          percentual efetivo vem de `impostosRecuperaveisDisplay`, que `recalcNetCost` já
+          calcula com `icmsEfetivoPctDe` e é o MESMO número que entra em
+          `calcularCustoDoItem`. Recalculá-lo aqui seria a segunda fórmula do ICMS efetivo
+          que `copia-divergente.md` proíbe — divergiria no dia em que o diferimento mudasse
+          de regra num dos dois lados.
+
+          COM O CHECKBOX DESLIGADO a leitura NÃO aparece: "efetivo = destacado" treinaria o
+          usuário a ignorar a linha, e a que importa é justamente a que só existe com
+          diferimento.
+        */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 12 }}>
+          <Checkbox checked={icmsDeferidoEnabled} onChange={(e) => handleDeferidoToggle(e.target.checked)}>
+            <span style={{ fontSize: 12, color: '#94a3b8' }}>diferido</span>
+          </Checkbox>
           {icmsDeferidoEnabled && (
-            <Form.Item name="icms_deferido_rate" noStyle>
-              <PercentInput min={0} max={100} style={{ width: 110 }} onChange={() => setTimeout(recalcNetCost, 50)} />
-            </Form.Item>
+            <>
+              <Form.Item name="icms_deferido_rate" noStyle>
+                <PercentInput min={0} max={100} style={{ width: 110 }} onChange={() => setTimeout(recalcNetCost, 50)} />
+              </Form.Item>
+              <span style={{ color: '#22C55E', fontWeight: 600 }}>
+                → efetivo {fmtBRL(priceForDifal * (Number(impostosRecuperaveisDisplay) || 0) / 100)}
+                <Tooltip title="A parcela deferida NÃO foi cobrada pelo fornecedor: ela não gera crédito e também não é custo, porque não está no preço pago. Por isso a base do PIS/COFINS deduz o ICMS efetivo, e não o destacado.">
+                  <InfoCircleOutlined style={{ color: '#64748b', marginLeft: 6 }} />
+                </Tooltip>
+              </span>
+            </>
           )}
         </div>
-        {leituraDoIcmsEfetivo}
       </div>
     ),
+    /*
+      PIS/COFINS: SÓ PERCENTUAL, e o padrão por regime continua exatamente como está —
+      9,25% no Lucro Real, 3,65% no Presumido, e o auto-preenchimento suspenso depois de
+      uma edição manual, reativado quando o campo é limpo.
+    */
     PIS_COFINS: (
-      <Tooltip title={isLucroPresumido
-        ? 'Padrão: 3,65% (PIS 0,65% + COFINS 3%, regime cumulativo). Pode ser editado manualmente; após edição, o auto-preenchimento fica suspenso até você limpar o campo.'
-        : 'Padrão: 9,25% (PIS 1,65% + COFINS 7,6%, regime não-cumulativo). Pode ser editado manualmente; após edição, o auto-preenchimento fica suspenso até você limpar o campo.'}>
-        <InputNumber
-          value={pisCofinsRateWatch}
-          min={0}
-          max={100}
-          step={0.0001}
-          precision={4}
-          style={{ width: 120 }}
-          placeholder="0,0000"
-          suffix="%"
-          formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
-          parser={(v) => Number((v || '0').replace(',', '.'))}
-          onChange={(v) => {
-            const numeric = v !== null && v !== undefined ? Number(v) : 0
-            // Campo limpo → reativa o auto-cálculo. É a regra de hoje, preservada.
-            setPisCofinsManuallyEdited(v !== null && v !== undefined)
-            form.setFieldsValue({ pis_cofins_rate: numeric })
-            setTimeout(recalcNetCost, 50)
-          }}
-        />
-      </Tooltip>
+      <div style={{ width: 360 }}>
+        <Tooltip title={isLucroPresumido
+          ? 'Padrão: 3,65% (PIS 0,65% + COFINS 3%, regime cumulativo). Pode ser editado manualmente; após edição, o auto-preenchimento fica suspenso até você limpar o campo.'
+          : 'Padrão: 9,25% (PIS 1,65% + COFINS 7,6%, regime não-cumulativo). Pode ser editado manualmente; após edição, o auto-preenchimento fica suspenso até você limpar o campo.'}>
+          <InputNumber
+            value={pisCofinsRateWatch}
+            min={0}
+            max={100}
+            step={0.0001}
+            precision={4}
+            style={{ width: 130 }}
+            placeholder="0,0000"
+            suffix="%"
+            formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
+            parser={(v) => Number((v || '0').replace(',', '.'))}
+            onChange={(v) => {
+              const numeric = v !== null && v !== undefined ? Number(v) : 0
+              setPisCofinsManuallyEdited(v !== null && v !== undefined)
+              form.setFieldsValue({ pis_cofins_rate: numeric })
+              setTimeout(recalcNetCost, 50)
+            }}
+          />
+        </Tooltip>
+      </div>
     ),
+    CBS: <div style={{ width: 360 }}>{entradaEmReais('CBS')}</div>,
+    IBS: <div style={{ width: 360 }}>{entradaEmReais('IBS')}</div>,
+  }
+
+  /** §2 — a legenda de cada linha, sob o rótulo. */
+  const legendasDasLinhas: Partial<Record<TributoCreditavel, React.ReactNode>> = {
+    ICMS: 'destacado, já dentro do preço',
+    PIS_COFINS: `base após o ICMS: ${fmtBRL(baseDaLinha(valoresParaBase as never, 'PIS_COFINS'))}`,
+    CBS: 'por fora, sobre o valor do item',
+    IBS: 'por fora, sobre o valor do item',
   }
 
   return (
@@ -891,6 +946,7 @@ const NewItemForm = ({ form, taxableRegime }: Props) => {
             onToggle={handleToggleCredito}
             onRecalc={recalcNetCost}
             extras={camposDeAliquota}
+            legenda={legendasDasLinhas}
             blocoDeCusto={(
               <div style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.18)', borderRadius: 8, padding: '12px 14px', marginTop: 12, marginBottom: 4 }}>
             {/* ICMS-ST: valor manual em R$ */}

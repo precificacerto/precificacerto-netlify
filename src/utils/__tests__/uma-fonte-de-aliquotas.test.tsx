@@ -14,6 +14,7 @@
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import { calcularCustoDoItem, resolverFlagsDoItem } from '@/utils/custo-liquido-do-item'
+import { CAMPO_DA_ALIQUOTA } from '@/utils/entrada-de-imposto'
 
 const ler = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8')
 const formulario = () => ler('src/page-parts/items/new-item-form.component.tsx')
@@ -58,10 +59,23 @@ describe('A — as duas linhas legadas saíram', () => {
     }
     expect(s).toContain('const camposDeAliquota')
     expect(s).toContain('extras={camposDeAliquota}')
-    // Os dois de ICMS ficam DEPOIS do ponto em que as linhas legadas estavam: dentro do
-    // objeto `extras`, que é montado logo antes do `return`.
+    /*
+      ÂNCORA REESCRITA em 26/09/2026, e a razão está no comando da ANATOMIA: o `name` do
+      campo deixou de ser literal no formulário e passou a vir de `CAMPO_DA_ALIQUOTA[t]`,
+      dentro de `entradaEmReais`, porque ICMS, CBS e IBS agora usam a MESMA entrada `R$|%`
+      da tela de despesa. Procurar `name="icms_rate"` no arquivo passaria a medir a forma de
+      escrever o atributo, não a existência do campo.
+
+      O critério não mudou — o campo continua sendo `icms_rate` e continua dentro do
+      container. Mudou onde ele está ESCRITO, e é isso que as duas linhas abaixo afirmam:
+      o nome real, contra o literal, e a costura que o leva para a linha do ICMS.
+    */
+    expect(CAMPO_DA_ALIQUOTA.ICMS).toBe('icms_rate')
+    expect(CAMPO_DA_ALIQUOTA.CBS).toBe('cbs_rate')
+    expect(CAMPO_DA_ALIQUOTA.IBS).toBe('ibs_rate')
+    expect(s).toContain('name={CAMPO_DA_ALIQUOTA[t]}')
     const fora = foraDoContainer(formulario())
-    expect(fora.indexOf('name="icms_rate"')).toBeGreaterThan(fora.indexOf('const camposDeAliquota'))
+    expect(fora.indexOf("entradaEmReais('ICMS'")).toBeGreaterThan(fora.indexOf('const camposDeAliquota'))
   })
 
   it('>>> a linha do Simples Híbrido NÃO saiu — ela usa outros dois campos <<<', () => {
@@ -94,7 +108,9 @@ describe('B — os tributos aceitam entrada, e o crédito sai em R$', () => {
     const s = semComentario(formulario())
     // ICMS e PIS/COFINS pela costura `extras`, que é a novidade.
     const extras = blocoDosExtras(formulario())
-    expect(extras).toContain('name="icms_rate"')
+    // `entradaEmReais` monta o `Form.Item` com `name={CAMPO_DA_ALIQUOTA[t]}` — ver a
+    // âncora reescrita no caso A.
+    expect(extras).toContain("entradaEmReais('ICMS'")
     expect(extras).toContain('pis_cofins_rate')
     // CBS e IBS já eram editáveis, pelo campo padrão do próprio container.
     const container = ler('src/page-parts/items/purchase-tax-credits.component.tsx')
@@ -141,11 +157,19 @@ describe('D — ICMS 18% com 60% deferido', () => {
   it('>>> e a leitura do efetivo acompanha o CAMPO, na linha do ICMS <<<', () => {
     const extras = blocoDosExtras(formulario())
     const linhaDoIcms = extras.slice(extras.indexOf('ICMS: ('), extras.indexOf('PIS_COFINS: ('))
-    expect(linhaDoIcms).toContain('name="icms_rate"')
+    expect(linhaDoIcms).toContain("entradaEmReais('ICMS'")
     expect(linhaDoIcms).toContain('name="icms_deferido_rate"')
-    expect(linhaDoIcms).toContain('{leituraDoIcmsEfetivo}')
-    // A leitura vem DEPOIS do campo: com ela ocupando a linha, o campo desalinharia.
-    expect(linhaDoIcms.indexOf('name="icms_rate"')).toBeLessThan(linhaDoIcms.indexOf('{leituraDoIcmsEfetivo}'))
+    /*
+      ÂNCORA REESCRITA em 26/09/2026. A leitura era um bloco de três linhas montado à parte
+      (`leituraDoIcmsEfetivo`) e repetia o destacado e o deferido, que já estão nos campos
+      ao lado. O comando da ANATOMIA pede UMA linha por tributo, com quatro colunas fixas:
+      sobrou só o TERCEIRO número, o efetivo, ao lado do checkbox de diferimento.
+
+      O critério é o mesmo — a leitura acompanha o campo, na linha do ICMS, e vem DEPOIS
+      dele. O que mudou foi o nome do que se procura.
+    */
+    expect(linhaDoIcms).toContain('→ efetivo')
+    expect(linhaDoIcms.indexOf("entradaEmReais('ICMS'")).toBeLessThan(linhaDoIcms.indexOf('→ efetivo'))
   })
 })
 

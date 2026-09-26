@@ -150,7 +150,8 @@ interface Props {
    */
   semBlocoB?: boolean
   /**
-   * Não renderizar o rodapé "Custo bruto / Crédito recuperado".
+   * Não renderizar o rodapé de três cards — TOTAL DO ITEM / CRÉDITO DO IMPOSTO /
+   * CUSTO LÍQUIDO.
    *
    * A tela de despesa tem o rodapé próprio — "Crédito total / CUSTO LÍQUIDO" —, que é o do
    * descascamento. Dois rodapés com números de origens diferentes na mesma tela é o convite
@@ -187,6 +188,18 @@ interface Props {
    */
   leitura?: Partial<Record<TributoCreditavel, React.ReactNode>>
   /**
+   * A LEGENDA de cada linha, sob o rótulo — na PRIMEIRA coluna, nunca na da entrada.
+   *
+   * "destacado, já dentro do preço", "base após o ICMS: R$ 928,00", "por fora, sobre o
+   * valor do item": é o que distingue um tributo que já está no preço de um que se soma a
+   * ele, e é a informação que faz o usuário entender por que dois números iguais creditam
+   * diferente.
+   *
+   * Ela vai na coluna do rótulo de propósito: posta ao lado da entrada, deslocaria a coluna
+   * e as linhas deixariam de parecer a mesma linha.
+   */
+  legenda?: Partial<Record<TributoCreditavel, React.ReactNode>>
+  /**
    * Não renderizar o check "Fornecedor do Simples sem regime regular".
    *
    * `supplier_simples_sem_regime_regular` é coluna de `items`, e só o cadastro de item a
@@ -200,7 +213,7 @@ interface Props {
 export function PurchaseTaxCredits({
   bandeiras, custo, onToggle, onRecalc, visivel, unidadeLabel, extras, titulo, semDestinacao,
   modo = 'switch', blocoDeCusto, depoisDasLinhas, tributos, semBlocoB, semRodape, subtitulo,
-  leitura, semFornecedorDoSimples,
+  leitura, legenda, semFornecedorDoSimples,
 }: Props) {
   if (!visivel) return null
 
@@ -236,12 +249,17 @@ export function PurchaseTaxCredits({
           padding: '10px 0', borderBottom: '1px solid rgba(148,163,184,0.12)',
         }}
       >
-        <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600 }}>
-          {a.rotulo}
-          <Tooltip title={<><div>{a.regra}</div><div style={{ marginTop: 8, opacity: 0.85 }}>{a.naNota}</div></>}>
-            <InfoCircleOutlined style={{ color: '#64748b' }} />
-          </Tooltip>
-        </span>
+        <div style={{ display: 'grid', gap: 2 }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600 }}>
+            {a.rotulo}
+            <Tooltip title={<><div>{a.regra}</div><div style={{ marginTop: 8, opacity: 0.85 }}>{a.naNota}</div></>}>
+              <InfoCircleOutlined style={{ color: '#64748b' }} />
+            </Tooltip>
+          </span>
+          {legenda?.[t] && (
+            <span style={{ fontSize: 11, color: '#64748b', lineHeight: 1.3 }}>{legenda[t]}</span>
+          )}
+        </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           {extra}
@@ -514,49 +532,61 @@ export function PurchaseTaxCredits({
       </div>
       )}
 
-      {/* RODAPÉ — os três números, e o do meio é o que explica a diferença entre os outros. */}
+      {/*
+        ════ O RODAPÉ EM TRÊS CARDS — §5 do comando de 27/09/2026 ════
+
+        Eram quatro linhas numa lista. Viraram três cards lado a lado, e a ordem é a leitura:
+        o que saiu do caixa, o que volta, e o que sobra para formar o preço.
+
+        "Custo bruto" virou TOTAL DO ITEM. O rótulo antigo descrevia a conta; o novo descreve
+        a coisa — é UM ITEM, e não uma nota com vários. O card do meio traz o percentual,
+        porque o valor sozinho não diz se o crédito é relevante: R$ 422,84 numa compra de mil
+        e quatrocentos é quase um terço, e numa de cem mil é ruído.
+      */}
       {!semRodape && (
-      <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid rgba(148,163,184,0.2)', display: 'grid', gap: 6 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
-          <span style={{ color: '#94a3b8' }}>Custo bruto</span>
-          <span style={{ fontWeight: 600 }}>{fmt(custo?.custoBruto)}</span>
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
-          <span style={{ color: '#94a3b8' }}>
-            Crédito recuperado
-            {creditos && (
-              <Tooltip
-                title={(Object.keys(AJUDA) as TributoCreditavel[])
-                  .filter((t) => creditos[t] > 0)
-                  .map((t) => `${AJUDA[t].rotulo}: R$ ${getMonetaryValue(creditos[t])}`)
-                  .join(' · ') || 'Nenhum tributo desta compra gera crédito.'}
-              >
-                <InfoCircleOutlined style={{ color: '#64748b', marginLeft: 6 }} />
-              </Tooltip>
-            )}
-          </span>
-          <span style={{ fontWeight: 600, color: '#22C55E' }}>
-            − {fmt(custo?.creditoTotal ?? 0)}
+      <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid rgba(148,163,184,0.2)', display: 'grid', gap: 10 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10 }}>
+          <div style={{ padding: '10px 12px', background: 'rgba(148,163,184,0.06)', border: '1px solid rgba(148,163,184,0.18)', borderRadius: 8 }}>
+            <div style={{ fontSize: 11, color: '#94a3b8', letterSpacing: 0.3 }}>TOTAL DO ITEM</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: '#e2e8f0' }}>{fmt(custo?.custoBruto)}</div>
+            <div style={{ fontSize: 11, color: '#64748b' }}>valor bruto</div>
+          </div>
+
+          <div style={{ padding: '10px 12px', background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.2)', borderRadius: 8 }}>
+            <div style={{ fontSize: 11, color: '#94a3b8', letterSpacing: 0.3, display: 'flex', alignItems: 'center', gap: 6 }}>
+              CRÉDITO DO IMPOSTO
+              {creditos && (
+                <Tooltip
+                  title={(Object.keys(AJUDA) as TributoCreditavel[])
+                    .filter((t) => creditos[t] > 0)
+                    .map((t) => `${AJUDA[t].rotulo}: R$ ${getMonetaryValue(creditos[t])}`)
+                    .join(' · ') || 'Nenhum tributo desta compra gera crédito.'}
+                >
+                  <InfoCircleOutlined style={{ color: '#64748b' }} />
+                </Tooltip>
+              )}
+            </div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: '#22C55E' }}>− {fmt(custo?.creditoTotal ?? 0)}</div>
             {/*
-              O % DO QUE FOI PAGO — §3 do comando de 21/09/2026.
-              O valor sozinho não diz se o crédito é relevante: R$ 319,38 numa compra de mil
-              é um terço, e numa de cem mil é ruído. Travessão quando o bruto é zero: uma
-              divisão por zero exibida como 0,00% afirmaria que nada creditou.
+              Travessão quando o bruto é zero: uma divisão por zero exibida como 0,00%
+              afirmaria que nada creditou (`ausente-vs-falso.md`).
             */}
-            {custo && custo.custoBruto > 0 && (
-              <span style={{ fontWeight: 400, color: '#94a3b8', marginLeft: 6 }}>
-                ({getMonetaryValue((custo.creditoTotal / custo.custoBruto) * 100)}% do que foi pago)
-              </span>
-            )}
-          </span>
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, paddingTop: 6, borderTop: '1px solid rgba(148,163,184,0.15)' }}>
-          <span style={{ fontWeight: 700 }}>Custo líquido <span style={{ fontWeight: 400, color: '#94a3b8' }}>(unidade comprada)</span></span>
-          <span style={{ fontWeight: 700, color: '#22C55E' }}>{fmt(custo?.custoLiquido)}</span>
+            <div style={{ fontSize: 11, color: '#64748b' }}>
+              {custo && custo.custoBruto > 0
+                ? `${getMonetaryValue((custo.creditoTotal / custo.custoBruto) * 100)}% do que foi pago`
+                : '— do que foi pago'}
+            </div>
+          </div>
+
+          <div style={{ padding: '10px 12px', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.35)', borderRadius: 8 }}>
+            <div style={{ fontSize: 11, color: '#94a3b8', letterSpacing: 0.3 }}>CUSTO LÍQUIDO</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: '#22C55E' }}>{fmt(custo?.custoLiquido)}</div>
+            <div style={{ fontSize: 11, color: '#64748b' }}>é ele que forma o preço</div>
+          </div>
         </div>
 
         {/*
-          O QUARTO NÚMERO — e é ele que a receita do produto consome.
+          O QUARTO NÚMERO, abaixo dos cards — e é ele que a receita do produto consome.
           A compra é de uma unidade; o produto usa uma FRAÇÃO dela. Travessão quando não há
           QTD. medida: `null` ali é "não há fração a apurar", e exibir o próprio líquido
           afirmaria uma divisão por 1 que ninguém fez (`ausente-vs-falso.md`).
