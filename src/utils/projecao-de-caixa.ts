@@ -1,11 +1,21 @@
 /**
  * projecao-de-caixa.ts — QUEM entra no saldo acumulado, e com que sinal.
  *
- * Comando do PO de 25/09/2026, §2:
+ * >>> UMA LEITURA SÓ: ENTRADAS LANÇADAS MENOS SAÍDAS LANÇADAS <<<
  *
- *   > PREVISTO   = tudo que está lançado, dos DOIS lados.
- *   > CONFIRMADO = só o que tem `paid_date`, dos DOIS lados.
- *   > Nenhuma leitura mistura os lados.
+ * Com ou sem baixa, dos dois lados. É a definição de fluxo de caixa.
+ *
+ * O #79 entregou DUAS leituras, Previsto e Confirmado, com um seletor na tela. O seletor
+ * saiu em 26/09/2026, por decisão do PO, e a razão vale mais que o botão:
+ *
+ *   "Confirmado" NÃO é fluxo de caixa — é extrato do que já ocorreu, e essa pergunta é
+ *   respondida pelo DRE por caixa. Duas leituras na mesma tela obrigam o usuário a saber
+ *   em qual delas está ANTES de acreditar no número, e o modo errado é indistinguível do
+ *   certo quando alguém tira print.
+ *
+ * O parâmetro `modo` foi REMOVIDO, e não deixado com valor padrão. Parâmetro que ninguém
+ * passa é caminho morto, e caminho morto não é testado — o verde dele é o de
+ * `teste-que-nao-exercita.md`. Se o Confirmado voltar, volta como tela própria.
  *
  * >>> O DEFEITO QUE ESTE ARQUIVO EXISTE PARA APAGAR <<<
  *
@@ -35,11 +45,6 @@
  */
 import { getEffectiveIncomeAmount } from '@/utils/cash-entry-amount'
 
-export type ModoDaProjecao = 'PREVISTO' | 'CONFIRMADO'
-
-/** O padrão da tela. "Projeção" só significa alguma coisa com os dois lados previstos. */
-export const MODO_PADRAO: ModoDaProjecao = 'PREVISTO'
-
 /**
  * O que uma entrada de caixa precisa ter para este módulo decidir.
  *
@@ -62,7 +67,8 @@ const FORMAS_QUE_ESPERAM_BAIXA = new Set(['BOLETO', 'CHEQUE_PRE_DATADO'])
  * Recebimento lançado e ainda não baixado: boleto, cheque pré-datado ou resto de split.
  *
  * É esta função que a faixa amarela da tela usa para existir — ela é a DECOMPOSIÇÃO do que
- * o modo Previsto soma, nunca um total paralelo.
+ * o saldo já soma, nunca um total paralelo. Ela SOBREVIVEU à saída do seletor porque a
+ * faixa sobreviveu: sem ela, o usuário soma o valor ao saldo de novo.
  */
 export function ehRecebimentoPrevisto(e: EntradaDeCaixa): boolean {
   if (e?.type !== 'INCOME') return false
@@ -71,44 +77,43 @@ export function ehRecebimentoPrevisto(e: EntradaDeCaixa): boolean {
 }
 
 /**
- * A entrada conta NESTE modo? Vale para os dois tipos, e é a ÚNICA porta.
+ * A entrada conta no fluxo? Vale para os dois tipos, e é a ÚNICA porta.
  *
- * >>> A SIMETRIA É A REGRA, E ELA É LITERAL <<<
+ * >>> ELA FICOU, MESMO DEVOLVENDO `true` PARA TUDO QUE É LANÇAMENTO <<<
  *
- * `CONFIRMADO` pede `paid_date` dos DOIS lados. Não é "o de hoje do lado da receita": hoje
- * uma receita em PIX sem baixa conta na competência, e sob esta regra ela não conta. A
- * diferença é pequena e está medida — 13 linhas em toda a base, R$ 102.690,00, porque o
- * lançamento em PIX com vencimento passado já nasce com `paid_date` preenchido.
- *
- * Manter a exceção do lado da receita seria reintroduzir a assimetria em miniatura: dinheiro
- * que ninguém marcou como recebido entrando num saldo que se chama CONFIRMADO.
+ * A tentação é apagá-la e deixar cada chamador filtrar por tipo. Ela existe por duas razões
+ * que continuam de pé sem o modo: é ela que recusa uma linha de tipo desconhecido — o
+ * `PREV_MONTH_BALANCE` e o que vier depois dele —, e é ela o lugar ÚNICO onde a próxima
+ * exclusão vai morar. Espalhada pelos quatro chamadores, a próxima regra nasce em três.
  */
-export function entraNaProjecao(e: EntradaDeCaixa, modo: ModoDaProjecao): boolean {
-  if (e?.type !== 'INCOME' && e?.type !== 'EXPENSE') return false
-  if (modo === 'CONFIRMADO') return !!e.paid_date
-  // PREVISTO: tudo que está lançado, dos dois lados. Nada a filtrar.
-  return true
+export function entraNaProjecao(e: EntradaDeCaixa): boolean {
+  return e?.type === 'INCOME' || e?.type === 'EXPENSE'
 }
 
 /**
- * Assinado: receita positiva, despesa negativa. Zero quando não entra no modo.
+ * Assinado: receita positiva, despesa negativa. Sempre — com baixa ou sem.
  *
- * O zero aqui é ausência de EFEITO, não um valor apurado — quem não entra no modo não move
- * o saldo. É a distinção de `ausente-vs-falso.md` com o sinal certo: a linha continua
- * existindo na tela, decomposta na faixa que lhe cabe.
+ * O zero é ausência de EFEITO, não um valor apurado: uma linha que não é lançamento não
+ * move o saldo. É a distinção de `ausente-vs-falso.md` com o sinal certo.
  */
-export function efeitoNoSaldo(e: EntradaDeCaixa, modo: ModoDaProjecao): number {
-  if (!entraNaProjecao(e, modo)) return 0
+export function efeitoNoSaldo(e: EntradaDeCaixa): number {
+  if (!entraNaProjecao(e)) return 0
   return e.type === 'INCOME' ? getEffectiveIncomeAmount(e as never) : -(Number(e.amount) || 0)
 }
 
-/** O rótulo da faixa amarela, que muda com o modo para o valor não ser lido duas vezes. */
-export function rotuloDaFaixaDePrevisto(modo: ModoDaProjecao): string {
-  return modo === 'PREVISTO' ? 'já somado no saldo previsto' : 'não entra no saldo confirmado'
+/**
+ * O rótulo da faixa amarela — texto ÚNICO, agora que a leitura é uma só.
+ *
+ * Continua sendo função e não constante de propósito: é o ponto onde o texto é decidido, e
+ * um `const` exportado seria copiado para dentro do JSX na primeira vez que alguém quisesse
+ * "só ajustar a frase".
+ */
+export function rotuloDaFaixaDePrevisto(): string {
+  return 'já somado no saldo'
 }
 
 /**
- * O SALDO ACUMULADO DO MÊS, dia a dia, nos dois modos.
+ * O SALDO ACUMULADO DO MÊS, dia a dia.
  *
  * >>> POR QUE A DOBRA MORA AQUI, E NÃO NO COMPONENTE <<<
  *
@@ -121,9 +126,9 @@ export function rotuloDaFaixaDePrevisto(modo: ModoDaProjecao): string {
  */
 export function saldoAcumuladoPorDia(
   entradas: readonly (EntradaDeCaixa & { due_date?: string | null })[],
-  opcoes: { diasNoMes: number; saldoInicial?: number; modo: ModoDaProjecao },
+  opcoes: { diasNoMes: number; saldoInicial?: number },
 ): { movimento: Record<number, number>; saldoDiaAnterior: Record<number, number>; saldoAcumulado: Record<number, number> } {
-  const { diasNoMes, modo } = opcoes
+  const { diasNoMes } = opcoes
   const movimento: Record<number, number> = {}
   for (let d = 1; d <= diasNoMes; d++) movimento[d] = 0
 
@@ -131,7 +136,7 @@ export function saldoAcumuladoPorDia(
     if (!e?.due_date) continue
     const dia = parseInt(String(e.due_date).substring(8, 10), 10)
     if (!(dia >= 1 && dia <= diasNoMes)) continue
-    movimento[dia] += efeitoNoSaldo(e, modo)
+    movimento[dia] += efeitoNoSaldo(e)
   }
 
   const saldoDiaAnterior: Record<number, number> = {}

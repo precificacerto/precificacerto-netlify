@@ -14,7 +14,6 @@ import { getEffectiveIncomeAmount } from '@/utils/cash-entry-amount'
 import {
     ehRecebimentoPrevisto, entraNaProjecao, efeitoNoSaldo, rotuloDaFaixaDePrevisto,
     saldoAcumuladoPorDia,
-    MODO_PADRAO, type ModoDaProjecao,
 } from '@/utils/projecao-de-caixa'
 import { mergeExpenseConfig } from '@/utils/recalc-expense-config'
 import { ehCompromissoFinanceiro, separarJurosEPrincipal, LABEL_DO_BLOCO } from '@/utils/compromissos-financeiros'
@@ -354,15 +353,6 @@ export default function CashFlow() {
     const [vencidosToken, setVencidosToken] = useState(0)
     const [loading, setLoading] = useState(false)
     const [month, setMonth] = useState(dayjs())
-
-    /**
-     * §4.5 — O MODO NÃO É PREFERÊNCIA SALVA.
-     *
-     * A tela abre sempre em PREVISTO. Um modo lembrado faria alguém abrir a tela em
-     * CONFIRMADO meses depois e ler aquilo como projeção — que é o defeito de hoje com o
-     * rótulo trocado.
-     */
-    const [modoDaProjecao, setModoDaProjecao] = useState<ModoDaProjecao>(MODO_PADRAO)
 
     const [drawerOpen, setDrawerOpen] = useState(false)
     const [expenseAmount, setExpenseAmount] = useState('')
@@ -1154,7 +1144,7 @@ export default function CashFlow() {
 
         for (const entry of dfcData) {
             if (entry.type === 'INCOME') {
-                if (!entraNaProjecao(entry, modoDaProjecao)) continue
+                if (!entraNaProjecao(entry)) continue
                 const label = getIncomeLabel(entry)
                 incomeByLabel[label] = (incomeByLabel[label] || 0) + getEffectiveIncomeAmount(entry)
             } else {
@@ -1181,7 +1171,7 @@ export default function CashFlow() {
             if (day < 1 || day > daysInMonth) continue
             // §4.3 — o total diário segue o MESMO modo do saldo. Três leituras da mesma
             // tela em modos diferentes é o bug de hoje com outra roupa.
-            totals[day] += efeitoNoSaldo(entry, modoDaProjecao)
+            totals[day] += efeitoNoSaldo(entry)
         }
         return { totals, daysInMonth }
     }, [regularData, month])
@@ -1318,8 +1308,7 @@ export default function CashFlow() {
     const projecaoDoMes = useMemo(() => saldoAcumuladoPorDia(regularData, {
         diasNoMes: month.daysInMonth(),
         saldoInicial: prevMonthBalanceValue,
-        modo: modoDaProjecao,
-    }), [regularData, month, prevMonthBalanceValue, modoDaProjecao])
+    }), [regularData, month, prevMonthBalanceValue])
 
     const saldoDiaAnterior = projecaoDoMes.saldoDiaAnterior
     const dailyAccumulatedBalance = projecaoDoMes.saldoAcumulado
@@ -1820,31 +1809,17 @@ export default function CashFlow() {
                         Fluxo de Caixa — {month.format('MMMM [de] YYYY')}
                     </span>
                     {/*
-                      §4.1 — O SELETOR DE MODO, no topo da visão por dia.
+                      O SELETOR "Previsto | Confirmado" SAIU em 26/09/2026.
 
-                      PREVISTO é o padrão porque é o que a palavra "projeção" significa: os
-                      dois lados do que está lançado. CONFIRMADO é o caixa que de fato
-                      ocorreu — os dois lados com baixa.
-
-                      Nenhum dos dois mistura os lados, e é isso que o defeito fazia.
+                      O fluxo de caixa tem UMA leitura: entradas lançadas menos saídas
+                      lançadas, com ou sem baixa. "Confirmado" é extrato do que já ocorreu, e
+                      essa pergunta é do DRE por caixa — duas leituras aqui obrigavam o
+                      usuário a saber em qual delas estava antes de acreditar no número, e o
+                      modo errado é indistinguível do certo num print.
                     */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                        <Radio.Group
-                            value={modoDaProjecao}
-                            onChange={(ev) => setModoDaProjecao(ev.target.value as ModoDaProjecao)}
-                            size="small"
-                            optionType="button"
-                        >
-                            <Radio.Button value="PREVISTO">Previsto</Radio.Button>
-                            <Radio.Button value="CONFIRMADO">Confirmado</Radio.Button>
-                        </Radio.Group>
-                        <span style={{ fontSize: 11, color: '#64748b', maxWidth: 320 }}>
-                            {modoDaProjecao === 'PREVISTO'
-                                ? 'Tudo que está lançado, dos dois lados: despesa a pagar e recebimento a receber.'
-                                : 'Só o que tem baixa, dos dois lados: o caixa que de fato ocorreu.'}
-                        </span>
-                        <span style={{ fontSize: 12, color: '#94a3b8' }}>Visão por dia (todos os dias do mês)</span>
-                    </div>
+                    <span style={{ fontSize: 12, color: '#94a3b8' }}>
+                        Visão por dia — tudo que está lançado, dos dois lados
+                    </span>
                 </div>
 
                 {/* Pivot Table */}
@@ -1973,14 +1948,14 @@ export default function CashFlow() {
                                             ⏳ A Receber (Boleto/Cheque)
                                             {/*
                                               §4.2 — O RÓTULO QUE IMPEDE A LEITURA DUPLA.
-                                              A faixa é a DECOMPOSIÇÃO do que o modo Previsto
-                                              já somou, nunca um total paralelo. Sem dizer
+                                              A faixa é a DECOMPOSIÇÃO do que o saldo já
+                                              somou, nunca um total paralelo. Sem dizer
                                               isso, o usuário soma o valor ao saldo de novo —
                                               e o número que ele obtém não existe em lugar
                                               nenhum do sistema.
                                             */}
                                             <div style={{ fontSize: 10, color: '#a16207', fontWeight: 600 }}>
-                                                {rotuloDaFaixaDePrevisto(modoDaProjecao)}
+                                                {rotuloDaFaixaDePrevisto()}
                                             </div>
                                         </td>
                                         {Array.from({ length: pivotByDay.daysInMonth }, (_, i) => i + 1).map(day => {
