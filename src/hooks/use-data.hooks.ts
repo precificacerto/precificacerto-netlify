@@ -137,13 +137,18 @@ export function useStock() {
   return useSWR(
     tenantId ? `stock-${tenantId}` : null,
     async () => {
+      // `cost_gross` e `cost_net` entraram em 26/09/2026 para o Relatório de quantidades,
+      // que passou da tela de Itens para a aba Itens / Insumos do Estoque. Eles vêm NESTA
+      // consulta, e não numa segunda: a tabela e o PDF têm de sair da mesma linha, ou a
+      // tela mostra um número e o relatório mostra outro (`copia-divergente.md`).
+      //
       // O `is_active` dos embeds vem junto para que a listagem possa descartar a linha
       // cujo DONO foi excluído. Filtrar só `stock.is_active` não bastava: a auto-cura da
       // tela de Estoque recria uma linha ativa logo após a exclusão, e era essa cópia que
       // reaparecia (ver `filterActiveStockRows`).
       const { data, error } = await supabase
         .from('stock')
-        .select('*, items(name, unit, quantity, cost_price, cost_per_base_unit, is_active), products(name, unit, cost_total, profit_percent, sale_price, section_id, code, is_active)')
+        .select('*, items(name, unit, quantity, cost_price, cost_per_base_unit, cost_gross, cost_net, is_active), products(name, unit, cost_total, profit_percent, sale_price, section_id, code, is_active)')
         .eq('is_active', true)
       if (error) throw error
       return filterActiveStockRows(data)
