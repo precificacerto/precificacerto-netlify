@@ -12,6 +12,7 @@ import { buildProductPriceRows, type PriceRowInput } from '@/utils/product-price
 import { toBaseCode } from '@/utils/sale-context'
 import { apenasTributosQueExistem, tributoExisteNoSegmento } from '@/utils/campos-do-segmento'
 import { resolveSegmentoDaConstrucao } from '@/utils/despesas-do-segmento'
+import { LABEL_DO_BLOCO } from '@/utils/compromissos-financeiros'
 import { computeAdvancedOutsideTaxes, type AdvancedOutsideParams } from '@/utils/icms-st-difal'
 import { TaxDecompositionPanel } from './tax-decomposition-panel.component'
 import { CALC_TYPE_ENUM } from '@/shared/enums/calc-type'
@@ -289,10 +290,14 @@ export const ProductPrice: FC<Props> = ({
     ...(!isCalcTypeService ? [
       { key: 'labor', originalPct: laborPct },
       { key: 'fixed', originalPct: fixedPct },
-      { key: 'compromissosFinanceiros', originalPct: financialCommitmentsPct },
     ] : []),
     { key: 'variable', originalPct: variablePct },
     { key: 'financial', originalPct: financialPct },
+    // ADENDO 2 §1 — a POSIÇÃO é a regra: IMEDIATAMENTE DEPOIS de 'Despesas financeiras' e
+    // antes de 'RT'. A ordem desta lista NÃO muda nenhum número (`buildProductPriceRows`
+    // soma e mapeia, não ordena) — ela existe para que a declaração e o JSX abaixo sejam
+    // lidos na mesma ordem. Quem mudar uma e esquecer a outra cai no caso de ordem.
+    ...(!isCalcTypeService ? [{ key: 'compromissosFinanceiros', originalPct: financialCommitmentsPct }] : []),
     ...(!showIrpjCsll && !isLpRet && !isSimplesHibrido ? [{ key: 'tax', originalPct: taxPctDisplay }] : []),
     { key: 'rt', originalPct: rtReservePct },
     { key: 'commission', originalPct: commissionPct },
@@ -589,17 +594,27 @@ export const ProductPrice: FC<Props> = ({
           <tbody>
             {!isCalcTypeService && pricingRow('Mão de obra administrativa', 'labor', undefined, 'Despesas de mão de obra administrativa (pró-labore, salários comerciais e administrativos) calculadas a partir do fluxo de caixa. Configure em Configurações > Equipe e Custos.')}
             {!isCalcTypeService && pricingRow('Despesas fixas', 'fixed')}
-            {/* COMPROMISSOS FINANCEIROS — §6.1. Parcela de financiamento, empréstimo, consórcio,
-                amortização de principal e aporte programado: vencem MESMO SEM VENDA, e por isso
-                o preço tem de cobri-las. Saiu de "Despesas fixas" sem mudar a soma. */}
+            {pricingRow('Despesas variáveis', 'variable')}
+            {pricingRow('Despesas financeiras', 'financial')}
+            {/* COMPROMISSOS FINANCEIROS — ADENDO 2 §1. Parcela de financiamento, empréstimo,
+                consórcio, amortização de principal e aporte programado: vencem MESMO SEM VENDA,
+                e por isso o preço tem de cobri-las. Saiu de "Despesas fixas" sem mudar a soma.
+
+                A POSIÇÃO é a regra, não estética: a linha vem DEPOIS de "Despesas financeiras"
+                e ANTES de "RT". As duas vizinhas de cima têm "financeir-" no nome e tratam de
+                coisa diferente — "Despesas financeiras" é o CUSTO do dinheiro (taxa de cartão,
+                juros, tarifa), que varia com a receita; "Compromissos Financeiros" é o
+                PRINCIPAL que vence com venda ou sem ela. Separá-las por uma linha de imposto
+                faria o leitor perder o contraste.
+
+                O rótulo sai de `LABEL_DO_BLOCO`: o nome é UM SÓ em todo o sistema, e escrevê-lo
+                literal aqui seria a segunda declaração dele (`copia-divergente.md`). */}
             {!isCalcTypeService && pricingRow(
-              'Compromissos Financeiros',
+              LABEL_DO_BLOCO,
               'compromissosFinanceiros',
               undefined,
               'Parcela de financiamento, empréstimo, consórcio, amortização de principal e aporte programado. Vencem mesmo sem venda, então o preço precisa cobri-las. Vem do fluxo de caixa, do bloco Compromissos Financeiros — até 02/10/2026 este valor estava somado dentro de "Despesas fixas", e a soma das duas linhas continua a mesma.',
             )}
-            {pricingRow('Despesas variáveis', 'variable')}
-            {pricingRow('Despesas financeiras', 'financial')}
             {/* Em MEI a linha aparece zerada e NÃO é editável: o DAS é fixo mensal e não
                 incide por item, então não há alíquota a ajustar — coerente com o alerta
                 que esta mesma tela exibe logo acima. Nos demais regimes segue editável. */}

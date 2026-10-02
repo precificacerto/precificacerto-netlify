@@ -79,6 +79,18 @@ export type ProductPriceInfoType = {
   /** laborUnit/priceUnit (0-100) for display. */
   laborPctShown: number
   fixedExpensePrice: number
+  /**
+   * COMPROMISSOS FINANCEIROS em R$ — ADENDO 2. UM produtor, lido pelas duas telas.
+   *
+   * Em 02/10/2026 `fixedExpensePct` passou a vir REDUZIDO (sem as cinco categorias do bloco).
+   * `fixedExpensePrice` encolheu junto, e na tela de serviço ele compõe o R$ de "Mão de obra
+   * produtiva" (MO direta + administrativa + desp. fixas) e a barra de composição — que
+   * deixaram de somar o preço, sem nada acusar. Este campo devolve a parcela que saiu.
+   *
+   * Derivá-lo na tela filha a partir de `totalServicePrice` seria a segunda escrita da mesma
+   * fórmula (`copia-divergente.md`): ele nasce aqui, ao lado das outras três.
+   */
+  financialCommitmentsPrice: number
   variableExpensePrice: number
   financialExpensePrice: number
   taxesPrice: number
@@ -121,6 +133,7 @@ const PRODUCT_PRICE_INFO_BASE = {
   indirectLaborExpensePrice: 0,
   laborPctShown: 0,
   fixedExpensePrice: 0,
+  financialCommitmentsPrice: 0,
   variableExpensePrice: 0,
   financialExpensePrice: 0,
   taxesPrice: 0,
@@ -956,6 +969,7 @@ export const Content: FC<ContentProps> = ({
         indirectLaborExpensePrice: engineResult.laborValue,
         laborPctShown: Number((engineResult.laborPctShown * 100).toFixed(3)),
         fixedExpensePrice: priceUnit * (calcBase.fixedExpensePct / 100),
+        financialCommitmentsPrice: priceUnit * (calcBase.financialCommitmentsPct / 100),
         variableExpensePrice: priceUnit * (calcBase.variableExpensePct / 100),
         financialExpensePrice: priceUnit * (calcBase.financialExpensePct / 100),
         taxesPrice: engineResult.taxValue,

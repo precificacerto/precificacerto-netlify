@@ -8,6 +8,7 @@ import { ColumnsType } from 'antd/es/table'
 import { CalcBaseType } from '@/types/calc-base.type'
 import { LoggedUser } from '@/types/logged-user.type'
 import { ProductPriceInfoType } from './content.component'
+import { LABEL_DO_BLOCO } from '@/utils/compromissos-financeiros'
 import { getMonetaryValue } from '@/utils/get-monetary-value'
 import { Input } from 'antd'
 import { useDevice } from '@/contexts/device.context'
@@ -80,6 +81,23 @@ export const ContentService: FC<ContentServiceProps> = ({
   const svcLaborPct = svcTotal > 0 ? Number(((svcLaborVal / svcTotal) * 100).toFixed(3)) : 0
   const svcFixedPct = calcBase.fixedExpensePct
   const svcFixedVal = productPriceInfo.fixedExpensePrice
+  /*
+    COMPROMISSOS FINANCEIROS NO SERVIÇO — a parcela que saiu da despesa fixa.
+
+    >>> POR QUE ELE PRECISA ESTAR AQUI, e não é cosmético <<<
+
+    Em 02/10/2026 `fixedExpensePct` passou a vir REDUZIDO. No serviço a despesa fixa NÃO entra
+    no divisor — ela entra no CUSTO POR MINUTO em R$ (`cascata-lucro-real.md`, Parte 0) — então
+    o PREÇO não mudou. O que mudou foi a EXIBIÇÃO: `svcFixedVal` encolheu, e com ele o R$ de
+    "Mão de obra produtiva" e a barra de composição. As fatias exibidas deixaram de somar o
+    preço, e a lacuna era exatamente o compromisso — a mesma falha que `product-price-rows.ts`
+    existe para impedir do lado do produto, reaberta do lado do serviço.
+
+    Por isso ele volta para DENTRO do mesmo R$ de onde saiu, e NÃO para `svcTotalPct`: somá-lo
+    à margem de contribuição o contaria duas vezes (ele já está no custo por minuto) e mudaria
+    a MC exibida, que a trava do §0 manda deixar idêntica.
+  */
+  const svcCompromissoVal = productPriceInfo.financialCommitmentsPrice
   const svcVarPct = calcBase.variableExpensePct
   const svcVarVal = productPriceInfo.variableExpensePrice
   const svcFinPct = calcBase.financialExpensePct
@@ -94,10 +112,10 @@ export const ContentService: FC<ContentServiceProps> = ({
   /* MO indireta + Despesa fixa agora contabilizados dentro de MO produtiva */
   const svcTotalPct = svcVarPct + svcFinPct + svcRtPct + svcTaxPct + svcCommPct + svcProfitPct
   const svcCost = productPriceInfo.productCost
-  const svcExpenses = svcLaborVal + svcFixedVal + svcVarVal + svcFinVal
+  const svcExpenses = svcLaborVal + svcFixedVal + svcCompromissoVal + svcVarVal + svcFinVal
   const svcTaxes = svcTaxVal
-  /* Valor combinado de MO produtiva (direta + indireta + despesa fixa) */
-  const combinedLaborPrice = productPriceInfo.productWorkloadInMinutesPrice + svcLaborVal + svcFixedVal
+  /* Valor combinado de MO produtiva (direta + indireta + despesa fixa + compromissos) */
+  const combinedLaborPrice = productPriceInfo.productWorkloadInMinutesPrice + svcLaborVal + svcFixedVal + svcCompromissoVal
 
   /* ---- product pricing data (V2: single tax) ---- */
   const prdTaxPct = calcBase.taxPct
@@ -221,7 +239,7 @@ export const ContentService: FC<ContentServiceProps> = ({
             </span>
           </div>
           <div className="w-full p-1" style={{ fontSize: 11, color: '#94a3b8' }}>
-            MO direta + administrativa + desp. fixas
+            MO direta + administrativa + desp. fixas + {LABEL_DO_BLOCO.toLowerCase()}
           </div>
         </section>
       </Card>
