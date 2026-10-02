@@ -12,6 +12,7 @@ import { UNIT_TYPE } from '@/constants/item-unit-types'
 import { calculateItemPrice } from '@/utils/calculate-item-price'
 import { resolveProductTaxPercent, resolveProductTaxPercentToPersist } from '@/utils/product-tax-percent'
 import { resolveIndirectLaborPct } from '@/utils/indirect-labor-grouping'
+import { divisorDaEstruturaPct } from '@/utils/despesas-do-segmento'
 import { buildDestinationSnapshot } from '@/utils/destination-snapshot'
 import { MessageInstance } from 'antd/es/message/interface'
 import { useRouter } from 'next/router'
@@ -887,9 +888,28 @@ export const Content: FC<ContentProps> = ({
       indirectLaborPct: calcBase.indirectLaborPct,
       productiveLaborPct: calcBase.laborPercent,
     })
-    const structurePctForEngine = isCalcService
-      ? (calcBase.variableExpensePct + calcBase.financialExpensePct) / 100
-      : (calcBase.structurePct + indirectLaborPctForEngine) / 100
+    /*
+      O DIVISOR SAI DA FONTE ÚNICA — `divisorDaEstruturaPct`.
+
+      ADENDO 3 (02/10/2026): no SERVIÇO o COMPROMISSO entra no divisor; a fixa e a MO não, porque
+      são numerador (custo por minuto, em R$). Fora do serviço a soma `fixa + compromisso` é a
+      fixa de antes ao centavo, e é isso que mantém a trava do §0.
+
+      O ternário que morava aqui era a primeira de quatro escritas do mesmo critério, e a mutação
+      que somava o compromisso duas vezes neste ponto sobrevivia à suíte inteira — ver o
+      cabeçalho de `despesas-do-segmento.ts`.
+
+      A MO indireta chega JÁ AGRUPADA: o agrupamento REVENDA daqui é mais estreito que o de
+      `resolveSegmentoDaDespesa`, e unificá-los mudaria preço.
+    */
+    const structurePctForEngine = divisorDaEstruturaPct({
+      segmentoDaDespesa: isCalcService ? 'SERVICO' : 'INDUSTRIALIZACAO',
+      fixaPct: calcBase.fixedExpensePct,
+      variavelPct: calcBase.variableExpensePct,
+      financeiraPct: calcBase.financialExpensePct,
+      compromissoPct: calcBase.financialCommitmentsPct,
+      indiretaAgrupadaPct: indirectLaborPctForEngine,
+    }) / 100
     const isLucroRealProd = currentUser.taxableRegime === 'LUCRO_REAL'
     const isLucroPresumidoProd = currentUser.taxableRegime === 'LUCRO_PRESUMIDO' || currentUser.taxableRegime === 'LUCRO_PRESUMIDO_RET'
     let effectiveTaxPct: number

@@ -61,7 +61,7 @@ import {
   type DreRow,
   type MonthlyValues,
 } from '@/pages/dfc'
-import { mediaMensalDaDespesaFixaComOsCompromissos } from '@/utils/recalc-expense-config'
+import { mediaMensalDaDespesaFixa } from '@/utils/recalc-expense-config'
 import { resolveDopRates } from '@/utils/mrm-engine-v17/legacy-adapter'
 
 // ═════════════════════════════════════════════════════════════════════════════════════════
@@ -349,13 +349,29 @@ describe('na decomposição ele entra no bloco de despesas, como valor congelado
       - resolveDespesasOperacionaisPct('INDUSTRIALIZACAO', esquecido)).toBeCloseTo(0.045, 10)
   })
 
-  it('>>> no SERVIÇO ele fica FORA, como a fixa de onde saiu — senão é dupla contagem <<<', () => {
-    // No serviço a fixa (e o compromisso que estava dentro dela) já entram no custo em R$ por
-    // minuto. Somá-los no coeficiente é a dupla contagem que `despesas-do-segmento.ts` existe
-    // para impedir — medida em R$ 1.205,98 num cenário real.
-    expect(resolveDespesasOperacionaisPct('SERVICO', BALDES)).toBeCloseTo(0.06, 10)
-    expect(resolveDespesasOperacionaisPct('SERVICO', BALDES))
-      .toBeCloseTo(resolveDespesasOperacionaisPct('SERVICO', SEM_SEPARAR), 12)
+  it('>>> no SERVIÇO ele ENTRA, e a FIXA é que fica fora — ADENDO 3, 02/10/2026 <<<', () => {
+    /*
+      >>> ESTE CASO AFIRMAVA O CONTRÁRIO, E A INVERSÃO É A RODADA INTEIRA <<<
+
+      Ele dizia "no SERVIÇO ele fica FORA, como a fixa de onde saiu", e estava certo para a
+      regra daquela manhã: o compromisso vivia no custo por minuto, em R$, e somá-lo aqui seria
+      a dupla contagem medida em R$ 1.205,98. O dono do produto decidiu outra coisa:
+
+        > No serviço a despesa tem um cálculo diferente, ela vai no numerador. Compromisso
+        > financeiro ele vai no denominador, na margem de contribuição.
+
+      A outra metade da mudança é `mediaMensalDaDespesaFixa`, que o tirou do custo por minuto.
+      SEM ela, este caso verde seria a dupla contagem — é por isso que os dois estão no mesmo
+      arquivo e o bloco de baixo afirma a saída.
+    */
+    expect(resolveDespesasOperacionaisPct('SERVICO', BALDES)).toBeCloseTo(0.105, 10)
+    // A FIXA continua fora: 0,105 e não 0,305. É o §1 — "não mexa nela".
+    expect(resolveDespesasOperacionaisPct('SERVICO', BALDES)).not.toBeCloseTo(0.305, 2)
+    // E o PAR que discrimina: sem o balde separado, o serviço perderia os 4,5 pontos — porque
+    // `SEM_SEPARAR` os guarda dentro da `fixa`, que o serviço não lê.
+    expect(resolveDespesasOperacionaisPct('SERVICO', SEM_SEPARAR)).toBeCloseTo(0.06, 10)
+    expect(resolveDespesasOperacionaisPct('SERVICO', BALDES)
+      - resolveDespesasOperacionaisPct('SERVICO', SEM_SEPARAR)).toBeCloseTo(0.045, 10)
   })
 })
 
@@ -759,46 +775,84 @@ describe('§A — "Compromissos Financeiros" é o único nome', () => {
   })
 })
 
-describe('a despesa fixa em R$/mês continua incluindo o compromisso', () => {
+describe('a despesa fixa em R$/mês NÃO inclui mais o compromisso — ADENDO 3', () => {
   /*
-    `fixed_expense_monthly` alimenta o custo POR MINUTO do serviço. Se ele encolhesse, o preço
-    de TODO serviço cairia — e o compromisso não voltaria por lugar nenhum, porque no serviço a
-    fixa fica fora do coeficiente de propósito.
+    >>> ESTE BLOCO AFIRMAVA O CONTRÁRIO ATÉ 02/10/2026, E A INVERSÃO É O PONTO <<<
 
-    Esta é a armadilha mais estreita desta rodada: `recalc-expense-config` lia
-    `rows.find(r => r.group === 'DESPESA_FIXA').averageRS`, e com o compromisso em grupo próprio
-    aquela linha passaria a devolver MENOS, sem nada falhar.
+    A versão anterior se chamava "continua incluindo o compromisso" e exigia que
+    `fixed_expense_monthly` somasse `DESPESA_FIXA + COMPROMISSOS_FINANCEIROS`. A razão era boa
+    naquele desenho: no serviço a fixa fica FORA do coeficiente, então tirar o compromisso do
+    custo por minuto o faria sair do preço sem voltar por lugar nenhum.
+
+    O ADENDO 3 deu-lhe um lugar — o DENOMINADOR do serviço. Então ele tem de sair daqui, e os
+    casos abaixo passam a afirmar a saída. Não é o caso que estava errado; é a regra que mudou
+    (`decisao-sob-regra-da-epoca.md`).
+
+    O que NÃO mudou é o perigo: ele tem de estar em UM lugar. Os dois primeiros casos abaixo são
+    o par que distingue os três estados possíveis — só no numerador, só no denominador, nos dois.
   */
-  it('>>> a média mensal é a mesma antes e depois da separação <<<', () => {
-    expect(mediaMensalDaDespesaFixaComOsCompromissos(HUB_DEPOIS))
-      .toBe(mediaMensalDaDespesaFixaComOsCompromissos(HUB_ANTES))
-    expect(mediaMensalDaDespesaFixaComOsCompromissos(HUB_DEPOIS)).toBe(FIXAS_COMUNS + COMPROMISSOS)
+  it('>>> a média mensal PERDE o compromisso, e a diferença é exatamente ele <<<', () => {
+    const antes = mediaMensalDaDespesaFixa(HUB_ANTES)
+    const depois = mediaMensalDaDespesaFixa(HUB_DEPOIS)
+    // ANTES o compromisso estava dentro do grupo DESPESA_FIXA do caixa, então a linha do HUB
+    // já o trazia: a média era a soma dos dois.
+    expect(antes).toBe(FIXAS_COMUNS + COMPROMISSOS)
+    // DEPOIS ele tem grupo próprio e esta função lê SÓ a fixa.
+    expect(depois).toBe(FIXAS_COMUNS)
+    expect(antes - depois).toBe(COMPROMISSOS)
   })
 
-  it('>>> o PAR: ler só a linha de DESPESA_FIXA devolveria 4.500,00 menos <<<', () => {
-    const soAFixa = HUB_DEPOIS.rows.find((r) => r.group === 'DESPESA_FIXA')!.averageRS
-    expect(soAFixa).toBe(FIXAS_COMUNS)
-    expect(mediaMensalDaDespesaFixaComOsCompromissos(HUB_DEPOIS) - soAFixa).toBe(COMPROMISSOS)
-  })
-
-  it('>>> e meses DIFERENTES entre os dois grupos não viram média de média <<<', () => {
+  it('>>> o PAR que mata a dupla contagem: o que saiu do numerador ENTRA no denominador <<<', () => {
     /*
-      `averageRS` divide por "meses com valor > 0", e os dois grupos podem ter meses diferentes.
-      Somar os dois `averageRS` daria 1.000 + 400 = 1.400; a média da soma é 2.000 ÷ 2 = 1.000.
-      É por isso que a reconstrução é mês a mês.
+      Este é o caso da mutação (S1) e da (S2) ao mesmo tempo, e ele é o único aqui que as
+      distingue:
+
+        S1 — o compromisso nos DOIS lugares: a média mensal voltaria a somá-lo E o coeficiente
+             também o traria. O preço do serviço subiria duas vezes.
+        S2 — o compromisso em NENHUM: a média o perde (abaixo) e o coeficiente não o ganha. O
+             preço CAI, e um preço menor não levanta erro.
+
+      Afirmar só a saída do numerador deixaria a S2 viva, que é a mais perigosa das duas.
     */
-    const comMesesDiferentes: HubData = {
+    const baldes = {
+      fixa: 0.20, variavel: 0.05, financeira: 0.01, indireta: 0,
+      compromisso: COMPROMISSOS / FATURAMENTO, moProdutiva: 0,
+    }
+    const noDenominador = resolveDespesasOperacionaisPct('SERVICO', baldes)
+    expect(noDenominador).toBeCloseTo(0.05 + 0.01 + baldes.compromisso, 12)
+    // E a fixa continua FORA do denominador do serviço — ela é numerador, e é o §1 do ADENDO 3
+    // dizendo "não mexa nela".
+    expect(noDenominador).toBeLessThan(0.05 + 0.01 + baldes.compromisso + baldes.fixa)
+    expect(mediaMensalDaDespesaFixa(HUB_DEPOIS)).toBe(FIXAS_COMUNS)
+  })
+
+  it('a FIXA continua no numerador, intocada — §1 do ADENDO 3', () => {
+    // Se a fixa fosse junto para o denominador (mutação S3), esta função devolveria zero e o
+    // custo por minuto do serviço desabaria.
+    expect(mediaMensalDaDespesaFixa(HUB_DEPOIS)).toBe(FIXAS_COMUNS)
+    expect(mediaMensalDaDespesaFixa(HUB_DEPOIS)).toBeGreaterThan(0)
+  })
+
+  it('>>> e meses DIFERENTES não viram média de média <<<', () => {
+    /*
+      `averageRS` divide por "meses com valor > 0". Com um grupo só a reconstrução mês a mês dá
+      o mesmo número que `row.averageRS`, e o caso continua aqui porque é ele que afirma que a
+      função não passou a somar um segundo grupo por descuido.
+    */
+    const doisMeses: HubData = {
       months: ['2026-01', '2026-02'],
       rows: [
-        { ...row('DESPESA_FIXA', 1_000), values: { '2026-01': 1_000 }, closedMonthsWithData: 1, averageRS: 1_000 },
-        { ...row(BLOCO_COMPROMISSOS, 1_000), values: { '2026-02': 1_000 }, closedMonthsWithData: 1, averageRS: 1_000 },
+        { ...row('DESPESA_FIXA', 2_000), values: { '2026-01': 1_000, '2026-02': 1_000 }, closedMonthsWithData: 2, averageRS: 1_000 },
+        { ...row(BLOCO_COMPROMISSOS, 9_999), values: { '2026-02': 9_999 }, closedMonthsWithData: 1, averageRS: 9_999 },
       ],
       incomeByMonth: { '2026-01': FATURAMENTO, '2026-02': FATURAMENTO },
       totalIncome: FATURAMENTO * 2,
       totalIncomeMonthsCount: 2,
     }
-    expect(mediaMensalDaDespesaFixaComOsCompromissos(comMesesDiferentes)).toBe(1_000)
-    expect(mediaMensalDaDespesaFixaComOsCompromissos(comMesesDiferentes)).not.toBe(2_000)
+    // 2.000 ÷ 2 = 1.000. O 9.999 do compromisso NÃO entra — e o valor é absurdo de propósito,
+    // para que somá-lo por engano não possa passar por arredondamento.
+    expect(mediaMensalDaDespesaFixa(doisMeses)).toBe(1_000)
+    expect(mediaMensalDaDespesaFixa(doisMeses)).not.toBe(5_999.5)
   })
 })
 

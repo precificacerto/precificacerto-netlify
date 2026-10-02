@@ -11,7 +11,7 @@ import { buildProductConstruction, externalOpsCoefficientToFreeze } from '@/util
 import { buildProductPriceRows, type PriceRowInput } from '@/utils/product-price-rows'
 import { toBaseCode } from '@/utils/sale-context'
 import { apenasTributosQueExistem, tributoExisteNoSegmento } from '@/utils/campos-do-segmento'
-import { resolveSegmentoDaConstrucao } from '@/utils/despesas-do-segmento'
+import { divisorDaEstruturaPct, resolveSegmentoDaConstrucao } from '@/utils/despesas-do-segmento'
 import { LABEL_DO_BLOCO } from '@/utils/compromissos-financeiros'
 import { computeAdvancedOutsideTaxes, type AdvancedOutsideParams } from '@/utils/icms-st-difal'
 import { TaxDecompositionPanel } from './tax-decomposition-panel.component'
@@ -238,9 +238,17 @@ export const ProductPrice: FC<Props> = ({
     costTotal,
     // O compromisso acompanha a `fixa`: fora do serviço entra, no serviço fica fora — ele
     // estava DENTRO dela, e no serviço a fixa já está no custo por minuto.
-    structurePct: (isCalcTypeService
-      ? variablePct + financialPct
-      : laborPct + fixedPct + financialCommitmentsPct + variablePct + financialPct) / 100,
+    // O MESMO divisor que o motor usa, pela MESMA função — era a segunda das quatro escritas
+    // do critério. ADENDO 3: no SERVIÇO o compromisso entra; a fixa e a MO não, porque são
+    // numerador. Ver o cabeçalho de `divisorDaEstruturaPct`.
+    structurePct: divisorDaEstruturaPct({
+      segmentoDaDespesa: isCalcTypeService ? 'SERVICO' : 'INDUSTRIALIZACAO',
+      fixaPct: fixedPct,
+      variavelPct: variablePct,
+      financeiraPct: financialPct,
+      compromissoPct: financialCommitmentsPct,
+      indiretaAgrupadaPct: laborPct,
+    }) / 100,
     rtReservePct: rtReservePct / 100,
     commissionPct: commissionPct / 100,
     profitPct: profitPct / 100,
@@ -297,7 +305,9 @@ export const ProductPrice: FC<Props> = ({
     // antes de 'RT'. A ordem desta lista NÃO muda nenhum número (`buildProductPriceRows`
     // soma e mapeia, não ordena) — ela existe para que a declaração e o JSX abaixo sejam
     // lidos na mesma ordem. Quem mudar uma e esquecer a outra cai no caso de ordem.
-    ...(!isCalcTypeService ? [{ key: 'compromissosFinanceiros', originalPct: financialCommitmentsPct }] : []),
+    // ADENDO 3: a linha existe também no SERVIÇO, porque lá o compromisso passou a ser
+    // dedução de verdade do divisor. Era a única das cinco que o serviço não tinha.
+    { key: 'compromissosFinanceiros', originalPct: financialCommitmentsPct },
     ...(!showIrpjCsll && !isLpRet && !isSimplesHibrido ? [{ key: 'tax', originalPct: taxPctDisplay }] : []),
     { key: 'rt', originalPct: rtReservePct },
     { key: 'commission', originalPct: commissionPct },
@@ -357,7 +367,7 @@ export const ProductPrice: FC<Props> = ({
   // O compromisso entra na barra de "Despesas" junto com a fixa de onde ele saiu: fora dela, a
   // barra deixaria de somar o preço e sobraria uma fatia sem dono.
   const expensesTotalDisplay = isCalcTypeService
-    ? variableValDisplay + financialValDisplay
+    ? variableValDisplay + financialValDisplay + compromissosFinanceirosValDisplay
     : laborValDisplay + fixedValDisplay + compromissosFinanceirosValDisplay + variableValDisplay + financialValDisplay
 
   // Preço base = valorPrecificado (com ICMS/PIS/COFINS embutidos para LR/LP) + terceirizadas
@@ -609,7 +619,7 @@ export const ProductPrice: FC<Props> = ({
 
                 O rótulo sai de `LABEL_DO_BLOCO`: o nome é UM SÓ em todo o sistema, e escrevê-lo
                 literal aqui seria a segunda declaração dele (`copia-divergente.md`). */}
-            {!isCalcTypeService && pricingRow(
+            {pricingRow(
               LABEL_DO_BLOCO,
               'compromissosFinanceiros',
               undefined,

@@ -17,12 +17,17 @@
  * snapshot.
  *
  * O QUE ENTRA AQUI, E POR QUÊ SÓ ISSO:
- * o preço do serviço é `CMV ÷ (1 − Σ percentuais)`, e os únicos percentuais estruturais do
- * denominador são variável e financeira. Despesa Fixa e MO Administrativa NÃO estão no
- * coeficiente: elas entram em R$/mês dentro do custo por minuto, que já vira `services.
- * labor_cost` e `services.cost_total` — valores absolutos, já congelados. Registrá-las aqui
- * como percentual sugeriria uma segunda incidência que não existe (foi exatamente essa
- * dupla contagem que a correção da Etapa 5 removeu).
+ * o preço do serviço é `CMV ÷ (1 − Σ percentuais)`, e os percentuais estruturais do denominador
+ * são variável, financeira e — desde o ADENDO 3 de 02/10/2026 — COMPROMISSOS FINANCEIROS.
+ * Despesa Fixa e MO Administrativa NÃO estão no coeficiente: elas entram em R$/mês dentro do
+ * custo por minuto, que já vira `services.labor_cost` e `services.cost_total` — valores
+ * absolutos, já congelados. Registrá-las aqui como percentual sugeriria uma segunda incidência
+ * que não existe (foi exatamente essa dupla contagem que a correção da Etapa 5 removeu).
+ *
+ * O COMPROMISSO É O TERCEIRO, e é por isso que ele entra: ele formou o preço. Um snapshot que
+ * não o registrasse descreveria um preço que ele ajudou a formar sem dizer com quanto — e
+ * bastaria o tenant editar o caixa para a decomposição usar outro número
+ * (`fato-vs-referencia.md`, a classe inteira).
  *
  * O custo por minuto e a carga horária vão junto para que o preço seja AUDITÁVEL: com eles
  * dá para reconstruir a mão de obra a partir da duração do serviço.
@@ -42,6 +47,15 @@ export interface ServiceExpenseSnapshot {
     variavel_pct: number
     /** Despesa financeira em % base-100, como entrou no coeficiente. */
     financeira_pct: number
+    /**
+     * COMPROMISSOS FINANCEIROS em % base-100, como entrou no coeficiente — ADENDO 3.
+     *
+     * AUSENTE em snapshot gravado antes de 02/10/2026, e ali `0` é a VERDADE e não um default:
+     * naqueles preços o compromisso estava no custo por minuto, fora do coeficiente. É a
+     * distinção de `ausente-vs-falso.md` resolvida pelo lado certo — o valor zero afirma
+     * "não participou do denominador", que é exatamente o que aconteceu.
+     */
+    compromissos_pct: number
     /** R$/minuto que formou a mão de obra dentro do CMV. */
     custo_por_minuto: number
     /** Minutos/mês da equipe produtiva usados como divisor. */
@@ -66,6 +80,12 @@ function finite(v: unknown): number {
 export function buildServiceExpenseSnapshot(input: {
     variavelPct: number
     financeiraPct: number
+    /**
+     * OBRIGATÓRIO, sem default — `construtor-empobrecido.md`. É campo de cálculo: um opcional
+     * com `?? 0` deixaria os três pontos que formam preço de serviço gravarem snapshot sem ele,
+     * e o compilador não diria nada. Com ele obrigatório o `tsc` enumera os três.
+     */
+    compromissosPct: number
     custoPorMinuto: number
     cargaHorariaMinutos: number
     /** Injetável para teste; default = agora. */
@@ -75,6 +95,7 @@ export function buildServiceExpenseSnapshot(input: {
         v: SERVICE_EXPENSE_SNAPSHOT_VERSION,
         variavel_pct: finite(input.variavelPct),
         financeira_pct: finite(input.financeiraPct),
+        compromissos_pct: finite(input.compromissosPct),
         custo_por_minuto: finite(input.custoPorMinuto),
         carga_horaria_minutos: finite(input.cargaHorariaMinutos),
         gravado_em: input.gravadoEm ?? new Date().toISOString(),
@@ -97,6 +118,11 @@ export function readServiceExpenseSnapshot(raw: unknown): ServiceExpenseSnapshot
         v: SERVICE_EXPENSE_SNAPSHOT_VERSION,
         variavel_pct: finite(o.variavel_pct),
         financeira_pct: finite(o.financeira_pct),
+        // Ausente = snapshot anterior ao ADENDO 3, e ali o compromisso NÃO estava no
+        // denominador. Zero é o número correto, não o default conveniente. A versão NÃO sobe:
+        // rejeitar os snapshots v1 os faria cair no `tenant_expense_config` de hoje, que é a
+        // releitura que esta tabela inteira existe para impedir.
+        compromissos_pct: finite(o.compromissos_pct),
         custo_por_minuto: finite(o.custo_por_minuto),
         carga_horaria_minutos: finite(o.carga_horaria_minutos),
         gravado_em: typeof o.gravado_em === 'string' ? o.gravado_em : '',

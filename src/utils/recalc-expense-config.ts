@@ -1,7 +1,6 @@
 import { supabase } from '@/supabase/client'
 import { calculateHubData, calculateHubDataPrevMonth, extractStructurePercents } from '@/utils/hub-engine'
 import type { HubData } from '@/utils/hub-engine'
-import { BLOCO_COMPROMISSOS } from '@/utils/compromissos-financeiros'
 
 export interface ExpenseConfigResult {
   production_labor_cost: number
@@ -56,30 +55,41 @@ const round2 = (v: number) => Math.round(v * 100) / 100
  * a média estável da operação.
  */
 /**
- * DESPESAS FIXAS EM R$/MÊS — e ela CONTINUA INCLUINDO O COMPROMISSOS FINANCEIROS.
+ * DESPESAS FIXAS EM R$/MÊS — SÓ A FIXA. O COMPROMISSO SAIU DAQUI EM 02/10/2026.
  *
- * >>> SE ESTE NÚMERO ENCOLHER, O PREÇO DE TODO SERVIÇO MUDA — §0 de 02/10/2026 <<<
+ * >>> ESTA FUNÇÃO AFIRMAVA O CONTRÁRIO, E A AFIRMAÇÃO VIROU REGRA ERRADA <<<
  *
- * `fixed_expense_monthly` alimenta o custo POR MINUTO do serviço (`compute-service-price.ts`:
- * `combinedLaborCostMonthly = laborCost + admin + fixedMonthly`). No serviço a fixa entra em
- * R$, não como percentual, e é por isso que ela fica FORA do coeficiente. Tirar o compromisso
- * daqui o faria sair do preço do serviço SEM voltar por lugar nenhum — e um preço menor não
- * levanta erro.
+ * Entre a Correção 6 e o ADENDO 2 ela somava `DESPESA_FIXA + COMPROMISSOS_FINANCEIROS`, com um
+ * cabeçalho dizendo que tirar o compromisso daqui o faria "sair do preço do serviço SEM voltar
+ * por lugar nenhum". Era verdade NAQUELE desenho — o compromisso não tinha lugar no
+ * denominador do serviço.
  *
- * >>> RECONSTRUÍDO MÊS A MÊS, E NÃO PELA SOMA DOS DOIS `averageRS` <<<
+ * O ADENDO 3 deu-lhe um: ele vai para a MARGEM DE CONTRIBUIÇÃO do serviço, como linha própria
+ * (`despesas-do-segmento.ts`, ramo SERVICO). Então ele sai daqui — e manter o nome antigo seria
+ * pior do que o número errado: seria o número errado com a regra do lado dizendo que está
+ * certo. A decisão de 02/10 cedo estava certa para a regra daquela hora; o que mudou é a regra
+ * (`decisao-sob-regra-da-epoca.md`).
  *
- * `averageRS = totalSum / closedMonthsWithData`, e `closedMonthsWithData` conta só os meses com
- * valor > 0. Os dois grupos podem ter conjuntos de meses DIFERENTES, e aí a soma das médias não
- * é a média da soma. Somando os valores por mês primeiro, este número é BIT-EXACT ao que a
- * linha única de `DESPESA_FIXA` devolvia antes de 02/10/2026.
+ * >>> ELE FICA EM UM LUGAR SÓ, E É ISSO QUE A MUDANÇA COMPRA <<<
+ *
+ * Numerador (custo por minuto) OU denominador (coeficiente). Nos dois é a dupla contagem que
+ * `despesas-do-segmento.ts` inteiro existe para impedir — e é a mutação (S1) do §4.
+ *
+ * A FIXA CONTINUA AQUI, INTOCADA: ela é numerador no serviço e sempre foi (§1 do ADENDO 3).
+ *
+ * >>> RECONSTRUÍDO MÊS A MÊS, E NÃO PELO `averageRS` DA LINHA <<<
+ *
+ * Com um grupo só a reconstrução deixou de ser necessária para a SOMA, mas segue necessária
+ * para os MESES: `averageRS = totalSum / closedMonthsWithData`, e esse contador conta os meses
+ * com valor > 0 DAQUELE grupo. Somar por mês primeiro mantém o cálculo explícito.
  *
  * EXPORTADA para que o caso afirme EFEITO — o número — em vez de afirmar que a função foi
- * chamada (`teste-que-nao-exercita.md`: "quando a pergunta 3 não tem resposta boa porque a
- * função não é exportada, exporte a função").
+ * chamada (`teste-que-nao-exercita.md`).
  */
-export function mediaMensalDaDespesaFixaComOsCompromissos(hubData: HubData): number {
+export function mediaMensalDaDespesaFixa(hubData: HubData): number {
   const porMes: Record<string, number> = {}
-  for (const g of ['DESPESA_FIXA', BLOCO_COMPROMISSOS]) {
+  // UM grupo. O COMPROMISSOS_FINANCEIROS saiu daqui no ADENDO 3 e foi para o coeficiente.
+  for (const g of ['DESPESA_FIXA']) {
     const row = hubData.rows.find((r) => r.group === g)
     if (!row) continue
     for (const [m, v] of Object.entries(row.values)) porMes[m] = (porMes[m] || 0) + v
@@ -148,7 +158,7 @@ export async function recalcExpenseConfigFromCashflow(
   const moProdRow = hubData.rows.find((r) => r.group === 'MAO_DE_OBRA_PRODUTIVA')
   const productionLaborCostHub = moProdRow ? round2(moProdRow.averageRS) : 0
 
-  const fixedExpenseMonthly = mediaMensalDaDespesaFixaComOsCompromissos(hubData)
+  const fixedExpenseMonthly = mediaMensalDaDespesaFixa(hubData)
 
 
   // % de Custo dos Produtos sobre faturamento (média histórica)

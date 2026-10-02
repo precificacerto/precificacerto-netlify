@@ -390,23 +390,25 @@ describe('3. §3 + §4 — AS DUAS LINHAS NA MESMA RENDERIZAÇÃO, e a soma pres
 // ═════════════════════════════════════════════════════════════════════════════════════════
 
 /*
-  >>> POR QUE O SERVIÇO NÃO GANHA LINHA NA TABELA DA MC — e isto é RELATO, não escolha <<<
+  >>> O SERVIÇO GANHOU A LINHA, E ELA ESTÁ NA SOMA — ADENDO 3, 02/10/2026 <<<
 
-  No serviço a despesa fixa NÃO entra no divisor: ela entra no CUSTO POR MINUTO em R$
-  (`cascata-lucro-real.md`, Parte 0 — "MO indireta e despesa fixa entram no custo em R$ e
-  ficam FORA da margem de contribuição"). A tabela daquela tela tem três colunas, não quatro
-  (não há "% Efetivo"), não tem linha de "Despesas fixas", e o seu `svcTotalPct` é a soma
-  EXATA das seis linhas exibidas — é ele que a linha "Margem de contribuição total aplicada"
-  publica.
+  Este arquivo trazia aqui o relato de uma colisão: a tabela da MC do serviço tem três colunas
+  (não há "% Efetivo"), não tem linha de "Despesas fixas", e o seu total é a soma EXATA das
+  linhas exibidas — então uma linha de compromisso dentro da soma mudaria a MC, e fora da soma
+  deixaria a coluna sem fechar.
 
-  Pôr o compromisso lá dentro da soma o contaria DUAS vezes e mudaria a MC exibida, que o §4
-  manda deixar idêntica. Pôr fora da soma deixaria uma linha que não fecha a coluna — o
-  `ausente-vs-falso.md` na coluna, afirmando dedução onde não há.
+  O dono do produto resolveu pelo primeiro lado, e resolveu a causa e não o sintoma:
 
-  O que o ADENDO 2 pegou no serviço é REAL e está corrigido abaixo: `fixedExpensePrice`
-  encolheu em 02/10/2026 e levou consigo o R$ de "Mão de obra produtiva" e a barra de
-  composição, que deixaram de somar o preço. A forma final da linha na tabela da MC está
-  RELATADA ao PO, não decidida aqui.
+    > Compromisso financeiro ele vai no denominador, na margem de contribuição.
+    > Para serviço pode alterar o preço.
+
+  Com o compromisso fora do custo por minuto, a linha DENTRO da soma deixa de ser dupla
+  contagem e passa a ser o que a coluna diz que é. A MC exibida muda de valor — é consequência,
+  não erro (§3).
+
+  Os casos deste bloco afirmavam o oposto (que o R$ de "Mão de obra produtiva" era idêntico ao
+  de antes do split, porque o compromisso tinha voltado para lá). Estão invertidos abaixo, e os
+  do ADENDO 3 vivem em `o-compromisso-no-denominador-do-servico.test.tsx`.
 */
 
 const PRODUTIVA = 300
@@ -464,44 +466,84 @@ function moProdutivaRS(c: HTMLElement): number | null {
   return m ? reais(m[1]) : null
 }
 
-describe('4. §1 no SERVIÇO — o R$ volta a somar o preço, e a legenda diz o que ele contém', () => {
+describe('4. §1 no SERVIÇO — o compromisso SAIU do custo por minuto (ADENDO 3)', () => {
   const rDepois = renderIn(<ServicoHarness fixa={FIXA_REDUZIDA_PCT} comp={COMPROMISSO_PCT} />)
   const rAntes = renderIn(<ServicoHarness fixa={FIXA_CHEIA_PCT} comp={0} />)
   afterAll(() => { rDepois.unmount(); rAntes.unmount() })
 
-  it('>>> o R$ de "Mão de obra produtiva" é IDÊNTICO ao de antes do split <<<', () => {
-    // É o caso que FALHA sem a correção: com `fixedExpensePrice` reduzido e o compromisso
-    // fora do pacote, este número cai pela parcela do compromisso e ninguém vê.
+  it('>>> o R$ de "Mão de obra produtiva" PERDE a parcela do compromisso <<<', () => {
+    /*
+      INVERSÃO do caso do ADENDO 2, que exigia igualdade. Lá o compromisso tinha voltado ao
+      numerador para a barra fechar; o ADENDO 3 o mandou para o denominador, e o §1 é explícito:
+      "a barra tem que fechar sem ele".
+
+      A fixa continua lá — é a diferença entre os dois estados ser EXATAMENTE a parcela do
+      compromisso, e não a fixa inteira. É o que distingue a mutação (S3), em que a fixa iria
+      junto e este número desabaria.
+    */
     const depois = moProdutivaRS(rDepois.container)
     const antes = moProdutivaRS(rAntes.container)
     expect(depois).not.toBeNull()
-    expect(depois).toBeCloseTo(antes as number, 2)
-  })
-
-  it('e a diferença que ele cobre é EXATAMENTE a parcela do compromisso', () => {
-    // Discrimina: sem o compromisso no pacote, a lacuna seria este número.
+    expect(antes).not.toBeNull()
     const preco = precoDe(FIXA_REDUZIDA_PCT, COMPROMISSO_PCT)
     const parcela = preco * COMPROMISSO_PCT / 100
     expect(parcela).toBeGreaterThan(1)
-    const semCompromisso = PRODUTIVA + preco * MO_INDIRETA / 100 + preco * FIXA_REDUZIDA_PCT / 100
-    expect((moProdutivaRS(rDepois.container) as number) - semCompromisso).toBeCloseTo(parcela, 2)
+    expect((antes as number) - (depois as number)).toBeCloseTo(parcela, 2)
   })
 
-  it('a legenda nomeia o bloco, pelo rótulo da fonte única', () => {
+  it('a FIXA continua dentro do R$ de MO produtiva — §1, "não mexa nela"', () => {
+    // Se a fixa tivesse ido junto para o denominador, o R$ cairia pela fixa TAMBÉM e este caso
+    // ficaria vermelho. É a mutação (S3).
+    const preco = precoDe(FIXA_REDUZIDA_PCT, COMPROMISSO_PCT)
+    const esperado = PRODUTIVA + preco * MO_INDIRETA / 100 + preco * FIXA_REDUZIDA_PCT / 100
+    expect(moProdutivaRS(rDepois.container)).toBeCloseTo(esperado, 2)
+    expect(preco * FIXA_REDUZIDA_PCT / 100).toBeGreaterThan(1)
+  })
+
+  it('a legenda volta a nomear só os três do numerador', () => {
     const txt = rDepois.container.textContent || ''
     const i = txt.indexOf('MO direta + administrativa')
     expect(i).toBeGreaterThanOrEqual(0)
-    expect(txt.slice(i, i + 120).toLowerCase()).toContain(LABEL_DO_BLOCO.toLowerCase())
+    expect(txt.slice(i, i + 60).toLowerCase()).not.toContain(LABEL_DO_BLOCO.toLowerCase())
   })
 
-  it('a MARGEM DE CONTRIBUIÇÃO do serviço NÃO muda — o compromisso não entra no divisor', () => {
+  it('>>> a MARGEM DE CONTRIBUIÇÃO do serviço MUDA, e muda pelo compromisso <<<', () => {
+    // O oposto do que este caso exigia no ADENDO 2. A MC exibida é `100 − Σ linhas`, e o
+    // compromisso entrou na soma: ela cai exatamente pelo percentual dele.
     const mc = (c: HTMLElement) => {
       const txt = c.textContent || ''
       const i = txt.indexOf('Margem de contribuição total aplicada')
       expect(i).toBeGreaterThanOrEqual(0)
-      return (txt.slice(i, i + 80).match(/(\d{1,3}(?:\.\d{3})*,\d+)%/) || [])[1]
+      const m = (txt.slice(i, i + 80).match(/(\d{1,3}(?:\.\d{3})*,\d+)%/) || [])[1]
+      return Number((m || '').replace(/\./g, '').replace(',', '.'))
     }
-    expect(mc(rDepois.container)).toBe(mc(rAntes.container))
+    /*
+      >>> E A MEDIÇÃO CORRIGIU O SINAL QUE EU ESCREVI <<<
+
+      Escrevi `antes - depois` esperando que a margem CAÍSSE, e saiu −4,51. O número que aquela
+      linha publica NÃO é a margem: é `svcTotalPct`, a SOMA das linhas exibidas — o rótulo diz
+      "Margem de contribuição total aplicada" e mostra a soma das deduções. A tela de produto,
+      ao lado, publica `100 − Σ` sob um rótulo quase igual.
+
+      Fica registrado em vez de corrigido em silêncio: a divergência de rótulo entre as duas
+      telas é anterior a esta rodada e não é escopo dela. O que o ADENDO 3 muda é o NÚMERO, e
+      ele sobe exatamente pelo percentual do compromisso.
+    */
+    const antes = mc(rAntes.container)
+    const depois = mc(rDepois.container)
+    expect(antes).toBeGreaterThan(0)
+    expect(depois - antes).toBeCloseTo(COMPROMISSO_PCT, 2)
+    expect(depois).toBeGreaterThan(antes)
+  })
+
+  it('e a linha do bloco aparece na tabela da MC do serviço — §3', () => {
+    const rotulos = Array.from(rDepois.container.querySelectorAll('tbody tr'))
+      .map((tr) => (tr.querySelectorAll('td')[1]?.textContent || '').trim())
+      .filter((t) => t.length > 0)
+    const iFin = rotulos.indexOf('Despesas financeiras')
+    const iComp = rotulos.indexOf(LABEL_DO_BLOCO)
+    expect(iFin).toBeGreaterThanOrEqual(0)
+    expect(iComp).toBe(iFin + 1)
   })
 })
 

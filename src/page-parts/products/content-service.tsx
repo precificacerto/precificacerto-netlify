@@ -82,20 +82,24 @@ export const ContentService: FC<ContentServiceProps> = ({
   const svcFixedPct = calcBase.fixedExpensePct
   const svcFixedVal = productPriceInfo.fixedExpensePrice
   /*
-    COMPROMISSOS FINANCEIROS NO SERVIÇO — a parcela que saiu da despesa fixa.
+    COMPROMISSOS FINANCEIROS NO SERVIÇO — DENOMINADOR, não numerador. ADENDO 3, 02/10/2026.
 
-    >>> POR QUE ELE PRECISA ESTAR AQUI, e não é cosmético <<<
+    >>> ISTO REVERTE O ADENDO 2, E A REVERSÃO É O PONTO <<<
 
-    Em 02/10/2026 `fixedExpensePct` passou a vir REDUZIDO. No serviço a despesa fixa NÃO entra
-    no divisor — ela entra no CUSTO POR MINUTO em R$ (`cascata-lucro-real.md`, Parte 0) — então
-    o PREÇO não mudou. O que mudou foi a EXIBIÇÃO: `svcFixedVal` encolheu, e com ele o R$ de
-    "Mão de obra produtiva" e a barra de composição. As fatias exibidas deixaram de somar o
-    preço, e a lacuna era exatamente o compromisso — a mesma falha que `product-price-rows.ts`
-    existe para impedir do lado do produto, reaberta do lado do serviço.
+    No ADENDO 2 o compromisso foi devolvido ao R$ de "Mão de obra produtiva" para a barra de
+    composição fechar: ele estava no custo por minuto, e tinha encolhido. O dono do produto
+    decidiu outra coisa:
 
-    Por isso ele volta para DENTRO do mesmo R$ de onde saiu, e NÃO para `svcTotalPct`: somá-lo
-    à margem de contribuição o contaria duas vezes (ele já está no custo por minuto) e mudaria
-    a MC exibida, que a trava do §0 manda deixar idêntica.
+      > Compromisso financeiro ele vai no denominador, na margem de contribuição.
+      > Para serviço pode alterar o preço.
+
+    Então ele NÃO pertence mais ao numerador — sai de `combinedLaborPrice` e de `svcExpenses`, e
+    entra em `svcTotalPct`, que é a soma que a linha "Margem de contribuição total aplicada"
+    publica. A barra fecha SEM ele no pacote da mão de obra porque ele agora é uma fatia
+    própria, deduzida do preço como variável e financeira.
+
+    A DESPESA FIXA fica onde estava: numerador, dentro do custo por minuto. §1 é explícito —
+    "Não mexa nela".
   */
   const svcCompromissoVal = productPriceInfo.financialCommitmentsPrice
   const svcVarPct = calcBase.variableExpensePct
@@ -110,12 +114,16 @@ export const ContentService: FC<ContentServiceProps> = ({
   const svcRtPct = Number(productPriceInfo.rtReservePercent) || 0
   const svcRtVal = productPriceInfo.rtReservePrice || 0
   /* MO indireta + Despesa fixa agora contabilizados dentro de MO produtiva */
-  const svcTotalPct = svcVarPct + svcFinPct + svcRtPct + svcTaxPct + svcCommPct + svcProfitPct
+  // ADENDO 3 §3: o compromisso entra DENTRO da soma, porque agora é dedução de verdade do
+  // divisor. A MC exibida MUDA de valor — é consequência do §1, não erro.
+  const svcCompromissoPct = calcBase.financialCommitmentsPct
+  const svcTotalPct = svcVarPct + svcFinPct + svcCompromissoPct + svcRtPct + svcTaxPct + svcCommPct + svcProfitPct
   const svcCost = productPriceInfo.productCost
-  const svcExpenses = svcLaborVal + svcFixedVal + svcCompromissoVal + svcVarVal + svcFinVal
+  const svcExpenses = svcLaborVal + svcFixedVal + svcVarVal + svcFinVal + svcCompromissoVal
   const svcTaxes = svcTaxVal
-  /* Valor combinado de MO produtiva (direta + indireta + despesa fixa + compromissos) */
-  const combinedLaborPrice = productPriceInfo.productWorkloadInMinutesPrice + svcLaborVal + svcFixedVal + svcCompromissoVal
+  /* Valor combinado de MO produtiva (direta + indireta + despesa fixa). O COMPROMISSO saiu
+     daqui no ADENDO 3: ele é linha própria da MC, abaixo. */
+  const combinedLaborPrice = productPriceInfo.productWorkloadInMinutesPrice + svcLaborVal + svcFixedVal
 
   /* ---- product pricing data (V2: single tax) ---- */
   const prdTaxPct = calcBase.taxPct
@@ -239,7 +247,7 @@ export const ContentService: FC<ContentServiceProps> = ({
             </span>
           </div>
           <div className="w-full p-1" style={{ fontSize: 11, color: '#94a3b8' }}>
-            MO direta + administrativa + desp. fixas + {LABEL_DO_BLOCO.toLowerCase()}
+            MO direta + administrativa + desp. fixas
           </div>
         </section>
       </Card>
@@ -278,6 +286,11 @@ export const ContentService: FC<ContentServiceProps> = ({
             <tbody>
               {pricingRow('Despesas variáveis', svcVarPct, svcVarVal)}
               {pricingRow('Despesas financeiras', svcFinPct, svcFinVal)}
+              {/* A POSIÇÃO é a do §1 do ADENDO 2: depois de "Despesas financeiras", antes de
+                  "RT". A tabela do serviço tem TRÊS colunas e não tem "% Efetivo" — não se
+                  inventa a coluna (§3 do ADENDO 3). */}
+              {pricingRow(LABEL_DO_BLOCO, svcCompromissoPct, svcCompromissoVal, undefined,
+                'Parcela de financiamento, empréstimo, consórcio, amortização de principal e aporte programado. Vencem mesmo sem venda, então o preço precisa cobri-las. Até 02/10/2026 entrava no custo por minuto, junto das despesas fixas; agora é dedução da margem de contribuição, como as despesas variáveis e financeiras. Está em um lugar só.')}
               {pricingRow(svcTaxLabel, svcTaxPct, svcTaxVal)}
               {pricingRow('RT — Comissão Reserva Técnica', svcRtPct, svcRtVal, 'rtReservePercent', 'Reserva Técnica: dedução gerencial paralela à comissão e ao lucro. Alíquota congelada na cascata (não varia com desconto). Deixe 0% se não aplicável.')}
               {pricingRow('Comissão / Mão de obra', svcCommPct, svcCommVal, 'salesCommissionPercent')}
