@@ -61,8 +61,21 @@ function renderIn(node: React.ReactElement) {
 }
 
 // ── o cenário: tenant de revenda, Lucro Real ────────────────────────────────
+/*
+  `financialCommitmentsPct` entrou em 02/10/2026 (§0). Ele é OBRIGATÓRIO em `CalcBaseType`, e este
+  literal é `: any` — o cast calava o compilador EXATAMENTE onde ele avisaria, que é o defeito
+  que `expense-groups.ts` registra no próprio cabeçalho.
+
+  Sem ele a soma do `structurePct` virava `NaN` e TODA linha da tabela saía R$ 0,00 — foi assim
+  que este arquivo ficou vermelho. O `NaN` é alto de propósito: um `?? 0` silencioso faria o
+  preço cair sem ninguém notar (`ausente-vs-falso.md`).
+
+  Zero aqui porque este cenário não tem compromisso lançado — e com zero a soma
+  `fixa + compromisso` é a `fixa` de antes, que é o que mantém os números deste arquivo.
+*/
 const CALC_BASE: any = {
   indirectLaborPct: 7.56, laborPercent: 0, fixedExpensePct: 14.89,
+  financialCommitmentsPct: 0,
   variableExpensePct: 5.56, financialExpensePct: 0.56,
   taxPct: 0, taxLabel: '', isMei: false,
 }

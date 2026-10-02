@@ -397,6 +397,9 @@ function OrdersPage() {
             discountPct: (Number(editingDiscountPct) || 0) / 100,
             despesas: {
                 fixa: Number(mrmConfig.expense_breakdown?.fixed_pct) || 0,
+                // COMPROMISSOS FINANCEIROS — §0 de 02/10/2026. Saiu da `fixa` e volta na MESMA soma:
+                // sem ele aqui a decomposição veria menos despesa do que a construção usou.
+                compromisso: Number(mrmConfig.expense_breakdown?.financial_commitments_pct) || 0,
                 variavel: Number(mrmConfig.expense_breakdown?.variable_pct) || 0,
                 financeira: Number(mrmConfig.expense_breakdown?.financial_pct) || 0,
                 indireta: Number(mrmConfig.expense_breakdown?.administrative_pct) || 0,

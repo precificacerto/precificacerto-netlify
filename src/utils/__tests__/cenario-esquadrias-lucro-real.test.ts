@@ -14,7 +14,8 @@ import {
 } from '@/utils/despesas-do-segmento'
 
 // Tenant de industrialização COM MO produtiva (é o que discrimina principal × secundária).
-const BALDES: BaldesDeDespesa = { fixa: 0.10, variavel: 0.05, financeira: 0.02, indireta: 0.08, moProdutiva: 0.15 }
+const BALDES: BaldesDeDespesa = { fixa: 0.10, compromisso: 0, // §0 de 02/10/2026: sem compromisso lançado neste cenário — a soma é a de antes
+    variavel: 0.05, financeira: 0.02, indireta: 0.08, moProdutiva: 0.15 }
 const TENANT = 'INDUSTRIALIZACAO'
 
 type Ficha = { icms: number; pisCofins: number; ibs: number; cbs: number; comissao: number; lucro: number; rt: number }

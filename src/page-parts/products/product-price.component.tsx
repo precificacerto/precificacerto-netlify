@@ -146,6 +146,20 @@ export const ProductPrice: FC<Props> = ({
     productiveLaborPct: calcBase.laborPercent,
   })
   const fixedPct = calcBase.fixedExpensePct
+  /*
+    COMPROMISSOS FINANCEIROS — §0 e §6.1 do comando de 02/10/2026.
+
+    Ele SAIU de `fixedExpensePct` e precisa voltar em DOIS lugares desta tela, ou ela deixa de
+    fechar:
+
+      1. no `structurePct` que forma o preço (abaixo) — sem ele o preço EXIBIDO cai;
+      2. como LINHA própria da tabela — sem ela a soma das linhas não fecha com o preço, que é
+         o invariante do #17/#23 que esta tela mantém por construção.
+
+    Mostrar uma e esquecer a outra é o pior dos casos: a tela fecharia errado e ninguém saberia
+    qual metade está certa.
+  */
+  const financialCommitmentsPct = calcBase.financialCommitmentsPct
   const variablePct = calcBase.variableExpensePct
   const financialPct = calcBase.financialExpensePct
 
@@ -221,9 +235,11 @@ export const ProductPrice: FC<Props> = ({
     buyerType: 'CONSUMIDOR_FINAL',
     saleScope: 'INTRAESTADUAL',
     costTotal,
+    // O compromisso acompanha a `fixa`: fora do serviço entra, no serviço fica fora — ele
+    // estava DENTRO dela, e no serviço a fixa já está no custo por minuto.
     structurePct: (isCalcTypeService
       ? variablePct + financialPct
-      : laborPct + fixedPct + variablePct + financialPct) / 100,
+      : laborPct + fixedPct + financialCommitmentsPct + variablePct + financialPct) / 100,
     rtReservePct: rtReservePct / 100,
     commissionPct: commissionPct / 100,
     profitPct: profitPct / 100,
@@ -273,6 +289,7 @@ export const ProductPrice: FC<Props> = ({
     ...(!isCalcTypeService ? [
       { key: 'labor', originalPct: laborPct },
       { key: 'fixed', originalPct: fixedPct },
+      { key: 'compromissosFinanceiros', originalPct: financialCommitmentsPct },
     ] : []),
     { key: 'variable', originalPct: variablePct },
     { key: 'financial', originalPct: financialPct },
@@ -320,6 +337,7 @@ export const ProductPrice: FC<Props> = ({
   const displayBase = linhas.opInterna
   const laborValDisplay = valorDa('labor')
   const fixedValDisplay = valorDa('fixed')
+  const compromissosFinanceirosValDisplay = valorDa('compromissosFinanceiros')
   const variableValDisplay = valorDa('variable')
   const financialValDisplay = valorDa('financial')
   const commissionValDisplay = valorDa('commission')
@@ -331,9 +349,11 @@ export const ProductPrice: FC<Props> = ({
   // A linha de imposto agregado (Simples, RET, Simples Híbrido) sai da MESMA fonte: o valor
   // do motor em `productPriceInfo.taxesPrice` ignorava a efetivação.
   const taxesTotal = valorDa('tax') + valorDa('taxUnificado')
+  // O compromisso entra na barra de "Despesas" junto com a fixa de onde ele saiu: fora dela, a
+  // barra deixaria de somar o preço e sobraria uma fatia sem dono.
   const expensesTotalDisplay = isCalcTypeService
     ? variableValDisplay + financialValDisplay
-    : laborValDisplay + fixedValDisplay + variableValDisplay + financialValDisplay
+    : laborValDisplay + fixedValDisplay + compromissosFinanceirosValDisplay + variableValDisplay + financialValDisplay
 
   // Preço base = valorPrecificado (com ICMS/PIS/COFINS embutidos para LR/LP) + terceirizadas
   const baseForSalePrice = (isLucroReal || isLucroPresumed) ? valorPrecificado : pricePerUnit
@@ -569,6 +589,15 @@ export const ProductPrice: FC<Props> = ({
           <tbody>
             {!isCalcTypeService && pricingRow('Mão de obra administrativa', 'labor', undefined, 'Despesas de mão de obra administrativa (pró-labore, salários comerciais e administrativos) calculadas a partir do fluxo de caixa. Configure em Configurações > Equipe e Custos.')}
             {!isCalcTypeService && pricingRow('Despesas fixas', 'fixed')}
+            {/* COMPROMISSOS FINANCEIROS — §6.1. Parcela de financiamento, empréstimo, consórcio,
+                amortização de principal e aporte programado: vencem MESMO SEM VENDA, e por isso
+                o preço tem de cobri-las. Saiu de "Despesas fixas" sem mudar a soma. */}
+            {!isCalcTypeService && pricingRow(
+              'Compromissos Financeiros',
+              'compromissosFinanceiros',
+              undefined,
+              'Parcela de financiamento, empréstimo, consórcio, amortização de principal e aporte programado. Vencem mesmo sem venda, então o preço precisa cobri-las. Vem do fluxo de caixa, do bloco Compromissos Financeiros — até 02/10/2026 este valor estava somado dentro de "Despesas fixas", e a soma das duas linhas continua a mesma.',
+            )}
             {pricingRow('Despesas variáveis', 'variable')}
             {pricingRow('Despesas financeiras', 'financial')}
             {/* Em MEI a linha aparece zerada e NÃO é editável: o DAS é fixo mensal e não

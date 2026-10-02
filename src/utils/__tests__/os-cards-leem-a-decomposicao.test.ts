@@ -58,7 +58,8 @@ const item = (over: Partial<BudgetDecompositionItem> = {}): BudgetDecompositionI
 
 const montar = (items: BudgetDecompositionItem[], discountPct = 0) =>
   buildDecomposition(buildBudgetDecompositionInput({
-    items, discountPct, despesas: { fixa: DESPESAS_PCT, variavel: 0, financeira: 0, indireta: 0, moProdutiva: 0 },
+    items, discountPct, despesas: { fixa: DESPESAS_PCT, compromisso: 0, // §0 de 02/10/2026: sem compromisso lançado neste cenário — a soma é a de antes
+    variavel: 0, financeira: 0, indireta: 0, moProdutiva: 0 },
   }).input)
 
 /** A distribuição como a Etapa 16 a entrega — os números que o dono do produto mediu na tela. */

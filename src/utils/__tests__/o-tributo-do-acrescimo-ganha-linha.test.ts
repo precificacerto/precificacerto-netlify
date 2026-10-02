@@ -84,7 +84,8 @@ const itens = (comFiscais: boolean, custos: number[]): BudgetDecompositionItem[]
  */
 const CUSTOS = (() => {
   const zero = buildDecomposition(buildBudgetDecompositionInput({
-    items: itens(false, [0, 0, 0]), discountPct: 0, despesas: { fixa: DESP_PCT, variavel: 0, financeira: 0, indireta: 0, moProdutiva: 0 },
+    items: itens(false, [0, 0, 0]), discountPct: 0, despesas: { fixa: DESP_PCT, compromisso: 0, // §0 de 02/10/2026: sem compromisso lançado neste cenário — a soma é a de antes
+    variavel: 0, financeira: 0, indireta: 0, moProdutiva: 0 },
   }).input)
   const rl = zero.rows.find((x) => x.key === 'receita_liquida')!.perItem
   const desp = zero.rows.find((x) => x.key === 'despesas')!.perItem
@@ -93,7 +94,8 @@ const CUSTOS = (() => {
 
 const montar = (comFiscais: boolean, discountPct = 0.05) =>
   buildDecomposition(buildBudgetDecompositionInput({
-    items: itens(comFiscais, CUSTOS), discountPct, despesas: { fixa: DESP_PCT, variavel: 0, financeira: 0, indireta: 0, moProdutiva: 0 },
+    items: itens(comFiscais, CUSTOS), discountPct, despesas: { fixa: DESP_PCT, compromisso: 0, // §0 de 02/10/2026: sem compromisso lançado neste cenário — a soma é a de antes
+    variavel: 0, financeira: 0, indireta: 0, moProdutiva: 0 },
   }).input)
 
 const com = montar(true)

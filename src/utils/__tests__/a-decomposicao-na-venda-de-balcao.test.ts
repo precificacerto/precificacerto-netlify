@@ -80,7 +80,8 @@ const decomporDe = (linhas: readonly unknown[], discountPct = 0) =>
         ? (Number(item.freight_allocated_value) || 0) + (Number(item.accessories_allocated_value) || 0)
         : 0,
     })),
-    discountPct, despesas: { fixa: DESPESAS_PCT, variavel: 0, financeira: 0, indireta: 0, moProdutiva: 0 },
+    discountPct, despesas: { fixa: DESPESAS_PCT, compromisso: 0, // §0 de 02/10/2026: sem compromisso lançado neste cenário — a soma é a de antes
+    variavel: 0, financeira: 0, indireta: 0, moProdutiva: 0 },
   }).input)
 
 const enriquecer = (ctx: typeof CTX_DO_TENANT) => enrichItemsForMotor(

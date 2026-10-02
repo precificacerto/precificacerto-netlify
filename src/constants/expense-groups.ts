@@ -37,6 +37,8 @@
  * caso quebra se um grupo novo cair no `default`, e não se contenta com "a linha aparece".
  */
 
+import { LABEL_DO_BLOCO } from '@/utils/compromissos-financeiros'
+
 /**
  * Todos os grupos, na ordem em que o Hub e o Fluxo de Caixa os exibem.
  *
@@ -50,6 +52,7 @@ export const EXPENSE_GROUP_KEYS = [
     'MAO_DE_OBRA_ADMINISTRATIVA',
     'MAO_DE_OBRA',
     'DESPESA_FIXA',
+    'COMPROMISSOS_FINANCEIROS',
     'DESPESA_VARIAVEL',
     'ATIVIDADES_TERCEIRIZADAS',
     'DESPESA_FINANCEIRA',
@@ -107,6 +110,31 @@ export const EXPENSE_GROUP_META: Record<ExpenseGroupKey, ExpenseGroupMeta> = {
         standard: true,
     },
     DESPESA_FIXA: { label: 'Despesa Fixa', labelHub: 'Despesas Fixas', color: '#2563EB', standard: true },
+    // COMPROMISSOS FINANCEIROS — §0 do comando de 02/10/2026, registrado como está:
+    //
+    //   "O compromisso já está dentro do preço hoje, dentro da despesa fixa. Ele sai de lá e
+    //    vira categoria própria, COM O MESMO PERCENTUAL, NO MESMO DIVISOR. A soma do divisor
+    //    não muda, então o preço não muda."
+    //
+    // >>> ESTE GRUPO NUNCA É GRAVADO, E É POR ISSO QUE ELE É `noSeletor` <<<
+    //
+    // O `cash_entries.expense_group` das cinco categorias do bloco continua sendo `DESPESA_FIXA`
+    // ou `AMORTIZACAO`. Quem produz este grupo é a LEITURA —
+    // `classificarLancamentoDeDespesa`, em `compromissos-financeiros.ts`. Oferecê-lo no seletor
+    // criaria um sexto jeito de lançar a mesma coisa, que é exatamente o que o §2.4 proíbe:
+    // "Empréstimos vai só num lugar, investimentos vai só num lugar."
+    //
+    // Ele ENTRA em `DFC_GROUPS_QUE_SOMAM` e tem `case` próprio no switch da Análise, mesmo não
+    // sendo gravado: o portão daquele teste existe para pegar grupo que cai no `default`, e uma
+    // exceção aqui abriria a porta para o próximo grupo esquecido.
+    COMPROMISSOS_FINANCEIROS: {
+        // O RÓTULO VEM DA FONTE ÚNICA, e não é escrito aqui. §A do adendo de 02/10/2026: o nome
+        // é UM SÓ em todo o sistema. Dois literais com o mesmo texto são a cópia divergente em
+        // forma de rótulo — no dia em que um mudasse, o outro ficaria para trás e nada falharia.
+        label: LABEL_DO_BLOCO,
+        labelHub: LABEL_DO_BLOCO,
+        noSeletor: true,
+    },
     DESPESA_VARIAVEL: {
         label: 'Despesa Variável',
         labelHub: 'Despesas Variáveis',

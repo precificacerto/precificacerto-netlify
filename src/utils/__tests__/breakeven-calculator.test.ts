@@ -59,7 +59,7 @@ const pdfCanonicalInput: BreakevenInput = {
   // Fixos
   productionLaborPct: 11.8166,
   adminLaborPct: 10.6275,
-  fixedExpensePct: 10.7587,
+  fixedExpensePct: 10.7587, financialCommitmentsPct: 0, // §0 de 02/10/2026: a soma com a fixa é a de antes
   // RB mensal (= RLm no PDF, pois IPF=DED=0)
   averageRevenue: 291257.63,
   taxRegime: 'LUCRO_REAL',
@@ -142,7 +142,7 @@ describe('Breakeven Calculator', () => {
         ...pdfCanonicalInput,
         productionLaborPct: 0,
         adminLaborPct: 0,
-        fixedExpensePct: 0,
+        fixedExpensePct: 0, financialCommitmentsPct: 0, // §0 de 02/10/2026: a soma com a fixa é a de antes
       })
       expect(result.isValid).toBe(false)
       expect(result.reason).toContain('Custos fixos zerados')
@@ -239,7 +239,7 @@ describe('Breakeven Calculator', () => {
       const base = calculateBreakeven(pdfCanonicalInput)
       const higher = calculateBreakeven({
         ...pdfCanonicalInput,
-        fixedExpensePct: pdfCanonicalInput.fixedExpensePct + 5,
+        fixedExpensePct: pdfCanonicalInput.fixedExpensePct + 5, financialCommitmentsPct: 0, // §0 de 02/10/2026: a soma com a fixa é a de antes
       })
       expect(higher.breakeven!).toBeGreaterThan(base.breakeven!)
     })
@@ -281,7 +281,7 @@ describe('Breakeven Calculator', () => {
         deducaoReceitaPct: 0,
         productionLaborPct: 8,
         adminLaborPct: 10,
-        fixedExpensePct: 12,
+        fixedExpensePct: 12, financialCommitmentsPct: 0, // §0 de 02/10/2026: a soma com a fixa é a de antes
         averageRevenue: 50000,
         taxRegime: 'SIMPLES_NACIONAL',
       }
@@ -303,7 +303,7 @@ describe('Breakeven Calculator', () => {
         deducaoReceitaPct: 1,
         productionLaborPct: 9,
         adminLaborPct: 7,
-        fixedExpensePct: 8,
+        fixedExpensePct: 8, financialCommitmentsPct: 0, // §0 de 02/10/2026: a soma com a fixa é a de antes
         averageRevenue: 250000,
         taxRegime: 'LUCRO_PRESUMIDO',
       }

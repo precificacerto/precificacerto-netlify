@@ -209,7 +209,8 @@ function baldesDoContexto(ctx: unknown): BaldesDeDespesa {
         dop_pct?: number | null
         mo_produtiva_pct?: number | null
         expense_breakdown?: {
-            fixed_pct?: number | null; variable_pct?: number | null
+            fixed_pct?: number | null; financial_commitments_pct?: number | null
+            variable_pct?: number | null
             financial_pct?: number | null; administrative_pct?: number | null
         } | null
     }
@@ -218,13 +219,20 @@ function baldesDoContexto(ctx: unknown): BaldesDeDespesa {
     if (eb) {
         return {
             fixa: Number(eb.fixed_pct) || 0,
+            // COMPROMISSOS FINANCEIROS — §0 de 02/10/2026. Saiu da `fixa` e volta na MESMA soma.
+            compromisso: Number(eb.financial_commitments_pct) || 0,
             variavel: Number(eb.variable_pct) || 0,
             financeira: Number(eb.financial_pct) || 0,
             indireta: Number(eb.administrative_pct) || 0,
             moProdutiva,
         }
     }
-    return { fixa: Number(c?.dop_pct) || 0, variavel: 0, financeira: 0, indireta: 0, moProdutiva: 0 }
+    /*
+      Sem `expense_breakdown`, o `dop_pct` AGREGADO vai inteiro para a `fixa` — é o que esta
+      linha já fazia. O compromisso fica ZERO aqui de propósito: o agregado JÁ O CONTÉM, e
+      repeti-lo no balde próprio o contaria duas vezes.
+    */
+    return { fixa: Number(c?.dop_pct) || 0, compromisso: 0, variavel: 0, financeira: 0, indireta: 0, moProdutiva: 0 }
 }
 
 /**

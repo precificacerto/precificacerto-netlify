@@ -48,6 +48,14 @@ export interface BreakevenInput {
   productionLaborPct: number
   adminLaborPct: number
   fixedExpensePct: number
+  /**
+   * COMPROMISSOS FINANCEIROS em % — §0 do comando de 02/10/2026.
+   *
+   * OBRIGATÓRIO: ele saiu de `fixedExpensePct` e precisa voltar na MESMA soma. Opcional com
+   * default zero faria o ponto de equilíbrio cair em silêncio nos dois tenants que têm
+   * compromisso lançado — `construtor-empobrecido.md`.
+   */
+  financialCommitmentsPct: number
   // Faturamento médio mensal — RB (R$)
   averageRevenue: number
   // Regime tributário (para tratar Simples Nacional)
@@ -96,7 +104,9 @@ export function calculateBreakeven(input: BreakevenInput): BreakevenResult {
   const totalFixedPct =
     (Number(input.productionLaborPct) || 0) +
     (Number(input.adminLaborPct) || 0) +
-    (Number(input.fixedExpensePct) || 0)
+    (Number(input.fixedExpensePct) || 0) +
+    // O compromisso volta à MESMA soma de onde saiu — ver o campo no tipo acima.
+    (Number(input.financialCommitmentsPct) || 0)
   const fixedCostMonthly = (totalFixedPct / 100) * averageRevenue
 
   if (averageRevenue <= 0) {
@@ -173,6 +183,7 @@ export function buildBreakevenInputFromConfig(cfg: any, taxRegime?: string | nul
     productionLaborPct: Number(c.production_labor_percent) || 0,
     adminLaborPct: Number(c.indirect_labor_percent) || 0,
     fixedExpensePct: Number(c.fixed_expense_percent) || 0,
+    financialCommitmentsPct: Number(c.financial_commitments_percent) || 0,
     averageRevenue: Number(c.hub_average_revenue) || 0,
     taxRegime: taxRegime || null,
   }

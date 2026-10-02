@@ -10,6 +10,19 @@ export function buildCalcBase(expense: any, taxPreview?: TaxPreviewResult): Calc
     ? Number(expense.admin_labor_percent)
     : (expense?.indirect_labor_percent ? Number(expense.indirect_labor_percent) : 0)
   const fixed = expense?.fixed_expense_percent ? Number(expense.fixed_expense_percent) : 0
+  /*
+    COMPROMISSOS FINANCEIROS — §0 e §1 do comando de 02/10/2026.
+
+    >>> `NULL` CONTRIBUI ZERO, E ISSO NÃO É DEFENSIVIDADE <<<
+
+    `NULL` significa "o tenant ainda não foi recalculado sob a separação", e nesse estado o
+    compromisso AINDA ESTÁ dentro de `fixed_expense_percent`. Somar um valor aqui o contaria
+    DUAS VEZES e o preço subiria. O `? :` abaixo é a mesma forma das outras quatro linhas, e
+    aqui ele carrega essa decisão — ver o comentário da coluna na migração.
+  */
+  const compromissosFinanceiros = expense?.financial_commitments_percent
+    ? Number(expense.financial_commitments_percent)
+    : 0
   const variable = expense?.variable_expense_percent ? Number(expense.variable_expense_percent) : 0
   const financial = expense?.financial_expense_percent ? Number(expense.financial_expense_percent) : 0
   const laborCost = Number(expense?.production_labor_cost_hub) || Number(expense?.production_labor_cost) || 0
@@ -29,10 +42,22 @@ export function buildCalcBase(expense: any, taxPreview?: TaxPreviewResult): Calc
     // --- V2 fields ---
     laborCostMonthly: laborCost,
     laborPercent: laborPct,
-    /** Estrutura = só fixas + variáveis + financeiras (mão de obra é R$ via custo-hora × workload). */
-    structurePct: fixed + variable + financial,
+    /**
+     * Estrutura = fixas + variáveis + financeiras + COMPROMISSOS FINANCEIROS (mão de obra é R$ via
+     * custo-hora × workload).
+     *
+     * >>> O COMPROMISSO ENTRA AQUI, E É POR ISSO QUE O PREÇO NÃO MUDA — §0 de 02/10/2026 <<<
+     *
+     * Ele saiu de `fixed_expense_percent` e voltou como termo próprio NO MESMO DIVISOR. A soma
+     * `fixed + compromissosFinanceiros` é o `fixed` de antes, ao centavo, então esta expressão devolve
+     * exatamente o mesmo número que devolvia. Esquecer de somá-lo aqui faria o preço CAIR — e
+     * nada falharia, porque um preço menor não levanta erro.
+     */
+    structurePct: fixed + variable + financial + compromissosFinanceiros,
     indirectLaborPct: indirectLabor,
     fixedExpensePct: fixed,
+    /** O termo próprio, para a tela exibir a linha dele sem recompor nada. */
+    financialCommitmentsPct: compromissosFinanceiros,
     variableExpensePct: variable,
     financialExpensePct: financial,
     taxPct: taxPctDisplay,

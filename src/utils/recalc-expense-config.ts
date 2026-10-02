@@ -1,5 +1,7 @@
 import { supabase } from '@/supabase/client'
 import { calculateHubData, calculateHubDataPrevMonth, extractStructurePercents } from '@/utils/hub-engine'
+import type { HubData } from '@/utils/hub-engine'
+import { BLOCO_COMPROMISSOS } from '@/utils/compromissos-financeiros'
 
 export interface ExpenseConfigResult {
   production_labor_cost: number
@@ -11,6 +13,14 @@ export interface ExpenseConfigResult {
   fixed_expense_monthly: number
   indirect_labor_percent: number
   fixed_expense_percent: number
+  /**
+   * COMPROMISSOS FINANCEIROS — §0 do comando de 02/10/2026, em FORMATO PERCENTUAL (0..100).
+   *
+   * Saiu de `fixed_expense_percent`. A soma dos dois é o `fixed_expense_percent` de antes desta
+   * rodada, AO CENTAVO — é esse invariante que mantém o preço idêntico, e `extractStructurePercents`
+   * o garante arredondando o total uma vez e subtraindo em unidades inteiras de 1e-4.
+   */
+  financial_commitments_percent: number
   financial_expense_percent: number
   variable_expense_percent: number
   /** % de MO Produtiva sobre o faturamento — Sprint 4 (PE). */
@@ -45,6 +55,40 @@ const round2 = (v: number) => Math.round(v * 100) / 100
  * Antes os % oscilavam mês a mês conforme lançamentos pontuais; agora refletem
  * a média estável da operação.
  */
+/**
+ * DESPESAS FIXAS EM R$/MÊS — e ela CONTINUA INCLUINDO O COMPROMISSOS FINANCEIROS.
+ *
+ * >>> SE ESTE NÚMERO ENCOLHER, O PREÇO DE TODO SERVIÇO MUDA — §0 de 02/10/2026 <<<
+ *
+ * `fixed_expense_monthly` alimenta o custo POR MINUTO do serviço (`compute-service-price.ts`:
+ * `combinedLaborCostMonthly = laborCost + admin + fixedMonthly`). No serviço a fixa entra em
+ * R$, não como percentual, e é por isso que ela fica FORA do coeficiente. Tirar o compromisso
+ * daqui o faria sair do preço do serviço SEM voltar por lugar nenhum — e um preço menor não
+ * levanta erro.
+ *
+ * >>> RECONSTRUÍDO MÊS A MÊS, E NÃO PELA SOMA DOS DOIS `averageRS` <<<
+ *
+ * `averageRS = totalSum / closedMonthsWithData`, e `closedMonthsWithData` conta só os meses com
+ * valor > 0. Os dois grupos podem ter conjuntos de meses DIFERENTES, e aí a soma das médias não
+ * é a média da soma. Somando os valores por mês primeiro, este número é BIT-EXACT ao que a
+ * linha única de `DESPESA_FIXA` devolvia antes de 02/10/2026.
+ *
+ * EXPORTADA para que o caso afirme EFEITO — o número — em vez de afirmar que a função foi
+ * chamada (`teste-que-nao-exercita.md`: "quando a pergunta 3 não tem resposta boa porque a
+ * função não é exportada, exporte a função").
+ */
+export function mediaMensalDaDespesaFixaComOsCompromissos(hubData: HubData): number {
+  const porMes: Record<string, number> = {}
+  for (const g of ['DESPESA_FIXA', BLOCO_COMPROMISSOS]) {
+    const row = hubData.rows.find((r) => r.group === g)
+    if (!row) continue
+    for (const [m, v] of Object.entries(row.values)) porMes[m] = (porMes[m] || 0) + v
+  }
+  const soma = Object.values(porMes).reduce((a, v) => a + v, 0)
+  const meses = Object.values(porMes).filter((v) => v > 0).length
+  return meses > 0 ? round2(soma / meses) : 0
+}
+
 export async function recalcExpenseConfigFromCashflow(
   tenantId: string,
 ): Promise<ExpenseConfigResult | null> {
@@ -104,9 +148,8 @@ export async function recalcExpenseConfigFromCashflow(
   const moProdRow = hubData.rows.find((r) => r.group === 'MAO_DE_OBRA_PRODUTIVA')
   const productionLaborCostHub = moProdRow ? round2(moProdRow.averageRS) : 0
 
-  // Calcula Despesas Fixas média em R$/mês a partir do Hub (média histórica)
-  const despesaFixaRow = hubData.rows.find((r) => r.group === 'DESPESA_FIXA')
-  const fixedExpenseMonthly = despesaFixaRow ? round2(despesaFixaRow.averageRS) : 0
+  const fixedExpenseMonthly = mediaMensalDaDespesaFixaComOsCompromissos(hubData)
+
 
   // % de Custo dos Produtos sobre faturamento (média histórica)
   const custoProdutosRow = hubData.rows.find((r) => r.group === 'CUSTO_PRODUTOS')
@@ -128,6 +171,7 @@ export async function recalcExpenseConfigFromCashflow(
     fixed_expense_monthly: fixedExpenseMonthly,
     indirect_labor_percent: round2(percents.indirect_labor_percent * 100), // salva em %
     fixed_expense_percent: round2(percents.fixed_expense_percent * 100),
+    financial_commitments_percent: round2(percents.financial_commitments_percent * 100),
     financial_expense_percent: round2(percents.financial_expense_percent * 100),
     variable_expense_percent: round2(percents.variable_expense_percent * 100),
     production_labor_percent: round2(percents.production_labor_cost_percent * 100),
@@ -175,6 +219,13 @@ export async function mergeExpenseConfig(tenantId: string): Promise<ExpenseConfi
     admin_labor_percent: result.indirect_labor_percent,
     indirect_labor_percent: result.indirect_labor_percent,
     fixed_expense_percent: result.fixed_expense_percent,
+    /*
+      §8 — A COLUNA É PENDENTE POR PADRÃO. `financial_commitments_percent` vem da migração
+      `20261002000001_compromissos_financeiros_percentual`, e ela tem de ser aplicada ANTES OU JUNTO do
+      merge: este UPDATE é quem grava a coluna, e sem ela o PostgREST recusa a escrita inteira.
+      É a ordem que `migration-delivery.md` exige para coluna que o código GRAVA.
+    */
+    financial_commitments_percent: result.financial_commitments_percent,
     financial_expense_percent: result.financial_expense_percent,
     variable_expense_percent: result.variable_expense_percent,
     production_labor_cost_hub: result.production_labor_cost_hub,

@@ -138,7 +138,8 @@ describe('3. A COLUNA exibe a base do código 4 com a alíquota EFETIVA', () => 
   ]
   const r = buildDecomposition(buildBudgetDecompositionInput({
     items: ITENS as never, discountPct: 0.05,
-    despesas: { fixa: 0.2292, variavel: 0, financeira: 0, indireta: 0, moProdutiva: 0 },
+    despesas: { fixa: 0.2292, compromisso: 0, // §0 de 02/10/2026: sem compromisso lançado neste cenário — a soma é a de antes
+    variavel: 0, financeira: 0, indireta: 0, moProdutiva: 0 },
   }).input)
   const L = (k: string) => r.rows.find((x) => x.key === k)!
 

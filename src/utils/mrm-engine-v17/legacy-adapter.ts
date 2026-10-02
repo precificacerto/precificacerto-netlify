@@ -165,7 +165,14 @@ function resolveYieldUndoFactor(item: PageItem, regime: TaxRegime | null | undef
  * serviço (`services.expense_snapshot`) é a construção daquele preço. Ver
  * `service-expense-snapshot.ts`.
  */
-function resolveDopRates(
+/**
+ * EXPORTADA em 02/10/2026 para que o caso do Compromissos Financeiros afirme EFEITO — o NÚMERO
+ * que chega ao balde `fixa` — em vez de afirmar que o campo existe no arquivo.
+ * `teste-que-nao-exercita.md`: "quando a pergunta 3 não tem resposta boa porque a função não é
+ * exportada, exporte a função". O custo é uma palavra; o que se compra é poder distinguir o
+ * balde com o compromisso do balde sem ele.
+ */
+export function resolveDopRates(
   item: PageItem,
   regime: TaxRegime | null | undefined,
   eb: PageTenantCtx['expense_breakdown'],
@@ -211,7 +218,26 @@ function resolveDopRates(
       indirectLaborPct: admin,
       productiveLaborPct: productiveLaborPct,
     }),
-    fixed: eb ? (Number(eb.fixed_pct) || 0) : 0,
+    /*
+      >>> O COMPROMISSOS FINANCEIROS RIDE NO BALDE `fixa` — §6.1 de 02/10/2026 <<<
+
+      Ele veio de DENTRO da despesa fixa, e por isso HERDA a origem e o destino dela: na
+      segmentação SERVIÇO a fixa é CUSTO (diluída no custo por minuto) e nas outras duas é
+      MARGEM — e o compromisso tem de seguir exatamente o mesmo caminho, ou o número de antes
+      não volta.
+
+      >>> POR QUE NÃO UMA SEXTA CATEGORIA EM `CategoryDestinations` <<<
+
+      Porque `destination-snapshot.ts` exige TODAS as categorias presentes num snapshot gravado
+      ("um snapshot pela metade não é um snapshot"): acrescentar uma categoria obrigatória faria
+      o parser devolver `null` para TODO `destination_snapshot` já gravado, e a decomposição dos
+      documentos congelados cairia inteira. `fato-vs-referencia.md` — o snapshot é fato
+      histórico, e reinterpretá-lo é reescrever o passado.
+
+      Somar no balde da fixa dá o MESMO destino sem tocar em nenhum snapshot. A separação em
+      categoria própria dentro da matriz de destinos tem escopo e rodada próprios.
+    */
+    fixed: eb ? ((Number(eb.fixed_pct) || 0) + (Number(eb.financial_commitments_pct) || 0)) : 0,
     variable: eb ? (Number(eb.variable_pct) || 0) : 0,
     financial: eb ? (Number(eb.financial_pct) || 0) : 0,
     fromItemSnapshot: false,
@@ -260,6 +286,14 @@ export interface PageTenantCtx {
   mo_produtiva_pct?: number | null
   expense_breakdown?: {
     fixed_pct?: number | null
+    /**
+     * COMPROMISSOS FINANCEIROS — §0 e §6.1 do comando de 02/10/2026.
+     *
+     * Ele SAIU de `fixed_pct` e o motor o soma de volta no balde `fixa` — ver `resolveDopRates`.
+     * Ausente (`undefined`/`null`) contribui ZERO, e isso é o CERTO: nesse estado o
+     * `fixed_pct` recebido ainda o contém, e somá-lo o contaria duas vezes.
+     */
+    financial_commitments_pct?: number | null
     variable_pct?: number | null
     financial_pct?: number | null
     administrative_pct?: number | null

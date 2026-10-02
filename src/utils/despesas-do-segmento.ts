@@ -74,6 +74,24 @@ export interface BaldesDeDespesa {
   /** `admin_labor_percent` — a MO indireta / administrativa. */
   indireta: number
   /**
+   * `financial_commitments_percent` — o COMPROMISSOS FINANCEIROS, em fração.
+   *
+   * §0 do comando de 02/10/2026: ele SAIU de `fixa` e virou balde próprio, **com o mesmo
+   * percentual, no mesmo divisor**. `fixa + compromisso` é a `fixa` de antes, ao centavo, e por
+   * isso `resolveDespesasOperacionaisPct` devolve o mesmo número.
+   *
+   * >>> E ELE SEGUE A `fixa` NO SEGMENTO SERVIÇO <<<
+   *
+   * Em SERVICO a `fixa` fica FORA do coeficiente porque já está no custo em R$ por minuto. O
+   * compromisso estava dentro dela, então estava fora pelo mesmo motivo — e continua fora.
+   * Incluí-lo ali seria a dupla contagem que este módulo inteiro existe para impedir.
+   *
+   * OBRIGATÓRIO por `construtor-empobrecido.md`: é campo de cálculo, e o custo de torná-lo
+   * obrigatório é exatamente o benefício — o compilador enumera quem esquecer, em vez de o
+   * preço cair em silêncio.
+   */
+  compromisso: number
+  /**
    * `production_labor_percent` — a MO PRODUTIVA, em fração.
    *
    * Só entra em segmentação REVENDA, agrupada com a indireta: lá não há minuto sobre
@@ -171,9 +189,12 @@ export function resolveSegmentoDaDespesa(
  *
  * | segmento          | o que entra                              | por quê |
  * |-------------------|------------------------------------------|---------|
- * | SERVICO           | variável + financeira                    | fixa e MO JÁ estão no custo em R$, por minuto. Somá-las aqui é dupla contagem |
- * | REVENDA           | fixa + variável + financeira + (MOI + MO produtiva) | não há minuto sobre o qual ratear: a MO produtiva só pode entrar como percentual, agrupada com a indireta |
- * | INDUSTRIALIZACAO  | fixa + variável + financeira + MOI       | a MO PRODUTIVA vira custo por tempo, e por isso NÃO entra aqui |
+ * | SERVICO           | variável + financeira                    | fixa, COMPROMISSO e MO JÁ estão no custo em R$, por minuto. Somá-las aqui é dupla contagem |
+ * | REVENDA           | fixa + COMPROMISSO + variável + financeira + (MOI + MO produtiva) | não há minuto sobre o qual ratear: a MO produtiva só pode entrar como percentual, agrupada com a indireta |
+ * | INDUSTRIALIZACAO  | fixa + COMPROMISSO + variável + financeira + MOI | a MO PRODUTIVA vira custo por tempo, e por isso NÃO entra aqui |
+ *
+ * O COMPROMISSOS FINANCEIROS acompanha a `fixa` nos três segmentos, porque foi de dentro dela que
+ * ele saiu (§0 de 02/10/2026). A soma é a mesma de antes, e por isso nenhum preço se move.
  *
  * O primeiro argumento é o segmento da DESPESA (`resolveSegmentoDaDespesa`), nunca o da
  * matriz.
@@ -192,5 +213,5 @@ export function resolveDespesasOperacionaisPct(
     indirectLaborPct: frac(baldes.indireta),
     productiveLaborPct: frac(baldes.moProdutiva),
   })
-  return frac(baldes.fixa) + variavel + financeira + indireta
+  return frac(baldes.fixa) + frac(baldes.compromisso) + variavel + financeira + indireta
 }

@@ -195,7 +195,12 @@ describe('2. A TELA lê o congelado, e NUNCA o cadastro vivo', () => {
     // documento com produto E serviço, o segundo herdava a despesa do primeiro.
     expect(corpo).toContain('despesasOperacionaisPctCongelado: congelado.despesasOperacionaisPct ?? null,')
     // E os baldes vão ZERADOS: nada aqui é recalculado do tenant de hoje.
-    expect(corpo).toContain('despesas: { fixa: 0, variavel: 0, financeira: 0, indireta: 0, moProdutiva: 0 },')
+    expect(corpo).toContain(/*
+          ÂNCORA ATUALIZADA em 02/10/2026: o literal ganhou `compromisso: 0`, porque
+          `BaldesDeDespesa` ganhou o balde do Compromissos Financeiros (§0). O critério é o mesmo —
+          na venda gravada TODOS os baldes do tenant são zero e o congelado por item vence.
+        */
+        'despesas: { fixa: 0, compromisso: 0, variavel: 0, financeira: 0, indireta: 0, moProdutiva: 0 },')
     expect(corpo).not.toContain('mrmConfig.dop_pct')
     expect(corpo).not.toContain('congelados[0]?.despesasOperacionaisPct')
   })

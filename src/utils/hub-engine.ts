@@ -15,8 +15,8 @@ import { CASHIER_CATEGORY } from '@/constants/cashier-category'
 import {
   GRUPOS_DA_BASE_DA_DESPESA_FIXA,
   GRUPO_INVESTIMENTO,
+  BLOCO_COMPROMISSOS,
   LABEL_DO_BLOCO,
-  CATEGORIAS_DO_BLOCO,
   ehCompromissoFinanceiro,
   classificarLancamentoDeDespesa,
   ordemNoBloco,
@@ -151,30 +151,25 @@ function acrescentaBlocoDeCustoDosProdutos(
   return exibidoPorMes
 }
 
-/**
- * Acrescenta o SUBTOTAL do bloco Compromissos Financeiros dentro de Despesa Fixa — §7.
+/*
+ * O SUBTOTAL DO BLOCO SAIU DO HUB — §A do adendo de 02/10/2026.
  *
- * >>> ELE NÃO ENTRA EM SOMA NENHUMA <<<
- * O total do grupo vem de `expenseByGroupByMonth`, que já tem o valor das categorias. Esta
- * linha é a soma DELAS, marcada com `apenasApresentacao` para que o próximo consumidor que
- * resolver somar sub-rows não conte o bloco duas vezes.
+ * `acrescentaSubtotalDoBloco` existia para somar as cinco categorias dentro de Despesa Fixa,
+ * onde elas moravam: a linha era o único lugar em que o bloco aparecia como bloco.
  *
- * Sem compromisso lançado no período, nada é acrescentado: um subtotal de R$ 0,00 afirmaria
- * que a empresa não tem compromisso, quando o que há é ausência de lançamento
- * (`ausente-vs-falso.md`).
+ * Com o §0 elas passaram a ter GRUPO PRÓPRIO, e com o §A esse grupo tem O MESMO NOME do bloco
+ * — "Compromissos Financeiros". O cabeçalho do grupo É o subtotal. Emitir a linha também
+ * imprimiria o mesmo rótulo com o mesmo número duas vezes na mesma coluna, que é a leitura
+ * dupla que o `apenasApresentacao` da própria função existia para evitar.
+ *
+ * >>> O BLOCO NÃO FOI REMOVIDO: ELE FOI PROMOVIDO <<<
+ *
+ * O §2.3 do comando diz que o bloco de apresentação não se substitui, não se move e não se
+ * renomeia. Ele continua existindo, com o rótulo idêntico, no optgroup do seletor de despesa e
+ * no DRE anual (`dre-ano-entradas.ts`), os dois intocados — e no HUB ele deixou de ser uma
+ * sub-linha de outro grupo para ser o grupo. Nenhum rótulo mudou.
  */
-function acrescentaSubtotalDoBloco(
-  expenseByCategoryByMonth: Record<string, { group: string; values: HubMonthData }>,
-) {
-  const subtotal: HubMonthData = {}
-  for (const c of CATEGORIAS_DO_BLOCO) {
-    const dados = expenseByCategoryByMonth[c.category]
-    if (!dados) continue
-    for (const [m, v] of Object.entries(dados.values)) subtotal[m] = (subtotal[m] || 0) + v
-  }
-  if (Object.keys(subtotal).length === 0) return
-  expenseByCategoryByMonth[LABEL_DO_BLOCO] = { group: 'DESPESA_FIXA', values: subtotal }
-}
+
 
 // Mapa de categoryKey → order (para ordenação)
 const CATEGORY_ORDER_MAP: Record<string, number> = Object.fromEntries(
@@ -355,7 +350,6 @@ export async function calculateHubData(tenantId: string): Promise<HubData> {
     expenseByCategoryByMonth, custoProdutosBrutoPorMes, creditoDeCompraPorMes,
     tributosDaCompraPorMes, regimeDoTenant,
   )
-  acrescentaSubtotalDoBloco(expenseByCategoryByMonth)
 
   // Lista de meses ordenados que tiveram algum lançamento
   const allMonthsSet = new Set<string>([
@@ -588,7 +582,6 @@ export async function calculateHubDataPrevMonth(tenantId: string): Promise<HubDa
     expenseByCategoryByMonth, custoProdutosBrutoPorMes, creditoDeCompraPorMes,
     tributosDaCompraPorMes, regimeDoTenant,
   )
-  acrescentaSubtotalDoBloco(expenseByCategoryByMonth)
 
   const allMonthsSet = new Set<string>([
     ...Object.keys(incomeByMonth),
@@ -673,6 +666,14 @@ export function extractStructurePercents(
 ): {
   indirect_labor_percent: number
   fixed_expense_percent: number
+  /**
+   * COMPROMISSOS FINANCEIROS — §0 e §1 do comando de 02/10/2026.
+   *
+   * O percentual que SAIU de `fixed_expense_percent` e virou termo próprio. A soma dos dois é
+   * BIT-EXACT ao `fixed_expense_percent` de antes desta rodada — é o invariante que mantém o
+   * preço idêntico, e ele é afirmado em teste.
+   */
+  financial_commitments_percent: number
   variable_expense_percent: number
   financial_expense_percent: number
   production_labor_cost_percent: number
@@ -733,6 +734,38 @@ export function extractStructurePercents(
 
   const commissionsHub = findPct('COMISSOES')
 
+  const somaDoGrupo = (group: string) => hubData.rows.find((r) => r.group === group)?.totalSum ?? 0
+
+  /**
+   * `findPct`, mas com o compromisso SOMADO DE VOLTA a `DESPESA_FIXA`.
+   *
+   * >>> POR QUE RECONSTRUIR O GRUPO, E NÃO SOMAR OS DOIS `findPct` <<<
+   *
+   * `findPct` devolve `row.averagePct / 100`, que **já está arredondado** a 1e-4 por linha. Com
+   * o compromisso em grupo próprio, `findPct('DESPESA_FIXA') + findPct('COMPROMISSO…')` é a
+   * soma de DUAS parcelas arredondadas, e ela pode diferir do valor único de antes em 1e-4.
+   *
+   * 1e-4 no divisor MOVE O PREÇO, e o §0 chama isso de defeito. Reconstruindo o `totalSum` do
+   * grupo e arredondando UMA vez, esta função devolve para `DESPESA_FIXA` exatamente o número
+   * que devolvia antes de o bloco sair de lá.
+   */
+  const findPctComOsCompromissosDeVolta = (group: string) => {
+    if (group !== 'DESPESA_FIXA') return findPct(group)
+    const soma = somaDoGrupo('DESPESA_FIXA') + somaDoGrupo(BLOCO_COMPROMISSOS)
+    if (base != null) return soma / base
+    return hubData.totalIncome > 0 ? Math.round((soma / hubData.totalIncome) * 10000) / 10000 : 0
+  }
+
+  /**
+   * A BASE DA DESPESA FIXA **COM** O COMPROMISSO — na forma EXATA de antes desta rodada:
+   * `findPct` por grupo, somados, e só então arredondados pelo chamador.
+   */
+  const pctDaBaseDaDespesaFixaComOsCompromissos =
+    GRUPOS_DA_BASE_DA_DESPESA_FIXA.reduce((acc, g) => acc + findPctComOsCompromissosDeVolta(g), 0)
+
+  /** Só o compromisso. Zero quando não há lançamento — e aí a fixa fica igual à de antes. */
+  const pctDosCompromissosFinanceiros = findPct(BLOCO_COMPROMISSOS)
+
   return {
     indirect_labor_percent: Math.round(moAdmin * 10000) / 10000,
       // >>> A BASE DA DESPESA FIXA INCLUI OS COMPROMISSOS FINANCEIROS — §5 do comando <<<
@@ -750,8 +783,31 @@ export function extractStructurePercents(
     // os dois grupos separados e um já dobrado dão o MESMO número.
     //
     // `INVESTIMENTO` NUNCA entra: ele só acontece se sobrar dinheiro, e sai do lucro.
-    fixed_expense_percent:
-      Math.round(GRUPOS_DA_BASE_DA_DESPESA_FIXA.reduce((acc, g) => acc + findPct(g), 0) * 10000) / 10000,
+    // >>> E O COMPROMISSOS FINANCEIROS SAI DELA, SEM MUDAR A SOMA — §0 de 02/10/2026 <<<
+    //
+    // `classificarLancamentoDeDespesa` passou a ler as categorias do bloco em
+    // `COMPROMISSOS_FINANCEIROS`, então `findPct('DESPESA_FIXA')` já vem SEM elas.
+    // `findPctComOsCompromissosDeVolta` as soma de volta ANTES do arredondamento — ver a nota
+    // dela, que é a razão de não bastar somar dois `findPct`.
+    //
+    // >>> POR QUE ARREDONDAR O TOTAL E SUBTRAIR, EM VEZ DE ARREDONDAR CADA UM <<<
+    //
+    // `round4(a) + round4(b)` pode diferir de `round4(a + b)` em 1e-4 — e 1e-4 no divisor MOVE
+    // O PREÇO. O §0 chama isso de defeito, não de arredondamento. Com o total arredondado uma
+    // vez e o compromisso subtraído dele em unidades inteiras de 1e-4, a soma das duas parcelas
+    // é IGUAL AO CENTAVO ao `fixed_expense_percent` que esta função devolvia antes, qualquer
+    // que seja a divisão entre elas.
+    ...(() => {
+      const totalMil = Math.round(pctDaBaseDaDespesaFixaComOsCompromissos * 10000)
+      // O clamp não é defensividade decorativa: `findPct` pode devolver um compromisso maior
+      // que o total se um lançamento negativo zerar a fixa, e um `fixed_expense_percent`
+      // negativo entraria no divisor como se fosse receita.
+      const compMil = Math.min(Math.max(Math.round(pctDosCompromissosFinanceiros * 10000), 0), Math.max(totalMil, 0))
+      return {
+        fixed_expense_percent: (totalMil - compMil) / 10000,
+        financial_commitments_percent: compMil / 10000,
+      }
+    })(),
     variable_expense_percent: Math.round(findPct('DESPESA_VARIAVEL') * 10000) / 10000,
     financial_expense_percent: Math.round(findPct('DESPESA_FINANCEIRA') * 10000) / 10000,
     // REVENDA: já contabilizada dentro de `indirect_labor_percent` — devolver aqui de novo
