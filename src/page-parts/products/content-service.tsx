@@ -8,6 +8,7 @@ import { ColumnsType } from 'antd/es/table'
 import { CalcBaseType } from '@/types/calc-base.type'
 import { LoggedUser } from '@/types/logged-user.type'
 import { ProductPriceInfoType } from './content.component'
+import { LABEL_DO_BLOCO } from '@/utils/compromissos-financeiros'
 import { getMonetaryValue } from '@/utils/get-monetary-value'
 import { Input } from 'antd'
 import { useDevice } from '@/contexts/device.context'
@@ -80,6 +81,27 @@ export const ContentService: FC<ContentServiceProps> = ({
   const svcLaborPct = svcTotal > 0 ? Number(((svcLaborVal / svcTotal) * 100).toFixed(3)) : 0
   const svcFixedPct = calcBase.fixedExpensePct
   const svcFixedVal = productPriceInfo.fixedExpensePrice
+  /*
+    COMPROMISSOS FINANCEIROS NO SERVIÇO — DENOMINADOR, não numerador. ADENDO 3, 02/10/2026.
+
+    >>> ISTO REVERTE O ADENDO 2, E A REVERSÃO É O PONTO <<<
+
+    No ADENDO 2 o compromisso foi devolvido ao R$ de "Mão de obra produtiva" para a barra de
+    composição fechar: ele estava no custo por minuto, e tinha encolhido. O dono do produto
+    decidiu outra coisa:
+
+      > Compromisso financeiro ele vai no denominador, na margem de contribuição.
+      > Para serviço pode alterar o preço.
+
+    Então ele NÃO pertence mais ao numerador — sai de `combinedLaborPrice` e de `svcExpenses`, e
+    entra em `svcTotalPct`, que é a soma que a linha "Margem de contribuição total aplicada"
+    publica. A barra fecha SEM ele no pacote da mão de obra porque ele agora é uma fatia
+    própria, deduzida do preço como variável e financeira.
+
+    A DESPESA FIXA fica onde estava: numerador, dentro do custo por minuto. §1 é explícito —
+    "Não mexa nela".
+  */
+  const svcCompromissoVal = productPriceInfo.financialCommitmentsPrice
   const svcVarPct = calcBase.variableExpensePct
   const svcVarVal = productPriceInfo.variableExpensePrice
   const svcFinPct = calcBase.financialExpensePct
@@ -92,11 +114,15 @@ export const ContentService: FC<ContentServiceProps> = ({
   const svcRtPct = Number(productPriceInfo.rtReservePercent) || 0
   const svcRtVal = productPriceInfo.rtReservePrice || 0
   /* MO indireta + Despesa fixa agora contabilizados dentro de MO produtiva */
-  const svcTotalPct = svcVarPct + svcFinPct + svcRtPct + svcTaxPct + svcCommPct + svcProfitPct
+  // ADENDO 3 §3: o compromisso entra DENTRO da soma, porque agora é dedução de verdade do
+  // divisor. A MC exibida MUDA de valor — é consequência do §1, não erro.
+  const svcCompromissoPct = calcBase.financialCommitmentsPct
+  const svcTotalPct = svcVarPct + svcFinPct + svcCompromissoPct + svcRtPct + svcTaxPct + svcCommPct + svcProfitPct
   const svcCost = productPriceInfo.productCost
-  const svcExpenses = svcLaborVal + svcFixedVal + svcVarVal + svcFinVal
+  const svcExpenses = svcLaborVal + svcFixedVal + svcVarVal + svcFinVal + svcCompromissoVal
   const svcTaxes = svcTaxVal
-  /* Valor combinado de MO produtiva (direta + indireta + despesa fixa) */
+  /* Valor combinado de MO produtiva (direta + indireta + despesa fixa). O COMPROMISSO saiu
+     daqui no ADENDO 3: ele é linha própria da MC, abaixo. */
   const combinedLaborPrice = productPriceInfo.productWorkloadInMinutesPrice + svcLaborVal + svcFixedVal
 
   /* ---- product pricing data (V2: single tax) ---- */
@@ -260,6 +286,11 @@ export const ContentService: FC<ContentServiceProps> = ({
             <tbody>
               {pricingRow('Despesas variáveis', svcVarPct, svcVarVal)}
               {pricingRow('Despesas financeiras', svcFinPct, svcFinVal)}
+              {/* A POSIÇÃO é a do §1 do ADENDO 2: depois de "Despesas financeiras", antes de
+                  "RT". A tabela do serviço tem TRÊS colunas e não tem "% Efetivo" — não se
+                  inventa a coluna (§3 do ADENDO 3). */}
+              {pricingRow(LABEL_DO_BLOCO, svcCompromissoPct, svcCompromissoVal, undefined,
+                'Parcela de financiamento, empréstimo, consórcio, amortização de principal e aporte programado. Vencem mesmo sem venda, então o preço precisa cobri-las. Até 02/10/2026 entrava no custo por minuto, junto das despesas fixas; agora é dedução da margem de contribuição, como as despesas variáveis e financeiras. Está em um lugar só.')}
               {pricingRow(svcTaxLabel, svcTaxPct, svcTaxVal)}
               {pricingRow('RT — Comissão Reserva Técnica', svcRtPct, svcRtVal, 'rtReservePercent', 'Reserva Técnica: dedução gerencial paralela à comissão e ao lucro. Alíquota congelada na cascata (não varia com desconto). Deixe 0% se não aplicável.')}
               {pricingRow('Comissão / Mão de obra', svcCommPct, svcCommVal, 'salesCommissionPercent')}

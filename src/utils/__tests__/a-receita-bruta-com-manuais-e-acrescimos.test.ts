@@ -51,7 +51,8 @@ import { buildCascadeView, totalExibidoDaView } from '@/utils/cascade-display-vi
 import { readFileSync } from 'fs'
 import { join } from 'path'
 
-const BALDES = { fixa: 0.1489, variavel: 0.0556, financeira: 0.0056, indireta: 0.0756, moProdutiva: 0 }
+const BALDES = { fixa: 0.1489, compromisso: 0, // §0 de 02/10/2026: sem compromisso lançado neste cenário — a soma é a de antes
+    variavel: 0.0556, financeira: 0.0056, indireta: 0.0756, moProdutiva: 0 }
 const DESCONTO = 0.05
 
 const prod = (key: string, unitPrice: number, custo: number, acrescimos: number): BudgetDecompositionItem => ({

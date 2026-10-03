@@ -78,7 +78,18 @@ describe('o `default` silencioso — o caso que quebra se um grupo novo for esqu
 
     it('AMORTIZACAO tem `case` próprio — não cai no default nem vira subitem de LUCRO', () => {
         expect(DFC).toContain("case 'AMORTIZACAO':")
-        expect(DFC).toContain('data.amortizacao[monthKey] += entry.amount')
+        /*
+          O BALDE MUDOU EM 02/10/2026, e o `case` ficou. A amortização virou UMA das cinco
+          subcategorias de `COMPROMISSOS_FINANCEIROS`: nenhuma categoria declara `AMORTIZACAO`,
+          e um lançamento que ainda chegue com esse grupo gravado é dado anterior à migração
+          `20261002000002`. Ele soma no balde do BLOCO, não num próprio — um balde separado
+          voltaria a exigir a soma de dois na linha do DRE.
+
+          O CRITÉRIO é o mesmo e é o único que importa aqui: o grupo NÃO cai no `default`, onde
+          o valor desapareceria da demonstração sem erro nenhum.
+        */
+        expect(DFC).toContain('data.compromissosFinanceiros[monthKey] += entry.amount')
+        expect(DFC).not.toContain('data.amortizacao[monthKey] += entry.amount')
     })
 
     it('LUCRO e OUTROS ficam fora de `DFC_GROUPS_QUE_SOMAM` — decisão, não esquecimento', () => {
@@ -193,10 +204,23 @@ describe('DEVOLUÇÕES — estorno de receita, não despesa', () => {
 describe('AMORTIZAÇÃO — categoria própria, depois do resultado operacional', () => {
     const amort = CASHIER_CATEGORY.EXPENSE.AMORTIZACAO as { key: string; value: string; group: ExpenseGroupKey }
 
-    it('tem GRUPO PRÓPRIO, e não é subitem de LUCRO', () => {
-        // Se fosse LUCRO, sumiria: aquele grupo é descartado da demonstração.
-        expect(amort.group).toBe('AMORTIZACAO')
+    /*
+      ═══ REESCRITO EM 02/10/2026: ELA É SUBCATEGORIA, NÃO GRUPO ═══
+
+      O caso afirmava `group === 'AMORTIZACAO'` — grupo próprio para a amortização. Era o estado
+      certo sob a regra da época: não havia grupo de Compromissos Financeiros para onde ela
+      pudesse ir, e o único jeito de ela não virar subitem de `LUCRO` (que a Análise descarta)
+      era ter grupo seu.
+
+      Agora ela é UMA das cinco subcategorias de `COMPROMISSOS_FINANCEIROS`. O CRITÉRIO é o
+      mesmo e está preservado inteiro: ela não é `LUCRO` (sumiria da demonstração) e não é
+      despesa operacional.
+    */
+    it('é SUBCATEGORIA de Compromissos Financeiros, e não grupo próprio nem subitem de LUCRO', () => {
+        expect(amort.group).toBe('COMPROMISSOS_FINANCEIROS')
         expect(amort.group).not.toBe('LUCRO')
+        // E nem grupo próprio: dois grupos para uma categoria só era o defeito.
+        expect(amort.group).not.toBe('AMORTIZACAO')
         expect(amort.value).toContain('Amortização')
     })
 
@@ -206,19 +230,44 @@ describe('AMORTIZAÇÃO — categoria própria, depois do resultado operacional'
         expect(amort.group).not.toBe('DESPESA_VARIAVEL')
     })
 
+    /*
+      ═══ ÂNCORAS REESCRITAS EM 02/10/2026 — §B do adendo ═══
+
+      Elas contavam `buildRow('amortizacao'` três vezes no arquivo-fonte. A amortização deixou de
+      dar nome à linha: ela é UMA das cinco subcategorias do bloco, e a linha passou a ser a da
+      CATEGORIA — "(-) Compromissos Financeiros". Com isso o bloco de três cópias virou UMA
+      função chamada pelas três variantes (`copia-divergente.md`: o remédio não é conferir as
+      três, é ter uma), e contar `buildRow` não mede mais nada.
+
+      O CRITÉRIO É O MESMO, e ficou mais forte: a linha existe nas três e as três a subtraem.
+      O que se conta agora é a CHAMADA, que é o que garante as três de uma vez.
+
+      >>> E O EFEITO — valor, posição e rótulo — É AFIRMADO EM OUTRO LUGAR <<<
+
+      Este arquivo afirma o ARQUIVO-FONTE por casamento de string, que é a variante 3 de
+      `teste-que-nao-exercita.md` e está registrada como tal em
+      `dfc-devolucoes-linha-propria.test.ts`. O efeito da linha é afirmado lá e em
+      `compromissos-financeiros-na-precificacao.test.ts`, com as três `buildDre*` exportadas:
+      valor da linha, índice contra o Lucro Líquido, rótulo e subcategorias.
+    */
     it('a linha existe nas TRÊS variantes — a regra é do NEGÓCIO, não do regime', () => {
-        expect(DFC.split("buildRow('amortizacao'").length - 1).toBe(3)
+        expect(DFC.split('pushCompromissosFinanceiros(rows, agg, baseAV)').length - 1).toBe(3)
+        // E ela é UMA função, não três cópias: a declaração aparece uma vez só.
+        expect(DFC.split('function pushCompromissosFinanceiros(').length - 1).toBe(1)
     })
 
-    it('as TRÊS subtraem a amortização do resultado final', () => {
+    it('as TRÊS subtraem a linha do resultado final', () => {
         // Exibir a linha sem subtrair seria a variante 3 de `teste-que-nao-exercita`: a linha
-        // aparece e não tem efeito. As três precisam levá-la ao total.
-        expect(DFC.split('agg.amortizacao,\n  )').length - 1).toBe(2) // as duas com subtração aninhada
-        expect(DFC).toContain('subtractMonths(resultadoFinanceiro, agg.amortizacao)')
+        // aparece e não tem efeito. As três precisam levá-la ao total — e, como a função
+        // DEVOLVE o valor, o que se confere é que as três usam o retorno.
+        expect(DFC.split('    compromissos,\n  )').length - 1).toBe(2) // as duas com subtração aninhada
+        expect(DFC).toContain('subtractMonths(resultadoFinanceiro, compromissosLr)')
     })
 
     it('a resolução por chave devolve o grupo certo', () => {
-        expect(getDefaultGroupForCategory('AMORTIZACAO')).toBe('AMORTIZACAO')
+        // A CHAVE segue `AMORTIZACAO` — é ela que o seletor e o dado gravado usam. O GRUPO é
+        // que deixou de ser `AMORTIZACAO` em 02/10/2026.
+        expect(getDefaultGroupForCategory('AMORTIZACAO')).toBe('COMPROMISSOS_FINANCEIROS')
     })
 })
 

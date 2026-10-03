@@ -51,7 +51,8 @@ const RBT12 = 100_000
 const ANO = 2027
 
 const baldes = (over: Partial<BaldesDeDespesa>): BaldesDeDespesa =>
-  ({ fixa: 0, variavel: 0, financeira: 0, indireta: 0, moProdutiva: 0, ...over })
+  // `compromisso: 0` — §0 de 02/10/2026: sem compromisso neste cenário, a soma é a de antes.
+  ({ fixa: 0, compromisso: 0, variavel: 0, financeira: 0, indireta: 0, moProdutiva: 0, ...over })
 
 const item = (
   key: string, c: ReturnType<typeof construirPrecoHibrido>,

@@ -31,6 +31,14 @@ export interface ServicePriceInput {
     /** Despesas fixas em R$/mês — entram no custo por minuto, não no coeficiente. */
     fixed_expense_monthly?: number
     fixed_expense_percent?: number
+    /**
+     * COMPROMISSOS FINANCEIROS em % — ADENDO 3, 02/10/2026.
+     *
+     * No serviço ele entra no COEFICIENTE, não no custo por minuto. Ausente contribui ZERO, e
+     * isso é o certo e não um default conveniente: enquanto a coluna não existir no banco,
+     * `fixed_expense_monthly` ainda o contém, e somá-lo aqui o contaria duas vezes.
+     */
+    financial_commitments_percent?: number
     variable_expense_percent?: number
     financial_expense_percent?: number
   } | null
@@ -107,10 +115,19 @@ export function computeServiceSellingPrice(input: ServicePriceInput): ServicePri
 
   const variablePct = Number(cfg.variable_expense_percent) || 0
   const financialPct = Number(cfg.financial_expense_percent) || 0
-  // Só variável + financeira, como na tela de cadastro. As despesas FIXAS já estão
-  // dentro do custo por minuto (`fixedMonthlyTotal`): somá-las também no coeficiente
-  // seria cobrar o mesmo dinheiro duas vezes.
-  const structurePct = (variablePct + financialPct) / 100
+  /*
+    COMPROMISSOS FINANCEIROS NO DENOMINADOR — ADENDO 3, 02/10/2026.
+
+    Variável + financeira + COMPROMISSO. As despesas FIXAS continuam fora: elas já estão dentro
+    do custo por minuto (`fixedMonthlyTotal`), e somá-las aqui seria cobrar o mesmo dinheiro
+    duas vezes. O COMPROMISSO deixou de estar lá — `mediaMensalDaDespesaFixa` em
+    `recalc-expense-config.ts` é a outra metade desta mudança.
+
+    Ele fica em UM lugar só: se continuar em `fixed_expense_monthly` E aqui, é a dupla contagem
+    (mutação S1). Se sair de lá e não entrar aqui, o preço do serviço CAI e nada acusa (S2).
+  */
+  const compromissosPct = Number(cfg.financial_commitments_percent) || 0
+  const structurePct = (variablePct + financialPct + compromissosPct) / 100
 
   const taxesPct = input.taxPreview?.taxesPercent ?? 0
   const taxPct = (taxesPct + input.taxableRegimePercent) / 100
@@ -136,6 +153,7 @@ export function computeServiceSellingPrice(input: ServicePriceInput): ServicePri
     expenseSnapshot: buildServiceExpenseSnapshot({
       variavelPct: variablePct,
       financeiraPct: financialPct,
+      compromissosPct,
       custoPorMinuto: monthlyWorkloadMinutes > 0
         ? combinedLaborCostMonthly / monthlyWorkloadMinutes
         : 0,

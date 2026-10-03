@@ -75,7 +75,7 @@ const comDevolucao = (): AggregatedData => ({
     maoDeObraProdutiva: mes(1_100),
     maoDeObraAdministrativa: mes(1_200),
     maoDeObra: { ...ZERO },
-    despesaFixa: mes(1_300),
+    despesaFixa: mes(1_300 - 400),
     despesaVariavel: mes(1_400),
     despesaFinanceira: mes(1_500),
     comissoes: mes(1_600),
@@ -83,7 +83,22 @@ const comDevolucao = (): AggregatedData => ({
     custoProduto: mes(20_000),
     impostosRecuperaveisCusto: mes(900),
     atividadesTerceirizadas: mes(800),
-    amortizacao: mes(2_500),
+    /*
+      >>> O VALOR SAI DA DESPESA FIXA, NÃO SE SOMA A ELA — §0 <<<
+
+      No pipeline real `aggregateEntries` roteia as cinco categorias para `compromissosFinanceiros`
+      e NÃO para `despesaFixa`: o total não muda, o valor só troca de linha. Um fixture que
+      acrescentasse o balde novo SEM tirar da fixa criaria uma dedução que não existe, e foi
+      exatamente assim que o Lucro Líquido deste arquivo caiu de R$ 46.700,00 para R$ 42.700,00
+      na primeira tentativa — o caso pegou.
+
+      Com a subtração, o Lucro Líquido fica INTACTO, e é isso que o §0 exige da demonstração: a
+      linha muda de lugar, o resultado não muda de valor.
+    */
+    // 400 das categorias do bloco + 2.500 que vinham do balde `amortizacao`, que deixou de
+    // existir em 02/10/2026: o `case 'AMORTIZACAO'` soma no MESMO balde.
+    compromissosFinanceiros: mes(400 + 2_500),
+    compromissoPorCategoria: { 'Empréstimos': mes(150), 'Consórcios': mes(250) },
     // REPASSE (17/09/2026) — valor DIFERENTE de todos os outros, pela mesma razão do
     // cabeçalho: se coincidisse com outro, um caso poderia somar a linha errada sem que a
     // asserção percebesse. A linha nova é afirmada em
@@ -309,17 +324,39 @@ describe('AMORTIZAÇÃO — a mesma armadilha, e ela JÁ ESTAVA NO `main`', () =
         { nome: 'Simples Nacional', build: (a: AggregatedData) => buildDreSimplesNacional(a, 'RESALE') },
     ]
 
+    /*
+      ═══ A ÂNCORA MUDOU DE CHAVE EM 02/10/2026 — §B do adendo ═══
+
+      A linha era `'amortizacao'` e se chamava "(-) Amortização de Dívida (principal)". Amortização
+      é UMA das cinco subcategorias do bloco, ao lado de Financiamentos, Empréstimos, Consórcios e
+      Aplicações — ela não dá nome à linha. A linha passou a ser a da CATEGORIA,
+      `'compromissos_financeiros'`, e o valor dela é a soma de tudo o que vence sem venda.
+
+      O CRITÉRIO DOS DOIS CASOS NÃO MUDOU: a linha carrega VALOR (não só existe) e vem DEPOIS do
+      resultado operacional. Mudou a chave, e o valor passou a incluir as duas origens.
+
+      >>> E O PAR NOVO: A AMORTIZAÇÃO NÃO DESAPARECEU <<<
+
+      A fixture traz `amortizacao: 2.500` no grupo `AMORTIZACAO` e `compromissosFinanceiros: 400`
+      nas categorias do bloco. A linha soma os DOIS — 2.900. Se ela lesse só o balde das
+      categorias, os 2.500 sairiam da demonstração sem erro nenhum, que é a armadilha que o
+      cabeçalho deste describe inteiro existe para pegar.
+    */
     it.each(VARIANTES_COM_AMORTIZACAO)('$nome: a linha carrega o VALOR, não só existe', ({ build }) => {
-        const l = linha(build(comAmortizacao()), 'amortizacao')
+        const l = linha(build(comAmortizacao()), 'compromissos_financeiros')
         expect(l).toBeDefined()
-        expect(l!.values.jan).toBe(2_500)
+        // 2.500 do grupo AMORTIZACAO + 400 das categorias do bloco. Nenhum dos dois se perde.
+        expect(l!.values.jan).toBe(2_900)
+        expect(l!.label).toContain('Compromissos Financeiros')
+        // E a subcategoria continua existindo COMO SUBCATEGORIA, indentada abaixo.
+        expect(linha(build(comAmortizacao()), 'amortizacao')).toBeUndefined()
     })
 
     it.each(VARIANTES_COM_AMORTIZACAO)('$nome: vem DEPOIS do resultado operacional', ({ build }) => {
         // O requisito do #58: amortização não é despesa operacional, entra depois do resultado.
         // Afirmar isso por índice é o que o casamento de string não conseguia fazer.
         const rows = build(comAmortizacao())
-        const iAmort = indice(rows, 'amortizacao')
+        const iAmort = indice(rows, 'compromissos_financeiros')
         const iOperacional = ['lucro_operacional', 'resultado_financeiro', 'resultado_antes_imposto']
             .map((k) => indice(rows, k))
             .filter((i) => i !== -1)
@@ -331,11 +368,13 @@ describe('AMORTIZAÇÃO — a mesma armadilha, e ela JÁ ESTAVA NO `main`', () =
         // O caso decisivo: exibir a linha sem subtrair é a variante 3 outra vez. Comparar o
         // total COM e SEM amortização prova o efeito — a diferença tem de ser exatamente 2.500.
         const rows = build(comAmortizacao())
-        const semAmort = build({ ...comAmortizacao(), amortizacao: { ...ZERO } })
+        const semAmort = build({ ...comAmortizacao(), compromissosFinanceiros: { ...ZERO }, compromissoPorCategoria: {} })
         expect(indice(rows, 'amortizacao')).toBeLessThan(indice(rows, 'lucro_liquido'))
         const comTotal = linha(rows, 'lucro_liquido')!.values.jan
         const semTotal = linha(semAmort, 'lucro_liquido')!.values.jan
-        expect(semTotal - comTotal).toBe(2_500)
+        // 2.900 = 2.500 que vinham do grupo `AMORTIZACAO` + 400 das categorias do bloco. O
+        // `semAmort` agora zera o balde do bloco inteiro, porque é nele que os dois entram.
+        expect(semTotal - comTotal).toBe(2_900)
     })
 
     it.each(VARIANTES_COM_AMORTIZACAO)('$nome: NÃO está somada nas despesas operacionais', ({ build }) => {

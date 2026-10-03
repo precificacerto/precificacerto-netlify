@@ -25,6 +25,7 @@ import { ROUTES } from '@/constants/routes'
 import { calculatePricing } from '@/utils/pricing-engine'
 import { buildProductConstruction } from '@/utils/product-price-construction'
 import { buildServiceExpenseSnapshot } from '@/utils/service-expense-snapshot'
+import { LABEL_DO_BLOCO } from '@/utils/compromissos-financeiros'
 import { computeIvaDualOutside } from '@/utils/iva-dual-outside'
 import { resolveIvaDualEffectiveRate } from '@/utils/item-tax-rates'
 import {
@@ -347,9 +348,20 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
         const variablePct = Number(cfg.variable_expense_percent) || 0
         const financialPct = Number(cfg.financial_expense_percent) || 0
         const indirectLaborPct = Number(cfg.indirect_labor_percent) || 0
-        // Para serviços: fixedPct e indirectLaborPct são incorporados no custo por minuto
-        // Não entram no coeficiente de markup para evitar dupla contagem
-        const structurePct = (variablePct + financialPct) / 100
+        /*
+          COMPROMISSOS FINANCEIROS NO DENOMINADOR — ADENDO 3, 02/10/2026.
+
+          `fixedPct` e `indirectLaborPct` seguem FORA: no serviço os dois são incorporados no
+          custo por minuto, em R$, e somá-los aqui seria dupla contagem. O COMPROMISSO deixou de
+          estar lá — `mediaMensalDaDespesaFixa` tirou-o de `fixed_expense_monthly` — e entra
+          aqui como termo próprio. Em UM lugar só.
+
+          Ausente contribui ZERO: enquanto a coluna `financial_commitments_percent` não existir
+          no banco, o `fixed_expense_monthly` recebido ainda o contém, e somá-lo aqui o contaria
+          duas vezes. É a mesma leitura de `build-calc-base.ts`.
+        */
+        const compromissosPct = Number((cfg as { financial_commitments_percent?: number }).financial_commitments_percent) || 0
+        const structurePct = (variablePct + financialPct + compromissosPct) / 100
 
         const taxesPct = taxPreview?.taxesPercent ?? 0
         const isLucroRealSvc = currentUser?.taxableRegime === 'LUCRO_REAL'
@@ -489,11 +501,13 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
         const csllValLP = isLucroPresumidoSvc ? priceUnit * csllPctLP / 100 : 0
         const adicionalIrpjValLR = isLRorLPSvc ? Number((priceUnit * additionalIrpjPercent / 100).toFixed(2)) : 0
 
-        // MO administrativa e Despesas fixas incorporadas no custo por minuto
+        // MO administrativa e Despesas fixas incorporadas no custo por minuto. O COMPROMISSO
+        // NÃO: ele é dedução do divisor desde o ADENDO 3, e por isso entra nos três ramos — a
+        // "Margem de contribuição aplicada" exibida passa a incluí-lo e MUDA de valor (§3).
         const totalPct = isLucroRealSvc
-            ? variablePct + financialPct + irpjPctLR + csllPctLR + additionalIrpjPercent + rtReservePercent + commissionPercent + profitPercent
+            ? variablePct + financialPct + compromissosPct + irpjPctLR + csllPctLR + additionalIrpjPercent + rtReservePercent + commissionPercent + profitPercent
             : isLucroPresumidoSvc
-              ? variablePct + financialPct + taxesPct + irpjPctLP + csllPctLP + additionalIrpjPercent + rtReservePercent + commissionPercent + profitPercent
+              ? variablePct + financialPct + compromissosPct + taxesPct + irpjPctLP + csllPctLP + additionalIrpjPercent + rtReservePercent + commissionPercent + profitPercent
               : markup.totalPct
         const isValid = result.isValid
 
@@ -514,10 +528,13 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
             expenseSnapshot: buildServiceExpenseSnapshot({
                 variavelPct: variablePct,
                 financeiraPct: financialPct,
+                compromissosPct,
                 custoPorMinuto: costPerMinute,
                 cargaHorariaMinutos: monthlyWorkloadMinutes,
             }),
             variablePct, financialPct, taxesPct,
+            compromissosPct,
+            compromissoVal: Number((priceUnit * compromissosPct / 100).toFixed(2)),
             variableVal,
             financialVal,
             taxesVal,
@@ -1180,6 +1197,10 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                         <tbody>
                             {pricingRow('Despesas variáveis', pricing.variablePct, pricing.variableVal)}
                             {pricingRow('Despesas financeiras', pricing.financialPct, pricing.financialVal)}
+                            {/* ADENDO 3 §3 — DENTRO da soma da MC. A posição é a do §1 do
+                                ADENDO 2: depois de "Despesas financeiras", antes de "RT". */}
+                            {pricingRow(LABEL_DO_BLOCO, pricing.compromissosPct, pricing.compromissoVal, undefined,
+                              'Parcela de financiamento, empréstimo, consórcio, amortização de principal e aporte programado. Vencem mesmo sem venda, então o preço precisa cobri-las. Até 02/10/2026 entrava no custo por minuto, junto das despesas fixas; agora é dedução da margem de contribuição. Está em um lugar só.')}
                             {isSN
                                 ? pricingRow(taxLabel, displayTaxPct, displayTaxVal, 'tax')
                                 : !isLpRetDisplay && !isSHDisplay && pricingRow(taxLabel, displayTaxPct, displayTaxVal)

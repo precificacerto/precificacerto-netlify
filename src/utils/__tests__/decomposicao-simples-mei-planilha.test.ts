@@ -31,7 +31,8 @@ import { resolveDespesasOperacionaisPct, resolveSegmentoDaDespesa, type BaldesDe
 
 // A planilha: MO produtiva 15% · MO indireta 8% · fixa 10% · variável 5% · financeira 2%
 // DAS 11% · RT 1% · comissão 5% · lucro 10%.
-const BALDES: BaldesDeDespesa = { fixa: 0.10, variavel: 0.05, financeira: 0.02, indireta: 0.08, moProdutiva: 0.15 }
+const BALDES: BaldesDeDespesa = { fixa: 0.10, compromisso: 0, // §0 de 02/10/2026: sem compromisso lançado neste cenário — a soma é a de antes
+    variavel: 0.05, financeira: 0.02, indireta: 0.08, moProdutiva: 0.15 }
 const DAS = 0.11
 const [RT, COM, LUC] = [0.01, 0.05, 0.10]
 

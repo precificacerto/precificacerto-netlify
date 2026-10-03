@@ -28,25 +28,96 @@
  * repetida em cada consumidor.
  */
 
-/** O rótulo do bloco, como ele aparece no seletor, no HUB e na Análise. */
+/**
+ * O NOME, e ele é UM SÓ em todo o sistema — §A do adendo de 02/10/2026.
+ *
+ * Decisão do dono do produto, de 02/10/2026. O nome que foi descartado
+ *
+ *   > SAI do vocabulário: não pode sobrar em rótulo, em chave de grupo, em comentário, em
+ *   > nome de teste nem em nome de arquivo.
+ *
+ * >>> E É POR ISSO QUE ELE NÃO ESTÁ ESCRITO AQUI <<<
+ *
+ * A citação acima é a única do repositório que teria razão para reproduzi-lo — e não o faz,
+ * porque a própria decisão diz "nem em comentário". Escrevê-lo para explicar que ele saiu
+ * deixaria o portão do §E com uma exceção, e exceção em portão é porta
+ * (`portao-que-nao-alcanca.md`). A frase operativa está literal; só o nome morto saiu.
+ *
+ * A razão é a do §2.4 do comando: *"Lá dentro do HUB não pode ter ambiguidade. Empréstimos vai
+ * só num lugar, investimentos vai só num lugar."* O rótulo já existia aqui desde 21/09/2026, e
+ * criar um segundo nome para a mesma coisa é a duplicidade que aquele parágrafo proíbe para as
+ * categorias — introduzida, nesta campanha, pelo próprio comando. O adendo a corrige.
+ *
+ * Este rótulo aparece IGUAL em: cadastro de categorias da precificação, lançamento de despesa
+ * do fluxo de caixa, HUB, Análise Financeira, linha do DRE e bloco de despesas da decomposição.
+ */
 export const LABEL_DO_BLOCO = 'Compromissos Financeiros'
 
-/** A chave do subgrupo de apresentação. NÃO é um `expense_group` — ver o aviso abaixo. */
+/**
+ * A CHAVE — do subgrupo de apresentação E do grupo DERIVADO de rateio.
+ *
+ * >>> UMA CONSTANTE, E NÃO DUAS COM O MESMO VALOR <<<
+ *
+ * Até o adendo havia `BLOCO_COMPROMISSOS` ao lado desta, com outro texto para a
+ * mesma coisa. Duas constantes com o mesmo papel são a cópia divergente em forma de nome: no
+ * dia em que uma mudasse, a outra ficaria para trás e nada falharia. Ficou uma.
+ *
+ * >>> ELA NÃO É UM `expense_group` GRAVADO <<<
+ *
+ * O `cash_entries.expense_group` das cinco categorias continua sendo `DESPESA_FIXA` ou
+ * `AMORTIZACAO`: a Análise Financeira contábil (`pages/dfc/`) lê o grupo gravado, e migrar os
+ * 45 lançamentos medidos em 02/10/2026 é o que o §4 do comando proíbe nesta rodada. Quem
+ * produz este grupo é a LEITURA — `classificarLancamentoDeDespesa`.
+ */
 export const BLOCO_COMPROMISSOS = 'COMPROMISSOS_FINANCEIROS'
 
 /**
- * >>> O GRUPO TÉCNICO DE CADA CATEGORIA **NÃO MUDA** <<<
+ * >>> O GRUPO TÉCNICO DAS CINCO PASSOU A SER UM — 02/10/2026 <<<
  *
- * `COMPROMISSOS_FINANCEIROS` é subgrupo de APRESENTAÇÃO e de RATEIO. O `expense_group` gravado
- * continua sendo `DESPESA_FIXA` ou `AMORTIZACAO`, porque a Análise Financeira (`dfc/`) depende
- * dele para pôr a amortização DEPOIS do resultado operacional. Trocar o grupo moveria a linha
- * de lugar na demonstração contábil — que é exatamente o que o §7 do comando proíbe.
+ * Até esta data o `expense_group` era `DESPESA_FIXA` em quatro e `AMORTIZACAO` na amortização,
+ * e o aviso que ficava aqui dizia que ele NÃO mudava: a Análise Financeira dependia do grupo
+ * gravado para pôr a amortização depois do resultado operacional, e trocá-lo moveria a linha.
+ *
+ * Aquilo estava certo sob a regra da época (`decisao-sob-regra-da-epoca.md`): não havia grupo
+ * próprio para onde mover. Agora há — `COMPROMISSOS_FINANCEIROS` —, e a linha da Análise é a
+ * da CATEGORIA, no mesmo lugar onde a amortização estava. Nada se move de posição; o que muda
+ * é que passa a haver UM grupo em vez de dois.
+ *
+ * >>> O DADO JÁ GRAVADO É ALINHADO POR MIGRAÇÃO, NÃO POR LEITURA <<<
+ *
+ * Os lançamentos existentes têm `DESPESA_FIXA` na coluna. A migração
+ * `20261002000002_compromissos_financeiros_grupo_unico.sql` os alinha, e até ela ser aplicada
+ * a leitura por CATEGORIA (`classificarLancamentoDeDespesa`) cobre os dois estados — é a ponte,
+ * não o remendo.
+ *
+ * O que torna a reclassificação legítima, contra o que a decisão de 21/09 dizia: o usuário
+ * escolhe a CATEGORIA, e o grupo é DERIVADO dela. Corrigir uma derivação não reescreve a
+ * escolha de ninguém, e por isso não é o caso que `fato-vs-referencia.md` protege.
  */
 export interface CategoriaDoBloco {
   /** O valor gravado em `cash_entries.expense_category` — é o RÓTULO, não uma chave. */
   category: string
-  /** O `expense_group` que ela mantém. */
-  group: 'DESPESA_FIXA' | 'AMORTIZACAO'
+  /**
+   * O `expense_group` da categoria — e ele é **UM SÓ** desde 02/10/2026.
+   *
+   * >>> ATÉ AQUI ERAM DOIS, E ERA O DEFEITO <<<
+   *
+   * Quatro categorias declaravam `DESPESA_FIXA` e a amortização declarava `AMORTIZACAO`: dois
+   * grupos técnicos para o que é UMA categoria. Formulação do dono do produto, registrada como
+   * está:
+   *
+   *   > Compromissos Financeiros é uma categoria só. As cinco são subcategorias dela. Nenhuma é
+   *   > despesa fixa. Amortização não é despesa fixa.
+   *   >
+   *   > Se a implementação ainda precisa somar "as categorias do bloco" mais "o grupo
+   *   > AMORTIZACAO", é porque as cinco não foram para um grupo só. Elas continuariam
+   *   > espalhadas em dois grupos, com a soma remendando por cima.
+   *
+   * O tipo é o literal ÚNICO de propósito: `'DESPESA_FIXA' | 'AMORTIZACAO'` deixava a divisão
+   * antiga representável, e o compilador aceitaria a próxima categoria declarando despesa fixa.
+   * Com um literal só, ela não cabe.
+   */
+  group: typeof BLOCO_COMPROMISSOS
   /**
    * `true` = rótulo LEGADO, que continua sendo lido mas não é mais oferecido no seletor.
    *
@@ -63,21 +134,46 @@ export interface CategoriaDoBloco {
 }
 
 /**
- * As CINCO categorias do bloco, mais os três rótulos legados que o banco já tem.
+ * As CINCO categorias do bloco, mais os dois rótulos legados que o banco já tem.
  *
  * "Aplicações / Consórcios" e "Empréstimos / Financiamentos" eram cada uma DUAS naturezas num
  * rótulo só. Desmembrar é o §3; manter os rótulos antigos lendo é o que impede que a
  * desmembração apague o passado.
+ *
+ * ───────────────────────────────────────────────────────────────────────────────────────────
+ * >>> POR QUE "APLICAÇÕES" É COMPROMISSO, E NÃO INVESTIMENTO <<<
+ *
+ * A citação está AQUI, no ponto onde a lista é declarada, e não só no documento da rodada,
+ * porque é aqui que alguém vem mexer. `razao-longe-da-restricao.md`: uma restrição declarada
+ * muda parece escolha arbitrária, e escolha arbitrária convida a ser alargada — foi exatamente
+ * o que aconteceu em 02/10/2026, quando se propôs mover "Aplicações" para o grupo
+ * `INVESTIMENTO` por ela estar ao lado de "Empréstimos".
+ *
+ * Formulação do dono do produto, registrada como está (02/10/2026):
+ *
+ *   > Investimento pode ser investimento estrutural, investimento em máquinas. E aplicações
+ *   > pode ser em CDI, em contas que podem render juros. São coisas diferentes.
+ *   >
+ *   > A aplicação é quando ela tem um valor que é direcionado a um vencimento. Eu fiz uma
+ *   > aplicação lá que eu vou pagar tanto por mês naquela aplicação.
+ *
+ * Ou seja: a "Aplicação" desta lista é **APORTE PROGRAMADO** — tem parcela que vence todo mês
+ * independentemente de venda, e por isso passa no MESMO critério do empréstimo. O investimento
+ * vira ativo e só acontece se sobrar; a aplicação é parcela contratada.
+ *
+ * Mover "Aplicações" para `INVESTIMENTO` tiraria do preço uma parcela que vence de qualquer
+ * jeito — e nada falharia, porque o preço só ficaria menor.
+ * ───────────────────────────────────────────────────────────────────────────────────────────
  */
 export const CATEGORIAS_DO_BLOCO: CategoriaDoBloco[] = [
-  { category: 'Amortização de Dívida (principal)', group: 'AMORTIZACAO' },
-  { category: 'Financiamentos', group: 'DESPESA_FIXA' },
-  { category: 'Empréstimos', group: 'DESPESA_FIXA' },
-  { category: 'Consórcios', group: 'DESPESA_FIXA' },
-  { category: 'Aplicações', group: 'DESPESA_FIXA' },
+  { category: 'Amortização de Dívida (principal)', group: BLOCO_COMPROMISSOS },
+  { category: 'Financiamentos', group: BLOCO_COMPROMISSOS },
+  { category: 'Empréstimos', group: BLOCO_COMPROMISSOS },
+  { category: 'Consórcios', group: BLOCO_COMPROMISSOS },
+  { category: 'Aplicações', group: BLOCO_COMPROMISSOS },
   // ── legados: lidos, não oferecidos ──
-  { category: 'Empréstimos / Financiamentos', group: 'DESPESA_FIXA', legado: true },
-  { category: 'Aplicações / Consórcios', group: 'DESPESA_FIXA', legado: true },
+  { category: 'Empréstimos / Financiamentos', group: BLOCO_COMPROMISSOS, legado: true },
+  { category: 'Aplicações / Consórcios', group: BLOCO_COMPROMISSOS, legado: true },
 ]
 
 /** Só as oferecidas no seletor — as cinco do §3, na ordem do bloco. */
@@ -101,15 +197,55 @@ export function ehCompromissoFinanceiro(category: string | null | undefined): bo
 }
 
 /**
- * OS GRUPOS QUE COMPÕEM A BASE DO RATEIO DE DESPESA FIXA — §5.
+ * OS GRUPOS QUE COMPÕEM A BASE DO RATEIO DE DESPESA FIXA.
  *
- * `AMORTIZACAO` entra porque TODAS as suas categorias são do bloco. Isso não é suposição: há
- * caso afirmando a cobertura, e ele fica vermelho no dia em que alguém criar uma categoria de
- * amortização que não seja compromisso — em vez de ela entrar no preço em silêncio.
+ * >>> `AMORTIZACAO` CONTINUA AQUI, E AGORA SEM NENHUMA CATEGORIA DECLARADA <<<
  *
- * As outras quatro categorias do bloco já são `DESPESA_FIXA` e já estavam na base.
+ * Em 21/09/2026 ela entrou porque TODAS as suas categorias eram do bloco. Desde 02/10/2026
+ * NENHUMA categoria declara `AMORTIZACAO`: as cinco foram para `COMPROMISSOS_FINANCEIROS`, que
+ * entra no divisor pelo termo PRÓPRIO (`capital`/`financial_commitments_percent`).
+ *
+ * Ela fica como REDE PARA DADO LEGADO, e a razão é o §0: tirá-la mudaria o percentual de um
+ * tenant que tivesse lançamento gravado naquele grupo com categoria fora do bloco — zero
+ * lançamentos medidos, mas um preço que se move é defeito, não efeito esperado. Mantida, a
+ * reconstrução de `extractStructurePercents` continua BIT-EXACT à de antes.
+ *
+ * E há caso afirmando que nenhuma categoria a declara: no dia em que alguém criar uma, o caso
+ * fica VERMELHO e a decisão volta à mesa, em vez de a categoria entrar no preço em silêncio por
+ * um grupo que ninguém lembra que existe.
  */
 export const GRUPOS_DA_BASE_DA_DESPESA_FIXA = ['DESPESA_FIXA', 'AMORTIZACAO'] as const
+
+// ───────────────────────────────────────────────────────────────────────────────────────────
+// O PERCENTUAL DO BLOCO NA PRECIFICAÇÃO — categoria independente, MESMO PERCENTUAL
+// ───────────────────────────────────────────────────────────────────────────────────────────
+
+/*
+ * §0 e §1 do comando de 02/10/2026. Formulação do dono do produto, registrada como está:
+ *
+ *   > Na construção, ele permanece o percentual que foi considerado sobre a resultante do
+ *   > faturamento. Aí então chegamos ao valor final do produto. Ponto. Na decomposição,
+ *   > quando fizer o abatimento dentro dos orçamentos, pedidos ou vendas, ele entra com o
+ *   > valor de origem, que é o valor congelado, o valor monetário, dentro das despesas, assim
+ *   > como acontece com a despesa fixa, a despesa variável, a despesa financeira.
+ *
+ * >>> A TRAVA: NENHUM PREÇO MUDA <<<
+ *
+ * O bloco JÁ ESTÁ dentro do preço hoje, dentro da despesa fixa. Ele sai de lá e vira termo
+ * próprio **com o mesmo percentual, no mesmo divisor** — a soma do divisor não muda, então o
+ * preço não muda. Qualquer produto que mude de preço é DEFEITO, não efeito esperado.
+ *
+ * >>> O QUE FOI DESCARTADO, E NÃO DEVE SER RESSUSCITADO <<<
+ *
+ * Uma especificação anterior punha o bloco como "componente do lucro-alvo", entrando no motor
+ * como "parâmetro de margem exigida", com gross-up de IRPJ/CSLL. ISSO FOI DESCARTADO pelo dono
+ * do produto em 02/10/2026. Não há gross-up, não há margem exigida, e não há parâmetro novo no
+ * motor além do percentual que já existia dentro da despesa fixa.
+ *
+ * Se essa formulação aparecer em algum documento do projeto, ela está VENCIDA.
+ *
+ * O rótulo é `LABEL_DO_BLOCO` e a chave é `BLOCO_COMPROMISSOS`, as duas no topo deste arquivo.
+ */
 
 /**
  * >>> INVESTIMENTO NUNCA ENTRA <<<
@@ -227,12 +363,22 @@ export interface ParteDoLancamento {
  * do formulário, que a recusa antes de gravar (`separarJurosEPrincipal().divergeDoTotal`), e
  * nunca um número que o HUB inventa para fechar.
  *
- * >>> O COMPROMISSO VAI PARA `DESPESA_FIXA`, INCLUSIVE O QUE ERA `AMORTIZACAO` <<<
+ * >>> O COMPROMISSO VAI PARA `COMPROMISSOS_FINANCEIROS` — mudou em 02/10/2026 <<<
  *
- * É o §7: *"a amortização deixa de aparecer em qualquer outro ponto do HUB/Análise: ela existe
- * só dentro do bloco"*. O `expense_group` GRAVADO não muda — quem muda de lugar é a leitura do
- * HUB. A Análise Financeira contábil (`pages/dfc/`) lê `cash_entries` direto e continua pondo
- * a amortização depois do resultado operacional.
+ * Até esta data ele ia para `DESPESA_FIXA`, pelo §7 do comando de 21/09/2026: *"a amortização
+ * deixa de aparecer em qualquer outro ponto do HUB/Análise: ela existe só dentro do bloco"*.
+ * Aquele destino cumpriu o que a regra da época pedia — ver `decisao-sob-regra-da-epoca.md`:
+ * a categoria independente ainda não existia, e o bloco dentro da Despesa Fixa era o nível de
+ * separação que havia.
+ *
+ * O §0 de 02/10/2026 pede o nível seguinte: *"Ele sai de lá e vira categoria própria, COM O
+ * MESMO PERCENTUAL, NO MESMO DIVISOR"*. O destino passa a ser `COMPROMISSOS_FINANCEIROS`, e o
+ * efeito é só de LUGAR — o valor é o mesmo, e a soma com a Despesa Fixa é a Despesa Fixa de
+ * antes.
+ *
+ * O `expense_group` GRAVADO continua intocado. A Análise Financeira contábil (`pages/dfc/`) lê
+ * `cash_entries` direto, e lá o compromisso é reconhecido pela CATEGORIA, antes do `switch` de
+ * grupo — o mesmo padrão que a RT, as comissões e o custo dos produtos já usam ali.
  */
 export function classificarLancamentoDeDespesa(entry: LancamentoDeDespesa): ParteDoLancamento[] {
   const total = n(entry.amount)
@@ -252,11 +398,11 @@ export function classificarLancamentoDeDespesa(entry: LancamentoDeDespesa): Part
   // Juros ausente (`null`) ou zero não abre linha: uma linha de R$ 0,00 em despesa financeira
   // afirmaria que houve juros e eles deram zero. Ausente não afirma nada.
   if (juros == null || juros === 0) {
-    return [{ group: 'DESPESA_FIXA', category: categoria, amount: total }]
+    return [{ group: BLOCO_COMPROMISSOS, category: categoria, amount: total }]
   }
 
   return [
-    { group: 'DESPESA_FIXA', category: categoria, amount: total - juros },
+    { group: BLOCO_COMPROMISSOS, category: categoria, amount: total - juros },
     { group: 'DESPESA_FINANCEIRA', category: CATEGORIA_JUROS, amount: juros, destacadaDoCompromisso: true },
   ]
 }

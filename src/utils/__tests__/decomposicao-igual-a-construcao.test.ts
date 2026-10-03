@@ -97,7 +97,8 @@ const item = (over: Partial<BudgetDecompositionItem> = {}): BudgetDecompositionI
 
 const montar = (items: BudgetDecompositionItem[], discountPct = 0) =>
   buildDecomposition(buildBudgetDecompositionInput({
-    items, discountPct, despesas: { fixa: DESPESAS_PCT, variavel: 0, financeira: 0, indireta: 0, moProdutiva: 0 },
+    items, discountPct, despesas: { fixa: DESPESAS_PCT, compromisso: 0, // §0 de 02/10/2026: sem compromisso lançado neste cenário — a soma é a de antes
+    variavel: 0, financeira: 0, indireta: 0, moProdutiva: 0 },
   }).input)
 
 const linha = (r: ReturnType<typeof buildDecomposition>, k: string) => r.rows.find((x) => x.key === k)!
@@ -489,7 +490,8 @@ describe('9. DO CADASTRO À DECOMPOSIÇÃO — sem montar o custo à mão', () =
       rates: item.item_tax_rates ?? null,
       acrescimos: 0,
     })),
-    discountPct: 0, despesas: { fixa: DESPESAS_PCT, variavel: 0, financeira: 0, indireta: 0, moProdutiva: 0 },
+    discountPct: 0, despesas: { fixa: DESPESAS_PCT, compromisso: 0, // §0 de 02/10/2026: sem compromisso lançado neste cenário — a soma é a de antes
+    variavel: 0, financeira: 0, indireta: 0, moProdutiva: 0 },
   }).input)
 
   const enriquecidos = enrichItemsForMotor(
@@ -901,7 +903,8 @@ const decomporDoSegmento = (
 
 // ── REVENDA ────────────────────────────────────────────────────────────────────────────
 const REVENDA_BALDES: BaldesDeDespesa = {
-  fixa: 0.1489, variavel: 0.0556, financeira: 0.0056, indireta: 0.0756, moProdutiva: 0 }
+  fixa: 0.1489, compromisso: 0, // §0 de 02/10/2026: sem compromisso lançado neste cenário — a soma é a de antes
+    variavel: 0.0556, financeira: 0.0056, indireta: 0.0756, moProdutiva: 0 }
 const REVENDA_FICHA = { icms: 0.17, pisCofins: 0.0925, ibs: 0.01, cbs: 0.09, comissao: 0.05, lucro: 0.10 }
 
 describe('13. REVENDA — os dois lados batem, e é o CONTRASTE do caso de serviço', () => {
@@ -962,7 +965,8 @@ describe('13. REVENDA — os dois lados batem, e é o CONTRASTE do caso de servi
 
 // ── SERVIÇO ────────────────────────────────────────────────────────────────────────────
 const SERVICO_BALDES: BaldesDeDespesa = {
-  fixa: 0.5006, variavel: 0.1709, financeira: 0.0337, indireta: 0, moProdutiva: 0 }
+  fixa: 0.5006, compromisso: 0, // §0 de 02/10/2026: sem compromisso lançado neste cenário — a soma é a de antes
+    variavel: 0.1709, financeira: 0.0337, indireta: 0, moProdutiva: 0 }
 const SERVICO_FICHA = { iss: 0.05, pisCofins: 0.0925, ibs: 0.01, cbs: 0.09, comissao: 0.05, lucro: 0.10 }
 
 /**

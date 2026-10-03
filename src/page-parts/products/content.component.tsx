@@ -12,6 +12,7 @@ import { UNIT_TYPE } from '@/constants/item-unit-types'
 import { calculateItemPrice } from '@/utils/calculate-item-price'
 import { resolveProductTaxPercent, resolveProductTaxPercentToPersist } from '@/utils/product-tax-percent'
 import { resolveIndirectLaborPct } from '@/utils/indirect-labor-grouping'
+import { divisorDaEstruturaPct } from '@/utils/despesas-do-segmento'
 import { buildDestinationSnapshot } from '@/utils/destination-snapshot'
 import { MessageInstance } from 'antd/es/message/interface'
 import { useRouter } from 'next/router'
@@ -79,6 +80,18 @@ export type ProductPriceInfoType = {
   /** laborUnit/priceUnit (0-100) for display. */
   laborPctShown: number
   fixedExpensePrice: number
+  /**
+   * COMPROMISSOS FINANCEIROS em R$ — ADENDO 2. UM produtor, lido pelas duas telas.
+   *
+   * Em 02/10/2026 `fixedExpensePct` passou a vir REDUZIDO (sem as cinco categorias do bloco).
+   * `fixedExpensePrice` encolheu junto, e na tela de serviço ele compõe o R$ de "Mão de obra
+   * produtiva" (MO direta + administrativa + desp. fixas) e a barra de composição — que
+   * deixaram de somar o preço, sem nada acusar. Este campo devolve a parcela que saiu.
+   *
+   * Derivá-lo na tela filha a partir de `totalServicePrice` seria a segunda escrita da mesma
+   * fórmula (`copia-divergente.md`): ele nasce aqui, ao lado das outras três.
+   */
+  financialCommitmentsPrice: number
   variableExpensePrice: number
   financialExpensePrice: number
   taxesPrice: number
@@ -121,6 +134,7 @@ const PRODUCT_PRICE_INFO_BASE = {
   indirectLaborExpensePrice: 0,
   laborPctShown: 0,
   fixedExpensePrice: 0,
+  financialCommitmentsPrice: 0,
   variableExpensePrice: 0,
   financialExpensePrice: 0,
   taxesPrice: 0,
@@ -874,9 +888,28 @@ export const Content: FC<ContentProps> = ({
       indirectLaborPct: calcBase.indirectLaborPct,
       productiveLaborPct: calcBase.laborPercent,
     })
-    const structurePctForEngine = isCalcService
-      ? (calcBase.variableExpensePct + calcBase.financialExpensePct) / 100
-      : (calcBase.structurePct + indirectLaborPctForEngine) / 100
+    /*
+      O DIVISOR SAI DA FONTE ÚNICA — `divisorDaEstruturaPct`.
+
+      ADENDO 3 (02/10/2026): no SERVIÇO o COMPROMISSO entra no divisor; a fixa e a MO não, porque
+      são numerador (custo por minuto, em R$). Fora do serviço a soma `fixa + compromisso` é a
+      fixa de antes ao centavo, e é isso que mantém a trava do §0.
+
+      O ternário que morava aqui era a primeira de quatro escritas do mesmo critério, e a mutação
+      que somava o compromisso duas vezes neste ponto sobrevivia à suíte inteira — ver o
+      cabeçalho de `despesas-do-segmento.ts`.
+
+      A MO indireta chega JÁ AGRUPADA: o agrupamento REVENDA daqui é mais estreito que o de
+      `resolveSegmentoDaDespesa`, e unificá-los mudaria preço.
+    */
+    const structurePctForEngine = divisorDaEstruturaPct({
+      segmentoDaDespesa: isCalcService ? 'SERVICO' : 'INDUSTRIALIZACAO',
+      fixaPct: calcBase.fixedExpensePct,
+      variavelPct: calcBase.variableExpensePct,
+      financeiraPct: calcBase.financialExpensePct,
+      compromissoPct: calcBase.financialCommitmentsPct,
+      indiretaAgrupadaPct: indirectLaborPctForEngine,
+    }) / 100
     const isLucroRealProd = currentUser.taxableRegime === 'LUCRO_REAL'
     const isLucroPresumidoProd = currentUser.taxableRegime === 'LUCRO_PRESUMIDO' || currentUser.taxableRegime === 'LUCRO_PRESUMIDO_RET'
     let effectiveTaxPct: number
@@ -956,6 +989,7 @@ export const Content: FC<ContentProps> = ({
         indirectLaborExpensePrice: engineResult.laborValue,
         laborPctShown: Number((engineResult.laborPctShown * 100).toFixed(3)),
         fixedExpensePrice: priceUnit * (calcBase.fixedExpensePct / 100),
+        financialCommitmentsPrice: priceUnit * (calcBase.financialCommitmentsPct / 100),
         variableExpensePrice: priceUnit * (calcBase.variableExpensePct / 100),
         financialExpensePrice: priceUnit * (calcBase.financialExpensePct / 100),
         taxesPrice: engineResult.taxValue,

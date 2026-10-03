@@ -50,13 +50,22 @@ export interface TenantTaxContext {
    */
   mod_pct: number
   /**
-   * Breakdown dos 4 buckets de DOP — Sprint S14 do EPIC-RR-V2.
+   * Breakdown dos buckets de DOP — Sprint S14 do EPIC-RR-V2, mais o COMPROMISSOS FINANCEIROS
+   * desde 02/10/2026.
    * Usado pela DRE consolidada para exibir despesas operacionais separadas
-   * (fixas / variáveis / financeiras / administrativas).
+   * (fixas / compromisso / variáveis / financeiras / administrativas).
    * Todos em decimal. Soma = dop_pct.
    */
   expense_breakdown: {
     fixed_pct: number
+    /**
+     * COMPROMISSOS FINANCEIROS — §0 do comando de 02/10/2026.
+     *
+     * OBRIGATÓRIO: `fixed_pct` encolheu exatamente este tanto, e um produtor que o esquecesse
+     * faria a decomposição ver menos despesa do que a construção usou. Opcional seria
+     * `construtor-empobrecido.md` com a pior assinatura — o RRO subiria e nada falharia.
+     */
+    financial_commitments_pct: number
     variable_pct: number
     financial_pct: number
     administrative_pct: number
@@ -106,7 +115,7 @@ const DEFAULT_CONTEXT: TenantTaxContext = {
   irpj_pct: 0,
   dop_pct: 0,
   mod_pct: 0,
-  expense_breakdown: { fixed_pct: 0, variable_pct: 0, financial_pct: 0, administrative_pct: 0 },
+  expense_breakdown: { fixed_pct: 0, financial_commitments_pct: 0, variable_pct: 0, financial_pct: 0, administrative_pct: 0 },
   mo_produtiva_pct: 0,
   calc_type: null,
   rro_policy: null,
@@ -175,7 +184,7 @@ export function useTenantTaxContext(options: HookOptions = {}): TenantTaxContext
       // (productive_salary_total + fgts + other) / monthly_workload_minutes
       const { data: cfgRow } = await supabase
         .from('tenant_expense_config')
-        .select('margin_reapuration_enabled, use_snapshot_rates, rro_policy, fixed_expense_percent, variable_expense_percent, financial_expense_percent, admin_labor_percent, indirect_labor_percent, production_labor_percent, production_labor_cost, production_labor_cost_hub, productive_value_per_minute')
+        .select('margin_reapuration_enabled, use_snapshot_rates, rro_policy, fixed_expense_percent, financial_commitments_percent, variable_expense_percent, financial_expense_percent, admin_labor_percent, indirect_labor_percent, production_labor_percent, production_labor_cost, production_labor_cost_hub, productive_value_per_minute')
         .eq('tenant_id', tenantId as string)
         .maybeSingle()
 
@@ -192,6 +201,7 @@ export function useTenantTaxContext(options: HookOptions = {}): TenantTaxContext
             use_snapshot_rates?: boolean | null
             rro_policy?: string | null
             fixed_expense_percent?: number | null
+            financial_commitments_percent?: number | null
             variable_expense_percent?: number | null
             financial_expense_percent?: number | null
             admin_labor_percent?: number | null
@@ -240,7 +250,19 @@ export function useTenantTaxContext(options: HookOptions = {}): TenantTaxContext
       const financialPctRaw = toDecimal(cfg?.financial_expense_percent)
       const financialPct = financialPctRaw > 0.2 ? financialPctRaw / 100 : financialPctRaw
       const moiPct = toDecimal(cfg?.admin_labor_percent ?? cfg?.indirect_labor_percent)
-      const dop_pct = fixedPct + variablePct + financialPct + moiPct
+      /*
+        COMPROMISSOS FINANCEIROS — §0 do comando de 02/10/2026.
+
+        Ele SAIU de `fixed_expense_percent` e entra aqui como quinto termo, NO MESMO DIVISOR.
+        `fixedPct + capitalPct` é o `fixedPct` de antes, ao centavo, então o `dop_pct` é o
+        mesmo número e nenhum preço se move.
+
+        `NULL` passa por `toDecimal` e vira 0 — que é o certo: nesse estado o compromisso ainda
+        está DENTRO de `fixed_expense_percent`, e somá-lo aqui o contaria duas vezes. Ver o
+        comentário da coluna na migração `20261002000001`.
+      */
+      const capitalPct = toDecimal(cfg?.financial_commitments_percent)
+      const dop_pct = fixedPct + variablePct + financialPct + moiPct + capitalPct
       const mod_pct = toDecimal(cfg?.production_labor_percent)
 
       // V8.7 (2026-05-24): contexto para calcular MO produtiva em RUNTIME.
@@ -334,6 +356,7 @@ export function useTenantTaxContext(options: HookOptions = {}): TenantTaxContext
         mod_pct,
         expense_breakdown: {
           fixed_pct: fixedPct,
+          financial_commitments_pct: capitalPct,
           variable_pct: variablePct,
           financial_pct: financialPct,
           administrative_pct: moiPct,

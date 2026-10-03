@@ -11,7 +11,8 @@ import { buildProductConstruction, externalOpsCoefficientToFreeze } from '@/util
 import { buildProductPriceRows, type PriceRowInput } from '@/utils/product-price-rows'
 import { toBaseCode } from '@/utils/sale-context'
 import { apenasTributosQueExistem, tributoExisteNoSegmento } from '@/utils/campos-do-segmento'
-import { resolveSegmentoDaConstrucao } from '@/utils/despesas-do-segmento'
+import { divisorDaEstruturaPct, resolveSegmentoDaConstrucao } from '@/utils/despesas-do-segmento'
+import { LABEL_DO_BLOCO } from '@/utils/compromissos-financeiros'
 import { computeAdvancedOutsideTaxes, type AdvancedOutsideParams } from '@/utils/icms-st-difal'
 import { TaxDecompositionPanel } from './tax-decomposition-panel.component'
 import { CALC_TYPE_ENUM } from '@/shared/enums/calc-type'
@@ -146,6 +147,20 @@ export const ProductPrice: FC<Props> = ({
     productiveLaborPct: calcBase.laborPercent,
   })
   const fixedPct = calcBase.fixedExpensePct
+  /*
+    COMPROMISSOS FINANCEIROS — §0 e §6.1 do comando de 02/10/2026.
+
+    Ele SAIU de `fixedExpensePct` e precisa voltar em DOIS lugares desta tela, ou ela deixa de
+    fechar:
+
+      1. no `structurePct` que forma o preço (abaixo) — sem ele o preço EXIBIDO cai;
+      2. como LINHA própria da tabela — sem ela a soma das linhas não fecha com o preço, que é
+         o invariante do #17/#23 que esta tela mantém por construção.
+
+    Mostrar uma e esquecer a outra é o pior dos casos: a tela fecharia errado e ninguém saberia
+    qual metade está certa.
+  */
+  const financialCommitmentsPct = calcBase.financialCommitmentsPct
   const variablePct = calcBase.variableExpensePct
   const financialPct = calcBase.financialExpensePct
 
@@ -221,9 +236,19 @@ export const ProductPrice: FC<Props> = ({
     buyerType: 'CONSUMIDOR_FINAL',
     saleScope: 'INTRAESTADUAL',
     costTotal,
-    structurePct: (isCalcTypeService
-      ? variablePct + financialPct
-      : laborPct + fixedPct + variablePct + financialPct) / 100,
+    // O compromisso acompanha a `fixa`: fora do serviço entra, no serviço fica fora — ele
+    // estava DENTRO dela, e no serviço a fixa já está no custo por minuto.
+    // O MESMO divisor que o motor usa, pela MESMA função — era a segunda das quatro escritas
+    // do critério. ADENDO 3: no SERVIÇO o compromisso entra; a fixa e a MO não, porque são
+    // numerador. Ver o cabeçalho de `divisorDaEstruturaPct`.
+    structurePct: divisorDaEstruturaPct({
+      segmentoDaDespesa: isCalcTypeService ? 'SERVICO' : 'INDUSTRIALIZACAO',
+      fixaPct: fixedPct,
+      variavelPct: variablePct,
+      financeiraPct: financialPct,
+      compromissoPct: financialCommitmentsPct,
+      indiretaAgrupadaPct: laborPct,
+    }) / 100,
     rtReservePct: rtReservePct / 100,
     commissionPct: commissionPct / 100,
     profitPct: profitPct / 100,
@@ -276,6 +301,13 @@ export const ProductPrice: FC<Props> = ({
     ] : []),
     { key: 'variable', originalPct: variablePct },
     { key: 'financial', originalPct: financialPct },
+    // ADENDO 2 §1 — a POSIÇÃO é a regra: IMEDIATAMENTE DEPOIS de 'Despesas financeiras' e
+    // antes de 'RT'. A ordem desta lista NÃO muda nenhum número (`buildProductPriceRows`
+    // soma e mapeia, não ordena) — ela existe para que a declaração e o JSX abaixo sejam
+    // lidos na mesma ordem. Quem mudar uma e esquecer a outra cai no caso de ordem.
+    // ADENDO 3: a linha existe também no SERVIÇO, porque lá o compromisso passou a ser
+    // dedução de verdade do divisor. Era a única das cinco que o serviço não tinha.
+    { key: 'compromissosFinanceiros', originalPct: financialCommitmentsPct },
     ...(!showIrpjCsll && !isLpRet && !isSimplesHibrido ? [{ key: 'tax', originalPct: taxPctDisplay }] : []),
     { key: 'rt', originalPct: rtReservePct },
     { key: 'commission', originalPct: commissionPct },
@@ -320,6 +352,7 @@ export const ProductPrice: FC<Props> = ({
   const displayBase = linhas.opInterna
   const laborValDisplay = valorDa('labor')
   const fixedValDisplay = valorDa('fixed')
+  const compromissosFinanceirosValDisplay = valorDa('compromissosFinanceiros')
   const variableValDisplay = valorDa('variable')
   const financialValDisplay = valorDa('financial')
   const commissionValDisplay = valorDa('commission')
@@ -331,9 +364,11 @@ export const ProductPrice: FC<Props> = ({
   // A linha de imposto agregado (Simples, RET, Simples Híbrido) sai da MESMA fonte: o valor
   // do motor em `productPriceInfo.taxesPrice` ignorava a efetivação.
   const taxesTotal = valorDa('tax') + valorDa('taxUnificado')
+  // O compromisso entra na barra de "Despesas" junto com a fixa de onde ele saiu: fora dela, a
+  // barra deixaria de somar o preço e sobraria uma fatia sem dono.
   const expensesTotalDisplay = isCalcTypeService
-    ? variableValDisplay + financialValDisplay
-    : laborValDisplay + fixedValDisplay + variableValDisplay + financialValDisplay
+    ? variableValDisplay + financialValDisplay + compromissosFinanceirosValDisplay
+    : laborValDisplay + fixedValDisplay + compromissosFinanceirosValDisplay + variableValDisplay + financialValDisplay
 
   // Preço base = valorPrecificado (com ICMS/PIS/COFINS embutidos para LR/LP) + terceirizadas
   const baseForSalePrice = (isLucroReal || isLucroPresumed) ? valorPrecificado : pricePerUnit
@@ -571,6 +606,25 @@ export const ProductPrice: FC<Props> = ({
             {!isCalcTypeService && pricingRow('Despesas fixas', 'fixed')}
             {pricingRow('Despesas variáveis', 'variable')}
             {pricingRow('Despesas financeiras', 'financial')}
+            {/* COMPROMISSOS FINANCEIROS — ADENDO 2 §1. Parcela de financiamento, empréstimo,
+                consórcio, amortização de principal e aporte programado: vencem MESMO SEM VENDA,
+                e por isso o preço tem de cobri-las. Saiu de "Despesas fixas" sem mudar a soma.
+
+                A POSIÇÃO é a regra, não estética: a linha vem DEPOIS de "Despesas financeiras"
+                e ANTES de "RT". As duas vizinhas de cima têm "financeir-" no nome e tratam de
+                coisa diferente — "Despesas financeiras" é o CUSTO do dinheiro (taxa de cartão,
+                juros, tarifa), que varia com a receita; "Compromissos Financeiros" é o
+                PRINCIPAL que vence com venda ou sem ela. Separá-las por uma linha de imposto
+                faria o leitor perder o contraste.
+
+                O rótulo sai de `LABEL_DO_BLOCO`: o nome é UM SÓ em todo o sistema, e escrevê-lo
+                literal aqui seria a segunda declaração dele (`copia-divergente.md`). */}
+            {pricingRow(
+              LABEL_DO_BLOCO,
+              'compromissosFinanceiros',
+              undefined,
+              'Parcela de financiamento, empréstimo, consórcio, amortização de principal e aporte programado. Vencem mesmo sem venda, então o preço precisa cobri-las. Vem do fluxo de caixa, do bloco Compromissos Financeiros — até 02/10/2026 este valor estava somado dentro de "Despesas fixas", e a soma das duas linhas continua a mesma.',
+            )}
             {/* Em MEI a linha aparece zerada e NÃO é editável: o DAS é fixo mensal e não
                 incide por item, então não há alíquota a ajustar — coerente com o alerta
                 que esta mesma tela exibe logo acima. Nos demais regimes segue editável. */}

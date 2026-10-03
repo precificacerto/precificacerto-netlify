@@ -146,19 +146,32 @@ export const CASHIER_CATEGORY = {
     // rótulo antigo, porque o banco tem 26 lançamentos apontando para eles — 'Empréstimos' 10,
     // 'Aplicações / Consórcios' 13, 'Empréstimos / Financiamentos' 3, R$ 108.353,95. Renomear
     // aqui não renomeia o dado gravado, e apagaria a leitura do passado.
+    //
+    // ═══ O GRUPO DELAS É `COMPROMISSOS_FINANCEIROS` DESDE 02/10/2026 ═══
+    //
+    // >>> ESTA ERA A SEGUNDA DECLARAÇÃO DO MESMO GRUPO, E NINGUÉM AFIRMAVA QUE AS DUAS BATIAM <<<
+    //
+    // O grupo das cinco é declarado AQUI (lido por `getDefaultGroupForCategory`) e em
+    // `CATEGORIAS_DO_BLOCO` (lido por `getGroupForCategoryByRegime`). Eram duas listas com o
+    // mesmo papel, e mudar só uma deixaria o OUTRO caminho de gravação ainda escrevendo
+    // `DESPESA_FIXA` — `copia-divergente.md` no ponto exato que decide o que vai para o banco.
+    //
+    // Há caso afirmando que as duas concordam, categoria a categoria. Sem ele, a próxima
+    // mudança acertaria uma e esqueceria a outra, e o lançamento sairia com o grupo errado sem
+    // nada falhar.
     APLICACOES_CONSORCIOS: {
       order: 32,
       key: 'APLICACOES_CONSORCIOS',
       value: 'Aplicações / Consórcios',
-      group: 'DESPESA_FIXA' satisfies ExpenseGroupKey,
+      group: 'COMPROMISSOS_FINANCEIROS' satisfies ExpenseGroupKey,
     },
-    APLICACOES: { order: 32.2, key: 'APLICACOES', value: 'Aplicações', group: 'DESPESA_FIXA' satisfies ExpenseGroupKey },
-    CONSORCIOS: { order: 32.3, key: 'CONSORCIOS', value: 'Consórcios', group: 'DESPESA_FIXA' satisfies ExpenseGroupKey },
-    FINANCIAMENTOS: { order: 32.4, key: 'FINANCIAMENTOS', value: 'Financiamentos', group: 'DESPESA_FIXA' satisfies ExpenseGroupKey },
+    APLICACOES: { order: 32.2, key: 'APLICACOES', value: 'Aplicações', group: 'COMPROMISSOS_FINANCEIROS' satisfies ExpenseGroupKey },
+    CONSORCIOS: { order: 32.3, key: 'CONSORCIOS', value: 'Consórcios', group: 'COMPROMISSOS_FINANCEIROS' satisfies ExpenseGroupKey },
+    FINANCIAMENTOS: { order: 32.4, key: 'FINANCIAMENTOS', value: 'Financiamentos', group: 'COMPROMISSOS_FINANCEIROS' satisfies ExpenseGroupKey },
     CONSULTORIA: { order: 33, key: 'CONSULTORIA', value: 'Consultoria', group: 'DESPESA_FIXA' satisfies ExpenseGroupKey },
     CONTABILIDADE: { order: 34, key: 'CONTABILIDADE', value: 'Contabilidade', group: 'DESPESA_FIXA' satisfies ExpenseGroupKey },
     DEPRECIACAO: { order: 35, key: 'DEPRECIACAO', value: 'Depreciação', group: 'DESPESA_FIXA' satisfies ExpenseGroupKey },
-    EMPRESTIMOS: { order: 36, key: 'EMPRESTIMOS', value: 'Empréstimos / Financiamentos', group: 'DESPESA_FIXA' satisfies ExpenseGroupKey },
+    EMPRESTIMOS: { order: 36, key: 'EMPRESTIMOS', value: 'Empréstimos / Financiamentos', group: 'COMPROMISSOS_FINANCEIROS' satisfies ExpenseGroupKey },
     ENERGIA_ELETRICA: { order: 37, key: 'ENERGIA_ELETRICA', value: 'Energia Elétrica', group: 'DESPESA_FIXA' satisfies ExpenseGroupKey },
     IMPOSTOS_IPTU_IPVA: { order: 38, key: 'IMPOSTOS_IPTU_IPVA', value: 'Impostos IPTU / IPVA', group: 'DESPESA_FIXA' satisfies ExpenseGroupKey },
     INTERNET: { order: 39, key: 'INTERNET', value: 'Internet', group: 'DESPESA_FIXA' satisfies ExpenseGroupKey },
@@ -344,7 +357,10 @@ export const CASHIER_CATEGORY = {
     // saída de caixa que NÃO é despesa operacional — entra DEPOIS do resultado operacional.
     // Não podia ser subitem de `LUCRO`: aquele grupo é DESCARTADO da demonstração, e a
     // amortização sumiria sem erro nenhum.
-    AMORTIZACAO: { order: 97.6, key: 'AMORTIZACAO', value: 'Amortização de Dívida (principal)', group: 'AMORTIZACAO' satisfies ExpenseGroupKey },
+    // A amortização é UMA das cinco subcategorias do bloco, e não um grupo próprio — 02/10/2026.
+    // A chave segue `AMORTIZACAO` porque é ela que o seletor e o dado gravado usam; o GRUPO é
+    // que deixou de ser `AMORTIZACAO`.
+    AMORTIZACAO: { order: 97.6, key: 'AMORTIZACAO', value: 'Amortização de Dívida (principal)', group: 'COMPROMISSOS_FINANCEIROS' satisfies ExpenseGroupKey },
     // REPASSE (17/09/2026) — valor que ATRAVESSA a empresa. Grupo próprio, ao lado de
     // `DEDUCAO_RECEITA` no mesmo bloco do DRE e NUNCA somado a ela: devolução é venda
     // desfeita, repasse é venda que aconteceu com valor de terceiro.
@@ -478,11 +494,11 @@ const SN_CATEGORY_GROUP_MAP: { category: string; group: string }[] = [
   { category: 'Vale transporte (Pró-Labo / Admin / Comer)', group: 'MAO_DE_OBRA_ADMINISTRATIVA' },
   { category: 'Água / Esgoto', group: 'DESPESA_FIXA' },
   { category: 'Aluguel', group: 'DESPESA_FIXA' },
-  { category: 'Aplicações / Consórcios', group: 'DESPESA_FIXA' },
+  { category: 'Aplicações / Consórcios', group: 'COMPROMISSOS_FINANCEIROS' },
   { category: 'Consultoria', group: 'DESPESA_FIXA' },
   { category: 'Contabilidade', group: 'DESPESA_FIXA' },
   { category: 'Depreciação', group: 'DESPESA_FIXA' },
-  { category: 'Empréstimos / Financiamentos', group: 'DESPESA_FIXA' },
+  { category: 'Empréstimos / Financiamentos', group: 'COMPROMISSOS_FINANCEIROS' },
   { category: 'Energia elétrica', group: 'DESPESA_FIXA' },
   { category: 'Internet', group: 'DESPESA_FIXA' },
   { category: 'Segurança / Monitoramento', group: 'DESPESA_FIXA' },
@@ -538,6 +554,10 @@ const SN_GROUP_TO_STANDARD: Record<string, ExpenseGroupKey> = {
   REGIME_TRIBUTARIO: 'REGIME_TRIBUTARIO',
   COMISSOES: 'COMISSOES',
   RESERVA_TECNICA: 'RESERVA_TECNICA',
+  // Os dois rótulos legados do bloco resolvem para o grupo ÚNICO — 02/10/2026. Sem esta linha
+  // `SN_GROUP_TO_STANDARD[...]` devolveria `undefined` e `getDefaultGroupForCategory` gravaria
+  // `null` no grupo, que é pior que o grupo errado: o lançamento cai no balde do desconhecido.
+  COMPROMISSOS_FINANCEIROS: 'COMPROMISSOS_FINANCEIROS',
   LUCRO: 'LUCRO',
 }
 

@@ -23,6 +23,7 @@ import {
   CATEGORIAS_OFERECIDAS_DO_BLOCO,
   CATEGORIAS_DE_INVESTIMENTO,
   GRUPOS_DA_BASE_DA_DESPESA_FIXA,
+  BLOCO_COMPROMISSOS,
   LEGADO_PARA_ATUAL,
   classificarLancamentoDeDespesa,
   CATEGORIA_JUROS,
@@ -209,20 +210,39 @@ describe('O bloco: as cinco, mais os rótulos que o banco já tem', () => {
     expect(ehCompromissoFinanceiro(undefined)).toBe(false)
   })
 
-  it('>>> o grupo técnico de cada categoria NÃO muda — o DRE contábil depende dele <<<', () => {
+  /*
+    ═══ OS DOIS CASOS ABAIXO FORAM REESCRITOS EM 02/10/2026 ═══
+
+    Eles afirmavam que o grupo técnico era `DESPESA_FIXA` em quatro categorias e `AMORTIZACAO`
+    na amortização — DOIS grupos para o que é uma categoria só. Era o estado certo sob a regra
+    da época (`decisao-sob-regra-da-epoca.md`: não havia grupo próprio para onde mover), e é
+    exatamente o que esta rodada acaba.
+
+    O CRITÉRIO INVERTEU, e de propósito: o primeiro caso afirmava a divisão e agora afirma a
+    unidade; o segundo autorizava somar o grupo `AMORTIZACAO` e agora afirma que ele ficou SEM
+    categoria. A proteção é a mesma — no dia em que alguém declarar uma categoria naquele
+    grupo, o caso fica vermelho em vez de ela entrar no preço em silêncio.
+  */
+  it('>>> o grupo técnico das CINCO é UM SÓ — nenhuma é despesa fixa <<<', () => {
     const porCategoria = Object.fromEntries(CATEGORIAS_DO_BLOCO.map((c) => [c.category, c.group]))
-    expect(porCategoria['Amortização de Dívida (principal)']).toBe('AMORTIZACAO')
-    expect(porCategoria['Financiamentos']).toBe('DESPESA_FIXA')
-    expect(porCategoria['Empréstimos']).toBe('DESPESA_FIXA')
+    // O literal, UMA vez, para que o caso não compare a constante consigo mesma.
+    expect(BLOCO_COMPROMISSOS).toBe('COMPROMISSOS_FINANCEIROS')
+    for (const c of CATEGORIAS_DO_BLOCO) {
+      expect(c.group).toBe('COMPROMISSOS_FINANCEIROS')
+    }
+    // E os dois casos que o estado antigo tinha, afirmados pelo avesso.
+    expect(porCategoria['Amortização de Dívida (principal)']).not.toBe('AMORTIZACAO')
+    expect(porCategoria['Financiamentos']).not.toBe('DESPESA_FIXA')
   })
 
-  it('>>> TODA categoria do grupo AMORTIZACAO é do bloco — é o que autoriza somar o grupo <<<', () => {
-    // A base do rateio soma o GRUPO `AMORTIZACAO` inteiro. Isso só é correto enquanto todas
-    // as categorias dele forem compromisso. Este caso fica vermelho no dia em que alguém
-    // criar uma que não seja — em vez de ela entrar no preço em silêncio.
-    const doGrupo = CATEGORIAS_DO_BLOCO.filter((c) => c.group === 'AMORTIZACAO')
-    expect(doGrupo).toHaveLength(1)
-    expect(doGrupo[0].category).toBe('Amortização de Dívida (principal)')
+  it('>>> o grupo AMORTIZACAO ficou SEM categoria declarada — e a base ainda o soma <<<', () => {
+    // `GRUPOS_DA_BASE_DA_DESPESA_FIXA` continua somando `AMORTIZACAO` como rede para dado
+    // legado (§0: tirá-la moveria o percentual de quem tivesse lançamento lá). Isso só é seguro
+    // enquanto NENHUMA categoria a declarar: uma nova entraria no preço por um grupo que
+    // ninguém lembra que existe, e este caso fica vermelho antes disso.
+    const doGrupoAntigo = CATEGORIAS_DO_BLOCO.filter((c) => (c.group as string) === 'AMORTIZACAO')
+    expect(doGrupoAntigo).toEqual([])
+    expect(GRUPOS_DA_BASE_DA_DESPESA_FIXA as readonly string[]).toContain('AMORTIZACAO')
   })
 
   it('nenhuma categoria de investimento entrou no bloco por engano', () => {
@@ -233,6 +253,24 @@ describe('O bloco: as cinco, mais os rótulos que o banco já tem', () => {
   })
 })
 
+/*
+  ═══ AS CINCO ÂNCORAS DESTE BLOCO FORAM REESCRITAS EM 02/10/2026 ═══
+
+  Elas afirmavam `group: 'DESPESA_FIXA'` para a parte do compromisso. Era o destino CERTO sob a
+  regra da época: o §7 do comando de 21/09/2026 pedia que a amortização existisse "só dentro do
+  bloco", e o bloco morava dentro da Despesa Fixa (`decisao-sob-regra-da-epoca.md` — a decisão
+  antiga não era descuido, era o nível de separação que havia).
+
+  O §0 do comando de 02/10/2026 pede o nível seguinte: *"Ele sai de lá e vira categoria própria,
+  COM O MESMO PERCENTUAL, NO MESMO DIVISOR"*. O destino passa a ser `COMPROMISSOS_FINANCEIROS`.
+
+  O CRITÉRIO DE CADA CASO NÃO MUDOU — o que mudou foi o nome do grupo de destino. O que eles
+  afirmam continua sendo: a soma das partes é o `amount`, o juros sai da base da despesa fixa, a
+  amortização não fica em `AMORTIZACAO`, e o legado é reconhecido igual.
+
+  E há um caso NOVO ao lado deles, que é o que a reescrita poderia ter apagado: o grupo de
+  destino NÃO É MAIS `DESPESA_FIXA`. Sem ele, trocar a constante de volta passaria verde.
+*/
 describe('>>> §6 — a parcela se decompõe, e a soma das partes é SEMPRE o que saiu do caixa <<<', () => {
   const parcela = (extra: Record<string, unknown> = {}) => classificarLancamentoDeDespesa({
     expense_group: 'DESPESA_FIXA',
@@ -244,7 +282,7 @@ describe('>>> §6 — a parcela se decompõe, e a soma das partes é SEMPRE o qu
   it('separada: 2.500,00 no bloco e 500,00 em despesa financeira', () => {
     const partes = parcela({ juros_value: JUROS, principal_value: PRINCIPAL })
     expect(partes).toHaveLength(2)
-    expect(partes[0]).toMatchObject({ group: 'DESPESA_FIXA', category: 'Financiamentos', amount: 2500 })
+    expect(partes[0]).toMatchObject({ group: BLOCO_COMPROMISSOS, category: 'Financiamentos', amount: 2500 })
     expect(partes[1]).toMatchObject({ group: 'DESPESA_FINANCEIRA', category: CATEGORIA_JUROS, amount: 500 })
   })
 
@@ -259,29 +297,31 @@ describe('>>> §6 — a parcela se decompõe, e a soma das partes é SEMPRE o qu
   it('>>> valor cheio: UMA parte só, e nenhuma linha de juros R$ 0,00 <<<', () => {
     const partes = parcela()
     expect(partes).toHaveLength(1)
-    expect(partes[0]).toMatchObject({ group: 'DESPESA_FIXA', amount: 3000 })
+    expect(partes[0]).toMatchObject({ group: BLOCO_COMPROMISSOS, amount: 3000 })
   })
 
   it('>>> juros ZERO informado também não abre linha — R$ 0,00 não é informação <<<', () => {
     expect(parcela({ juros_value: 0 })).toHaveLength(1)
   })
 
-  it('>>> a AMORTIZAÇÃO passa a ler como DESPESA_FIXA no HUB — existe só dentro do bloco <<<', () => {
+  it('>>> a AMORTIZAÇÃO passa a ler como COMPROMISSOS FINANCEIROS — e nunca como AMORTIZACAO <<<', () => {
     const partes = classificarLancamentoDeDespesa({
       expense_group: 'AMORTIZACAO',
       expense_category: 'Amortização de Dívida (principal)',
       amount: PRINCIPAL,
     })
     expect(partes).toHaveLength(1)
-    expect(partes[0].group).toBe('DESPESA_FIXA')
+    expect(partes[0].group).toBe(BLOCO_COMPROMISSOS)
     expect(partes[0].group).not.toBe('AMORTIZACAO')
+    // E nem volta para a Despesa Fixa, que era o destino até 02/10/2026.
+    expect(partes[0].group).not.toBe('DESPESA_FIXA')
   })
 
   it('>>> e o legado do banco entra no bloco do mesmo jeito <<<', () => {
     const partes = classificarLancamentoDeDespesa({
       expense_group: 'DESPESA_FIXA', expense_category: 'Aplicações / Consórcios', amount: 800,
     })
-    expect(partes[0]).toMatchObject({ group: 'DESPESA_FIXA', amount: 800 })
+    expect(partes[0]).toMatchObject({ group: BLOCO_COMPROMISSOS, amount: 800 })
   })
 
   it('lançamento que NÃO é compromisso passa inteiro, com o grupo gravado', () => {
@@ -293,8 +333,26 @@ describe('>>> §6 — a parcela se decompõe, e a soma das partes é SEMPRE o qu
 
   it('>>> o juros destacado NÃO pode voltar para a base da despesa fixa <<<', () => {
     const partes = parcela({ juros_value: JUROS })
-    const naBaseFixa = partes.filter((p) => p.group === 'DESPESA_FIXA').reduce((a, p) => a + p.amount, 0)
-    expect(naBaseFixa).toBeCloseTo(2500, 2)
-    expect(naBaseFixa).not.toBeCloseTo(3000, 2)
+    const noCompromisso = partes
+      .filter((p) => p.group === BLOCO_COMPROMISSOS)
+      .reduce((a, p) => a + p.amount, 0)
+    expect(noCompromisso).toBeCloseTo(2500, 2)
+    expect(noCompromisso).not.toBeCloseTo(3000, 2)
+    // E nada sobra em DESPESA_FIXA: o compromisso saiu de lá por inteiro.
+    expect(partes.filter((p) => p.group === 'DESPESA_FIXA')).toHaveLength(0)
+  })
+
+  it('>>> o grupo de destino NÃO é mais `DESPESA_FIXA` — é o que a reescrita das âncoras poderia apagar <<<', () => {
+    // Sem este caso, trocar `BLOCO_COMPROMISSOS` de volta por `'DESPESA_FIXA'` na
+    // fonte única passaria verde em TODOS os casos acima, porque eles leem a constante.
+    // É o K tautológico de `hipotese-derrubada-pela-propria-medicao.md`, e o antídoto é afirmar
+    // o literal UMA vez, aqui.
+    expect(BLOCO_COMPROMISSOS).toBe('COMPROMISSOS_FINANCEIROS')
+    for (const categoria of ['Financiamentos', 'Empréstimos', 'Consórcios', 'Aplicações', 'Amortização de Dívida (principal)']) {
+      const partes = classificarLancamentoDeDespesa({
+        expense_group: 'DESPESA_FIXA', expense_category: categoria, amount: 1000,
+      })
+      expect(partes[0].group).toBe('COMPROMISSOS_FINANCEIROS')
+    }
   })
 })

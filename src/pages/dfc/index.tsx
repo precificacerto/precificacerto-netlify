@@ -12,6 +12,17 @@ import { supabase } from '@/supabase/client'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
 import { getTenantId } from '@/utils/get-tenant-id'
 import { useDevice } from '@/contexts/device.context'
+/*
+  §6.4 — a Análise Financeira passa a ter o Compromissos Financeiros como categoria própria, com
+  as subcategorias. A pertinência é decidida na FONTE ÚNICA, não repetida aqui: uma segunda
+  lista de categorias seria `copia-divergente.md`, e a divergência apareceria como linha que
+  soma num lugar e não no outro.
+*/
+import {
+  ehCompromissoFinanceiro,
+  CATEGORIAS_DO_BLOCO,
+  LABEL_DO_BLOCO,
+} from '@/utils/compromissos-financeiros'
 
 // ── Types ──
 
@@ -35,6 +46,15 @@ export type DreRow = {
   indent?: number
   sign?: '+' | '-' | '='
   pctOfRL?: MonthlyValues & { total: number }
+  /**
+   * TEXTO DE APOIO da linha, como tooltip ao lado do rótulo — §D do adendo de 02/10/2026.
+   *
+   * Existe porque duas linhas VIZINHAS carregam "Financeir-" e são coisas diferentes:
+   * "Despesas Financeiras" é JUROS e "Compromissos Financeiros" é PRINCIPAL. O rótulo sozinho
+   * não distingue, e quem lê o DRE não tem como saber que o sistema separou as duas partes da
+   * mesma parcela.
+   */
+  ajuda?: string
 }
 
 const EMPTY_MONTHS: MonthlyValues = {
@@ -299,7 +319,24 @@ export type AggregatedData = {
   deducaoReceita: MonthlyValues // INSS retido na fonte, ISS retido pelo tomador (LP RET)
   atividadesTerceirizadas: MonthlyValues // Atividades terceirizadas operacionais de entrega (LR / Simples Híbrido — seção cabeçalho DRE)
   impostoPorDentro: MonthlyValues // Impostos sobre o faturamento por dentro: ICMS Próprio, PIS, COFINS (LR / Simples Híbrido)
-  amortizacao: MonthlyValues // Pagamento de PRINCIPAL de dívida — não é despesa operacional
+  /**
+   * COMPROMISSOS FINANCEIROS — §5 e §6.4 do comando de 02/10/2026.
+   *
+   * As cinco categorias do bloco (amortização de principal, financiamentos, empréstimos,
+   * consórcios e aplicações), reconhecidas pela CATEGORIA e não pelo grupo gravado — o grupo
+   * continua sendo `DESPESA_FIXA` ou `AMORTIZACAO`, e migrar os 45 lançamentos medidos em
+   * 02/10/2026 é o que o §4 do comando proíbe nesta rodada.
+   */
+  compromissosFinanceiros: MonthlyValues
+  /**
+   * O detalhe por SUBCATEGORIA do compromisso — o §6.4 pede "categoria própria, COM AS
+   * SUBCATEGORIAS".
+   *
+   * Só as que têm lançamento viram linha. Uma linha de R$ 0,00 para cada uma das cinco
+   * afirmaria que a empresa não tem aquele compromisso, quando o que há é ausência de
+   * lançamento (`ausente-vs-falso.md`).
+   */
+  compromissoPorCategoria: Record<string, MonthlyValues>
   repasse: MonthlyValues // Valor que atravessa a empresa sem gerar lucro — ver `expense-groups.ts`
   investimento: MonthlyValues // Só acontece se sobrar dinheiro: SAI DO LUCRO, depois dele
 }
@@ -324,7 +361,8 @@ export function aggregateEntries(entries: CashEntry[]): AggregatedData {
     deducaoReceita: { ...EMPTY_MONTHS },
     atividadesTerceirizadas: { ...EMPTY_MONTHS },
     impostoPorDentro: { ...EMPTY_MONTHS },
-    amortizacao: { ...EMPTY_MONTHS },
+    compromissosFinanceiros: { ...EMPTY_MONTHS },
+    compromissoPorCategoria: {},
     repasse: { ...EMPTY_MONTHS },
     investimento: { ...EMPTY_MONTHS },
   }
@@ -363,6 +401,31 @@ export function aggregateEntries(entries: CashEntry[]): AggregatedData {
     // `desc.includes('comiss')` (RT = "Comissão Reserva Técnica") a somaria em Comissões.
     if (group === 'RESERVA_TECNICA') {
       data.reservaTecnica[monthKey] += entry.amount
+      continue
+    }
+
+    // >>> COMPROMISSOS FINANCEIROS — pela CATEGORIA, antes do switch de grupo <<<
+    //
+    // É o mesmo padrão que a RT, as comissões e o custo dos produtos já usam acima, e pela
+    // mesma razão: o que decide a linha é a CATEGORIA, e o `expense_group` gravado continua
+    // sendo `DESPESA_FIXA` ou `AMORTIZACAO`.
+    //
+    // >>> VEM ANTES DA COMISSÃO DE PROPÓSITO <<<
+    // O fallback textual da comissão é `desc.includes('comiss')`, e a descrição de uma parcela
+    // de financiamento pode conter a palavra. Posto depois, um compromisso com "comissão" na
+    // descrição viraria linha de comissão — o mesmo defeito que a RT já teve
+    // (BUG-DFC-RTCOMISSOES-AUSENTE-001).
+    //
+    // A ordem no DRE é o §5: ele entra DEPOIS do IRPJ/CSLL e depois do Lucro Líquido. Abaixo da
+    // despesa financeira ele apareceria ANTES do imposto, e a leitura do DRE passaria a sugerir
+    // que ele é dedutível — o que não é.
+    if (ehCompromissoFinanceiro(entry.expense_category)) {
+      data.compromissosFinanceiros[monthKey] += entry.amount
+      const rotulo = entry.expense_category as string
+      if (!data.compromissoPorCategoria[rotulo]) {
+        data.compromissoPorCategoria[rotulo] = { ...EMPTY_MONTHS }
+      }
+      data.compromissoPorCategoria[rotulo][monthKey] += entry.amount
       continue
     }
 
@@ -427,9 +490,29 @@ export function aggregateEntries(entries: CashEntry[]): AggregatedData {
         data.imposto[monthKey] += entry.amount
         break
       case 'AMORTIZACAO':
-        // Pagamento de PRINCIPAL de dívida: saída de caixa que NÃO é despesa operacional.
-        // Entra DEPOIS do resultado operacional, nas três variantes de demonstração.
-        data.amortizacao[monthKey] += entry.amount
+        // >>> O GRUPO FICOU SEM CATEGORIA, E O `case` É REDE PARA DADO LEGADO — 02/10/2026 <<<
+        //
+        // A amortização de principal virou UMA das cinco subcategorias de
+        // `COMPROMISSOS_FINANCEIROS`: nenhuma categoria declara `AMORTIZACAO` mais, e o `if` por
+        // categoria acima já captura a dela. Um lançamento que ainda chegue com este grupo
+        // gravado é dado anterior à migração `20261002000002`, ou tem categoria fora do bloco.
+        //
+        // Ele soma no MESMO balde, e não num próprio: pagamento de principal É compromisso, e
+        // um balde separado voltaria a exigir a soma de dois na linha do DRE — que é exatamente
+        // o remendo que esta rodada tirou.
+        data.compromissosFinanceiros[monthKey] += entry.amount
+        break
+      case 'COMPROMISSOS_FINANCEIROS':
+        // O grupo DERIVADO do Compromissos Financeiros. Nenhum `cash_entry` é gravado com ele
+        // hoje — quem o produz é a LEITURA do HUB (`classificarLancamentoDeDespesa`) — e o `if`
+        // por categoria acima é o que de fato captura os lançamentos.
+        //
+        // O `case` existe assim mesmo, e não é decoração: `DFC_GROUPS_QUE_SOMAM` exige que todo
+        // grupo da fonte única some em algum lugar, e abrir exceção para este abriria a porta
+        // para o próximo grupo esquecido — que é exatamente o defeito que aquele portão existe
+        // para pegar. Se um dia alguém GRAVAR este grupo, o valor soma na linha certa em vez de
+        // desaparecer no `default`.
+        data.compromissosFinanceiros[monthKey] += entry.amount
         break
       case 'REPASSE':
         // Valor que ATRAVESSA a empresa: entrou pela receita bruta junto com a venda e sai
@@ -487,6 +570,101 @@ function buildRow(
     pctOfRL: pctMonths(values, receitaBruta),
     ...opts,
   }
+}
+
+/**
+ * A LINHA DOS COMPROMISSOS FINANCEIROS NO DRE — §B e §C do adendo de 02/10/2026.
+ *
+ * >>> O §5 DO COMANDO ESTAVA ERRADO, E O ADENDO O CORRIGE <<<
+ *
+ * O §5 mandava pôr a linha "depois do IRPJ/CSLL". **Esta DRE não tem linha de IRPJ/CSLL** — o
+ * comentário do próprio arquivo diz, na variante do Lucro Real: *"Lucro Líquido (sem estimativa
+ * de IRPJ/CSLL — usa apenas valores reais do HUB)"*. A ordem correta é a que JÁ ESTAVA no
+ * arquivo, no lugar onde a amortização ficava:
+ *
+ *     (=) Lucro Operacional (EBITDA/EBIT)
+ *     (−) Despesas Financeiras              ← JUROS
+ *     (=) Resultado Financeiro
+ *     (−) Compromissos Financeiros          ← PRINCIPAL, AQUI
+ *     (=) Lucro Líquido
+ *     (−) Investimentos (saem do lucro)
+ *     (=) Sobra após Investimentos
+ *
+ * Os Investimentos NÃO se movem: continuam abaixo do Lucro Líquido, porque é dele que saem.
+ *
+ * >>> A LINHA É DA CATEGORIA, NÃO DE UMA SUBCATEGORIA — §B <<<
+ *
+ * Ela dizia "Amortização de Dívida (principal)". Amortização é UMA das cinco subcategorias, ao
+ * lado de Financiamentos, Empréstimos, Consórcios e Aplicações — ela não dá nome à linha. O
+ * valor da linha é a soma das CINCO, e cada uma aparece indentada abaixo.
+ *
+ * >>> DUAS LINHAS VIZINHAS COM "FINANCEIR-", E ELAS SÃO COISAS DIFERENTES — §D <<<
+ *
+ * "Despesas Financeiras" é JUROS; "Compromissos Financeiros" é PRINCIPAL. O sistema já separa
+ * as duas quando a parcela vem junta (`separarJurosEPrincipal`), e a linha tem de deixar isso
+ * legível — não basta o rótulo. Daí o `ajuda`, que vira tooltip ao lado do texto.
+ *
+ * >>> O VALOR SOMA O GRUPO `AMORTIZACAO` TAMBÉM, e isso não é zelo decorativo <<<
+ *
+ * As cinco categorias chegam por `compromissosFinanceiros` (reconhecidas pela CATEGORIA). O
+ * balde `amortizacao` guarda o que vier com `expense_group = 'AMORTIZACAO'` e uma categoria
+ * FORA do bloco — zero lançamentos hoje. Não somá-lo faria esse valor desaparecer da
+ * demonstração junto com a linha antiga, sem erro nenhum, que é a armadilha que o `default` do
+ * switch descreve.
+ *
+ * >>> UMA FUNÇÃO PARA AS TRÊS VARIANTES, E NÃO O BLOCO COPIADO TRÊS VEZES <<<
+ *
+ * A amortização e o investimento foram escritos três vezes, e o comentário de cada um registra
+ * o risco: *"omiti-la numa delas faria o mesmo valor sumir só para um regime"*. É
+ * `copia-divergente.md`, e o remédio dela não é conferir as três — é ter uma. Acrescentar uma
+ * subcategoria passa a valer para os três regimes de uma vez.
+ *
+ * Devolve o valor da linha, que é o que a variante subtrai para chegar ao Lucro Líquido.
+ */
+function pushCompromissosFinanceiros(
+  rows: DreRow[],
+  agg: AggregatedData,
+  baseAV: MonthlyValues,
+): MonthlyValues {
+  /*
+    >>> UM TERMO, E NÃO A SOMA DE DOIS — 02/10/2026 <<<
+
+    Esta linha somava `compromissosFinanceiros + amortizacao`. A soma era o sintoma de que as
+    cinco subcategorias continuavam espalhadas em dois grupos técnicos, com o total remendando
+    por cima. Formulação do dono do produto, registrada como está:
+
+      > Se a implementação ainda precisa somar "as categorias do bloco" mais "o grupo
+      > AMORTIZACAO", é porque as cinco não foram para um grupo só. (…) Depois da rodada tem que
+      > existir um grupo, com as cinco dentro. Nada de somar dois.
+
+    Agora existe um grupo, e o balde `amortizacao` deixou de existir: o `case 'AMORTIZACAO'` do
+    agregador soma no balde do bloco, para que dado legado não desapareça da demonstração.
+  */
+  const total = agg.compromissosFinanceiros
+
+  rows.push(buildRow(
+    'compromissos_financeiros',
+    `(-) ${LABEL_DO_BLOCO} — já considerados na formação do preço`,
+    total, baseAV, {
+      sign: '-',
+      ajuda: 'Aqui entra o PRINCIPAL: amortização de dívida, parcela de financiamento, '
+        + 'empréstimo, consórcio e aporte programado. Eles vencem mesmo sem venda, e por isso o '
+        + 'preço já os cobre. Os JUROS dessas mesmas parcelas estão na linha de cima, em '
+        + 'Despesas Financeiras — o sistema separa as duas partes quando a parcela vem junta.',
+    },
+  ))
+
+  // As SUBCATEGORIAS, na ordem do bloco e só as que têm lançamento. A ordem vem da fonte
+  // única: alfabética faria "Amortização de Dívida" e "Aplicações" trocarem de lugar conforme
+  // o acento, e a leitura do bloco deixaria de ser estável. Sem lançamento não há linha — uma
+  // de R$ 0,00 afirmaria que a empresa não tem aquele compromisso (`ausente-vs-falso.md`).
+  for (const c of CATEGORIAS_DO_BLOCO) {
+    const valores = agg.compromissoPorCategoria[c.category]
+    if (!valores) continue
+    rows.push(buildRow(`compromisso_${c.category}`, c.category, valores, baseAV, { indent: 2 }))
+  }
+
+  return total
 }
 
 export function buildDreLucroRealPresumido(
@@ -634,10 +812,20 @@ export function buildDreLucroRealPresumido(
   // é despesa operacional. A regra é DO NEGÓCIO, não do regime: a linha existe nas TRÊS
   // variantes. Omiti-la numa delas faria o mesmo valor sumir só para um regime — que é a
   // divergência que `copia-divergente.md` descreve.
-  rows.push(buildRow('amortizacao', '(-) Amortização de Dívida (principal) — já considerada na formação do preço', agg.amortizacao, baseAV, { sign: '-' }))
+  // >>> A LINHA DA CATEGORIA, NO LUGAR ONDE A AMORTIZAÇÃO FICAVA — §B e §C do adendo <<<
+  //
+  // Ela era "(-) Amortização de Dívida (principal)", que é UMA das cinco subcategorias dando
+  // nome à linha. Agora é a linha de Compromissos Financeiros, com as cinco indentadas abaixo.
+  // A POSIÇÃO não muda: depois do Resultado Financeiro e ANTES do Lucro Líquido, que é onde a
+  // amortização já estava — pagamento de PRINCIPAL não é despesa operacional.
+  //
+  // A regra é DO NEGÓCIO, não do regime: a linha existe nas TRÊS variantes, e por isso o bloco
+  // é UMA função. Omiti-la numa delas faria o mesmo valor sumir só para um regime
+  // (`copia-divergente.md`), e é o risco que o comentário antigo já avisava.
+  const compromissosLr = pushCompromissosFinanceiros(rows, agg, baseAV)
 
   // Lucro Líquido (sem estimativa de IRPJ/CSLL — usa apenas valores reais do HUB)
-  const lucroLiquidoLr = subtractMonths(resultadoFinanceiro, agg.amortizacao)
+  const lucroLiquidoLr = subtractMonths(resultadoFinanceiro, compromissosLr)
   rows.push(buildRow('lucro_liquido', '(=) Lucro Líquido', lucroLiquidoLr, baseAV, { isTotal: true, sign: '=' }))
 
   // INVESTIMENTO — DEPOIS do lucro, porque é dele que sai. A regra é DO NEGÓCIO, não do
@@ -712,11 +900,21 @@ export function buildDrePresumidoRET(agg: AggregatedData): DreRow[] {
   // é despesa operacional. A regra é DO NEGÓCIO, não do regime: a linha existe nas TRÊS
   // variantes. Omiti-la numa delas faria o mesmo valor sumir só para um regime — que é a
   // divergência que `copia-divergente.md` descreve.
-  rows.push(buildRow('amortizacao', '(-) Amortização de Dívida (principal) — já considerada na formação do preço', agg.amortizacao, baseAV, { sign: '-' }))
+  // >>> A LINHA DA CATEGORIA, NO LUGAR ONDE A AMORTIZAÇÃO FICAVA — §B e §C do adendo <<<
+  //
+  // Ela era "(-) Amortização de Dívida (principal)", que é UMA das cinco subcategorias dando
+  // nome à linha. Agora é a linha de Compromissos Financeiros, com as cinco indentadas abaixo.
+  // A POSIÇÃO não muda: depois do Resultado Financeiro e ANTES do Lucro Líquido, que é onde a
+  // amortização já estava — pagamento de PRINCIPAL não é despesa operacional.
+  //
+  // A regra é DO NEGÓCIO, não do regime: a linha existe nas TRÊS variantes, e por isso o bloco
+  // é UMA função. Omiti-la numa delas faria o mesmo valor sumir só para um regime
+  // (`copia-divergente.md`), e é o risco que o comentário antigo já avisava.
+  const compromissos = pushCompromissosFinanceiros(rows, agg, baseAV)
 
   const lucroLiquido = subtractMonths(
     subtractMonths(resultadoAntesImposto, agg.despesaFinanceira),
-    agg.amortizacao,
+    compromissos,
   )
   rows.push(buildRow('lucro_liquido', '(=) Lucro/Prejuízo Líquido do Período', lucroLiquido, baseAV, { isTotal: true, sign: '=' }))
 
@@ -804,11 +1002,21 @@ export function buildDreSimplesNacional(agg: AggregatedData, _calcType: CalcType
   // é despesa operacional. A regra é DO NEGÓCIO, não do regime: a linha existe nas TRÊS
   // variantes. Omiti-la numa delas faria o mesmo valor sumir só para um regime — que é a
   // divergência que `copia-divergente.md` descreve.
-  rows.push(buildRow('amortizacao', '(-) Amortização de Dívida (principal) — já considerada na formação do preço', agg.amortizacao, baseAV, { sign: '-' }))
+  // >>> A LINHA DA CATEGORIA, NO LUGAR ONDE A AMORTIZAÇÃO FICAVA — §B e §C do adendo <<<
+  //
+  // Ela era "(-) Amortização de Dívida (principal)", que é UMA das cinco subcategorias dando
+  // nome à linha. Agora é a linha de Compromissos Financeiros, com as cinco indentadas abaixo.
+  // A POSIÇÃO não muda: depois do Resultado Financeiro e ANTES do Lucro Líquido, que é onde a
+  // amortização já estava — pagamento de PRINCIPAL não é despesa operacional.
+  //
+  // A regra é DO NEGÓCIO, não do regime: a linha existe nas TRÊS variantes, e por isso o bloco
+  // é UMA função. Omiti-la numa delas faria o mesmo valor sumir só para um regime
+  // (`copia-divergente.md`), e é o risco que o comentário antigo já avisava.
+  const compromissos = pushCompromissosFinanceiros(rows, agg, baseAV)
 
   const lucroLiquido = subtractMonths(
     subtractMonths(lucroOperacional, agg.despesaFinanceira),
-    agg.amortizacao,
+    compromissos,
   )
   rows.push(buildRow('lucro_liquido', '(=) Lucro Líquido', lucroLiquido, baseAV, { isTotal: true, sign: '=' }))
 
@@ -1087,6 +1295,11 @@ export default function DfcPage() {
                     fontSize: isMobile ? (row.isTotal ? 12 : 11) : (row.isTotal ? 14 : 13),
                   }}>
                     {row.label}
+                    {row.ajuda && (
+                      <Tooltip title={row.ajuda}>
+                        <InfoCircleOutlined style={{ marginLeft: 6, fontSize: 12, color: 'var(--color-neutral-400, #9CA3AF)' }} />
+                      </Tooltip>
+                    )}
                     {row.isHeader && (
                       <Tooltip title="Valores extraídos dos lançamentos de fluxo de caixa">
                         <InfoCircleOutlined style={{ marginLeft: 6, fontSize: 12, color: 'var(--color-neutral-400, #9CA3AF)' }} />

@@ -1,5 +1,6 @@
 import { supabase } from '@/supabase/client'
 import { calculateHubData, calculateHubDataPrevMonth, extractStructurePercents } from '@/utils/hub-engine'
+import type { HubData } from '@/utils/hub-engine'
 
 export interface ExpenseConfigResult {
   production_labor_cost: number
@@ -11,6 +12,14 @@ export interface ExpenseConfigResult {
   fixed_expense_monthly: number
   indirect_labor_percent: number
   fixed_expense_percent: number
+  /**
+   * COMPROMISSOS FINANCEIROS — §0 do comando de 02/10/2026, em FORMATO PERCENTUAL (0..100).
+   *
+   * Saiu de `fixed_expense_percent`. A soma dos dois é o `fixed_expense_percent` de antes desta
+   * rodada, AO CENTAVO — é esse invariante que mantém o preço idêntico, e `extractStructurePercents`
+   * o garante arredondando o total uma vez e subtraindo em unidades inteiras de 1e-4.
+   */
+  financial_commitments_percent: number
   financial_expense_percent: number
   variable_expense_percent: number
   /** % de MO Produtiva sobre o faturamento — Sprint 4 (PE). */
@@ -45,6 +54,51 @@ const round2 = (v: number) => Math.round(v * 100) / 100
  * Antes os % oscilavam mês a mês conforme lançamentos pontuais; agora refletem
  * a média estável da operação.
  */
+/**
+ * DESPESAS FIXAS EM R$/MÊS — SÓ A FIXA. O COMPROMISSO SAIU DAQUI EM 02/10/2026.
+ *
+ * >>> ESTA FUNÇÃO AFIRMAVA O CONTRÁRIO, E A AFIRMAÇÃO VIROU REGRA ERRADA <<<
+ *
+ * Entre a Correção 6 e o ADENDO 2 ela somava `DESPESA_FIXA + COMPROMISSOS_FINANCEIROS`, com um
+ * cabeçalho dizendo que tirar o compromisso daqui o faria "sair do preço do serviço SEM voltar
+ * por lugar nenhum". Era verdade NAQUELE desenho — o compromisso não tinha lugar no
+ * denominador do serviço.
+ *
+ * O ADENDO 3 deu-lhe um: ele vai para a MARGEM DE CONTRIBUIÇÃO do serviço, como linha própria
+ * (`despesas-do-segmento.ts`, ramo SERVICO). Então ele sai daqui — e manter o nome antigo seria
+ * pior do que o número errado: seria o número errado com a regra do lado dizendo que está
+ * certo. A decisão de 02/10 cedo estava certa para a regra daquela hora; o que mudou é a regra
+ * (`decisao-sob-regra-da-epoca.md`).
+ *
+ * >>> ELE FICA EM UM LUGAR SÓ, E É ISSO QUE A MUDANÇA COMPRA <<<
+ *
+ * Numerador (custo por minuto) OU denominador (coeficiente). Nos dois é a dupla contagem que
+ * `despesas-do-segmento.ts` inteiro existe para impedir — e é a mutação (S1) do §4.
+ *
+ * A FIXA CONTINUA AQUI, INTOCADA: ela é numerador no serviço e sempre foi (§1 do ADENDO 3).
+ *
+ * >>> RECONSTRUÍDO MÊS A MÊS, E NÃO PELO `averageRS` DA LINHA <<<
+ *
+ * Com um grupo só a reconstrução deixou de ser necessária para a SOMA, mas segue necessária
+ * para os MESES: `averageRS = totalSum / closedMonthsWithData`, e esse contador conta os meses
+ * com valor > 0 DAQUELE grupo. Somar por mês primeiro mantém o cálculo explícito.
+ *
+ * EXPORTADA para que o caso afirme EFEITO — o número — em vez de afirmar que a função foi
+ * chamada (`teste-que-nao-exercita.md`).
+ */
+export function mediaMensalDaDespesaFixa(hubData: HubData): number {
+  const porMes: Record<string, number> = {}
+  // UM grupo. O COMPROMISSOS_FINANCEIROS saiu daqui no ADENDO 3 e foi para o coeficiente.
+  for (const g of ['DESPESA_FIXA']) {
+    const row = hubData.rows.find((r) => r.group === g)
+    if (!row) continue
+    for (const [m, v] of Object.entries(row.values)) porMes[m] = (porMes[m] || 0) + v
+  }
+  const soma = Object.values(porMes).reduce((a, v) => a + v, 0)
+  const meses = Object.values(porMes).filter((v) => v > 0).length
+  return meses > 0 ? round2(soma / meses) : 0
+}
+
 export async function recalcExpenseConfigFromCashflow(
   tenantId: string,
 ): Promise<ExpenseConfigResult | null> {
@@ -104,9 +158,8 @@ export async function recalcExpenseConfigFromCashflow(
   const moProdRow = hubData.rows.find((r) => r.group === 'MAO_DE_OBRA_PRODUTIVA')
   const productionLaborCostHub = moProdRow ? round2(moProdRow.averageRS) : 0
 
-  // Calcula Despesas Fixas média em R$/mês a partir do Hub (média histórica)
-  const despesaFixaRow = hubData.rows.find((r) => r.group === 'DESPESA_FIXA')
-  const fixedExpenseMonthly = despesaFixaRow ? round2(despesaFixaRow.averageRS) : 0
+  const fixedExpenseMonthly = mediaMensalDaDespesaFixa(hubData)
+
 
   // % de Custo dos Produtos sobre faturamento (média histórica)
   const custoProdutosRow = hubData.rows.find((r) => r.group === 'CUSTO_PRODUTOS')
@@ -128,6 +181,7 @@ export async function recalcExpenseConfigFromCashflow(
     fixed_expense_monthly: fixedExpenseMonthly,
     indirect_labor_percent: round2(percents.indirect_labor_percent * 100), // salva em %
     fixed_expense_percent: round2(percents.fixed_expense_percent * 100),
+    financial_commitments_percent: round2(percents.financial_commitments_percent * 100),
     financial_expense_percent: round2(percents.financial_expense_percent * 100),
     variable_expense_percent: round2(percents.variable_expense_percent * 100),
     production_labor_percent: round2(percents.production_labor_cost_percent * 100),
@@ -175,6 +229,13 @@ export async function mergeExpenseConfig(tenantId: string): Promise<ExpenseConfi
     admin_labor_percent: result.indirect_labor_percent,
     indirect_labor_percent: result.indirect_labor_percent,
     fixed_expense_percent: result.fixed_expense_percent,
+    /*
+      §8 — A COLUNA É PENDENTE POR PADRÃO. `financial_commitments_percent` vem da migração
+      `20261002000001_compromissos_financeiros_percentual`, e ela tem de ser aplicada ANTES OU JUNTO do
+      merge: este UPDATE é quem grava a coluna, e sem ela o PostgREST recusa a escrita inteira.
+      É a ordem que `migration-delivery.md` exige para coluna que o código GRAVA.
+    */
+    financial_commitments_percent: result.financial_commitments_percent,
     financial_expense_percent: result.financial_expense_percent,
     variable_expense_percent: result.variable_expense_percent,
     production_labor_cost_hub: result.production_labor_cost_hub,

@@ -44,7 +44,8 @@ const MANUAL: BudgetDecompositionItem = {
 function montar(items: BudgetDecompositionItem[], discountPct = 0) {
   const p = buildBudgetDecompositionInput({
     items, discountPct,
-    despesas: { fixa: 0.18, variavel: 0, financeira: 0, indireta: 0, moProdutiva: 0 },
+    despesas: { fixa: 0.18, compromisso: 0, // §0 de 02/10/2026: sem compromisso lançado neste cenário — a soma é a de antes
+    variavel: 0, financeira: 0, indireta: 0, moProdutiva: 0 },
     irpjAliquota: 0.15,
     csllAliquota: 0.09,
   })
@@ -308,7 +309,14 @@ describe('7. AS QUATRO TELAS passam os baldes, a MO produtiva e o `calc_type`', 
     // Ela não recalcula nada — o congelado do item vence. Passar os baldes do tenant de
     // hoje ali seria `fato-vs-referencia.md`: reescrever o passado a cada abertura.
     const src = ler('pages/vendas/index.tsx')
-    expect(src).toContain('despesas: { fixa: 0, variavel: 0, financeira: 0, indireta: 0, moProdutiva: 0 },')
+    /*
+      ÂNCORA ATUALIZADA em 02/10/2026: o literal ganhou `compromisso: 0`, porque
+      `BaldesDeDespesa` ganhou o balde do Compromissos Financeiros (§0). O critério do caso é o
+      mesmo — na venda gravada TODOS os baldes do tenant são zero, e o congelado por item vence.
+      Afirmar balde a balde, em vez do literal inteiro, é o que mantém a âncora viva quando um
+      sexto balde aparecer: o caso quebra se QUALQUER um deixar de ser zero ali.
+    */
+    expect(src).toContain('despesas: { fixa: 0, compromisso: 0, variavel: 0, financeira: 0, indireta: 0, moProdutiva: 0 },')
     expect(src).toContain('despesasOperacionaisPctCongelado: congelado.despesasOperacionaisPct ?? null,')
   })
 })

@@ -424,7 +424,7 @@ function Sales() {
             // R18 — a despesa CONGELADA na gravação vai POR ITEM (acima), não como um
             // número do documento: cada item congelou o seu. Os baldes ficam zerados
             // porque nada aqui é recalculado — o congelado vence em todos.
-            despesas: { fixa: 0, variavel: 0, financeira: 0, indireta: 0, moProdutiva: 0 },
+            despesas: { fixa: 0, compromisso: 0, variavel: 0, financeira: 0, indireta: 0, moProdutiva: 0 },
             // Guia única (Simples/MEI) é LIDA do regime. Enquanto carrega: null = comportamento de antes.
             regime: mrmConfig.loading ? null : mrmConfig.regime,
             // Simples Híbrido: a dedução da base de IBS/CBS, do anexo e da faixa do tenant.
@@ -1544,6 +1544,9 @@ function Sales() {
             discountPct: (Number(globalDiscountPercentV) || 0) / 100,
             despesas: {
                 fixa: Number(mrmConfig.expense_breakdown?.fixed_pct) || 0,
+                // COMPROMISSOS FINANCEIROS — §0 de 02/10/2026. Saiu da `fixa` e volta na MESMA soma:
+                // sem ele aqui a decomposição veria menos despesa do que a construção usou.
+                compromisso: Number(mrmConfig.expense_breakdown?.financial_commitments_pct) || 0,
                 variavel: Number(mrmConfig.expense_breakdown?.variable_pct) || 0,
                 financeira: Number(mrmConfig.expense_breakdown?.financial_pct) || 0,
                 indireta: Number(mrmConfig.expense_breakdown?.administrative_pct) || 0,

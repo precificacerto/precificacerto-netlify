@@ -11,11 +11,24 @@ export interface CalcBaseType {
   laborCostMonthly: number
   /** Labor as % of revenue — used by REVENDA (included in structurePct). */
   laborPercent: number
-  /** Sum of fixed + variable + financial expenses (display %, 0-100). IndirectLabor is separate. */
+  /**
+   * Sum of fixed + variable + financial expenses + CAPITAL COMMITMENT (display %, 0-100).
+   * IndirectLabor is separate. O compromisso entra aqui porque saiu de `fixedExpensePct` — a
+   * soma é a de antes de 02/10/2026, e é ela que mantém o preço idêntico.
+   */
   structurePct: number
   /** Individual breakdowns kept for display in product-price table. */
   indirectLaborPct: number
   fixedExpensePct: number
+  /**
+   * COMPROMISSOS FINANCEIROS em % do faturamento — §0 do comando de 02/10/2026.
+   *
+   * OBRIGATÓRIO por `construtor-empobrecido.md`: é campo de CÁLCULO (ele entra em
+   * `structurePct`), e opcional com default neutro seria um defeito à espera de produtor — um
+   * segundo construtor que o esquecesse faria o preço CAIR sem nada falhar. Obrigatório, o
+   * compilador enumera quem esquecer.
+   */
+  financialCommitmentsPct: number
   variableExpensePct: number
   financialExpensePct: number
   /** Single effective tax rate (display %, 0-100). */

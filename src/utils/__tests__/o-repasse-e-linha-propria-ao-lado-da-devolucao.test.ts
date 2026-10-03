@@ -89,7 +89,7 @@ const comRepasse = (): AggregatedData => ({
     maoDeObraProdutiva: mes(1_100),
     maoDeObraAdministrativa: mes(1_200),
     maoDeObra: { ...ZERO },
-    despesaFixa: mes(1_300),
+    despesaFixa: mes(1_300 - 400),
     despesaVariavel: mes(1_400),
     despesaFinanceira: mes(1_500),
     comissoes: mes(1_600),
@@ -97,7 +97,22 @@ const comRepasse = (): AggregatedData => ({
     custoProduto: mes(20_000),
     impostosRecuperaveisCusto: mes(900),
     atividadesTerceirizadas: mes(800),
-    amortizacao: mes(2_500),
+    /*
+      >>> O VALOR SAI DA DESPESA FIXA, NÃO SE SOMA A ELA — §0 <<<
+
+      No pipeline real `aggregateEntries` roteia as cinco categorias para `compromissosFinanceiros`
+      e NÃO para `despesaFixa`: o total não muda, o valor só troca de linha. Um fixture que
+      acrescentasse o balde novo SEM tirar da fixa criaria uma dedução que não existe, e foi
+      exatamente assim que o Lucro Líquido deste arquivo caiu de R$ 46.700,00 para R$ 42.700,00
+      na primeira tentativa — o caso pegou.
+
+      Com a subtração, o Lucro Líquido fica INTACTO, e é isso que o §0 exige da demonstração: a
+      linha muda de lugar, o resultado não muda de valor.
+    */
+    // 400 das categorias do bloco + 2.500 que vinham do balde `amortizacao`, que deixou de
+    // existir em 02/10/2026: o `case 'AMORTIZACAO'` soma no MESMO balde.
+    compromissosFinanceiros: mes(400 + 2_500),
+    compromissoPorCategoria: { 'Empréstimos': mes(150), 'Consórcios': mes(250) },
 })
 
 /** A MESMA fixture com repasse ZERO — o par que torna a queda mensurável. */
@@ -197,8 +212,16 @@ describe('2. O AGREGADOR — o lançamento cai no balde certo, não no `default`
     it('>>> `REPASSE` soma em `repasse` e em MAIS NENHUM balde <<<', () => {
         const agg = aggregateEntries([lanc('REPASSE', REPASSE)])
         expect(agg.repasse.jan).toBe(REPASSE)
-        // O DISCRIMINANTE contra o `default: break`, que faria o valor SUMIR sem erro:
-        const total = Object.values(agg).reduce((acc, m) => acc + (m as MonthlyValues).jan, 0)
+        // O DISCRIMINANTE contra o `default: break`, que faria o valor SUMIR sem erro.
+        //
+        // `compromissoPorCategoria` (02/10/2026) é um MAPA de `MonthlyValues`, não um balde:
+        // somá-lo aqui daria `NaN`. Ele é excluído NOMEADAMENTE, e a linha seguinte afirma que
+        // todo campo restante É um balde — assim um campo novo fora do formato quebra este caso
+        // em vez de passar a escapar da soma em silêncio.
+        const NAO_SAO_BALDES = ['compromissoPorCategoria']
+        const baldes = Object.entries(agg).filter(([k]) => !NAO_SAO_BALDES.includes(k))
+        for (const [, v] of baldes) expect(typeof (v as MonthlyValues).jan).toBe('number')
+        const total = baldes.reduce((acc, [, m]) => acc + (m as MonthlyValues).jan, 0)
         expect(total).toBe(REPASSE)
     })
 
@@ -210,7 +233,13 @@ describe('2. O AGREGADOR — o lançamento cai no balde certo, não no `default`
 
     it('`AMORTIZACAO` também soma no balde próprio — a linha órfã passa a poder ser alimentada', () => {
         const agg = aggregateEntries([lanc('AMORTIZACAO', 2_500)])
-        expect(agg.amortizacao.jan).toBe(2_500)
+        // >>> O BALDE PRÓPRIO DEIXOU DE EXISTIR, E O VALOR NÃO SE PERDEU — 02/10/2026 <<<
+        //
+        // A amortização virou UMA das cinco subcategorias de `COMPROMISSOS_FINANCEIROS`, e o
+        // `case 'AMORTIZACAO'` soma no balde do bloco. O CRITÉRIO deste caso é o mesmo e é o
+        // que importa: o grupo NÃO cai no `default`, e o valor aparece em algum balde.
+        expect(agg.compromissosFinanceiros.jan).toBe(2_500)
+        expect((agg as unknown as Record<string, unknown>).amortizacao).toBeUndefined()
     })
 
     it('despesa NÃO CONFIRMADA (sem `paid_date`) não entra — a regra do HUB vale para o repasse', () => {
@@ -276,7 +305,10 @@ describe('5. O SELETOR VIVO oferece as três, nos QUATRO regimes', () => {
         it('e cada uma RESOLVE para o grupo certo — oferecer sem resolver gravaria grupo nulo', () => {
             expect(getGroupForCategoryByRegime(regime, 'Repasse de mercadorias')).toBe('REPASSE')
             expect(getGroupForCategoryByRegime(regime, 'Devoluções')).toBe('DEDUCAO_RECEITA')
-            expect(getGroupForCategoryByRegime(regime, 'Amortização de Dívida (principal)')).toBe('AMORTIZACAO')
+            // O grupo da amortização passou a ser o do BLOCO em 02/10/2026 — ela é uma das
+            // cinco subcategorias, não um grupo. O critério do caso é o mesmo: a categoria
+            // oferecida RESOLVE para um grupo, e oferecer sem resolver gravaria grupo nulo.
+            expect(getGroupForCategoryByRegime(regime, 'Amortização de Dívida (principal)')).toBe('COMPROMISSOS_FINANCEIROS')
         })
 
         it('o bloco "── Repasse de mercadorias ──" fica LOGO ABAIXO de "── Custo dos Produtos ──"', () => {

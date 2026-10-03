@@ -74,6 +74,35 @@ export interface BaldesDeDespesa {
   /** `admin_labor_percent` — a MO indireta / administrativa. */
   indireta: number
   /**
+   * `financial_commitments_percent` — o COMPROMISSOS FINANCEIROS, em fração.
+   *
+   * §0 do comando de 02/10/2026: ele SAIU de `fixa` e virou balde próprio, **com o mesmo
+   * percentual, no mesmo divisor**. `fixa + compromisso` é a `fixa` de antes, ao centavo, e por
+   * isso `resolveDespesasOperacionaisPct` devolve o mesmo número.
+   *
+   * >>> E ELE **NÃO** SEGUE A `fixa` NO SEGMENTO SERVIÇO — ADENDO 3, 02/10/2026 <<<
+   *
+   * Até 02/10/2026 ele seguia: em SERVICO a `fixa` fica FORA do coeficiente porque já está no
+   * custo em R$ por minuto, e o compromisso saíra de dentro dela. O dono do produto decidiu
+   * outra coisa, e a decisão é sobre NATUREZA, não sobre proveniência:
+   *
+   *   > No serviço a despesa tem um cálculo diferente, ela vai no numerador. Compromisso
+   *   > financeiro ele vai no denominador, na margem de contribuição.
+   *
+   * Então em SERVICO ele entra no coeficiente, e para isso TEM de ter saído do custo por minuto
+   * — `mediaMensalDaDespesaFixa` em `recalc-expense-config.ts` é a outra metade desta mudança, e
+   * sem ela isto é a dupla contagem que este módulo existe para impedir (mutação S1 do §4).
+   *
+   * **Consequência medida, e ela não é cosmética: o preço do serviço MUDA.** É esperado pelo
+   * §2 do ADENDO 3; a trava do §0 continua inteira em INDUSTRIALIZACAO e REVENDA, onde
+   * `fixa + compromisso` é a `fixa` de antes ao centavo.
+   *
+   * OBRIGATÓRIO por `construtor-empobrecido.md`: é campo de cálculo, e o custo de torná-lo
+   * obrigatório é exatamente o benefício — o compilador enumera quem esquecer, em vez de o
+   * preço cair em silêncio.
+   */
+  compromisso: number
+  /**
    * `production_labor_percent` — a MO PRODUTIVA, em fração.
    *
    * Só entra em segmentação REVENDA, agrupada com a indireta: lá não há minuto sobre
@@ -171,9 +200,17 @@ export function resolveSegmentoDaDespesa(
  *
  * | segmento          | o que entra                              | por quê |
  * |-------------------|------------------------------------------|---------|
- * | SERVICO           | variável + financeira                    | fixa e MO JÁ estão no custo em R$, por minuto. Somá-las aqui é dupla contagem |
- * | REVENDA           | fixa + variável + financeira + (MOI + MO produtiva) | não há minuto sobre o qual ratear: a MO produtiva só pode entrar como percentual, agrupada com a indireta |
- * | INDUSTRIALIZACAO  | fixa + variável + financeira + MOI       | a MO PRODUTIVA vira custo por tempo, e por isso NÃO entra aqui |
+ * | SERVICO           | variável + financeira + **COMPROMISSO**  | fixa e MO JÁ estão no custo em R$, por minuto, e por isso ficam fora. O COMPROMISSO **não** está mais lá — ADENDO 3 o tirou do numerador e o pôs aqui |
+ * | REVENDA           | fixa + COMPROMISSO + variável + financeira + (MOI + MO produtiva) | não há minuto sobre o qual ratear: a MO produtiva só pode entrar como percentual, agrupada com a indireta |
+ * | INDUSTRIALIZACAO  | fixa + COMPROMISSO + variável + financeira + MOI | a MO PRODUTIVA vira custo por tempo, e por isso NÃO entra aqui |
+ *
+ * Fora de SERVICO o COMPROMISSO acompanha a `fixa` e a soma é a de antes ao centavo, então
+ * nenhum preço se move — a trava do §0 de 02/10/2026, intacta. Em SERVICO ele é termo NOVO do
+ * denominador e o preço MUDA: é o §2 do ADENDO 3, e é a única exceção à trava.
+ *
+ * O compromisso aparece em UM dos dois lados, nunca nos dois. Em SERVICO ele está no
+ * denominador aqui e FORA de `fixed_expense_monthly`; nos outros dois ele está no denominador
+ * e não existe custo por minuto de onde sair.
  *
  * O primeiro argumento é o segmento da DESPESA (`resolveSegmentoDaDespesa`), nunca o da
  * matriz.
@@ -184,7 +221,7 @@ export function resolveDespesasOperacionaisPct(
 ): number {
   const variavel = frac(baldes.variavel)
   const financeira = frac(baldes.financeira)
-  if (segmentoDaDespesa === 'SERVICO') return variavel + financeira
+  if (segmentoDaDespesa === 'SERVICO') return variavel + financeira + frac(baldes.compromisso)
   // O agrupamento da MO produtiva é LIDO da fonte única da construção, não reescrito.
   // A função é uma SOMA, então vale em fração tanto quanto em base 100.
   const indireta = resolveIndirectLaborPct({
@@ -192,5 +229,55 @@ export function resolveDespesasOperacionaisPct(
     indirectLaborPct: frac(baldes.indireta),
     productiveLaborPct: frac(baldes.moProdutiva),
   })
-  return frac(baldes.fixa) + variavel + financeira + indireta
+  return frac(baldes.fixa) + frac(baldes.compromisso) + variavel + financeira + indireta
+}
+
+/**
+ * O DIVISOR DA ESTRUTURA, por segmento — em base 100, como as telas o carregam.
+ *
+ * >>> POR QUE ESTA FUNÇÃO EXISTE, e é o remédio e não organização <<<
+ *
+ * O critério "qual balde de despesa entra no divisor, por segmento" estava escrito QUATRO
+ * vezes: `products/content.component.tsx` (`structurePctForEngine`, que alimenta o motor),
+ * `products/product-price.component.tsx` (o `structurePct` do `_matriz`, que a tela exibe),
+ * `compute-service-price.ts` e `services/content.component.tsx`. `resolveDespesasOperacionaisPct`
+ * ao lado é a quinta, para a decomposição.
+ *
+ * A mutação (S4b) do ADENDO 3 — somar o compromisso DUAS VEZES no divisor fora do serviço —
+ * SOBREVIVEU à suíte inteira de 3.583 casos, porque nenhum deles alcançava aquele ternário:
+ * ele é uma constante local, e o preço do motor não é afirmado a partir dela. É o
+ * `portao-que-nao-alcanca.md` no nível do caso: o instrumento não chegava no arquivo.
+ *
+ * Exportar é o que `teste-que-nao-exercita.md` manda fazer nessa situação — "quando a pergunta
+ * 3 não tem resposta boa porque a função não é exportada, exporte a função". O custo é esta
+ * declaração; o que se compra é poder afirmar o NÚMERO do divisor.
+ *
+ * >>> POR QUE ELA NÃO É `resolveDespesasOperacionaisPct` <<<
+ *
+ * Porque o AGRUPAMENTO da MO não é o mesmo nos dois usos, e unificá-los mudaria preço. Em
+ * `content.component.tsx` o agrupamento REVENDA só vale quando o tenant é RESALE **e** o
+ * produto é `REVENDA`; `resolveSegmentoDaDespesa` devolve REVENDA para o tenant RESALE
+ * independentemente do produto. Por isso a MO INDIRETA chega aqui JÁ AGRUPADA pelo chamador:
+ * esta função decide os baldes de despesa, nunca o agrupamento da mão de obra.
+ *
+ * A ORDEM DA SOMA é a de `build-calc-base.ts` (`fixa + variável + financeira + compromisso`),
+ * de propósito: trocá-la mudaria o último bit do divisor, e a trava do §0 é ao centavo.
+ */
+export function divisorDaEstruturaPct(args: {
+  segmentoDaDespesa: SegmentoDaConstrucao
+  fixaPct: number
+  variavelPct: number
+  financeiraPct: number
+  compromissoPct: number
+  /** MO indireta JÁ agrupada pelo chamador. Ignorada em SERVICO, onde ela é custo em R$. */
+  indiretaAgrupadaPct: number
+}): number {
+  const variavel = Number(args.variavelPct) || 0
+  const financeira = Number(args.financeiraPct) || 0
+  const compromisso = Number(args.compromissoPct) || 0
+  // SERVICO: a fixa e a MO são NUMERADOR — custo por minuto, em R$. O compromisso NÃO é, desde
+  // o ADENDO 3, e por isso é o único dos três que aparece aqui.
+  if (args.segmentoDaDespesa === 'SERVICO') return variavel + financeira + compromisso
+  const fixa = Number(args.fixaPct) || 0
+  return fixa + variavel + financeira + compromisso + (Number(args.indiretaAgrupadaPct) || 0)
 }

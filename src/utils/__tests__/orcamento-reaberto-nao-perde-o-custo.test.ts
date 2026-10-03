@@ -81,7 +81,8 @@ describe('2. O EFEITO: com o custo resolvido, a decomposição fecha', () => {
     acrescimos: 0,
   })
   const montar = (i: BudgetDecompositionItem) => buildDecomposition(buildBudgetDecompositionInput({
-    items: [i], discountPct: 0, despesas: { fixa: 8424.85 / 36757.67, variavel: 0, financeira: 0, indireta: 0, moProdutiva: 0 },
+    items: [i], discountPct: 0, despesas: { fixa: 8424.85 / 36757.67, compromisso: 0, // §0 de 02/10/2026: sem compromisso lançado neste cenário — a soma é a de antes
+    variavel: 0, financeira: 0, indireta: 0, moProdutiva: 0 },
   }).input)
 
   it('com a coluna crua (zero), o invariante ACUSA', () => {
@@ -105,7 +106,8 @@ describe('3. AS BASES, linha por linha — o que a regra manda', () => {
       commissionPct: 5, profitPct: 10, rtPct: 2,
       rates: buildItemTaxRatesFromProduct(PRODUTO_COM_CUSTO_VIVO) as never, acrescimos: 0,
     }],
-    discountPct: 0, despesas: { fixa: 0.2292, variavel: 0, financeira: 0, indireta: 0, moProdutiva: 0 },
+    discountPct: 0, despesas: { fixa: 0.2292, compromisso: 0, // §0 de 02/10/2026: sem compromisso lançado neste cenário — a soma é a de antes
+    variavel: 0, financeira: 0, indireta: 0, moProdutiva: 0 },
   }).input)
   const l = (k: string) => r.rows.find((x) => x.key === k)!
   const v = (k: string) => Math.abs(l(k).total)

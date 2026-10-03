@@ -47,6 +47,18 @@ describe('Snapshot de despesas do serviço · gravação e leitura', () => {
     const SNAP = buildServiceExpenseSnapshot({
         variavelPct: 1.29,
         financeiraPct: 0.37,
+        /*
+          O TERCEIRO PERCENTUAL DO DENOMINADOR — ADENDO 3, 02/10/2026.
+
+          Até aquela data o coeficiente do serviço era `variável + financeira`, e o compromisso
+          entrava no CUSTO POR MINUTO. O dono do produto o moveu para o denominador, e um
+          snapshot que não o registrasse descreveria um preço que ele formou sem dizer com
+          quanto — bastaria o tenant editar o caixa para a decomposição usar outro número.
+
+          O valor NÃO é zero aqui de propósito: zero não distinguiria "registrado" de
+          "esquecido" (`teste-que-nao-exercita.md`, variante 2).
+        */
+        compromissosPct: 4.51,
         custoPorMinuto: 0.534722,
         cargaHorariaMinutos: 18000,
         gravadoEm: '2026-08-29T18:41:57.727Z',
@@ -57,6 +69,7 @@ describe('Snapshot de despesas do serviço · gravação e leitura', () => {
             v: SERVICE_EXPENSE_SNAPSHOT_VERSION,
             variavel_pct: 1.29,
             financeira_pct: 0.37,
+            compromissos_pct: 4.51,
             custo_por_minuto: 0.534722,
             carga_horaria_minutos: 18000,
             gravado_em: '2026-08-29T18:41:57.727Z',
@@ -67,6 +80,9 @@ describe('Snapshot de despesas do serviço · gravação e leitura', () => {
         // As duas entram em R$/mês DENTRO do custo por minuto. Registrá-las aqui como %
         // sugeriria uma segunda incidência — que foi exatamente a dupla contagem removida
         // na correção da Etapa 5.
+        // E o COMPROMISSO entra, porque ele É percentual do denominador desde o ADENDO 3. É o
+        // par que distingue: a fixa fora porque é numerador, o compromisso dentro porque não é.
+        expect(Object.keys(SNAP)).toContain('compromissos_pct')
         expect(Object.keys(SNAP)).not.toContain('fixa_pct')
         expect(Object.keys(SNAP)).not.toContain('mo_indireta_pct')
     })
@@ -198,6 +214,10 @@ const ELIANE: PageTenantCtx = {
 const SNAPSHOT_HIDRATACAO = buildServiceExpenseSnapshot({
     variavelPct: 1.29,
     financeiraPct: 0.37,
+    // A Hidratação é um serviço REAL do tenant 14363adf, e lá o compromisso é ZERO — medido no
+    // banco em 02/10/2026: nenhum lançamento das sete categorias do bloco, em mês nenhum. Zero
+    // aqui é o número medido, não um preenchimento (`ausente-vs-falso.md`).
+    compromissosPct: 0,
     custoPorMinuto: 9625 / 18000,
     cargaHorariaMinutos: 18000,
     gravadoEm: '2026-08-29T18:41:57.727Z',
