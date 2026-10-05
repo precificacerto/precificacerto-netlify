@@ -102,9 +102,14 @@ const MobileMoreDrawer = ({ open, onClose }: Props) => {
     // com módulo próprio (item 2).
     { key: 'rt-commission', label: 'RT Comissões', href: ROUTES.RT_COMMISSION, icon: <IdcardOutlined />, section: 'Financeiro', module: MODULES.RT_COMMISSION },
 
+    // Agendamentos — seção própria, PO 05/10/2026. Aqui o agrupamento é por RÓTULO, não por
+    // chave como no desktop: são dois vocabulários para a mesma seção.
+    // Correções de Menu V9 (item 7): "Agenda" removida daqui — já fica na barra inferior (sem
+    // duplicar). Por isso Agendamentos nasce no mobile com UM item só, e isso é o esperado:
+    // acrescentar "Agenda" aqui a duplicaria na tela.
+    { key: 'reports', label: 'Relatório Agenda', href: ROUTES.REPORTS, icon: <BarChartOutlined />, section: 'Agendamentos', module: MODULES.REPORTS },
+
     // Operacional
-    // Correções de Menu V9 (item 7): "Agenda" removida daqui — já fica na barra inferior (sem duplicar).
-    { key: 'reports', label: 'Relatório Agenda', href: ROUTES.REPORTS, icon: <BarChartOutlined />, section: 'Operacional', module: MODULES.REPORTS },
     { key: 'connectivity', label: 'Conectividade', href: ROUTES.CONNECTIVITY, icon: <SettingOutlined />, section: 'Operacional', module: MODULES.CONNECTIVITY },
     { key: 'users', label: 'Usuários', href: ROUTES.USUARIOS, icon: <TeamOutlined />, section: 'Operacional', adminOnly: true, hideForSuperAdmin: true },
 
@@ -141,7 +146,7 @@ const MobileMoreDrawer = ({ open, onClose }: Props) => {
     return true
   })
 
-  const sectionOrder = ['Início', 'Cadastros', 'Comercial', 'Financeiro', 'Operacional', 'Super Admin', 'Conta']
+  const sectionOrder = ['Início', 'Cadastros', 'Comercial', 'Financeiro', 'Agendamentos', 'Operacional', 'Super Admin', 'Conta']
   const grouped = sectionOrder
     .map((section) => ({ section, list: visibleItems.filter((i) => i.section === section) }))
     .filter((g) => g.list.length > 0)
