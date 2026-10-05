@@ -173,9 +173,19 @@ export const ProductPrice: FC<Props> = ({
     autoTaxPercent: calcBase.taxPct,
   })
   const taxValDisplay = productPriceInfo.taxesPrice
+  // O MEI NÃO É CATEGORIA DE IMPOSTO — decisão do PO, 05/10/2026.
+  //
+  // O rótulo nomeava o MEI entre parênteses na linha de Impostos, e isso afirmava um
+  // enquadramento que o próprio sistema contradiz: o DAS do MEI é DESPESA FIXA, e é lá que
+  // ele está lançado (`expense-setup-blocks.ts:116,274`, com
+  // `expense_group: 'DESPESA_FIXA'`). Nomear o MEI
+  // na linha de Impostos põe na tela uma classificação que o cadastro não usa.
+  //
+  // O ALERTA que explica por que a linha vem zerada CONTINUA — ele diz por que o número é
+  // zero, não em que categoria o DAS entra.
   const taxLabel = calcBase.taxLabel
     ? `Impostos (${calcBase.taxLabel})`
-    : isMei ? 'Impostos (MEI — DAS fixo)' : 'Impostos'
+    : 'Impostos'
 
   const commissionPct = productPriceInfo.salesCommissionPercent
   const commissionVal = productPriceInfo.salesCommissionPrice

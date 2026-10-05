@@ -59,9 +59,19 @@ export const ContentService: FC<ContentServiceProps> = ({
   /* Unified tax (V2): single taxPct + taxLabel */
   const svcTaxPct = calcBase.taxPct
   const svcTaxVal = productPriceInfo.taxesPrice
+  // O MEI NÃO É CATEGORIA DE IMPOSTO — decisão do PO, 05/10/2026.
+  //
+  // O rótulo nomeava o MEI entre parênteses na linha de Impostos, e isso afirmava um
+  // enquadramento que o próprio sistema contradiz: o DAS do MEI é DESPESA FIXA, e é lá que
+  // ele está lançado (`expense-setup-blocks.ts:116,274`, com
+  // `expense_group: 'DESPESA_FIXA'`). Nomear o MEI
+  // na linha de Impostos põe na tela uma classificação que o cadastro não usa.
+  //
+  // O ALERTA que explica por que a linha vem zerada CONTINUA — ele diz por que o número é
+  // zero, não em que categoria o DAS entra.
   const svcTaxLabel = calcBase.taxLabel
     ? `Impostos (${calcBase.taxLabel})`
-    : isMei ? 'Impostos (MEI — DAS fixo)' : 'Impostos'
+    : 'Impostos'
 
   const quantity = productForm.getFieldValue('quantity')
   const unit = productForm.getFieldValue('unitType')
@@ -128,9 +138,10 @@ export const ContentService: FC<ContentServiceProps> = ({
   /* ---- product pricing data (V2: single tax) ---- */
   const prdTaxPct = calcBase.taxPct
   const prdTaxVal = productPriceInfo.taxesPriceByProduct || 0
+  // Mesma decisão de 05/10/2026 da linha de serviço acima: o MEI sai do rótulo.
   const prdTaxLabel = calcBase.taxLabel
     ? `Impostos (${calcBase.taxLabel})`
-    : isMei ? 'Impostos (MEI — DAS fixo)' : 'Impostos'
+    : 'Impostos'
   const prdCommPct = productPriceInfo.salesCommissionPercentByProduct || 0
   const prdCommVal = productPriceInfo.salesCommissionPriceByProduct || 0
   const prdProfitPct = productPriceInfo.productProfitPercentByProduct || 0

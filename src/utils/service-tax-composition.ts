@@ -114,8 +114,10 @@ export function readRegisteredPercent(value: unknown): number {
  * do lucro ou da presunção) e não passam por aqui.
  *
  * Mapeamento com as linhas renderizadas:
- *  - `taxes` é a linha "Impostos" do regime (em MEI, "Impostos (MEI — DAS fixo)"), que
- *    exibe `taxesPct`;
+ *  - `taxes` é a linha "Impostos" do regime, que exibe `taxesPct`. O rótulo é "Impostos" em
+ *    todos os regimes que caem aqui, MEI incluído: o parêntese com o MEI saiu em 05/10/2026,
+ *    porque o DAS do MEI é DESPESA FIXA e nomeá-lo na linha de Impostos afirmava um
+ *    enquadramento que o cadastro não usa;
  *  - `taxableRegime` é a linha da alíquota do regime editável por serviço. No Simples ela
  *    é fundida com a linha "Impostos" (lá `taxesPct` é 0, então o número exibido é o
  *    mesmo que é somado); em MEI vale 0 e a linha é suprimida — zero exibido ou zero

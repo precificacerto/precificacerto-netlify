@@ -910,9 +910,12 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
 
     const displayTaxPct = isSN ? taxableRegimePercent : pricing.taxesPct
     const displayTaxVal = isSN ? pricing.taxRegimeVal : pricing.taxesVal
+    // O MEI NÃO É CATEGORIA DE IMPOSTO — decisão do PO, 05/10/2026. O DAS do MEI é DESPESA
+    // FIXA, e é lá que ele está lançado (`expense-setup-blocks.ts:116,274`). O ramo do Simples
+    // NÃO muda: lá o DAS é imposto de verdade, e o rótulo nomeia o regime que o apura.
     const taxLabel = isSN
         ? `Impostos (DAS — ${taxPreview?.regimeLabel})`
-        : taxPreview?.isMei ? 'Impostos (MEI — DAS fixo)' : 'Impostos'
+        : 'Impostos'
 
     return (
         <>

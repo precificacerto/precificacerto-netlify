@@ -101,8 +101,20 @@ export async function fetchTaxPreview(tenantId: string): Promise<TaxPreviewResul
   const calcType: string = ts.calc_type || 'INDUSTRIALIZACAO'
   const originState: string = ts.state_code || 'SP'
 
+  // O MEI NÃO É CATEGORIA DE IMPOSTO — decisão do PO, 05/10/2026. O label é VAZIO de
+  // propósito, e é daqui que a tela decide o rótulo: o 3º argumento alimenta `taxLabel` E
+  // `regimeLabel`, e `calcBase.taxLabel` é o primeiro ramo do ternário de
+  // `product-price.component.tsx`. Com 'MEI' ali, aquele ramo vencia e a tela mostrava
+  // "Impostos (MEI)" — um enquadramento que o cadastro contradiz, porque o DAS do MEI é
+  // DESPESA FIXA (`expense-setup-blocks.ts:116,274`).
+  //
+  // Vazio NÃO é "não configurado": o `isMei` segue TRUE, e é ele — não o texto — que zera a
+  // alíquota, trava o campo e dispara o alerta que explica a linha zerada. O que sai é só o
+  // rótulo. Em 05/10/2026 nenhum consumidor de `regimeLabel` decide por este texto: o único
+  // que lê o conteúdo é `services/content.component.tsx:787`, com
+  // `.includes('Simples Nacional')`, e 'MEI' e '' dão o mesmo `false`.
   if (regime === 'MEI') {
-    return buildResult(0, 0, 'MEI', true)
+    return buildResult(0, 0, '', true)
   }
 
   if (regime === 'SIMPLES_NACIONAL') {
