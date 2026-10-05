@@ -38,6 +38,15 @@ import { resolveItemRtPctDecimal } from '@/utils/balcao-rt'
 import { CurrencyInput } from '@/components/currency-input.component'
 import { ACTIVE_OR_NULL_FILTER } from '@/utils/active-record-filter'
 import { MAX_PHONE_MASKED_LENGTH, phoneMask, phoneRules } from '@/utils/phone-br'
+import { tenantOffersServices } from '@/utils/segment-visibility'
+import {
+    PainelDeAgendamento,
+    type ConfiguracaoDoAgendamento,
+    type DadosDoAgendamento,
+    type FaixaGravada,
+    type FolgaGravada,
+    type FuncionarioDoPainel,
+} from '@/components/agenda/painel-de-agendamento.component'
 
 dayjs.extend(isoWeek)
 dayjs.locale('pt-br')
@@ -177,6 +186,18 @@ function Schedule() {
     // WhatsApp dispatch status per event
     const [eventDispatchMap, setEventDispatchMap] = useState<Record<string, { status: string; error_message?: string | null }>>({})
 
+    // ── AGENDAMENTO PELO LINK (fase 1, 05/10/2026) ───────────────────────────────────────
+    //
+    // >>> NENHUMA ROTA PÚBLICA NESTA FASE <<<
+    // O painel configura e exibe o link; a página que o atende é a fase 2. `is_enabled` nasce
+    // `false` e o link não abre nada hoje.
+    const [bookingPanelOpen, setBookingPanelOpen] = useState(false)
+    const [bookingCfg, setBookingCfg] = useState<ConfiguracaoDoAgendamento | null>(null)
+    const [bookingGrade, setBookingGrade] = useState<FaixaGravada[]>([])
+    const [bookingFolgas, setBookingFolgas] = useState<FolgaGravada[]>([])
+    const [bookingEmpTables, setBookingEmpTables] = useState<Record<string, { id: string; name: string; type: string }[]>>({})
+    const tenantFazAgendamento = tenantOffersServices(currentUser?.calcType)
+
 
     const weekEnd = weekStart.add(6, 'day').endOf('day')
     const weekDates = useMemo(() => Array.from({ length: 7 }, (_, i) => weekStart.add(i, 'day')), [weekStart])
@@ -203,7 +224,7 @@ function Schedule() {
             const [evR, cuR, emR, scR, svR, prR] = await Promise.all([
                 eventsQuery,
                 sb.from('customers').select('id, name').eq('is_active', true).order('name'),
-                sb.from('employees').select('id, name, position, status, commission_percent').eq('status', 'ACTIVE').eq('is_active', true).order('name'),
+                sb.from('employees').select('id, name, position, status, commission_percent, user_id').eq('status', 'ACTIVE').eq('is_active', true).order('name'),
                 sb.from('schedule_employees').select('employee_id').eq('tenant_id', tid),
                 sb.from('services').select('id, name, base_price, estimated_duration_minutes, commission_percent, profit_percent, rt_reserve_percent, cost_total, recurrence_days, commission_table_id, destination_snapshot').eq('status', 'ACTIVE').or(ACTIVE_OR_NULL_FILTER).order('name'),
                 sb.from('products').select('id, name, sale_price, cost_total, commission_percent, profit_percent, rt_reserve_percent, recurrence_days, commission_table_id, destination_snapshot').eq('status', 'ACTIVE').or(ACTIVE_OR_NULL_FILTER).order('name'),
@@ -238,6 +259,119 @@ function Schedule() {
 
     useEffect(() => { fetchAll() }, [fetchAll])
 
+    // ── A CARGA DA CONFIGURAÇÃO DO AGENDAMENTO ───────────────────────────────────────────
+    //
+    // Separada de `fetchAll` de propósito: ela só roda para tenant de SERVIÇO, e `fetchAll`
+    // roda a cada troca de semana. Pendurar as três consultas nele faria três requisições por
+    // clique de navegação para um dado que não muda com a semana.
+    const fetchBookingConfig = useCallback(async () => {
+        if (!tenantFazAgendamento) return
+        try {
+            const tid = await getTenantId()
+            if (!tid) return
+            const sb = supabase as any
+            const [cfgR, grR, foR, tbR] = await Promise.all([
+                sb.from('tenant_booking_settings').select('*').eq('tenant_id', tid).maybeSingle(),
+                sb.from('employee_working_hours').select('*').eq('tenant_id', tid).order('weekday').order('start_time'),
+                sb.from('employee_time_off').select('*').eq('tenant_id', tid).order('starts_at'),
+                // Premissa (b): a amarração serviço ↔ barbeiro JÁ EXISTE aqui. Esta consulta
+                // só LÊ — nenhuma tabela de ligação nova foi criada (§5).
+                sb.from('employee_commission_tables').select('employee_id, commission_tables(id, name, type)').eq('tenant_id', tid),
+            ])
+            setBookingCfg((cfgR?.data as ConfiguracaoDoAgendamento) ?? null)
+            setBookingGrade((grR?.data as FaixaGravada[]) ?? [])
+            setBookingFolgas((foR?.data as FolgaGravada[]) ?? [])
+            const porEmp: Record<string, { id: string; name: string; type: string }[]> = {}
+            for (const row of (tbR?.data ?? [])) {
+                const t = (row as any)?.commission_tables
+                if (!t) continue
+                const k = (row as any).employee_id
+                if (!porEmp[k]) porEmp[k] = []
+                porEmp[k].push(t)
+            }
+            setBookingEmpTables(porEmp)
+        } catch {
+            // Antes de a migração ser aplicada as três tabelas não existem, e o PostgREST
+            // devolve erro. Silenciar AQUI é deliberado: a Agenda não pode parar de abrir por
+            // causa de uma configuração opcional que ainda não tem schema.
+            // `migration-delivery.md`: migração mergeada NÃO está aplicada.
+        }
+    }, [tenantFazAgendamento])
+
+    useEffect(() => { void fetchBookingConfig() }, [fetchBookingConfig])
+
+    // ── AS AÇÕES DO PAINEL ───────────────────────────────────────────────────────────────
+    //
+    // O token sai da ROTA DE API, nunca daqui: `crypto.randomBytes` no servidor. Gerar no
+    // navegador obrigaria a usar `Math.random()` ou `crypto.getRandomValues`, e o primeiro é
+    // previsível — o token É a credencial do link.
+    const acoesDoAgendamento = useMemo(() => ({
+        onGerarLink: async () => {
+            try {
+                const r = await fetch('/api/agendamento/gerar-link', { method: 'POST' })
+                const j = await r.json()
+                if (!r.ok) throw new Error(j?.error || 'Falha ao gerar o link')
+                setBookingCfg(j.settings as ConfiguracaoDoAgendamento)
+                msgApi.success('Link gerado. Ele começa DESLIGADO.')
+            } catch (e: any) { msgApi.error(e?.message || 'Falha ao gerar o link') }
+        },
+        onAlternarAtivo: async (ativo: boolean) => {
+            if (!bookingCfg) return
+            try {
+                const tid = await getTenantId()
+                const { error } = await (supabase as any).from('tenant_booking_settings')
+                    .update({ is_enabled: ativo, updated_at: new Date().toISOString() })
+                    .eq('tenant_id', tid)
+                if (error) throw error
+                setBookingCfg({ ...bookingCfg, is_enabled: ativo })
+            } catch (e: any) { msgApi.error(e?.message || '') }
+        },
+        onSalvarConfiguracao: async (patch: Partial<ConfiguracaoDoAgendamento>) => {
+            if (!bookingCfg) return
+            try {
+                const tid = await getTenantId()
+                const { error } = await (supabase as any).from('tenant_booking_settings')
+                    .update({ ...patch, updated_at: new Date().toISOString() })
+                    .eq('tenant_id', tid)
+                if (error) throw error
+                setBookingCfg({ ...bookingCfg, ...patch })
+            } catch (e: any) { msgApi.error(e?.message || '') }
+        },
+        onSalvarFaixa: async (faixa: { employee_id: string; weekday: number; start_time: string; end_time: string }) => {
+            try {
+                const tid = await getTenantId()
+                const { data, error } = await (supabase as any).from('employee_working_hours')
+                    .insert({ tenant_id: tid, ...faixa }).select('*').single()
+                if (error) throw error
+                setBookingGrade(prev => [...prev, data as FaixaGravada])
+            } catch (e: any) { msgApi.error(e?.message || '') }
+        },
+        onRemoverFaixa: async (id: string) => {
+            try {
+                const { error } = await (supabase as any).from('employee_working_hours').delete().eq('id', id)
+                if (error) throw error
+                setBookingGrade(prev => prev.filter(f => f.id !== id))
+            } catch (e: any) { msgApi.error(e?.message || '') }
+        },
+        onSalvarFolga: async (folga: { employee_id: string; starts_at: string; ends_at: string; reason?: string }) => {
+            try {
+                const tid = await getTenantId()
+                const { data, error } = await (supabase as any).from('employee_time_off')
+                    .insert({ tenant_id: tid, ...folga }).select('*').single()
+                if (error) throw error
+                setBookingFolgas(prev => [...prev, data as FolgaGravada])
+            } catch (e: any) { msgApi.error(e?.message || '') }
+        },
+        onRemoverFolga: async (id: string) => {
+            try {
+                const { error } = await (supabase as any).from('employee_time_off').delete().eq('id', id)
+                if (error) throw error
+                setBookingFolgas(prev => prev.filter(f => f.id !== id))
+            } catch (e: any) { msgApi.error(e?.message || '') }
+        },
+    }), [bookingCfg, msgApi])
+
+
     // Processar lembretes pendentes: ao abrir a agenda e a cada 30s enquanto estiver na página
     useEffect(() => {
         const run = () => fetch('/api/whatsapp/send-reminder', { method: 'POST' }).catch(() => {})
@@ -245,6 +379,20 @@ function Schedule() {
         const interval = setInterval(run, 30 * 1000)
         return () => clearInterval(interval)
     }, [])
+
+    // Os funcionários da grade: os ATIVOS, com o `user_id` para o aviso do §4 e as tabelas de
+    // comissão para o §1. `allEmployees` já traz só `status = ACTIVE` e `is_active = true`.
+    const dadosDoAgendamento: DadosDoAgendamento = useMemo(() => ({
+        configuracao: bookingCfg,
+        grade: bookingGrade,
+        folgas: bookingFolgas,
+        funcionarios: allEmployees.map((e: any): FuncionarioDoPainel => ({
+            id: e.id,
+            name: e.name,
+            user_id: e.user_id ?? null,
+            tabelas: bookingEmpTables[e.id] ?? [],
+        })),
+    }), [bookingCfg, bookingGrade, bookingFolgas, allEmployees, bookingEmpTables])
 
     const schedEmps = useMemo(() => {
         const base = allEmployees.filter(e => schedEmpIds.includes(e.id))
@@ -1568,6 +1716,14 @@ function Schedule() {
                     {isAdminOrSuper && (
                         <Button size="small" icon={<UserAddOutlined />} onClick={() => setAddEmpOpen(true)}>Funcionário</Button>
                     )}
+                    {/* O painel do agendamento pelo link — só para tenant de SERVIÇO, e só
+                        para quem administra. A fonte da segmentação é `tenantOffersServices`,
+                        a mesma do menu e das permissões (premissa a). */}
+                    {tenantFazAgendamento && isAdminOrSuper && (
+                        <Button size="small" icon={<ClockCircleOutlined />} onClick={() => setBookingPanelOpen(true)}>
+                            Agendamento pelo link
+                        </Button>
+                    )}
                     {canEdit(MODULES.AGENDA) && (
                         <Button type="primary" size="small" icon={<PlusOutlined />} onClick={() => openNew(selectedEmpId || undefined)}>Novo Serviço</Button>
                     )}
@@ -2619,6 +2775,16 @@ function Schedule() {
                     description="A recorrência deste cliente chegou ao fim. Deseja criar um novo agendamento recorrente para continuar os atendimentos?"
                 />
             </Modal>
+        
+            {/* ── AGENDAMENTO PELO LINK — painel lateral (§3) ──────────────────────────── */}
+            <PainelDeAgendamento
+                open={bookingPanelOpen}
+                onClose={() => setBookingPanelOpen(false)}
+                calcType={currentUser?.calcType}
+                dados={dadosDoAgendamento}
+                acoes={acoesDoAgendamento}
+            />
+
         </Layout>
     )
 }
