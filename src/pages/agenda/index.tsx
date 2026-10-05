@@ -362,6 +362,47 @@ function Schedule() {
                 setBookingFolgas(prev => [...prev, data as FolgaGravada])
             } catch (e: any) { msgApi.error(e?.message || '') }
         },
+        // §2 — o switch do funcionário: liga ou desliga TODAS as faixas dele de uma vez.
+        //
+        // UM statement, então é atômico por si: ou o UPDATE pega todas as faixas do funcionário,
+        // ou nenhuma. Não há o problema de transação que a cópia da grade tem.
+        //
+        // NENHUMA COLUNA NOVA: "aceita agendamento" é derivado de haver ao menos uma faixa com
+        // `is_active = true` — ver `estadoDoFuncionarioNoLink`, que é a fonte única desse
+        // critério e será lida também pela rota pública da fase 2.
+        onAlternarFuncionario: async (employee_id: string, ativo: boolean) => {
+            try {
+                const tid = await getTenantId()
+                const { error } = await (supabase as any).from('employee_working_hours')
+                    .update({ is_active: ativo, updated_at: new Date().toISOString() })
+                    .eq('tenant_id', tid).eq('employee_id', employee_id)
+                if (error) throw error
+                setBookingGrade(prev => prev.map(f => (f.employee_id === employee_id ? { ...f, is_active: ativo } : f)))
+            } catch (e: any) { msgApi.error(e?.message || '') }
+        },
+        // §3 — a cópia da grade vai pela ROTA DE API, não daqui.
+        //
+        // Ela precisa inserir e apagar em sequência compensada POR DESTINO, e o cliente não tem
+        // como garantir isso: uma falha de rede entre o insert e o delete deixaria o destino com
+        // as duas grades. No servidor a sequência roda inteira ou se desfaz.
+        onAplicarGrade: async (origem_id: string, destino_ids: string[]) => {
+            try {
+                const r = await fetch('/api/agendamento/aplicar-grade', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ origem_id, destino_ids }),
+                })
+                const j = await r.json()
+                if (!r.ok && r.status !== 207) throw new Error(j?.error || 'Falha ao aplicar a grade')
+                const falhos = (j?.resultados ?? []).filter((x: any) => !x.aplicado)
+                if (falhos.length > 0) {
+                    msgApi.warning(`${falhos.length} profissional(is) não receberam a grade e ficaram como estavam.`)
+                } else {
+                    msgApi.success('Grade aplicada.')
+                }
+                await fetchBookingConfig()
+            } catch (e: any) { msgApi.error(e?.message || '') }
+        },
         onRemoverFolga: async (id: string) => {
             try {
                 const { error } = await (supabase as any).from('employee_time_off').delete().eq('id', id)
@@ -369,7 +410,7 @@ function Schedule() {
                 setBookingFolgas(prev => prev.filter(f => f.id !== id))
             } catch (e: any) { msgApi.error(e?.message || '') }
         },
-    }), [bookingCfg, msgApi])
+    }), [bookingCfg, msgApi, fetchBookingConfig])
 
 
     // Processar lembretes pendentes: ao abrir a agenda e a cada 30s enquanto estiver na página
