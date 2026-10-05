@@ -72,13 +72,28 @@ describe('A — o cabeçalho do Custo dos Produtos é o LÍQUIDO', () => {
     expect(liquido.apenasApresentacao).toBe(true)
   })
 
-  it('>>> o LÍQUIDO é a CABEÇA do bloco: menor ordem que o bruto e que os créditos <<<', () => {
-    expect(LINHAS_DE_APRESENTACAO_DO_CUSTO.liquido.ordem)
-      .toBeLessThan(LINHAS_DE_APRESENTACAO_DO_CUSTO.bruto.ordem)
-    expect(LINHAS_DE_APRESENTACAO_DO_CUSTO.bruto.ordem)
-      .toBeLessThan(LINHAS_DE_APRESENTACAO_DO_CUSTO.creditos.ordem)
-    expect(LINHAS_DE_APRESENTACAO_DO_CUSTO.creditos.ordem)
-      .toBeLessThan(DETALHE_DO_CREDITO_POR_TRIBUTO.icms.ordem)
+  it('>>> o LÍQUIDO é o RODAPÉ do bloco — invertido em 05/10/2026 <<<', () => {
+    /*
+      ESTE CASO AFIRMAVA O CONTRÁRIO, e a inversão é a rodada.
+
+      Até 05/10/2026 ele exigia `liquido.ordem < bruto.ordem`, pelo §2 do comando de
+      21/09/2026: o cabeçalho do grupo no Hub exibia um número misturado — líquido nos meses,
+      bruto na média — e pôr o líquido no topo era a forma de dar ao leitor o número que forma
+      preço antes de ele somar as parcelas erradas.
+
+      O cabeçalho foi corrigido (passa a ser o bruto nos dois), o motivo do 21/09 deixou de
+      existir, e o líquido voltou para onde a aritmética o põe. A régua não mudou de dono: a
+      tela mudou debaixo dela (`decisao-sob-regra-da-epoca.md`).
+    */
+    const { bruto, creditos, liquido } = LINHAS_DE_APRESENTACAO_DO_CUSTO
+    expect(bruto.ordem).toBeLessThan(creditos.ordem)
+    expect(creditos.ordem).toBeLessThan(DETALHE_DO_CREDITO_POR_TRIBUTO.icms.ordem)
+    // O detalhe por tributo fica ENTRE a dedução e o líquido — os cinco explicam a linha de
+    // créditos, e o líquido é o resultado de tudo o que veio acima.
+    expect(DETALHE_DO_CREDITO_POR_TRIBUTO.ibs.ordem).toBeLessThan(liquido.ordem)
+    // E o PAR que nomeia o estado antigo: o líquido é MAIOR que todas, não menor.
+    expect(liquido.ordem).toBeGreaterThan(bruto.ordem)
+    expect(liquido.ordem).toBeGreaterThan(creditos.ordem)
   })
 
   it('sem crédito, cabeçalho e resultado coincidem — e é por isso que A precisa de um mês COM', () => {
