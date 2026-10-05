@@ -87,11 +87,23 @@ const PERMISSION_SECTIONS: { title: string; modules: { key: string; label: strin
             { key: 'rt_commission', label: 'RT Comissões' },
         ],
     },
+    // AGENDAMENTOS antes de OPERACIONAL — a MESMA ordem do menu. A paridade menu ↔ permissões
+    // é o que faz o usuário achar aqui o que ele vê lá; invertê-las seria pior que não separar.
+    //
+    // NENHUMA CHAVE MUDA: `agenda`, `reports` e `connectivity` são as mesmas três de antes, e
+    // `ALL_PERM_KEYS` as deriva daqui. O que muda é só o AGRUPAMENTO.
     {
-        title: 'Operacional',
+        title: 'Agendamentos',
         modules: [
             { key: 'agenda', label: 'Agenda' },
             { key: 'reports', label: 'Relatório Agenda' },
+        ],
+    },
+    // Fica com UM módulo só, e está certo: "Usuários" é `adminOnly` no menu e nunca foi módulo
+    // de permissão — não há chave `users` em `use-permissions.hook.ts`.
+    {
+        title: 'Operacional',
+        modules: [
             { key: 'connectivity', label: 'Conectividade' },
         ],
     },

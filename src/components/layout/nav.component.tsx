@@ -138,8 +138,12 @@ const Nav = () => {
     // Correções de Menu V9 (item 2): usa módulo próprio para ser restringível por funcionário.
     { key: 'rt-commission', label: 'RT Comissões', icon: 'idcard', href: ROUTES.RT_COMMISSION, section: 'financeiro', module: MODULES.RT_COMMISSION },
 
-    { key: 'calendar', label: 'Agenda', icon: 'calendar', href: ROUTES.SCHEDULE, section: 'operacional', module: MODULES.AGENDA },
-    { key: 'reports', label: 'Relatório Agenda', icon: 'bar-chart', href: ROUTES.REPORTS, section: 'operacional', module: MODULES.REPORTS },
+    // AGENDAMENTOS — seção própria, decisão do PO de 05/10/2026. Agenda e Relatório Agenda
+    // saem de OPERACIONAL, que fica só com Conectividade e Usuários. É REALOCAÇÃO VISUAL:
+    // nenhuma rota muda e nenhuma chave de permissão é criada ou removida — `MODULES.AGENDA`
+    // e `MODULES.REPORTS` são os mesmos de antes.
+    { key: 'calendar', label: 'Agenda', icon: 'calendar', href: ROUTES.SCHEDULE, section: 'agendamentos', module: MODULES.AGENDA },
+    { key: 'reports', label: 'Relatório Agenda', icon: 'bar-chart', href: ROUTES.REPORTS, section: 'agendamentos', module: MODULES.REPORTS },
     { key: 'connectivity', label: 'Conectividade', icon: 'setting', href: ROUTES.CONNECTIVITY, section: 'operacional', module: MODULES.CONNECTIVITY },
     { key: 'users', label: 'Usuários', icon: 'team', href: ROUTES.USUARIOS, adminOnly: true, section: 'operacional', hideForSuperAdmin: true },
 
@@ -153,7 +157,10 @@ const Nav = () => {
     { key: 'super-plans', label: 'Planos Expirando', icon: 'super-plans', href: ROUTES.SUPER_ADMIN_PLANS_EXPIRING, section: 'superadmin', superAdminOnly: true },
   ]
 
-  const sectionsToHideForSuperAdmin = ['geral', 'cadastros', 'comercial', 'financeiro', 'operacional']
+  // `agendamentos` entra aqui JUNTO com a criação da seção: esta lista é por SEÇÃO, não por
+  // item, e sem ela o super admin passaria a ver Agendamentos — uma aba de usuário que ele
+  // nunca viu, porque os dois itens dela estavam em `operacional`, que já está na lista.
+  const sectionsToHideForSuperAdmin = ['geral', 'cadastros', 'comercial', 'financeiro', 'agendamentos', 'operacional']
 
   const visibleItems = navigationItems.filter((item) => {
     if (item.hidden) return false
@@ -175,6 +182,7 @@ const Nav = () => {
     { key: 'cadastros', label: 'Cadastros', collapsible: true },
     { key: 'comercial', label: 'Comercial', collapsible: true },
     { key: 'financeiro', label: 'Financeiro', collapsible: true },
+    { key: 'agendamentos', label: 'Agendamentos', collapsible: true },
     { key: 'operacional', label: 'Operacional', collapsible: true },
     { key: 'superadmin', label: 'Super Admin', collapsible: true },
   ]
