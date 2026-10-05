@@ -77,15 +77,34 @@ describe('As três linhas do bloco', () => {
     expect(linha(r, LIQUIDO)?.apenasApresentacao).toBe(true)
   })
 
-  it('>>> o LÍQUIDO é a CABEÇA do bloco, e as parcelas vêm abaixo dele <<<', () => {
-    // Invertido em 21/09/2026, §2: *"quem usa o cabeçalho para conferir preço usa o número
-    // errado"*. Antes o líquido fechava o bloco; agora ele o abre, e bruto, créditos e o
-    // detalhe por tributo o explicam.
+  it('>>> o LÍQUIDO FECHA o bloco, e as parcelas vêm acima dele — 05/10/2026 <<<', () => {
+    /*
+      Este caso exigia o inverso até 05/10/2026 (`ordem(LIQUIDO) < ordem(BRUTO)`), pelo §2 do
+      comando de 21/09. O cabeçalho do Hub foi corrigido nesta rodada e o motivo caiu junto —
+      ver a nota datada em `custo-produtos-no-dre.ts`.
+
+      >>> E AQUI A POSIÇÃO NÃO VEM DA `ordem` — medido <<<
+
+      Nenhuma tela do DRE do ano ordena por `row.ordem`: o campo é transportado e não lido por
+      `sort` nenhum. A sequência que o usuário vê é a da INSERÇÃO em `dre-ano-entradas.ts`.
+      Por isso este caso afirma as DUAS coisas: a `ordem` (que o Hub usa) e o ÍNDICE no array
+      (que é o que o ano exibe). Afirmar só a `ordem` deixaria o ano livre para divergir, que
+      é exatamente o que aconteceria se a constante tivesse mudado sozinha.
+    */
     const ordem = (c: string) => linha(r, c)!.ordem as number
-    expect(ordem(LIQUIDO)).toBeLessThan(ordem(BRUTO))
     expect(ordem(BRUTO)).toBeLessThan(ordem(CREDITOS))
     expect(ordem(CREDITOS)).toBeLessThan(ordem('ICMS'))
+    expect(ordem('ICMS')).toBeLessThan(ordem(LIQUIDO))
     expect(linha(r, 'Fornecedores')?.ordem).toBeUndefined()
+
+    // A ORDEM EXIBIDA no ano — por índice no array, que é o que a tela percorre.
+    // `r` é `{ incomeData, expenseData }`; as linhas do bloco vivem em `expenseData`. A
+    // primeira versão deste caso chamou `r.findIndex` e quebrou com `is not a function` —
+    // fica registrado porque é o tipo de erro que um `?.` teria engolido em silêncio.
+    const idx = (c: string) => r.expenseData.findIndex((x: { category: string }) => x.category === c)
+    expect(idx(BRUTO)).toBeLessThan(idx(CREDITOS))
+    expect(idx(CREDITOS)).toBeLessThan(idx('ICMS'))
+    expect(idx('ICMS')).toBeLessThan(idx(LIQUIDO))
   })
 })
 

@@ -201,18 +201,50 @@ export function processYearEntries(entries: any[], _year: number, regime: Regime
       apenasApresentacao: true, ordem,
     })
 
-    // >>> O LÍQUIDO VEM PRIMEIRO — §2 do comando de 21/09/2026 <<<
-    // Aqui não há linha de cabeçalho de grupo, então a inversão é a ORDEM: o líquido é a
-    // cabeça do bloco e as parcelas que o explicam vêm abaixo. As categorias reais
-    // (Fornecedores, Matéria Prima…) continuam carregando o bruto e entrando no resultado —
-    // a linha "Custo bruto" abaixo é o AGREGADO delas, e é apresentação como as outras.
-    apresentar(LINHAS_DE_APRESENTACAO_DO_CUSTO.liquido.label, bloco.linhas[2].valor, LINHAS_DE_APRESENTACAO_DO_CUSTO.liquido.ordem)
+    /*
+      >>> O LÍQUIDO VEM POR ÚLTIMO — PO, 05/10/2026. ISTO INVERTE O 21/09/2026 <<<
+
+      ── A decisão de 21/09, e por que ela estava certa ──
+      O líquido vinha PRIMEIRO, com ordem 9_989, porque o cabeçalho do grupo no Hub exibia um
+      número misturado (líquido nos meses, bruto na média) e *"quem usa o cabeçalho para
+      conferir preço usa o número errado"*. Pôr o líquido no topo dava ao leitor o número que
+      forma preço antes de ele somar as parcelas erradas.
+
+      ── A decisão de 05/10, e o que mudou ──
+      O cabeçalho foi corrigido nesta mesma rodada: passa a anunciar o BRUTO nos meses E na
+      média (`hub-tab.component.tsx`). Com o cabeçalho honesto o motivo do 21/09 deixa de
+      existir, e o líquido volta para onde a aritmética o põe — no fim, como RESULTADO.
+
+      Não é que a régua trocou de dono: é que a tela mudou debaixo dela
+      (`decisao-sob-regra-da-epoca.md`).
+
+      >>> E AQUI A ORDEM É A DA INSERÇÃO, NÃO A DA CONSTANTE — medido <<<
+
+      `ordem` é transportado até a linha da tabela (`row.ordem`, abaixo), mas NENHUMA tela do
+      DRE do ano ordena por ele: medido por busca em `src/`, não existe `sort` que o leia. A
+      sequência que o usuário vê é a destas chamadas, de cima para baixo.
+
+      Consequência, e é o que o §5 do comando mandava conferir: trocar `liquido.ordem` de
+      9_989 para 9_997 NÃO moveria nada aqui. Se só a constante tivesse mudado, o Hub passaria
+      a ler de cima para baixo e o ano continuaria com o líquido na frente — as duas leituras
+      divergindo, que é exatamente o que `custo-produtos-no-dre.ts` existe para impedir.
+
+      Por isso a sequência foi reescrita: bruto → dedução → detalhe por tributo → líquido. O
+      laço dos tributos estava DEPOIS das três chamadas e subiu, para que o líquido feche o
+      bloco também aqui.
+
+      As categorias reais (Fornecedores, Matéria Prima…) continuam carregando o bruto e
+      entrando no resultado — a linha "Custo bruto" é o AGREGADO delas, e é apresentação como
+      as outras.
+    */
     apresentar(LINHAS_DE_APRESENTACAO_DO_CUSTO.bruto.label, bloco.linhas[0].valor, LINHAS_DE_APRESENTACAO_DO_CUSTO.bruto.ordem)
     apresentar(LINHAS_DE_APRESENTACAO_DO_CUSTO.creditos.label, bloco.linhas[1].valor, LINHAS_DE_APRESENTACAO_DO_CUSTO.creditos.ordem)
 
     for (const d of detalheDoCreditoPorTributo(tributosDaCompraPorMes[month], regime)) {
       apresentar(d.label, -d.valor, d.ordem)
     }
+
+    apresentar(LINHAS_DE_APRESENTACAO_DO_CUSTO.liquido.label, bloco.linhas[2].valor, LINHAS_DE_APRESENTACAO_DO_CUSTO.liquido.ordem)
   }
 
   return {

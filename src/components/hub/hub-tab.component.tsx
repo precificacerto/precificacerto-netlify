@@ -4,6 +4,7 @@ import { Select } from '@/components/ui/app-select.component'
 import { calculateHubData } from '@/utils/hub-engine'
 import type { HubData } from '@/utils/hub-engine'
 import { getExpenseGroupColor } from '@/constants/cashier-category'
+import { ehDetalheDeCreditoPorTributo } from '@/utils/custo-produtos-no-dre'
 import { formatBRL } from '@/utils/formatters'
 
 const MONTH_LABELS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
@@ -31,6 +32,21 @@ type TableRow = {
     values: Record<string, number>
     averagePct?: number
     averageRS?: number
+    /**
+     * Profundidade da linha dentro do grupo — §4 do comando de 05/10/2026.
+     *
+     * A tabela tinha DOIS níveis e nenhum mecanismo de profundidade: `group-header` sem recuo
+     * e `category` com `paddingLeft: 18` fixo. As cinco sub-linhas de crédito por tributo
+     * DECOMPÕEM a linha de créditos, e no mesmo recuo dela o leitor não vê a filiação — lê
+     * cinco irmãs em vez de cinco filhas, e pode somá-las com a mãe.
+     *
+     * É um nível de verdade, não espaço no rótulo: o rótulo continua sendo `'ICMS'`, e quem
+     * recua é o `paddingLeft` do render. Rótulo com espaço quebraria qualquer busca e sumiria
+     * no `trim()` de quem lê a tabela.
+     *
+     * Ausente = 1, que é o recuo que `category` sempre teve.
+     */
+    nivel?: number
 }
 
 type PeriodType = 'MONTHLY' | 'QUARTERLY' | 'SEMI_ANNUAL' | 'ANNUAL'
@@ -118,14 +134,32 @@ export function HubTab({ tenantId, refreshToken }: HubTabProps) {
         // Linha header do grupo (sem valores nas colunas de mês — só label e média total)
         rows.push({
             key: `__grp__${row.group}`,
-            // O cabeçalho anuncia que é o LÍQUIDO. Sem o rótulo, o leitor compara este número
-            // com o extrato e conclui que um dos dois está errado — eles respondem a
-            // perguntas diferentes (§2 do comando de 21/09/2026).
-            label: row.valuesExibidas ? `${row.label} (líquido)` : row.label,
+            /*
+              >>> O CABEÇALHO É O BRUTO, NOS MESES E NA MÉDIA — PO, 05/10/2026 <<<
+
+              O DEFEITO QUE ISTO CORRIGE, medido em produção: esta linha misturava dois
+              números de blocos diferentes. `values` vinha de `valuesExibidas` (o LÍQUIDO) e
+              `averagePct` vinha de `row.averagePct` (o BRUTO). Em Custo dos Produtos os meses
+              mostravam R$ 149.084,62 — o líquido de janeiro — ao lado de 58,63%, que é o
+              bruto. O líquido é 49,25%. Uma linha, duas perguntas, e nenhuma pista de qual.
+
+              A RAZÃO DE SER O BRUTO, e não o líquido: o grupo vem do FLUXO DE CAIXA e
+              representa o que foi efetivamente comprado e pago. O crédito nasce dessa compra
+              e é abatido do débito das VENDAS, não do boleto do fornecedor. Como CUSTO, o
+              número é o bruto — e é ele que casa com o extrato.
+
+              O líquido não desaparece: ele é a última linha do bloco (`= Custo dos produtos
+              líquido`), onde a aritmética o põe. Ver a nota datada em
+              `custo-produtos-no-dre.ts`, que registra por que isso inverte a decisão de
+              21/09/2026 e o que mudou entre as duas.
+
+              `averagePct` NÃO é tocado: ele já era o bruto, e é de `findPct` que sai o
+              `product_cost_percent` que forma preço. Mexer nele estaria fora do escopo.
+            */
+            label: row.label,
             kind: 'group-header',
             group: row.group,
-            // >>> EXIBE O LÍQUIDO; o "Total Despesas" abaixo continua somando `row.values` <<<
-            values: row.valuesExibidas ?? row.values,
+            values: row.values,
             averagePct: row.averagePct,
             averageRS: row.averageRS,
         })
@@ -142,6 +176,12 @@ export function HubTab({ tenantId, refreshToken }: HubTabProps) {
                 values: sub.values,
                 averagePct: sub.averagePct,
                 averageRS: sub.averageRS,
+                // §4: os cinco detalhes por tributo são FILHOS da linha de créditos. A regra
+                // de quem é detalhe vive em `custo-produtos-no-dre.ts`, não aqui — a chave
+                // escrita duas vezes divergiria.
+                nivel: ehDetalheDeCreditoPorTributo(sub.categoryKey) || ehDetalheDeCreditoPorTributo(sub.label)
+                    ? 2
+                    : 1,
             })
         }
     }
@@ -196,9 +236,16 @@ export function HubTab({ tenantId, refreshToken }: HubTabProps) {
                     }
 
                     case 'category':
+                        // `nivel` 1 = 18px, como sempre foi. `nivel` 2 recua mais e troca o
+                        // travessão por um traço fino: o leitor vê que a linha pende da de
+                        // cima sem que o RÓTULO mude (ver `TableRow.nivel`).
                         return (
-                            <span style={{ fontSize: 12, color: '#94a3b8', paddingLeft: 18 }}>
-                                — {text}
+                            <span style={{
+                                fontSize: 12,
+                                color: '#94a3b8',
+                                paddingLeft: (record.nivel ?? 1) === 2 ? 40 : 18,
+                            }}>
+                                {(record.nivel ?? 1) === 2 ? '· ' : '— '}{text}
                             </span>
                         )
 

@@ -104,8 +104,9 @@ export function temBreakdownDeCompra(tributos: TributosDaCompra | null | undefin
  * Elas estão aqui, e não escritas em cada tela, porque era exatamente assim que a divergência
  * nascia: a mesma linha com um nome no Hub e outro no DRE do ano. `copia-divergente.md`.
  *
- * `ordem` põe as duas DEPOIS das categorias reais do grupo — o bloco só se lê de cima para
- * baixo se o bruto vier antes da dedução e o líquido por último.
+ * `ordem` põe as três DEPOIS das categorias reais do grupo, e nesta sequência: bruto, dedução,
+ * sub-linhas por tributo, líquido. O bloco só se lê de cima para baixo assim — ver a nota
+ * datada em `liquido.ordem`, que registra a inversão de 05/10/2026.
  */
 export const LINHAS_DE_APRESENTACAO_DO_CUSTO = {
   bruto: {
@@ -121,12 +122,37 @@ export const LINHAS_DE_APRESENTACAO_DO_CUSTO = {
   liquido: {
     key: 'CUSTO_PRODUTOS_LIQUIDO',
     label: '= Custo dos produtos líquido',
-    // >>> A MENOR ORDEM DO BLOCO — ele é a CABEÇA, não o rodapé <<<
-    // Comando do PO de 21/09/2026, §2: *"quem usa o cabeçalho para conferir preço usa o
-    // número errado: o que forma preço é o líquido"*. Na leitura do ano não há linha de
-    // cabeçalho de grupo, então a inversão é a ORDEM: o líquido vem primeiro e as parcelas
-    // que o explicam vêm abaixo.
-    ordem: 9_989,
+    /*
+      >>> A ÚLTIMA ORDEM DO BLOCO — ele é o RODAPÉ, e isto INVERTE uma decisão anterior <<<
+
+      ── 21/09/2026: ele era a CABEÇA, com ordem 9_989 ──
+      Comando do PO, §2: *"quem usa o cabeçalho para conferir preço usa o número errado: o que
+      forma preço é o líquido"*. O cabeçalho do grupo no Hub exibia o LÍQUIDO nos meses e o
+      BRUTO na média — uma linha com dois números de blocos diferentes —, e pôr o líquido no
+      topo da lista era a forma de dar ao leitor o número que forma preço ANTES de ele somar
+      as parcelas erradas. Era a decisão certa para aquele estado da tela.
+
+      ── 05/10/2026: ele passa a ser o RODAPÉ, com ordem 9_997 ──
+      O PO inverte a sua própria decisão, sabendo que é dele. O que mudou NÃO foi a régua: foi
+      o cabeçalho. Nesta mesma rodada ele passou a anunciar o BRUTO nos meses E na média
+      (`hub-tab.component.tsx`), com a razão registrada lá — o grupo vem do fluxo de caixa e
+      representa o que foi comprado e pago; o crédito nasce dessa compra e é abatido do débito
+      das vendas, não do boleto, então como CUSTO o número é o bruto.
+
+      Com o cabeçalho honesto, o problema que o 21/09 resolvia deixa de existir: ninguém mais
+      confunde o cabeçalho com o que forma preço. E aí o líquido pode voltar para onde a
+      aritmética o põe — no fim, como RESULTADO das linhas acima:
+
+          Custo bruto (subtotal)
+          (−) Créditos recuperáveis sobre compras
+                ICMS · PIS/COFINS · IPI · CBS · IBS
+          = Custo dos produtos líquido          ← aqui
+
+      Não é que a decisão de 21/09 estivesse errada: ela estava certa para a regra da época, e
+      o que mudou é a regra (`decisao-sob-regra-da-epoca.md`). Datar as duas é o que impede
+      que a próxima pessoa leia a inversão como descuido de quem escreveu a primeira.
+    */
+    ordem: 9_997,
   },
 } as const
 
@@ -188,9 +214,27 @@ export function ordemDaLinhaDeApresentacao(categoryKey: string): number | null {
   return null
 }
 
-/** A categoria é uma das duas linhas de apresentação? */
+/** A categoria é uma das linhas de apresentação (as três do bloco ou um detalhe por tributo)? */
 export function ehLinhaDeApresentacao(categoryKey: string): boolean {
   return ordemDaLinhaDeApresentacao(categoryKey) != null
+}
+
+/**
+ * A categoria é uma SUB-LINHA de detalhe por tributo — ICMS, PIS/COFINS, IPI, CBS ou IBS?
+ *
+ * Existe para o RECUO da tela (§4 do comando de 05/10/2026): os cinco decompõem a linha de
+ * créditos acima deles, e no mesmo recuo da linha-mãe o leitor não vê essa filiação. A tela
+ * precisa distinguir "detalhe de crédito" de "linha do bloco", e `ehLinhaDeApresentacao`
+ * devolve `true` para as duas — somá-las no mesmo nível é o que esconde a hierarquia.
+ *
+ * A lista vive AQUI e não na tela porque é a mesma razão que criou este módulo: a chave
+ * escrita duas vezes divergiria (`copia-divergente.md`).
+ */
+export function ehDetalheDeCreditoPorTributo(categoryKey: string): boolean {
+  for (const d of Object.values(DETALHE_DO_CREDITO_POR_TRIBUTO)) {
+    if (d.key === categoryKey || d.label === categoryKey) return true
+  }
+  return false
 }
 
 export interface LinhaDoBlocoDeCusto {
