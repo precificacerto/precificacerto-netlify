@@ -263,3 +263,118 @@ export const LIMITES = {
   horizon_days: { min: 1, max: 180, default: 30 },
   grid_minutes: { min: 5, max: 120, default: 30 },
 } as const
+
+// ═════════════════════════════════════════════════════════════════════════════════════════
+// §2 — O FUNCIONÁRIO ACEITA AGENDAMENTO PELO LINK? E SÃO TRÊS ESTADOS, NÃO DOIS
+// ═════════════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * >>> NENHUMA COLUNA NOVA, E A MEDIÇÃO É A RAZÃO <<<
+ *
+ * O comando de 05/10/2026 manda resolver sem coluna, e manda PARAR e reportar se for preciso
+ * distinguir "desligado" de "nunca configurado". Não é preciso: as duas já são estados
+ * DIFERENTES das linhas de `employee_working_hours`, não o mesmo byte.
+ *
+ *   nenhuma linha                      → NUNCA CONFIGURADO
+ *   linhas, todas com is_active=false  → DESLIGADO
+ *   ao menos uma com is_active=true    → LIGADO
+ *
+ * É o teste de `ausente-vs-falso.md` passando: ausência de grade é ausência de LINHA, e não um
+ * `false` que se confunde com um `false` gravado de propósito. Acrescentar
+ * `employees.accepts_booking` criaria uma segunda fonte para o mesmo fato, e no dia em que ela
+ * dissesse `true` com zero faixas as duas discordariam — `copia-divergente.md`.
+ *
+ * >>> O QUE A MEDIÇÃO ACRESCENTA AO COMANDO: O SWITCH NÃO TEM DOIS ESTADOS <<<
+ *
+ * Um switch binário não consegue representar SEM_GRADE. Ligá-lo para quem tem zero faixas não
+ * tem o que ativar, e deixá-lo desligado afirmaria "este barbeiro foi excluído do link" quando
+ * a verdade é "ninguém montou a grade dele ainda". Daí o tipo ter três valores e a tela
+ * desabilitar o switch no primeiro — é a mesma decisão de `resolverTabelaDeServico`, em que
+ * NENHUMA e AMBIGUA pedem ações opostas e não podem colapsar.
+ *
+ * Medido em produção em 05/10/2026: 12 funcionários ativos, 2 faixas no total, ZERO faixas com
+ * `is_active = false`. O estado DESLIGADO não tem ocorrência hoje — o que significa que a
+ * distinção é preventiva, e que nenhum dado existente muda de leitura por causa dela.
+ */
+export type EstadoDoFuncionarioNoLink = 'SEM_GRADE' | 'DESLIGADO' | 'LIGADO'
+
+export function estadoDoFuncionarioNoLink(
+  faixasDoFuncionario: readonly FaixaDeHorario[],
+): EstadoDoFuncionarioNoLink {
+  const faixas = faixasDoFuncionario ?? []
+  if (faixas.length === 0) return 'SEM_GRADE'
+  // `is_active` ausente conta como ATIVA: a coluna é `NOT NULL DEFAULT true`, então faixa sem o
+  // campo é faixa que o banco gravou como ativa. Ler ausência como `false` aqui desligaria
+  // silenciosamente quem está ligado.
+  return faixas.some((f) => f?.is_active !== false) ? 'LIGADO' : 'DESLIGADO'
+}
+
+/** O atalho que a fase 2 vai usar para montar a lista de barbeiros do link. */
+export function funcionarioAceitaAgendamento(faixas: readonly FaixaDeHorario[]): boolean {
+  return estadoDoFuncionarioNoLink(faixas) === 'LIGADO'
+}
+
+export const SELO_DO_ESTADO: Record<EstadoDoFuncionarioNoLink, string> = {
+  SEM_GRADE: 'Sem grade — monte as faixas para que ele apareça no link',
+  DESLIGADO: 'Não aceita agendamento pelo link',
+  LIGADO: 'Aceita agendamento pelo link',
+}
+
+// ═════════════════════════════════════════════════════════════════════════════════════════
+// §3 — APLICAR A MESMA GRADE A VÁRIOS: o que cada destino PERDE
+// ═════════════════════════════════════════════════════════════════════════════════════════
+
+export interface PlanoDeCopia {
+  destino_id: string
+  destino_nome: string
+  /** Quantas faixas do destino serão APAGADAS. É o número que o aviso tem de dizer. */
+  faixasAPerder: number
+  /** Quantas faixas o destino vai receber. */
+  faixasAGanhar: number
+}
+
+/**
+ * O plano da cópia, destino por destino.
+ *
+ * >>> COPIAR SUBSTITUI, NÃO ACRESCENTA — E O NÚMERO É O AVISO <<<
+ *
+ * Levar a grade do Barbeiro 1 para o 2 APAGA as faixas do 2. Um aviso genérico ("as faixas
+ * atuais serão substituídas") não distingue destino vazio de destino com onze faixas montadas à
+ * mão, e quem lê os dois iguais clica igual. `faixasAPerder` existe para que a frase traga o
+ * número, e `exigeConfirmacaoDaCopia` para que o clique extra só apareça quando há o que perder.
+ */
+export function planejarCopiaDaGrade(
+  faixasDaOrigem: readonly FaixaDeHorario[],
+  destinos: readonly { id: string; name: string }[],
+  faixasPorFuncionario: (id: string) => readonly FaixaDeHorario[],
+): PlanoDeCopia[] {
+  const aGanhar = (faixasDaOrigem ?? []).length
+  return (destinos ?? []).map((d) => ({
+    destino_id: d.id,
+    destino_nome: d.name,
+    faixasAPerder: (faixasPorFuncionario(d.id) ?? []).length,
+    faixasAGanhar: aGanhar,
+  }))
+}
+
+/** Algum destino tem faixa a perder? Só então o usuário é obrigado a confirmar. */
+export function exigeConfirmacaoDaCopia(planos: readonly PlanoDeCopia[]): boolean {
+  return (planos ?? []).some((p) => p.faixasAPerder > 0)
+}
+
+/** O aviso, COM OS NÚMEROS. `null` quando não há destino escolhido. */
+export function avisoDaCopiaDaGrade(planos: readonly PlanoDeCopia[]): string | null {
+  const lista = planos ?? []
+  if (lista.length === 0) return null
+  const comPerda = lista.filter((p) => p.faixasAPerder > 0)
+  const ganha = lista[0].faixasAGanhar
+  if (comPerda.length === 0) {
+    return `${lista.length} profissional(is) vão receber ${ganha} faixa(s). `
+      + 'Nenhum deles tem grade hoje, então nada será apagado.'
+  }
+  const detalhe = comPerda
+    .map((p) => `${p.destino_nome} perde ${p.faixasAPerder} faixa(s)`)
+    .join('; ')
+  return `ATENÇÃO: copiar SUBSTITUI a grade do destino. ${detalhe}. `
+    + `Cada destino fica com as ${ganha} faixa(s) da origem.`
+}

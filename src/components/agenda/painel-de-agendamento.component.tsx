@@ -1,40 +1,55 @@
 /**
- * painel-de-agendamento.component.tsx — a configuração do agendamento público, fase 1.
+ * painel-de-agendamento.component.tsx — a configuração do agendamento público.
  *
- * Comando do PO de 05/10/2026, §3. Vive DENTRO da Agenda (é de lá que é montado), em painel
- * lateral, e não em Configurações.
+ * Fase 1: comando do PO de 05/10/2026. Reorganização: comando do PO de 05/10/2026, DEPOIS de
+ * usar o painel em produção.
  *
  * >>> ESTA FASE NÃO CRIA ROTA PÚBLICA <<<
- * O link é exibido e copiável, e NÃO resolve página nenhuma. O aviso disso está na tela, não
- * só neste comentário: quem gerar o link hoje precisa saber que ele ainda não abre.
+ * O link é exibido e copiável, e NÃO resolve página nenhuma. O aviso disso está na tela, não só
+ * neste comentário: quem copiar o link hoje precisa saber que ele ainda não abre.
  *
- * ── POR QUE É ARQUIVO PRÓPRIO, e não mais 400 linhas em `agenda/index.tsx` ────────────────
+ * ── A ORDEM DAS SEÇÕES É A ORDEM DO TRABALHO, E ISSO É A CORREÇÃO ──────────────────────────
  *
- * A Agenda tem 2.626 linhas e o §3 manda não empurrar para dentro do corpo da página. Mas a
- * razão que decide não é tamanho: é o PORTÃO. Renderizar a Agenda inteira para afirmar que
- * uma faixa sobreposta foi recusada obrigaria a mockar `calendar_events`, `customers`,
- * `services`, `products` e `whatsapp_dispatches` — e um caso que depende de cinco mocks para
- * chegar à asserção é um caso que fica verde por motivo errado (`teste-que-nao-exercita.md`).
+ *   1. Grade de atendimento  →  2. Férias e folgas  →  3. Ajustes  →  4. Link
+ *
+ * A primeira versão punha o "Gerar link" no TOPO, antes de existir grade: a tela pedia para
+ * PUBLICAR antes de haver o que publicar. Quem usou em produção tropeçou nisso, e a ordem nova
+ * é o conserto. Não é estética — é a sequência em que as decisões dependem uma da outra, e
+ * reordenar de volta recria o tropeço (`razao-longe-da-restricao.md`: a razão vive aqui, no
+ * ponto onde a ordem é declarada).
+ *
+ * ── POR QUE É ARQUIVO PRÓPRIO, e não mais 500 linhas em `agenda/index.tsx` ────────────────
+ *
+ * A Agenda tem 2.700 linhas. Mas a razão que decide não é tamanho: é o PORTÃO. Renderizar a
+ * Agenda inteira para afirmar que uma faixa sobreposta foi recusada obrigaria a mockar
+ * `calendar_events`, `customers`, `services`, `products` e `whatsapp_dispatches` — e um caso que
+ * depende de cinco mocks para chegar à asserção é um caso que fica verde por motivo errado
+ * (`teste-que-nao-exercita.md`).
  *
  * ── E POR QUE ELE NÃO LÊ O BANCO ──────────────────────────────────────────────────────────
  *
  * Os dados chegam por `dados` e as gravações saem por `acoes`. Quem fala com o Supabase é a
  * Agenda, que já tem a sessão e o `tenant_id`. Aqui ficam a APRESENTAÇÃO e a RECUSA — e é a
- * recusa que o portão afirma: a mensagem aparece no DOM **e** `onSalvarFaixa` NÃO é chamada.
- * Afirmar só a mensagem não distinguiria "recusou" de "avisou e gravou assim mesmo".
+ * recusa que o portão afirma: a mensagem aparece no DOM **e** a ação NÃO é chamada. Afirmar só a
+ * mensagem não distinguiria "recusou" de "avisou e gravou assim mesmo".
  */
 
 import React, { useMemo, useState } from 'react'
-import { Alert, Button, Drawer, Empty, Form, Input, InputNumber, Popconfirm, Select, Space, Switch, Tag, TimePicker, Tooltip, message } from 'antd'
+import { Alert, Button, Checkbox, Drawer, Empty, Form, Input, InputNumber, Modal, Popconfirm, Select, Space, Switch, Tag, TimePicker, Tooltip, message } from 'antd'
 import { CopyOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { tenantOffersServices } from '@/utils/segment-visibility'
 import {
   DIAS_DA_SEMANA,
   LIMITES,
+  SELO_DO_ESTADO,
+  avisoDaCopiaDaGrade,
   avisoDaTabelaDeServico,
   avisoDeFuncionarioSemAcesso,
+  estadoDoFuncionarioNoLink,
+  exigeConfirmacaoDaCopia,
   faixaRecusada,
+  planejarCopiaDaGrade,
   resolverTabelaDeServico,
   validarFaixa,
   type FaixaDeHorario,
@@ -44,6 +59,9 @@ import {
 export const AVISO_LINK_AINDA_NAO_FUNCIONA =
   'Este link ainda NÃO abre: a página de agendamento é a próxima etapa. Guarde-o, mas não '
   + 'divulgue ainda.'
+
+export const SELO_LINK_DESLIGADO = 'DESLIGADO — o endereço ainda não funciona'
+export const SELO_LINK_LIGADO = 'LIGADO'
 
 export interface FaixaGravada extends FaixaDeHorario {
   id: string
@@ -93,6 +111,10 @@ export interface AcoesDoPainel {
   onRemoverFaixa: (id: string) => void | Promise<void>
   onSalvarFolga: (folga: { employee_id: string; starts_at: string; ends_at: string; reason?: string }) => void | Promise<void>
   onRemoverFolga: (id: string) => void | Promise<void>
+  /** §2 — liga ou desliga TODAS as faixas do funcionário de uma vez. */
+  onAlternarFuncionario: (employee_id: string, ativo: boolean) => void | Promise<void>
+  /** §3 — copia a grade da origem para os destinos. SUBSTITUI a grade de cada destino. */
+  onAplicarGrade: (origem_id: string, destino_ids: string[]) => void | Promise<void>
 }
 
 export interface PainelDeAgendamentoProps {
@@ -107,10 +129,10 @@ export interface PainelDeAgendamentoProps {
   /**
    * Os valores com que o formulário de faixa ABRE.
    *
-   * É prop com default real, não costura de teste: o padrão é segunda 09:00–18:00, que é o
-   * que o dono do salão digita na maioria das vezes. O portão a usa para chegar à asserção de
-   * COMPORTAMENTO sem ter de operar `TimePicker` e `Select` do antd dentro do jsdom — operar
-   * o widget afirmaria que o antd funciona, não que a faixa foi recusada.
+   * É prop com default real, não costura de teste: o padrão é segunda 09:00–18:00, que é o que o
+   * dono do salão digita na maioria das vezes. O portão a usa para chegar à asserção de
+   * COMPORTAMENTO sem ter de operar `TimePicker` e `Select` do antd dentro do jsdom — operar o
+   * widget afirmaria que o antd funciona, não que a faixa foi recusada.
    */
   faixaInicial?: { weekday: number; start_time: string; end_time: string }
 }
@@ -124,11 +146,11 @@ export function PainelDeAgendamento(props: PainelDeAgendamentoProps) {
   const { open, onClose, calcType, dados, acoes, baseUrl } = props
   const [msgApi, msgCtx] = message.useMessage()
 
-  const [empSelecionado, setEmpSelecionado] = useState<string | null>(null)
-  const [novoDia, setNovoDia] = useState<number>(props.faixaInicial?.weekday ?? 1)
-  const [novoInicio, setNovoInicio] = useState<string>(props.faixaInicial?.start_time ?? '09:00')
-  const [novoFim, setNovoFim] = useState<string>(props.faixaInicial?.end_time ?? '18:00')
-  const [erroDaFaixa, setErroDaFaixa] = useState<string | null>(null)
+  // Um formulário de faixa por funcionário — a lista mostra todos ao mesmo tempo (§2), então o
+  // estado do formulário não pode ser global, ou digitar no bloco de um mexeria no do outro.
+  const [faixaPorEmp, setFaixaPorEmp] = useState<Record<string, { weekday: number; start_time: string; end_time: string }>>({})
+  const [erroPorEmp, setErroPorEmp] = useState<Record<string, string | null>>({})
+  const [recolhidoManual, setRecolhidoManual] = useState<Record<string, boolean>>({})
 
   const [folgaEmp, setFolgaEmp] = useState<string | null>(null)
   const [folgaIni, setFolgaIni] = useState<string>('')
@@ -136,292 +158,246 @@ export function PainelDeAgendamento(props: PainelDeAgendamentoProps) {
   const [folgaMotivo, setFolgaMotivo] = useState<string>('')
   const [erroDaFolga, setErroDaFolga] = useState<string | null>(null)
 
-  const funcionarios = dados?.funcionarios ?? []
-  const empAtual = empSelecionado ?? funcionarios[0]?.id ?? null
+  // §3 — o modal de copiar grade
+  const [copiaAberta, setCopiaAberta] = useState(false)
+  const [copiaOrigem, setCopiaOrigem] = useState<string | null>(null)
+  const [copiaDestinos, setCopiaDestinos] = useState<string[]>([])
+  const [copiaConfirmando, setCopiaConfirmando] = useState(false)
 
-  const faixasDoEmp = useMemo(
-    () => (dados?.grade ?? []).filter((f) => f.employee_id === empAtual),
-    [dados?.grade, empAtual],
+  const funcionarios = dados?.funcionarios ?? []
+  const grade = dados?.grade ?? []
+
+  const faixasPorEmp = useMemo(() => {
+    const m: Record<string, FaixaGravada[]> = {}
+    for (const f of grade) {
+      if (!m[f.employee_id]) m[f.employee_id] = []
+      m[f.employee_id].push(f)
+    }
+    return m
+  }, [grade])
+
+  const cfg = dados?.configuracao ?? null
+  const origem = copiaOrigem ?? funcionarios[0]?.id ?? null
+
+  // >>> ESTE `useMemo` FICA ANTES DO `return null`, E NÃO É ARRUMAÇÃO <<<
+  // A primeira versão o deixou depois do gate de segmentação: hook condicional, que o React
+  // quebra com "Rendered more hooks than during the previous render" no instante em que o
+  // `calcType` muda de SERVICO para outro. Todo hook deste componente mora acima do gate.
+  const planos = useMemo(
+    () => planejarCopiaDaGrade(
+      origem ? (faixasPorEmp[origem] ?? []) : [],
+      funcionarios.filter((f) => copiaDestinos.includes(f.id)),
+      (id) => faixasPorEmp[id] ?? [],
+    ),
+    [origem, funcionarios, copiaDestinos, faixasPorEmp],
   )
 
   // >>> O GATE DA SEGMENTAÇÃO É `tenantOffersServices`, NÃO UMA COMPARAÇÃO LOCAL <<<
-  // `segment-visibility.ts` já é fonte única do menu, do mobile e das permissões (premissa a).
-  // Escrever `calcType === 'SERVICE'` aqui seria a quarta cópia do critério, e ela divergiria
-  // no dia em que o banco gravasse `SERVICO` e a UI `SERVICE` — que é exatamente o caso que
-  // aquela função trata (`copia-divergente.md`).
+  // `segment-visibility.ts` já é fonte única do menu, do mobile e das permissões. Escrever
+  // `calcType === 'SERVICE'` aqui seria a quarta cópia do critério, e ela divergiria no dia em
+  // que o banco gravasse `SERVICO` e a UI `SERVICE` — que é exatamente o caso que aquela função
+  // trata (`copia-divergente.md`).
   if (!tenantOffersServices(calcType)) return null
 
-  const cfg = dados?.configuracao ?? null
+  function faixaEmEdicao(empId: string) {
+    return faixaPorEmp[empId] ?? props.faixaInicial ?? { weekday: 1, start_time: '09:00', end_time: '18:00' }
+  }
 
-  function tentarAdicionarFaixa() {
-    setErroDaFaixa(null)
-    if (!empAtual) {
-      setErroDaFaixa('Escolha o profissional.')
-      return
-    }
-    const nova: FaixaDeHorario = { weekday: novoDia, start_time: novoInicio, end_time: novoFim }
-    const r = validarFaixa(nova, faixasDoEmp)
+  function mexerNaFaixa(empId: string, patch: Partial<{ weekday: number; start_time: string; end_time: string }>) {
+    setFaixaPorEmp((p) => ({ ...p, [empId]: { ...faixaEmEdicao(empId), ...patch } }))
+    setErroPorEmp((p) => ({ ...p, [empId]: null }))
+  }
+
+  function tentarAdicionarFaixa(empId: string) {
+    const nova = faixaEmEdicao(empId)
+    const r = validarFaixa(
+      { weekday: nova.weekday, start_time: nova.start_time, end_time: nova.end_time },
+      faixasPorEmp[empId] ?? [],
+    )
     if (faixaRecusada(r)) {
       // A RECUSA: a mensagem aparece E a gravação não acontece. As duas coisas, não uma.
-      setErroDaFaixa(r.mensagem)
+      setErroPorEmp((p) => ({ ...p, [empId]: r.mensagem }))
       return
     }
+    setErroPorEmp((p) => ({ ...p, [empId]: null }))
     void acoes.onSalvarFaixa({
-      employee_id: empAtual,
-      weekday: novoDia,
-      start_time: novoInicio,
-      end_time: novoFim,
+      employee_id: empId,
+      weekday: nova.weekday,
+      start_time: nova.start_time,
+      end_time: nova.end_time,
     })
   }
 
   function tentarAdicionarFolga() {
     setErroDaFolga(null)
-    if (!folgaEmp) {
-      setErroDaFolga('Escolha o profissional.')
-      return
-    }
-    if (!folgaIni || !folgaFim) {
-      setErroDaFolga('Informe o início e o fim da ausência.')
-      return
-    }
+    if (!folgaEmp) { setErroDaFolga('Escolha o profissional.'); return }
+    if (!folgaIni || !folgaFim) { setErroDaFolga('Informe o início e o fim da ausência.'); return }
     if (!(new Date(folgaFim).getTime() > new Date(folgaIni).getTime())) {
       setErroDaFolga('O fim da ausência tem de ser depois do início.')
       return
     }
     void acoes.onSalvarFolga({
-      employee_id: folgaEmp,
-      starts_at: folgaIni,
-      ends_at: folgaFim,
-      reason: folgaMotivo || undefined,
+      employee_id: folgaEmp, starts_at: folgaIni, ends_at: folgaFim, reason: folgaMotivo || undefined,
     })
     setFolgaMotivo('')
   }
 
-  const origem = baseUrl ?? (typeof window !== 'undefined' ? window.location.origin : '')
-  const link = cfg ? montarLinkPublico(origem, cfg.public_token) : null
+  function fecharCopia() {
+    setCopiaAberta(false)
+    setCopiaConfirmando(false)
+    setCopiaDestinos([])
+  }
+
+  function tentarAplicarGrade() {
+    if (!origem) return
+    if (copiaDestinos.length === 0) {
+      msgApi.error('Escolha ao menos um profissional de destino.')
+      return
+    }
+    // >>> A CONFIRMAÇÃO SÓ APARECE QUANDO HÁ O QUE PERDER <<<
+    // Pedir confirmação sempre ensina a clicar sem ler, e aí ela não protege no caso em que
+    // importa. Pedir nunca apaga grade montada à mão sem aviso.
+    if (exigeConfirmacaoDaCopia(planos) && !copiaConfirmando) {
+      setCopiaConfirmando(true)
+      return
+    }
+    void acoes.onAplicarGrade(origem, [...copiaDestinos])
+    fecharCopia()
+  }
+
+  const linkOrigem = baseUrl ?? (typeof window !== 'undefined' ? window.location.origin : '')
+  const link = cfg ? montarLinkPublico(linkOrigem, cfg.public_token) : null
 
   return (
-    <Drawer
-      title="Agendamento pelo link"
-      placement="right"
-      width={720}
-      open={open}
-      onClose={onClose}
-      destroyOnClose
-    >
+    <Drawer title="Agendamento pelo link" placement="right" width={760} open={open} onClose={onClose} destroyOnClose>
       {msgCtx}
 
-      {/* ── (c) O LINK ───────────────────────────────────────────────────────────────── */}
-      <section style={{ marginBottom: 28 }}>
-        <h3 style={{ marginTop: 0 }}>O link</h3>
-        {!cfg ? (
-          <Space direction="vertical" style={{ width: '100%' }}>
-            <span>Este salão ainda não tem link de agendamento.</span>
-            <Button type="primary" onClick={() => void acoes.onGerarLink()}>
-              Gerar link
+      {/* ══ 1. GRADE DE ATENDIMENTO — TODOS os funcionários, ao mesmo tempo (§2) ══════════ */}
+      <section style={{ marginBottom: 32 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+          <h3 style={{ marginTop: 0 }}>Grade de atendimento</h3>
+          {funcionarios.length > 1 && (
+            <Button size="small" onClick={() => { setCopiaAberta(true); setCopiaConfirmando(false) }}>
+              Aplicar grade a outros profissionais
             </Button>
-          </Space>
-        ) : (
-          <Space direction="vertical" style={{ width: '100%' }} size={12}>
-            <Space>
-              <Switch
-                checked={cfg.is_enabled}
-                onChange={(v) => void acoes.onAlternarAtivo(v)}
-                aria-label="Agendamento pelo link ativo"
-              />
-              <span>{cfg.is_enabled ? 'Agendamento LIGADO' : 'Agendamento DESLIGADO'}</span>
-            </Space>
-
-            <Input
-              readOnly
-              value={link ?? ''}
-              aria-label="Link de agendamento"
-              addonAfter={
-                <Tooltip title="Copiar">
-                  <CopyOutlined
-                    onClick={() => {
-                      try {
-                        void navigator?.clipboard?.writeText(link ?? '')
-                        msgApi.success('Link copiado.')
-                      } catch { /* área de transferência indisponível — não é erro do fluxo */ }
-                    }}
-                  />
-                </Tooltip>
-              }
-            />
-
-            {/* >>> O AVISO DO §3c — a exposição é ZERO nesta fase, e quem lê a tela tem de saber <<< */}
-            <Alert type="warning" showIcon message={AVISO_LINK_AINDA_NAO_FUNCIONA} />
-          </Space>
-        )}
-      </section>
-
-      {/* ── (d) OS PARÂMETROS ────────────────────────────────────────────────────────── */}
-      {cfg && (
-        <section style={{ marginBottom: 28 }}>
-          <h3>Parâmetros</h3>
-          <Form layout="vertical">
-            <Space wrap size={16}>
-              <Form.Item
-                label="Passo da lista (min)"
-                tooltip="O intervalo entre os horários oferecidos (09:00, 09:30…). NÃO é a duração do atendimento — essa vem do serviço."
-              >
-                <InputNumber
-                  aria-label="Passo da lista"
-                  min={LIMITES.grid_minutes.min}
-                  max={LIMITES.grid_minutes.max ?? undefined}
-                  value={cfg.grid_minutes}
-                  onChange={(v) => void acoes.onSalvarConfiguracao({ grid_minutes: Number(v) })}
-                />
-              </Form.Item>
-              <Form.Item label="Antecedência mínima (min)">
-                <InputNumber
-                  aria-label="Antecedência mínima"
-                  min={LIMITES.lead_time_min.min}
-                  value={cfg.lead_time_min}
-                  onChange={(v) => void acoes.onSalvarConfiguracao({ lead_time_min: Number(v) })}
-                />
-              </Form.Item>
-              <Form.Item label="Janela de agendamento (dias)">
-                <InputNumber
-                  aria-label="Janela de agendamento"
-                  min={LIMITES.horizon_days.min}
-                  max={LIMITES.horizon_days.max ?? undefined}
-                  value={cfg.horizon_days}
-                  onChange={(v) => void acoes.onSalvarConfiguracao({ horizon_days: Number(v) })}
-                />
-              </Form.Item>
-            </Space>
-
-            <Form.Item label="Mensagem de confirmação">
-              <Input.TextArea
-                aria-label="Mensagem de confirmação"
-                rows={2}
-                defaultValue={cfg.msg_confirmacao ?? ''}
-                onBlur={(e) => void acoes.onSalvarConfiguracao({ msg_confirmacao: e.target.value })}
-              />
-            </Form.Item>
-            <Form.Item label="Mensagem de cancelamento">
-              <Input.TextArea
-                aria-label="Mensagem de cancelamento"
-                rows={2}
-                defaultValue={cfg.msg_cancelamento ?? ''}
-                onBlur={(e) => void acoes.onSalvarConfiguracao({ msg_cancelamento: e.target.value })}
-              />
-            </Form.Item>
-            <Form.Item label="Mensagem de alteração">
-              <Input.TextArea
-                aria-label="Mensagem de alteração"
-                rows={2}
-                defaultValue={cfg.msg_alteracao ?? ''}
-                onBlur={(e) => void acoes.onSalvarConfiguracao({ msg_alteracao: e.target.value })}
-              />
-            </Form.Item>
-          </Form>
-        </section>
-      )}
-
-      {/* ── (a) A GRADE, e (e) a tabela de serviço, e §4 o aviso de acesso ───────────── */}
-      <section style={{ marginBottom: 28 }}>
-        <h3>Grade de atendimento</h3>
+          )}
+        </div>
 
         {funcionarios.length === 0 ? (
           <Empty description="Nenhum profissional ativo." />
         ) : (
-          <>
-            <Select
-              style={{ minWidth: 260, marginBottom: 12 }}
-              aria-label="Profissional da grade"
-              value={empAtual ?? undefined}
-              onChange={(v) => { setEmpSelecionado(v); setErroDaFaixa(null) }}
-              options={funcionarios.map((f) => ({ value: f.id, label: f.name }))}
-            />
+          funcionarios.map((f) => {
+            const faixas = faixasPorEmp[f.id] ?? []
+            const estado = estadoDoFuncionarioNoLink(faixas)
+            const resolucao = resolverTabelaDeServico(f.tabelas ?? [])
+            const avisoTabela = avisoDaTabelaDeServico(resolucao)
+            const avisoAcesso = avisoDeFuncionarioSemAcesso(f)
+            const emEdicao = faixaEmEdicao(f.id)
+            // Recolhido por padrão quando DESLIGADO — para a lista de cinco caber na tela. O
+            // SEM_GRADE fica aberto de propósito: é nele que falta trabalho a fazer.
+            const recolhido = recolhidoManual[f.id] ?? (estado === 'DESLIGADO')
 
-            {funcionarios
-              .filter((f) => f.id === empAtual)
-              .map((f) => {
-                const resolucao = resolverTabelaDeServico(f.tabelas ?? [])
-                const avisoTabela = avisoDaTabelaDeServico(resolucao)
-                const avisoAcesso = avisoDeFuncionarioSemAcesso(f)
-                return (
-                  <Space key={f.id} direction="vertical" style={{ width: '100%', marginBottom: 12 }}>
-                    {/* (e) qual tabela de SERVIÇO está vinculada */}
+            return (
+              <div
+                key={f.id}
+                style={{ border: '1px solid rgba(255,255,255,0.12)', borderRadius: 10, padding: 12, marginBottom: 12 }}
+              >
+                {/* O NOME E O SWITCH FICAM FORA DO RECOLHÍVEL: a lista tem de mostrar os cinco
+                    profissionais mesmo com os blocos fechados — é o pedido do §2. */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                  <strong style={{ minWidth: 160 }}>{f.name}</strong>
+                  <Tooltip title={SELO_DO_ESTADO[estado]}>
+                    <Switch
+                      aria-label={`Aceita agendamento pelo link — ${f.name}`}
+                      checked={estado === 'LIGADO'}
+                      disabled={estado === 'SEM_GRADE'}
+                      onChange={(v) => void acoes.onAlternarFuncionario(f.id, v)}
+                    />
+                  </Tooltip>
+                  <span style={{ color: '#98A2B3', fontSize: 12 }}>{SELO_DO_ESTADO[estado]}</span>
+                  <Button
+                    size="small"
+                    type="link"
+                    onClick={() => setRecolhidoManual((p) => ({ ...p, [f.id]: !recolhido }))}
+                  >
+                    {recolhido ? `Mostrar grade de ${f.name}` : `Ocultar grade de ${f.name}`}
+                  </Button>
+                </div>
+
+                {!recolhido && (
+                  <div style={{ marginTop: 10 }}>
+                    {/* qual tabela de SERVIÇO está vinculada */}
                     {resolucao.estado === 'UMA' && (
-                      <div>
+                      <div style={{ marginBottom: 6 }}>
                         Tabela de serviço: <Tag color="blue">{resolucao.tabela.name}</Tag>
                       </div>
                     )}
-                    {avisoTabela && <Alert type="warning" showIcon message={avisoTabela} />}
-                    {/* §4 — o pré-requisito que não é código */}
-                    {avisoAcesso && <Alert type="warning" showIcon message={avisoAcesso} />}
-                  </Space>
-                )
-              })}
+                    {avisoTabela && <Alert type="warning" showIcon message={avisoTabela} style={{ marginBottom: 6 }} />}
+                    {avisoAcesso && <Alert type="warning" showIcon message={avisoAcesso} style={{ marginBottom: 6 }} />}
 
-            {/* as faixas já gravadas, agrupadas pelos sete dias */}
-            {DIAS_DA_SEMANA.map((d) => {
-              const doDia = faixasDoEmp.filter((f) => f.weekday === d.weekday)
-              return (
-                <div key={d.weekday} style={{ display: 'flex', gap: 12, alignItems: 'center', padding: '4px 0' }}>
-                  <span style={{ width: 80, color: '#667085' }}>{d.label}</span>
-                  {doDia.length === 0 ? (
-                    <span style={{ color: '#98A2B3' }}>—</span>
-                  ) : (
-                    <Space wrap>
-                      {doDia.map((f) => (
-                        <Tag key={f.id} closable={false}>
-                          {String(f.start_time).slice(0, 5)}–{String(f.end_time).slice(0, 5)}
-                          <Popconfirm
-                            title="Remover esta faixa?"
-                            onConfirm={() => void acoes.onRemoverFaixa(f.id)}
-                          >
-                            <DeleteOutlined style={{ marginLeft: 8 }} aria-label={`Remover faixa ${f.id}`} />
-                          </Popconfirm>
-                        </Tag>
-                      ))}
+                    {DIAS_DA_SEMANA.map((d) => {
+                      const doDia = faixas.filter((x) => x.weekday === d.weekday)
+                      return (
+                        <div key={d.weekday} style={{ display: 'flex', gap: 12, alignItems: 'center', padding: '3px 0' }}>
+                          <span style={{ width: 80, color: '#667085' }}>{d.label}</span>
+                          {doDia.length === 0 ? (
+                            <span style={{ color: '#98A2B3' }}>—</span>
+                          ) : (
+                            <Space wrap>
+                              {doDia.map((x) => (
+                                <Tag key={x.id} color={x.is_active === false ? 'default' : 'green'}>
+                                  {String(x.start_time).slice(0, 5)}–{String(x.end_time).slice(0, 5)}
+                                  <Popconfirm title="Remover esta faixa?" onConfirm={() => void acoes.onRemoverFaixa(x.id)}>
+                                    <DeleteOutlined style={{ marginLeft: 8 }} aria-label={`Remover faixa ${x.id}`} />
+                                  </Popconfirm>
+                                </Tag>
+                              ))}
+                            </Space>
+                          )}
+                        </div>
+                      )
+                    })}
+
+                    <Space wrap style={{ marginTop: 10 }}>
+                      <Select
+                        style={{ minWidth: 130 }}
+                        aria-label={`Dia da semana — ${f.name}`}
+                        value={emEdicao.weekday}
+                        onChange={(v) => mexerNaFaixa(f.id, { weekday: Number(v) })}
+                        options={DIAS_DA_SEMANA.map((d) => ({ value: d.weekday, label: d.label }))}
+                      />
+                      <TimePicker
+                        format="HH:mm"
+                        aria-label={`Início da faixa — ${f.name}`}
+                        value={emEdicao.start_time ? dayjs(emEdicao.start_time, 'HH:mm') : null}
+                        onChange={(v) => mexerNaFaixa(f.id, { start_time: v ? v.format('HH:mm') : '' })}
+                      />
+                      <TimePicker
+                        format="HH:mm"
+                        aria-label={`Fim da faixa — ${f.name}`}
+                        value={emEdicao.end_time ? dayjs(emEdicao.end_time, 'HH:mm') : null}
+                        onChange={(v) => mexerNaFaixa(f.id, { end_time: v ? v.format('HH:mm') : '' })}
+                      />
+                      <Button icon={<PlusOutlined />} onClick={() => tentarAdicionarFaixa(f.id)}>
+                        Adicionar faixa
+                      </Button>
                     </Space>
-                  )}
-                </div>
-              )
-            })}
 
-            {/* adicionar faixa */}
-            <Space wrap style={{ marginTop: 12 }}>
-              <Select
-                style={{ minWidth: 140 }}
-                aria-label="Dia da semana"
-                value={novoDia}
-                onChange={(v) => { setNovoDia(Number(v)); setErroDaFaixa(null) }}
-                options={DIAS_DA_SEMANA.map((d) => ({ value: d.weekday, label: d.label }))}
-              />
-              <TimePicker
-                format="HH:mm"
-                aria-label="Início da faixa"
-                value={novoInicio ? dayjs(novoInicio, 'HH:mm') : null}
-                onChange={(v) => { setNovoInicio(v ? v.format('HH:mm') : ''); setErroDaFaixa(null) }}
-              />
-              <TimePicker
-                format="HH:mm"
-                aria-label="Fim da faixa"
-                value={novoFim ? dayjs(novoFim, 'HH:mm') : null}
-                onChange={(v) => { setNovoFim(v ? v.format('HH:mm') : ''); setErroDaFaixa(null) }}
-              />
-              <Button icon={<PlusOutlined />} onClick={tentarAdicionarFaixa}>
-                Adicionar faixa
-              </Button>
-            </Space>
-
-            {erroDaFaixa && (
-              <div style={{ marginTop: 10 }}>
-                <Alert type="error" showIcon message={erroDaFaixa} />
+                    {erroPorEmp[f.id] && (
+                      <div style={{ marginTop: 10 }}>
+                        <Alert type="error" showIcon message={erroPorEmp[f.id]} />
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
-            )}
-          </>
+            )
+          })
         )}
       </section>
 
-      {/* ── (b) FOLGAS ───────────────────────────────────────────────────────────────── */}
-      <section>
+      {/* ══ 2. FÉRIAS, FOLGAS E FERIADOS ═════════════════════════════════════════════════ */}
+      <section style={{ marginBottom: 32 }}>
         <h3>Férias, folgas e feriados</h3>
 
         {(dados?.folgas ?? []).length === 0 ? (
@@ -455,35 +431,182 @@ export function PainelDeAgendamento(props: PainelDeAgendamentoProps) {
             onChange={(v) => { setFolgaEmp(v); setErroDaFolga(null) }}
             options={funcionarios.map((f) => ({ value: f.id, label: f.name }))}
           />
-          <Input
-            aria-label="Início da ausência"
-            placeholder="Início (AAAA-MM-DDTHH:mm)"
-            value={folgaIni}
-            onChange={(e) => { setFolgaIni(e.target.value); setErroDaFolga(null) }}
-          />
-          <Input
-            aria-label="Fim da ausência"
-            placeholder="Fim (AAAA-MM-DDTHH:mm)"
-            value={folgaFim}
-            onChange={(e) => { setFolgaFim(e.target.value); setErroDaFolga(null) }}
-          />
-          <Input
-            aria-label="Motivo da ausência"
-            placeholder="Motivo (opcional)"
-            value={folgaMotivo}
-            onChange={(e) => setFolgaMotivo(e.target.value)}
-          />
-          <Button icon={<PlusOutlined />} onClick={tentarAdicionarFolga}>
-            Adicionar ausência
-          </Button>
+          <Input aria-label="Início da ausência" placeholder="Início (AAAA-MM-DDTHH:mm)" value={folgaIni}
+            onChange={(e) => { setFolgaIni(e.target.value); setErroDaFolga(null) }} />
+          <Input aria-label="Fim da ausência" placeholder="Fim (AAAA-MM-DDTHH:mm)" value={folgaFim}
+            onChange={(e) => { setFolgaFim(e.target.value); setErroDaFolga(null) }} />
+          <Input aria-label="Motivo da ausência" placeholder="Motivo (opcional)" value={folgaMotivo}
+            onChange={(e) => setFolgaMotivo(e.target.value)} />
+          <Button icon={<PlusOutlined />} onClick={tentarAdicionarFolga}>Adicionar ausência</Button>
         </Space>
 
         {erroDaFolga && (
-          <div style={{ marginTop: 10 }}>
-            <Alert type="error" showIcon message={erroDaFolga} />
-          </div>
+          <div style={{ marginTop: 10 }}><Alert type="error" showIcon message={erroDaFolga} /></div>
         )}
       </section>
+
+      {/* ══ 3. AJUSTES ═══════════════════════════════════════════════════════════════════ */}
+      <section style={{ marginBottom: 32 }}>
+        <h3>Ajustes</h3>
+        {!cfg ? (
+          <span style={{ color: '#98A2B3' }}>
+            Os ajustes aparecem depois de gerar o link, abaixo — eles pertencem à configuração do link.
+          </span>
+        ) : (
+          <Form layout="vertical">
+            <Space wrap size={16}>
+              <Form.Item
+                label="Passo da lista (min)"
+                tooltip="O intervalo entre os horários oferecidos (09:00, 09:30…). NÃO é a duração do atendimento — essa vem do serviço."
+              >
+                <InputNumber aria-label="Passo da lista" min={LIMITES.grid_minutes.min} max={LIMITES.grid_minutes.max ?? undefined}
+                  value={cfg.grid_minutes} onChange={(v) => void acoes.onSalvarConfiguracao({ grid_minutes: Number(v) })} />
+              </Form.Item>
+              <Form.Item label="Antecedência mínima (min)">
+                <InputNumber aria-label="Antecedência mínima" min={LIMITES.lead_time_min.min}
+                  value={cfg.lead_time_min} onChange={(v) => void acoes.onSalvarConfiguracao({ lead_time_min: Number(v) })} />
+              </Form.Item>
+              <Form.Item label="Janela de agendamento (dias)">
+                <InputNumber aria-label="Janela de agendamento" min={LIMITES.horizon_days.min} max={LIMITES.horizon_days.max ?? undefined}
+                  value={cfg.horizon_days} onChange={(v) => void acoes.onSalvarConfiguracao({ horizon_days: Number(v) })} />
+              </Form.Item>
+            </Space>
+
+            <Form.Item label="Mensagem de confirmação">
+              <Input.TextArea aria-label="Mensagem de confirmação" rows={2} defaultValue={cfg.msg_confirmacao ?? ''}
+                onBlur={(e) => void acoes.onSalvarConfiguracao({ msg_confirmacao: e.target.value })} />
+            </Form.Item>
+            <Form.Item label="Mensagem de cancelamento">
+              <Input.TextArea aria-label="Mensagem de cancelamento" rows={2} defaultValue={cfg.msg_cancelamento ?? ''}
+                onBlur={(e) => void acoes.onSalvarConfiguracao({ msg_cancelamento: e.target.value })} />
+            </Form.Item>
+            <Form.Item label="Mensagem de alteração">
+              <Input.TextArea aria-label="Mensagem de alteração" rows={2} defaultValue={cfg.msg_alteracao ?? ''}
+                onBlur={(e) => void acoes.onSalvarConfiguracao({ msg_alteracao: e.target.value })} />
+            </Form.Item>
+          </Form>
+        )}
+      </section>
+
+      {/* ══ 4. LINK DE AGENDAMENTO — TRÊS estados, e o link SEMPRE copiável (§4) ═════════ */}
+      <section>
+        <h3>Link de agendamento</h3>
+
+        {/* >>> OS TRÊS ESTADOS SÃO TRÊS, E A TELA TEM DE DISTINGUIR OS TRÊS <<<
+            sem linha → "Gerar link"; com linha e desligado → link + selo DESLIGADO + switch;
+            com linha e ligado → link + selo LIGADO. A primeira versão só mostrava o link logo
+            depois de gerar, e quem reabria o painel não achava mais o endereço. */}
+        {!cfg ? (
+          <Space direction="vertical" style={{ width: '100%' }}>
+            <span>Este salão ainda não tem link de agendamento.</span>
+            <Button type="primary" onClick={() => void acoes.onGerarLink()}>Gerar link</Button>
+          </Space>
+        ) : (
+          <Space direction="vertical" style={{ width: '100%' }} size={12}>
+            <Space>
+              <Switch checked={cfg.is_enabled} onChange={(v) => void acoes.onAlternarAtivo(v)}
+                aria-label="Agendamento pelo link ativo" />
+              {/* O `aria-label` existe para o portão poder ler o selo EXATO. Afirmar
+                  `textoDaTela().not.toContain('LIGADO')` seria um caso que não discrimina:
+                  'DESLIGADO' CONTÉM 'LIGADO' como substring, e a asserção passaria nos dois
+                  estados (`teste-que-nao-exercita.md`, variante 2). */}
+              <Tag aria-label="Estado do link" color={cfg.is_enabled ? 'green' : 'default'}>
+                {cfg.is_enabled ? SELO_LINK_LIGADO : SELO_LINK_DESLIGADO}
+              </Tag>
+            </Space>
+
+            {/* O token JÁ é gravado em `tenant_booking_settings.public_token`. O campo e o botão
+                de copiar aparecem sempre que houver token, ligado ou desligado.
+                NÃO existe "gerar outro token": trocá-lo invalidaria o link que a barbearia já
+                publicou na bio, e isso é decisão do PO, não da tela
+                (`fato-vs-referencia.md` — o token é fato histórico). */}
+            <Input
+              readOnly
+              value={link ?? ''}
+              aria-label="Link de agendamento"
+              addonAfter={
+                <Tooltip title="Copiar">
+                  <CopyOutlined
+                    aria-label="Copiar link de agendamento"
+                    onClick={() => {
+                      try {
+                        void navigator?.clipboard?.writeText(link ?? '')
+                        msgApi.success('Link copiado.')
+                      } catch { /* área de transferência indisponível — não é erro do fluxo */ }
+                    }}
+                  />
+                </Tooltip>
+              }
+            />
+
+            <Alert type="warning" showIcon message={AVISO_LINK_AINDA_NAO_FUNCIONA} />
+          </Space>
+        )}
+      </section>
+
+      {/* ══ §3 — O MODAL DE COPIAR A GRADE ══════════════════════════════════════════════ */}
+      <Modal
+        title="Aplicar grade a outros profissionais"
+        open={copiaAberta}
+        onCancel={fecharCopia}
+        destroyOnClose
+        footer={null}
+      >
+        <Space direction="vertical" style={{ width: '100%' }} size={12}>
+          <div>
+            <div style={{ marginBottom: 4 }}>Copiar a grade de:</div>
+            <Select
+              style={{ minWidth: 240 }}
+              aria-label="Origem da grade"
+              value={origem ?? undefined}
+              onChange={(v) => { setCopiaOrigem(v); setCopiaDestinos([]); setCopiaConfirmando(false) }}
+              options={funcionarios.map((f) => ({
+                value: f.id,
+                label: `${f.name} (${(faixasPorEmp[f.id] ?? []).length} faixa(s))`,
+              }))}
+            />
+          </div>
+
+          <div>
+            <div style={{ marginBottom: 4 }}>Para:</div>
+            <Space direction="vertical">
+              {funcionarios.filter((f) => f.id !== origem).map((f) => (
+                <Checkbox
+                  key={f.id}
+                  aria-label={`Copiar para ${f.name}`}
+                  checked={copiaDestinos.includes(f.id)}
+                  onChange={(e) => {
+                    setCopiaConfirmando(false)
+                    setCopiaDestinos((p) => (e.target.checked ? [...p, f.id] : p.filter((x) => x !== f.id)))
+                  }}
+                >
+                  {f.name} — tem hoje {(faixasPorEmp[f.id] ?? []).length} faixa(s)
+                </Checkbox>
+              ))}
+            </Space>
+          </div>
+
+          {avisoDaCopiaDaGrade(planos) && (
+            <Alert
+              type={exigeConfirmacaoDaCopia(planos) ? 'warning' : 'info'}
+              showIcon
+              message={avisoDaCopiaDaGrade(planos)}
+            />
+          )}
+
+          {copiaConfirmando ? (
+            <Space>
+              <Button danger type="primary" onClick={tentarAplicarGrade}>Confirmar substituição</Button>
+              <Button onClick={fecharCopia}>Cancelar</Button>
+            </Space>
+          ) : (
+            <Space>
+              <Button type="primary" onClick={tentarAplicarGrade}>Aplicar</Button>
+              <Button onClick={fecharCopia}>Cancelar</Button>
+            </Space>
+          )}
+        </Space>
+      </Modal>
     </Drawer>
   )
 }

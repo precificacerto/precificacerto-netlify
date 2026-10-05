@@ -32,14 +32,26 @@ import path from 'path'
 
 import {
   LIMITES,
+  avisoDaCopiaDaGrade,
+  estadoDoFuncionarioNoLink,
+  exigeConfirmacaoDaCopia,
   faixaRecusada,
+  funcionarioAceitaAgendamento,
+  planejarCopiaDaGrade,
   resolverTabelaDeServico,
   validarFaixa,
 } from '@/utils/agendamento-config'
 import { BYTES_DO_TOKEN, gerarTokenDeAgendamento } from '@/utils/agendamento-token'
 import {
+  aplicarGradeEmDestinos,
+  type FaixaPersistida,
+  type RepositorioDaGrade,
+} from '@/utils/aplicar-grade'
+import {
   AVISO_LINK_AINDA_NAO_FUNCIONA,
   PainelDeAgendamento,
+  SELO_LINK_DESLIGADO,
+  SELO_LINK_LIGADO,
   montarLinkPublico,
   type AcoesDoPainel,
   type ConfiguracaoDoAgendamento,
@@ -93,6 +105,8 @@ function fazerAcoes(): AcoesDoPainel & { [k: string]: jest.Mock } {
     onRemoverFaixa: jest.fn(),
     onSalvarFolga: jest.fn(),
     onRemoverFolga: jest.fn(),
+    onAlternarFuncionario: jest.fn(),
+    onAplicarGrade: jest.fn(),
   } as any
 }
 
@@ -129,6 +143,12 @@ function textoDaTela(): string {
   // O Drawer do antd renderiza em PORTAL, fora do `host`. Ler só o `host` devolveria vazio e
   // toda asserção de ausência passaria por engano.
   return document.body.textContent || ''
+}
+
+/** O selo do estado do link, lido do elemento, não do texto da tela inteira. */
+function selo(): string | null {
+  const el = document.body.querySelector('[aria-label="Estado do link"]')
+  return el ? (el.textContent || '') : null
 }
 
 function clicarBotao(rotulo: string) {
@@ -366,8 +386,12 @@ describe('§6.4 — o link aparece DESLIGADO quando `is_enabled = false`', () =>
         dados={dadosBase()} acoes={fazerAcoes()} baseUrl="https://app.exemplo.com"
       />,
     )
-    expect(textoDaTela()).toContain('Agendamento DESLIGADO')
-    expect(textoDaTela()).not.toContain('Agendamento LIGADO')
+    // >>> A ASSERÇÃO LÊ O SELO EXATO, e isso não é preciosismo <<<
+    // Em 05/10/2026 o selo passou de 'Agendamento DESLIGADO' para o texto do §4. E
+    // `not.toContain('LIGADO')` NÃO serve como par: 'DESLIGADO' contém 'LIGADO', então a
+    // asserção passaria nos DOIS estados e o caso deixaria de discriminar.
+    expect(selo()).toBe(SELO_LINK_DESLIGADO)
+    expect(selo()).not.toBe(SELO_LINK_LIGADO)
 
     desmontar()
     document.body.innerHTML = ''
@@ -379,7 +403,7 @@ describe('§6.4 — o link aparece DESLIGADO quando `is_enabled = false`', () =>
         acoes={fazerAcoes()} baseUrl="https://app.exemplo.com"
       />,
     )
-    expect(textoDaTela()).toContain('Agendamento LIGADO')
+    expect(selo()).toBe(SELO_LINK_LIGADO)
   })
 
   it('o aviso de que o link AINDA NÃO FUNCIONA está na tela — a exposição é zero nesta fase', () => {
@@ -681,5 +705,524 @@ describe('§5 — EXPOSIÇÃO ZERO: nada de rota pública nesta fase', () => {
     }
     const gerador = fs.readFileSync(path.join(RAIZ, 'src/utils/agendamento-token.ts'), 'utf8')
     expect(gerador).toContain("import { randomBytes } from 'crypto'")
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+// REORGANIZAÇÃO DA TELA — comando do PO de 05/10/2026, depois de usar o painel em produção
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+//
+// Os casos acima continuam valendo e nenhum foi apagado. O único que mudou de asserção foi o do
+// selo do link, porque o §4 trocou o TEXTO do selo — e a mudança está comentada lá, com a razão
+// de o par `not.toContain('LIGADO')` não servir.
+
+const CINCO = [
+  { id: 'e1', name: 'Barbeiro Um', user_id: 'u1', tabelas: [TABELA_SERVICO_A] },
+  { id: 'e2', name: 'Barbeiro Dois', user_id: 'u2', tabelas: [TABELA_SERVICO_A] },
+  { id: 'e3', name: 'Barbeiro Três', user_id: null, tabelas: [TABELA_SERVICO_A] },
+  { id: 'e4', name: 'Barbeiro Quatro', user_id: 'u4', tabelas: [] },
+  { id: 'e5', name: 'Barbeiro Cinco', user_id: 'u5', tabelas: [TABELA_SERVICO_A, TABELA_SERVICO_B] },
+]
+
+/** e1 com duas faixas ATIVAS; e2 com uma INATIVA; e3 com uma ativa; e4 e e5 sem grade. */
+const GRADE_CINCO = [
+  { id: 'f1', employee_id: 'e1', weekday: 1, start_time: '09:00:00', end_time: '12:00:00', is_active: true },
+  { id: 'f2', employee_id: 'e1', weekday: 1, start_time: '13:00:00', end_time: '18:00:00', is_active: true },
+  { id: 'f3', employee_id: 'e2', weekday: 2, start_time: '09:00:00', end_time: '18:00:00', is_active: false },
+  { id: 'f4', employee_id: 'e3', weekday: 3, start_time: '10:00:00', end_time: '16:00:00', is_active: true },
+]
+
+function dadosCinco(over: Partial<DadosDoAgendamento> = {}): DadosDoAgendamento {
+  return {
+    configuracao: CFG_DESLIGADA,
+    grade: GRADE_CINCO as any,
+    folgas: [],
+    funcionarios: CINCO,
+    ...over,
+  }
+}
+
+function renderCinco(over: Partial<DadosDoAgendamento> = {}, acoes = fazerAcoes()) {
+  renderizar(
+    <PainelDeAgendamento
+      open onClose={() => {}} calcType="SERVICE"
+      dados={dadosCinco(over)} acoes={acoes} baseUrl="https://app.exemplo.com"
+    />,
+  )
+  return acoes
+}
+
+/**
+ * Clica no botão cujo texto é EXATAMENTE `rotulo`.
+ *
+ * >>> POR QUE EXATO, E NÃO POR SUBSTRING <<<
+ *
+ * `clicarBotaoExato('Aplicar')` casava com "Aplicar grade a outros profissionais", o botão que ABRE
+ * o modal — e o caso reabria o modal em vez de clicar em "Aplicar" dentro dele. Medido: os três
+ * casos da cópia falhavam sem que o componente tivesse defeito. Substring é ambígua assim que
+ * dois rótulos compartilham um prefixo.
+ */
+function clicarBotaoExato(rotulo: string) {
+  const botoes = Array.from(document.body.querySelectorAll('button'))
+  const alvos = botoes.filter((b) => (b.textContent || '').trim() === rotulo)
+  expect(alvos.length).toBe(1) // zero = rótulo errado; mais de um = o caso não sabe em qual clicou
+  act(() => { alvos[0].dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+}
+
+function clicarPorAriaLabel(rotulo: string) {
+  const el = document.body.querySelector(`[aria-label="${rotulo}"]`)
+  expect(el).toBeTruthy() // sem a guarda, rótulo errado faria o caso passar sem clicar em nada
+  act(() => { (el as HTMLElement).dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+}
+
+// ───────────────────────────────────────────────────────────────────────────────────────────
+describe('§2 — TODOS os funcionários aparecem ao mesmo tempo, não um por vez', () => {
+  it('os CINCO nomes estão na tela simultaneamente', () => {
+    renderCinco()
+    const txt = textoDaTela()
+    for (const f of CINCO) expect(txt).toContain(f.name)
+  })
+
+  it('o `Select` de "um funcionário por vez" NÃO existe mais', () => {
+    // O par do caso acima. Sem ele, os cinco nomes poderiam estar na tela por estarem nas
+    // OPÇÕES de um Select — que é exatamente o estado anterior, e o que o §2 manda derrubar.
+    renderCinco()
+    expect(document.body.querySelector('[aria-label="Profissional da grade"]')).toBeNull()
+  })
+
+  it('cada funcionário tem o SEU switch, e o de quem não tem grade está desabilitado', () => {
+    renderCinco()
+    for (const f of CINCO) {
+      const sw = document.body.querySelector(`[aria-label="Aceita agendamento pelo link — ${f.name}"]`)
+      expect(sw).toBeTruthy()
+    }
+    // e4 e e5 não têm faixa nenhuma → SEM_GRADE → switch desabilitado
+    const semGrade = document.body.querySelector('[aria-label="Aceita agendamento pelo link — Barbeiro Quatro"]') as HTMLElement
+    expect(semGrade.getAttribute('disabled')).not.toBeNull()
+    // e1 tem faixas ativas → LIGADO → habilitado
+    const ligado = document.body.querySelector('[aria-label="Aceita agendamento pelo link — Barbeiro Um"]') as HTMLElement
+    expect(ligado.getAttribute('disabled')).toBeNull()
+  })
+
+  it('o bloco de quem está DESLIGADO vem recolhido; o de quem está LIGADO, aberto', () => {
+    renderCinco()
+    const txt = textoDaTela()
+    // e2 está DESLIGADO (única faixa inativa) → recolhido, e o botão oferece MOSTRAR
+    expect(txt).toContain('Mostrar grade de Barbeiro Dois')
+    // e1 está LIGADO → aberto, e o botão oferece OCULTAR
+    expect(txt).toContain('Ocultar grade de Barbeiro Um')
+  })
+})
+
+describe('§2 — os TRÊS estados do funcionário, sem coluna nova', () => {
+  // A medição que sustenta a decisão está no cabeçalho de `estadoDoFuncionarioNoLink`: as duas
+  // situações são linhas DIFERENTES, não o mesmo byte, então nenhuma coluna é necessária.
+  it('zero faixas = SEM_GRADE; todas inativas = DESLIGADO; alguma ativa = LIGADO', () => {
+    expect(estadoDoFuncionarioNoLink([])).toBe('SEM_GRADE')
+    expect(estadoDoFuncionarioNoLink([
+      { weekday: 1, start_time: '09:00', end_time: '18:00', is_active: false },
+    ])).toBe('DESLIGADO')
+    expect(estadoDoFuncionarioNoLink([
+      { weekday: 1, start_time: '09:00', end_time: '18:00', is_active: false },
+      { weekday: 2, start_time: '09:00', end_time: '18:00', is_active: true },
+    ])).toBe('LIGADO')
+  })
+
+  it('os três são DISTINTOS — SEM_GRADE e DESLIGADO não colapsam', () => {
+    const estados = [
+      estadoDoFuncionarioNoLink([]),
+      estadoDoFuncionarioNoLink([{ weekday: 1, start_time: '09:00', end_time: '18:00', is_active: false }]),
+      estadoDoFuncionarioNoLink([{ weekday: 1, start_time: '09:00', end_time: '18:00', is_active: true }]),
+    ]
+    expect(new Set(estados).size).toBe(3)
+  })
+
+  it('`is_active` AUSENTE conta como ativa — a coluna é NOT NULL DEFAULT true', () => {
+    // Ler ausência como `false` desligaria silenciosamente quem o banco gravou ligado.
+    expect(estadoDoFuncionarioNoLink([{ weekday: 1, start_time: '09:00', end_time: '18:00' }])).toBe('LIGADO')
+    expect(funcionarioAceitaAgendamento([{ weekday: 1, start_time: '09:00', end_time: '18:00' }])).toBe(true)
+    expect(funcionarioAceitaAgendamento([])).toBe(false)
+  })
+})
+
+describe('§2 — o switch desliga TODAS as faixas do funcionário e NENHUMA de outro', () => {
+  it('clicar no switch de e1 chama a ação com e1 e `false`, e nenhum outro id', () => {
+    const acoes = renderCinco()
+    clicarPorAriaLabel('Aceita agendamento pelo link — Barbeiro Um')
+
+    expect(acoes.onAlternarFuncionario).toHaveBeenCalledTimes(1)
+    // e1 está LIGADO, então o clique pede DESLIGAR
+    expect(acoes.onAlternarFuncionario).toHaveBeenCalledWith('e1', false)
+    // >>> E NENHUM OUTRO FUNCIONÁRIO FOI TOCADO <<<
+    // Sem esta asserção, um componente que chamasse a ação para os cinco passaria no `toBe`
+    // acima — afirmar que e1 foi chamado não é afirmar que SÓ e1 foi.
+    // A assinatura de `AcoesDoPainel` vence a index signature do fixture, então `.mock` não
+    // existe no TIPO — o cast nomeia o que o valor é de fato.
+    const ids = (acoes.onAlternarFuncionario as jest.Mock).mock.calls.map((c: any[]) => c[0])
+    expect(ids).toEqual(['e1'])
+  })
+
+  it('o de e2, que está DESLIGADO, pede LIGAR — o sentido do clique depende do estado', () => {
+    const acoes = renderCinco()
+    clicarPorAriaLabel('Aceita agendamento pelo link — Barbeiro Dois')
+    expect(acoes.onAlternarFuncionario).toHaveBeenCalledWith('e2', true)
+  })
+
+  it('o switch de quem está SEM_GRADE não dispara nada', () => {
+    const acoes = renderCinco()
+    clicarPorAriaLabel('Aceita agendamento pelo link — Barbeiro Quatro')
+    expect(acoes.onAlternarFuncionario).not.toHaveBeenCalled()
+  })
+})
+
+// ───────────────────────────────────────────────────────────────────────────────────────────
+describe('§1 — a ordem das seções é a do trabalho: Grade antes de Link', () => {
+  it('Grade → Férias → Ajustes → Link, nesta ordem no DOM', () => {
+    renderCinco()
+    const txt = textoDaTela()
+    const pos = (t: string) => {
+      const i = txt.indexOf(t)
+      expect(i).toBeGreaterThan(-1) // rótulo ausente faria as comparações abaixo passar com -1
+      return i
+    }
+    const grade = pos('Grade de atendimento')
+    const folgas = pos('Férias, folgas e feriados')
+    const ajustes = pos('Ajustes')
+    const link = pos('Link de agendamento')
+
+    expect(grade).toBeLessThan(folgas)
+    expect(folgas).toBeLessThan(ajustes)
+    expect(ajustes).toBeLessThan(link)
+    // O que a reorganização consertou, dito como asserção: o link deixou de vir primeiro.
+    expect(grade).toBeLessThan(link)
+  })
+})
+
+// ───────────────────────────────────────────────────────────────────────────────────────────
+describe('§4 — o link é GRAVADO e copiável sempre, nos dois estados com token', () => {
+  it('com token e DESLIGADO: o link aparece, há botão de copiar, e o selo diz DESLIGADO', () => {
+    renderCinco()
+    const campo = document.body.querySelector('input[aria-label="Link de agendamento"]') as HTMLInputElement
+    expect(campo).toBeTruthy()
+    expect(campo.value).toBe('https://app.exemplo.com/agendar/TOKEN_OPACO_DE_TESTE')
+    expect(document.body.querySelector('[aria-label="Copiar link de agendamento"]')).toBeTruthy()
+    expect(selo()).toBe(SELO_LINK_DESLIGADO)
+    // e o "Gerar link" SOME quando já existe token — o §4 pede isso com estas palavras
+    expect(textoDaTela()).not.toContain('Gerar link')
+  })
+
+  it('com token e LIGADO: o link e o copiar continuam lá, e o selo diz LIGADO', () => {
+    renderCinco({ configuracao: { ...CFG_DESLIGADA, is_enabled: true } })
+    const campo = document.body.querySelector('input[aria-label="Link de agendamento"]') as HTMLInputElement
+    expect(campo.value).toBe('https://app.exemplo.com/agendar/TOKEN_OPACO_DE_TESTE')
+    expect(document.body.querySelector('[aria-label="Copiar link de agendamento"]')).toBeTruthy()
+    expect(selo()).toBe(SELO_LINK_LIGADO)
+  })
+
+  it('SEM token: aparece "Gerar link" e NÃO aparece link nenhum', () => {
+    renderCinco({ configuracao: null })
+    expect(textoDaTela()).toContain('Gerar link')
+    expect(document.body.querySelector('input[aria-label="Link de agendamento"]')).toBeNull()
+    expect(document.body.querySelector('[aria-label="Copiar link de agendamento"]')).toBeNull()
+    expect(selo()).toBeNull()
+  })
+
+  it('NÃO existe botão de gerar OUTRO token — trocá-lo invalidaria o link já publicado', () => {
+    renderCinco()
+    const txt = textoDaTela()
+    expect(txt).not.toMatch(/gerar outro|novo token|regerar/i)
+  })
+})
+
+// ───────────────────────────────────────────────────────────────────────────────────────────
+describe('§3 — aplicar a mesma grade a vários SUBSTITUI, e o aviso traz o NÚMERO', () => {
+  function abrirCopia(acoes = fazerAcoes()) {
+    renderCinco({}, acoes)
+    clicarBotaoExato('Aplicar grade a outros profissionais')
+    return acoes
+  }
+
+  it('o plano diz quantas faixas cada destino PERDE e quantas GANHA', () => {
+    const porEmp = (id: string) => GRADE_CINCO.filter((f) => f.employee_id === id) as any
+    const planos = planejarCopiaDaGrade(
+      porEmp('e1'),                                   // origem: 2 faixas
+      [{ id: 'e2', name: 'Dois' }, { id: 'e4', name: 'Quatro' }],
+      porEmp,
+    )
+    expect(planos).toEqual([
+      { destino_id: 'e2', destino_nome: 'Dois', faixasAPerder: 1, faixasAGanhar: 2 },
+      { destino_id: 'e4', destino_nome: 'Quatro', faixasAPerder: 0, faixasAGanhar: 2 },
+    ])
+  })
+
+  it('exige confirmação SÓ quando algum destino tem faixa a perder', () => {
+    expect(exigeConfirmacaoDaCopia([
+      { destino_id: 'a', destino_nome: 'A', faixasAPerder: 0, faixasAGanhar: 2 },
+    ])).toBe(false)
+    expect(exigeConfirmacaoDaCopia([
+      { destino_id: 'a', destino_nome: 'A', faixasAPerder: 0, faixasAGanhar: 2 },
+      { destino_id: 'b', destino_nome: 'B', faixasAPerder: 3, faixasAGanhar: 2 },
+    ])).toBe(true)
+  })
+
+  it('o aviso traz o NÚMERO de faixas perdidas, com o nome do destino', () => {
+    const aviso = avisoDaCopiaDaGrade([
+      { destino_id: 'b', destino_nome: 'Barbeiro Dois', faixasAPerder: 3, faixasAGanhar: 2 },
+    ])
+    expect(aviso).toContain('Barbeiro Dois perde 3 faixa(s)')
+    expect(aviso).toContain('SUBSTITUI')
+    // O par: sem perda, o aviso diz que nada será apagado — não repete o alarme.
+    const semPerda = avisoDaCopiaDaGrade([
+      { destino_id: 'q', destino_nome: 'Quatro', faixasAPerder: 0, faixasAGanhar: 2 },
+    ])
+    expect(semPerda).toContain('Nenhum deles tem grade hoje')
+    expect(semPerda).not.toContain('SUBSTITUI')
+  })
+
+  it('DESTINO COM FAIXAS: pede confirmação, mostra o número, e NÃO grava no primeiro clique', () => {
+    const acoes = abrirCopia()
+    clicarPorAriaLabel('Copiar para Barbeiro Dois') // e2 tem 1 faixa
+    expect(textoDaTela()).toContain('Barbeiro Dois perde 1 faixa(s)')
+
+    clicarBotaoExato('Aplicar')
+    // >>> O EFEITO PRIMEIRO: o primeiro clique NÃO grava <<<
+    expect(acoes.onAplicarGrade).not.toHaveBeenCalled()
+    expect(textoDaTela()).toContain('Confirmar substituição')
+  })
+
+  it('CANCELAR a confirmação NÃO altera faixa nenhuma', () => {
+    const acoes = abrirCopia()
+    clicarPorAriaLabel('Copiar para Barbeiro Dois')
+    clicarBotaoExato('Aplicar')
+    clicarBotaoExato('Cancelar')
+
+    expect(acoes.onAplicarGrade).not.toHaveBeenCalled()
+    // e nenhuma outra ação de escrita foi disparada pelo caminho do cancelamento
+    expect(acoes.onSalvarFaixa).not.toHaveBeenCalled()
+    expect(acoes.onRemoverFaixa).not.toHaveBeenCalled()
+  })
+
+  it('CONFIRMAR grava, com a origem e os destinos escolhidos', () => {
+    const acoes = abrirCopia()
+    clicarPorAriaLabel('Copiar para Barbeiro Dois')
+    clicarBotaoExato('Aplicar')
+    clicarBotaoExato('Confirmar substituição')
+
+    expect(acoes.onAplicarGrade).toHaveBeenCalledTimes(1)
+    expect(acoes.onAplicarGrade).toHaveBeenCalledWith('e1', ['e2'])
+  })
+
+  it('DESTINO VAZIO: não pede confirmação, grava no primeiro clique', () => {
+    // O espelho. Sem ele, "pede confirmação" ficaria verde num componente que pede SEMPRE — e
+    // confirmação em todo caso ensina a clicar sem ler.
+    const acoes = abrirCopia()
+    clicarPorAriaLabel('Copiar para Barbeiro Quatro') // e4 tem 0 faixas
+    clicarBotaoExato('Aplicar')
+
+    expect(acoes.onAplicarGrade).toHaveBeenCalledTimes(1)
+    expect(acoes.onAplicarGrade).toHaveBeenCalledWith('e1', ['e4'])
+  })
+
+  it('sem destino escolhido, nada é gravado', () => {
+    const acoes = abrirCopia()
+    clicarBotaoExato('Aplicar')
+    expect(acoes.onAplicarGrade).not.toHaveBeenCalled()
+  })
+
+  it('a ORIGEM não aparece entre os destinos — copiar para si mesmo não é operação', () => {
+    abrirCopia()
+    expect(document.body.querySelector('[aria-label="Copiar para Barbeiro Um"]')).toBeNull()
+    expect(document.body.querySelector('[aria-label="Copiar para Barbeiro Dois"]')).toBeTruthy()
+  })
+})
+
+// ───────────────────────────────────────────────────────────────────────────────────────────
+describe('§3 — a SEQUÊNCIA roda de verdade, e o portão afirma o ESTADO FINAL das faixas', () => {
+  // >>> ESTES CASOS EXECUTAM A LÓGICA, não leem o texto do arquivo <<<
+  //
+  // A primeira versão deste bloco afirmava a ORDEM das chamadas pelo texto de
+  // `aplicar-grade.ts` (`indexOf('.insert(') < indexOf('.delete()')`). Ficaria verde se alguém
+  // trocasse a ordem preservando as palavras, e não dizia nada sobre o resultado —
+  // `portao-que-nao-alcanca.md`. A lógica foi extraída para `@/utils/aplicar-grade` com
+  // repositório injetado justamente para que o caso possa rodá-la contra um armazém em memória.
+
+  /** O armazém em memória. `falharAoApagar` é o gatilho da compensação. */
+  function fazerRepo(
+    inicial: FaixaPersistida[],
+    opts: { falharAoApagar?: boolean; falharAoInserir?: boolean } = {},
+  ) {
+    let seq = 0
+    const faixas = inicial.map((f) => ({ ...f }))
+    const repo: RepositorioDaGrade = {
+      lerFaixas: async (employee_id) => faixas.filter((f) => f.employee_id === employee_id).map((f) => ({ ...f })),
+      inserirFaixas: async (employee_id, novas) => {
+        if (opts.falharAoInserir) throw new Error('insert falhou')
+        const ids: string[] = []
+        for (const n of novas) {
+          seq += 1
+          const id = `novo-${employee_id}-${seq}`
+          faixas.push({ id, employee_id, ...n })
+          ids.push(id)
+        }
+        return ids
+      },
+      apagarFaixas: async (ids) => {
+        if (opts.falharAoApagar) throw new Error('delete falhou')
+        for (const id of ids) {
+          const i = faixas.findIndex((f) => f.id === id)
+          if (i >= 0) faixas.splice(i, 1)
+        }
+      },
+    }
+    return { repo, faixas }
+  }
+
+  const ORIGEM: FaixaPersistida[] = [
+    { id: 'o1', employee_id: 'e1', weekday: 1, start_time: '09:00', end_time: '12:00', is_active: true },
+    { id: 'o2', employee_id: 'e1', weekday: 1, start_time: '13:00', end_time: '18:00', is_active: true },
+  ]
+  const DESTINO_COM_GRADE: FaixaPersistida[] = [
+    { id: 'd1', employee_id: 'e2', weekday: 5, start_time: '08:00', end_time: '11:00', is_active: true },
+  ]
+
+  it('SUBSTITUI: o destino fica SÓ com as faixas da origem, e as dele desaparecem', async () => {
+    const { repo, faixas } = fazerRepo([...ORIGEM, ...DESTINO_COM_GRADE])
+    const r = await aplicarGradeEmDestinos(repo, 'e1', ['e2'])
+
+    expect(r).toEqual([{ destino_id: 'e2', aplicado: true, apagadas: 1, criadas: 2 }])
+
+    // >>> A ASSERÇÃO DE ESTADO FINAL — é esta que a mutação do §6 mata <<<
+    const doDestino = faixas.filter((f) => f.employee_id === 'e2')
+    expect(doDestino).toHaveLength(2)
+    expect(doDestino.map((f) => `${f.weekday} ${f.start_time}-${f.end_time}`).sort())
+      .toEqual(['1 09:00-12:00', '1 13:00-18:00'])
+    // a faixa de sexta do destino NÃO sobrou
+    expect(faixas.some((f) => f.id === 'd1')).toBe(false)
+    // e a origem ficou intacta
+    expect(faixas.filter((f) => f.employee_id === 'e1')).toHaveLength(2)
+  })
+
+  it('destino SEM grade recebe as faixas e nada é apagado', async () => {
+    const { repo, faixas } = fazerRepo([...ORIGEM])
+    const r = await aplicarGradeEmDestinos(repo, 'e1', ['e9'])
+    expect(r).toEqual([{ destino_id: 'e9', aplicado: true, apagadas: 0, criadas: 2 }])
+    expect(faixas.filter((f) => f.employee_id === 'e9')).toHaveLength(2)
+  })
+
+  it('VÁRIOS destinos: cada um fica só com a grade da origem', async () => {
+    const { repo, faixas } = fazerRepo([
+      ...ORIGEM,
+      ...DESTINO_COM_GRADE,
+      { id: 'd9', employee_id: 'e3', weekday: 6, start_time: '07:00', end_time: '09:00', is_active: true },
+    ])
+    const r = await aplicarGradeEmDestinos(repo, 'e1', ['e2', 'e3'])
+    expect(r.every((x) => x.aplicado)).toBe(true)
+    expect(faixas.filter((f) => f.employee_id === 'e2')).toHaveLength(2)
+    expect(faixas.filter((f) => f.employee_id === 'e3')).toHaveLength(2)
+    expect(faixas.some((f) => f.id === 'd1' || f.id === 'd9')).toBe(false)
+  })
+
+  it('INSERT falha: o destino fica COMO ESTAVA — nada foi apagado', async () => {
+    // É a razão de a ordem ser inserir-depois-apagar. Na ordem inversa este caso deixaria o
+    // destino VAZIO, e o estado final abaixo seria 0 em vez de 1.
+    const { repo, faixas } = fazerRepo([...ORIGEM, ...DESTINO_COM_GRADE], { falharAoInserir: true })
+    const r = await aplicarGradeEmDestinos(repo, 'e1', ['e2'])
+
+    expect(r[0].aplicado).toBe(false)
+    expect(r[0].erro).toContain('insert falhou')
+    const doDestino = faixas.filter((f) => f.employee_id === 'e2')
+    expect(doDestino).toHaveLength(1)
+    expect(doDestino[0].id).toBe('d1')
+  })
+
+  it('DELETE falha: a COMPENSAÇÃO repõe o destino, sem velhas MAIS novas', async () => {
+    // Sem a compensação o destino ficaria com 1 + 2 = 3 faixas, duplicadas e sobrepostas, que a
+    // tela nunca teria aceito. Esta asserção é sobre o NÚMERO final, não sobre o erro.
+    let permitirApagar = false
+    const faixas: FaixaPersistida[] = [...ORIGEM, ...DESTINO_COM_GRADE].map((f) => ({ ...f }))
+    let seq = 0
+    const repo: RepositorioDaGrade = {
+      lerFaixas: async (id) => faixas.filter((f) => f.employee_id === id).map((f) => ({ ...f })),
+      inserirFaixas: async (id, novas) => {
+        const ids: string[] = []
+        for (const n of novas) { seq += 1; const nid = `novo-${seq}`; faixas.push({ id: nid, employee_id: id, ...n }); ids.push(nid) }
+        permitirApagar = false // o apagar das ANTIGAS vai falhar
+        return ids
+      },
+      apagarFaixas: async (ids) => {
+        if (!permitirApagar) {
+          permitirApagar = true // o apagar da COMPENSAÇÃO passa
+          throw new Error('delete falhou')
+        }
+        for (const i of ids) { const k = faixas.findIndex((f) => f.id === i); if (k >= 0) faixas.splice(k, 1) }
+      },
+    }
+
+    const r = await aplicarGradeEmDestinos(repo, 'e1', ['e2'])
+    expect(r[0].aplicado).toBe(false)
+
+    const doDestino = faixas.filter((f) => f.employee_id === 'e2')
+    expect(doDestino).toHaveLength(1)        // reposto, não 3
+    expect(doDestino[0].id).toBe('d1')       // e é a faixa ORIGINAL dele
+  })
+
+  it('um destino que falha NÃO impede os outros', async () => {
+    const faixas: FaixaPersistida[] = [...ORIGEM].map((f) => ({ ...f }))
+    let seq = 0
+    const repo: RepositorioDaGrade = {
+      lerFaixas: async (id) => faixas.filter((f) => f.employee_id === id).map((f) => ({ ...f })),
+      inserirFaixas: async (id, novas) => {
+        if (id === 'eX') throw new Error('destino quebrado')
+        const ids: string[] = []
+        for (const n of novas) { seq += 1; const nid = `n-${seq}`; faixas.push({ id: nid, employee_id: id, ...n }); ids.push(nid) }
+        return ids
+      },
+      apagarFaixas: async (ids) => { for (const i of ids) { const k = faixas.findIndex((f) => f.id === i); if (k >= 0) faixas.splice(k, 1) } },
+    }
+    const r = await aplicarGradeEmDestinos(repo, 'e1', ['eX', 'eOK'])
+    expect(r.map((x) => x.aplicado)).toEqual([false, true])
+    expect(faixas.filter((f) => f.employee_id === 'eOK')).toHaveLength(2)
+    expect(faixas.filter((f) => f.employee_id === 'eX')).toHaveLength(0)
+  })
+
+  it('origem SEM faixas: o destino é ZERADO, e isso é o comportamento pedido', async () => {
+    // Copiar uma grade vazia é esvaziar o destino. Está aqui para que a decisão fique registrada
+    // como decisão, e não seja "consertada" por quem a encontrar achando que é defeito.
+    const { repo, faixas } = fazerRepo([...DESTINO_COM_GRADE])
+    const r = await aplicarGradeEmDestinos(repo, 'e1', ['e2'])
+    expect(r).toEqual([{ destino_id: 'e2', aplicado: true, apagadas: 1, criadas: 0 }])
+    expect(faixas.filter((f) => f.employee_id === 'e2')).toHaveLength(0)
+  })
+})
+
+describe('§3 — a rota de API é só autenticação e repositório', () => {
+  const rota = fs.readFileSync(path.join(RAIZ, 'src/pages/api/agendamento/aplicar-grade.ts'), 'utf8')
+
+  it('exige sessão, e o `tenant_id` vem do perfil, nunca do corpo', () => {
+    expect(rota).toContain('getCallerContext(req, res)')
+    expect(rota).toContain('if (!caller) return')
+    expect(rota).toContain('const tenant_id = caller.tenant_id')
+    expect(rota).not.toMatch(/req\.body[^\n]*tenant_id/)
+  })
+
+  it('as faixas copiadas NÃO vêm do corpo — o cliente manda QUEM, não O QUE', () => {
+    expect(rota).not.toMatch(/req\.body[^\n]*faixas/)
+    expect(rota).toContain('aplicarGradeEmDestinos(repo, origem_id, destino_ids)')
+  })
+
+  it('o `tenant_id` cobre as TRÊS operações — por `.eq` em duas, e na LINHA no insert', () => {
+    // O `supabaseAdmin` passa por cima da RLS, então este é o único isolamento que resta, e uma
+    // das três sem ele vazaria entre salões sem que nenhum caso de comportamento visse.
+    //
+    // >>> A PRIMEIRA VERSÃO DESTE CASO ESPERAVA TRÊS `.eq` E FICOU VERMELHA SOBRE CÓDIGO
+    // CORRETO <<< O `insert` não FILTRA por tenant: ele GRAVA o tenant na linha. São dois
+    // mecanismos para a mesma proteção, e contar só um deles mede a forma em vez do efeito.
+    const filtros = rota.match(/\.eq\('tenant_id', tenant_id\)/g) ?? []
+    expect(filtros).toHaveLength(2)   // lerFaixas e apagarFaixas
+    expect(rota).toMatch(/\.insert\([\s\S]{0,200}tenant_id,/)   // inserirFaixas grava na linha
+  })
+
+  it('a origem não pode ser um dos destinos', () => {
+    expect(rota).toContain('destino_ids.includes(origem_id)')
   })
 })
