@@ -56,6 +56,7 @@ import {
   type AcoesDoPainel,
   type ConfiguracaoDoAgendamento,
   type DadosDoAgendamento,
+  type FuncionarioDoPainel,
 } from '@/components/agenda/painel-de-agendamento.component'
 
 // ── o jsdom que o React 18 e o antd exigem ────────────────────────────────────────────────
@@ -1229,5 +1230,215 @@ describe('§3 — a rota de API é só autenticação e repositório', () => {
 
   it('a origem não pode ser um dos destinos', () => {
     expect(rota).toContain('destino_ids.includes(origem_id)')
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+// §1 — AS DATAS SÃO BRASILEIRAS, e até 06/10/2026 isso não tinha portão
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+//
+// A formatação estava sustentada por INSPEÇÃO VISUAL. Nenhum caso afirmava `DD/MM/YYYY`, então
+// remover o `format` do DatePicker deixaria a tela em `2026-11-05` com a suíte inteira verde —
+// `portao-que-nao-alcanca.md`: o indicador não podia mudar no caso que se queria detectar.
+//
+// A asserção é sobre o que o INPUT EXIBE, não sobre a prop: prop não se lê do DOM, e afirmar o
+// texto do arquivo-fonte ficaria verde se alguém trocasse o formato preservando a palavra.
+describe('§1 — os DatePicker de ausência exibem a data em DD/MM/YYYY', () => {
+  const DIA_CONHECIDO = '2026-11-05T00:00:00.000Z'   // 5 de novembro de 2026
+  const OUTRO_DIA = '2026-11-07T23:59:59.999Z'       // 7 de novembro de 2026
+
+  function renderComDatas() {
+    renderizar(
+      <PainelDeAgendamento
+        open onClose={() => {}} calcType="SERVICE"
+        dados={dadosCinco()} acoes={fazerAcoes()} baseUrl="https://app.exemplo.com"
+        folgaInicial={{ starts_at: DIA_CONHECIDO, ends_at: OUTRO_DIA }}
+      />,
+    )
+  }
+
+  function valorDoCampo(rotulo: string): string {
+    const el = document.body.querySelector(`input[aria-label="${rotulo}"]`) as HTMLInputElement
+    expect(el).toBeTruthy() // rótulo errado faria as comparações abaixo passar comparando undefined
+    return el.value
+  }
+
+  it('o campo de INÍCIO mostra 05/11/2026, e NÃO 2026-11-05', () => {
+    renderComDatas()
+    expect(valorDoCampo('Início da ausência')).toBe('05/11/2026')
+    // O par negativo é o que mata a mutação: sem `format`, o antd cai em `YYYY-MM-DD`.
+    expect(valorDoCampo('Início da ausência')).not.toBe('2026-11-05')
+  })
+
+  it('o campo de FIM mostra 07/11/2026, e NÃO 2026-11-07', () => {
+    renderComDatas()
+    expect(valorDoCampo('Fim da ausência')).toBe('07/11/2026')
+    expect(valorDoCampo('Fim da ausência')).not.toBe('2026-11-07')
+  })
+
+  it('a data escolhida NÃO é uma data qualquer bem formatada — o dia e o mês não trocam de lugar', () => {
+    // 05/11 e 11/05 são os dois formatáveis a partir do mesmo ISO. Um caso com dia 11 e mês 11
+    // passaria com DD/MM e com MM/DD, e não discriminaria nada.
+    renderComDatas()
+    expect(valorDoCampo('Início da ausência')).not.toBe('11/05/2026')
+  })
+
+  it('a LISTA de ausências também é DD/MM/YYYY, e sem hora (§4: dia inteiro)', () => {
+    renderizar(
+      <PainelDeAgendamento
+        open onClose={() => {}} calcType="SERVICE"
+        dados={dadosCinco({
+          folgas: [{ id: 'fo1', employee_id: 'e1', starts_at: DIA_CONHECIDO, ends_at: OUTRO_DIA, reason: 'Férias' }],
+        })}
+        acoes={fazerAcoes()} baseUrl="https://app.exemplo.com"
+      />,
+    )
+    const txt = textoDaTela()
+    expect(txt).toContain('05/11/2026')
+    expect(txt).not.toContain('2026-11-05')
+    // O 00:00 e o 23:59 são DERIVADOS do dia inteiro; exibi-los afirmaria uma hora que o
+    // usuário não escolheu (`ausente-vs-falso.md`).
+    expect(txt).not.toContain('05/11/2026 00:00')
+    expect(txt).not.toContain('23:59')
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+// AS QUATRO FAIXAS QUE JÁ EXISTEM EM PRODUÇÃO, lidas do banco em 06/10/2026
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+//
+// Dois funcionários, cada um com SEGUNDA 09:00–12:00 e 14:00–20:00 — o barbeiro de dois turnos,
+// gravado pelo painel ANTES do refactor de `faixaPorEmp` para `{ dias: number[] }`.
+//
+// Os ids e as horas são os reais, com os SEGUNDOS que o Postgres devolve (`09:00:00`), porque é
+// nisso que um `slice(0, 5)` errado apareceria.
+describe('as 4 faixas reais de produção continuam legíveis depois do refactor', () => {
+  const E1 = '7ab2d14a-ff00-4b3e-989a-85a0deb00c76'
+  const E2 = 'e0f8177b-45fb-48ab-9d37-c0f92c0a0f33'
+  const QUATRO_REAIS = [
+    { id: '44552eac-b193-4dec-a56f-06998a418897', employee_id: E1, weekday: 1, start_time: '09:00:00', end_time: '12:00:00', is_active: true },
+    { id: '64c28ce4-3059-4250-b546-3eee04bbb91d', employee_id: E1, weekday: 1, start_time: '14:00:00', end_time: '20:00:00', is_active: true },
+    { id: '391f5d6d-551a-4285-9df8-ccbc7ac3db70', employee_id: E2, weekday: 1, start_time: '09:00:00', end_time: '12:00:00', is_active: true },
+    { id: '25644bf3-c862-4203-a97a-6255a3c37b5f', employee_id: E2, weekday: 1, start_time: '14:00:00', end_time: '20:00:00', is_active: true },
+  ]
+  const DOIS: FuncionarioDoPainel[] = [
+    { id: E1, name: 'Barbeiro A', user_id: null, tabelas: [TABELA_SERVICO_A] },
+    { id: E2, name: 'Barbeiro B', user_id: null, tabelas: [TABELA_SERVICO_A] },
+  ]
+
+  function renderReais(acoes = fazerAcoes()) {
+    renderizar(
+      <PainelDeAgendamento
+        open onClose={() => {}} calcType="SERVICE"
+        dados={{ configuracao: CFG_DESLIGADA, grade: QUATRO_REAIS as any, folgas: [], funcionarios: DOIS }}
+        acoes={acoes} baseUrl="https://app.exemplo.com"
+      />,
+    )
+    return acoes
+  }
+
+  it('(4a) as QUATRO aparecem, com os horários certos e sem os segundos', () => {
+    renderReais()
+    const txt = textoDaTela()
+    // duas por funcionário, e os dois blocos abertos porque ambos estão LIGADOS
+    expect(txt.split('09:00–12:00')).toHaveLength(3) // 2 ocorrências = 3 pedaços
+    expect(txt.split('14:00–20:00')).toHaveLength(3)
+    // e os segundos do Postgres NÃO vazam para a tela
+    expect(txt).not.toContain('09:00:00')
+    expect(txt).not.toContain('20:00:00')
+  })
+
+  it('(4a) o switch de cada um lê LIGADO a partir das faixas que vieram do banco', () => {
+    renderReais()
+    for (const f of DOIS) {
+      const sw = document.body.querySelector(`[aria-label="Aceita agendamento pelo link — ${f.name}"]`) as HTMLElement
+      expect(sw).toBeTruthy()
+      expect(sw.getAttribute('disabled')).toBeNull()   // tem grade, então não é SEM_GRADE
+    }
+  })
+
+  it('(4b) a lixeira de uma faixa EXISTENTE chama `onRemoverFaixa` com o id dela', () => {
+    // O handler não ficou órfão no refactor: quem mudou foi o estado do FORMULÁRIO, não o
+    // caminho de remoção. O clique percorre o Popconfirm e chega na ação.
+    const acoes = renderReais()
+    const alvo = '64c28ce4-3059-4250-b546-3eee04bbb91d'
+    clicarPorAriaLabel(`Remover faixa ${alvo}`)
+    // o Popconfirm abre; confirmar é o botão "OK" do antd
+    const ok = Array.from(document.body.querySelectorAll('button'))
+      .find((b) => /^(OK|Ok)$/.test((b.textContent || '').trim()))
+    expect(ok).toBeTruthy()
+    act(() => { ok!.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+    expect(acoes.onRemoverFaixa).toHaveBeenCalledWith(alvo)
+    // e NENHUMA outra faixa foi pedida para remoção
+    expect((acoes.onRemoverFaixa as jest.Mock).mock.calls.map((c: any[]) => c[0])).toEqual([alvo])
+  })
+
+  it('(4c) o estado novo `{ dias: [] }` não interfere na leitura do que veio do banco', () => {
+    // >>> A PROVA DE QUE AS DUAS COISAS NÃO SE TOCAM <<<
+    // `faixaPorEmp` (o `{ dias: [] }`) é o estado do FORMULÁRIO, com chave por funcionário. As
+    // faixas gravadas chegam por `dados.grade` e são agrupadas em `faixasPorEmp`. Nenhuma linha
+    // do banco passa pelo estado do formulário, e é por isso que faixa sem o campo `dias`
+    // continua sendo exibida.
+    renderReais()
+    // as quatro continuam na tela…
+    expect(textoDaTela()).toContain('09:00–12:00')
+    // …e nenhuma caixa de dia nasce marcada por causa delas
+    for (const d of ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']) {
+      const cx = document.body.querySelector(`[aria-label="${
+        d === 'Dom' ? 'Domingo' : d === 'Seg' ? 'Segunda' : d === 'Ter' ? 'Terça'
+        : d === 'Qua' ? 'Quarta' : d === 'Qui' ? 'Quinta' : d === 'Sex' ? 'Sexta' : 'Sábado'
+      } — Barbeiro A"]`) as HTMLInputElement
+      expect(cx).toBeTruthy()
+      expect(cx.checked).toBe(false)
+    }
+  })
+
+  it('(4c) com a grade do banco, o utilitário novo ainda recusa sobreposição', () => {
+    // UM funcionário só neste caso, de propósito: com dois, existem DOIS botões "Adicionar
+    // faixa" e o clique seria ambíguo. A primeira versão renderizava o painel duas vezes sem
+    // desmontar e o helper achou QUATRO botões — a guarda `expect(alvos.length).toBe(1)` pegou,
+    // que é exatamente para isso que ela existe.
+    const acoes = fazerAcoes()
+    renderizar(
+      <PainelDeAgendamento
+        open onClose={() => {}} calcType="SERVICE"
+        dados={{
+          configuracao: CFG_DESLIGADA,
+          grade: QUATRO_REAIS.filter((f) => f.employee_id === E1) as any,
+          folgas: [],
+          funcionarios: [DOIS[0]],
+        }}
+        acoes={acoes} baseUrl="https://app.exemplo.com"
+        faixaInicial={{ weekday: 1, start_time: '10:00', end_time: '11:00' }}
+      />,
+    )
+    clicarBotaoExato('Adicionar faixa')
+    // 10:00–11:00 invade a faixa REAL da manhã (09:00–12:00) → recusa, e nada é gravado.
+    expect(acoes.onSalvarFaixas).not.toHaveBeenCalled()
+    expect(textoDaTela()).toContain('Já existe faixa nesse horário em: Segunda.')
+  })
+
+  it('(4c) e ACEITA o intervalo de almoço real: 12:00–14:00 encosta nas duas e entra', () => {
+    // O espelho, com os dados de produção: sem ele, "recusa" ficaria verde num painel que
+    // recusasse tudo contra a grade vinda do banco.
+    const acoes = fazerAcoes()
+    renderizar(
+      <PainelDeAgendamento
+        open onClose={() => {}} calcType="SERVICE"
+        dados={{
+          configuracao: CFG_DESLIGADA,
+          grade: QUATRO_REAIS.filter((f) => f.employee_id === E1) as any,
+          folgas: [],
+          funcionarios: [DOIS[0]],
+        }}
+        acoes={acoes} baseUrl="https://app.exemplo.com"
+        faixaInicial={{ weekday: 1, start_time: '12:00', end_time: '14:00' }}
+      />,
+    )
+    clicarBotaoExato('Adicionar faixa')
+    expect(acoes.onSalvarFaixas).toHaveBeenCalledTimes(1)
+    expect(acoes.onSalvarFaixas).toHaveBeenCalledWith(E1, [
+      { weekday: 1, start_time: '12:00', end_time: '14:00' },
+    ])
   })
 })

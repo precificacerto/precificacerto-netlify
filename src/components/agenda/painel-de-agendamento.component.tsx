@@ -167,6 +167,17 @@ export interface PainelDeAgendamentoProps {
    * widget afirmaria que o antd funciona, não que a faixa foi recusada.
    */
   faixaInicial?: { weekday: number; start_time: string; end_time: string }
+  /**
+   * Os valores com que os dois `DatePicker` de ausência ABREM.
+   *
+   * Mesma natureza de `faixaInicial`: prop com default real (vazio), não costura de teste. Ela
+   * existe porque a §1 — datas em DD/MM/YYYY — não tinha portão nenhum, e sem semear uma data
+   * conhecida o único jeito de afirmar o formato seria operar o calendário do antd dentro do
+   * jsdom, que afirmaria que o antd funciona, não que o formato é brasileiro.
+   *
+   * Os valores são ISO, como o banco grava; o que o caso afirma é o que a TELA exibe.
+   */
+  folgaInicial?: { starts_at: string; ends_at: string }
 }
 
 /** O link que a fase 2 vai atender. Exibido aqui, e ainda sem página do outro lado. */
@@ -187,8 +198,8 @@ export function PainelDeAgendamento(props: PainelDeAgendamentoProps) {
   const [recolhidoManual, setRecolhidoManual] = useState<Record<string, boolean>>({})
 
   const [folgaEmp, setFolgaEmp] = useState<string | null>(null)
-  const [folgaIni, setFolgaIni] = useState<string>('')
-  const [folgaFim, setFolgaFim] = useState<string>('')
+  const [folgaIni, setFolgaIni] = useState<string>(props.folgaInicial?.starts_at ?? '')
+  const [folgaFim, setFolgaFim] = useState<string>(props.folgaInicial?.ends_at ?? '')
   const [folgaMotivo, setFolgaMotivo] = useState<string>('')
   const [erroDaFolga, setErroDaFolga] = useState<string | null>(null)
 
