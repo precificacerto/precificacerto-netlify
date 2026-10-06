@@ -576,6 +576,22 @@ function Schedule() {
     }
 
     async function handleSave() {
+        // >>> DUAS CLASSES DE ESCRITA, DECIDIDAS PELA TABELA <<<
+        //
+        // `supabase-js` NÃO lança em erro de query: devolve `{ error }`. Descartar o retorno
+        // transforma falha em silêncio, e o fluxo segue anunciando sucesso.
+        //
+        // Mas `if (error) throw` em TODAS seria errado: uma falha de envio de WhatsApp abortaria
+        // um pagamento que deu certo. Então:
+        //   ESSENCIAL  (sales, sale_items, items, cash_entries, stock, stock_movements,
+        //               pending_receivables, completed_services, calendar_events) → `throw`;
+        //   ACESSÓRIA  (whatsapp_dispatches, recurrence_dispatch_queue,
+        //               customer_service_history, customer_attachments) → entra em `avisos`,
+        //               não aborta, e NÃO fica muda.
+        //
+        // A classe é da TABELA, não do julgamento de quem edita. Tabela nova entra como
+        // ESSENCIAL até alguém decidir o contrário.
+        const avisos: string[] = []
         try {
             const v = await form.validateFields()
             const tid = await getTenantId(); if (!tid) return
@@ -658,26 +674,29 @@ function Schedule() {
 
                         if (sentDispatches && sentDispatches.length > 0) {
                             // Já foi enviado → criar novo PENDING para notificar do novo horário
-                            await sb2.from('whatsapp_dispatches').insert({
+                            const { error: err1 } = await sb2.from('whatsapp_dispatches').insert({
                                 tenant_id: tid, calendar_event_id: editingEvt.id,
                                 customer_id: resolvedCustomerId, status: 'PENDING',
                                 type: 'REMINDER', phone, message_body: msgBody,
                                 sent_by: uid || 'system',
                             })
+                            if (err1) avisos.push('O aviso por WhatsApp não foi enviado.')
                         } else {
                             // Ainda não enviado → atualizar PENDING existente ou criar
                             const { data: pending } = await sb2
                                 .from('whatsapp_dispatches').select('id')
                                 .eq('calendar_event_id', editingEvt.id).eq('status', 'PENDING').maybeSingle()
                             if (pending?.id) {
-                                await sb2.from('whatsapp_dispatches').update({ message_body: msgBody }).eq('id', pending.id)
+                                const { error: err2 } = await sb2.from('whatsapp_dispatches').update({ message_body: msgBody }).eq('id', pending.id)
+                                if (err2) avisos.push('O aviso por WhatsApp não foi enviado.')
                             } else {
-                                await sb2.from('whatsapp_dispatches').insert({
+                                const { error: err3 } = await sb2.from('whatsapp_dispatches').insert({
                                     tenant_id: tid, calendar_event_id: editingEvt.id,
                                     customer_id: resolvedCustomerId, status: 'PENDING',
                                     type: 'REMINDER', phone, message_body: msgBody,
                                     sent_by: uid || 'system',
                                 })
+                                if (err3) avisos.push('O aviso por WhatsApp não foi enviado.')
                             }
                         }
                     }
@@ -697,11 +716,18 @@ function Schedule() {
                 if (recurActive && (recurEndDate || recurForever)) {
                     const recurrenceGroupId = crypto.randomUUID()
                     // Atualizar o evento original com recurrence_group_id
-                    await (supabase as any).from('calendar_events')
+                    // >>> A CHECAGEM VEM ANTES DE QUALQUER PASSO SEGUINTE DO FLUXO <<<
+                    // `supabase-js` não lança em erro de query: devolve `{ error }`. Com o
+                    // retorno descartado, uma falha aqui deixava o evento ORIGINAL sem
+                    // `recurrence_group_id` enquanto as ocorrências abaixo nasciam COM ele — a
+                    // série ficava órfã do primeiro evento, e o fluxo seguia anunciando sucesso.
+                    // Mesma forma de `handleAddEmp` e `handleRemoveEmp`.
+                    const { error: recurGroupErr } = await (supabase as any).from('calendar_events')
                         .update({ recurrence_group_id: recurrenceGroupId })
                         .eq('start_time', s)
                         .eq('tenant_id', tid)
                         .eq('title', v.title)
+                    if (recurGroupErr) throw recurGroupErr
 
                     const recurInserts: any[] = []
                     let cursor = startLocal.add(1, 'day')
@@ -747,13 +773,15 @@ function Schedule() {
                         cursor = cursor.add(1, 'day')
                     }
                     if (recurInserts.length > 0) {
-                        await supabase.from('calendar_events').insert(recurInserts)
+                        const { error: err4 } = await supabase.from('calendar_events').insert(recurInserts)
+                        if (err4) throw err4
                         msgApi.success(`Agendado! + ${recurInserts.length} recorrência(s) criada(s).`)
+                        if (avisos.length) msgApi.warning(avisos.join(' '))
                     } else {
-                        msgApi.success('Agendado!')
+                        msgApi.success('Agendado!'); if (avisos.length) msgApi.warning(avisos.join(' '))
                     }
                 } else {
-                    msgApi.success('Agendado!')
+                    msgApi.success('Agendado!'); if (avisos.length) msgApi.warning(avisos.join(' '))
                 }
 
                 if (reminderSendAt) {
@@ -824,9 +852,14 @@ function Schedule() {
                 const newTotal = updatedEntries
                     .filter(e => e.type === 'INCOME')
                     .reduce((sum, e) => sum + Number(e.amount), 0)
-                await (supabase as any).from('calendar_events')
+                // >>> A CHECAGEM VEM ANTES DO `mergeExpenseConfig`, DO TOAST E DO `fetchAll` <<<
+                // Sem ela, uma falha aqui deixava `amount_charged` divergente do total dos
+                // lançamentos que acabaram de ser gravados, e a tela anunciava
+                // "Lançamento editado! HUB e DRE atualizados." — sucesso sobre divergência.
+                const { error: amountErr } = await (supabase as any).from('calendar_events')
                     .update({ amount_charged: newTotal })
                     .eq('id', editLancEvt.id)
+                if (amountErr) throw amountErr
             }
 
             // Recalcula hub para atualizar MO produtiva por minuto na precificação
@@ -835,7 +868,13 @@ function Schedule() {
 
             msgApi.success('Lançamento editado! HUB e DRE atualizados.')
             await fetchAll()
-        } catch (e: any) { msgApi.error(e.message) }
+        } catch (e: any) {
+            // O texto é DIFERENTE dos outros de propósito: o lançamento já foi gravado pela rota
+            // `/api/cash-entries/update` ANTES deste ponto, então "nada foi alterado" seria
+            // mentira. A mensagem manda CONFERIR em vez de afirmar um estado que ela não pode
+            // conhecer — `ausente-vs-falso.md` no texto da tela.
+            msgApi.error(e?.message || 'Não foi possível salvar o lançamento. O valor pode não ter sido gravado — confira antes de tentar de novo.')
+        }
         finally { setSavingLanc(false) }
     }
 
@@ -1015,6 +1054,22 @@ function Schedule() {
 
     async function handleCompletePay() {
         if (!payEvt) return
+        // >>> DUAS CLASSES DE ESCRITA, DECIDIDAS PELA TABELA <<<
+        //
+        // `supabase-js` NÃO lança em erro de query: devolve `{ error }`. Descartar o retorno
+        // transforma falha em silêncio, e o fluxo segue anunciando sucesso.
+        //
+        // Mas `if (error) throw` em TODAS seria errado: uma falha de envio de WhatsApp abortaria
+        // um pagamento que deu certo. Então:
+        //   ESSENCIAL  (sales, sale_items, items, cash_entries, stock, stock_movements,
+        //               pending_receivables, completed_services, calendar_events) → `throw`;
+        //   ACESSÓRIA  (whatsapp_dispatches, recurrence_dispatch_queue,
+        //               customer_service_history, customer_attachments) → entra em `avisos`,
+        //               não aborta, e NÃO fica muda.
+        //
+        // A classe é da TABELA, não do julgamento de quem edita. Tabela nova entra como
+        // ESSENCIAL até alguém decidir o contrário.
+        const avisos: string[] = []
         const hideLoading = msgApi.loading('Concluindo serviço e lançando no caixa...', 0)
         try {
             const v = await payForm.validateFields()
@@ -1073,16 +1128,17 @@ function Schedule() {
 
             const sbp = supabase as any
             if (payEvt.customer_id && (v.payment_notes || '').trim()) {
-                await sbp.from('customer_service_history').insert({
+                const { error: err5 } = await sbp.from('customer_service_history').insert({
                     tenant_id: tid,
                     customer_id: payEvt.customer_id,
                     calendar_event_id: payEvt.id,
                     service_observation: (v.payment_notes || '').trim(),
                     created_by: createdBy,
                 })
+                if (err5) avisos.push('O histórico do cliente não foi atualizado.')
             }
 
-            await sbp.from('completed_services').insert({
+            const { error: err6 } = await sbp.from('completed_services').insert({
                 tenant_id: tid, calendar_event_id: payEvt.id,
                 service_id: payEvt.service_id || null, employee_id: payEvt.employee_id || null,
                 customer_id: payEvt.customer_id || null, service_name: payEvt.title,
@@ -1094,6 +1150,7 @@ function Schedule() {
                 payment_notes: v.payment_notes || null, extra_products_total: prodsTotal,
                 total_revenue: totalRevenue,
             })
+            if (err6) throw err6
 
             // ─── Comissão/Lucro EFETIVOS da Agenda (item 1.2 — Relatório v2.0) ───
             // 2ª origem de comissão: a Agenda é um autossoma das comissões individuais
@@ -1149,11 +1206,14 @@ function Schedule() {
             if (agendaSale?.id) {
                 // Gerar código AG-XXXXXX e salvar na venda e no evento da agenda
                 const agendaCode = `AG-${agendaSale.id.slice(0, 6).toUpperCase()}`
-                await sbp.from('sales').update({ sale_code: agendaCode }).eq('id', agendaSale.id)
-                await sbp.from('calendar_events').update({ agenda_code: agendaCode }).eq('id', payEvt.id)
+                const { error: err7 } = await sbp.from('sales').update({ sale_code: agendaCode }).eq('id', agendaSale.id)
+                if (err7) throw err7
+                const { error: err8 } = await sbp.from('calendar_events').update({ agenda_code: agendaCode }).eq('id', payEvt.id)
+                if (err8) throw err8
 
                 if (payEvt.employee_id) {
-                    await sbp.from('sales').update({ employee_id: payEvt.employee_id }).eq('id', agendaSale.id)
+                    const { error: err9 } = await sbp.from('sales').update({ employee_id: payEvt.employee_id }).eq('id', agendaSale.id)
+                    if (err9) throw err9
                 }
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const agendaSaleItems: any[] = [{
@@ -1195,7 +1255,8 @@ function Schedule() {
                         ),
                     })
                 }
-                await sbp.from('sale_items').insert(agendaSaleItems)
+                const { error: err10 } = await sbp.from('sale_items').insert(agendaSaleItems)
+                if (err10) throw err10
             }
 
             const clienteNome = payEvt.customer?.name || null
@@ -1233,7 +1294,7 @@ function Schedule() {
                 if (v.payment_method === 'LANCAMENTOS_A_RECEBER') {
                     // Lançamentos a Receber: não vai para o caixa — registra em pending_receivables
                     const empId = payEvt.employee_id || null
-                    await sbp.from('pending_receivables').insert({
+                    const { error: err11 } = await sbp.from('pending_receivables').insert({
                         tenant_id: tid,
                         customer_id: payEvt.customer_id,
                         employee_id: empId,
@@ -1245,6 +1306,7 @@ function Schedule() {
                         status: 'PENDING',
                         created_by: createdBy,
                     })
+                    if (err11) throw err11
                 } else if (v.payment_method === 'CHEQUE_PRE_DATADO' || v.payment_method === 'BOLETO') {
                     // Cheque pré-datado / Boleto: gera cash_entries com datas e valores informados pelo usuário
                     const validInstallments = customInstallments.filter(r => r.date && r.amount > 0)
@@ -1267,7 +1329,8 @@ function Schedule() {
                         contact_id: payEvt.customer_id || null,
                         created_by: createdBy,
                     }))
-                    await sbp.from('cash_entries').insert(chequeEntries)
+                    const { error: err12 } = await sbp.from('cash_entries').insert(chequeEntries)
+                    if (err12) throw err12
                 } else if (v.payment_method === 'CARTAO_CREDITO') {
                     // Cartão de crédito: receita nunca no mês atual — parcelas ou 1x a partir do próximo mês
                     const amountPerInstallment = totalRevenue / numInstallments
@@ -1286,9 +1349,10 @@ function Schedule() {
                             created_by: createdBy,
                         })
                     }
-                    await sbp.from('cash_entries').insert(installmentEntries)
+                    const { error: err13 } = await sbp.from('cash_entries').insert(installmentEntries)
+                    if (err13) throw err13
                 } else {
-                    await sbp.from('cash_entries').insert({
+                    const { error: err14 } = await sbp.from('cash_entries').insert({
                         tenant_id: tid,
                         type: 'INCOME',
                         description: descricaoCompleta,
@@ -1301,6 +1365,7 @@ function Schedule() {
                         contact_id: payEvt.customer_id || null,
                         created_by: createdBy,
                     })
+                    if (err14) throw err14
                 }
             }
 
@@ -1311,13 +1376,14 @@ function Schedule() {
                 remainDescParts.push(`Total original: ${fmt(totalRevenue)} | Pago: ${fmt(amountPaid)} | Restante: ${fmt(remaining)}`)
                 if (v.payment_notes) remainDescParts.push(`Obs: ${v.payment_notes}`)
 
-                await supabase.from('cash_entries').insert({
+                const { error: err15 } = await supabase.from('cash_entries').insert({
                     tenant_id: tid, type: 'INCOME', description: remainDescParts.join(' | '),
                     amount: remaining, due_date: remainingDate, paid_date: null,
                     payment_method: v.payment_method, origin_type: 'SALE',
                     origin_id: payEvt.id, contact_id: payEvt.customer_id || null,
                     created_by: createdBy, is_split_remaining: true,
                 })
+                if (err15) throw err15
             }
 
             for (const ep of extraProds) {
@@ -1325,8 +1391,10 @@ function Schedule() {
                 if (!ep.product_id) continue
                 const { data: st } = await supabase.from('stock').select('id, quantity_current').eq('product_id', ep.product_id).eq('stock_type', 'PRODUCT').single()
                 if (st) {
-                    await supabase.from('stock').update({ quantity_current: Math.max(0, (Number(st.quantity_current) || 0) - ep.quantity) }).eq('id', st.id)
-                    await supabase.from('stock_movements').insert({ stock_id: st.id, delta_quantity: -ep.quantity, reason: `Venda - Serviço: ${payEvt.title}`, created_by: createdBy })
+                    const { error: err16 } = await supabase.from('stock').update({ quantity_current: Math.max(0, (Number(st.quantity_current) || 0) - ep.quantity) }).eq('id', st.id)
+                    if (err16) throw err16
+                    const { error: err17 } = await supabase.from('stock_movements').insert({ stock_id: st.id, delta_quantity: -ep.quantity, reason: `Venda - Serviço: ${payEvt.title}`, created_by: createdBy })
+                    if (err17) throw err17
                 }
             }
 
@@ -1344,10 +1412,11 @@ function Schedule() {
                     if (!item) continue
                     const currentQty = Number(item.quantity) ?? 0
                     const newQty = Math.max(0, currentQty - deduct)
-                    await supabase
+                    const { error: err18 } = await supabase
                         .from('items')
                         .update({ quantity: newQty, updated_at: new Date().toISOString() })
                         .eq('id', itemId)
+                    if (err18) throw err18
                     const { data: itemStock } = await supabase
                         .from('stock')
                         .select('id, quantity_current')
@@ -1356,16 +1425,18 @@ function Schedule() {
                         .maybeSingle()
                     if (itemStock) {
                         const stCurrent = Number(itemStock.quantity_current) ?? 0
-                        await supabase
+                        const { error: err19 } = await supabase
                             .from('stock')
                             .update({ quantity_current: Math.max(0, stCurrent - deduct), updated_at: new Date().toISOString() })
                             .eq('id', itemStock.id)
-                        await supabase.from('stock_movements').insert({
+                        if (err19) throw err19
+                        const { error: err20 } = await supabase.from('stock_movements').insert({
                             stock_id: itemStock.id,
                             delta_quantity: -deduct,
                             reason: `Serviço realizado: ${payEvt.title}`,
                             created_by: createdBy,
                         })
+                        if (err20) throw err20
                     }
                 }
             }
@@ -1375,7 +1446,7 @@ function Schedule() {
                 const filePath = `${tid}/customers/${payEvt.customer_id}/${crypto.randomUUID()}.${ext}`
                 const { error: uploadErr } = await supabase.storage.from('comprovantes').upload(filePath, attachFile)
                 if (!uploadErr) {
-                    await sbp.from('customer_attachments').insert({
+                    const { error: err21 } = await sbp.from('customer_attachments').insert({
                         tenant_id: tid,
                         customer_id: payEvt.customer_id,
                         origin_type: 'AGENDA',
@@ -1387,6 +1458,7 @@ function Schedule() {
                         description: attachDesc || null,
                         created_by: createdBy,
                     })
+                    if (err21) avisos.push('O anexo não foi salvo.')
                 }
             }
 
@@ -1409,12 +1481,13 @@ function Schedule() {
                     created_by: createdBy,
                 }).select('id').single()
                 if (recRecord) {
-                    await sbp.from('recurrence_dispatch_queue').insert({
+                    const { error: err22 } = await sbp.from('recurrence_dispatch_queue').insert({
                         tenant_id: tid,
                         recurrence_record_id: recRecord.id,
                         scheduled_at: `${dispatchDate}T12:00:00-03:00`,
                         user_id: createdBy,
                     })
+                    if (err22) avisos.push('O aviso de recorrência não foi agendado.')
                 }
             }
             // Check extra items for recurrence
@@ -1441,12 +1514,13 @@ function Schedule() {
                         created_by: createdBy,
                     }).select('id').single()
                     if (recRecord) {
-                        await sbp.from('recurrence_dispatch_queue').insert({
+                        const { error: err23 } = await sbp.from('recurrence_dispatch_queue').insert({
                             tenant_id: tid,
                             recurrence_record_id: recRecord.id,
                             scheduled_at: `${dispatchDate}T12:00:00-03:00`,
                             user_id: createdBy,
                         })
+                        if (err23) avisos.push('O aviso de recorrência não foi agendado.')
                     }
                 }
             }
@@ -1464,7 +1538,13 @@ function Schedule() {
             }
 
             hideLoading()
-            msgApi.success({ content: 'Serviço concluído e lançado no caixa com sucesso!', duration: 4 })
+            // O que NÃO abortou mas falhou aparece aqui. Sem isto, um WhatsApp não enviado ou um
+            // anexo perdido ficariam invisíveis sob o "com sucesso!".
+            if (avisos.length) {
+                msgApi.warning('Pagamento concluído. ' + avisos.join(' '))
+            } else {
+                msgApi.success({ content: 'Serviço concluído e lançado no caixa com sucesso!', duration: 4 })
+            }
             const wasLastRecurrence = isLastRecurrence
             setPayOpen(false); setPayEvt(null); setExtraProds([]); setAttachFile(null); setAttachDesc(''); setCustomInstallments([{ date: null, amount: 0 }]); setInstallmentPreset('customizado'); setPayTableSections([{key: 'pts-0', tableId: null}]); setIsLastRecurrence(false)
             await fetchAll()
@@ -1476,7 +1556,12 @@ function Schedule() {
             const errMsg = e?.message
                 || e?.errorFields?.[0]?.errors?.[0]
                 || (typeof e === 'string' ? e : null)
-                || 'Erro ao concluir serviço. Verifique os campos obrigatórios e tente novamente.'
+                // >>> NÃO ESCREVER "nada foi salvo" AQUI <<<
+                // São 23 escritas em 11 tabelas SEM TRANSAÇÃO: um erro no meio deixa as
+                // anteriores gravadas. Prometer que nada mudou seria afirmar um estado que esta
+                // função não pode conhecer. Os ramos acima (`e?.message`, `errorFields`) seguem
+                // valendo — este é o último recurso.
+                || 'Falha ao concluir o pagamento. Parte do registro pode ter sido gravada — confira o caixa e o estoque antes de repetir.'
             msgApi.error(errMsg)
             console.error('[handleCompletePay] error:', e)
         }
