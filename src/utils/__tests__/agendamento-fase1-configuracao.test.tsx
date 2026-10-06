@@ -10,9 +10,9 @@
  * passaria nessa asserção. Por isso cada caso de recusa afirma DUAS coisas:
  *
  *   (1) a mensagem está no DOM, e
- *   (2) `onSalvarFaixa` NÃO foi chamada.
+ *   (2) `onSalvarFaixas` NÃO foi chamada.
  *
- * E há o espelho obrigatório: um caso que GRAVA. Sem ele, "nunca chama `onSalvarFaixa`" ficaria
+ * E há o espelho obrigatório: um caso que GRAVA. Sem ele, "nunca chama `onSalvarFaixas`" ficaria
  * verde num componente que recusa tudo — o caso escolhido não discriminaria os dois estados
  * (variante 2 da mesma regra).
  *
@@ -101,7 +101,7 @@ function fazerAcoes(): AcoesDoPainel & { [k: string]: jest.Mock } {
     onGerarLink: jest.fn(),
     onAlternarAtivo: jest.fn(),
     onSalvarConfiguracao: jest.fn(),
-    onSalvarFaixa: jest.fn(),
+    onSalvarFaixas: jest.fn(),
     onRemoverFaixa: jest.fn(),
     onSalvarFolga: jest.fn(),
     onRemoverFolga: jest.fn(),
@@ -237,8 +237,11 @@ describe('§6.2 — faixas sobrepostas do mesmo funcionário no mesmo dia são R
     // mutação matava a intermediária e a de comportamento nunca era alcançada. Aqui o par é
     // outro — efeito e mensagem — e o efeito é o que distingue "recusou" de "avisou e gravou".
     // Com ele primeiro, desfazer a regra de sobreposição mata ESTA linha.
-    expect(acoes.onSalvarFaixa).not.toHaveBeenCalled()
-    expect(textoDaTela()).toContain('se sobrepõe a 09:00–12:00')
+    expect(acoes.onSalvarFaixas).not.toHaveBeenCalled()
+    // Em 06/10/2026 (§2) a mensagem passou a NOMEAR OS DIAS em conflito, em vez de citar a
+    // faixa conflitante: com sete caixas marcadas, "há conflito" obrigaria o usuário a
+    // desmarcar uma por uma para descobrir qual. O efeito afirmado é o mesmo — não gravou.
+    expect(textoDaTela()).toContain('Já existe faixa nesse horário em: Segunda.')
   })
 
   it('ENCOSTA mas não sobrepõe: 12:00–18:00 depois de 09:00–12:00 é GRAVADA', () => {
@@ -254,10 +257,11 @@ describe('§6.2 — faixas sobrepostas do mesmo funcionário no mesmo dia são R
     )
     clicarBotao('Adicionar faixa')
 
-    expect(acoes.onSalvarFaixa).toHaveBeenCalledTimes(1)
-    expect(acoes.onSalvarFaixa).toHaveBeenCalledWith({
-      employee_id: 'e1', weekday: 1, start_time: '12:00', end_time: '18:00',
-    })
+    expect(acoes.onSalvarFaixas).toHaveBeenCalledTimes(1)
+    // O contrato virou PLURAL em 06/10/2026 (§2): um dia só é uma lista de um elemento.
+    expect(acoes.onSalvarFaixas).toHaveBeenCalledWith('e1', [
+      { weekday: 1, start_time: '12:00', end_time: '18:00' },
+    ])
     expect(textoDaTela()).not.toContain('se sobrepõe')
   })
 
@@ -271,7 +275,7 @@ describe('§6.2 — faixas sobrepostas do mesmo funcionário no mesmo dia são R
       />,
     )
     clicarBotao('Adicionar faixa')
-    expect(acoes.onSalvarFaixa).toHaveBeenCalledTimes(1)
+    expect(acoes.onSalvarFaixas).toHaveBeenCalledTimes(1)
   })
 
   it('OUTRO FUNCIONÁRIO não é conflito — a grade do Zé não bloqueia a da Ana', () => {
@@ -289,7 +293,7 @@ describe('§6.2 — faixas sobrepostas do mesmo funcionário no mesmo dia são R
       />,
     )
     clicarBotao('Adicionar faixa')
-    expect(acoes.onSalvarFaixa).toHaveBeenCalledTimes(1)
+    expect(acoes.onSalvarFaixas).toHaveBeenCalledTimes(1)
   })
 
   // ── o mesmo critério, na função pura, onde o EFEITO é o motivo ───────────────────────────
@@ -344,9 +348,10 @@ describe('§6.3 — `end_time <= start_time` é recusado', () => {
         faixaInicial={{ weekday: 1, start_time: '18:00', end_time: '09:00' }}
       />,
     )
-    clicarBotao('Adicionar faixa')
-    expect(textoDaTela()).toContain('hora de término tem de ser depois')
-    expect(acoes.onSalvarFaixa).not.toHaveBeenCalled()
+    clicarBotaoExato('Adicionar faixa')
+    // O EFEITO primeiro, e o texto é o de `adicionarFaixaEmDias` desde 06/10/2026 (§2).
+    expect(acoes.onSalvarFaixas).not.toHaveBeenCalled()
+    expect(textoDaTela()).toContain('A hora final deve ser maior que a inicial.')
   })
 
   it('IGUAL também é recusado — 10:00→10:00 é faixa de duração zero', () => {
@@ -359,7 +364,7 @@ describe('§6.3 — `end_time <= start_time` é recusado', () => {
       />,
     )
     clicarBotao('Adicionar faixa')
-    expect(acoes.onSalvarFaixa).not.toHaveBeenCalled()
+    expect(acoes.onSalvarFaixas).not.toHaveBeenCalled()
     const r = validarFaixa({ weekday: 1, start_time: '10:00', end_time: '10:00' }, [])
     expect(faixaRecusada(r)).toBe(true)
     if (!faixaRecusada(r)) throw new Error('inalcançável')
@@ -998,7 +1003,7 @@ describe('§3 — aplicar a mesma grade a vários SUBSTITUI, e o aviso traz o N�
 
     expect(acoes.onAplicarGrade).not.toHaveBeenCalled()
     // e nenhuma outra ação de escrita foi disparada pelo caminho do cancelamento
-    expect(acoes.onSalvarFaixa).not.toHaveBeenCalled()
+    expect(acoes.onSalvarFaixas).not.toHaveBeenCalled()
     expect(acoes.onRemoverFaixa).not.toHaveBeenCalled()
   })
 

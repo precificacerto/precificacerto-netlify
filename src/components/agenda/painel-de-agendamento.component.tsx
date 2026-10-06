@@ -35,10 +35,35 @@
  */
 
 import React, { useMemo, useState } from 'react'
-import { Alert, Button, Checkbox, Drawer, Empty, Form, Input, InputNumber, Modal, Popconfirm, Select, Space, Switch, Tag, TimePicker, Tooltip, message } from 'antd'
+import { Alert, Button, Checkbox, DatePicker, Drawer, Empty, Form, Input, InputNumber, Modal, Popconfirm, Select, Space, Switch, Tag, TimePicker, Tooltip, message } from 'antd'
+// >>> O `locale` DO DATEPICKER NÃO É PASSADO POR PROP, E A RAZÃO É MEDIDA <<<
+//
+// `antd/es/date-picker/locale/pt_BR` existe na 5.29.3 e resolve no Next, mas é ESM e DERRUBA a
+// suíte do jest: `SyntaxError: Cannot use import statement outside a module`, porque
+// `node_modules` não passa pelo transform. Medido — a suíte do painel deixou de carregar.
+//
+// Nenhum caminho alternativo foi inventado (o `antd/lib/...` seria isso), e nenhuma mexida no
+// `jest.config.js` foi feita: ela não é necessária, porque a medição da §0 respondeu que o
+// `ConfigProvider` de `src/pages/_app.tsx:220` JÁ passa `antd/locale/pt_BR`, e esse pacote
+// inclui o locale do DatePicker. A prop seria redundante no app.
+//
+// O que sobra sem ela: no app, português completo pelo ConfigProvider; no portão, que renderiza
+// o painel fora daquela árvore, os rótulos internos do calendário saem em inglês — o `format`
+// abaixo garante DD/MM/YYYY nos dois casos, que é o que a §1 pede.
 import { CopyOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { tenantOffersServices } from '@/utils/segment-visibility'
+import {
+  adicionarFaixaEmDias,
+  faixaEmDiasRecusada,
+} from '@/utils/adicionar-faixa-multiplos-dias'
+import {
+  MENSAGEM_ALTERACAO_PADRAO,
+  MENSAGEM_CANCELAMENTO_PADRAO,
+  MENSAGEM_CONFIRMACAO_PADRAO,
+  VARIAVEIS_DAS_MENSAGENS,
+  textoOuPadrao,
+} from '@/utils/mensagens-agendamento-padrao'
 import {
   DIAS_DA_SEMANA,
   LIMITES,
@@ -107,7 +132,14 @@ export interface AcoesDoPainel {
   onGerarLink: () => void | Promise<void>
   onAlternarAtivo: (ativo: boolean) => void | Promise<void>
   onSalvarConfiguracao: (patch: Partial<ConfiguracaoDoAgendamento>) => void | Promise<void>
-  onSalvarFaixa: (faixa: { employee_id: string; weekday: number; start_time: string; end_time: string }) => void | Promise<void>
+  /**
+   * §2 — grava N faixas de UMA vez, num único `insert` com array.
+   *
+   * O contrato é PLURAL e não tem irmão singular de propósito: com `onSalvarFaixa` ao lado,
+   * um dos dois acabaria esquecido numa mudança futura e a tela gravaria um dia em vez de
+   * sete sem nada falhar — `copia-divergente.md`. Um dia só é uma lista de um elemento.
+   */
+  onSalvarFaixas: (employee_id: string, faixas: { weekday: number; start_time: string; end_time: string }[]) => void | Promise<void>
   onRemoverFaixa: (id: string) => void | Promise<void>
   onSalvarFolga: (folga: { employee_id: string; starts_at: string; ends_at: string; reason?: string }) => void | Promise<void>
   onRemoverFolga: (id: string) => void | Promise<void>
@@ -148,7 +180,9 @@ export function PainelDeAgendamento(props: PainelDeAgendamentoProps) {
 
   // Um formulário de faixa por funcionário — a lista mostra todos ao mesmo tempo (§2), então o
   // estado do formulário não pode ser global, ou digitar no bloco de um mexeria no do outro.
-  const [faixaPorEmp, setFaixaPorEmp] = useState<Record<string, { weekday: number; start_time: string; end_time: string }>>({})
+  // §2 — `dias` é uma LISTA: uma faixa pode entrar em vários dias de uma vez. O `weekday`
+  // único saiu, e com ele o `Select` de um dia só.
+  const [faixaPorEmp, setFaixaPorEmp] = useState<Record<string, { dias: number[]; start_time: string; end_time: string }>>({})
   const [erroPorEmp, setErroPorEmp] = useState<Record<string, string | null>>({})
   const [recolhidoManual, setRecolhidoManual] = useState<Record<string, boolean>>({})
 
@@ -200,32 +234,57 @@ export function PainelDeAgendamento(props: PainelDeAgendamentoProps) {
   if (!tenantOffersServices(calcType)) return null
 
   function faixaEmEdicao(empId: string) {
-    return faixaPorEmp[empId] ?? props.faixaInicial ?? { weekday: 1, start_time: '09:00', end_time: '18:00' }
+    const inicial = props.faixaInicial
+    return faixaPorEmp[empId] ?? {
+      dias: inicial ? [inicial.weekday] : [],
+      start_time: inicial?.start_time ?? '09:00',
+      end_time: inicial?.end_time ?? '18:00',
+    }
   }
 
-  function mexerNaFaixa(empId: string, patch: Partial<{ weekday: number; start_time: string; end_time: string }>) {
+  function mexerNaFaixa(empId: string, patch: Partial<{ dias: number[]; start_time: string; end_time: string }>) {
     setFaixaPorEmp((p) => ({ ...p, [empId]: { ...faixaEmEdicao(empId), ...patch } }))
     setErroPorEmp((p) => ({ ...p, [empId]: null }))
   }
 
+  function alternarDia(empId: string, weekday: number, marcado: boolean) {
+    const atual = faixaEmEdicao(empId).dias
+    mexerNaFaixa(empId, {
+      dias: marcado ? [...atual, weekday] : atual.filter((d) => d !== weekday),
+    })
+  }
+
   function tentarAdicionarFaixa(empId: string) {
     const nova = faixaEmEdicao(empId)
-    const r = validarFaixa(
-      { weekday: nova.weekday, start_time: nova.start_time, end_time: nova.end_time },
-      faixasPorEmp[empId] ?? [],
-    )
-    if (faixaRecusada(r)) {
+    const r = adicionarFaixaEmDias({
+      diasSelecionados: nova.dias,
+      inicio: nova.start_time,
+      fim: nova.end_time,
+      faixasExistentes: faixasPorEmp[empId] ?? [],
+    })
+
+    if (faixaEmDiasRecusada(r)) {
       // A RECUSA: a mensagem aparece E a gravação não acontece. As duas coisas, não uma.
-      setErroPorEmp((p) => ({ ...p, [empId]: r.mensagem }))
+      //
+      // E a mensagem NOMEIA os dias em conflito: "Já existe faixa nesse horário em: Quarta,
+      // Sexta." Dizer só "há conflito" com cinco dias marcados obrigaria o usuário a
+      // desmarcar um por um para descobrir qual.
+      const msg = r.diasEmConflito.length > 0
+        ? `Já existe faixa nesse horário em: ${r.diasEmConflito
+            .map((d: number) => DIAS_DA_SEMANA.find((x) => x.weekday === d)?.label ?? String(d))
+            .join(', ')}.`
+        : r.erro
+      setErroPorEmp((p) => ({ ...p, [empId]: msg }))
       return
     }
+
     setErroPorEmp((p) => ({ ...p, [empId]: null }))
-    void acoes.onSalvarFaixa({
-      employee_id: empId,
-      weekday: nova.weekday,
-      start_time: nova.start_time,
-      end_time: nova.end_time,
-    })
+    // UM insert com array, não um laço de inserts: o laço deixaria metade gravada se o terceiro
+    // falhasse, e o tudo-ou-nada do utilitário perderia o sentido na travessia.
+    void acoes.onSalvarFaixas(empId, r.novasFaixas)
+
+    // Limpa os DIAS e MANTÉM as horas — o usuário emenda a faixa seguinte sem redigitar.
+    mexerNaFaixa(empId, { dias: [] })
   }
 
   function tentarAdicionarFolga() {
@@ -358,14 +417,24 @@ export function PainelDeAgendamento(props: PainelDeAgendamentoProps) {
                       )
                     })}
 
-                    <Space wrap style={{ marginTop: 10 }}>
-                      <Select
-                        style={{ minWidth: 130 }}
-                        aria-label={`Dia da semana — ${f.name}`}
-                        value={emEdicao.weekday}
-                        onChange={(v) => mexerNaFaixa(f.id, { weekday: Number(v) })}
-                        options={DIAS_DA_SEMANA.map((d) => ({ value: d.weekday, label: d.label }))}
-                      />
+                    {/* §2 — SETE caixas em vez de um `Select`: a mesma faixa entra em vários
+                        dias de uma vez, que é como o barbeiro realmente trabalha. `weekday`
+                        continua 0=Domingo..6=Sábado, igual à coluna do banco. */}
+                    <div style={{ marginTop: 10, marginBottom: 6 }}>
+                      <Space wrap>
+                        {DIAS_DA_SEMANA.map((d) => (
+                          <Checkbox
+                            key={d.weekday}
+                            aria-label={`${d.label} — ${f.name}`}
+                            checked={emEdicao.dias.includes(d.weekday)}
+                            onChange={(e) => alternarDia(f.id, d.weekday, e.target.checked)}
+                          >
+                            {d.curto}
+                          </Checkbox>
+                        ))}
+                      </Space>
+                    </div>
+                    <Space wrap>
                       <TimePicker
                         format="HH:mm"
                         aria-label={`Início da faixa — ${f.name}`}
@@ -410,7 +479,9 @@ export function PainelDeAgendamento(props: PainelDeAgendamentoProps) {
                 <div key={fo.id} style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                   <span style={{ minWidth: 160 }}>{nome}</span>
                   <span>
-                    {dayjs(fo.starts_at).format('DD/MM/YYYY HH:mm')} — {dayjs(fo.ends_at).format('DD/MM/YYYY HH:mm')}
+                    {/* DIA INTEIRO (§4): exibir `HH:mm` aqui afirmaria uma hora que o
+                        usuário não escolheu — o 00:00 e o 23:59 são derivados, não dados. */}
+                    {dayjs(fo.starts_at).format('DD/MM/YYYY')} — {dayjs(fo.ends_at).format('DD/MM/YYYY')}
                   </span>
                   {fo.reason && <span style={{ color: '#667085' }}>{fo.reason}</span>}
                   <Popconfirm title="Remover esta ausência?" onConfirm={() => void acoes.onRemoverFolga(fo.id)}>
@@ -431,10 +502,30 @@ export function PainelDeAgendamento(props: PainelDeAgendamentoProps) {
             onChange={(v) => { setFolgaEmp(v); setErroDaFolga(null) }}
             options={funcionarios.map((f) => ({ value: f.id, label: f.name }))}
           />
-          <Input aria-label="Início da ausência" placeholder="Início (AAAA-MM-DDTHH:mm)" value={folgaIni}
-            onChange={(e) => { setFolgaIni(e.target.value); setErroDaFolga(null) }} />
-          <Input aria-label="Fim da ausência" placeholder="Fim (AAAA-MM-DDTHH:mm)" value={folgaFim}
-            onChange={(e) => { setFolgaFim(e.target.value); setErroDaFolga(null) }} />
+          {/* §1 — DATA NO MODELO BRASILEIRO, e DIA INTEIRO (§4: sem campo de hora).
+              O que vai ao banco continua ISO em `timestamptz`; `startOf`/`endOf` do dia são o
+              que transforma duas datas em um período fechado. Sem o `endOf`, uma ausência de
+              um dia só terminaria à meia-noite do próprio dia e não cobriria nada. */}
+          <DatePicker
+            aria-label="Início da ausência"
+            placeholder="Início"
+            format="DD/MM/YYYY"
+            value={folgaIni ? dayjs(folgaIni) : null}
+            onChange={(d) => {
+              setFolgaIni(d ? d.startOf('day').toISOString() : '')
+              setErroDaFolga(null)
+            }}
+          />
+          <DatePicker
+            aria-label="Fim da ausência"
+            placeholder="Fim"
+            format="DD/MM/YYYY"
+            value={folgaFim ? dayjs(folgaFim) : null}
+            onChange={(d) => {
+              setFolgaFim(d ? d.endOf('day').toISOString() : '')
+              setErroDaFolga(null)
+            }}
+          />
           <Input aria-label="Motivo da ausência" placeholder="Motivo (opcional)" value={folgaMotivo}
             onChange={(e) => setFolgaMotivo(e.target.value)} />
           <Button icon={<PlusOutlined />} onClick={tentarAdicionarFolga}>Adicionar ausência</Button>
@@ -472,18 +563,39 @@ export function PainelDeAgendamento(props: PainelDeAgendamentoProps) {
               </Form.Item>
             </Space>
 
+            {/* §3 — AS TRÊS MENSAGENS NASCEM PREENCHIDAS, e o padrão vive em CÓDIGO.
+                As colunas são NULL em produção e continuam podendo ser NULL: `DEFAULT` no banco
+                apagaria a diferença entre "nunca mexeu" e "escolheu exatamente este texto"
+                (`ausente-vs-falso.md`). Nada é gravado por abrir o painel — ao sair do campo vai
+                o que estiver na tela, que é o padrão quando o usuário não mexeu. */}
             <Form.Item label="Mensagem de confirmação">
-              <Input.TextArea aria-label="Mensagem de confirmação" rows={2} defaultValue={cfg.msg_confirmacao ?? ''}
-                onBlur={(e) => void acoes.onSalvarConfiguracao({ msg_confirmacao: e.target.value })} />
+              <Input.TextArea
+                aria-label="Mensagem de confirmação"
+                rows={8}
+                defaultValue={textoOuPadrao(cfg.msg_confirmacao, MENSAGEM_CONFIRMACAO_PADRAO)}
+                onBlur={(e) => void acoes.onSalvarConfiguracao({ msg_confirmacao: e.target.value })}
+              />
             </Form.Item>
             <Form.Item label="Mensagem de cancelamento">
-              <Input.TextArea aria-label="Mensagem de cancelamento" rows={2} defaultValue={cfg.msg_cancelamento ?? ''}
-                onBlur={(e) => void acoes.onSalvarConfiguracao({ msg_cancelamento: e.target.value })} />
+              <Input.TextArea
+                aria-label="Mensagem de cancelamento"
+                rows={7}
+                defaultValue={textoOuPadrao(cfg.msg_cancelamento, MENSAGEM_CANCELAMENTO_PADRAO)}
+                onBlur={(e) => void acoes.onSalvarConfiguracao({ msg_cancelamento: e.target.value })}
+              />
             </Form.Item>
             <Form.Item label="Mensagem de alteração">
-              <Input.TextArea aria-label="Mensagem de alteração" rows={2} defaultValue={cfg.msg_alteracao ?? ''}
-                onBlur={(e) => void acoes.onSalvarConfiguracao({ msg_alteracao: e.target.value })} />
+              <Input.TextArea
+                aria-label="Mensagem de alteração"
+                rows={7}
+                defaultValue={textoOuPadrao(cfg.msg_alteracao, MENSAGEM_ALTERACAO_PADRAO)}
+                onBlur={(e) => void acoes.onSalvarConfiguracao({ msg_alteracao: e.target.value })}
+              />
             </Form.Item>
+
+            <div style={{ color: '#98A2B3', fontSize: 12 }}>
+              Variáveis disponíveis: {VARIAVEIS_DAS_MENSAGENS.join(' ')}
+            </div>
           </Form>
         )}
       </section>
