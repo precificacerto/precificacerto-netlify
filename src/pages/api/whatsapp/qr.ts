@@ -39,7 +39,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const targetUserId = mode === 'SHARED' && sharedOwnerId ? sharedOwnerId : user_id
 
     const clearStoredToken = async () => {
-      await supabaseAdmin.from('users').update({ wuzapi_token: null }).eq('id', targetUserId).eq('tenant_id', tenant_id)
+      const { error: errMudo58 } = await supabaseAdmin.from('users').update({ wuzapi_token: null }).eq('id', targetUserId).eq('tenant_id', tenant_id)
+      if (errMudo58) throw errMudo58
     }
 
     let retried = false

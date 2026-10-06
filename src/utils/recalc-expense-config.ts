@@ -256,9 +256,11 @@ export async function mergeExpenseConfig(tenantId: string): Promise<ExpenseConfi
     : (existing as { fixed_expense_percent?: number | null }).fixed_expense_percent ?? null
 
   if (existing?.id) {
-    await supabase.from('tenant_expense_config').update(configData).eq('id', existing.id)
+    const { error: errMudo46 } = await supabase.from('tenant_expense_config').update(configData).eq('id', existing.id)
+    if (errMudo46) throw errMudo46
   } else {
-    await supabase.from('tenant_expense_config').insert({ tenant_id: tenantId, ...configData })
+    const { error: errMudo45 } = await supabase.from('tenant_expense_config').insert({ tenant_id: tenantId, ...configData })
+    if (errMudo45) throw errMudo45
   }
 
   return { ...result, fixed_expense_percent_anterior: anterior == null ? null : Number(anterior) }

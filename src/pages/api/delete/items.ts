@@ -36,11 +36,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     // product_items.item_id has RESTRICT — delete first
-    await supabaseAdmin.from('product_items').delete().eq('item_id', id)
+    const { error: errMudo10 } = await supabaseAdmin.from('product_items').delete().eq('item_id', id)
+    if (errMudo10) throw errMudo10
     // service_items.item_id has NO ACTION — delete first
-    await supabaseAdmin.from('service_items').delete().eq('item_id', id)
+    const { error: errMudo9 } = await supabaseAdmin.from('service_items').delete().eq('item_id', id)
+    if (errMudo9) throw errMudo9
     // user_item_access.item_id has NO ACTION — delete first
-    await supabaseAdmin.from('user_item_access').delete().eq('item_id', id)
+    const { error: errMudo8 } = await supabaseAdmin.from('user_item_access').delete().eq('item_id', id)
+    if (errMudo8) throw errMudo8
     // stock, item_tax_credits, item_tax_details, production_items cascade
     // products.base_item_id SET NULL
 

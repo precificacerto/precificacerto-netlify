@@ -1185,7 +1185,7 @@ function Schedule() {
                 : (v.payment_method === 'CHEQUE_PRE_DATADO' || v.payment_method === 'BOLETO')
                     ? (customInstallments.filter(r => r.date && r.amount > 0).length || 1)
                     : 1
-            const { data: agendaSale } = await sbp.from('sales').insert({
+            const { data: agendaSale, error: errMudo23 } = await sbp.from('sales').insert({
                 tenant_id: tid,
                 created_by: createdBy,
                 customer_id: payEvt.customer_id || null,
@@ -1203,6 +1203,7 @@ function Schedule() {
                 commission_amount: agendaCommissionAmount,
                 profit_amount: agendaProfitAmount,
             }).select('id').single()
+            if (errMudo23) throw errMudo23
             if (agendaSale?.id) {
                 // Gerar código AG-XXXXXX e salvar na venda e no evento da agenda
                 const agendaCode = `AG-${agendaSale.id.slice(0, 6).toUpperCase()}`
@@ -1468,7 +1469,7 @@ function Schedule() {
             if (mainSvc?.recurrence_days > 0 && payEvt.customer_id) {
                 const saleDate = dayjs().format('YYYY-MM-DD')
                 const dispatchDate = dayjs().add(mainSvc.recurrence_days, 'day').format('YYYY-MM-DD')
-                const { data: recRecord } = await sbp.from('recurrence_records').insert({
+                const { data: recRecord, error: errMudo22 } = await sbp.from('recurrence_records').insert({
                     tenant_id: tid,
                     service_id: mainSvc.id,
                     customer_id: payEvt.customer_id,
@@ -1480,6 +1481,7 @@ function Schedule() {
                     type: 'SERVICE',
                     created_by: createdBy,
                 }).select('id').single()
+                if (errMudo22) throw errMudo22
                 if (recRecord) {
                     const { error: err22 } = await sbp.from('recurrence_dispatch_queue').insert({
                         tenant_id: tid,
@@ -1500,7 +1502,7 @@ function Schedule() {
                     const saleDate = dayjs().format('YYYY-MM-DD')
                     const dispatchDate = dayjs().add(recDays, 'day').format('YYYY-MM-DD')
                     const recType = prod ? 'PRODUCT' : 'SERVICE'
-                    const { data: recRecord } = await sbp.from('recurrence_records').insert({
+                    const { data: recRecord, error: errMudo21 } = await sbp.from('recurrence_records').insert({
                         tenant_id: tid,
                         service_id: extraSvc?.id || null,
                         product_id: prod?.id || null,
@@ -1513,6 +1515,7 @@ function Schedule() {
                         type: recType,
                         created_by: createdBy,
                     }).select('id').single()
+                    if (errMudo21) throw errMudo21
                     if (recRecord) {
                         const { error: err23 } = await sbp.from('recurrence_dispatch_queue').insert({
                             tenant_id: tid,

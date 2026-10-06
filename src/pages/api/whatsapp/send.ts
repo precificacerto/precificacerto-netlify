@@ -117,10 +117,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (sendRes.ok) {
         const result = await sendRes.json().catch(() => ({}))
         if (process.env.NODE_ENV === 'development') console.log(`[WhatsApp Send] ✅ Sucesso com número: ***${phoneVariant.slice(-4)}`)
-        await supabaseAdmin
+        const { error: errMudo68 } = await supabaseAdmin
           .from('tenant_settings')
           .update({ last_whatsapp_send_at: new Date().toISOString(), updated_at: new Date().toISOString() })
           .eq('tenant_id', tenant_id)
+        if (errMudo68) throw errMudo68
         return res.status(200).json(result)
       }
 

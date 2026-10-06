@@ -150,12 +150,13 @@ export default function ProducaoPage() {
 
       for (const pi of product.product_items) {
         const quantityUsed = (Number(pi.quantity_needed) || 0) * quantityProduced
-        await supabase.from('production_items').insert({
+        const { error: errMudo108 } = await supabase.from('production_items').insert({
           production_id: production.id,
           item_id: pi.item_id,
           quantity_used: quantityUsed,
           unit: (pi.items as any)?.unit || 'UN',
         })
+        if (errMudo108) throw errMudo108
       }
 
       for (const r of required) {
@@ -168,16 +169,18 @@ export default function ProducaoPage() {
           .single()
         if (st) {
           const newQty = Math.max(0, (Number(st.quantity_current) || 0) - quantityUsed)
-          await supabase
+          const { error: errMudo107 } = await supabase
             .from('stock')
             .update({ quantity_current: newQty, updated_at: new Date().toISOString() })
             .eq('id', st.id)
-          await supabase.from('stock_movements').insert({
+          if (errMudo107) throw errMudo107
+          const { error: errMudo106 } = await supabase.from('stock_movements').insert({
             stock_id: st.id,
             delta_quantity: -quantityUsed,
             reason: `Produção — ${product.name}`,
             created_by: createdBy,
           })
+          if (errMudo106) throw errMudo106
         }
         const { data: itemRow } = await supabase
           .from('items')
@@ -188,10 +191,11 @@ export default function ProducaoPage() {
           const newItemQty = Math.max(0, (Number(itemRow.quantity) || 0) - quantityUsed)
           const unitCost = Number(itemRow.cost_per_base_unit) || 0
           const newCostTotal = newItemQty * unitCost
-          await supabase
+          const { error: errMudo105 } = await supabase
             .from('items')
             .update({ quantity: newItemQty, cost_price: newCostTotal, updated_at: new Date().toISOString() })
             .eq('id', r.item_id)
+          if (errMudo105) throw errMudo105
         }
       }
 
@@ -204,21 +208,23 @@ export default function ProducaoPage() {
 
       if (productStock) {
         const current = Number(productStock.quantity_current) || 0
-        await supabase
+        const { error: errMudo104 } = await supabase
           .from('stock')
           .update({
             quantity_current: current + quantityProduced,
             updated_at: new Date().toISOString(),
           })
           .eq('id', productStock.id)
-        await supabase.from('stock_movements').insert({
+        if (errMudo104) throw errMudo104
+        const { error: errMudo103 } = await supabase.from('stock_movements').insert({
           stock_id: productStock.id,
           delta_quantity: quantityProduced,
           reason: `Produção — ${quantityProduced} unidades`,
           created_by: createdBy,
         })
+        if (errMudo103) throw errMudo103
       } else {
-        await supabase.from('stock').insert({
+        const { error: errMudo102 } = await supabase.from('stock').insert({
           tenant_id: tenantId,
           product_id: productId,
           stock_type: 'PRODUCT',
@@ -226,6 +232,7 @@ export default function ProducaoPage() {
           min_limit: 0,
           unit: product.yield_unit || 'UN',
         })
+        if (errMudo102) throw errMudo102
         const { data: newSt } = await supabase
           .from('stock')
           .select('id')
@@ -233,12 +240,13 @@ export default function ProducaoPage() {
           .eq('stock_type', 'PRODUCT')
           .single()
         if (newSt) {
-          await supabase.from('stock_movements').insert({
+          const { error: errMudo101 } = await supabase.from('stock_movements').insert({
             stock_id: newSt.id,
             delta_quantity: quantityProduced,
             reason: `Produção — ${quantityProduced} unidades`,
             created_by: createdBy,
           })
+          if (errMudo101) throw errMudo101
         }
       }
 

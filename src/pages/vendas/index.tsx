@@ -748,8 +748,10 @@ function Sales() {
                     .select('id, original_budget_id')
                     .eq('id', r.source_order_id)
                     .single()
-                await (supabase as any).from('budgets').update({ status: 'CANCELLED', is_active: false, updated_at: nowIso }).eq('id', r.id)
-                await (supabase as any).from('orders').update({ status: 'DRAFT', budget_id: ord?.original_budget_id ?? null, updated_at: nowIso }).eq('id', r.source_order_id)
+                const { error: errMudo31 } = await (supabase as any).from('budgets').update({ status: 'CANCELLED', is_active: false, updated_at: nowIso }).eq('id', r.id)
+                if (errMudo31) throw errMudo31
+                const { error: errMudo30 } = await (supabase as any).from('orders').update({ status: 'DRAFT', budget_id: ord?.original_budget_id ?? null, updated_at: nowIso }).eq('id', r.source_order_id)
+                if (errMudo30) throw errMudo30
                 messageApi.success('Pedido devolvido para edição em Pedidos.')
             } else {
                 const { error } = await supabase.from('budgets').update({ status: 'DRAFT', updated_at: nowIso }).eq('id', r.id)
@@ -834,6 +836,11 @@ function Sales() {
     const handleRegisterSaleFromBudget = async () => {
         if (!selectedBudget) return
         try {
+            // >>> O QUE NÃO ABORTOU MAS FALHOU ENTRA AQUI <<<
+            // Tabela ACESSÓRIA (anexo, histórico) não derruba uma venda que deu certo — mas
+            // também não fica muda. Sem este array, um anexo perdido ficaria invisível sob o
+            // "com sucesso!".
+            const avisos: string[] = []
             await registerForm.validateFields()
             if (registerReceiptFile.length > 0 && !registerAttachDesc.trim()) {
                 messageApi.error('Informe a descrição do anexo')
@@ -903,7 +910,8 @@ function Sales() {
             // Gerar e salvar código da venda (VD-XXXXXX)
             if (sale?.id) {
                 const saleCode = `VD-${sale.id.slice(0, 6).toUpperCase()}`
-                await (supabase as any).from('sales').update({ sale_code: saleCode }).eq('id', sale.id)
+                const { error: errMudo29 } = await (supabase as any).from('sales').update({ sale_code: saleCode }).eq('id', sale.id)
+                if (errMudo29) throw errMudo29
             }
 
             // Try to set employee_id separately (column may not exist yet)
@@ -912,9 +920,11 @@ function Sales() {
                 if (empErr) console.warn('employee_id column may not exist yet on sales:', empErr.message)
             }
 
-            const { data: updatedBudget } = await supabase.from('budgets').update({ status: 'PAID', sale_id: sale.id }).eq('id', selectedBudget.id).neq('status', 'PAID').select('id').single()
+            const { data: updatedBudget, error: errMudo28 } = await supabase.from('budgets').update({ status: 'PAID', sale_id: sale.id }).eq('id', selectedBudget.id).neq('status', 'PAID').select('id').single()
+            if (errMudo28) throw errMudo28
             if (!updatedBudget) {
-                await (supabase as any).from('sales').update({ is_active: false }).eq('id', sale.id)
+                const { error: errMudo27 } = await (supabase as any).from('sales').update({ is_active: false }).eq('id', sale.id)
+                if (errMudo27) throw errMudo27
                 messageApi.warning('Este orçamento já foi finalizado por outra pessoa. Nenhuma alteração foi mantida.')
                 setRegisterModalOpen(false)
                 await fetchPendingBudgets()
@@ -924,11 +934,12 @@ function Sales() {
 
             // Se houver pedido vinculado a este orçamento, marcar como PAID (some de /pedidos)
             if (selectedBudget.id) {
-                await (supabase as any)
+                const { error: errMudo26 } = await (supabase as any)
                     .from('orders')
                     .update({ status: 'PAID', sale_id: sale.id, updated_at: new Date().toISOString() })
                     .eq('budget_id', selectedBudget.id)
                     .neq('status', 'PAID')
+                if (errMudo26) throw errMudo26
             }
 
             // Copiar budget_items → sale_items e descontar estoque
@@ -964,7 +975,8 @@ function Sales() {
                 // Distribui o desconto global proporcionalmente para que a soma dos itens
                 // bata com total_value.
                 const saleItemsToInsert = distributeDiscountToItems(rawSaleItems, Number(selectedBudget.total_value))
-                await (supabase as any).from('sale_items').insert(saleItemsToInsert)
+                const { error: errMudo25 } = await (supabase as any).from('sale_items').insert(saleItemsToInsert)
+                if (errMudo25) throw errMudo25
 
                 for (const bi of budgetItems) {
                     if (!bi.product_id) continue
@@ -978,14 +990,17 @@ function Sales() {
                     if (ps) {
                         const qty = Number(bi.quantity) || 1
                         const newQty = Math.max(0, (ps.quantity_current || 0) - qty)
-                        await supabase.from('stock').update({ quantity_current: newQty, updated_at: new Date().toISOString() }).eq('id', ps.id)
-                        await supabase.from('products').update({ quantity: newQty, updated_at: new Date().toISOString() }).eq('id', bi.product_id)
-                        await supabase.from('stock_movements').insert({
+                        const { error: errMudo24 } = await supabase.from('stock').update({ quantity_current: newQty, updated_at: new Date().toISOString() }).eq('id', ps.id)
+                        if (errMudo24) throw errMudo24
+                        const { error: errMudo23 } = await supabase.from('products').update({ quantity: newQty, updated_at: new Date().toISOString() }).eq('id', bi.product_id)
+                        if (errMudo23) throw errMudo23
+                        const { error: errMudo22 } = await supabase.from('stock_movements').insert({
                             stock_id: ps.id,
                             delta_quantity: -qty,
                             reason: `Venda via orçamento — ${selectedBudget.customer_name}`,
                             created_by: createdBy,
                         })
+                        if (errMudo22) throw errMudo22
                     }
                 }
             }
@@ -994,10 +1009,11 @@ function Sales() {
                 const file = registerReceiptFile[0].originFileObj
                 const uploadPath = await uploadReceipt(file, sale.id, tenantId)
                 if (uploadPath) {
-                    await (supabase as any).from('sales').update({ receipt_url: uploadPath }).eq('id', sale.id)
+                    const { error: errMudo21 } = await (supabase as any).from('sales').update({ receipt_url: uploadPath }).eq('id', sale.id)
+                    if (errMudo21) throw errMudo21
                     const { data: budgetRow } = await supabase.from('budgets').select('customer_id').eq('id', selectedBudget.id).single()
                     if (budgetRow?.customer_id) {
-                        await (supabase as any).from('customer_attachments').insert({
+                        const { error: errMudo20 } = await (supabase as any).from('customer_attachments').insert({
                             tenant_id: tenantId,
                             customer_id: budgetRow.customer_id,
                             origin_type: 'SALE',
@@ -1009,6 +1025,7 @@ function Sales() {
                             description: registerAttachDesc || 'Comprovante de pagamento',
                             created_by: createdBy,
                         })
+                        if (errMudo20) avisos.push('O anexo não foi salvo.')
                     }
                 }
             }
@@ -1025,7 +1042,7 @@ function Sales() {
                     setRegisterSaving(false)
                     return
                 }
-                await (supabase as any).from('pending_receivables').insert({
+                const { error: errMudo19 } = await (supabase as any).from('pending_receivables').insert({
                     tenant_id: tenantId,
                     customer_id: selectedBudget.customer_id,
                     employee_id: selectedBudget.employee_id || null,
@@ -1038,6 +1055,7 @@ function Sales() {
                     status: 'PENDING',
                     created_by: createdBy,
                 })
+                if (errMudo19) throw errMudo19
             } else if (values.payment_method === 'CARTAO_CREDITO') {
                 const totalValue = Number(selectedBudget.total_value)
                 const amountPerInstallment = totalValue / numInstallments
@@ -1059,7 +1077,8 @@ function Sales() {
                         created_by: createdBy,
                     })
                 }
-                await (supabase as any).from('cash_entries').insert(installmentEntries)
+                const { error: errMudo18 } = await (supabase as any).from('cash_entries').insert(installmentEntries)
+                if (errMudo18) throw errMudo18
             } else {
                 const isBoletoOrCheque = values.payment_method === 'BOLETO' || values.payment_method === 'CHEQUE_PRE_DATADO'
                 if (isBoletoOrCheque) {
@@ -1083,10 +1102,11 @@ function Sales() {
                         payment_method: values.payment_method,
                         created_by: createdBy,
                     }))
-                    await (supabase as any).from('cash_entries').insert(customEntries)
+                    const { error: errMudo17 } = await (supabase as any).from('cash_entries').insert(customEntries)
+                    if (errMudo17) throw errMudo17
                 } else {
                 const due = values.sale_date ? values.sale_date.format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD')
-                await supabase.from('cash_entries').insert({
+                const { error: errMudo16 } = await supabase.from('cash_entries').insert({
                     tenant_id: tenantId,
                     type: 'INCOME',
                     origin_type: 'SALE',
@@ -1098,6 +1118,7 @@ function Sales() {
                     description: `Venda orçamento: ${selectedBudget.customer_name} — ${payLabel}`,
                     created_by: createdBy,
                 })
+                if (errMudo16) throw errMudo16
                 }
             }
 
@@ -1113,6 +1134,7 @@ function Sales() {
                 })
             }
 
+            if (avisos.length) messageApi.warning(avisos.join(' '))
             messageApi.success('Venda registrada com sucesso!')
             setRegisterModalOpen(false)
             setRegisterReceiptFile([])
@@ -1154,7 +1176,7 @@ function Sales() {
 
             const due = values.sale_date ? values.sale_date.format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD')
             const payLabel = PAYMENT_METHODS.find(p => p.value === values.payment_method)?.label || values.payment_method
-            await supabase.from('cash_entries').insert({
+            const { error: errMudo15 } = await supabase.from('cash_entries').insert({
                 tenant_id: tenantId,
                 type: 'INCOME',
                 origin_type: 'SALE',
@@ -1166,11 +1188,13 @@ function Sales() {
                 description: `Venda pedido: ${selectedOrderSale.customerName} — ${payLabel}`,
                 created_by: createdBy,
             } as any)
+            if (errMudo15) throw errMudo15
 
-            await (supabase as any)
+            const { error: errMudo14 } = await (supabase as any)
                 .from('orders')
                 .update({ status: 'PAID', updated_at: new Date().toISOString() })
                 .eq('sale_id', selectedOrderSale.id)
+            if (errMudo14) throw errMudo14
 
             messageApi.success('Pagamento registrado com sucesso!')
             setOrderPaymentModalOpen(false)
@@ -1701,6 +1725,11 @@ function Sales() {
     // ── Salvar venda manual (balcão) ──
     const handleSaveSale = async () => {
         try {
+            // >>> O QUE NÃO ABORTOU MAS FALHOU ENTRA AQUI <<<
+            // Tabela ACESSÓRIA (anexo, histórico) não derruba uma venda que deu certo — mas
+            // também não fica muda. Sem este array, um anexo perdido ficaria invisível sob o
+            // "com sucesso!".
+            const avisos: string[] = []
             await form.validateFields()
             if (saleItems.length === 0) {
                 messageApi.warning('Adicione pelo menos um produto ou item manual!')
@@ -1872,7 +1901,8 @@ function Sales() {
             // Gerar e salvar código da venda (VD-XXXXXX)
             if (sale?.id) {
                 const saleCode = `VD-${sale.id.slice(0, 6).toUpperCase()}`
-                await (supabase as any).from('sales').update({ sale_code: saleCode }).eq('id', sale.id)
+                const { error: errMudo13 } = await (supabase as any).from('sales').update({ sale_code: saleCode }).eq('id', sale.id)
+                if (errMudo13) throw errMudo13
             }
 
             // Try to set employee_id separately (column may not exist yet)
@@ -1953,7 +1983,8 @@ function Sales() {
             })
             const allItems = [...catalogItems, ...serviceItems, ...manualItems]
             if (allItems.length > 0) {
-                await supabase.from('sale_items').insert(allItems)
+                const { error: errMudo12 } = await supabase.from('sale_items').insert(allItems)
+                if (errMudo12) throw errMudo12
             }
 
             // 3) Descontar estoque (apenas itens do catálogo)
@@ -1967,14 +1998,17 @@ function Sales() {
 
                 if (ps) {
                     const newQty = Math.max(0, (ps.quantity_current || 0) - item.quantity)
-                    await supabase.from('stock').update({ quantity_current: newQty, updated_at: new Date().toISOString() }).eq('id', ps.id)
-                    await supabase.from('products').update({ quantity: newQty, updated_at: new Date().toISOString() }).eq('id', item.product_id)
-                    await supabase.from('stock_movements').insert({
+                    const { error: errMudo11 } = await supabase.from('stock').update({ quantity_current: newQty, updated_at: new Date().toISOString() }).eq('id', ps.id)
+                    if (errMudo11) throw errMudo11
+                    const { error: errMudo10 } = await supabase.from('products').update({ quantity: newQty, updated_at: new Date().toISOString() }).eq('id', item.product_id)
+                    if (errMudo10) throw errMudo10
+                    const { error: errMudo9 } = await supabase.from('stock_movements').insert({
                         stock_id: ps.id,
                         delta_quantity: -item.quantity,
                         reason: `Venda no balcão — ${item.product_name}`,
                         created_by: createdBy,
                     })
+                    if (errMudo9) throw errMudo9
                 }
             }
 
@@ -1983,9 +2017,10 @@ function Sales() {
                 const file = receiptFile[0].originFileObj
                 const uploadPath = await uploadReceipt(file, sale.id, tenantId)
                 if (uploadPath) {
-                    await (supabase as any).from('sales').update({ receipt_url: uploadPath }).eq('id', sale.id)
+                    const { error: errMudo8 } = await (supabase as any).from('sales').update({ receipt_url: uploadPath }).eq('id', sale.id)
+                    if (errMudo8) throw errMudo8
                     if (values.customer_id) {
-                        await (supabase as any).from('customer_attachments').insert({
+                        const { error: errMudo7 } = await (supabase as any).from('customer_attachments').insert({
                             tenant_id: tenantId,
                             customer_id: values.customer_id,
                             origin_type: 'SALE',
@@ -1997,6 +2032,7 @@ function Sales() {
                             description: attachDesc || 'Comprovante de pagamento',
                             created_by: createdBy,
                         })
+                        if (errMudo7) avisos.push('O anexo não foi salvo.')
                     }
                 }
             }
@@ -2013,7 +2049,7 @@ function Sales() {
             if (values.payment_method === 'LANCAMENTOS_A_RECEBER') {
                 // Lançamentos a Receber: não vai para o caixa — registra em pending_receivables
                 const empId = values.employee_id || null
-                await (supabase as any).from('pending_receivables').insert({
+                const { error: errMudo6 } = await (supabase as any).from('pending_receivables').insert({
                     tenant_id: tenantId,
                     customer_id: values.customer_id,
                     employee_id: empId,
@@ -2025,6 +2061,7 @@ function Sales() {
                     status: 'PENDING',
                     created_by: createdBy,
                 })
+                if (errMudo6) throw errMudo6
             } else if (values.payment_method === 'CHEQUE_PRE_DATADO' || values.payment_method === 'BOLETO') {
                 // Cheque pré-datado / Boleto: parcelas com datas e valores customizados pelo usuário
                 const validInstallments = customInstallments.filter(r => r.date && r.amount > 0)
@@ -2047,7 +2084,8 @@ function Sales() {
                     origin_id: sale.id,
                     created_by: createdBy,
                 }))
-                await (supabase as any).from('cash_entries').insert(customEntries)
+                const { error: errMudo5 } = await (supabase as any).from('cash_entries').insert(customEntries)
+                if (errMudo5) throw errMudo5
             } else if (values.payment_method === 'CARTAO_CREDITO') {
                 const amountPerInstallment = saleTotalWithDiscount / numInstallments
                 const installmentEntries = []
@@ -2068,14 +2106,15 @@ function Sales() {
                         created_by: createdBy,
                     })
                 }
-                await (supabase as any).from('cash_entries').insert(installmentEntries)
+                const { error: errMudo4 } = await (supabase as any).from('cash_entries').insert(installmentEntries)
+                if (errMudo4) throw errMudo4
             } else if (isSplitPay) {
                 // Pagamento parcelado/dividido: parte agora + pending_receivable para o restante
                 const amountPaid = Number(values.amount_paid) || saleTotalWithDiscount
                 const remaining = Math.max(0, saleTotalWithDiscount - amountPaid)
                 const remainingDate = remaining > 0 ? values.remaining_due_date?.format('YYYY-MM-DD') || null : null
                 if (amountPaid > 0) {
-                    await supabase.from('cash_entries').insert({
+                    const { error: errMudo3 } = await supabase.from('cash_entries').insert({
                         tenant_id: tenantId,
                         type: 'INCOME',
                         amount: amountPaid,
@@ -2087,9 +2126,10 @@ function Sales() {
                         origin_id: sale.id,
                         created_by: createdBy,
                     })
+                    if (errMudo3) throw errMudo3
                 }
                 if (remaining > 0) {
-                    await (supabase as any).from('pending_receivables').insert({
+                    const { error: errMudo2 } = await (supabase as any).from('pending_receivables').insert({
                         tenant_id: tenantId,
                         customer_id: values.customer_id || null,
                         employee_id: values.employee_id || null,
@@ -2104,9 +2144,10 @@ function Sales() {
                         status: 'PENDING',
                         created_by: createdBy,
                     })
+                    if (errMudo2) throw errMudo2
                 }
             } else {
-                await supabase.from('cash_entries').insert({
+                const { error: errMudo1 } = await supabase.from('cash_entries').insert({
                     tenant_id: tenantId,
                     type: 'INCOME',
                     amount: saleTotalWithDiscount,
@@ -2118,6 +2159,7 @@ function Sales() {
                     origin_id: sale.id,
                     created_by: createdBy,
                 })
+                if (errMudo1) throw errMudo1
             }
 
             // 6) Criar registros de recorrência para produtos/serviços com recurrence_days
@@ -2183,6 +2225,7 @@ function Sales() {
                 })
             }
 
+            if (avisos.length) messageApi.warning(avisos.join(' '))
             messageApi.success('Venda registrada! Estoque atualizado e receita lançada no caixa.')
             await fetchData()
             setDrawerOpen(false)

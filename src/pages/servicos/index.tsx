@@ -229,7 +229,7 @@ function ServicesPage() {
                 serviceWorkloadMinutes: Number(svc.estimated_duration_minutes) || 0,
             })
 
-            await supabase
+            const { error: errMudo36 } = await supabase
                 .from('services')
                 .update({
                     // CMV = materiais + MO produtiva, como a tela de cadastro grava.
@@ -249,6 +249,7 @@ function ServicesPage() {
                     updated_at: new Date().toISOString(),
                 })
                 .eq('id', serviceId)
+            if (errMudo36) throw errMudo36
 
             await fetchAll()
         } catch (e: any) {
@@ -441,16 +442,18 @@ function ServicesPage() {
                 return
             }
             const newQty = Math.max(0, (Number(stockRow.quantity_current) || 0) - qtyToRemove)
-            await supabase
+            const { error: errMudo35 } = await supabase
                 .from('stock')
                 .update({ quantity_current: newQty, updated_at: new Date().toISOString() })
                 .eq('id', stockRow.id)
-            await supabase.from('stock_movements').insert({
+            if (errMudo35) throw errMudo35
+            const { error: errMudo34 } = await supabase.from('stock_movements').insert({
                 stock_id: stockRow.id,
                 delta_quantity: -qtyToRemove,
                 reason: values.reason || 'Baixa de quantidade — serviço',
                 created_by: createdBy,
             })
+            if (errMudo34) throw errMudo34
             msgApi.success(`Quantidade de ${qtyToRemove} excluída do serviço.`)
             setDeleteQtyDrawerOpen(false)
             setSelectedServiceForDelete(null)

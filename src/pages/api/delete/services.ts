@@ -36,9 +36,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     // calendar_events.service_id has NO ACTION — nullify
-    await supabaseAdmin.from('calendar_events').update({ service_id: null }).eq('service_id', id)
+    const { error: errMudo20 } = await supabaseAdmin.from('calendar_events').update({ service_id: null }).eq('service_id', id)
+    if (errMudo20) throw errMudo20
     // completed_services.service_id has NO ACTION — nullify
-    await supabaseAdmin.from('completed_services').update({ service_id: null }).eq('service_id', id)
+    const { error: errMudo19 } = await supabaseAdmin.from('completed_services').update({ service_id: null }).eq('service_id', id)
+    if (errMudo19) throw errMudo19
     // service_items cascades automatically
 
     const { error } = await supabaseAdmin.from('services').delete().eq('id', id).eq('tenant_id', caller.tenant_id)

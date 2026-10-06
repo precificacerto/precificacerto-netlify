@@ -1335,12 +1335,13 @@ export default function CashFlow() {
             const due_date = `${currentMonthStr}-01`
 
             // Remover lançamento anterior do mesmo mês (se houver)
-            await (supabase as any).from('cash_entries')
+            const { error: errMudo26 } = await (supabase as any).from('cash_entries')
                 .delete()
                 .eq('tenant_id', tenant_id)
                 .eq('origin_type', 'PREV_MONTH_BALANCE')
                 .gte('due_date', startOfMonth)
                 .lte('due_date', endOfMonth)
+            if (errMudo26) throw errMudo26
 
             if (absValue > 0) {
                 const { error } = await (supabase as any).from('cash_entries').insert({

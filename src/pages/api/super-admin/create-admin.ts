@@ -72,13 +72,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
 
       if (isFree) {
-        await supabaseAdmin
+        const { error: errMudo56 } = await supabaseAdmin
           .from('tenants')
           .update({ is_free: true, plan_status: 'ACTIVE', updated_at: new Date().toISOString() })
           .eq('id', tenantIdNew)
+        if (errMudo56) throw errMudo56
       }
 
-      await supabaseAdmin
+      const { error: errMudo55 } = await supabaseAdmin
         .from('tenant_invitations')
         .upsert({
           tenant_id: tenantIdNew,
@@ -88,6 +89,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           accepted_at: null,
           expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
         }, { onConflict: 'tenant_id,email' })
+      if (errMudo55) throw errMudo55
 
       // Admin deve cair em /criar-senha para definir senha; depois é redirecionado para onboarding ou /assinar conforme is_free
       const redirectTo = `${getAppOrigin()}/criar-senha`
@@ -106,10 +108,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (inviteError) throw inviteError
 
       if (isFree && inviteData?.user?.id) {
-        await supabaseAdmin
+        const { error: errMudo54 } = await supabaseAdmin
           .from('users')
           .update({ is_free: true, updated_at: new Date().toISOString() })
           .eq('id', inviteData.user.id)
+        if (errMudo54) throw errMudo54
       }
 
       const fallbackLinkNew = await generateFallbackLink(adminEmail, redirectTo)
@@ -138,15 +141,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const tenantIsFree = tenantData?.is_free === true
 
     if (isFree && !tenantIsFree) {
-      await supabaseAdmin
+      const { error: errMudo53 } = await supabaseAdmin
         .from('tenants')
         .update({ is_free: true, plan_status: 'ACTIVE', updated_at: new Date().toISOString() })
         .eq('id', tenantId)
+      if (errMudo53) throw errMudo53
     }
 
     const shouldBeFree = isFree || tenantIsFree
 
-    await supabaseAdmin
+    const { error: errMudo52 } = await supabaseAdmin
       .from('tenant_invitations')
       .upsert({
         tenant_id: tenantId,
@@ -156,6 +160,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         accepted_at: null,
         expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
       }, { onConflict: 'tenant_id,email' })
+    if (errMudo52) throw errMudo52
 
     // Admin deve cair em /criar-senha para definir senha; depois é redirecionado para onboarding ou /assinar conforme is_free
     const redirectTo = `${getAppOrigin()}/criar-senha`
@@ -180,10 +185,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (shouldBeFree && inviteData?.user?.id) {
-      await supabaseAdmin
+      const { error: errMudo51 } = await supabaseAdmin
         .from('users')
         .update({ is_free: true, updated_at: new Date().toISOString() })
         .eq('id', inviteData.user.id)
+      if (errMudo51) throw errMudo51
     }
 
     const fallbackLinkExisting = await generateFallbackLink(normalizedEmail, redirectTo)

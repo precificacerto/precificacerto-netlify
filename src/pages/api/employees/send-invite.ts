@@ -94,11 +94,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const userId = inviteData?.user?.id
         if (userId) {
             const normalizedEmail = email.trim().toLowerCase()
-            await supabaseAdmin
+            const { error: errMudo40 } = await supabaseAdmin
                 .from('employees')
                 .update({ user_id: userId })
                 .eq('tenant_id', caller.tenant_id)
                 .eq('email', normalizedEmail)
+            if (errMudo40) throw errMudo40
 
             const { data: tenantRow } = await supabaseAdmin
                 .from('tenants')
@@ -106,10 +107,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 .eq('id', caller.tenant_id)
                 .single()
             if (tenantRow?.is_free === true) {
-                await supabaseAdmin
+                const { error: errMudo39 } = await supabaseAdmin
                     .from('users')
                     .update({ is_free: true, updated_at: new Date().toISOString() })
                     .eq('id', userId)
+                if (errMudo39) throw errMudo39
             }
 
             const { data: emp } = await supabaseAdmin
@@ -122,8 +124,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             if (emp?.pending_permissions?.modules) {
                 const perms = emp.pending_permissions
 
-                await supabaseAdmin.from('user_module_permissions').delete().eq('user_id', userId).eq('tenant_id', caller.tenant_id)
-                await supabaseAdmin.from('user_item_access').delete().eq('user_id', userId).eq('tenant_id', caller.tenant_id)
+                const { error: errMudo38 } = await supabaseAdmin.from('user_module_permissions').delete().eq('user_id', userId).eq('tenant_id', caller.tenant_id)
+                if (errMudo38) throw errMudo38
+                const { error: errMudo37 } = await supabaseAdmin.from('user_item_access').delete().eq('user_id', userId).eq('tenant_id', caller.tenant_id)
+                if (errMudo37) throw errMudo37
 
                 const moduleRows = Object.entries(perms.modules).map(([mod, p]: [string, any]) => ({
                     tenant_id: caller.tenant_id,
@@ -134,17 +138,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                     granted_by: perms.granted_by || null,
                 }))
                 if (moduleRows.length > 0) {
-                    await supabaseAdmin.from('user_module_permissions').insert(moduleRows)
+                    const { error: errMudo36 } = await supabaseAdmin.from('user_module_permissions').insert(moduleRows)
+                    if (errMudo36) throw errMudo36
                 }
 
                 if (perms.item_access_mode === 'all') {
-                    await supabaseAdmin.from('user_item_access').insert({
+                    const { error: errMudo35 } = await supabaseAdmin.from('user_item_access').insert({
                         tenant_id: caller.tenant_id,
                         user_id: userId,
                         access_all_items: true,
                         item_id: null,
                         granted_by: perms.granted_by || null,
                     })
+                    if (errMudo35) throw errMudo35
                 } else if (perms.item_ids?.length > 0) {
                     const itemRows = perms.item_ids.map((itemId: string) => ({
                         tenant_id: caller.tenant_id,
@@ -153,14 +159,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                         access_all_items: false,
                         granted_by: perms.granted_by || null,
                     }))
-                    await supabaseAdmin.from('user_item_access').insert(itemRows)
+                    const { error: errMudo34 } = await supabaseAdmin.from('user_item_access').insert(itemRows)
+                    if (errMudo34) throw errMudo34
                 }
 
-                await supabaseAdmin
+                const { error: errMudo33 } = await supabaseAdmin
                     .from('employees')
                     .update({ pending_permissions: null })
                     .eq('tenant_id', caller.tenant_id)
                     .eq('email', normalizedEmail)
+                if (errMudo33) throw errMudo33
             }
         }
 

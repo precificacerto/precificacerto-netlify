@@ -1482,7 +1482,7 @@ export const Content: FC<ContentProps> = ({
           .eq('stock_type', 'PRODUCT')
           .maybeSingle()
         if (!existingProductStock) {
-          await supabase.from('stock').insert({
+          const { error: errMudo18 } = await supabase.from('stock').insert({
             tenant_id: tenantId,
             product_id: productId,
             stock_type: 'PRODUCT',
@@ -1490,7 +1490,9 @@ export const Content: FC<ContentProps> = ({
             min_limit: values.minLimit ?? 0,
             unit: values.unitType || 'UN',
           })
-          await supabase.from('products').update({ quantity: yieldQty, updated_at: new Date().toISOString() }).eq('id', productId)
+          if (errMudo18) throw errMudo18
+          const { error: errMudo17 } = await supabase.from('products').update({ quantity: yieldQty, updated_at: new Date().toISOString() }).eq('id', productId)
+          if (errMudo17) throw errMudo17
 
           // Baixar insumos: dar baixa nos itens e no estoque de itens/insumos
           if (productItemsData.length > 0 && yieldQty > 0) {
@@ -1507,14 +1509,16 @@ export const Content: FC<ContentProps> = ({
                 .maybeSingle()
               if (st) {
                 const newQty = Math.max(0, (Number(st.quantity_current) || 0) - quantityUsed)
-                await supabase.from('stock').update({ quantity_current: newQty, updated_at: new Date().toISOString() }).eq('id', st.id)
+                const { error: errMudo16 } = await supabase.from('stock').update({ quantity_current: newQty, updated_at: new Date().toISOString() }).eq('id', st.id)
+                if (errMudo16) throw errMudo16
                 if (createdBy) {
-                  await supabase.from('stock_movements').insert({
+                  const { error: errMudo15 } = await supabase.from('stock_movements').insert({
                     stock_id: st.id,
                     delta_quantity: -quantityUsed,
                     reason: `Produção — ${productName}`,
                     created_by: createdBy,
                   })
+                  if (errMudo15) throw errMudo15
                 }
               }
               const { data: itemRow } = await supabase.from('items').select('quantity, cost_per_base_unit').eq('id', itemId).single()
@@ -1522,16 +1526,19 @@ export const Content: FC<ContentProps> = ({
                 const newItemQty = Math.max(0, (Number(itemRow.quantity) || 0) - quantityUsed)
                 const unitCost = Number(itemRow.cost_per_base_unit) || 0
                 const newCostTotal = newItemQty * unitCost
-                await supabase.from('items').update({ quantity: newItemQty, cost_price: newCostTotal, updated_at: new Date().toISOString() }).eq('id', itemId)
+                const { error: errMudo14 } = await supabase.from('items').update({ quantity: newItemQty, cost_price: newCostTotal, updated_at: new Date().toISOString() }).eq('id', itemId)
+                if (errMudo14) throw errMudo14
               }
             }
           }
         } else {
-          await supabase.from('stock').update({
+          const { error: errMudo13 } = await supabase.from('stock').update({
             min_limit: values.minLimit ?? 0,
             updated_at: new Date().toISOString(),
           }).eq('id', existingProductStock.id)
-          await supabase.from('products').update({ quantity: Number(existingProductStock.quantity_current) || 0, updated_at: new Date().toISOString() }).eq('id', productId)
+          if (errMudo13) throw errMudo13
+          const { error: errMudo12 } = await supabase.from('products').update({ quantity: Number(existingProductStock.quantity_current) || 0, updated_at: new Date().toISOString() }).eq('id', productId)
+          if (errMudo12) throw errMudo12
         }
       }
 
@@ -1544,10 +1551,11 @@ export const Content: FC<ContentProps> = ({
           .eq('stock_type', 'PRODUCT')
           .maybeSingle()
         if (revendaStock) {
-          await supabase.from('stock').update({
+          const { error: errMudo11 } = await supabase.from('stock').update({
             min_limit: values.minLimit ?? 0,
             updated_at: new Date().toISOString(),
           }).eq('id', revendaStock.id)
+          if (errMudo11) throw errMudo11
         }
       }
 
@@ -1569,7 +1577,8 @@ export const Content: FC<ContentProps> = ({
 
       // Garantir que sale_price = "Preço de Venda por Unidade" após edge function (que pode sobrescrever)
       if (finalSalePriceForSave > 0) {
-        await supabase.from('products').update({ sale_price: finalSalePriceForSave }).eq('id', productId)
+        const { error: errMudo10 } = await supabase.from('products').update({ sale_price: finalSalePriceForSave }).eq('id', productId)
+        if (errMudo10) throw errMudo10
       }
 
       // D-A: o destino de cada categoria, congelado junto com o preço. A construção vem do
@@ -1579,12 +1588,13 @@ export const Content: FC<ContentProps> = ({
       // coluna, e regenerá-los aqui misturaria escopos. A coluna existe — verificada por
       // consulta ao `information_schema` na aplicação da migração.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await (supabase as any).from('products').update({
+      const { error: errMudo9 } = await (supabase as any).from('products').update({
         destination_snapshot: buildDestinationSnapshot({
           construction: productType === 'REVENDA' ? 'REVENDA' : 'INDUSTRIALIZACAO',
           tenantCalcType: currentUser?.calcType,
         }),
       }).eq('id', productId)
+      if (errMudo9) throw errMudo9
 
       const calcFailed = !!calcError || !calcResult?.success
       if (calcFailed) {

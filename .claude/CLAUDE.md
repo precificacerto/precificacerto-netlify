@@ -325,6 +325,7 @@ O AIOS carrega regras contextuais de `.claude/rules/` automaticamente. Regras co
 | `fato-vs-referencia.md` | Valor gravado é fato histórico ou referência viva — classe com 5 aparições |
 | `hipotese-derrubada-pela-propria-medicao.md` | Quando a razão para NÃO testar um caso é uma suposição sua, teste o caso |
 | `ids-principles.md` | Incremental Development System principles |
+| `instrumento-que-nao-enxerga.md` | O indicador escolhido para medir não pode variar nos casos que se quer detectar |
 | `mcp-usage.md` | MCP server usage rules and tool selection priority |
 | `migration-delivery.md` | PR com migração só está entregue com a migração aplicada e verificada |
 | `portao-que-nao-alcanca.md` | O portão fica verde e a proteção declarada não foi exercida |

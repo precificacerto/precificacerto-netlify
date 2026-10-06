@@ -1588,7 +1588,7 @@ function Budgets() {
             if (values.payment_method === 'BOLETO' || values.payment_method === 'CHEQUE_PRE_DATADO') {
                 const validInstRows = budgetFormCustomInstallments.filter(r => r.date && r.amount > 0)
                 if (validInstRows.length > 0) {
-                    await (supabase as any).from('budget_installment_rows').insert(
+                    const { error: errMudo55 } = await (supabase as any).from('budget_installment_rows').insert(
                         validInstRows.map((r, i) => ({
                             budget_id: budget.id,
                             due_date: dayjs(r.date).format('YYYY-MM-DD'),
@@ -1596,6 +1596,7 @@ function Budgets() {
                             sort_order: i,
                         }))
                     )
+                    if (errMudo55) throw errMudo55
                 }
             }
 
@@ -1759,7 +1760,8 @@ function Budgets() {
                 requires_review: requiresReviewUpd,
             }).eq('id', editingBudgetId)
             if (error) throw error
-            await supabase.from('budget_items').delete().eq('budget_id', editingBudgetId)
+            const { error: errMudo54 } = await supabase.from('budget_items').delete().eq('budget_id', editingBudgetId)
+            if (errMudo54) throw errMudo54
             const items = hydratedItemsEdit.map(({ src: i, snap }) => ({
                 budget_id: editingBudgetId,
                 product_id: i.product_id || null,
@@ -1791,11 +1793,12 @@ function Budgets() {
             }
 
             // Atualizar parcelas (BOLETO/CHEQUE_PRE_DATADO)
-            await (supabase as any).from('budget_installment_rows').delete().eq('budget_id', editingBudgetId)
+            const { error: errMudo53 } = await (supabase as any).from('budget_installment_rows').delete().eq('budget_id', editingBudgetId)
+            if (errMudo53) throw errMudo53
             if (values.payment_method === 'BOLETO' || values.payment_method === 'CHEQUE_PRE_DATADO') {
                 const validInstRows = budgetFormCustomInstallments.filter(r => r.date && r.amount > 0)
                 if (validInstRows.length > 0) {
-                    await (supabase as any).from('budget_installment_rows').insert(
+                    const { error: errMudo52 } = await (supabase as any).from('budget_installment_rows').insert(
                         validInstRows.map((r, i) => ({
                             budget_id: editingBudgetId,
                             due_date: dayjs(r.date).format('YYYY-MM-DD'),
@@ -1803,6 +1806,7 @@ function Budgets() {
                             sort_order: i,
                         }))
                     )
+                    if (errMudo52) throw errMudo52
                 }
             }
 
@@ -2084,7 +2088,8 @@ function Budgets() {
 
             if (order?.id) {
                 const orderCode = `PED-${order.id.slice(0, 6).toUpperCase()}`
-                await (supabase as any).from('orders').update({ order_code: orderCode }).eq('id', order.id)
+                const { error: errMudo51 } = await (supabase as any).from('orders').update({ order_code: orderCode }).eq('id', order.id)
+                if (errMudo51) throw errMudo51
 
                 // copiar budget_items → order_items
                 // A lista de colunas e o mapeamento vivem juntos em
@@ -2106,12 +2111,13 @@ function Budgets() {
                             services: services as RtCatalogEntry[],
                         },
                     )
-                    await (supabase as any).from('order_items').insert(toInsert)
+                    const { error: errMudo50 } = await (supabase as any).from('order_items').insert(toInsert)
+                    if (errMudo50) throw errMudo50
                 }
 
                 // Copiar parcelas do orçamento para o pedido (reutiliza busca acima)
                 if (budgetInstRows && budgetInstRows.length > 0) {
-                    await (supabase as any).from('order_installment_rows').insert(
+                    const { error: errMudo49 } = await (supabase as any).from('order_installment_rows').insert(
                         budgetInstRows.map((r: any) => ({
                             order_id: order.id,
                             due_date: r.due_date,
@@ -2119,11 +2125,13 @@ function Budgets() {
                             sort_order: r.sort_order,
                         }))
                     )
+                    if (errMudo49) throw errMudo49
                 }
 
-                await supabase.from('budgets')
+                const { error: errMudo48 } = await supabase.from('budgets')
                     .update({ status: 'SENT_TO_ORDER', updated_at: new Date().toISOString() })
                     .eq('id', b.id)
+                if (errMudo48) throw errMudo48
             }
 
             messageApi.success('Orçamento enviado para Pedido com sucesso!')
@@ -2177,6 +2185,11 @@ function Budgets() {
     // ── Finalizar pagamento (Orçamento → Venda) — apenas uma vez; quem finalizar primeiro vence ──
     const handleFinalizeBudget = async () => {
         try {
+            // >>> O QUE NÃO ABORTOU MAS FALHOU ENTRA AQUI <<<
+            // Tabela ACESSÓRIA (anexo, histórico) não derruba uma venda que deu certo — mas
+            // também não fica muda. Sem este array, um anexo perdido ficaria invisível sob o
+            // "com sucesso!".
+            const avisos: string[] = []
             const values = await paymentForm.validateFields()
             const tenant_id = tenantId ?? currentUser?.tenant_id
             if (!tenant_id || !selectedBudget) return
@@ -2231,12 +2244,13 @@ function Budgets() {
 
             // Vincular pedido (se houver) à venda recém-criada — necessário para a RPC
             // cancel_sale_cascade conseguir reabrir o pedido em caso de cancelamento.
-            await (supabase as any)
+            const { error: errMudo47 } = await (supabase as any)
                 .from('orders')
                 .update({ status: 'PAID', sale_id: sale.id, updated_at: new Date().toISOString() })
                 .eq('budget_id', selectedBudget.id)
                 .eq('tenant_id', tenant_id)
                 .neq('status', 'PAID')
+            if (errMudo47) throw errMudo47
 
             // 2) Copiar itens do orçamento para sale_items
             const { data: bItems } = await supabase
@@ -2265,7 +2279,8 @@ function Budgets() {
                 })
                 // Distribui o desconto global do orçamento proporcionalmente entre os itens
                 const saleItems = distributeDiscountToItems(rawSaleItems, Number(selectedBudget.total_value))
-                await supabase.from('sale_items').insert(saleItems)
+                const { error: errMudo46 } = await supabase.from('sale_items').insert(saleItems)
+                if (errMudo46) throw errMudo46
 
                 // 3) Descontar estoque dos produtos vendidos
                 for (const bi of bItems) {
@@ -2278,15 +2293,17 @@ function Budgets() {
 
                     if (ps) {
                         const newQty = Math.max(0, (ps.quantity_current || 0) - bi.quantity)
-                        await supabase.from('stock')
+                        const { error: errMudo45 } = await supabase.from('stock')
                             .update({ quantity_current: newQty, updated_at: new Date().toISOString() })
                             .eq('id', ps.id)
-                        await supabase.from('stock_movements').insert({
+                        if (errMudo45) throw errMudo45
+                        const { error: errMudo44 } = await supabase.from('stock_movements').insert({
                             stock_id: ps.id,
                             delta_quantity: -bi.quantity,
                             reason: `Venda via orçamento ORC-${selectedBudget.id.substring(0, 4).toUpperCase()}`,
                             created_by: createdBy,
                         })
+                        if (errMudo44) throw errMudo44
                     }
                 }
             }
@@ -2298,7 +2315,7 @@ function Budgets() {
             const curMonth = now.getMonth()
             if (values.payment_method === 'LANCAMENTOS_A_RECEBER') {
                 // Lançamentos a Receber: não vai para o caixa — registra em pending_receivables
-                await (supabase as any).from('pending_receivables').insert({
+                const { error: errMudo43 } = await (supabase as any).from('pending_receivables').insert({
                     tenant_id,
                     customer_id: selectedBudget.customer_id,
                     employee_id: selectedBudget.employee_id || null,
@@ -2312,6 +2329,7 @@ function Budgets() {
                     status: 'PENDING',
                     created_by: createdBy,
                 })
+                if (errMudo43) throw errMudo43
             } else if (values.payment_method === 'CHEQUE_PRE_DATADO' || values.payment_method === 'BOLETO') {
                 const validInstallments = customInstallments.filter(r => r.date && r.amount > 0)
                 if (validInstallments.length === 0) {
@@ -2333,7 +2351,8 @@ function Budgets() {
                     origin_id: sale.id,
                     created_by: createdBy,
                 }))
-                await (supabase as any).from('cash_entries').insert(boletoEntries)
+                const { error: errMudo42 } = await (supabase as any).from('cash_entries').insert(boletoEntries)
+                if (errMudo42) throw errMudo42
             } else if (values.payment_method === 'CARTAO_CREDITO') {
                 // Item 3 (Relatório 20/06): cartão fecha com o Total a cobrar (inclui tributos por fora).
                 const totalValue = getBudgetTotalACobrar(selectedBudget)
@@ -2356,9 +2375,10 @@ function Budgets() {
                         created_by: createdBy,
                     })
                 }
-                await supabase.from('cash_entries').insert(installmentEntries)
+                const { error: errMudo41 } = await supabase.from('cash_entries').insert(installmentEntries)
+                if (errMudo41) throw errMudo41
             } else {
-                await supabase.from('cash_entries').insert({
+                const { error: errMudo40 } = await supabase.from('cash_entries').insert({
                     tenant_id,
                     type: 'INCOME',
                     amount: Number(selectedBudget.total_value),
@@ -2368,10 +2388,11 @@ function Budgets() {
                     payment_method: values.payment_method,
                     created_by: createdBy,
                 })
+                if (errMudo40) throw errMudo40
             }
 
             // 5) Atualizar orçamento como PAID (só se ainda não foi pago — evita duplo lançamento)
-            const { data: updatedBudget } = await supabase.from('budgets').update({
+            const { data: updatedBudget, error: errMudo39 } = await supabase.from('budgets').update({
                 status: 'PAID',
                 payment_method: values.payment_method,
                 installments: values.installments || 1,
@@ -2379,19 +2400,25 @@ function Budgets() {
                 sale_id: sale.id,
                 updated_at: new Date().toISOString(),
             }).eq('id', selectedBudget.id).neq('status', 'PAID').select('id').single()
+            if (errMudo39) throw errMudo39
             if (!updatedBudget) {
-                await supabase.from('cash_entries').update({ is_active: false }).eq('origin_type', 'SALE').eq('origin_id', sale.id)
+                const { error: errMudo38 } = await supabase.from('cash_entries').update({ is_active: false }).eq('origin_type', 'SALE').eq('origin_id', sale.id)
+                if (errMudo38) throw errMudo38
                 if (bItems?.length) {
                     for (const bi of bItems) {
                         const { data: ps } = await supabase.from('stock').select('id, quantity_current').eq('product_id', bi.product_id).eq('stock_type', 'PRODUCT').single()
                         if (ps) {
-                            await supabase.from('stock').update({ quantity_current: (ps.quantity_current || 0) + bi.quantity, updated_at: new Date().toISOString() }).eq('id', ps.id)
-                            await supabase.from('stock_movements').insert({ stock_id: ps.id, delta_quantity: bi.quantity, reason: 'Rollback: orçamento já finalizado por outra pessoa', created_by: createdBy })
+                            const { error: errMudo37 } = await supabase.from('stock').update({ quantity_current: (ps.quantity_current || 0) + bi.quantity, updated_at: new Date().toISOString() }).eq('id', ps.id)
+                            if (errMudo37) throw errMudo37
+                            const { error: errMudo36 } = await supabase.from('stock_movements').insert({ stock_id: ps.id, delta_quantity: bi.quantity, reason: 'Rollback: orçamento já finalizado por outra pessoa', created_by: createdBy })
+                            if (errMudo36) throw errMudo36
                         }
                     }
                 }
-                await supabase.from('sale_items').delete().eq('sale_id', sale.id)
-                await supabase.from('sales').update({ is_active: false }).eq('id', sale.id)
+                const { error: errMudo35 } = await supabase.from('sale_items').delete().eq('sale_id', sale.id)
+                if (errMudo35) throw errMudo35
+                const { error: errMudo34 } = await supabase.from('sales').update({ is_active: false }).eq('id', sale.id)
+                if (errMudo34) throw errMudo34
                 messageApi.warning('Este orçamento já foi finalizado por outra pessoa. Nenhuma alteração foi mantida.')
                 setPaymentModalOpen(false)
                 await reloadBudgets()
@@ -2403,7 +2430,7 @@ function Budgets() {
                 const filePath = `${tenant_id}/customers/${selectedBudget.customer_id}/${crypto.randomUUID()}.${ext}`
                 const { error: uploadErr } = await supabase.storage.from('comprovantes').upload(filePath, attachFile)
                 if (!uploadErr) {
-                    await supabase.from('customer_attachments').insert({
+                    const { error: errMudo33 } = await supabase.from('customer_attachments').insert({
                         tenant_id,
                         customer_id: selectedBudget.customer_id,
                         origin_type: 'BUDGET',
@@ -2415,11 +2442,12 @@ function Budgets() {
                         description: attachDesc || null,
                         created_by: createdBy,
                     })
+                    if (errMudo33) avisos.push('O anexo não foi salvo.')
                 }
             }
 
             if (selectedBudget.customer_id) {
-                await supabase.from('customer_service_history').insert({
+                const { error: errMudo32 } = await supabase.from('customer_service_history').insert({
                     tenant_id,
                     customer_id: selectedBudget.customer_id,
                     budget_id: selectedBudget.id,
@@ -2427,6 +2455,7 @@ function Budgets() {
                     service_observation: `Orçamento ORC-${selectedBudget.id.substring(0, 4).toUpperCase()} finalizado — ${formatCurrency(Number(selectedBudget.total_value))}`,
                     created_by: createdBy,
                 })
+                if (errMudo32) avisos.push('O histórico do cliente não foi atualizado.')
             }
 
             // Customer-level recurrence — any sale resets/creates a dispatch based on customer.recurrence_days
@@ -2441,6 +2470,7 @@ function Budgets() {
                 })
             }
 
+            if (avisos.length) messageApi.warning(avisos.join(' '))
             messageApi.success('🎉 Orçamento finalizado! Venda registrada, estoque atualizado e lançamento no caixa criado.')
             setPaymentModalOpen(false)
             setDetailDrawerOpen(false)

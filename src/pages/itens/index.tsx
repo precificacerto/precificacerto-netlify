@@ -238,10 +238,11 @@ function Items() {
       const unitCost = Number(selectedItemForDelete.cost_per_base_unit) || 0
       const newCostTotal = newItemQty * unitCost
 
-      await supabase
+      const { error: errMudo82 } = await supabase
         .from('items')
         .update({ quantity: newItemQty, cost_price: newCostTotal, updated_at: new Date().toISOString() })
         .eq('id', itemId)
+      if (errMudo82) throw errMudo82
 
       if (selectedItemForDelete.item_type === 'REVENDA') {
         const { data: product } = await supabase
@@ -258,16 +259,18 @@ function Items() {
             .maybeSingle()
           if (st) {
             const newStockQty = Math.max(0, (Number(st.quantity_current) || 0) - qtyToRemove)
-            await supabase
+            const { error: errMudo81 } = await supabase
               .from('stock')
               .update({ quantity_current: newStockQty, updated_at: new Date().toISOString() })
               .eq('id', st.id)
-            await supabase.from('stock_movements').insert({
+            if (errMudo81) throw errMudo81
+            const { error: errMudo80 } = await supabase.from('stock_movements').insert({
               stock_id: st.id,
               delta_quantity: -qtyToRemove,
               reason: values.reason || 'Baixa de quantidade (exclusão parcial/total)',
               created_by: createdBy,
             })
+            if (errMudo80) throw errMudo80
           }
         }
       } else {
@@ -279,16 +282,18 @@ function Items() {
           .maybeSingle()
         if (st) {
           const newStockQty = Math.max(0, (Number(st.quantity_current) || 0) - qtyToRemove)
-          await supabase
+          const { error: errMudo79 } = await supabase
             .from('stock')
             .update({ quantity_current: newStockQty, updated_at: new Date().toISOString() })
             .eq('id', st.id)
-          await supabase.from('stock_movements').insert({
+          if (errMudo79) throw errMudo79
+          const { error: errMudo78 } = await supabase.from('stock_movements').insert({
             stock_id: st.id,
             delta_quantity: -qtyToRemove,
             reason: values.reason || 'Baixa de quantidade (exclusão parcial/total)',
             created_by: createdBy,
           })
+          if (errMudo78) throw errMudo78
         }
       }
 

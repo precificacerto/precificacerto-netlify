@@ -83,12 +83,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const dispatch = queue[0] as any
         const record = dispatch.recurrence_records
         if (!record) {
-            await supabaseAdmin.from('recurrence_dispatch_queue').update({ status: 'FAILED', error_message: 'Record not found' }).eq('id', dispatch.id)
+            const { error: errMudo66 } = await supabaseAdmin.from('recurrence_dispatch_queue').update({ status: 'FAILED', error_message: 'Record not found' }).eq('id', dispatch.id)
+            if (errMudo66) console.error('recurrence_dispatch_queue: falha ao gravar —', errMudo66.message)
             return res.status(200).json({ message: 'Record not found', dispatched: 0 })
         }
 
         // Mark as processing
-        await supabaseAdmin.from('recurrence_dispatch_queue').update({ status: 'PROCESSING' }).eq('id', dispatch.id)
+        const { error: errMudo65 } = await supabaseAdmin.from('recurrence_dispatch_queue').update({ status: 'PROCESSING' }).eq('id', dispatch.id)
+        if (errMudo65) console.error('recurrence_dispatch_queue: falha ao gravar —', errMudo65.message)
 
         // Get user's WuzAPI token
         const { data: user } = await supabaseAdmin
@@ -98,10 +100,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             .single()
 
         if (!user?.wuzapi_token) {
-            await supabaseAdmin.from('recurrence_dispatch_queue').update({
+            const { error: errMudo64 } = await supabaseAdmin.from('recurrence_dispatch_queue').update({
                 status: 'FAILED',
                 error_message: 'User has no WhatsApp connected',
             }).eq('id', dispatch.id)
+            if (errMudo64) console.error('recurrence_dispatch_queue: falha ao gravar —', errMudo64.message)
             return res.status(200).json({ message: 'No WhatsApp token for user', dispatched: 0 })
         }
 
@@ -133,10 +136,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
         const phone = record.customers?.whatsapp_phone || record.customers?.phone
         if (!phone) {
-            await supabaseAdmin.from('recurrence_dispatch_queue').update({
+            const { error: errMudo63 } = await supabaseAdmin.from('recurrence_dispatch_queue').update({
                 status: 'FAILED',
                 error_message: 'Customer has no phone number',
             }).eq('id', dispatch.id)
+            if (errMudo63) console.error('recurrence_dispatch_queue: falha ao gravar —', errMudo63.message)
             return res.status(200).json({ message: 'No phone for customer', dispatched: 0 })
         }
 
@@ -144,23 +148,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const result = await sendWuzapiText(user.wuzapi_token, phone, messageText)
 
         if (result.success) {
-            await supabaseAdmin.from('recurrence_dispatch_queue').update({
+            const { error: errMudo62 } = await supabaseAdmin.from('recurrence_dispatch_queue').update({
                 status: 'SENT',
                 sent_at: new Date().toISOString(),
             }).eq('id', dispatch.id)
+            if (errMudo62) console.error('recurrence_dispatch_queue: falha ao gravar —', errMudo62.message)
 
             // Update recurrence record status
-            await supabaseAdmin.from('recurrence_records').update({
+            const { error: errMudo61 } = await supabaseAdmin.from('recurrence_records').update({
                 status: 'SENT',
                 updated_at: new Date().toISOString(),
             }).eq('id', record.id)
+            if (errMudo61) throw errMudo61
 
             return res.status(200).json({ message: 'Dispatched successfully', dispatched: 1 })
         } else {
-            await supabaseAdmin.from('recurrence_dispatch_queue').update({
+            const { error: errMudo60 } = await supabaseAdmin.from('recurrence_dispatch_queue').update({
                 status: 'FAILED',
                 error_message: result.error || 'Send failed',
             }).eq('id', dispatch.id)
+            if (errMudo60) console.error('recurrence_dispatch_queue: falha ao gravar —', errMudo60.message)
 
             return res.status(200).json({ message: 'Send failed', dispatched: 0, error: result.error })
         }

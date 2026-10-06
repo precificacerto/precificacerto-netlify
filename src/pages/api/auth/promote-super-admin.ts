@@ -69,7 +69,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(404).json({ error: 'Usuário não encontrado com este email' })
     }
 
-    await supabaseAdmin.from('tenant_owners').delete().eq('user_id', user.id)
+    const { error: errMudo4 } = await supabaseAdmin.from('tenant_owners').delete().eq('user_id', user.id)
+    if (errMudo4) throw errMudo4
 
     const { error: updateError } = await supabaseAdmin
       .from('users')

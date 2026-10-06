@@ -63,10 +63,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(502).json({ error: result.error })
   }
 
-  await supabaseAdmin
+  const { error: errMudo59 } = await supabaseAdmin
     .from('tenant_settings')
     .update({ last_whatsapp_send_at: new Date().toISOString(), updated_at: new Date().toISOString() })
     .eq('tenant_id', tenant_id)
+  if (errMudo59) throw errMudo59
 
   return res.status(200).json({ success: true })
 }

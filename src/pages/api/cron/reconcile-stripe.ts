@@ -82,15 +82,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
 
       if (nextStatus === 'ACTIVE' || nextStatus === 'TRIAL') {
-        await supabaseAdmin
+        const { error: errMudo7 } = await supabaseAdmin
           .from('users')
           .update({ is_active: true, updated_at: new Date().toISOString() })
           .eq('tenant_id', t.id)
+        if (errMudo7) throw errMudo7
       } else if (nextStatus === 'SUSPENDED' || nextStatus === 'CANCELLED') {
-        await supabaseAdmin
+        const { error: errMudo6 } = await supabaseAdmin
           .from('users')
           .update({ is_active: false, updated_at: new Date().toISOString() })
           .eq('tenant_id', t.id)
+        if (errMudo6) throw errMudo6
       }
 
       divergences.push({

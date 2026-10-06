@@ -286,15 +286,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     // 7) Atualizar throttle uma vez
-    await supabaseAdmin
+    const { error: errMudo43 } = await supabaseAdmin
       .from('tenant_settings')
       .update({ last_whatsapp_send_at: new Date().toISOString(), updated_at: new Date().toISOString() })
       .eq('tenant_id', tenant_id)
+    if (errMudo43) throw errMudo43
 
     // 8) Registrar disparo
     const fullMessage = msgConectividade ? `${msgConectividade}\n\n${msgPadrao}` : msgPadrao
     try {
-      await supabaseAdmin.from('whatsapp_dispatches').insert({
+      const { error: errMudo42 } = await supabaseAdmin.from('whatsapp_dispatches').insert({
         tenant_id,
         customer_id: budget.customer_id,
         type: 'BUDGET',
@@ -302,16 +303,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         phone: docResult.usedPhone,
         status: 'SENT',
       })
+      if (errMudo42) console.error('whatsapp_dispatches: falha ao gravar —', errMudo42.message)
     } catch {
       /* ignore */
     }
 
     // 9) Se orçamento estava DRAFT, atualizar para SENT
     if (budget.status === 'DRAFT') {
-      await supabaseAdmin
+      const { error: errMudo41 } = await supabaseAdmin
         .from('budgets')
         .update({ status: 'SENT', updated_at: new Date().toISOString() })
         .eq('id', id)
+      if (errMudo41) throw errMudo41
     }
 
     return res.status(200).json({ success: true, message: 'Orçamento enviado (PDF + mensagem).' })
