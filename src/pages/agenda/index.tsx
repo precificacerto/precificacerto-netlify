@@ -345,11 +345,20 @@ function Schedule() {
             try {
                 const tid = await getTenantId()
                 const { data, error } = await (supabase as any).from('employee_working_hours')
+                    // NÃO troque por laço de inserts. Um INSERT com array é atômico no Postgres:
+                    // ou entram as N faixas, ou nenhuma. Um laço grava metade quando a terceira
+                    // falha, e o barbeiro fica com grade pela metade sem ninguém perceber.
+                    // O portão NÃO alcança esta linha — ele cobre a decisão em
+                    // adicionar-faixa-multiplos-dias.ts, não a gravação. Pendência conhecida.
                     .insert(faixas.map(f => ({ tenant_id: tid, employee_id, ...f })))
                     .select('*')
                 if (error) throw error
                 setBookingGrade(prev => [...prev, ...((data ?? []) as FaixaGravada[])])
-            } catch (e: any) { msgApi.error(e?.message || '') }
+            } catch (e: any) {
+                // Erro sem `message` deixava o toast VAZIO: nada gravava e o usuário fechava o
+                // painel achando que salvou. Falha silenciosa é pior que falha barulhenta.
+                msgApi.error(e?.message || 'Não foi possível gravar a faixa. Nada foi salvo — tente de novo.')
+            }
         },
         onRemoverFaixa: async (id: string) => {
             try {
