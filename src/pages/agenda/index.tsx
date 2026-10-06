@@ -365,7 +365,7 @@ function Schedule() {
                 const { error } = await (supabase as any).from('employee_working_hours').delete().eq('id', id)
                 if (error) throw error
                 setBookingGrade(prev => prev.filter(f => f.id !== id))
-            } catch (e: any) { msgApi.error(e?.message || '') }
+            } catch (e: any) { msgApi.error(e?.message || 'Não foi possível remover a faixa. Nada foi alterado — tente de novo.') }
         },
         onSalvarFolga: async (folga: { employee_id: string; starts_at: string; ends_at: string; reason?: string }) => {
             try {
@@ -374,7 +374,7 @@ function Schedule() {
                     .insert({ tenant_id: tid, ...folga }).select('*').single()
                 if (error) throw error
                 setBookingFolgas(prev => [...prev, data as FolgaGravada])
-            } catch (e: any) { msgApi.error(e?.message || '') }
+            } catch (e: any) { msgApi.error(e?.message || 'Não foi possível gravar a ausência. Nada foi salvo — tente de novo.') }
         },
         // §2 — o switch do funcionário: liga ou desliga TODAS as faixas dele de uma vez.
         //
@@ -422,7 +422,7 @@ function Schedule() {
                 const { error } = await (supabase as any).from('employee_time_off').delete().eq('id', id)
                 if (error) throw error
                 setBookingFolgas(prev => prev.filter(f => f.id !== id))
-            } catch (e: any) { msgApi.error(e?.message || '') }
+            } catch (e: any) { msgApi.error(e?.message || 'Não foi possível remover a ausência. Nada foi alterado — tente de novo.') }
         },
     }), [bookingCfg, msgApi, fetchBookingConfig])
 
