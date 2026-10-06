@@ -324,7 +324,7 @@ function Schedule() {
                     .eq('tenant_id', tid)
                 if (error) throw error
                 setBookingCfg({ ...bookingCfg, is_enabled: ativo })
-            } catch (e: any) { msgApi.error(e?.message || '') }
+            } catch (e: any) { msgApi.error(e?.message || 'Não foi possível alterar o agendamento pelo link. Nada foi salvo — tente de novo.') }
         },
         onSalvarConfiguracao: async (patch: Partial<ConfiguracaoDoAgendamento>) => {
             if (!bookingCfg) return
@@ -335,7 +335,7 @@ function Schedule() {
                     .eq('tenant_id', tid)
                 if (error) throw error
                 setBookingCfg({ ...bookingCfg, ...patch })
-            } catch (e: any) { msgApi.error(e?.message || '') }
+            } catch (e: any) { msgApi.error(e?.message || 'Não foi possível salvar as configurações. Nada foi salvo — tente de novo.') }
         },
         // §2 — UM insert com array. Atômico no Postgres: as sete linhas entram juntas ou
         // nenhuma entra. Um laço de inserts deixaria metade gravada se o terceiro falhasse, e
@@ -392,7 +392,7 @@ function Schedule() {
                     .eq('tenant_id', tid).eq('employee_id', employee_id)
                 if (error) throw error
                 setBookingGrade(prev => prev.map(f => (f.employee_id === employee_id ? { ...f, is_active: ativo } : f)))
-            } catch (e: any) { msgApi.error(e?.message || '') }
+            } catch (e: any) { msgApi.error(e?.message || 'Não foi possível alterar o profissional. Nada foi salvo — tente de novo.') }
         },
         // §3 — a cópia da grade vai pela ROTA DE API, não daqui.
         //
@@ -415,7 +415,7 @@ function Schedule() {
                     msgApi.success('Grade aplicada.')
                 }
                 await fetchBookingConfig()
-            } catch (e: any) { msgApi.error(e?.message || '') }
+            } catch (e: any) { msgApi.error(e?.message || 'Não foi possível aplicar a grade. A grade de destino pode ter ficado incompleta — confira antes de tentar de novo.') }
         },
         onRemoverFolga: async (id: string) => {
             try {
@@ -500,20 +500,32 @@ function Schedule() {
 
     async function handleAddEmp() {
         if (!selAddEmp) return
-        try { const tid = await getTenantId(); if (!tid) return; const { error } = await (supabase as any).from('schedule_employees').insert({ tenant_id: tid, employee_id: selAddEmp }); if (error) throw error; setSchedEmpIds(p => [...p, selAddEmp]); setAddEmpOpen(false); setSelAddEmp(null); msgApi.success('Adicionado!') } catch (e: any) { msgApi.error(e.message || '') }
+        try { const tid = await getTenantId(); if (!tid) return; const { error } = await (supabase as any).from('schedule_employees').insert({ tenant_id: tid, employee_id: selAddEmp }); if (error) throw error; setSchedEmpIds(p => [...p, selAddEmp]); setAddEmpOpen(false); setSelAddEmp(null); msgApi.success('Adicionado!') } catch (e: any) { msgApi.error(e?.message || 'Não foi possível adicionar o profissional à agenda. Nada foi salvo — tente de novo.') }
     }
     async function handleRemoveEmp(eid: string) {
         try {
             const tid = await getTenantId()
             if (!tid) return
-            await (supabase as any).from('schedule_employees').delete().eq('tenant_id', tid).eq('employee_id', eid)
+            // >>> A CHECAGEM VEM ANTES DO `setSchedEmpIds`, E A ORDEM É A CORREÇÃO <<<
+            //
+            // `supabase-js` NÃO lança em erro de query: devolve `{ error }`. Sem a checagem, o
+            // `catch` desta função era INALCANÇÁVEL para falha de banco, e o
+            // `msgApi.success('Removido.')` abaixo rodava sempre — a tela tirava o profissional
+            // da lista, a linha continuava em `schedule_employees`, e ele voltava no próximo
+            // carregamento. Não era toast vazio: era toast de SUCESSO numa falha.
+            //
+            // Nada de estado local pode mudar antes desta linha, ou o falso sucesso volta.
+            // Mesma forma de `handleAddEmp`, para não criar um segundo padrão no arquivo.
+            const { error } = await (supabase as any).from('schedule_employees')
+                .delete().eq('tenant_id', tid).eq('employee_id', eid)
+            if (error) throw error
             setSchedEmpIds(p => p.filter(id => id !== eid))
             if (selectedEmpId === eid) {
                 setSelectedEmpId(null)
                 router.replace('/agenda', undefined, { shallow: true })
             }
             msgApi.success('Removido.')
-        } catch (e: any) { msgApi.error(e.message || '') }
+        } catch (e: any) { msgApi.error(e?.message || 'Não foi possível remover o profissional da agenda. Nada foi alterado — tente de novo.') }
     }
 
     const openNew = useCallback((empId?: string, date?: dayjs.Dayjs, time?: string) => {
