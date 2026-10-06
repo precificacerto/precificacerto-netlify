@@ -697,11 +697,18 @@ function Schedule() {
                 if (recurActive && (recurEndDate || recurForever)) {
                     const recurrenceGroupId = crypto.randomUUID()
                     // Atualizar o evento original com recurrence_group_id
-                    await (supabase as any).from('calendar_events')
+                    // >>> A CHECAGEM VEM ANTES DE QUALQUER PASSO SEGUINTE DO FLUXO <<<
+                    // `supabase-js` não lança em erro de query: devolve `{ error }`. Com o
+                    // retorno descartado, uma falha aqui deixava o evento ORIGINAL sem
+                    // `recurrence_group_id` enquanto as ocorrências abaixo nasciam COM ele — a
+                    // série ficava órfã do primeiro evento, e o fluxo seguia anunciando sucesso.
+                    // Mesma forma de `handleAddEmp` e `handleRemoveEmp`.
+                    const { error: recurGroupErr } = await (supabase as any).from('calendar_events')
                         .update({ recurrence_group_id: recurrenceGroupId })
                         .eq('start_time', s)
                         .eq('tenant_id', tid)
                         .eq('title', v.title)
+                    if (recurGroupErr) throw recurGroupErr
 
                     const recurInserts: any[] = []
                     let cursor = startLocal.add(1, 'day')
@@ -824,9 +831,14 @@ function Schedule() {
                 const newTotal = updatedEntries
                     .filter(e => e.type === 'INCOME')
                     .reduce((sum, e) => sum + Number(e.amount), 0)
-                await (supabase as any).from('calendar_events')
+                // >>> A CHECAGEM VEM ANTES DO `mergeExpenseConfig`, DO TOAST E DO `fetchAll` <<<
+                // Sem ela, uma falha aqui deixava `amount_charged` divergente do total dos
+                // lançamentos que acabaram de ser gravados, e a tela anunciava
+                // "Lançamento editado! HUB e DRE atualizados." — sucesso sobre divergência.
+                const { error: amountErr } = await (supabase as any).from('calendar_events')
                     .update({ amount_charged: newTotal })
                     .eq('id', editLancEvt.id)
+                if (amountErr) throw amountErr
             }
 
             // Recalcula hub para atualizar MO produtiva por minuto na precificação
@@ -835,7 +847,13 @@ function Schedule() {
 
             msgApi.success('Lançamento editado! HUB e DRE atualizados.')
             await fetchAll()
-        } catch (e: any) { msgApi.error(e.message) }
+        } catch (e: any) {
+            // O texto é DIFERENTE dos outros de propósito: o lançamento já foi gravado pela rota
+            // `/api/cash-entries/update` ANTES deste ponto, então "nada foi alterado" seria
+            // mentira. A mensagem manda CONFERIR em vez de afirmar um estado que ela não pode
+            // conhecer — `ausente-vs-falso.md` no texto da tela.
+            msgApi.error(e?.message || 'Não foi possível salvar o lançamento. O valor pode não ter sido gravado — confira antes de tentar de novo.')
+        }
         finally { setSavingLanc(false) }
     }
 
