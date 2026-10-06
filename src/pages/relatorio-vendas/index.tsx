@@ -911,9 +911,10 @@ function SalesReport() {
                         created_by: createdBy,
                     })
                 }
-                await (supabase as any).from('cash_entries').insert(installmentEntries)
+                const { error: errMudo32 } = await (supabase as any).from('cash_entries').insert(installmentEntries)
+                if (errMudo32) throw errMudo32
             } else {
-                await supabase.from('cash_entries').insert({
+                const { error: errMudo31 } = await supabase.from('cash_entries').insert({
                     tenant_id: tenantId,
                     type: 'INCOME',
                     amount: amountToPay,
@@ -927,6 +928,7 @@ function SalesReport() {
                     contact_id: payingRecord.customerId || null,
                     created_by: createdBy,
                 })
+                if (errMudo31) throw errMudo31
             }
 
             const successMsg = isPartial

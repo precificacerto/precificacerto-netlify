@@ -51,15 +51,17 @@ export async function syncCustomerRecurrenceOnSale({
 
     const pendingIds = (pending || []).map((p: any) => p.id)
     if (pendingIds.length > 0) {
-        await sb
+        const { error: errMudo8 } = await sb
             .from('recurrence_dispatch_queue')
             .update({ status: 'CANCELLED' })
             .in('recurrence_record_id', pendingIds)
             .eq('status', 'PENDING')
-        await sb
+        if (errMudo8) console.error('recurrence_dispatch_queue: falha ao gravar —', errMudo8.message)
+        const { error: errMudo7 } = await sb
             .from('recurrence_records')
             .update({ status: 'CANCELLED', is_active: false, updated_at: new Date().toISOString() })
             .in('id', pendingIds)
+        if (errMudo7) throw errMudo7
     }
 
     const base = new Date(saleDate + 'T12:00:00')
@@ -85,12 +87,13 @@ export async function syncCustomerRecurrenceOnSale({
 
     if (recErr || !newRecord) return
 
-    await sb.from('recurrence_dispatch_queue').insert({
+    const { error: errMudo6 } = await sb.from('recurrence_dispatch_queue').insert({
         tenant_id: tenantId,
         recurrence_record_id: newRecord.id,
         scheduled_at: `${dispatchDate}T12:00:00-03:00`,
         user_id: userId,
     })
+    if (errMudo6) console.error('recurrence_dispatch_queue: falha ao gravar —', errMudo6.message)
 }
 
 /**
@@ -129,15 +132,17 @@ export async function recalcCustomerRecurrenceOnEdit({
     const pendingIds = (pending || []).map((p: any) => p.id)
 
     if (pendingIds.length > 0) {
-        await sb
+        const { error: errMudo5 } = await sb
             .from('recurrence_dispatch_queue')
             .update({ status: 'CANCELLED' })
             .in('recurrence_record_id', pendingIds)
             .eq('status', 'PENDING')
-        await sb
+        if (errMudo5) console.error('recurrence_dispatch_queue: falha ao gravar —', errMudo5.message)
+        const { error: errMudo4 } = await sb
             .from('recurrence_records')
             .update({ status: 'CANCELLED', is_active: false, updated_at: new Date().toISOString() })
             .in('id', pendingIds)
+        if (errMudo4) throw errMudo4
     }
 
     if (!customer.recurrence_active) return
@@ -163,7 +168,7 @@ export async function recalcCustomerRecurrenceOnEdit({
     base.setDate(base.getDate() + days)
     const dispatchDate = base.toISOString().slice(0, 10)
 
-    const { data: newRecord } = await sb
+    const { data: newRecord, error: errMudo3 } = await sb
         .from('recurrence_records')
         .insert({
             tenant_id: tenantId,
@@ -179,13 +184,15 @@ export async function recalcCustomerRecurrenceOnEdit({
         })
         .select('id')
         .single()
+    if (errMudo3) throw errMudo3
 
     if (!newRecord) return
 
-    await sb.from('recurrence_dispatch_queue').insert({
+    const { error: errMudo2 } = await sb.from('recurrence_dispatch_queue').insert({
         tenant_id: tenantId,
         recurrence_record_id: newRecord.id,
         scheduled_at: `${dispatchDate}T12:00:00-03:00`,
         user_id: userId,
     })
+    if (errMudo2) console.error('recurrence_dispatch_queue: falha ao gravar —', errMudo2.message)
 }

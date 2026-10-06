@@ -163,13 +163,14 @@ export default function RecurrencePage() {
                 return
             }
 
-            await (supabase as any).from('recurrence_messages').upsert({
+            const { error: errMudo30 } = await (supabase as any).from('recurrence_messages').upsert({
                 tenant_id: tenantId,
                 user_id: userId,
                 message_products: messageProducts,
                 message_services: messageServices,
                 updated_at: new Date().toISOString(),
             }, { onConflict: 'tenant_id,user_id' })
+            if (errMudo30) throw errMudo30
 
             messageApi.success('Mensagem salva!')
         } catch (err: any) {

@@ -179,10 +179,11 @@ export default function EmployeePermissions() {
     try {
       const tenantId = effectiveTenantId!
 
-      await supabase.from('user_module_permissions')
+      const { error: errMudo28 } = await supabase.from('user_module_permissions')
         .delete()
         .eq('user_id', employeeUserId)
         .eq('tenant_id', tenantId)
+      if (errMudo28) throw errMudo28
 
       const moduleRows = permissions.map(p => ({
         tenant_id: tenantId,
@@ -196,10 +197,11 @@ export default function EmployeePermissions() {
       const { error: modError } = await supabase.from('user_module_permissions').insert(moduleRows)
       if (modError) throw modError
 
-      await supabase.from('user_item_access')
+      const { error: errMudo27 } = await supabase.from('user_item_access')
         .delete()
         .eq('user_id', employeeUserId)
         .eq('tenant_id', tenantId)
+      if (errMudo27) throw errMudo27
 
       if (itemAccessMode === 'all') {
         const { error: itemError } = await supabase.from('user_item_access').insert({

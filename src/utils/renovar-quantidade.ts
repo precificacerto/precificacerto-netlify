@@ -104,10 +104,11 @@ export async function renovarQuantidade(
     const newItemQty = Math.max(0, currentQty - qtyToRemove)
     const newCostTotal = newItemQty * unitCost
 
-    await supabase
+    const { error: errMudo56 } = await supabase
       .from('items')
       .update({ quantity: newItemQty, cost_price: newCostTotal, updated_at: new Date().toISOString() })
       .eq('id', itemId)
+    if (errMudo56) throw errMudo56
 
     const { data: st } = await supabase
       .from('stock')
@@ -118,16 +119,18 @@ export async function renovarQuantidade(
 
     if (st) {
       const newStockQty = Math.max(0, (Number(st.quantity_current) || 0) - qtyToRemove)
-      await supabase
+      const { error: errMudo55 } = await supabase
         .from('stock')
         .update({ quantity_current: newStockQty, updated_at: new Date().toISOString() })
         .eq('id', st.id)
-      await supabase.from('stock_movements').insert({
+      if (errMudo55) throw errMudo55
+      const { error: errMudo54 } = await supabase.from('stock_movements').insert({
         stock_id: st.id,
         delta_quantity: -qtyToRemove,
         reason: MOTIVO_DA_BAIXA,
         created_by: createdBy,
       })
+      if (errMudo54) throw errMudo54
     }
 
     return { estado: 'OK', mensagem: 'Quantidade removida com sucesso!' }
@@ -152,7 +155,7 @@ export async function renovarQuantidade(
   const oldCost = Number((currentItem as any).cost_per_base_unit) || 0
   const costChanged = Math.abs(newUnitCost - oldCost) > 0.0001
 
-  await supabase
+  const { error: errMudo53 } = await supabase
     .from('items')
     .update({
       quantity: totalQty,
@@ -163,6 +166,7 @@ export async function renovarQuantidade(
       updated_at: new Date().toISOString(),
     })
     .eq('id', itemId)
+  if (errMudo53) throw errMudo53
 
   const { data: stockRow } = await supabase
     .from('stock')
@@ -172,7 +176,7 @@ export async function renovarQuantidade(
     .maybeSingle()
 
   if (stockRow) {
-    await supabase
+    const { error: errMudo52 } = await supabase
       .from('stock')
       .update({
         quantity_current: totalQty,
@@ -180,15 +184,17 @@ export async function renovarQuantidade(
         updated_at: new Date().toISOString(),
       })
       .eq('id', stockRow.id)
+    if (errMudo52) throw errMudo52
 
-    await supabase.from('stock_movements').insert({
+    const { error: errMudo51 } = await supabase.from('stock_movements').insert({
       stock_id: stockRow.id,
       delta_quantity: newQty,
       reason: MOTIVO_DA_ENTRADA,
       created_by: createdBy,
     })
+    if (errMudo51) throw errMudo51
   } else {
-    await supabase.from('stock').insert({
+    const { error: errMudo50 } = await supabase.from('stock').insert({
       tenant_id: tenantId,
       item_id: itemId,
       stock_type: 'ITEM',
@@ -196,6 +202,7 @@ export async function renovarQuantidade(
       min_limit: 0,
       unit: currentItem.unit || 'UN',
     })
+    if (errMudo50) throw errMudo50
 
     const { data: newStock } = await supabase
       .from('stock')
@@ -205,12 +212,13 @@ export async function renovarQuantidade(
       .single()
 
     if (newStock) {
-      await supabase.from('stock_movements').insert({
+      const { error: errMudo49 } = await supabase.from('stock_movements').insert({
         stock_id: newStock.id,
         delta_quantity: newQty,
         reason: MOTIVO_DA_ENTRADA,
         created_by: createdBy,
       })
+      if (errMudo49) throw errMudo49
     }
   }
 
@@ -228,7 +236,8 @@ export async function renovarQuantidade(
     ...((revendaProds || []) as any[]).map((r: any) => r.id),
   ])]
   if (productIds.length > 0) {
-    await supabase.from('products').update({ needs_cost_update: true }).in('id', productIds)
+    const { error: errMudo48 } = await supabase.from('products').update({ needs_cost_update: true }).in('id', productIds)
+    if (errMudo48) throw errMudo48
   }
 
   // Marcar serviços como needs_cost_update = true (somente se custo mudou)
@@ -239,7 +248,8 @@ export async function renovarQuantidade(
       .eq('item_id', itemId)
     const serviceIds = [...new Set(((affectedServiceItems || []) as any[]).map((r: any) => r.service_id))]
     if (serviceIds.length > 0) {
-      await supabase.from('services').update({ needs_cost_update: true }).in('id', serviceIds)
+      const { error: errMudo47 } = await supabase.from('services').update({ needs_cost_update: true }).in('id', serviceIds)
+      if (errMudo47) throw errMudo47
     }
   }
 

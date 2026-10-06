@@ -23,10 +23,11 @@ export default function OnboardingExpenses() {
         const tenantId = currentUser?.tenant_id
         if (tenantId) {
           // Marca expense_setup_done para não bloquear o fluxo de usuários existentes
-          await supabase
+          const { error: errMudo29 } = await supabase
             .from('tenant_settings')
             .update({ expense_setup_done: true, updated_at: new Date().toISOString() })
             .eq('tenant_id', tenantId)
+          if (errMudo29) throw errMudo29
         }
       } catch {
         /* silent — não bloquear o redirect por erro */

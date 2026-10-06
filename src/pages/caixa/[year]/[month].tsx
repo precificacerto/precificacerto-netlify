@@ -605,16 +605,18 @@ function Cashier() {
         .maybeSingle()
 
       if (existing) {
-        await supabase
+        const { error: errMudo25 } = await supabase
           .from('cashier_months')
           .update({ balance: goalPrice.value, updated_at: new Date().toISOString() })
           .eq('id', existing.id)
+        if (errMudo25) throw errMudo25
       } else {
-        await supabase.from('cashier_months').insert({
+        const { error: errMudo24 } = await supabase.from('cashier_months').insert({
           tenant_id: tenantId,
           month_year: monthDate,
           balance: goalPrice.value,
         })
+        if (errMudo24) throw errMudo24
       }
 
       messageApi.success('Atualizada meta com sucesso!')

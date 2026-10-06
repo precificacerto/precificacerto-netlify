@@ -447,9 +447,10 @@ function Reports() {
                 const newTotal = updatedEntries
                     .filter(e => e.type === 'INCOME')
                     .reduce((sum, e) => sum + Number(e.amount), 0)
-                await (supabase as any).from('calendar_events')
+                const { error: errMudo33 } = await (supabase as any).from('calendar_events')
                     .update({ amount_charged: newTotal })
                     .eq('id', editLancEvt.id)
+                if (errMudo33) throw errMudo33
             }
 
             // Recalcula hub para atualizar MO produtiva por minuto na precificação

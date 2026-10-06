@@ -197,7 +197,7 @@ export async function gravarItem(
     // REVENDA não cria stock de ITEM — vai direto para PRODUCT
     if (values.item_type !== 'REVENDA') {
       if (!values.id) {
-        await supabase.from('stock').insert({
+        const { error: errMudo44 } = await supabase.from('stock').insert({
           tenant_id: tenantId,
           item_id: savedItem.id,
           stock_type: 'ITEM',
@@ -205,6 +205,7 @@ export async function gravarItem(
           min_limit: values.min_limit ?? 0,
           unit: values.unitType || 'UN',
         })
+        if (errMudo44) throw errMudo44
 
         const { data: stockRec } = await supabase
           .from('stock')
@@ -213,12 +214,13 @@ export async function gravarItem(
           .single()
 
         if (stockRec) {
-          await supabase.from('stock_movements').insert({
+          const { error: errMudo43 } = await supabase.from('stock_movements').insert({
             stock_id: stockRec.id,
             delta_quantity: stockQty,
             reason: 'Entrada inicial — cadastro do item',
             created_by: createdBy,
           })
+          if (errMudo43) throw errMudo43
         }
       } else {
         const { data: existingStock } = await supabase
@@ -228,7 +230,7 @@ export async function gravarItem(
           .single()
 
         if (existingStock) {
-          await supabase.from('stock')
+          const { error: errMudo42 } = await supabase.from('stock')
             .update({
               quantity_current: stockQty,
               min_limit: values.min_limit ?? 0,
@@ -236,6 +238,7 @@ export async function gravarItem(
               updated_at: new Date().toISOString(),
             })
             .eq('id', existingStock.id)
+          if (errMudo42) throw errMudo42
         }
       }
     }
@@ -255,7 +258,7 @@ export async function gravarItem(
           .eq('stock_type', 'PRODUCT')
           .maybeSingle()
         if (productStock) {
-          await supabase
+          const { error: errMudo41 } = await supabase
             .from('stock')
             .update({
               quantity_current: qty,
@@ -264,7 +267,9 @@ export async function gravarItem(
               updated_at: new Date().toISOString(),
             })
             .eq('id', productStock.id)
-          await supabase.from('products').update({ quantity: qty, updated_at: new Date().toISOString() }).eq('id', revendaProduct.id)
+          if (errMudo41) throw errMudo41
+          const { error: errMudo40 } = await supabase.from('products').update({ quantity: qty, updated_at: new Date().toISOString() }).eq('id', revendaProduct.id)
+          if (errMudo40) throw errMudo40
         }
       }
     }
@@ -285,7 +290,7 @@ export async function gravarItem(
         }
       }
       const autoCode = String(maxNum + 1)
-      const { data: newProduct } = await supabase.from('products').insert({
+      const { data: newProduct, error: errMudo39 } = await supabase.from('products').insert({
         tenant_id: tenantId,
         name: savedItem.name,
         code: autoCode,
@@ -300,9 +305,10 @@ export async function gravarItem(
         yield_unit: values.unitType || 'UN',
         quantity: qty,
       }).select().single()
+      if (errMudo39) throw errMudo39
 
       if (newProduct) {
-        await supabase.from('stock').insert({
+        const { error: errMudo38 } = await supabase.from('stock').insert({
           tenant_id: tenantId,
           product_id: newProduct.id,
           stock_type: 'PRODUCT',
@@ -310,6 +316,7 @@ export async function gravarItem(
           min_limit: values.min_limit ?? 0,
           unit: values.unitType || 'UN',
         })
+        if (errMudo38) throw errMudo38
       }
 
       if (newProduct) {
@@ -323,13 +330,14 @@ export async function gravarItem(
       const icmsRateVal = Number(savedItem.icms_rate) || 0
       const icmsCredit = costNetVal * (icmsRateVal / 100)
       if (icmsCredit > 0) {
-        await (supabase as any).from('item_tax_credits').upsert({
+        const { error: errMudo37 } = await (supabase as any).from('item_tax_credits').upsert({
           item_id: savedItem.id,
           tenant_id: tenantId,
           tax_type: 'ICMS',
           credit_value: icmsCredit,
           is_active: true,
         }, { onConflict: 'item_id,tax_type' })
+        if (errMudo37) throw errMudo37
       }
     }
 

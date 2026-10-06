@@ -738,7 +738,8 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                 const { error } = await sb.from('services').update(data).eq('id', serviceData.id)
                 if (error) throw error
                 svcId = serviceData.id
-                await sb.from('service_items').delete().eq('service_id', svcId)
+                const { error: errMudo20 } = await sb.from('service_items').delete().eq('service_id', svcId)
+                if (errMudo20) throw errMudo20
             } else {
                 const { data: d, error } = await sb.from('services')
                     .insert({ ...data, tenant_id: tid })
@@ -760,7 +761,8 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
                     const n = parseInt(s.code, 10)
                     if (!isNaN(n) && n > maxNum) maxNum = n
                 }
-                await sb.from('services').update({ code: String(maxNum + 1) }).eq('id', svcId)
+                const { error: errMudo19 } = await sb.from('services').update({ code: String(maxNum + 1) }).eq('id', svcId)
+                if (errMudo19) throw errMudo19
             }
 
             if (tempItems.length > 0) {

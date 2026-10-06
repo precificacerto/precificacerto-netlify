@@ -269,7 +269,7 @@ export function CashflowSetupModal({ open, onDone }: { open: boolean; onDone: ()
           const prevMonthLastDay = new Date(now.getFullYear(), now.getMonth(), 0)
           const prevMonthDateStr = prevMonthLastDay.toISOString().substring(0, 10)
 
-          await supabase.from('cash_entries').insert({
+          const { error: errMudo1 } = await supabase.from('cash_entries').insert({
             tenant_id: tenantId,
             type: 'INCOME',
             origin_type: 'MANUAL',
@@ -278,6 +278,7 @@ export function CashflowSetupModal({ open, onDone }: { open: boolean; onDone: ()
             amount: estimatedMonthlyRevenue,
             due_date: prevMonthDateStr,
           })
+          if (errMudo1) throw errMudo1
         }
 
         await supabase
