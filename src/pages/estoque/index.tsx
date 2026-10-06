@@ -902,10 +902,11 @@ function Stock() {
                 .eq('id', targetId)
             if (deactivateError) throw deactivateError
 
-            await supabase
+            const { error: errMudo92 } = await supabase
                 .from('stock')
                 .update({ is_active: false, updated_at: nowIso })
                 .eq(record.type === 'PRODUCT' ? 'product_id' : 'item_id', targetId)
+            if (errMudo92) throw errMudo92
 
             messageApi.success(`${record.type === 'PRODUCT' ? 'Produto' : 'Item'} excluído.`)
             // Ordem importa: o cache de produtos primeiro. `reloadStock()` dispara o efeito
@@ -968,16 +969,18 @@ function Stock() {
                 return
             }
             const newQty = Math.max(0, selectedItem.currentQty - qtyToRemove)
-            await supabase
+            const { error: errMudo91 } = await supabase
                 .from('stock')
                 .update({ quantity_current: newQty, updated_at: new Date().toISOString() })
                 .eq('id', selectedItem.id)
-            await supabase.from('stock_movements').insert({
+            if (errMudo91) throw errMudo91
+            const { error: errMudo90 } = await supabase.from('stock_movements').insert({
                 stock_id: selectedItem.id,
                 delta_quantity: -qtyToRemove,
                 reason: values.reason || 'Baixa de quantidade (exclusão parcial/total)',
                 created_by: createdBy,
             })
+            if (errMudo90) throw errMudo90
             if (selectedItem.type === 'ITEM' && selectedItem.raw.item_id) {
                 const { data: itemRow } = await supabase
                     .from('items')
@@ -989,7 +992,7 @@ function Stock() {
                     const newItemQty = Math.max(0, currentItemQty - qtyToRemove)
                     const unitCost = selectedItem.costPrice || 0
                     const newCostTotal = newItemQty * unitCost
-                    await supabase
+                    const { error: errMudo89 } = await supabase
                         .from('items')
                         .update({
                             quantity: newItemQty,
@@ -997,6 +1000,7 @@ function Stock() {
                             updated_at: new Date().toISOString(),
                         })
                         .eq('id', selectedItem.raw.item_id)
+                    if (errMudo89) throw errMudo89
                 }
             }
             messageApi.success(`Quantidade de ${qtyToRemove} ${selectedItem.unit} excluída.`)
@@ -1051,12 +1055,13 @@ function Stock() {
                     : unitCostNew
                 const finalQty = qtyOld + qtyNew
 
-                await supabase.from('stock')
+                const { error: errMudo88 } = await supabase.from('stock')
                     .update({ quantity_current: finalQty, updated_at: new Date().toISOString() })
                     .eq('id', selectedItem.id)
+                if (errMudo88) throw errMudo88
 
                 if (selectedItem.raw.item_id) {
-                    await supabase.from('items')
+                    const { error: errMudo87 } = await supabase.from('items')
                         .update({
                             quantity: finalQty,
                             cost_per_base_unit: newAvgCost,
@@ -1064,34 +1069,38 @@ function Stock() {
                             updated_at: new Date().toISOString(),
                         })
                         .eq('id', selectedItem.raw.item_id)
+                    if (errMudo87) throw errMudo87
                 }
 
-                await supabase.from('stock_movements').insert({
+                const { error: errMudo86 } = await supabase.from('stock_movements').insert({
                     stock_id: selectedItem.id,
                     delta_quantity: qtyNew,
                     reason: values.description || `Reabastecimento — ${formatCurrency(effectiveValue)} (custo médio: ${formatCurrency(newAvgCost)})`,
                     created_by: createdBy,
                 })
+                if (errMudo86) throw errMudo86
 
                 messageApi.success(`Entrada registrada! Novo custo médio: ${formatCurrency(newAvgCost)}`)
             } else {
                 const delta = -Number(values.quantity)
                 const newQty = Math.max(0, selectedItem.currentQty + delta)
 
-                await supabase.from('stock_movements').insert({
+                const { error: errMudo85 } = await supabase.from('stock_movements').insert({
                     stock_id: selectedItem.id,
                     delta_quantity: delta,
                     reason: values.description || null,
                     created_by: createdBy,
                 })
-                await supabase.from('stock')
+                if (errMudo85) throw errMudo85
+                const { error: errMudo84 } = await supabase.from('stock')
                     .update({ quantity_current: newQty, updated_at: new Date().toISOString() })
                     .eq('id', selectedItem.id)
+                if (errMudo84) throw errMudo84
 
                 if (selectedItem.type === 'ITEM' && selectedItem.raw.item_id) {
                     const unitCost = selectedItem.costPrice || 0
                     const newCostTotal = newQty * unitCost
-                    await supabase
+                    const { error: errMudo83 } = await supabase
                         .from('items')
                         .update({
                             quantity: newQty,
@@ -1099,6 +1108,7 @@ function Stock() {
                             updated_at: new Date().toISOString(),
                         })
                         .eq('id', selectedItem.raw.item_id)
+                    if (errMudo83) throw errMudo83
                 }
 
                 messageApi.success('Saída registrada!')

@@ -1034,7 +1034,8 @@ function OrdersPage() {
             if (upErr) throw upErr
 
             // diff items: delete existentes, inserir atuais
-            await (supabase as any).from('order_items').delete().eq('order_id', editingOrder.id)
+            const { error: errMudo100 } = await (supabase as any).from('order_items').delete().eq('order_id', editingOrder.id)
+            if (errMudo100) throw errMudo100
 
             if (hydratedOrderItems.length > 0) {
                 const toInsert = hydratedOrderItems.map(({ src: it, inheritedCommPct, inheritedProfitPct, preservedTaxBreakdown }) => ({
@@ -1063,7 +1064,8 @@ function OrdersPage() {
             }
 
             // Persistir parcelas customizadas (cheque/boleto) — delete + reinsert
-            await (supabase as any).from('order_installment_rows').delete().eq('order_id', editingOrder.id)
+            const { error: errMudo99 } = await (supabase as any).from('order_installment_rows').delete().eq('order_id', editingOrder.id)
+            if (errMudo99) throw errMudo99
             const pm = values.payment_method
             if ((pm === 'BOLETO' || pm === 'CHEQUE_PRE_DATADO') && orderInstallmentRows.length > 0) {
                 const validRows = orderInstallmentRows
@@ -1075,7 +1077,8 @@ function OrdersPage() {
                         sort_order: i,
                     }))
                 if (validRows.length > 0) {
-                    await (supabase as any).from('order_installment_rows').insert(validRows)
+                    const { error: errMudo98 } = await (supabase as any).from('order_installment_rows').insert(validRows)
+                    if (errMudo98) throw errMudo98
                 }
             }
 
@@ -1252,7 +1255,8 @@ function OrdersPage() {
                         destination_snapshot: readSnapshotColumn(it),
                     }
                 })
-                await (supabase as any).from('budget_items').insert(budgetItems)
+                const { error: errMudo97 } = await (supabase as any).from('budget_items').insert(budgetItems)
+                if (errMudo97) throw errMudo97
             }
 
             // 3) Copiar parcelas customizadas (cheque/boleto) — order_installment_rows → budget_installment_rows
@@ -1263,7 +1267,7 @@ function OrdersPage() {
                 .order('sort_order')
 
             if (orderInstRows && orderInstRows.length > 0) {
-                await (supabase as any).from('budget_installment_rows').insert(
+                const { error: errMudo96 } = await (supabase as any).from('budget_installment_rows').insert(
                     orderInstRows.map((r: any) => ({
                         budget_id: newBudget.id,
                         due_date: r.due_date,
@@ -1271,6 +1275,7 @@ function OrdersPage() {
                         sort_order: r.sort_order,
                     }))
                 )
+                if (errMudo96) throw errMudo96
             }
 
             // 4) Atualizar pedido (vincula ao novo orçamento via budget_id, status SENT_TO_SALE).
@@ -1291,9 +1296,12 @@ function OrdersPage() {
 
             if (!updatedOrder) {
                 // Rollback: outra pessoa enviou o mesmo pedido antes
-                await (supabase as any).from('budget_items').delete().eq('budget_id', newBudget.id)
-                await (supabase as any).from('budget_installment_rows').delete().eq('budget_id', newBudget.id)
-                await (supabase as any).from('budgets').delete().eq('id', newBudget.id)
+                const { error: errMudo95 } = await (supabase as any).from('budget_items').delete().eq('budget_id', newBudget.id)
+                if (errMudo95) throw errMudo95
+                const { error: errMudo94 } = await (supabase as any).from('budget_installment_rows').delete().eq('budget_id', newBudget.id)
+                if (errMudo94) throw errMudo94
+                const { error: errMudo93 } = await (supabase as any).from('budgets').delete().eq('id', newBudget.id)
+                if (errMudo93) throw errMudo93
                 messageApi.warning('Este pedido já foi enviado por outra pessoa. Nenhuma alteração foi mantida.')
                 setSendToSaleOpen(false)
                 await fetchOrders()

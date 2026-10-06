@@ -505,10 +505,12 @@ function Products() {
         if (productStock) {
           const current = Number(productStock.quantity_current) || 0
           newProductQty = current + quantityProduced
-          await supabase.from('stock').update({ quantity_current: newProductQty, updated_at: new Date().toISOString() }).eq('id', productStock.id)
-          await supabase.from('stock_movements').insert({ stock_id: productStock.id, delta_quantity: quantityProduced, reason: `Renovar quantidade — ${quantityProduced} un.`, created_by: createdBy })
+          const { error: errMudo77 } = await supabase.from('stock').update({ quantity_current: newProductQty, updated_at: new Date().toISOString() }).eq('id', productStock.id)
+          if (errMudo77) throw errMudo77
+          const { error: errMudo76 } = await supabase.from('stock_movements').insert({ stock_id: productStock.id, delta_quantity: quantityProduced, reason: `Renovar quantidade — ${quantityProduced} un.`, created_by: createdBy })
+          if (errMudo76) throw errMudo76
         } else {
-          await supabase.from('stock').insert({
+          const { error: errMudo75 } = await supabase.from('stock').insert({
             tenant_id: tenantId,
             product_id: productId,
             stock_type: 'PRODUCT',
@@ -516,12 +518,15 @@ function Products() {
             min_limit: 0,
             unit: product.yield_unit || 'UN',
           })
+          if (errMudo75) throw errMudo75
           const { data: newSt } = await supabase.from('stock').select('id').eq('product_id', productId).eq('stock_type', 'PRODUCT').single()
           if (newSt) {
-            await supabase.from('stock_movements').insert({ stock_id: newSt.id, delta_quantity: quantityProduced, reason: `Renovar quantidade — ${quantityProduced} un.`, created_by: createdBy })
+            const { error: errMudo74 } = await supabase.from('stock_movements').insert({ stock_id: newSt.id, delta_quantity: quantityProduced, reason: `Renovar quantidade — ${quantityProduced} un.`, created_by: createdBy })
+            if (errMudo74) throw errMudo74
           }
         }
-        await supabase.from('products').update({ quantity: newProductQty, updated_at: new Date().toISOString() }).eq('id', productId)
+        const { error: errMudo73 } = await supabase.from('products').update({ quantity: newProductQty, updated_at: new Date().toISOString() }).eq('id', productId)
+        if (errMudo73) throw errMudo73
         message.success(`Quantidade de ${quantityProduced} un. adicionada ao produto!`)
         setRenewDrawerOpen(false)
         renewForm.resetFields()
@@ -571,12 +576,13 @@ function Products() {
 
       for (const pi of product.product_items) {
         const quantityUsed = (Number(pi.quantity_needed) || 0) * quantityProduced
-        await supabase.from('production_items').insert({
+        const { error: errMudo72 } = await supabase.from('production_items').insert({
           production_id: production.id,
           item_id: pi.item_id,
           quantity_used: quantityUsed,
           unit: (pi.items as any)?.unit || 'UN',
         })
+        if (errMudo72) throw errMudo72
       }
 
       for (const r of required) {
@@ -589,15 +595,18 @@ function Products() {
           .single()
         if (st) {
           const newQty = Math.max(0, (Number(st.quantity_current) || 0) - quantityUsed)
-          await supabase.from('stock').update({ quantity_current: newQty, updated_at: new Date().toISOString() }).eq('id', st.id)
-          await supabase.from('stock_movements').insert({ stock_id: st.id, delta_quantity: -quantityUsed, reason: `Produção — ${product.name}`, created_by: createdBy })
+          const { error: errMudo71 } = await supabase.from('stock').update({ quantity_current: newQty, updated_at: new Date().toISOString() }).eq('id', st.id)
+          if (errMudo71) throw errMudo71
+          const { error: errMudo70 } = await supabase.from('stock_movements').insert({ stock_id: st.id, delta_quantity: -quantityUsed, reason: `Produção — ${product.name}`, created_by: createdBy })
+          if (errMudo70) throw errMudo70
         }
         const { data: itemRow } = await supabase.from('items').select('quantity, cost_per_base_unit').eq('id', r.item_id).single()
         if (itemRow) {
           const newItemQty = Math.max(0, (Number(itemRow.quantity) || 0) - quantityUsed)
           const unitCost = Number(itemRow.cost_per_base_unit) || 0
           const newCostTotal = newItemQty * unitCost
-          await supabase.from('items').update({ quantity: newItemQty, cost_price: newCostTotal, updated_at: new Date().toISOString() }).eq('id', r.item_id)
+          const { error: errMudo69 } = await supabase.from('items').update({ quantity: newItemQty, cost_price: newCostTotal, updated_at: new Date().toISOString() }).eq('id', r.item_id)
+          if (errMudo69) throw errMudo69
         }
       }
 
@@ -611,10 +620,12 @@ function Products() {
       if (productStock) {
         const current = Number(productStock.quantity_current) || 0
         newProductQty = current + quantityProduced
-        await supabase.from('stock').update({ quantity_current: newProductQty, updated_at: new Date().toISOString() }).eq('id', productStock.id)
-        await supabase.from('stock_movements').insert({ stock_id: productStock.id, delta_quantity: quantityProduced, reason: `Produção — ${quantityProduced} un.`, created_by: createdBy })
+        const { error: errMudo68 } = await supabase.from('stock').update({ quantity_current: newProductQty, updated_at: new Date().toISOString() }).eq('id', productStock.id)
+        if (errMudo68) throw errMudo68
+        const { error: errMudo67 } = await supabase.from('stock_movements').insert({ stock_id: productStock.id, delta_quantity: quantityProduced, reason: `Produção — ${quantityProduced} un.`, created_by: createdBy })
+        if (errMudo67) throw errMudo67
       } else {
-        await supabase.from('stock').insert({
+        const { error: errMudo66 } = await supabase.from('stock').insert({
           tenant_id: tenantId,
           product_id: productId,
           stock_type: 'PRODUCT',
@@ -622,12 +633,15 @@ function Products() {
           min_limit: 0,
           unit: product.yield_unit || 'UN',
         })
+        if (errMudo66) throw errMudo66
         const { data: newSt } = await supabase.from('stock').select('id').eq('product_id', productId).eq('stock_type', 'PRODUCT').single()
         if (newSt) {
-          await supabase.from('stock_movements').insert({ stock_id: newSt.id, delta_quantity: quantityProduced, reason: `Produção — ${quantityProduced} un.`, created_by: createdBy })
+          const { error: errMudo65 } = await supabase.from('stock_movements').insert({ stock_id: newSt.id, delta_quantity: quantityProduced, reason: `Produção — ${quantityProduced} un.`, created_by: createdBy })
+          if (errMudo65) throw errMudo65
         }
       }
-      await supabase.from('products').update({ quantity: newProductQty, updated_at: new Date().toISOString() }).eq('id', productId)
+      const { error: errMudo64 } = await supabase.from('products').update({ quantity: newProductQty, updated_at: new Date().toISOString() }).eq('id', productId)
+      if (errMudo64) throw errMudo64
 
       // Recalcular custo do produto com valor unitário atual dos ingredientes e atualizar preço de venda (lucro e comissão já cadastrados)
       const itemIdsRenew = product.product_items.map((pi: any) => pi.item_id)
@@ -646,10 +660,11 @@ function Products() {
         batchCost += qty * unitCost
       }
       const costUnit = batchCost
-      await supabase
+      const { error: errMudo63 } = await supabase
         .from('products')
         .update({ cost_total: costUnit, updated_at: new Date().toISOString() })
         .eq('id', productId)
+      if (errMudo63) throw errMudo63
 
       const workloadMinutes = Number(product?.pricing_calculations?.[0]?.product_workload) || 0
       const { data: calcResult } = await supabase.functions.invoke('calc-tax-engine', {
@@ -664,10 +679,11 @@ function Products() {
         },
       })
       if (calcResult?.success && calcResult?.sale_price_per_unit != null) {
-        await supabase.from('products').update({
+        const { error: errMudo62 } = await supabase.from('products').update({
           sale_price: Number(calcResult.sale_price_per_unit) || 0,
           updated_at: new Date().toISOString(),
         }).eq('id', productId)
+        if (errMudo62) throw errMudo62
       }
 
       message.success(`Produção de ${quantityProduced} un. registrada! Preço de venda mantido com os percentuais já cadastrados.`)
@@ -727,10 +743,11 @@ function Products() {
         }
       }
 
-      await supabase
+      const { error: errMudo61 } = await supabase
         .from('products')
         .update({ cost_total: costTotal, updated_at: new Date().toISOString() })
         .eq('id', productId)
+      if (errMudo61) throw errMudo61
 
       const { data: pricingRow } = await supabase
         .from('pricing_calculations')
@@ -753,16 +770,18 @@ function Products() {
         },
       })
       if (calcResult?.success && calcResult?.sale_price_per_unit != null) {
-        await supabase
+        const { error: errMudo60 } = await supabase
           .from('products')
           .update({ sale_price: Number(calcResult.sale_price_per_unit) || 0, updated_at: new Date().toISOString() })
           .eq('id', productId)
+        if (errMudo60) throw errMudo60
       }
 
-      await supabase
+      const { error: errMudo59 } = await supabase
         .from('products')
         .update({ needs_cost_update: false })
         .eq('id', productId)
+      if (errMudo59) throw errMudo59
 
       await Promise.all([reloadProducts(), reloadStock()])
     } catch (e: any) {
@@ -859,17 +878,20 @@ function Products() {
         setSavingDeleteQty(false)
         return
       }
-      await supabase
+      const { error: errMudo58 } = await supabase
         .from('stock')
         .update({ quantity_current: newQty, updated_at: new Date().toISOString() })
         .eq('id', stockId)
-      await supabase.from('stock_movements').insert({
+      if (errMudo58) throw errMudo58
+      const { error: errMudo57 } = await supabase.from('stock_movements').insert({
         stock_id: stockId,
         delta_quantity: -qtyToRemove,
         reason: values.reason || 'Baixa de quantidade (exclusão parcial/total)',
         created_by: createdBy,
       })
-      await supabase.from('products').update({ quantity: newQty, updated_at: new Date().toISOString() }).eq('id', selectedProductForDelete.id)
+      if (errMudo57) throw errMudo57
+      const { error: errMudo56 } = await supabase.from('products').update({ quantity: newQty, updated_at: new Date().toISOString() }).eq('id', selectedProductForDelete.id)
+      if (errMudo56) throw errMudo56
 
       message.success(`Quantidade de ${qtyToRemove} ${unit} excluída do produto.`)
       setDeleteQtyDrawerOpen(false)
