@@ -324,7 +324,7 @@ function Schedule() {
                     .eq('tenant_id', tid)
                 if (error) throw error
                 setBookingCfg({ ...bookingCfg, is_enabled: ativo })
-            } catch (e: any) { msgApi.error(e?.message || '') }
+            } catch (e: any) { msgApi.error(e?.message || 'Não foi possível alterar o agendamento pelo link. Nada foi salvo — tente de novo.') }
         },
         onSalvarConfiguracao: async (patch: Partial<ConfiguracaoDoAgendamento>) => {
             if (!bookingCfg) return
@@ -335,7 +335,7 @@ function Schedule() {
                     .eq('tenant_id', tid)
                 if (error) throw error
                 setBookingCfg({ ...bookingCfg, ...patch })
-            } catch (e: any) { msgApi.error(e?.message || '') }
+            } catch (e: any) { msgApi.error(e?.message || 'Não foi possível salvar as configurações. Nada foi salvo — tente de novo.') }
         },
         // §2 — UM insert com array. Atômico no Postgres: as sete linhas entram juntas ou
         // nenhuma entra. Um laço de inserts deixaria metade gravada se o terceiro falhasse, e
@@ -392,7 +392,7 @@ function Schedule() {
                     .eq('tenant_id', tid).eq('employee_id', employee_id)
                 if (error) throw error
                 setBookingGrade(prev => prev.map(f => (f.employee_id === employee_id ? { ...f, is_active: ativo } : f)))
-            } catch (e: any) { msgApi.error(e?.message || '') }
+            } catch (e: any) { msgApi.error(e?.message || 'Não foi possível alterar o profissional. Nada foi salvo — tente de novo.') }
         },
         // §3 — a cópia da grade vai pela ROTA DE API, não daqui.
         //
@@ -415,7 +415,7 @@ function Schedule() {
                     msgApi.success('Grade aplicada.')
                 }
                 await fetchBookingConfig()
-            } catch (e: any) { msgApi.error(e?.message || '') }
+            } catch (e: any) { msgApi.error(e?.message || 'Não foi possível aplicar a grade. A grade de destino pode ter ficado incompleta — confira antes de tentar de novo.') }
         },
         onRemoverFolga: async (id: string) => {
             try {
