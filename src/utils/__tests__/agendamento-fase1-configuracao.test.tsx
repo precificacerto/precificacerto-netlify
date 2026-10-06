@@ -669,16 +669,58 @@ describe('a migração liga RLS com política nas QUATRO operações, no MESMO a
 })
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════
-describe('§5 — EXPOSIÇÃO ZERO: nada de rota pública nesta fase', () => {
-  // A trava central do comando, e o único portão que a alcança: nenhum caso de comportamento
-  // ficaria vermelho se alguém acrescentasse `pages/agendar/[token].tsx` amanhã.
-  it('não existe página `/agendar`', () => {
-    expect(fs.existsSync(path.join(RAIZ, 'src/pages/agendar'))).toBe(false)
-    expect(fs.existsSync(path.join(RAIZ, 'src/pages/agendar.tsx'))).toBe(false)
+describe('a superfície pública — a trava mudou de forma na FASE 2', () => {
+  // >>> OS DOIS CASOS DE "NÃO EXISTE" FORAM SUBSTITUÍDOS, NÃO APAGADOS <<<
+  //
+  // Na fase 1 (05/10/2026) a trava era exposição ZERO: `pages/agendar` e `api/public` NÃO podiam
+  // existir, e os dois casos afirmavam a ausência. A fase 2 (06/10/2026) cria os dois de
+  // propósito — mantê-los vermelhos seria o portão barrando o trabalho que o comando pediu, e
+  // apagá-los deixaria a superfície nova sem portão nenhum.
+  //
+  // O que substitui a ausência é o que a fase 2 tem de garantir: a superfície existe e é
+  // GUARDADA PELO TOKEN. O link continua nascendo DESLIGADO em toda tenant.
+  it('a página pública existe e NÃO fala com o supabase do navegador', () => {
+    const pag = path.join(RAIZ, 'src/pages/agendar/[token].tsx')
+    expect(fs.existsSync(pag)).toBe(true)
+    // >>> OS COMENTÁRIOS SAEM ANTES DA ASSERÇÃO <<<
+    // O cabeçalho da página MENCIONA `import { supabase }` para dizer que ele não está lá. Casar
+    // com a menção deixaria o caso vermelho sobre código correto — é o mesmo erro que o caso do
+    // `Math.random` cometeu nesta campanha, e a correção é a mesma: medir o PROGRAMA, não a prosa.
+    const bruto = fs.readFileSync(pag, 'utf8')
+    const txt = bruto
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .split('\n').filter((l) => !l.trim().startsWith('//')).join('\n')
+    // Zero import de client: a página só conversa com /api/public/agenda/*. Um import aqui
+    // levaria a anon key ao navegador de qualquer visitante.
+    expect(txt).not.toMatch(/from '@\/supabase/)
+    expect(txt).not.toMatch(/createClient/)
+    expect(txt).not.toMatch(/supabase/i)
   })
 
-  it('não existe rota em `/api/public`', () => {
-    expect(fs.existsSync(path.join(RAIZ, 'src/pages/api/public'))).toBe(false)
+  it('as quatro rotas públicas existem', () => {
+    const base = path.join(RAIZ, 'src/pages/api/public/agenda/[token]')
+    for (const f of ['index.ts', 'servicos.ts', 'horarios.ts', 'agendar.ts']) {
+      expect(fs.existsSync(path.join(base, f))).toBe(true)
+    }
+  })
+
+  it('NENHUMA rota pública lê tenant_id do pedido — o tenant sai do TOKEN', () => {
+    const base = path.join(RAIZ, 'src/pages/api/public/agenda/[token]')
+    for (const f of ['index.ts', 'servicos.ts', 'horarios.ts', 'agendar.ts']) {
+      const txt = fs.readFileSync(path.join(base, f), 'utf8')
+      expect(txt).toContain('contextoDoToken(req.query.token)')
+      // nem no corpo, nem na query, nem em header
+      expect(txt).not.toMatch(/req\.body[^\n]*tenant_id/)
+      expect(txt).not.toMatch(/req\.query[^\n]*tenant_id/)
+      expect(txt).not.toMatch(/req\.headers[^\n]*tenant/i)
+    }
+  })
+
+  it('a resolução do token FILTRA por is_enabled — token desligado é igual a inexistente', () => {
+    const lib = fs.readFileSync(path.join(RAIZ, 'src/lib/agendamento-publico.ts'), 'utf8')
+    expect(lib).toContain(".eq('is_enabled', true)")
+    // E não existe ramo "existe mas está off" por onde a diferença possa escapar.
+    expect(lib).not.toMatch(/is_enabled[^\n]*false/)
   })
 
   it('a rota que gera o token EXIGE sessão — `getCallerContext`', () => {

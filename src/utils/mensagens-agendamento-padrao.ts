@@ -28,13 +28,22 @@ export const VARIAVEIS_DAS_MENSAGENS = [
   '{codigo}',
 ] as const
 
+/**
+ * >>> A LINHA DO {codigo} SAIU EM 06/10/2026, E VOLTA NA RODADA DO CANCELAMENTO <<<
+ *
+ * Decisão do PO: cancelar e alterar pelo link ainda NÃO existem. Mandar "use o código X" para o
+ * cliente numa mensagem de confirmação é prometer uma ação que a tela não tem — ele tentaria,
+ * não acharia onde, e ligaria para o salão. Promessa que o sistema não cumpre é pior que ausência
+ * de promessa, e é a mesma razão de `ausente-vs-falso.md`: afirmar o que não existe.
+ *
+ * `{codigo}` CONTINUA em `VARIAVEIS_DAS_MENSAGENS` e nas outras duas mensagens, porque as de
+ * cancelamento e alteração só são enviadas quando a ação já aconteceu — ali o código faz sentido.
+ */
 export const MENSAGEM_CONFIRMACAO_PADRAO = `Olá {cliente}, seu agendamento está confirmado.
 
 {servico} com {profissional}
 {data} às {hora}
-{empresa}
-
-Precisa cancelar ou mudar o horário? Use o código {codigo}.`
+{empresa}`
 
 export const MENSAGEM_CANCELAMENTO_PADRAO = `Olá {cliente}, seu agendamento foi cancelado.
 
