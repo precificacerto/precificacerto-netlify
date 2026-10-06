@@ -32,11 +32,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     }
 
-    await supabaseAdmin
+    const { error: errMudo57 } = await supabaseAdmin
       .from('users')
       .update({ wuzapi_token: null })
       .eq('id', caller.user_id)
       .eq('tenant_id', caller.tenant_id)
+    if (errMudo57) throw errMudo57
 
     return res.status(200).json({ ok: true })
   } catch (error: any) {

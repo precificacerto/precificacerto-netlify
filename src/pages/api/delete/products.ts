@@ -37,18 +37,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     // Clean up references before deleting
-    await supabaseAdmin.from('budget_items').update({ product_id: null }).eq('product_id', id)
-    await supabaseAdmin.from('product_items').delete().eq('product_id', id)
-    await supabaseAdmin.from('pricing_calculations').delete().eq('product_id', id)
-    await supabaseAdmin.from('stock_movements').delete().in('stock_id',
+    const { error: errMudo18 } = await supabaseAdmin.from('budget_items').update({ product_id: null }).eq('product_id', id)
+    if (errMudo18) throw errMudo18
+    const { error: errMudo17 } = await supabaseAdmin.from('product_items').delete().eq('product_id', id)
+    if (errMudo17) throw errMudo17
+    const { error: errMudo16 } = await supabaseAdmin.from('pricing_calculations').delete().eq('product_id', id)
+    if (errMudo16) throw errMudo16
+    const { error: errMudo15 } = await supabaseAdmin.from('stock_movements').delete().in('stock_id',
       (await supabaseAdmin.from('stock').select('id').eq('product_id', id)).data?.map((s: any) => s.id) || []
     )
-    await supabaseAdmin.from('stock').delete().eq('product_id', id)
-    await supabaseAdmin.from('labor_costs').delete().eq('product_id', id)
-    await supabaseAdmin.from('production_items').delete().in('production_id',
+    if (errMudo15) throw errMudo15
+    const { error: errMudo14 } = await supabaseAdmin.from('stock').delete().eq('product_id', id)
+    if (errMudo14) throw errMudo14
+    const { error: errMudo13 } = await supabaseAdmin.from('labor_costs').delete().eq('product_id', id)
+    if (errMudo13) throw errMudo13
+    const { error: errMudo12 } = await supabaseAdmin.from('production_items').delete().in('production_id',
       (await supabaseAdmin.from('productions').select('id').eq('product_id', id)).data?.map((p: any) => p.id) || []
     )
-    await supabaseAdmin.from('productions').delete().eq('product_id', id)
+    if (errMudo12) throw errMudo12
+    const { error: errMudo11 } = await supabaseAdmin.from('productions').delete().eq('product_id', id)
+    if (errMudo11) throw errMudo11
 
     const { error } = await supabaseAdmin.from('products').delete().eq('id', id).eq('tenant_id', caller.tenant_id)
     if (error) throw error

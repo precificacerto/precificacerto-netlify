@@ -81,10 +81,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (nextStatus === 'SUSPENDED' || nextStatus === 'CANCELLED') {
-      await supabaseAdmin
+      const { error: errMudo5 } = await supabaseAdmin
         .from('users')
         .update({ is_active: false, updated_at: new Date().toISOString() })
         .eq('tenant_id', t.id)
+      if (errMudo5) throw errMudo5
     }
 
     results.push({ tenant_id: t.id, from: t.plan_status, to: nextStatus, reason })

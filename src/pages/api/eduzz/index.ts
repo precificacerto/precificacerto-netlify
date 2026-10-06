@@ -71,8 +71,10 @@ export default async function webhook(req: NextApiRequest, res: NextApiResponse)
 
       if (userError) throw userError
 
-      await supabaseAdmin.from('tenant_settings').insert({ tenant_id: tenant.id })
-      await supabaseAdmin.from('tenant_expense_config').insert({ tenant_id: tenant.id })
+      const { error: errMudo22 } = await supabaseAdmin.from('tenant_settings').insert({ tenant_id: tenant.id })
+      if (errMudo22) throw errMudo22
+      const { error: errMudo21 } = await supabaseAdmin.from('tenant_expense_config').insert({ tenant_id: tenant.id })
+      if (errMudo21) throw errMudo21
 
       res.json({
         result: { createdUser: newUser },

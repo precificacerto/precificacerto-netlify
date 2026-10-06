@@ -69,8 +69,10 @@ async function handleCreate(res: NextApiResponse, employee: any, tenant_id: stri
 async function applyPermissions(supabase: typeof supabaseAdmin, tenant_id: string, userId: string, perms: any) {
     if (!perms?.modules) return
 
-    await supabase.from('user_module_permissions').delete().eq('user_id', userId).eq('tenant_id', tenant_id)
-    await supabase.from('user_item_access').delete().eq('user_id', userId).eq('tenant_id', tenant_id)
+    const { error: errMudo32 } = await supabase.from('user_module_permissions').delete().eq('user_id', userId).eq('tenant_id', tenant_id)
+    if (errMudo32) throw errMudo32
+    const { error: errMudo31 } = await supabase.from('user_item_access').delete().eq('user_id', userId).eq('tenant_id', tenant_id)
+    if (errMudo31) throw errMudo31
 
     const moduleRows = Object.entries(perms.modules).map(([mod, p]: [string, any]) => ({
         tenant_id,
@@ -81,17 +83,19 @@ async function applyPermissions(supabase: typeof supabaseAdmin, tenant_id: strin
         granted_by: perms.granted_by || null,
     }))
     if (moduleRows.length > 0) {
-        await supabase.from('user_module_permissions').insert(moduleRows)
+        const { error: errMudo30 } = await supabase.from('user_module_permissions').insert(moduleRows)
+        if (errMudo30) throw errMudo30
     }
 
     if (perms.item_access_mode === 'all') {
-        await supabase.from('user_item_access').insert({
+        const { error: errMudo29 } = await supabase.from('user_item_access').insert({
             tenant_id,
             user_id: userId,
             access_all_items: true,
             item_id: null,
             granted_by: perms.granted_by || null,
         })
+        if (errMudo29) throw errMudo29
     } else if (perms.item_ids?.length > 0) {
         const itemRows = perms.item_ids.map((itemId: string) => ({
             tenant_id,
@@ -100,7 +104,8 @@ async function applyPermissions(supabase: typeof supabaseAdmin, tenant_id: strin
             access_all_items: false,
             granted_by: perms.granted_by || null,
         }))
-        await supabase.from('user_item_access').insert(itemRows)
+        const { error: errMudo28 } = await supabase.from('user_item_access').insert(itemRows)
+        if (errMudo28) throw errMudo28
     }
 }
 
@@ -121,7 +126,7 @@ async function handleUpdate(res: NextApiResponse, editing_id: string, employee: 
         const { data: u } = await supabaseAdmin.from('users').select('is_super_admin').eq('id', user_id).single()
         if (!u?.is_super_admin) {
             const nextRole = employee.user_role === 'admin' ? 'admin' : undefined
-            await supabaseAdmin
+            const { error: errMudo27 } = await supabaseAdmin
                 .from('users')
                 .update({
                     name: employee.name,
@@ -131,6 +136,7 @@ async function handleUpdate(res: NextApiResponse, editing_id: string, employee: 
                     updated_at: new Date().toISOString(),
                 })
                 .eq('id', user_id)
+            if (errMudo27) throw errMudo27
         }
     }
 
@@ -172,7 +178,8 @@ async function handleUpdate(res: NextApiResponse, editing_id: string, employee: 
 
     if (pendingPerms && user_id) {
         await applyPermissions(supabaseAdmin, tenant_id, user_id, pendingPerms)
-        await supabaseAdmin.from('employees').update({ pending_permissions: null }).eq('id', editing_id)
+        const { error: errMudo26 } = await supabaseAdmin.from('employees').update({ pending_permissions: null }).eq('id', editing_id)
+        if (errMudo26) throw errMudo26
     }
 
     return res.status(200).json({ success: true, employee: updated })

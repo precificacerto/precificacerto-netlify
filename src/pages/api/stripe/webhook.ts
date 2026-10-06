@@ -397,7 +397,7 @@ async function handleInvoicePaid(invoice: Stripe.Invoice) {
 
   const now = new Date().toISOString()
 
-  await supabaseAdmin
+  const { error: errMudo50 } = await supabaseAdmin
     .from('tenants')
     .update({
       plan_ends_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
@@ -405,12 +405,14 @@ async function handleInvoicePaid(invoice: Stripe.Invoice) {
       updated_at: now,
     })
     .eq('id', tenant.id)
+  if (errMudo50) throw errMudo50
 
   // Reativa todos os usuários da tenant quando o pagamento é confirmado.
-  await supabaseAdmin
+  const { error: errMudo49 } = await supabaseAdmin
     .from('users')
     .update({ is_active: true, updated_at: now })
     .eq('tenant_id', tenant.id)
+  if (errMudo49) throw errMudo49
 
   const amount = (invoice.amount_paid ?? 0) / 100
   const customerId = typeof invoice.customer === 'string' ? invoice.customer : (invoice.customer as any)?.id
@@ -480,7 +482,8 @@ async function maybeSendContractOnFirstPayment(
     // Aproveita o CPF/CNPJ coletado no Stripe para completar o cadastro do tenant.
     if (taxIdFromStripe && !tenant.cnpj_cpf) patch.cnpj_cpf = taxIdFromStripe
 
-    await supabaseAdmin.from('tenants').update(patch).eq('id', tenant.id)
+    const { error: errMudo48 } = await supabaseAdmin.from('tenants').update(patch).eq('id', tenant.id)
+    if (errMudo48) throw errMudo48
 
     if (process.env.NODE_ENV === 'development') console.log('invoice.paid: contrato enviado ao cliente')
   } catch (err: unknown) {
@@ -505,7 +508,7 @@ async function handleInvoicePaymentFailed(invoice: Stripe.Invoice) {
   const amount = (invoice.amount_due ?? 0) / 100
   const customerId = typeof invoice.customer === 'string' ? invoice.customer : (invoice.customer as any)?.id
 
-  await supabaseAdmin.from('tenant_billing').insert({
+  const { error: errMudo47 } = await supabaseAdmin.from('tenant_billing').insert({
     tenant_id: tenant.id,
     status: 'OVERDUE',
     amount,
@@ -513,11 +516,13 @@ async function handleInvoicePaymentFailed(invoice: Stripe.Invoice) {
     stripe_customer_id: customerId,
     external_id: invoice.id,
   })
+  if (errMudo47) throw errMudo47
 
-  await supabaseAdmin
+  const { error: errMudo46 } = await supabaseAdmin
     .from('tenants')
     .update({ plan_status: 'SUSPENDED', updated_at: new Date().toISOString() })
     .eq('id', tenant.id)
+  if (errMudo46) throw errMudo46
 
   await notifySalesEvent({
     kind: 'PAYMENT_FAILED',
@@ -550,7 +555,7 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
     return
   }
 
-  await supabaseAdmin
+  const { error: errMudo45 } = await supabaseAdmin
     .from('tenants')
     .update({
       plan_status: 'CANCELLED',
@@ -558,6 +563,7 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
     })
     .eq('id', tenant.id)
     .eq('stripe_subscription_id', subscriptionId)
+  if (errMudo45) throw errMudo45
 
   await notifySalesEvent({
     kind: 'SUBSCRIPTION_CANCELLED',
@@ -624,7 +630,7 @@ async function insertBillingRecord(
   customerId?: string,
   externalId?: string
 ) {
-  await supabaseAdmin.from('tenant_billing').insert({
+  const { error: errMudo44 } = await supabaseAdmin.from('tenant_billing').insert({
     tenant_id: tenantId,
     status: 'PAID',
     amount,
@@ -633,4 +639,5 @@ async function insertBillingRecord(
     stripe_customer_id: customerId,
     external_id: externalId,
   })
+  if (errMudo44) throw errMudo44
 }

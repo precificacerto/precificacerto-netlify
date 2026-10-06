@@ -264,10 +264,11 @@ async function processReminderEvent(ev: EventRow): Promise<{ event_id: string; s
         const sendResult = await sendWhatsAppWithRetry(token, phoneVariants, text)
 
         if (sendResult.sent) {
-            await supabaseAdmin
+            const { error: errMudo67 } = await supabaseAdmin
                 .from('tenant_settings')
                 .update({ last_whatsapp_send_at: new Date().toISOString(), updated_at: new Date().toISOString() })
                 .eq('tenant_id', ev.tenant_id)
+            if (errMudo67) throw errMudo67
             return { event_id: ev.id, sent: true }
         }
 

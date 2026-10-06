@@ -20,10 +20,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
         for (const admin of superAdmins || []) {
             if (admin.role !== 'super_admin') {
-                await supabaseAdmin
+                const { error: errMudo3 } = await supabaseAdmin
                     .from('users')
                     .update({ role: 'super_admin', updated_at: new Date().toISOString() })
                     .eq('id', admin.id)
+                if (errMudo3) throw errMudo3
                 results.push(`Fixed role for user ${admin.email}: ${admin.role} -> super_admin`)
             }
 
@@ -53,10 +54,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 .single()
 
             if (matchedUser) {
-                await supabaseAdmin
+                const { error: errMudo2 } = await supabaseAdmin
                     .from('employees')
                     .update({ user_id: matchedUser.id, updated_at: new Date().toISOString() })
                     .eq('id', emp.id)
+                if (errMudo2) throw errMudo2
                 results.push(`Linked employee ${emp.email} -> user ${matchedUser.id}`)
             }
         }

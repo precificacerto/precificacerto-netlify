@@ -65,7 +65,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
         // Copiar pending_permissions para user_module_permissions para que o admin veja/edite em Usuários > Permissões
         if (pending?.modules && typeof pending.modules === 'object') {
-            await supabaseAdmin.from('user_module_permissions').delete().eq('user_id', userId).eq('tenant_id', tenantId)
+            const { error: errMudo25 } = await supabaseAdmin.from('user_module_permissions').delete().eq('user_id', userId).eq('tenant_id', tenantId)
+            if (errMudo25) throw errMudo25
             const moduleRows = Object.entries(pending.modules).map(([mod, p]: [string, any]) => ({
                 tenant_id: tenantId,
                 user_id: userId,
@@ -75,9 +76,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 granted_by: pending.granted_by ?? null,
             }))
             if (moduleRows.length > 0) {
-                await supabaseAdmin.from('user_module_permissions').insert(moduleRows)
+                const { error: errMudo24 } = await supabaseAdmin.from('user_module_permissions').insert(moduleRows)
+                if (errMudo24) throw errMudo24
             }
-            await supabaseAdmin.from('employees').update({ pending_permissions: null }).eq('user_id', userId).eq('tenant_id', tenantId)
+            const { error: errMudo23 } = await supabaseAdmin.from('employees').update({ pending_permissions: null }).eq('user_id', userId).eq('tenant_id', tenantId)
+            if (errMudo23) throw errMudo23
         }
 
         return res.status(200).json({

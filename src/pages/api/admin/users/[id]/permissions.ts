@@ -49,7 +49,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   )
 
   try {
-    await supabaseAdmin.from('user_module_permissions').delete().eq('user_id', userId).eq('tenant_id', caller.tenant_id)
+    const { error: errMudo1 } = await supabaseAdmin.from('user_module_permissions').delete().eq('user_id', userId).eq('tenant_id', caller.tenant_id)
+    if (errMudo1) throw errMudo1
     if (valid.length > 0) {
       const rows = valid.map(p => ({
         tenant_id: caller.tenant_id,
