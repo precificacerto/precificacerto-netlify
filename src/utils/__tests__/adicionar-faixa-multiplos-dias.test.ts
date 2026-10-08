@@ -1,25 +1,33 @@
 /**
- * UMA FAIXA, VÁRIOS DIAS — e o tudo-ou-nada.
+ * UMA FAIXA, VÁRIOS DIAS — e a SOBRESCRITA DO DIA INTEIRO.
  *
- * Comando do PO de 06/10/2026, §5.
+ * Comando do PO de 06/10/2026 §5 (as sete caixas) e de 08/10/2026 (a Mudança 2).
+ *
+ * >>> A REGRA MUDOU, E ESTA SUÍTE É O REGISTRO DA MUDANÇA <<<
+ *
+ * Até 06/10 havia recusa por conflito: um dia com faixa abortava tudo e nenhuma faixa voltava.
+ * Os casos que afirmavam aquilo SAÍRAM — não porque falhavam, mas porque afirmavam o contrário
+ * do que o produto agora pede. O caso do ENCOSTAR ficou, com a asserção INVERTIDA, e é ele que
+ * fixa que a troca foi deliberada: 09:00–12:00 e 12:00–18:00 não se sobrepõem em minuto nenhum,
+ * e a antiga SAI mesmo assim, porque o critério passou a ser o dia, não a interseção.
  *
  * >>> O QUE CADA CASO TEM DE DISTINGUIR <<<
  *
- * `teste-que-nao-exercita.md`: afirmar que a função devolveu `ok: false` não é afirmar que ela
- * NÃO GRAVOU NADA. Um utilitário que devolvesse as quatro faixas boas junto com `ok: false`
- * passaria numa asserção sobre o `ok` e falharia a regra — é por isso que o caso do conflito
- * afirma o CONTEÚDO devolvido, não só o sinal.
- *
- * E o espelho é obrigatório: três dias SEM conflito têm de devolver três faixas. Sem ele,
- * "nunca devolve faixa" ficaria verde num utilitário que recusa tudo.
+ * `teste-que-nao-exercita.md`: afirmar que `ok: true` não é afirmar que o dia certo foi limpo.
+ * Por isso nenhum caso aqui se contenta com o sinal — cada um afirma o CONTEÚDO de
+ * `idsParaRemover` e de `diasSubstituidos`, que é onde mora o efeito. E os ids das fixtures são
+ * DISTINTOS entre dias, para que trocar o filtro de dia mude a lista afirmada.
  */
 
 import {
   ERRO_HORA_INVERTIDA,
   ERRO_SEM_DIA,
   adicionarFaixaEmDias,
+  avisoDeSubstituicao,
   faixaEmDiasRecusada,
+  mensagemDoResultado,
   type FaixaHorario,
+  type ResultadoFaixa,
 } from '@/utils/adicionar-faixa-multiplos-dias'
 
 const DOM = 0
@@ -30,18 +38,25 @@ const QUI = 4
 const SEX = 5
 const SAB = 6
 
-/** Quem está em conflito e quem não está, lido do retorno sem precisar de cast. */
-function conflitos(r: ReturnType<typeof adicionarFaixaEmDias>): number[] {
+const NOMES = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado']
+const nomeDoDia = (weekday: number) => NOMES[weekday] ?? String(weekday)
+
+/** Lê o lado `ok: true` sem cast — e explode em vez de passar verde se vier recusa. */
+function aceita(r: ResultadoFaixa) {
+  if (faixaEmDiasRecusada(r)) throw new Error(`esperava ok:true e veio recusa: ${r.erro}`)
+  return r
+}
+
+function recusa(r: ResultadoFaixa) {
   if (!faixaEmDiasRecusada(r)) throw new Error('esperava recusa e veio ok:true')
-  return r.diasEmConflito
+  return r
 }
 
-function faixas(r: ReturnType<typeof adicionarFaixaEmDias>): FaixaHorario[] {
-  if (faixaEmDiasRecusada(r)) throw new Error('esperava ok:true e veio recusa')
-  return r.novasFaixas
+function faixas(r: ResultadoFaixa): FaixaHorario[] {
+  return aceita(r).novasFaixas
 }
 
-describe('3 dias marcados, nenhum conflito', () => {
+describe('3 dias marcados, nenhum deles tinha faixa', () => {
   it('devolve 3 faixas, com os weekdays certos e as horas pedidas', () => {
     const r = adicionarFaixaEmDias({
       diasSelecionados: [SEG, QUA, SEX],
@@ -57,107 +72,168 @@ describe('3 dias marcados, nenhum conflito', () => {
     ])
   })
 
-  it('a grade de OUTROS dias não interfere — e é isto que a mutação M2 mata', () => {
-    // Existe faixa na TERÇA e no SÁBADO; nenhum dos dois está entre os escolhidos. Se a
-    // verificação ignorasse o `weekday`, estes dois bloqueariam os três pedidos.
-    const r = adicionarFaixaEmDias({
+  it('idsParaRemover e diasSubstituidos saem VAZIOS — não há o que substituir', () => {
+    // O espelho obrigatório: sem ele, "nunca remove nada" ficaria verde num utilitário que
+    // devolvesse lista vazia sempre, e o caso da substituição não distinguiria coisa alguma.
+    const r = aceita(adicionarFaixaEmDias({
       diasSelecionados: [SEG, QUA, SEX],
       inicio: '09:00',
       fim: '18:00',
-      faixasExistentes: [
-        { weekday: TER, start_time: '09:00', end_time: '18:00' },
-        { weekday: SAB, start_time: '10:00', end_time: '14:00' },
-      ],
-    })
-    expect(r.ok).toBe(true)
-    expect(faixas(r)).toHaveLength(3)
+      faixasExistentes: [],
+    }))
+    expect(r.idsParaRemover).toEqual([])
+    expect(r.diasSubstituidos).toEqual([])
+  })
+
+  it('dia marcado SEM faixa não entra em diasSubstituidos, mesmo tendo vizinhos com faixa', () => {
+    // Três dias marcados, só a quarta tinha algo. Um `diasSubstituidos = dias` passaria no caso
+    // anterior (lista vazia de existentes) e quebraria aqui.
+    const r = aceita(adicionarFaixaEmDias({
+      diasSelecionados: [SEG, QUA, SEX],
+      inicio: '09:00',
+      fim: '18:00',
+      faixasExistentes: [{ id: 'q1', weekday: QUA, start_time: '13:00', end_time: '17:00' }],
+    }))
+    expect(r.diasSubstituidos).toEqual([QUA])
+    expect(r.idsParaRemover).toEqual(['q1'])
   })
 })
 
-describe('3 dias marcados, conflito em 1 — TUDO OU NADA', () => {
-  it('devolve ok:false, diasEmConflito só com aquele dia, e NENHUMA faixa', () => {
-    const r = adicionarFaixaEmDias({
-      diasSelecionados: [SEG, QUA, SEX],
-      inicio: '10:00',
-      fim: '14:00',
-      faixasExistentes: [{ weekday: QUA, start_time: '13:00', end_time: '17:00' }],
-    })
-    expect(r.ok).toBe(false)
-    expect(conflitos(r)).toEqual([QUA])
+describe('3 dias marcados, 1 deles com DUAS faixas', () => {
+  const entrada = {
+    diasSelecionados: [SEG, QUA, SEX],
+    inicio: '10:00',
+    fim: '14:00',
+    faixasExistentes: [
+      { id: 'q-manha', weekday: QUA, start_time: '08:00', end_time: '12:00' },
+      { id: 'q-tarde', weekday: QUA, start_time: '13:00', end_time: '17:00' },
+    ],
+  }
 
-    // >>> A PROVA DO TUDO-OU-NADA: o retorno NÃO traz as faixas de segunda e sexta <<<
-    // Afirmar só `ok: false` não distinguiria "abortou" de "devolveu as duas boas e avisou".
-    expect((r as any).novasFaixas).toBeUndefined()
+  it('idsParaRemover tem os DOIS ids do dia — não só o que se sobrepõe', () => {
+    // `q-tarde` (13:00–17:00) NÃO se sobrepõe a 10:00–14:00? Sobrepõe. `q-manha` (08:00–12:00)
+    // também. Então este caso sozinho não distinguiria "o dia inteiro" de "os sobrepostos" —
+    // quem faz isso é o caso do ENCOSTAR, mais abaixo, e é por isso que ele existe.
+    const r = aceita(adicionarFaixaEmDias(entrada))
+    expect(r.idsParaRemover.sort()).toEqual(['q-manha', 'q-tarde'])
   })
 
-  it('conflito só na QUARTA: segunda e sexta estariam livres, e mesmo assim nada volta', () => {
-    // O mesmo caso, dito pelo outro lado: a função é CAPAZ de montar as duas faixas livres —
-    // o caso anterior desta suíte prova que com `faixasExistentes: []` ela devolve três. O
-    // retorno vazio aqui é escolha da regra, não incapacidade.
-    const r = adicionarFaixaEmDias({
-      diasSelecionados: [SEG, QUA, SEX],
-      inicio: '10:00',
-      fim: '14:00',
-      faixasExistentes: [{ weekday: QUA, start_time: '13:00', end_time: '17:00' }],
-    })
-    expect(faixaEmDiasRecusada(r)).toBe(true)
-    expect(conflitos(r)).toHaveLength(1)
-    expect(conflitos(r)[0]).toBe(QUA)
+  it('diasSubstituidos traz SÓ a quarta, uma vez, apesar das duas faixas', () => {
+    // Duas faixas no mesmo dia são UMA substituição. Um `diasSubstituidos` derivado das faixas
+    // em vez dos dias traria `[QUA, QUA]`, e o aviso diria "Quarta e Quarta".
+    const r = aceita(adicionarFaixaEmDias(entrada))
+    expect(r.diasSubstituidos).toEqual([QUA])
   })
 
-  it('conflito em DOIS dias: os dois aparecem, e os livres continuam de fora', () => {
-    const r = adicionarFaixaEmDias({
-      diasSelecionados: [SEG, QUA, SEX],
-      inicio: '10:00',
-      fim: '14:00',
-      faixasExistentes: [
-        { weekday: QUA, start_time: '13:00', end_time: '17:00' },
-        { weekday: SEX, start_time: '08:00', end_time: '11:00' },
-      ],
-    })
-    expect(conflitos(r)).toEqual([QUA, SEX])
-    expect((r as any).novasFaixas).toBeUndefined()
+  it('as três faixas novas entram: substituir um dia não cancela os outros dois', () => {
+    const r = aceita(adicionarFaixaEmDias(entrada))
+    expect(r.novasFaixas).toEqual([
+      { weekday: 1, start_time: '10:00', end_time: '14:00' },
+      { weekday: 3, start_time: '10:00', end_time: '14:00' },
+      { weekday: 5, start_time: '10:00', end_time: '14:00' },
+    ])
   })
 })
 
-describe('ENCOSTAR não é conflito — o barbeiro de dois turnos', () => {
-  it('09:00–12:00 já existe e 12:00–18:00 entra', () => {
-    // É a mutação M1: trocar `<` por `<=` recusaria esta faixa, e a tabela ficaria inútil
-    // justamente no caso que ela existe para representar.
-    const r = adicionarFaixaEmDias({
+describe('DIA NÃO MARCADO NUNCA É TOCADO — a única proteção que sobrou', () => {
+  it('o id do dia não marcado NÃO entra em idsParaRemover', () => {
+    // É a mutação M5: tirar o filtro `marcados.has(f.weekday)` faz `t1` e `s1` entrarem na lista,
+    // e marcar a segunda passaria a apagar a semana inteira.
+    const r = aceita(adicionarFaixaEmDias({
+      diasSelecionados: [SEG],
+      inicio: '09:00',
+      fim: '18:00',
+      faixasExistentes: [
+        { id: 's1', weekday: SEG, start_time: '07:00', end_time: '09:00' },
+        { id: 't1', weekday: TER, start_time: '09:00', end_time: '18:00' },
+        { id: 'b1', weekday: SAB, start_time: '10:00', end_time: '14:00' },
+      ],
+    }))
+    expect(r.idsParaRemover).toEqual(['s1'])
+    expect(r.idsParaRemover).not.toContain('t1')
+    expect(r.idsParaRemover).not.toContain('b1')
+    expect(r.diasSubstituidos).toEqual([SEG])
+  })
+
+  it('nenhum dia marcado tinha faixa, e os NÃO marcados tinham: as duas listas ficam vazias', () => {
+    const r = aceita(adicionarFaixaEmDias({
+      diasSelecionados: [SEG, QUA],
+      inicio: '09:00',
+      fim: '18:00',
+      faixasExistentes: [
+        { id: 't1', weekday: TER, start_time: '09:00', end_time: '18:00' },
+        { id: 'b1', weekday: SAB, start_time: '10:00', end_time: '14:00' },
+      ],
+    }))
+    expect(r.idsParaRemover).toEqual([])
+    expect(r.diasSubstituidos).toEqual([])
+    expect(r.novasFaixas).toHaveLength(2)
+  })
+
+  it('faixa gravada SEM id não vira string vazia no delete', () => {
+    // `.in('id', [''])` é uma consulta válida que não casa nada — mas um `undefined` na lista
+    // viraria `null` no filtro e o delete sairia diferente do pretendido. O dia continua
+    // substituído: ele TINHA faixa, só não tem id para remover.
+    const r = aceita(adicionarFaixaEmDias({
+      diasSelecionados: [SEG],
+      inicio: '09:00',
+      fim: '18:00',
+      faixasExistentes: [{ weekday: SEG, start_time: '07:00', end_time: '09:00' }],
+    }))
+    expect(r.idsParaRemover).toEqual([])
+    expect(r.diasSubstituidos).toEqual([SEG])
+  })
+})
+
+describe('ENCOSTAR também sai — e é ESTE caso que fixa que a regra mudou', () => {
+  it('09:00–12:00 já existe, entra 12:00–18:00 no MESMO dia marcado, e a antiga SAI', () => {
+    // >>> O CASO QUE DISTINGUE "DIA INTEIRO" DE "SÓ OS SOBREPOSTOS" <<<
+    //
+    // Não há um minuto de interseção entre 09:00–12:00 e 12:00–18:00 — este par era, até 06/10,
+    // o exemplo canônico do que NÃO era conflito, e a faixa antiga ficava. Agora ela sai, porque
+    // o critério deixou de ser a interseção e passou a ser o dia marcado.
+    //
+    // É a mutação M6: fazer `idsParaRemover` levar só as faixas sobrepostas devolve `[]` aqui, e
+    // este caso fica vermelho. Nenhum outro caso da suíte pega M6 — nos demais o conjunto do dia
+    // e o conjunto dos sobrepostos coincidem.
+    const r = aceita(adicionarFaixaEmDias({
       diasSelecionados: [SEG],
       inicio: '12:00',
       fim: '18:00',
-      faixasExistentes: [{ weekday: SEG, start_time: '09:00', end_time: '12:00' }],
-    })
-    expect(r.ok).toBe(true)
-    expect(faixas(r)).toEqual([{ weekday: 1, start_time: '12:00', end_time: '18:00' }])
+      faixasExistentes: [{ id: 's-manha', weekday: SEG, start_time: '09:00', end_time: '12:00' }],
+    }))
+    expect(r.idsParaRemover).toEqual(['s-manha'])
+    expect(r.diasSubstituidos).toEqual([SEG])
+    expect(r.novasFaixas).toEqual([{ weekday: 1, start_time: '12:00', end_time: '18:00' }])
   })
 
-  it('encostar pelo OUTRO lado também passa: 06:00–09:00 antes de 09:00–12:00', () => {
-    const r = adicionarFaixaEmDias({
+  it('encostar pelo outro lado: 06:00–09:00 antes de 09:00–12:00, e a antiga sai igual', () => {
+    const r = aceita(adicionarFaixaEmDias({
       diasSelecionados: [SEG],
       inicio: '06:00',
       fim: '09:00',
-      faixasExistentes: [{ weekday: SEG, start_time: '09:00', end_time: '12:00' }],
-    })
-    expect(r.ok).toBe(true)
+      faixasExistentes: [{ id: 's-manha', weekday: SEG, start_time: '09:00', end_time: '12:00' }],
+    }))
+    expect(r.idsParaRemover).toEqual(['s-manha'])
   })
 
-  it('e UM MINUTO de invasão é conflito — o par que prova que o critério não é frouxo', () => {
-    const r = adicionarFaixaEmDias({
+  it('e a invasão de um minuto NÃO é mais recusa — vira substituição', () => {
+    // O par espelhado do caso acima. Antes de 08/10 este era `ok: false`; hoje é `ok: true` com
+    // o dia limpo. Os dois juntos dizem que o resultado passou a ser o MESMO nos dois lados do
+    // critério antigo, que é exatamente o que "sobrescreve o dia" significa.
+    const r = aceita(adicionarFaixaEmDias({
       diasSelecionados: [SEG],
       inicio: '11:59',
       fim: '18:00',
-      faixasExistentes: [{ weekday: SEG, start_time: '09:00', end_time: '12:00' }],
-    })
-    expect(r.ok).toBe(false)
-    expect(conflitos(r)).toEqual([SEG])
+      faixasExistentes: [{ id: 's-manha', weekday: SEG, start_time: '09:00', end_time: '12:00' }],
+    }))
+    expect(r.idsParaRemover).toEqual(['s-manha'])
+    expect(r.diasSubstituidos).toEqual([SEG])
   })
 })
 
 describe('nenhum dia marcado', () => {
-  it('ok:false com a mensagem do dia, e sem conflito nenhum', () => {
+  it('ok:false com a mensagem do dia', () => {
     const r = adicionarFaixaEmDias({
       diasSelecionados: [],
       inicio: '09:00',
@@ -165,9 +241,7 @@ describe('nenhum dia marcado', () => {
       faixasExistentes: [],
     })
     expect(r.ok).toBe(false)
-    if (!faixaEmDiasRecusada(r)) throw new Error('inalcançável')
-    expect(r.erro).toBe(ERRO_SEM_DIA)
-    expect(r.diasEmConflito).toEqual([])
+    expect(recusa(r).erro).toBe(ERRO_SEM_DIA)
   })
 
   it('a ORDEM das regras importa: sem dia e com hora invertida, a queixa é do DIA', () => {
@@ -179,19 +253,36 @@ describe('nenhum dia marcado', () => {
       fim: '09:00',
       faixasExistentes: [],
     })
-    if (!faixaEmDiasRecusada(r)) throw new Error('inalcançável')
-    expect(r.erro).toBe(ERRO_SEM_DIA)
+    expect(recusa(r).erro).toBe(ERRO_SEM_DIA)
+  })
+
+  it('nenhuma recusa carrega faixa nem id: o lado ok:false não tem as chaves', () => {
+    // `teste-que-nao-exercita.md`: afirmar `ok: false` não afirma que nada vai ser gravado nem
+    // apagado. Quem grava lê `novasFaixas` e `idsParaRemover` — se eles viessem preenchidos numa
+    // recusa, a tela recusaria na mensagem e apagaria no banco.
+    const r = adicionarFaixaEmDias({
+      diasSelecionados: [],
+      inicio: '09:00',
+      fim: '18:00',
+      faixasExistentes: [{ id: 's1', weekday: SEG, start_time: '07:00', end_time: '09:00' }],
+    })
+    expect((r as any).novasFaixas).toBeUndefined()
+    expect((r as any).idsParaRemover).toBeUndefined()
+    expect((r as any).diasSubstituidos).toBeUndefined()
   })
 })
 
 describe('fim <= inicio', () => {
-  it('fim ANTES do início é recusado', () => {
+  it('fim ANTES do início é recusado, e nada é marcado para remoção', () => {
     const r = adicionarFaixaEmDias({
-      diasSelecionados: [SEG], inicio: '18:00', fim: '09:00', faixasExistentes: [],
+      diasSelecionados: [SEG],
+      inicio: '18:00',
+      fim: '09:00',
+      faixasExistentes: [{ id: 's1', weekday: SEG, start_time: '07:00', end_time: '09:00' }],
     })
     expect(r.ok).toBe(false)
-    if (!faixaEmDiasRecusada(r)) throw new Error('inalcançável')
-    expect(r.erro).toBe(ERRO_HORA_INVERTIDA)
+    expect(recusa(r).erro).toBe(ERRO_HORA_INVERTIDA)
+    expect((r as any).idsParaRemover).toBeUndefined()
   })
 
   it('fim IGUAL ao início é recusado — faixa de duração zero', () => {
@@ -221,21 +312,96 @@ describe('fim <= inicio', () => {
 })
 
 describe('os SETE dias, e o domingo = 0', () => {
-  it('marcar os sete devolve sete faixas, de 0 a 6', () => {
-    const r = adicionarFaixaEmDias({
+  it('marcar os sete devolve sete faixas, de 0 a 6, e limpa os sete', () => {
+    const r = aceita(adicionarFaixaEmDias({
       diasSelecionados: [DOM, SEG, TER, QUA, QUI, SEX, SAB],
-      inicio: '08:00', fim: '18:00', faixasExistentes: [],
-    })
-    expect(faixas(r).map((f) => f.weekday)).toEqual([0, 1, 2, 3, 4, 5, 6])
+      inicio: '08:00',
+      fim: '18:00',
+      faixasExistentes: [
+        { id: 'd1', weekday: DOM, start_time: '09:00', end_time: '12:00' },
+        { id: 'b1', weekday: SAB, start_time: '10:00', end_time: '14:00' },
+      ],
+    }))
+    expect(r.novasFaixas.map((f) => f.weekday)).toEqual([0, 1, 2, 3, 4, 5, 6])
+    expect(r.idsParaRemover.sort()).toEqual(['b1', 'd1'])
+    expect(r.diasSubstituidos).toEqual([DOM, SAB])
   })
 
   it('o DOMINGO é 0 e não é confundido com "não informado"', () => {
     // `[0]` é uma lista com um elemento, não uma lista vazia. Um `if (!dia)` em algum ponto
-    // trataria domingo como ausência de dia.
-    const r = adicionarFaixaEmDias({
-      diasSelecionados: [DOM], inicio: '08:00', fim: '12:00', faixasExistentes: [],
-    })
-    expect(r.ok).toBe(true)
-    expect(faixas(r)).toEqual([{ weekday: 0, start_time: '08:00', end_time: '12:00' }])
+    // trataria domingo como ausência de dia — e um `if (!f.weekday)` no filtro deixaria a faixa
+    // de domingo fora de `idsParaRemover`, que é o mesmo erro do outro lado.
+    const r = aceita(adicionarFaixaEmDias({
+      diasSelecionados: [DOM],
+      inicio: '08:00',
+      fim: '12:00',
+      faixasExistentes: [{ id: 'd1', weekday: DOM, start_time: '09:00', end_time: '12:00' }],
+    }))
+    expect(r.novasFaixas).toEqual([{ weekday: 0, start_time: '08:00', end_time: '12:00' }])
+    expect(r.idsParaRemover).toEqual(['d1'])
+    expect(r.diasSubstituidos).toEqual([DOM])
+  })
+})
+
+describe('o AVISO antes do clique, e a MENSAGEM depois', () => {
+  it('sem dia substituído o aviso é null — a linha não aparece', () => {
+    // `ausente-vs-falso.md`: uma linha dizendo "0 dias serão substituídos" afirmaria algo onde o
+    // certo é não dizer nada. `null` é a ausência da linha, não um texto vazio.
+    expect(avisoDeSubstituicao([], nomeDoDia)).toBeNull()
+  })
+
+  it('UM dia: singular em "tem" e em "será substituída"', () => {
+    expect(avisoDeSubstituicao([QUA], nomeDoDia)).toBe(
+      'Quarta já tem faixas — será substituída.',
+    )
+  })
+
+  it('DOIS dias: plural, e o "e" antes do último em vez de vírgula', () => {
+    expect(avisoDeSubstituicao([SEG, QUA], nomeDoDia)).toBe(
+      'Segunda e Quarta já têm faixas — serão substituídas.',
+    )
+  })
+
+  it('TRÊS dias: vírgula entre os primeiros e "e" só antes do último', () => {
+    expect(avisoDeSubstituicao([SEG, QUA, SEX], nomeDoDia)).toBe(
+      'Segunda, Quarta e Sexta já têm faixas — serão substituídas.',
+    )
+  })
+
+  it('a mensagem final sem substituição NÃO menciona substituição nenhuma', () => {
+    expect(mensagemDoResultado(3, [], nomeDoDia)).toBe('Faixa aplicada em 3 dias.')
+  })
+
+  it('a mensagem final com substituição nomeia os dias', () => {
+    expect(mensagemDoResultado(3, [SEG, QUA], nomeDoDia)).toBe(
+      'Faixa aplicada em 3 dias. Segunda e Quarta foram substituídas.',
+    )
+  })
+
+  it('UM dia aplicado: "1 dia", não "1 dias"', () => {
+    expect(mensagemDoResultado(1, [SEG], nomeDoDia)).toBe(
+      'Faixa aplicada em 1 dia. Segunda foi substituída.',
+    )
+  })
+
+  it('o aviso e a mensagem leem o MESMO diasSubstituidos que a função devolve', () => {
+    // Liga as duas metades: sem este caso, `avisoDeSubstituicao` poderia estar certo sobre uma
+    // lista que `adicionarFaixaEmDias` nunca produz. É a forma de `copia-divergente.md` — o
+    // produtor e o consumidor afirmados juntos, não cada um consigo mesmo.
+    const r = aceita(adicionarFaixaEmDias({
+      diasSelecionados: [SEG, QUA, SEX],
+      inicio: '10:00',
+      fim: '14:00',
+      faixasExistentes: [
+        { id: 's1', weekday: SEG, start_time: '08:00', end_time: '09:00' },
+        { id: 'x1', weekday: SEX, start_time: '08:00', end_time: '09:00' },
+      ],
+    }))
+    expect(avisoDeSubstituicao(r.diasSubstituidos, nomeDoDia)).toBe(
+      'Segunda e Sexta já têm faixas — serão substituídas.',
+    )
+    expect(mensagemDoResultado(r.novasFaixas.length, r.diasSubstituidos, nomeDoDia)).toBe(
+      'Faixa aplicada em 3 dias. Segunda e Sexta foram substituídas.',
+    )
   })
 })
