@@ -92,13 +92,29 @@ export const MENSAGEM_CANCELAMENTO_PADRAO = `Olá {cliente}, seu agendamento foi
 Quando quiser, é só agendar de novo pelo mesmo link.
 {empresa}`
 
+/**
+ * >>> A LINHA DO {codigo} SAIU DAQUI EM 08/10/2026, NA FASE 2B <<<
+ *
+ * Ela dizia: *"Para cancelar ou mudar outra vez, use o código {codigo}."*
+ *
+ * Instrução do dono do produto, registrada como está: *"Se as constantes citarem {codigo},
+ * REMOVA - o codigo e de acesso, nao de referencia do agendamento, e publicar um codigo usado
+ * nao serve para nada."*
+ *
+ * A razão é que o código MUDOU DE NATUREZA com a Fase 2B. Antes ele seria uma referência do
+ * agendamento, estável, que o cliente guardaria. Agora é um código de ACESSO de 6 dígitos,
+ * válido por 10 minutos, de uso único e já queimado no instante em que esta mensagem é enviada
+ * — publicá-lo não autoriza nada e ainda ensina o cliente a procurar um número que não serve.
+ *
+ * `{codigo}` CONTINUA em `VARIAVEIS_DAS_MENSAGENS`: tirá-lo de lá apagaria a variável do
+ * sistema, e a decisão foi sobre ESTA mensagem. A de CANCELAMENTO nunca o citou — conferido no
+ * código, não no comentário.
+ */
 export const MENSAGEM_ALTERACAO_PADRAO = `Olá {cliente}, seu agendamento foi alterado.
 
 Novo horário: {data} às {hora}
 {servico} com {profissional}
-{empresa}
-
-Para cancelar ou mudar outra vez, use o código {codigo}.`
+{empresa}`
 
 /**
  * O texto que o textarea mostra: o do banco quando há, o padrão quando não há.

@@ -10,13 +10,18 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { supabaseAdmin } from '@/supabase/admin'
 import {
-  CORPO_INDISPONIVEL, barbeiroValido, contextoDoToken, servicosDoBarbeiro,
-  telefoneCanonico, textoCurto,
+  CORPO_INDISPONIVEL, barbeiroValido, contextoDoToken,
+  // >>> O ENVIO MUDOU DE CASA EM 08/10/2026 <<<
+  // `enviarConfirmacao` e `nomeDoBarbeiro` moravam NESTE arquivo. A Fase 2B manda quatro
+  // mensagens e precisava das duas; mantê-las aqui obrigaria as rotas novas a escrever a
+  // segunda cópia do envio. Autorizado pelo dono do produto, e é a ÚNICA alteração desta
+  // rodada neste arquivo — o resto dele continua intocado.
+  enviarMensagemDoAgendamento, nomeDoBarbeiro,
+  servicosDoBarbeiro, telefoneCanonico, textoCurto,
 } from '@/lib/agendamento-publico'
 import { instanteDoRelogioLocal, horaParaMinutos } from '@/utils/horarios-disponiveis'
 import { calcularHorarios } from './horarios'
-import { MENSAGEM_CONFIRMACAO_PADRAO, textoOuPadrao } from '@/utils/mensagens-agendamento-padrao'
-import { sendWuzapiText } from '@/lib/wuzapi-send'
+import { MENSAGEM_CONFIRMACAO_PADRAO } from '@/utils/mensagens-agendamento-padrao'
 
 const DIA_RE = /^\d{4}-\d{2}-\d{2}$/
 const MAX_POST_POR_IP_HORA = 5
@@ -176,10 +181,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // O evento já está gravado. A mensagem é aviso, e o `catch` abaixo é o que impede que um
     // WUZAPI fora do ar transforme um agendamento feito em erro na tela do cliente.
     try {
-      await enviarConfirmacao(ctx.tenant_id, telefone, {
-        cliente: nome, servico: svc.nome, data: dia.split('-').reverse().join('/'),
-        hora: hhmm, empresa: ctx.empresa, profissional: await nomeDoBarbeiro(ctx.tenant_id, barbeiro),
-      }, ctx.msg_confirmacao)
+      await enviarMensagemDoAgendamento({
+        tenantId: ctx.tenant_id,
+        telefone,
+        texto: ctx.msg_confirmacao,
+        padrao: MENSAGEM_CONFIRMACAO_PADRAO,
+        vars: {
+          cliente: nome, servico: svc.nome, data: dia.split('-').reverse().join('/'),
+          hora: hhmm, empresa: ctx.empresa,
+          profissional: await nomeDoBarbeiro(ctx.tenant_id, barbeiro),
+        },
+      })
     } catch (err: any) {
       console.error('[public/agenda] confirmação não enviada:', err?.message || 'Unknown error')
     }
@@ -189,49 +201,4 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     console.error('[public/agenda] agendar:', e?.message || 'Unknown error')
     return res.status(500).json(CORPO_INDISPONIVEL)
   }
-}
-
-async function nomeDoBarbeiro(tenant_id: string, employee_id: string): Promise<string> {
-  const { data } = await supabaseAdmin
-    .from('employees').select('name').eq('tenant_id', tenant_id).eq('id', employee_id).maybeSingle()
-  return (data as any)?.name ?? ''
-}
-
-/** Envia pelo mesmo caminho do lembrete: token WUZAPI do tenant + `sendWuzapiText`. */
-async function enviarConfirmacao(
-  tenant_id: string, telefone: string,
-  vars: Record<string, string>, msgDoTenant: string | null,
-): Promise<void> {
-  const { data: settings } = await supabaseAdmin
-    .from('tenant_settings')
-    .select('whatsapp_instance_mode, whatsapp_shared_instance_user_id')
-    .eq('tenant_id', tenant_id)
-    .maybeSingle()
-
-  const modo = (settings as any)?.whatsapp_instance_mode || 'OWN'
-  const dono = (settings as any)?.whatsapp_shared_instance_user_id ?? null
-  let token: string | null = null
-
-  if (modo === 'SHARED' && dono) {
-    const { data: u } = await supabaseAdmin
-      .from('users').select('wuzapi_token').eq('id', dono).eq('tenant_id', tenant_id).maybeSingle()
-    token = (u as any)?.wuzapi_token ?? null
-  }
-  if (!token) {
-    const { data: qualquer } = await supabaseAdmin
-      .from('users').select('wuzapi_token').eq('tenant_id', tenant_id)
-      .not('wuzapi_token', 'is', null).limit(1).maybeSingle()
-    token = (qualquer as any)?.wuzapi_token ?? null
-  }
-  if (!token) return   // tenant sem WhatsApp configurado: não é erro do agendamento
-
-  let texto = textoOuPadrao(msgDoTenant, MENSAGEM_CONFIRMACAO_PADRAO)
-  for (const [k, v] of Object.entries(vars)) texto = texto.split(`{${k}}`).join(v)
-
-  const r = await sendWuzapiText(token, telefone, texto)
-  // O cast existe porque o `tsconfig.json` deste repositório tem `strictNullChecks: false`, e com
-  // ele desligado o TypeScript não estreita união discriminada por literal booleano — `r.error`
-  // não existe no tipo da união. É o mesmo motivo das guardas `faixaRecusada` e
-  // `faixaEmDiasRecusada`; aqui é um ponto só, então o cast local basta.
-  if (!r.success) throw new Error((r as { error?: string }).error || 'falha no envio')
 }

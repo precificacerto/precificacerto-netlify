@@ -6,6 +6,7 @@ import {
 } from 'antd'
 import { Select } from '@/components/ui/app-select.component'
 import dayjs from 'dayjs'
+import { calcularReminderSendAt, ramoDoLembrete } from '@/utils/lembrete-whatsapp'
 import isoWeek from 'dayjs/plugin/isoWeek'
 import 'dayjs/locale/pt-br'
 import { Layout } from '@/components/layout/layout.component'
@@ -692,17 +693,16 @@ function Schedule() {
             const s = startLocal.toISOString()
             const e = startLocal.add(dur, 'minute').toISOString()
 
-            // Calcular horário do lembrete WhatsApp: >24h = disparo 24h antes; <24h = disparo 10 min após salvar
-            const hasCustomer = !!resolvedCustomerId
-            let reminderSendAt: string | null = null
-            if (hasCustomer) {
-                const hoursUntilEvent = startLocal.diff(dayjs(), 'hour', true)
-                if (hoursUntilEvent > 0 && hoursUntilEvent < 24) {
-                    reminderSendAt = dayjs().add(10, 'minute').toISOString()
-                } else if (hoursUntilEvent >= 24) {
-                    reminderSendAt = startLocal.subtract(24, 'hour').toISOString()
-                }
-            }
+            // >>> A REGRA DO LEMBRETE SAIU DAQUI EM 08/10/2026, E OS DOIS LADOS CHAMAM A MESMA <<<
+            // Ela era estas dez linhas inline. O remarcar público da Fase 2B precisa dela — sem
+            // recalcular, o cliente recebe "amanhã às 14h" para um horário que ele mudou — e
+            // escrever a segunda fórmula seria `copia-divergente.md` na forma mais direta.
+            // A regra NÃO mudou: >=24h dispara 24h antes; <24h dispara 10 min depois de salvar.
+            const reminderSendAt = calcularReminderSendAt({
+                inicio: startLocal.toDate(),
+                agora: new Date(),
+                temCliente: !!resolvedCustomerId,
+            })
 
             if (editingEvt) {
                 const resolvedTitle = serviceInputMode === 'select' ? (form.getFieldValue('title') || v.title) : v.title
@@ -844,8 +844,16 @@ function Schedule() {
                 }
 
                 if (reminderSendAt) {
-                    const hoursUntilEvent = startLocal.diff(dayjs(), 'hour', true)
-                    const isLessThan24h = hoursUntilEvent < 24
+                    // >>> O LIMIAR VEM DE `ramoDoLembrete`, NÃO DE UM `< 24` LOCAL <<<
+                    // Esta linha recomputava `hoursUntilEvent < 24` só para escolher o texto.
+                    // Era a SEGUNDA cópia do limiar no mesmo arquivo, achada pelo portão da
+                    // extração em 08/10/2026: mudar o 24 num lugar e não no outro faria a tela
+                    // prometer um horário de lembrete diferente do que o banco usa.
+                    const isLessThan24h = ramoDoLembrete({
+                        inicio: startLocal.toDate(),
+                        agora: new Date(),
+                        temCliente: !!resolvedCustomerId,
+                    }) === 'DEZ_MINUTOS'
                     const minutesMsg = isLessThan24h
                         ? 'Lembrete WhatsApp será enviado em ~10 minutos.'
                         : `Lembrete WhatsApp agendado para ${dayjs(reminderSendAt).format('DD/MM às HH:mm')} (24h antes do horário).`
