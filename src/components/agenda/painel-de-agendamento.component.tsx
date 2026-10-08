@@ -55,7 +55,9 @@ import dayjs from 'dayjs'
 import { tenantOffersServices } from '@/utils/segment-visibility'
 import {
   adicionarFaixaEmDias,
+  avisoDeSubstituicao,
   faixaEmDiasRecusada,
+  mensagemDoResultado,
 } from '@/utils/adicionar-faixa-multiplos-dias'
 import {
   MENSAGEM_ALTERACAO_PADRAO,
@@ -71,6 +73,7 @@ import {
   avisoDaCopiaDaGrade,
   avisoDaTabelaDeServico,
   avisoDeFuncionarioSemAcesso,
+  confirmacaoDaReplica,
   estadoDoFuncionarioNoLink,
   exigeConfirmacaoDaCopia,
   faixaRecusada,
@@ -138,8 +141,22 @@ export interface AcoesDoPainel {
    * O contrato é PLURAL e não tem irmão singular de propósito: com `onSalvarFaixa` ao lado,
    * um dos dois acabaria esquecido numa mudança futura e a tela gravaria um dia em vez de
    * sete sem nada falhar — `copia-divergente.md`. Um dia só é uma lista de um elemento.
+   *
+   * >>> `idsParaRemover` É OBRIGATÓRIO, E ISSO É A DECISÃO <<<
+   *
+   * Mudança 2 de 08/10/2026: a faixa nova SOBRESCREVE o dia, então gravar virou duas operações
+   * — insert das novas, delete das antigas daquele dia. O terceiro parâmetro não é opcional com
+   * default `[]` porque default neutro em contrato de gravação é `construtor-empobrecido.md`:
+   * um produtor que esquecesse de passá-lo gravaria DUPLICADO em silêncio. Obrigatório, o `tsc`
+   * enumera na hora quem não passou.
+   *
+   * A ORDEM é de quem implementa esta ação, e é insert ANTES de delete — ver `agenda/index.tsx`.
    */
-  onSalvarFaixas: (employee_id: string, faixas: { weekday: number; start_time: string; end_time: string }[]) => void | Promise<void>
+  onSalvarFaixas: (
+    employee_id: string,
+    faixas: { weekday: number; start_time: string; end_time: string }[],
+    idsParaRemover: string[],
+  ) => void | Promise<void>
   onRemoverFaixa: (id: string) => void | Promise<void>
   onSalvarFolga: (folga: { employee_id: string; starts_at: string; ends_at: string; reason?: string }) => void | Promise<void>
   onRemoverFolga: (id: string) => void | Promise<void>
@@ -222,7 +239,12 @@ export function PainelDeAgendamento(props: PainelDeAgendamentoProps) {
   }, [grade])
 
   const cfg = dados?.configuracao ?? null
-  const origem = copiaOrigem ?? funcionarios[0]?.id ?? null
+  // >>> A ORIGEM NÃO TEM MAIS DEFAULT, E A MUDANÇA É DE SIGNIFICADO <<<
+  // Ela era `copiaOrigem ?? funcionarios[0]?.id`, porque o modal abria do topo sem saber de
+  // quem. Com a Mudança 3 o modal só abre de dentro de uma célula, e a célula SEMPRE diz quem é.
+  // Um `?? funcionarios[0]` agora seria `ausente-vs-falso.md`: na falta de origem ele afirmaria
+  // uma — o primeiro da lista — e replicaria a grade de quem ninguém escolheu.
+  const origem = copiaOrigem
 
   // >>> ESTE `useMemo` FICA ANTES DO `return null`, E NÃO É ARRUMAÇÃO <<<
   // A primeira versão o deixou depois do gate de segmentação: hook condicional, que o React
@@ -265,34 +287,53 @@ export function PainelDeAgendamento(props: PainelDeAgendamentoProps) {
     })
   }
 
-  function tentarAdicionarFaixa(empId: string) {
+  /** O nome do dia, da fonte única — `DIAS_DA_SEMANA`, não um array local. */
+  function nomeDoDia(weekday: number) {
+    return DIAS_DA_SEMANA.find((x) => x.weekday === weekday)?.label ?? String(weekday)
+  }
+
+  /**
+   * O que o clique vai fazer, calculado a CADA render — é ele que alimenta o aviso e o rótulo
+   * do botão ANTES do clique.
+   *
+   * Chamar `adicionarFaixaEmDias` aqui é de propósito: o aviso e a gravação passam a ler o MESMO
+   * `diasSubstituidos`, em vez de a tela recalcular "quais dias marcados têm faixa" por conta.
+   * Duas contas do mesmo critério divergem (`copia-divergente.md`), e a que divergiria é a que o
+   * usuário lê antes de apagar a semana de alguém.
+   */
+  function planoDaFaixa(empId: string) {
     const nova = faixaEmEdicao(empId)
-    const r = adicionarFaixaEmDias({
+    return adicionarFaixaEmDias({
       diasSelecionados: nova.dias,
       inicio: nova.start_time,
       fim: nova.end_time,
       faixasExistentes: faixasPorEmp[empId] ?? [],
     })
+  }
+
+  function tentarAdicionarFaixa(empId: string) {
+    const r = planoDaFaixa(empId)
 
     if (faixaEmDiasRecusada(r)) {
       // A RECUSA: a mensagem aparece E a gravação não acontece. As duas coisas, não uma.
       //
-      // E a mensagem NOMEIA os dias em conflito: "Já existe faixa nesse horário em: Quarta,
-      // Sexta." Dizer só "há conflito" com cinco dias marcados obrigaria o usuário a
-      // desmarcar um por um para descobrir qual.
-      const msg = r.diasEmConflito.length > 0
-        ? `Já existe faixa nesse horário em: ${r.diasEmConflito
-            .map((d: number) => DIAS_DA_SEMANA.find((x) => x.weekday === d)?.label ?? String(d))
-            .join(', ')}.`
-        : r.erro
-      setErroPorEmp((p) => ({ ...p, [empId]: msg }))
+      // >>> SÓ SOBRARAM DUAS RECUSAS, E NENHUMA DELAS É CONFLITO <<<
+      // Até 06/10/2026 havia uma terceira — "já existe faixa nesse horário em: Quarta" — e ela
+      // SAIU com a Mudança 2 de 08/10, porque sobrepor passou a ser o comportamento pedido.
+      // O que resta é dia não marcado e hora invertida, e as duas vêm prontas do utilitário.
+      setErroPorEmp((p) => ({ ...p, [empId]: r.erro }))
       return
     }
 
     setErroPorEmp((p) => ({ ...p, [empId]: null }))
-    // UM insert com array, não um laço de inserts: o laço deixaria metade gravada se o terceiro
-    // falhasse, e o tudo-ou-nada do utilitário perderia o sentido na travessia.
-    void acoes.onSalvarFaixas(empId, r.novasFaixas)
+
+    // >>> UM insert COM ARRAY E UM delete COM `.in`, NESTA ORDEM <<<
+    // A ordem é da ação que grava (`agenda/index.tsx`), e está declarada lá com a razão. Aqui o
+    // que importa é que as duas listas saem do MESMO retorno, no mesmo clique: separá-las em
+    // duas chamadas deixaria uma janela em que o dia estaria apagado e ainda não regravado.
+    void acoes.onSalvarFaixas(empId, r.novasFaixas, r.idsParaRemover)
+
+    msgApi.success(mensagemDoResultado(r.novasFaixas.length, r.diasSubstituidos, nomeDoDia))
 
     // Limpa os DIAS e MANTÉM as horas — o usuário emenda a faixa seguinte sem redigitar.
     mexerNaFaixa(empId, { dias: [] })
@@ -335,6 +376,9 @@ export function PainelDeAgendamento(props: PainelDeAgendamentoProps) {
     fecharCopia()
   }
 
+  const origemNome = funcionarios.find((f) => f.id === origem)?.name ?? ''
+  const possiveisDestinos = funcionarios.filter((f) => f.id !== origem)
+
   const linkOrigem = baseUrl ?? (typeof window !== 'undefined' ? window.location.origin : '')
   const link = cfg ? montarLinkPublico(linkOrigem, cfg.public_token) : null
 
@@ -344,14 +388,13 @@ export function PainelDeAgendamento(props: PainelDeAgendamentoProps) {
 
       {/* ══ 1. GRADE DE ATENDIMENTO — TODOS os funcionários, ao mesmo tempo (§2) ══════════ */}
       <section style={{ marginBottom: 32 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-          <h3 style={{ marginTop: 0 }}>Grade de atendimento</h3>
-          {funcionarios.length > 1 && (
-            <Button size="small" onClick={() => { setCopiaAberta(true); setCopiaConfirmando(false) }}>
-              Aplicar grade a outros profissionais
-            </Button>
-          )}
-        </div>
+        {/* >>> O BOTÃO DE REPLICAR SAIU DAQUI, E NÃO É ARRUMAÇÃO <<<
+            Mudança 3 de 08/10/2026. No topo ele pedia a ORIGEM num `Select` — e escolher a
+            origem num seletor é a pergunta errada: quem acabou de montar a grade da Ana já está
+            na célula dela. O botão desceu para dentro de cada célula, e a origem passou a ser o
+            profissional DAQUELA célula, sem escolha possível. Trazê-lo de volta para cá recria o
+            `Select` de origem (`razao-longe-da-restricao.md`). */}
+        <h3 style={{ marginTop: 0 }}>Grade de atendimento</h3>
 
         {funcionarios.length === 0 ? (
           <Empty description="Nenhum profissional ativo." />
@@ -363,6 +406,12 @@ export function PainelDeAgendamento(props: PainelDeAgendamentoProps) {
             const avisoTabela = avisoDaTabelaDeServico(resolucao)
             const avisoAcesso = avisoDeFuncionarioSemAcesso(f)
             const emEdicao = faixaEmEdicao(f.id)
+            // O aviso e o rótulo do botão leem o MESMO retorno que a gravação vai usar. Numa
+            // recusa (sem dia, hora invertida) não há o que avisar: o botão volta a ser "+".
+            const planoAtual = planoDaFaixa(f.id)
+            const avisoDaSubstituicao = faixaEmDiasRecusada(planoAtual)
+              ? null
+              : avisoDeSubstituicao(planoAtual.diasSubstituidos, nomeDoDia)
             // Recolhido por padrão quando DESLIGADO — para a lista de cinco caber na tela. O
             // SEM_GRADE fica aberto de propósito: é nele que falta trabalho a fazer.
             const recolhido = recolhidoManual[f.id] ?? (estado === 'DESLIGADO')
@@ -405,33 +454,18 @@ export function PainelDeAgendamento(props: PainelDeAgendamentoProps) {
                     {avisoTabela && <Alert type="warning" showIcon message={avisoTabela} style={{ marginBottom: 6 }} />}
                     {avisoAcesso && <Alert type="warning" showIcon message={avisoAcesso} style={{ marginBottom: 6 }} />}
 
-                    {DIAS_DA_SEMANA.map((d) => {
-                      const doDia = faixas.filter((x) => x.weekday === d.weekday)
-                      return (
-                        <div key={d.weekday} style={{ display: 'flex', gap: 12, alignItems: 'center', padding: '3px 0' }}>
-                          <span style={{ width: 80, color: '#667085' }}>{d.label}</span>
-                          {doDia.length === 0 ? (
-                            <span style={{ color: '#98A2B3' }}>—</span>
-                          ) : (
-                            <Space wrap>
-                              {doDia.map((x) => (
-                                <Tag key={x.id} color={x.is_active === false ? 'default' : 'green'}>
-                                  {String(x.start_time).slice(0, 5)}–{String(x.end_time).slice(0, 5)}
-                                  <Popconfirm title="Remover esta faixa?" onConfirm={() => void acoes.onRemoverFaixa(x.id)}>
-                                    <DeleteOutlined style={{ marginLeft: 8 }} aria-label={`Remover faixa ${x.id}`} />
-                                  </Popconfirm>
-                                </Tag>
-                              ))}
-                            </Space>
-                          )}
-                        </div>
-                      )
-                    })}
+                    {/* ══ O COMPOSITOR, ACIMA DA LISTA DE DIAS ══════════════════════════
+                        Mudança 1 de 08/10/2026. Ele ficava DEPOIS dos sete dias, e com cinco
+                        profissionais na tela isso punha o único campo editável da célula no fim
+                        de uma lista de sete linhas: para digitar a faixa do terceiro barbeiro, o
+                        dono do salão rolava a tela inteira. A lista de dias é RESULTADO; o
+                        compositor é a AÇÃO, e ação vem antes do resultado que ela produz.
+                        Devolvê-lo para baixo recria a rolagem. */}
 
                     {/* §2 — SETE caixas em vez de um `Select`: a mesma faixa entra em vários
                         dias de uma vez, que é como o barbeiro realmente trabalha. `weekday`
                         continua 0=Domingo..6=Sábado, igual à coluna do banco. */}
-                    <div style={{ marginTop: 10, marginBottom: 6 }}>
+                    <div style={{ marginTop: 4, marginBottom: 6 }}>
                       <Space wrap>
                         {DIAS_DA_SEMANA.map((d) => (
                           <Checkbox
@@ -458,14 +492,86 @@ export function PainelDeAgendamento(props: PainelDeAgendamentoProps) {
                         value={emEdicao.end_time ? dayjs(emEdicao.end_time, 'HH:mm') : null}
                         onChange={(v) => mexerNaFaixa(f.id, { end_time: v ? v.format('HH:mm') : '' })}
                       />
-                      <Button icon={<PlusOutlined />} onClick={() => tentarAdicionarFaixa(f.id)}>
-                        Adicionar faixa
+                      {/* >>> O RÓTULO DIZ O QUE O CLIQUE VAI FAZER <<<
+                          Mudança 2: o clique passou a APAGAR o dia marcado antes de gravar. Um
+                          botão escrito "+ Adicionar faixa" que apaga três dias mente sobre o
+                          próprio efeito — e mente no único lugar onde o usuário ainda podia
+                          desistir. O `+` sai junto com o rótulo: ele afirma acréscimo. */}
+                      <Button
+                        icon={avisoDaSubstituicao ? undefined : <PlusOutlined />}
+                        onClick={() => tentarAdicionarFaixa(f.id)}
+                      >
+                        {avisoDaSubstituicao ? 'Substituir faixa' : '+ Adicionar faixa'}
                       </Button>
                     </Space>
+
+                    {/* ══ O AVISO, ANTES DO CLIQUE E SEM MODAL ══════════════════════════
+                        Decisão do dono do produto, 08/10/2026, registrada como está:
+
+                          "NAO use modal. O aviso aparece ANTES do clique"
+
+                        A razão: o modal chega DEPOIS da decisão, quando o usuário já clicou e só
+                        quer sair dele — e um modal que aparece em toda troca de grade ensina a
+                        confirmar sem ler, que é o contrário de proteger. Aqui a linha aparece no
+                        instante em que a caixa é marcada, ao lado do botão que vai executar.
+
+                        Isto NÃO é o caso da réplica: lá o modal continua, porque lá o alvo são
+                        OUTRAS pessoas e o clique é raro. Ver a Mudança 3. */}
+                    {avisoDaSubstituicao && (
+                      <div style={{ marginTop: 8 }}>
+                        <Alert type="warning" showIcon message={avisoDaSubstituicao} />
+                      </div>
+                    )}
 
                     {erroPorEmp[f.id] && (
                       <div style={{ marginTop: 10 }}>
                         <Alert type="error" showIcon message={erroPorEmp[f.id]} />
+                      </div>
+                    )}
+
+                    {/* ══ A GRADE GRAVADA, DOMINGO A SÁBADO ═════════════════════════════ */}
+                    <div style={{ marginTop: 12 }}>
+                      {DIAS_DA_SEMANA.map((d) => {
+                        const doDia = faixas.filter((x) => x.weekday === d.weekday)
+                        return (
+                          <div key={d.weekday} style={{ display: 'flex', gap: 12, alignItems: 'center', padding: '3px 0' }}>
+                            <span style={{ width: 80, color: '#667085' }}>{d.label}</span>
+                            {doDia.length === 0 ? (
+                              <span style={{ color: '#98A2B3' }}>—</span>
+                            ) : (
+                              <Space wrap>
+                                {doDia.map((x) => (
+                                  <Tag key={x.id} color={x.is_active === false ? 'default' : 'green'}>
+                                    {String(x.start_time).slice(0, 5)}–{String(x.end_time).slice(0, 5)}
+                                    <Popconfirm title="Remover esta faixa?" onConfirm={() => void acoes.onRemoverFaixa(x.id)}>
+                                      <DeleteOutlined style={{ marginLeft: 8 }} aria-label={`Remover faixa ${x.id}`} />
+                                    </Popconfirm>
+                                  </Tag>
+                                ))}
+                              </Space>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+
+                    {/* ══ MUDANÇA 3 — REPLICAR, DE DENTRO DA CÉLULA ════════════════════
+                        A origem é ESTE profissional, e não há seletor: a célula já diz de quem é
+                        a grade. Só aparece com mais de um profissional — replicar para ninguém
+                        não é operação. */}
+                    {funcionarios.length > 1 && (
+                      <div style={{ marginTop: 12 }}>
+                        <Button
+                          size="small"
+                          onClick={() => {
+                            setCopiaOrigem(f.id)
+                            setCopiaDestinos([])
+                            setCopiaConfirmando(false)
+                            setCopiaAberta(true)
+                          }}
+                        >
+                          {`Replicar a grade de ${f.name} para outros profissionais`}
+                        </Button>
                       </div>
                     )}
                   </div>
@@ -667,33 +773,45 @@ export function PainelDeAgendamento(props: PainelDeAgendamentoProps) {
         )}
       </section>
 
-      {/* ══ §3 — O MODAL DE COPIAR A GRADE ══════════════════════════════════════════════ */}
+      {/* ══ MUDANÇA 3 — O MODAL DA RÉPLICA ═════════════════════════════════════════════
+          >>> AQUI O MODAL FICA, E A RAZÃO É O ALVO <<<
+          Decisão do dono do produto, 08/10/2026: a Mudança 2 tirou o modal da faixa e esta
+          mantém o da réplica. Não é inconsistência — na faixa o alvo é a grade de quem está
+          mexendo nela, e o clique é constante; aqui o alvo são OUTRAS pessoas, o clique é raro,
+          e desfazer custa remontar a semana de cada uma à mão. */}
       <Modal
-        title="Aplicar grade a outros profissionais"
+        title={origemNome ? `Replicar a grade de ${origemNome}` : 'Replicar a grade'}
         open={copiaAberta}
         onCancel={fecharCopia}
         destroyOnClose
         footer={null}
       >
         <Space direction="vertical" style={{ width: '100%' }} size={12}>
+          {/* NÃO HÁ SELETOR DE ORIGEM: ela é o profissional da célula que abriu o modal. O
+              `Select` que havia aqui era a pergunta errada — ver o comentário do botão. */}
           <div>
-            <div style={{ marginBottom: 4 }}>Copiar a grade de:</div>
-            <Select
-              style={{ minWidth: 240 }}
-              aria-label="Origem da grade"
-              value={origem ?? undefined}
-              onChange={(v) => { setCopiaOrigem(v); setCopiaDestinos([]); setCopiaConfirmando(false) }}
-              options={funcionarios.map((f) => ({
-                value: f.id,
-                label: `${f.name} (${(faixasPorEmp[f.id] ?? []).length} faixa(s))`,
-              }))}
-            />
+            Replicando a grade de <strong>{origemNome}</strong>
+            {` — ${(origem ? (faixasPorEmp[origem] ?? []) : []).length} faixa(s).`}
           </div>
 
           <div>
             <div style={{ marginBottom: 4 }}>Para:</div>
-            <Space direction="vertical">
-              {funcionarios.filter((f) => f.id !== origem).map((f) => (
+            {/* "Todos" é uma caixa, não um botão: com cinco profissionais marcar um por um é o
+                caso comum, e um botão que "marca todos" não mostra que está marcado. Ela fica
+                indeterminada quando a seleção é parcial, para não afirmar nem um nem outro. */}
+            <Checkbox
+              aria-label="Todos os profissionais"
+              checked={possiveisDestinos.length > 0 && copiaDestinos.length === possiveisDestinos.length}
+              indeterminate={copiaDestinos.length > 0 && copiaDestinos.length < possiveisDestinos.length}
+              onChange={(e) => {
+                setCopiaConfirmando(false)
+                setCopiaDestinos(e.target.checked ? possiveisDestinos.map((f) => f.id) : [])
+              }}
+            >
+              <strong>Todos</strong>
+            </Checkbox>
+            <Space direction="vertical" style={{ marginTop: 6 }}>
+              {possiveisDestinos.map((f) => (
                 <Checkbox
                   key={f.id}
                   aria-label={`Copiar para ${f.name}`}
@@ -718,10 +836,18 @@ export function PainelDeAgendamento(props: PainelDeAgendamentoProps) {
           )}
 
           {copiaConfirmando ? (
-            <Space>
-              <Button danger type="primary" onClick={tentarAplicarGrade}>Confirmar substituição</Button>
-              <Button onClick={fecharCopia}>Cancelar</Button>
-            </Space>
+            <>
+              {/* A confirmação NOMEIA quem recebe e quem perde — nunca "os selecionados". */}
+              <Alert
+                type="warning"
+                showIcon
+                message={confirmacaoDaReplica(origemNome, planos)}
+              />
+              <Space>
+                <Button danger type="primary" onClick={tentarAplicarGrade}>Confirmar substituição</Button>
+                <Button onClick={fecharCopia}>Cancelar</Button>
+              </Space>
+            </>
           ) : (
             <Space>
               <Button type="primary" onClick={tentarAplicarGrade}>Aplicar</Button>

@@ -378,3 +378,51 @@ export function avisoDaCopiaDaGrade(planos: readonly PlanoDeCopia[]): string | n
   return `ATENÇÃO: copiar SUBSTITUI a grade do destino. ${detalhe}. `
     + `Cada destino fica com as ${ganha} faixa(s) da origem.`
 }
+
+/**
+ * `['Ana','Bruno','Carla']` → `'Ana, Bruno e Carla'`.
+ *
+ * >>> FONTE ÚNICA, E ELA MORA AQUI POR UMA RAZÃO DE CLASSE <<<
+ *
+ * Ela nasceu privada em `adicionar-faixa-multiplos-dias.ts`, para os nomes dos dias. Quando a
+ * Mudança 3 de 08/10/2026 passou a precisar da mesma lista para os nomes dos PROFISSIONAIS, a
+ * saída fácil era escrever a segunda cópia — e duas cópias de um formatador divergem na primeira
+ * vez que alguém mexer na vírgula de uma delas (`copia-divergente.md`). Subiu para cá, que é o
+ * módulo que os dois lados já importam.
+ */
+export function listaEmPortugues(nomes: readonly string[]): string {
+  const lista = nomes ?? []
+  if (lista.length <= 1) return lista[0] ?? ''
+  return `${lista.slice(0, -1).join(', ')} e ${lista[lista.length - 1]}`
+}
+
+/**
+ * O texto da CONFIRMAÇÃO da réplica, com os NOMES.
+ *
+ * >>> "OS SELECIONADOS" É O QUE ESTA FUNÇÃO EXISTE PARA NÃO ESCREVER <<<
+ *
+ * Instrução do dono do produto, de 08/10/2026, registrada como está:
+ *
+ *   "Liste os NOMES. Nao escreva 'os selecionados'."
+ *
+ * A razão é operacional: a confirmação é o último ponto em que dá para desistir, e o que o
+ * usuário precisa conferir ali é QUEM vai ser alterado. "Os selecionados" o manda rolar a tela
+ * de volta para reler as caixas — e quem rola para reler acaba clicando sem reler
+ * (`ausente-vs-falso.md`: um texto que não diz quem afirma que não importa quem).
+ *
+ * Os nomes saem em DUAS listas, e a segunda é a que dói: todos recebem, mas só alguns perdem
+ * grade montada. Dizer só "todos recebem" esconde exatamente o dano.
+ */
+export function confirmacaoDaReplica(
+  origemNome: string,
+  planos: readonly PlanoDeCopia[],
+): string {
+  const lista = planos ?? []
+  if (lista.length === 0) return ''
+  const recebem = listaEmPortugues(lista.map((p) => p.destino_nome))
+  const base = `Replicar a grade de ${origemNome} para ${recebem}.`
+  const comPerda = lista.filter((p) => p.faixasAPerder > 0)
+  if (comPerda.length === 0) return `${base} Nenhum deles tem grade hoje.`
+  const perdem = listaEmPortugues(comPerda.map((p) => p.destino_nome))
+  return `${base} A grade atual de ${perdem} ${comPerda.length === 1 ? 'será apagada' : 'serão apagadas'}.`
+}

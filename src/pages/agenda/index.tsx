@@ -338,9 +338,24 @@ function Schedule() {
             } catch (e: any) { msgApi.error(e?.message || 'Não foi possível salvar as configurações. Nada foi salvo — tente de novo.') }
         },
         // §2 — UM insert com array. Atômico no Postgres: as sete linhas entram juntas ou
-        // nenhuma entra. Um laço de inserts deixaria metade gravada se o terceiro falhasse, e
-        // o tudo-ou-nada de `adicionarFaixaEmDias` perderia o sentido exatamente aqui.
-        onSalvarFaixas: async (employee_id: string, faixas: { weekday: number; start_time: string; end_time: string }[]) => {
+        // nenhuma entra. Um laço de inserts deixaria metade gravada se o terceiro falhasse.
+        //
+        // ══ MUDANÇA 2 DE 08/10/2026 — A ORDEM É insert ANTES DE delete, E NÃO É NEGOCIÁVEL ══
+        //
+        // A faixa nova SOBRESCREVE o dia marcado, então gravar são duas operações. A ordem foi
+        // fixada pelo dono do produto e é a mesma escolha compensada de `aplicar-grade.ts`:
+        //
+        //   insert falha  →  nada foi apagado, o dia fica COMO ESTAVA. O delete NÃO roda.
+        //   delete falha  →  o dia fica DUPLICADO: visível na lista, removível pela lixeira.
+        //
+        // Na ordem inversa, um delete bem-sucedido seguido de insert falho deixaria o dia
+        // VAZIO — e vazio é indistinguível de "nunca configurado" na tela, então ninguém
+        // perceberia (`ausente-vs-falso.md`). Duplicado incomoda; vazio engana.
+        onSalvarFaixas: async (
+            employee_id: string,
+            faixas: { weekday: number; start_time: string; end_time: string }[],
+            idsParaRemover: string[],
+        ) => {
             if (!faixas || faixas.length === 0) return
             try {
                 const tid = await getTenantId()
@@ -352,12 +367,33 @@ function Schedule() {
                     // adicionar-faixa-multiplos-dias.ts, não a gravação. Pendência conhecida.
                     .insert(faixas.map(f => ({ tenant_id: tid, employee_id, ...f })))
                     .select('*')
+                // >>> O `throw` AQUI É O QUE IMPEDE O DELETE <<<
+                // Tirá-lo não "deixa passar um erro": faz o delete rodar depois de um insert
+                // que falhou, e aí o dia fica vazio. É a linha que a ordem acima protege.
                 if (error) throw error
-                setBookingGrade(prev => [...prev, ...((data ?? []) as FaixaGravada[])])
+                const gravadas = (data ?? []) as FaixaGravada[]
+
+                // UM delete com `.in`, não um por id: N chamadas apagariam parte dos dias se a
+                // terceira falhasse, e o usuário veria a semana metade nova, metade velha.
+                if (idsParaRemover && idsParaRemover.length > 0) {
+                    const { error: erroDoDelete } = await (supabase as any)
+                        .from('employee_working_hours')
+                        .delete()
+                        .in('id', idsParaRemover)
+                        .eq('tenant_id', tid)
+                    if (erroDoDelete) throw erroDoDelete
+                }
+
+                const removidos = new Set(idsParaRemover ?? [])
+                setBookingGrade(prev => [...prev.filter(f => !removidos.has(f.id)), ...gravadas])
             } catch (e: any) {
                 // Erro sem `message` deixava o toast VAZIO: nada gravava e o usuário fechava o
                 // painel achando que salvou. Falha silenciosa é pior que falha barulhenta.
-                msgApi.error(e?.message || 'Não foi possível gravar a faixa. Nada foi salvo — tente de novo.')
+                //
+                // E o texto NÃO diz "nada foi salvo", porque pode ser mentira: se o insert
+                // passou e o delete falhou, as faixas novas ESTÃO no banco. Dizer que nada foi
+                // salvo mandaria o usuário tentar de novo e duplicar outra vez.
+                msgApi.error(e?.message || 'Não foi possível gravar a faixa. Confira a grade do profissional antes de tentar de novo.')
             }
         },
         onRemoverFaixa: async (id: string) => {
